@@ -352,6 +352,104 @@ ipcMain.handle('has-users', async () => {
   return users.length > 0;
 });
 
+// ── Data Migration ──
+
+function countDirContents(dirPath) {
+  let files = 0, folders = 0, totalSize = 0;
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        folders++;
+        const sub = countDirContents(full);
+        files += sub.files;
+        folders += sub.folders;
+        totalSize += sub.totalSize;
+      } else {
+        files++;
+        try { totalSize += fs.statSync(full).size; } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return { files, folders, totalSize };
+}
+
+ipcMain.handle('scan-data-locations', async () => {
+  const candidates = [];
+  const drives = ['Z:', 'K:', 'Y:', 'X:', 'W:', 'D:', 'E:', 'C:'];
+  const subPaths = ['\\EFARMOGI\\dedomena_ergon', '\\efarmogi\\dedomena_ergon', '\\dedomena_ergon'];
+
+  for (const drive of drives) {
+    for (const sub of subPaths) {
+      const candidate = drive + sub;
+      try {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+          const stats = countDirContents(candidate);
+          candidates.push({ path: candidate, ...stats });
+        }
+      } catch (_) {}
+    }
+  }
+
+  const localPath = path.join(path.resolve(__dirname, '..'), 'dedomena_ergon');
+  if (fs.existsSync(localPath) && !candidates.some(c => c.path === localPath)) {
+    const stats = countDirContents(localPath);
+    candidates.push({ path: localPath, ...stats });
+  }
+
+  return candidates;
+});
+
+ipcMain.handle('migrate-data', async (_event, { sourcePath, targetPath }) => {
+  if (!fs.existsSync(sourcePath)) return { success: false, error: 'Ο φάκελος πηγής δεν βρέθηκε' };
+
+  const sourceStats = countDirContents(sourcePath);
+
+  const backupName = `migration_backup_${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const backupPath = path.join(path.dirname(targetPath), backupName);
+
+  try {
+    if (fs.existsSync(targetPath)) {
+      await fse.copy(targetPath, backupPath);
+    }
+  } catch (err) {
+    return { success: false, error: `Αποτυχία backup: ${err.message}`, backupPath: null };
+  }
+
+  try {
+    await fse.copy(sourcePath, targetPath, { overwrite: false, errorOnExist: false });
+  } catch (err) {
+    return { success: false, error: `Αποτυχία αντιγραφής: ${err.message}`, backupPath };
+  }
+
+  const targetStats = countDirContents(targetPath);
+
+  return {
+    success: true,
+    backupPath,
+    sourceStats,
+    targetStats,
+    verified: targetStats.files >= sourceStats.files
+  };
+});
+
+ipcMain.handle('rollback-migration', async (_event, { backupPath, targetPath }) => {
+  if (!backupPath || !fs.existsSync(backupPath)) {
+    return { success: false, error: 'Δεν βρέθηκε backup για αναίρεση' };
+  }
+
+  try {
+    if (fs.existsSync(targetPath)) {
+      await fse.remove(targetPath);
+    }
+    await fse.move(backupPath, targetPath);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: `Αποτυχία αναίρεσης: ${err.message}` };
+  }
+});
+
 app.whenReady().then(() => {
   createWindow();
 });
