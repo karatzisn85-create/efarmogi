@@ -20,6 +20,7 @@ import CreditApprovalsPanel from './CreditApprovalsPanel';
 import DocumentTemplatesManager from './DocumentTemplatesManager';
 import BackupManager from './BackupManager';
 import AuditLogViewer from './AuditLogViewer';
+import UserManagement from './UserManagement';
 import { containsSearchTerm } from '../utils/searchUtils';
 import { getCharacterization } from '../data/formOptions';
 
@@ -271,7 +272,7 @@ const UserInfo = styled.div`
 `;
 
 const UserRole = styled.span`
-  background: ${props => props.role === 'ADMIN' ? '#2196F3' : '#4CAF50'};
+  background: ${props => props.role === 'SUPERADMIN' ? '#7b1fa2' : props.role === 'ADMIN' ? '#2196F3' : '#4CAF50'};
   color: white;
   padding: 0.5rem 1rem;
   border-radius: 20px;
@@ -1540,7 +1541,8 @@ const ContentWrapper = styled.div`
   }
 `;
 
-function Dashboard({ userRole, appVersion, appConfig = {}, onLogout }) {
+function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
+  const userRole = currentUser?.role || 'USER';
   const [projects, setProjects] = useState([]);
   const [filteredProjects, setFilteredProjects] = useState([]);
   const [entaxeis, setEntaxeis] = useState([]);
@@ -1611,6 +1613,7 @@ function Dashboard({ userRole, appVersion, appConfig = {}, onLogout }) {
   const [isInvestExportOpen, setIsInvestExportOpen] = useState(false);
   const [isBackupManagerOpen, setIsBackupManagerOpen] = useState(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [isEntaxisOpen, setIsEntaxisOpen] = useState(false);
   const [entaxisProjectFilter, setEntaxisProjectFilter] = useState(null);
   const [isProsklisisOpen, setIsProsklisisOpen] = useState(false);
@@ -3934,8 +3937,11 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       <Header>
         <UserInfo>
           <UserRole role={userRole}>
-            {userRole === 'ADMIN' ? 'ΔΙΑΧΕΙΡΙΣΤΗΣ' : 'ΧΡΉΣΤΗΣ'}
+            {currentUser?.fullName || currentUser?.username || userRole}
           </UserRole>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px' }}>
+            {userRole === 'SUPERADMIN' ? 'Υπερδιαχειριστής' : userRole === 'ADMIN' ? 'Διαχειριστής' : 'Χρήστης'}
+          </span>
           <LogoutButton onClick={onLogout}>
             Αποσύνδεση
           </LogoutButton>
@@ -3970,7 +3976,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <EmptyStateIcon>📁</EmptyStateIcon>
                 <EmptyStateText>Δεν υπάρχουν έργα</EmptyStateText>
                 <EmptyStateSubtext>
-                  {userRole === 'ADMIN' 
+                  {userRole !== 'USER' 
                     ? 'Κάντε κλικ στο κουμπί "ΕΙΣΑΓΩΓΗ ΝΕΟΥ ΥΠΟΕΡΓΟΥ" για να προσθέσετε το πρώτο έργο'
                     : 'Δεν έχουν εισαχθεί έργα ακόμα'
                   }
@@ -4105,10 +4111,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
       {/* Sidebar με κουμπιά */}
       <AdminSidebar>
-        {userRole === 'ADMIN' && (
+        {userRole !== 'USER' && (
           <>
             <AdminButton primary onClick={() => {
-              // Αποθήκευση scroll position
               if (contentWrapperRef.current) {
                 savedScrollPosition.current = contentWrapperRef.current.scrollTop;
               }
@@ -4117,8 +4122,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               <AdminButtonIcon>➕</AdminButtonIcon>
               Νέο Υποέργο
             </AdminButton>
-            
-
           </>
         )}
         
@@ -4175,14 +4178,14 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           Υποδείγματα<br/>Εγγράφων
         </AdminButton>
         
-        {userRole === 'ADMIN' && (
+        {userRole !== 'USER' && (
         <NotesButton onClick={handleOpenNotes}>
           <NotesButtonIcon>📝</NotesButtonIcon>
           ΣΗΜΕΙΩΣΕΙΣ
         </NotesButton>
         )}
         
-        {userRole === 'ADMIN' && (
+        {userRole !== 'USER' && (
           <>
             <RefreshButton onClick={async () => {
               if (window.confirm('🔄 Θέλετε να κάνετε πλήρη ανανέωση της εφαρμογής; Αυτό θα φορτώσει όλα τα δεδομένα εκ νέου και θα καθαρίσει τυχόν προβλήματα.')) {
@@ -4249,6 +4252,18 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 ΙΣΤΟΡΙΚΟ<br/>ΑΛΛΑΓΩΝ
               </BackupText>
             </BackupButton>
+
+            {userRole === 'SUPERADMIN' && (
+              <BackupButton 
+                onClick={() => setIsUserManagementOpen(true)}
+                style={{ background: 'linear-gradient(135deg, #7b1fa2 0%, #6a1b9a 100%)', border: '2px solid rgba(255, 255, 255, 0.35)' }}
+              >
+                <BackupIcon>👥</BackupIcon>
+                <BackupText>
+                  ΔΙΑΧΕΙΡΙΣΗ<br/>ΧΡΗΣΤΩΝ
+                </BackupText>
+              </BackupButton>
+            )}
             
           </>
         )}
@@ -4933,6 +4948,13 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         <AuditLogViewer
           isOpen={isAuditLogOpen}
           onClose={() => setIsAuditLogOpen(false)}
+        />
+      )}
+
+      {isUserManagementOpen && (
+        <UserManagement
+          onClose={() => setIsUserManagementOpen(false)}
+          currentUser={currentUser}
         />
       )}
 

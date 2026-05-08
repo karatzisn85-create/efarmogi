@@ -243,6 +243,115 @@ ipcMain.handle('select-data-folder', async () => {
   return result.filePaths[0];
 });
 
+// ── User Management ──
+
+const SALT = 'ErgoHub2026!@#SecureSalt';
+
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(SALT + password).digest('hex');
+}
+
+function getUsersPath() {
+  return path.join(dataDir, 'users.json');
+}
+
+function loadUsers() {
+  const usersPath = getUsersPath();
+  try {
+    if (fs.existsSync(usersPath)) {
+      return JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+    }
+  } catch (e) {
+    console.error('Failed to load users.json:', e.message);
+  }
+  return [];
+}
+
+function saveUsers(users) {
+  safeWriteJSON(getUsersPath(), users);
+}
+
+ipcMain.handle('authenticate', async (_event, { username, password }) => {
+  const users = loadUsers();
+  const hashed = hashPassword(password);
+  const user = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.passwordHash === hashed && u.active !== false);
+  if (!user) return { success: false, error: 'Λάθος όνομα χρήστη ή κωδικός' };
+  return { success: true, user: { username: user.username, role: user.role, fullName: user.fullName } };
+});
+
+ipcMain.handle('get-users', async () => {
+  const users = loadUsers();
+  return users.map(u => ({ username: u.username, role: u.role, fullName: u.fullName, active: u.active !== false, createdAt: u.createdAt }));
+});
+
+ipcMain.handle('create-user', async (_event, { username, password, role, fullName }) => {
+  const users = loadUsers();
+  if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
+    return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
+  }
+  const validRoles = ['SUPERADMIN', 'ADMIN', 'USER'];
+  if (!validRoles.includes(role)) return { success: false, error: 'Μη έγκυρος ρόλος' };
+
+  users.push({
+    username: username.trim(),
+    passwordHash: hashPassword(password),
+    role,
+    fullName: fullName || username,
+    active: true,
+    createdAt: new Date().toISOString()
+  });
+  saveUsers(users);
+  return { success: true };
+});
+
+ipcMain.handle('update-user', async (_event, { username, updates }) => {
+  const users = loadUsers();
+  const idx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+  if (idx === -1) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
+
+  if (updates.fullName !== undefined) users[idx].fullName = updates.fullName;
+  if (updates.role !== undefined) users[idx].role = updates.role;
+  if (updates.active !== undefined) users[idx].active = updates.active;
+  if (updates.password) users[idx].passwordHash = hashPassword(updates.password);
+
+  saveUsers(users);
+  return { success: true };
+});
+
+ipcMain.handle('delete-user', async (_event, { username }) => {
+  let users = loadUsers();
+  const target = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+  if (!target) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
+
+  const superadmins = users.filter(u => u.role === 'SUPERADMIN' && u.active !== false);
+  if (target.role === 'SUPERADMIN' && superadmins.length <= 1) {
+    return { success: false, error: 'Δεν μπορεί να διαγραφεί ο τελευταίος SUPERADMIN' };
+  }
+
+  users = users.filter(u => u.username.toLowerCase() !== username.toLowerCase());
+  saveUsers(users);
+  return { success: true };
+});
+
+ipcMain.handle('change-password', async (_event, { username, oldPassword, newPassword }) => {
+  const users = loadUsers();
+  const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+  if (!user) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
+
+  if (user.passwordHash !== hashPassword(oldPassword)) {
+    return { success: false, error: 'Ο τρέχων κωδικός είναι λάθος' };
+  }
+
+  user.passwordHash = hashPassword(newPassword);
+  saveUsers(users);
+  return { success: true };
+});
+
+ipcMain.handle('has-users', async () => {
+  const users = loadUsers();
+  return users.length > 0;
+});
+
 app.whenReady().then(() => {
   createWindow();
 });

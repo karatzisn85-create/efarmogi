@@ -94,8 +94,8 @@ function App() {
               path="/" 
               element={
                 currentUser ? 
-                  <Dashboard userRole={currentUser} appVersion={appVersion} appConfig={appConfig} onLogout={() => setCurrentUser(null)} /> :
-                  <UserSelection onUserSelect={setCurrentUser} appConfig={appConfig} />
+                  <Dashboard currentUser={currentUser} appVersion={appVersion} appConfig={appConfig} onLogout={() => setCurrentUser(null)} /> :
+                  <UserSelection onUserSelect={setCurrentUser} appConfig={{...appConfig, appVersion}} />
               } 
             />
           </Routes>

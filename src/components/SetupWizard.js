@@ -174,6 +174,10 @@ const SetupWizard = ({ onComplete }) => {
   const [detectedPath, setDetectedPath] = useState('');
   const [customPath, setCustomPath] = useState('');
   const [useCustom, setUseCustom] = useState(false);
+  const [adminUser, setAdminUser] = useState('admin');
+  const [adminPass, setAdminPass] = useState('');
+  const [adminPassConfirm, setAdminPassConfirm] = useState('');
+  const [adminFullName, setAdminFullName] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -205,13 +209,23 @@ const SetupWizard = ({ onComplete }) => {
       department: department.trim(),
       setupCompleted: true
     });
+
+    await ipcRenderer.invoke('create-user', {
+      username: adminUser.trim(),
+      password: adminPass,
+      role: 'SUPERADMIN',
+      fullName: adminFullName.trim() || adminUser.trim()
+    });
+
     setSaving(false);
     onComplete();
   };
 
   const activePath = useCustom ? customPath : detectedPath;
   const canProceedStep1 = orgName.trim().length > 0;
-  const canFinish = !!activePath;
+  const canProceedStep2 = !!activePath;
+  const passwordsMatch = adminPass === adminPassConfirm;
+  const canFinish = adminUser.trim().length > 0 && adminPass.length >= 4 && passwordsMatch;
 
   return (
     <WizardOverlay>
@@ -224,6 +238,7 @@ const SetupWizard = ({ onComplete }) => {
         <StepIndicator>
           <StepDot active={step === 1} done={step > 1} />
           <StepDot active={step === 2} done={step > 2} />
+          <StepDot active={step === 3} done={step > 3} />
         </StepIndicator>
 
         {step === 1 && (
@@ -314,6 +329,68 @@ const SetupWizard = ({ onComplete }) => {
                   Επαναφορά
                 </SecondaryButton>
               )}
+              <PrimaryButton onClick={() => setStep(3)} disabled={!canProceedStep2}>
+                Επόμενο
+              </PrimaryButton>
+            </ButtonRow>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <StepTitle>Λογαριασμός Υπερδιαχειριστή</StepTitle>
+            
+            <FieldGroup>
+              <Label>Όνομα χρήστη (username)</Label>
+              <Input 
+                value={adminUser}
+                onChange={e => setAdminUser(e.target.value)}
+                placeholder="π.χ. admin"
+              />
+            </FieldGroup>
+
+            <FieldGroup>
+              <Label>Ονοματεπώνυμο</Label>
+              <Input 
+                value={adminFullName}
+                onChange={e => setAdminFullName(e.target.value)}
+                placeholder="π.χ. Νίκος Καρατζής"
+              />
+            </FieldGroup>
+
+            <FieldGroup>
+              <Label>Κωδικός πρόσβασης (τουλάχιστον 4 χαρακτήρες)</Label>
+              <Input 
+                type="password"
+                value={adminPass}
+                onChange={e => setAdminPass(e.target.value)}
+                placeholder="Εισάγετε κωδικό"
+              />
+            </FieldGroup>
+
+            <FieldGroup>
+              <Label>Επιβεβαίωση κωδικού</Label>
+              <Input 
+                type="password"
+                value={adminPassConfirm}
+                onChange={e => setAdminPassConfirm(e.target.value)}
+                placeholder="Επαναλάβετε τον κωδικό"
+                style={adminPassConfirm && !passwordsMatch ? { borderColor: '#e53935' } : {}}
+              />
+              {adminPassConfirm && !passwordsMatch && (
+                <InfoText style={{ color: '#e53935' }}>Οι κωδικοί δεν ταιριάζουν</InfoText>
+              )}
+            </FieldGroup>
+
+            <InfoText>
+              Αυτός ο λογαριασμός θα έχει πλήρη πρόσβαση στην εφαρμογή 
+              και θα μπορεί να δημιουργεί νέους χρήστες.
+            </InfoText>
+
+            <ButtonRow>
+              <SecondaryButton onClick={() => setStep(2)}>
+                Πίσω
+              </SecondaryButton>
               <PrimaryButton onClick={handleFinish} disabled={!canFinish || saving}>
                 {saving ? 'Αποθήκευση...' : 'Ολοκλήρωση'}
               </PrimaryButton>

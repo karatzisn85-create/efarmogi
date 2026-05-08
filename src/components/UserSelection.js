@@ -1,5 +1,22 @@
 import React, { useState } from 'react';
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
+
+const ipcRenderer = window.electronAPI;
+
+const drift = keyframes`
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(50px, 50px); }
+`;
+
+const fadeIn = keyframes`
+  from { opacity: 0; transform: scale(0.95) translateY(20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+`;
+
+const fadeInDown = keyframes`
+  from { opacity: 0; transform: translateY(-30px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
 
 const Container = styled.div`
   min-height: 100vh;
@@ -7,7 +24,7 @@ const Container = styled.div`
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
+  background: linear-gradient(135deg, #1a2a3a 0%, #2c3e50 50%, #34495e 100%);
   position: relative;
   overflow: hidden;
   
@@ -18,389 +35,221 @@ const Container = styled.div`
     left: -50%;
     width: 200%;
     height: 200%;
-    background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
     background-size: 50px 50px;
-    animation: drift 20s linear infinite;
+    animation: ${drift} 20s linear infinite;
     opacity: 0.3;
-  }
-  
-  @keyframes drift {
-    0% { transform: translate(0, 0); }
-    100% { transform: translate(50px, 50px); }
   }
 `;
 
 const HeaderSection = styled.div`
   text-align: center;
-  margin-bottom: 3rem;
+  margin-bottom: 2.5rem;
   z-index: 1;
-  animation: fadeInDown 0.8s ease-out;
-  
-  @keyframes fadeInDown {
-    from {
-      opacity: 0;
-      transform: translateY(-30px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
+  animation: ${fadeInDown} 0.8s ease-out;
 `;
 
-const MainTitle = styled.h1`
-  font-size: 3.5rem;
-  font-weight: 700;
-  color: #ffffff;
-  margin: 0;
-  text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
-  letter-spacing: 2px;
-  background: linear-gradient(135deg, #ffffff 0%, #e3f2fd 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 1rem;
-  position: relative;
-  
-  &::after {
-    content: '';
-    position: absolute;
-    bottom: -10px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100px;
-    height: 4px;
-    background: linear-gradient(90deg, transparent, #ffd700, transparent);
-    border-radius: 2px;
-  }
+const AppBrand = styled.h1`
+  font-size: 2.8rem;
+  font-weight: 900;
+  color: #fff;
+  margin: 0 0 4px 0;
+  letter-spacing: 3px;
+  text-shadow: 2px 2px 8px rgba(0,0,0,0.3);
 `;
 
-const SubTitle = styled.h2`
-  font-size: 2rem;
+const AppTagline = styled.p`
+  font-size: 1rem;
+  color: rgba(255,255,255,0.6);
+  margin: 0 0 16px 0;
+  font-style: italic;
+`;
+
+const OrgName = styled.h2`
+  font-size: 1.8rem;
   font-weight: 600;
   color: #e3f2fd;
-  margin: 1rem 0 0.5rem 0;
-  text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.2);
-  letter-spacing: 1px;
+  margin: 0 0 4px 0;
+  text-shadow: 1px 1px 4px rgba(0,0,0,0.2);
 `;
 
-const SubSubTitle = styled.h3`
-  font-size: 1.3rem;
+const DeptName = styled.h3`
+  font-size: 1.2rem;
   font-weight: 400;
   color: #bbdefb;
-  margin: 0.5rem 0 0 0;
-  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.2);
-  letter-spacing: 0.5px;
+  margin: 0;
   font-style: italic;
 `;
 
 const Card = styled.div`
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: rgba(255, 255, 255, 0.98);
   backdrop-filter: blur(20px);
-  border-radius: 24px;
-  padding: 3.5rem;
-  box-shadow: 0 20px 60px rgba(26, 35, 126, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  border-radius: 20px;
+  padding: 3rem;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
   text-align: center;
-  min-width: 420px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  animation: fadeIn 0.8s ease-out;
+  width: 380px;
+  animation: ${fadeIn} 0.8s ease-out;
   position: relative;
-  overflow: hidden;
-  
-  &::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle, rgba(26, 35, 126, 0.05) 1px, transparent 1px);
-    background-size: 30px 30px;
-    animation: drift 15s linear infinite;
-    opacity: 0.5;
-    z-index: 0;
-  }
-  
-  & > * {
-    position: relative;
-    z-index: 1;
-  }
-  
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: scale(0.95) translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1) translateY(0);
-    }
-  }
-  
-  @keyframes drift {
-    0% { transform: translate(0, 0); }
-    100% { transform: translate(30px, 30px); }
-  }
+  z-index: 1;
 `;
 
-const Title = styled.h1`
-  color: #1a237e;
-  margin-bottom: 2.5rem;
-  font-size: 2.4rem;
+const CardTitle = styled.h2`
+  color: #1a2a3a;
+  margin: 0 0 2rem 0;
+  font-size: 1.6rem;
   font-weight: 700;
-  letter-spacing: 2px;
-  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  text-transform: uppercase;
-  background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  position: relative;
-  padding-bottom: 1rem;
-  
-  &::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 80px;
-    height: 3px;
-    background: linear-gradient(90deg, transparent, #ffd700, transparent);
-    border-radius: 2px;
-  }
+  letter-spacing: 1px;
 `;
 
-const ButtonContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 2rem;
+const FormGroup = styled.div`
+  margin-bottom: 1.2rem;
+  text-align: left;
 `;
 
-const UserButton = styled.button`
-  background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  padding: 1.2rem 2.5rem;
-  border-radius: 14px;
-  font-size: 1.15rem;
-  font-weight: 700;
-  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 6px 20px rgba(26, 35, 126, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
-  position: relative;
-  overflow: hidden;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-    transition: left 0.5s;
-  }
-
-  &:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 30px rgba(26, 35, 126, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
-    background: linear-gradient(135deg, #283593 0%, #3949ab 100%);
-    
-    &::before {
-      left: 100%;
-    }
-  }
-
-  &:active {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 15px rgba(26, 35, 126, 0.4);
-  }
+const Label = styled.label`
+  display: block;
+  color: #555;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 4px;
 `;
 
-const AdminButton = styled.button`
-  background: linear-gradient(135deg, #3949ab 0%, #5c6bc0 100%);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  padding: 1.2rem 2.5rem;
-  border-radius: 14px;
-  font-size: 1.15rem;
-  font-weight: 700;
-  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 6px 20px rgba(57, 73, 171, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
-  position: relative;
-  overflow: hidden;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-    transition: left 0.5s;
-  }
-
-  &:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 30px rgba(57, 73, 171, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
-    background: linear-gradient(135deg, #5c6bc0 0%, #7986cb 100%);
-    
-    &::before {
-      left: 100%;
-    }
-  }
-
-  &:active {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 15px rgba(57, 73, 171, 0.4);
-  }
-`;
-
-const PasswordContainer = styled.div`
-  margin-top: 1rem;
-  display: ${props => props.show ? 'block' : 'none'};
-  animation: ${props => props.show ? 'fadeIn 0.3s ease-out' : 'none'};
-`;
-
-const PasswordInput = styled.input`
+const Input = styled.input`
   width: 100%;
-  padding: 0.8rem;
+  padding: 12px 14px;
   border: 2px solid #e0e0e0;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 1rem;
-  margin-bottom: 1rem;
-  outline: none;
-  transition: border-color 0.3s ease;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
 
-  &:focus {
-    border-color: #2196F3;
-  }
+  &:focus { border-color: #2c3e50; outline: none; }
+  &::placeholder { color: #bbb; }
 `;
 
 const LoginButton = styled.button`
-  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
-  color: white;
+  width: 100%;
+  padding: 14px;
+  border-radius: 10px;
   border: none;
-  padding: 0.8rem 1.5rem;
-  border-radius: 8px;
-  font-size: 1rem;
+  background: linear-gradient(135deg, #1a2a3a, #2c3e50);
+  color: white;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 1px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  margin-right: 0.5rem;
+  transition: all 0.2s;
+  margin-top: 8px;
 
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 15px rgba(255, 152, 0, 0.3);
-  }
+  &:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
+  &:active { transform: translateY(0); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 `;
 
-const CancelButton = styled.button`
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 0.8rem 1.5rem;
+const ErrorBox = styled.div`
+  background: #ffeaea;
+  color: #c62828;
+  padding: 10px 14px;
   border-radius: 8px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-
-  &:hover {
-    background: #5a6268;
-    transform: translateY(-1px);
-  }
-`;
-
-const ErrorMessage = styled.div`
-  color: #dc3545;
-  margin-top: 0.5rem;
   font-size: 0.9rem;
+  margin-top: 12px;
+  border: 1px solid #ffcdd2;
+`;
+
+const VersionText = styled.div`
+  color: rgba(255,255,255,0.3);
+  font-size: 11px;
+  margin-top: 24px;
+  z-index: 1;
 `;
 
 function UserSelection({ onUserSelect, appConfig = {} }) {
-  const [showPasswordInput, setShowPasswordInput] = useState(false);
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleUserClick = () => {
-    onUserSelect('USER');
-  };
-
-  const handleAdminClick = () => {
-    setShowPasswordInput(true);
-    setError('');
-  };
-
-  const handlePasswordSubmit = () => {
-    if (password === '123') {
-      onUserSelect('ADMIN');
-    } else {
-      setError('Λάθος κωδικός πρόσβασης');
-      setPassword('');
+  const handleLogin = async () => {
+    if (!username.trim() || !password) {
+      setError('Συμπληρώστε όνομα χρήστη και κωδικό');
+      return;
     }
-  };
 
-  const handleCancel = () => {
-    setShowPasswordInput(false);
-    setPassword('');
+    setLoading(true);
     setError('');
+
+    try {
+      const result = await ipcRenderer.invoke('authenticate', {
+        username: username.trim(),
+        password
+      });
+
+      if (result.success) {
+        onUserSelect(result.user);
+      } else {
+        setError(result.error || 'Αποτυχία σύνδεσης');
+        setPassword('');
+      }
+    } catch (err) {
+      setError('Σφάλμα επικοινωνίας');
+    }
+
+    setLoading(false);
   };
 
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handlePasswordSubmit();
-    }
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') handleLogin();
   };
 
   return (
     <Container>
       <HeaderSection>
-        <MainTitle>{appConfig.organizationFullName || 'ΟΡΓΑΝΙΣΜΟΣ'}</MainTitle>
-        <SubTitle>{appConfig.department || 'ΤΕΧΝΙΚΗ ΥΠΗΡΕΣΙΑ'}</SubTitle>
-        <SubSubTitle>ERGOHUB - Διαχείριση Έργων & Προμηθειών</SubSubTitle>
+        <AppBrand>ERGOHUB</AppBrand>
+        <AppTagline>Πληροφοριακό Σύστημα Διαχείρισης Έργων & Προμηθειών</AppTagline>
+        {appConfig.organizationFullName && (
+          <OrgName>{appConfig.organizationFullName}</OrgName>
+        )}
+        {appConfig.department && (
+          <DeptName>{appConfig.department}</DeptName>
+        )}
       </HeaderSection>
-      <Card>
-        <Title>Επιλογή Ρόλου Χρήστη</Title>
-        
-        <ButtonContainer>
-          <UserButton onClick={handleUserClick}>
-            ΧΡΗΣΤΗΣ
-          </UserButton>
-          
-          <AdminButton onClick={handleAdminClick}>
-            ΔΙΑΧΕΙΡΙΣΤΗΣ
-          </AdminButton>
-        </ButtonContainer>
 
-        <PasswordContainer show={showPasswordInput}>
-          <PasswordInput
-            type="password"
-            placeholder="Εισάγετε κωδικό διαχειριστή"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyPress={handleKeyPress}
+      <Card>
+        <CardTitle>Σύνδεση</CardTitle>
+
+        <FormGroup>
+          <Label>Όνομα χρήστη</Label>
+          <Input
+            type="text"
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="π.χ. admin"
             autoFocus
           />
-          <div>
-            <LoginButton onClick={handlePasswordSubmit}>
-              Είσοδος
-            </LoginButton>
-            <CancelButton onClick={handleCancel}>
-              Ακύρωση
-            </CancelButton>
-          </div>
-          {error && <ErrorMessage>{error}</ErrorMessage>}
-        </PasswordContainer>
+        </FormGroup>
+
+        <FormGroup>
+          <Label>Κωδικός</Label>
+          <Input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Εισάγετε κωδικό"
+          />
+        </FormGroup>
+
+        <LoginButton onClick={handleLogin} disabled={loading}>
+          {loading ? 'Σύνδεση...' : 'Είσοδος'}
+        </LoginButton>
+
+        {error && <ErrorBox>{error}</ErrorBox>}
       </Card>
+
+      <VersionText>ERGOHUB v{appConfig.appVersion || '1.0.0'}</VersionText>
     </Container>
   );
 }
