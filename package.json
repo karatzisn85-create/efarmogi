@@ -73,7 +73,7 @@
   },
   "build": {
     "appId": "com.efarmogi.app",
-    "productName": "ΕΦΑΡΜΟΓΗ ΔΙΑΧΕΙΡΙΣΗΣ ΕΡΓΩΝ",
+    "productName": "ERGOHUB",
     "directories": {
       "output": "Z:\\ΚΑΡΑΤΖΗΣ\\ΕΦΑΡΜΟΓΗ ΕΡΓΩΝ - ΕΚΤΕΛΕΣΙΜΟ ΑΡΧΕΙΟ",
       "buildResources": "public"

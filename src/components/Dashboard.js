@@ -1540,7 +1540,7 @@ const ContentWrapper = styled.div`
   }
 `;
 
-function Dashboard({ userRole, appVersion, onLogout }) {
+function Dashboard({ userRole, appVersion, appConfig = {}, onLogout }) {
   const [projects, setProjects] = useState([]);
   const [filteredProjects, setFilteredProjects] = useState([]);
   const [entaxeis, setEntaxeis] = useState([]);
@@ -3941,8 +3941,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           </LogoutButton>
         </UserInfo>
         <CenteredTitleContainer>
-          <MainTitle>ΤΕΧΝΙΚΗ ΥΠΗΡΕΣΙΑ</MainTitle>
-          <SubTitle>ΔΙΑΧΕΙΡΙΣΗ ΕΡΓΩΝ - ΥΠΟΕΡΓΩΝ</SubTitle>
+          <MainTitle>{appConfig.organizationFullName || 'ΟΡΓΑΝΙΣΜΟΣ'}</MainTitle>
+          <SubTitle>ERGOHUB - Διαχείριση Έργων & Προμηθειών</SubTitle>
         </CenteredTitleContainer>
         <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', textAlign: 'right', minWidth: '80px' }}>
           {appVersion ? `v${appVersion}` : ''}

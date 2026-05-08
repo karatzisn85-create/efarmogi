@@ -25,9 +25,10 @@ function loadConfig() {
   return {};
 }
 
-function saveConfig(config) {
-  cachedConfig = config;
-  safeWriteJSON(configPath, config);
+function saveConfig(newFields) {
+  const existing = loadConfig();
+  cachedConfig = { ...existing, ...newFields };
+  safeWriteJSON(configPath, cachedConfig);
 }
 
 function resolveDataDir(appInstance) {

@@ -326,7 +326,7 @@ const ErrorMessage = styled.div`
   font-size: 0.9rem;
 `;
 
-function UserSelection({ onUserSelect }) {
+function UserSelection({ onUserSelect, appConfig = {} }) {
   const [showPasswordInput, setShowPasswordInput] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -364,9 +364,9 @@ function UserSelection({ onUserSelect }) {
   return (
     <Container>
       <HeaderSection>
-        <MainTitle>ΔΗΜΟΣ ΑΡΧΑΝΩΝ ΑΣΤΕΡΟΥΣΙΩΝ</MainTitle>
-        <SubTitle>ΤΕΧΝΙΚΗ ΥΠΗΡΕΣΙΑ</SubTitle>
-        <SubSubTitle>ΕΦΑΡΜΟΓΗ ΔΙΑΧΕΙΡΙΣΗΣ & ΠΑΡΑΚΟΛΟΥΘΗΣΗΣ ΕΡΓΩΝ</SubSubTitle>
+        <MainTitle>{appConfig.organizationFullName || 'ΟΡΓΑΝΙΣΜΟΣ'}</MainTitle>
+        <SubTitle>{appConfig.department || 'ΤΕΧΝΙΚΗ ΥΠΗΡΕΣΙΑ'}</SubTitle>
+        <SubSubTitle>ERGOHUB - Διαχείριση Έργων & Προμηθειών</SubSubTitle>
       </HeaderSection>
       <Card>
         <Title>Επιλογή Ρόλου Χρήστη</Title>

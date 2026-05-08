@@ -142,8 +142,8 @@ const SplashScreen = ({
         <AppIcon>
           <AppIconText>📊</AppIconText>
         </AppIcon>
-        <AppTitle>ΕΦΑΡΜΟΓΗ ΔΙΑΧΕΙΡΙΣΗΣ ΕΡΓΩΝ</AppTitle>
-        <AppSubtitle>Σύστημα Διαχείρισης Έργων & Υποέργων</AppSubtitle>
+        <AppTitle>ERGOHUB</AppTitle>
+        <AppSubtitle>Πληροφοριακό Σύστημα Διαχείρισης Έργων & Προμηθειών</AppSubtitle>
       </LogoContainer>
       
       <LoadingContainer>
