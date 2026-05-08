@@ -6,6 +6,8 @@ import Dashboard from './components/Dashboard';
 import SplashScreen from './components/SplashScreen';
 import './App.css';
 
+const { ipcRenderer } = window.require('electron');
+
 const AppContainer = styled.div`
   min-height: 100vh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -17,32 +19,35 @@ function App() {
   const [isAppLoading, setIsAppLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStatus, setLoadingStatus] = useState("Εκκίνηση εφαρμογής...");
+  const [appVersion, setAppVersion] = useState('');
 
   useEffect(() => {
-    // Προσομοίωση φόρτωσης εφαρμογής
-    const loadingSteps = [
-      { progress: 20, status: "Φόρτωση συστήματος..." },
-      { progress: 40, status: "Επικοινωνία με βάση δεδομένων..." },
-      { progress: 60, status: "Φόρτωση προφίλ χρήστη..." },
-      { progress: 80, status: "Ετοιμασία περιβάλλοντος..." },
-      { progress: 100, status: "Εφαρμογή έτοιμη!" }
-    ];
+    let cancelled = false;
 
-    let currentStep = 0;
-    const interval = setInterval(() => {
-      if (currentStep < loadingSteps.length) {
-        setLoadingProgress(loadingSteps[currentStep].progress);
-        setLoadingStatus(loadingSteps[currentStep].status);
-        currentStep++;
-      } else {
-        clearInterval(interval);
-        setTimeout(() => {
+    async function initApp() {
+      try {
+        setLoadingProgress(30);
+        setLoadingStatus("Φόρτωση έκδοσης...");
+        const version = await ipcRenderer.invoke('getAppVersion');
+        if (cancelled) return;
+        setAppVersion(version || '1.0.0');
+
+        setLoadingProgress(70);
+        setLoadingStatus("Ετοιμασία περιβάλλοντος...");
+
+        setLoadingProgress(100);
+        setLoadingStatus("Εφαρμογή έτοιμη!");
+        setIsAppLoading(false);
+      } catch (err) {
+        console.error('Init error:', err);
+        if (!cancelled) {
           setIsAppLoading(false);
-        }, 500);
+        }
       }
-    }, 600); // 600ms ανά βήμα = ~3 δευτερόλεπτα συνολικά
+    }
 
-    return () => clearInterval(interval);
+    initApp();
+    return () => { cancelled = true; };
   }, []);
 
   return (
@@ -60,7 +65,7 @@ function App() {
               path="/" 
               element={
                 currentUser ? 
-                  <Dashboard userRole={currentUser} onLogout={() => setCurrentUser(null)} /> :
+                  <Dashboard userRole={currentUser} appVersion={appVersion} onLogout={() => setCurrentUser(null)} /> :
                   <UserSelection onUserSelect={setCurrentUser} />
               } 
             />

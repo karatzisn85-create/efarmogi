@@ -221,14 +221,10 @@ function createWindow() {
   }
 }
 
+ipcMain.handle('getAppVersion', () => app.getVersion());
+
 app.whenReady().then(() => {
   createWindow();
-  
-  // Backup scheduler disabled - only manual backups are available
-  // Cleanup old backups on startup (optional - can be removed if not needed)
-  // setTimeout(() => {
-  //   cleanupOldBackups();
-  // }, 5000);
 });
 
 app.on('window-all-closed', () => {

@@ -1540,7 +1540,7 @@ const ContentWrapper = styled.div`
   }
 `;
 
-function Dashboard({ userRole, onLogout }) {
+function Dashboard({ userRole, appVersion, onLogout }) {
   const [projects, setProjects] = useState([]);
   const [filteredProjects, setFilteredProjects] = useState([]);
   const [entaxeis, setEntaxeis] = useState([]);
@@ -3945,7 +3945,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <MainTitle>ΤΕΧΝΙΚΗ ΥΠΗΡΕΣΙΑ</MainTitle>
           <SubTitle>ΔΙΑΧΕΙΡΙΣΗ ΕΡΓΩΝ - ΥΠΟΕΡΓΩΝ</SubTitle>
         </CenteredTitleContainer>
-        <div></div> {/* Empty div for spacing */}
+        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', textAlign: 'right', minWidth: '80px' }}>
+          {appVersion ? `v${appVersion}` : ''}
+        </div>
       </Header>
 
       <ContentWrapper ref={contentWrapperRef}>
