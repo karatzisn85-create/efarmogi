@@ -21,7 +21,6 @@ import DocumentTemplatesManager from './DocumentTemplatesManager';
 import BackupManager from './BackupManager';
 import AuditLogViewer from './AuditLogViewer';
 import UserManagement from './UserManagement';
-import DataMigration from './DataMigration';
 import { containsSearchTerm } from '../utils/searchUtils';
 import { getCharacterization } from '../data/formOptions';
 
@@ -1615,7 +1614,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   const [isBackupManagerOpen, setIsBackupManagerOpen] = useState(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
-  const [isDataMigrationOpen, setIsDataMigrationOpen] = useState(false);
   const [isEntaxisOpen, setIsEntaxisOpen] = useState(false);
   const [entaxisProjectFilter, setEntaxisProjectFilter] = useState(null);
   const [isProsklisisOpen, setIsProsklisisOpen] = useState(false);
@@ -4266,15 +4264,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                     ΔΙΑΧΕΙΡΙΣΗ<br/>ΧΡΗΣΤΩΝ
                   </BackupText>
                 </BackupButton>
-                <BackupButton 
-                  onClick={() => setIsDataMigrationOpen(true)}
-                  style={{ background: 'linear-gradient(135deg, #00695c 0%, #004d40 100%)', border: '2px solid rgba(255, 255, 255, 0.35)' }}
-                >
-                  <BackupIcon>📦</BackupIcon>
-                  <BackupText>
-                    ΜΕΤΑΒΑΣΗ<br/>ΔΕΔΟΜΕΝΩΝ
-                  </BackupText>
-                </BackupButton>
               </>
             )}
             
@@ -4971,11 +4960,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         />
       )}
 
-      {isDataMigrationOpen && (
-        <DataMigration
-          onClose={() => setIsDataMigrationOpen(false)}
-        />
-      )}
 
       {/* Note Modal */}
       {isNoteModalOpen && selectedNoteForModal && (
