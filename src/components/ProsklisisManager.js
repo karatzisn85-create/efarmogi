@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import ProsklisisForm from './ProsklisisForm';
 import ProsklisisFileManager from './ProsklisisFileManager';
@@ -1749,7 +1749,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
 
         <ModalContent>
           <HeaderActions>
-            {userRole === 'ADMIN' && (
+            {userRole !== 'USER' && (
               <NewProsklisisButton onClick={() => {
                 setEditingProsklisi(null); // Καθαρισμός για νέα πρόσκληση
                 setIsFormOpen(true);
@@ -1899,7 +1899,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
           ) : filteredProskliseis.length === 0 ? (
             <NoDataMessage>
               {searchTerm ? 'Δεν βρέθηκαν προσκλήσεις που να ταιριάζουν στην αναζήτηση.' : 'Δεν υπάρχουν προσκλήσεις.'}
-              {userRole === 'ADMIN' && !searchTerm && (
+              {userRole !== 'USER' && !searchTerm && (
                 <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
                   Πατήστε "Εισαγωγή Νέας Πρόσκλησης" για να προσθέσετε την πρώτη πρόσκληση.
                 </div>
@@ -2040,7 +2040,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
                               </div>
                             )}
                             
-                            {userRole === 'ADMIN' && (
+                            {userRole !== 'USER' && (
                               <ModificationActions>
                                 <ModificationButton
                                   variant="edit"
@@ -2066,7 +2066,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
                     <ActionButton primary onClick={() => handleViewFiles(prosklisi.prosklisiId)}>
                       📁 Αρχεία Πρόσκλησης
                     </ActionButton>
-                    {userRole === 'ADMIN' && (
+                    {userRole !== 'USER' && (
                       <>
                         <ActionButton edit onClick={() => handleEditProsklisi(prosklisi)}>
                           ✏️ Επεξεργασία

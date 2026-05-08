@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import SubprojectSearchModal from './SubprojectSearchModal';
 
@@ -1619,7 +1619,7 @@ const CreditApprovalsPanel = ({
           <PanelHeader>
             <Title>Εγκρίσεις Διάθεσης Πίστωσης</Title>
             <HeaderActions>
-              {userRole === 'ADMIN' && (
+              {userRole !== 'USER' && (
                 <HeaderButton onClick={onOpenForm}>
                   ✏️ Επεξεργασία/Δημιουργία
                 </HeaderButton>
@@ -1708,7 +1708,7 @@ const CreditApprovalsPanel = ({
                         ) : (
                           <>
                             <ProjectTitle>{project.title}</ProjectTitle>
-                            {userRole === 'ADMIN' && (
+                            {userRole !== 'USER' && (
                               <EditProjectButton onClick={() => handleEditProjectTitle(project)}>
                                 ✏️ Επεξεργασία
                               </EditProjectButton>
@@ -1810,14 +1810,14 @@ const CreditApprovalsPanel = ({
                                 ) : (
                                   <>
                                     <SubprojectTitle>{subproject.title}</SubprojectTitle>
-                                    {userRole === 'ADMIN' && (
+                                    {userRole !== 'USER' && (
                                       <EditSubprojectButton onClick={() => handleEditSubprojectTitle(subproject, project)}>
                                         ✏️
                                       </EditSubprojectButton>
                                     )}
                                   </>
                                 )}
-                                {userRole === 'ADMIN' && (
+                                {userRole !== 'USER' && (
                                   <SubprojectHeaderActions>
                                     {isSubprojectLinked(subproject.title) ? (
                                       <>
@@ -1852,7 +1852,7 @@ const CreditApprovalsPanel = ({
                                         <DownloadButton onClick={() => downloadPdf(project.folderName, pdf, subproject.folderName)}>
                                           Λήψη
                                         </DownloadButton>
-                                        {userRole === 'ADMIN' && (
+                                        {userRole !== 'USER' && (
                                           <DeletePdfButton
                                             onClick={() => handleDeletePdfClick(project, subproject, pdf)}
                                             title="Διαγραφή αρχείου"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import ImportEgkriseisWizard from './ImportEgkriseisWizard';
 import EgkrisiForm from './EgkrisiForm';
@@ -898,7 +898,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
                                       >
                                         👁️ Προβολή
                                       </IconButton>
-                                      {userRole === 'ADMIN' && (
+                                      {userRole !== 'USER' && (
                                         <IconButton 
                                           onClick={() => handleLinkSubproject(egkrisi)}
                                           style={{ background: '#17a2b8', color: 'white' }}
@@ -906,7 +906,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
                                           🔗 ΣΥΣΧΕΤΙΣΗ ΜΕ ΥΠΟΕΡΓΟ
                                         </IconButton>
                                       )}
-                                      {userRole === 'ADMIN' && linkedSubprojects[egkrisi.id] && (
+                                      {userRole !== 'USER' && linkedSubprojects[egkrisi.id] && (
                                         <IconButton 
                                           onClick={() => handleCreateApproval(egkrisi)}
                                           style={{ background: '#28a745', color: 'white' }}
@@ -914,7 +914,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
                                           ✅ ΕΓΚΡΙΣΗ ΔΙΑΘ. ΠΙΣΤΩΣΗΣ ΣΤΟ ΑΝΤΊΣΤΟΙΧΟ ΥΠΟΈΡΓΟ
                                         </IconButton>
                                       )}
-                                      {userRole === 'ADMIN' && (
+                                      {userRole !== 'USER' && (
                                         <IconButton 
                                           danger
                                           onClick={() => deleteEgkrisi(projectId, subproject.subprojectId, egkrisi.id)}

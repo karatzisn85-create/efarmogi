@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import styled from 'styled-components';
 
 const FileManagerOverlay = styled.div`
@@ -289,7 +289,7 @@ function FileManager({
         <Header>
           <Title>Αρχεία Υποέργου</Title>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            {userRole === 'ADMIN' && (files.length > 0 || fileGroups.some(g => g.files.length > 0)) && (
+            {userRole !== 'USER' && (files.length > 0 || fileGroups.some(g => g.files.length > 0)) && (
               <>
                 {selectedFiles.size > 0 && (
                   <button
@@ -384,7 +384,7 @@ function FileManager({
                   return (
                     <FileItem key={`${group.id}-${fileIndex}`} style={{ marginBottom: '0.8rem' }}>
                       <FileInfo>
-                        {userRole === 'ADMIN' && (
+                        {userRole !== 'USER' && (
                           <input
                             type="checkbox"
                             checked={selectedFiles.has(fileName)}
@@ -410,7 +410,7 @@ function FileManager({
                           Λήψη
                         </DownloadButton>
                         
-                        {userRole === 'ADMIN' && (
+                        {userRole !== 'USER' && (
                           <DeleteButton onClick={() => handleDeleteFile(fileName)}>
                             Διαγραφή
                           </DeleteButton>
@@ -446,7 +446,7 @@ function FileManager({
                 {files.map((fileName, index) => (
                   <FileItem key={index}>
                     <FileInfo>
-                      {userRole === 'ADMIN' && (
+                      {userRole !== 'USER' && (
                         <input
                           type="checkbox"
                           checked={selectedFiles.has(fileName)}
@@ -472,7 +472,7 @@ function FileManager({
                         Λήψη
                       </DownloadButton>
                       
-                      {userRole === 'ADMIN' && (
+                      {userRole !== 'USER' && (
                         <DeleteButton onClick={() => handleDeleteFile(fileName)}>
                           Διαγραφή
                         </DeleteButton>

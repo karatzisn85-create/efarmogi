@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+﻿import React, { useEffect } from 'react';
 import styled from 'styled-components';
 import { PROJECT_STATUSES } from '../data/formOptions';
 
@@ -349,7 +349,7 @@ function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked })
             <SubprojectTitleLarge>{project.subprojectTitle}</SubprojectTitleLarge>
           </HeaderLeft>
           <HeaderRight>
-            {userRole === 'ADMIN' && (
+            {userRole !== 'USER' && (
               <EditButton
                 onClick={() => { onClose(); onEdit(project); }}
                 disabled={isLocked}

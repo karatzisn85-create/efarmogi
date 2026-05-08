@@ -366,7 +366,6 @@ function UserManagement({ onClose, currentUser }) {
                 <Select value={formData.role} onChange={e => setFormData(f => ({ ...f, role: e.target.value }))}>
                   <option value="USER">Χρήστης</option>
                   <option value="ADMIN">Διαχειριστής</option>
-                  <option value="SUPERADMIN">Υπερδιαχειριστής</option>
                 </Select>
               </FieldGroup>
             </FormRow>

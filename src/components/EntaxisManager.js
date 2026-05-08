@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import EntaxisForm from './EntaxisForm';
 import ModificationForm from './ModificationForm';
@@ -1159,7 +1159,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
         </Header>
 
         <ActionsBar>
-          {userRole === 'ADMIN' && (
+          {userRole !== 'USER' && (
             <ActionButton 
               primary 
               onClick={() => {
@@ -1305,7 +1305,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                 ? `Δεν βρέθηκαν εντάξεις για το έργο "${projectFilter}".`
                 : "Δεν βρέθηκαν εντάξεις έργων."
               }
-              {userRole === 'ADMIN' && !projectFilter && (
+              {userRole !== 'USER' && !projectFilter && (
                 <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
                   Πατήστε "Νέα Ένταξη" για να προσθέσετε την πρώτη ένταξη.
                 </div>
@@ -1446,7 +1446,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                           </SmallButton>
 
                           {/* ΕΝΕΡΓΕΙΕΣ ΔΙΑΧΕΙΡΙΣΗΣ */}
-                          {userRole === 'ADMIN' && (
+                          {userRole !== 'USER' && (
                             <>
                               <SmallButton 
                                 onClick={async () => {
@@ -1569,7 +1569,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                                       >
                                         📥 Λήψη
                                       </SmallButton>
-                                      {userRole === 'ADMIN' && (
+                                      {userRole !== 'USER' && (
                                         <>
                                           <SmallButton 
                                             edit 

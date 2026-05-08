@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import styled from 'styled-components';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
 import SubprojectSearchModal from './SubprojectSearchModal';
@@ -899,7 +899,7 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
         <ModalHeader>
           <ModalTitle>Εγκρίσεις Διάθεσης Πίστωσης</ModalTitle>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            {userRole === 'ADMIN' && (
+            {userRole !== 'USER' && (
               <EditButton onClick={onOpenForm}>
                 <span>✏️</span>
                 Επεξεργασία/Δημιουργία
@@ -1003,7 +1003,7 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
                           <SubprojectHeader>
                             <SubprojectNumber>#{subproject.number}</SubprojectNumber>
                             <SubprojectTitle>{subproject.title}</SubprojectTitle>
-                            {userRole === 'ADMIN' && (
+                            {userRole !== 'USER' && (
                               <SubprojectHeaderActions>
                                 {linkedSubprojects && Object.values(linkedSubprojects).some(link => 
                                   link && link.egkrisiTitle && link.egkrisiTitle === subproject.title

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 
 const ipcRenderer = window.electronAPI;
@@ -337,7 +337,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
                 >
                   💾 Λήψη
                 </ActionButton>
-                {userRole === 'ADMIN' && (
+                {userRole !== 'USER' && (
                   <ActionButton 
                     variant="delete" 
                     onClick={() => handleDeleteFile(fileName)}
