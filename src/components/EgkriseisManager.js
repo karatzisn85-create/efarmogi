@@ -6,7 +6,7 @@ import EgkriseisStructureViewer from './EgkriseisStructureViewer';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
 import { containsSearchTerm } from '../utils/searchUtils';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const ModalOverlay = styled.div`
   position: fixed;

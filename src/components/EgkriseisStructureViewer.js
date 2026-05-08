@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const Container = styled.div`
   padding: 2rem;

@@ -6,8 +6,8 @@ import EntaxisExportDialog from './EntaxisExportDialog';
 import EntaxisFileViewer from './EntaxisFileViewer';
 import { containsSearchTerm } from '../utils/searchUtils';
 
-const { ipcRenderer } = window.require('electron');
-const path = window.require('path');
+const ipcRenderer = window.electronAPI;
+const path = require('path-browserify');
 
 const EntaxisOverlay = styled.div`
   position: fixed;
@@ -600,15 +600,15 @@ const ModificationItem = styled.div`
 
 // ΧΕΙΡΟΚΙΝΗΤΗ ΔΙΟΡΘΩΣΗ - Καλέστε από Console: fixAllEntaxeis()
 window.fixAllEntaxeis = async () => {
-  const { ipcRenderer } = window.require('electron');
+  const ipc = window.electronAPI;
   try {
     console.log('🔧 Loading all entaxeis...');
-    const allEntaxeis = await ipcRenderer.invoke('load-all-entaxeis');
+    const allEntaxeis = await ipc.invoke('load-all-entaxeis');
     console.log(`📋 Found ${allEntaxeis.length} entaxeis`);
     
     for (const entaxi of allEntaxeis) {
       console.log(`🔧 Fixing ${entaxi.entaxiId}...`);
-      const result = await ipcRenderer.invoke('fix-entaxi-file-objects', entaxi.entaxiId);
+      const result = await ipc.invoke('fix-entaxi-file-objects', entaxi.entaxiId);
       console.log(`  ${result.success ? '✅' : '❌'} ${result.message || result.error}`);
     }
     

@@ -19,8 +19,7 @@ module.exports = {
         "util": false
       };
 
-      // Διαχείριση για Electron
-      webpackConfig.target = 'electron-renderer';
+      webpackConfig.target = 'web';
 
       // Αγνόηση φακέλων build και dist από το file watching
       webpackConfig.watchOptions = {

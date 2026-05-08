@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
 import { PROJECT_TYPES, FUNDING_SOURCES, PROJECT_STATUSES, FUNDING_DETAILS, IMPLEMENTATION_FORMS } from '../data/formOptions';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const FiltersOverlay = styled.div`
   position: fixed;

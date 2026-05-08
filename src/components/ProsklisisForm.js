@@ -3,7 +3,7 @@ import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 // Styled Components
 const FormOverlay = styled.div`

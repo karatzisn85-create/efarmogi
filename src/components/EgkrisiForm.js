@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const Container = styled.div`
   position: fixed;

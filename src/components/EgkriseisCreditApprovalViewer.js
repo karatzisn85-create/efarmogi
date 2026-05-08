@@ -3,7 +3,7 @@ import styled from 'styled-components';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
 import SubprojectSearchModal from './SubprojectSearchModal';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const ModalOverlay = styled.div`
   position: fixed;

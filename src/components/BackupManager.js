@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const ModalOverlay = styled.div`
   position: fixed;
@@ -483,12 +483,12 @@ function BackupManager({ isOpen, onClose }) {
       }
     };
     
-    ipcRenderer.on('backup-progress', progressListener);
-    ipcRenderer.on('backup-completed', completionListener);
+    const unsubProgress = ipcRenderer.on('backup-progress', progressListener);
+    const unsubCompleted = ipcRenderer.on('backup-completed', completionListener);
     
     return () => {
-      ipcRenderer.removeListener('backup-progress', progressListener);
-      ipcRenderer.removeListener('backup-completed', completionListener);
+      unsubProgress();
+      unsubCompleted();
     };
   }, [isOpen]);
   

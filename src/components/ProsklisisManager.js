@@ -6,7 +6,7 @@ import ProsklisiModificationForm from './ProsklisiModificationForm';
 import ProsklisisExportDialog from './ProsklisisExportDialog';
 import { containsSearchTerm } from '../utils/searchUtils';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 // Styled Components
 const ModalOverlay = styled.div`

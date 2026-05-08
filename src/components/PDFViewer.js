@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import styled from 'styled-components';
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const ViewerOverlay = styled.div`
   position: fixed;

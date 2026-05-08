@@ -6,7 +6,7 @@ import Dashboard from './components/Dashboard';
 import SplashScreen from './components/SplashScreen';
 import './App.css';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const AppContainer = styled.div`
   min-height: 100vh;

@@ -10,7 +10,7 @@ import {
   STATUSES_WITH_CONTRACT_FIELDS
 } from '../data/formOptions';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const FormOverlay = styled.div`
   position: fixed;

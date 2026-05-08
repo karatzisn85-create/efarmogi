@@ -187,8 +187,7 @@ function SubprojectSearchModal({ isOpen, onClose, onSelectSubproject, egkrisiTit
   const loadAllSubprojects = async () => {
     setLoading(true);
     try {
-      const { ipcRenderer } = window.require('electron');
-      const result = await ipcRenderer.invoke('get-all-subprojects');
+      const result = await window.electronAPI.invoke('get-all-subprojects');
       
       if (result.success) {
         setSubprojects(result.data);

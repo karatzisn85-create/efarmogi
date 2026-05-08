@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import styled from 'styled-components';
 import SubprojectSearchModal from './SubprojectSearchModal';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const PanelOverlay = styled.div`
   position: fixed;

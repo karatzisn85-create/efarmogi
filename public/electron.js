@@ -174,9 +174,9 @@ function createWindow() {
     width: 1400,
     height: 900,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      enableRemoteModule: true,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
       webSecurity: false
     },
     icon: path.join(__dirname, 'icon.png'),

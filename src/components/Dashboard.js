@@ -23,7 +23,7 @@ import AuditLogViewer from './AuditLogViewer';
 import { containsSearchTerm } from '../utils/searchUtils';
 import { getCharacterization } from '../data/formOptions';
 
-const { ipcRenderer } = window.require('electron');
+const ipcRenderer = window.electronAPI;
 
 const DEFAULT_NOTE_GROUP_ID = 'general-notes';
 
@@ -1731,11 +1731,10 @@ function Dashboard({ userRole, appVersion, onLogout }) {
     };
 
     // Εγγραφή στο event
-    ipcRenderer.on('locks-changed', handleLocksChanged);
+    const unsubscribe = ipcRenderer.on('locks-changed', handleLocksChanged);
 
-    // Cleanup function
     return () => {
-      ipcRenderer.removeListener('locks-changed', handleLocksChanged);
+      unsubscribe();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
