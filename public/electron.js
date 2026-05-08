@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
+const { safeWriteJSON, safeWriteJSONAsync } = require('./safeWrite');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { exec, spawn } = require('child_process');
@@ -663,7 +664,7 @@ async function updateRelatedDataAfterProjectTitleChange(projectId, oldProjectTit
               if (subprojectData.projectTitle === oldProjectTitle) {
                 subprojectData.projectTitle = newProjectTitle;
                 subprojectData.updatedAt = new Date().toISOString();
-                fs.writeFileSync(dataFile, JSON.stringify(subprojectData, null, 2), 'utf8');
+                safeWriteJSON(dataFile, subprojectData);
                 console.log(`Updated subproject ${subprojectDir} with new project title`);
               }
             } catch (err) {
@@ -688,7 +689,7 @@ async function updateRelatedDataAfterProjectTitleChange(projectId, oldProjectTit
               if (entaxiData.projectTitle === oldProjectTitle) {
                 entaxiData.projectTitle = newProjectTitle;
                 entaxiData.updatedAt = new Date().toISOString();
-                fs.writeFileSync(dataFile, JSON.stringify(entaxiData, null, 2), 'utf8');
+                safeWriteJSON(dataFile, entaxiData);
                 console.log(`Updated entaxi ${entaxiDir} with new project title`);
               }
             } catch (err) {
@@ -722,7 +723,7 @@ async function updateRelatedDataAfterProjectTitleChange(projectId, oldProjectTit
                 
                 if (updated) {
                   prosklisiData.updatedAt = new Date().toISOString();
-                  fs.writeFileSync(dataFile, JSON.stringify(prosklisiData, null, 2), 'utf8');
+                  safeWriteJSON(dataFile, prosklisiData);
                   console.log(`Updated prosklisi ${prosklisiDir} with new project title`);
                 }
               }
@@ -993,7 +994,7 @@ ipcMain.handle('save-project-data', async (event, projectData) => {
     }
     
     console.log('Saving project data:', dataToSave.projectTitle, dataToSave.subprojectTitle);
-    fs.writeFileSync(finalJsonPath, JSON.stringify(dataToSave, null, 2), 'utf8');
+    safeWriteJSON(finalJsonPath, dataToSave);
     console.log('Project data saved successfully to:', finalJsonPath);
 
     // Αν άλλαξε το projectTitle, ενημέρωσε όλα τα σχετικά δεδομένα
@@ -1559,7 +1560,7 @@ ipcMain.handle('delete-file', async (event, projectId, subprojectId, fileName) =
        }
         
         // Αποθήκευση ενημερωμένου JSON
-        fs.writeFileSync(dataPath, JSON.stringify(data, null, 2), 'utf8');
+        safeWriteJSON(dataPath, data);
         console.log(`File ${fileName} removed from JSON data`);
       } catch (jsonError) {
         console.error('Error updating JSON after file deletion:', jsonError);
@@ -1884,7 +1885,7 @@ ipcMain.handle('create-file-group', async (event, projectId, subprojectId, group
     projectData.updatedAt = new Date().toISOString();
     
     // Αποθηκεύουμε τα ενημερωμένα δεδομένα
-    fs.writeFileSync(dataFilePath, JSON.stringify(projectData, null, 2), 'utf8');
+    safeWriteJSON(dataFilePath, projectData);
     
     console.log('File group created successfully:', newGroup);
     return { success: true, groupId: newGroup.id };
@@ -1952,7 +1953,7 @@ ipcMain.handle('add-files-to-group', async (event, projectId, subprojectId, grou
         projectData.updatedAt = new Date().toISOString();
         
         // Αποθηκεύουμε τα ενημερωμένα δεδομένα
-        fs.writeFileSync(dataFilePath, JSON.stringify(projectData, null, 2), 'utf8');
+        safeWriteJSON(dataFilePath, projectData);
         
         console.log('Files added to group successfully');
         return { success: true };
@@ -2213,7 +2214,7 @@ ipcMain.handle('save-entaxi', async (event, entaxiData) => {
     
     // Save JSON data - ASYNC
     const jsonPath = path.join(entaxiPath, 'data.json');
-    await fs.promises.writeFile(jsonPath, JSON.stringify(savedData, null, 2), 'utf8');
+    await safeWriteJSONAsync(jsonPath, savedData);
 
     return { success: true, entaxiId };
   } catch (error) {
@@ -2396,7 +2397,7 @@ ipcMain.handle('save-modification', async (event, entaxiId, modificationData) =>
     existingData.updatedAt = new Date().toISOString();
     
     // Save updated data - ASYNC
-    await fs.promises.writeFile(dataFile, JSON.stringify(existingData, null, 2), 'utf8');
+    await safeWriteJSONAsync(dataFile, existingData);
     
     return { success: true };
   } catch (error) {
@@ -3236,7 +3237,7 @@ ipcMain.handle('delete-entaxi-file', async (event, entaxiId, fileName, isModific
           
           if (modified) {
             existingData.updatedAt = new Date().toISOString();
-            fs.writeFileSync(dataFile, JSON.stringify(existingData, null, 2), 'utf8');
+            safeWriteJSON(dataFile, existingData);
             console.log('✅ Successfully removed file reference from modification JSON');
           } else {
             console.log('⚠️ No matching file found in modifications');
@@ -3325,7 +3326,7 @@ ipcMain.handle('delete-entaxi-modification', async (event, entaxiId, modificatio
     existingData.updatedAt = new Date().toISOString();
 
     // Save updated data
-    fs.writeFileSync(dataFile, JSON.stringify(existingData, null, 2), 'utf8');
+    safeWriteJSON(dataFile, existingData);
 
     console.log(`Deleted modification ${modificationId} for entaxi ${entaxiId}`);
     return { success: true };
@@ -3420,7 +3421,7 @@ ipcMain.handle('update-entaxi-modification', async (event, modificationData) => 
     existingData.updatedAt = new Date().toISOString();
 
     // Save updated data
-    fs.writeFileSync(dataFile, JSON.stringify(existingData, null, 2), 'utf8');
+    safeWriteJSON(dataFile, existingData);
 
     console.log(`Updated modification ${modificationData.modificationId} for entaxi ${entaxiId}`);
     return { success: true };
@@ -3460,7 +3461,7 @@ ipcMain.handle('clean-entaxi-modification-file', async (event, entaxiId, modific
     }
 
     existingData.updatedAt = new Date().toISOString();
-    fs.writeFileSync(dataFile, JSON.stringify(existingData, null, 2), 'utf8');
+    safeWriteJSON(dataFile, existingData);
 
     console.log(`Cleaned ${fileType} reference from modification ${modificationId}`);
     return { success: true };
@@ -3514,7 +3515,7 @@ ipcMain.handle('fix-entaxi-file-objects', async (event, entaxiId) => {
 
     if (fixed) {
       existingData.updatedAt = new Date().toISOString();
-      fs.writeFileSync(dataFile, JSON.stringify(existingData, null, 2), 'utf8');
+      safeWriteJSON(dataFile, existingData);
       console.log(`✅ Fixed file objects in entaxi ${entaxiId}`);
       return { success: true, message: 'File objects fixed' };
     } else {
@@ -3769,7 +3770,7 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
 
     // Save data to JSON file
     const dataFilePath = path.join(prosklisiDir, 'data.json');
-    fs.writeFileSync(dataFilePath, JSON.stringify(savedData, null, 2));
+    safeWriteJSON(dataFilePath, savedData);
     
     // Also save to prosklisi_data.json for file groups
     const prosklisiDataPath = path.join(prosklisiDir, 'prosklisi_data.json');
@@ -3791,7 +3792,7 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
       fileGroups: savedData.fileGroups || existingData.fileGroups || []
     };
     
-    fs.writeFileSync(prosklisiDataPath, JSON.stringify(mergedData, null, 2));
+    safeWriteJSON(prosklisiDataPath, mergedData);
     
     console.log('Prosklisi saved successfully to:', dataFilePath);
     return { success: true };
@@ -4009,7 +4010,7 @@ ipcMain.handle('delete-prosklisi-group', async (event, prosklisiId, groupId) => 
     prosklisiData.fileGroups.splice(groupIndex, 1);
     
     // Save updated data
-    fs.writeFileSync(prosklisiDataPath, JSON.stringify(prosklisiData, null, 2));
+    safeWriteJSON(prosklisiDataPath, prosklisiData);
     
     // Ενημερώνουμε και το data.json
     const dataPath = path.join(prosklisiDir, 'data.json');
@@ -4026,7 +4027,7 @@ ipcMain.handle('delete-prosklisi-group', async (event, prosklisiId, groupId) => 
         data.prosklisiFiles = [...(data.prosklisiFiles || []), ...group.files];
       }
       
-      fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
+      safeWriteJSON(dataPath, data);
     }
     
     return { success: true };
@@ -4525,7 +4526,7 @@ ipcMain.handle('delete-prosklisi-file', async (event, prosklisiId, fileName, tar
           data.prosklisiFolders = data.prosklisiFolders.filter(folder => folder.folderName !== fileName);
         }
         
-        fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
+        safeWriteJSON(dataPath, data);
       }
       
       return { success: true };
@@ -4623,7 +4624,7 @@ ipcMain.handle('bulk-import-egkriseis', async (event, importData) => {
             createdAt: new Date().toISOString()
           });
           
-          fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
+          safeWriteJSON(dataPath, data);
           results.success++;
         } else {
           results.failed++;
@@ -4707,7 +4708,7 @@ ipcMain.handle('save-egkrisi', async (event, projectId, subprojectId, egkrisiDat
     projectData.egkriseisDialthesisPistosis.push(egkrisiData);
     
     // Save updated data
-    fs.writeFileSync(dataPath, JSON.stringify(projectData, null, 2));
+    safeWriteJSON(dataPath, projectData);
     
     return { success: true };
   } catch (error) {
@@ -4889,7 +4890,7 @@ ipcMain.handle('delete-egkrisi-file', async (event, projectId, subprojectId, egk
           projectData.egkriseisDialthesisPistosis.splice(egkrisiIndex, 1);
           
           // Save updated data
-          fs.writeFileSync(dataPath, JSON.stringify(projectData, null, 2));
+          safeWriteJSON(dataPath, projectData);
         }
       }
     }
@@ -5475,7 +5476,7 @@ ipcMain.handle('save-egkriseis-data', async (event, saveData) => {
       .reduce((total, project) => total + Object.keys(project.subprojects).length, 0);
     
     // Save updated data - ASYNC
-    await fs.promises.writeFile(dataFile, JSON.stringify(existingData, null, 2));
+    await safeWriteJSONAsync(dataFile, existingData);
     
     // Generate a unique egkrisi ID for linking
     const egkrisiId = `egkrisi_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -5793,7 +5794,7 @@ ipcMain.handle('save-egkriseis-data', async (event, saveData) => {
               autoLinked: true
             };
             
-            fs.writeFileSync(linkFile, JSON.stringify(linkDataToSave, null, 2));
+            safeWriteJSON(linkFile, linkDataToSave);
             console.log(`✅ Created auto link for subproject: ${subproject.title} (${subprojectInfo.subprojectId})`);
           } else {
             console.log(`⚠️ Link already exists for subproject: ${subproject.title} (${subprojectInfo.subprojectId})`);
@@ -5845,7 +5846,7 @@ ipcMain.handle('save-egkriseis-data', async (event, saveData) => {
     }));
     console.log('📊 Final subproject numbers before save:', JSON.stringify(subprojectNumbers, null, 2));
     
-    await fs.promises.writeFile(dataFile, JSON.stringify(existingData, null, 2), 'utf8');
+    await safeWriteJSONAsync(dataFile, existingData);
     console.log('✅ Saved updated egkriseis-data.json with all subproject number changes');
     
     return { success: true, message: 'Egkriseis data saved successfully', egkrisiId };
@@ -5902,7 +5903,7 @@ ipcMain.handle('delete-egkrisi-pdf-from-subproject', async (event, projectFolder
       Object.values(projectData.subprojects).reduce((total, sub) => total + (sub.pdfs?.length || 0), 0);
     
     // Save updated data
-    fs.writeFileSync(dataFile, JSON.stringify(existingData, null, 2));
+    safeWriteJSON(dataFile, existingData);
     
     console.log(`✅ Removed PDF link ${pdfFileName} from subproject ${subprojectKey} in project ${projectFolderName}`);
     
@@ -5972,7 +5973,7 @@ ipcMain.handle('delete-egkrisi-pdf-completely', async (event, projectFolderName,
       Object.values(projectData.subprojects).reduce((total, sub) => total + (sub.pdfs?.length || 0), 0);
     
     // Save updated data
-    fs.writeFileSync(dataFile, JSON.stringify(existingData, null, 2));
+    safeWriteJSON(dataFile, existingData);
     
     console.log(`✅ Deleted PDF ${pdfFileName} completely from project ${projectFolderName} (removed from ${removedCount} subprojects)`);
     
@@ -6020,7 +6021,7 @@ ipcMain.handle('delete-egkrisi-subproject', async (event, projectFolderName, sub
       Object.values(projectData.subprojects).reduce((total, sub) => total + sub.pdfs.length, 0);
     
     // Save updated data
-    fs.writeFileSync(dataFile, JSON.stringify(existingData, null, 2));
+    safeWriteJSON(dataFile, existingData);
     
     console.log(`✅ Deleted subproject ${subprojectKey} from project ${projectFolderName}`);
     
@@ -6119,7 +6120,7 @@ ipcMain.handle('save-prosklisi-modification', async (event, modificationData) =>
     modifications.push(modificationData);
     
     // Αποθήκευση
-    fs.writeFileSync(modificationsPath, JSON.stringify(modifications, null, 2));
+    safeWriteJSON(modificationsPath, modifications);
     
     console.log(`Saved modification for prosklisi ${prosklisiId}`);
     return { success: true };
@@ -6206,7 +6207,7 @@ ipcMain.handle('update-prosklisi-modification', async (event, modificationData) 
     modifications[modificationIndex] = modificationData;
     
     // Αποθήκευση
-    fs.writeFileSync(modificationsPath, JSON.stringify(modifications, null, 2));
+    safeWriteJSON(modificationsPath, modifications);
     
     console.log(`Updated modification ${modificationId} for prosklisi ${originalProsklisiId}`);
     return { success: true };
@@ -6274,7 +6275,7 @@ ipcMain.handle('delete-prosklisi-modification', async (event, prosklisiId, modif
       }
     } else {
       // Αποθήκευση των υπαρχουσών τροποποιήσεων
-      fs.writeFileSync(modificationsPath, JSON.stringify(modifications, null, 2));
+      safeWriteJSON(modificationsPath, modifications);
     }
     
     console.log(`Deleted modification ${modificationId} for prosklisi ${prosklisiId}`);
@@ -6530,7 +6531,7 @@ ipcMain.handle('create-manual-egkrisi-link', async (event, linkData) => {
     };
     
     // Αποθήκευση
-    fs.writeFileSync(linkFile, JSON.stringify(linkDataToSave, null, 2));
+    safeWriteJSON(linkFile, linkDataToSave);
     
     console.log('✅ Manual egkrisi link created successfully:', linkFile);
     
@@ -6560,7 +6561,7 @@ ipcMain.handle('link-egkrisi-to-subproject', async (event, { egkrisiId, subproje
     };
 
     const linkFile = path.join(linksDir, `${egkrisiId}.json`);
-    fs.writeFileSync(linkFile, JSON.stringify(linkData, null, 2));
+    safeWriteJSON(linkFile, linkData);
 
     console.log(`Linked egkrisi ${egkrisiId} to subproject ${subprojectId}`);
     return { success: true, data: linkData };
@@ -6600,7 +6601,7 @@ ipcMain.handle('create-credit-approval', async (event, { egkrisiId, subprojectId
     };
 
     const dataFile = path.join(approvalDir, 'data.json');
-    fs.writeFileSync(dataFile, JSON.stringify(approvalData, null, 2));
+    safeWriteJSON(dataFile, approvalData);
 
     console.log(`Created credit approval ${approvalId} for egkrisi ${egkrisiId}`);
     return { success: true, data: approvalData };
@@ -6631,7 +6632,7 @@ ipcMain.handle('update-egkrisi-project-title', async (event, projectKey, newTitl
     projects[projectKey].title = newTitle;
     
     // Αποθήκευση
-    await fs.promises.writeFile(egkriseisDataPath, JSON.stringify(egkriseisData, null, 2), 'utf8');
+    await safeWriteJSONAsync(egkriseisDataPath, egkriseisData);
     
     console.log('✅ Updated egkrisi project title successfully');
     return { success: true };
@@ -6667,7 +6668,7 @@ ipcMain.handle('update-egkrisi-subproject-title', async (event, projectKey, subp
     subprojects[subprojectKey].title = newTitle;
     
     // Αποθήκευση
-    await fs.promises.writeFile(egkriseisDataPath, JSON.stringify(egkriseisData, null, 2), 'utf8');
+    await safeWriteJSONAsync(egkriseisDataPath, egkriseisData);
     
     console.log('✅ Updated egkrisi subproject title successfully');
     return { success: true };
@@ -7292,7 +7293,7 @@ ipcMain.handle('link-subproject-to-subproject', async (event, { sourceSubproject
     };
 
     const linkFile = path.join(linksDir, `${sourceSubprojectId}_${sourceProjectId}.json`);
-    fs.writeFileSync(linkFile, JSON.stringify(linkData, null, 2));
+    safeWriteJSON(linkFile, linkData);
 
     console.log(`Linked subproject ${sourceSubprojectId} to subproject ${targetSubprojectId}`);
     return { success: true, data: linkData };
@@ -7506,7 +7507,7 @@ ipcMain.handle('link-egkrisi-manual', async (event, linkData) => {
       index.index.by_subproject_id[linkedSubprojectId].egkriseisCount += subproject.pdfs.length;
     }
     
-    fs.writeFileSync(indexPath, JSON.stringify(index, null, 2));
+    safeWriteJSON(indexPath, index);
     
     return { success: true };
   } catch (error) {
@@ -7604,7 +7605,7 @@ ipcMain.handle('load-notes', async () => {
           color: '#6366f1'
         }]
       };
-      fs.writeFileSync(notesDataPath, JSON.stringify(initialData, null, 2), 'utf8');
+      safeWriteJSON(notesDataPath, initialData);
       return initialData;
     }
     
@@ -7676,7 +7677,7 @@ ipcMain.handle('save-notes', async (event, notesData) => {
       });
     }
     
-    fs.writeFileSync(notesDataPath, JSON.stringify(dataToSave, null, 2), 'utf8');
+    safeWriteJSON(notesDataPath, dataToSave);
     return { success: true };
   } catch (error) {
     console.error('Error saving notes:', error);
@@ -7716,7 +7717,7 @@ ipcMain.handle('save-note-groups', async (event, groupsData) => {
       groups: groupsToSave
     };
     
-    fs.writeFileSync(notesDataPath, JSON.stringify(dataToSave, null, 2), 'utf8');
+    safeWriteJSON(notesDataPath, dataToSave);
     return { success: true };
   } catch (error) {
     console.error('Error saving note groups:', error);
@@ -7746,7 +7747,7 @@ ipcMain.handle('load-document-templates', async () => {
         categories: [],
         documents: []
       };
-      fs.writeFileSync(templatesDataPath, JSON.stringify(initialData, null, 2));
+      safeWriteJSON(templatesDataPath, initialData);
       return initialData;
     }
     
@@ -7786,7 +7787,7 @@ ipcMain.handle('load-document-templates', async () => {
     
     // Αποθήκευση μόνο αν έγιναν αλλαγές
     if (dataModified) {
-      fs.writeFileSync(templatesDataPath, JSON.stringify(data, null, 2));
+      safeWriteJSON(templatesDataPath, data);
     }
     
     return data;
@@ -7818,7 +7819,7 @@ ipcMain.handle('add-document-category', async (event, categoryPayload) => {
     };
 
     data.categories.push(newCategory);
-    fs.writeFileSync(templatesDataPath, JSON.stringify(data, null, 2));
+    safeWriteJSON(templatesDataPath, data);
     
     return { success: true, category: newCategory };
   } catch (error) {
@@ -7876,7 +7877,7 @@ ipcMain.handle('upload-document-template', async (event, categoryId) => {
     }
     
     // Save updated data
-    fs.writeFileSync(templatesDataPath, JSON.stringify(data, null, 2));
+    safeWriteJSON(templatesDataPath, data);
     
     return { success: true, documents: uploadedDocuments, count: uploadedDocuments.length };
   } catch (error) {
@@ -7943,7 +7944,7 @@ ipcMain.handle('delete-document-template', async (event, docId) => {
     
     // Remove from data
     data.documents.splice(documentIndex, 1);
-    fs.writeFileSync(templatesDataPath, JSON.stringify(data, null, 2));
+    safeWriteJSON(templatesDataPath, data);
     
     return { success: true };
   } catch (error) {
@@ -7987,7 +7988,7 @@ ipcMain.handle('rename-document-template', async (event, docId, newName) => {
     const finalName = `${baseName}${originalExt}`;
     document.name = finalName;
 
-    fs.writeFileSync(templatesDataPath, JSON.stringify(data, null, 2));
+    safeWriteJSON(templatesDataPath, data);
 
     return { success: true, document };
   } catch (error) {
@@ -8022,7 +8023,7 @@ ipcMain.handle('update-document-category', async (event, categoryId, updates) =>
       category.color = colorValue || fallbackCategoryColor;
     }
 
-    fs.writeFileSync(templatesDataPath, JSON.stringify(data, null, 2));
+    safeWriteJSON(templatesDataPath, data);
 
     return { success: true, category };
   } catch (error) {
@@ -8065,7 +8066,7 @@ ipcMain.handle('delete-document-category', async (event, categoryId) => {
     data.documents = data.documents.filter(doc => doc.category !== categoryId);
     const deletedCategory = data.categories.splice(categoryIndex, 1)[0];
 
-    fs.writeFileSync(templatesDataPath, JSON.stringify(data, null, 2));
+    safeWriteJSON(templatesDataPath, data);
 
     return {
       success: true,
@@ -8136,7 +8137,7 @@ ipcMain.handle('copy-document-template', async (event, docId, targetCategoryId) 
     };
     
     data.documents.push(newDocument);
-    fs.writeFileSync(templatesDataPath, JSON.stringify(data, null, 2));
+    safeWriteJSON(templatesDataPath, data);
     
     return { success: true, document: newDocument };
   } catch (error) {
@@ -8204,7 +8205,7 @@ if (!fs.existsSync(backupDir)) {
 
 // Initialize audit log if it doesn't exist
 if (!fs.existsSync(auditLogPath)) {
-  fs.writeFileSync(auditLogPath, JSON.stringify({ logs: [] }, null, 2), 'utf8');
+  safeWriteJSON(auditLogPath, { logs: [] });
 }
 
 // Default backup settings - AUTOMATIC BACKUPS DISABLED (Manual only)
@@ -8275,7 +8276,7 @@ function saveBackupSettings(settings) {
       if (settings.monthly) settings.monthly.enabled = false;
     }
     
-    fs.writeFileSync(backupSettingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    safeWriteJSON(backupSettingsPath, settings);
     return true;
   } catch (error) {
     console.error('Error saving backup settings:', error);
@@ -8298,7 +8299,7 @@ function loadBackupMetadata() {
 // Save backup metadata
 function saveBackupMetadata(metadata) {
   try {
-    fs.writeFileSync(backupMetadataPath, JSON.stringify(metadata, null, 2), 'utf8');
+    safeWriteJSON(backupMetadataPath, metadata);
     return true;
   } catch (error) {
     console.error('Error saving backup metadata:', error);
@@ -8738,7 +8739,7 @@ function logAuditAction(action) {
     }
     
     // Save audit log
-    fs.writeFileSync(auditLogPath, JSON.stringify(auditLog, null, 2), 'utf8');
+    safeWriteJSON(auditLogPath, auditLog);
     
     console.log(`📝 Audit log: ${user} ${type} ${entityType} ${entityId}`);
     
@@ -9446,7 +9447,7 @@ async function restoreBackup(backupId, options = {}) {
         }
       }
       restoreHistory.unshift(restoreInfo);
-      fs.writeFileSync(restoreHistoryPath, JSON.stringify(restoreHistory, null, 2), 'utf8');
+      safeWriteJSON(restoreHistoryPath, restoreHistory);
       
       console.log('✅ Restore completed successfully');
       
@@ -9562,7 +9563,7 @@ ipcMain.handle('clear-audit-log', async (event, keepLast = 1000) => {
     
     if (auditLog.logs.length > keepLast) {
       auditLog.logs = auditLog.logs.slice(0, keepLast);
-      fs.writeFileSync(auditLogPath, JSON.stringify(auditLog, null, 2), 'utf8');
+      safeWriteJSON(auditLogPath, auditLog);
       return { success: true, deletedCount: auditLog.logs.length - keepLast };
     }
     
@@ -9707,7 +9708,7 @@ ipcMain.handle('fix-audit-log-projectids', async (event) => {
       console.log(`📦 Created backup: ${backupPath}`);
       
       // Save fixed audit log
-      fs.writeFileSync(auditLogPath, JSON.stringify(auditLog, null, 2), 'utf8');
+      safeWriteJSON(auditLogPath, auditLog);
       console.log(`✅ Fixed ${fixedCount} audit log entries`);
     }
     
@@ -9864,7 +9865,7 @@ ipcMain.handle('rollback-audit-entry', async (event, auditEntryId) => {
           restoredFromAuditEntry: auditEntryId
         };
         
-        fs.writeFileSync(jsonPath, JSON.stringify(dataToRestore, null, 2), 'utf8');
+        safeWriteJSON(jsonPath, dataToRestore);
         
         console.log(`✅ Rolled back subproject ${subprojectId} to previous state`);
         
