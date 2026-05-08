@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const { safeWriteJSON, safeWriteJSONAsync } = require('./safeWrite');
+const { initConfigPath, loadConfig, saveConfig, resolveDataDir } = require('./appConfig');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { exec, spawn } = require('child_process');
@@ -224,6 +225,24 @@ function createWindow() {
 
 ipcMain.handle('getAppVersion', () => app.getVersion());
 
+ipcMain.handle('get-app-config', () => loadConfig());
+
+ipcMain.handle('save-app-config', async (_event, newConfig) => {
+  saveConfig(newConfig);
+  return { success: true };
+});
+
+ipcMain.handle('get-data-dir', () => dataDir);
+
+ipcMain.handle('select-data-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Επιλέξτε φάκελο δεδομένων',
+    properties: ['openDirectory']
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
+});
+
 app.whenReady().then(() => {
   createWindow();
 });
@@ -267,65 +286,8 @@ app.on('activate', () => {
   }
 });
 
- // Δημιουργία φακέλου δεδομένων αν δεν υπάρχει
- // Σε development mode: dedomena_ergon δίπλα στο electron.js
- // Σε portable mode: dedomena_ergon στο extraResources
- // ΣΥΓΧΡΟΝΙΣΜΟΣ: Και τα δύο modes χρησιμοποιούν το ίδιο path για συγχρονισμό
- let dataDir;
- // Προτεραιότητα σε ρητά ορισμένο DATA_DIR
- if (process.env.DATA_DIR && typeof process.env.DATA_DIR === 'string' && process.env.DATA_DIR.trim() !== '') {
-  dataDir = process.env.DATA_DIR.trim();
- } else {
-  // Αυτόματη ανίχνευση κοινόχρηστου φακέλου δεδομένων ανεξάρτητα από γράμμα δίσκου
-  // ώστε να λειτουργεί σε υπολογιστές με Z:\ ή K:\.
-  const workspaceRoot = app.isPackaged 
-    ? path.resolve(process.resourcesPath, '..', '..', '..') // Portable: πίσω από resources
-    : path.resolve(__dirname, '..'); // Development: πίσω από public
-  
-  const configuredRoot = process.env.EFARMOGI_ROOT && process.env.EFARMOGI_ROOT.trim()
-    ? process.env.EFARMOGI_ROOT.trim()
-    : null;
-
-  const candidateRoots = [configuredRoot, 'Z:\\EFARMOGI', 'K:\\EFARMOGI', workspaceRoot]
-    .filter(Boolean)
-    .filter((root, index, arr) => arr.indexOf(root) === index);
-
-  const hasReadAccess = (targetPath) => {
-    try {
-      fs.accessSync(targetPath, fs.constants.R_OK);
-      return true;
-    } catch (error) {
-      return false;
-    }
-  };
-
-  const hasWriteAccess = (targetPath) => {
-    try {
-      fs.accessSync(targetPath, fs.constants.W_OK);
-      return true;
-    } catch (error) {
-      return false;
-    }
-  };
-
-  const candidateDataDirs = candidateRoots
-    .map(root => path.join(root, 'dedomena_ergon'))
-    .filter(candidate => fs.existsSync(candidate));
-
-  // Πρώτα θέλουμε να μπορούμε να διαβάσουμε τα δεδομένα.
-  // Προτιμούμε φάκελο με δυνατότητα εγγραφής, αλλά δεν αποτυγχάνουμε αν δεν υπάρχει.
-  const readableDirs = candidateDataDirs.filter(dir => hasReadAccess(dir));
-  const writableReadableDirs = readableDirs.filter(dir => hasWriteAccess(dir));
-
-  if (writableReadableDirs.length > 0) {
-    dataDir = writableReadableDirs[0];
-  } else if (readableDirs.length > 0) {
-    dataDir = readableDirs[0];
-  } else {
-    // Fallback: creation local path αν κανένα shared path δεν είναι διαθέσιμο/αναγνώσιμο.
-    dataDir = path.join(workspaceRoot, 'dedomena_ergon');
-  }
- }
+initConfigPath(app);
+let dataDir = resolveDataDir(app);
 
  console.log('Active dataDir:', dataDir);
 
