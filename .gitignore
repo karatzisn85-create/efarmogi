@@ -1,0 +1,53 @@
+﻿# Dependencies
+node_modules/
+
+# Build output
+build/
+dist/
+
+# Data folders (user data - not source code)
+dedomena_ergon/
+ektelestea_erga/
+
+# Folders with Greek names containing PDFs and documents
+*PDF/
+*PDF*/
+*ΕΓΓΡΑΦΑ*/
+*Εγγραφα*/
+*ΠΙΣΤΩΣ*/
+
+# Backups
+BACKUP_*/
+backup_*/
+migration_backup_*/
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Data files
+*.xlsx
+*.xls
+
+# Python cache
+__pycache__/
+*.pyc

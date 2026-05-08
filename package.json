@@ -1,0 +1,131 @@
+{
+  "name": "efarmogi-app",
+  "version": "1.0.0",
+  "description": "Desktop εφαρμογή διαχείρισης έργων",
+  "author": "Δήμος Αρχανών-Αστερούσιων",
+  "main": "public/electron.js",
+  "homepage": "./",
+  "private": true,
+  "dependencies": {
+    "@craco/craco": "^7.1.0",
+    "@testing-library/jest-dom": "^5.16.4",
+    "@testing-library/react": "^13.3.0",
+    "@testing-library/user-event": "^13.5.0",
+    "archiver": "^6.0.1",
+    "chart.js": "^3.9.1",
+    "concurrently": "^7.6.0",
+    "core-js": "^3.45.1",
+    "exceljs": "^4.4.0",
+    "fs-extra": "^11.2.0",
+    "node-schedule": "^2.1.1",
+    "path-browserify": "^1.0.1",
+    "pdfjs-dist": "^3.4.120",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^4.3.1",
+    "react-dom": "^18.2.0",
+    "react-pdf": "^6.2.2",
+    "react-router-dom": "^6.3.0",
+    "react-scripts": "5.0.1",
+    "styled-components": "^5.3.5",
+    "uuid": "^9.0.1",
+    "wait-on": "^6.0.1",
+    "web-vitals": "^2.1.4",
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0",
+    "yauzl": "^2.10.0"
+  },
+  "scripts": {
+    "start": "craco start",
+    "build": "set NODE_OPTIONS=--max-old-space-size=4096 && craco build",
+    "test": "craco test",
+    "eject": "react-scripts eject",
+    "electron": "electron . --disable-gpu --disable-gpu-sandbox",
+    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "clean-build-temp": "if exist build\\temp_uploads rmdir /s /q build\\temp_uploads 2>nul & if exist build\\electron.js del /q build\\electron.js 2>nul",
+    "electron-pack": "npm run build && npm run clean-build-temp && set NODE_OPTIONS=--max-old-space-size=8192 && node scripts/electron-builder-safe-runner.js",
+    "preelectron-pack": "npm run build",
+    "dist": "npm run build && npm run clean-build-temp && set NODE_OPTIONS=--max-old-space-size=8192 && node scripts/electron-builder-safe-runner.js",
+    "dist-debug": "npm run build && npm run clean-build-temp && electron-builder --win portable --x64"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@babel/plugin-transform-runtime": "^7.28.3",
+    "baseline-browser-mapping": "^2.8.31",
+    "electron": "^25.9.8",
+    "electron-builder": "^23.6.0"
+  },
+  "build": {
+    "appId": "com.efarmogi.app",
+    "productName": "ΕΦΑΡΜΟΓΗ ΔΙΑΧΕΙΡΙΣΗΣ ΕΡΓΩΝ",
+    "directories": {
+      "output": "Z:\\ΚΑΡΑΤΖΗΣ\\ΕΦΑΡΜΟΓΗ ΕΡΓΩΝ - ΕΚΤΕΛΕΣΙΜΟ ΑΡΧΕΙΟ",
+      "buildResources": "public"
+    },
+    "files": [
+      "build/static/**/*",
+      "build/index.html",
+      "build/asset-manifest.json",
+      "public/electron.js",
+      "public/**/*.js",
+      "apply_excel_validations.py",
+      "verify_export.py"
+    ],
+    "extraFiles": [],
+    "extraResources": [
+      {
+        "from": "apply_excel_validations.py",
+        "to": "apply_excel_validations.py"
+      },
+      {
+        "from": "verify_export.py",
+        "to": "verify_export.py"
+      }
+    ],
+    "extraMetadata": {
+      "main": "public/electron.js"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "public/electron.js"
+    ],
+    "compression": "store",
+    "buildDependenciesFromSource": false,
+    "npmRebuild": false,
+    "removePackageScripts": false,
+    "nodeGypRebuild": false,
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "EFARMOGI-App-${version}.${ext}"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
