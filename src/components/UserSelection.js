@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
+import ergohubLogo from '../assets/ergohub-logo.png';
 
 const ipcRenderer = window.electronAPI;
 
@@ -47,6 +48,14 @@ const HeaderSection = styled.div`
   margin-bottom: 2.5rem;
   z-index: 1;
   animation: ${fadeInDown} 0.8s ease-out;
+`;
+
+const LogoImg = styled.img`
+  width: 80px;
+  height: 80px;
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  margin-bottom: 12px;
 `;
 
 const AppBrand = styled.h1`
@@ -315,6 +324,7 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
   return (
     <Container>
       <HeaderSection>
+        <LogoImg src={ergohubLogo} alt="ERGOHUB" />
         <AppBrand>ERGOHUB</AppBrand>
         <AppTagline>Πληροφοριακό Σύστημα Διαχείρισης Έργων & Προμηθειών</AppTagline>
         {appConfig.organizationFullName && <OrgName>{appConfig.organizationFullName}</OrgName>}

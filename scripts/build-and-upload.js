@@ -17,6 +17,7 @@ const ROOT_DIR = path.join(__dirname, '..');
 let DROPBOX_TOKEN = null;
 const DROPBOX_FOLDER = '/ergohub';
 const DROPBOX_INSTALLER_FILENAME = 'ERGOHUB-Setup.exe';
+const DROPBOX_VERSION_FILENAME = 'version.json';
 
 const colors = {
   reset: '\x1b[0m',
@@ -309,7 +310,7 @@ async function main() {
     logStep(4, 6, 'Locating built file...');
     const distDir = path.join(ROOT_DIR, 'dist');
     const files = fs.readdirSync(distDir);
-    const exeFile = files.find(f => f.endsWith('.exe') && f.includes('ERGOHUB'));
+    const exeFile = files.find(f => f.endsWith('-Setup.exe') && f.includes('ERGOHUB'));
 
     if (!exeFile) {
       throw new Error('Could not find ERGOHUB exe in dist/ folder!');
