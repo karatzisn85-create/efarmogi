@@ -290,6 +290,7 @@ function EgkrisiForm({ projects, selectedProject, onClose }) {
     } else {
       setAvailableSubprojects([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.projectId, projects]);
 
   const handleInputChange = useCallback((e) => {

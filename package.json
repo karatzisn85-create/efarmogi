@@ -35,12 +35,12 @@
     "yauzl": "^2.10.0"
   },
   "scripts": {
-    "start": "craco start",
+    "start": "chcp 65001 >nul 2>&1 && electron . --no-sandbox",
+    "dev": "chcp 65001 >nul 2>&1 && electron . --inspect=5858 --no-sandbox",
     "build": "set NODE_OPTIONS=--max-old-space-size=4096 && craco build",
     "test": "craco test",
     "eject": "react-scripts eject",
     "electron": "electron . --disable-gpu --disable-gpu-sandbox",
-    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
     "clean-build-temp": "if exist build\\temp_uploads rmdir /s /q build\\temp_uploads 2>nul & if exist build\\electron.js del /q build\\electron.js 2>nul",
     "electron-pack": "npm run build && npm run clean-build-temp && set NODE_OPTIONS=--max-old-space-size=8192 && node scripts/electron-builder-safe-runner.js",
     "preelectron-pack": "npm run build",
@@ -67,7 +67,6 @@
   },
   "devDependencies": {
     "@babel/plugin-transform-runtime": "^7.28.3",
-    "baseline-browser-mapping": "^2.8.31",
     "electron": "^25.9.8",
     "electron-builder": "^23.6.0"
   },

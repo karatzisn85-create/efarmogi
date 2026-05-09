@@ -225,10 +225,6 @@ const SubprojectTitle = styled.div`
   color: #2c3e50;
 `;
 
-const SubprojectNumber = styled.div`
-  font-size: 0.9rem;
-  color: #6c757d;
-`;
 
 const SubprojectNumberInput = styled.input`
   font-size: 0.9rem;

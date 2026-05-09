@@ -88,7 +88,7 @@ const Card = styled.div`
   padding: 3rem;
   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
   text-align: center;
-  width: 380px;
+  width: 420px;
   animation: ${fadeIn} 0.8s ease-out;
   position: relative;
   z-index: 1;
@@ -129,7 +129,7 @@ const Input = styled.input`
   &::placeholder { color: #bbb; }
 `;
 
-const LoginButton = styled.button`
+const PrimaryButton = styled.button`
   width: 100%;
   padding: 14px;
   border-radius: 10px;
@@ -148,14 +148,89 @@ const LoginButton = styled.button`
   &:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 `;
 
+const ToggleLink = styled.button`
+  display: block;
+  margin: 18px auto 0;
+  background: none;
+  border: none;
+  color: #3b82f6;
+  font-size: 0.88rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  &:hover { color: #1d4ed8; text-decoration: underline; }
+`;
+
 const ErrorBox = styled.div`
   background: #ffeaea;
   color: #c62828;
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 0.9rem;
-  margin-top: 12px;
-  border: 1px solid #ffcdd2;
+  margin-bottom: 12px;
+  border- 1px solid #ffcdd2;
+  text-align: left;
+`;
+
+const SuccessBox = styled.div`
+  background: #e8f5e9;
+  color: #2e7d32;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+  border: 1px solid #c8e6c9;
+  text-align: left;
+  line-height: 1.5;
+`;
+
+const NoticeBox = styled.div`
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 0.82rem;
+  color: #92400e;
+  text-align: left;
+  line-height: 1.4;
+`;
+
+const RoleSelector = styled.div`
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+`;
+
+const RoleOption = styled.label`
+  flex: 1;
+  display: block;
+  padding: 14px 12px;
+  border: 2px solid ${p => p.selected ? '#2c3e50' : '#e0e0e0'};
+  border-radius: 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: ${p => p.selected ? '#eef2f7' : '#f8f9fa'};
+  ${p => p.selected && 'box-shadow: 0 0 0 3px rgba(44,62,80,0.1);'}
+
+  &:hover { border-color: #93a5b8; background: #eef2f7; }
+`;
+
+const RoleTitle = styled.span`
+  display: block;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: #1a2a3a;
+  margin-bottom: 2px;
+`;
+
+const RoleDesc = styled.span`
+  display: block;
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 400;
 `;
 
 const VersionText = styled.div`
@@ -166,26 +241,30 @@ const VersionText = styled.div`
 `;
 
 function UserSelection({ onUserSelect, appConfig = {} }) {
+  const [mode, setMode] = useState('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const [regUsername, setRegUsername] = useState('');
+  const [regFullName, setRegFullName] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirm, setRegConfirm] = useState('');
+  const [regRole, setRegRole] = useState('USER');
+  const [regError, setRegError] = useState('');
+  const [regSuccess, setRegSuccess] = useState('');
+  const [regLoading, setRegLoading] = useState(false);
 
   const handleLogin = async () => {
     if (!username.trim() || !password) {
       setError('Συμπληρώστε όνομα χρήστη και κωδικό');
       return;
     }
-
     setLoading(true);
     setError('');
-
     try {
-      const result = await ipcRenderer.invoke('authenticate', {
-        username: username.trim(),
-        password
-      });
-
+      const result = await ipcRenderer.invoke('authenticate', { username: username.trim(), password });
       if (result.success) {
         onUserSelect(result.user);
       } else {
@@ -195,12 +274,42 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
     } catch (err) {
       setError('Σφάλμα επικοινωνίας');
     }
-
     setLoading(false);
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') handleLogin();
+  const handleRegister = async () => {
+    setRegError('');
+    setRegSuccess('');
+    if (!regUsername.trim()) { setRegError('Εισάγετε όνομα χρήστη'); return; }
+    if (!regFullName.trim()) { setRegError('Εισάγετε ονοματεπώνυμο'); return; }
+    if (!regPassword || regPassword.length < 4) { setRegError('Ο κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες'); return; }
+    if (regPassword !== regConfirm) { setRegError('Οι κωδικοί δεν ταιριάζουν'); return; }
+
+    setRegLoading(true);
+    try {
+      const result = await ipcRenderer.invoke('register-user', {
+        username: regUsername.trim(),
+        password: regPassword,
+        role: regRole,
+        fullName: regFullName.trim()
+      });
+      if (result.success) {
+        setRegSuccess('Ο λογαριασμός δημιουργήθηκε! Αναμένει έγκριση από τον Υπερδιαχειριστή πριν μπορέσετε να συνδεθείτε.');
+        setRegUsername('');
+        setRegFullName('');
+        setRegPassword('');
+        setRegConfirm('');
+      } else {
+        setRegError(result.error);
+      }
+    } catch (err) {
+      setRegError('Σφάλμα επικοινωνίας');
+    }
+    setRegLoading(false);
+  };
+
+  const handleKeyDown = (e, action) => {
+    if (e.key === 'Enter') action();
   };
 
   return (
@@ -208,45 +317,91 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
       <HeaderSection>
         <AppBrand>ERGOHUB</AppBrand>
         <AppTagline>Πληροφοριακό Σύστημα Διαχείρισης Έργων & Προμηθειών</AppTagline>
-        {appConfig.organizationFullName && (
-          <OrgName>{appConfig.organizationFullName}</OrgName>
-        )}
-        {appConfig.department && (
-          <DeptName>{appConfig.department}</DeptName>
-        )}
+        {appConfig.organizationFullName && <OrgName>{appConfig.organizationFullName}</OrgName>}
+        {appConfig.department && <DeptName>{appConfig.department}</DeptName>}
       </HeaderSection>
 
       <Card>
-        <CardTitle>Σύνδεση</CardTitle>
+        {mode === 'login' ? (
+          <>
+            <CardTitle>Σύνδεση</CardTitle>
+            {error && <ErrorBox>{error}</ErrorBox>}
 
-        <FormGroup>
-          <Label>Όνομα χρήστη</Label>
-          <Input
-            type="text"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="π.χ. admin"
-            autoFocus
-          />
-        </FormGroup>
+            <FormGroup>
+              <Label>Όνομα χρήστη</Label>
+              <Input type="text" value={username} onChange={e => setUsername(e.target.value)}
+                onKeyDown={e => handleKeyDown(e, handleLogin)} placeholder="Εισάγετε το όνομα χρήστη" autoFocus />
+            </FormGroup>
 
-        <FormGroup>
-          <Label>Κωδικός</Label>
-          <Input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Εισάγετε κωδικό"
-          />
-        </FormGroup>
+            <FormGroup>
+              <Label>Κωδικός</Label>
+              <Input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => handleKeyDown(e, handleLogin)} placeholder="Εισάγετε τον κωδικό" />
+            </FormGroup>
 
-        <LoginButton onClick={handleLogin} disabled={loading}>
-          {loading ? 'Σύνδεση...' : 'Είσοδος'}
-        </LoginButton>
+            <PrimaryButton onClick={handleLogin} disabled={loading}>
+              {loading ? 'Σύνδεση...' : 'Είσοδος'}
+            </PrimaryButton>
 
-        {error && <ErrorBox>{error}</ErrorBox>}
+            <ToggleLink onClick={() => { setMode('register'); setError(''); }}>
+              Δημιουργία νέου λογαριασμού
+            </ToggleLink>
+          </>
+        ) : (
+          <>
+            <CardTitle>Νέος Λογαριασμός</CardTitle>
+            {regSuccess && <SuccessBox>{regSuccess}</SuccessBox>}
+            {regError && <ErrorBox>{regError}</ErrorBox>}
+
+            <FormGroup>
+              <Label>Όνομα χρήστη</Label>
+              <Input type="text" value={regUsername} onChange={e => setRegUsername(e.target.value)}
+                placeholder="π.χ. giannis_k" />
+            </FormGroup>
+
+            <FormGroup>
+              <Label>Ονοματεπώνυμο</Label>
+              <Input type="text" value={regFullName} onChange={e => setRegFullName(e.target.value)}
+                placeholder="π.χ. Γιάννης Παπαδόπουλος" />
+            </FormGroup>
+
+            <FormGroup>
+              <Label>Κωδικός</Label>
+              <Input type="password" value={regPassword} onChange={e => setRegPassword(e.target.value)}
+                placeholder="Τουλάχιστον 4 χαρακτήρες" />
+            </FormGroup>
+
+            <FormGroup>
+              <Label>Επιβεβαίωση κωδικού</Label>
+              <Input type="password" value={regConfirm} onChange={e => setRegConfirm(e.target.value)}
+                onKeyDown={e => handleKeyDown(e, handleRegister)} placeholder="Πληκτρολογήστε ξανά τον κωδικό" />
+            </FormGroup>
+
+            <Label style={{ marginBottom: 8 }}>Ρόλος</Label>
+            <RoleSelector>
+              <RoleOption selected={regRole === 'USER'} onClick={() => setRegRole('USER')}>
+                <RoleTitle>Χρήστης</RoleTitle>
+                <RoleDesc>Μόνο προβολή</RoleDesc>
+              </RoleOption>
+              <RoleOption selected={regRole === 'ADMIN'} onClick={() => setRegRole('ADMIN')}>
+                <RoleTitle>Διαχειριστής</RoleTitle>
+                <RoleDesc>Πλήρης διαχείριση</RoleDesc>
+              </RoleOption>
+            </RoleSelector>
+
+            <NoticeBox>
+              Κάθε νέος λογαριασμός απαιτεί έγκριση από τον Υπερδιαχειριστή πριν μπορέσετε να συνδεθείτε.
+            </NoticeBox>
+
+            <PrimaryButton onClick={handleRegister} disabled={regLoading}>
+              {regLoading ? 'Δημιουργία...' : 'Δημιουργία Λογαριασμού'}
+            </PrimaryButton>
+
+            <ToggleLink onClick={() => { setMode('login'); setRegError(''); setRegSuccess(''); }}>
+              Έχω ήδη λογαριασμό — Σύνδεση
+            </ToggleLink>
+          </>
+        )}
       </Card>
 
       <VersionText>ERGOHUB v{appConfig.appVersion || '1.0.0'}</VersionText>

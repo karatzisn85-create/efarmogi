@@ -276,25 +276,6 @@ const ActionButton = styled.button`
   }
 `;
 
-const EditButton = styled(ActionButton)`
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  color: white;
-
-  &:hover {
-    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-    box-shadow: 0 6px 20px rgba(79, 172, 254, 0.4);
-  }
-`;
-
-const DeleteButton = styled(ActionButton)`
-  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-  color: white;
-
-  &:hover {
-    background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
-    box-shadow: 0 6px 20px rgba(250, 112, 154, 0.4);
-  }
-`;
 
 const FilesButton = styled(ActionButton)`
   background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
@@ -430,14 +411,6 @@ function ProjectCard({
   onOpenSpecificProsklisi,
   onViewDetails
 }) {
-
-  const handleEdit = () => {
-    if (isLocked) {
-      alert('Το υποέργο είναι υπό επεξεργασία από άλλον διαχειριστή!');
-      return;
-    }
-    onEdit(project);
-  };
 
   const handleCardClick = (e) => {
     // Αγνοούμε click αν προέρχεται από κουμπί ή interactive element

@@ -171,18 +171,6 @@ const QuickSearchContainer = styled.div`
   width: 100%;
 `;
 
-const QuickSearchTitle = styled.h3`
-  color: #333;
-  font-size: 0.9rem;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-`;
-
 const QuickSearchGrid = styled.div`
   display: flex;
   flex-direction: column;
@@ -1644,9 +1632,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
     checklist: [] // Array of { id, text, completed }
   });
   const [notesSearch, setNotesSearch] = useState('');
-  const [notesSortBy, setNotesSortBy] = useState('createdAt'); // createdAt, dueDate, priority, status, title
-  const [notesFilterStatus, setNotesFilterStatus] = useState('all'); // all, new, in-progress, completed
-  const [notesFilterPriority, setNotesFilterPriority] = useState('all'); // all, low, medium, high
+  // eslint-disable-next-line no-unused-vars
+  const [notesSortBy, _setNotesSortBy] = useState('createdAt');
+  // eslint-disable-next-line no-unused-vars
+  const [notesFilterStatus, _setNotesFilterStatus] = useState('all');
+  // eslint-disable-next-line no-unused-vars
+  const [notesFilterPriority, _setNotesFilterPriority] = useState('all');
   const [editingNote, setEditingNote] = useState(null);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [selectedNoteForModal, setSelectedNoteForModal] = useState(null);
@@ -2659,24 +2650,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
       return false;
     }
     
-    // Helper function για κανονικοποίηση κειμένου
-    const normalizeText = (text) => {
-      if (!text) return '';
-      return text
-        .replace(/\\n/g, ' ')
-        .replace(/\n/g, ' ')
-        .replace(/\r/g, ' ')
-        .replace(/\t/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase();
-    };
     
     // Ελέγχουμε αν κάποια έγκριση είναι συσχετισμένη με αυτό το υποέργο
     // Ελέγχουμε ΤΟΥΣ ΔΥΟ: subprojectId (UUID) ΚΑΙ subprojectTitle για ακριβή ταίριασμα
     // Αυτό αποφεύγει λάθος links που έχουν σωστό subprojectId αλλά λάθος τίτλο
-    const normalizedSubprojectTitle = normalizeText(subprojectTitle || '');
-    
     const hasLink = Object.values(linkedEgkriseis).some(link => {
       if (!link) return false;
       
@@ -2688,8 +2665,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
       // ΔΕΥΤΕΡΟ: Ελέγχουμε και τον τίτλο - αλλά με πιο ευέλικτο τρόπο
       // Το subprojectId είναι το πιο σημαντικό - αν ταιριάζει, το link είναι έγκυρο
       // Ο τίτλος μπορεί να έχει μικρές διαφορές (π.χ. case, whitespace) αλλά το subprojectId είναι μοναδικό
-      const linkTitle = normalizeText(link.subprojectTitle || link.egkrisiTitle || '');
-      
       // Αν το subprojectId ταιριάζει, το link είναι έγκυρο
       // Το subprojectId (UUID) είναι το πιο σημαντικό - είναι μοναδικό και αξιόπιστο
       // Ο τίτλος μπορεί να έχει μικρές διαφορές (π.χ. case, whitespace, punctuation)
@@ -3634,23 +3609,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     }
   }, [notes, noteGroups, editingNote, selectedNoteGroupId]);
 
-  const handleEditNote = useCallback((note) => {
-    setEditingNote(note);
-    setNoteForm({
-      title: note.title || '',
-      content: note.content || '',
-      tags: note.tags ? note.tags.join(', ') : '',
-      groupId: note.groupId || selectedNoteGroupId || DEFAULT_NOTE_GROUP_ID
-    });
-    setSelectedNoteGroupId(note.groupId || selectedNoteGroupId || DEFAULT_NOTE_GROUP_ID);
-    
-    // Scroll to top of notes composer
-    const composerElement = document.querySelector('[data-note-composer]');
-    if (composerElement) {
-      composerElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [selectedNoteGroupId]);
-
   const handleOpenNoteModal = useCallback((note) => {
     setSelectedNoteForModal({ ...note });
     setIsNoteModalOpen(true);
@@ -3716,24 +3674,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setSelectedNoteForModal(prev => ({
       ...prev,
       checklist: [...(prev.checklist || []), newItem]
-    }));
-  }, [selectedNoteForModal]);
-
-  const handleUpdateChecklistItem = useCallback((itemId, field, value) => {
-    if (!selectedNoteForModal) return;
-    setSelectedNoteForModal(prev => ({
-      ...prev,
-      checklist: (prev.checklist || []).map(item =>
-        item.id === itemId ? { ...item, [field]: value } : item
-      )
-    }));
-  }, [selectedNoteForModal]);
-
-  const handleRemoveChecklistItem = useCallback((itemId) => {
-    if (!selectedNoteForModal) return;
-    setSelectedNoteForModal(prev => ({
-      ...prev,
-      checklist: (prev.checklist || []).filter(item => item.id !== itemId)
     }));
   }, [selectedNoteForModal]);
 
@@ -4236,13 +4176,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               <RefreshGlow />
             </RefreshButton>
             
-            <BackupButton onClick={() => setIsBackupManagerOpen(true)}>
-              <BackupIcon>💾</BackupIcon>
-              <BackupText>
-                BACKUP<br/>ΔΕΔΟΜΕΝΩΝ
-              </BackupText>
-            </BackupButton>
-            
             <BackupButton 
               onClick={() => setIsAuditLogOpen(true)}
               style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', border: '2px solid rgba(255, 255, 255, 0.35)' }}
@@ -4255,6 +4188,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
             {userRole === 'SUPERADMIN' && (
               <>
+                <BackupButton onClick={() => setIsBackupManagerOpen(true)}>
+                  <BackupIcon>💾</BackupIcon>
+                  <BackupText>
+                    BACKUP<br/>ΔΕΔΟΜΕΝΩΝ
+                  </BackupText>
+                </BackupButton>
                 <BackupButton 
                   onClick={() => setIsUserManagementOpen(true)}
                   style={{ background: 'linear-gradient(135deg, #7b1fa2 0%, #6a1b9a 100%)', border: '2px solid rgba(255, 255, 255, 0.35)' }}
@@ -4950,6 +4889,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         <AuditLogViewer
           isOpen={isAuditLogOpen}
           onClose={() => setIsAuditLogOpen(false)}
+          currentUser={currentUser}
         />
       )}
 

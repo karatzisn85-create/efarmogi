@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import EntaxisForm from './EntaxisForm';
 import ModificationForm from './ModificationForm';
@@ -519,17 +519,6 @@ const EntaxisActions = styled.div`
   gap: 0.5rem;
 `;
 
-const ButtonRow = styled.div`
-  display: flex;
-  gap: 0.4rem;
-  justify-content: flex-start;
-  align-items: center;
-  margin-bottom: 0.3rem;
-  
-  &:last-child {
-    margin-bottom: 0;
-  }
-`;
 
 const SmallButton = styled.button`
   padding: 0.5rem 1rem;
@@ -667,6 +656,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
     if (entaxeis.length > 0) {
       loadEntaxisLocks();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entaxeis]);
 
   // Realtime lock monitoring για entaxeis - αθόρυβο με βελτιστοποίηση

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 
 const ipcRenderer = window.electronAPI;
@@ -201,6 +201,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     if (isOpen && prosklisiId) {
       loadFiles();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, prosklisiId]);
 
   const loadFiles = async () => {
@@ -284,21 +285,6 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     } catch (error) {
       console.error('Error loading folder contents:', error);
       alert('Σφάλμα φόρτωσης περιεχομένων φακέλου: ' + error.message);
-    }
-  };
-
-  const handleViewFolderContents = async (folderName, targetFolder) => {
-    try {
-      const result = await ipcRenderer.invoke('get-folder-contents', prosklisiId, folderName, targetFolder);
-      if (result.success) {
-        // Show folder contents in a modal
-        showFolderContentsModal(folderName, result.contents, targetFolder);
-      } else {
-        alert('Σφάλμα φόρτωσης περιεχομένων φακέλου: ' + result.error);
-      }
-    } catch (error) {
-      console.error('Error viewing folder contents:', error);
-      alert('Σφάλμα προβολής περιεχομένων φακέλου: ' + error.message);
     }
   };
 

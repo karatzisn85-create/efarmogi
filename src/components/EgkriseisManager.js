@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import ImportEgkriseisWizard from './ImportEgkriseisWizard';
 import EgkrisiForm from './EgkrisiForm';
@@ -46,14 +46,6 @@ const ModalContent = styled.div`
   padding: 2rem;
 `;
 
-const Header = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-  padding-bottom: 20px;
-  border-bottom: 2px solid #e0e0e0;
-`;
 
 const ModalTitle = styled.h2`
   margin: 0;
@@ -317,6 +309,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
     if (isOpen) {
       loadAllEgkriseis();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // Load egkrisi links after projects are loaded
@@ -324,6 +317,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
     if (isOpen && projects && projects.length > 0) {
       loadEgkrisiLinks();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, projects]);
 
   // Load egkriseis locks after egkriseis data is loaded
@@ -331,6 +325,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
     if (Object.keys(egkriseisData).length > 0) {
       loadEgkriseisLocks();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [egkriseisData]);
 
   // Realtime lock monitoring για egkriseis - αθόρυβο με βελτιστοποίηση

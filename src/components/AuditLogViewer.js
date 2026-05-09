@@ -274,7 +274,7 @@ const StatValue = styled.div`
   color: #333;
 `;
 
-function AuditLogViewer({ isOpen, onClose }) {
+function AuditLogViewer({ isOpen, onClose, currentUser }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [rollingBack, setRollingBack] = useState(null);
@@ -284,6 +284,8 @@ function AuditLogViewer({ isOpen, onClose }) {
     startDate: '',
     endDate: ''
   });
+
+  const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
 
   const loadAuditLog = useCallback(async () => {
     setLoading(true);
@@ -297,7 +299,12 @@ function AuditLogViewer({ isOpen, onClose }) {
       });
       
       if (result.success) {
-        setLogs(result.logs);
+        const allLogs = result.logs || [];
+        if (isSuperAdmin) {
+          setLogs(allLogs);
+        } else {
+          setLogs(allLogs.filter(l => l.user === currentUser?.username || l.user === currentUser?.fullName));
+        }
       } else {
         console.error('Error loading audit log:', result.error);
         alert('Σφάλμα φόρτωσης ιστορικού: ' + result.error);
@@ -308,7 +315,7 @@ function AuditLogViewer({ isOpen, onClose }) {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, isSuperAdmin, currentUser]);
 
   useEffect(() => {
     if (isOpen) {
@@ -440,7 +447,7 @@ function AuditLogViewer({ isOpen, onClose }) {
     <ModalOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <ModalContainer>
         <ModalHeader>
-          <ModalTitle>📋 Ιστορικό Αλλαγών (Audit Log)</ModalTitle>
+          <ModalTitle>📋 Ιστορικό Αλλαγών {!isSuperAdmin && '(Οι δικές μου ενέργειες)'}</ModalTitle>
           <CloseButton onClick={onClose}>✕ Κλείσιμο</CloseButton>
         </ModalHeader>
         

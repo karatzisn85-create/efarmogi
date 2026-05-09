@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import ProsklisisForm from './ProsklisisForm';
 import ProsklisisFileManager from './ProsklisisFileManager';
@@ -834,6 +834,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
         loadProsklisiLocks();
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   useEffect(() => {
@@ -844,6 +845,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
     if (proskliseis.length > 0) {
       loadProsklisiLocks();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proskliseis]);
 
   // Realtime lock monitoring για proskliseis - αθόρυβο με βελτιστοποίηση
@@ -1608,16 +1610,6 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
   const getUniqueStatuses = () => {
     const statuses = [...new Set(proskliseis.map(p => p.status).filter(Boolean))];
     return statuses.sort();
-  };
-
-  const getUniqueAxes = () => {
-    const axes = [...new Set(proskliseis.map(p => p.axis).filter(Boolean))];
-    return axes.sort();
-  };
-
-  const getUniqueFundingSources = () => {
-    const sources = [...new Set(proskliseis.map(p => p.fundingSource).filter(Boolean))];
-    return sources.sort();
   };
 
   const handleClearFilters = () => {

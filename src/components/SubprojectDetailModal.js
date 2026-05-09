@@ -1,4 +1,4 @@
-﻿import React, { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import styled from 'styled-components';
 import { PROJECT_STATUSES } from '../data/formOptions';
 

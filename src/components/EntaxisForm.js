@@ -363,7 +363,8 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
   const [filteredProjects, setFilteredProjects] = useState([]);
-  const [fileUpdateTrigger, setFileUpdateTrigger] = useState(0); // Force re-render trigger
+  // eslint-disable-next-line no-unused-vars
+  const [_fileUpdateTrigger, setFileUpdateTrigger] = useState(0);
 
   useEffect(() => {
     if (isOpen) {
@@ -413,6 +414,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
     } else {
       setSubprojects([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.projectId]);
 
   useEffect(() => {

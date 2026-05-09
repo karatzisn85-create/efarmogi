@@ -207,31 +207,6 @@ const Select = styled.select`
 `;
 
 
-const ContractSection = styled.div`
-  background: #f8f9fa;
-  padding: 1.5rem;
-  border-radius: 10px;
-  margin: 1rem 0;
-  border: 2px solid #dee2e6;
-`;
-
-const ContractTitle = styled.h4`
-  color: #495057;
-  margin-bottom: 1rem;
-  font-size: 1.1rem;
-`;
-
-const ContractGrid = styled.div`
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
-  gap: 1rem;
-  align-items: end;
-  min-width: 0;
-
-  @media (max-width: 768px) {
-    grid-template-columns: 1fr;
-  }
-`;
 
 const AddContractButton = styled.button`
   background: #28a745;
@@ -365,30 +340,6 @@ const RemoveAleButton = styled.button`
   }
 `;
 
-const SupplementarySection = styled.div`
-  background: #e8f5e8;
-  padding: 1.5rem;
-  border-radius: 10px;
-  margin-top: 1rem;
-  border: 2px solid #28a745;
-`;
-
-const SupplementaryTitle = styled.h4`
-  color: #155724;
-  margin-bottom: 1rem;
-  font-size: 1.1rem;
-`;
-
-const SupplementaryGrid = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr 2fr;
-  gap: 1rem;
-  margin-bottom: 1rem;
-
-  @media (max-width: 768px) {
-    grid-template-columns: 1fr;
-  }
-`;
 
 const AddSupplementaryButton = styled.button`
   background: #28a745;

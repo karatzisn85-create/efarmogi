@@ -233,6 +233,7 @@ function EgkriseisStructureViewer() {
 
   useEffect(() => {
     loadStructure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadStructure = async () => {

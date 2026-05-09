@@ -453,7 +453,8 @@ function BackupManager({ isOpen, onClose }) {
   const [selectedBackup, setSelectedBackup] = useState(null);
   const [restoreType, setRestoreType] = useState('full'); // 'full', 'selective', 'merge'
   const [selectedItems, setSelectedItems] = useState([]);
-  const [restorePreview, setRestorePreview] = useState(null);
+  // eslint-disable-next-line no-unused-vars
+  const [_restorePreview, _setRestorePreview] = useState(null);
   const [restoreInProgress, setRestoreInProgress] = useState(false);
   
   // Load backups on mount

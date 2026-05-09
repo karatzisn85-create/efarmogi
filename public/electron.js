@@ -276,12 +276,35 @@ ipcMain.handle('authenticate', async (_event, { username, password }) => {
   const hashed = hashPassword(password);
   const user = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.passwordHash === hashed && u.active !== false);
   if (!user) return { success: false, error: 'Λάθος όνομα χρήστη ή κωδικός' };
+  if (user.approved === false) return { success: false, error: 'Ο λογαριασμός σας αναμένει έγκριση από τον διαχειριστή' };
   return { success: true, user: { username: user.username, role: user.role, fullName: user.fullName } };
+});
+
+ipcMain.handle('register-user', async (_event, { username, password, role, fullName }) => {
+  const users = loadUsers();
+  if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
+    return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
+  }
+  const allowedRoles = ['ADMIN', 'USER'];
+  if (!allowedRoles.includes(role)) return { success: false, error: 'Μη έγκυρος ρόλος' };
+  if (!password || password.length < 4) return { success: false, error: 'Ο κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες' };
+
+  users.push({
+    username: username.trim(),
+    passwordHash: hashPassword(password),
+    role,
+    fullName: fullName || username,
+    active: true,
+    approved: false,
+    createdAt: new Date().toISOString()
+  });
+  saveUsers(users);
+  return { success: true };
 });
 
 ipcMain.handle('get-users', async () => {
   const users = loadUsers();
-  return users.map(u => ({ username: u.username, role: u.role, fullName: u.fullName, active: u.active !== false, createdAt: u.createdAt }));
+  return users.map(u => ({ username: u.username, role: u.role, fullName: u.fullName, active: u.active !== false, approved: u.approved !== false, createdAt: u.createdAt }));
 });
 
 ipcMain.handle('create-user', async (_event, { username, password, role, fullName }) => {
@@ -312,6 +335,7 @@ ipcMain.handle('update-user', async (_event, { username, updates }) => {
   if (updates.fullName !== undefined) users[idx].fullName = updates.fullName;
   if (updates.role !== undefined) users[idx].role = updates.role;
   if (updates.active !== undefined) users[idx].active = updates.active;
+  if (updates.approved !== undefined) users[idx].approved = updates.approved;
   if (updates.password) users[idx].passwordHash = hashPassword(updates.password);
 
   saveUsers(users);

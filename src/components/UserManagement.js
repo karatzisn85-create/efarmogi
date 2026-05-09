@@ -17,7 +17,7 @@ const Panel = styled.div`
   background: white;
   border-radius: 16px;
   padding: 32px;
-  max-width: 700px;
+  max-width: 800px;
   width: 90%;
   max-height: 85vh;
   overflow-y: auto;
@@ -48,6 +48,26 @@ const CloseBtn = styled.button`
   &:hover { background: #f0f0f0; color: #333; }
 `;
 
+const SectionTitle = styled.h3`
+  margin: 0 0 12px 0;
+  color: #555;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const PendingBadge = styled.span`
+  display: inline-block;
+  background: #ff9800;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+`;
+
 const Table = styled.table`
   width: 100%;
   border-collapse: collapse;
@@ -68,6 +88,10 @@ const Table = styled.table`
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
+`;
+
+const PendingTable = styled(Table)`
+  th { background: #fff8e1; }
 `;
 
 const RoleBadge = styled.span`
@@ -98,10 +122,15 @@ const ActionBtn = styled.button`
   font-size: 12px;
   cursor: pointer;
   margin-right: 4px;
+  font-family: inherit;
   transition: all 0.15s;
   
   &:hover { background: #f5f5f5; border-color: #bbb; }
   &.danger:hover { background: #ffeaea; border-color: #ef9a9a; color: #c62828; }
+  &.approve { border-color: #4caf50; color: #2e7d32; }
+  &.approve:hover { background: #e8f5e9; }
+  &.reject { border-color: #ef5350; color: #c62828; }
+  &.reject:hover { background: #ffeaea; }
 `;
 
 const FormSection = styled.div`
@@ -169,6 +198,7 @@ const PrimaryBtn = styled.button`
   color: white;
   font-size: 14px;
   font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
   &:hover { opacity: 0.9; }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -181,6 +211,7 @@ const SecondaryBtn = styled.button`
   background: white;
   color: #333;
   font-size: 14px;
+  font-family: inherit;
   cursor: pointer;
   &:hover { background: #f5f5f5; }
 `;
@@ -193,6 +224,10 @@ const Message = styled.div`
   background: ${p => p.error ? '#ffeaea' : '#e8f5e9'};
   color: ${p => p.error ? '#c62828' : '#2e7d32'};
   border: 1px solid ${p => p.error ? '#ffcdd2' : '#c8e6c9'};
+`;
+
+const EmptyRow = styled.tr`
+  td { color: #999; font-style: italic; text-align: center !important; }
 `;
 
 const ROLE_LABELS = {
@@ -214,6 +249,9 @@ function UserManagement({ onClose, currentUser }) {
   }, []);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
+
+  const pendingUsers = users.filter(u => !u.approved);
+  const approvedUsers = users.filter(u => u.approved);
 
   const resetForm = () => {
     setFormData({ username: '', password: '', fullName: '', role: 'USER' });
@@ -272,6 +310,20 @@ function UserManagement({ onClose, currentUser }) {
     loadUsers();
   };
 
+  const handleApprove = async (user) => {
+    await ipcRenderer.invoke('update-user', {
+      username: user.username,
+      updates: { approved: true }
+    });
+    loadUsers();
+  };
+
+  const handleReject = async (user) => {
+    if (!window.confirm(`Απόρριψη και διαγραφή αιτήματος του "${user.username}";`)) return;
+    await ipcRenderer.invoke('delete-user', { username: user.username });
+    loadUsers();
+  };
+
   const handleDelete = async (user) => {
     if (!window.confirm(`Διαγραφή χρήστη "${user.username}";`)) return;
     const result = await ipcRenderer.invoke('delete-user', { username: user.username });
@@ -290,6 +342,42 @@ function UserManagement({ onClose, currentUser }) {
           <CloseBtn onClick={onClose}>&times;</CloseBtn>
         </Header>
 
+        {pendingUsers.length > 0 && (
+          <>
+            <SectionTitle>
+              Αιτήματα Εγγραφής <PendingBadge>{pendingUsers.length}</PendingBadge>
+            </SectionTitle>
+            <PendingTable>
+              <thead>
+                <tr>
+                  <th>Χρήστης</th>
+                  <th>Ονοματεπώνυμο</th>
+                  <th>Ρόλος</th>
+                  <th>Ημ. Αίτησης</th>
+                  <th>Ενέργειες</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingUsers.map(u => (
+                  <tr key={u.username}>
+                    <td><strong>{u.username}</strong></td>
+                    <td>{u.fullName}</td>
+                    <td><RoleBadge role={u.role}>{ROLE_LABELS[u.role] || u.role}</RoleBadge></td>
+                    <td style={{ fontSize: 12, color: '#888' }}>
+                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString('el-GR') : '-'}
+                    </td>
+                    <td>
+                      <ActionBtn className="approve" onClick={() => handleApprove(u)}>Έγκριση</ActionBtn>
+                      <ActionBtn className="reject" onClick={() => handleReject(u)}>Απόρριψη</ActionBtn>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </PendingTable>
+          </>
+        )}
+
+        <SectionTitle>Ενεργοί Χρήστες</SectionTitle>
         <Table>
           <thead>
             <tr>
@@ -301,25 +389,31 @@ function UserManagement({ onClose, currentUser }) {
             </tr>
           </thead>
           <tbody>
-            {users.map(u => (
-              <tr key={u.username}>
-                <td><StatusDot active={u.active} />{u.active ? 'Ενεργός' : 'Ανενεργός'}</td>
-                <td><strong>{u.username}</strong></td>
-                <td>{u.fullName}</td>
-                <td><RoleBadge role={u.role}>{ROLE_LABELS[u.role] || u.role}</RoleBadge></td>
-                <td>
-                  <ActionBtn onClick={() => handleEdit(u)}>Επεξεργασία</ActionBtn>
-                  {u.username !== currentUser.username && (
-                    <>
-                      <ActionBtn onClick={() => handleToggleActive(u)}>
-                        {u.active ? 'Απενεργοποίηση' : 'Ενεργοποίηση'}
-                      </ActionBtn>
-                      <ActionBtn className="danger" onClick={() => handleDelete(u)}>Διαγραφή</ActionBtn>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {approvedUsers.length === 0 ? (
+              <EmptyRow><td colSpan="5">Δεν υπάρχουν εγκεκριμένοι χρήστες</td></EmptyRow>
+            ) : (
+              approvedUsers.map(u => (
+                <tr key={u.username}>
+                  <td><StatusDot active={u.active} />{u.active ? 'Ενεργός' : 'Ανενεργός'}</td>
+                  <td><strong>{u.username}</strong></td>
+                  <td>{u.fullName}</td>
+                  <td><RoleBadge role={u.role}>{ROLE_LABELS[u.role] || u.role}</RoleBadge></td>
+                  <td>
+                    {u.role !== 'SUPERADMIN' && (
+                      <ActionBtn onClick={() => handleEdit(u)}>Επεξεργασία</ActionBtn>
+                    )}
+                    {u.username !== currentUser.username && u.role !== 'SUPERADMIN' && (
+                      <>
+                        <ActionBtn onClick={() => handleToggleActive(u)}>
+                          {u.active ? 'Απενεργοποίηση' : 'Ενεργοποίηση'}
+                        </ActionBtn>
+                        <ActionBtn className="danger" onClick={() => handleDelete(u)}>Διαγραφή</ActionBtn>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </Table>
 
