@@ -51,3 +51,7 @@ yarn-error.log*
 # Python cache
 __pycache__/
 *.pyc
+
+# Secrets
+.env
+.dropbox-token-cache.json
