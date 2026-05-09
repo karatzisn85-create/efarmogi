@@ -49,53 +49,31 @@ const EgkriseisFormComponent = EgkriseisForm;
 
 const DashboardContainer = styled.div`
   min-height: 100vh;
-  background: #ffffff;
+  background: linear-gradient(160deg, #f8fafc 0%, #eef2ff 40%, #f0f9ff 70%, #f8fafc 100%);
   padding: 0;
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
-  
-  /* Enhanced scrollbar for dashboard */
+
   &::-webkit-scrollbar {
-    width: 16px;
+    width: 10px;
   }
 
   &::-webkit-scrollbar-track {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
-    border-radius: 15px;
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-    backdrop-filter: blur(10px);
+    background: rgba(241, 245, 249, 0.8);
   }
 
   &::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.6) 100%);
-    border-radius: 15px;
-    border: 3px solid rgba(102, 126, 234, 0.3);
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    backdrop-filter: blur(15px);
+    background: linear-gradient(180deg, #94a3b8 0%, #64748b 100%);
+    border-radius: 10px;
+    border: 2px solid rgba(241, 245, 249, 0.8);
+    transition: all 0.3s ease;
   }
 
   &::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.8) 100%);
-    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
-    transform: scale(1.08);
-    border-color: rgba(102, 126, 234, 0.5);
+    background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
   }
 
-  &::-webkit-scrollbar-thumb:active {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
-    box-shadow: 0 3px 10px rgba(102, 126, 234, 0.7);
-    transform: scale(1.02);
-  }
-
-  &::-webkit-scrollbar-corner {
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(10px);
-  }
-
-  /* Smooth scrolling */
   scroll-behavior: smooth;
 `;
 
@@ -103,13 +81,26 @@ const Header = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2rem;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border-radius: 15px;
-  padding: 1.5rem;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  margin-left: 240px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  padding: 1rem 2rem;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.25), 0 1px 0 rgba(99, 102, 241, 0.15);
   position: relative;
+  z-index: 100;
+
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.5), rgba(139, 92, 246, 0.5), transparent);
+  }
+
+  @media (max-width: 1200px) {
+    margin-left: 0;
+  }
 `;
 
 const CenteredTitleContainer = styled.div`
@@ -121,133 +112,131 @@ const CenteredTitleContainer = styled.div`
 `;
 
 const MainTitle = styled.h1`
-  color: #1a237e;
-  font-size: 2.2rem;
-  font-weight: 700;
-  margin: 0 0 0.5rem 0;
+  color: #f8fafc;
+  font-size: 1.65rem;
+  font-weight: 800;
+  margin: 0 0 0.25rem 0;
   line-height: 1.2;
   font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
   text-transform: uppercase;
-  letter-spacing: 2px;
-  background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
+  letter-spacing: 2.5px;
+  background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 30%, #a5b4fc 60%, #e0e7ff 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  position: relative;
-  padding-bottom: 0.5rem;
-  
-  &::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100px;
-    height: 3px;
-    background: linear-gradient(90deg, transparent, #ffd700, transparent);
-    border-radius: 2px;
-  }
+  text-shadow: none;
 `;
 
 const SubTitle = styled.h2`
-  color: #3949ab;
-  font-size: 1.6rem;
-  font-weight: 600;
-  margin: 0.5rem 0 0 0;
+  color: rgba(148, 163, 184, 0.9);
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin: 0;
   line-height: 1.3;
   font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
 `;
 
 const QuickSearchContainer = styled.div`
-  background: rgba(255, 255, 255, 0.98);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%);
   backdrop-filter: blur(20px);
-  border-radius: 15px;
+  border-radius: 12px;
   padding: 12px;
-  margin-top: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  margin-top: 8px;
+  margin-bottom: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.25);
   width: 100%;
 `;
 
 const QuickSearchGrid = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 `;
 
 const SearchInputContainer = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
 `;
 
 const SearchLabel = styled.label`
-  color: #555;
-  font-size: 0.75rem;
-  font-weight: 600;
+  color: rgba(203, 213, 225, 0.85);
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.5px;
 `;
 
 const SearchInput = styled.input`
   padding: 8px 10px;
-  border: 2px solid #e0e0e0;
-  border-radius: 6px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 7px;
   font-size: 0.8rem;
-  transition: all 0.3s ease;
-  background: white;
+  transition: all 0.25s ease;
+  background: rgba(15, 23, 42, 0.6);
+  color: #f1f5f9;
   width: 100%;
-  
+
   &:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+    border-color: rgba(139, 92, 246, 0.65);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    background: rgba(15, 23, 42, 0.85);
   }
-  
+
   &::placeholder {
-    color: #999;
+    color: rgba(148, 163, 184, 0.6);
     font-size: 0.75rem;
   }
 `;
 
 const SearchSelect = styled.select`
   padding: 8px 10px;
-  border: 2px solid #e0e0e0;
-  border-radius: 6px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 7px;
   font-size: 0.8rem;
-  transition: all 0.3s ease;
-  background: white;
+  transition: all 0.25s ease;
+  background: rgba(15, 23, 42, 0.6);
+  color: #f1f5f9;
   cursor: pointer;
   width: 100%;
-  
+
   &:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+    border-color: rgba(139, 92, 246, 0.65);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    background: rgba(15, 23, 42, 0.85);
+  }
+
+  option {
+    background: #1e293b;
+    color: #f1f5f9;
   }
 `;
 
 const ClearButton = styled.button`
   padding: 8px 12px;
-  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 7px;
+  font-size: 0.7rem;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.25s ease;
   width: 100%;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
-  
+  letter-spacing: 0.4px;
+
   &:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+    background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
   }
-  
+
   &:active {
     transform: translateY(0);
   }
@@ -256,29 +245,44 @@ const ClearButton = styled.button`
 const UserInfo = styled.div`
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
+  z-index: 1;
 `;
 
 const UserRole = styled.span`
-  background: ${props => props.role === 'SUPERADMIN' ? '#7b1fa2' : props.role === 'ADMIN' ? '#2196F3' : '#4CAF50'};
+  background: ${props => props.role === 'SUPERADMIN'
+    ? 'linear-gradient(135deg, #7c3aed, #6d28d9)'
+    : props.role === 'ADMIN'
+      ? 'linear-gradient(135deg, #3b82f6, #2563eb)'
+      : 'linear-gradient(135deg, #10b981, #059669)'};
   color: white;
-  padding: 0.5rem 1rem;
+  padding: 0.45rem 1rem;
   border-radius: 20px;
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 `;
 
 const LogoutButton = styled.button`
-  background: #dc3545;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 0.4rem 0.85rem;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.3s ease;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.25s ease;
+  letter-spacing: 0.3px;
 
   &:hover {
-    background: #c82333;
+    background: rgba(239, 68, 68, 0.85);
+    color: white;
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+    transform: translateY(-1px);
   }
 `;
 
@@ -291,129 +295,112 @@ const ContentArea = styled.div`
 
 
 const ProjectsContainer = styled.div`
-  background: white;
-  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
   padding: 2rem;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  border: 1px solid rgba(226, 232, 240, 0.6);
   min-height: 400px;
   width: 100%;
 `;
 
 const ProjectsTitle = styled.h2`
-  color: #1a237e;
-  margin-bottom: 2.5rem;
-  font-size: 2rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  text-align: center;
+  color: #1e293b;
+  margin-bottom: 2rem;
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-align: left;
   position: relative;
-  padding-bottom: 1rem;
-  
-  &::after {
+  padding-left: 16px;
+  text-transform: uppercase;
+
+  &::before {
     content: '';
     position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 120px;
-    height: 4px;
-    background: linear-gradient(90deg, transparent, #ffd700, transparent);
-    border-radius: 2px;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 70%;
+    background: linear-gradient(180deg, #6366f1, #8b5cf6);
+    border-radius: 4px;
   }
-  
-  box-shadow: 0 2px 8px rgba(26, 35, 126, 0.1);
 `;
 
 
 
 const ProjectGroup = styled.div`
-  margin-bottom: 3rem;
-  border: 2px solid #e9ecef;
-  border-radius: 12px;
-  padding: 1.5rem;
-  background: #f8f9fa;
+  margin-bottom: 2.5rem;
+  border: 1px solid rgba(226, 232, 240, 0.7);
+  border-radius: 16px;
+  padding: 1.75rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(248, 250, 252, 0.9) 100%);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    box-shadow: 0 8px 32px rgba(99, 102, 241, 0.08);
+    border-color: rgba(165, 180, 252, 0.5);
+  }
 `;
 
 const ProjectGroupTitle = styled.h3`
-  color: #1a237e;
+  color: #1e293b;
   margin-bottom: 1.5rem;
-  font-size: 1.5rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, #283593 0%, #3949ab 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  border-bottom: 3px solid #3949ab;
-  padding-bottom: 0.75rem;
+  font-size: 1.2rem;
+  font-weight: 800;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  padding-bottom: 0.9rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.8px;
   position: relative;
-  
+  padding-left: 14px;
+
   &::before {
     content: '';
     position: absolute;
     left: 0;
-    bottom: -3px;
-    width: 60px;
-    height: 3px;
-    background: linear-gradient(90deg, #ffd700, transparent);
-    border-radius: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 60%;
+    background: linear-gradient(180deg, #6366f1, #ec4899);
+    border-radius: 4px;
   }
-  
-  box-shadow: 0 2px 4px rgba(57, 73, 171, 0.1);
 `;
 
 const EntaxiAmountChip = styled.div`
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.7rem 1.3rem;
-  background: linear-gradient(135deg, #f0f4ff 0%, #f5f0ff 100%) !important;
-  border: 2px solid #667eea;
-  border-radius: 8px;
-  box-shadow: 0 3px 10px rgba(102, 126, 234, 0.2);
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #eef2ff 0%, #ede9fe 100%) !important;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.12);
   white-space: nowrap;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: visible;
   margin-left: auto;
   z-index: 1;
-  /* CRITICAL: Override parent's transparent text fill */
   -webkit-text-fill-color: initial !important;
   background-clip: padding-box !important;
   -webkit-background-clip: padding-box !important;
   isolation: isolate;
-  
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.15), transparent);
-    transition: left 0.5s ease;
-  }
-  
+
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
-    border-color: #5a67d8;
-    background: linear-gradient(135deg, #e8f0ff 0%, #ede8ff 100%);
-    
-    &::before {
-      left: 100%;
-    }
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.2);
+    border-color: rgba(99, 102, 241, 0.5);
   }
 `;
 
@@ -448,10 +435,10 @@ const EntaxiValue = styled.span`
 
 const SubprojectsGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-  gap: 1.5rem;
-  grid-auto-rows: 1fr; /* Όλες οι σειρές έχουν το ίδιο ύψος */
-  align-items: stretch; /* Stretch για να γεμίσουν τον χώρο */
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 1.25rem;
+  grid-auto-rows: 1fr;
+  align-items: stretch;
 `;
 
 const EmptyState = styled.div`
@@ -485,185 +472,382 @@ const LoadingSpinner = styled.div`
   color: #6c757d;
 `;
 
-// Σταθερή μπάρα κουμπιών δεξιά - για όλους τους χρήστες
+// Banner για αρχειοθετημένα έργα
+const ArchiveBanner = styled.div`
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.96) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-left: 4px solid #6366f1;
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.12);
+  animation: fadeSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+`;
+
+const ArchiveBannerIcon = styled.div`
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.2));
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+`;
+
+const ArchiveBannerContent = styled.div`
+  flex: 1;
+`;
+
+const ArchiveBannerTitle = styled.div`
+  color: #e0e7ff;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-bottom: 0.35rem;
+`;
+
+const ArchiveBannerText = styled.div`
+  color: rgba(148, 163, 184, 0.9);
+  font-size: 0.8rem;
+  line-height: 1.6;
+`;
+
+const ArchiveBannerTag = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+`;
+
+const ArchiveBannerClose = styled.button`
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(148, 163, 184, 0.7);
+  border-radius: 8px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  align-self: flex-start;
+
+  &:hover {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+  }
+`;
+
+// Κουμπί αρχείου στη sidebar με ειδικό στυλ
+const ArchiveButton = styled.button`
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.1) 100%);
+  color: ${props => props.$active ? '#34d399' : '#a7f3d0'};
+  border: 1px solid ${props => props.$active ? 'rgba(52, 211, 153, 0.55)' : 'rgba(16, 185, 129, 0.2)'};
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 40px;
+  width: 100%;
+  line-height: 1.25;
+  position: relative;
+  box-shadow: ${props => props.$active ? '0 0 0 1px rgba(52, 211, 153, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06)' : 'none'};
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: ${props => props.$active ? '3px' : '0'};
+    background: linear-gradient(180deg, #34d399, #10b981);
+    border-radius: 0 2px 2px 0;
+    transition: width 0.25s ease;
+  }
+
+  &:hover {
+    transform: translateX(3px);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(5, 150, 105, 0.18) 100%);
+    border-color: rgba(52, 211, 153, 0.5);
+    color: #34d399;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+
+    &::before {
+      width: 3px;
+    }
+  }
+`;
+
+// Modern σταθερή sidebar αριστερά με ομαδοποιημένα κουμπιά
 const AdminSidebar = styled.div`
   position: fixed;
   top: 0;
-  right: 0;
+  left: 0;
   bottom: 0;
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.98);
+  gap: 4px;
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
   backdrop-filter: blur(20px);
-  border-radius: 20px 0 0 20px;
-  padding: 20px 16px;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.1);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-right: none;
-  width: 200px;
+  padding: 18px 12px 18px 12px;
+  box-shadow: 4px 0 32px rgba(15, 23, 42, 0.35), inset -1px 0 0 rgba(99, 102, 241, 0.15);
+  border-right: 1px solid rgba(99, 102, 241, 0.2);
+  width: 240px;
   overflow-y: auto;
   overflow-x: hidden;
   max-height: 100vh;
-  
+
   /* Custom scrollbar styling */
   &::-webkit-scrollbar {
     width: 6px;
   }
-  
+
   &::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.05);
+    background: rgba(255, 255, 255, 0.04);
     border-radius: 10px;
   }
-  
+
   &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.2);
+    background: linear-gradient(180deg, rgba(99, 102, 241, 0.6), rgba(139, 92, 246, 0.6));
     border-radius: 10px;
-    
+
     &:hover {
-      background: rgba(0, 0, 0, 0.3);
+      background: linear-gradient(180deg, rgba(99, 102, 241, 0.9), rgba(139, 92, 246, 0.9));
     }
   }
-  
+
   @media (max-width: 1200px) {
     display: none; /* Κρύψε σε μικρές οθόνες */
   }
 `;
 
-const AdminButton = styled.button`
-  background: linear-gradient(135deg, #2c5282 0%, #2b6cb0 100%);
-  color: white;
-  border: none;
-  padding: 14px 18px;
+const SidebarBrand = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 16px 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+`;
+
+const SidebarBrandLogo = styled.div`
+  width: 38px;
+  height: 38px;
   border-radius: 10px;
-  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  text-transform: none;
-  letter-spacing: 0.3px;
-  white-space: normal;
-  text-align: center;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 56px;
+  font-size: 1.2rem;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+`;
+
+const SidebarBrandText = styled.div`
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+`;
+
+const SidebarBrandTitle = styled.span`
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+  background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+`;
+
+const SidebarBrandSubtitle = styled.span`
+  color: rgba(148, 163, 184, 0.85);
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  margin-top: 2px;
+`;
+
+const CategorySection = styled.div`
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 4px;
+`;
+
+const CategoryHeader = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
-  box-shadow: 0 2px 8px rgba(44, 82, 130, 0.25);
-  line-height: 1.4;
+  padding: 9px 12px;
+  background: ${props => props.$open
+    ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.18) 0%, rgba(139, 92, 246, 0.14) 100%)'
+    : 'rgba(255, 255, 255, 0.025)'};
+  border: 1px solid ${props => props.$open ? 'rgba(99, 102, 241, 0.35)' : 'rgba(255, 255, 255, 0.05)'};
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: inherit;
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(139, 92, 246, 0.16) 100%);
+    border-color: rgba(99, 102, 241, 0.45);
+    transform: translateX(2px);
+  }
+`;
+
+const CategoryHeaderLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 9px;
+`;
+
+const CategoryHeaderIcon = styled.span`
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: ${props => props.$accent || 'linear-gradient(135deg, #6366f1, #8b5cf6)'};
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+`;
+
+const CategoryHeaderTitle = styled.span`
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+`;
+
+const CategoryHeaderChevron = styled.span`
+  color: rgba(148, 163, 184, 0.85);
+  font-size: 0.7rem;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: ${props => props.$open ? 'rotate(90deg)' : 'rotate(0deg)'};
+`;
+
+const CategoryBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  max-height: ${props => props.$open ? '900px' : '0'};
+  opacity: ${props => props.$open ? '1' : '0'};
+  margin-top: ${props => props.$open ? '6px' : '0'};
+  padding-left: 6px;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.25s ease,
+              margin-top 0.25s ease;
+`;
+
+const AdminButton = styled.button`
+  background: ${props => props.primary
+    ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)'
+    : 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.9) 100%)'};
+  color: ${props => props.primary ? '#ffffff' : '#e2e8f0'};
+  border: 1px solid ${props => props.primary ? 'rgba(165, 180, 252, 0.4)' : 'rgba(99, 102, 241, 0.18)'};
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  text-transform: none;
+  letter-spacing: 0.2px;
+  white-space: normal;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 40px;
+  width: 100%;
+  box-shadow: ${props => props.primary
+    ? '0 4px 14px rgba(79, 70, 229, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
+    : '0 1px 3px rgba(0, 0, 0, 0.25)'};
+  line-height: 1.25;
   position: relative;
   overflow: hidden;
 
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: ${props => props.primary
+      ? 'linear-gradient(180deg, #fbbf24, #f59e0b)'
+      : 'transparent'};
+    transition: all 0.25s ease;
+  }
+
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(44, 82, 130, 0.35);
-    background: linear-gradient(135deg, #2b6cb0 0%, #3182ce 100%);
+    transform: translateX(3px);
+    background: ${props => props.primary
+      ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
+      : 'linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(139, 92, 246, 0.16) 100%)'};
+    border-color: rgba(165, 180, 252, 0.55);
+    box-shadow: ${props => props.primary
+      ? '0 6px 18px rgba(99, 102, 241, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+      : '0 4px 12px rgba(99, 102, 241, 0.25)'};
+    color: #ffffff;
+
+    &::before {
+      background: linear-gradient(180deg, #6366f1, #ec4899);
+    }
   }
 
   &:active {
-    transform: translateY(0);
-    box-shadow: 0 2px 8px rgba(44, 82, 130, 0.25);
+    transform: translateX(1px);
   }
 `;
 
 const AdminButtonIcon = styled.span`
-  margin-right: 6px;
-  font-size: 0.9rem;
-`;
-
-// Ειδικό κουμπί για Εξαγωγή Δεδομένων με διαφορετικό στυλ
-const ExportButton = styled(AdminButton)`
-  /* Χρησιμοποιεί το ίδιο στυλ με το AdminButton */
-`;
-
-// 🚀 ΕΝΤΥΠΩΣΙΑΚΟ ΚΟΥΜΠΙ ΑΝΑΝΕΩΣΗΣ
-const RefreshButton = styled(AdminButton)`
-  /* Χρησιμοποιεί το ίδιο στυλ με το AdminButton */
-`;
-
-const RefreshIcon = styled.span`
-  font-size: 1.3rem;
-  animation: spin 2s linear infinite;
-  margin-bottom: 4px;
-  
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  ${RefreshButton}:hover & {
-    animation: spin 0.5s linear infinite;
-  }
-`;
-
-const RefreshText = styled.div`
-  line-height: 1.1;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-`;
-
-const RefreshEmphasis = styled.span`
-  font-size: 0.8rem;
-  font-weight: 900;
-  color: #ffff00;
-  text-shadow: 0 0 10px rgba(255, 255, 0, 0.8);
-`;
-
-const RefreshGlow = styled.div`
-  position: absolute;
-  top: -2px;
-  left: -2px;
-  right: -2px;
-  bottom: -2px;
-  background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.4), transparent);
-  border-radius: 15px;
-  z-index: -1;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-
-  ${RefreshButton}:hover & {
-    opacity: 1;
-    animation: glow 1.5s ease infinite;
-  }
-
-  @keyframes glow {
-    0%, 100% {
-      opacity: 0.5;
-      transform: scale(1);
-    }
-    50% {
-      opacity: 1;
-      transform: scale(1.02);
-    }
-  }
-`;
-
-const BackupButton = styled(AdminButton)`
-  /* Χρησιμοποιεί το ίδιο στυλ με το AdminButton */
-`;
-
-const BackupIcon = styled.span`
-  font-size: 1.3rem;
-  margin-bottom: 4px;
-`;
-
-const BackupText = styled.div`
-  line-height: 1.1;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-`;
-
-const NotesButton = styled(AdminButton)`
-  /* Χρησιμοποιεί το ίδιο στυλ με το AdminButton */
-`;
-
-const NotesButtonIcon = styled.span`
-  margin-right: 6px;
-  font-size: 1rem;
+  margin-right: 8px;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+  width: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 `;
 
 const NotesOverlay = styled.div`
@@ -1517,13 +1701,13 @@ const NoteModalButton = styled.button`
 `;
 
 const ContentWrapper = styled.div`
-  margin-right: 200px; /* Άφησε χώρο για τη σταθερή μπάρα - ακριβώς το πλάτος του sidebar */
-  padding: 2rem;
-  width: calc(100% - 200px); /* Αφαιρούμε το πλάτος του sidebar */
-  max-width: calc(100% - 200px);
-  
+  margin-left: 240px;
+  padding: 1.75rem 2rem;
+  width: calc(100% - 240px);
+  max-width: calc(100% - 240px);
+
   @media (max-width: 1200px) {
-    margin-right: 0; /* Σε μικρές οθόνες κρύψε τη μπάρα */
+    margin-left: 0;
     width: 100%;
     max-width: 100%;
   }
@@ -1542,6 +1726,27 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   const [loading, setLoading] = useState(true);
   const [pdfViewer, setPdfViewer] = useState({ isOpen: false, filePath: '', fileName: '' });
     const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+  // Sidebar accordion state - ποιες κατηγορίες είναι ανοιχτές
+  const [expandedCategories, setExpandedCategories] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sidebarExpandedCategories');
+      if (saved) return JSON.parse(saved);
+    } catch (_) { /* ignore */ }
+    return {
+      projects: true,
+      management: true,
+      exports: false,
+      tools: false,
+      system: false
+    };
+  });
+  const toggleCategory = useCallback((key) => {
+    setExpandedCategories(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem('sidebarExpandedCategories', JSON.stringify(next)); } catch (_) { /* ignore */ }
+      return next;
+    });
+  }, []);
   const [advancedFilters, setAdvancedFilters] = useState({
     projectTitle: '',
     subprojectTitle: '',
@@ -1580,6 +1785,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
     sortOrder: 'asc'
   });
   
+  // Εμφάνιση αρχειοθετημένων (Ολοκληρωμένα & Αποπληρωμένα)
+  const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+
   // Scroll position preservation
   const contentWrapperRef = useRef(null);
   const savedScrollPosition = useRef(0);
@@ -1795,7 +2003,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   }, [selectedNoteGroupId]);
 
   useEffect(() => {
-    setFilteredProjects(projects);
+    setFilteredProjects(projects.filter(p => p.projectStatus !== 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ'));
   }, [projects]);
 
 
@@ -2136,6 +2344,20 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
         });
       }
 
+      // Εξαίρεση αρχειοθετημένων έργων από την κανονική προβολή
+      const ARCHIVED_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
+      const userExplicitlyFilteredByArchived =
+        (filters.projectStatus && filters.projectStatus.includes(ARCHIVED_STATUS)) ||
+        quickSearchStatus === ARCHIVED_STATUS;
+
+      if (showArchivedProjects) {
+        // Εμφάνιση ΜΟΝΟ αρχειοθετημένων
+        filtered = filtered.filter(p => p.projectStatus === ARCHIVED_STATUS);
+      } else if (!userExplicitlyFilteredByArchived) {
+        // Απόκρυψη αρχειοθετημένων από την κανονική λίστα
+        filtered = filtered.filter(p => p.projectStatus !== ARCHIVED_STATUS);
+      }
+
       setFilteredProjects(filtered);
     };
 
@@ -2144,7 +2366,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
     } else {
       setTimeout(performFiltering, 0);
     }
-  }, [projects, debouncedQuickSearchText, quickSearchStatus, quickSearchType]);
+  }, [projects, debouncedQuickSearchText, quickSearchStatus, quickSearchType, showArchivedProjects]);
 
   // Apply filters when dependencies change
   const applyFiltersTimeoutRef = useRef(null);
@@ -2162,7 +2384,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
         clearTimeout(applyFiltersTimeoutRef.current);
       }
     };
-  }, [debouncedQuickSearchText, quickSearchStatus, quickSearchType, advancedFilters, applyFilters]);
+  }, [debouncedQuickSearchText, quickSearchStatus, quickSearchType, advancedFilters, applyFilters, showArchivedProjects]);
 
   // Realtime lock monitoring - αθόρυβος έλεγχος με βελτιστοποίηση
   useEffect(() => {
@@ -3857,6 +4079,14 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     }, {});
   }, [filteredProjects]);
 
+  // Τα έργα που περνάνε στα στατιστικά — εξαιρούνται τα αρχειοθετημένα
+  // εκτός αν ο χρήστης τα έχει επιλέξει ρητά
+  const statisticsProjects = useMemo(() => {
+    const ARCHIVED_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
+    if (showArchivedProjects) return filteredProjects;
+    return filteredProjects.filter(p => p.projectStatus !== ARCHIVED_STATUS);
+  }, [filteredProjects, showArchivedProjects]);
+
   // Group projects as array of arrays for EgkriseisManager
   const projectsAsArrayOfArrays = useMemo(() => {
     const allProjects = projects.length > 0 ? projects : filteredProjects;
@@ -3879,9 +4109,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <UserRole role={userRole}>
             {currentUser?.fullName || currentUser?.username || userRole}
           </UserRole>
-          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px' }}>
-            {userRole === 'SUPERADMIN' ? 'Υπερδιαχειριστής' : userRole === 'ADMIN' ? 'Διαχειριστής' : 'Χρήστης'}
-          </span>
           <LogoutButton onClick={onLogout}>
             Αποσύνδεση
           </LogoutButton>
@@ -3890,7 +4117,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <MainTitle>{appConfig.organizationFullName || 'ΟΡΓΑΝΙΣΜΟΣ'}</MainTitle>
           <SubTitle>ERGOHUB - Διαχείριση Έργων & Προμηθειών</SubTitle>
         </CenteredTitleContainer>
-        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', textAlign: 'right', minWidth: '80px' }}>
+        <div style={{ color: 'rgba(100, 116, 139, 0.8)', fontSize: '0.7rem', textAlign: 'right', minWidth: '60px', fontWeight: '600', letterSpacing: '0.5px', zIndex: 1 }}>
           {appVersion ? `v${appVersion}` : ''}
         </div>
       </Header>
@@ -3903,11 +4130,37 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             onClearFilters={handleClearAdvancedFilters}
           />
 
-          {/* Statistics */}
-          <Statistics projects={filteredProjects} />
+          {/* Statistics — εξαιρούνται τα αρχειοθετημένα εκτός αν επιλεγούν */}
+          <Statistics projects={statisticsProjects} />
+
+          {/* Banner αρχειοθετημένων έργων */}
+          {showArchivedProjects && (
+            <ArchiveBanner>
+              <ArchiveBannerIcon>🗄️</ArchiveBannerIcon>
+              <ArchiveBannerContent>
+                <ArchiveBannerTitle>
+                  Αρχείο Ολοκληρωμένων Έργων
+                  <ArchiveBannerTag>✓ Αρχείο</ArchiveBannerTag>
+                </ArchiveBannerTitle>
+                <ArchiveBannerText>
+                  Τα παρακάτω έργα έχουν ολοκληρωθεί πλήρως και αποπληρωθεί. Έχουν μεταφερθεί στο αρχείο και
+                  δεν εκκρεμεί καμία ενέργεια για αυτά. Προβάλλονται αποκλειστικά για λόγους
+                  ιστορικής αναφοράς.
+                </ArchiveBannerText>
+              </ArchiveBannerContent>
+              <ArchiveBannerClose
+                onClick={() => setShowArchivedProjects(false)}
+                title="Κλείσιμο αρχείου"
+              >
+                ✕
+              </ArchiveBannerClose>
+            </ArchiveBanner>
+          )}
 
           <ProjectsContainer>
-            <ProjectsTitle>Έργα & Υποέργα</ProjectsTitle>
+            <ProjectsTitle>
+              {showArchivedProjects ? 'Αρχείο — Ολοκληρωμένα & Αποπληρωμένα' : 'Έργα & Υποέργα'}
+            </ProjectsTitle>
 
             {loading ? (
               <LoadingSpinner>Φόρτωση δεδομένων...</LoadingSpinner>
@@ -4049,187 +4302,36 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         </ContentArea>
       </ContentWrapper>
 
-      {/* Sidebar με κουμπιά */}
+      {/* Modern σταθερή sidebar αριστερά με ομαδοποιημένα κουμπιά */}
       <AdminSidebar>
-        {userRole !== 'USER' && (
-          <>
-            <AdminButton primary onClick={() => {
-              if (contentWrapperRef.current) {
-                savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-              }
-              setIsFormOpen(true);
-            }}>
-              <AdminButtonIcon>➕</AdminButtonIcon>
-              Νέο Υποέργο
-            </AdminButton>
-          </>
-        )}
-        
-        <AdminButton onClick={() => setIsFiltersOpen(true)}>
-          <AdminButtonIcon>🔍</AdminButtonIcon>
-          Αναζήτηση &<br/>Φίλτρα
-        </AdminButton>
-        
-        {/* Κουμπιά Εντάξεις & Προσκλήσεις - για όλους τους χρήστες */}
-        <AdminButton onClick={() => {
-          // Αποθήκευση scroll position
-          if (contentWrapperRef.current) {
-            savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-          }
-          setIsEntaxisOpen(true);
-        }}>
-          <AdminButtonIcon>📊</AdminButtonIcon>
-          Εντάξεις<br/>Έργων
-        </AdminButton>
-        
-        <AdminButton onClick={() => {
-          // Αποθήκευση scroll position
-          if (contentWrapperRef.current) {
-            savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-          }
-          setIsProsklisisOpen(true);
-        }}>
-          <AdminButtonIcon>📢</AdminButtonIcon>
-          Προσκλήσεις
-        </AdminButton>
-        
-        <AdminButton onClick={() => setIsCreditApprovalsOpen(true)}>
-          <AdminButtonIcon>📋</AdminButtonIcon>
-          Εγκρίσεις Διάθεσης<br/>Πίστωσης
-        </AdminButton>
-        
-        <AdminButton onClick={() => setIsTechnicalProgramOpen(true)}>
-          <AdminButtonIcon>📋</AdminButtonIcon>
-          Εξαγωγή Τεχνικού<br/>Προγράμματος
-        </AdminButton>
-        
-        <AdminButton onClick={() => setIsInvestExportOpen(true)}>
-          <AdminButtonIcon>📊</AdminButtonIcon>
-          ΕΚΤΕΛΕΣΤΕΑ<br/>ΕΡΓΑ
-        </AdminButton>
-        
-        <ExportButton onClick={() => setIsExportOpen(true)}>
-          <AdminButtonIcon>📑</AdminButtonIcon>
-          Εξαγωγή<br/>Δεδομένων
-        </ExportButton>
-        
-        <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
-          <AdminButtonIcon>📄</AdminButtonIcon>
-          Υποδείγματα<br/>Εγγράφων
-        </AdminButton>
-        
-        {userRole !== 'USER' && (
-        <NotesButton onClick={handleOpenNotes}>
-          <NotesButtonIcon>📝</NotesButtonIcon>
-          ΣΗΜΕΙΩΣΕΙΣ
-        </NotesButton>
-        )}
-        
-        {userRole !== 'USER' && (
-          <>
-            <RefreshButton onClick={async () => {
-              if (window.confirm('🔄 Θέλετε να κάνετε πλήρη ανανέωση της εφαρμογής; Αυτό θα φορτώσει όλα τα δεδομένα εκ νέου και θα καθαρίσει τυχόν προβλήματα.')) {
-                try {
-                  setLoading(true);
-                  
-                  // Καθαρισμός locks
-                  await ipcRenderer.invoke('clear-all-locks');
-                  
-                  // Πλήρης ανανέωση όλων των δεδομένων (το cache καθαρίζεται μέσα στη function)
-                  await loadDataWithCache(true); // Force refresh
-                  
-                  // Wait a bit longer to ensure all state updates are processed
-                  await new Promise(resolve => setTimeout(resolve, 100));
-                  
-                  // Ensure loading is cleared
-                  setLoading(false);
-                  
-                  // Force React to re-render and re-enable all inputs
-                  // This ensures event handlers are properly attached
-                  requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                      // Trigger a state update to force re-render
-                      setProjects(prev => [...prev]);
-                    });
-                  });
-                  
-                  // Small delay before showing success message
-                  setTimeout(() => {
-                    alert('✅ Η εφαρμογή ανανεώθηκε επιτυχώς!');
-                  }, 300);
-                } catch (error) {
-                  console.error('Error during full refresh:', error);
-                  setLoading(false);
-                  
-                  // Χρήση setTimeout για να μην μπλοκάρει το UI
-                  setTimeout(() => {
-                    alert('❌ Σφάλμα κατά την ανανέωση: ' + error.message);
-                  }, 100);
-                }
-              }
-            }}>
-              <RefreshIcon>🔄</RefreshIcon>
-              <RefreshText>
-                ΠΛΗΡΗΣ<br/>
-                <RefreshEmphasis>ΑΝΑΝΕΩΣΗ</RefreshEmphasis>
-              </RefreshText>
-              <RefreshGlow />
-            </RefreshButton>
-            
-            <BackupButton 
-              onClick={() => setIsAuditLogOpen(true)}
-              style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', border: '2px solid rgba(255, 255, 255, 0.35)' }}
-            >
-              <BackupIcon>📋</BackupIcon>
-              <BackupText>
-                ΙΣΤΟΡΙΚΟ<br/>ΑΛΛΑΓΩΝ
-              </BackupText>
-            </BackupButton>
+        {/* Brand */}
+        <SidebarBrand>
+          <SidebarBrandLogo>🏗️</SidebarBrandLogo>
+          <SidebarBrandText>
+            <SidebarBrandTitle>ERGOHUB</SidebarBrandTitle>
+            <SidebarBrandSubtitle>Διαχείριση Έργων</SidebarBrandSubtitle>
+          </SidebarBrandText>
+        </SidebarBrand>
 
-            {userRole === 'SUPERADMIN' && (
-              <>
-                <BackupButton onClick={() => setIsBackupManagerOpen(true)}>
-                  <BackupIcon>💾</BackupIcon>
-                  <BackupText>
-                    BACKUP<br/>ΔΕΔΟΜΕΝΩΝ
-                  </BackupText>
-                </BackupButton>
-                <BackupButton 
-                  onClick={() => setIsUserManagementOpen(true)}
-                  style={{ background: 'linear-gradient(135deg, #7b1fa2 0%, #6a1b9a 100%)', border: '2px solid rgba(255, 255, 255, 0.35)' }}
-                >
-                  <BackupIcon>👥</BackupIcon>
-                  <BackupText>
-                    ΔΙΑΧΕΙΡΙΣΗ<br/>ΧΡΗΣΤΩΝ
-                  </BackupText>
-                </BackupButton>
-              </>
-            )}
-            
-          </>
-        )}
-        
-        {/* Quick Search */}
+        {/* Quick Search - πάντα προσβάσιμη στην κορυφή */}
         <QuickSearchContainer>
           <QuickSearchGrid>
             <SearchInputContainer>
-              <SearchLabel>Αναζήτηση</SearchLabel>
+              <SearchLabel>Γρήγορη Αναζήτηση</SearchLabel>
               <SearchInput
                 ref={quickSearchInputRef}
                 type="text"
                 placeholder="Έργο, υποέργο, ΚΑ..."
                 value={quickSearchText}
                 onChange={(e) => {
-                  // Άμεση ενημέρωση για responsive UI
                   setQuickSearchText(e.target.value);
                 }}
                 onFocus={(e) => {
-                  // Βεβαιώνουμε ότι το input είναι responsive
                   e.target.style.caretColor = 'auto';
                 }}
               />
             </SearchInputContainer>
-            
+
             <SearchInputContainer>
               <SearchLabel>Κατάσταση</SearchLabel>
               <SearchSelect
@@ -4242,7 +4344,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 ))}
               </SearchSelect>
             </SearchInputContainer>
-            
+
             <SearchInputContainer>
               <SearchLabel>Είδος</SearchLabel>
               <SearchSelect
@@ -4255,7 +4357,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 ))}
               </SearchSelect>
             </SearchInputContainer>
-            
+
             {(quickSearchText || quickSearchStatus || quickSearchType) && (
               <ClearButton onClick={handleQuickSearchClear}>
                 🗑️ Καθαρισμός
@@ -4263,6 +4365,184 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             )}
           </QuickSearchGrid>
         </QuickSearchContainer>
+
+        {/* Κατηγορία: ΕΡΓΑ */}
+        <CategorySection>
+          <CategoryHeader $open={expandedCategories.projects} onClick={() => toggleCategory('projects')}>
+            <CategoryHeaderLeft>
+              <CategoryHeaderIcon $accent="linear-gradient(135deg, #4f46e5, #7c3aed)">📁</CategoryHeaderIcon>
+              <CategoryHeaderTitle>Έργα</CategoryHeaderTitle>
+            </CategoryHeaderLeft>
+            <CategoryHeaderChevron $open={expandedCategories.projects}>▶</CategoryHeaderChevron>
+          </CategoryHeader>
+          <CategoryBody $open={expandedCategories.projects}>
+            {userRole !== 'USER' && (
+              <AdminButton primary onClick={() => {
+                if (contentWrapperRef.current) {
+                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                }
+                setIsFormOpen(true);
+              }}>
+                <AdminButtonIcon>➕</AdminButtonIcon>
+                Νέο Υποέργο
+              </AdminButton>
+            )}
+            <AdminButton onClick={() => setIsFiltersOpen(true)}>
+              <AdminButtonIcon>🔍</AdminButtonIcon>
+              Αναζήτηση & Φίλτρα
+            </AdminButton>
+            <ArchiveButton
+              $active={showArchivedProjects}
+              onClick={() => {
+                setShowArchivedProjects(prev => !prev);
+                if (contentWrapperRef.current) {
+                  contentWrapperRef.current.scrollTop = 0;
+                }
+              }}
+            >
+              <AdminButtonIcon>🗄️</AdminButtonIcon>
+              Ολοκληρωμένα &amp; Αποπληρωμένα
+            </ArchiveButton>
+          </CategoryBody>
+        </CategorySection>
+
+        {/* Κατηγορία: ΦΑΚΕΛΟΣ ΕΡΓΟΥ */}
+        <CategorySection>
+          <CategoryHeader $open={expandedCategories.management} onClick={() => toggleCategory('management')}>
+            <CategoryHeaderLeft>
+              <CategoryHeaderIcon $accent="linear-gradient(135deg, #0891b2, #06b6d4)">📂</CategoryHeaderIcon>
+              <CategoryHeaderTitle>Φάκελος Έργου</CategoryHeaderTitle>
+            </CategoryHeaderLeft>
+            <CategoryHeaderChevron $open={expandedCategories.management}>▶</CategoryHeaderChevron>
+          </CategoryHeader>
+          <CategoryBody $open={expandedCategories.management}>
+            <AdminButton onClick={() => {
+              if (contentWrapperRef.current) {
+                savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+              }
+              setIsEntaxisOpen(true);
+            }}>
+              <AdminButtonIcon>📊</AdminButtonIcon>
+              Εντάξεις Έργων
+            </AdminButton>
+            <AdminButton onClick={() => {
+              if (contentWrapperRef.current) {
+                savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+              }
+              setIsProsklisisOpen(true);
+            }}>
+              <AdminButtonIcon>📢</AdminButtonIcon>
+              Προσκλήσεις
+            </AdminButton>
+            <AdminButton onClick={() => setIsCreditApprovalsOpen(true)}>
+              <AdminButtonIcon>📋</AdminButtonIcon>
+              Εγκρίσεις Διάθεσης Πίστωσης
+            </AdminButton>
+          </CategoryBody>
+        </CategorySection>
+
+        {/* Κατηγορία: ΕΞΑΓΩΓΕΣ */}
+        <CategorySection>
+          <CategoryHeader $open={expandedCategories.exports} onClick={() => toggleCategory('exports')}>
+            <CategoryHeaderLeft>
+              <CategoryHeaderIcon $accent="linear-gradient(135deg, #059669, #10b981)">📤</CategoryHeaderIcon>
+              <CategoryHeaderTitle>Εξαγωγές</CategoryHeaderTitle>
+            </CategoryHeaderLeft>
+            <CategoryHeaderChevron $open={expandedCategories.exports}>▶</CategoryHeaderChevron>
+          </CategoryHeader>
+          <CategoryBody $open={expandedCategories.exports}>
+            <AdminButton onClick={() => setIsTechnicalProgramOpen(true)}>
+              <AdminButtonIcon>📋</AdminButtonIcon>
+              Τεχνικό Πρόγραμμα
+            </AdminButton>
+            <AdminButton onClick={() => setIsInvestExportOpen(true)}>
+              <AdminButtonIcon>📊</AdminButtonIcon>
+              Εκτελεστέα Έργα
+            </AdminButton>
+            <AdminButton onClick={() => setIsExportOpen(true)}>
+              <AdminButtonIcon>📑</AdminButtonIcon>
+              Εξαγωγή Δεδομένων
+            </AdminButton>
+            <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
+              <AdminButtonIcon>📄</AdminButtonIcon>
+              Υποδείγματα Εγγράφων
+            </AdminButton>
+          </CategoryBody>
+        </CategorySection>
+
+        {/* Κατηγορία: ΕΡΓΑΛΕΙΑ - μόνο για ADMIN/SUPERADMIN */}
+        {userRole !== 'USER' && (
+          <CategorySection>
+            <CategoryHeader $open={expandedCategories.tools} onClick={() => toggleCategory('tools')}>
+              <CategoryHeaderLeft>
+                <CategoryHeaderIcon $accent="linear-gradient(135deg, #d97706, #f59e0b)">🛠️</CategoryHeaderIcon>
+                <CategoryHeaderTitle>Εργαλεία</CategoryHeaderTitle>
+              </CategoryHeaderLeft>
+              <CategoryHeaderChevron $open={expandedCategories.tools}>▶</CategoryHeaderChevron>
+            </CategoryHeader>
+            <CategoryBody $open={expandedCategories.tools}>
+              <AdminButton onClick={handleOpenNotes}>
+                <AdminButtonIcon>📝</AdminButtonIcon>
+                Σημειώσεις
+              </AdminButton>
+              <AdminButton onClick={() => setIsAuditLogOpen(true)}>
+                <AdminButtonIcon>📋</AdminButtonIcon>
+                Ιστορικό Αλλαγών
+              </AdminButton>
+              <AdminButton onClick={async () => {
+                if (window.confirm('🔄 Θέλετε να κάνετε πλήρη ανανέωση της εφαρμογής; Αυτό θα φορτώσει όλα τα δεδομένα εκ νέου και θα καθαρίσει τυχόν προβλήματα.')) {
+                  try {
+                    setLoading(true);
+                    await ipcRenderer.invoke('clear-all-locks');
+                    await loadDataWithCache(true);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    setLoading(false);
+                    requestAnimationFrame(() => {
+                      requestAnimationFrame(() => {
+                        setProjects(prev => [...prev]);
+                      });
+                    });
+                    setTimeout(() => {
+                      alert('✅ Η εφαρμογή ανανεώθηκε επιτυχώς!');
+                    }, 300);
+                  } catch (error) {
+                    console.error('Error during full refresh:', error);
+                    setLoading(false);
+                    setTimeout(() => {
+                      alert('❌ Σφάλμα κατά την ανανέωση: ' + error.message);
+                    }, 100);
+                  }
+                }
+              }}>
+                <AdminButtonIcon>🔄</AdminButtonIcon>
+                Πλήρης Ανανέωση
+              </AdminButton>
+            </CategoryBody>
+          </CategorySection>
+        )}
+
+        {/* Κατηγορία: ΣΥΣΤΗΜΑ - μόνο για SUPERADMIN */}
+        {userRole === 'SUPERADMIN' && (
+          <CategorySection>
+            <CategoryHeader $open={expandedCategories.system} onClick={() => toggleCategory('system')}>
+              <CategoryHeaderLeft>
+                <CategoryHeaderIcon $accent="linear-gradient(135deg, #be185d, #ec4899)">⚙️</CategoryHeaderIcon>
+                <CategoryHeaderTitle>Σύστημα</CategoryHeaderTitle>
+              </CategoryHeaderLeft>
+              <CategoryHeaderChevron $open={expandedCategories.system}>▶</CategoryHeaderChevron>
+            </CategoryHeader>
+            <CategoryBody $open={expandedCategories.system}>
+              <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
+                <AdminButtonIcon>💾</AdminButtonIcon>
+                Backup Δεδομένων
+              </AdminButton>
+              <AdminButton onClick={() => setIsUserManagementOpen(true)}>
+                <AdminButtonIcon>👥</AdminButtonIcon>
+                Διαχείριση Χρηστών
+              </AdminButton>
+            </CategoryBody>
+          </CategorySection>
+        )}
       </AdminSidebar>
 
       {/* Subproject Detail Modal */}

@@ -3,33 +3,53 @@ import styled from 'styled-components';
 import { PROJECT_STATUSES, getCharacterization } from '../data/formOptions';
 
 const Card = styled.div`
-  background: white;
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
   padding: 1.5rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-  border: 1px solid #e9ecef;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(226, 232, 240, 0.7);
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 480px;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6, #ec4899);
+    opacity: 0;
+    transition: opacity 0.35s ease;
+  }
 
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-    border-color: #c5cae9;
+    transform: translateY(-4px);
+    box-shadow: 0 20px 40px rgba(99, 102, 241, 0.12), 0 8px 16px rgba(0, 0, 0, 0.06);
+    border-color: rgba(165, 180, 252, 0.6);
+
+    &::before {
+      opacity: 1;
+    }
   }
 `;
 
 const ViewDetailsHint = styled.div`
   text-align: center;
-  font-size: 0.72rem;
-  color: #9e9e9e;
+  font-size: 0.68rem;
+  color: #6366f1;
   margin-top: 0.4rem;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
+  font-weight: 600;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity 0.3s ease;
 
   ${Card}:hover & {
     opacity: 1;
@@ -37,42 +57,23 @@ const ViewDetailsHint = styled.div`
 `;
 
 const CardHeader = styled.div`
-  border-bottom: 2px solid #f8f9fa;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.6);
   padding-bottom: 1rem;
   margin-bottom: 1rem;
 `;
 
 const SubprojectTitle = styled.h4`
-  color: #5c6bc0;
+  color: #1e293b;
   margin: 0;
-  font-size: 1.3rem;
-  font-weight: 600;
+  font-size: 1.1rem;
+  font-weight: 700;
   line-height: 1.4;
   display: flex;
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-  background: linear-gradient(135deg, #5c6bc0 0%, #7986cb 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  position: relative;
-  padding-bottom: 0.6rem;
-  border-bottom: 2px solid #e3f2fd;
+  letter-spacing: 0.3px;
   font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  
-  &::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    bottom: -2px;
-    width: 50px;
-    height: 2px;
-    background: linear-gradient(90deg, #ffd700, rgba(255, 215, 0, 0.3));
-    border-radius: 1px;
-  }
 `;
 
 const MisPraxhsBadge = styled.span`
@@ -105,35 +106,48 @@ const InfoRow = styled.div`
 `;
 
 const InfoLabel = styled.span`
-  font-weight: 500;
-  color: #6c757d;
-  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+  font-size: 0.8rem;
+  letter-spacing: 0.2px;
 `;
 
 const InfoValue = styled.span`
-  color: #333;
-  font-size: 0.9rem;
+  color: #1e293b;
+  font-size: 0.85rem;
   word-break: break-word;
+  font-weight: 500;
 `;
 
 const StatusBadge = styled.span`
   display: inline-block;
-  padding: 0.3rem 0.8rem;
-  border-radius: 15px;
-  font-size: 0.75rem;
-  font-weight: 500;
+  padding: 0.3rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
   text-align: center;
+  letter-spacing: 0.3px;
   background: ${props => {
     switch (props.status) {
-      case 'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ': return '#ffc107';
-      case 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ': return '#fd7e14';
-      case 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ': return '#007bff';
-      case 'ΟΛΟΚΛΗΡΩΜΕΝΟ': return '#28a745';
-      case 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ': return '#20c997';
-      default: return '#6c757d';
+      case 'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ': return 'linear-gradient(135deg, #fbbf24, #f59e0b)';
+      case 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ': return 'linear-gradient(135deg, #fb923c, #ea580c)';
+      case 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ': return 'linear-gradient(135deg, #60a5fa, #2563eb)';
+      case 'ΟΛΟΚΛΗΡΩΜΕΝΟ': return 'linear-gradient(135deg, #34d399, #059669)';
+      case 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ': return 'linear-gradient(135deg, #2dd4bf, #0d9488)';
+      default: return 'linear-gradient(135deg, #94a3b8, #64748b)';
     }
   }};
   color: white;
+  box-shadow: 0 2px 6px ${props => {
+    switch (props.status) {
+      case 'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ': return 'rgba(245, 158, 11, 0.3)';
+      case 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ': return 'rgba(234, 88, 12, 0.3)';
+      case 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ': return 'rgba(37, 99, 235, 0.3)';
+      case 'ΟΛΟΚΛΗΡΩΜΕΝΟ': return 'rgba(5, 150, 105, 0.3)';
+      case 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ': return 'rgba(13, 148, 136, 0.3)';
+      default: return 'rgba(100, 116, 139, 0.3)';
+    }
+  }};
 `;
 
 const CharacterizationBadge = styled.span`
@@ -204,11 +218,13 @@ const ContractAmountValue = styled(InfoValue)`
 `;
 
 const ContractInfo = styled.div`
-  background: #f8f9fa;
-  border-radius: 8px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 10px;
   padding: 1rem;
   margin-top: 1rem;
-  border-left: 4px solid #007bff;
+  border-left: 3px solid #6366f1;
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  border-left: 3px solid #6366f1;
 `;
 
 const ContractTitle = styled.div`
@@ -236,7 +252,7 @@ const ButtonContainer = styled.div`
   gap: 0.5rem;
   margin-top: auto;
   padding-top: 1rem;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid rgba(226, 232, 240, 0.6);
   flex-shrink: 0;
 `;
 
@@ -254,21 +270,21 @@ const BottomButtonContainer = styled.div`
 const ActionButton = styled.button`
   flex: 1;
   min-width: 80px;
-  padding: 0.4rem 0.6rem;
+  padding: 0.45rem 0.6rem;
   border: none;
-  border-radius: 6px;
-  font-size: 0.7rem;
-  font-weight: 600;
+  border-radius: 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   text-transform: uppercase;
   letter-spacing: 0.3px;
   position: relative;
   overflow: hidden;
 
   &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
   }
 
   &:active {
@@ -278,55 +294,42 @@ const ActionButton = styled.button`
 
 
 const FilesButton = styled(ActionButton)`
-  background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
-  color: #2c3e50;
+  background: linear-gradient(135deg, #e0e7ff 0%, #ede9fe 100%);
+  color: #4338ca;
   font-weight: 700;
+  border: 1px solid rgba(99, 102, 241, 0.15);
 
   &:hover {
-    background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
-    box-shadow: 0 6px 20px rgba(168, 237, 234, 0.4);
+    background: linear-gradient(135deg, #c7d2fe 0%, #ddd6fe 100%);
+    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.2);
+    border-color: rgba(99, 102, 241, 0.3);
   }
 `;
 
-// Ειδικό κουμπί για Αρχεία Υποέργου - πιο ξεχωριστό
 const MainFilesButton = styled.button`
   width: 100%;
   padding: 0.6rem 1rem;
   border: none;
-  border-radius: 8px;
-  font-size: 0.8rem;
+  border-radius: 10px;
+  font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
   color: white;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
   position: relative;
 
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    border-radius: 6px;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    z-index: -1;
-  }
-
   &:hover {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
-    transform: translateY(-3px);
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.45);
+    transform: translateY(-2px);
   }
 
-  &:hover::before {
-    opacity: 1;
+  &:active {
+    transform: translateY(0);
   }
 `;
 
