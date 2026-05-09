@@ -10,6 +10,9 @@ const archiver = require('archiver');
 const fse = require('fs-extra');
 const crypto = require('crypto');
 const yauzl = require('yauzl');
+const { DropboxUpdater } = require('./dropbox-updater');
+const { UPDATE_CONFIG } = require('./update-config');
+const { logger } = require('./logger');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -229,10 +232,17 @@ ipcMain.handle('get-app-config', () => loadConfig());
 
 ipcMain.handle('save-app-config', async (_event, newConfig) => {
   saveConfig(newConfig);
+  if (newConfig.setupCompleted || newConfig.dataDir) {
+    setTimeout(() => {
+      app.relaunch();
+      app.exit(0);
+    }, 500);
+  }
   return { success: true };
 });
 
 ipcMain.handle('get-data-dir', () => dataDir);
+ipcMain.handle('check-data-dir-exists', () => dataDir && fs.existsSync(dataDir));
 
 ipcMain.handle('select-data-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -241,6 +251,19 @@ ipcMain.handle('select-data-folder', async () => {
   });
   if (result.canceled || !result.filePaths.length) return null;
   return result.filePaths[0];
+});
+
+ipcMain.handle('check-folder-has-config', async (_event, folderPath) => {
+  if (!folderPath) return { hasUsers: false, hasProjects: false };
+  const hasUsers = fs.existsSync(path.join(folderPath, 'users.json'));
+  const projectsDir = path.join(folderPath, 'entaxeis');
+  let projectCount = 0;
+  if (fs.existsSync(projectsDir)) {
+    try {
+      projectCount = fs.readdirSync(projectsDir).filter(f => f.endsWith('.json')).length;
+    } catch (_e) { /* ignore */ }
+  }
+  return { hasUsers, hasProjects: projectCount > 0, projectCount };
 });
 
 // ── User Management ──
@@ -376,8 +399,102 @@ ipcMain.handle('has-users', async () => {
   return users.length > 0;
 });
 
+// ── Auto-Update ──
+let updater = null;
+
+function initAutoUpdate() {
+  updater = new DropboxUpdater(UPDATE_CONFIG, (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-download-progress', progress);
+    }
+  });
+
+  const delay = UPDATE_CONFIG.STARTUP_CHECK_DELAY_MIN +
+    Math.random() * (UPDATE_CONFIG.STARTUP_CHECK_DELAY_MAX - UPDATE_CONFIG.STARTUP_CHECK_DELAY_MIN);
+
+  setTimeout(async () => {
+    try {
+      const health = await updater.checkUpdateHealth();
+      if (health.updated && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-installed', {
+          from: health.from, to: health.to
+        });
+      }
+
+      const updateInfo = await updater.checkForUpdates();
+      if (updateInfo.available) {
+        console.log(`[Update] New version available: ${updateInfo.version}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('update-available', updateInfo);
+        }
+        if (UPDATE_CONFIG.AUTO_DOWNLOAD) {
+          try {
+            const downloadPath = await updater.downloadUpdate(updateInfo.downloadUrl);
+            if (downloadPath && mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('update-downloaded', {
+                version: updateInfo.version, path: downloadPath
+              });
+            }
+          } catch (dlErr) {
+            console.error('[Update] Auto-download failed:', dlErr.message);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Update] Startup check failed:', err.message);
+    }
+  }, delay);
+
+  if (UPDATE_CONFIG.CHECK_INTERVAL > 0) {
+    global._updateCheckInterval = setInterval(async () => {
+      try {
+        const updateInfo = await updater.checkForUpdates();
+        if (updateInfo.available && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('update-available', updateInfo);
+          if (UPDATE_CONFIG.AUTO_DOWNLOAD) {
+            const downloadPath = await updater.downloadUpdate(updateInfo.downloadUrl);
+            if (downloadPath && mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('update-downloaded', {
+                version: updateInfo.version, path: downloadPath
+              });
+            }
+          }
+        }
+      } catch (_e) { /* silent */ }
+    }, UPDATE_CONFIG.CHECK_INTERVAL);
+  }
+}
+
+ipcMain.handle('check-for-updates', async () => {
+  if (!updater) return { available: false, error: 'Updater not initialized' };
+  return await updater.checkForUpdates();
+});
+
+ipcMain.handle('download-update', async (_event, downloadUrl) => {
+  if (!updater) throw new Error('Updater not initialized');
+  return await updater.downloadUpdate(downloadUrl);
+});
+
+ipcMain.handle('install-update', async () => {
+  if (!updater) throw new Error('Updater not initialized');
+  return await updater.installUpdate();
+});
+
+ipcMain.handle('get-update-state', () => {
+  if (!updater) return null;
+  return updater.getState();
+});
+
 app.whenReady().then(() => {
+  logger.init(path.join(app.getPath('userData'), 'logs'));
+  logger.info('App', `ERGOHUB v${app.getVersion()} starting`);
   createWindow();
+  if (app.isPackaged) {
+    console.log('[Update] Production mode - auto-update enabled');
+    initAutoUpdate();
+  } else {
+    console.log('[Update] Dev mode - auto-update skipped');
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -422,7 +539,7 @@ app.on('activate', () => {
 initConfigPath(app);
 let dataDir = resolveDataDir(app);
 
- console.log('Active dataDir:', dataDir);
+console.log('Active dataDir:', dataDir);
 
 const requiredSubDirs = [
   'entaxeis',
@@ -440,19 +557,25 @@ const requiredSubDirs = [
   'ektelestea_erga'
 ];
 
-try {
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+function ensureSubDirs() {
+  if (!dataDir) return;
+  try {
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    for (const sub of requiredSubDirs) {
+      const p = path.join(dataDir, sub);
+      if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+    }
+  } catch (e) {
+    console.error('Error creating subdirectories:', e.message);
   }
-  for (const sub of requiredSubDirs) {
-    const p = path.join(dataDir, sub);
-    if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
-  }
-} catch (e) {
-  console.error('Failed to create data directories:', e.message);
 }
 
-const locksDir = path.join(dataDir, 'locks');
+ensureSubDirs();
+
+
+const locksDir = dataDir ? path.join(dataDir, 'locks') : null;
 
 // Εκκίνηση file watcher για locks
 function startLockWatcher(mainWindow) {
@@ -4687,72 +4810,6 @@ ipcMain.handle('scan-egkriseis-folder', async (event) => {
   }
 });
 
-// Bulk import egkriseis from folder structure
-ipcMain.handle('bulk-import-egkriseis', async (event, importData) => {
-  try {
-    const results = {
-      success: 0,
-      failed: 0,
-      errors: []
-    };
-    
-    for (const item of importData) {
-      try {
-        const { projectId, subprojectId, fileName, date, type } = item;
-        
-        // Create egkriseis directory if it doesn't exist
-        const egkriseisDir = path.join(dataDir, projectId, subprojectId, 'ΕΓΚΡΙΣΕΙΣ_ΔΙΑΘΕΣΗΣ');
-        if (!fs.existsSync(egkriseisDir)) {
-          fs.mkdirSync(egkriseisDir, { recursive: true });
-        }
-        
-        // Copy PDF file if it exists in the source folder
-        const sourceDir = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ_ΔΙΑΘΕΣΗΣ');
-        const sourceFile = path.join(sourceDir, item.projectTitle, fileName);
-        const targetFile = path.join(egkriseisDir, fileName);
-        
-        if (fs.existsSync(sourceFile)) {
-          fs.copyFileSync(sourceFile, targetFile);
-        }
-        
-        // Update subproject data.json
-        const dataPath = path.join(dataDir, projectId, subprojectId, 'data.json');
-        if (fs.existsSync(dataPath)) {
-          const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-          
-          if (!data.egkriseisDialthesisPistosis) {
-            data.egkriseisDialthesisPistosis = [];
-          }
-          
-          const egkrisiId = uuidv4();
-          data.egkriseisDialthesisPistosis.push({
-            id: egkrisiId,
-            fileName,
-            date,
-            type: type || 'initial',
-            createdAt: new Date().toISOString()
-          });
-          
-          safeWriteJSON(dataPath, data);
-          results.success++;
-        } else {
-          results.failed++;
-          results.errors.push(`Data file not found for project ${projectId}, subproject ${subprojectId}`);
-        }
-        
-      } catch (error) {
-        results.failed++;
-        results.errors.push(`Error importing ${item.fileName}: ${error.message}`);
-      }
-    }
-    
-    return { success: true, results };
-  } catch (error) {
-    console.error('Error in bulk import:', error);
-    return { success: false, error: error.message };
-  }
-});
-
 // Load all egkriseis for a project
 ipcMain.handle('load-project-egkriseis', async (event, projectId) => {
   try {
@@ -7551,10 +7608,7 @@ ipcMain.handle('link-egkrisi-manual', async (event, linkData) => {
         egkriseisCount: 0
       };
       
-      fs.writeFileSync(
-        path.join(subprojectDir, 'subproject_metadata.json'),
-        JSON.stringify(subprojectMeta, null, 2)
-      );
+      safeWriteJSON(path.join(subprojectDir, 'subproject_metadata.json'), subprojectMeta);
     }
     
     if (!fs.existsSync(egkriseisDir)) {
@@ -7583,11 +7637,7 @@ ipcMain.handle('link-egkrisi-manual', async (event, linkData) => {
         }
       };
       
-      // Save JSON
-      fs.writeFileSync(
-        path.join(egkriseisDir, `${egkrisiId}.json`),
-        JSON.stringify(egkrisiData, null, 2)
-      );
+      safeWriteJSON(path.join(egkriseisDir, `${egkrisiId}.json`), egkrisiData);
       
       // Copy PDF
       const sourcePdf = path.join(archiveDir, 'PDF_FILES', pdf.archivedFileName);

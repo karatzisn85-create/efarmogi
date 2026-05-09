@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import ImportEgkriseisWizard from './ImportEgkriseisWizard';
 import EgkrisiForm from './EgkrisiForm';
 import EgkriseisStructureViewer from './EgkriseisStructureViewer';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
@@ -296,7 +295,6 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProject, setSelectedProject] = useState(null);
-  const [showImportWizard, setShowImportWizard] = useState(false);
   const [showEgkrisiForm, setShowEgkrisiForm] = useState(false);
   const [showStructureViewer, setShowStructureViewer] = useState(false);
   const [isLinkingModalOpen, setIsLinkingModalOpen] = useState(false);
@@ -769,9 +767,6 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
             onChange={(e) => setSearchTerm(e.target.value)}
           />
           <>
-            <ActionButton primary onClick={() => setShowImportWizard(true)}>
-              📥 Import από CSV
-            </ActionButton>
             <ActionButton onClick={() => setShowEgkrisiForm(true)}>
               ➕ Νέα Έγκριση
             </ActionButton>
@@ -943,16 +938,6 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
         </ProjectGroupsContainer>
 
         {/* Modals */}
-        {showImportWizard && (
-          <ImportEgkriseisWizard
-            projects={projects}
-            onClose={() => {
-              setShowImportWizard(false);
-              loadAllEgkriseis();
-            }}
-          />
-        )}
-
         {showEgkrisiForm && (
           <EgkrisiForm
             projects={projects}

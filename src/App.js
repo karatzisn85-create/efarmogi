@@ -1,11 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
 import styled from 'styled-components';
-import UserSelection from './components/UserSelection';
-import Dashboard from './components/Dashboard';
 import SplashScreen from './components/SplashScreen';
-import SetupWizard from './components/SetupWizard';
+import UpdateNotifier from './components/UpdateNotifier';
+import ErrorBoundary from './components/ErrorBoundary';
+import { ToastProvider } from './components/ToastProvider';
+import WhatsNew from './components/WhatsNew';
 import './App.css';
+
+const UserSelection = lazy(() => import('./components/UserSelection'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const SetupWizard = lazy(() => import('./components/SetupWizard'));
 
 const ipcRenderer = window.electronAPI;
 
@@ -29,7 +34,8 @@ function App() {
     if (cancelled.value) return false;
     setAppConfig(config);
 
-    if (!config.setupCompleted) {
+    const dataDirExists = await ipcRenderer.invoke('check-data-dir-exists');
+    if (!config.setupCompleted || !dataDirExists) {
       setNeedsSetup(true);
       setIsAppLoading(false);
       return false;
@@ -76,32 +82,50 @@ function App() {
   };
 
   if (needsSetup) {
-    return <SetupWizard onComplete={handleSetupComplete} />;
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<div />}>
+          <SetupWizard onComplete={handleSetupComplete} />
+        </Suspense>
+      </ErrorBoundary>
+    );
   }
 
   return (
-    <AppContainer>
-      <SplashScreen 
-        isLoading={isAppLoading}
-        progress={loadingProgress}
-        statusText={loadingStatus}
-        loadingText="ERGOHUB"
-      />
-      {!isAppLoading && (
-        <Router>
-          <Routes>
-            <Route 
-              path="/" 
-              element={
-                currentUser ? 
-                  <Dashboard currentUser={currentUser} appVersion={appVersion} appConfig={appConfig} onLogout={() => setCurrentUser(null)} /> :
-                  <UserSelection onUserSelect={setCurrentUser} appConfig={{...appConfig, appVersion}} />
-              } 
-            />
-          </Routes>
-        </Router>
-      )}
-    </AppContainer>
+    <ToastProvider>
+      <AppContainer>
+        <UpdateNotifier />
+      <WhatsNew />
+        <SplashScreen 
+          isLoading={isAppLoading}
+          progress={loadingProgress}
+          statusText={loadingStatus}
+          loadingText="ERGOHUB"
+        />
+        {!isAppLoading && (
+          <Router>
+            <Routes>
+              <Route 
+                path="/" 
+                element={
+                  currentUser ? 
+                    <ErrorBoundary>
+                      <Suspense fallback={<div />}>
+                        <Dashboard currentUser={currentUser} appVersion={appVersion} appConfig={appConfig} onLogout={() => setCurrentUser(null)} />
+                      </Suspense>
+                    </ErrorBoundary> :
+                    <ErrorBoundary>
+                      <Suspense fallback={<div />}>
+                        <UserSelection onUserSelect={setCurrentUser} appConfig={{...appConfig, appVersion}} />
+                      </Suspense>
+                    </ErrorBoundary>
+                } 
+              />
+            </Routes>
+          </Router>
+        )}
+      </AppContainer>
+    </ToastProvider>
   );
 }
 

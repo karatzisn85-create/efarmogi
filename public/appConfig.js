@@ -68,7 +68,10 @@ function resolveDataDir(appInstance) {
   if (writable.length > 0) return writable[0];
   if (readable.length > 0) return readable[0];
 
-  return path.join(workspaceRoot, 'dedomena_ergon');
+  const fallback = path.join(workspaceRoot, 'dedomena_ergon');
+  if (fs.existsSync(fallback)) return fallback;
+
+  return null;
 }
 
 module.exports = { initConfigPath, loadConfig, saveConfig, resolveDataDir };

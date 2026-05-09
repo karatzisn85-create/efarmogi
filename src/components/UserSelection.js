@@ -340,13 +340,15 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
             <FormGroup>
               <Label>Όνομα χρήστη</Label>
               <Input type="text" value={username} onChange={e => setUsername(e.target.value)}
-                onKeyDown={e => handleKeyDown(e, handleLogin)} placeholder="Εισάγετε το όνομα χρήστη" autoFocus />
+                onKeyDown={e => handleKeyDown(e, handleLogin)} placeholder="Εισάγετε το όνομα χρήστη" autoFocus
+                aria-label="Όνομα χρήστη" />
             </FormGroup>
 
             <FormGroup>
               <Label>Κωδικός</Label>
               <Input type="password" value={password} onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => handleKeyDown(e, handleLogin)} placeholder="Εισάγετε τον κωδικό" />
+                onKeyDown={e => handleKeyDown(e, handleLogin)} placeholder="Εισάγετε τον κωδικό"
+                aria-label="Κωδικός πρόσβασης" />
             </FormGroup>
 
             <PrimaryButton onClick={handleLogin} disabled={loading}>

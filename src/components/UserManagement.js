@@ -243,6 +243,12 @@ function UserManagement({ onClose, currentUser }) {
   const [formData, setFormData] = useState({ username: '', password: '', fullName: '', role: 'USER' });
   const [message, setMessage] = useState(null);
 
+  useEffect(() => {
+    const handleEsc = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
   const loadUsers = useCallback(async () => {
     const result = await ipcRenderer.invoke('get-users');
     setUsers(result);

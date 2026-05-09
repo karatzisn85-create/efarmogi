@@ -298,13 +298,13 @@ async function main() {
     execSync('npm run build', { cwd: ROOT_DIR, stdio: 'inherit' });
     log('  ✅ React build completed', 'green');
 
-    // Step 3: Build portable exe
-    logStep(3, 6, 'Building portable exe...');
-    execSync('npm run clean-build-temp && set NODE_OPTIONS=--max-old-space-size=8192 && electron-builder --win portable --x64', {
+    // Step 3: Build NSIS installer
+    logStep(3, 6, 'Building NSIS installer...');
+    execSync('npm run clean-build-temp && set NODE_OPTIONS=--max-old-space-size=8192 && electron-builder --win nsis --x64', {
       cwd: ROOT_DIR,
       stdio: 'inherit'
     });
-    log('  ✅ Exe build completed', 'green');
+    log('  ✅ Installer build completed', 'green');
 
     // Step 4: Locate exe
     logStep(4, 6, 'Locating built file...');
@@ -333,10 +333,12 @@ async function main() {
 
     const today = new Date().toISOString().split('T')[0];
 
+    const fileSize = fs.statSync(exePath).size;
     const versionInfo = {
       version: version,
       releaseDate: today,
       downloadUrl: shareLink,
+      fileSize: fileSize,
       checksum: checksum,
       changelog: [`Ενημέρωση ERGOHUB ${version}`],
       mandatory: false

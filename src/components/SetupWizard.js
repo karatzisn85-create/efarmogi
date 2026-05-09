@@ -166,6 +166,32 @@ const Label = styled.label`
   margin-bottom: 6px;
 `;
 
+const TOTAL_STEPS = 3;
+
+const ExistingDataBanner = styled.div`
+  background: #e8f5e9;
+  border: 2px solid #4caf50;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+`;
+
+const BannerIcon = styled.span`
+  font-size: 24px;
+  flex-shrink: 0;
+`;
+
+const BannerText = styled.div`
+  font-size: 14px;
+  color: #2e7d32;
+  line-height: 1.5;
+  
+  strong { display: block; margin-bottom: 4px; }
+`;
+
 const SetupWizard = ({ onComplete }) => {
   const [step, setStep] = useState(1);
   const [orgType, setOrgType] = useState('Δήμος');
@@ -179,11 +205,18 @@ const SetupWizard = ({ onComplete }) => {
   const [adminPassConfirm, setAdminPassConfirm] = useState('');
   const [adminFullName, setAdminFullName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [folderInfo, setFolderInfo] = useState({ hasUsers: false, hasProjects: false, projectCount: 0 });
+  const [skipSuperadmin, setSkipSuperadmin] = useState(false);
 
   useEffect(() => {
     async function detect() {
       const dir = await ipcRenderer.invoke('get-data-dir');
       setDetectedPath(dir || '');
+      if (dir) {
+        const info = await ipcRenderer.invoke('check-folder-has-config', dir);
+        setFolderInfo(info);
+        setSkipSuperadmin(info.hasUsers);
+      }
     }
     detect();
   }, []);
@@ -193,12 +226,31 @@ const SetupWizard = ({ onComplete }) => {
     if (selected) {
       setCustomPath(selected);
       setUseCustom(true);
+      const info = await ipcRenderer.invoke('check-folder-has-config', selected);
+      setFolderInfo(info);
+      setSkipSuperadmin(info.hasUsers);
+    }
+  };
+
+  const activePath = useCustom ? customPath : detectedPath;
+
+  const totalSteps = skipSuperadmin ? TOTAL_STEPS - 1 : TOTAL_STEPS;
+
+  const handleAfterFolder = () => {
+    setStep(2);
+  };
+
+  const handleAfterOrg = () => {
+    if (skipSuperadmin) {
+      handleFinish();
+    } else {
+      setStep(3);
     }
   };
 
   const handleFinish = async () => {
     setSaving(true);
-    const finalPath = useCustom ? customPath : detectedPath;
+    const finalPath = activePath;
     const fullOrgName = orgName.trim() ? `${orgType} ${orgName.trim()}`.trim() : orgType;
     
     await ipcRenderer.invoke('save-app-config', {
@@ -210,38 +262,121 @@ const SetupWizard = ({ onComplete }) => {
       setupCompleted: true
     });
 
-    await ipcRenderer.invoke('create-user', {
-      username: adminUser.trim(),
-      password: adminPass,
-      role: 'SUPERADMIN',
-      fullName: adminFullName.trim() || adminUser.trim()
-    });
+    if (!skipSuperadmin) {
+      await ipcRenderer.invoke('create-user', {
+        username: adminUser.trim(),
+        password: adminPass,
+        role: 'SUPERADMIN',
+        fullName: adminFullName.trim() || adminUser.trim()
+      });
+    }
 
     setSaving(false);
     onComplete();
   };
 
-  const activePath = useCustom ? customPath : detectedPath;
-  const canProceedStep1 = orgName.trim().length > 0;
-  const canProceedStep2 = !!activePath;
+  const canProceedStep1 = !!activePath;
+  const canProceedStep2 = orgName.trim().length > 0;
   const passwordsMatch = adminPass === adminPassConfirm;
   const canFinish = adminUser.trim().length > 0 && adminPass.length >= 4 && passwordsMatch;
 
   return (
-    <WizardOverlay>
-      <WizardCard>
+    <WizardOverlay role="dialog" aria-label="Οδηγός αρχικής ρύθμισης">
+      <WizardCard role="form">
         <LogoSection>
           <AppName>ERGOHUB</AppName>
           <AppTagline>Πληροφοριακό Σύστημα Διαχείρισης Έργων & Προμηθειών</AppTagline>
         </LogoSection>
 
         <StepIndicator>
-          <StepDot active={step === 1} done={step > 1} />
-          <StepDot active={step === 2} done={step > 2} />
-          <StepDot active={step === 3} done={step > 3} />
+          {Array.from({ length: totalSteps }, (_, i) => (
+            <StepDot key={i} active={step === i + 1} done={step > i + 1} />
+          ))}
         </StepIndicator>
 
         {step === 1 && (
+          <>
+            <StepTitle>Φάκελος Δεδομένων</StepTitle>
+            
+            {detectedPath && !useCustom && (
+              <PathDisplay selected={true}>
+                <StatusIcon>✅</StatusIcon>
+                <div>
+                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>Εντοπίστηκε αυτόματα:</div>
+                  {detectedPath}
+                </div>
+              </PathDisplay>
+            )}
+
+            {useCustom && customPath && (
+              <PathDisplay selected={true}>
+                <StatusIcon>📁</StatusIcon>
+                <div>
+                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>Επιλέχθηκε:</div>
+                  {customPath}
+                </div>
+              </PathDisplay>
+            )}
+
+            {!detectedPath && !customPath && (
+              <PathDisplay selected={false}>
+                <StatusIcon>⚠️</StatusIcon>
+                <div>
+                  Δεν εντοπίστηκε φάκελος δεδομένων. 
+                  Επιλέξτε χειροκίνητα τον φάκελο.
+                </div>
+              </PathDisplay>
+            )}
+
+            {folderInfo.hasUsers && (
+              <ExistingDataBanner>
+                <BannerIcon>✅</BannerIcon>
+                <BannerText>
+                  <strong>Βρέθηκαν υπάρχουσες ρυθμίσεις!</strong>
+                  Ο φάκελος περιέχει λογαριασμούς χρηστών
+                  {folderInfo.hasProjects && ` και ${folderInfo.projectCount} έργ${folderInfo.projectCount === 1 ? 'ο' : 'α'}`}.
+                  Η δημιουργία superadmin θα παραληφθεί.
+                </BannerText>
+              </ExistingDataBanner>
+            )}
+
+            {activePath && !folderInfo.hasUsers && (
+              <ExistingDataBanner style={{ background: '#fff3e0', borderColor: '#ff9800' }}>
+                <BannerIcon>📂</BannerIcon>
+                <BannerText style={{ color: '#e65100' }}>
+                  <strong>Νέος φάκελος χωρίς ρυθμίσεις</strong>
+                  Θα χρειαστεί να δημιουργήσετε λογαριασμό Υπερδιαχειριστή.
+                </BannerText>
+              </ExistingDataBanner>
+            )}
+
+            <InfoText>
+              Ο φάκελος δεδομένων περιέχει όλα τα έργα, εντάξεις, προσκλήσεις και εγκρίσεις.
+              Αν χρησιμοποιείτε κοινόχρηστο δίσκο (π.χ. Z:\), επιλέξτε τον αντίστοιχο φάκελο.
+            </InfoText>
+
+            <ButtonRow>
+              <SecondaryButton onClick={handleBrowse}>
+                {activePath ? 'Αλλαγή φακέλου...' : 'Επιλογή φακέλου...'}
+              </SecondaryButton>
+              {useCustom && detectedPath && (
+                <SecondaryButton onClick={async () => {
+                  setUseCustom(false);
+                  const info = await ipcRenderer.invoke('check-folder-has-config', detectedPath);
+                  setFolderInfo(info);
+                  setSkipSuperadmin(info.hasUsers);
+                }}>
+                  Επαναφορά
+                </SecondaryButton>
+              )}
+              <PrimaryButton onClick={handleAfterFolder} disabled={!canProceedStep1}>
+                Επόμενο
+              </PrimaryButton>
+            </ButtonRow>
+          </>
+        )}
+
+        {step === 2 && (
           <>
             <StepTitle>Στοιχεία Οργανισμού</StepTitle>
             
@@ -281,62 +416,20 @@ const SetupWizard = ({ onComplete }) => {
             </InfoText>
 
             <ButtonRow>
-              <PrimaryButton onClick={() => setStep(2)} disabled={!canProceedStep1}>
-                Επόμενο
-              </PrimaryButton>
-            </ButtonRow>
-          </>
-        )}
-
-        {step === 2 && (
-          <>
-            <StepTitle>Φάκελος Δεδομένων</StepTitle>
-            
-            {detectedPath && !useCustom && (
-              <PathDisplay selected={true}>
-                <StatusIcon>✅</StatusIcon>
-                <div>
-                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>Εντοπίστηκε αυτόματα:</div>
-                  {detectedPath}
-                </div>
-              </PathDisplay>
-            )}
-
-            {useCustom && customPath && (
-              <PathDisplay selected={true}>
-                <StatusIcon>📁</StatusIcon>
-                <div>
-                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>Επιλέχθηκε:</div>
-                  {customPath}
-                </div>
-              </PathDisplay>
-            )}
-
-            <InfoText>
-              Ο φάκελος δεδομένων περιέχει όλα τα έργα, εντάξεις, προσκλήσεις και εγκρίσεις.
-              Αν χρησιμοποιείτε κοινόχρηστο δίσκο (π.χ. Z:\), επιλέξτε τον αντίστοιχο φάκελο.
-            </InfoText>
-
-            <ButtonRow>
               <SecondaryButton onClick={() => setStep(1)}>
                 Πίσω
               </SecondaryButton>
-              <SecondaryButton onClick={handleBrowse}>
-                Αλλαγή φακέλου...
-              </SecondaryButton>
-              {useCustom && detectedPath && (
-                <SecondaryButton onClick={() => setUseCustom(false)}>
-                  Επαναφορά
-                </SecondaryButton>
-              )}
-              <PrimaryButton onClick={() => setStep(3)} disabled={!canProceedStep2}>
-                Επόμενο
+              <PrimaryButton 
+                onClick={handleAfterOrg} 
+                disabled={!canProceedStep2 || (skipSuperadmin && saving)}
+              >
+                {skipSuperadmin ? (saving ? 'Αποθήκευση...' : 'Ολοκλήρωση') : 'Επόμενο'}
               </PrimaryButton>
             </ButtonRow>
           </>
         )}
 
-        {step === 3 && (
+        {step === 3 && !skipSuperadmin && (
           <>
             <StepTitle>Λογαριασμός Υπερδιαχειριστή</StepTitle>
             
