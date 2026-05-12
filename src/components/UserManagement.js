@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import styled from 'styled-components';
 
 const ipcRenderer = window.electronAPI;
@@ -101,8 +101,20 @@ const RoleBadge = styled.span`
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  background: ${p => p.role === 'SUPERADMIN' ? '#e8eaf6' : p.role === 'ADMIN' ? '#e3f2fd' : '#e8f5e9'};
-  color: ${p => p.role === 'SUPERADMIN' ? '#283593' : p.role === 'ADMIN' ? '#1565c0' : '#2e7d32'};
+  background: ${p => p.role === 'SUPERADMIN'
+    ? '#e8eaf6'
+    : p.role === 'ADMIN'
+      ? '#e3f2fd'
+      : p.role === 'ENGINEER'
+        ? '#fff3e0'
+        : '#e8f5e9'};
+  color: ${p => p.role === 'SUPERADMIN'
+    ? '#283593'
+    : p.role === 'ADMIN'
+      ? '#1565c0'
+      : p.role === 'ENGINEER'
+        ? '#ef6c00'
+        : '#2e7d32'};
 `;
 
 const StatusDot = styled.span`
@@ -184,6 +196,24 @@ const Select = styled.select`
   &:focus { border-color: #2c3e50; outline: none; }
 `;
 
+const MultiSelect = styled.select`
+  padding: 10px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: white;
+  min-height: 130px;
+
+  &:focus { border-color: #2c3e50; outline: none; }
+`;
+
+const FieldHint = styled.small`
+  font-size: 11px;
+  color: #777;
+  margin-top: 4px;
+`;
+
 const BtnRow = styled.div`
   display: flex;
   gap: 8px;
@@ -231,16 +261,19 @@ const EmptyRow = styled.tr`
 `;
 
 const ROLE_LABELS = {
-  SUPERADMIN: 'Υπερδιαχειριστής',
-  ADMIN: 'Διαχειριστής',
-  USER: 'Χρήστης'
+  SUPERADMIN: 'Superadmin',
+  ADMIN: 'admin',
+  USER: 'viewer',
+  ENGINEER: 'Μηχανικός'
 };
 
 function UserManagement({ onClose, currentUser }) {
   const [users, setUsers] = useState([]);
+  const [supervisors, setSupervisors] = useState([]);
+  const [supervisorFilter, setSupervisorFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [formData, setFormData] = useState({ username: '', password: '', fullName: '', role: 'USER' });
+  const [formData, setFormData] = useState({ username: '', password: '', fullName: '', role: 'USER', assignedSupervisors: [] });
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
@@ -256,11 +289,34 @@ function UserManagement({ onClose, currentUser }) {
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
+  const loadSupervisors = useCallback(async () => {
+    const result = await ipcRenderer.invoke('get-all-supervisors');
+    if (result?.success && Array.isArray(result.supervisors)) {
+      setSupervisors(result.supervisors);
+    } else {
+      setSupervisors([]);
+    }
+  }, []);
+
+  useEffect(() => { loadSupervisors(); }, [loadSupervisors]);
+
+  const filteredSupervisors = useMemo(() => {
+    const q = supervisorFilter.trim().toLowerCase();
+    const selected = new Set(formData.assignedSupervisors || []);
+    if (!supervisors.length) return [];
+    return supervisors.filter((name) => {
+      if (selected.has(name)) return true;
+      if (!q) return true;
+      return String(name).toLowerCase().includes(q);
+    });
+  }, [supervisors, supervisorFilter, formData.assignedSupervisors]);
+
   const pendingUsers = users.filter(u => !u.approved);
   const approvedUsers = users.filter(u => u.approved);
 
   const resetForm = () => {
-    setFormData({ username: '', password: '', fullName: '', role: 'USER' });
+    setFormData({ username: '', password: '', fullName: '', role: 'USER', assignedSupervisors: [] });
+    setSupervisorFilter('');
     setEditingUser(null);
     setShowForm(false);
     setMessage(null);
@@ -268,9 +324,17 @@ function UserManagement({ onClose, currentUser }) {
 
   const handleSubmit = async () => {
     setMessage(null);
+    if (formData.role === 'ENGINEER' && (!Array.isArray(formData.assignedSupervisors) || formData.assignedSupervisors.length === 0)) {
+      setMessage({ text: 'Για τον ρόλο μηχανικός απαιτείται τουλάχιστον μία αντιστοίχιση επιβλέποντα.', error: true });
+      return;
+    }
 
     if (editingUser) {
-      const updates = { fullName: formData.fullName, role: formData.role };
+      const updates = {
+        fullName: formData.fullName,
+        role: formData.role,
+        assignedSupervisors: formData.role === 'ENGINEER' ? formData.assignedSupervisors : []
+      };
       if (formData.password) updates.password = formData.password;
       const result = await ipcRenderer.invoke('update-user', { username: editingUser, updates });
       if (result.success) {
@@ -288,7 +352,8 @@ function UserManagement({ onClose, currentUser }) {
         username: formData.username.trim(),
         password: formData.password,
         role: formData.role,
-        fullName: formData.fullName.trim() || formData.username.trim()
+        fullName: formData.fullName.trim() || formData.username.trim(),
+        assignedSupervisors: formData.role === 'ENGINEER' ? formData.assignedSupervisors : []
       });
 
       if (result.success) {
@@ -302,7 +367,14 @@ function UserManagement({ onClose, currentUser }) {
   };
 
   const handleEdit = (user) => {
-    setFormData({ username: user.username, password: '', fullName: user.fullName, role: user.role });
+    setSupervisorFilter('');
+    setFormData({
+      username: user.username,
+      password: '',
+      fullName: user.fullName,
+      role: user.role,
+      assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : []
+    });
     setEditingUser(user.username);
     setShowForm(true);
     setMessage(null);
@@ -463,12 +535,63 @@ function UserManagement({ onClose, currentUser }) {
               </FieldGroup>
               <FieldGroup>
                 <Label>Ρόλος</Label>
-                <Select value={formData.role} onChange={e => setFormData(f => ({ ...f, role: e.target.value }))}>
-                  <option value="USER">Χρήστης</option>
-                  <option value="ADMIN">Διαχειριστής</option>
+                <Select
+                  value={formData.role}
+                  onChange={(e) => {
+                    const role = e.target.value;
+                    setSupervisorFilter('');
+                    setFormData((f) => ({
+                      ...f,
+                      role,
+                      assignedSupervisors: role === 'ENGINEER' ? f.assignedSupervisors : []
+                    }));
+                  }}
+                >
+                  <option value="USER">viewer</option>
+                  <option value="ADMIN">admin</option>
+                  <option value="ENGINEER">Μηχανικός</option>
                 </Select>
               </FieldGroup>
             </FormRow>
+
+            {formData.role === 'ENGINEER' && (
+              <FieldGroup style={{ marginBottom: 12 }}>
+                <Label>Αντιστοίχιση Επιβλέποντα Μηχανικού</Label>
+                <Input
+                  type="search"
+                  value={supervisorFilter}
+                  onChange={(e) => setSupervisorFilter(e.target.value)}
+                  placeholder="Αναζήτηση επιβλέποντα…"
+                  style={{ marginBottom: 8 }}
+                  autoComplete="off"
+                />
+                <FieldHint style={{ display: 'block', marginBottom: 6 }}>
+                  Εμφάνιση {filteredSupervisors.length} από {supervisors.length}
+                  {formData.assignedSupervisors?.length
+                    ? ` · επιλεγμένα: ${formData.assignedSupervisors.length}`
+                    : ''}
+                </FieldHint>
+                <MultiSelect
+                  multiple
+                  value={formData.assignedSupervisors}
+                  onChange={e => {
+                    const selectedValues = Array.from(e.target.selectedOptions).map(opt => opt.value);
+                    setFormData(f => ({ ...f, assignedSupervisors: selectedValues }));
+                  }}
+                >
+                  {supervisors.length === 0 ? (
+                    <option value="" disabled>Δεν βρέθηκαν καταγραφές επιβλεπόντων</option>
+                  ) : filteredSupervisors.length === 0 ? (
+                    <option value="" disabled>Δεν βρέθηκαν αποτελέσματα για την αναζήτηση</option>
+                  ) : (
+                    filteredSupervisors.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))
+                  )}
+                </MultiSelect>
+                <FieldHint>Επιτρέπεται πολλαπλή επιλογή (Ctrl + κλικ). Ο μηχανικός θα βλέπει μόνο τα αντίστοιχα υποέργα.</FieldHint>
+              </FieldGroup>
+            )}
 
             {message && <Message error={message.error}>{message.text}</Message>}
 

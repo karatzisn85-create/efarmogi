@@ -186,6 +186,7 @@ const LoadingMessage = styled.div`
 `;
 
 function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, onGroupFiles }) {
+  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [files, setFiles] = useState({
     main: [],
     attachments: []
@@ -350,7 +351,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                   ⬇️ Λήψη
                 </button>
               `}
-              ${userRole !== 'USER' ? `<button onclick="window.deleteItemFromFolder('${item.name}', '${folderName}', '${targetFolder}', ${item.isDirectory})" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 0.4rem 0.8rem; cursor: pointer; font-size: 0.85rem;">
+              ${canManageWorkflow ? `<button onclick="window.deleteItemFromFolder('${item.name}', '${folderName}', '${targetFolder}', ${item.isDirectory})" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 0.4rem 0.8rem; cursor: pointer; font-size: 0.85rem;">
                 🗑️ Διαγραφή
               </button>` : ''}
             </div>
@@ -552,7 +553,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                   ⬇️ Λήψη
                 </button>
               `}
-              ${userRole !== 'USER' ? `<button onclick="window.deleteItemFromSubfolder('${item.name}', '${subfolderName}', '${parentFolderName}', '${targetFolder}', ${item.isDirectory})" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 0.4rem 0.8rem; cursor: pointer; font-size: 0.85rem;">
+              ${canManageWorkflow ? `<button onclick="window.deleteItemFromSubfolder('${item.name}', '${subfolderName}', '${parentFolderName}', '${targetFolder}', ${item.isDirectory})" style="background: #dc3545; color: white; border: none; border-radius: 4px; padding: 0.4rem 0.8rem; cursor: pointer; font-size: 0.85rem;">
                 🗑️ Διαγραφή
               </button>` : ''}
             </div>
@@ -736,7 +737,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                     <FolderTitle>
                       📎 ΑΡΧΕΙΑ
                     </FolderTitle>
-                    {userRole !== 'USER' && (
+                    {canManageWorkflow && (
                       <button
                         onClick={() => onGroupFiles && onGroupFiles(files.attachments.filter(file => !file.isGrouped))}
                         style={{
@@ -772,7 +773,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                           <ActionButton download onClick={() => handleDownloadFile(file.fileName, 'attachments')}>
                             📥 Λήψη
                           </ActionButton>
-                          {userRole !== 'USER' && (
+                          {canManageWorkflow && (
                             <ActionButton delete onClick={() => handleDeleteFile(file.fileName, 'attachments')}>
                               🗑️ Διαγραφή
                             </ActionButton>
@@ -795,7 +796,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                           <ActionButton view onClick={() => handleOpenFolder(folder.folderName, 'attachments')}>
                             📂 Άνοιγμα
                           </ActionButton>
-                          {userRole !== 'USER' && (
+                          {canManageWorkflow && (
                             <ActionButton delete onClick={() => handleDeleteFolder(folder.folderName, 'attachments')}>
                               🗑️ Διαγραφή
                             </ActionButton>
@@ -838,7 +839,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                         }}>
                           📁 {group.title}
                         </h4>
-                        {userRole !== 'USER' && (
+                        {canManageWorkflow && (
                           <button
                             onClick={() => handleDeleteGroup(group.id || groupIndex)}
                             style={{
@@ -870,7 +871,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                                 <ActionButton download onClick={() => handleDownloadFile(file.fileName, 'attachments')}>
                                   📥 Λήψη
                                 </ActionButton>
-                                {userRole !== 'USER' && (
+                                {canManageWorkflow && (
                                   <ActionButton delete onClick={() => handleDeleteFile(file.fileName, 'attachments')}>
                                     🗑️ Διαγραφή
                                   </ActionButton>

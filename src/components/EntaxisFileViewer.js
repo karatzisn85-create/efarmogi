@@ -170,6 +170,7 @@ const NoFilesMessage = styled.div`
 `;
 
 function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
+  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [entaxiFiles, setEntaxiFiles] = useState([]);
   const [approvalFiles, setApprovalFiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -338,7 +339,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
                 >
                   💾 Λήψη
                 </ActionButton>
-                {userRole !== 'USER' && (
+                {canManageWorkflow && (
                   <ActionButton 
                     variant="delete" 
                     onClick={() => handleDeleteFile(fileName)}

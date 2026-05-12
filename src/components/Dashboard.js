@@ -254,6 +254,8 @@ const UserRole = styled.span`
     ? 'linear-gradient(135deg, #7c3aed, #6d28d9)'
     : props.role === 'ADMIN'
       ? 'linear-gradient(135deg, #3b82f6, #2563eb)'
+      : props.role === 'ENGINEER'
+        ? 'linear-gradient(135deg, #f59e0b, #d97706)'
       : 'linear-gradient(135deg, #10b981, #059669)'};
   color: white;
   padding: 0.45rem 1rem;
@@ -263,6 +265,18 @@ const UserRole = styled.span`
   letter-spacing: 0.5px;
   box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.15);
+`;
+
+const RoleTag = styled.span`
+  background: rgba(15, 23, 42, 0.45);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 0.38rem 0.78rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
 `;
 
 const LogoutButton = styled.button`
@@ -285,6 +299,29 @@ const LogoutButton = styled.button`
     transform: translateY(-1px);
   }
 `;
+
+const HeaderRight = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  z-index: 1;
+`;
+
+const VersionText = styled.div`
+  color: rgba(100, 116, 139, 0.8);
+  font-size: 0.7rem;
+  text-align: right;
+  min-width: 60px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+`;
+
+const getRoleLabel = (role) => {
+  if (role === 'SUPERADMIN') return 'Superadmin';
+  if (role === 'ADMIN') return 'admin';
+  if (role === 'ENGINEER') return 'Μηχανικός';
+  return 'viewer';
+};
 
 const ContentArea = styled.div`
   display: flex;
@@ -1711,6 +1748,14 @@ const ContentWrapper = styled.div`
 
 function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   const userRole = currentUser?.role || 'USER';
+  const isSuperAdmin = userRole === 'SUPERADMIN';
+  const canManageAll = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
+  const isEngineer = userRole === 'ENGINEER';
+  const engineerSupervisors = useMemo(() => (
+    Array.isArray(currentUser?.assignedSupervisors)
+      ? currentUser.assignedSupervisors.map(s => String(s || '').trim()).filter(Boolean)
+      : []
+  ), [currentUser?.assignedSupervisors]);
   const [projects, setProjects] = useState([]);
   const [filteredProjects, setFilteredProjects] = useState([]);
   const [entaxeis, setEntaxeis] = useState([]);
@@ -1776,6 +1821,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   
   // Εμφάνιση αρχειοθετημένων (Ολοκληρωμένα & Αποπληρωμένα)
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+
+  const visibleProjects = useMemo(() => {
+    if (!isEngineer) return projects;
+    if (engineerSupervisors.length === 0) return [];
+    const allowed = new Set(engineerSupervisors.map(s => s.toLowerCase()));
+    return projects.filter(project => {
+      const projectSupervisor = String(project?.supervisor || '').trim().toLowerCase();
+      return projectSupervisor && allowed.has(projectSupervisor);
+    });
+  }, [projects, isEngineer, engineerSupervisors]);
 
   // Scroll position preservation
   const contentWrapperRef = useRef(null);
@@ -2072,7 +2127,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   // Memoized applyFilters with advanced filtering and sorting
   const applyFilters = useCallback((filters) => {
     const performFiltering = () => {
-      let filtered = [...projects];
+      let filtered = [...visibleProjects];
 
       // Quick Search - text search in all fields
       if (debouncedQuickSearchText) {
@@ -2379,7 +2434,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
     } else {
       setTimeout(performFiltering, 0);
     }
-  }, [projects, debouncedQuickSearchText, quickSearchStatus, quickSearchType, showArchivedProjects]);
+  }, [visibleProjects, debouncedQuickSearchText, quickSearchStatus, quickSearchType, showArchivedProjects]);
 
   // Apply filters when dependencies change
   const applyFiltersTimeoutRef = useRef(null);
@@ -4070,14 +4125,14 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
   // Get unique values for dropdowns - Memoized για καλύτερη performance
   const getUniqueStatuses = useMemo(() => {
-    const statuses = [...new Set(projects.map(p => p.projectStatus).filter(Boolean))];
+    const statuses = [...new Set(visibleProjects.map(p => p.projectStatus).filter(Boolean))];
     return statuses.sort();
-  }, [projects]);
+  }, [visibleProjects]);
 
   const getUniqueTypes = useMemo(() => {
-    const types = [...new Set(projects.map(p => p.projectType).filter(Boolean))];
+    const types = [...new Set(visibleProjects.map(p => p.projectType).filter(Boolean))];
     return types.sort();
-  }, [projects]);
+  }, [visibleProjects]);
 
 
   // Group projects by project title - Memoized for performance
@@ -4130,17 +4185,20 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <UserRole role={userRole}>
             {currentUser?.fullName || currentUser?.username || userRole}
           </UserRole>
-          <LogoutButton onClick={onLogout}>
-            Αποσύνδεση
-          </LogoutButton>
+          <RoleTag>{getRoleLabel(userRole)}</RoleTag>
         </UserInfo>
         <CenteredTitleContainer>
           <MainTitle>{appConfig.organizationFullName || 'ΟΡΓΑΝΙΣΜΟΣ'}</MainTitle>
           <SubTitle>ERGOHUB - Διαχείριση Έργων & Προμηθειών</SubTitle>
         </CenteredTitleContainer>
-        <div style={{ color: 'rgba(100, 116, 139, 0.8)', fontSize: '0.7rem', textAlign: 'right', minWidth: '60px', fontWeight: '600', letterSpacing: '0.5px', zIndex: 1 }}>
-          {appVersion ? `v${appVersion}` : ''}
-        </div>
+        <HeaderRight>
+          <LogoutButton onClick={onLogout}>
+            Αποσύνδεση
+          </LogoutButton>
+          <VersionText>
+            {appVersion ? `v${appVersion}` : ''}
+          </VersionText>
+        </HeaderRight>
       </Header>
 
       <ContentWrapper ref={contentWrapperRef}>
@@ -4190,7 +4248,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <EmptyStateIcon>📁</EmptyStateIcon>
                 <EmptyStateText>Δεν υπάρχουν έργα</EmptyStateText>
                 <EmptyStateSubtext>
-                  {userRole !== 'USER' 
+                  {canManageAll
                     ? 'Κάντε κλικ στο κουμπί "ΕΙΣΑΓΩΓΗ ΝΕΟΥ ΥΠΟΕΡΓΟΥ" για να προσθέσετε το πρώτο έργο'
                     : 'Δεν έχουν εισαχθεί έργα ακόμα'
                   }
@@ -4397,7 +4455,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             <CategoryHeaderChevron $open={expandedCategories.projects}>▶</CategoryHeaderChevron>
           </CategoryHeader>
           <CategoryBody $open={expandedCategories.projects}>
-            {userRole !== 'USER' && (
+            {canManageAll && (
               <AdminButton primary onClick={() => {
                 if (contentWrapperRef.current) {
                   savedScrollPosition.current = contentWrapperRef.current.scrollTop;
@@ -4429,70 +4487,76 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
         {/* Κατηγορία: ΦΑΚΕΛΟΣ ΕΡΓΟΥ */}
         <CategorySection>
-          <CategoryHeader $open={expandedCategories.management} onClick={() => toggleCategory('management')}>
-            <CategoryHeaderLeft>
-              <CategoryHeaderIcon $accent="linear-gradient(135deg, #0891b2, #06b6d4)">📂</CategoryHeaderIcon>
-              <CategoryHeaderTitle>Φάκελος Έργου</CategoryHeaderTitle>
-            </CategoryHeaderLeft>
-            <CategoryHeaderChevron $open={expandedCategories.management}>▶</CategoryHeaderChevron>
-          </CategoryHeader>
-          <CategoryBody $open={expandedCategories.management}>
-            <AdminButton onClick={() => {
-              if (contentWrapperRef.current) {
-                savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-              }
-              setIsEntaxisOpen(true);
-            }}>
-              <AdminButtonIcon>📊</AdminButtonIcon>
-              Εντάξεις Έργων
-            </AdminButton>
-            <AdminButton onClick={() => {
-              if (contentWrapperRef.current) {
-                savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-              }
-              setIsProsklisisOpen(true);
-            }}>
-              <AdminButtonIcon>📢</AdminButtonIcon>
-              Προσκλήσεις
-            </AdminButton>
-            <AdminButton onClick={() => setIsCreditApprovalsOpen(true)}>
-              <AdminButtonIcon>📋</AdminButtonIcon>
-              Εγκρίσεις Διάθεσης Πίστωσης
-            </AdminButton>
-          </CategoryBody>
-        </CategorySection>
+            <CategoryHeader $open={expandedCategories.management} onClick={() => toggleCategory('management')}>
+              <CategoryHeaderLeft>
+                <CategoryHeaderIcon $accent="linear-gradient(135deg, #0891b2, #06b6d4)">📂</CategoryHeaderIcon>
+                <CategoryHeaderTitle>Φάκελος Έργου</CategoryHeaderTitle>
+              </CategoryHeaderLeft>
+              <CategoryHeaderChevron $open={expandedCategories.management}>▶</CategoryHeaderChevron>
+            </CategoryHeader>
+            <CategoryBody $open={expandedCategories.management}>
+              <AdminButton onClick={() => {
+                if (contentWrapperRef.current) {
+                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                }
+                setIsEntaxisOpen(true);
+              }}>
+                <AdminButtonIcon>📊</AdminButtonIcon>
+                Εντάξεις Έργων
+              </AdminButton>
+              <AdminButton onClick={() => {
+                if (contentWrapperRef.current) {
+                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                }
+                setIsProsklisisOpen(true);
+              }}>
+                <AdminButtonIcon>📢</AdminButtonIcon>
+                Προσκλήσεις
+              </AdminButton>
+              <AdminButton onClick={() => setIsCreditApprovalsOpen(true)}>
+                <AdminButtonIcon>📋</AdminButtonIcon>
+                Εγκρίσεις Διάθεσης Πίστωσης
+              </AdminButton>
+            </CategoryBody>
+          </CategorySection>
 
         {/* Κατηγορία: ΕΞΑΓΩΓΕΣ */}
         <CategorySection>
-          <CategoryHeader $open={expandedCategories.exports} onClick={() => toggleCategory('exports')}>
-            <CategoryHeaderLeft>
-              <CategoryHeaderIcon $accent="linear-gradient(135deg, #059669, #10b981)">📤</CategoryHeaderIcon>
-              <CategoryHeaderTitle>Εξαγωγές</CategoryHeaderTitle>
-            </CategoryHeaderLeft>
-            <CategoryHeaderChevron $open={expandedCategories.exports}>▶</CategoryHeaderChevron>
-          </CategoryHeader>
-          <CategoryBody $open={expandedCategories.exports}>
-            <AdminButton onClick={() => setIsTechnicalProgramOpen(true)}>
-              <AdminButtonIcon>📋</AdminButtonIcon>
-              Τεχνικό Πρόγραμμα
-            </AdminButton>
-            <AdminButton onClick={() => setIsInvestExportOpen(true)}>
-              <AdminButtonIcon>📊</AdminButtonIcon>
-              Εκτελεστέα Έργα
-            </AdminButton>
-            <AdminButton onClick={() => setIsExportOpen(true)}>
-              <AdminButtonIcon>📑</AdminButtonIcon>
-              Εξαγωγή Δεδομένων
-            </AdminButton>
-            <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
-              <AdminButtonIcon>📄</AdminButtonIcon>
-              Υποδείγματα Εγγράφων
-            </AdminButton>
-          </CategoryBody>
-        </CategorySection>
+            <CategoryHeader $open={expandedCategories.exports} onClick={() => toggleCategory('exports')}>
+              <CategoryHeaderLeft>
+                <CategoryHeaderIcon $accent="linear-gradient(135deg, #059669, #10b981)">📤</CategoryHeaderIcon>
+                <CategoryHeaderTitle>Εξαγωγές</CategoryHeaderTitle>
+              </CategoryHeaderLeft>
+              <CategoryHeaderChevron $open={expandedCategories.exports}>▶</CategoryHeaderChevron>
+            </CategoryHeader>
+            <CategoryBody $open={expandedCategories.exports}>
+              {!isEngineer && (
+                <AdminButton onClick={() => setIsTechnicalProgramOpen(true)}>
+                  <AdminButtonIcon>📋</AdminButtonIcon>
+                  Τεχνικό Πρόγραμμα
+                </AdminButton>
+              )}
+              {!isEngineer && (
+                <AdminButton onClick={() => setIsInvestExportOpen(true)}>
+                  <AdminButtonIcon>📊</AdminButtonIcon>
+                  Εκτελεστέα Έργα
+                </AdminButton>
+              )}
+              <AdminButton onClick={() => setIsExportOpen(true)}>
+                <AdminButtonIcon>📑</AdminButtonIcon>
+                Εξαγωγή Δεδομένων
+              </AdminButton>
+              {!isEngineer && (
+                <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
+                  <AdminButtonIcon>📄</AdminButtonIcon>
+                  Υποδείγματα Εγγράφων
+                </AdminButton>
+              )}
+            </CategoryBody>
+          </CategorySection>
 
         {/* Κατηγορία: ΕΡΓΑΛΕΙΑ - μόνο για ADMIN/SUPERADMIN */}
-        {userRole !== 'USER' && (
+        {canManageAll && (
           <CategorySection>
             <CategoryHeader $open={expandedCategories.tools} onClick={() => toggleCategory('tools')}>
               <CategoryHeaderLeft>
@@ -4543,7 +4607,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         )}
 
         {/* Κατηγορία: ΣΥΣΤΗΜΑ - μόνο για SUPERADMIN */}
-        {userRole === 'SUPERADMIN' && (
+        {isSuperAdmin && (
           <CategorySection>
             <CategoryHeader $open={expandedCategories.system} onClick={() => toggleCategory('system')}>
               <CategoryHeaderLeft>

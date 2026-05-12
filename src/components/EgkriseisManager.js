@@ -291,6 +291,7 @@ const LoadingMessage = styled.div`
 `;
 
 function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }) {
+  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState({});
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -890,7 +891,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
                                       >
                                         👁️ Προβολή
                                       </IconButton>
-                                      {userRole !== 'USER' && (
+                                      {canManageWorkflow && (
                                         <IconButton 
                                           onClick={() => handleLinkSubproject(egkrisi)}
                                           style={{ background: '#17a2b8', color: 'white' }}
@@ -898,7 +899,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
                                           🔗 ΣΥΣΧΕΤΙΣΗ ΜΕ ΥΠΟΕΡΓΟ
                                         </IconButton>
                                       )}
-                                      {userRole !== 'USER' && linkedSubprojects[egkrisi.id] && (
+                                      {canManageWorkflow && linkedSubprojects[egkrisi.id] && (
                                         <IconButton 
                                           onClick={() => handleCreateApproval(egkrisi)}
                                           style={{ background: '#28a745', color: 'white' }}
@@ -906,7 +907,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
                                           ✅ ΕΓΚΡΙΣΗ ΔΙΑΘ. ΠΙΣΤΩΣΗΣ ΣΤΟ ΑΝΤΊΣΤΟΙΧΟ ΥΠΟΈΡΓΟ
                                         </IconButton>
                                       )}
-                                      {userRole !== 'USER' && (
+                                      {canManageWorkflow && (
                                         <IconButton 
                                           danger
                                           onClick={() => deleteEgkrisi(projectId, subproject.subprojectId, egkrisi.id)}

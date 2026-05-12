@@ -757,6 +757,7 @@ const CreditApprovalsPanel = ({
   onViewPdf,
   onDownloadPdf
 }) => {
+  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState(null);
   const [linkedMap, setLinkedMap] = useState({});
   const [filteredProjects, setFilteredProjects] = useState([]);
@@ -1619,7 +1620,7 @@ const CreditApprovalsPanel = ({
           <PanelHeader>
             <Title>Εγκρίσεις Διάθεσης Πίστωσης</Title>
             <HeaderActions>
-              {userRole !== 'USER' && (
+              {canManageWorkflow && (
                 <HeaderButton onClick={onOpenForm}>
                   ✏️ Επεξεργασία/Δημιουργία
                 </HeaderButton>
@@ -1708,7 +1709,7 @@ const CreditApprovalsPanel = ({
                         ) : (
                           <>
                             <ProjectTitle>{project.title}</ProjectTitle>
-                            {userRole !== 'USER' && (
+                            {canManageWorkflow && (
                               <EditProjectButton onClick={() => handleEditProjectTitle(project)}>
                                 ✏️ Επεξεργασία
                               </EditProjectButton>
@@ -1810,14 +1811,14 @@ const CreditApprovalsPanel = ({
                                 ) : (
                                   <>
                                     <SubprojectTitle>{subproject.title}</SubprojectTitle>
-                                    {userRole !== 'USER' && (
+                                    {canManageWorkflow && (
                                       <EditSubprojectButton onClick={() => handleEditSubprojectTitle(subproject, project)}>
                                         ✏️
                                       </EditSubprojectButton>
                                     )}
                                   </>
                                 )}
-                                {userRole !== 'USER' && (
+                                {canManageWorkflow && (
                                   <SubprojectHeaderActions>
                                     {isSubprojectLinked(subproject.title) ? (
                                       <>
@@ -1852,7 +1853,7 @@ const CreditApprovalsPanel = ({
                                         <DownloadButton onClick={() => downloadPdf(project.folderName, pdf, subproject.folderName)}>
                                           Λήψη
                                         </DownloadButton>
-                                        {userRole !== 'USER' && (
+                                        {canManageWorkflow && (
                                           <DeletePdfButton
                                             onClick={() => handleDeletePdfClick(project, subproject, pdf)}
                                             title="Διαγραφή αρχείου"

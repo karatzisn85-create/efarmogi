@@ -458,6 +458,7 @@ const LinkedStatus = styled.div`
 `;
 
 function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, highlightProjectTitle = null, highlightSubprojectTitle = null, onLinkCreated = null }) {
+  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState(null);
   const [filteredProjects, setFilteredProjects] = useState([]);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
@@ -899,7 +900,7 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
         <ModalHeader>
           <ModalTitle>Εγκρίσεις Διάθεσης Πίστωσης</ModalTitle>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            {userRole !== 'USER' && (
+            {canManageWorkflow && (
               <EditButton onClick={onOpenForm}>
                 <span>✏️</span>
                 Επεξεργασία/Δημιουργία
@@ -1003,7 +1004,7 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
                           <SubprojectHeader>
                             <SubprojectNumber>#{subproject.number}</SubprojectNumber>
                             <SubprojectTitle>{subproject.title}</SubprojectTitle>
-                            {userRole !== 'USER' && (
+                            {canManageWorkflow && (
                               <SubprojectHeaderActions>
                                 {linkedSubprojects && Object.values(linkedSubprojects).some(link => 
                                   link && link.egkrisiTitle && link.egkrisiTitle === subproject.title

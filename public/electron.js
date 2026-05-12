@@ -300,7 +300,15 @@ ipcMain.handle('authenticate', async (_event, { username, password }) => {
   const user = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.passwordHash === hashed && u.active !== false);
   if (!user) return { success: false, error: 'Λάθος όνομα χρήστη ή κωδικός' };
   if (user.approved === false) return { success: false, error: 'Ο λογαριασμός σας αναμένει έγκριση από τον διαχειριστή' };
-  return { success: true, user: { username: user.username, role: user.role, fullName: user.fullName } };
+  return {
+    success: true,
+    user: {
+      username: user.username,
+      role: user.role,
+      fullName: user.fullName,
+      assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : []
+    }
+  };
 });
 
 ipcMain.handle('register-user', async (_event, { username, password, role, fullName }) => {
@@ -327,16 +335,27 @@ ipcMain.handle('register-user', async (_event, { username, password, role, fullN
 
 ipcMain.handle('get-users', async () => {
   const users = loadUsers();
-  return users.map(u => ({ username: u.username, role: u.role, fullName: u.fullName, active: u.active !== false, approved: u.approved !== false, createdAt: u.createdAt }));
+  return users.map(u => ({
+    username: u.username,
+    role: u.role,
+    fullName: u.fullName,
+    active: u.active !== false,
+    approved: u.approved !== false,
+    createdAt: u.createdAt,
+    assignedSupervisors: Array.isArray(u.assignedSupervisors) ? u.assignedSupervisors : []
+  }));
 });
 
-ipcMain.handle('create-user', async (_event, { username, password, role, fullName }) => {
+ipcMain.handle('create-user', async (_event, { username, password, role, fullName, assignedSupervisors = [] }) => {
   const users = loadUsers();
   if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
     return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
   }
-  const validRoles = ['SUPERADMIN', 'ADMIN', 'USER'];
+  const validRoles = ['SUPERADMIN', 'ADMIN', 'USER', 'ENGINEER'];
   if (!validRoles.includes(role)) return { success: false, error: 'Μη έγκυρος ρόλος' };
+  const normalizedSupervisors = Array.isArray(assignedSupervisors)
+    ? [...new Set(assignedSupervisors.map(s => String(s || '').trim()).filter(Boolean))]
+    : [];
 
   users.push({
     username: username.trim(),
@@ -344,6 +363,7 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     role,
     fullName: fullName || username,
     active: true,
+    assignedSupervisors: role === 'ENGINEER' ? normalizedSupervisors : [],
     createdAt: new Date().toISOString()
   });
   saveUsers(users);
@@ -360,6 +380,15 @@ ipcMain.handle('update-user', async (_event, { username, updates }) => {
   if (updates.active !== undefined) users[idx].active = updates.active;
   if (updates.approved !== undefined) users[idx].approved = updates.approved;
   if (updates.password) users[idx].passwordHash = hashPassword(updates.password);
+  if (updates.assignedSupervisors !== undefined) {
+    const normalizedSupervisors = Array.isArray(updates.assignedSupervisors)
+      ? [...new Set(updates.assignedSupervisors.map(s => String(s || '').trim()).filter(Boolean))]
+      : [];
+    users[idx].assignedSupervisors = normalizedSupervisors;
+  }
+  if (updates.role !== undefined && updates.role !== 'ENGINEER') {
+    users[idx].assignedSupervisors = [];
+  }
 
   saveUsers(users);
   return { success: true };

@@ -796,6 +796,7 @@ const ModificationButton = styled.button`
 
 
 function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, selectedProsklisiId = null }) {
+  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [proskliseis, setProskliseis] = useState([]);
   const [filteredProskliseis, setFilteredProskliseis] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1743,7 +1744,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
 
         <ModalContent>
           <HeaderActions>
-            {userRole !== 'USER' && (
+            {canManageWorkflow && (
               <NewProsklisisButton onClick={() => {
                 setEditingProsklisi(null); // Καθαρισμός για νέα πρόσκληση
                 setIsFormOpen(true);
@@ -1893,7 +1894,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
           ) : filteredProskliseis.length === 0 ? (
             <NoDataMessage>
               {searchTerm ? 'Δεν βρέθηκαν προσκλήσεις που να ταιριάζουν στην αναζήτηση.' : 'Δεν υπάρχουν προσκλήσεις.'}
-              {userRole !== 'USER' && !searchTerm && (
+              {canManageWorkflow && !searchTerm && (
                 <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
                   Πατήστε "Εισαγωγή Νέας Πρόσκλησης" για να προσθέσετε την πρώτη πρόσκληση.
                 </div>
@@ -2034,7 +2035,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
                               </div>
                             )}
                             
-                            {userRole !== 'USER' && (
+                            {canManageWorkflow && (
                               <ModificationActions>
                                 <ModificationButton
                                   variant="edit"
@@ -2060,7 +2061,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
                     <ActionButton primary onClick={() => handleViewFiles(prosklisi.prosklisiId)}>
                       📁 Αρχεία Πρόσκλησης
                     </ActionButton>
-                    {userRole !== 'USER' && (
+                    {canManageWorkflow && (
                       <>
                         <ActionButton edit onClick={() => handleEditProsklisi(prosklisi)}>
                           ✏️ Επεξεργασία

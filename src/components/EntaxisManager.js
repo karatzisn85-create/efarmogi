@@ -609,6 +609,7 @@ window.fixAllEntaxeis = async () => {
 };
 
 function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile }) {
+  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [entaxeis, setEntaxeis] = useState([]);
   const [filteredEntaxeis, setFilteredEntaxeis] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1151,7 +1152,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
         </Header>
 
         <ActionsBar>
-          {userRole !== 'USER' && (
+          {canManageWorkflow && (
             <ActionButton 
               primary 
               onClick={() => {
@@ -1297,7 +1298,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                 ? `Δεν βρέθηκαν εντάξεις για το έργο "${projectFilter}".`
                 : "Δεν βρέθηκαν εντάξεις έργων."
               }
-              {userRole !== 'USER' && !projectFilter && (
+              {canManageWorkflow && !projectFilter && (
                 <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
                   Πατήστε "Νέα Ένταξη" για να προσθέσετε την πρώτη ένταξη.
                 </div>
@@ -1438,7 +1439,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                           </SmallButton>
 
                           {/* ΕΝΕΡΓΕΙΕΣ ΔΙΑΧΕΙΡΙΣΗΣ */}
-                          {userRole !== 'USER' && (
+                          {canManageWorkflow && (
                             <>
                               <SmallButton 
                                 onClick={async () => {
@@ -1561,7 +1562,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                                       >
                                         📥 Λήψη
                                       </SmallButton>
-                                      {userRole !== 'USER' && (
+                                      {canManageWorkflow && (
                                         <>
                                           <SmallButton 
                                             edit 
