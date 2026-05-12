@@ -159,6 +159,9 @@ let lockWatcher = null;
 // Global mainWindow reference for backup notifications
 let mainWindow = null;
 
+/** Όταν true, το κλείσιμο παραθύρου/έξοδος εμποδίζεται — ο χρήστης πρέπει να χρησιμοποιήσει «Αποσύνδεση» στο Dashboard. */
+let dashboardSessionActive = false;
+
 const isDev = false; // Force production mode
 
 function createWindow() {
@@ -220,6 +223,17 @@ function createWindow() {
     console.log('Window became responsive again');
   });
 
+  mainWindow.on('close', (event) => {
+    if (dashboardSessionActive && mainWindow && !mainWindow.isDestroyed()) {
+      event.preventDefault();
+      try {
+        mainWindow.webContents.send('app-close-blocked');
+      } catch (err) {
+        console.error('[CloseGuard] app-close-blocked send failed:', err);
+      }
+    }
+  });
+
   // Developer Tools μόνο σε development mode
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
@@ -229,6 +243,11 @@ function createWindow() {
 ipcMain.handle('getAppVersion', () => app.getVersion());
 
 ipcMain.handle('get-app-config', () => loadConfig());
+
+ipcMain.handle('set-dashboard-session-active', (_event, active) => {
+  dashboardSessionActive = Boolean(active);
+  return { ok: true };
+});
 
 ipcMain.handle('save-app-config', async (_event, newConfig) => {
   saveConfig(newConfig);
@@ -523,6 +542,21 @@ app.whenReady().then(() => {
     initAutoUpdate();
   } else {
     console.log('[Update] Dev mode - auto-update skipped');
+  }
+});
+
+app.on('before-quit', (event) => {
+  if (dashboardSessionActive) {
+    event.preventDefault();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+      try {
+        mainWindow.webContents.send('app-close-blocked');
+      } catch (err) {
+        console.error('[CloseGuard] before-quit notify failed:', err);
+      }
+    }
   }
 });
 

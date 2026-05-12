@@ -15,118 +15,148 @@ const EntaxisOverlay = styled.div`
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
   align-items: flex-start;
   z-index: 9999;
-  padding: 2rem;
+  padding: 0.65rem 1cm;
   overflow-y: auto;
+  box-sizing: border-box;
+
+  @media (min-width: 900px) {
+    padding: 0.85rem 1cm;
+  }
 `;
 
 const EntaxisContainer = styled.div`
-  background: white;
-  border-radius: 20px;
-  padding: 3rem;
-  max-width: 1200px;
-  width: 95%;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  border: 2px solid #dee2e6;
-  margin-top: 2rem;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  padding: 0;
+  width: 100%;
+  max-width: 1920px;
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  margin-top: 0.35rem;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+`;
+
+const EntaxisTopSection = styled.div`
+  flex-shrink: 0;
+  padding: 0.85rem 1.25rem 0.55rem;
+  background: rgba(255, 255, 255, 0.98);
 `;
 
 const Header = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2.5rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 3px solid #e9ecef;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid #e2e8f0;
 `;
 
 const Title = styled.h2`
-  color: #333;
-  font-size: 1.8rem;
-  font-weight: 600;
+  color: #1e293b;
+  font-size: 1.2rem;
+  font-weight: 700;
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.5rem;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
 
   &::before {
-    content: "🏛️";
-    font-size: 1.5rem;
+    content: '';
+    width: 3px;
+    height: 1.15rem;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+    flex-shrink: 0;
   }
 `;
 
 const CloseButton = styled.button`
-  background: #dc3545;
-  color: white;
-  border: none;
-  padding: 0.8rem 1.5rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 500;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
+  font-size: 0.68rem;
+  font-weight: 600;
   cursor: pointer;
   text-transform: uppercase;
-  transition: all 0.3s ease;
+  letter-spacing: 0.04em;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 
   &:hover {
-    background: #c82333;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+    background: #f8fafc;
+    color: #0f172a;
+    border-color: #94a3b8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 `;
 
 const ActionsBar = styled.div`
   display: flex;
-  gap: 1rem;
-  margin-bottom: 2rem;
-  padding: 1rem;
-  background: #f8f9fa;
-  border-radius: 12px;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(148, 163, 184, 0.08) 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(99, 102, 241, 0.14);
   flex-wrap: wrap;
   align-items: center;
 `;
 
 const QuickSearchInput = styled.input`
   flex: 1;
-  max-width: 300px;
-  min-width: 200px;
-  padding: 0.8rem 1rem;
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  font-size: 0.9rem;
+  max-width: 280px;
+  min-width: 140px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  font-size: 0.78rem;
   outline: none;
-  transition: all 0.3s ease;
-  
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+  color: #1e293b;
+
   &:focus {
-    border-color: #4facfe;
-    box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
   }
-  
+
   &::placeholder {
-    color: #6c757d;
-    font-style: italic;
+    color: #94a3b8;
   }
 `;
 
 const SearchBar = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 2rem;
-  padding: 1.5rem;
-  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
-  border-radius: 12px;
-  border: 1px solid #bbdefb;
+  gap: 0.55rem;
+  margin: 0.45rem 0 0;
+  padding: 0.65rem 0.75rem;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
 `;
 
 const SearchRow = styled.div`
   display: flex;
-  gap: 1rem;
+  gap: 0.5rem;
   align-items: center;
   flex-wrap: wrap;
 `;
@@ -134,77 +164,90 @@ const SearchRow = styled.div`
 const SearchInput = styled.input`
   flex: 1;
   min-width: 200px;
-  padding: 0.8rem 1rem;
-  border: 2px solid #dee2e6;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid #cbd5e1;
   border-radius: 8px;
-  font-size: 0.9rem;
-  transition: border-color 0.3s ease;
+  font-size: 0.875rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+  color: #1e293b;
 
   &:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
   }
 
   &::placeholder {
-    color: #6c757d;
+    color: #94a3b8;
   }
 `;
 
-
 const DateInput = styled.input`
-  padding: 0.8rem 1rem;
-  border: 2px solid #dee2e6;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid #cbd5e1;
   border-radius: 8px;
-  font-size: 0.9rem;
-  transition: border-color 0.3s ease;
+  font-size: 0.875rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+  color: #1e293b;
 
   &:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
   }
 `;
 
 const SearchButton = styled.button`
-  padding: 0.8rem 1.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
+  padding: 0.65rem 1.25rem;
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid #334155;
   border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 0.85rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
 
   &:hover {
-    background: linear-gradient(135deg, #5a67d8 0%, #667eea 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    background: #334155;
+    border-color: #475569;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 `;
 
 const ClearButton = styled.button`
-  padding: 0.8rem 1.5rem;
-  background: #6c757d;
-  color: white;
-  border: none;
+  padding: 0.65rem 1.25rem;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
   border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 0.85rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
 
   &:hover {
-    background: #545b62;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 `;
 
@@ -212,51 +255,84 @@ const CheckboxContainer = styled.div`
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.8rem 1rem;
-  background: #fff;
-  border: 2px solid #e9ecef;
+  padding: 0.75rem 1rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: border-color 0.2s ease, background 0.2s ease;
   user-select: none;
 
   &:hover {
-    border-color: #4facfe;
-    background: #f8f9ff;
+    border-color: rgba(99, 102, 241, 0.45);
+    background: rgba(99, 102, 241, 0.04);
   }
 
-  input[type="checkbox"] {
+  input[type='checkbox'] {
     margin: 0;
     cursor: pointer;
+    accent-color: #4f46e5;
   }
 
   label {
     margin: 0;
     cursor: pointer;
-    font-size: 0.9rem;
-    color: #495057;
+    font-size: 0.875rem;
+    color: #334155;
     font-weight: 500;
   }
 `;
 
 const ExportButton = styled.button`
-  padding: 0.8rem 1.5rem;
-  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
+  padding: 0.45rem 0.85rem;
+  background: #15803d;
+  color: #ffffff;
+  border: 1px solid #166534;
+  border-radius: 7px;
+  font-size: 0.72rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
 
   &:hover {
-    background: linear-gradient(135deg, #20c997 0%, #17a2b8 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+    background: #166534;
+    border-color: #14532d;
+    box-shadow: 0 2px 8px rgba(21, 128, 61, 0.2);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+`;
+
+const ToolbarToggleButton = styled.button`
+  padding: 0.45rem 0.85rem;
+  background: ${(p) => (p.$active ? '#fef2f2' : '#ffffff')};
+  color: ${(p) => (p.$active ? '#991b1b' : '#1e293b')};
+  border: 1px solid ${(p) => (p.$active ? '#fecaca' : '#cbd5e1')};
+  border-radius: 7px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+
+  &:hover {
+    background: ${(p) => (p.$active ? '#fee2e2' : '#f8fafc')};
+    border-color: ${(p) => (p.$active ? '#f87171' : '#94a3b8')};
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 `;
 
@@ -264,131 +340,144 @@ const SearchStats = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.6rem 1rem;
-  background: linear-gradient(135deg, rgba(52, 144, 220, 0.08) 0%, rgba(116, 185, 255, 0.08) 100%);
-  border-radius: 12px;
-  font-size: 0.85rem;
-  color: #2c3e50;
-  border: 1px solid rgba(52, 144, 220, 0.15);
-  backdrop-filter: blur(10px);
-  
+  padding: 0.35rem 0.55rem;
+  margin-bottom: 0;
+  background: rgba(248, 250, 252, 0.95);
+  border-radius: 8px;
+  font-size: 0.72rem;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+
   .stats-section {
     display: flex;
     align-items: center;
-    gap: 0.8rem;
+    gap: 0.45rem;
     flex-wrap: wrap;
   }
-  
+
   .stat-item {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.2rem;
     font-weight: 500;
-    
-    .stat-icon {
-      font-size: 0.9rem;
-      opacity: 0.7;
-    }
-    
-    .stat-number {
-      color: #3490dc;
-      font-weight: 600;
-    }
-    
-    .stat-label {
-      color: #6c757d;
-      font-weight: 400;
-    }
   }
-  
+
+  .stat-icon {
+    font-size: 0.72rem;
+    opacity: 0.75;
+  }
+
+  .stat-number {
+    color: #4f46e5;
+    font-weight: 700;
+  }
+
+  .stat-label {
+    color: #64748b;
+    font-weight: 500;
+  }
+
   .filters-badge {
-    background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-    color: white;
-    padding: 0.2rem 0.6rem;
-    border-radius: 20px;
-    font-size: 0.75rem;
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
     font-weight: 600;
     display: flex;
     align-items: center;
-    gap: 0.3rem;
-    
-    .filter-icon {
-      font-size: 0.8rem;
-    }
+    gap: 0.2rem;
+  }
+
+  .filter-icon {
+    font-size: 0.68rem;
   }
 `;
 
-
 const ActionButton = styled.button`
-  padding: 0.8rem 1.5rem;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
+  padding: 0.45rem 0.85rem;
+  border-radius: 7px;
+  font-size: 0.72rem;
+  font-weight: 600;
   cursor: pointer;
   text-transform: uppercase;
-  transition: all 0.3s ease;
+  letter-spacing: 0.03em;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 
-  ${props => props.primary ? `
-    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-    color: white;
-    
+  ${(props) =>
+    props.primary
+      ? `
+    background: #4f46e5;
+    color: #f8fafc;
+    border: 1px solid #4338ca;
+
     &:hover {
-      background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+      background: #4338ca;
+      border-color: #3730a3;
+      box-shadow: 0 2px 10px rgba(79, 70, 229, 0.25);
     }
-  ` : `
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    
+  `
+      : `
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
+
     &:hover {
-      background: linear-gradient(135deg, #5a67d8 0%, #667eea 100%);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+      background: #f8fafc;
+      border-color: #94a3b8;
     }
   `}
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
 `;
 
 const EntaxisContent = styled.div`
-  max-height: 60vh;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.45rem 1.25rem 1rem;
+  border-top: 1px solid #e2e8f0;
 `;
 
 const NoEntaxisMessage = styled.div`
   text-align: center;
-  padding: 3rem;
-  color: #6c757d;
-  font-size: 1.1rem;
-  background: #f8f9fa;
+  padding: 2.5rem 1.5rem;
+  color: #64748b;
+  font-size: 1rem;
+  background: #f8fafc;
   border-radius: 12px;
-  border: 2px dashed #dee2e6;
+  border: 1px dashed #cbd5e1;
 `;
 
 const ProjectGroup = styled.div`
-  margin-bottom: 2rem;
-  border: 2px solid ${props => props.isUnlinked ? '#dc3545' : '#e9ecef'};
+  margin-bottom: 1.5rem;
+  border: 1px solid ${(props) => (props.isUnlinked ? '#fecaca' : '#e2e8f0')};
   border-radius: 12px;
-  background: ${props => props.isUnlinked ? '#fff5f5' : '#f8f9fa'};
+  background: ${(props) => (props.isUnlinked ? '#fef2f2' : '#f8fafc')};
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 `;
 
 const ProjectHeader = styled.div`
-  background: ${props => props.isUnlinked 
-    ? 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)' 
-    : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'};
-  color: white;
-  padding: 1rem 1.5rem;
+  background: ${(props) =>
+    props.isUnlinked
+      ? 'linear-gradient(135deg, #991b1b 0%, #b91c1c 100%)'
+      : 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #334155 100%)'};
+  color: #f8fafc;
+  padding: 0.9rem 1.25rem;
   font-weight: 600;
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-
-  &::before {
-    content: "📋";
-    font-size: 1.2rem;
-  }
+  letter-spacing: 0.02em;
 `;
 
 const EntaxisList = styled.div`
@@ -396,13 +485,14 @@ const EntaxisList = styled.div`
 `;
 
 const EntaxisItem = styled.div`
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
   margin-bottom: 1rem;
   overflow: hidden;
   position: relative;
-  opacity: ${props => props.isLocked ? 0.7 : 1};
+  opacity: ${(props) => (props.isLocked ? 0.72 : 1)};
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 `;
 
 const LockIndicator = styled.div`
@@ -412,21 +502,22 @@ const LockIndicator = styled.div`
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: ${props => props.isLocked ? '#dc3545' : '#28a745'};
+  background: ${(props) => (props.isLocked ? '#b91c1c' : '#15803d')};
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: bold;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
   z-index: 10;
+  border: 2px solid #ffffff;
 `;
 
 const EntaxisHeader = styled.div`
-  background: ${props => props.isMain ? '#e3f2fd' : '#fff3e0'};
-  padding: 1.5rem;
-  border-bottom: 1px solid #dee2e6;
+  background: ${(props) => (props.isMain ? '#f8fafc' : '#fffbeb')};
+  padding: 1.25rem 1.35rem;
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -436,66 +527,72 @@ const EntaxisHeader = styled.div`
 const EntaxisInfo = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.75rem;
   flex: 1;
 `;
 
 const EntaxisTitle = styled.div`
   font-weight: 600;
-  color: #333;
+  color: #1e293b;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 
   &::before {
-    content: ${props => props.isMain ? '"📄"' : '"⚡"'};
-    font-size: 1rem;
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: ${(props) => (props.isMain ? '#2563eb' : '#d97706')};
+    flex-shrink: 0;
   }
 `;
 
 const EntaxisSubject = styled.div`
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 700;
-  color: #2c3e50;
-  line-height: 1.4;
-  padding: 0.8rem;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
-  border-left: 4px solid #667eea;
-  border-radius: 6px;
-  margin: 0.3rem 0;
+  color: #0f172a;
+  line-height: 1.45;
+  padding: 0.75rem 0.9rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #6366f1;
+  border-radius: 8px;
+  margin: 0.25rem 0;
 `;
 
 const EntaxisMetadata = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 0.6rem;
-  margin-top: 0.5rem;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
 `;
 
 const MetadataItem = styled.div`
   display: flex;
   align-items: flex-start;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-  padding: 0.4rem 0;
-  
+  gap: 0.45rem;
+  font-size: 0.875rem;
+  padding: 0.35rem 0;
+
   .icon {
-    font-size: 1rem;
-    opacity: 0.8;
+    font-size: 0.95rem;
+    opacity: 0.72;
     flex-shrink: 0;
-    margin-top: 0.1rem;
+    margin-top: 0.05rem;
   }
-  
+
   .label {
-    color: #6c757d;
-    font-weight: 500;
+    color: #64748b;
+    font-weight: 600;
     white-space: nowrap;
     flex-shrink: 0;
+    font-size: 0.8rem;
   }
-  
+
   .value {
-    color: #2c3e50;
+    color: #1e293b;
     font-weight: 600;
     word-break: break-word;
     line-height: 1.4;
@@ -503,14 +600,15 @@ const MetadataItem = styled.div`
 `;
 
 const EntaxisDetails = styled.div`
-  font-size: 0.9rem;
-  color: #6c757d;
+  font-size: 0.875rem;
+  color: #64748b;
 `;
 
 const EntaxisAmount = styled.div`
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 600;
-  color: ${props => props.positive ? '#28a745' : props.negative ? '#dc3545' : '#2196F3'};
+  color: ${(props) =>
+    props.positive ? '#15803d' : props.negative ? '#b91c1c' : '#1d4ed8'};
 `;
 
 const EntaxisActions = styled.div`
@@ -519,72 +617,235 @@ const EntaxisActions = styled.div`
   gap: 0.5rem;
 `;
 
-
 const SmallButton = styled.button`
-  padding: 0.5rem 1rem;
-  border: none;
+  padding: 0.45rem 0.85rem;
   border-radius: 8px;
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-size: 0.72rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
   white-space: nowrap;
-  
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  }
-  
-  &:active {
-    transform: translateY(0);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-family: inherit;
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 
-  ${props => {
-    if (props.view) return `
-      background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
-      color: white;
-      &:hover { 
-        background: linear-gradient(135deg, #3730a3 0%, #312e81 100%);
+  ${(props) => {
+    if (props.$filesPrimary) {
+      return `
+      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+      color: #f8fafc;
+      border: 1px solid #3730a3;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      box-shadow: 0 2px 10px rgba(67, 56, 202, 0.35);
+      &:hover {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        border-color: #6366f1;
+        box-shadow: 0 4px 16px rgba(79, 70, 229, 0.45);
+      }
+      &:active {
+        background: #4338ca;
       }
     `;
-    if (props.edit) return `
-      background: linear-gradient(135deg, #059669 0%, #047857 100%);
-      color: white;
-      &:hover { 
-        background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+    }
+    if (props.view) {
+      return `
+      background: #ffffff;
+      color: #1e293b;
+      border: 1px solid #cbd5e1;
+      &:hover {
+        background: #f8fafc;
+        border-color: #94a3b8;
       }
     `;
-    if (props.delete) return `
-      background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-      color: white;
-      &:hover { 
-        background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+    }
+    if (props.edit) {
+      return `
+      background: #ecfdf5;
+      color: #14532d;
+      border: 1px solid #86efac;
+      &:hover {
+        background: #dcfce7;
+        border-color: #4ade80;
       }
     `;
+    }
+    if (props.delete) {
+      return `
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      &:hover {
+        background: #fee2e2;
+        border-color: #f87171;
+      }
+    `;
+    }
     return `
-      background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
-      color: white;
-      &:hover { 
-        background: linear-gradient(135deg, #4338ca 0%, #3730a3 100%);
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      &:hover {
+        background: #334155;
+        border-color: #475569;
       }
     `;
   }}
 `;
 
 const ModificationsList = styled.div`
-  padding: 1rem 1.5rem;
+  padding: 1rem 1.25rem;
 `;
 
 const ModificationItem = styled.div`
-  background: #fff8e1;
-  border: 1px solid #ffecb3;
-  border-radius: 6px;
-  padding: 0.8rem;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
   margin-bottom: 0.5rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
+`;
+
+const CommentsModalOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+  padding: 1rem;
+`;
+
+const CommentsModalPanel = styled.div`
+  background: rgba(255, 255, 255, 0.98);
+  border-radius: 14px;
+  padding: 1.75rem;
+  max-width: 600px;
+  width: 100%;
+  max-height: 80vh;
+  overflow: auto;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28);
+  border: 1px solid #e2e8f0;
+`;
+
+const CommentsModalHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e2e8f0;
+`;
+
+const CommentsModalTitle = styled.h3`
+  margin: 0;
+  color: #1e293b;
+  font-size: 1.1rem;
+  font-weight: 700;
+`;
+
+const CommentsModalBody = styled.div`
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: #334155;
+  white-space: pre-wrap;
+`;
+
+const CommentsModalClose = styled.button`
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+
+  &:hover {
+    background: #f8fafc;
+    color: #0f172a;
+  }
+`;
+
+const EntaxisActionsColumn = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 200px;
+`;
+
+const CommentsCallout = styled(EntaxisDetails)`
+  margin-top: 0.8rem;
+  padding: 0.65rem 0.85rem;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 3px solid #f59e0b;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+`;
+
+const CommentsCalloutLabel = styled.span`
+  font-weight: 600;
+  color: #92400e;
+`;
+
+const CommentsCalloutText = styled.span`
+  margin-left: 0.5rem;
+  color: #334155;
+`;
+
+const ProsklisiLinkText = styled.span`
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: 0.5rem;
+  font-weight: 600;
+
+  &:hover {
+    color: #1d4ed8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+`;
+
+const InlineTextButton = styled.button`
+  background: #ffffff;
+  color: #1e40af;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+
+  &:hover {
+    background: #eff6ff;
+    border-color: #93c5fd;
+  }
+`;
+
+const EmptyStateHint = styled.div`
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: #64748b;
 `;
 
 // ΧΕΙΡΟΚΙΝΗΤΗ ΔΙΟΡΘΩΣΗ - Καλέστε από Console: fixAllEntaxeis()
@@ -1146,15 +1407,17 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
   return (
     <EntaxisOverlay onClick={(e) => e.target === e.currentTarget && handleClose()}>
       <EntaxisContainer>
+        <EntaxisTopSection>
         <Header>
           <Title>Εντάξεις Έργων</Title>
-          <CloseButton onClick={handleClose}>Κλείσιμο</CloseButton>
+          <CloseButton type="button" onClick={handleClose}>Κλείσιμο</CloseButton>
         </Header>
 
         <ActionsBar>
           {canManageWorkflow && (
-            <ActionButton 
-              primary 
+            <ActionButton
+              type="button"
+              primary
               onClick={() => {
                 setEditingEntaxi(null);
                 setIsFormOpen(true);
@@ -1163,7 +1426,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
               ➕ Νέα Ένταξη
             </ActionButton>
           )}
-          <ExportButton onClick={() => setIsExportDialogOpen(true)}>
+          <ExportButton type="button" onClick={() => setIsExportDialogOpen(true)}>
             📊 Εξαγωγή σε Excel
           </ExportButton>
           <QuickSearchInput
@@ -1172,16 +1435,13 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
             value={quickSearchTerm}
             onChange={(e) => setQuickSearchTerm(e.target.value)}
           />
-          <ExportButton 
+          <ToolbarToggleButton
+            type="button"
+            $active={showAdvancedSearch}
             onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
-            style={{ 
-              background: showAdvancedSearch 
-                ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)' 
-                : 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
-            }}
           >
             🔍 {showAdvancedSearch ? 'ΑΠΟΚΡΥΨΗ ΦΙΛΤΡΩΝ' : 'ΣΥΝΘΕΤΗ ΑΝΑΖΗΤΗΣΗ'}
-          </ExportButton>
+          </ToolbarToggleButton>
         </ActionsBar>
 
         {/* Στατιστικά - Εμφανίζονται πάντα */}
@@ -1264,10 +1524,10 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                 value={searchFilters.dateFrom}
                 onChange={(e) => handleSearchChange('dateFrom', e.target.value)}
               />
-              <SearchButton onClick={() => applyFilters()}>
+              <SearchButton type="button" onClick={() => applyFilters()}>
                 🔍 Αναζήτηση
               </SearchButton>
-              <ClearButton onClick={clearFilters}>
+              <ClearButton type="button" onClick={clearFilters}>
                 🗑️ Καθαρισμός
               </ClearButton>
             </SearchRow>
@@ -1286,6 +1546,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
             </SearchRow>
           </SearchBar>
         )}
+        </EntaxisTopSection>
 
         <EntaxisContent>
           {loading ? (
@@ -1299,9 +1560,9 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                 : "Δεν βρέθηκαν εντάξεις έργων."
               }
               {canManageWorkflow && !projectFilter && (
-                <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
+                <EmptyStateHint>
                   Πατήστε "Νέα Ένταξη" για να προσθέσετε την πρώτη ένταξη.
-                </div>
+                </EmptyStateHint>
               )}
             </NoEntaxisMessage>
           ) : (
@@ -1362,7 +1623,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                             <MetadataItem>
                               <span className="icon">📊</span>
                               <span className="label">Διαμορφωθέν Ποσό:</span>
-                              <span className="value" style={{ color: '#4CAF50', fontWeight: '700' }}>
+                              <span className="value" style={{ color: '#15803d', fontWeight: 700 }}>
                                 {calculateCumulativeAmount(entaxi)} €
                               </span>
                             </MetadataItem>
@@ -1370,40 +1631,29 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                           
                           {/* ΣΧΟΛΙΑ */}
                           {entaxi.comments && entaxi.comments.trim() !== '' && (
-                            <EntaxisDetails style={{ 
-                              marginTop: '0.8rem',
-                              padding: '0.6rem 0.8rem',
-                              background: 'rgba(255, 193, 7, 0.1)',
-                              borderLeft: '3px solid #ffc107',
-                              borderRadius: '4px',
-                              fontSize: '0.9rem',
-                              lineHeight: '1.5'
-                            }}>
-                              <span style={{ fontWeight: '600', color: '#856404' }}>💬 Σχόλια:</span>
-                              <span style={{ marginLeft: '0.5rem', color: '#2c3e50' }}>
-                                {entaxi.comments}
-                              </span>
-                            </EntaxisDetails>
+                            <CommentsCallout>
+                              <CommentsCalloutLabel>Σχόλια:</CommentsCalloutLabel>
+                              <CommentsCalloutText>{entaxi.comments}</CommentsCalloutText>
+                            </CommentsCallout>
                           )}
                           
                           {/* ΣΥΣΧΕΤΙΣΗ ΜΕ ΠΡΟΣΚΛΗΣΗ */}
                           {entaxi.prosklisiId && (
                             <EntaxisDetails style={{ marginTop: '0.5rem' }}>
-                              🔗 Συσχετισμένη πρόσκληση: 
-                              <span 
-                                style={{ 
-                                  color: '#007bff', 
-                                  cursor: 'pointer', 
-                                  textDecoration: 'underline',
-                                  marginLeft: '0.5rem',
-                                  fontWeight: '600'
+                              Συσχετισμένη πρόσκληση:
+                              <ProsklisiLinkText
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    e.currentTarget.click();
+                                  }
                                 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (handleOpenProsklisi) {
-                                    // Κλείσιμο του modal εντάξεων πρώτα
                                     onClose();
-                                    // Μικρή καθυστέρηση για να κλείσει το modal
                                     setTimeout(() => {
                                       handleOpenProsklisi(entaxi.prosklisiId);
                                     }, 300);
@@ -1411,31 +1661,20 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                                 }}
                               >
                                 {getProsklisiTitle(entaxi.prosklisiId)}
-                              </span>
+                              </ProsklisiLinkText>
                             </EntaxisDetails>
                           )}
                         </EntaxisInfo>
                         
                         {/* ACTIONS SIDEBAR */}
-                        <div style={{ 
-                          display: 'flex', 
-                          flexDirection: 'column',
-                          gap: '0.6rem',
-                          minWidth: '200px'
-                        }}>
-                          {/* ΚΟΥΜΠΙ ΠΡΟΒΟΛΗΣ ΑΡΧΕΙΩΝ */}
-                          <SmallButton 
-                            view
+                        <EntaxisActionsColumn>
+                          <SmallButton
+                            type="button"
+                            $filesPrimary
                             onClick={() => handleOpenFileViewer(entaxi)}
-                            style={{ 
-                              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                              color: 'white',
-                              fontSize: '0.85rem',
-                              fontWeight: '600',
-                              width: '100%'
-                            }}
+                            style={{ width: '100%' }}
                           >
-                            📄 Προβολή Αρχείων
+                            Προβολή Αρχείων
                           </SmallButton>
 
                           {/* ΕΝΕΡΓΕΙΕΣ ΔΙΑΧΕΙΡΙΣΗΣ */}
@@ -1509,7 +1748,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                               </SmallButton>
                             </>
                           )}
-                        </div>
+                        </EntaxisActionsColumn>
                       </EntaxisHeader>
 
                       {entaxi.modifications && entaxi.modifications.length > 0 && (
@@ -1523,21 +1762,12 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
                                 <EntaxisDetails>
                                   📅 {formatDate(mod.date)} | 📝 {mod.comments ? (mod.comments.length > 50 ? mod.comments.substring(0, 50) + '...' : mod.comments) : 'Χωρίς σχόλια'}
                                   {mod.comments && mod.comments.length > 50 && (
-                                    <button 
+                                    <InlineTextButton
+                                      type="button"
                                       onClick={() => setSelectedModification(mod)}
-                                      style={{
-                                        background: '#007bff',
-                                        color: 'white',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        padding: '0.2rem 0.5rem',
-                                        fontSize: '0.7rem',
-                                        marginLeft: '0.5rem',
-                                        cursor: 'pointer'
-                                      }}
                                     >
                                       Δες περισσότερα
-                                    </button>
+                                    </InlineTextButton>
                                   )}
                                 </EntaxisDetails>
                               </div>
@@ -1687,61 +1917,19 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
 
         {/* Comments Modal */}
         {selectedModification && (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.8)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 10000
-          }}>
-            <div style={{
-              background: 'white',
-              borderRadius: '10px',
-              padding: '2rem',
-              maxWidth: '600px',
-              width: '90%',
-              maxHeight: '80vh',
-              overflow: 'auto',
-              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)'
-            }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '1rem',
-                paddingBottom: '1rem',
-                borderBottom: '2px solid #e9ecef'
-              }}>
-                <h3 style={{ margin: 0, color: '#333' }}>Σχόλια Τροποποίησης</h3>
-                <button
-                  onClick={() => setSelectedModification(null)}
-                  style={{
-                    background: '#dc3545',
-                    color: 'white',
-                    border: 'none',
-                    padding: '0.5rem 1rem',
-                    borderRadius: '6px',
-                    cursor: 'pointer'
-                  }}
-                >
+          <CommentsModalOverlay onClick={() => setSelectedModification(null)}>
+            <CommentsModalPanel onClick={(e) => e.stopPropagation()}>
+              <CommentsModalHeader>
+                <CommentsModalTitle>Σχόλια Τροποποίησης</CommentsModalTitle>
+                <CommentsModalClose type="button" onClick={() => setSelectedModification(null)}>
                   Κλείσιμο
-                </button>
-              </div>
-              <div style={{
-                fontSize: '1rem',
-                lineHeight: '1.6',
-                color: '#333',
-                whiteSpace: 'pre-wrap'
-              }}>
+                </CommentsModalClose>
+              </CommentsModalHeader>
+              <CommentsModalBody>
                 {selectedModification.comments || 'Δεν υπάρχουν σχόλια για αυτή την τροποποίηση.'}
-              </div>
-            </div>
-          </div>
+              </CommentsModalBody>
+            </CommentsModalPanel>
+          </CommentsModalOverlay>
         )}
       </EntaxisContainer>
 

@@ -11,32 +11,35 @@ const FormOverlay = styled.div`
   right: 0;
   bottom: 0;
   background: rgba(0, 0, 0, 0.9);
-  display: flex;
-  justify-content: center;
-  align-items: center;
   z-index: 10000;
-  padding: 2rem;
+  padding: 2rem 1rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 `;
 
 const FormContainer = styled.div`
   background: white;
   border-radius: 20px;
   padding: 3rem;
-  max-width: 1400px;
-  width: 95%;
-  max-height: 95vh;
-  overflow-y: auto;
+  max-width: min(1400px, calc(100vw - 2rem));
+  width: 100%;
+  margin: 0 auto 2rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
-  min-height: auto;
+  position: relative;
+  overflow-x: clip;
+  overflow-y: visible;
+  box-sizing: border-box;
 `;
 
 const FormHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   margin-bottom: 2rem;
   padding-bottom: 1rem;
   border-bottom: 2px solid #e9ecef;
+  min-width: 0;
 `;
 
 const FormTitle = styled.h2`
@@ -47,14 +50,18 @@ const FormTitle = styled.h2`
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
 
   &::before {
     content: "📄";
     font-size: 1.3rem;
+    flex-shrink: 0;
   }
 `;
 
 const CloseButton = styled.button`
+  flex-shrink: 0;
   background: #dc3545;
   color: white;
   border: none;
@@ -71,15 +78,26 @@ const CloseButton = styled.button`
 
 const FormGrid = styled.div`
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
   margin-bottom: 2rem;
+  width: 100%;
+  min-width: 0;
+`;
+
+const TheForm = styled.form`
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 `;
 
 const FormGroup = styled.div`
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
 
   ${props => props.fullWidth && `
     grid-column: 1 / -1;
@@ -93,6 +111,10 @@ const Label = styled.label`
 `;
 
 const Input = styled.input`
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 0.8rem;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
@@ -101,12 +123,8 @@ const Input = styled.input`
   transition: border-color 0.3s ease;
 
   &:focus {
-    border-color: #2196F3;
+    border-color: #2196f3;
   }
-
-  word-wrap: break-word;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
 
   &:disabled {
     background-color: #f5f5f5;
@@ -115,6 +133,10 @@ const Input = styled.input`
 `;
 
 const TextArea = styled.textarea`
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 0.8rem;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
@@ -129,11 +151,15 @@ const TextArea = styled.textarea`
   overflow-wrap: break-word;
 
   &:focus {
-    border-color: #2196F3;
+    border-color: #2196f3;
   }
 `;
 
 const Select = styled.select`
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 0.8rem;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
@@ -143,13 +169,16 @@ const Select = styled.select`
   background: white;
 
   &:focus {
-    border-color: #2196F3;
+    border-color: #2196f3;
   }
 `;
 
 
 const FileSelectButton = styled.button`
+  box-sizing: border-box;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 0.75rem;
   background: #007bff;
   color: white;
@@ -174,8 +203,11 @@ const ButtonContainer = styled.div`
   display: flex;
   gap: 1rem;
   justify-content: flex-end;
+  flex-wrap: wrap;
   padding-top: 2rem;
   border-top: 2px solid #e9ecef;
+  min-width: 0;
+  max-width: 100%;
 `;
 
 const Button = styled.button`
@@ -223,7 +255,11 @@ const MultiSelect = styled.div`
   min-height: 100px;
   max-height: 150px;
   overflow-y: auto;
+  overflow-x: hidden;
   background: white;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 `;
 
 const CheckboxItem = styled.label`
@@ -252,6 +288,9 @@ const FileList = styled.div`
   border-radius: 8px;
   max-height: 150px;
   overflow-y: auto;
+  overflow-x: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 `;
 
 const FileItem = styled.div`
@@ -290,10 +329,21 @@ const RemoveFileButton = styled.button`
 const SearchableDropdownContainer = styled.div`
   position: relative;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  z-index: 1;
+
+  &:focus-within {
+    z-index: 2;
+  }
 `;
 
 const SearchInput = styled.input`
+  box-sizing: border-box;
+  display: block;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 0.8rem;
   border: 1px solid #ddd;
   border-radius: 8px;
@@ -316,13 +366,13 @@ const DropdownList = styled.ul`
   border: 1px solid #ddd;
   border-top: none;
   border-radius: 0 0 8px 8px;
-  max-height: 200px;
+  max-height: 220px;
   overflow-y: auto;
-  z-index: 1000;
+  z-index: 10050;
   margin: 0;
   padding: 0;
   list-style: none;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
 `;
 
 const DropdownItem = styled.li`
@@ -409,18 +459,23 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
   }, [isOpen, editingEntaxi]);
 
   useEffect(() => {
-    if (formData.projectId) {
-      loadSubprojects(formData.projectId);
+    if (!formData.projectId) {
+      setSubprojects([]);
+      return;
+    }
+    const selectedProject = projects.find((p) => p.projectId === formData.projectId);
+    if (selectedProject && Array.isArray(selectedProject.subprojects)) {
+      setSubprojects(selectedProject.subprojects);
     } else {
       setSubprojects([]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.projectId]);
+  }, [formData.projectId, projects]);
 
   useEffect(() => {
     if (projectSearchTerm) {
-      const filtered = projects.filter(project => 
-        project.projectTitle.toLowerCase().includes(projectSearchTerm.toLowerCase())
+      const term = projectSearchTerm.toLowerCase();
+      const filtered = projects.filter((project) =>
+        (project.projectTitle || '').toLowerCase().includes(term)
       );
       setFilteredProjects(filtered);
     } else {
@@ -456,13 +511,6 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
       setProskliseis(loadedProskliseis || []);
     } catch (error) {
       console.error('Error loading proskliseis:', error);
-    }
-  };
-
-  const loadSubprojects = (projectId) => {
-    const selectedProject = projects.find(p => p.projectId === projectId);
-    if (selectedProject) {
-      setSubprojects(selectedProject.subprojects);
     }
   };
 
@@ -664,8 +712,8 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
     setShowProjectDropdown(true);
     
     // If exact match, auto-select
-    const exactMatch = projects.find(project => 
-      project.projectTitle.toLowerCase() === value.toLowerCase()
+    const exactMatch = projects.find((project) =>
+      (project.projectTitle || '').toLowerCase() === value.toLowerCase()
     );
     if (exactMatch) {
       handleInputChange('projectId', exactMatch.projectId);
@@ -797,7 +845,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
           }}>✕</CloseButton>
         </FormHeader>
 
-        <form onSubmit={handleSubmit}>
+        <TheForm onSubmit={handleSubmit}>
           <FormGrid>
             <FormGroup>
               <Label>Ημερομηνία Εγγράφου *</Label>
@@ -999,7 +1047,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
               {loading ? 'Αποθήκευση...' : 'Αποθήκευση'}
             </Button>
           </ButtonContainer>
-        </form>
+        </TheForm>
       </FormContainer>
     </FormOverlay>
   );

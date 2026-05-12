@@ -1,6 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 import SplashScreen from './components/SplashScreen';
 import UpdateNotifier from './components/UpdateNotifier';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -20,6 +20,125 @@ const AppContainer = styled.div`
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 `;
 
+const closeGuardFade = keyframes`
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+`;
+
+const closeGuardScaleIn = keyframes`
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+const CloseGuardOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: ${closeGuardFade} 0.2s ease forwards;
+`;
+
+const CloseGuardDialog = styled.div`
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 2rem 2.25rem;
+  max-width: 420px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: ${closeGuardScaleIn} 0.25s ease forwards;
+`;
+
+const CloseGuardIconWrap = styled.div`
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1.25rem;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+`;
+
+const CloseGuardTitle = styled.h2`
+  margin: 0 0 0.5rem;
+  font-size: 1.3rem;
+  color: #1e293b;
+  font-weight: 700;
+  line-height: 1.25;
+`;
+
+const CloseGuardMessage = styled.p`
+  margin: 0 0 1.5rem;
+  color: #64748b;
+  font-size: 0.95rem;
+  line-height: 1.5;
+
+  strong {
+    color: #1e293b;
+    font-weight: 700;
+  }
+`;
+
+const CloseGuardActions = styled.div`
+  display: flex;
+  justify-content: center;
+`;
+
+const CloseGuardButton = styled.button`
+  appearance: none;
+  cursor: pointer;
+  padding: 12px 36px;
+  border: 2px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+
+  &:hover {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #93c5fd;
+    outline-offset: 2px;
+  }
+`;
+
+const LogoutDoorIcon = () => (
+  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </svg>
+);
+
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isAppLoading, setIsAppLoading] = useState(true);
@@ -29,6 +148,7 @@ function App() {
   const [appVersion, setAppVersion] = useState('');
   const [appConfig, setAppConfig] = useState({});
   const [initError, setInitError] = useState(null);
+  const [closeGuardModalOpen, setCloseGuardModalOpen] = useState(false);
 
   const loadAppData = async (cancelled = { value: false }) => {
     const config = await ipcRenderer.invoke('get-app-config');
@@ -73,6 +193,21 @@ function App() {
     initApp();
     return () => { cancelled.value = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!ipcRenderer?.invoke) return;
+    ipcRenderer.invoke('set-dashboard-session-active', Boolean(currentUser)).catch(() => {});
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!ipcRenderer?.on) return undefined;
+    const unsub = ipcRenderer.on('app-close-blocked', () => {
+      setCloseGuardModalOpen(true);
+    });
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, []);
 
   const handleSetupComplete = async () => {
     try {
@@ -151,6 +286,32 @@ function App() {
               />
             </Routes>
           </Router>
+        )}
+        {closeGuardModalOpen && (
+          <CloseGuardOverlay
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="close-guard-title"
+            onClick={() => setCloseGuardModalOpen(false)}
+          >
+            <CloseGuardDialog onClick={(e) => e.stopPropagation()}>
+              <CloseGuardIconWrap>
+                <LogoutDoorIcon />
+              </CloseGuardIconWrap>
+              <CloseGuardTitle id="close-guard-title">Είστε ακόμα συνδεδεμένοι!</CloseGuardTitle>
+              <CloseGuardMessage>
+                Παρακαλώ κάντε πρώτα <strong>Αποσύνδεση</strong> από την εφαρμογή πριν την κλείσετε.
+                <br />
+                <br />
+                Αυτό διασφαλίζει ότι όλα τα δεδομένα σας αποθηκεύονται σωστά.
+              </CloseGuardMessage>
+              <CloseGuardActions>
+                <CloseGuardButton type="button" onClick={() => setCloseGuardModalOpen(false)}>
+                  Κατάλαβα — Επιστροφή
+                </CloseGuardButton>
+              </CloseGuardActions>
+            </CloseGuardDialog>
+          </CloseGuardOverlay>
         )}
       </AppContainer>
     </ToastProvider>

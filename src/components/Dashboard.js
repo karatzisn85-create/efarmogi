@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import ProjectForm from './ProjectForm';
 import EgkriseisForm from './EgkriseisForm';
@@ -81,12 +81,14 @@ const Header = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-left: 240px;
+  position: fixed;
+  top: 0;
+  left: 240px;
+  right: 0;
+  z-index: 900;
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
   padding: 1rem 2rem;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.25), 0 1px 0 rgba(99, 102, 241, 0.15);
-  position: relative;
-  z-index: 100;
 
   &::after {
     content: '';
@@ -99,7 +101,7 @@ const Header = styled.div`
   }
 
   @media (max-width: 1200px) {
-    margin-left: 0;
+    left: 0;
   }
 `;
 
@@ -1735,6 +1737,7 @@ const NoteModalButton = styled.button`
 
 const ContentWrapper = styled.div`
   margin-left: 240px;
+  margin-top: ${(props) => (typeof props.$headerOffset === 'number' ? props.$headerOffset : 0)}px;
   padding: 1.75rem 2rem;
   width: calc(100% - 240px);
   max-width: calc(100% - 240px);
@@ -1751,6 +1754,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   const isSuperAdmin = userRole === 'SUPERADMIN';
   const canManageAll = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
   const isEngineer = userRole === 'ENGINEER';
+  /** Στα modals εντάξεων / προσκλήσεων / εγκρίσεων ο μηχανικός συμπεριφέρεται όπως viewer */
+  const userRoleForWorkflowModals = isEngineer ? 'USER' : userRole;
   const engineerSupervisors = useMemo(() => (
     Array.isArray(currentUser?.assignedSupervisors)
       ? currentUser.assignedSupervisors.map(s => String(s || '').trim()).filter(Boolean)
@@ -1836,6 +1841,26 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   const contentWrapperRef = useRef(null);
   const savedScrollPosition = useRef(0);
   const shouldRestoreScroll = useRef(false);
+
+  const mainHeaderRef = useRef(null);
+  const [mainHeaderOffsetPx, setMainHeaderOffsetPx] = useState(88);
+
+  useLayoutEffect(() => {
+    const el = mainHeaderRef.current;
+    if (!el) return undefined;
+    const sync = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      setMainHeaderOffsetPx((prev) => (prev === h ? prev : h));
+    };
+    sync();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', sync);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', sync);
+    };
+  }, [currentUser?.fullName, currentUser?.username, userRole, appConfig?.organizationFullName, appVersion]);
   
   // Quick Search states
   const [quickSearchText, setQuickSearchText] = useState('');
@@ -4180,7 +4205,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
   return (
     <DashboardContainer>
-      <Header>
+      <Header ref={mainHeaderRef}>
         <UserInfo>
           <UserRole role={userRole}>
             {currentUser?.fullName || currentUser?.username || userRole}
@@ -4201,7 +4226,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         </HeaderRight>
       </Header>
 
-      <ContentWrapper ref={contentWrapperRef}>
+      <ContentWrapper ref={contentWrapperRef} $headerOffset={mainHeaderOffsetPx}>
         <ContentArea>
           {/* Active Filters Banner */}
           <ActiveFiltersBanner
@@ -4315,7 +4340,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                               project={project}
                               userRole={userRole}
                               onEdit={handleEditProject}
-                              onDelete={handleDeleteProject}
+                              onDelete={canManageAll ? handleDeleteProject : undefined}
                               onViewFile={handleViewFile}
                               onDownloadFile={handleDownloadFile}
                               onDeleteFile={handleDeleteFile}
@@ -4355,7 +4380,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 });
                 loadLinkedEgkriseis();
               }}
-              userRole={userRole}
+              userRole={userRoleForWorkflowModals}
               onOpenForm={() => setIsEgkriseisFormOpen(true)}
               highlightProjectTitle={highlightProject.projectTitle}
               highlightSubprojectTitle={highlightProject.subprojectTitle}
@@ -4546,12 +4571,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <AdminButtonIcon>📑</AdminButtonIcon>
                 Εξαγωγή Δεδομένων
               </AdminButton>
-              {!isEngineer && (
-                <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
-                  <AdminButtonIcon>📄</AdminButtonIcon>
-                  Υποδείγματα Εγγράφων
-                </AdminButton>
-              )}
             </CategoryBody>
           </CategorySection>
 
@@ -4574,33 +4593,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <AdminButtonIcon>📋</AdminButtonIcon>
                 Ιστορικό Αλλαγών
               </AdminButton>
-              <AdminButton onClick={async () => {
-                if (window.confirm('🔄 Θέλετε να κάνετε πλήρη ανανέωση της εφαρμογής; Αυτό θα φορτώσει όλα τα δεδομένα εκ νέου και θα καθαρίσει τυχόν προβλήματα.')) {
-                  try {
-                    setLoading(true);
-                    await ipcRenderer.invoke('clear-all-locks');
-                    await loadDataWithCache(true);
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                    setLoading(false);
-                    requestAnimationFrame(() => {
-                      requestAnimationFrame(() => {
-                        setProjects(prev => [...prev]);
-                      });
-                    });
-                    setTimeout(() => {
-                      alert('✅ Η εφαρμογή ανανεώθηκε επιτυχώς!');
-                    }, 300);
-                  } catch (error) {
-                    console.error('Error during full refresh:', error);
-                    setLoading(false);
-                    setTimeout(() => {
-                      alert('❌ Σφάλμα κατά την ανανέωση: ' + error.message);
-                    }, 100);
-                  }
-                }
-              }}>
-                <AdminButtonIcon>🔄</AdminButtonIcon>
-                Πλήρης Ανανέωση
+              <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
+                <AdminButtonIcon>📄</AdminButtonIcon>
+                Υποδείγματα Εγγράφων
               </AdminButton>
             </CategoryBody>
           </CategorySection>
@@ -4679,7 +4674,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           });
         }}
         onSave={handleSaveProject}
-        onDelete={async (projectId, subprojectId) => {
+        onDelete={canManageAll ? async (projectId, subprojectId) => {
           if (!projectId || !subprojectId) {
             alert('Σφάλμα: Μη έγκυρα δεδομένα για διαγραφή');
             return;
@@ -4706,7 +4701,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               alert('Σφάλμα κατά τη διαγραφή: ' + error.message);
             }
           }
-        }}
+        } : undefined}
         editingProject={editingProject}
       />
 
@@ -4784,7 +4779,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           await loadProjects();
           await loadEntaxeis();
         }} // Callback για ανανέωση όταν αλλάζουν δεδομένα
-        userRole={userRole}
+        userRole={userRoleForWorkflowModals}
         projectFilter={entaxisProjectFilter}
         proskliseis={proskliseis}
         handleOpenProsklisi={handleOpenLinkedProsklisi}
@@ -4815,7 +4810,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             }
           }, 100);
         }}
-        userRole={userRole}
+        userRole={userRoleForWorkflowModals}
         projectFilter={prosklisiProjectFilter}
         selectedProsklisiId={selectedProsklisiId}
       />
@@ -5233,7 +5228,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           await loadLinkedEgkriseis();
         }}
         projects={projectsAsArrayOfArrays}
-        userRole={userRole}
+        userRole={userRoleForWorkflowModals}
       />
 
       {/* Document Templates Manager */}

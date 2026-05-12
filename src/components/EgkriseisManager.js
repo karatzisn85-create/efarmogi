@@ -13,109 +13,193 @@ const ModalOverlay = styled.div`
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
-  align-items: center;
-  z-index: 1000;
+  align-items: flex-start;
+  z-index: 9999;
+  padding: 0.65rem 1cm;
+  overflow-y: auto;
+  box-sizing: border-box;
+
+  @media (min-width: 900px) {
+    padding: 0.85rem 1cm;
+  }
 `;
 
 const ModalContainer = styled.div`
-  background: white;
-  border-radius: 15px;
-  width: 95%;
-  max-width: 1400px;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  padding: 0;
+  width: 100%;
+  max-width: 1920px;
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  margin-top: 0.35rem;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
 `;
 
-const ModalHeader = styled.div`
-  padding: 2rem;
-  border-bottom: 1px solid #e9ecef;
+const ModalTopSection = styled.div`
+  flex-shrink: 0;
+  padding: 0.85rem 1.25rem 0.55rem;
+  background: rgba(255, 255, 255, 0.98);
+`;
+
+const PanelHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border-radius: 15px 15px 0 0;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid #e2e8f0;
 `;
 
-const ModalContent = styled.div`
-  padding: 2rem;
-`;
-
-
-const ModalTitle = styled.h2`
+const PanelTitle = styled.h2`
+  color: #1e293b;
+  font-size: 1.2rem;
+  font-weight: 700;
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-`;
-
-const CloseButton = styled.button`
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  color: white;
-  cursor: pointer;
-  padding: 0.5rem;
-  border-radius: 50%;
-  transition: background 0.3s ease;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-`;
-
-const ActionBar = styled.div`
-  display: flex;
-  gap: 15px;
-  margin-bottom: 20px;
-`;
-
-const ActionButton = styled.button`
-  background: ${props => props.primary ? '#3498db' : '#2ecc71'};
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 16px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  transition: all 0.3s ease;
+  gap: 0.5rem;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
 
-  &:hover {
-    background: ${props => props.primary ? '#2980b9' : '#27ae60'};
-    transform: translateY(-2px);
-  }
-
-  &:disabled {
-    background: #95a5a6;
-    cursor: not-allowed;
-    transform: none;
+  &::before {
+    content: '';
+    width: 3px;
+    height: 1.15rem;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+    flex-shrink: 0;
   }
 `;
 
-const SearchInput = styled.input`
+const PanelCloseButton = styled.button`
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+
+  &:hover {
+    background: #f8fafc;
+    color: #0f172a;
+    border-color: #94a3b8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+`;
+
+const ActionsBar = styled.div`
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0;
+  padding: 0.45rem 0.55rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(148, 163, 184, 0.08) 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(99, 102, 241, 0.14);
+  flex-wrap: wrap;
+  align-items: center;
+`;
+
+const ToolbarQuickInput = styled.input`
   flex: 1;
-  padding: 12px 20px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: border-color 0.3s ease;
+  min-width: 200px;
+  max-width: 480px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+  color: #1e293b;
 
   &:focus {
-    outline: none;
-    border-color: #3498db;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
   }
+
+  &::placeholder {
+    color: #94a3b8;
+  }
+`;
+
+const ToolbarActionButton = styled.button`
+  padding: 0.45rem 0.85rem;
+  border-radius: 7px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+
+  ${(props) =>
+    props.primary
+      ? `
+    background: #4f46e5;
+    color: #f8fafc;
+    border: 1px solid #4338ca;
+
+    &:hover:not(:disabled) {
+      background: #4338ca;
+      border-color: #3730a3;
+      box-shadow: 0 2px 10px rgba(79, 70, 229, 0.25);
+    }
+  `
+      : `
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
+
+    &:hover:not(:disabled) {
+      background: #f8fafc;
+      border-color: #94a3b8;
+    }
+  `}
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+`;
+
+const ModalScrollSection = styled.div`
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.45rem 1.25rem 1rem;
+  border-top: 1px solid #e2e8f0;
 `;
 
 const ProjectGroupsContainer = styled.div`
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px 0;
+  padding: 0.15rem 0 0.35rem;
 `;
 
 const ProjectGroup = styled.div`
@@ -261,33 +345,68 @@ const EgkrisiActions = styled.div`
 `;
 
 const IconButton = styled.button`
-  background: ${props => props.danger ? '#e74c3c' : '#3498db'};
-  color: white;
-  border: none;
   padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
+  border-radius: 6px;
   font-size: 12px;
-  transition: all 0.3s ease;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
 
-  &:hover {
-    background: ${props => props.danger ? '#c0392b' : '#2980b9'};
-    transform: scale(1.05);
-  }
+  ${(props) => {
+    if (props.danger) {
+      return `
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      &:hover {
+        background: #fee2e2;
+        border-color: #f87171;
+      }
+    `;
+    }
+    if (props.$filesPrimary) {
+      return `
+      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+      color: #f8fafc;
+      border: 1px solid #3730a3;
+      box-shadow: 0 2px 8px rgba(67, 56, 202, 0.3);
+      &:hover {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        box-shadow: 0 3px 12px rgba(79, 70, 229, 0.4);
+      }
+    `;
+    }
+    return `
+      background: #ffffff;
+      color: #1e293b;
+      border: 1px solid #cbd5e1;
+      &:hover {
+        background: #f8fafc;
+        border-color: #94a3b8;
+      }
+    `;
+  }}
 `;
 
 const NoResults = styled.div`
   text-align: center;
-  color: #7f8c8d;
-  font-size: 18px;
-  padding: 40px;
+  padding: 2.5rem 1.5rem;
+  color: #64748b;
+  font-size: 1rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
 `;
 
 const LoadingMessage = styled.div`
   text-align: center;
-  color: #3498db;
-  font-size: 20px;
-  padding: 40px;
+  padding: 2.5rem 1.5rem;
+  color: #64748b;
+  font-size: 1rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
 `;
 
 function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }) {
@@ -735,54 +854,34 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
   if (!isOpen) return null;
 
   return (
-    <ModalOverlay>
-      <ModalContainer>
-        <ModalHeader>
-          <ModalTitle>
-            📋 Εγκρίσεις Διάθεσης Πίστωσης
-          </ModalTitle>
-          <CloseButton onClick={onClose}>✕</CloseButton>
-        </ModalHeader>
-        
-        <ModalContent>
-          <div style={{ 
-            padding: '20px', 
-            backgroundColor: '#f0f8ff', 
-            borderRadius: '8px', 
-            margin: '20px 0',
-            border: '2px solid #3498db',
-            textAlign: 'center',
-            fontSize: '18px',
-            color: '#2c3e50'
-          }}>
-            🎯 Εγκρίσεις Διάθεσης Πίστωσης - Test Mode
-            <br />
-            <small style={{ fontSize: '14px', color: '#7f8c8d' }}>
-              Αυτό είναι ένα test message για να δούμε αν φαίνεται το modal
-            </small>
-          </div>
+    <ModalOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <ModalContainer onClick={(e) => e.stopPropagation()}>
+        <ModalTopSection>
+          <PanelHeader>
+            <PanelTitle>Εγκρίσεις Διάθεσης Πίστωσης</PanelTitle>
+            <PanelCloseButton type="button" onClick={onClose}>
+              Κλείσιμο
+            </PanelCloseButton>
+          </PanelHeader>
 
-        <ActionBar>
-          <SearchInput
-            type="text"
-            placeholder="Αναζήτηση έργου, υποέργου ή ΚΑ..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <>
-            <ActionButton onClick={() => setShowEgkrisiForm(true)}>
+          <ActionsBar>
+            <ToolbarQuickInput
+              type="text"
+              placeholder="Αναζήτηση έργου, υποέργου ή ΚΑ..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <ToolbarActionButton type="button" primary onClick={() => setShowEgkrisiForm(true)}>
               ➕ Νέα Έγκριση
-            </ActionButton>
-            <ActionButton onClick={() => setShowStructureViewer(true)}>
-              📋 Δομή Εγκρίσεων
-            </ActionButton>
-          </>
-        </ActionBar>
+            </ToolbarActionButton>
+            <ToolbarActionButton type="button" onClick={() => setShowStructureViewer(true)}>
+              📋 Δομή εγκρίσεων
+            </ToolbarActionButton>
+          </ActionsBar>
+        </ModalTopSection>
 
+        <ModalScrollSection>
         <ProjectGroupsContainer>
-          <div style={{ padding: '20px', textAlign: 'center', fontSize: '18px', color: '#2c3e50' }}>
-            🎯 Εγκρίσεις Διάθεσης Πίστωσης - Test Mode
-          </div>
           {loading ? (
             <LoadingMessage>Φόρτωση εγκρίσεων...</LoadingMessage>
           ) : (
@@ -886,7 +985,9 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
                                       )}
                                     </EgkrisiInfo>
                                     <EgkrisiActions>
-                                      <IconButton 
+                                      <IconButton
+                                        type="button"
+                                        $filesPrimary
                                         onClick={() => viewFile(projectId, subproject.subprojectId, egkrisi.fileName)}
                                       >
                                         👁️ Προβολή
@@ -939,6 +1040,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
             </>
           )}
         </ProjectGroupsContainer>
+        </ModalScrollSection>
 
         {/* Modals */}
         {showEgkrisiForm && (
@@ -982,7 +1084,6 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
             currentEgkrisi={currentLinkingEgkrisi}
           />
         )}
-        </ModalContent>
       </ModalContainer>
     </ModalOverlay>
   );

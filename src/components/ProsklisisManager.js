@@ -8,269 +8,421 @@ import { containsSearchTerm } from '../utils/searchUtils';
 
 const ipcRenderer = window.electronAPI;
 
-// Styled Components
+// Styled Components — ίδια οπτική γλώσσα / δομή σταθερού μέρους με EntaxisManager
 const ModalOverlay = styled.div`
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
-  align-items: center;
-  z-index: 10000;
+  align-items: flex-start;
+  z-index: 9999;
+  padding: 0.65rem 1cm;
+  overflow-y: auto;
+  box-sizing: border-box;
+
+  @media (min-width: 900px) {
+    padding: 0.85rem 1cm;
+  }
 `;
 
 const ModalContainer = styled.div`
-  background: white;
-  border-radius: 15px;
-  width: 95%;
-  max-width: 1400px;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  padding: 0;
+  width: 100%;
+  max-width: 1920px;
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  margin-top: 0.35rem;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
 `;
 
-const ModalHeader = styled.div`
-  padding: 2rem;
-  border-bottom: 1px solid #e9ecef;
+const ModalTopSection = styled.div`
+  flex-shrink: 0;
+  padding: 0.85rem 1.25rem 0.55rem;
+  background: rgba(255, 255, 255, 0.98);
+`;
+
+const PanelHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border-radius: 15px 15px 0 0;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid #e2e8f0;
 `;
 
-const ModalTitle = styled.h2`
+const PanelTitle = styled.h2`
+  color: #1e293b;
+  font-size: 1.2rem;
+  font-weight: 700;
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-`;
-
-const CloseButton = styled.button`
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  color: white;
-  cursor: pointer;
-  padding: 0.5rem;
-  border-radius: 50%;
-  transition: background 0.3s ease;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-`;
-
-const ModalContent = styled.div`
-  padding: 2rem;
-`;
-
-const HeaderActions = styled.div`
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 2rem;
-`;
-
-const NewProsklisisButton = styled.button`
-  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-  color: white;
-  border: none;
-  padding: 0.8rem 1.5rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
-  }
-`;
-
-const SearchAndFiltersContainer = styled.div`
-  background: #f8f9fa;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-  border: 1px solid #e9ecef;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-`;
-
-const SearchTitle = styled.h3`
-  color: #333;
-  margin: 0 0 1rem 0;
-  font-size: 1rem;
-  font-weight: 600;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-`;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
 
-const QuickSearchContainer = styled.div`
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1rem;
-  align-items: center;
-`;
-
-const SearchInput = styled.input`
-  flex: 1;
-  padding: 0.8rem 1rem;
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  font-size: 1rem;
-  transition: all 0.3s ease;
-
-  &:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  &::before {
+    content: '';
+    width: 3px;
+    height: 1.15rem;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+    flex-shrink: 0;
   }
 `;
 
-const FilterSelect = styled.select`
-  padding: 0.8rem 1rem;
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  font-size: 1rem;
-  background: white;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  min-width: 150px;
-
-  &:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-  }
-`;
-
-const AdvancedFiltersToggle = styled.button`
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 0.8rem 1.5rem;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-  }
-`;
-
-const AdvancedFiltersContainer = styled.div`
-  display: ${props => props.show ? 'grid' : 'none'};
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #dee2e6;
-`;
-
-const FilterInput = styled.input`
-  padding: 0.6rem 0.8rem;
-  border: 2px solid #e9ecef;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  transition: all 0.3s ease;
-
-  &:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
-  }
-`;
-
-const FilterLabel = styled.label`
-  display: block;
-  font-size: 0.8rem;
+const PanelCloseButton = styled.button`
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
+  font-size: 0.68rem;
   font-weight: 600;
-  color: #495057;
-  margin-bottom: 0.3rem;
+  cursor: pointer;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
-`;
-
-const ClearFiltersButton = styled.button`
-  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-  color: white;
-  border: none;
-  padding: 0.6rem 1rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  grid-column: 1 / -1;
-  justify-self: start;
-  margin-top: 0.5rem;
+  letter-spacing: 0.04em;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 
   &:hover {
-    background: linear-gradient(135deg, #c82333 0%, #a71e2a 100%);
-    transform: translateY(-1px);
+    background: #f8fafc;
+    color: #0f172a;
+    border-color: #94a3b8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 `;
 
-const ExportButton = styled.button`
-  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-  color: white;
-  border: none;
-  padding: 0.8rem 1.5rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
-  margin-left: auto;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
-  }
-`;
-
-const StatsContainer = styled.div`
+const ActionsBar = styled.div`
   display: flex;
-  gap: 1rem;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(148, 163, 184, 0.08) 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(99, 102, 241, 0.14);
   flex-wrap: wrap;
-  margin-bottom: 1rem;
+  align-items: center;
 `;
 
-const StatCard = styled.div`
-  background: white;
-  padding: 0.8rem 1rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+const ToolbarActionButton = styled.button`
+  padding: 0.45rem 0.85rem;
+  border-radius: 7px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+
+  ${(props) =>
+    props.primary
+      ? `
+    background: #4f46e5;
+    color: #f8fafc;
+    border: 1px solid #4338ca;
+
+    &:hover {
+      background: #4338ca;
+      border-color: #3730a3;
+      box-shadow: 0 2px 10px rgba(79, 70, 229, 0.25);
+    }
+  `
+      : `
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
+
+    &:hover {
+      background: #f8fafc;
+      border-color: #94a3b8;
+    }
+  `}
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+`;
+
+const PanelExportButton = styled.button`
+  padding: 0.45rem 0.85rem;
+  background: #15803d;
+  color: #ffffff;
+  border: 1px solid #166534;
+  border-radius: 7px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  border-left: 3px solid ${props => props.color || '#667eea'};
+  gap: 0.35rem;
+
+  &:hover {
+    background: #166534;
+    border-color: #14532d;
+    box-shadow: 0 2px 8px rgba(21, 128, 61, 0.2);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
 `;
 
-const StatIcon = styled.span`
-  font-size: 1.1rem;
+const ToolbarQuickInput = styled.input`
+  flex: 1;
+  min-width: 160px;
+  max-width: 360px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+  color: #1e293b;
+
+  &:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+  }
+
+  &::placeholder {
+    color: #94a3b8;
+  }
 `;
 
-const StatText = styled.div`
-  font-size: 0.8rem;
-  color: #6c757d;
+const ToolbarFilterSelect = styled.select`
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  background: #ffffff;
+  color: #1e293b;
+  cursor: pointer;
+  min-width: 150px;
+  max-width: 220px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+  &:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+  }
 `;
 
-const StatNumber = styled.div`
-  font-size: 1rem;
+const ToolbarToggleButton = styled.button`
+  padding: 0.45rem 0.85rem;
+  background: ${(p) => (p.$active ? '#fef2f2' : '#ffffff')};
+  color: ${(p) => (p.$active ? '#991b1b' : '#1e293b')};
+  border: 1px solid ${(p) => (p.$active ? '#fecaca' : '#cbd5e1')};
+  border-radius: 7px;
+  font-size: 0.68rem;
   font-weight: 600;
-  color: #333;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+
+  &:hover {
+    background: ${(p) => (p.$active ? '#fee2e2' : '#f8fafc')};
+    border-color: ${(p) => (p.$active ? '#f87171' : '#94a3b8')};
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+`;
+
+const SearchStats = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  margin-bottom: 0.45rem;
+  background: rgba(248, 250, 252, 0.95);
+  border-radius: 8px;
+  font-size: 0.72rem;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+
+  .stats-section {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .stat-item {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    font-weight: 500;
+  }
+
+  .stat-icon {
+    font-size: 0.72rem;
+    opacity: 0.75;
+  }
+
+  .stat-number {
+    color: #4f46e5;
+    font-weight: 700;
+  }
+
+  .stat-label {
+    color: #64748b;
+    font-weight: 500;
+  }
+
+  .filters-badge {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .filter-icon {
+    font-size: 0.68rem;
+  }
+`;
+
+const SearchBar = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.45rem 0 0;
+  padding: 0.65rem 0.75rem;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+`;
+
+const SearchRow = styled.div`
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+`;
+
+const AdvSearchInput = styled.input`
+  flex: 1;
+  min-width: 160px;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+  color: #1e293b;
+
+  &:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+
+  &::placeholder {
+    color: #94a3b8;
+  }
+`;
+
+const AdvDateInput = styled.input`
+  padding: 0.65rem 0.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: #ffffff;
+  color: #1e293b;
+
+  &:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+`;
+
+const AdvFilterSelect = styled.select`
+  flex: 1;
+  min-width: 160px;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  background: #ffffff;
+  color: #1e293b;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+`;
+
+const ToolbarClearButton = styled.button`
+  padding: 0.65rem 1.25rem;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+
+  &:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+`;
+
+const ModalScrollSection = styled.div`
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.45rem 1.25rem 1rem;
+  border-top: 1px solid #e2e8f0;
 `;
 
 const ProsklisisList = styled.div`
@@ -540,45 +692,58 @@ const ActionButtons = styled.div`
 `;
 
 const ActionButton = styled.button`
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 500;
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
 
-  ${props => {
-    if (props.primary) return `
-      background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-      color: white;
-      &:hover { 
-        background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
-        transform: translateY(-1px);
+  ${(props) => {
+    if (props.$filesPrimary) {
+      return `
+      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+      color: #f8fafc;
+      border: 1px solid #3730a3;
+      box-shadow: 0 2px 10px rgba(67, 56, 202, 0.35);
+      &:hover {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        box-shadow: 0 4px 16px rgba(79, 70, 229, 0.42);
       }
     `;
-    if (props.edit) return `
-      background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
-      color: white;
-      &:hover { 
-        background: linear-gradient(135deg, #1e7e34 0%, #155724 100%);
-        transform: translateY(-1px);
+    }
+    if (props.edit) {
+      return `
+      background: #ecfdf5;
+      color: #14532d;
+      border: 1px solid #86efac;
+      &:hover {
+        background: #dcfce7;
+        border-color: #4ade80;
       }
     `;
-    if (props.delete) return `
-      background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-      color: white;
-      &:hover { 
-        background: linear-gradient(135deg, #c82333 0%, #a71e2a 100%);
-        transform: translateY(-1px);
+    }
+    if (props.delete) {
+      return `
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      &:hover {
+        background: #fee2e2;
+        border-color: #f87171;
       }
     `;
+    }
     return `
-      background: linear-gradient(135deg, #6c757d 0%, #545b62 100%);
-      color: white;
-      &:hover { 
-        background: linear-gradient(135deg, #545b62 0%, #3d4147 100%);
-        transform: translateY(-1px);
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      &:hover {
+        background: #334155;
+        border-color: #475569;
       }
     `;
   }}
@@ -586,16 +751,22 @@ const ActionButton = styled.button`
 
 const LoadingMessage = styled.div`
   text-align: center;
-  padding: 3rem;
-  color: #6c757d;
-  font-size: 1.1rem;
+  padding: 2.5rem 1.5rem;
+  color: #64748b;
+  font-size: 1rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
 `;
 
 const NoDataMessage = styled.div`
   text-align: center;
-  padding: 3rem;
-  color: #6c757d;
-  font-size: 1.1rem;
+  padding: 2.5rem 1.5rem;
+  color: #64748b;
+  font-size: 1rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
 `;
 
 const ModificationsSection = styled.div`
@@ -772,26 +943,40 @@ const ModificationActions = styled.div`
 `;
 
 const ModificationButton = styled.button`
-  background: ${props => props.variant === 'edit' ? '#2196f3' : '#f44336'};
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 0.4rem 0.8rem;
-  font-size: 0.8rem;
+  color: #1e293b;
+  border-radius: 6px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
   display: flex;
   align-items: center;
   gap: 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-family: inherit;
 
-  &:hover {
-    background: ${props => props.variant === 'edit' ? '#1976d2' : '#d32f2f'};
-    transform: translateY(-1px);
-  }
-
-  &:active {
-    transform: translateY(0);
-  }
+  ${(props) =>
+    props.variant === 'edit'
+      ? `
+    background: #ecfdf5;
+    color: #14532d;
+    border: 1px solid #86efac;
+    &:hover {
+      background: #dcfce7;
+      border-color: #4ade80;
+    }
+  `
+      : `
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+    &:hover {
+      background: #fee2e2;
+      border-color: #f87171;
+    }
+  `}
 `;
 
 
@@ -1723,6 +1908,20 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
   };
 
   // Calculate statistics
+  const getActiveFiltersCount = () => {
+    let n = 0;
+    if (searchTerm.trim()) n += 1;
+    if (quickSearchStatus) n += 1;
+    if (advancedFilters.axis.trim()) n += 1;
+    if (advancedFilters.fundingSource.trim()) n += 1;
+    if (advancedFilters.status) n += 1;
+    if (advancedFilters.minBudget.trim()) n += 1;
+    if (advancedFilters.maxBudget.trim()) n += 1;
+    if (advancedFilters.dateFrom) n += 1;
+    if (advancedFilters.dateTo) n += 1;
+    return n;
+  };
+
   const getStatistics = () => {
     const total = proskliseis.length;
     const filtered = filteredProskliseis.length;
@@ -1737,156 +1936,148 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
   return (
     <ModalOverlay onClick={(e) => e.target === e.currentTarget && handleClose()}>
       <ModalContainer>
-        <ModalHeader>
-          <ModalTitle>📢 Διαχείριση Προσκλήσεων</ModalTitle>
-          <CloseButton onClick={handleClose}>✖</CloseButton>
-        </ModalHeader>
+        <ModalTopSection>
+          <PanelHeader>
+            <PanelTitle>Διαχείριση Προσκλήσεων</PanelTitle>
+            <PanelCloseButton type="button" onClick={handleClose}>Κλείσιμο</PanelCloseButton>
+          </PanelHeader>
 
-        <ModalContent>
-          <HeaderActions>
+          <ActionsBar>
             {canManageWorkflow && (
-              <NewProsklisisButton onClick={() => {
-                setEditingProsklisi(null); // Καθαρισμός για νέα πρόσκληση
-                setIsFormOpen(true);
-              }}>
-                ✨ Εισαγωγή Νέας Πρόσκλησης
-              </NewProsklisisButton>
+              <ToolbarActionButton
+                type="button"
+                primary
+                onClick={() => {
+                  setEditingProsklisi(null);
+                  setIsFormOpen(true);
+                }}
+              >
+                ➕ Νέα Πρόσκληση
+              </ToolbarActionButton>
             )}
-            <ExportButton onClick={() => setIsExportDialogOpen(true)}>
+            <PanelExportButton type="button" onClick={() => setIsExportDialogOpen(true)}>
               📊 Εξαγωγή σε Excel
-            </ExportButton>
-          </HeaderActions>
+            </PanelExportButton>
+            <ToolbarQuickInput
+              type="text"
+              placeholder="Αναζήτηση (τίτλος, άξονας, πηγή, κωδικός)..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <ToolbarFilterSelect
+              value={quickSearchStatus}
+              onChange={(e) => setQuickSearchStatus(e.target.value)}
+            >
+              <option value="">Όλες οι Καταστάσεις</option>
+              {getUniqueStatuses().map(status => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </ToolbarFilterSelect>
+            <ToolbarToggleButton
+              type="button"
+              $active={showAdvancedFilters}
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            >
+              🔍 {showAdvancedFilters ? 'Απόκρυψη φίλτρων' : 'Προηγμένα φίλτρα'}
+            </ToolbarToggleButton>
+          </ActionsBar>
 
-          <SearchAndFiltersContainer>
-            <SearchTitle>
-              🔍 Αναζήτηση & Φίλτρα Προσκλήσεων
-            </SearchTitle>
-
-            <StatsContainer>
+          <SearchStats>
+            <div className="stats-section">
               {(() => {
                 const stats = getStatistics();
                 return (
                   <>
-                    <StatCard color="#667eea">
-                      <StatIcon>📋</StatIcon>
-                      <div>
-                        <StatNumber>{stats.total}</StatNumber>
-                        <StatText>Σύνολο</StatText>
-                      </div>
-                    </StatCard>
-                    <StatCard color="#28a745">
-                      <StatIcon>👁️</StatIcon>
-                      <div>
-                        <StatNumber>{stats.filtered}</StatNumber>
-                        <StatText>Εμφανιζόμενα</StatText>
-                      </div>
-                    </StatCard>
-                    <StatCard color="#ffc107">
-                      <StatIcon>⚡</StatIcon>
-                      <div>
-                        <StatNumber>{stats.withModifications}</StatNumber>
-                        <StatText>Με Τροποποιήσεις</StatText>
-                      </div>
-                    </StatCard>
+                    <div className="stat-item">
+                      <span className="stat-icon">📋</span>
+                      <span className="stat-label">Σύνολο:</span>
+                      <span className="stat-number">{stats.total}</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-icon">👁</span>
+                      <span className="stat-label">Εμφανιζόμενα:</span>
+                      <span className="stat-number">{stats.filtered}</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-icon">⚡</span>
+                      <span className="stat-label">Με τροποποιήσεις:</span>
+                      <span className="stat-number">{stats.withModifications}</span>
+                    </div>
                   </>
                 );
               })()}
-            </StatsContainer>
+            </div>
+            <div>
+              {getActiveFiltersCount() > 0 && (
+                <div className="filters-badge">
+                  <span className="filter-icon">🔧</span>
+                  <span>Φίλτρα: {getActiveFiltersCount()}</span>
+                </div>
+              )}
+            </div>
+          </SearchStats>
 
-            <QuickSearchContainer>
-              <SearchInput
-                type="text"
-                placeholder="🔍 Αναζήτηση προσκλήσεων (τίτλος, άξονας, πηγή χρηματοδότησης, κωδικός)..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              <FilterSelect
-                value={quickSearchStatus}
-                onChange={(e) => setQuickSearchStatus(e.target.value)}
-              >
-                <option value="">Όλες οι Καταστάσεις</option>
-                {getUniqueStatuses().map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </FilterSelect>
-              <AdvancedFiltersToggle 
-                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              >
-                {showAdvancedFilters ? '🔼 Κρύψε Φίλτρα' : '🔽 Προηγμένα Φίλτρα'}
-              </AdvancedFiltersToggle>
-            </QuickSearchContainer>
-
-            <AdvancedFiltersContainer show={showAdvancedFilters}>
-              <div>
-                <FilterLabel>Άξονας/Δράση</FilterLabel>
-                <FilterInput
+          {showAdvancedFilters && (
+            <SearchBar>
+              <SearchRow>
+                <AdvSearchInput
                   type="text"
-                  placeholder="Άξονας..."
+                  placeholder="Άξονας / Δράση..."
                   value={advancedFilters.axis}
                   onChange={(e) => handleAdvancedFilterChange('axis', e.target.value)}
                 />
-              </div>
-              <div>
-                <FilterLabel>Πηγή Χρηματοδότησης</FilterLabel>
-                <FilterInput
+                <AdvSearchInput
                   type="text"
-                  placeholder="Πηγή..."
+                  placeholder="Πηγή χρηματοδότησης..."
                   value={advancedFilters.fundingSource}
                   onChange={(e) => handleAdvancedFilterChange('fundingSource', e.target.value)}
                 />
-              </div>
-              <div>
-                <FilterLabel>Κατάσταση</FilterLabel>
-                <FilterSelect
+                <AdvFilterSelect
                   value={advancedFilters.status}
                   onChange={(e) => handleAdvancedFilterChange('status', e.target.value)}
                 >
-                  <option value="">Όλες</option>
+                  <option value="">Όλες (προηγμένο φίλτρο κατάστασης)</option>
                   {getUniqueStatuses().map(status => (
                     <option key={status} value={status}>{status}</option>
                   ))}
-                </FilterSelect>
-              </div>
-              <div>
-                <FilterLabel>Ελάχιστο Προϋπολογισμό (€)</FilterLabel>
-                <FilterInput
+                </AdvFilterSelect>
+              </SearchRow>
+              <SearchRow>
+                <AdvSearchInput
                   type="text"
-                  placeholder="π.χ. 100000"
+                  placeholder="Ελάχιστος προϋπολογισμός (€)..."
                   value={advancedFilters.minBudget}
                   onChange={(e) => handleAdvancedFilterChange('minBudget', e.target.value)}
                 />
-              </div>
-              <div>
-                <FilterLabel>Μέγιστο Προϋπολογισμό (€)</FilterLabel>
-                <FilterInput
+                <AdvSearchInput
                   type="text"
-                  placeholder="π.χ. 500000"
+                  placeholder="Μέγιστος προϋπολογισμός (€)..."
                   value={advancedFilters.maxBudget}
                   onChange={(e) => handleAdvancedFilterChange('maxBudget', e.target.value)}
                 />
-              </div>
-              <div>
-                <FilterLabel>Από Ημερομηνία Λήξης</FilterLabel>
-                <FilterInput
+                <AdvDateInput
                   type="date"
                   value={advancedFilters.dateFrom}
                   onChange={(e) => handleAdvancedFilterChange('dateFrom', e.target.value)}
+                  title="Από ημερομηνία λήξης υποβολής"
                 />
-              </div>
-              <div>
-                <FilterLabel>Έως Ημερομηνία Λήξης</FilterLabel>
-                <FilterInput
+                <AdvDateInput
                   type="date"
                   value={advancedFilters.dateTo}
                   onChange={(e) => handleAdvancedFilterChange('dateTo', e.target.value)}
+                  title="Έως ημερομηνία λήξης υποβολής"
                 />
-              </div>
-              <ClearFiltersButton onClick={handleClearFilters}>
-                🗑️ Καθαρισμός Όλων των Φίλτρων
-              </ClearFiltersButton>
-            </AdvancedFiltersContainer>
-          </SearchAndFiltersContainer>
+              </SearchRow>
+              <SearchRow>
+                <ToolbarClearButton type="button" onClick={handleClearFilters}>
+                  🗑️ Καθαρισμός φίλτρων
+                </ToolbarClearButton>
+              </SearchRow>
+            </SearchBar>
+          )}
+        </ModalTopSection>
 
+        <ModalScrollSection>
           {loading ? (
             <LoadingMessage>
               Φόρτωση προσκλήσεων...
@@ -1896,7 +2087,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
               {searchTerm ? 'Δεν βρέθηκαν προσκλήσεις που να ταιριάζουν στην αναζήτηση.' : 'Δεν υπάρχουν προσκλήσεις.'}
               {canManageWorkflow && !searchTerm && (
                 <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
-                  Πατήστε "Εισαγωγή Νέας Πρόσκλησης" για να προσθέσετε την πρώτη πρόσκληση.
+                  Πατήστε «Νέα Πρόσκληση» για να προσθέσετε την πρώτη πρόσκληση.
                 </div>
               )}
             </NoDataMessage>
@@ -2058,15 +2249,19 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
                   )}
 
                   <ActionButtons>
-                    <ActionButton primary onClick={() => handleViewFiles(prosklisi.prosklisiId)}>
+                    <ActionButton
+                      type="button"
+                      $filesPrimary
+                      onClick={() => handleViewFiles(prosklisi.prosklisiId)}
+                    >
                       📁 Αρχεία Πρόσκλησης
                     </ActionButton>
                     {canManageWorkflow && (
                       <>
-                        <ActionButton edit onClick={() => handleEditProsklisi(prosklisi)}>
+                        <ActionButton type="button" edit onClick={() => handleEditProsklisi(prosklisi)}>
                           ✏️ Επεξεργασία
                         </ActionButton>
-                        <ActionButton delete onClick={() => handleDeleteProsklisi(prosklisi.prosklisiId)}>
+                        <ActionButton type="button" delete onClick={() => handleDeleteProsklisi(prosklisi.prosklisiId)}>
                           🗑️ Διαγραφή
                         </ActionButton>
                       </>
@@ -2080,7 +2275,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
               })}
             </ProsklisisList>
           )}
-        </ModalContent>
+        </ModalScrollSection>
       </ModalContainer>
 
       {/* Prosklisi Form Modal */}

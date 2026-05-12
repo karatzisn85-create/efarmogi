@@ -40,8 +40,9 @@ const ALLOWED_INVOKE = new Set([
   'rollback-audit-entry','save-app-config','save-backup-settings',
   'save-egkriseis-data','save-egkrisi','save-entaxi','save-files',
   'save-modification','save-note-groups','save-notes','save-project-data',
-  'save-prosklisi','save-prosklisi-modification','scan-egkriseis-folder',
+  'save-prosklisi',  'save-prosklisi-modification','scan-egkriseis-folder',
   'select-data-folder','select-file','select-folder','select-multiple-files',
+  'set-dashboard-session-active',
   'show-save-dialog','unlock-project','update-document-category',
   'update-egkrisi-project-title','update-egkrisi-subproject-title',
   'update-entaxi-modification','update-prosklisi-modification','update-user',
@@ -53,7 +54,7 @@ const ALLOWED_INVOKE = new Set([
 ]);
 
 const ALLOWED_RECEIVE = new Set([
-  'backup-completed','backup-progress','locks-changed',
+  'app-close-blocked','backup-completed','backup-progress','locks-changed',
   'update-available','update-downloaded','update-download-progress','update-installed'
 ]);
 

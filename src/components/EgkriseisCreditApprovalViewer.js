@@ -11,73 +11,111 @@ const ModalOverlay = styled.div`
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
-  align-items: center;
-  z-index: 10000;
-  backdrop-filter: blur(5px);
+  align-items: flex-start;
+  z-index: 9999;
+  padding: 0.65rem 1cm;
+  overflow-y: auto;
+  box-sizing: border-box;
+
+  @media (min-width: 900px) {
+    padding: 0.85rem 1cm;
+  }
 `;
 
 const ModalContainer = styled.div`
-  background: white;
-  border-radius: 20px;
-  width: 98vw;
-  height: 95vh;
-  max-width: 1600px;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 1920px;
+  max-height: 94vh;
+  height: min(94vh, 100%);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.95);
   overflow: hidden;
+  margin-top: 0.35rem;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
 `;
 
 const ModalHeader = styled.div`
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 1.5rem 2rem;
+  flex-shrink: 0;
+  padding: 0.85rem 1.25rem 0.65rem;
+  background: rgba(255, 255, 255, 0.98);
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.75rem;
 `;
 
 const ModalTitle = styled.h2`
   margin: 0;
-  font-size: 1.8rem;
-  font-weight: 600;
+  color: #1e293b;
+  font-size: 1.2rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+
+  &::before {
+    content: '';
+    width: 3px;
+    height: 1.15rem;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+    flex-shrink: 0;
+  }
 `;
 
 const CloseButton = styled.button`
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
+  font-size: 0.68rem;
+  font-weight: 600;
   cursor: pointer;
-  font-size: 1rem;
-  transition: background 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: #f8fafc;
+    color: #0f172a;
+    border-color: #94a3b8;
   }
 `;
 
 const EditButton = styled.button`
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
-  color: white;
-  font-size: 0.9rem;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
+  background: #4f46e5;
+  color: #f8fafc;
+  border: 1px solid #4338ca;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  transition: all 0.3s ease;
-  margin-right: 1rem;
+  gap: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-right: 0.5rem;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: translateY(-2px);
+    background: #4338ca;
+    border-color: #3730a3;
+    box-shadow: 0 2px 10px rgba(79, 70, 229, 0.22);
   }
 `;
 
@@ -89,29 +127,39 @@ const ModalContent = styled.div`
 `;
 
 const SearchAndFiltersContainer = styled.div`
-  padding: 1.5rem 2rem;
-  background: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
+  flex-shrink: 0;
+  padding: 0.65rem 1.25rem 0.75rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
 `;
 
 const SearchBar = styled.div`
   display: flex;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  gap: 0.65rem;
+  margin-bottom: 0.65rem;
   align-items: center;
+  flex-wrap: wrap;
 `;
 
 const SearchInput = styled.input`
   flex: 1;
-  padding: 0.75rem 1rem;
-  border: 2px solid #e9ecef;
-  border-radius: 10px;
-  font-size: 1rem;
-  transition: border-color 0.3s ease;
+  min-width: 200px;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  background: #ffffff;
+  color: #1e293b;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 
   &:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+
+  &::placeholder {
+    color: #94a3b8;
   }
 `;
 
@@ -124,87 +172,104 @@ const StatsContainer = styled.div`
 `;
 
 const StatCard = styled.div`
-  background: white;
-  padding: 1rem 1.5rem;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: #ffffff;
+  padding: 0.55rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 `;
 
 const StatIcon = styled.span`
-  font-size: 1.2rem;
+  font-size: 1.05rem;
 `;
 
 const StatText = styled.div`
-  font-size: 0.9rem;
-  color: #6c757d;
+  font-size: 0.78rem;
+  color: #64748b;
 `;
 
 const StatNumber = styled.div`
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #333;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #4f46e5;
 `;
 
 const ProjectsContainer = styled.div`
   flex: 1;
   overflow-y: auto;
-  padding: 1.5rem 2rem;
+  padding: 0.75rem 1.25rem 1.25rem;
+  background: #f1f5f9;
 `;
 
 const ProjectSection = styled.div`
-  margin-bottom: 2rem;
-  border: 2px solid #e9ecef;
-  border-radius: 15px;
-  overflow: hidden;
-  background: white;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1.65rem;
+  border: 1px solid #94a3b8;
+  border-radius: 14px;
+  overflow: visible;
+  background: #ffffff;
+  box-shadow:
+    0 4px 18px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
 `;
 
 const ProjectHeader = styled.div`
-  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid #e9ecef;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 52%, #334155 100%);
+  padding: 1rem 1.2rem 1.1rem;
+  border-bottom: 3px solid #6366f1;
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
   position: relative;
-`;
-
-const ProjectIcon = styled.div`
-  width: 20px;
-  height: 20px;
-  background: #2196f3;
-  border-radius: 4px;
 `;
 
 const ProjectTitle = styled.h3`
   margin: 0;
-  color: #1976d2;
-  font-size: 1.1rem;
-  font-weight: 600;
-  flex: 1;
+  flex: 1 1 220px;
+  min-width: 0;
+  color: #f8fafc;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.45;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  padding-left: 0.7rem;
+  border-left: 4px solid #a5b4fc;
+  border-radius: 2px;
 `;
 
 const ModificationsBadge = styled.div`
-  background: #ff9800;
-  color: white;
-  padding: 0.25rem 0.75rem;
-  border-radius: 15px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  display: flex;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 0.1rem;
   margin-left: auto;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
 
   &:hover {
-    background: #f57c00;
-    transform: translateY(-1px);
+    background: #fde68a;
+    border-color: #fbbf24;
   }
 `;
 
@@ -213,9 +278,9 @@ const ModificationsDropdown = styled.div`
   top: 100%;
   right: 0;
   background: white;
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
   z-index: 1000;
   min-width: 300px;
   max-width: 500px;
@@ -225,34 +290,34 @@ const ModificationsDropdown = styled.div`
 
 const ModificationsTitle = styled.div`
   font-weight: 600;
-  color: #2c3e50;
+  color: #1e293b;
   margin-bottom: 0.75rem;
   font-size: 0.9rem;
-  border-bottom: 1px solid #e9ecef;
+  border-bottom: 1px solid #e2e8f0;
   padding-bottom: 0.5rem;
 `;
 
 const SubprojectsList = styled.div`
-  background: #f8f9fa;
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
 `;
 
 const SubprojectItem = styled.div`
-  padding: 1.5rem 2rem;
-  border-bottom: 2px solid #e9ecef;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  background: ${props => props.index % 2 === 0 ? 'white' : '#f8f9fa'};
-  transition: background 0.3s ease;
-  margin-bottom: 0.5rem;
+  background: ${props => props.index % 2 === 0 ? '#ffffff' : '#f8fafc'};
+  transition: background 0.2s ease;
+  margin-bottom: 0;
 
   &:hover {
-    background: #e3f2fd;
+    background: #f1f5f9;
   }
 
   &:last-child {
     border-bottom: none;
-    margin-bottom: 0;
   }
 `;
 
@@ -271,20 +336,21 @@ const SubprojectHeader = styled.div`
 `;
 
 const SubprojectNumber = styled.div`
-  background: #e9ecef;
-  color: #6c757d;
-  padding: 0.4rem 0.8rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  min-width: 80px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-width: 72px;
   text-align: center;
 `;
 
 const SubprojectTitle = styled.div`
   font-weight: 600;
-  color: #2c3e50;
-  font-size: 1.1rem;
+  color: #1e293b;
+  font-size: 1.05rem;
   line-height: 1.4;
   flex: 1;
 `;
@@ -302,29 +368,27 @@ const PdfGroup = styled.div`
   gap: 0.3rem;
   padding: 0.6rem;
   background: white;
-  border-radius: 6px;
-  border: 1px solid #e9ecef;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  transition: all 0.3s ease;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  transition: box-shadow 0.2s ease;
 
   &:hover {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
   }
 `;
 
 const PdfItem = styled.div`
-  background: #f8f9fa;
-  padding: 0.3rem 0.6rem;
-  border-radius: 4px;
+  background: #f1f5f9;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
   font-size: 0.75rem;
-  color: #495057;
+  color: #334155;
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  border-left: 3px solid #28a745;
-  border: 1px solid #e9ecef;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  border-left: 3px solid #6366f1;
+  border: 1px solid #e2e8f0;
 `;
 
 const PdfActions = styled.div`
@@ -334,40 +398,46 @@ const PdfActions = styled.div`
 `;
 
 const ViewButton = styled.button`
-  background: #28a745;
-  color: white;
-  border: none;
+  background: #4f46e5;
+  color: #f8fafc;
+  border: 1px solid #4338ca;
   padding: 0.25rem 0.5rem;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 0.65rem;
-  font-weight: 500;
-  transition: all 0.3s ease;
+  font-weight: 600;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
   flex: 1;
   min-width: 0;
+  box-shadow: 0 1px 4px rgba(67, 56, 202, 0.2);
 
-  &:hover {
-    background: #218838;
-    transform: translateY(-1px);
+  &:hover:not(:disabled) {
+    background: #4338ca;
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.28);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 `;
 
 const DownloadButton = styled.button`
-  background: #17a2b8;
-  color: white;
-  border: none;
+  background: #15803d;
+  color: #ffffff;
+  border: 1px solid #166534;
   padding: 0.25rem 0.5rem;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 0.65rem;
-  font-weight: 500;
-  transition: all 0.3s ease;
+  font-weight: 600;
+  transition: background 0.2s ease, border-color 0.2s ease;
   flex: 1;
   min-width: 0;
 
   &:hover {
-    background: #138496;
-    transform: translateY(-1px);
+    background: #166534;
+    border-color: #14532d;
   }
 `;
 
@@ -376,8 +446,8 @@ const LoadingSpinner = styled.div`
   justify-content: center;
   align-items: center;
   height: 200px;
-  font-size: 1.2rem;
-  color: #6c757d;
+  font-size: 1.05rem;
+  color: #64748b;
 `;
 
 const PaginationContainer = styled.div`
@@ -390,18 +460,19 @@ const PaginationContainer = styled.div`
 `;
 
 const PaginationButton = styled.button`
-  background: ${props => props.active ? '#667eea' : 'white'};
-  color: ${props => props.active ? 'white' : '#667eea'};
-  border: 1px solid #667eea;
-  padding: 0.5rem 0.8rem;
-  border-radius: 6px;
+  background: ${props => props.active ? '#4f46e5' : '#ffffff'};
+  color: ${props => props.active ? '#f8fafc' : '#475569'};
+  border: 1px solid ${props => props.active ? '#4338ca' : '#cbd5e1'};
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 500;
-  transition: all 0.3s ease;
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: background 0.2s ease, border-color 0.2s ease;
 
-  &:hover {
-    background: ${props => props.active ? '#5a67d8' : '#f8f9fa'};
+  &:hover:not(:disabled) {
+    background: ${props => props.active ? '#4338ca' : '#f8fafc'};
+    border-color: ${props => props.active ? '#3730a3' : '#94a3b8'};
   }
 
   &:disabled {
@@ -411,15 +482,18 @@ const PaginationButton = styled.button`
 `;
 
 const PaginationInfo = styled.div`
-  font-size: 0.9rem;
-  color: #6c757d;
+  font-size: 0.85rem;
+  color: #64748b;
   margin: 0 1rem;
 `;
 
 const EmptyState = styled.div`
   text-align: center;
-  padding: 4rem;
-  color: #6c757d;
+  padding: 2.5rem 1rem;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
 `;
 
 const EmptyStateIcon = styled.div`
@@ -901,12 +975,12 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
           <ModalTitle>Εγκρίσεις Διάθεσης Πίστωσης</ModalTitle>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             {canManageWorkflow && (
-              <EditButton onClick={onOpenForm}>
+              <EditButton type="button" onClick={onOpenForm}>
                 <span>✏️</span>
                 Επεξεργασία/Δημιουργία
               </EditButton>
             )}
-            <CloseButton onClick={onClose}>✕</CloseButton>
+            <CloseButton type="button" onClick={onClose}>Κλείσιμο</CloseButton>
           </div>
         </ModalHeader>
 
@@ -959,7 +1033,6 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
                 {paginationData.currentProjects.map((project, projectIndex) => (
                 <ProjectSection key={projectIndex}>
                   <ProjectHeader>
-                    <ProjectIcon />
                     <ProjectTitle>{project.title}</ProjectTitle>
                     {project.modifications && project.modifications.length > 0 && (
                       <>
@@ -973,7 +1046,7 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
                               {project.modifications.map((pdf, pdfIndex) => (
                                 <PdfGroup key={pdfIndex}>
                                   <PdfItem>
-                                    📄 <span style={{ color: '#1a365d', fontWeight: '800', fontSize: '0.8rem' }}>{pdf}</span>
+                                    📄 <span style={{ color: '#1e293b', fontWeight: '800', fontSize: '0.8rem' }}>{pdf}</span>
                                   </PdfItem>
                                   <PdfActions>
                                     <ViewButton
@@ -1013,13 +1086,16 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
                                     <ViewButton
                                       disabled
                                       style={{ 
-                                        background: '#6c757d', 
-                                        color: 'white', 
+                                        background: '#f1f5f9', 
+                                        color: '#64748b',
+                                        border: '1px solid #e2e8f0',
                                         marginLeft: '0.5rem', 
-                                        fontSize: '0.8rem', 
-                                        padding: '0.4rem 0.8rem',
+                                        fontSize: '0.72rem', 
+                                        padding: '0.35rem 0.75rem',
                                         cursor: 'not-allowed',
-                                        opacity: 0.6
+                                        opacity: 0.85,
+                                        flex: '0 0 auto',
+                                        boxShadow: 'none'
                                       }}
                                     >
                                       🔗 ΣΥΣΧΕΤΙΣΗ ΜΕ ΥΠΟΕΡΓΟ
@@ -1027,11 +1103,14 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
                                     <ViewButton
                                       onClick={() => handleUnlinkSubproject(subproject, project)}
                                       style={{ 
-                                        background: '#dc3545', 
-                                        color: 'white', 
+                                        background: '#ffffff', 
+                                        color: '#991b1b',
+                                        border: '1px solid #fecaca',
                                         marginLeft: '0.5rem', 
-                                        fontSize: '0.8rem', 
-                                        padding: '0.4rem 0.8rem'
+                                        fontSize: '0.72rem', 
+                                        padding: '0.35rem 0.75rem',
+                                        flex: '0 0 auto',
+                                        boxShadow: 'none'
                                       }}
                                     >
                                       ❌ ΑΚΥΡΩΣΗ ΣΥΣΧΕΤΙΣΗΣ
@@ -1043,7 +1122,16 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
                                 ) : (
                                   <ViewButton
                                     onClick={() => handleLinkSubproject(subproject, project)}
-                                    style={{ background: '#17a2b8', color: 'white', marginLeft: '0.5rem', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+                                    style={{
+                                      background: '#ffffff',
+                                      color: '#4338ca',
+                                      border: '1px solid #a5b4fc',
+                                      marginLeft: '0.5rem',
+                                      fontSize: '0.72rem',
+                                      padding: '0.35rem 0.75rem',
+                                      flex: '0 0 auto',
+                                      boxShadow: 'none'
+                                    }}
                                   >
                                     🔗 ΣΥΣΧΕΤΙΣΗ ΜΕ ΥΠΟΕΡΓΟ
                                   </ViewButton>
@@ -1057,7 +1145,7 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
                               {subproject.pdfs.map((pdf, pdfIndex) => (
                                 <PdfGroup key={pdfIndex}>
                                   <PdfItem>
-                                    📄 <span style={{ color: '#1a365d', fontWeight: '800', fontSize: '0.8rem' }}>{pdf}</span>
+                                    📄 <span style={{ color: '#1e293b', fontWeight: '800', fontSize: '0.8rem' }}>{pdf}</span>
                                   </PdfItem>
                                   <PdfActions>
                                     <ViewButton

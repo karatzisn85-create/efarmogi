@@ -10,26 +10,36 @@ const PanelOverlay = styled.div`
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
-  align-items: center;
-  padding: 3cm;
-  z-index: 10000;
+  align-items: flex-start;
+  padding: 0.65rem 1cm;
+  z-index: 9999;
   overflow-y: auto;
+  box-sizing: border-box;
+
+  @media (min-width: 900px) {
+    padding: 0.85rem 1cm;
+  }
 `;
 
 const PanelContainer = styled.div`
   display: flex;
   flex-direction: column;
-  width: min(1600px, calc(100vw - 6cm));
-  min-height: calc(100vh - 6cm);
-  max-height: calc(100vh - 6cm);
-  background: white;
-  border-radius: 20px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(102, 126, 234, 0.25);
+  width: 100%;
+  max-width: 1920px;
+  max-height: 94vh;
+  min-height: 0;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.95);
   overflow: hidden;
+  margin-top: 0.35rem;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
 `;
 
 const PanelContent = styled.div`
@@ -37,57 +47,98 @@ const PanelContent = styled.div`
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  background: linear-gradient(135deg, #eff3ff 0%, #ffffff 60%);
+  background: #ffffff;
 `;
 
 const PanelHeader = styled.div`
-  padding: 1.8rem 2.4rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  flex-shrink: 0;
+  padding: 0.85rem 1.25rem 0.65rem;
+  background: rgba(255, 255, 255, 0.98);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-radius: 20px 20px 0 0;
+  gap: 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
 `;
 
 const Title = styled.h2`
   margin: 0;
-  font-size: 1.8rem;
-  font-weight: 600;
+  color: #1e293b;
+  font-size: 1.2rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+
+  &::before {
+    content: '';
+    width: 3px;
+    height: 1.15rem;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+    flex-shrink: 0;
+  }
 `;
 
 const HeaderActions = styled.div`
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
 `;
 
 const HeaderButton = styled.button`
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: none;
-  padding: 0.6rem 1.2rem;
-  border-radius: 10px;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
+  font-size: 0.68rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  letter-spacing: 0.5px;
+  gap: 0.35rem;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 
-  &:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: translateY(-1px);
+  ${(p) =>
+    p.$primary
+      ? `
+    background: #4f46e5;
+    color: #f8fafc;
+    border: 1px solid #4338ca;
+    &:hover {
+      background: #4338ca;
+      border-color: #3730a3;
+      box-shadow: 0 2px 10px rgba(79, 70, 229, 0.22);
+    }
+  `
+      : `
+    background: #ffffff;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    &:hover {
+      background: #f8fafc;
+      color: #0f172a;
+      border-color: #94a3b8;
+    }
+  `}
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 `;
 
 const SearchSection = styled.div`
-  padding: 1.5rem 2rem;
-  background: #f8f9ff;
-  border-bottom: 1px solid rgba(102, 126, 234, 0.15);
+  flex-shrink: 0;
+  padding: 0.65rem 1.25rem 0.75rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.65rem;
 `;
 
 const SearchRow = styled.div`
@@ -105,25 +156,30 @@ const SearchInputContainer = styled.div`
 `;
 
 const SearchLabel = styled.label`
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  color: #4a4a6a;
+  color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.04em;
 `;
 
 const SearchInput = styled.input`
-  padding: 0.75rem 1rem;
-  border: 2px solid rgba(102, 126, 234, 0.2);
-  border-radius: 10px;
-  font-size: 0.95rem;
-  background: white;
-  transition: all 0.3s ease;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  background: #ffffff;
+  color: #1e293b;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 
   &:focus {
-    border-color: #667eea;
-    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
     outline: none;
+  }
+
+  &::placeholder {
+    color: #94a3b8;
   }
 `;
 
@@ -133,18 +189,25 @@ const SearchActions = styled.div`
 `;
 
 const ClearFiltersButton = styled.button`
-  padding: 0.6rem 1.2rem;
-  background: rgba(102, 126, 234, 0.15);
-  color: #3d4a9f;
-  border: 1px solid rgba(102, 126, 234, 0.2);
-  border-radius: 10px;
-  font-size: 0.85rem;
+  padding: 0.55rem 1rem;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 
   &:hover {
-    background: rgba(102, 126, 234, 0.25);
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 `;
 
@@ -158,126 +221,154 @@ const ContentArea = styled.div`
 const ContentScroll = styled.div`
   flex: 1;
   overflow-y: auto;
-  padding: 1.5rem 2rem;
+  padding: 0.75rem 1.25rem 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(240,242,255,0.9) 100%);
+  gap: 1.65rem;
+  background: #f1f5f9;
 `;
 
 const ProjectCard = styled.div`
   position: relative;
-  background: white;
-  border-radius: 18px;
-  border: 1px solid rgba(102, 126, 234, 0.15);
-  box-shadow: 0 6px 24px rgba(102, 126, 234, 0.12);
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #94a3b8;
+  box-shadow:
+    0 4px 18px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
   overflow: visible;
 `;
 
 const ProjectHeader = styled.div`
   position: relative;
-  padding: 1.25rem 1.75rem;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.12) 0%, rgba(118, 75, 162, 0.12) 100%);
-  border-bottom: 1px solid rgba(102, 126, 234, 0.1);
+  padding: 1rem 1.2rem 1.1rem;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 52%, #334155 100%);
+  border-bottom: 3px solid #6366f1;
   display: flex;
-  align-items: center;
-  gap: 1rem;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
 `;
 
 const ProjectTitle = styled.h3`
   margin: 0;
-  color: #303c92;
-  font-size: 1.22rem;
-  font-weight: 600;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex: 1 1 220px;
+  min-width: 0;
+  color: #f8fafc;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.45;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  padding-left: 0.7rem;
+  border-left: 4px solid #a5b4fc;
+  border-radius: 2px;
 `;
 
 const EditProjectButton = styled.button`
-  background: rgba(102, 126, 234, 0.15);
-  color: #667eea;
-  border: 1px solid rgba(102, 126, 234, 0.3);
-  padding: 0.3rem 0.6rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 0.1rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  padding: 0.32rem 0.6rem;
+  border-radius: 7px;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
 
   &:hover {
-    background: rgba(102, 126, 234, 0.25);
-    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.55);
   }
 `;
 
 const EditProjectInput = styled.input`
   flex: 1;
   padding: 0.5rem 0.75rem;
-  border: 2px solid #667eea;
+  border: 1px solid #cbd5e1;
   border-radius: 8px;
-  font-size: 1.22rem;
+  font-size: 1.05rem;
   font-weight: 600;
-  color: #303c92;
+  color: #1e293b;
   background: white;
   min-width: 0;
+
+  &:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+  }
 `;
 
 const EditProjectActions = styled.div`
   display: flex;
   gap: 0.5rem;
+  flex-shrink: 0;
+  align-self: flex-start;
 `;
 
 const SaveButton = styled.button`
-  background: #28a745;
-  color: white;
-  border: none;
-  padding: 0.4rem 0.8rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
+  background: #15803d;
+  color: #ffffff;
+  border: 1px solid #166534;
+  padding: 0.35rem 0.65rem;
+  border-radius: 7px;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
 
   &:hover {
-    background: #218838;
-    transform: translateY(-1px);
+    background: #166534;
+    border-color: #14532d;
   }
 `;
 
 const CancelButton = styled.button`
-  background: #dc3545;
-  color: white;
-  border: none;
-  padding: 0.4rem 0.8rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
+  background: #ffffff;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  padding: 0.35rem 0.65rem;
+  border-radius: 7px;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
 
   &:hover {
-    background: #c82333;
-    transform: translateY(-1px);
+    background: #fef2f2;
+    border-color: #f87171;
   }
 `;
 
 const ModificationsBadge = styled.div`
-  background: linear-gradient(135deg, #ffb74d 0%, #ff9800 100%);
-  color: white;
-  padding: 0.35rem 0.75rem;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  padding: 0.3rem 0.65rem;
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 0.1rem;
+  margin-left: auto;
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
 
   &:hover {
-    transform: translateY(-1px);
+    background: #fde68a;
+    border-color: #fbbf24;
   }
 `;
 
@@ -287,8 +378,8 @@ const ModificationsDropdown = styled.div`
   top: calc(100% + 0.75rem);
   background: white;
   border-radius: 12px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
-  border: 1px solid rgba(102, 126, 234, 0.15);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
+  border: 1px solid #e2e8f0;
   padding: 1.1rem;
   z-index: 50;
   min-width: 320px;
@@ -296,10 +387,10 @@ const ModificationsDropdown = styled.div`
 
 const ModificationsTitle = styled.div`
   font-weight: 600;
-  color: #2c3e50;
+  color: #1e293b;
   margin-bottom: 0.75rem;
   font-size: 0.95rem;
-  border-bottom: 1px solid rgba(102, 126, 234, 0.15);
+  border-bottom: 1px solid #e2e8f0;
   padding-bottom: 0.5rem;
 `;
 
@@ -316,24 +407,23 @@ const PdfGroup = styled.div`
   padding: 0.7rem;
   background: white;
   border-radius: 10px;
-  border: 1px solid rgba(102, 126, 234, 0.18);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
-  transition: all 0.3s ease;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  transition: box-shadow 0.2s ease;
 
   &:hover {
-    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.12);
-    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
   }
 `;
 
 const PdfItem = styled.div`
-  background: #f1f4ff;
+  background: #f1f5f9;
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
   font-size: 0.78rem;
   font-weight: 600;
-  color: #2f3a72;
-  border-left: 3px solid #667eea;
+  color: #334155;
+  border-left: 3px solid #6366f1;
   display: flex;
   align-items: center;
   gap: 0.35rem;
@@ -371,18 +461,25 @@ const PdfActionButton = styled.button`
 `;
 
 const ViewButton = styled(PdfActionButton)`
-  background: #28a745;
+  background: #4f46e5;
+  color: #f8fafc;
+  border: 1px solid #4338ca;
+  box-shadow: 0 1px 4px rgba(67, 56, 202, 0.2);
 
   &:hover {
-    background: #218838;
+    background: #4338ca;
+    border-color: #3730a3;
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.28);
   }
 `;
 
 const DownloadButton = styled(PdfActionButton)`
-  background: #17a2b8;
+  background: #15803d;
+  border: 1px solid #166534;
 
   &:hover {
-    background: #138496;
+    background: #166534;
+    border-color: #14532d;
   }
 `;
 
@@ -390,24 +487,25 @@ const SubprojectsList = styled.div`
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: 1.5rem 1.75rem;
-  background: rgba(246, 247, 255, 0.75);
+  padding: 1rem 1.15rem 1.15rem;
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
 `;
 
 const SubprojectItem = styled.div`
-  background: white;
-  border-radius: 14px;
-  border: 1px solid rgba(102, 126, 234, 0.16);
-  padding: 1.2rem 1.3rem;
-  box-shadow: 0 4px 18px rgba(160, 169, 255, 0.18);
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
-  transition: all 0.3s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 
   &:hover {
-    box-shadow: 0 6px 24px rgba(160, 169, 255, 0.22);
-    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.07);
+    border-color: #cbd5e1;
   }
 `;
 
@@ -424,11 +522,12 @@ const SubprojectHeader = styled.div`
 `;
 
 const SubprojectNumber = styled.div`
-  background: rgba(102, 126, 234, 0.15);
-  color: #414ea5;
-  padding: 0.35rem 0.75rem;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  padding: 0.3rem 0.65rem;
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
   min-width: 70px;
   text-align: center;
@@ -436,8 +535,8 @@ const SubprojectNumber = styled.div`
 
 const SubprojectTitle = styled.h4`
   margin: 0;
-  color: #27306f;
-  font-size: 1.05rem;
+  color: #1e293b;
+  font-size: 1rem;
   font-weight: 600;
   flex: 1;
   display: flex;
@@ -446,32 +545,38 @@ const SubprojectTitle = styled.h4`
 `;
 
 const EditSubprojectButton = styled.button`
-  background: rgba(102, 126, 234, 0.15);
-  color: #667eea;
-  border: 1px solid rgba(102, 126, 234, 0.3);
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
   padding: 0.25rem 0.5rem;
-  border-radius: 6px;
+  border-radius: 7px;
   font-size: 0.7rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
 
   &:hover {
-    background: rgba(102, 126, 234, 0.25);
-    transform: translateY(-1px);
+    background: #f8fafc;
+    border-color: #94a3b8;
   }
 `;
 
 const EditSubprojectInput = styled.input`
   flex: 1;
   padding: 0.4rem 0.6rem;
-  border: 2px solid #667eea;
-  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
   font-size: 1rem;
   font-weight: 600;
-  color: #2c3e50;
+  color: #1e293b;
   background: white;
   min-width: 0;
+
+  &:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+  }
 `;
 
 
@@ -482,28 +587,29 @@ const SubprojectHeaderActions = styled.div`
 `;
 
 const LinkButton = styled.button`
-  background: #17a2b8;
-  color: white;
-  border: none;
+  background: #ffffff;
+  color: #4338ca;
+  border: 1px solid #a5b4fc;
   border-radius: 999px;
-  padding: 0.4rem 0.9rem;
-  font-size: 0.75rem;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  transition: all 0.3s ease;
+  gap: 0.35rem;
+  transition: background 0.2s ease, border-color 0.2s ease;
 
-  &:hover {
-    background: #138496;
-    transform: translateY(-1px);
+  &:hover:not(:disabled) {
+    background: #eef2ff;
+    border-color: #818cf8;
   }
 
   &:disabled {
-    background: #adb5bd;
+    background: #f1f5f9;
+    color: #94a3b8;
+    border-color: #e2e8f0;
     cursor: not-allowed;
-    transform: none;
   }
 `;
 
@@ -668,18 +774,19 @@ const PaginationContainer = styled.div`
 `;
 
 const PaginationButton = styled.button`
-  background: ${(props) => (props.active ? '#667eea' : 'white')};
-  color: ${(props) => (props.active ? 'white' : '#667eea')};
-  border: 1px solid #667eea;
+  background: ${(props) => (props.active ? '#4f46e5' : '#ffffff')};
+  color: ${(props) => (props.active ? '#f8fafc' : '#475569')};
+  border: 1px solid ${(props) => (props.active ? '#4338ca' : '#cbd5e1')};
   padding: 0.45rem 0.65rem;
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.78rem;
   font-weight: 600;
-  transition: all 0.3s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 
-  &:hover {
-    background: ${(props) => (props.active ? '#5a67d8' : '#f0f4ff')};
+  &:hover:not(:disabled) {
+    background: ${(props) => (props.active ? '#4338ca' : '#f8fafc')};
+    border-color: ${(props) => (props.active ? '#3730a3' : '#94a3b8')};
   }
 
   &:disabled {
@@ -690,7 +797,7 @@ const PaginationButton = styled.button`
 
 const PaginationInfo = styled.span`
   font-size: 0.8rem;
-  color: #6c75a7;
+  color: #64748b;
   font-weight: 500;
 `;
 
@@ -699,18 +806,21 @@ const LoadingSpinner = styled.div`
   justify-content: center;
   align-items: center;
   padding: 3rem 0;
-  color: #6c75a7;
+  color: #64748b;
   font-size: 1.05rem;
   font-weight: 500;
 `;
 
 const EmptyState = styled.div`
   text-align: center;
-  padding: 4rem 1rem;
-  color: #6c75a7;
+  padding: 2.5rem 1rem;
+  color: #64748b;
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
 `;
 
 const EmptyStateIcon = styled.div`
@@ -1621,11 +1731,11 @@ const CreditApprovalsPanel = ({
             <Title>Εγκρίσεις Διάθεσης Πίστωσης</Title>
             <HeaderActions>
               {canManageWorkflow && (
-                <HeaderButton onClick={onOpenForm}>
+                <HeaderButton type="button" $primary onClick={onOpenForm}>
                   ✏️ Επεξεργασία/Δημιουργία
                 </HeaderButton>
               )}
-              <HeaderButton onClick={onClose}>✕ Κλείσιμο</HeaderButton>
+              <HeaderButton type="button" onClick={onClose}>Κλείσιμο</HeaderButton>
             </HeaderActions>
           </PanelHeader>
 
@@ -1866,7 +1976,7 @@ const CreditApprovalsPanel = ({
                                   ))}
                                 </PdfsGrid>
                               ) : (
-                                <div style={{ fontStyle: 'italic', color: '#6c75a7', fontSize: '0.85rem' }}>
+                                <div style={{ fontStyle: 'italic', color: '#64748b', fontSize: '0.85rem' }}>
                                   Δεν υπάρχουν διαθέσιμα αρχεία PDF.
                                 </div>
                               )}
