@@ -1,6 +1,43 @@
 import React from 'react';
-import styled from 'styled-components';
+import styled, { css } from 'styled-components';
 import { PROJECT_STATUSES, getCharacterization } from '../data/formOptions';
+
+const iconProps = { width: 14, height: 14, 'aria-hidden': true };
+
+function IconCredit() {
+  return (
+    <svg {...iconProps} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 11l3 3L22 4" />
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+    </svg>
+  );
+}
+
+function IconDocument() {
+  return (
+    <svg {...iconProps} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+    </svg>
+  );
+}
+
+function IconMegaphone() {
+  return (
+    <svg {...iconProps} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 11v3a1 1 0 0 0 1 1h2l4 4V6L6 11H4a1 1 0 0 0-1 1z" />
+      <path d="M16 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" />
+    </svg>
+  );
+}
+
+function IconFolder() {
+  return (
+    <svg {...iconProps} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
 
 const Card = styled.div`
   background: rgba(255, 255, 255, 0.92);
@@ -43,11 +80,11 @@ const Card = styled.div`
 
 const ViewDetailsHint = styled.div`
   text-align: center;
-  font-size: 0.68rem;
-  color: #6366f1;
-  margin-top: 0.4rem;
-  letter-spacing: 0.4px;
-  font-weight: 600;
+  font-size: 0.65rem;
+  color: #64748b;
+  margin-top: 0.45rem;
+  letter-spacing: 0.02em;
+  font-weight: 500;
   opacity: 0;
   transition: opacity 0.3s ease;
 
@@ -267,69 +304,115 @@ const BottomButtonContainer = styled.div`
   width: 100%;
 `;
 
-const ActionButton = styled.button`
-  flex: 1;
-  min-width: 80px;
-  padding: 0.45rem 0.6rem;
-  border: none;
+const ToolbarButton = styled.button`
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.5rem 0.45rem;
   border-radius: 8px;
-  font-size: 0.68rem;
-  font-weight: 700;
+  font-size: 0.62rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
-  position: relative;
-  overflow: hidden;
+  letter-spacing: 0.04em;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+
+  svg {
+    flex-shrink: 0;
+    color: #64748b;
+  }
+
+  &:hover svg {
+    color: #334155;
+  }
 
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+    background: #f8fafc;
+    border-color: #94a3b8;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.07);
   }
 
   &:active {
-    transform: translateY(0);
+    background: #f1f5f9;
   }
-`;
 
-
-const FilesButton = styled(ActionButton)`
-  background: linear-gradient(135deg, #e0e7ff 0%, #ede9fe 100%);
-  color: #4338ca;
-  font-weight: 700;
-  border: 1px solid rgba(99, 102, 241, 0.15);
-
-  &:hover {
-    background: linear-gradient(135deg, #c7d2fe 0%, #ddd6fe 100%);
-    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.2);
-    border-color: rgba(99, 102, 241, 0.3);
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
+
+  ${(p) =>
+    p.$tone === 'success' &&
+    css`
+      background: #f0fdf4;
+      border-color: #86efac;
+      color: #14532d;
+
+      &:hover {
+        background: #dcfce7;
+        border-color: #4ade80;
+      }
+
+      svg {
+        color: #15803d;
+      }
+
+      &:hover svg {
+        color: #166534;
+      }
+    `}
 `;
 
 const MainFilesButton = styled.button`
   width: 100%;
-  padding: 0.6rem 1rem;
-  border: none;
-  border-radius: 10px;
-  font-size: 0.78rem;
-  font-weight: 700;
+  padding: 0.65rem 1rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  color: white;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
-  position: relative;
+  letter-spacing: 0.05em;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  color: #f8fafc;
+  background: #1e293b;
+  border: 1px solid #334155;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+
+  svg {
+    flex-shrink: 0;
+    color: #cbd5e1;
+  }
+
+  &:hover svg {
+    color: #f1f5f9;
+  }
 
   &:hover {
-    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.45);
-    transform: translateY(-2px);
+    background: #334155;
+    border-color: #475569;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
   }
 
   &:active {
-    transform: translateY(0);
+    background: #0f172a;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
   }
 `;
 
@@ -720,58 +803,46 @@ function ProjectCard({
       <ButtonContainer>
         <TopButtonsContainer>
           {(hasCreditApproval || hasLinkedEgkrisi) && (
-            <FilesButton 
+            <ToolbarButton
+              type="button"
+              $tone={hasLinkedEgkrisi ? 'success' : undefined}
               onClick={() => onOpenEgkriseis && onOpenEgkriseis(project.projectTitle, project.subprojectTitle)}
-              style={hasLinkedEgkrisi ? { 
-                background: 'linear-gradient(135deg, #28a745 0%, #20c997 100%)',
-                boxShadow: '0 4px 12px rgba(40, 167, 69, 0.3)'
-              } : undefined}
             >
-              ✅ ΕΓΚΡΙΣΗ ΔΙΑΘ. ΠΙΣΤΩΣΗΣ
-            </FilesButton>
+              <IconCredit />
+              ΕΓΚΡΙΣΗ ΔΙΑΘ. ΠΙΣΤΩΣΗΣ
+            </ToolbarButton>
           )}
           {linkedProsklisi && (
-            <FilesButton 
+            <ToolbarButton
+              type="button"
               onClick={() => onOpenLinkedProsklisi && onOpenLinkedProsklisi(linkedProsklisi.prosklisiId)}
-              style={{ 
-                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                boxShadow: '0 4px 12px rgba(240, 147, 251, 0.3)'
-              }}
             >
-              📢 Πρόσκληση
-            </FilesButton>
+              <IconMegaphone />
+              Πρόσκληση
+            </ToolbarButton>
           )}
           {hasEntaxi && (
-            <FilesButton 
-              onClick={() => onOpenSpecificEntaxi && onOpenSpecificEntaxi()}
-              style={{ 
-                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                boxShadow: '0 4px 12px rgba(79, 172, 254, 0.3)'
-              }}
-            >
-              📋 ΕΝΤΑΞΗ
-            </FilesButton>
+            <ToolbarButton type="button" onClick={() => onOpenSpecificEntaxi && onOpenSpecificEntaxi()}>
+              <IconDocument />
+              ΕΝΤΑΞΗ
+            </ToolbarButton>
           )}
           {hasProsklisi && (
-            <FilesButton 
-              onClick={() => onOpenSpecificProsklisi && onOpenSpecificProsklisi()}
-              style={{ 
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)'
-              }}
-            >
-              📢 ΠΡΟΣΚΛΗΣΗ
-            </FilesButton>
+            <ToolbarButton type="button" onClick={() => onOpenSpecificProsklisi && onOpenSpecificProsklisi()}>
+              <IconMegaphone />
+              ΠΡΟΣΚΛΗΣΗ
+            </ToolbarButton>
           )}
         </TopButtonsContainer>
         <BottomButtonContainer>
-          <MainFilesButton onClick={handleToggleFiles}>
-            📁 Αρχεία Υποέργου
+          <MainFilesButton type="button" onClick={handleToggleFiles}>
+            <IconFolder />
+            Αρχεία Υποέργου
           </MainFilesButton>
         </BottomButtonContainer>
       </ButtonContainer>
 
-        <ViewDetailsHint>👆 Κλικ στην κάρτα για λεπτομέρειες</ViewDetailsHint>
+        <ViewDetailsHint>Κλικ στην κάρτα για λεπτομέρειες</ViewDetailsHint>
       </Card>
     </>
   );
