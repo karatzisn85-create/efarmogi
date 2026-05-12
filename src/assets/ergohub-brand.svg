@@ -1,0 +1,24 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="256" height="256" rx="48" fill="#1a1f36"/>
+  <!-- Gear outer -->
+  <path d="M128 56 L138 68 L154 64 L158 80 L174 82 L172 98 L186 106 L178 118 L188 130 L176 138 L180 154 L164 156 L160 172 L144 168 L136 182 L128 172 L120 182 L112 168 L96 172 L92 156 L76 154 L80 138 L68 130 L78 118 L70 106 L84 98 L82 82 L98 80 L102 64 L118 68 Z" fill="none" stroke="#64748b" stroke-width="4" opacity="0.6"/>
+  <!-- Gear inner circle -->
+  <circle cx="128" cy="128" r="36" fill="none" stroke="#64748b" stroke-width="4" opacity="0.6"/>
+  <!-- Central building/document icon -->
+  <rect x="104" y="100" width="48" height="56" rx="4" fill="#e2e8f0"/>
+  <!-- Lines in document -->
+  <rect x="112" y="112" width="32" height="3" rx="1.5" fill="#475569"/>
+  <rect x="112" y="120" width="28" height="3" rx="1.5" fill="#475569"/>
+  <rect x="112" y="128" width="32" height="3" rx="1.5" fill="#475569"/>
+  <rect x="112" y="136" width="24" height="3" rx="1.5" fill="#475569"/>
+  <rect x="112" y="144" width="30" height="3" rx="1.5" fill="#475569"/>
+  <!-- Chart bars at bottom -->
+  <rect x="108" y="186" width="8" height="20" rx="2" fill="#10b981"/>
+  <rect x="120" y="180" width="8" height="26" rx="2" fill="#6366f1"/>
+  <rect x="132" y="174" width="8" height="32" rx="2" fill="#f59e0b"/>
+  <rect x="144" y="182" width="8" height="24" rx="2" fill="#8b5cf6"/>
+  <!-- Accent dots -->
+  <circle cx="148" cy="108" r="4" fill="#10b981"/>
+  <circle cx="148" cy="120" r="4" fill="#f59e0b"/>
+  <circle cx="148" cy="132" r="4" fill="#ef4444"/>
+</svg>

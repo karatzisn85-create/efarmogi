@@ -850,6 +850,8 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
 
   // Realtime lock monitoring για proskliseis - αθόρυβο με βελτιστοποίηση
   useEffect(() => {
+    if (!isOpen) return;
+
     let isActive = true;
     
     const checkLocks = async () => {
@@ -858,7 +860,6 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
       setProskliseis(currentProskliseis => {
         if (!currentProskliseis || currentProskliseis.length === 0) return currentProskliseis;
         
-        // Batch processing για καλύτερη απόδοση
         const BATCH_SIZE = 10;
         const batches = [];
         for (let i = 0; i < currentProskliseis.length; i += BATCH_SIZE) {
@@ -910,7 +911,6 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
       });
     };
     
-    // Αρχικό delay και μετά periodic check
     let intervalId = null;
     const timeoutId = setTimeout(() => {
       checkLocks();
@@ -919,7 +919,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
         if (isActive) {
           checkLocks();
         }
-      }, 8000); // Κάθε 8 δευτερόλεπτα (από 3) για μείωση φορτίου
+      }, 8000);
     }, 2000);
     
     return () => {
@@ -927,7 +927,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
       if (timeoutId) clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
     };
-  }, []); // Empty deps - uses functional updates
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadProskliseis = async () => {
     setLoading(true);
@@ -1105,32 +1105,32 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
     try {
       await ipcRenderer.invoke('save-prosklisi', prosklisiData);
       
-      // Ξεκλείδωμα της πρόσκλησης μετά την αποθήκευση
-      if (editingProsklisi && editingProsklisi.prosklisiId) {
-        await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
-        // Άμεση ενημέρωση του UI
-        setProsklisiLocks(prev => ({
-          ...prev,
-          [editingProsklisi.prosklisiId]: false
-        }));
-      }
-      
       await loadProskliseis();
       setIsFormOpen(false);
       setEditingProsklisi(null);
     } catch (error) {
       console.error('Error saving prosklisi:', error);
+      alert('Σφάλμα αποθήκευσης πρόσκλησης: ' + error.message);
+    } finally {
+      if (editingProsklisi && editingProsklisi.prosklisiId) {
+        try {
+          await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
+          setProsklisiLocks(prev => ({
+            ...prev,
+            [editingProsklisi.prosklisiId]: false
+          }));
+        } catch (lockErr) {
+          console.error('Error removing lock:', lockErr);
+        }
+      }
     }
   };
 
   const handleSaveModification = async (modificationData) => {
     try {
-      // Αποθήκευση τροποποίησης
       await ipcRenderer.invoke('save-prosklisi-modification', modificationData);
       
-      // Ενημέρωση της αρχικής πρόσκλησης με τα νέα δεδομένα
       if (modificationData.changes && Object.keys(modificationData.changes).length > 0) {
-        // Δημιουργία καθαρού object μόνο με τα πεδία της πρόσκλησης
         const updatedProsklisiData = {
           prosklisiId: modificationData.originalProsklisiId,
           title: modificationData.modifiedData.title,
@@ -1146,20 +1146,22 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
         await ipcRenderer.invoke('save-prosklisi', updatedProsklisiData);
       }
       
-      // Ξεκλείδωμα της πρόσκλησης μετά την αποθήκευση τροποποίησης  
-      if (modificationData.originalProsklisiId) {
-        await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', modificationData.originalProsklisiId);
-        // Άμεση ενημέρωση του UI
-        setProsklisiLocks(prev => ({
-          ...prev,
-          [modificationData.originalProsklisiId]: false
-        }));
-      }
-      
-      await loadProskliseis(); // Reload to get updated data and modifications
+      await loadProskliseis();
     } catch (error) {
       console.error('Error saving modification:', error);
       alert('Σφάλμα αποθήκευσης τροποποίησης: ' + error.message);
+    } finally {
+      if (modificationData.originalProsklisiId) {
+        try {
+          await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', modificationData.originalProsklisiId);
+          setProsklisiLocks(prev => ({
+            ...prev,
+            [modificationData.originalProsklisiId]: false
+          }));
+        } catch (lockErr) {
+          console.error('Error removing lock:', lockErr);
+        }
+      }
     }
   };
 

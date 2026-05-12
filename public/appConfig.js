@@ -12,8 +12,8 @@ function initConfigPath(appInstance) {
   configPath = path.join(workspaceRoot, 'app-config.json');
 }
 
-function loadConfig() {
-  if (cachedConfig) return cachedConfig;
+function loadConfig(forceReload = false) {
+  if (cachedConfig && !forceReload) return cachedConfig;
   try {
     if (fs.existsSync(configPath)) {
       cachedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -26,7 +26,7 @@ function loadConfig() {
 }
 
 function saveConfig(newFields) {
-  const existing = loadConfig();
+  const existing = loadConfig(true);
   cachedConfig = { ...existing, ...newFields };
   safeWriteJSON(configPath, cachedConfig);
 }

@@ -328,6 +328,8 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
 
   // Realtime lock monitoring για egkriseis - αθόρυβο με βελτιστοποίηση
   useEffect(() => {
+    if (!isOpen) return;
+
     let isActive = true;
     
     const checkLocks = async () => {
@@ -419,7 +421,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
       if (timeoutId) clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
     };
-  }, []); // Empty deps - uses functional updates
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadEgkrisiLinks = async () => {
     try {

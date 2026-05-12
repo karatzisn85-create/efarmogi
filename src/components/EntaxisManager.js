@@ -661,6 +661,8 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
 
   // Realtime lock monitoring για entaxeis - αθόρυβο με βελτιστοποίηση
   useEffect(() => {
+    if (!isOpen) return;
+
     let isActive = true;
     
     const checkLocks = async () => {
@@ -669,7 +671,6 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
       setEntaxeis(currentEntaxeis => {
         if (!currentEntaxeis || currentEntaxeis.length === 0) return currentEntaxeis;
         
-        // Batch processing για καλύτερη απόδοση
         const BATCH_SIZE = 10;
         const batches = [];
         for (let i = 0; i < currentEntaxeis.length; i += BATCH_SIZE) {
@@ -721,7 +722,6 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
       });
     };
     
-    // Αρχικό delay και μετά periodic check
     let intervalId = null;
     const timeoutId = setTimeout(() => {
       checkLocks();
@@ -730,7 +730,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
         if (isActive) {
           checkLocks();
         }
-      }, 8000); // Κάθε 8 δευτερόλεπτα (από 3) για μείωση φορτίου
+      }, 8000);
     }, 2000);
     
     return () => {
@@ -738,7 +738,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
       if (timeoutId) clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
     };
-  }, []); // Empty deps - uses functional updates
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadEntaxeis = async () => {
     try {
@@ -881,25 +881,27 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
     try {
       await ipcRenderer.invoke('save-entaxi', entaxiData);
       
-      // Ξεκλείδωμα της ένταξης μετά την αποθήκευση
-      if (editingEntaxi && editingEntaxi.entaxiId) {
-        await ipcRenderer.invoke('remove-entity-lock', 'entaxeis', editingEntaxi.entaxiId);
-        // Άμεση ενημέρωση του UI
-        setEntaxisLocks(prev => ({
-          ...prev,
-          [editingEntaxi.entaxiId]: false
-        }));
-      }
-      
       await loadEntaxeis();
       setIsFormOpen(false);
       setEditingEntaxi(null);
-      // Ανανέωση των κυρίως έργων στο Dashboard
       if (onDataChange) {
         onDataChange();
       }
     } catch (error) {
       console.error('Error saving entaxi:', error);
+      alert('Σφάλμα αποθήκευσης ένταξης: ' + error.message);
+    } finally {
+      if (editingEntaxi && editingEntaxi.entaxiId) {
+        try {
+          await ipcRenderer.invoke('remove-entity-lock', 'entaxeis', editingEntaxi.entaxiId);
+          setEntaxisLocks(prev => ({
+            ...prev,
+            [editingEntaxi.entaxiId]: false
+          }));
+        } catch (lockErr) {
+          console.error('Error removing lock:', lockErr);
+        }
+      }
     }
   };
 

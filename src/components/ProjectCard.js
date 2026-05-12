@@ -433,6 +433,7 @@ function ProjectCard({
   const formatDate = (dateString) => {
     if (!dateString) return '-';
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '-';
     const day = date.getDate().toString().padStart(2, '0');
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const year = date.getFullYear();
@@ -441,37 +442,26 @@ function ProjectCard({
 
   const hasContractInfo = project.contractDate || project.contractAmount || (project.contracts && project.contracts.length > 0);
 
-  // Calculate total contract amounts
+  const safeParseAmount = (val) => {
+    if (!val) return 0;
+    const str = typeof val === 'number' ? String(val) : val;
+    const cleaned = str.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
+    const amount = parseFloat(cleaned);
+    return isNaN(amount) ? 0 : amount;
+  };
+
   const calculateTotalContractAmount = () => {
-    let total = 0;
+    let total = safeParseAmount(project.contractAmount);
     
-    // Add main contract amount
-    if (project.contractAmount) {
-      // Remove all non-digit characters except comma and dot, then remove dots (thousands separators), then replace comma with dot
-      const cleaned = project.contractAmount.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
-      const amount = parseFloat(cleaned);
-      if (!isNaN(amount)) total += amount;
-    }
-    
-    // Add multiple contracts amounts
     if (project.contracts && project.contracts.length > 0) {
-      project.contracts.forEach((contract, index) => {
-        if (contract.amount) {
-          const cleaned = contract.amount.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
-          const amount = parseFloat(cleaned);
-          if (!isNaN(amount)) total += amount;
-        }
+      project.contracts.forEach((contract) => {
+        total += safeParseAmount(contract.amount);
       });
     }
     
-    // Add supplementary contracts amounts
     if (project.supplementaryContracts && project.supplementaryContracts.length > 0) {
-      project.supplementaryContracts.forEach((contract, index) => {
-        if (contract.amount) {
-          const cleaned = contract.amount.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
-          const amount = parseFloat(cleaned);
-          if (!isNaN(amount)) total += amount;
-        }
+      project.supplementaryContracts.forEach((contract) => {
+        total += safeParseAmount(contract.amount);
       });
     }
     

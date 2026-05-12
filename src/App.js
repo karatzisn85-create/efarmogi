@@ -28,6 +28,7 @@ function App() {
   const [loadingStatus, setLoadingStatus] = useState("Εκκίνηση εφαρμογής...");
   const [appVersion, setAppVersion] = useState('');
   const [appConfig, setAppConfig] = useState({});
+  const [initError, setInitError] = useState(null);
 
   const loadAppData = async (cancelled = { value: false }) => {
     const config = await ipcRenderer.invoke('get-app-config');
@@ -62,7 +63,10 @@ function App() {
         setIsAppLoading(false);
       } catch (err) {
         console.error('Init error:', err);
-        if (!cancelled.value) setIsAppLoading(false);
+        if (!cancelled.value) {
+          setInitError('Η εφαρμογή δεν μπόρεσε να φορτώσει. Ελέγξτε ότι ο φάκελος δεδομένων είναι προσβάσιμος.');
+          setIsAppLoading(false);
+        }
       }
     }
 
@@ -71,15 +75,39 @@ function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSetupComplete = async () => {
-    setNeedsSetup(false);
-    setIsAppLoading(true);
-    setLoadingProgress(50);
-    setLoadingStatus("Φόρτωση ρυθμίσεων...");
-    await loadAppData();
-    setLoadingProgress(100);
-    setLoadingStatus("Εφαρμογή έτοιμη!");
-    setIsAppLoading(false);
+    try {
+      setNeedsSetup(false);
+      setIsAppLoading(true);
+      setLoadingProgress(50);
+      setLoadingStatus("Φόρτωση ρυθμίσεων...");
+      await loadAppData();
+      setLoadingProgress(100);
+      setLoadingStatus("Εφαρμογή έτοιμη!");
+      setIsAppLoading(false);
+    } catch (err) {
+      console.error('Setup complete error:', err);
+      setInitError('Η εφαρμογή δεν μπόρεσε να φορτώσει μετά τη ρύθμιση. Δοκιμάστε ξανά.');
+      setIsAppLoading(false);
+    }
   };
+
+  if (initError) {
+    return (
+      <AppContainer style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', maxWidth: '500px', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⚠️</div>
+          <h2 style={{ color: '#dc3545', marginBottom: '1rem' }}>Σφάλμα Εκκίνησης</h2>
+          <p style={{ color: '#555', marginBottom: '1.5rem', lineHeight: '1.6' }}>{initError}</p>
+          <button
+            onClick={() => { setInitError(null); setIsAppLoading(true); setNeedsSetup(false); window.location.reload(); }}
+            style={{ background: '#667eea', color: 'white', border: 'none', padding: '0.75rem 2rem', borderRadius: '8px', fontSize: '1rem', cursor: 'pointer' }}
+          >
+            Δοκιμάστε Ξανά
+          </button>
+        </div>
+      </AppContainer>
+    );
+  }
 
   if (needsSetup) {
     return (

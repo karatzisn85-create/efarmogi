@@ -664,17 +664,13 @@ const SidebarBrand = styled.div`
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 `;
 
-const SidebarBrandLogo = styled.div`
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.2rem;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+const SidebarBrandLogo = styled.img`
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.5);
   flex-shrink: 0;
+  object-fit: cover;
 `;
 
 const SidebarBrandText = styled.div`
@@ -1727,24 +1723,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   const [pdfViewer, setPdfViewer] = useState({ isOpen: false, filePath: '', fileName: '' });
     const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   // Sidebar accordion state - ποιες κατηγορίες είναι ανοιχτές
-  const [expandedCategories, setExpandedCategories] = useState(() => {
-    try {
-      const saved = localStorage.getItem('sidebarExpandedCategories');
-      if (saved) return JSON.parse(saved);
-    } catch (_) { /* ignore */ }
-    return {
-      projects: true,
-      management: true,
-      exports: false,
-      tools: false,
-      system: false
-    };
+  // Ξεκινά πάντα "κλειστό" σε κάθε άνοιγμα της εφαρμογής (χωρίς απομνημόνευση)
+  const [expandedCategories, setExpandedCategories] = useState({
+    projects: false,
+    management: false,
+    exports: false,
+    tools: false,
+    system: false
   });
   const toggleCategory = useCallback((key) => {
     setExpandedCategories(prev => {
-      const next = { ...prev, [key]: !prev[key] };
-      try { localStorage.setItem('sidebarExpandedCategories', JSON.stringify(next)); } catch (_) { /* ignore */ }
-      return next;
+      return { ...prev, [key]: !prev[key] };
     });
   }, []);
   const [advancedFilters, setAdvancedFilters] = useState({
@@ -1946,6 +1935,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   }, []); // Load only once on mount to avoid unnecessary re-renders
 
   // Load notes and groups from file on mount
+  const notesLoadedRef = useRef(false);
   useEffect(() => {
     const loadNotes = async () => {
       try {
@@ -1958,6 +1948,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
         }
       } catch (error) {
         console.error('Error loading notes from file:', error);
+      } finally {
+        notesLoadedRef.current = true;
       }
     };
     loadNotes();
@@ -1966,6 +1958,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   // Save notes to file whenever they change (with debounce)
   const saveNotesTimeoutRef = useRef(null);
   useEffect(() => {
+    if (!notesLoadedRef.current) return;
+
     if (saveNotesTimeoutRef.current) {
       clearTimeout(saveNotesTimeoutRef.current);
     }
@@ -1979,7 +1973,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
       } catch (error) {
         console.error('Error saving notes to file:', error);
       }
-    }, 500); // Debounce 500ms
+    }, 500);
     
     return () => {
       if (saveNotesTimeoutRef.current) {
@@ -2205,6 +2199,25 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
         filtered = filtered.filter(p => p.eisigitikiEkthesi && p.eisigitikiEkthesi.trim().length > 0);
       } else if (filters.hasEisigitikiEkthesi === 'no') {
         filtered = filtered.filter(p => !p.eisigitikiEkthesi || p.eisigitikiEkthesi.trim().length === 0);
+      }
+
+      // Comments filters
+      if (filters.hasComments === 'yes') {
+        filtered = filtered.filter(p => p.comments && p.comments.trim().length > 0);
+      } else if (filters.hasComments === 'no') {
+        filtered = filtered.filter(p => !p.comments || p.comments.trim().length === 0);
+      }
+
+      if (filters.hasApeComments === 'yes') {
+        filtered = filtered.filter(p => p.apeComments && p.apeComments.trim().length > 0);
+      } else if (filters.hasApeComments === 'no') {
+        filtered = filtered.filter(p => !p.apeComments || p.apeComments.trim().length === 0);
+      }
+
+      if (filters.hasRemainingComments === 'yes') {
+        filtered = filtered.filter(p => p.remainingComments && p.remainingComments.trim().length > 0);
+      } else if (filters.hasRemainingComments === 'no') {
+        filtered = filtered.filter(p => !p.remainingComments || p.remainingComments.trim().length === 0);
       }
 
       // Remaining amounts filter
@@ -4083,9 +4096,17 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   // εκτός αν ο χρήστης τα έχει επιλέξει ρητά
   const statisticsProjects = useMemo(() => {
     const ARCHIVED_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
-    if (showArchivedProjects) return filteredProjects;
+    const userExplicitlyFilteredByArchived =
+      (Array.isArray(advancedFilters?.projectStatus) && advancedFilters.projectStatus.includes(ARCHIVED_STATUS)) ||
+      quickSearchStatus === ARCHIVED_STATUS;
+
+    // Αν ο χρήστης βλέπει "Αρχείο" ή έχει φιλτράρει ρητά την κατάσταση,
+    // τότε τα στατιστικά πρέπει να ακολουθούν τη λίστα (δηλ. να περιλάβουν τα αρχειοθετημένα).
+    if (showArchivedProjects || userExplicitlyFilteredByArchived) return filteredProjects;
+
+    // Αλλιώς, στην κανονική προβολή, εξαιρούμε τα αρχειοθετημένα από τα στατιστικά.
     return filteredProjects.filter(p => p.projectStatus !== ARCHIVED_STATUS);
-  }, [filteredProjects, showArchivedProjects]);
+  }, [filteredProjects, showArchivedProjects, advancedFilters?.projectStatus, quickSearchStatus]);
 
   // Group projects as array of arrays for EgkriseisManager
   const projectsAsArrayOfArrays = useMemo(() => {
@@ -4306,7 +4327,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       <AdminSidebar>
         {/* Brand */}
         <SidebarBrand>
-          <SidebarBrandLogo>🏗️</SidebarBrandLogo>
+          <SidebarBrandLogo src={require('../assets/ergohub-logo.svg').default || require('../assets/ergohub-logo.svg')} alt="ERGOHUB" />
           <SidebarBrandText>
             <SidebarBrandTitle>ERGOHUB</SidebarBrandTitle>
             <SidebarBrandSubtitle>Διαχείριση Έργων</SidebarBrandSubtitle>

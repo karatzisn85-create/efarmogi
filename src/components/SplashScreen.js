@@ -1,5 +1,6 @@
 import React from 'react';
 import styled, { keyframes } from 'styled-components';
+import ergohubLogo from '../assets/ergohub-logo.svg';
 
 // Animation για το spinner
 const spin = keyframes`
@@ -40,24 +41,14 @@ const LogoContainer = styled.div`
   margin-bottom: 40px;
 `;
 
-const AppIcon = styled.div`
+const AppIcon = styled.img`
   width: 120px;
   height: 120px;
-  background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
   border-radius: 25px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
   margin-bottom: 20px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
   animation: ${pulse} 2s ease-in-out infinite;
-`;
-
-const AppIconText = styled.span`
-  color: white;
-  font-size: 48px;
-  font-weight: bold;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  object-fit: cover;
 `;
 
 const AppTitle = styled.h1`
@@ -139,9 +130,7 @@ const SplashScreen = ({
   return (
     <SplashContainer>
       <LogoContainer>
-        <AppIcon>
-          <AppIconText>📊</AppIconText>
-        </AppIcon>
+        <AppIcon src={ergohubLogo} alt="ERGOHUB" />
         <AppTitle>ERGOHUB</AppTitle>
         <AppSubtitle>Πληροφοριακό Σύστημα Διαχείρισης Έργων & Προμηθειών</AppSubtitle>
       </LogoContainer>

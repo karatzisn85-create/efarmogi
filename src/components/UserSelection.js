@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import ergohubLogo from '../assets/ergohub-logo.png';
+import ergohubLogo from '../assets/ergohub-logo.svg';
 
 const ipcRenderer = window.electronAPI;
 

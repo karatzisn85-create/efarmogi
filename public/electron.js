@@ -2205,10 +2205,9 @@ ipcMain.handle('add-files-to-group', async (event, projectId, subprojectId, grou
 // ENTAXIS (ΕΝΤΆΞΕΙΣ) IPC HANDLERS
 // ============================================================
 
-const entaxisDir = path.join(dataDir, 'entaxeis');
+const entaxisDir = dataDir ? path.join(dataDir, 'entaxeis') : null;
 
-// Δημιουργία φακέλου εντάξεων αν δεν υπάρχει
-if (!fs.existsSync(entaxisDir)) {
+if (entaxisDir && !fs.existsSync(entaxisDir)) {
   fs.mkdirSync(entaxisDir, { recursive: true });
 }
 
@@ -3761,7 +3760,7 @@ ipcMain.handle('fix-entaxi-file-objects', async (event, entaxiId) => {
 });
 
 // Proskliseis IPC Handlers
-const proskliseisDir = path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ');
+const proskliseisDir = dataDir ? path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ') : null;
 
 // Load all proskliseis
 ipcMain.handle('load-all-proskliseis', async () => {
@@ -7742,12 +7741,11 @@ ipcMain.handle('open-egkrisi-v2-pdf', async (event, egkrisiId, projectId, subpro
 // ΣΗΜΕΙΩΣΕΙΣ (NOTES)
 // ========================
 
-const notesDir = path.join(dataDir, 'ΣΗΜΕΙΩΣΕΙΣ');
-const notesDataPath = path.join(notesDir, 'notes_data.json');
+const notesDir = dataDir ? path.join(dataDir, 'ΣΗΜΕΙΩΣΕΙΣ') : null;
+const notesDataPath = notesDir ? path.join(notesDir, 'notes_data.json') : null;
 const DEFAULT_NOTE_GROUP_ID = 'general-notes';
 
-// Ensure notes directory exists
-if (!fs.existsSync(notesDir)) {
+if (notesDir && !fs.existsSync(notesDir)) {
   fs.mkdirSync(notesDir, { recursive: true });
 }
 
@@ -7887,13 +7885,12 @@ ipcMain.handle('save-note-groups', async (event, groupsData) => {
 // ΥΠΟΔΕΙΓΜΑΤΑ ΕΓΓΡΑΦΩΝ
 // ========================
 
-const templatesDir = path.join(dataDir, 'DOCUMENT_TEMPLATES');
-const templatesDataPath = path.join(templatesDir, 'templates_data.json');
+const templatesDir = dataDir ? path.join(dataDir, 'DOCUMENT_TEMPLATES') : null;
+const templatesDataPath = templatesDir ? path.join(templatesDir, 'templates_data.json') : null;
 const defaultCategoryPalette = ['#5a6fd8', '#41b3a3', '#f57f17', '#c06c84', '#3f51b5', '#009688', '#ef5350', '#8e24aa'];
 const fallbackCategoryColor = '#5a6fd8';
 
-// Ensure templates directory exists
-if (!fs.existsSync(templatesDir)) {
+if (templatesDir && !fs.existsSync(templatesDir)) {
   fs.mkdirSync(templatesDir, { recursive: true });
 }
 
@@ -8352,13 +8349,12 @@ ipcMain.handle('open-document-template', async (event, docId, forEditing = false
 // ============================================================
 
 // Backup directory and settings
-const backupDir = path.join(dataDir, 'backups');
-const backupSettingsPath = path.join(dataDir, 'backup_settings.json');
-const backupMetadataPath = path.join(backupDir, 'metadata.json');
-const auditLogPath = path.join(dataDir, 'audit_log.json');
+const backupDir = dataDir ? path.join(dataDir, 'backups') : null;
+const backupSettingsPath = dataDir ? path.join(dataDir, 'backup_settings.json') : null;
+const backupMetadataPath = backupDir ? path.join(backupDir, 'metadata.json') : null;
+const auditLogPath = dataDir ? path.join(dataDir, 'audit_log.json') : null;
 
-// Ensure backup directory exists
-if (!fs.existsSync(backupDir)) {
+if (backupDir && !fs.existsSync(backupDir)) {
   fs.mkdirSync(backupDir, { recursive: true });
 }
 

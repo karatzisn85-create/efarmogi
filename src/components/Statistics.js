@@ -233,7 +233,9 @@ function Statistics({ projects }) {
 
     // Calculate total funding for all passed projects
     const totalFunding = projects.reduce((sum, project) => {
-      const amount = parseFloat(project.approvedAmount?.replace(/\./g, '').replace(',', '.')) || 0;
+      const raw = project.approvedAmount;
+      const str = typeof raw === 'number' ? String(raw) : (raw || '');
+      const amount = parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
       return sum + amount;
     }, 0);
 
@@ -247,7 +249,9 @@ function Statistics({ projects }) {
     // Count funding sources with funding amounts
     const fundingSources = projects.reduce((acc, project) => {
       const source = project.fundingSource || 'Άγνωστο';
-      const amount = parseFloat(project.approvedAmount?.replace(/\./g, '').replace(',', '.')) || 0;
+      const rawAmt = project.approvedAmount;
+      const strAmt = typeof rawAmt === 'number' ? String(rawAmt) : (rawAmt || '');
+      const amount = parseFloat(strAmt.replace(/\./g, '').replace(',', '.')) || 0;
       
       if (!acc[source]) {
         acc[source] = { count: 0, amount: 0 };

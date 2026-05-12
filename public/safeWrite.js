@@ -20,21 +20,33 @@ function rotateBackups(filePath) {
 }
 
 function safeWriteJSON(filePath, data) {
-  const tmpPath = filePath + '.tmp';
+  const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const tmpPath = `${filePath}.tmp-${uniqueSuffix}`;
   const content = JSON.stringify(data, null, 2);
 
-  fs.writeFileSync(tmpPath, content, 'utf8');
-  rotateBackups(filePath);
-  fs.renameSync(tmpPath, filePath);
+  try {
+    fs.writeFileSync(tmpPath, content, 'utf8');
+    rotateBackups(filePath);
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) {}
+    throw err;
+  }
 }
 
 async function safeWriteJSONAsync(filePath, data) {
-  const tmpPath = filePath + '.tmp';
+  const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const tmpPath = `${filePath}.tmp-${uniqueSuffix}`;
   const content = JSON.stringify(data, null, 2);
 
-  await fs.promises.writeFile(tmpPath, content, 'utf8');
-  rotateBackups(filePath);
-  await fs.promises.rename(tmpPath, filePath);
+  try {
+    await fs.promises.writeFile(tmpPath, content, 'utf8');
+    rotateBackups(filePath);
+    await fs.promises.rename(tmpPath, filePath);
+  } catch (err) {
+    try { await fs.promises.unlink(tmpPath); } catch (_) {}
+    throw err;
+  }
 }
 
 module.exports = { safeWriteJSON, safeWriteJSONAsync };

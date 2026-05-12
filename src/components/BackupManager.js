@@ -662,11 +662,13 @@ function BackupManager({ isOpen, onClose }) {
   if (!isOpen) return null;
   
   return (
-    <ModalOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <ModalOverlay onClick={(e) => e.target === e.currentTarget && !isBackupInProgress && !restoreInProgress && onClose()}>
       <ModalContainer>
         <ModalHeader>
           <ModalTitle>💾 Διαχείριση Backups</ModalTitle>
-          <CloseButton onClick={onClose}>✕ Κλείσιμο</CloseButton>
+          <CloseButton onClick={onClose} disabled={isBackupInProgress || restoreInProgress}>
+            {isBackupInProgress || restoreInProgress ? '⏳ Εκτελείται...' : '✕ Κλείσιμο'}
+          </CloseButton>
         </ModalHeader>
         
         <ModalContent>
