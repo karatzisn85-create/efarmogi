@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
 const path = require('path');
 const { safeWriteJSON, safeWriteJSONAsync } = require('./safeWrite');
 const { initConfigPath, loadConfig, saveConfig, resolveDataDir } = require('./appConfig');
@@ -13,6 +13,11 @@ const yauzl = require('yauzl');
 const { DropboxUpdater } = require('./dropbox-updater');
 const { UPDATE_CONFIG } = require('./update-config');
 const { logger } = require('./logger');
+const {
+  createTaskAssignmentService,
+  normalizeTaskAssignment,
+  sanitizeTaskAssignmentForClient
+} = require('./taskAssignmentService');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -24,6 +29,14 @@ const getTempDir = () => {
     return path.join(__dirname, 'temp_uploads');
   }
 };
+
+/** Αφαίρεση παλιού πεδίου «Επιβλέπων Μηχανικός» (αντικαταστάθηκε από σύστημα χρέωσης). */
+function stripLegacySupervisorField(obj) {
+  if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, 'supervisor')) {
+    delete obj.supervisor;
+  }
+  return obj;
+}
 
 // Utility function για καθαρισμό temp files
 const cleanupTempFiles = async (entaxiFiles = [], approvalFiles = []) => {
@@ -313,6 +326,38 @@ function saveUsers(users) {
   safeWriteJSON(getUsersPath(), users);
 }
 
+function findUserByUsername(username) {
+  const users = loadUsers();
+  const u = String(username || '').trim();
+  if (!u) return null;
+  return users.find((x) => x.username.toLowerCase() === u.toLowerCase()) || null;
+}
+
+function isSuperAdminUser(username) {
+  const u = findUserByUsername(username);
+  return !!(u && u.role === 'SUPERADMIN');
+}
+
+let taskAssignmentService = null;
+
+function getTaskAssignmentService() {
+  if (!taskAssignmentService && dataDir) {
+    taskAssignmentService = createTaskAssignmentService({
+      dataDir,
+      loadUsers,
+      getTempDir,
+      onNotifyMainWindow: (payload) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('task-notification', payload);
+        }
+        /* Οι ειδοποιήσεις εμφανίζονται in-app (toast)· όχι διπλό OS popup. */
+      }
+    });
+    taskAssignmentService.ensureTaskStorage();
+  }
+  return taskAssignmentService;
+}
+
 ipcMain.handle('authenticate', async (_event, { username, password }) => {
   const users = loadUsers();
   const hashed = hashPassword(password);
@@ -325,7 +370,8 @@ ipcMain.handle('authenticate', async (_event, { username, password }) => {
       username: user.username,
       role: user.role,
       fullName: user.fullName,
-      assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : []
+      assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : [],
+      taskAssignment: sanitizeTaskAssignmentForClient(user.taskAssignment)
     }
   };
 });
@@ -361,11 +407,12 @@ ipcMain.handle('get-users', async () => {
     active: u.active !== false,
     approved: u.approved !== false,
     createdAt: u.createdAt,
-    assignedSupervisors: Array.isArray(u.assignedSupervisors) ? u.assignedSupervisors : []
+    assignedSupervisors: Array.isArray(u.assignedSupervisors) ? u.assignedSupervisors : [],
+    taskAssignment: sanitizeTaskAssignmentForClient(u.taskAssignment)
   }));
 });
 
-ipcMain.handle('create-user', async (_event, { username, password, role, fullName, assignedSupervisors = [] }) => {
+ipcMain.handle('create-user', async (_event, { username, password, role, fullName, assignedSupervisors = [], taskAssignment, actingUsername }) => {
   const users = loadUsers();
   if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
     return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
@@ -376,6 +423,14 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     ? [...new Set(assignedSupervisors.map(s => String(s || '').trim()).filter(Boolean))]
     : [];
 
+  let taskAssignmentNorm = normalizeTaskAssignment({ canAssign: false, assignableScope: 'none', assignableUsernames: [] });
+  if (taskAssignment !== undefined) {
+    if (!isSuperAdminUser(actingUsername)) {
+      return { success: false, error: 'Μόνο ο superadmin μπορεί να ορίσει δικαιώματα ανάθεσης' };
+    }
+    taskAssignmentNorm = normalizeTaskAssignment(taskAssignment);
+  }
+
   users.push({
     username: username.trim(),
     passwordHash: hashPassword(password),
@@ -383,13 +438,14 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     fullName: fullName || username,
     active: true,
     assignedSupervisors: role === 'ENGINEER' ? normalizedSupervisors : [],
+    taskAssignment: taskAssignmentNorm,
     createdAt: new Date().toISOString()
   });
   saveUsers(users);
   return { success: true };
 });
 
-ipcMain.handle('update-user', async (_event, { username, updates }) => {
+ipcMain.handle('update-user', async (_event, { username, updates, actingUsername }) => {
   const users = loadUsers();
   const idx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
   if (idx === -1) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
@@ -407,6 +463,12 @@ ipcMain.handle('update-user', async (_event, { username, updates }) => {
   }
   if (updates.role !== undefined && updates.role !== 'ENGINEER') {
     users[idx].assignedSupervisors = [];
+  }
+  if (updates.taskAssignment !== undefined) {
+    if (!isSuperAdminUser(actingUsername)) {
+      return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα ανάθεσης' };
+    }
+    users[idx].taskAssignment = normalizeTaskAssignment(updates.taskAssignment);
   }
 
   saveUsers(users);
@@ -525,7 +587,14 @@ ipcMain.handle('download-update', async (_event, downloadUrl) => {
 
 ipcMain.handle('install-update', async () => {
   if (!updater) throw new Error('Updater not initialized');
-  return await updater.installUpdate();
+  const wasDashboardSession = dashboardSessionActive;
+  dashboardSessionActive = false;
+  try {
+    return await updater.installUpdate();
+  } catch (err) {
+    dashboardSessionActive = wasDashboardSession;
+    throw err;
+  }
 });
 
 ipcMain.handle('get-update-state', () => {
@@ -537,6 +606,7 @@ app.whenReady().then(() => {
   logger.init(path.join(app.getPath('userData'), 'logs'));
   logger.info('App', `ERGOHUB v${app.getVersion()} starting`);
   createWindow();
+  initTaskAssignmentScheduler();
   if (app.isPackaged) {
     console.log('[Update] Production mode - auto-update enabled');
     initAutoUpdate();
@@ -617,7 +687,8 @@ const requiredSubDirs = [
   'egkriseis_links',
   'subproject_links',
   'backups',
-  'ektelestea_erga'
+  'ektelestea_erga',
+  'ANATHESEIS_ERGASION'
 ];
 
 function ensureSubDirs() {
@@ -636,6 +707,21 @@ function ensureSubDirs() {
 }
 
 ensureSubDirs();
+
+/** Παλιό αρχείο χειροκίνητου καταλόγου μηχανικών — το χαρακτηριστικό καταργήθηκε· διαγράφεται αν υπάρχει ακόμα. */
+function removeLegacyRegisteredEngineersFile() {
+  if (!dataDir) return;
+  const fp = path.join(dataDir, 'registered-engineers.json');
+  try {
+    if (fs.existsSync(fp)) {
+      fs.unlinkSync(fp);
+      console.log('[cleanup] Removed legacy registered-engineers.json');
+    }
+  } catch (e) {
+    console.warn('[cleanup] Could not remove registered-engineers.json:', e.message);
+  }
+}
+removeLegacyRegisteredEngineersFile();
 
 
 const locksDir = dataDir ? path.join(dataDir, 'locks') : null;
@@ -1038,7 +1124,7 @@ async function updateRelatedDataAfterProjectTitleChange(projectId, oldProjectTit
 }
 
 // IPC Handlers για διαχείριση αρχείων
-ipcMain.handle('save-project-data', async (event, projectData) => {
+async function handleSaveProjectData(event, projectData) {
   try {
     let projectId = projectData.projectId;
     let isNewProject = !projectData.projectId;
@@ -1046,8 +1132,9 @@ ipcMain.handle('save-project-data', async (event, projectData) => {
     // Αν δεν υπάρχει projectId, ψάχνουμε για υπάρχον έργο με ίδιο τίτλο
     if (!projectId && projectData.projectTitle) {
       const existingProjects = await loadAllProjects();
-      const matchingProject = existingProjects.find(p => 
-        p.projectTitle.toLowerCase().trim() === projectData.projectTitle.toLowerCase().trim()
+      const normalizedIncoming = normalizeProjectTitleForMatching(projectData.projectTitle);
+      const matchingProject = existingProjects.find(
+        (p) => normalizeProjectTitleForMatching(p.projectTitle) === normalizedIncoming
       );
       
       if (matchingProject) {
@@ -1102,7 +1189,19 @@ ipcMain.handle('save-project-data', async (event, projectData) => {
     const subprojectDir = path.join(projectDir, subprojectId);
     const filesDir = path.join(subprojectDir, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ');
     const jsonPath = path.join(subprojectDir, 'data.json');
-    
+
+    // Ίδιο έργο (φάκελος), ίδιος ουσιαστικός τίτλος, διαφορετική κεφαλαιοποίηση (π.χ. αντιγραφή από UI κεφαλαία)
+    const siblingTitle = readSiblingProjectTitleForHarmonize(projectDir, subprojectId);
+    if (
+      siblingTitle &&
+      projectData.projectTitle &&
+      normalizeProjectTitleForMatching(siblingTitle) === normalizeProjectTitleForMatching(projectData.projectTitle) &&
+      siblingTitle !== projectData.projectTitle
+    ) {
+      console.log('Harmonizing projectTitle casing to match sibling subproject in same project folder');
+      projectData.projectTitle = siblingTitle;
+    }
+
     // Διαβάζουμε τα υπάρχοντα δεδομένα για να διατηρήσουμε το createdAt
     let existingData = {};
     if (fs.existsSync(jsonPath)) {
@@ -1207,8 +1306,29 @@ ipcMain.handle('save-project-data', async (event, projectData) => {
       fileGroups: mergedFileGroups,
       egkriseisDialthesisPistosis: (existingData.egkriseisDialthesisPistosis && existingData.egkriseisDialthesisPistosis.length > 0)
         ? existingData.egkriseisDialthesisPistosis
-        : (projectData.egkriseisDialthesisPistosis || [])
+        : (projectData.egkriseisDialthesisPistosis || []),
+      // Διατήρηση ανάθεσης επιβλεπόντων (νέο σύστημα) όταν η φόρμα δεν στέλνει το πεδίο
+      supervisorEngineerIds: Array.isArray(projectData.supervisorEngineerIds)
+        ? filterSupervisorEngineerIds(projectData.supervisorEngineerIds)
+        : Array.isArray(existingData.supervisorEngineerIds)
+          ? filterSupervisorEngineerIds(existingData.supervisorEngineerIds)
+          : [],
+      ...require('./khmdhsOpenData').mergeKhmdhsFieldsForSave(projectData, existingData)
     };
+
+    const chargeFreeText = String(dataToSave.supervisorChargeFreePrimary || '').trim();
+    const chargeEngIds = Array.isArray(dataToSave.supervisorEngineerIds)
+      ? dataToSave.supervisorEngineerIds.filter((x) => String(x || '').trim())
+      : [];
+    if (chargeFreeText && chargeEngIds.length === 0) {
+      dataToSave.supervisorChargeOutsideEngineers = true;
+      dataToSave.supervisorChargeFreePrimary = chargeFreeText;
+      dataToSave.supervisorEngineerIds = [];
+    } else if (chargeEngIds.length > 0) {
+      dataToSave.supervisorChargeOutsideEngineers = false;
+    }
+
+    stripLegacySupervisorField(dataToSave);
     
     // Αντιγραφή αρχείων από fileGroups στον φάκελο ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ
     if (mergedFileGroups && mergedFileGroups.length > 0) {
@@ -1322,7 +1442,206 @@ ipcMain.handle('save-project-data', async (event, projectData) => {
     console.error('Error saving project data:', error);
     return { success: false, error: error.message };
   }
+}
+
+ipcMain.handle('save-project-data', handleSaveProjectData);
+
+const subprojectExcelImport = require('./subprojectExcelImport');
+
+ipcMain.handle('export-subprojects-import-template', async () => {
+  try {
+    const ExcelJS = require('exceljs');
+    const wb = await subprojectExcelImport.buildTemplateWorkbook(ExcelJS);
+    const buffer = await wb.xlsx.writeBuffer();
+    const saveResult = await dialog.showSaveDialog({
+      title: 'Αποθήκευση προτύπου εισαγωγής υποέργων (Excel)',
+      defaultPath: `ErgoHub_Φόρμα_εισαγωγής_δεδομένων.xlsx`,
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    });
+    if (saveResult.canceled || !saveResult.filePath) {
+      return { success: true, canceled: true };
+    }
+    fs.writeFileSync(saveResult.filePath, Buffer.from(buffer));
+    return { success: true, path: saveResult.filePath };
+  } catch (error) {
+    console.error('export-subprojects-import-template:', error);
+    return { success: false, error: error.message };
+  }
 });
+
+ipcMain.handle('preview-subprojects-excel-import', async (event, filePath) => {
+  try {
+    if (!filePath || typeof filePath !== 'string' || !fs.existsSync(filePath)) {
+      return { success: false, error: 'Μη έγκυρη διαδρομή αρχείου' };
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext !== '.xlsx') {
+      return { success: false, error: 'Επιτρέπεται μόνο αρχείο .xlsx' };
+    }
+    const buf = fs.readFileSync(filePath);
+    const parsed = await subprojectExcelImport.parseImportWorkbookBuffer(buf);
+    const blockingErrors = [...parsed.parseErrors];
+    const headerMissing = blockingErrors.some(
+      (e) => e.excelRow === 1 && /λείπουν|αναγνωρίζονται/i.test(String(e.message))
+    );
+    const sheetMissing = blockingErrors.some((e) =>
+      String(e.message).includes(`Δεν βρέθηκε το φύλλο`)
+    );
+
+    let ok = [];
+    let validationErrors = [];
+    if (!headerMissing && !sheetMissing) {
+      const v = subprojectExcelImport.validateAllRows(parsed.rows);
+      ok = v.ok;
+      validationErrors = v.errors;
+    }
+
+    const existing = await loadAllProjects();
+    const warnings = subprojectExcelImport.duplicateWarnings(ok, existing);
+    const previewRows = ok.slice(0, 50).map(({ excelRow, projectData }) => ({
+      excelRow,
+      projectTitle: projectData.projectTitle,
+      subprojectTitle: projectData.subprojectTitle,
+      projectStatus: projectData.projectStatus,
+      fundingSource: projectData.fundingSource
+    }));
+
+    return {
+      success: true,
+      versionOk: parsed.versionOk,
+      metaVersion: parsed.metaVersion,
+      rowCount: parsed.rows.length,
+      validCount: ok.length,
+      blockingErrors,
+      validationErrors,
+      warnings,
+      previewRows
+    };
+  } catch (error) {
+    console.error('preview-subprojects-excel-import:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('commit-subprojects-excel-import', async (event, filePath) => {
+  const fakeEvent = { sender: { getTitle: () => 'EXCEL_IMPORT' } };
+  try {
+    if (!filePath || typeof filePath !== 'string' || !fs.existsSync(filePath)) {
+      return { success: false, error: 'Μη έγκυρη διαδρομή αρχείου' };
+    }
+    if (path.extname(filePath).toLowerCase() !== '.xlsx') {
+      return { success: false, error: 'Επιτρέπεται μόνο αρχείο .xlsx' };
+    }
+    const buf = fs.readFileSync(filePath);
+    const parsed = await subprojectExcelImport.parseImportWorkbookBuffer(buf);
+    if (parsed.parseErrors.length > 0) {
+      return {
+        success: false,
+        error: 'Το αρχείο δεν πέρασε τους ελέγχους μορφής',
+        blockingErrors: parsed.parseErrors,
+        saved: 0
+      };
+    }
+    const { ok, errors } = subprojectExcelImport.validateAllRows(parsed.rows);
+    if (errors.length > 0) {
+      return {
+        success: false,
+        error: 'Η εισαγωγή ακυρώθηκε λόγω σφαλμάτων επικύρωσης',
+        blockingErrors: [],
+        validationErrors: errors,
+        saved: 0
+      };
+    }
+    let saved = 0;
+    const results = [];
+    for (const { excelRow, projectData } of ok) {
+      const res = await handleSaveProjectData(fakeEvent, {
+        ...projectData,
+        projectId: null,
+        subprojectId: null
+      });
+      if (!res.success) {
+        return {
+          success: false,
+          error: res.error || 'Αποτυχία αποθήκευσης',
+          saved,
+          failedAtRow: excelRow,
+          results
+        };
+      }
+      saved += 1;
+      results.push({ excelRow, projectId: res.projectId, subprojectId: res.subprojectId });
+    }
+    return { success: true, saved, results };
+  } catch (error) {
+    console.error('commit-subprojects-excel-import:', error);
+    return { success: false, error: error.message, saved: 0 };
+  }
+});
+
+ipcMain.handle('select-subprojects-import-xlsx', async () => {
+  try {
+    const result = await dialog.showOpenDialog({
+      title: 'Επιλογή αρχείου εισαγωγής υποέργων (.xlsx)',
+      properties: ['openFile'],
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    });
+    if (result.canceled || !result.filePaths || !result.filePaths[0]) {
+      return { success: false, canceled: true };
+    }
+    return { success: true, filePath: result.filePaths[0] };
+  } catch (error) {
+    console.error('select-subprojects-import-xlsx:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * Κανονικοποίηση τίτλου έργου για σύγκριση (ίδια λογική παντού: φόρμα, find-by-title, αποθήκευση).
+ * Συμπτύσσει whitespace ώστε «ίδιος» τίτλος να μην δημιουργεί διπλό φάκελο έργου.
+ */
+function normalizeProjectTitleForMatching(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/\\n/g, ' ')
+    .replace(/\n/g, ' ')
+    .replace(/\r/g, ' ')
+    .replace(/\t/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u2000-\u200B]/g, ' ')
+    .replace(/\u2028/g, ' ')
+    .replace(/\u2029/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/** Τίτλος έργου από άλλο υποέργο στον ίδιο φάκελο (ίδιο projectId) για εναρμόνιση κεφαλαιοποίησης. */
+function readSiblingProjectTitleForHarmonize(projectDirPath, currentSubprojectId) {
+  try {
+    if (!fs.existsSync(projectDirPath)) return null;
+    const entries = fs.readdirSync(projectDirPath);
+    for (const sid of entries) {
+      if (!sid || sid === currentSubprojectId) continue;
+      const subPath = path.join(projectDirPath, sid);
+      let st;
+      try {
+        st = fs.statSync(subPath);
+      } catch {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      const jp = path.join(subPath, 'data.json');
+      if (!fs.existsSync(jp)) continue;
+      const data = JSON.parse(fs.readFileSync(jp, 'utf8'));
+      const t = data.projectTitle;
+      if (t && String(t).trim()) return String(t).trim();
+    }
+  } catch (e) {
+    console.warn('readSiblingProjectTitleForHarmonize:', e.message);
+  }
+  return null;
+}
 
 // Internal function to load all projects
 const loadAllProjects = async () => {
@@ -1440,26 +1759,272 @@ ipcMain.handle('load-all-projects', async () => {
   return await loadAllProjects();
 });
 
-// IPC Handler για λήψη όλων των επιβλεπόντων μηχανικών (για φίλτρα)
+// IPC Handler: επιλογές φίλτρου «Χρεωμένο σε» (νέο σύστημα χρέωσης)
 ipcMain.handle('get-all-supervisors', async () => {
   try {
-    const supervisors = new Set();
-    
-    // Χρησιμοποιούμε το loadAllProjects που είναι πολύ πιο γρήγορο
     const projects = await loadAllProjects();
-    
-    // Εξαγωγή μοναδικών supervisors
-    for (const project of projects) {
-      if (project.supervisor && project.supervisor.trim()) {
-        supervisors.add(project.supervisor.trim());
-      }
-    }
-    
-    // Επιστροφή ταξινομημένου array
-    return { success: true, supervisors: Array.from(supervisors).sort() };
+    const catalog = getRegisteredEngineersList();
+    const { collectChargeFilterOptions } = require('./chargeFilterUtils');
+    const options = collectChargeFilterOptions(projects, catalog);
+    return {
+      success: true,
+      supervisors: options.map((o) => o.label),
+      chargeOptions: options
+    };
   } catch (error) {
-    console.error('Error getting supervisors:', error);
-    return { success: false, supervisors: [], error: error.message };
+    console.error('Error getting charge filter options:', error);
+    return { success: false, supervisors: [], chargeOptions: [], error: error.message };
+  }
+});
+
+/** Μηχανικοί αποκλειστικά από λογαριασμούς (ρόλος ENGINEER, ενεργοί — ονοματεπώνυμο από τη διαχείριση χρηστών). */
+function engineersFromUserAccounts() {
+  const users = loadUsers();
+  return users
+    .filter((u) => u && u.role === 'ENGINEER' && u.active !== false)
+    .map((u) => {
+      const username = String(u.username || '').trim();
+      const fullName = String(u.fullName || username || '').trim() || username;
+      return {
+        id: `user:${username.toLowerCase()}`,
+        fullName,
+        source: 'account',
+        username
+      };
+    });
+}
+
+function getRegisteredEngineersList() {
+  return engineersFromUserAccounts().sort((a, b) =>
+    String(a.fullName || '').localeCompare(String(b.fullName || ''), 'el', { sensitivity: 'base' })
+  );
+}
+
+function getAllowedSupervisorEngineerIdSet() {
+  const ids = new Set();
+  getRegisteredEngineersList().forEach((e) => {
+    if (e && e.id) ids.add(e.id);
+  });
+  return ids;
+}
+
+const { engineerChargeFilterKey } = require('./chargeFilterUtils');
+
+function filterSupervisorEngineerIds(ids) {
+  const allowed = getAllowedSupervisorEngineerIdSet();
+  const arr = Array.isArray(ids)
+    ? [...new Set(ids.map((x) => engineerChargeFilterKey(x)).filter(Boolean))]
+    : [];
+  return arr.filter((id) => allowed.has(id));
+}
+
+ipcMain.handle('get-registered-engineers', async () => {
+  try {
+    const engineers = getRegisteredEngineersList();
+    return { success: true, engineers };
+  } catch (error) {
+    console.error('get-registered-engineers:', error);
+    return { success: false, engineers: [], error: error.message };
+  }
+});
+
+// ── Αναθέσεις εργασιών ──
+let taskDueDateJob = null;
+
+function initTaskAssignmentScheduler() {
+  if (taskDueDateJob) {
+    taskDueDateJob.cancel();
+    taskDueDateJob = null;
+  }
+  try {
+    taskDueDateJob = schedule.scheduleJob('0 8 * * *', () => {
+      const svc = getTaskAssignmentService();
+      if (svc) svc.runDueDateChecks();
+    });
+    console.log('Task assignment due-date scheduler active (daily 08:00)');
+  } catch (e) {
+    console.error('Task assignment scheduler error:', e.message);
+  }
+}
+
+ipcMain.handle('get-task-assignment-access', async (_event, { actingUsername }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμο το dataDir' };
+    const info = svc.userHasTaskAccess(actingUsername);
+    return { success: true, ...info };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-task-assignment-permissions', async (_event, { actingUsername }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.getAssignableTargets(actingUsername);
+  } catch (error) {
+    return { success: false, error: error.message, users: [] };
+  }
+});
+
+ipcMain.handle('load-task-assignments', async (_event, { actingUsername, view }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.loadAssignments({ actingUsername, view: view || 'asAssignee' });
+  } catch (error) {
+    return { success: false, error: error.message, tasks: [] };
+  }
+});
+
+ipcMain.handle('get-task-assignment', async (_event, { actingUsername, taskId }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.getTask({ actingUsername, taskId });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('create-task-assignment', async (_event, { actingUsername, payload, newFiles }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.createTask({ actingUsername, payload, newFiles: newFiles || [] });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('update-task-assignment', async (_event, { actingUsername, taskId, payload, newFiles }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.updateTask({ actingUsername, taskId, payload, newFiles: newFiles || [] });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-task-assignment', async (_event, { actingUsername, taskId }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.deleteTask({ actingUsername, taskId });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('update-task-assignment-status', async (_event, { actingUsername, taskId, status, reason }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.updateStatus({ actingUsername, taskId, status, reason });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('add-task-assignment-comment', async (_event, { actingUsername, taskId, text }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.addComment({ actingUsername, taskId, text });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('add-task-assignment-files', async (_event, { actingUsername, taskId, newFiles }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.addFiles({ actingUsername, taskId, newFiles: newFiles || [] });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('load-task-notifications', async (_event, { actingUsername, unreadOnly }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.loadNotifications({ actingUsername, unreadOnly: !!unreadOnly });
+  } catch (error) {
+    return { success: false, error: error.message, notifications: [] };
+  }
+});
+
+ipcMain.handle('mark-task-notifications-read', async (_event, { actingUsername, notificationIds }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.markNotificationsRead({ actingUsername, notificationIds });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('mark-task-notifications-read-for-task', async (_event, { actingUsername, taskId }) => {
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.markNotificationsReadForTask({ actingUsername, taskId });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('open-task-assignment-file', async (_event, { filePath }) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+    }
+    await shell.openPath(filePath);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('khmdhs-fetch-contract-by-adam', async (_event, { adam }) => {
+  try {
+    const kh = require('./khmdhsOpenData');
+    const c = await kh.fetchKhmdhsContractByAdam(adam);
+    if (!c.success) return c;
+    const snapshot = kh.pickKhmdhsSnapshot(c.snapshot);
+    if (!snapshot) {
+      return {
+        success: false,
+        error: 'Βρέθηκε η σύμβαση αλλά δεν επιστράφηκαν στοιχεία ανάδοχου ή αναθέτουσας από το ΚΗΜΔΗΣ.'
+      };
+    }
+    return {
+      success: true,
+      snapshot,
+      fetchedAt: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('khmdhs-fetch-contract-by-adam:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('update-subproject-supervisor-engineers', async (_event, { projectId, subprojectId, supervisorEngineerIds }) => {
+  try {
+    const pid = String(projectId || '').trim();
+    const sid = String(subprojectId || '').trim();
+    if (!pid || !sid) {
+      return { success: false, error: 'Λείπουν projectId ή subprojectId' };
+    }
+    const ids = Array.isArray(supervisorEngineerIds)
+      ? [...new Set(supervisorEngineerIds.map((x) => String(x || '').trim()).filter(Boolean))]
+      : [];
+    const filtered = filterSupervisorEngineerIds(ids);
+    const jsonPath = path.join(dataDir, pid, sid, 'data.json');
+    if (!fs.existsSync(jsonPath)) {
+      return { success: false, error: 'Δεν βρέθηκε το υποέργο' };
+    }
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    data.supervisorEngineerIds = filtered;
+    data.updatedAt = new Date().toISOString();
+    stripLegacySupervisorField(data);
+    safeWriteJSON(jsonPath, data);
+    return { success: true, supervisorEngineerIds: filtered };
+  } catch (error) {
+    console.error('update-subproject-supervisor-engineers:', error);
+    return { success: false, error: error.message };
   }
 });
 
@@ -6608,26 +7173,9 @@ ipcMain.handle('find-project-by-title', async (event, projectTitle) => {
               const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
               
               if (data.projectTitle) {
-                // Normalize και τα δύο τίτλους για σύγκριση
-                const normalizeText = (text) => {
-                  if (!text) return '';
-                  return text
-                    .replace(/\\n/g, ' ')           // Αντιγράφει \n literals
-                    .replace(/\n/g, ' ')            // Αντιγράφει πραγματικά newlines
-                    .replace(/\r/g, ' ')            // Αντιγράφει carriage returns
-                    .replace(/\t/g, ' ')            // Αντιγράφει tabs
-                    .replace(/\s+/g, ' ')           // Αντικαθιστά όλα τα whitespace (συμπεριλαμβανομένων διπλών κενών) με ένα κενό
-                    .replace(/\u00A0/g, ' ')        // Αντιγράφει non-breaking spaces
-                    .replace(/\u2000-\u200B/g, ' ') // Αντιγράφει διάφορα είδη spaces
-                    .replace(/\u2028/g, ' ')        // Αντιγράφει line separator
-                    .replace(/\u2029/g, ' ')        // Αντιγράφει paragraph separator
-                    .trim()
-                    .toLowerCase();
-                };
-                
-                const normalizedProjectTitle = normalizeText(data.projectTitle);
-                const normalizedSearchTitle = normalizeText(projectTitle);
-                
+                const normalizedProjectTitle = normalizeProjectTitleForMatching(data.projectTitle);
+                const normalizedSearchTitle = normalizeProjectTitleForMatching(projectTitle);
+
                 if (normalizedProjectTitle === normalizedSearchTitle) {
                   console.log('✅ Found existing project with same title:', projectDir);
                   return {

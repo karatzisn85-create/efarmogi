@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import styled, { css } from 'styled-components';
 import { PROJECT_STATUSES, getCharacterization } from '../data/formOptions';
+import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
+import { getKhmdhsDisplayEntries } from '../utils/khmdhsFields';
 
 const iconProps = { width: 14, height: 14, 'aria-hidden': true };
 
@@ -254,6 +256,43 @@ const ContractAmountValue = styled(InfoValue)`
   font-size: 1rem;
 `;
 
+const CatalogSupervisorRow = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.55rem 0.65rem;
+  margin: 0.15rem 0 0.45rem;
+  border-radius: 10px;
+  background: linear-gradient(105deg, rgba(238, 242, 255, 0.9) 0%, rgba(255, 255, 255, 0.5) 100%);
+  border: 1px solid rgba(165, 180, 252, 0.45);
+  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.07);
+`;
+
+const CatalogChargeRow = styled.div`
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 0.5rem;
+  align-items: start;
+`;
+
+const CatalogPrimaryName = styled.div`
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #312e81;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+`;
+
+const CatalogAuxLine = styled.div`
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+`;
+
 const ContractInfo = styled.div`
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   border-radius: 10px;
@@ -475,14 +514,14 @@ const LockTooltip = styled.div`
 `;
 
 
-function ProjectCard({ 
-  project, 
-  userRole, 
-  onEdit, 
-  onDelete, 
-  onViewFile, 
-  onDownloadFile, 
-  onDeleteFile, 
+function ProjectCard({
+  project,
+  userRole,
+  onEdit,
+  onDelete,
+  onViewFile,
+  onDownloadFile,
+  onDeleteFile,
   onOpenFileManager,
   onOpenEntaxis,
   onOpenEgkriseis,
@@ -495,7 +534,8 @@ function ProjectCard({
   onOpenSpecificEntaxi,
   hasProsklisi = false,
   onOpenSpecificProsklisi,
-  onViewDetails
+  onViewDetails,
+  engineerCatalog = []
 }) {
 
   const handleCardClick = (e) => {
@@ -552,6 +592,13 @@ function ProjectCard({
   };
 
   const totalContractAmount = calculateTotalContractAmount();
+
+  const { displayChargePrimary, displayChargeParticipants } = useMemo(
+    () => getProjectChargeDisplay(project, engineerCatalog),
+    [project, engineerCatalog]
+  );
+
+  const khmdhsEntries = useMemo(() => getKhmdhsDisplayEntries(project), [project]);
 
   return (
     <>
@@ -640,11 +687,50 @@ function ProjectCard({
           </InfoValue>
         </InfoRow>
 
-        {project.supervisor && (
+        {khmdhsEntries.length > 0 && (
           <InfoRow>
-            <InfoLabel>Επιβλέπων:</InfoLabel>
-            <InfoValue>{project.supervisor}</InfoValue>
+            <InfoLabel>ΚΗΜΔΗΣ:</InfoLabel>
+            <InfoValue style={{ fontSize: '0.86rem', lineHeight: 1.5 }}>
+              {khmdhsEntries.map((entry, idx) => (
+                <div key={entry.contractIndex ?? `k-${idx}`} style={{ marginBottom: idx < khmdhsEntries.length - 1 ? '0.35rem' : 0 }}>
+                  {entry.contractIndex != null && (
+                    <span style={{ color: '#64748b', fontWeight: 600 }}>Σύμβαση {entry.contractIndex}: </span>
+                  )}
+                  {entry.adam && (
+                    <>
+                      <strong>ΑΔΑΜ</strong> {entry.adam}
+                    </>
+                  )}
+                  {entry.snapshot?.anadoxosName && (
+                    <>
+                      {entry.adam ? ' · ' : null}
+                      {entry.snapshot.anadoxosName}
+                    </>
+                  )}
+                  {entry.snapshot?.anadoxosVat && (
+                    <span style={{ color: '#64748b' }}> (ΑΦΜ {entry.snapshot.anadoxosVat})</span>
+                  )}
+                </div>
+              ))}
+            </InfoValue>
           </InfoRow>
+        )}
+
+        {(displayChargePrimary || displayChargeParticipants) && (
+          <CatalogSupervisorRow>
+            {displayChargePrimary && (
+              <CatalogChargeRow>
+                <InfoLabel>Χρεωμένο σε:</InfoLabel>
+                <CatalogPrimaryName>{displayChargePrimary}</CatalogPrimaryName>
+              </CatalogChargeRow>
+            )}
+            {displayChargeParticipants && (
+              <CatalogChargeRow>
+                <InfoLabel>Συμμετέχουν:</InfoLabel>
+                <CatalogAuxLine>{displayChargeParticipants}</CatalogAuxLine>
+              </CatalogChargeRow>
+            )}
+          </CatalogSupervisorRow>
         )}
 
         {project.comments && (

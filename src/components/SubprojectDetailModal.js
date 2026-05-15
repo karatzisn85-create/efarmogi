@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import styled from 'styled-components';
 import { PROJECT_STATUSES } from '../data/formOptions';
+import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
+import { getKhmdhsDisplayEntries } from '../utils/khmdhsFields';
 
 const Overlay = styled.div`
   position: fixed;
@@ -148,6 +150,25 @@ const FieldGrid = styled.div`
   }
 `;
 
+/** Δύο στήλες για «Βασικά Στοιχεία»: αριστερά τίτλοι/είδος/MIS, δεξιά κατάσταση + χρέωση */
+const BasicSplitGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem 2rem;
+  align-items: start;
+
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const BasicColumn = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  min-width: 0;
+`;
+
 const Field = styled.div`
   display: flex;
   flex-direction: column;
@@ -289,7 +310,7 @@ const EmptyValue = styled.span`
   font-size: 0.9rem;
 `;
 
-function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked }) {
+function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked, engineerCatalog = [] }) {
   useEffect(() => {
     const original = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -297,6 +318,13 @@ function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked })
       document.body.style.overflow = original;
     };
   }, []);
+
+  const { displayChargePrimary, displayChargeParticipants } = useMemo(
+    () => getProjectChargeDisplay(project, engineerCatalog),
+    [project, engineerCatalog]
+  );
+
+  const khmdhsEntries = useMemo(() => getKhmdhsDisplayEntries(project), [project]);
 
   if (!project) return null;
 
@@ -368,38 +396,54 @@ function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked })
           {/* Βασικά Στοιχεία */}
           <Section>
             <SectionTitle>Βασικά Στοιχεία</SectionTitle>
-            <FieldGrid>
-              <Field>
-                <FieldLabel>Μορφή Υλοποίησης</FieldLabel>
-                <FieldValue>{val(project.implementationForm) || <EmptyValue>—</EmptyValue>}</FieldValue>
-              </Field>
-              <Field>
-                <FieldLabel>Κατάσταση</FieldLabel>
-                <FieldValue>
-                  {project.projectStatus
-                    ? <StatusBadge status={project.projectStatus}>{project.projectStatus}</StatusBadge>
-                    : <EmptyValue>—</EmptyValue>}
-                </FieldValue>
-              </Field>
-              <Field>
-                <FieldLabel>Είδος</FieldLabel>
-                <FieldValue>
-                  {project.projectType
-                    ? <TypeBadge type={project.projectType}>{project.projectType}</TypeBadge>
-                    : <EmptyValue>—</EmptyValue>}
-                </FieldValue>
-              </Field>
-              <Field>
-                <FieldLabel>Επιβλέπων Μηχανικός</FieldLabel>
-                <FieldValue>{val(project.supervisor) || <EmptyValue>—</EmptyValue>}</FieldValue>
-              </Field>
-              {project.misPraxhsName && project.misPraxhsCode && (
+            <BasicSplitGrid>
+              <BasicColumn>
                 <Field>
-                  <FieldLabel>{project.misPraxhsName}</FieldLabel>
-                  <FieldValue>{project.misPraxhsCode}</FieldValue>
+                  <FieldLabel>Μορφή Υλοποίησης</FieldLabel>
+                  <FieldValue>{val(project.implementationForm) || <EmptyValue>—</EmptyValue>}</FieldValue>
                 </Field>
-              )}
-            </FieldGrid>
+                <Field>
+                  <FieldLabel>Είδος</FieldLabel>
+                  <FieldValue>
+                    {project.projectType
+                      ? <TypeBadge type={project.projectType}>{project.projectType}</TypeBadge>
+                      : <EmptyValue>—</EmptyValue>}
+                  </FieldValue>
+                </Field>
+                {project.misPraxhsName && project.misPraxhsCode && (
+                  <Field>
+                    <FieldLabel>{project.misPraxhsName}</FieldLabel>
+                    <FieldValue>{project.misPraxhsCode}</FieldValue>
+                  </Field>
+                )}
+              </BasicColumn>
+              <BasicColumn>
+                <Field>
+                  <FieldLabel>Κατάσταση</FieldLabel>
+                  <FieldValue>
+                    {project.projectStatus
+                      ? <StatusBadge status={project.projectStatus}>{project.projectStatus}</StatusBadge>
+                      : <EmptyValue>—</EmptyValue>}
+                  </FieldValue>
+                </Field>
+                {displayChargePrimary && (
+                  <Field>
+                    <FieldLabel>Χρεωμένο σε</FieldLabel>
+                    <FieldValue style={{ fontWeight: 700, color: '#312e81', whiteSpace: 'pre-wrap' }}>
+                      {displayChargePrimary}
+                    </FieldValue>
+                  </Field>
+                )}
+                {displayChargeParticipants && (
+                  <Field>
+                    <FieldLabel>Συμμετέχουν</FieldLabel>
+                    <FieldValue style={{ color: '#475569', whiteSpace: 'pre-wrap' }}>
+                      {displayChargeParticipants}
+                    </FieldValue>
+                  </Field>
+                )}
+              </BasicColumn>
+            </BasicSplitGrid>
           </Section>
 
           {/* Κωδικοί */}
@@ -432,6 +476,61 @@ function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked })
               </Field>
             </FieldGrid>
           </Section>
+
+          {khmdhsEntries.length > 0 && (
+            <Section>
+              <SectionTitle>ΚΗΜΔΗΣ (ανοικτά δεδομένα)</SectionTitle>
+              {khmdhsEntries.map((entry, idx) => (
+                <FieldGrid key={entry.contractIndex ?? `k-${idx}`} style={{ marginBottom: idx < khmdhsEntries.length - 1 ? '1rem' : 0 }}>
+                  {entry.contractIndex != null && (
+                    <FieldFull>
+                      <FieldLabel>Σύμβαση</FieldLabel>
+                      <FieldValue style={{ fontWeight: 700 }}>Σύμβαση {entry.contractIndex}</FieldValue>
+                    </FieldFull>
+                  )}
+                  {entry.adam && (
+                    <Field>
+                      <FieldLabel>ΑΔΑΜ σύμβασης</FieldLabel>
+                      <FieldValue style={{ fontWeight: 700, letterSpacing: '0.02em' }}>{entry.adam}</FieldValue>
+                    </Field>
+                  )}
+                  {entry.fetchedAt && (
+                    <Field>
+                      <FieldLabel>Τελευταία λήψη</FieldLabel>
+                      <FieldValue>
+                        {(() => {
+                          try {
+                            const d = new Date(entry.fetchedAt);
+                            return Number.isNaN(d.getTime()) ? entry.fetchedAt : d.toLocaleString('el-GR');
+                          } catch {
+                            return entry.fetchedAt;
+                          }
+                        })()}
+                      </FieldValue>
+                    </Field>
+                  )}
+                  {entry.snapshot?.anadoxosName && (
+                    <Field>
+                      <FieldLabel>Ανάδοχος</FieldLabel>
+                      <FieldValue>{entry.snapshot.anadoxosName}</FieldValue>
+                    </Field>
+                  )}
+                  {entry.snapshot?.anadoxosVat && (
+                    <Field>
+                      <FieldLabel>ΑΦΜ ανάδοχου</FieldLabel>
+                      <FieldValue>{entry.snapshot.anadoxosVat}</FieldValue>
+                    </Field>
+                  )}
+                  {entry.snapshot?.assigningAuthority && (
+                    <Field>
+                      <FieldLabel>Αναθέτουσα αρχή</FieldLabel>
+                      <FieldValue>{entry.snapshot.assigningAuthority}</FieldValue>
+                    </Field>
+                  )}
+                </FieldGrid>
+              ))}
+            </Section>
+          )}
 
           {/* Χρηματοδότηση */}
           <Section>

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import styled from 'styled-components';
 import { getCharacterization } from '../data/formOptions';
+import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -353,7 +354,8 @@ const COLUMN_DEFINITIONS = [
   { key: 'apeAmount', label: 'Ποσό ΑΠΕ', mandatory: false, group: 'contract', width: 130, type: 'amount' },
   { key: 'apeComments', label: 'Σχόλια ΑΠΕ', mandatory: false, group: 'contract', width: 200, type: 'string' },
 
-  { key: 'supervisor', label: 'Επιβλέπων', mandatory: false, group: 'other', width: 160, type: 'string' },
+  { key: 'chargeTo', label: 'Χρεωμένο σε', mandatory: false, group: 'other', width: 160, type: 'string' },
+  { key: 'chargeParticipants', label: 'Συμμετέχουν', mandatory: false, group: 'other', width: 200, type: 'string' },
   { key: 'comments', label: 'Σχόλια', mandatory: false, group: 'other', width: 250, type: 'string' },
   { key: 'remainingAmountComments', label: 'Σχόλια Υπολοίπου', mandatory: false, group: 'other', width: 220, type: 'string' },
   { key: 'eisigitikiEkthesi', label: 'Εισηγητική Έκθεση', mandatory: false, group: 'other', width: 350, type: 'string' },
@@ -481,7 +483,10 @@ function TechnicalProgramExport({ isOpen, onClose, projects }) {
       case 'contractProcessStartDate': return row.project.contractProcessStartDate || '';
       case 'apeAmount': return row.project.apeAmount || '';
       case 'apeComments': return row.project.apeComments || '';
-      case 'supervisor': return row.project.supervisor || '';
+      case 'chargeTo':
+        return getProjectChargeDisplay(row.project, []).displayChargePrimary;
+      case 'chargeParticipants':
+        return getProjectChargeDisplay(row.project, []).displayChargeParticipants;
       case 'comments': return row.project.comments || '';
       case 'remainingAmountComments': return row.project.remainingAmountComments || '';
       case 'eisigitikiEkthesi': return row.project.eisigitikiEkthesi || '';

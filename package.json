@@ -1,6 +1,6 @@
 {
   "name": "efarmogi-app",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "description": "Desktop εφαρμογή διαχείρισης έργων",
   "author": "Δήμος Αρχανών-Αστερούσιων",
   "main": "public/electron.js",
@@ -41,6 +41,7 @@
     "dev": "chcp 65001 >nul 2>&1 && electron . --inspect=5858 --no-sandbox",
     "build": "set NODE_OPTIONS=--max-old-space-size=4096 && craco build",
     "test": "craco test",
+    "export-subproject-import-enums": "node scripts/export-subproject-import-enums.mjs",
     "eject": "react-scripts eject",
     "electron": "electron . --disable-gpu --disable-gpu-sandbox",
     "clean-build-temp": "if exist build\\temp_uploads rmdir /s /q build\\temp_uploads 2>nul & if exist build\\electron.js del /q build\\electron.js 2>nul",
@@ -89,6 +90,7 @@
       "build/asset-manifest.json",
       "public/electron.js",
       "public/**/*.js",
+      "public/**/*.json",
       "apply_excel_validations.py",
       "verify_export.py"
     ],

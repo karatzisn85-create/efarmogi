@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
+import { emptyTaskAssignmentPerms } from '../utils/taskAssignmentDisplay';
 
 const ipcRenderer = window.electronAPI;
 
@@ -196,24 +197,6 @@ const Select = styled.select`
   &:focus { border-color: #2c3e50; outline: none; }
 `;
 
-const MultiSelect = styled.select`
-  padding: 10px 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 14px;
-  font-family: inherit;
-  background: white;
-  min-height: 130px;
-
-  &:focus { border-color: #2c3e50; outline: none; }
-`;
-
-const FieldHint = styled.small`
-  font-size: 11px;
-  color: #777;
-  margin-top: 4px;
-`;
-
 const BtnRow = styled.div`
   display: flex;
   gap: 8px;
@@ -260,6 +243,32 @@ const EmptyRow = styled.tr`
   td { color: #999; font-style: italic; text-align: center !important; }
 `;
 
+const CheckboxRow = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+  margin-bottom: 8px;
+`;
+
+const UserPickList = styled.div`
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 8px;
+  margin-top: 8px;
+  background: #fff;
+`;
+
+const TaskPermSection = styled.div`
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed #ddd;
+`;
+
 const ROLE_LABELS = {
   SUPERADMIN: 'Superadmin',
   ADMIN: 'admin',
@@ -267,13 +276,19 @@ const ROLE_LABELS = {
   ENGINEER: 'Μηχανικός'
 };
 
-function UserManagement({ onClose, currentUser }) {
+function UserManagement({ onClose, currentUser, onUsersChanged }) {
+  const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
+  const actingUsername = currentUser?.username || '';
   const [users, setUsers] = useState([]);
-  const [supervisors, setSupervisors] = useState([]);
-  const [supervisorFilter, setSupervisorFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [formData, setFormData] = useState({ username: '', password: '', fullName: '', role: 'USER', assignedSupervisors: [] });
+  const [formData, setFormData] = useState({
+    username: '',
+    password: '',
+    fullName: '',
+    role: 'USER',
+    taskAssignment: emptyTaskAssignmentPerms()
+  });
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
@@ -289,57 +304,59 @@ function UserManagement({ onClose, currentUser }) {
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
-  const loadSupervisors = useCallback(async () => {
-    const result = await ipcRenderer.invoke('get-all-supervisors');
-    if (result?.success && Array.isArray(result.supervisors)) {
-      setSupervisors(result.supervisors);
-    } else {
-      setSupervisors([]);
-    }
-  }, []);
-
-  useEffect(() => { loadSupervisors(); }, [loadSupervisors]);
-
-  const filteredSupervisors = useMemo(() => {
-    const q = supervisorFilter.trim().toLowerCase();
-    const selected = new Set(formData.assignedSupervisors || []);
-    if (!supervisors.length) return [];
-    return supervisors.filter((name) => {
-      if (selected.has(name)) return true;
-      if (!q) return true;
-      return String(name).toLowerCase().includes(q);
-    });
-  }, [supervisors, supervisorFilter, formData.assignedSupervisors]);
-
   const pendingUsers = users.filter(u => !u.approved);
   const approvedUsers = users.filter(u => u.approved);
 
   const resetForm = () => {
-    setFormData({ username: '', password: '', fullName: '', role: 'USER', assignedSupervisors: [] });
-    setSupervisorFilter('');
+    setFormData({
+      username: '',
+      password: '',
+      fullName: '',
+      role: 'USER',
+      taskAssignment: emptyTaskAssignmentPerms()
+    });
     setEditingUser(null);
     setShowForm(false);
     setMessage(null);
   };
 
+  const assignableUserOptions = users.filter(
+    (u) => u.approved && u.active && u.username !== formData.username
+  );
+
+  const toggleAssignableUsername = (username) => {
+    setFormData((f) => {
+      const list = f.taskAssignment.assignableUsernames || [];
+      const next = list.includes(username)
+        ? list.filter((x) => x !== username)
+        : [...list, username];
+      return {
+        ...f,
+        taskAssignment: { ...f.taskAssignment, assignableUsernames: next }
+      };
+    });
+  };
+
   const handleSubmit = async () => {
     setMessage(null);
-    if (formData.role === 'ENGINEER' && (!Array.isArray(formData.assignedSupervisors) || formData.assignedSupervisors.length === 0)) {
-      setMessage({ text: 'Για τον ρόλο μηχανικός απαιτείται τουλάχιστον μία αντιστοίχιση επιβλέποντα.', error: true });
-      return;
-    }
 
     if (editingUser) {
       const updates = {
         fullName: formData.fullName,
         role: formData.role,
-        assignedSupervisors: formData.role === 'ENGINEER' ? formData.assignedSupervisors : []
+        assignedSupervisors: []
       };
       if (formData.password) updates.password = formData.password;
-      const result = await ipcRenderer.invoke('update-user', { username: editingUser, updates });
+      if (isSuperAdmin) updates.taskAssignment = formData.taskAssignment;
+      const result = await ipcRenderer.invoke('update-user', {
+        username: editingUser,
+        updates,
+        actingUsername
+      });
       if (result.success) {
         setMessage({ text: 'Ο χρήστης ενημερώθηκε', error: false });
-        loadUsers();
+        await loadUsers();
+        if (onUsersChanged) onUsersChanged();
         setTimeout(resetForm, 1200);
       } else {
         setMessage({ text: result.error, error: true });
@@ -348,17 +365,21 @@ function UserManagement({ onClose, currentUser }) {
       if (!formData.username.trim()) { setMessage({ text: 'Εισάγετε όνομα χρήστη', error: true }); return; }
       if (!formData.password || formData.password.length < 4) { setMessage({ text: 'Ο κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες', error: true }); return; }
 
-      const result = await ipcRenderer.invoke('create-user', {
+      const createPayload = {
         username: formData.username.trim(),
         password: formData.password,
         role: formData.role,
         fullName: formData.fullName.trim() || formData.username.trim(),
-        assignedSupervisors: formData.role === 'ENGINEER' ? formData.assignedSupervisors : []
-      });
+        assignedSupervisors: [],
+        actingUsername
+      };
+      if (isSuperAdmin) createPayload.taskAssignment = formData.taskAssignment;
+      const result = await ipcRenderer.invoke('create-user', createPayload);
 
       if (result.success) {
         setMessage({ text: 'Ο χρήστης δημιουργήθηκε', error: false });
-        loadUsers();
+        await loadUsers();
+        if (onUsersChanged) onUsersChanged();
         setTimeout(resetForm, 1200);
       } else {
         setMessage({ text: result.error, error: true });
@@ -367,13 +388,14 @@ function UserManagement({ onClose, currentUser }) {
   };
 
   const handleEdit = (user) => {
-    setSupervisorFilter('');
     setFormData({
       username: user.username,
       password: '',
       fullName: user.fullName,
       role: user.role,
-      assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : []
+      taskAssignment: user.taskAssignment
+        ? { ...emptyTaskAssignmentPerms(), ...user.taskAssignment }
+        : emptyTaskAssignmentPerms()
     });
     setEditingUser(user.username);
     setShowForm(true);
@@ -385,7 +407,8 @@ function UserManagement({ onClose, currentUser }) {
       username: user.username,
       updates: { active: !user.active }
     });
-    loadUsers();
+    await loadUsers();
+    if (onUsersChanged) onUsersChanged();
   };
 
   const handleApprove = async (user) => {
@@ -393,20 +416,23 @@ function UserManagement({ onClose, currentUser }) {
       username: user.username,
       updates: { approved: true }
     });
-    loadUsers();
+    await loadUsers();
+    if (onUsersChanged) onUsersChanged();
   };
 
   const handleReject = async (user) => {
     if (!window.confirm(`Απόρριψη και διαγραφή αιτήματος του "${user.username}";`)) return;
     await ipcRenderer.invoke('delete-user', { username: user.username });
-    loadUsers();
+    await loadUsers();
+    if (onUsersChanged) onUsersChanged();
   };
 
   const handleDelete = async (user) => {
     if (!window.confirm(`Διαγραφή χρήστη "${user.username}";`)) return;
     const result = await ipcRenderer.invoke('delete-user', { username: user.username });
     if (result.success) {
-      loadUsers();
+      await loadUsers();
+      if (onUsersChanged) onUsersChanged();
     } else {
       setMessage({ text: result.error, error: true });
     }
@@ -539,11 +565,9 @@ function UserManagement({ onClose, currentUser }) {
                   value={formData.role}
                   onChange={(e) => {
                     const role = e.target.value;
-                    setSupervisorFilter('');
                     setFormData((f) => ({
                       ...f,
-                      role,
-                      assignedSupervisors: role === 'ENGINEER' ? f.assignedSupervisors : []
+                      role
                     }));
                   }}
                 >
@@ -554,43 +578,70 @@ function UserManagement({ onClose, currentUser }) {
               </FieldGroup>
             </FormRow>
 
-            {formData.role === 'ENGINEER' && (
-              <FieldGroup style={{ marginBottom: 12 }}>
-                <Label>Αντιστοίχιση Επιβλέποντα Μηχανικού</Label>
-                <Input
-                  type="search"
-                  value={supervisorFilter}
-                  onChange={(e) => setSupervisorFilter(e.target.value)}
-                  placeholder="Αναζήτηση επιβλέποντα…"
-                  style={{ marginBottom: 8 }}
-                  autoComplete="off"
-                />
-                <FieldHint style={{ display: 'block', marginBottom: 6 }}>
-                  Εμφάνιση {filteredSupervisors.length} από {supervisors.length}
-                  {formData.assignedSupervisors?.length
-                    ? ` · επιλεγμένα: ${formData.assignedSupervisors.length}`
-                    : ''}
-                </FieldHint>
-                <MultiSelect
-                  multiple
-                  value={formData.assignedSupervisors}
-                  onChange={e => {
-                    const selectedValues = Array.from(e.target.selectedOptions).map(opt => opt.value);
-                    setFormData(f => ({ ...f, assignedSupervisors: selectedValues }));
-                  }}
-                >
-                  {supervisors.length === 0 ? (
-                    <option value="" disabled>Δεν βρέθηκαν καταγραφές επιβλεπόντων</option>
-                  ) : filteredSupervisors.length === 0 ? (
-                    <option value="" disabled>Δεν βρέθηκαν αποτελέσματα για την αναζήτηση</option>
-                  ) : (
-                    filteredSupervisors.map(name => (
-                      <option key={name} value={name}>{name}</option>
-                    ))
-                  )}
-                </MultiSelect>
-                <FieldHint>Επιτρέπεται πολλαπλή επιλογή (Ctrl + κλικ). Ο μηχανικός θα βλέπει μόνο τα αντίστοιχα υποέργα.</FieldHint>
-              </FieldGroup>
+            {isSuperAdmin && (
+              <TaskPermSection>
+                <SectionTitle>Αναθέσεις εργασιών</SectionTitle>
+                <CheckboxRow>
+                  <input
+                    type="checkbox"
+                    checked={!!formData.taskAssignment.canAssign}
+                    onChange={(e) => {
+                      const canAssign = e.target.checked;
+                      setFormData((f) => ({
+                        ...f,
+                        taskAssignment: {
+                          ...f.taskAssignment,
+                          canAssign,
+                          assignableScope: canAssign ? (f.taskAssignment.assignableScope === 'none' ? 'all' : f.taskAssignment.assignableScope) : 'none'
+                        }
+                      }));
+                    }}
+                  />
+                  Μπορεί να αναθέτει εργασίες
+                </CheckboxRow>
+                {formData.taskAssignment.canAssign && (
+                  <>
+                    <FieldGroup>
+                      <Label>Εύρος ανάθεσης</Label>
+                      <Select
+                        value={formData.taskAssignment.assignableScope}
+                        onChange={(e) => {
+                          const assignableScope = e.target.value;
+                          setFormData((f) => ({
+                            ...f,
+                            taskAssignment: {
+                              ...f.taskAssignment,
+                              assignableScope,
+                              assignableUsernames: assignableScope === 'selected' ? (f.taskAssignment.assignableUsernames || []) : []
+                            }
+                          }));
+                        }}
+                      >
+                        <option value="all">Όλοι οι ενεργοί χρήστες</option>
+                        <option value="selected">Επιλεγμένοι χρήστες</option>
+                      </Select>
+                    </FieldGroup>
+                    {formData.taskAssignment.assignableScope === 'selected' && (
+                      <UserPickList>
+                        {assignableUserOptions.length === 0 ? (
+                          <span style={{ color: '#888', fontSize: 13 }}>Δεν υπάρχουν διαθέσιμοι χρήστες</span>
+                        ) : (
+                          assignableUserOptions.map((u) => (
+                            <CheckboxRow key={u.username}>
+                              <input
+                                type="checkbox"
+                                checked={(formData.taskAssignment.assignableUsernames || []).includes(u.username)}
+                                onChange={() => toggleAssignableUsername(u.username)}
+                              />
+                              {u.fullName} ({u.username})
+                            </CheckboxRow>
+                          ))
+                        )}
+                      </UserPickList>
+                    )}
+                  </>
+                )}
+              </TaskPermSection>
             )}
 
             {message && <Message error={message.error}>{message.text}</Message>}

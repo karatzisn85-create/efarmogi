@@ -7,18 +7,112 @@ import {
   FUNDING_SOURCES,
   PROJECT_STATUSES,
   FUNDING_DETAILS,
-  STATUSES_WITH_CONTRACT_FIELDS
+  STATUSES_WITH_CONTRACT_FIELDS,
+  STATUSES_WITH_KHMDHS_ADAM
 } from '../data/formOptions';
+import {
+  emptyKhmdhsOnContract,
+  isMultipleContractsForm,
+  normalizeContractsFromProject
+} from '../utils/khmdhsFields';
 
 const ipcRenderer = window.electronAPI;
 
+const ADAM_FORMAT_REGEX = /^(\d{2})([A-Z]{3,4})(\d{9})$/i;
+const ADAM_MAX_LEN = 15; // 2 + 4 + 9
+
+function statusRequiresKhmdhsAdam(status) {
+  return STATUSES_WITH_KHMDHS_ADAM.includes(status);
+}
+
+/** Μόνο έγκυροι χαρακτήρες ΑΔΑΜ κατά την πληκτρολόγηση */
+function sanitizeAdamInput(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, ADAM_MAX_LEN);
+}
+
+/**
+ * @param {'live'|'strict'} mode — live: σφάλμα μόνο σε πλήρες μήκος (δεν «κολλάει» κατά την πληκτρολόγηση)
+ */
+function getAdamFieldError(value, mode = 'strict') {
+  const adam = sanitizeAdamInput(value);
+  if (!adam) return null;
+  if (ADAM_FORMAT_REGEX.test(adam)) return null;
+  if (mode === 'live' && adam.length < ADAM_MAX_LEN) return null;
+  return 'Μη έγκυρη μορφή ΑΔΑΜ. Χρησιμοποιήστε μορφή όπως 26SYMV018523441 (έτος + τύπος π.χ. SYMV + 9 ψηφία).';
+}
+
+function pickKhmdhsSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const out = {
+    anadoxosName: snapshot.anadoxosName || null,
+    anadoxosVat: snapshot.anadoxosVat != null ? String(snapshot.anadoxosVat) : null,
+    assigningAuthority: snapshot.assigningAuthority || null
+  };
+  if (!out.anadoxosName && !out.anadoxosVat && !out.assigningAuthority) return null;
+  return out;
+}
+
+function resolveSingleKhmdhsForSave(formData, editingProject) {
+  const adam = sanitizeAdamInput(formData.khmdhsAdam);
+  const snapshotForm = pickKhmdhsSnapshot(formData.khmdhsContractSnapshot);
+  const snapshotStored = editingProject ? pickKhmdhsSnapshot(editingProject.khmdhsContractSnapshot) : null;
+  const snapshot = snapshotForm || (adam && snapshotStored ? snapshotStored : null);
+  const fetchedAt = adam
+    ? String(formData.khmdhsContractFetchedAt || editingProject?.khmdhsContractFetchedAt || '')
+    : '';
+  if (!adam) {
+    return { khmdhsAdam: '', khmdhsContractSnapshot: null, khmdhsContractFetchedAt: '' };
+  }
+  return { khmdhsAdam: adam, khmdhsContractSnapshot: snapshot, khmdhsContractFetchedAt: fetchedAt };
+}
+
+function resolveContractKhmdhsRow(contract, existingContract) {
+  const adam = sanitizeAdamInput(contract?.khmdhsAdam);
+  const snapshotForm = pickKhmdhsSnapshot(contract?.khmdhsContractSnapshot);
+  const snapshotStored = existingContract ? pickKhmdhsSnapshot(existingContract.khmdhsContractSnapshot) : null;
+  const snapshot = snapshotForm || (adam && snapshotStored ? snapshotStored : null);
+  const fetchedAt = adam
+    ? String(contract?.khmdhsContractFetchedAt || existingContract?.khmdhsContractFetchedAt || '')
+    : '';
+  if (!adam) {
+    return { ...contract, ...emptyKhmdhsOnContract() };
+  }
+  return {
+    ...contract,
+    khmdhsAdam: adam,
+    khmdhsContractSnapshot: snapshot,
+    khmdhsContractFetchedAt: fetchedAt
+  };
+}
+
+/** Διατήρηση ΑΔΑΜ/ΚΗΜΔΗΣ — μία σύμβαση στο έργο ή ανά σύμβαση στο contracts[] */
+function resolveKhmdhsFieldsForSave(formData, editingProject) {
+  if (isMultipleContractsForm(formData.implementationForm)) {
+    const contracts = (formData.contracts || []).map((c, i) =>
+      resolveContractKhmdhsRow(c, editingProject?.contracts?.[i])
+    );
+    return {
+      contracts,
+      khmdhsAdam: '',
+      khmdhsContractSnapshot: null,
+      khmdhsContractFetchedAt: ''
+    };
+  }
+  return {
+    contracts: (formData.contracts || []).map((c) => ({ ...c, ...emptyKhmdhsOnContract() })),
+    ...resolveSingleKhmdhsForSave(formData, editingProject)
+  };
+}
+
 const FormOverlay = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.55);
+  inset: 0;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -28,72 +122,131 @@ const FormOverlay = styled.div`
 `;
 
 const FormContainer = styled.div`
-  background: #f4f6f9;
-  border-radius: 16px;
+  background: linear-gradient(165deg, #f8fafc 0%, #eef2ff 40%, #f1f5f9 100%);
+  border-radius: 18px;
   width: calc(100vw - 2rem);
-  max-width: 1100px;
+  max-width: 1120px;
   height: calc(100vh - 2rem);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
-  animation: slideIn 0.25s ease-out;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.55) inset,
+    0 25px 50px -12px rgba(15, 23, 42, 0.35),
+    0 12px 40px rgba(79, 70, 229, 0.12);
+  animation: formSlideIn 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   overflow: hidden;
   box-sizing: border-box;
 
-  @keyframes slideIn {
-    from { opacity: 0; transform: translateY(-16px) scale(0.98); }
-    to   { opacity: 1; transform: translateY(0) scale(1); }
+  @keyframes formSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(20px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 `;
 
 const FormHeader = styled.div`
-  background: linear-gradient(135deg, #5c6bc0 0%, #7986cb 100%);
-  color: white;
-  padding: 1.2rem 1.8rem;
-  border-radius: 16px 16px 0 0;
+  position: relative;
+  background: linear-gradient(135deg, #312e81 0%, #4f46e5 42%, #6366f1 100%);
+  color: #fff;
+  padding: 1.25rem 1.75rem 1.35rem;
+  border-radius: 18px 18px 0 0;
   flex-shrink: 0;
+  box-shadow: 0 4px 20px rgba(49, 46, 129, 0.45);
+
+  &::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  }
 `;
 
 const FormTitle = styled.h2`
   margin: 0;
-  font-size: 1.3rem;
-  font-weight: 700;
-  letter-spacing: 0.3px;
+  font-size: 1.28rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+`;
+
+const FormSubtitle = styled.p`
+  margin: 0.5rem 0 0 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.88);
+  line-height: 1.45;
+  max-width: 52ch;
 `;
 
 const FormScrollArea = styled.div`
-  padding: 1.5rem 1.8rem;
+  padding: 1.35rem 1.65rem 1.5rem;
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 1.2rem;
+  gap: 1.25rem;
   min-width: 0;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.45) transparent;
+
+  &::-webkit-scrollbar {
+    width: 9px;
+  }
+  &::-webkit-scrollbar-track {
+    background: rgba(148, 163, 184, 0.12);
+    border-radius: 8px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #818cf8, #6366f1);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
 `;
 
 const Section = styled.div`
-  background: white;
-  border-radius: 12px;
-  padding: 1.2rem 1.4rem;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
-  border: 1px solid #e8eaf0;
+  background: linear-gradient(180deg, #ffffff 0%, #fafbff 100%);
+  border-radius: 14px;
+  padding: 1.35rem 1.45rem 1.4rem 1.35rem;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-left: 4px solid #6366f1;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 6px 20px rgba(15, 23, 42, 0.055);
   min-width: 0;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+
+  &:hover {
+    border-color: rgba(99, 102, 241, 0.35);
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.05),
+      0 8px 28px rgba(79, 70, 229, 0.08);
+  }
 `;
 
 const SectionTitle = styled.div`
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.68rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
-  color: #7986cb;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #e8eaf6;
+  letter-spacing: 0.14em;
+  color: #4338ca;
+  margin: 0 0 1.05rem 0;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.18);
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
 `;
 
 const FormGrid = styled.div`
@@ -102,7 +255,7 @@ const FormGrid = styled.div`
     ${props => props.cols || 2},
     minmax(0, 1fr)
   );
-  gap: 1rem 1.2rem;
+  gap: 1.1rem 1.35rem;
   min-width: 0;
   width: 100%;
 
@@ -132,47 +285,57 @@ const FormGroup = styled.div`
 `;
 
 const Label = styled.label`
-  font-weight: 500;
-  color: #333;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 0.45rem;
+  font-size: 0.875rem;
+  letter-spacing: 0.01em;
 `;
 
 const Input = styled.input`
-  padding: 0.8rem;
-  border: 2px solid ${props => {
-    if (props.$hasError) return '#f44336';
-    if (props.$isValid && props.$touched) return '#4caf50';
-    return '#e0e0e0';
+  padding: 0.78rem 0.85rem;
+  border: 1.5px solid ${props => {
+    if (props.$hasError) return '#ef4444';
+    if (props.$isValid && props.$touched) return '#22c55e';
+    return '#cbd5e1';
   }};
-  border-radius: 8px;
-  font-size: 1rem;
+  border-radius: 10px;
+  font-size: 0.98rem;
   outline: none;
-  transition: border-color 0.3s ease;
+  background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   box-sizing: border-box;
   min-width: 0;
 
   &:focus {
     border-color: ${props => {
-      if (props.$hasError) return '#f44336';
-      if (props.$isValid && props.$touched) return '#4caf50';
-      return '#2196F3';
+      if (props.$hasError) return '#ef4444';
+      if (props.$isValid && props.$touched) return '#22c55e';
+      return '#6366f1';
     }};
+    box-shadow: 0 0 0 3px
+      ${props => {
+        if (props.$hasError) return 'rgba(239, 68, 68, 0.2)';
+        if (props.$isValid && props.$touched) return 'rgba(34, 197, 94, 0.2)';
+        return 'rgba(99, 102, 241, 0.22)';
+      }};
   }
 
   &:disabled {
-    background-color: #f5f5f5;
+    background-color: #f1f5f9;
     cursor: not-allowed;
+    color: #64748b;
   }
 `;
 
 const TextArea = styled.textarea`
-  padding: 0.8rem;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 1rem;
+  padding: 0.78rem 0.85rem;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 0.98rem;
   outline: none;
-  transition: border-color 0.3s ease;
+  background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   resize: vertical;
   min-height: 80px;
   font-family: inherit;
@@ -180,33 +343,299 @@ const TextArea = styled.textarea`
   min-width: 0;
 
   &:focus {
-    border-color: #2196F3;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
   }
 
   &:disabled {
-    background-color: #f5f5f5;
+    background-color: #f1f5f9;
     cursor: not-allowed;
+    color: #64748b;
   }
 `;
 
 const Select = styled.select`
-  padding: 0.8rem;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 1rem;
+  padding: 0.78rem 0.85rem;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 0.98rem;
   outline: none;
-  background: white;
+  background: #fff;
   cursor: pointer;
-  transition: border-color 0.3s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   box-sizing: border-box;
   min-width: 0;
 
   &:focus {
-    border-color: #2196F3;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
   }
 `;
 
+const FieldHint = styled.div`
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 0.45rem;
+  line-height: 1.5;
+  padding: 0.55rem 0.65rem;
+  background: rgba(241, 245, 249, 0.95);
+  border-radius: 8px;
+  border-left: 3px solid #818cf8;
+`;
 
+const EngineerPickGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem 1.25rem;
+  margin-top: 0.35rem;
+  min-width: 0;
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const EngineerPickCard = styled.div`
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  min-width: 0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+`;
+
+const EngineerPickCardTitle = styled.div`
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #4f46e5;
+  margin-bottom: 0.55rem;
+`;
+
+const AuxiliaryParticipantBlock = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+`;
+
+const AuxiliaryEmpty = styled.div`
+  padding: 0.75rem 0.55rem;
+  font-size: 0.88rem;
+  color: #64748b;
+  line-height: 1.45;
+  text-align: center;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.9);
+`;
+
+const AuxiliaryChips = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-height: 0;
+`;
+
+const AuxiliaryChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.28rem 0.4rem 0.28rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #312e81;
+  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+  border: 1px solid rgba(129, 140, 248, 0.55);
+  line-height: 1.2;
+`;
+
+const AuxiliaryChipName = styled.span`
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(22ch, 100%);
+`;
+
+const AuxiliaryChipRemove = styled.button`
+  flex-shrink: 0;
+  border: none;
+  background: rgba(99, 102, 241, 0.15);
+  color: #4338ca;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #b91c1c;
+  }
+`;
+
+const MutedText = styled.p`
+  margin: 0.35rem 0;
+  color: #94a3b8;
+  font-size: 0.82rem;
+`;
+
+const ContractsListWrap = styled.div`
+  min-width: 0;
+`;
+
+const ContractPanel = styled.div`
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+`;
+
+const ContractPanelTitle = styled.div`
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #4338ca;
+  margin-bottom: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+`;
+
+const SupplementaryOuter = styled.div`
+  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 55%, #f8fafc 100%);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  margin-top: 0.5rem;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.08);
+`;
+
+const SupplementarySectionTitle = styled.div`
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #047857;
+  margin-bottom: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+`;
+
+const SupplementaryInner = styled.div`
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.85rem;
+  margin-bottom: 0.55rem;
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+`;
+
+const FileGroupCard = styled.div`
+  padding: 0.85rem 1rem;
+  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 50%, #ffffff 100%);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 12px;
+  margin-top: 0.55rem;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.07);
+`;
+
+const FileGroupToolbar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.45rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+`;
+
+const FileGroupTitleBlock = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  min-width: 0;
+`;
+
+const FileGroupMetaBadge = styled.span`
+  font-size: 0.72rem;
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  font-weight: 700;
+`;
+
+const SmallFileRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.55rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 0.28rem;
+  gap: 0.5rem;
+`;
+
+const ToolbarDeleteBtn = styled.button`
+  background: #fff;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 0.28rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+  &:hover {
+    background: #fef2f2;
+    border-color: #f87171;
+  }
+`;
+
+const ToolbarRemoveFileBtn = styled.button`
+  background: #fffbeb;
+  color: #a16207;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 0.18rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  &:hover {
+    background: #fef9c3;
+  }
+`;
+
+const FileListLabel = styled.strong`
+  font-size: 0.86rem;
+  color: #475569;
+  font-weight: 700;
+  display: block;
+  margin-bottom: 0.35rem;
+`;
+
+const FileUploadTitle = styled.strong`
+  font-size: 1.02rem;
+  color: #312e81;
+`;
+
+const FileUploadHint = styled.p`
+  margin: 0.4rem 0 0 0;
+  font-size: 0.86rem;
+  color: #64748b;
+  line-height: 1.45;
+`;
 
 const AddContractButton = styled.button`
   background: #28a745;
@@ -241,16 +670,19 @@ const RemoveContractButton = styled.button`
 `;
 
 const FileUploadSection = styled.div`
-  border: 2px dashed #ccc;
-  border-radius: 10px;
-  padding: 2rem;
+  border: 2px dashed rgba(99, 102, 241, 0.45);
+  border-radius: 14px;
+  padding: 1.75rem 1.5rem;
   text-align: center;
   margin: 1rem 0;
   cursor: pointer;
-  transition: border-color 0.3s ease;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  background: linear-gradient(180deg, rgba(238, 242, 255, 0.65) 0%, rgba(255, 255, 255, 0.9) 100%);
 
   &:hover {
-    border-color: #2196F3;
+    border-color: #6366f1;
+    background: linear-gradient(180deg, rgba(224, 231, 255, 0.9) 0%, #fff 100%);
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.12);
   }
 `;
 
@@ -259,23 +691,26 @@ const FileList = styled.div`
 `;
 
 const FileItem = styled.div`
-  background: #f8f9fa;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  margin: 0.5rem 0;
+  background: #fff;
+  padding: 0.55rem 0.85rem;
+  border-radius: 10px;
+  margin: 0.45rem 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  gap: 0.5rem;
 `;
 
 const CheckboxContainer = styled.div`
   display: flex;
   align-items: center;
   margin: 1rem 0;
-  padding: 1rem;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border: 1px solid #dee2e6;
+  padding: 0.85rem 1rem;
+  background: linear-gradient(90deg, rgba(238, 242, 255, 0.9) 0%, rgba(248, 250, 252, 0.95) 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(129, 140, 248, 0.35);
 `;
 
 const Checkbox = styled.input`
@@ -375,12 +810,40 @@ const StickyFooter = styled.div`
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.9rem 1.5rem;
-  border-top: 1px solid #e0e0e0;
-  background: #f8f9fa;
-  border-radius: 0 0 15px 15px;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.5rem 1.1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, #f1f5f9 100%);
+  border-radius: 0 0 18px 18px;
   flex-shrink: 0;
+  box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.04);
+`;
+
+const SecondaryOutlineButton = styled.button`
+  background: #fff;
+  color: #4338ca;
+  border: 1.5px solid #6366f1;
+  padding: 0.62rem 1rem;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+
+  &:hover:not(:disabled) {
+    background: #eef2ff;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 
 const SaveButton = styled.button`
@@ -437,9 +900,14 @@ const DeleteFormButton = styled.button`
 `;
 
 const ErrorMessage = styled.div`
-  color: #dc3545;
-  font-size: 0.8rem;
-  margin-top: 0.3rem;
+  color: #b91c1c;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: rgba(254, 242, 242, 0.95);
+  border-radius: 6px;
+  border: 1px solid #fecaca;
 `;
 
 function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null }) {
@@ -465,7 +933,10 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
     contractAmount: '',
     apeAmount: '',
     apeComments: '',
-    supervisor: '',
+    supervisorEngineerIds: [],
+    supervisorChargeOutsideEngineers: false,
+    supervisorChargeFreePrimary: '',
+    supervisorChargeFreeParticipants: '',
     comments: '',
     remainingAmount: '',
     remainingAmountYear: '2026',
@@ -475,11 +946,50 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
     hasSupplementaryContracts: false,
     supplementaryContracts: [],
     files: [],
-    fileGroups: [] // Νέα δομή για ομαδοποίηση αρχείων
+    fileGroups: [], // Νέα δομή για ομαδοποίηση αρχείων
+    khmdhsAdam: '',
+    khmdhsContractSnapshot: null,
+    khmdhsContractFetchedAt: ''
   });
 
   const [errors, setErrors] = useState({});
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [registeredEngineers, setRegisteredEngineers] = useState([]);
+  const [auxPickerKey, setAuxPickerKey] = useState(0);
+  const [khmdhsFetchLoadingTarget, setKhmdhsFetchLoadingTarget] = useState(null);
+  const khmdhsFetchGenRef = React.useRef(0);
+
+  const cancelKhmdhsFetch = React.useCallback(() => {
+    khmdhsFetchGenRef.current += 1;
+    setKhmdhsFetchLoadingTarget(null);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) return undefined;
+    cancelKhmdhsFetch();
+    return undefined;
+  }, [isOpen, cancelKhmdhsFetch]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await ipcRenderer.invoke('get-registered-engineers');
+        if (cancelled) return;
+        if (res?.success && Array.isArray(res.engineers)) {
+          setRegisteredEngineers(res.engineers);
+        } else {
+          setRegisteredEngineers([]);
+        }
+      } catch {
+        if (!cancelled) setRegisteredEngineers([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (editingProject) {
@@ -505,12 +1015,34 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
         aleRemainingAmounts = aleCodes.map(() => '');
       }
 
+      const supervisorEngineerIds = Array.isArray(editingProject.supervisorEngineerIds)
+        ? editingProject.supervisorEngineerIds.map((x) => String(x || '').trim()).filter(Boolean)
+        : [];
+
+      const fp0 = editingProject.supervisorChargeFreePrimary != null ? String(editingProject.supervisorChargeFreePrimary) : '';
+      const fpart0 =
+        editingProject.supervisorChargeFreeParticipants != null ? String(editingProject.supervisorChargeFreeParticipants) : '';
+      const hadLegacyFree = !!(fp0.trim() || fpart0.trim());
+      const explicitOutside = editingProject.supervisorChargeOutsideEngineers === true;
+      const explicitInside = editingProject.supervisorChargeOutsideEngineers === false;
+      const supervisorChargeOutsideEngineers =
+        explicitOutside || (!explicitInside && hadLegacyFree && supervisorEngineerIds.length === 0);
+      const mergedFree = [fp0.trim(), fpart0.trim()].filter(Boolean).join('\n');
+
+      const { supervisor: _legacySupervisor, ...editingRest } = editingProject;
       setFormData({
-        ...editingProject,
+        ...editingRest,
         aleCodes: aleCodes,
         aleRemainingAmounts: aleRemainingAmounts,
-        contracts: editingProject.contracts || [],
-        fileGroups: editingProject.fileGroups || []
+        contracts: normalizeContractsFromProject(editingProject),
+        fileGroups: editingProject.fileGroups || [],
+        supervisorEngineerIds,
+        supervisorChargeOutsideEngineers,
+        supervisorChargeFreePrimary: supervisorChargeOutsideEngineers ? mergedFree || fp0 : fp0,
+        supervisorChargeFreeParticipants: supervisorChargeOutsideEngineers ? '' : fpart0,
+        khmdhsAdam: editingProject.khmdhsAdam != null ? String(editingProject.khmdhsAdam) : '',
+        khmdhsContractSnapshot: pickKhmdhsSnapshot(editingProject.khmdhsContractSnapshot),
+        khmdhsContractFetchedAt: editingProject.khmdhsContractFetchedAt != null ? String(editingProject.khmdhsContractFetchedAt) : ''
       });
     } else {
       // Reset form for new project
@@ -535,7 +1067,10 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
         contractAmount: '',
         apeAmount: '',
         apeComments: '',
-        supervisor: '',
+        supervisorEngineerIds: [],
+        supervisorChargeOutsideEngineers: false,
+        supervisorChargeFreePrimary: '',
+        supervisorChargeFreeParticipants: '',
         comments: '',
         remainingAmount: '',
         remainingAmountYear: '2026',
@@ -545,7 +1080,10 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
         hasSupplementaryContracts: false,
         supplementaryContracts: [],
         files: [],
-        fileGroups: []
+        fileGroups: [],
+        khmdhsAdam: '',
+        khmdhsContractSnapshot: null,
+        khmdhsContractFetchedAt: ''
       });
     }
     setErrors({});
@@ -885,6 +1423,16 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
       newErrors.projectStatus = 'Επιλέξτε κατάσταση έργου';
     }
 
+    if (isMultipleContractsForm(formData.implementationForm)) {
+      (formData.contracts || []).forEach((contract, index) => {
+        const adamErr = getAdamFieldError(contract?.khmdhsAdam, 'strict');
+        if (adamErr) newErrors[`khmdhsAdam${index}`] = adamErr;
+      });
+    } else {
+      const adamErr = getAdamFieldError(formData.khmdhsAdam, 'strict');
+      if (adamErr) newErrors.khmdhsAdam = adamErr;
+    }
+
     // Validate contract process start date if status is "ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ"
     // Check if contractProcessStartDate is before contractDate (if contractDate exists)
     // This validation applies to all statuses from "ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ" onwards
@@ -972,40 +1520,71 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
       value = formatAmount(value);
     }
 
+    if (field === 'khmdhsAdam') {
+      cancelKhmdhsFetch();
+      value = sanitizeAdamInput(value);
+    }
+
+    if (field === 'projectStatus') {
+      cancelKhmdhsFetch();
+      setFormData((prev) => {
+        const next = { ...prev, projectStatus: value };
+        const wasKhmdhs = statusRequiresKhmdhsAdam(prev.projectStatus);
+        const isKhmdhs = statusRequiresKhmdhsAdam(value);
+        // Μεταξύ καταστάσεων με σύμβαση: κρατάμε ΑΔΑΜ και στοιχεία ΚΗΜΔΗΣ
+        if (wasKhmdhs && !isKhmdhs) {
+          next.khmdhsAdam = '';
+          next.khmdhsContractSnapshot = null;
+          next.khmdhsContractFetchedAt = '';
+        }
+        return next;
+      });
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.khmdhsAdam;
+        return next;
+      });
+      return;
+    }
+
     // ΔΕΝ κάνουμε normalization κατά την πληκτρολόγηση για κανένα πεδίο
     // Το normalization γίνεται μόνο κατά την αποθήκευση (στο handleSave)
     // Αυτό επιτρέπει κανονική πληκτρολόγηση με spaces σε όλα τα πεδία
 
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       [field]: value
     }));
 
-    // Real-time validation - show errors immediately for better UX
-    const error = validateField(field, value);
-    if (touched[field] || error) {
-      // If there's an error, mark as touched to show it immediately
-      if (error && !touched[field]) {
-        setTouched(prev => ({ ...prev, [field]: true }));
-      }
-      setErrors(prev => ({
-        ...prev,
-        [field]: error || ''
-      }));
+    // Πάντα ενημέρωση/καθαρισμός σφάλματος πεδίου — ώστε να μην «κολλάει» μήνυμα μετά από διόρθωση
+    const fieldError =
+      field === 'khmdhsAdam' ? getAdamFieldError(value, 'live') : validateField(field, value);
+
+    if (fieldError && !touched[field]) {
+      setTouched((prev) => ({ ...prev, [field]: true }));
     }
+
+    setErrors((prev) => {
+      const next = { ...prev };
+      if (fieldError) next[field] = fieldError;
+      else delete next[field];
+      return next;
+    });
   };
 
   const handleFieldBlur = (field) => {
-    // Mark field as touched when user leaves it
-    setTouched(prev => ({ ...prev, [field]: true }));
-    
-    // Validate field on blur
-    const value = formData[field];
-    const error = validateField(field, value);
-    setErrors(prev => ({
-      ...prev,
-      [field]: error || ''
-    }));
+    setTouched((prev) => ({ ...prev, [field]: true }));
+
+    const value = field === 'khmdhsAdam' ? sanitizeAdamInput(formData[field]) : formData[field];
+    const fieldError =
+      field === 'khmdhsAdam' ? getAdamFieldError(value, 'strict') : validateField(field, value);
+
+    setErrors((prev) => {
+      const next = { ...prev };
+      if (fieldError) next[field] = fieldError;
+      else delete next[field];
+      return next;
+    });
   };
 
   const handleAmountBlur = (field) => {
@@ -1039,7 +1618,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
   const addContract = () => {
     setFormData(prev => ({
       ...prev,
-      contracts: [...prev.contracts, { date: '', amount: '', apeAmount: '', comments: '' }]
+      contracts: [...prev.contracts, { date: '', amount: '', apeAmount: '', comments: '', ...emptyKhmdhsOnContract() }]
     }));
   };
 
@@ -1047,21 +1626,40 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
     if (field === 'amount' || field === 'apeAmount') {
       value = formatAmount(value);
     }
+    if (field === 'khmdhsAdam') {
+      cancelKhmdhsFetch();
+      value = sanitizeAdamInput(value);
+    }
 
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      contracts: prev.contracts.map((contract, i) => 
-        i === index ? { ...contract, [field]: value } : contract
-      )
+      contracts: prev.contracts.map((contract, i) => (i === index ? { ...contract, [field]: value } : contract))
     }));
+
+    if (field === 'khmdhsAdam') {
+      const adamErr = getAdamFieldError(value, 'live');
+      const errKey = `khmdhsAdam${index}`;
+      setErrors((prev) => {
+        const next = { ...prev };
+        if (adamErr) next[errKey] = adamErr;
+        else delete next[errKey];
+        return next;
+      });
+    }
   };
 
 
   const removeContract = (index) => {
-    setFormData(prev => ({
+    cancelKhmdhsFetch();
+    setFormData((prev) => ({
       ...prev,
       contracts: prev.contracts.filter((_, i) => i !== index)
     }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[`khmdhsAdam${index}`];
+      return next;
+    });
   };
 
   // Functions for supplementary contracts
@@ -1433,11 +2031,157 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
       .replace(/\t/g, ' ')            // Αντιγράφει tabs
       .replace(/\s+/g, ' ')           // Αντικαθιστά όλα τα whitespace (συμπεριλαμβανομένων διπλών κενών) με ένα κενό
       .replace(/\u00A0/g, ' ')        // Αντιγράφει non-breaking spaces
-      .replace(/\u2000-\u200B/g, ' ') // Αντιγράφει διάφορα είδη spaces
+      .replace(/[\u2000-\u200B]/g, ' ') // Αντιγράφει διάφορα είδη spaces (Unicode)
       .replace(/\u2028/g, ' ')        // Αντιγράφει line separator
       .replace(/\u2029/g, ' ')        // Αντιγράφει paragraph separator
       .trim();
   };
+
+  const handleKhmdhsFetch = async (target) => {
+    const isMulti = isMultipleContractsForm(formData.implementationForm);
+    const contractIndex = typeof target === 'number' ? target : -1;
+    const adam = isMulti
+      ? sanitizeAdamInput(formData.contracts?.[contractIndex]?.khmdhsAdam)
+      : sanitizeAdamInput(formData.khmdhsAdam);
+    if (!adam) return;
+    const errKey = isMulti ? `khmdhsAdam${contractIndex}` : 'khmdhsAdam';
+    const formatErr = getAdamFieldError(adam, 'strict');
+    if (formatErr) {
+      setErrors((prev) => ({ ...prev, [errKey]: formatErr }));
+      setTouched((prev) => ({ ...prev, [errKey]: true }));
+      return;
+    }
+    const gen = ++khmdhsFetchGenRef.current;
+    setKhmdhsFetchLoadingTarget(isMulti ? contractIndex : 'single');
+    try {
+      const fetchPromise = ipcRenderer.invoke('khmdhs-fetch-contract-by-adam', { adam });
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Η ανάκτηση από το ΚΗΜΔΗΣ διήρκεσε πολύ. Δοκιμάστε ξανά.')), 90000);
+      });
+      const res = await Promise.race([fetchPromise, timeoutPromise]);
+      if (gen !== khmdhsFetchGenRef.current) return;
+      if (res?.success && res.snapshot) {
+        const snapshot = pickKhmdhsSnapshot(res.snapshot);
+        const fetchedAt = res.fetchedAt || new Date().toISOString();
+        setFormData((prev) => {
+          if (isMulti) {
+            return {
+              ...prev,
+              contracts: prev.contracts.map((c, i) =>
+                i === contractIndex
+                  ? { ...c, khmdhsAdam: adam, khmdhsContractSnapshot: snapshot, khmdhsContractFetchedAt: fetchedAt }
+                  : c
+              )
+            };
+          }
+          return {
+            ...prev,
+            khmdhsAdam: adam,
+            khmdhsContractSnapshot: snapshot,
+            khmdhsContractFetchedAt: fetchedAt
+          };
+        });
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next[errKey];
+          return next;
+        });
+      } else {
+        alert(res?.error || 'Η ανάκτηση από το ΚΗΜΔΗΣ απέτυχε.');
+      }
+    } catch (e) {
+      if (gen === khmdhsFetchGenRef.current) {
+        alert(e?.message || 'Σφάλμα κατά την επικοινωνία με το ΚΗΜΔΗΣ.');
+      }
+    } finally {
+      if (gen === khmdhsFetchGenRef.current) {
+        setKhmdhsFetchLoadingTarget(null);
+      }
+    }
+  };
+
+  const renderKhmdhsAdamBlock = ({
+    adam,
+    snapshot,
+    fetchedAt,
+    errorKey,
+    loading,
+    onAdamChange,
+    onBlur,
+    onFetch,
+    titleSuffix = ''
+  }) => (
+    <div style={{ marginTop: '0.85rem', paddingTop: '0.85rem', borderTop: '1px dashed rgba(99, 102, 241, 0.35)' }}>
+      <Label style={{ marginBottom: '0.45rem' }}>
+        ΑΔΑΜ σύμβασης{titleSuffix} (ΚΗΜΔΗΣ — προαιρετικό)
+      </Label>
+      <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <Input
+          type="text"
+          style={{ flex: '1 1 220px', minWidth: 0 }}
+          value={adam || ''}
+          onChange={onAdamChange}
+          onBlur={onBlur}
+          placeholder="π.χ. 26SYMV018523441"
+          maxLength={ADAM_MAX_LEN}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <SecondaryOutlineButton type="button" disabled={loading || !String(adam || '').trim()} onClick={onFetch}>
+          {loading ? 'Λήψη…' : 'Ανάκτηση από ΚΗΜΔΗΣ'}
+        </SecondaryOutlineButton>
+      </div>
+      <FieldHint style={{ marginTop: '0.4rem' }}>
+        Προαιρετικό — ανάδοχος, ΑΦΜ και αναθέτουσα από cerpp.eprocurement.gov.gr
+      </FieldHint>
+      {errors[errorKey] && <ErrorMessage>{errors[errorKey]}</ErrorMessage>}
+      {fetchedAt && (
+        <FieldHint style={{ marginTop: '0.35rem', fontWeight: 600 }}>
+          Τελευταία λήψη:{' '}
+          {(() => {
+            try {
+              const d = new Date(fetchedAt);
+              return Number.isNaN(d.getTime()) ? fetchedAt : d.toLocaleString('el-GR');
+            } catch {
+              return fetchedAt;
+            }
+          })()}
+        </FieldHint>
+      )}
+      {snapshot && (
+        <div
+          style={{
+            marginTop: '0.65rem',
+            padding: '0.65rem 0.85rem',
+            borderRadius: '10px',
+            background: 'linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%)',
+            border: '1px solid rgba(99, 102, 241, 0.35)',
+            fontSize: '0.84rem',
+            lineHeight: 1.5
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: '0.35rem', color: '#312e81' }}>Προεπισκόπηση</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.3rem 0.75rem' }}>
+            {snapshot.anadoxosName && (
+              <span>
+                <strong>Ανάδοχος:</strong> {snapshot.anadoxosName}
+              </span>
+            )}
+            {snapshot.anadoxosVat && (
+              <span>
+                <strong>ΑΦΜ:</strong> {snapshot.anadoxosVat}
+              </span>
+            )}
+            {snapshot.assigningAuthority && (
+              <span>
+                <strong>Αναθέτουσα:</strong> {snapshot.assigningAuthority}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   const handleSave = async () => {
     console.log('=== SAVE ATTEMPT ===');
@@ -1448,6 +2192,14 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
     const validation = validateForm();
     if (!validation.isValid) {
       console.log('Validation failed, errors:', validation.errors);
+      setErrors(validation.errors);
+      setTouched((prev) => ({
+        ...prev,
+        ...Object.keys(validation.errors).reduce((acc, key) => {
+          acc[key] = true;
+          return acc;
+        }, {})
+      }));
       return;
     }
 
@@ -1455,14 +2207,54 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
 
     try {
       // Normalize τα κείμενα πριν την αποθήκευση
+      let outside = Boolean(formData.supervisorChargeOutsideEngineers);
+      let supervisorEngineerIds = [];
+      if (!outside) {
+        const rawEng = Array.isArray(formData.supervisorEngineerIds) ? formData.supervisorEngineerIds : [];
+        const pEng = String(rawEng[0] || '').trim();
+        const seenEng = new Set();
+        if (pEng) {
+          supervisorEngineerIds.push(pEng);
+          seenEng.add(pEng);
+        }
+        rawEng.slice(1).forEach((id) => {
+          const s = String(id || '').trim();
+          if (s && !seenEng.has(s)) {
+            seenEng.add(s);
+            supervisorEngineerIds.push(s);
+          }
+        });
+      }
+
+      let supervisorChargeFreePrimary = normalizeText(formData.supervisorChargeFreePrimary || '');
+      let supervisorChargeFreeParticipants = normalizeText(formData.supervisorChargeFreeParticipants || '');
+
+      // Πριν καθαρισμό πεδίων: ελεύθερο κείμενο χωρίς κατάλογο = χρέωση εκτός μηχανικών
+      if (supervisorChargeFreePrimary.trim() && supervisorEngineerIds.length === 0) {
+        outside = true;
+      }
+
+      if (outside) {
+        supervisorChargeFreeParticipants = '';
+      } else {
+        supervisorChargeFreePrimary = '';
+        supervisorChargeFreeParticipants = '';
+      }
+
+      const { supervisor: _legacySupervisorSave, ...formWithoutLegacy } = formData;
       const normalizedFormData = {
-        ...formData,
+        ...formWithoutLegacy,
         projectTitle: normalizeText(formData.projectTitle),
         subprojectTitle: normalizeText(formData.subprojectTitle),
         comments: normalizeText(formData.comments),
         apeComments: normalizeText(formData.apeComments),
         remainingAmountComments: normalizeText(formData.remainingAmountComments),
-        aleRemainingAmounts: formData.aleRemainingAmounts || []
+        aleRemainingAmounts: formData.aleRemainingAmounts || [],
+        supervisorEngineerIds,
+        supervisorChargeOutsideEngineers: outside,
+        supervisorChargeFreePrimary,
+        supervisorChargeFreeParticipants,
+        ...resolveKhmdhsFieldsForSave(formData, editingProject)
       };
 
       const projectData = {
@@ -1502,8 +2294,11 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
         projectData.subprojectId = editingProject.subprojectId;
       } else {
         // Έλεγχος αν υπάρχει έργο με τον ίδιο τίτλο (μόνο για νέα έργα)
-        if (formData.projectTitle) {
-          const existingProject = await ipcRenderer.invoke('find-project-by-title', formData.projectTitle);
+        if (normalizedFormData.projectTitle) {
+          const existingProject = await ipcRenderer.invoke(
+            'find-project-by-title',
+            normalizedFormData.projectTitle
+          );
           if (existingProject) {
                   // Custom modal για επιλογή
                   const shouldAddToExisting = await new Promise((resolve) => {
@@ -1617,6 +2412,71 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
     }
   };
 
+  const mergeSupervisorEngineerIds = (primaryId, auxiliaryIds) => {
+    const p = String(primaryId || '').trim();
+    const aux = Array.isArray(auxiliaryIds) ? auxiliaryIds : [];
+    const seen = new Set();
+    const out = [];
+    if (p) {
+      out.push(p);
+      seen.add(p);
+    }
+    aux.forEach((id) => {
+      const s = String(id || '').trim();
+      if (s && !seen.has(s)) {
+        seen.add(s);
+        out.push(s);
+      }
+    });
+    return out;
+  };
+
+  const primaryEngineerId = (formData.supervisorEngineerIds || [])[0] || '';
+  const auxiliaryEngineerIds = (formData.supervisorEngineerIds || []).slice(1);
+  const auxiliaryEngineerOptions = (registeredEngineers || []).filter((e) => e.id && e.id !== primaryEngineerId);
+
+  const toggleAuxiliaryEngineer = (engineerId) => {
+    const sid = String(engineerId || '').trim();
+    if (!sid) return;
+    setFormData((prev) => {
+      const prim = (prev.supervisorEngineerIds || [])[0] || '';
+      if (sid === prim) return prev;
+      const ids = prev.supervisorEngineerIds || [];
+      const aux = ids.slice(1);
+      const has = aux.includes(sid);
+      const nextAux = has ? aux.filter((x) => x !== sid) : [...aux, sid];
+      return {
+        ...prev,
+        supervisorEngineerIds: mergeSupervisorEngineerIds(prim, nextAux)
+      };
+    });
+  };
+
+  const addAuxiliaryEngineerFromPicker = (engineerId) => {
+    const sid = String(engineerId || '').trim();
+    if (!sid) return;
+    setFormData((prev) => {
+      const prim = (prev.supervisorEngineerIds || [])[0] || '';
+      const aux = (prev.supervisorEngineerIds || []).slice(1);
+      if (sid === prim || aux.includes(sid)) return prev;
+      return {
+        ...prev,
+        supervisorEngineerIds: mergeSupervisorEngineerIds(prim, [...aux, sid])
+      };
+    });
+    setAuxPickerKey((k) => k + 1);
+  };
+
+  const auxiliaryAddDropdownOptions = auxiliaryEngineerOptions.filter((e) => !auxiliaryEngineerIds.includes(e.id));
+
+  const labelForEngineerId = (id) => {
+    const sid = String(id || '').trim();
+    const eng = (registeredEngineers || []).find(
+      (e) => e && e.id && String(e.id).trim().toLowerCase() === sid.toLowerCase()
+    );
+    return eng ? String(eng.fullName || eng.id).trim() || sid : sid;
+  };
+
   if (!isOpen) return null;
 
   const showContractFields = STATUSES_WITH_CONTRACT_FIELDS.includes(formData.projectStatus);
@@ -1630,6 +2490,11 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
           <FormTitle>
             {editingProject ? '✏️ Επεξεργασία Υποέργου' : '➕ Εισαγωγή Νέου Υποέργου'}
           </FormTitle>
+          <FormSubtitle>
+            {editingProject
+              ? 'Τροποποιήστε τα πεδία και αποθηκεύστε. Οι ενότητες είναι ομαδοποιημένες για πιο εύκολη πλοήγηση.'
+              : 'Συμπληρώστε βήμα-βήμα τα στοιχεία του νέου υποέργου. Τα πεδία με * είναι υποχρεωτικά.'}
+          </FormSubtitle>
         </FormHeader>
 
         <FormScrollArea>
@@ -1721,7 +2586,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
                       </AleCodeItem>
                     ))
                   ) : (
-                    <p style={{ color: '#9e9e9e', fontSize: '0.82rem', margin: '0.3rem 0' }}>Δεν έχουν προστεθεί</p>
+                    <MutedText>Δεν έχουν προστεθεί κωδικοί Α.Λ.Ε.</MutedText>
                   )}
                   <AddAleButton type="button" onClick={handleAddAleCode}>+ Προσθήκη Α.Λ.Ε.</AddAleButton>
                 </AleCodesContainer>
@@ -1904,14 +2769,136 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
                 </FormGroup>
               )}
 
-              <FormGroup>
-                <Label>Επιβλέπων Μηχανικός</Label>
-                <Input
-                  type="text"
-                  value={formData.supervisor}
-                  onChange={(e) => handleInputChange('supervisor', e.target.value)}
-                  placeholder="π.χ. Ιωάννης Παπαδόπουλος"
-                />
+              <FormGroup fullWidth cols={3}>
+                <Label>Χρέωση από κατάλογο μηχανικών (προαιρετικό)</Label>
+                <CheckboxContainer style={{ marginTop: 0, marginBottom: '0.75rem' }}>
+                  <Checkbox
+                    type="checkbox"
+                    id="supervisorChargeOutsideEngineers"
+                    checked={!!formData.supervisorChargeOutsideEngineers}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setFormData((prev) => ({
+                        ...prev,
+                        supervisorChargeOutsideEngineers: on,
+                        ...(on
+                          ? { supervisorEngineerIds: [] }
+                          : {
+                              supervisorChargeFreePrimary: '',
+                              supervisorChargeFreeParticipants: ''
+                            })
+                      }));
+                    }}
+                  />
+                  <CheckboxLabel htmlFor="supervisorChargeOutsideEngineers">Χρέωση εκτός μηχανικών</CheckboxLabel>
+                </CheckboxContainer>
+
+                {!formData.supervisorChargeOutsideEngineers ? (
+                  <>
+                    <EngineerPickGrid>
+                      <EngineerPickCard>
+                        <EngineerPickCardTitle>Κύριος / Κύρια (κατάλογος)</EngineerPickCardTitle>
+                        <Select
+                          value={primaryEngineerId}
+                          onChange={(e) => {
+                            const newPrimary = e.target.value;
+                            const aux = auxiliaryEngineerIds.filter((x) => x !== newPrimary);
+                            setFormData((prev) => ({
+                              ...prev,
+                              supervisorEngineerIds: mergeSupervisorEngineerIds(newPrimary, aux)
+                            }));
+                          }}
+                        >
+                          <option value="">— Καμία επιλογή —</option>
+                          {(registeredEngineers || []).map((eng) => (
+                            <option key={eng.id} value={eng.id}>
+                              {eng.fullName}
+                            </option>
+                          ))}
+                        </Select>
+                        {registeredEngineers.length === 0 && (
+                          <FieldHint style={{ marginTop: '0.5rem' }}>
+                            Δεν υπάρχουν διαθέσιμοι μηχανικοί. Ορίστε χρήστες με ρόλο «Μηχανικός» στη Διαχείριση χρηστών.
+                          </FieldHint>
+                        )}
+                      </EngineerPickCard>
+
+                      <EngineerPickCard>
+                        <EngineerPickCardTitle>Συμμετέχουν (κατάλογος)</EngineerPickCardTitle>
+                        <AuxiliaryParticipantBlock>
+                          {auxiliaryEngineerOptions.length === 0 ? (
+                            <AuxiliaryEmpty>
+                              {registeredEngineers.length === 0
+                                ? 'Κενός κατάλογος.'
+                                : registeredEngineers.length <= 1
+                                  ? 'Μόνο ένας μηχανικός στον κατάλογο.'
+                                  : 'Δεν υπάρχουν άλλοι διαθέσιμοι (ο κύριος εξαιρείται).'}
+                            </AuxiliaryEmpty>
+                          ) : (
+                            <>
+                              {auxiliaryAddDropdownOptions.length > 0 ? (
+                                <Select
+                                  key={auxPickerKey}
+                                  defaultValue=""
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    if (v) addAuxiliaryEngineerFromPicker(v);
+                                  }}
+                                  aria-label="Προσθήκη συμμετέχοντος από κατάλογο"
+                                >
+                                  <option value="">— Προσθήκη συμμετέχοντος —</option>
+                                  {auxiliaryAddDropdownOptions.map((eng) => (
+                                    <option key={eng.id} value={eng.id}>
+                                      {eng.fullName}
+                                    </option>
+                                  ))}
+                                </Select>
+                              ) : (
+                                <AuxiliaryEmpty>Όλοι οι διαθέσιμοι μηχανικοί έχουν προστεθεί ως συμμετέχοντες.</AuxiliaryEmpty>
+                              )}
+                              {auxiliaryEngineerIds.length > 0 && (
+                                <AuxiliaryChips>
+                                  {auxiliaryEngineerIds.map((id) => (
+                                    <AuxiliaryChip key={id}>
+                                      <AuxiliaryChipName title={labelForEngineerId(id)}>
+                                        {labelForEngineerId(id)}
+                                      </AuxiliaryChipName>
+                                      <AuxiliaryChipRemove
+                                        type="button"
+                                        aria-label={`Αφαίρεση ${labelForEngineerId(id)}`}
+                                        onClick={() => toggleAuxiliaryEngineer(id)}
+                                      >
+                                        ×
+                                      </AuxiliaryChipRemove>
+                                    </AuxiliaryChip>
+                                  ))}
+                                </AuxiliaryChips>
+                              )}
+                            </>
+                          )}
+                        </AuxiliaryParticipantBlock>
+                      </EngineerPickCard>
+                    </EngineerPickGrid>
+                    <FieldHint style={{ marginTop: '0.5rem' }}>
+                      Κύριος/κύρια από το αριστερό μενού· συμμετέχοντες με προσθήκη από τη λίστα (εμφανίζονται ως ετικέτες). Για χρέωση σε άλλη υπηρεσία / ελεύθερο κείμενο, τικάρετε «Χρέωση εκτός μηχανικών».
+                    </FieldHint>
+                  </>
+                ) : (
+                  <>
+                    <Label>Χρέωση (ελεύθερο κείμενο)</Label>
+                    <TextArea
+                      value={formData.supervisorChargeFreePrimary}
+                      onChange={(e) => handleInputChange('supervisorChargeFreePrimary', e.target.value)}
+                      placeholder="π.χ. Υπηρεσία, υπεύθυνος από άλλη υπηρεσία, ονόματα — ό,τι χρειάζεται για τη χρέωση"
+                      rows={4}
+                      style={{ minHeight: '100px' }}
+                    />
+                    <FieldHint>
+                      Οι επιλογές από τον κατάλογο μηχανικών απενεργοποιούνται για αυτό το υποέργο. Στην κάρτα εμφανίζεται αυτό το
+                      κείμενο ως «Χρεωμένο σε».
+                    </FieldHint>
+                  </>
+                )}
               </FormGroup>
 
               <FormGroup fullWidth cols={3}>
@@ -1943,29 +2930,43 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
               <SectionTitle>📝 Στοιχεία Σύμβασης</SectionTitle>
 
               {formData.implementationForm === 'Μια Σύμβαση' ? (
-                <FormGrid cols={3}>
-                  <FormGroup>
-                    <Label>Ημερομηνία Υπογραφής *</Label>
-                    <Input type="date" value={formData.contractDate} onChange={(e) => handleInputChange('contractDate', e.target.value)} />
-                    {errors.contractDate && <ErrorMessage>{errors.contractDate}</ErrorMessage>}
+                <>
+                  <FormGrid cols={3}>
+                    <FormGroup>
+                      <Label>Ημερομηνία Υπογραφής *</Label>
+                      <Input type="date" value={formData.contractDate} onChange={(e) => handleInputChange('contractDate', e.target.value)} />
+                      {errors.contractDate && <ErrorMessage>{errors.contractDate}</ErrorMessage>}
+                    </FormGroup>
+                    <FormGroup>
+                      <Label>Ποσό Σύμβασης *</Label>
+                      <Input type="text" value={formData.contractAmount} onChange={(e) => handleInputChange('contractAmount', e.target.value)} onBlur={() => handleAmountBlur('contractAmount')} placeholder="π.χ. 25.254,25" />
+                      {errors.contractAmount && <ErrorMessage>{errors.contractAmount}</ErrorMessage>}
+                    </FormGroup>
+                    <FormGroup>
+                      <Label>ΑΠΕ + Συμπληρωματικές *</Label>
+                      <Input type="text" value={formData.apeAmount} onChange={(e) => handleInputChange('apeAmount', e.target.value)} onBlur={() => handleAmountBlur('apeAmount')} placeholder="π.χ. 2.500,00" />
+                      <Input type="text" value={formData.apeComments} onChange={(e) => handleInputChange('apeComments', e.target.value)} placeholder="Σχόλια ΑΠΕ" style={{ marginTop: '0.4rem' }} />
+                      {errors.apeAmount && <ErrorMessage>{errors.apeAmount}</ErrorMessage>}
+                    </FormGroup>
+                  </FormGrid>
+                  <FormGroup fullWidth cols={3}>
+                    {renderKhmdhsAdamBlock({
+                      adam: formData.khmdhsAdam,
+                      snapshot: formData.khmdhsContractSnapshot,
+                      fetchedAt: formData.khmdhsContractFetchedAt,
+                      errorKey: 'khmdhsAdam',
+                      loading: khmdhsFetchLoadingTarget === 'single',
+                      onAdamChange: (e) => handleInputChange('khmdhsAdam', e.target.value),
+                      onBlur: () => handleFieldBlur('khmdhsAdam'),
+                      onFetch: () => handleKhmdhsFetch('single')
+                    })}
                   </FormGroup>
-                  <FormGroup>
-                    <Label>Ποσό Σύμβασης *</Label>
-                    <Input type="text" value={formData.contractAmount} onChange={(e) => handleInputChange('contractAmount', e.target.value)} onBlur={() => handleAmountBlur('contractAmount')} placeholder="π.χ. 25.254,25" />
-                    {errors.contractAmount && <ErrorMessage>{errors.contractAmount}</ErrorMessage>}
-                  </FormGroup>
-                  <FormGroup>
-                    <Label>ΑΠΕ + Συμπληρωματικές *</Label>
-                    <Input type="text" value={formData.apeAmount} onChange={(e) => handleInputChange('apeAmount', e.target.value)} onBlur={() => handleAmountBlur('apeAmount')} placeholder="π.χ. 2.500,00" />
-                    <Input type="text" value={formData.apeComments} onChange={(e) => handleInputChange('apeComments', e.target.value)} placeholder="Σχόλια ΑΠΕ" style={{ marginTop: '0.4rem' }} />
-                    {errors.apeAmount && <ErrorMessage>{errors.apeAmount}</ErrorMessage>}
-                  </FormGroup>
-                </FormGrid>
+                </>
               ) : (
-                <div>
+                <ContractsListWrap>
                   {formData.contracts.map((contract, index) => (
-                    <div key={index} style={{ background: '#f8f9fa', borderRadius: '8px', padding: '0.9rem 1rem', marginBottom: '0.8rem', border: '1px solid #e0e0e0' }}>
-                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#5c6bc0', marginBottom: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Σύμβαση {index + 1}</div>
+                    <ContractPanel key={index}>
+                      <ContractPanelTitle>Σύμβαση {index + 1}</ContractPanelTitle>
                       <FormGrid cols={3}>
                         <FormGroup>
                           <Label>Ημερομηνία Υπογραφής</Label>
@@ -1984,11 +2985,34 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
                           {errors[`apeAmount${index}`] && <ErrorMessage>{errors[`apeAmount${index}`]}</ErrorMessage>}
                         </FormGroup>
                       </FormGrid>
+                      {renderKhmdhsAdamBlock({
+                        adam: contract.khmdhsAdam,
+                        snapshot: contract.khmdhsContractSnapshot,
+                        fetchedAt: contract.khmdhsContractFetchedAt,
+                        errorKey: `khmdhsAdam${index}`,
+                        loading: khmdhsFetchLoadingTarget === index,
+                        titleSuffix: ` (σύμβαση ${index + 1})`,
+                        onAdamChange: (e) => updateContract(index, 'khmdhsAdam', e.target.value),
+                        onBlur: () => {
+                          const err = getAdamFieldError(
+                            sanitizeAdamInput(formData.contracts?.[index]?.khmdhsAdam),
+                            'strict'
+                          );
+                          setErrors((prev) => {
+                            const next = { ...prev };
+                            const key = `khmdhsAdam${index}`;
+                            if (err) next[key] = err;
+                            else delete next[key];
+                            return next;
+                          });
+                        },
+                        onFetch: () => handleKhmdhsFetch(index)
+                      })}
                       <RemoveContractButton onClick={() => removeContract(index)} style={{ marginTop: '0.5rem' }}>Αφαίρεση Σύμβασης</RemoveContractButton>
-                    </div>
+                    </ContractPanel>
                   ))}
                   <AddContractButton onClick={addContract}>+ Προσθήκη Σύμβασης</AddContractButton>
-                </div>
+                </ContractsListWrap>
               )}
 
               {/* Συμπληρωματικές */}
@@ -1998,10 +3022,10 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
               </CheckboxContainer>
 
               {formData.hasSupplementaryContracts && (
-                <div style={{ background: '#f0faf0', borderRadius: '8px', padding: '1rem', border: '1px solid #c3e6c3', marginTop: '0.5rem' }}>
-                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#28a745', marginBottom: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Συμπληρωματικές Συμβάσεις</div>
+                <SupplementaryOuter>
+                  <SupplementarySectionTitle>Συμπληρωματικές συμβάσεις</SupplementarySectionTitle>
                   {formData.supplementaryContracts.map((contract, index) => (
-                    <div key={index} style={{ background: 'white', borderRadius: '6px', padding: '0.8rem', marginBottom: '0.6rem', border: '1px solid #d4edda' }}>
+                    <SupplementaryInner key={index}>
                       <FormGrid cols={3}>
                         <FormGroup>
                           <Label>Ημερομηνία {index + 1}</Label>
@@ -2017,10 +3041,10 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
                         </FormGroup>
                       </FormGrid>
                       <RemoveSupplementaryButton onClick={() => removeSupplementaryContract(index)} style={{ marginTop: '0.5rem' }}>Αφαίρεση</RemoveSupplementaryButton>
-                    </div>
+                    </SupplementaryInner>
                   ))}
                   <AddSupplementaryButton onClick={addSupplementaryContract}>+ Προσθήκη Συμπληρωματικής</AddSupplementaryButton>
-                </div>
+                </SupplementaryOuter>
               )}
             </Section>
           )}
@@ -2030,41 +3054,41 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
             <SectionTitle>📁 Αρχεία Υποέργου</SectionTitle>
             <FileUploadSection onClick={handleFileSelect}>
               <div>
-                <strong>Ανέβασμα Αρχείων</strong>
-                <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.85rem', color: '#666' }}>Κλικ για επιλογή αρχείων (PDF, Word)</p>
+                <FileUploadTitle>Ανέβασμα αρχείων</FileUploadTitle>
+                <FileUploadHint>Κλικ εδώ για επιλογή αρχείων (π.χ. PDF, Word). Μπορείτε στη συνέχεια να τα ομαδοποιήσετε σε ομάδες.</FileUploadHint>
               </div>
             </FileUploadSection>
 
             {formData.fileGroups && formData.fileGroups.length > 0 && (
               <FileList>
-                <strong style={{ fontSize: '0.85rem', color: '#495057' }}>Ομάδες Αρχείων:</strong>
+                <FileListLabel>Ομάδες αρχείων</FileListLabel>
                 {formData.fileGroups.map((group) => (
-                  <div key={group.id} style={{ padding: '0.8rem', background: '#e8f5e8', border: '1px solid #c3e6c3', borderRadius: '8px', marginTop: '0.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span>📁</span>
-                        <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{group.title}</span>
-                        <span style={{ fontSize: '0.75rem', color: '#666', background: '#d4edda', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>{group.files.length} αρχείο(α)</span>
-                      </div>
-                      <button type="button" onClick={() => removeFileGroup(group.id)} style={{ background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', padding: '0.25rem 0.6rem', fontSize: '0.75rem', cursor: 'pointer' }}>🗑️ Αφαίρεση</button>
-                    </div>
+                  <FileGroupCard key={group.id}>
+                    <FileGroupToolbar>
+                      <FileGroupTitleBlock>
+                        <span aria-hidden>📁</span>
+                        <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{group.title}</span>
+                        <FileGroupMetaBadge>{group.files.length} αρχείο(α)</FileGroupMetaBadge>
+                      </FileGroupTitleBlock>
+                      <ToolbarDeleteBtn type="button" onClick={() => removeFileGroup(group.id)}>🗑 Αφαίρεση ομάδας</ToolbarDeleteBtn>
+                    </FileGroupToolbar>
                     {group.files.map((file, fileIndex) => (
-                      <div key={fileIndex} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.35rem 0.5rem', background: '#f8f9fa', border: '1px solid #e9ecef', borderRadius: '4px', marginBottom: '0.25rem' }}>
-                        <span style={{ fontSize: '0.78rem' }}>📄 {file.name}</span>
-                        <button type="button" onClick={() => removeFileFromGroup(group.id, fileIndex)} style={{ background: '#ffc107', color: '#212529', border: 'none', borderRadius: '3px', padding: '0.15rem 0.4rem', fontSize: '0.7rem', cursor: 'pointer' }}>Αφαίρεση</button>
-                      </div>
+                      <SmallFileRow key={fileIndex}>
+                        <span style={{ fontSize: '0.8rem', color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {file.name}</span>
+                        <ToolbarRemoveFileBtn type="button" onClick={() => removeFileFromGroup(group.id, fileIndex)}>Αφαίρεση</ToolbarRemoveFileBtn>
+                      </SmallFileRow>
                     ))}
-                  </div>
+                  </FileGroupCard>
                 ))}
               </FileList>
             )}
 
             {selectedFiles.length > 0 && (
               <FileList>
-                <strong style={{ fontSize: '0.85rem', color: '#495057' }}>Αρχεία Χωρίς Ομαδοποίηση:</strong>
+                <FileListLabel>Αρχεία χωρίς ομαδοποίηση</FileListLabel>
                 {selectedFiles.map((file, index) => (
                   <FileItem key={index}>
-                    <span>{file.name}</span>
+                    <span style={{ fontSize: '0.88rem', color: '#334155' }}>{file.name}</span>
                     <RemoveContractButton onClick={() => removeFile(index)}>Αφαίρεση</RemoveContractButton>
                   </FileItem>
                 ))}

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
 import { PROJECT_TYPES, FUNDING_SOURCES, PROJECT_STATUSES, FUNDING_DETAILS, IMPLEMENTATION_FORMS } from '../data/formOptions';
-
-const ipcRenderer = window.electronAPI;
+import { collectChargeFilterOptions } from '../utils/supervisorChargeDisplay';
 
 const FiltersOverlay = styled.div`
   position: fixed;
@@ -286,10 +285,10 @@ const HelpText = styled.div`
   font-style: italic;
 `;
 
-function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {} }) {
+function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {}, projects = [], engineerCatalog = [] }) {
   const [activeTab, setActiveTab] = useState('basic');
-  const [supervisors, setSupervisors] = useState([]);
-  const [supervisorsLoaded, setSupervisorsLoaded] = useState(false);
+  const [chargeOptions, setChargeOptions] = useState([]);
+  const [chargeOptionsLoaded, setChargeOptionsLoaded] = useState(false);
   const [filters, setFilters] = useState({
     projectTitle: '',
     subprojectTitle: '',
@@ -323,24 +322,32 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {} 
     contractAmountMax: '',
     apeAmountMin: '',
     apeAmountMax: '',
+    anadoxosName: '',
+    anadoxosVat: '',
     sortBy: 'kaCode',
     sortOrder: 'asc'
   });
 
-  // Load supervisors ΜΟΝΟ όταν ο χρήστης κάνει κλικ στο dropdown
-  const handleSupervisorDropdownFocus = () => {
-    if (!supervisorsLoaded) {
-      setSupervisorsLoaded(true);
-      ipcRenderer.invoke('get-all-supervisors')
-        .then(result => {
-          if (result.success && Array.isArray(result.supervisors)) {
-            setSupervisors(result.supervisors);
-          }
-        })
-        .catch(error => {
-          console.error('Error loading supervisors:', error);
-        });
+  const loadChargeFilterOptions = () => {
+    if (chargeOptionsLoaded && chargeOptions.length > 0) return;
+    setChargeOptionsLoaded(true);
+    const fromProjects = collectChargeFilterOptions(projects, engineerCatalog);
+    if (fromProjects.length > 0) {
+      setChargeOptions(fromProjects);
+      return;
     }
+    window.electronAPI
+      .invoke('get-all-supervisors')
+      .then((result) => {
+        if (result?.success && Array.isArray(result.chargeOptions) && result.chargeOptions.length > 0) {
+          setChargeOptions(result.chargeOptions);
+        } else if (result?.success && Array.isArray(result.supervisors)) {
+          setChargeOptions(result.supervisors.map((label) => ({ value: `free:${String(label).toLowerCase()}`, label })));
+        }
+      })
+      .catch((error) => {
+        console.error('Error loading charge filter options:', error);
+      });
   };
 
   // Initialize filters
@@ -349,6 +356,13 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {} 
       setFilters(prev => ({ ...prev, ...currentFilters }));
     }
   }, [isOpen, currentFilters]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const opts = collectChargeFilterOptions(projects, engineerCatalog);
+    setChargeOptions(opts);
+    setChargeOptionsLoaded(opts.length > 0);
+  }, [isOpen, projects, engineerCatalog]);
 
   const availableFundingDetails = useMemo(() => {
     if (filters.fundingSource.length === 1) {
@@ -417,6 +431,8 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {} 
       contractAmountMax: '',
       apeAmountMin: '',
       apeAmountMax: '',
+      anadoxosName: '',
+      anadoxosVat: '',
       sortBy: 'kaCode',
       sortOrder: 'asc'
     };
@@ -442,6 +458,9 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {} 
           </Tab>
           <Tab $active={activeTab === 'amounts'} onClick={() => setActiveTab('amounts')}>
             💰 Ποσά & Ημερομηνίες
+          </Tab>
+          <Tab $active={activeTab === 'khmdhs'} onClick={() => setActiveTab('khmdhs')}>
+            📋 ΚΗΜΔΗΣ
           </Tab>
           <Tab $active={activeTab === 'links'} onClick={() => setActiveTab('links')}>
             🔗 Συσχετίσεις
@@ -523,22 +542,28 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {} 
           {activeTab === 'categories' && (
             <FiltersGrid>
               <FilterSection>
-                <FilterLabel>👷 Επιβλέπων Μηχανικός</FilterLabel>
+                <FilterLabel>👷 Χρεωμένο σε</FilterLabel>
                 <FilterSelect
                   multiple
                   value={filters.supervisor}
                   onChange={(e) => handleMultiSelectChange('supervisor', e)}
-                  onFocus={handleSupervisorDropdownFocus}
+                  onFocus={loadChargeFilterOptions}
                 >
-                  {supervisorsLoaded ? (
-                    supervisors.map(sup => (
-                      <option key={sup} value={sup}>{sup}</option>
-                    ))
+                  {chargeOptionsLoaded ? (
+                    chargeOptions.length > 0 ? (
+                      chargeOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))
+                    ) : (
+                      <option disabled>Δεν υπάρχουν καταχωρημένες χρεώσεις</option>
+                    )
                   ) : (
                     <option disabled>Κάντε κλικ για φόρτωση...</option>
                   )}
                 </FilterSelect>
-                <HelpText>Κρατήστε Ctrl (ή Cmd) για πολλαπλή επιλογή</HelpText>
+                <HelpText>Κρατήστε Ctrl (ή Cmd) για πολλαπλή επιλογή · βάσει νέου συστήματος χρέωσης</HelpText>
               </FilterSection>
 
               <FilterSection>
@@ -649,6 +674,33 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {} 
                   <option value="2">2 συμβάσεις</option>
                   <option value="3+">3+ συμβάσεις</option>
                 </FilterSelect>
+              </FilterSection>
+            </FiltersGrid>
+          )}
+
+          {/* KHMDHS TAB */}
+          {activeTab === 'khmdhs' && (
+            <FiltersGrid>
+              <FilterSection>
+                <FilterLabel>🏢 Επωνυμία αναδόχου</FilterLabel>
+                <FilterInput
+                  type="text"
+                  placeholder="Μερικό ή πλήρες όνομα ανάδοχου από ΚΗΜΔΗΣ..."
+                  value={filters.anadoxosName}
+                  onChange={(e) => handleInputChange('anadoxosName', e.target.value)}
+                />
+                <HelpText>Αναζήτηση στα στοιχεία σύμβασης που αντλήθηκαν με ΑΔΑΜ (χωρίς τόνους)</HelpText>
+              </FilterSection>
+
+              <FilterSection>
+                <FilterLabel>🔢 ΑΦΜ ανάδοχου</FilterLabel>
+                <FilterInput
+                  type="text"
+                  placeholder="π.χ. 094012345"
+                  value={filters.anadoxosVat}
+                  onChange={(e) => handleInputChange('anadoxosVat', e.target.value)}
+                />
+                <HelpText>Μερικό ΑΦΜ ή πλήρες · αγνοεί κενά και σύμβολα</HelpText>
               </FilterSection>
             </FiltersGrid>
           )}
@@ -860,7 +912,7 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {} 
                   <option value="contractDate">Ημερομηνία Σύμβασης</option>
                   <option value="contractProcessStartDate">Ημ. Έναρξης Διαδικασίας</option>
                   <option value="projectStatus">Κατάσταση</option>
-                  <option value="supervisor">Επιβλέπων</option>
+                  <option value="chargeTo">Χρεωμένο σε</option>
                 </FilterSelect>
               </FilterSection>
 

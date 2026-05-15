@@ -3,78 +3,185 @@ import styled, { keyframes } from 'styled-components';
 
 const ipcRenderer = window.electronAPI;
 
-const slideIn = keyframes`
-  from { transform: translateY(-100%); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-`;
-
-const Banner = styled.div`
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  background: linear-gradient(135deg, #1565c0, #0d47a1);
-  color: white;
-  padding: 14px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  z-index: 99999;
-  animation: ${slideIn} 0.4s ease-out;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  font-family: inherit;
-`;
-
-const BannerText = styled.div`
-  flex: 1;
-  font-size: 14px;
-  line-height: 1.4;
-  strong { font-weight: 700; }
-`;
-
-const BannerActions = styled.div`
-  display: flex;
-  gap: 10px;
-  margin-left: 16px;
-  flex-shrink: 0;
-`;
-
-const BannerBtn = styled.button`
-  padding: 8px 20px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s;
-
-  &:hover { transform: translateY(-1px); }
-  &:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-`;
-
-const InstallBtn = styled(BannerBtn)`
-  background: #4caf50;
-  color: white;
-  &:hover { background: #43a047; }
-`;
-
-const DismissBtn = styled(BannerBtn)`
-  background: rgba(255,255,255,0.15);
-  color: white;
-  &:hover { background: rgba(255,255,255,0.25); }
-`;
-
+/** Μπάρα λήψης — παραμένει στην κορυφή όπως πριν */
 const ProgressBar = styled.div`
   position: fixed;
-  top: 0; left: 0; right: 0;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 3px;
-  background: rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.2);
   z-index: 100000;
 `;
 
 const ProgressFill = styled.div`
   height: 100%;
-  background: #4caf50;
-  transition: width 0.3s;
-  width: ${props => props.percent || 0}%;
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+  transition: width 0.25s ease-out;
+  width: ${(props) => props.percent || 0}%;
+  box-shadow: 0 0 12px rgba(74, 222, 128, 0.6);
+`;
+
+const toastIn = keyframes`
+  from {
+    opacity: 0;
+    transform: translate(12px, 16px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+`;
+
+const pulseRing = keyframes`
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.45), 0 8px 28px rgba(15, 23, 42, 0.18); }
+  50% { box-shadow: 0 0 0 6px rgba(99, 102, 241, 0), 0 12px 32px rgba(15, 23, 42, 0.22); }
+`;
+
+const UpdateCard = styled.div`
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  z-index: 99999;
+  width: min(380px, calc(100vw - 36px));
+  padding: 1.1rem 1.2rem 1.15rem;
+  border-radius: 16px;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.97) 0%,
+    rgba(248, 250, 252, 0.94) 45%,
+    rgba(241, 245, 249, 0.96) 100%
+  );
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow:
+    0 4px 6px -1px rgba(15, 23, 42, 0.06),
+    0 20px 40px -12px rgba(15, 23, 42, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.8) inset,
+    0 -1px 0 rgba(99, 102, 241, 0.12) inset;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  font-family: inherit;
+  animation: ${toastIn} 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 0;
+    height: 3px;
+    border-radius: 0 0 4px 4px;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6, #6366f1);
+    background-size: 200% 100%;
+    animation: ${shimmer} 2.5s ease-in-out infinite;
+  }
+
+  @media (max-width: 480px) {
+    right: 14px;
+    left: 14px;
+    width: auto;
+    bottom: 16px;
+  }
+`;
+
+const CardHeader = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+  margin-top: 0.15rem;
+`;
+
+const CardTitle = styled.div`
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+
+  strong {
+    font-weight: 800;
+    background: linear-gradient(135deg, #4338ca, #6366f1, #7c3aed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+`;
+
+const VersionPill = styled.span`
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  color: #4338ca;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+`;
+
+const CardBody = styled.p`
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #475569;
+`;
+
+const CardActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+`;
+
+const Btn = styled.button`
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+  }
+`;
+
+const BtnGhost = styled(Btn)`
+  background: rgba(15, 23, 42, 0.06);
+  color: #334155;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+
+  &:hover:not(:disabled) {
+    background: rgba(15, 23, 42, 0.09);
+  }
+`;
+
+const BtnPrimary = styled(Btn)`
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 50%, #7c3aed 100%);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
+
+  &:hover:not(:disabled) {
+    box-shadow: 0 6px 20px rgba(79, 70, 229, 0.45);
+  }
+`;
+
+const BtnInstall = styled(BtnPrimary)`
+  animation: ${pulseRing} 2.2s ease-in-out infinite;
 `;
 
 const UpdateNotifier = () => {
@@ -94,7 +201,7 @@ const UpdateNotifier = () => {
     const unsubDownloaded = ipcRenderer.on('update-downloaded', (info) => {
       setDownloaded(true);
       setDownloading(false);
-      setUpdateInfo(prev => prev ? { ...prev, ...info } : info);
+      setUpdateInfo((prev) => (prev ? { ...prev, ...info } : info));
     });
 
     const unsubProgress = ipcRenderer.on('update-download-progress', (progress) => {
@@ -145,35 +252,52 @@ const UpdateNotifier = () => {
     );
   }
 
+  const version = updateInfo.version || '';
+
   if (downloaded) {
     return (
-      <Banner>
-        <BannerText>
-          <strong>ERGOHUB {updateInfo.version}</strong> — Η ενημέρωση είναι έτοιμη για εγκατάσταση.
-          Η εφαρμογή θα κλείσει και θα ξεκινήσει ο εγκαταστάτης.
-        </BannerText>
-        <BannerActions>
-          <DismissBtn onClick={() => setDismissed(true)}>Αργότερα</DismissBtn>
-          <InstallBtn onClick={handleInstall} disabled={installing}>
+      <UpdateCard role="dialog" aria-label="Ενημέρωση ERGOHUB">
+        <CardHeader>
+          <CardTitle>
+            <strong>ERGOHUB</strong> — έτοιμη ενημέρωση
+          </CardTitle>
+          {version ? <VersionPill>v{version}</VersionPill> : null}
+        </CardHeader>
+        <CardBody>
+          Η λήψη ολοκληρώθηκε. Πατήστε «Εγκατάσταση» για να κλείσει η εφαρμογή και να ξεκινήσει ο εγκαταστάτης.
+        </CardBody>
+        <CardActions>
+          <BtnGhost type="button" onClick={() => setDismissed(true)}>
+            Αργότερα
+          </BtnGhost>
+          <BtnInstall type="button" onClick={handleInstall} disabled={installing}>
             {installing ? 'Εγκατάσταση...' : 'Εγκατάσταση τώρα'}
-          </InstallBtn>
-        </BannerActions>
-      </Banner>
+          </BtnInstall>
+        </CardActions>
+      </UpdateCard>
     );
   }
 
   return (
-    <Banner>
-      <BannerText>
-        <strong>Νέα έκδοση {updateInfo.version}</strong> — Υπάρχει διαθέσιμη ενημέρωση.
-      </BannerText>
-      <BannerActions>
-        <DismissBtn onClick={() => setDismissed(true)}>Αργότερα</DismissBtn>
-        <InstallBtn onClick={handleDownload} disabled={downloading}>
+    <UpdateCard role="dialog" aria-label="Διαθέσιμη ενημέρωση ERGOHUB">
+      <CardHeader>
+        <CardTitle>
+          <strong>Νέα έκδοση</strong> διαθέσιμη
+        </CardTitle>
+        {version ? <VersionPill>v{version}</VersionPill> : null}
+      </CardHeader>
+      <CardBody>
+        Υπάρχει ενημέρωση για το ERGOHUB. Πατήστε «Λήψη» για να ξεκινήσει η λήψη (η πρόοδος εμφανίζεται στην κορυφή της οθόνης).
+      </CardBody>
+      <CardActions>
+        <BtnGhost type="button" onClick={() => setDismissed(true)}>
+          Αργότερα
+        </BtnGhost>
+        <BtnPrimary type="button" onClick={handleDownload} disabled={downloading}>
           {downloading ? 'Λήψη...' : 'Λήψη ενημέρωσης'}
-        </InstallBtn>
-      </BannerActions>
-    </Banner>
+        </BtnPrimary>
+      </CardActions>
+    </UpdateCard>
   );
 };
 

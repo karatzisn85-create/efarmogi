@@ -148,7 +148,7 @@ function SearchFilters({ onApplyFilters }) {
   const [filters, setFilters] = useState({
     projectTitle: '',
     subprojectTitle: '',
-    supervisor: '',
+    chargeSearch: '',
     projectType: '',
     fundingSource: '',
     projectStatus: '',
@@ -171,7 +171,7 @@ function SearchFilters({ onApplyFilters }) {
     const clearedFilters = {
       projectTitle: '',
       subprojectTitle: '',
-      supervisor: '',
+      chargeSearch: '',
       projectType: '',
       fundingSource: '',
       projectStatus: '',
@@ -275,12 +275,12 @@ function SearchFilters({ onApplyFilters }) {
           </FilterGroup>
 
           <FilterGroup>
-            <FilterLabel>Επιβλέπων</FilterLabel>
+            <FilterLabel>Χρεωμένο σε</FilterLabel>
             <FilterInput
               type="text"
-              placeholder="Αναζήτηση με βάση το όνομα επιβλέποντα..."
-              value={filters.supervisor}
-              onChange={(e) => handleFilterChange('supervisor', e.target.value)}
+              placeholder="Αναζήτηση χρέωσης υποέργου..."
+              value={filters.chargeSearch}
+              onChange={(e) => handleFilterChange('chargeSearch', e.target.value)}
             />
           </FilterGroup>
 

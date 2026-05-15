@@ -21,7 +21,20 @@ import DocumentTemplatesManager from './DocumentTemplatesManager';
 import BackupManager from './BackupManager';
 import AuditLogViewer from './AuditLogViewer';
 import UserManagement from './UserManagement';
+import TaskAssignmentManager from './TaskAssignmentManager';
+import TaskAssignmentToastHost from './TaskAssignmentToastHost';
+import SubprojectExcelImportModal from './SubprojectExcelImportModal';
 import { containsSearchTerm } from '../utils/searchUtils';
+import {
+  getProjectChargeSearchText,
+  projectMatchesChargeFilters,
+  projectVisibleToAssignedEngineer,
+  buildEngineerVisibilityContext
+} from '../utils/supervisorChargeDisplay';
+import {
+  getProjectKhmdhsSearchText,
+  projectMatchesKhmdhsAnadoxosFilters
+} from '../utils/khmdhsFields';
 import { getCharacterization } from '../data/formOptions';
 
 const ipcRenderer = window.electronAPI;
@@ -43,6 +56,29 @@ const hexToRgba = (hex, alpha = 0.25) => {
   const b = bigint & 255;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
+
+/**
+ * Τίτλος κεφαλίδας ομάδας υποέργων: όταν το ίδιο έργο έχει διαφορετική κεφαλαιοποίηση στο projectTitle
+ * ανά data.json, επιλέγουμε την πιο συχνή τιμή (ώστε μία κεφαλίδα αντί για διπλότυπα).
+ */
+function pickDisplayProjectTitleForGroup(subprojects) {
+  if (!subprojects?.length) return '';
+  const counts = new Map();
+  for (const p of subprojects) {
+    const t = (p.projectTitle || '').trim();
+    if (!t) continue;
+    counts.set(t, (counts.get(t) || 0) + 1);
+  }
+  let best = (subprojects[0] && subprojects[0].projectTitle) || '';
+  let bestCount = -1;
+  for (const [t, c] of counts) {
+    if (c > bestCount || (c === bestCount && t.length > best.length)) {
+      best = t;
+      bestCount = c;
+    }
+  }
+  return best;
+}
 
 // Force webpack to include EgkriseisForm
 const EgkriseisFormComponent = EgkriseisForm;
@@ -883,6 +919,19 @@ const AdminButtonIcon = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
+`;
+
+const SidebarCountBadge = styled.span`
+  margin-left: auto;
+  min-width: 1.25rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.2;
 `;
 
 const NotesOverlay = styled.div`
@@ -1761,11 +1810,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
       ? currentUser.assignedSupervisors.map(s => String(s || '').trim()).filter(Boolean)
       : []
   ), [currentUser?.assignedSupervisors]);
+
+  const engineerVisibilityContext = useMemo(
+    () => buildEngineerVisibilityContext(currentUser, engineerSupervisors),
+    [currentUser, engineerSupervisors]
+  );
   const [projects, setProjects] = useState([]);
   const [filteredProjects, setFilteredProjects] = useState([]);
   const [entaxeis, setEntaxeis] = useState([]);
   const [proskliseis, setProskliseis] = useState([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isEgkriseisFormOpen, setIsEgkriseisFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
   const [selectedDetailProject, setSelectedDetailProject] = useState(null);
@@ -1777,6 +1832,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   const [expandedCategories, setExpandedCategories] = useState({
     projects: false,
     management: false,
+    assignments: false,
     exports: false,
     tools: false,
     system: false
@@ -1820,22 +1876,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
     contractAmountMax: '',
     apeAmountMin: '',
     apeAmountMax: '',
+    anadoxosName: '',
+    anadoxosVat: '',
     sortBy: 'kaCode',
     sortOrder: 'asc'
   });
   
   // Εμφάνιση αρχειοθετημένων (Ολοκληρωμένα & Αποπληρωμένα)
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
-
-  const visibleProjects = useMemo(() => {
-    if (!isEngineer) return projects;
-    if (engineerSupervisors.length === 0) return [];
-    const allowed = new Set(engineerSupervisors.map(s => s.toLowerCase()));
-    return projects.filter(project => {
-      const projectSupervisor = String(project?.supervisor || '').trim().toLowerCase();
-      return projectSupervisor && allowed.has(projectSupervisor);
-    });
-  }, [projects, isEngineer, engineerSupervisors]);
 
   // Scroll position preservation
   const contentWrapperRef = useRef(null);
@@ -1879,6 +1927,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   const [isBackupManagerOpen, setIsBackupManagerOpen] = useState(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [isTaskAssignmentsOpen, setIsTaskAssignmentsOpen] = useState(false);
+  const [taskAssignmentsFocusTaskId, setTaskAssignmentsFocusTaskId] = useState(null);
+  const [taskAccess, setTaskAccess] = useState({ showModule: false, unreadCount: 0, canAssign: false });
+  const [engineerCatalogForCards, setEngineerCatalogForCards] = useState([]);
+
+  const visibleProjects = useMemo(() => {
+    if (!isEngineer) return projects;
+    return projects.filter((project) =>
+      projectVisibleToAssignedEngineer(project, engineerVisibilityContext, engineerCatalogForCards)
+    );
+  }, [projects, isEngineer, engineerVisibilityContext, engineerCatalogForCards]);
+
   const [isEntaxisOpen, setIsEntaxisOpen] = useState(false);
   const [entaxisProjectFilter, setEntaxisProjectFilter] = useState(null);
   const [isProsklisisOpen, setIsProsklisisOpen] = useState(false);
@@ -2146,6 +2206,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
     if (filters.approvedAmountMin || filters.approvedAmountMax) count++;
     if (filters.contractAmountMin || filters.contractAmountMax) count++;
     if (filters.apeAmountMin || filters.apeAmountMax) count++;
+    if (filters.anadoxosName) count++;
+    if (filters.anadoxosVat) count++;
     return count;
   }, []);
 
@@ -2165,7 +2227,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
             containsSearchTerm(p.subprojectTitle, debouncedQuickSearchText) ||
             containsSearchTerm(p.kaCode, debouncedQuickSearchText) ||
             aleCodesMatch ||
-            containsSearchTerm(p.supervisor, debouncedQuickSearchText);
+            containsSearchTerm(getProjectChargeSearchText(p, engineerCatalogForCards), debouncedQuickSearchText) ||
+            containsSearchTerm(getProjectKhmdhsSearchText(p), debouncedQuickSearchText);
         });
       }
 
@@ -2206,7 +2269,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
       }
 
       if (filters.supervisor && filters.supervisor.length > 0) {
-        filtered = filtered.filter(p => filters.supervisor.includes(p.supervisor));
+        filtered = filtered.filter((p) => projectMatchesChargeFilters(p, filters.supervisor));
+      }
+
+      if (filters.anadoxosName || filters.anadoxosVat) {
+        filtered = filtered.filter((p) =>
+          projectMatchesKhmdhsAnadoxosFilters(p, {
+            anadoxosName: filters.anadoxosName,
+            anadoxosVat: filters.anadoxosVat
+          })
+        );
       }
 
       if (filters.projectType && filters.projectType.length > 0) {
@@ -2417,9 +2489,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
               aVal = a.projectStatus || '';
               bVal = b.projectStatus || '';
               break;
-            case 'supervisor':
-              aVal = a.supervisor || '';
-              bVal = b.supervisor || '';
+            case 'chargeTo':
+              aVal = getProjectChargeSearchText(a, engineerCatalogForCards) || '';
+              bVal = getProjectChargeSearchText(b, engineerCatalogForCards) || '';
               break;
             default:
               aVal = a.kaCode || '';
@@ -2459,7 +2531,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
     } else {
       setTimeout(performFiltering, 0);
     }
-  }, [visibleProjects, debouncedQuickSearchText, quickSearchStatus, quickSearchType, showArchivedProjects]);
+  }, [visibleProjects, debouncedQuickSearchText, quickSearchStatus, quickSearchType, showArchivedProjects, engineerCatalogForCards]);
 
   // Apply filters when dependencies change
   const applyFiltersTimeoutRef = useRef(null);
@@ -2779,6 +2851,23 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
     setDataCache(prev => ({ ...prev, needsRefresh: true }));
   };
 
+  const loadEngineerCatalogForCards = useCallback(async () => {
+    try {
+      const res = await ipcRenderer.invoke('get-registered-engineers');
+      if (res?.success && Array.isArray(res.engineers)) {
+        setEngineerCatalogForCards(res.engineers);
+      } else {
+        setEngineerCatalogForCards([]);
+      }
+    } catch {
+      setEngineerCatalogForCards([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadEngineerCatalogForCards();
+  }, [loadEngineerCatalogForCards]);
+
   const loadProjects = async () => {
     try {
       // Πρώτα καθάρισε τα κολλημένα locks
@@ -3051,6 +3140,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
         setEditingProject(null);
         
         await loadDataWithCache(true); // Force refresh για να δείξει τις αλλαγές
+        await loadEngineerCatalogForCards();
       } else {
         console.error('Error saving project:', result.error);
         alert('Σφάλμα αποθήκευσης: ' + result.error);
@@ -3100,6 +3190,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
       contractAmountMax: '',
       apeAmountMin: '',
       apeAmountMax: '',
+      anadoxosName: '',
+      anadoxosVat: '',
       sortBy: 'kaCode',
       sortOrder: 'asc'
     });
@@ -3189,6 +3281,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       if (contentWrapperRef.current) {
         savedScrollPosition.current = contentWrapperRef.current.scrollTop;
       }
+      loadEngineerCatalogForCards();
       setIsFormOpen(true);
     } catch (error) {
       console.error('Error in handleEditProject:', error);
@@ -4017,6 +4110,44 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setIsNotesOpen(false);
   }, []);
 
+  const refreshTaskAccess = useCallback(async () => {
+    if (!currentUser?.username) return;
+    try {
+      const res = await ipcRenderer.invoke('get-task-assignment-access', {
+        actingUsername: currentUser.username
+      });
+      if (res?.success) {
+        setTaskAccess({
+          showModule: !!res.showModule,
+          unreadCount: res.unreadCount || 0,
+          canAssign: !!res.canAssign
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [currentUser?.username]);
+
+  const openTaskAssignmentsFromToast = useCallback((taskId) => {
+    setTaskAssignmentsFocusTaskId(taskId || null);
+    setIsTaskAssignmentsOpen(true);
+  }, []);
+
+  useEffect(() => {
+    refreshTaskAccess();
+  }, [refreshTaskAccess]);
+
+  useEffect(() => {
+    const unsub = window.electronAPI?.on?.('task-notification', (payload) => {
+      if (payload?.username?.toLowerCase() === currentUser?.username?.toLowerCase()) {
+        refreshTaskAccess();
+      }
+    });
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, [currentUser?.username, refreshTaskAccess]);
+
   const handleOpenEntaxis = (projectTitle = null) => {
     setEntaxisProjectFilter(projectTitle);
     setIsEntaxisOpen(true);
@@ -4160,10 +4291,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   }, [visibleProjects]);
 
 
-  // Group projects by project title - Memoized for performance
+  // Ομαδοποίηση κατά projectId (πηγή αλήθειας)· ο τίτλος μπορεί να διαφέρει σε κεφαλαιοποίηση ανά υποέργο.
   const groupedProjects = useMemo(() => {
     return filteredProjects.reduce((groups, project) => {
-      const key = project.projectTitle;
+      const key = project.projectId || `__missing_project_id__:${project.subprojectId || 'unknown'}`;
       if (!groups[key]) {
         groups[key] = [];
       }
@@ -4192,7 +4323,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   const projectsAsArrayOfArrays = useMemo(() => {
     const allProjects = projects.length > 0 ? projects : filteredProjects;
     const grouped = allProjects.reduce((groups, project) => {
-      const key = project.projectTitle;
+      const key = project.projectId || `__missing_project_id__:${project.subprojectId || 'unknown'}`;
       if (!groups[key]) {
         groups[key] = [];
       }
@@ -4281,8 +4412,13 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               </EmptyState>
             ) : (
               Object.entries(groupedProjects)
-                .sort(([a], [b]) => a.localeCompare(b, 'el', { sensitivity: 'base' })) // Αλφαβητική ταξινόμηση
-                .map(([projectTitle, subprojects]) => {
+                .sort(([, subsA], [, subsB]) => {
+                  const titleA = pickDisplayProjectTitleForGroup(subsA);
+                  const titleB = pickDisplayProjectTitleForGroup(subsB);
+                  return titleA.localeCompare(titleB, 'el', { sensitivity: 'base' });
+                })
+                .map(([projectId, subprojects]) => {
+                  const projectTitle = pickDisplayProjectTitleForGroup(subprojects);
                   // Calculate total entaxi amount for all subprojects in this project
                   // IMPORTANT: Use unique entaxis to avoid counting the same entaxi multiple times
                   // if it's linked to multiple subprojects
@@ -4317,7 +4453,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                   };
                   
                   return (
-                  <ProjectGroup key={projectTitle}>
+                  <ProjectGroup key={projectId}>
                     <ProjectGroupTitle>
                       <span style={{ flex: 1 }}>{projectTitle}</span>
                       {totalEntaxiAmount > 0 && (
@@ -4357,6 +4493,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                               hasProsklisi={hasProsklisiForProject(project.projectTitle, project.projectId)}
                               onOpenSpecificProsklisi={() => handleOpenSpecificProsklisi(project.projectTitle, project.projectId)}
                               onViewDetails={(p) => setSelectedDetailProject(p)}
+                              engineerCatalog={engineerCatalogForCards}
                             />
                           );
                         })}
@@ -4481,10 +4618,25 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           </CategoryHeader>
           <CategoryBody $open={expandedCategories.projects}>
             {canManageAll && (
+              <AdminButton
+                onClick={() => {
+                  if (contentWrapperRef.current) {
+                    savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                  }
+                  setIsExcelImportOpen(true);
+                }}
+              >
+                <AdminButtonIcon>📥</AdminButtonIcon>
+                Εισαγωγή από Excel
+              </AdminButton>
+            )}
+            {canManageAll && (
               <AdminButton primary onClick={() => {
                 if (contentWrapperRef.current) {
                   savedScrollPosition.current = contentWrapperRef.current.scrollTop;
                 }
+                setEditingProject(null);
+                loadEngineerCatalogForCards();
                 setIsFormOpen(true);
               }}>
                 <AdminButtonIcon>➕</AdminButtonIcon>
@@ -4544,6 +4696,27 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               </AdminButton>
             </CategoryBody>
           </CategorySection>
+
+        {taskAccess.showModule && (
+          <CategorySection>
+            <CategoryHeader $open={expandedCategories.assignments} onClick={() => toggleCategory('assignments')}>
+              <CategoryHeaderLeft>
+                <CategoryHeaderIcon $accent="linear-gradient(135deg, #6366f1, #4f46e5)">📌</CategoryHeaderIcon>
+                <CategoryHeaderTitle>Αναθέσεις</CategoryHeaderTitle>
+              </CategoryHeaderLeft>
+              <CategoryHeaderChevron $open={expandedCategories.assignments}>▶</CategoryHeaderChevron>
+            </CategoryHeader>
+            <CategoryBody $open={expandedCategories.assignments}>
+              <AdminButton onClick={() => setIsTaskAssignmentsOpen(true)}>
+                <AdminButtonIcon>✅</AdminButtonIcon>
+                Αναθέσεις Εργασιών
+                {taskAccess.unreadCount > 0 && (
+                  <SidebarCountBadge>{taskAccess.unreadCount > 99 ? '99+' : taskAccess.unreadCount}</SidebarCountBadge>
+                )}
+              </AdminButton>
+            </CategoryBody>
+          </CategorySection>
+        )}
 
         {/* Κατηγορία: ΕΞΑΓΩΓΕΣ */}
         <CategorySection>
@@ -4629,6 +4802,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       {selectedDetailProject && (
         <SubprojectDetailModal
           project={selectedDetailProject}
+          engineerCatalog={engineerCatalogForCards}
           onClose={() => setSelectedDetailProject(null)}
           onEdit={(p) => {
             setSelectedDetailProject(null);
@@ -4638,6 +4812,20 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           isLocked={selectedDetailProject.isLocked || false}
         />
       )}
+
+      {/* Εισαγωγή υποέργων από Excel */}
+      <SubprojectExcelImportModal
+        isOpen={isExcelImportOpen}
+        onClose={() => setIsExcelImportOpen(false)}
+        onImportSuccess={async () => {
+          invalidateCache();
+          if (contentWrapperRef.current) {
+            savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+          }
+          shouldRestoreScroll.current = true;
+          await loadDataWithCache(true);
+        }}
+      />
 
       {/* Project Form Modal */}
       <ProjectForm
@@ -4720,6 +4908,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         onClose={() => setIsFiltersOpen(false)}
         onApplyFilters={handleApplyAdvancedFilters}
         currentFilters={advancedFilters}
+        projects={visibleProjects}
+        engineerCatalog={engineerCatalogForCards}
       />
 
       {/* File Manager Modal */}
@@ -5253,13 +5443,37 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         />
       )}
 
-      {isUserManagementOpen && (
-        <UserManagement
-          onClose={() => setIsUserManagementOpen(false)}
-          currentUser={currentUser}
+      {currentUser?.username && (
+        <TaskAssignmentToastHost
+          actingUsername={currentUser.username}
+          onOpenTaskAssignment={openTaskAssignmentsFromToast}
+          onNotificationConsumed={refreshTaskAccess}
         />
       )}
 
+      <TaskAssignmentManager
+        isOpen={isTaskAssignmentsOpen}
+        onClose={() => {
+          setIsTaskAssignmentsOpen(false);
+          setTaskAssignmentsFocusTaskId(null);
+        }}
+        currentUser={currentUser}
+        isSuperAdmin={isSuperAdmin}
+        onAccessRefresh={refreshTaskAccess}
+        focusTaskId={taskAssignmentsFocusTaskId}
+        onFocusTaskConsumed={() => setTaskAssignmentsFocusTaskId(null)}
+      />
+
+      {isUserManagementOpen && (
+        <UserManagement
+          onClose={() => {
+            setIsUserManagementOpen(false);
+            loadEngineerCatalogForCards();
+          }}
+          onUsersChanged={loadEngineerCatalogForCards}
+          currentUser={currentUser}
+        />
+      )}
 
       {/* Note Modal */}
       {isNoteModalOpen && selectedNoteForModal && (

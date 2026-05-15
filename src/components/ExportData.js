@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { getCharacterization } from '../data/formOptions';
+import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -325,7 +326,8 @@ const EXPORT_FIELDS_ORDER = [
   { id: 'contractDate', label: 'Ημερομηνία Υπογραφής Σύμβασης', width: 18 },
   { id: 'contractAmount', label: 'Ποσό Σύμβασης', width: 16 },
   { id: 'apeAmount', label: 'ΑΠΕ + Συμπληρωματικές Συμβάσεις', width: 22 },
-  { id: 'supervisor', label: 'Επιβλέπων', width: 25 },
+  { id: 'chargeTo', label: 'Χρεωμένο σε', width: 25 },
+  { id: 'chargeParticipants', label: 'Συμμετέχουν', width: 30 },
   { id: 'comments', label: 'Σχόλια', width: 40 },
   { id: 'eisigitikiEkthesi', label: 'Εισηγητική Έκθεση', width: 60 },
   { id: 'characterization', label: 'Χαρακτηρισμός (ΝΕΟ/ΣΥΝΕΧΙΖΟΜΕΝΟ)', width: 30 }
@@ -369,7 +371,8 @@ const EXPORT_FIELDS = {
   additional: {
     title: '📝 Επιπλέον Στοιχεία',
     fields: [
-      { id: 'supervisor', label: 'Επιβλέπων', width: 25 },
+      { id: 'chargeTo', label: 'Χρεωμένο σε', width: 25 },
+      { id: 'chargeParticipants', label: 'Συμμετέχουν', width: 30 },
       { id: 'remainingAmountComments', label: 'Σχόλια Υπολοίπων', width: 25 },
       { id: 'comments', label: 'Σχόλια', width: 40 },
       { id: 'eisigitikiEkthesi', label: 'Εισηγητική Έκθεση', width: 60 },
@@ -554,6 +557,10 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
             }
           } else if (field.id === 'characterization') {
             value = getCharacterization(project) || '';
+          } else if (field.id === 'chargeTo') {
+            value = getProjectChargeDisplay(project, []).displayChargePrimary;
+          } else if (field.id === 'chargeParticipants') {
+            value = getProjectChargeDisplay(project, []).displayChargeParticipants;
           } else {
             value = project[field.id] || '';
             
