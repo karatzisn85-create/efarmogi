@@ -4,8 +4,14 @@ import {
   TASK_STATUS_LABELS,
   TASK_PRIORITY_LABELS,
   formatTaskDueDate,
-  isTaskOverdue
+  isTaskOverdue,
+  isTaskWithdrawnByAssigner,
+  hasLeftWorkArchive,
+  formatAssigneeDisplayNames,
+  formatLeftArchiveDisplayNames,
+  getArchiveReadonlyMessage
 } from '../utils/taskAssignmentDisplay';
+import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 
 const ipcRenderer = window.electronAPI;
 
@@ -378,6 +384,35 @@ const FlowPhaseLabel = styled.span`
   border: 1px solid #e2e8f0;
 `;
 
+const SystemEventWrap = styled.div`
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+  margin: 0.35rem 0;
+`;
+
+const SystemEventCard = styled.div`
+  max-width: min(36rem, 100%);
+  padding: 0.55rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid #fde68a;
+  background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+  color: #92400e;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  text-align: center;
+  strong {
+    font-weight: 800;
+  }
+  time {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.72rem;
+    color: #b45309;
+    font-weight: 600;
+  }
+`;
+
 const FileTimelineRow = styled.div`
   align-self: stretch;
   width: 100%;
@@ -581,6 +616,18 @@ const Composer = styled.div`
   background: linear-gradient(180deg, #fafbff 0%, #f1f5ff 55%, #f8fafc 100%);
   border-top: 1px solid #dce3fb;
   box-shadow: 0 -3px 0 #c7d2fe inset;
+`;
+
+const ArchiveComposerNotice = styled.p`
+  margin: 0 0 0.45rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  font-weight: 600;
 `;
 
 const ComposerRow = styled.div`
@@ -923,13 +970,13 @@ function chatBubbleVariant(authorUsername, actingUsername, task) {
 function roleTagForVariant(variant) {
   if (variant === 'mine') return null;
   if (variant === 'assigner') return { label: 'Αναθέτων', bg: '#fef3c7', color: '#92400e' };
-  if (variant === 'assignee') return { label: 'Παραλήπτης', bg: '#dbeafe', color: '#1e40af' };
+  if (variant === 'assignee') return { label: 'Συνάδελφος', bg: '#dbeafe', color: '#1e40af' };
   return { label: 'Συμμετέχων', bg: '#f1f5f9', color: '#475569' };
 }
 
-/** Χρονολογική ροή: αρχική ανάθεση → αρχεία & σχόλια. */
+/** Χρονολογική ροή: έναρξη χώρου → αρχεία & σχόλια. */
 function buildUnifiedTimeline(task) {
-  const TYPE_ORDER = { origin: 0, file: 1, comment: 2 };
+  const TYPE_ORDER = { origin: 0, file: 1, comment: 2, system: 3 };
   const items = [];
 
   const originAt = task.createdAt || task.statusHistory?.[0]?.at || new Date(0).toISOString();
@@ -961,6 +1008,18 @@ function buildUnifiedTimeline(task) {
     });
   });
 
+  (task.statusHistory || []).forEach((h, idx) => {
+    const note = String(h.note || '');
+    if (!note.includes('αποθήκη')) return;
+    items.push({
+      id: `timeline-archive-${h.at}-${idx}`,
+      type: 'system',
+      at: h.at,
+      author: h.by,
+      text: note
+    });
+  });
+
   items.sort((a, b) => {
     const ta = new Date(a.at).getTime();
     const tb = new Date(b.at).getTime();
@@ -980,23 +1039,49 @@ function TaskAssignmentWorkspace({
   canEditAsAssigner,
   onEdit,
   onDelete,
-  isSuperAdmin = false
+  isSuperAdmin = false,
+  workArchiveMode = false,
+  onLeaveArchive
 }) {
   const [comment, setComment] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
+  const [leaveArchiveModalOpen, setLeaveArchiveModalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const feedRef = useRef(null);
+  const prevRejectModalRef = useRef(false);
+  const prevWithdrawModalRef = useRef(false);
+  const prevLeaveArchiveModalRef = useRef(false);
 
   const isAssigner = task.createdBy?.toLowerCase() === actingUsername?.toLowerCase();
   const isAssignee = (task.assignees || []).some(
     (a) => String(a).toLowerCase() === String(actingUsername || '').toLowerCase()
   );
+  const assignerWithdrawnCleanup = isTaskWithdrawnByAssigner(task) && isAssigner;
   const workflowOpen = !['rejected', 'cancelled'].includes(task.status);
-  const chatAllowed = workflowOpen;
-  const canSetFlowStatus = (isAssigner || isAssignee || isSuperAdmin) && workflowOpen;
+  const isArchivedReadOnly = workArchiveMode && task.status === 'completed';
+  const archiveReadonlyMessage = useMemo(
+    () => getArchiveReadonlyMessage(task, actingUsername, canEditAsAssigner),
+    [task, actingUsername, canEditAsAssigner]
+  );
+  const chatAllowed = (workflowOpen || assignerWithdrawnCleanup) && !isArchivedReadOnly;
+  const canReopenFromArchive =
+    workArchiveMode &&
+    task.status === 'completed' &&
+    workflowOpen &&
+    ((isAssigner && canEditAsAssigner) || isSuperAdmin);
+  const canSetFlowStatus =
+    workflowOpen &&
+    (canReopenFromArchive || ((isAssigner || isAssignee || isSuperAdmin) && !(workArchiveMode && task.status === 'completed')));
+  const showLeaveArchiveBtn =
+    workArchiveMode &&
+    isAssignee &&
+    !isAssigner &&
+    task.status === 'completed' &&
+    !hasLeftWorkArchive(task, actingUsername);
   const overdue = isTaskOverdue(task);
   const sc = statusColors[task.status] || {};
 
@@ -1007,17 +1092,52 @@ function TaskAssignmentWorkspace({
   useEffect(() => {
     setHistoryOpen(false);
     setRejectModalOpen(false);
+    setWithdrawModalOpen(false);
+    setLeaveArchiveModalOpen(false);
     setRejectReason('');
   }, [task.id]);
 
   useEffect(() => {
-    if (!rejectModalOpen) return undefined;
+    if (!rejectModalOpen && !withdrawModalOpen) return undefined;
     const onKey = (e) => {
-      if (e.key === 'Escape' && !busy) setRejectModalOpen(false);
+      if (e.key === 'Escape' && !busy) {
+        setRejectModalOpen(false);
+        setWithdrawModalOpen(false);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rejectModalOpen, busy]);
+  }, [rejectModalOpen, withdrawModalOpen, busy]);
+
+  useEffect(() => {
+    if (prevRejectModalRef.current && !rejectModalOpen) {
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
+    }
+    prevRejectModalRef.current = rejectModalOpen;
+  }, [rejectModalOpen]);
+
+  useEffect(() => {
+    if (prevWithdrawModalRef.current && !withdrawModalOpen) {
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
+    }
+    prevWithdrawModalRef.current = withdrawModalOpen;
+  }, [withdrawModalOpen]);
+
+  useEffect(() => {
+    if (prevLeaveArchiveModalRef.current && !leaveArchiveModalOpen) {
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
+    }
+    prevLeaveArchiveModalRef.current = leaveArchiveModalOpen;
+  }, [leaveArchiveModalOpen]);
+
+  useEffect(() => {
+    if (!leaveArchiveModalOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !busy) setLeaveArchiveModalOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [leaveArchiveModalOpen, busy]);
 
   useEffect(() => {
     if (feedRef.current) {
@@ -1025,23 +1145,30 @@ function TaskAssignmentWorkspace({
     }
   }, [feedScrollSig]);
 
-  const assigneeNames = (task.assignees || [])
-    .map((u) => usersMap[u]?.fullName || u)
-    .join(', ');
+  const assigneeNames = formatAssigneeDisplayNames(task, usersMap);
+  const leftArchiveNames = formatLeftArchiveDisplayNames(task, usersMap);
 
-  const runStatus = async (status, reason) => {
+  const notifyArchiveReadonly = () => {
+    setError(archiveReadonlyMessage);
+    scheduleDocumentInteractionRecovery({ lockScroll: true });
+  };
+
+  const runStatus = async (status, reason, withdrawFromAssignees = false) => {
     setBusy(true);
     setError('');
     const res = await ipcRenderer.invoke('update-task-assignment-status', {
       actingUsername,
       taskId: task.id,
       status,
-      reason
+      reason,
+      withdrawFromAssignees: status === 'cancelled' ? !!withdrawFromAssignees : undefined
     });
     setBusy(false);
+    scheduleDocumentInteractionRecovery({ lockScroll: true });
     if (res?.success) {
       onUpdated(res.task);
       setRejectModalOpen(false);
+      setWithdrawModalOpen(false);
       setRejectReason('');
     } else {
       setError(res?.error || 'Σφάλμα');
@@ -1049,6 +1176,10 @@ function TaskAssignmentWorkspace({
   };
 
   const submitComment = async () => {
+    if (isArchivedReadOnly) {
+      notifyArchiveReadonly();
+      return;
+    }
     if (!comment.trim() || busy) return;
     setBusy(true);
     const res = await ipcRenderer.invoke('add-task-assignment-comment', {
@@ -1066,7 +1197,12 @@ function TaskAssignmentWorkspace({
   };
 
   const addFiles = async () => {
-    const picked = await ipcRenderer.invoke('select-multiple-files', 'Αρχεία ανάθεσης');
+    if (isArchivedReadOnly) {
+      notifyArchiveReadonly();
+      return;
+    }
+    const picked = await ipcRenderer.invoke('select-multiple-files', 'Αρχεία χώρου');
+    scheduleDocumentInteractionRecovery({ lockScroll: true });
     if (!picked?.success || picked.canceled || !Array.isArray(picked.files) || !picked.files.length) return;
     setBusy(true);
     const res = await ipcRenderer.invoke('add-task-assignment-files', {
@@ -1086,6 +1222,10 @@ function TaskAssignmentWorkspace({
     }
   };
 
+  const handleComposerFocus = () => {
+    if (isArchivedReadOnly) notifyArchiveReadonly();
+  };
+
   return (
     <Root>
       <TopBar>
@@ -1097,7 +1237,12 @@ function TaskAssignmentWorkspace({
                 {TASK_STATUS_LABELS[task.status] || task.status}
               </Badge>
               <Badge>{TASK_PRIORITY_LABELS[task.priority] || task.priority}</Badge>
-              <MetaMuted>Προθεσμία</MetaMuted>
+              {assignerWithdrawnCleanup ? (
+                <Badge $bg="#fef9c3" $color="#854d0e" title="Ο χώρος δεν εμφανίζεται πλέον στους συναδέλφους">
+                  Κλειστός · χρειάζεται ενέργεια
+                </Badge>
+              ) : null}
+              <MetaMuted>Ολοκλήρωση έως</MetaMuted>
               <DueMeta $overdue={overdue}>{formatTaskDueDate(task.dueDate, task.dueTime)}</DueMeta>
               {overdue ? <Badge $bg="#fee2e2" $color="#991b1b">Εκπρόθεσμη</Badge> : null}
             </MetaRow>
@@ -1110,17 +1255,26 @@ function TaskAssignmentWorkspace({
                 <span style={{ color: '#94a3b8', fontWeight: 600 }}>({task.createdBy})</span>
               </div>
               <div style={{ marginTop: '0.45rem' }}>
-                <strong>Παραλήπτες</strong> · {assigneeNames || '—'}
+                <strong>Συνάδελφοι</strong> · {assigneeNames || '—'}
               </div>
+              {leftArchiveNames ? (
+                <div style={{ marginTop: '0.35rem', color: '#b45309', fontWeight: 600 }}>
+                  <strong>Αποχώρησαν από αποθήκη</strong> · {leftArchiveNames}
+                </div>
+              ) : null}
             </ParticipantPanel>
           </ParticipantDetails>
         </HeadMain>
         <ActionsCol>
           {canSetFlowStatus && (
             <StatusStack>
-              <StatusFieldLabel>Κατάσταση</StatusFieldLabel>
+              <StatusFieldLabel>
+                {canReopenFromArchive ? 'Επαναφορά από αποθήκη' : 'Κατάσταση'}
+              </StatusFieldLabel>
               <FlowStatusSelect
-                aria-label="Αλλαγή κατάστασης ανάθεσης"
+                aria-label={
+                  canReopenFromArchive ? 'Επαναφορά χώρου στον ενεργό χώρο εργασίας' : 'Αλλαγή κατάστασης χώρου'
+                }
                 value={task.status}
                 disabled={busy}
                 onChange={(e) => {
@@ -1129,9 +1283,22 @@ function TaskAssignmentWorkspace({
                   runStatus(next);
                 }}
               >
-                <option value="pending">{TASK_STATUS_LABELS.pending}</option>
-                <option value="in_progress">{TASK_STATUS_LABELS.in_progress}</option>
-                <option value="completed">{TASK_STATUS_LABELS.completed}</option>
+                {canReopenFromArchive ? (
+                  <>
+                    <option value="completed" disabled>
+                      {TASK_STATUS_LABELS.completed} (τρέχουσα)
+                    </option>
+                    <option value="pending">{TASK_STATUS_LABELS.pending}</option>
+                    <option value="in_progress">{TASK_STATUS_LABELS.in_progress}</option>
+                    <option value="cancelled">{TASK_STATUS_LABELS.cancelled}</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="pending">{TASK_STATUS_LABELS.pending}</option>
+                    <option value="in_progress">{TASK_STATUS_LABELS.in_progress}</option>
+                    <option value="completed">{TASK_STATUS_LABELS.completed}</option>
+                  </>
+                )}
               </FlowStatusSelect>
             </StatusStack>
           )}
@@ -1155,14 +1322,24 @@ function TaskAssignmentWorkspace({
                   Επεξεργασία
                 </ActionBtn>
               )}
-              <ActionBtn $danger type="button" disabled={busy} onClick={() => runStatus('cancelled')}>
-                Ακύρωση
+              <ActionBtn $danger type="button" disabled={busy} onClick={() => setWithdrawModalOpen(true)}>
+                Κλείσιμο χώρου
               </ActionBtn>
             </>
           )}
+          {assignerWithdrawnCleanup && canEditAsAssigner && onEdit && (
+            <ActionBtn type="button" disabled={busy} onClick={onEdit}>
+              Επεξεργασία
+            </ActionBtn>
+          )}
+          {showLeaveArchiveBtn && onLeaveArchive && (
+            <ActionBtn type="button" disabled={busy} onClick={() => setLeaveArchiveModalOpen(true)}>
+              Αποχώρηση από αποθήκη
+            </ActionBtn>
+          )}
           {onDelete && isAssigner && canEditAsAssigner && (
             <ActionBtn $danger type="button" disabled={busy} onClick={onDelete}>
-              Διαγραφή
+              {workArchiveMode ? 'Οριστική διαγραφή' : 'Διαγραφή'}
             </ActionBtn>
           )}
         </ActionsCol>
@@ -1183,12 +1360,12 @@ function TaskAssignmentWorkspace({
           >
             <RejectModalHero>
               <RejectModalEyebrow>Επιβεβαίωση</RejectModalEyebrow>
-              <RejectModalTitle id="reject-modal-title">Απόρριψη ανάθεσης;</RejectModalTitle>
+              <RejectModalTitle id="reject-modal-title">Απόρριψη χώρου;</RejectModalTitle>
               <RejectModalTaskName>«{task.title}»</RejectModalTaskName>
             </RejectModalHero>
             <RejectModalBody>
               <RejectModalHint>
-                Η ενέργεια είναι οριστική για την κατάσταση της ανάθεσης. Μπορείτε προαιρετικά να προσθέσετε σύντομη
+                Η ενέργεια είναι οριστική για την κατάσταση του χώρου. Μπορείτε προαιρετικά να προσθέσετε σύντομη
                 αιτιολογία — θα καταγραφεί στο ιστορικό.
               </RejectModalHint>
               <RejectModalLabel htmlFor="reject-reason-input">Αιτιολογία (προαιρετική)</RejectModalLabel>
@@ -1202,7 +1379,7 @@ function TaskAssignmentWorkspace({
             </RejectModalBody>
             <RejectModalFooter>
               <RejectModalCancelBtn type="button" disabled={busy} onClick={() => setRejectModalOpen(false)}>
-                Ακύρωση
+                Πίσω
               </RejectModalCancelBtn>
               <RejectModalConfirmBtn
                 type="button"
@@ -1216,6 +1393,89 @@ function TaskAssignmentWorkspace({
         </RejectModalBackdrop>
       )}
 
+      {withdrawModalOpen && workflowOpen && isAssigner && canEditAsAssigner && task.status !== 'completed' && (
+        <RejectModalBackdrop
+          role="presentation"
+          onClick={() => {
+            if (!busy) setWithdrawModalOpen(false);
+          }}
+        >
+          <RejectModalCard
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="withdraw-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <RejectModalHero>
+              <RejectModalEyebrow>Επιβεβαίωση</RejectModalEyebrow>
+              <RejectModalTitle id="withdraw-modal-title">Κλείσιμο χώρου για συναδέλφους;</RejectModalTitle>
+              <RejectModalTaskName>«{task.title}»</RejectModalTaskName>
+            </RejectModalHero>
+            <RejectModalBody>
+              <RejectModalHint>
+                Με την επιβεβαίωση, ο χώρος <strong>κλείνει για τους συναδέλφους</strong>: δεν θα εμφανίζεται πλέον στη
+                λίστα και στην προβολή τους. Εσείς ως αναθέτης θα τον βλέπετε ακόμα στη δική σας λίστα, με σήμανση ότι
+                χρειάζεται <strong>επεξεργασία</strong> (π.χ. διόρθωση) ή <strong>διαγραφή</strong> όταν ολοκληρώσετε τη
+                διαχείρισή του.
+              </RejectModalHint>
+            </RejectModalBody>
+            <RejectModalFooter>
+              <RejectModalCancelBtn type="button" disabled={busy} onClick={() => setWithdrawModalOpen(false)}>
+                Πίσω
+              </RejectModalCancelBtn>
+              <RejectModalConfirmBtn type="button" disabled={busy} onClick={() => runStatus('cancelled', '', true)}>
+                {busy ? 'Γίνεται κλείσιμο…' : 'Ναι, κλείσιμο'}
+              </RejectModalConfirmBtn>
+            </RejectModalFooter>
+          </RejectModalCard>
+        </RejectModalBackdrop>
+      )}
+
+      {leaveArchiveModalOpen && showLeaveArchiveBtn && onLeaveArchive && (
+        <RejectModalBackdrop
+          role="presentation"
+          onClick={() => {
+            if (!busy) setLeaveArchiveModalOpen(false);
+          }}
+        >
+          <RejectModalCard
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="leave-archive-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <RejectModalHero>
+              <RejectModalEyebrow>Επιβεβαίωση</RejectModalEyebrow>
+              <RejectModalTitle id="leave-archive-modal-title">Αποχώρηση από αποθήκη;</RejectModalTitle>
+              <RejectModalTaskName>«{task.title}»</RejectModalTaskName>
+            </RejectModalHero>
+            <RejectModalBody>
+              <RejectModalHint>
+                Ο χώρος <strong>παραμένει στην αποθήκη</strong> για τον αναθέτη και τους υπόλοιπους συναδέλφους. Εσείς
+                δεν θα τον βλέπετε πλέον στη λίστα σας — μπορείτε να επιστρέψετε μόνο αν σας ξαναπροσκαλέσουν σε νέο χώρο.
+              </RejectModalHint>
+            </RejectModalBody>
+            <RejectModalFooter>
+              <RejectModalCancelBtn type="button" disabled={busy} onClick={() => setLeaveArchiveModalOpen(false)}>
+                Πίσω
+              </RejectModalCancelBtn>
+              <RejectModalConfirmBtn
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  await onLeaveArchive(task);
+                  setBusy(false);
+                  setLeaveArchiveModalOpen(false);
+                }}
+              >
+                {busy ? 'Γίνεται αποχώρηση…' : 'Ναι, αποχώρηση'}
+              </RejectModalConfirmBtn>
+            </RejectModalFooter>
+          </RejectModalCard>
+        </RejectModalBackdrop>
+      )}
+
       {error && <ErrorBar>{error}</ErrorBar>}
 
       <MainStage>
@@ -1223,7 +1483,7 @@ function TaskAssignmentWorkspace({
           <ChatColumn>
           <ChatSectionHead>
             <ChatSectionHeadInner>
-              <ChatSectionTitle>Ροή ανάθεσης</ChatSectionTitle>
+              <ChatSectionTitle>Ροή συνεργασίας</ChatSectionTitle>
               <HistoryDrawerBtn type="button" $active={historyOpen} onClick={() => setHistoryOpen((v) => !v)}>
                 Ιστορικό {historyOpen ? '▴' : '▾'}
               </HistoryDrawerBtn>
@@ -1245,9 +1505,9 @@ function TaskAssignmentWorkspace({
                   ) : null}
 
                   {item.type === 'origin' ? (
-                    <OriginCard aria-label="Αρχική ανάθεση">
+                    <OriginCard aria-label="Έναρξη χώρου">
                       <OriginHeadRow>
-                        <OriginBadge>Αρχική ανάθεση</OriginBadge>
+                        <OriginBadge>Έναρξη χώρου</OriginBadge>
                         <OriginMeta>
                           <strong>{authorDisplayName(item.author, usersMap)}</strong>
                           <span aria-hidden> · </span>
@@ -1259,12 +1519,12 @@ function TaskAssignmentWorkspace({
                       <OriginMeta style={{ marginBottom: item.description ? 10 : 0 }}>
                         {TASK_PRIORITY_LABELS[task.priority] || task.priority}
                         <span aria-hidden> · </span>
-                        Προθεσμία: {formatTaskDueDate(task.dueDate, task.dueTime)}
+                        Ολοκλήρωση εργασίας έως: {formatTaskDueDate(task.dueDate, task.dueTime)}
                       </OriginMeta>
                       {item.description ? (
                         <OriginDescription>{item.description}</OriginDescription>
                       ) : (
-                        <OriginMuted>Δεν προστέθηκε κείμενο στην αρχική ανάθεση.</OriginMuted>
+                        <OriginMuted>Δεν προστέθηκε κείμενο στην έναρξη του χώρου.</OriginMuted>
                       )}
                     </OriginCard>
                   ) : null}
@@ -1305,7 +1565,13 @@ function TaskAssignmentWorkspace({
                               <FileAttachmentLabel>Συνημμένο αρχείο</FileAttachmentLabel>
                               <FileLink
                                 type="button"
-                                onClick={() => ipcRenderer.invoke('open-task-assignment-file', { filePath: f.path })}
+                                onClick={() =>
+                                  ipcRenderer.invoke('open-task-assignment-file', {
+                                    actingUsername,
+                                    taskId: task.id,
+                                    filePath: f.path
+                                  })
+                                }
                               >
                                 {f.name}
                               </FileLink>
@@ -1357,6 +1623,17 @@ function TaskAssignmentWorkspace({
                         );
                       })()
                     : null}
+
+                  {item.type === 'system' ? (
+                    <SystemEventWrap>
+                      <SystemEventCard>
+                        <strong>{authorDisplayName(item.author, usersMap)}</strong> — {item.text}
+                        <time dateTime={item.at}>
+                          {new Date(item.at).toLocaleString('el-GR', { dateStyle: 'short', timeStyle: 'short' })}
+                        </time>
+                      </SystemEventCard>
+                    </SystemEventWrap>
+                  ) : null}
                 </React.Fragment>
               ))}
               </TimelineInner>
@@ -1364,18 +1641,39 @@ function TaskAssignmentWorkspace({
           </TimelineShell>
           <Composer>
             <ComposerInner>
+            {isArchivedReadOnly ? <ArchiveComposerNotice>{archiveReadonlyMessage}</ArchiveComposerNotice> : null}
             <ComposerRow>
-              <IconBtn type="button" onClick={addFiles} disabled={busy || !chatAllowed} title="Προσθήκη συνημμένου αρχείου">
+              <IconBtn
+                type="button"
+                onClick={addFiles}
+                disabled={busy || (!chatAllowed && !isArchivedReadOnly)}
+                title={
+                  isArchivedReadOnly
+                    ? 'Η αποθήκη είναι μόνο για προβολή'
+                    : 'Προσθήκη συνημμένου αρχείου'
+                }
+              >
                 📎
               </IconBtn>
               <ComposerInput
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 onKeyDown={handleComposerKey}
-                placeholder="Σχόλιο ή συνημμένο — Ctrl+Enter για αποστολή"
-                disabled={busy || !chatAllowed}
+                onFocus={handleComposerFocus}
+                readOnly={isArchivedReadOnly}
+                placeholder={
+                  isArchivedReadOnly
+                    ? 'Μόνο προβολή — αλλάξτε κατάσταση για νέα σχόλια'
+                    : 'Σχόλιο ή συνημμένο — Ctrl+Enter για αποστολή'
+                }
+                disabled={busy || (!chatAllowed && !isArchivedReadOnly)}
               />
-              <SendBtn type="button" onClick={submitComment} disabled={busy || !comment.trim() || !chatAllowed}>
+              <SendBtn
+                type="button"
+                onClick={submitComment}
+                disabled={busy || (!isArchivedReadOnly && (!comment.trim() || !chatAllowed))}
+                title={isArchivedReadOnly ? 'Η αποθήκη είναι μόνο για προβολή' : undefined}
+              >
                 Αποστολή
               </SendBtn>
             </ComposerRow>

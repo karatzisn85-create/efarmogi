@@ -1798,7 +1798,7 @@ const ContentWrapper = styled.div`
   }
 `;
 
-function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
+function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCurrentUser }) {
   const userRole = currentUser?.role || 'USER';
   const isSuperAdmin = userRole === 'SUPERADMIN';
   const canManageAll = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
@@ -1928,6 +1928,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout }) {
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [isTaskAssignmentsOpen, setIsTaskAssignmentsOpen] = useState(false);
+  const [taskAssignmentInitialScreen, setTaskAssignmentInitialScreen] = useState('workspace');
   const [taskAssignmentsFocusTaskId, setTaskAssignmentsFocusTaskId] = useState(null);
   const [taskAccess, setTaskAccess] = useState({ showModule: false, unreadCount: 0, canAssign: false });
   const [engineerCatalogForCards, setEngineerCatalogForCards] = useState([]);
@@ -4116,6 +4117,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       const res = await ipcRenderer.invoke('get-task-assignment-access', {
         actingUsername: currentUser.username
       });
+      if (typeof onSyncCurrentUser === 'function') {
+        await onSyncCurrentUser();
+      }
       if (res?.success) {
         setTaskAccess({
           showModule: !!res.showModule,
@@ -4126,11 +4130,28 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     } catch {
       /* ignore */
     }
-  }, [currentUser?.username]);
+  }, [currentUser?.username, onSyncCurrentUser]);
 
   const openTaskAssignmentsFromToast = useCallback((taskId) => {
+    setTaskAssignmentInitialScreen('workspace');
     setTaskAssignmentsFocusTaskId(taskId || null);
     setIsTaskAssignmentsOpen(true);
+  }, []);
+
+  const openTaskWorkspace = useCallback(() => {
+    setTaskAssignmentInitialScreen('workspace');
+    setTaskAssignmentsFocusTaskId(null);
+    setIsTaskAssignmentsOpen(true);
+  }, []);
+
+  const openWorkArchive = useCallback(() => {
+    setTaskAssignmentInitialScreen('workArchive');
+    setTaskAssignmentsFocusTaskId(null);
+    setIsTaskAssignmentsOpen(true);
+  }, []);
+
+  const handleFocusTaskConsumed = useCallback(() => {
+    setTaskAssignmentsFocusTaskId(null);
   }, []);
 
   useEffect(() => {
@@ -4702,17 +4723,21 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             <CategoryHeader $open={expandedCategories.assignments} onClick={() => toggleCategory('assignments')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #6366f1, #4f46e5)">📌</CategoryHeaderIcon>
-                <CategoryHeaderTitle>Αναθέσεις</CategoryHeaderTitle>
+                <CategoryHeaderTitle>Χώρος Εργασίας</CategoryHeaderTitle>
               </CategoryHeaderLeft>
               <CategoryHeaderChevron $open={expandedCategories.assignments}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.assignments}>
-              <AdminButton onClick={() => setIsTaskAssignmentsOpen(true)}>
+              <AdminButton onClick={openTaskWorkspace}>
                 <AdminButtonIcon>✅</AdminButtonIcon>
-                Αναθέσεις Εργασιών
+                Άνοιγμα χώρου Εργασιών
                 {taskAccess.unreadCount > 0 && (
                   <SidebarCountBadge>{taskAccess.unreadCount > 99 ? '99+' : taskAccess.unreadCount}</SidebarCountBadge>
                 )}
+              </AdminButton>
+              <AdminButton onClick={openWorkArchive}>
+                <AdminButtonIcon>📦</AdminButtonIcon>
+                ΑΠΟΘΗΚΗ ΕΡΓΑΣΙΩΝ
               </AdminButton>
             </CategoryBody>
           </CategorySection>
@@ -5461,7 +5486,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         isSuperAdmin={isSuperAdmin}
         onAccessRefresh={refreshTaskAccess}
         focusTaskId={taskAssignmentsFocusTaskId}
-        onFocusTaskConsumed={() => setTaskAssignmentsFocusTaskId(null)}
+        onFocusTaskConsumed={handleFocusTaskConsumed}
+        initialScreen={taskAssignmentInitialScreen}
       />
 
       {isUserManagementOpen && (

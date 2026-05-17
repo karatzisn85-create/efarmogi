@@ -580,7 +580,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
 
             {isSuperAdmin && (
               <TaskPermSection>
-                <SectionTitle>Αναθέσεις εργασιών</SectionTitle>
+                <SectionTitle>Χώρος Εργασίας</SectionTitle>
                 <CheckboxRow>
                   <input
                     type="checkbox"
@@ -597,12 +597,12 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
                       }));
                     }}
                   />
-                  Μπορεί να αναθέτει εργασίες
+                  Μπορεί να δημιουργεί χώρους εργασίας
                 </CheckboxRow>
                 {formData.taskAssignment.canAssign && (
                   <>
                     <FieldGroup>
-                      <Label>Εύρος ανάθεσης</Label>
+                      <Label>Εύρος συναδέλφων</Label>
                       <Select
                         value={formData.taskAssignment.assignableScope}
                         onChange={(e) => {

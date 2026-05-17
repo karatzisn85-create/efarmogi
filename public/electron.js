@@ -174,6 +174,8 @@ let mainWindow = null;
 
 /** Όταν true, το κλείσιμο παραθύρου/έξοδος εμποδίζεται — ο χρήστης πρέπει να χρησιμοποιήσει «Αποσύνδεση» στο Dashboard. */
 let dashboardSessionActive = false;
+/** Συνδεδεμένος χρήστης — για έλεγχο ταυτότητας στις ενέργειες χώρου εργασίας. */
+let loggedInUsername = null;
 
 const isDev = false; // Force production mode
 
@@ -257,8 +259,16 @@ ipcMain.handle('getAppVersion', () => app.getVersion());
 
 ipcMain.handle('get-app-config', () => loadConfig());
 
-ipcMain.handle('set-dashboard-session-active', (_event, active) => {
-  dashboardSessionActive = Boolean(active);
+ipcMain.handle('set-dashboard-session-active', (_event, activeOrPayload) => {
+  if (typeof activeOrPayload === 'boolean') {
+    dashboardSessionActive = activeOrPayload;
+    if (!activeOrPayload) loggedInUsername = null;
+  } else {
+    const p = activeOrPayload && typeof activeOrPayload === 'object' ? activeOrPayload : {};
+    dashboardSessionActive = Boolean(p.active);
+    loggedInUsername =
+      dashboardSessionActive && p.username ? String(p.username).trim() : null;
+  }
   return { ok: true };
 });
 
@@ -426,7 +436,7 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
   let taskAssignmentNorm = normalizeTaskAssignment({ canAssign: false, assignableScope: 'none', assignableUsernames: [] });
   if (taskAssignment !== undefined) {
     if (!isSuperAdminUser(actingUsername)) {
-      return { success: false, error: 'Μόνο ο superadmin μπορεί να ορίσει δικαιώματα ανάθεσης' };
+      return { success: false, error: 'Μόνο ο superadmin μπορεί να ορίσει δικαιώματα χώρου εργασίας' };
     }
     taskAssignmentNorm = normalizeTaskAssignment(taskAssignment);
   }
@@ -466,7 +476,7 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
   }
   if (updates.taskAssignment !== undefined) {
     if (!isSuperAdminUser(actingUsername)) {
-      return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα ανάθεσης' };
+      return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα χώρου εργασίας' };
     }
     users[idx].taskAssignment = normalizeTaskAssignment(updates.taskAssignment);
   }
@@ -1828,7 +1838,7 @@ ipcMain.handle('get-registered-engineers', async () => {
   }
 });
 
-// ── Αναθέσεις εργασιών ──
+// ── Χώρος Εργασίας ──
 let taskDueDateJob = null;
 
 function initTaskAssignmentScheduler() {
@@ -1837,21 +1847,36 @@ function initTaskAssignmentScheduler() {
     taskDueDateJob = null;
   }
   try {
+    const svc = getTaskAssignmentService();
+    if (svc) svc.runDueDateChecks();
     taskDueDateJob = schedule.scheduleJob('0 8 * * *', () => {
-      const svc = getTaskAssignmentService();
-      if (svc) svc.runDueDateChecks();
+      const s = getTaskAssignmentService();
+      if (s) s.runDueDateChecks();
     });
-    console.log('Task assignment due-date scheduler active (daily 08:00)');
+    console.log('Task assignment due-date scheduler active (daily 08:00 + startup)');
   } catch (e) {
     console.error('Task assignment scheduler error:', e.message);
   }
 }
 
+function resolveTaskActingUser(actingUsername) {
+  if (!dashboardSessionActive || !loggedInUsername) {
+    return { ok: false, error: 'Δεν είστε συνδεδεμένοι στο σύστημα' };
+  }
+  const claimed = String(actingUsername || '').trim();
+  if (!claimed || claimed.toLowerCase() !== loggedInUsername.toLowerCase()) {
+    return { ok: false, error: 'Μη εξουσιοδοτημένη ενέργεια' };
+  }
+  return { ok: true, username: loggedInUsername };
+}
+
 ipcMain.handle('get-task-assignment-access', async (_event, { actingUsername }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμο το dataDir' };
-    const info = svc.userHasTaskAccess(actingUsername);
+    const info = svc.userHasTaskAccess(auth.username);
     return { success: true, ...info };
   } catch (error) {
     return { success: false, error: error.message };
@@ -1859,119 +1884,166 @@ ipcMain.handle('get-task-assignment-access', async (_event, { actingUsername }) 
 });
 
 ipcMain.handle('get-task-assignment-permissions', async (_event, { actingUsername }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error, users: [] };
   try {
     const svc = getTaskAssignmentService();
-    return svc.getAssignableTargets(actingUsername);
+    return svc.getAssignableTargets(auth.username);
   } catch (error) {
     return { success: false, error: error.message, users: [] };
   }
 });
 
-ipcMain.handle('load-task-assignments', async (_event, { actingUsername, view }) => {
+ipcMain.handle('load-task-assignments', async (_event, { actingUsername, view, listScope }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error, tasks: [] };
   try {
     const svc = getTaskAssignmentService();
-    return svc.loadAssignments({ actingUsername, view: view || 'asAssignee' });
+    return svc.loadAssignments({
+      actingUsername: auth.username,
+      view: view || 'asAssignee',
+      listScope: listScope === 'workArchive' ? 'workArchive' : 'default'
+    });
   } catch (error) {
     return { success: false, error: error.message, tasks: [] };
   }
 });
 
-ipcMain.handle('get-task-assignment', async (_event, { actingUsername, taskId }) => {
+ipcMain.handle('leave-task-work-archive', async (_event, { actingUsername, taskId }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
-    return svc.getTask({ actingUsername, taskId });
+    return svc.leaveWorkArchive({ actingUsername: auth.username, taskId });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-task-assignment', async (_event, { actingUsername, taskId }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.getTask({ actingUsername: auth.username, taskId });
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('create-task-assignment', async (_event, { actingUsername, payload, newFiles }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
-    return svc.createTask({ actingUsername, payload, newFiles: newFiles || [] });
+    return svc.createTask({ actingUsername: auth.username, payload, newFiles: newFiles || [] });
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('update-task-assignment', async (_event, { actingUsername, taskId, payload, newFiles }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
-    return svc.updateTask({ actingUsername, taskId, payload, newFiles: newFiles || [] });
+    return svc.updateTask({ actingUsername: auth.username, taskId, payload, newFiles: newFiles || [] });
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('delete-task-assignment', async (_event, { actingUsername, taskId }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
-    return svc.deleteTask({ actingUsername, taskId });
+    return svc.deleteTask({ actingUsername: auth.username, taskId });
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('update-task-assignment-status', async (_event, { actingUsername, taskId, status, reason }) => {
+ipcMain.handle('update-task-assignment-status', async (_event, { actingUsername, taskId, status, reason, withdrawFromAssignees }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
-    return svc.updateStatus({ actingUsername, taskId, status, reason });
+    return svc.updateStatus({
+      actingUsername: auth.username,
+      taskId,
+      status,
+      reason,
+      withdrawFromAssignees
+    });
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('add-task-assignment-comment', async (_event, { actingUsername, taskId, text }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
-    return svc.addComment({ actingUsername, taskId, text });
+    return svc.addComment({ actingUsername: auth.username, taskId, text });
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('add-task-assignment-files', async (_event, { actingUsername, taskId, newFiles }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
-    return svc.addFiles({ actingUsername, taskId, newFiles: newFiles || [] });
+    return svc.addFiles({ actingUsername: auth.username, taskId, newFiles: newFiles || [] });
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('load-task-notifications', async (_event, { actingUsername, unreadOnly }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error, notifications: [] };
   try {
     const svc = getTaskAssignmentService();
-    return svc.loadNotifications({ actingUsername, unreadOnly: !!unreadOnly });
+    return svc.loadNotifications({ actingUsername: auth.username, unreadOnly: !!unreadOnly });
   } catch (error) {
     return { success: false, error: error.message, notifications: [] };
   }
 });
 
 ipcMain.handle('mark-task-notifications-read', async (_event, { actingUsername, notificationIds }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
-    return svc.markNotificationsRead({ actingUsername, notificationIds });
+    return svc.markNotificationsRead({ actingUsername: auth.username, notificationIds });
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('mark-task-notifications-read-for-task', async (_event, { actingUsername, taskId }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
-    return svc.markNotificationsReadForTask({ actingUsername, taskId });
+    return svc.markNotificationsReadForTask({ actingUsername: auth.username, taskId });
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('open-task-assignment-file', async (_event, { filePath }) => {
+ipcMain.handle('open-task-assignment-file', async (_event, { actingUsername, taskId, filePath }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
   try {
-    if (!filePath || !fs.existsSync(filePath)) {
-      return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
-    }
-    await shell.openPath(filePath);
+    const svc = getTaskAssignmentService();
+    const check = svc.resolveTaskFilePath({ actingUsername: auth.username, taskId, filePath });
+    if (!check.success) return check;
+    await shell.openPath(check.filePath);
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };

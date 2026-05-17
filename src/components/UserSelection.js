@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useLayoutEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import ergohubLogo from '../assets/ergohub-logo.svg';
+import { resetDocumentInteractionState } from '../utils/documentInteractionReset';
 
 const ipcRenderer = window.electronAPI;
 
@@ -178,7 +179,7 @@ const ErrorBox = styled.div`
   border-radius: 8px;
   font-size: 0.9rem;
   margin-bottom: 12px;
-  border- 1px solid #ffcdd2;
+  border: 1px solid #ffcdd2;
   text-align: left;
 `;
 
@@ -256,6 +257,10 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  useLayoutEffect(() => {
+    resetDocumentInteractionState();
+  }, []);
+
   const [regUsername, setRegUsername] = useState('');
   const [regFullName, setRegFullName] = useState('');
   const [regPassword, setRegPassword] = useState('');
@@ -282,8 +287,9 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
       }
     } catch (err) {
       setError('Σφάλμα επικοινωνίας');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleRegister = async () => {
@@ -313,8 +319,9 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
       }
     } catch (err) {
       setRegError('Σφάλμα επικοινωνίας');
+    } finally {
+      setRegLoading(false);
     }
-    setRegLoading(false);
   };
 
   const handleKeyDown = (e, action) => {

@@ -1,20 +1,23 @@
-import React, { useState, useLayoutEffect } from 'react';
+import React, { useState, useLayoutEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { DEFAULT_REMINDER_OFFSETS } from '../utils/taskAssignmentDisplay';
+import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 
 const ipcRenderer = window.electronAPI;
 
 const FormOverlay = styled.div`
   position: fixed;
   inset: 0;
-  background: linear-gradient(145deg, rgba(15, 23, 42, 0.72) 0%, rgba(49, 46, 129, 0.55) 45%, rgba(15, 23, 42, 0.68) 100%);
-  backdrop-filter: blur(10px);
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.82) 0%, rgba(49, 46, 129, 0.65) 45%, rgba(15, 23, 42, 0.78) 100%);
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  z-index: 10000;
+  z-index: 10050;
   padding: 1.75rem 1rem 2rem;
   overflow-y: auto;
+  isolation: isolate;
+  pointer-events: auto;
 `;
 
 const FormShell = styled.div`
@@ -22,6 +25,7 @@ const FormShell = styled.div`
   max-width: min(1200px, calc(100vw - 2rem));
   border-radius: 18px;
   overflow: hidden;
+  pointer-events: auto;
   box-shadow:
     0 4px 6px rgba(15, 23, 42, 0.06),
     0 24px 48px rgba(30, 27, 75, 0.35),
@@ -305,6 +309,7 @@ const ErrorMsg = styled.div`
 `;
 
 function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = null, assignableUsers = [] }) {
+  const titleRef = useRef(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('normal');
@@ -314,6 +319,14 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
   const [pendingFiles, setPendingFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useLayoutEffect(() => {
+    scheduleDocumentInteractionRecovery({ lockScroll: true });
+    const focusId = requestAnimationFrame(() => {
+      titleRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(focusId);
+  }, []);
 
   useLayoutEffect(() => {
     if (editingTask) {
@@ -357,7 +370,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
 
   const handlePickFiles = async () => {
     try {
-      const res = await ipcRenderer.invoke('select-multiple-files', 'Επιλογή αρχείων ανάθεσης');
+      const res = await ipcRenderer.invoke('select-multiple-files', 'Επιλογή αρχείων χώρου');
       if (res?.success && !res.canceled && Array.isArray(res.files) && res.files.length > 0) {
         setPendingFiles((prev) => [...prev, ...res.files]);
       }
@@ -373,7 +386,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
       return;
     }
     if (assignees.length === 0) {
-      setError('Επιλέξτε τουλάχιστον έναν παραλήπτη');
+      setError('Επιλέξτε τουλάχιστον έναν συνάδελφο');
       return;
     }
     setSaving(true);
@@ -415,16 +428,16 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
     }
   };
 
-  const heroTitle = editingTask ? 'Επεξεργασία ανάθεσης' : 'Νέα ανάθεση εργασίας';
+  const heroTitle = editingTask ? 'Επεξεργασία χώρου' : 'Δημιουργία Χώρου';
   const heroSub = editingTask
-    ? 'Ενημερώστε τα στοιχεία της ανάθεσης και προσθέστε αρχεία αν χρειάζεται.'
-    : 'Ορίστε τίτλο, περιγραφή και παραλήπτες· η ομάδα θα ενημερωθεί και θα μπορεί να συνεργαστεί στη ροή ανάθεσης.';
+    ? 'Ενημερώστε τα στοιχεία του χώρου και προσθέστε αρχεία αν χρειάζεται.'
+    : 'Ορίστε τίτλο, περιγραφή και συναδέλφους· η ομάδα θα ενημερωθεί και θα μπορεί να συνεργαστεί στον χώρο.';
 
-  return (
+  const modal = (
     <FormOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <FormShell onClick={(e) => e.stopPropagation()}>
         <FormHero>
-          <HeroEyebrow>Αναθέσεις εργασιών</HeroEyebrow>
+          <HeroEyebrow>Χώρος Εργασίας</HeroEyebrow>
           <HeroTitle>{heroTitle}</HeroTitle>
           <HeroSubtitle>{heroSub}</HeroSubtitle>
         </FormHero>
@@ -439,10 +452,12 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
             </SectionHead>
             <Label htmlFor="ta-title">Τίτλος *</Label>
             <Input
+              ref={titleRef}
               id="ta-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Σύντομος τίτλος εργασίας"
+              placeholder="Σύντομος τίτλος θέματος"
+              autoComplete="off"
             />
           </Section>
 
@@ -460,13 +475,13 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
 
           <Section>
             <SectionHead>
-              <SectionTitle>Παραλήπτες</SectionTitle>
+              <SectionTitle>Συνάδελφοι</SectionTitle>
               <SectionHint>* τουλάχιστον ένας</SectionHint>
             </SectionHead>
             <AssigneeGrid>
               {assignableUsers.length === 0 ? (
                 <span style={{ fontSize: '0.9rem', color: '#64748b', lineHeight: 1.5 }}>
-                  Δεν υπάρχουν διαθέσιμοι παραλήπτες.
+                  Δεν υπάρχουν διαθέσιμοι συνάδελφοι.
                 </span>
               ) : (
                 assignableUsers.map((u) => {
@@ -485,7 +500,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
 
           <Section>
             <SectionHead>
-              <SectionTitle>Προτεραιότητα & προθεσμία</SectionTitle>
+              <SectionTitle>Προτεραιότητα & ολοκλήρωση εργασίας</SectionTitle>
             </SectionHead>
             <Row>
               <div>
@@ -497,7 +512,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
                 </Select>
               </div>
               <div>
-                <Label htmlFor="ta-due">Ημερομηνία λήξης</Label>
+                <Label htmlFor="ta-due">Ολοκλήρωση εργασίας έως</Label>
                 <Input id="ta-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
               </div>
             </Row>
@@ -557,6 +572,9 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
       </FormShell>
     </FormOverlay>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }
 
 export default TaskAssignmentForm;

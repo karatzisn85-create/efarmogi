@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import SplashScreen from './components/SplashScreen';
@@ -7,6 +7,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { ToastProvider } from './components/ToastProvider';
 import WhatsNew from './components/WhatsNew';
 import './App.css';
+import { resetDocumentInteractionState } from './utils/documentInteractionReset';
 
 const UserSelection = lazy(() => import('./components/UserSelection'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -194,9 +195,35 @@ function App() {
     return () => { cancelled.value = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const syncCurrentUserFromDisk = useCallback(async () => {
+    if (!currentUser?.username || !ipcRenderer?.invoke) return;
+    try {
+      const users = await ipcRenderer.invoke('get-users');
+      const me = Array.isArray(users)
+        ? users.find((u) => u.username?.toLowerCase() === currentUser.username.toLowerCase())
+        : null;
+      if (me) {
+        setCurrentUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                taskAssignment: me.taskAssignment,
+                role: me.role || prev.role,
+                fullName: me.fullName || prev.fullName
+              }
+            : prev
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [currentUser?.username]);
+
   useEffect(() => {
     if (!ipcRenderer?.invoke) return;
-    ipcRenderer.invoke('set-dashboard-session-active', Boolean(currentUser)).catch(() => {});
+    ipcRenderer
+      .invoke('set-dashboard-session-active', currentUser ? { active: true, username: currentUser.username } : { active: false })
+      .catch(() => {});
   }, [currentUser]);
 
   useEffect(() => {
@@ -274,7 +301,16 @@ function App() {
                   currentUser ? 
                     <ErrorBoundary>
                       <Suspense fallback={<div />}>
-                        <Dashboard currentUser={currentUser} appVersion={appVersion} appConfig={appConfig} onLogout={() => setCurrentUser(null)} />
+                        <Dashboard
+                        currentUser={currentUser}
+                        appVersion={appVersion}
+                        appConfig={appConfig}
+                        onSyncCurrentUser={syncCurrentUserFromDisk}
+                        onLogout={() => {
+                          resetDocumentInteractionState();
+                          setCurrentUser(null);
+                        }}
+                      />
                       </Suspense>
                     </ErrorBoundary> :
                     <ErrorBoundary>
