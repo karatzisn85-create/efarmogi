@@ -13,6 +13,7 @@ import {
 } from '../utils/taskAssignmentDisplay';
 import { containsSearchTerm } from '../utils/searchUtils';
 import {
+  allowDocumentInteractionLock,
   resetDocumentInteractionState,
   scheduleDocumentInteractionRecovery
 } from '../utils/documentInteractionReset';
@@ -693,7 +694,6 @@ const statusColors = {
   pending: { bg: '#fef3c7', color: '#92400e' },
   in_progress: { bg: '#dbeafe', color: '#1e40af' },
   completed: { bg: '#d1fae5', color: '#065f46' },
-  rejected: { bg: '#fee2e2', color: '#991b1b' },
   cancelled: { bg: '#f1f5f9', color: '#64748b' }
 };
 
@@ -710,7 +710,8 @@ function TaskAssignmentManager({
   const actingUsername = currentUser?.username || '';
   const canAssign = currentUser?.taskAssignment?.canAssign || isSuperAdmin;
 
-  const [tab, setTab] = useState(canAssign ? 'asAssigner' : 'asAssignee');
+  /** Προεπιλογή «Συμμετέχω» — αλλιώς χάνονται χώροι που σας πρόσθεσαν άλλοι (ειδοποίηση ναι, λίστα όχι). */
+  const [tab, setTab] = useState('asAssignee');
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -733,10 +734,14 @@ function TaskAssignmentManager({
   const [archiveInfoDismissed, setArchiveInfoDismissed] = useState(() =>
     readArchiveInfoDismissed(actingUsername)
   );
-  const prevTabRef = useRef(tab);
+  const prevScreenRef = useRef(screen);
   const toolbarWrapRef = useRef(null);
+  const mountedRef = useRef(false);
   const selectedIdRef = useRef(selectedId);
   const managerWasOpenRef = useRef(false);
+  const focusTaskHandledRef = useRef(null);
+  const onAccessRefreshRef = useRef(onAccessRefresh);
+  onAccessRefreshRef.current = onAccessRefresh;
 
   const usersMap = useMemo(() => {
     const m = {};
@@ -757,9 +762,10 @@ function TaskAssignmentManager({
     if (res?.success) setAssignableUsers(res.users || []);
   }, [actingUsername, canAssign]);
 
-  const loadTasks = useCallback(async () => {
-    setLoading(true);
-    const view = tab === 'all' ? 'all' : tab;
+  const loadTasks = useCallback(async ({ silent = false, viewOverride } = {}) => {
+    if (!silent) setLoading(true);
+    const activeTab = viewOverride ?? tab;
+    const view = activeTab === 'all' ? 'all' : activeTab;
     const res = await ipcRenderer.invoke('load-task-assignments', {
       actingUsername,
       view,
@@ -768,10 +774,10 @@ function TaskAssignmentManager({
     if (res?.success) {
       setTasks(res.tasks || []);
       setListError('');
-    } else {
+    } else if (!silent) {
       setListError(res?.error || 'Αποτυχία φόρτωσης λίστας χώρων');
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [actingUsername, tab, screen]);
 
   const refreshSelectedTask = useCallback(async () => {
@@ -791,6 +797,7 @@ function TaskAssignmentManager({
       resetDocumentInteractionState();
       return undefined;
     }
+    allowDocumentInteractionLock();
     scheduleDocumentInteractionRecovery({ lockScroll: true });
     return () => {
       resetDocumentInteractionState();
@@ -805,10 +812,21 @@ function TaskAssignmentManager({
 
   /** Αποσύνδεση / ασυνήθιστο unmount: σβήνει scroll-lock ώστε να μη «κολλάει» η οθόνη σύνδεσης. */
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       resetDocumentInteractionState();
     };
   }, []);
+
+  const recoverTaskManagerScroll = useCallback(() => {
+    if (!mountedRef.current || !isOpen) {
+      resetDocumentInteractionState();
+      return;
+    }
+    allowDocumentInteractionLock();
+    scheduleDocumentInteractionRecovery({ lockScroll: true });
+  }, [isOpen]);
 
   /** Άνοιγμα manager ή αλλαγή entry point από Dashboard — όχι σε εσωτερική εναλλαγή οθόνης. */
   useEffect(() => {
@@ -844,11 +862,14 @@ function TaskAssignmentManager({
     loadNotifications();
     if (justOpened) {
       setScreen(initialScreen);
+      prevScreenRef.current = initialScreen;
+      setTab('asAssignee');
       setSelectedId(null);
       setSelectedTask(null);
-      if (onAccessRefresh) onAccessRefresh();
+      loadTasks({ silent: false, viewOverride: 'asAssignee' });
+      onAccessRefreshRef.current?.();
     }
-  }, [isOpen, initialScreen, loadUsers, loadAssignable, loadNotifications, onAccessRefresh]);
+  }, [isOpen, initialScreen, loadUsers, loadAssignable, loadNotifications, loadTasks]); // loadTasks: initial fetch on open
 
   useEffect(() => {
     if (!isOpen) return;
@@ -865,45 +886,48 @@ function TaskAssignmentManager({
     if (!isOpen) return undefined;
     const unsub = window.electronAPI?.on?.('task-notification', (payload) => {
       if (payload?.username?.toLowerCase() === actingUsername.toLowerCase()) {
+        setTab('asAssignee');
         loadNotifications();
-        loadTasks();
+        loadTasks({ silent: true, viewOverride: 'asAssignee' });
         refreshSelectedTask();
-        if (onAccessRefresh) onAccessRefresh();
       }
     });
     return () => {
       if (typeof unsub === 'function') unsub();
     };
-  }, [isOpen, actingUsername, loadNotifications, loadTasks, refreshSelectedTask, onAccessRefresh]);
+  }, [isOpen, actingUsername, loadNotifications, loadTasks, refreshSelectedTask]);
+
+  /** Κοινός φάκελος server: περιοδική ανανέωση όσο είναι ανοιχτός ο manager. */
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const intervalId = setInterval(() => {
+      loadTasks({ silent: true });
+      loadNotifications();
+    }, 45000);
+    return () => clearInterval(intervalId);
+  }, [isOpen, loadTasks, loadNotifications]);
 
   useEffect(() => {
     if (!isOpen) return;
     if (!canAssign && tab === 'asAssigner') setTab('asAssignee');
   }, [isOpen, canAssign, tab]);
 
+  /** Εναλλαγή Χώρος Εργασίας ↔ Αποθήκη — καθαρισμός επιλογής μόνο όταν αλλάζει η οθόνη. */
   useEffect(() => {
     if (!isOpen) {
-      prevTabRef.current = tab;
+      prevScreenRef.current = screen;
       return;
     }
-    if (prevTabRef.current !== tab) {
-      setFormOpen(false);
-      setEditingTask(null);
-    }
-    prevTabRef.current = tab;
-  }, [tab, isOpen]);
-
-  /** Εναλλαγή Χώρος Εργασίας ↔ Αποθήκη — χωρίς επαναφορά στο initialScreen. */
-  useEffect(() => {
-    if (!isOpen) return;
+    if (prevScreenRef.current === screen) return;
     setSelectedId(null);
     setSelectedTask(null);
-    loadTasks();
+    prevScreenRef.current = screen;
+    loadTasks({ silent: false });
   }, [screen, isOpen, loadTasks]);
 
   useEffect(() => {
     if (!isOpen) return;
-    loadTasks();
+    loadTasks({ silent: true });
   }, [tab, isOpen, loadTasks]);
 
   const isWorkArchive = screen === 'workArchive';
@@ -929,13 +953,13 @@ function TaskAssignmentManager({
   }, [tasks, search, statusFilter, isWorkArchive]);
 
   useEffect(() => {
-    if (!selectedTask) return;
+    if (!selectedTask || loading) return;
     const stillVisible = filtered.some((t) => t.id === selectedTask.id);
     if (!stillVisible) {
       setSelectedTask(null);
       setSelectedId(null);
     }
-  }, [filtered, selectedTask]);
+  }, [filtered, selectedTask, loading]);
 
   useEffect(() => {
     if (!filterMenuOpen) return undefined;
@@ -947,19 +971,26 @@ function TaskAssignmentManager({
   }, [filterMenuOpen]);
 
   const unreadCount = notifications.filter((n) => !n.readAt).length;
+  const isSelectedTaskAssigner =
+    !!selectedTask &&
+    selectedTask.createdBy?.toLowerCase() === actingUsername?.toLowerCase();
+  const canEditSelectedAsAssigner = canAssign && isSelectedTaskAssigner;
   const showSidebar = true;
   const focusMode = !!selectedTask;
   const sidebarMode = selectedTask ? 'full' : 'browse';
 
   const openCreateAssignmentForm = useCallback(() => {
-    scheduleDocumentInteractionRecovery({ lockScroll: true });
+    resetDocumentInteractionState();
+    allowDocumentInteractionLock();
     setEditingTask(null);
     setTaskFormMountKey((k) => k + 1);
     setFormOpen(true);
-  }, []);
+    loadAssignable();
+  }, [loadAssignable]);
 
   const openEditAssignmentForm = useCallback((task) => {
-    scheduleDocumentInteractionRecovery({ lockScroll: true });
+    resetDocumentInteractionState();
+    allowDocumentInteractionLock();
     setEditingTask(task);
     setTaskFormMountKey((k) => k + 1);
     setFormOpen(true);
@@ -968,10 +999,18 @@ function TaskAssignmentManager({
   const revealTask = useCallback(
     async (taskId) => {
       const res = await ipcRenderer.invoke('get-task-assignment', { actingUsername, taskId });
-      if (!res?.success) return false;
+      if (!res?.success) {
+        setListError(
+          res?.error ||
+            'Δεν ήταν δυνατή η πρόσβαση στον χώρο (π.χ. κλειστός χώρος ή λάθος προβολή στα Φίλτρα).'
+        );
+        return false;
+      }
       setSelectedId(taskId);
       setSelectedTask(res.task);
-      setScreen(res.task.status === 'completed' ? 'workArchive' : 'workspace');
+      const nextScreen = res.task.status === 'completed' ? 'workArchive' : 'workspace';
+      prevScreenRef.current = nextScreen;
+      setScreen(nextScreen);
       try {
         await ipcRenderer.invoke('mark-task-notifications-read-for-task', { actingUsername, taskId });
         window.dispatchEvent(new CustomEvent(DISMISS_TASK_EVENT, { detail: { taskId } }));
@@ -985,31 +1024,38 @@ function TaskAssignmentManager({
 
   const openTask = useCallback(
     async (taskId) => {
+      setTab('asAssignee');
       const ok = await revealTask(taskId);
       if (ok) {
+        await loadTasks({ silent: true, viewOverride: 'asAssignee' });
         loadNotifications();
-        if (onAccessRefresh) onAccessRefresh();
       }
     },
-    [revealTask, loadNotifications, onAccessRefresh]
+    [revealTask, loadNotifications, loadTasks]
   );
 
   useEffect(() => {
     if (!isOpen || !focusTaskId || !actingUsername) return undefined;
+    if (focusTaskHandledRef.current === focusTaskId) return undefined;
     let cancelled = false;
     (async () => {
+      setTab('asAssignee');
       const ok = await revealTask(focusTaskId);
       if (!cancelled && ok) {
-        await loadTasks();
+        focusTaskHandledRef.current = focusTaskId;
+        await loadTasks({ silent: true, viewOverride: 'asAssignee' });
         await loadNotifications();
-        if (onAccessRefresh) onAccessRefresh();
       }
       if (!cancelled) onFocusTaskConsumed?.();
     })();
     return () => {
       cancelled = true;
     };
-  }, [isOpen, focusTaskId, actingUsername, revealTask, loadTasks, loadNotifications, onAccessRefresh, onFocusTaskConsumed]);
+  }, [isOpen, focusTaskId, actingUsername, revealTask, loadTasks, loadNotifications, onFocusTaskConsumed]);
+
+  useEffect(() => {
+    if (!isOpen) focusTaskHandledRef.current = null;
+  }, [isOpen]);
 
   const handleTaskUpdated = (task) => {
     if (task.status === 'completed' && screen === 'workspace') {
@@ -1017,14 +1063,14 @@ function TaskAssignmentManager({
       setSelectedId(null);
     } else if (task.status !== 'completed' && screen === 'workArchive') {
       setScreen('workspace');
+      prevScreenRef.current = 'workspace';
       setSelectedTask(task);
       setSelectedId(task.id);
     } else {
       setSelectedTask(task);
     }
-    loadTasks();
+    loadTasks({ silent: true });
     loadNotifications();
-    if (onAccessRefresh) onAccessRefresh();
   };
 
   const handleLeaveArchive = async (task) => {
@@ -1033,11 +1079,11 @@ function TaskAssignmentManager({
     if (res?.success) {
       setSelectedId(null);
       setSelectedTask(null);
-      loadTasks();
-      if (onAccessRefresh) onAccessRefresh();
+      loadTasks({ silent: true });
+      onAccessRefreshRef.current?.();
     } else {
       alert(res?.error || 'Αποτυχία αποχώρησης');
-      scheduleDocumentInteractionRecovery({ lockScroll: isOpen });
+      recoverTaskManagerScroll();
     }
   };
 
@@ -1046,24 +1092,33 @@ function TaskAssignmentManager({
       ? `Οριστική διαγραφή του χώρου «${task.title}» από την αποθήκη;`
       : `Διαγραφή χώρου «${task.title}»;`;
     const confirmed = window.confirm(msg);
-    scheduleDocumentInteractionRecovery({ lockScroll: isOpen });
-    if (!confirmed) return;
+    if (!confirmed) {
+      recoverTaskManagerScroll();
+      return;
+    }
     const res = await ipcRenderer.invoke('delete-task-assignment', { actingUsername, taskId: task.id });
     if (res?.success) {
       setSelectedId(null);
       setSelectedTask(null);
-      loadTasks();
-      if (onAccessRefresh) onAccessRefresh();
+      setFormOpen(false);
+      setEditingTask(null);
+      setTaskFormMountKey((k) => k + 1);
+      loadTasks({ silent: true });
+      onAccessRefreshRef.current?.();
     } else {
       alert(res?.error || 'Αποτυχία διαγραφής');
-      scheduleDocumentInteractionRecovery({ lockScroll: isOpen });
+    }
+    resetDocumentInteractionState();
+    if (isOpen) {
+      allowDocumentInteractionLock();
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
     }
   };
 
   const markAllRead = async () => {
     await ipcRenderer.invoke('mark-task-notifications-read', { actingUsername });
     loadNotifications();
-    if (onAccessRefresh) onAccessRefresh();
+    onAccessRefreshRef.current?.();
   };
 
   const renderTaskPreview = (t) => {
@@ -1177,7 +1232,7 @@ function TaskAssignmentManager({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
-              {!isWorkArchive && canAssign && tab === 'asAssigner' && (
+              {!isWorkArchive && canAssign && (
                 <PrimaryBtn type="button" onClick={openCreateAssignmentForm}>
                   Δημιουργία Χώρου
                 </PrimaryBtn>
@@ -1198,14 +1253,14 @@ function TaskAssignmentManager({
                 <FilterMegaSection>
                   <FilterMegaLabel>Προβολή λίστας</FilterMegaLabel>
                   <FilterChipRow>
-                    {canAssign && (
-                      <FilterChip type="button" $active={tab === 'asAssigner'} onClick={() => setTab('asAssigner')}>
-                        Οι Χώροι Εργασίας μου
-                      </FilterChip>
-                    )}
                     <FilterChip type="button" $active={tab === 'asAssignee'} onClick={() => setTab('asAssignee')}>
                       Συμμετέχω
                     </FilterChip>
+                    {canAssign && (
+                      <FilterChip type="button" $active={tab === 'asAssigner'} onClick={() => setTab('asAssigner')}>
+                        Δημιούργησα εγώ
+                      </FilterChip>
+                    )}
                     {isSuperAdmin && (
                       <FilterChip type="button" $active={tab === 'all'} onClick={() => setTab('all')}>
                         Όλες
@@ -1312,7 +1367,9 @@ function TaskAssignmentManager({
                 <ListHint style={{ textAlign: 'center' }}>
                   {isWorkArchive
                     ? 'Δεν υπάρχουν ολοκληρωμένες εργασίες στην αποθήκη σας (ή έχετε αποχωρήσει από αυτές).'
-                    : 'Δεν βρέθηκαν ενεργοί χώροι με τα κριτήρια που επιλέξατε.'}
+                    : tab === 'asAssigner' && canAssign
+                      ? 'Δεν εμφανίζονται χώροι που δημιουργήσατε εσείς. Αν σας πρόσθεσε συνάδελφος, ανοίξτε Φίλτρα → «Συμμετέχω».'
+                      : 'Δεν βρέθηκαν ενεργοί χώροι με τα κριτήρια που επιλέξατε.'}
                 </ListHint>
               ) : (
                 filtered.map((t) => renderTaskPreview(t))
@@ -1327,19 +1384,22 @@ function TaskAssignmentManager({
                 actingUsername={actingUsername}
                 usersMap={usersMap}
                 isSuperAdmin={isSuperAdmin}
-                canEditAsAssigner={canAssign}
+                canEditAsAssigner={canEditSelectedAsAssigner}
                 onUpdated={handleTaskUpdated}
+                onDeparted={() => {
+                  setSelectedId(null);
+                  setSelectedTask(null);
+                  loadTasks({ silent: true });
+                  onAccessRefreshRef.current?.();
+                }}
                 onEdit={
-                  canAssign &&
-                  selectedTask.createdBy === actingUsername &&
-                  selectedTask.status !== 'completed'
+                  canEditSelectedAsAssigner &&
+                  !['completed', 'cancelled'].includes(selectedTask.status)
                     ? () => openEditAssignmentForm(selectedTask)
                     : undefined
                 }
                 onDelete={
-                  canAssign && selectedTask.createdBy === actingUsername
-                    ? () => handleDelete(selectedTask)
-                    : undefined
+                  canEditSelectedAsAssigner ? () => handleDelete(selectedTask) : undefined
                 }
                 workArchiveMode={isWorkArchive}
                 onLeaveArchive={handleLeaveArchive}
@@ -1365,20 +1425,25 @@ function TaskAssignmentManager({
 
       {formOpen && (
         <TaskAssignmentForm
-          key={taskFormMountKey}
+          key={`ta-form-${taskFormMountKey}-${editingTask?.id ?? 'create'}`}
           onClose={() => {
             setFormOpen(false);
             setEditingTask(null);
-            scheduleDocumentInteractionRecovery({ lockScroll: isOpen });
+            resetDocumentInteractionState();
+            if (isOpen) {
+              allowDocumentInteractionLock();
+              scheduleDocumentInteractionRecovery({ lockScroll: true });
+            }
           }}
           actingUsername={actingUsername}
           editingTask={editingTask}
           assignableUsers={assignableUsers}
-          onSaved={(task) => {
-            loadTasks();
+          onSaved={async (task) => {
+            setTab('asAssignee');
+            await loadTasks({ silent: true, viewOverride: 'asAssignee' });
             loadNotifications();
-            if (task?.id) openTask(task.id);
-            if (onAccessRefresh) onAccessRefresh();
+            if (task?.id) await openTask(task.id);
+            onAccessRefreshRef.current?.();
           }}
         />
       )}

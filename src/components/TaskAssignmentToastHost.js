@@ -41,7 +41,7 @@ const TOAST_ELIGIBLE_TYPES = new Set([
   'assignment_updated',
   'status_changed',
   'assignment_completed',
-  'assignment_rejected',
+  'assignment_departed',
   'assignment_withdrawn',
   'archive_left',
   'due_soon',
@@ -224,7 +224,7 @@ function toastAccent(type) {
   if (type === 'assignment_created') {
     return 'linear-gradient(135deg, rgba(245,158,11,0.85), rgba(236,72,153,0.55), rgba(99,102,241,0.6))';
   }
-  if (type === 'assignment_rejected' || type === 'overdue') {
+  if (type === 'assignment_departed' || type === 'overdue') {
     return 'linear-gradient(135deg, rgba(220,38,38,0.75), rgba(185,28,28,0.65), rgba(99,102,241,0.45))';
   }
   if (type === 'assignment_completed') {
@@ -240,7 +240,7 @@ function toastIcon(type) {
   if (type === 'comment_added') return '💬';
   if (type === 'assignment_created') return '📋';
   if (type === 'assignment_completed') return '✓';
-  if (type === 'assignment_rejected') return '✕';
+  if (type === 'assignment_departed') return '↩';
   if (type === 'due_soon' || type === 'overdue') return '⏱';
   if (type === 'status_changed') return '↻';
   return '🔔';
@@ -252,7 +252,9 @@ function toastKindLabel(type) {
   if (type === 'assignment_updated') return 'Ενημέρωση χώρου';
   if (type === 'status_changed') return 'Αλλαγή κατάστασης';
   if (type === 'assignment_completed') return 'Ολοκληρώθηκε';
-  if (type === 'assignment_rejected') return 'Απόρριψη';
+  if (type === 'assignment_departed') return 'Αποχώρηση';
+  if (type === 'assignment_withdrawn') return 'Κλείσιμο χώρου';
+  if (type === 'archive_left') return 'Αποχώρηση από αποθήκη';
   if (type === 'due_soon') return 'Προθεσμία σύντομα';
   if (type === 'overdue') return 'Εκπρόθεσμη';
   return 'Χώρος Εργασίας';
@@ -262,7 +264,7 @@ function toastKindLabelColor(type) {
   if (type === 'comment_added') return '#0f766e';
   if (type === 'assignment_created') return '#a16207';
   if (type === 'assignment_completed') return '#15803d';
-  if (type === 'assignment_rejected' || type === 'overdue') return '#b91c1c';
+  if (type === 'assignment_departed' || type === 'overdue') return '#b45309';
   if (type === 'due_soon') return '#a16207';
   return '#4338ca';
 }
@@ -271,7 +273,7 @@ function toastIconBg(type) {
   if (type === 'comment_added') return 'linear-gradient(145deg, #0d9488, #0284c7)';
   if (type === 'assignment_created') return 'linear-gradient(145deg, #d97706, #db2777)';
   if (type === 'assignment_completed') return 'linear-gradient(145deg, #16a34a, #059669)';
-  if (type === 'assignment_rejected' || type === 'overdue') return 'linear-gradient(145deg, #dc2626, #b91c1c)';
+  if (type === 'assignment_departed' || type === 'overdue') return 'linear-gradient(145deg, #d97706, #b45309)';
   if (type === 'due_soon') return 'linear-gradient(145deg, #ca8a04, #ea580c)';
   return 'linear-gradient(145deg, #6366f1, #4f46e5)';
 }
@@ -321,7 +323,7 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
       }, AUTO_DISMISS_MS);
       timersRef.current.set(id, h);
     },
-    [markOneRead, removeToast]
+    [removeToast]
   );
 
   const scheduleAutoDismissRef = useRef(scheduleAutoDismiss);
@@ -351,10 +353,16 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
 
     (async () => {
       try {
-        const res = await window.electronAPI.invoke('load-task-notifications', {
-          actingUsername,
-          unreadOnly: true
-        });
+        let res = null;
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          if (cancelled || startupFetchGenRef.current !== gen) return;
+          res = await window.electronAPI.invoke('load-task-notifications', {
+            actingUsername,
+            unreadOnly: true
+          });
+          if (res?.success) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
         if (cancelled || startupFetchGenRef.current !== gen || !res?.success) return;
         const raw = Array.isArray(res.notifications) ? res.notifications : [];
         const filtered = raw.filter(isToastableNotification);
@@ -385,6 +393,42 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
       cancelled = true;
       staggerTimers.forEach((tid) => clearTimeout(tid));
     };
+  }, [actingUsername]);
+
+  /** Κοινός φάκελος server: νέες ειδοποιήσεις από άλλο PC (χωρίς τοπικό IPC). */
+  useEffect(() => {
+    if (!actingUsername || !window.electronAPI?.invoke) return undefined;
+    const poll = async () => {
+      try {
+        const res = await window.electronAPI.invoke('load-task-notifications', {
+          actingUsername,
+          unreadOnly: true
+        });
+        if (!res?.success) return;
+        const incoming = (Array.isArray(res.notifications) ? res.notifications : []).filter(
+          isToastableNotification
+        );
+        if (incoming.length === 0) return;
+        setToasts((prev) => {
+          let next = prev;
+          let added = false;
+          incoming.forEach((n) => {
+            if (next.some((x) => x.id === n.id)) return;
+            const entry = { ...n, _receivedAt: Date.now(), _fromPoll: true };
+            next = [entry, ...next];
+            added = true;
+            queueMicrotask(() => scheduleAutoDismissRef.current(n.id));
+          });
+          if (!added) return prev;
+          while (next.length > MAX_STACK) next = next.slice(0, MAX_STACK);
+          return next;
+        });
+      } catch {
+        /* ignore */
+      }
+    };
+    const intervalId = setInterval(poll, 60000);
+    return () => clearInterval(intervalId);
   }, [actingUsername]);
 
   useEffect(() => {

@@ -2,7 +2,17 @@
  * Επαναφέρει καθολικά στυλ στο document/body που συχνά «κολλάνε» μετά από
  * full-screen overlay, modal ή native dialog (confirm/alert) στο Electron.
  */
-export function resetDocumentInteractionState() {
+
+/** Αυξάνεται σε κάθε πλήρες reset — ακυρώνει εκκρεμείς rAF από scheduleDocumentInteractionRecovery (π.χ. μετά από αποσύνδεση). */
+let interactionRecoveryEpoch = 0;
+
+/**
+ * Μόνο όταν true επιτρέπεται να ξανακλειδωθεί το scroll (π.χ. ανοιχτός Χώρος Εργασίας).
+ * Μετά από αποσύνδεση / κλείσιμο overlay παραμένει false — αποφεύγει κολλημένα πεδία login.
+ */
+let interactionLockAllowed = false;
+
+function applyDomInteractionUnlock() {
   if (typeof document === 'undefined') return;
   try {
     const targets = [document.body, document.documentElement, document.getElementById('root')].filter(
@@ -19,16 +29,31 @@ export function resetDocumentInteractionState() {
   }
 }
 
+export function resetDocumentInteractionState() {
+  if (typeof document === 'undefined') return;
+  interactionRecoveryEpoch += 1;
+  interactionLockAllowed = false;
+  applyDomInteractionUnlock();
+}
+
+/** Επιτρέπει lock scroll μόνο όσο είναι ανοιχτό full-screen overlay (π.χ. TaskAssignmentManager). */
+export function allowDocumentInteractionLock() {
+  interactionLockAllowed = true;
+}
+
 /**
  * Μετά από window.confirm / alert: διπλό rAF ώστε να προλάβει το Electron να
  * απελευθερώσει focus/pointer-events πριν ξανακλειδώσουμε scroll (αν χρειάζεται).
+ * Οι εκκρεμείς rAF ακυρώνονται όταν καλεστεί resetDocumentInteractionState() (π.χ. αποσύνδεση).
  */
 export function scheduleDocumentInteractionRecovery({ lockScroll = false } = {}) {
   if (typeof document === 'undefined') return;
 
+  const epoch = interactionRecoveryEpoch;
   const run = () => {
-    resetDocumentInteractionState();
-    if (lockScroll) {
+    if (epoch !== interactionRecoveryEpoch) return;
+    applyDomInteractionUnlock();
+    if (lockScroll && interactionLockAllowed && epoch === interactionRecoveryEpoch) {
       document.body.style.overflow = 'hidden';
     }
   };
@@ -36,11 +61,21 @@ export function scheduleDocumentInteractionRecovery({ lockScroll = false } = {})
   run();
   if (typeof requestAnimationFrame === 'function') {
     requestAnimationFrame(() => {
+      if (epoch !== interactionRecoveryEpoch) return;
       run();
-      requestAnimationFrame(run);
+      requestAnimationFrame(() => {
+        if (epoch !== interactionRecoveryEpoch) return;
+        run();
+      });
     });
   } else {
-    setTimeout(run, 0);
-    setTimeout(run, 16);
+    setTimeout(() => {
+      if (epoch !== interactionRecoveryEpoch) return;
+      run();
+    }, 0);
+    setTimeout(() => {
+      if (epoch !== interactionRecoveryEpoch) return;
+      run();
+    }, 16);
   }
 }

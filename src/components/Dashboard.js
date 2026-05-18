@@ -4112,11 +4112,22 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   }, []);
 
   const refreshTaskAccess = useCallback(async () => {
-    if (!currentUser?.username) return;
+    if (!currentUser?.username || !ipcRenderer?.invoke) return;
+    const fallbackCanAssign = !!currentUser?.taskAssignment?.canAssign || isSuperAdmin;
     try {
-      const res = await ipcRenderer.invoke('get-task-assignment-access', {
+      await ipcRenderer.invoke('set-dashboard-session-active', {
+        active: true,
+        username: currentUser.username
+      });
+      let res = await ipcRenderer.invoke('get-task-assignment-access', {
         actingUsername: currentUser.username
       });
+      if (!res?.success) {
+        await new Promise((r) => setTimeout(r, 120));
+        res = await ipcRenderer.invoke('get-task-assignment-access', {
+          actingUsername: currentUser.username
+        });
+      }
       if (typeof onSyncCurrentUser === 'function') {
         await onSyncCurrentUser();
       }
@@ -4126,11 +4137,23 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           unreadCount: res.unreadCount || 0,
           canAssign: !!res.canAssign
         });
+      } else if (fallbackCanAssign) {
+        setTaskAccess({
+          showModule: true,
+          unreadCount: 0,
+          canAssign: true
+        });
       }
     } catch {
-      /* ignore */
+      if (fallbackCanAssign) {
+        setTaskAccess({
+          showModule: true,
+          unreadCount: 0,
+          canAssign: true
+        });
+      }
     }
-  }, [currentUser?.username, onSyncCurrentUser]);
+  }, [currentUser?.username, currentUser?.taskAssignment?.canAssign, isSuperAdmin, onSyncCurrentUser]);
 
   const openTaskAssignmentsFromToast = useCallback((taskId) => {
     setTaskAssignmentInitialScreen('workspace');
@@ -4167,6 +4190,13 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     return () => {
       if (typeof unsub === 'function') unsub();
     };
+  }, [currentUser?.username, refreshTaskAccess]);
+
+  /** Κοινός φάκελος: ανανέωση πρόσβασης/μη αναγνωσμένων χωρίς IPC από άλλο PC. */
+  useEffect(() => {
+    if (!currentUser?.username) return undefined;
+    const intervalId = setInterval(() => refreshTaskAccess(), 60000);
+    return () => clearInterval(intervalId);
   }, [currentUser?.username, refreshTaskAccess]);
 
   const handleOpenEntaxis = (projectTitle = null) => {

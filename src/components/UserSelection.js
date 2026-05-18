@@ -259,6 +259,7 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
 
   useLayoutEffect(() => {
     resetDocumentInteractionState();
+    return () => resetDocumentInteractionState();
   }, []);
 
   const [regUsername, setRegUsername] = useState('');
@@ -280,6 +281,16 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
     try {
       const result = await ipcRenderer.invoke('authenticate', { username: username.trim(), password });
       if (result.success) {
+        try {
+          await ipcRenderer.invoke('set-dashboard-session-active', {
+            active: true,
+            username: result.user.username
+          });
+        } catch {
+          setError('Αποτυχία εκκίνησης συνεδρίας — δοκιμάστε ξανά');
+          setPassword('');
+          return;
+        }
         onUserSelect(result.user);
       } else {
         setError(result.error || 'Αποτυχία σύνδεσης');

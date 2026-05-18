@@ -203,16 +203,22 @@ function App() {
         ? users.find((u) => u.username?.toLowerCase() === currentUser.username.toLowerCase())
         : null;
       if (me) {
-        setCurrentUser((prev) =>
-          prev
-            ? {
-                ...prev,
-                taskAssignment: me.taskAssignment,
-                role: me.role || prev.role,
-                fullName: me.fullName || prev.fullName
-              }
-            : prev
-        );
+        setCurrentUser((prev) => {
+          if (!prev) return prev;
+          const nextRole = me.role || prev.role;
+          const nextName = me.fullName || prev.fullName;
+          const sameRole = nextRole === prev.role;
+          const sameName = nextName === prev.fullName;
+          const sameTA =
+            JSON.stringify(prev.taskAssignment || null) === JSON.stringify(me.taskAssignment || null);
+          if (sameRole && sameName && sameTA) return prev;
+          return {
+            ...prev,
+            taskAssignment: me.taskAssignment,
+            role: nextRole,
+            fullName: nextName
+          };
+        });
       }
     } catch {
       /* ignore */
@@ -309,6 +315,11 @@ function App() {
                         onLogout={() => {
                           resetDocumentInteractionState();
                           setCurrentUser(null);
+                          queueMicrotask(() => resetDocumentInteractionState());
+                          requestAnimationFrame(() => {
+                            resetDocumentInteractionState();
+                            requestAnimationFrame(() => resetDocumentInteractionState());
+                          });
                         }}
                       />
                       </Suspense>

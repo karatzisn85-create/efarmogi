@@ -34,7 +34,7 @@ const ALLOWED_INVOKE = new Set([
   'link-subproject-to-subproject','load-all-entaxeis','load-all-projects',
   'load-all-proskliseis','load-all-subprojects','load-document-templates',
   'load-egkriseis-data','load-egkriseis-v2','load-egkrisi-links',
-  'load-entaxi-data','load-notes','load-organized-egkriseis-structure','load-task-assignments','load-task-notifications','leave-task-work-archive',
+  'load-entaxi-data','load-notes','load-organized-egkriseis-structure','load-task-assignments','load-task-notifications','leave-task-assignment-workspace','leave-task-work-archive',
   'load-project-egkriseis','load-prosklisi-modifications','load-subproject-links',
   'load-unlinked-egkriseis','mark-task-notifications-read','mark-task-notifications-read-for-task','open-document-template','open-egkrisi-v2-pdf',
   'open-file-dialog','open-pdf-file','open-prosklisi-folder','open-task-assignment-file','preview-subprojects-excel-import','register-user',

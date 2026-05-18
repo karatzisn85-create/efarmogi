@@ -9,7 +9,7 @@ const { safeWriteJSON } = require('./safeWrite');
 const TASKS_ROOT = 'ANATHESEIS_ERGASION';
 const FILES_SUBDIR = 'ARXEIA';
 
-const VALID_STATUSES = ['pending', 'in_progress', 'completed', 'rejected', 'cancelled'];
+const VALID_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'];
 const OPEN_STATUSES = ['pending', 'in_progress'];
 const DEFAULT_REMINDER_OFFSETS = [7, 3, 1, 0];
 
@@ -63,7 +63,13 @@ function canUserAssignTo(users, assignerUsername, assigneeUsernames) {
   if (targets.length === 0) return { ok: false, error: 'Επιλέξτε τουλάχιστον έναν συνάδελφο' };
 
   if (isSuperAdminRole(users, assignerUsername)) {
-    return { ok: true, assignees: targets };
+    const assignees = [...new Set(
+      targets.map((t) => {
+        const u = findUser(users, t);
+        return u ? u.username : t;
+      })
+    )];
+    return { ok: true, assignees };
   }
 
   const ta = normalizeTaskAssignment(assigner.taskAssignment);
@@ -82,7 +88,13 @@ function canUserAssignTo(users, assignerUsername, assigneeUsernames) {
   if (invalid.length > 0) {
     return { ok: false, error: `Μη επιτρεπτοί συνάδελφοι: ${invalid.join(', ')}` };
   }
-  return { ok: true, assignees: targets };
+  const assignees = [...new Set(
+    targets.map((t) => {
+      const u = findUser(users, t);
+      return u ? u.username : t;
+    })
+  )];
+  return { ok: true, assignees };
 }
 
 function createTaskAssignmentService(deps) {
@@ -160,11 +172,67 @@ function createTaskAssignmentService(deps) {
     };
   }
 
+  /** Μετατροπή παλιάς κατάστασης «απορρίφθηκε» σε αποχώρηση συμμετέχοντα. */
+  function migrateLegacyTask(task) {
+    if (!task) return { task: null, changed: false };
+    let t = { ...task };
+    let changed = false;
+
+    if (t.status === 'rejected') {
+      t.status = 'pending';
+      changed = true;
+    }
+
+    const legacyRejecter = t.rejectedBy ? String(t.rejectedBy).trim() : '';
+    if (legacyRejecter) {
+      const rbLower = legacyRejecter.toLowerCase();
+      const assignees = Array.isArray(t.assignees) ? [...t.assignees] : [];
+      if (assignees.some((a) => String(a).toLowerCase() === rbLower)) {
+        t.assignees = assignees.filter((a) => String(a).toLowerCase() !== rbLower);
+        changed = true;
+      }
+      t.departedAssignees = Array.isArray(t.departedAssignees) ? [...t.departedAssignees] : [];
+      if (!t.departedAssignees.some((d) => String(d.username || '').toLowerCase() === rbLower)) {
+        t.departedAssignees.push({
+          username: legacyRejecter,
+          at: t.rejectedAt || t.updatedAt || new Date().toISOString(),
+          note: t.rejectionReason ? String(t.rejectionReason).trim() || null : null
+        });
+        changed = true;
+      }
+    }
+
+    for (const key of ['rejectedAt', 'rejectedBy', 'rejectionReason']) {
+      if (t[key] != null) {
+        delete t[key];
+        changed = true;
+      }
+    }
+    if (!Array.isArray(t.departedAssignees)) {
+      t.departedAssignees = [];
+      changed = true;
+    }
+
+    const activeSet = new Set((t.assignees || []).map((a) => String(a).toLowerCase()));
+    const syncedDeparted = (t.departedAssignees || []).filter(
+      (d) => !activeSet.has(String(d.username || '').toLowerCase())
+    );
+    if (syncedDeparted.length !== (t.departedAssignees || []).length) {
+      t.departedAssignees = syncedDeparted;
+      changed = true;
+    }
+
+    return { task: t, changed };
+  }
+
   function readTask(taskId) {
     const fp = getTaskDataPath(taskId);
     if (!fs.existsSync(fp)) return null;
     try {
-      return JSON.parse(fs.readFileSync(fp, 'utf8'));
+      const parsed = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      const { task, changed } = migrateLegacyTask(parsed);
+      if (changed && task) writeTask(task);
+      return task;
     } catch {
       return null;
     }
@@ -281,7 +349,11 @@ function createTaskAssignmentService(deps) {
       (task.assignees || []).forEach((u) => recipients.add(u));
     } else if (type === 'assignment_updated') {
       (task.assignees || []).forEach((u) => recipients.add(u));
-    } else if (type === 'status_changed' || type === 'assignment_completed' || type === 'assignment_rejected') {
+    } else if (
+      type === 'status_changed' ||
+      type === 'assignment_completed' ||
+      type === 'assignment_departed'
+    ) {
       recipients.add(task.createdBy);
       (task.assignees || []).forEach((u) => recipients.add(u));
     } else if (type === 'assignment_withdrawn') {
@@ -298,8 +370,21 @@ function createTaskAssignmentService(deps) {
     recipients.forEach((username) => {
       if (!username) return;
       if (exclude.has(String(username).toLowerCase())) return;
-      pushNotification({ username, type, taskId: task.id, title, message });
+      try {
+        pushNotification({ username, type, taskId: task.id, title, message });
+      } catch (err) {
+        console.error('[taskAssignment] pushNotification failed:', err?.message || err);
+      }
     });
+  }
+
+  /** Ειδοποιήσεις — δεν πρέπει να ακυρώνουν την αποθήκευση χώρου (π.χ. κοινό δίσκο). */
+  function safeNotifyTaskEvent(task, type, message, extraUsernames = [], options = {}) {
+    try {
+      notifyTaskEvent(task, type, message, extraUsernames, options);
+    } catch (err) {
+      console.error('[taskAssignment] notifyTaskEvent failed:', err?.message || err);
+    }
   }
 
   function normalizeTaskPayload(payload, existing = null) {
@@ -350,9 +435,7 @@ function createTaskAssignmentService(deps) {
       statusHistory: [{ status: 'pending', at: now, by: createdBy, note: 'Δημιουργία χώρου' }],
       completedAt: null,
       completedBy: null,
-      rejectedAt: null,
-      rejectedBy: null,
-      rejectionReason: null,
+      departedAssignees: [],
       leftArchiveBy: []
     };
   }
@@ -398,7 +481,8 @@ function createTaskAssignmentService(deps) {
     const idx = readIndex();
     const ta = normalizeTaskAssignment(actor.taskAssignment);
     const isSA = isSuperAdmin(users, actingUsername);
-    const uLower = actingUsername.toLowerCase();
+    /** SUPERADMIN δεν έχει πάντα taskAssignment στο users.json — πρέπει να βλέπει και τους χώρους που δημιούργησε ως αναθέτης. */
+    const assignerListVisibility = ta.canAssign || isSA;
 
     let list = idx.tasks.map((meta) => {
       const full = readTask(meta.id);
@@ -408,13 +492,13 @@ function createTaskAssignmentService(deps) {
     if (view === 'all' && isSA) {
       // all tasks
     } else if (view === 'asAssigner') {
-      if (!ta.canAssign && !isSA) return { success: false, error: 'Δεν έχετε δικαίωμα δημιουργίας χώρου' };
+      if (!assignerListVisibility) return { success: false, error: 'Δεν έχετε δικαίωμα δημιουργίας χώρου' };
       list = list.filter((t) => isAssigner(t, actingUsername));
     } else {
       list = list.filter(
         (t) =>
           isAssignee(t, actingUsername) ||
-          (ta.canAssign && isAssigner(t, actingUsername))
+          (assignerListVisibility && isAssigner(t, actingUsername))
       );
       if (view === 'asAssignee') {
         list = list.filter((t) => isAssignee(t, actingUsername) || isAssigner(t, actingUsername));
@@ -492,6 +576,15 @@ function createTaskAssignmentService(deps) {
 
   function createTask({ actingUsername, payload, newFiles = [] }) {
     const users = loadUsers();
+    const assigner = findUser(users, actingUsername);
+    if (!assigner) return { success: false, error: 'Άγνωστος χρήστης' };
+    if (!isSuperAdminRole(users, actingUsername)) {
+      const ta = normalizeTaskAssignment(assigner.taskAssignment);
+      if (!ta.canAssign) {
+        return { success: false, error: 'Δεν έχετε δικαίωμα δημιουργίας χώρου εργασίας' };
+      }
+    }
+
     const norm = normalizeTaskPayload(payload);
     if (!norm.title) return { success: false, error: 'Ο τίτλος είναι υποχρεωτικός' };
 
@@ -499,17 +592,21 @@ function createTaskAssignmentService(deps) {
     if (!assignCheck.ok) return { success: false, error: assignCheck.error };
 
     const task = buildNewTask(actingUsername, { ...norm, assignees: assignCheck.assignees });
-    const copied = copyFilesToTask(task.id, newFiles, actingUsername);
-    task.files = copied;
-    writeTask(task);
-    const assigner = findUser(users, actingUsername);
-    const byLabel = assigner?.fullName ? `${assigner.fullName} (${actingUsername})` : actingUsername;
+    try {
+      const copied = copyFilesToTask(task.id, newFiles, actingUsername);
+      task.files = copied;
+      writeTask(task);
+    } catch (err) {
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης χώρου στον δίσκο' };
+    }
+
+    const byLabel = assigner.fullName ? `${assigner.fullName} (${actingUsername})` : actingUsername;
     let msg = `Ο/H ${byLabel} σας προσκάλεσε σε νέο χώρο εργασίας.`;
     if (norm.description) {
       const ex = norm.description.length > 180 ? `${norm.description.slice(0, 177)}…` : norm.description;
       msg = `${msg} «${ex}»`;
     }
-    notifyTaskEvent(task, 'assignment_created', msg);
+    safeNotifyTaskEvent(task, 'assignment_created', msg);
     return { success: true, task };
   }
 
@@ -520,7 +617,7 @@ function createTaskAssignmentService(deps) {
     if (!isAssigner(existing, actingUsername) && !isSuperAdmin(users, actingUsername)) {
       return { success: false, error: 'Μόνο ο αναθέτων μπορεί να επεξεργαστεί τον χώρο' };
     }
-    if (['completed', 'rejected'].includes(existing.status)) {
+    if (existing.status === 'completed') {
       return { success: false, error: 'Ο χώρος είναι κλειστός και δεν επεξεργάζεται' };
     }
     if (existing.status === 'cancelled' && !existing.withdrawnByAssigner) {
@@ -535,15 +632,42 @@ function createTaskAssignmentService(deps) {
 
     const now = new Date().toISOString();
     const copied = copyFilesToTask(taskId, newFiles, actingUsername);
+    const newAssignees = assignCheck.assignees;
+    const activeSet = new Set(newAssignees.map((a) => String(a).toLowerCase()));
+    const prevDeparted = Array.isArray(existing.departedAssignees) ? existing.departedAssignees : [];
+    const rejoined = prevDeparted.filter((d) => activeSet.has(String(d.username || '').toLowerCase()));
+    const departedAssignees = prevDeparted.filter(
+      (d) => !activeSet.has(String(d.username || '').toLowerCase())
+    );
+    let statusHistory = Array.isArray(existing.statusHistory) ? [...existing.statusHistory] : [];
+    if (rejoined.length > 0) {
+      rejoined.forEach((d) => {
+        const u = findUser(users, d.username);
+        const name = u?.fullName ? `${u.fullName} (${d.username})` : d.username;
+        statusHistory.push({
+          status: existing.status,
+          at: now,
+          by: actingUsername,
+          note: `Επαναπρόσκληση συνάδελφου: ${name}`,
+          event: 'assignee_rejoined'
+        });
+      });
+    }
     const task = {
       ...existing,
       ...norm,
-      assignees: assignCheck.assignees,
+      assignees: newAssignees,
+      departedAssignees,
+      statusHistory,
       files: [...(existing.files || []), ...copied],
       updatedAt: now
     };
-    writeTask(task);
-    notifyTaskEvent(task, 'assignment_updated', `Ενημέρωση χώρου: ${task.title}`);
+    try {
+      writeTask(task);
+    } catch (err) {
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης χώρου στον δίσκο' };
+    }
+    safeNotifyTaskEvent(task, 'assignment_updated', `Ενημέρωση χώρου: ${task.title}`);
     return { success: true, task };
   }
 
@@ -578,12 +702,6 @@ function createTaskAssignmentService(deps) {
       return { success: false, error: 'Μόνο ο αναθέτων μπορεί να κλείσει τον χώρο' };
     }
 
-    if (status === 'rejected') {
-      if (!isAssigneeUser && !isSA) {
-        return { success: false, error: 'Μόνο ο συνάδελφος μπορεί να απορρίψει' };
-      }
-    }
-
     /** Ολοκληρωμένος χώρος στην αποθήκη: μόνο ο αναθέτης (ή SA) μπορεί να τον επαναφέρει σε ενεργή κατάσταση. */
     if (task.status === 'completed' && status !== 'completed') {
       if (!isAssignerUser && !isSA) {
@@ -614,7 +732,7 @@ function createTaskAssignmentService(deps) {
       status,
       at: now,
       by: actingUsername,
-      note: status === 'rejected' ? String(reason).trim() : reopenNote || withdrawNote
+      note: reopenNote || withdrawNote
     });
 
     let withdrawnByAssigner = !!task.withdrawnByAssigner;
@@ -630,37 +748,111 @@ function createTaskAssignmentService(deps) {
       withdrawnByAssigner,
       statusHistory: history,
       updatedAt: now,
-      rejectionReason: status === 'rejected' ? String(reason || '').trim() || null : task.rejectionReason,
-      rejectedAt: status === 'rejected' ? now : task.rejectedAt,
-      rejectedBy: status === 'rejected' ? actingUsername : task.rejectedBy,
       completedAt: status === 'completed' ? now : null,
       completedBy: status === 'completed' ? actingUsername : null,
       leftArchiveBy: reopeningFromArchive ? [] : task.leftArchiveBy || []
     };
 
-    writeTask(updated);
+    try {
+      writeTask(updated);
+    } catch (err) {
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης χώρου στον δίσκο' };
+    }
 
     if (status === 'completed') {
-      notifyTaskEvent(updated, 'assignment_completed', `Ολοκληρώθηκε: ${updated.title}`);
+      safeNotifyTaskEvent(updated, 'assignment_completed', `Ολοκληρώθηκε: ${updated.title}`);
     } else if (reopeningFromArchive) {
-      notifyTaskEvent(
+      safeNotifyTaskEvent(
         updated,
         'status_changed',
         `Ο χώρος «${updated.title}» επανήλθε στον ενεργό χώρο εργασίας`
       );
-    } else if (status === 'rejected') {
-      notifyTaskEvent(updated, 'assignment_rejected', `Απορρίφθηκε: ${updated.title}`);
     } else if (status === 'cancelled' && withdrawFromAssignees && isAssignerUser) {
-      notifyTaskEvent(
+      safeNotifyTaskEvent(
         updated,
         'assignment_withdrawn',
         `Ο αναθέτης έκλεισε τον χώρο «${updated.title}» — δεν εμφανίζεται πλέον στη λίστα σας.`
       );
     } else {
-      notifyTaskEvent(updated, 'status_changed', `Νέα κατάσταση (${status}): ${updated.title}`);
+      safeNotifyTaskEvent(updated, 'status_changed', `Νέα κατάσταση (${status}): ${updated.title}`);
     }
 
     return { success: true, task: updated };
+  }
+
+  /** Συνάδελφος αποχωρεί από ενεργό χώρο — οι υπόλοιποι συνεχίζουν κανονικά. */
+  function leaveWorkspace({ actingUsername, taskId, note = '' }) {
+    const users = loadUsers();
+    const task = readTask(taskId);
+    if (!task) return { success: false, error: 'Ο χώρος δεν βρέθηκε' };
+
+    if (isAssigner(task, actingUsername)) {
+      return {
+        success: false,
+        error: 'Ο δημιουργός δεν αποχωρεί από τον χώρο — χρησιμοποιήστε «Κλείσιμο χώρου» αν θέλετε να τον κλείσετε'
+      };
+    }
+    if (!isAssignee(task, actingUsername)) {
+      return { success: false, error: 'Δεν συμμετέχετε σε αυτόν τον χώρο' };
+    }
+    if (['completed', 'cancelled'].includes(task.status)) {
+      return { success: false, error: 'Ο χώρος δεν είναι ενεργός' };
+    }
+
+    const uLower = String(actingUsername || '').toLowerCase();
+    const assignees = (task.assignees || []).filter((a) => String(a).toLowerCase() !== uLower);
+    if (assignees.length === (task.assignees || []).length) {
+      return { success: false, error: 'Δεν είστε ενεργός συμμετέχων σε αυτόν τον χώρο' };
+    }
+
+    const now = new Date().toISOString();
+    const noteTrim = String(note || '').trim();
+    const departedAssignees = Array.isArray(task.departedAssignees) ? [...task.departedAssignees] : [];
+    if (!departedAssignees.some((d) => String(d.username || '').toLowerCase() === uLower)) {
+      departedAssignees.push({
+        username: actingUsername,
+        at: now,
+        note: noteTrim || null
+      });
+    }
+
+    const history = Array.isArray(task.statusHistory) ? [...task.statusHistory] : [];
+    history.push({
+      status: task.status,
+      at: now,
+      by: actingUsername,
+      note: noteTrim ? `Αποχώρηση: ${noteTrim}` : 'Αποχώρηση από τον χώρο εργασίας',
+      event: 'assignee_departed'
+    });
+
+    const updated = {
+      ...task,
+      assignees,
+      departedAssignees,
+      statusHistory: history,
+      updatedAt: now
+    };
+    delete updated.rejectedAt;
+    delete updated.rejectedBy;
+    delete updated.rejectionReason;
+
+    try {
+      writeTask(updated);
+    } catch (err) {
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης' };
+    }
+
+    const leaver = findUser(users, actingUsername);
+    const leaverLabel = leaver?.fullName ? `${leaver.fullName} (${actingUsername})` : actingUsername;
+    const title = updated.title || 'Χώρος εργασίας';
+    const departMsg = noteTrim
+      ? `Ο/Η ${leaverLabel} αποχώρησε από τον χώρο «${title}»: «${noteTrim.length > 180 ? `${noteTrim.slice(0, 177)}…` : noteTrim}»`
+      : `Ο/Η ${leaverLabel} αποχώρησε από τον χώρο «${title}»`;
+    safeNotifyTaskEvent(updated, 'assignment_departed', departMsg, [], {
+      excludeUsernames: [actingUsername]
+    });
+
+    return { success: true, task: updated, leftWorkspace: true };
   }
 
   /** Συνάδελφος αφαιρεί ολοκληρωμένο χώρο από τη δική του λίστα αποθήκης (τα δεδομένα παραμένουν). */
@@ -700,9 +892,13 @@ function createTaskAssignmentService(deps) {
       ],
       updatedAt: now
     };
-    writeTask(updated);
+    try {
+      writeTask(updated);
+    } catch (err) {
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης' };
+    }
 
-    notifyTaskEvent(
+    safeNotifyTaskEvent(
       updated,
       'archive_left',
       `Ο/Η ${leaverLabel} αποχώρησε από την αποθήκη εργασιών του χώρου «${updated.title}»`,
@@ -720,7 +916,7 @@ function createTaskAssignmentService(deps) {
     const users = loadUsers();
     const task = readTask(taskId);
     if (!task) return { success: false, error: 'Ο χώρος δεν βρέθηκε' };
-    if (['completed', 'rejected', 'cancelled'].includes(task.status)) {
+    if (['completed', 'cancelled'].includes(task.status)) {
       return { success: false, error: ARCHIVE_LOCKED_MSG };
     }
     if (!canAccessTask(users, task, actingUsername)) {
@@ -754,8 +950,12 @@ function createTaskAssignmentService(deps) {
       comments: [...(task.comments || []), comment],
       updatedAt: comment.createdAt
     };
-    writeTask(updated);
-    notifyTaskEvent(updated, 'comment_added', `${authorLabel}: «${excerpt}»`, [...recipients]);
+    try {
+      writeTask(updated);
+    } catch (err) {
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης σχολίου' };
+    }
+    safeNotifyTaskEvent(updated, 'comment_added', `${authorLabel}: «${excerpt}»`, [...recipients]);
     return { success: true, task: updated };
   }
 
@@ -763,7 +963,7 @@ function createTaskAssignmentService(deps) {
     const users = loadUsers();
     const task = readTask(taskId);
     if (!task) return { success: false, error: 'Ο χώρος δεν βρέθηκε' };
-    if (['completed', 'rejected', 'cancelled'].includes(task.status)) {
+    if (['completed', 'cancelled'].includes(task.status)) {
       return { success: false, error: ARCHIVE_LOCKED_MSG };
     }
     if (!canAccessTask(users, task, actingUsername)) {
@@ -776,7 +976,11 @@ function createTaskAssignmentService(deps) {
       files: [...(task.files || []), ...copied],
       updatedAt: new Date().toISOString()
     };
-    writeTask(updated);
+    try {
+      writeTask(updated);
+    } catch (err) {
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης αρχείων' };
+    }
     return { success: true, task: updated };
   }
 
@@ -927,6 +1131,7 @@ function createTaskAssignmentService(deps) {
     updateTask,
     deleteTask,
     updateStatus,
+    leaveWorkspace,
     leaveWorkArchive,
     resolveTaskFilePath,
     addComment,

@@ -2,7 +2,6 @@ export const TASK_STATUS_LABELS = {
   pending: 'Εκκρεμεί',
   in_progress: 'Σε εξέλιξη',
   completed: 'Ολοκληρώθηκε',
-  rejected: 'Απορρίφθηκε',
   cancelled: 'Κλειστός'
 };
 
@@ -34,6 +33,15 @@ export function formatAssigneeDisplayNames(task, usersMap) {
 export function formatLeftArchiveDisplayNames(task, usersMap) {
   return (task.leftArchiveBy || [])
     .map((u) => usersMap?.[u]?.fullName || u)
+    .join(', ');
+}
+
+/** Συνάδελφοι που αποχώρησαν και δεν είναι πλέον ενεργοί στον χώρο. */
+export function formatDepartedAssigneeDisplayNames(task, usersMap) {
+  const active = new Set((task.assignees || []).map((a) => String(a).toLowerCase()));
+  return (task.departedAssignees || [])
+    .filter((d) => !active.has(String(d.username || '').toLowerCase()))
+    .map((d) => usersMap?.[d.username]?.fullName || d.username)
     .join(', ');
 }
 

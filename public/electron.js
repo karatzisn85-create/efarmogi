@@ -1920,6 +1920,17 @@ ipcMain.handle('leave-task-work-archive', async (_event, { actingUsername, taskI
   }
 });
 
+ipcMain.handle('leave-task-assignment-workspace', async (_event, { actingUsername, taskId, note }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
+  try {
+    const svc = getTaskAssignmentService();
+    return svc.leaveWorkspace({ actingUsername: auth.username, taskId, note: note || '' });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('get-task-assignment', async (_event, { actingUsername, taskId }) => {
   const auth = resolveTaskActingUser(actingUsername);
   if (!auth.ok) return { success: false, error: auth.error };
@@ -1936,6 +1947,7 @@ ipcMain.handle('create-task-assignment', async (_event, { actingUsername, payloa
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.createTask({ actingUsername: auth.username, payload, newFiles: newFiles || [] });
   } catch (error) {
     return { success: false, error: error.message };

@@ -1396,12 +1396,6 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
     return groups;
   }, {});
 
-  // Debug log
-  console.log('entaxeis array:', entaxeis);
-  console.log('filteredEntaxeis:', filteredEntaxeis);
-  console.log('groupedEntaxeis:', groupedEntaxeis);
-  console.log('projectFilter:', projectFilter);
-
   if (!isOpen) return null;
 
   return (

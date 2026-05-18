@@ -2,7 +2,11 @@ import React, { useState, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { DEFAULT_REMINDER_OFFSETS } from '../utils/taskAssignmentDisplay';
-import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
+import {
+  allowDocumentInteractionLock,
+  resetDocumentInteractionState,
+  scheduleDocumentInteractionRecovery
+} from '../utils/documentInteractionReset';
 
 const ipcRenderer = window.electronAPI;
 
@@ -310,6 +314,7 @@ const ErrorMsg = styled.div`
 
 function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = null, assignableUsers = [] }) {
   const titleRef = useRef(null);
+  const errorRef = useRef(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('normal');
@@ -321,11 +326,17 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
   const [error, setError] = useState('');
 
   useLayoutEffect(() => {
-    scheduleDocumentInteractionRecovery({ lockScroll: true });
+    resetDocumentInteractionState();
+    allowDocumentInteractionLock();
     const focusId = requestAnimationFrame(() => {
       titleRef.current?.focus();
     });
-    return () => cancelAnimationFrame(focusId);
+    return () => {
+      cancelAnimationFrame(focusId);
+      resetDocumentInteractionState();
+      allowDocumentInteractionLock();
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -379,14 +390,25 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
     }
   };
 
+  const showError = (message) => {
+    setError(message);
+    requestAnimationFrame(() => {
+      errorRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+    });
+  };
+
   const handleSave = async () => {
     setError('');
     if (!title.trim()) {
-      setError('Ο τίτλος είναι υποχρεωτικός');
+      showError('Ο τίτλος είναι υποχρεωτικός');
       return;
     }
     if (assignees.length === 0) {
-      setError('Επιλέξτε τουλάχιστον έναν συνάδελφο');
+      showError(
+        assignableUsers.length === 0
+          ? 'Δεν υπάρχουν διαθέσιμοι συνάδελφοι — ζητήστε από τον διαχειριστή δικαίωμα ανάθεσης ή επιλογή συναδέλφων.'
+          : 'Επιλέξτε τουλάχιστον έναν συνάδελφο'
+      );
       return;
     }
     setSaving(true);
@@ -416,13 +438,13 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
         });
       }
       if (result?.success) {
-        onSaved(result.task);
+        await onSaved(result.task);
         onClose();
       } else {
-        setError(result?.error || 'Αποτυχία αποθήκευσης');
+        showError(result?.error || 'Αποτυχία αποθήκευσης');
       }
     } catch (e) {
-      setError(e.message || 'Σφάλμα');
+      showError(e.message || 'Σφάλμα αποθήκευσης');
     } finally {
       setSaving(false);
     }
@@ -443,7 +465,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
         </FormHero>
 
         <FormBody>
-          {error && <ErrorMsg>{error}</ErrorMsg>}
+          {error && <ErrorMsg ref={errorRef}>{error}</ErrorMsg>}
 
           <Section>
             <SectionHead>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import { emptyTaskAssignmentPerms } from '../utils/taskAssignmentDisplay';
 
@@ -153,8 +153,16 @@ const FormSection = styled.div`
   margin-top: 8px;
 `;
 
+const FormTitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+`;
+
 const FormTitle = styled.h3`
-  margin: 0 0 16px 0;
+  margin: 0;
   color: #333;
   font-size: 16px;
 `;
@@ -276,20 +284,23 @@ const ROLE_LABELS = {
   ENGINEER: 'Μηχανικός'
 };
 
+const createEmptyFormData = () => ({
+  username: '',
+  password: '',
+  fullName: '',
+  role: 'USER',
+  taskAssignment: emptyTaskAssignmentPerms()
+});
+
 function UserManagement({ onClose, currentUser, onUsersChanged }) {
   const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
   const actingUsername = currentUser?.username || '';
   const [users, setUsers] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [formData, setFormData] = useState({
-    username: '',
-    password: '',
-    fullName: '',
-    role: 'USER',
-    taskAssignment: emptyTaskAssignmentPerms()
-  });
+  const [formData, setFormData] = useState(createEmptyFormData);
   const [message, setMessage] = useState(null);
+  const postSuccessTimerRef = useRef(null);
 
   useEffect(() => {
     const handleEsc = (e) => { if (e.key === 'Escape') onClose(); };
@@ -304,20 +315,40 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
+  const clearPostSuccessTimer = useCallback(() => {
+    if (postSuccessTimerRef.current) {
+      clearTimeout(postSuccessTimerRef.current);
+      postSuccessTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearPostSuccessTimer(), [clearPostSuccessTimer]);
+
   const pendingUsers = users.filter(u => !u.approved);
   const approvedUsers = users.filter(u => u.approved);
 
+  const openCreateForm = () => {
+    clearPostSuccessTimer();
+    setEditingUser(null);
+    setFormData(createEmptyFormData());
+    setMessage(null);
+    setShowForm(true);
+  };
+
   const resetForm = () => {
-    setFormData({
-      username: '',
-      password: '',
-      fullName: '',
-      role: 'USER',
-      taskAssignment: emptyTaskAssignmentPerms()
-    });
+    clearPostSuccessTimer();
+    setFormData(createEmptyFormData());
     setEditingUser(null);
     setShowForm(false);
     setMessage(null);
+  };
+
+  const scheduleCloseAfterSuccess = () => {
+    clearPostSuccessTimer();
+    postSuccessTimerRef.current = setTimeout(() => {
+      postSuccessTimerRef.current = null;
+      resetForm();
+    }, 1200);
   };
 
   const assignableUserOptions = users.filter(
@@ -357,7 +388,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
         setMessage({ text: 'Ο χρήστης ενημερώθηκε', error: false });
         await loadUsers();
         if (onUsersChanged) onUsersChanged();
-        setTimeout(resetForm, 1200);
+        scheduleCloseAfterSuccess();
       } else {
         setMessage({ text: result.error, error: true });
       }
@@ -380,7 +411,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
         setMessage({ text: 'Ο χρήστης δημιουργήθηκε', error: false });
         await loadUsers();
         if (onUsersChanged) onUsersChanged();
-        setTimeout(resetForm, 1200);
+        scheduleCloseAfterSuccess();
       } else {
         setMessage({ text: result.error, error: true });
       }
@@ -388,6 +419,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
   };
 
   const handleEdit = (user) => {
+    clearPostSuccessTimer();
     setFormData({
       username: user.username,
       password: '',
@@ -522,12 +554,19 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
         </Table>
 
         {!showForm ? (
-          <PrimaryBtn onClick={() => { resetForm(); setShowForm(true); }}>
+          <PrimaryBtn onClick={openCreateForm}>
             + Νέος Χρήστης
           </PrimaryBtn>
         ) : (
-          <FormSection>
-            <FormTitle>{editingUser ? `Επεξεργασία: ${editingUser}` : 'Νέος Χρήστης'}</FormTitle>
+          <FormSection key={editingUser || 'create'}>
+            <FormTitleRow>
+              <FormTitle>{editingUser ? `Επεξεργασία: ${editingUser}` : 'Νέος Χρήστης'}</FormTitle>
+              {editingUser ? (
+                <SecondaryBtn type="button" onClick={openCreateForm} style={{ padding: '6px 12px', fontSize: 12 }}>
+                  + Νέος χρήστης
+                </SecondaryBtn>
+              ) : null}
+            </FormTitleRow>
             
             <FormRow>
               <FieldGroup>

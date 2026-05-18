@@ -9,6 +9,7 @@ import {
   hasLeftWorkArchive,
   formatAssigneeDisplayNames,
   formatLeftArchiveDisplayNames,
+  formatDepartedAssigneeDisplayNames,
   getArchiveReadonlyMessage
 } from '../utils/taskAssignmentDisplay';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
@@ -927,7 +928,6 @@ const statusColors = {
   pending: { bg: '#fef3c7', color: '#92400e' },
   in_progress: { bg: '#dbeafe', color: '#1e40af' },
   completed: { bg: '#d1fae5', color: '#065f46' },
-  rejected: { bg: '#fee2e2', color: '#991b1b' },
   cancelled: { bg: '#f1f5f9', color: '#64748b' }
 };
 
@@ -969,7 +969,7 @@ function chatBubbleVariant(authorUsername, actingUsername, task) {
 
 function roleTagForVariant(variant) {
   if (variant === 'mine') return null;
-  if (variant === 'assigner') return { label: 'Αναθέτων', bg: '#fef3c7', color: '#92400e' };
+  if (variant === 'assigner') return { label: 'Δημιουργός', bg: '#fef3c7', color: '#92400e' };
   if (variant === 'assignee') return { label: 'Συνάδελφος', bg: '#dbeafe', color: '#1e40af' };
   return { label: 'Συμμετέχων', bg: '#f1f5f9', color: '#475569' };
 }
@@ -1009,14 +1009,25 @@ function buildUnifiedTimeline(task) {
   });
 
   (task.statusHistory || []).forEach((h, idx) => {
-    const note = String(h.note || '');
-    if (!note.includes('αποθήκη')) return;
+    const note = String(h.note || '').trim();
+    const st = h.status;
+    const isArchive = note.includes('αποθήκη');
+    const isDeparture = h.event === 'assignee_departed' || (note.includes('Αποχώρηση') && !note.includes('Επαναπρόσκληση'));
+    const isRejoin = h.event === 'assignee_rejoined' || note.includes('Επαναπρόσκληση συνάδελφου');
+    const isClosure = st === 'cancelled';
+    if (!isArchive && !isDeparture && !isRejoin && !isClosure) return;
+
+    let text = note;
+    if (isRejoin) text = note;
+    else if (isDeparture) text = note || 'Αποχώρηση από τον χώρο εργασίας';
+    else if (isClosure && !note) text = 'Κλείσιμο χώρου';
+
     items.push({
-      id: `timeline-archive-${h.at}-${idx}`,
+      id: `timeline-status-${h.at}-${idx}`,
       type: 'system',
       at: h.at,
       author: h.by,
-      text: note
+      text
     });
   });
 
@@ -1036,6 +1047,7 @@ function TaskAssignmentWorkspace({
   actingUsername,
   usersMap,
   onUpdated,
+  onDeparted,
   canEditAsAssigner,
   onEdit,
   onDelete,
@@ -1044,15 +1056,15 @@ function TaskAssignmentWorkspace({
   onLeaveArchive
 }) {
   const [comment, setComment] = useState('');
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [departNote, setDepartNote] = useState('');
+  const [departModalOpen, setDepartModalOpen] = useState(false);
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [leaveArchiveModalOpen, setLeaveArchiveModalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const feedRef = useRef(null);
-  const prevRejectModalRef = useRef(false);
+  const prevDepartModalRef = useRef(false);
   const prevWithdrawModalRef = useRef(false);
   const prevLeaveArchiveModalRef = useRef(false);
 
@@ -1061,7 +1073,7 @@ function TaskAssignmentWorkspace({
     (a) => String(a).toLowerCase() === String(actingUsername || '').toLowerCase()
   );
   const assignerWithdrawnCleanup = isTaskWithdrawnByAssigner(task) && isAssigner;
-  const workflowOpen = !['rejected', 'cancelled'].includes(task.status);
+  const workflowOpen = task.status !== 'cancelled';
   const isArchivedReadOnly = workArchiveMode && task.status === 'completed';
   const archiveReadonlyMessage = useMemo(
     () => getArchiveReadonlyMessage(task, actingUsername, canEditAsAssigner),
@@ -1074,8 +1086,10 @@ function TaskAssignmentWorkspace({
     workflowOpen &&
     ((isAssigner && canEditAsAssigner) || isSuperAdmin);
   const canSetFlowStatus =
-    workflowOpen &&
-    (canReopenFromArchive || ((isAssigner || isAssignee || isSuperAdmin) && !(workArchiveMode && task.status === 'completed')));
+    canReopenFromArchive ||
+    (workflowOpen &&
+      (isAssigner || isAssignee || isSuperAdmin) &&
+      !(workArchiveMode && task.status === 'completed'));
   const showLeaveArchiveBtn =
     workArchiveMode &&
     isAssignee &&
@@ -1091,30 +1105,30 @@ function TaskAssignmentWorkspace({
 
   useEffect(() => {
     setHistoryOpen(false);
-    setRejectModalOpen(false);
+    setDepartModalOpen(false);
     setWithdrawModalOpen(false);
     setLeaveArchiveModalOpen(false);
-    setRejectReason('');
+    setDepartNote('');
   }, [task.id]);
 
   useEffect(() => {
-    if (!rejectModalOpen && !withdrawModalOpen) return undefined;
+    if (!departModalOpen && !withdrawModalOpen) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape' && !busy) {
-        setRejectModalOpen(false);
+        setDepartModalOpen(false);
         setWithdrawModalOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rejectModalOpen, withdrawModalOpen, busy]);
+  }, [departModalOpen, withdrawModalOpen, busy]);
 
   useEffect(() => {
-    if (prevRejectModalRef.current && !rejectModalOpen) {
+    if (prevDepartModalRef.current && !departModalOpen) {
       scheduleDocumentInteractionRecovery({ lockScroll: true });
     }
-    prevRejectModalRef.current = rejectModalOpen;
-  }, [rejectModalOpen]);
+    prevDepartModalRef.current = departModalOpen;
+  }, [departModalOpen]);
 
   useEffect(() => {
     if (prevWithdrawModalRef.current && !withdrawModalOpen) {
@@ -1146,6 +1160,7 @@ function TaskAssignmentWorkspace({
   }, [feedScrollSig]);
 
   const assigneeNames = formatAssigneeDisplayNames(task, usersMap);
+  const departedNames = formatDepartedAssigneeDisplayNames(task, usersMap);
   const leftArchiveNames = formatLeftArchiveDisplayNames(task, usersMap);
 
   const notifyArchiveReadonly = () => {
@@ -1167,9 +1182,30 @@ function TaskAssignmentWorkspace({
     scheduleDocumentInteractionRecovery({ lockScroll: true });
     if (res?.success) {
       onUpdated(res.task);
-      setRejectModalOpen(false);
       setWithdrawModalOpen(false);
-      setRejectReason('');
+    } else {
+      setError(res?.error || 'Σφάλμα');
+    }
+  };
+
+  const runDepart = async () => {
+    setBusy(true);
+    setError('');
+    const res = await ipcRenderer.invoke('leave-task-assignment-workspace', {
+      actingUsername,
+      taskId: task.id,
+      note: departNote
+    });
+    setBusy(false);
+    scheduleDocumentInteractionRecovery({ lockScroll: true });
+    if (res?.success) {
+      setDepartModalOpen(false);
+      setDepartNote('');
+      if (res.leftWorkspace) {
+        onDeparted?.();
+      } else {
+        onUpdated(res.task);
+      }
     } else {
       setError(res?.error || 'Σφάλμα');
     }
@@ -1251,12 +1287,17 @@ function TaskAssignmentWorkspace({
             <ParticipantSummary>Συμμετέχοντες</ParticipantSummary>
             <ParticipantPanel>
               <div>
-                <strong>Αναθέτων</strong> · {usersMap[task.createdBy]?.fullName || task.createdBy}{' '}
+                <strong>Δημιουργός</strong> · {usersMap[task.createdBy]?.fullName || task.createdBy}{' '}
                 <span style={{ color: '#94a3b8', fontWeight: 600 }}>({task.createdBy})</span>
               </div>
               <div style={{ marginTop: '0.45rem' }}>
                 <strong>Συνάδελφοι</strong> · {assigneeNames || '—'}
               </div>
+              {departedNames ? (
+                <div style={{ marginTop: '0.35rem', color: '#b45309', fontWeight: 600 }}>
+                  <strong>Αποχώρησαν από τον χώρο</strong> · {departedNames}
+                </div>
+              ) : null}
               {leftArchiveNames ? (
                 <div style={{ marginTop: '0.35rem', color: '#b45309', fontWeight: 600 }}>
                   <strong>Αποχώρησαν από αποθήκη</strong> · {leftArchiveNames}
@@ -1273,7 +1314,9 @@ function TaskAssignmentWorkspace({
               </StatusFieldLabel>
               <FlowStatusSelect
                 aria-label={
-                  canReopenFromArchive ? 'Επαναφορά χώρου στον ενεργό χώρο εργασίας' : 'Αλλαγή κατάστασης χώρου'
+                  canReopenFromArchive
+                    ? 'Επαναφορά χώρου στον ενεργό χώρο εργασίας'
+                    : 'Αλλαγή κατάστασης χώρου'
                 }
                 value={task.status}
                 disabled={busy}
@@ -1302,17 +1345,17 @@ function TaskAssignmentWorkspace({
               </FlowStatusSelect>
             </StatusStack>
           )}
-          {workflowOpen && isAssignee && ['pending', 'in_progress'].includes(task.status) && (
+          {workflowOpen && isAssignee && !isAssigner && ['pending', 'in_progress'].includes(task.status) && (
             <ActionBtn
               $danger
               type="button"
               disabled={busy}
               onClick={() => {
-                setRejectReason('');
-                setRejectModalOpen(true);
+                setDepartNote('');
+                setDepartModalOpen(true);
               }}
             >
-              Απόρριψη
+              Αποχώρηση
             </ActionBtn>
           )}
           {workflowOpen && isAssigner && canEditAsAssigner && task.status !== 'completed' && (
@@ -1345,48 +1388,45 @@ function TaskAssignmentWorkspace({
         </ActionsCol>
       </TopBar>
 
-      {rejectModalOpen && workflowOpen && isAssignee && ['pending', 'in_progress'].includes(task.status) && (
+      {departModalOpen && workflowOpen && isAssignee && !isAssigner && ['pending', 'in_progress'].includes(task.status) && (
         <RejectModalBackdrop
           role="presentation"
           onClick={() => {
-            if (!busy) setRejectModalOpen(false);
+            if (!busy) setDepartModalOpen(false);
           }}
         >
           <RejectModalCard
             role="dialog"
             aria-modal="true"
-            aria-labelledby="reject-modal-title"
+            aria-labelledby="depart-modal-title"
             onClick={(e) => e.stopPropagation()}
           >
             <RejectModalHero>
               <RejectModalEyebrow>Επιβεβαίωση</RejectModalEyebrow>
-              <RejectModalTitle id="reject-modal-title">Απόρριψη χώρου;</RejectModalTitle>
+              <RejectModalTitle id="depart-modal-title">Αποχώρηση από τον χώρο;</RejectModalTitle>
               <RejectModalTaskName>«{task.title}»</RejectModalTaskName>
             </RejectModalHero>
             <RejectModalBody>
               <RejectModalHint>
-                Η ενέργεια είναι οριστική για την κατάσταση του χώρου. Μπορείτε προαιρετικά να προσθέσετε σύντομη
-                αιτιολογία — θα καταγραφεί στο ιστορικό.
+                Θα αποχωρήσετε από αυτόν τον χώρο — οι υπόλοιποι συνάδελφοι και ο δημιουργός συνεχίζουν κανονικά.
+                Ο δημιουργός μπορεί να σας ξαναπροσθέσει αργότερα μέσω επεξεργασίας. Προαιρετικά σημειώστε λόγο
+                αποχώρησης.
               </RejectModalHint>
-              <RejectModalLabel htmlFor="reject-reason-input">Αιτιολογία (προαιρετική)</RejectModalLabel>
+              <RejectModalLabel htmlFor="depart-note-input">Σημείωση (προαιρετική)</RejectModalLabel>
               <RejectModalTextarea
-                id="reject-reason-input"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Π.χ. λόγοι που δεν μπορείτε να αναλάβετε την εργασία…"
+                id="depart-note-input"
+                value={departNote}
+                onChange={(e) => setDepartNote(e.target.value)}
+                placeholder="Π.χ. δεν μπορώ πλέον να συμμετέχω σε αυτή την εργασία…"
                 disabled={busy}
               />
             </RejectModalBody>
             <RejectModalFooter>
-              <RejectModalCancelBtn type="button" disabled={busy} onClick={() => setRejectModalOpen(false)}>
+              <RejectModalCancelBtn type="button" disabled={busy} onClick={() => setDepartModalOpen(false)}>
                 Πίσω
               </RejectModalCancelBtn>
-              <RejectModalConfirmBtn
-                type="button"
-                disabled={busy}
-                onClick={() => runStatus('rejected', rejectReason)}
-              >
-                {busy ? 'Γίνεται απόρριψη…' : 'Ναι, απόρριψη'}
+              <RejectModalConfirmBtn type="button" disabled={busy} onClick={runDepart}>
+                {busy ? 'Γίνεται αποχώρηση…' : 'Ναι, αποχώρηση'}
               </RejectModalConfirmBtn>
             </RejectModalFooter>
           </RejectModalCard>
