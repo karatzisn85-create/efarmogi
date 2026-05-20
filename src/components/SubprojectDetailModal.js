@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
+import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
 import styled from 'styled-components';
 import { PROJECT_STATUSES } from '../data/formOptions';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
@@ -312,10 +313,9 @@ const EmptyValue = styled.span`
 
 function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked, engineerCatalog = [] }) {
   useEffect(() => {
-    const original = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    lockBodyScroll('subdetail');
     return () => {
-      document.body.style.overflow = original;
+      unlockBodyScroll('subdetail');
     };
   }, []);
 

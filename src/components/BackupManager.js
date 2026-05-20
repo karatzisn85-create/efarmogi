@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -537,7 +539,7 @@ function BackupManager({ isOpen, onClose }) {
   };
   
   const handleDeleteBackup = async (backupId) => {
-    if (!window.confirm('⚠️ Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το backup;')) {
+    if (!await showConfirm({ title: 'Διαγραφή Backup', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το backup;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '⚠️' })) {
       return;
     }
     
@@ -610,7 +612,7 @@ function BackupManager({ isOpen, onClose }) {
   };
   
   const handleConfirmRestore = async () => {
-    if (!window.confirm('⚠️ Είστε σίγουροι ότι θέλετε να κάνετε restore; Αυτό θα αντικαταστήσει τα τρέχοντα δεδομένα!')) {
+    if (!safeConfirm('⚠️ Είστε σίγουροι ότι θέλετε να κάνετε restore; Αυτό θα αντικαταστήσει τα τρέχοντα δεδομένα!')) {
       return;
     }
     

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -259,7 +261,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   };
 
   const handleDeleteFile = async (fileName, targetFolder) => {
-    if (window.confirm(`Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`)) {
+    if (await showConfirm({ title: 'Διαγραφή Αρχείου', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi-file', prosklisiId, fileName, targetFolder);
         if (result.success) {
@@ -386,7 +388,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     };
 
     window.deleteFileFromFolder = async (fileName, folderName, targetFolder) => {
-      if (window.confirm(`Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`)) {
+      if (await showConfirm({ title: 'Διαγραφή Αρχείου', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
         try {
           const result = await ipcRenderer.invoke('delete-file-from-folder', prosklisiId, folderName, fileName, targetFolder);
           if (result.success) {
@@ -427,7 +429,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     // Function to delete item (file or folder)
     window.deleteItemFromFolder = async (itemName, folderName, targetFolder, isDirectory) => {
       const itemType = isDirectory ? 'φάκελο' : 'αρχείο';
-      if (window.confirm(`Είστε σίγουροι ότι θέλετε να διαγράψετε το ${itemType} "${itemName}";`)) {
+      if (await showConfirm({ title: `Διαγραφή ${isDirectory ? 'Φακέλου' : 'Αρχείου'}`, message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το ${itemType} "${itemName}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
         try {
           const result = await ipcRenderer.invoke('delete-item-from-folder', prosklisiId, folderName, itemName, targetFolder, isDirectory);
           if (result.success) {
@@ -589,7 +591,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
 
     window.deleteItemFromSubfolder = async (itemName, subfolderName, parentFolderName, targetFolder, isDirectory) => {
       const itemType = isDirectory ? 'φάκελο' : 'αρχείο';
-      if (window.confirm(`Είστε σίγουροι ότι θέλετε να διαγράψετε το ${itemType} "${itemName}";`)) {
+      if (await showConfirm({ title: `Διαγραφή ${isDirectory ? 'Φακέλου' : 'Αρχείου'}`, message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το ${itemType} "${itemName}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
         try {
           const result = await ipcRenderer.invoke('delete-item-from-subfolder', prosklisiId, parentFolderName, subfolderName, itemName, targetFolder, isDirectory);
           if (result.success) {
@@ -663,7 +665,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   };
 
   const handleDeleteFolder = async (folderName, targetFolder) => {
-    if (window.confirm(`Είστε σίγουροι ότι θέλετε να διαγράψετε τον φάκελο "${folderName}" και όλα τα περιεχόμενά του;`)) {
+    if (await showConfirm({ title: 'Διαγραφή Φακέλου', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε τον φάκελο "${folderName}";`, detail: 'Θα διαγραφούν επίσης όλα τα περιεχόμενά του.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi-folder', prosklisiId, folderName, targetFolder);
         if (result.success) {
@@ -680,7 +682,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
 
   const handleDeleteGroup = async (groupId) => {
     const group = fileGroups.find(g => g.id === groupId);
-    if (group && window.confirm(`Είστε σίγουροι ότι θέλετε να διαγράψετε την ομάδα "${group.title}";`)) {
+    if (group && await showConfirm({ title: 'Διαγραφή Ομάδας', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε την ομάδα "${group.title}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi-group', prosklisiId, groupId);
         if (result.success) {

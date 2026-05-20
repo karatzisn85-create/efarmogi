@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
+import { safeFileDialog } from '../utils/safeDialogs';
 
 const ipcRenderer = window.electronAPI;
 
@@ -663,7 +664,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
 
   const handleFileSelect = async (field, title) => {
     try {
-      const result = await ipcRenderer.invoke('select-multiple-files', title);
+      const result = await safeFileDialog('select-multiple-files', title);
       if (result.success && !result.canceled && result.files && result.files.length > 0) {
         console.log(`📁 Selected ${result.files.length} file(s) for ${field}`);
         

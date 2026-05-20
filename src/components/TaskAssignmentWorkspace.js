@@ -1,7 +1,10 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
+import EmojiPicker from '@emoji-mart/react';
+import emojiData from '@emoji-mart/data';
 import {
   TASK_STATUS_LABELS,
+  TASK_STATUS_COLORS,
   TASK_PRIORITY_LABELS,
   formatTaskDueDate,
   isTaskOverdue,
@@ -638,6 +641,22 @@ const ComposerRow = styled.div`
   flex-wrap: wrap;
 `;
 
+const EmojiPickerWrapper = styled.div`
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+`;
+
+const EmojiPickerPopup = styled.div`
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 9999;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  border-radius: 12px;
+  overflow: hidden;
+`;
+
 const ComposerInput = styled.textarea`
   flex: 1;
   min-width: 0;
@@ -742,7 +761,7 @@ const ErrorBar = styled.div`
   border-bottom: 1px solid #fecaca;
 `;
 
-const RejectModalBackdrop = styled.div`
+const DepartModalBackdrop = styled.div`
   position: fixed;
   inset: 0;
   z-index: 200;
@@ -763,7 +782,7 @@ const RejectModalBackdrop = styled.div`
   }
 `;
 
-const RejectModalCard = styled.div`
+const DepartModalCard = styled.div`
   width: min(460px, 100%);
   border-radius: 18px;
   overflow: hidden;
@@ -785,7 +804,7 @@ const RejectModalCard = styled.div`
   }
 `;
 
-const RejectModalHero = styled.div`
+const DepartModalHero = styled.div`
   padding: 1.2rem 1.45rem 1.35rem;
   background: linear-gradient(135deg, #6366f1 0%, #4f46e5 48%, #7c3aed 100%);
   color: #fff;
@@ -799,7 +818,7 @@ const RejectModalHero = styled.div`
   }
 `;
 
-const RejectModalEyebrow = styled.div`
+const DepartModalEyebrow = styled.div`
   position: relative;
   z-index: 1;
   font-size: 0.68rem;
@@ -810,7 +829,7 @@ const RejectModalEyebrow = styled.div`
   margin-bottom: 0.35rem;
 `;
 
-const RejectModalTitle = styled.h3`
+const DepartModalTitle = styled.h3`
   position: relative;
   z-index: 1;
   margin: 0;
@@ -820,7 +839,7 @@ const RejectModalTitle = styled.h3`
   line-height: 1.25;
 `;
 
-const RejectModalTaskName = styled.p`
+const DepartModalTaskName = styled.p`
   position: relative;
   z-index: 1;
   margin: 0.55rem 0 0;
@@ -835,18 +854,18 @@ const RejectModalTaskName = styled.p`
   -webkit-box-orient: vertical;
 `;
 
-const RejectModalBody = styled.div`
+const DepartModalBody = styled.div`
   padding: 1.25rem 1.45rem 0.5rem;
 `;
 
-const RejectModalHint = styled.p`
+const DepartModalHint = styled.p`
   margin: 0 0 0.85rem;
   font-size: 0.88rem;
   line-height: 1.55;
   color: #64748b;
 `;
 
-const RejectModalLabel = styled.label`
+const DepartModalLabel = styled.label`
   display: block;
   font-size: 0.78rem;
   font-weight: 700;
@@ -854,7 +873,7 @@ const RejectModalLabel = styled.label`
   margin-bottom: 0.38rem;
 `;
 
-const RejectModalTextarea = styled.textarea`
+const DepartModalTextarea = styled.textarea`
   width: 100%;
   box-sizing: border-box;
   min-height: 88px;
@@ -874,7 +893,7 @@ const RejectModalTextarea = styled.textarea`
   }
 `;
 
-const RejectModalFooter = styled.div`
+const DepartModalFooter = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
@@ -882,7 +901,7 @@ const RejectModalFooter = styled.div`
   padding: 1rem 1.45rem 1.35rem;
 `;
 
-const RejectModalCancelBtn = styled.button`
+const DepartModalCancelBtn = styled.button`
   padding: 0.45rem 1rem;
   min-height: 40px;
   border-radius: 10px;
@@ -903,7 +922,7 @@ const RejectModalCancelBtn = styled.button`
   }
 `;
 
-const RejectModalConfirmBtn = styled.button`
+const DepartModalConfirmBtn = styled.button`
   padding: 0.45rem 1.1rem;
   min-height: 40px;
   border-radius: 10px;
@@ -924,12 +943,6 @@ const RejectModalConfirmBtn = styled.button`
   }
 `;
 
-const statusColors = {
-  pending: { bg: '#fef3c7', color: '#92400e' },
-  in_progress: { bg: '#dbeafe', color: '#1e40af' },
-  completed: { bg: '#d1fae5', color: '#065f46' },
-  cancelled: { bg: '#f1f5f9', color: '#64748b' }
-};
 
 const AVATAR_PALETTE = ['#6366f1', '#0ea5e9', '#14b8a6', '#f97316', '#a855f7', '#ec4899', '#84cc16'];
 
@@ -1063,10 +1076,47 @@ function TaskAssignmentWorkspace({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const feedRef = useRef(null);
   const prevDepartModalRef = useRef(false);
   const prevWithdrawModalRef = useRef(false);
   const prevLeaveArchiveModalRef = useRef(false);
+  const composerInputRef = useRef(null);
+  const emojiPickerRef = useRef(null);
+
+  // Κλείσιμο emoji picker με κλικ εκτός
+  useEffect(() => {
+    if (!emojiPickerOpen) return;
+    const handleClickOutside = (e) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
+        setEmojiPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [emojiPickerOpen]);
+
+  // Εισαγωγή emoji στη θέση του cursor
+  const handleEmojiSelect = useCallback((emoji) => {
+    const native = emoji.native;
+    const el = composerInputRef.current;
+    if (!el) {
+      setComment((prev) => prev + native);
+      setEmojiPickerOpen(false);
+      return;
+    }
+    const start = el.selectionStart ?? comment.length;
+    const end = el.selectionEnd ?? comment.length;
+    const newValue = comment.slice(0, start) + native + comment.slice(end);
+    setComment(newValue);
+    setEmojiPickerOpen(false);
+    // Επαναφορά focus και cursor μετά την εισαγωγή
+    requestAnimationFrame(() => {
+      el.focus();
+      const newCursor = start + native.length;
+      el.setSelectionRange(newCursor, newCursor);
+    });
+  }, [comment]);
 
   const isAssigner = task.createdBy?.toLowerCase() === actingUsername?.toLowerCase();
   const isAssignee = (task.assignees || []).some(
@@ -1079,7 +1129,7 @@ function TaskAssignmentWorkspace({
     () => getArchiveReadonlyMessage(task, actingUsername, canEditAsAssigner),
     [task, actingUsername, canEditAsAssigner]
   );
-  const chatAllowed = (workflowOpen || assignerWithdrawnCleanup) && !isArchivedReadOnly;
+  const chatAllowed = workflowOpen && !isArchivedReadOnly;
   const canReopenFromArchive =
     workArchiveMode &&
     task.status === 'completed' &&
@@ -1097,7 +1147,7 @@ function TaskAssignmentWorkspace({
     task.status === 'completed' &&
     !hasLeftWorkArchive(task, actingUsername);
   const overdue = isTaskOverdue(task);
-  const sc = statusColors[task.status] || {};
+  const sc = TASK_STATUS_COLORS[task.status] || {};
 
   const feedItems = useMemo(() => buildUnifiedTimeline(task), [task]);
 
@@ -1171,43 +1221,53 @@ function TaskAssignmentWorkspace({
   const runStatus = async (status, reason, withdrawFromAssignees = false) => {
     setBusy(true);
     setError('');
-    const res = await ipcRenderer.invoke('update-task-assignment-status', {
-      actingUsername,
-      taskId: task.id,
-      status,
-      reason,
-      withdrawFromAssignees: status === 'cancelled' ? !!withdrawFromAssignees : undefined
-    });
-    setBusy(false);
-    scheduleDocumentInteractionRecovery({ lockScroll: true });
-    if (res?.success) {
-      onUpdated(res.task);
-      setWithdrawModalOpen(false);
-    } else {
-      setError(res?.error || 'Σφάλμα');
+    try {
+      const res = await ipcRenderer.invoke('update-task-assignment-status', {
+        actingUsername,
+        taskId: task.id,
+        status,
+        reason,
+        withdrawFromAssignees: status === 'cancelled' ? !!withdrawFromAssignees : undefined
+      });
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
+      if (res?.success) {
+        onUpdated(res.task);
+        setWithdrawModalOpen(false);
+      } else {
+        setError(res?.error || 'Σφάλμα');
+      }
+    } catch (err) {
+      setError(err.message || 'Σφάλμα');
+    } finally {
+      setBusy(false);
     }
   };
 
   const runDepart = async () => {
     setBusy(true);
     setError('');
-    const res = await ipcRenderer.invoke('leave-task-assignment-workspace', {
-      actingUsername,
-      taskId: task.id,
-      note: departNote
-    });
-    setBusy(false);
-    scheduleDocumentInteractionRecovery({ lockScroll: true });
-    if (res?.success) {
-      setDepartModalOpen(false);
-      setDepartNote('');
-      if (res.leftWorkspace) {
-        onDeparted?.();
+    try {
+      const res = await ipcRenderer.invoke('leave-task-assignment-workspace', {
+        actingUsername,
+        taskId: task.id,
+        note: departNote
+      });
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
+      if (res?.success) {
+        setDepartModalOpen(false);
+        setDepartNote('');
+        if (res.leftWorkspace) {
+          onDeparted?.();
+        } else {
+          onUpdated(res.task);
+        }
       } else {
-        onUpdated(res.task);
+        setError(res?.error || 'Σφάλμα');
       }
-    } else {
-      setError(res?.error || 'Σφάλμα');
+    } catch (err) {
+      setError(err.message || 'Σφάλμα');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -1218,17 +1278,22 @@ function TaskAssignmentWorkspace({
     }
     if (!comment.trim() || busy) return;
     setBusy(true);
-    const res = await ipcRenderer.invoke('add-task-assignment-comment', {
-      actingUsername,
-      taskId: task.id,
-      text: comment.trim()
-    });
-    setBusy(false);
-    if (res?.success) {
-      setComment('');
-      onUpdated(res.task);
-    } else {
-      setError(res?.error || 'Σφάλμα');
+    try {
+      const res = await ipcRenderer.invoke('add-task-assignment-comment', {
+        actingUsername,
+        taskId: task.id,
+        text: comment.trim()
+      });
+      if (res?.success) {
+        setComment('');
+        onUpdated(res.task);
+      } else {
+        setError(res?.error || 'Σφάλμα');
+      }
+    } catch (err) {
+      setError(err.message || 'Σφάλμα');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -1241,14 +1306,19 @@ function TaskAssignmentWorkspace({
     scheduleDocumentInteractionRecovery({ lockScroll: true });
     if (!picked?.success || picked.canceled || !Array.isArray(picked.files) || !picked.files.length) return;
     setBusy(true);
-    const res = await ipcRenderer.invoke('add-task-assignment-files', {
-      actingUsername,
-      taskId: task.id,
-      newFiles: picked.files
-    });
-    setBusy(false);
-    if (res?.success) onUpdated(res.task);
-    else setError(res?.error || 'Σφάλμα');
+    try {
+      const res = await ipcRenderer.invoke('add-task-assignment-files', {
+        actingUsername,
+        taskId: task.id,
+        newFiles: picked.files
+      });
+      if (res?.success) onUpdated(res.task);
+      else setError(res?.error || 'Σφάλμα');
+    } catch (err) {
+      setError(err.message || 'Σφάλμα');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleComposerKey = (e) => {
@@ -1389,131 +1459,136 @@ function TaskAssignmentWorkspace({
       </TopBar>
 
       {departModalOpen && workflowOpen && isAssignee && !isAssigner && ['pending', 'in_progress'].includes(task.status) && (
-        <RejectModalBackdrop
+        <DepartModalBackdrop
           role="presentation"
           onClick={() => {
             if (!busy) setDepartModalOpen(false);
           }}
         >
-          <RejectModalCard
+          <DepartModalCard
             role="dialog"
             aria-modal="true"
             aria-labelledby="depart-modal-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <RejectModalHero>
-              <RejectModalEyebrow>Επιβεβαίωση</RejectModalEyebrow>
-              <RejectModalTitle id="depart-modal-title">Αποχώρηση από τον χώρο;</RejectModalTitle>
-              <RejectModalTaskName>«{task.title}»</RejectModalTaskName>
-            </RejectModalHero>
-            <RejectModalBody>
-              <RejectModalHint>
+            <DepartModalHero>
+              <DepartModalEyebrow>Επιβεβαίωση</DepartModalEyebrow>
+              <DepartModalTitle id="depart-modal-title">Αποχώρηση από τον χώρο;</DepartModalTitle>
+              <DepartModalTaskName>«{task.title}»</DepartModalTaskName>
+            </DepartModalHero>
+            <DepartModalBody>
+              <DepartModalHint>
                 Θα αποχωρήσετε από αυτόν τον χώρο — οι υπόλοιποι συνάδελφοι και ο δημιουργός συνεχίζουν κανονικά.
                 Ο δημιουργός μπορεί να σας ξαναπροσθέσει αργότερα μέσω επεξεργασίας. Προαιρετικά σημειώστε λόγο
                 αποχώρησης.
-              </RejectModalHint>
-              <RejectModalLabel htmlFor="depart-note-input">Σημείωση (προαιρετική)</RejectModalLabel>
-              <RejectModalTextarea
+              </DepartModalHint>
+              <DepartModalLabel htmlFor="depart-note-input">Σημείωση (προαιρετική)</DepartModalLabel>
+              <DepartModalTextarea
                 id="depart-note-input"
                 value={departNote}
                 onChange={(e) => setDepartNote(e.target.value)}
                 placeholder="Π.χ. δεν μπορώ πλέον να συμμετέχω σε αυτή την εργασία…"
                 disabled={busy}
               />
-            </RejectModalBody>
-            <RejectModalFooter>
-              <RejectModalCancelBtn type="button" disabled={busy} onClick={() => setDepartModalOpen(false)}>
+            </DepartModalBody>
+            <DepartModalFooter>
+              <DepartModalCancelBtn type="button" disabled={busy} onClick={() => setDepartModalOpen(false)}>
                 Πίσω
-              </RejectModalCancelBtn>
-              <RejectModalConfirmBtn type="button" disabled={busy} onClick={runDepart}>
+              </DepartModalCancelBtn>
+              <DepartModalConfirmBtn type="button" disabled={busy} onClick={runDepart}>
                 {busy ? 'Γίνεται αποχώρηση…' : 'Ναι, αποχώρηση'}
-              </RejectModalConfirmBtn>
-            </RejectModalFooter>
-          </RejectModalCard>
-        </RejectModalBackdrop>
+              </DepartModalConfirmBtn>
+            </DepartModalFooter>
+          </DepartModalCard>
+        </DepartModalBackdrop>
       )}
 
       {withdrawModalOpen && workflowOpen && isAssigner && canEditAsAssigner && task.status !== 'completed' && (
-        <RejectModalBackdrop
+        <DepartModalBackdrop
           role="presentation"
           onClick={() => {
             if (!busy) setWithdrawModalOpen(false);
           }}
         >
-          <RejectModalCard
+          <DepartModalCard
             role="dialog"
             aria-modal="true"
             aria-labelledby="withdraw-modal-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <RejectModalHero>
-              <RejectModalEyebrow>Επιβεβαίωση</RejectModalEyebrow>
-              <RejectModalTitle id="withdraw-modal-title">Κλείσιμο χώρου για συναδέλφους;</RejectModalTitle>
-              <RejectModalTaskName>«{task.title}»</RejectModalTaskName>
-            </RejectModalHero>
-            <RejectModalBody>
-              <RejectModalHint>
+            <DepartModalHero>
+              <DepartModalEyebrow>Επιβεβαίωση</DepartModalEyebrow>
+              <DepartModalTitle id="withdraw-modal-title">Κλείσιμο χώρου για συναδέλφους;</DepartModalTitle>
+              <DepartModalTaskName>«{task.title}»</DepartModalTaskName>
+            </DepartModalHero>
+            <DepartModalBody>
+              <DepartModalHint>
                 Με την επιβεβαίωση, ο χώρος <strong>κλείνει για τους συναδέλφους</strong>: δεν θα εμφανίζεται πλέον στη
                 λίστα και στην προβολή τους. Εσείς ως αναθέτης θα τον βλέπετε ακόμα στη δική σας λίστα, με σήμανση ότι
                 χρειάζεται <strong>επεξεργασία</strong> (π.χ. διόρθωση) ή <strong>διαγραφή</strong> όταν ολοκληρώσετε τη
                 διαχείρισή του.
-              </RejectModalHint>
-            </RejectModalBody>
-            <RejectModalFooter>
-              <RejectModalCancelBtn type="button" disabled={busy} onClick={() => setWithdrawModalOpen(false)}>
+              </DepartModalHint>
+            </DepartModalBody>
+            <DepartModalFooter>
+              <DepartModalCancelBtn type="button" disabled={busy} onClick={() => setWithdrawModalOpen(false)}>
                 Πίσω
-              </RejectModalCancelBtn>
-              <RejectModalConfirmBtn type="button" disabled={busy} onClick={() => runStatus('cancelled', '', true)}>
+              </DepartModalCancelBtn>
+              <DepartModalConfirmBtn type="button" disabled={busy} onClick={() => runStatus('cancelled', '', true)}>
                 {busy ? 'Γίνεται κλείσιμο…' : 'Ναι, κλείσιμο'}
-              </RejectModalConfirmBtn>
-            </RejectModalFooter>
-          </RejectModalCard>
-        </RejectModalBackdrop>
+              </DepartModalConfirmBtn>
+            </DepartModalFooter>
+          </DepartModalCard>
+        </DepartModalBackdrop>
       )}
 
       {leaveArchiveModalOpen && showLeaveArchiveBtn && onLeaveArchive && (
-        <RejectModalBackdrop
+        <DepartModalBackdrop
           role="presentation"
           onClick={() => {
             if (!busy) setLeaveArchiveModalOpen(false);
           }}
         >
-          <RejectModalCard
+          <DepartModalCard
             role="dialog"
             aria-modal="true"
             aria-labelledby="leave-archive-modal-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <RejectModalHero>
-              <RejectModalEyebrow>Επιβεβαίωση</RejectModalEyebrow>
-              <RejectModalTitle id="leave-archive-modal-title">Αποχώρηση από αποθήκη;</RejectModalTitle>
-              <RejectModalTaskName>«{task.title}»</RejectModalTaskName>
-            </RejectModalHero>
-            <RejectModalBody>
-              <RejectModalHint>
+            <DepartModalHero>
+              <DepartModalEyebrow>Επιβεβαίωση</DepartModalEyebrow>
+              <DepartModalTitle id="leave-archive-modal-title">Αποχώρηση από αποθήκη;</DepartModalTitle>
+              <DepartModalTaskName>«{task.title}»</DepartModalTaskName>
+            </DepartModalHero>
+            <DepartModalBody>
+              <DepartModalHint>
                 Ο χώρος <strong>παραμένει στην αποθήκη</strong> για τον αναθέτη και τους υπόλοιπους συναδέλφους. Εσείς
                 δεν θα τον βλέπετε πλέον στη λίστα σας — μπορείτε να επιστρέψετε μόνο αν σας ξαναπροσκαλέσουν σε νέο χώρο.
-              </RejectModalHint>
-            </RejectModalBody>
-            <RejectModalFooter>
-              <RejectModalCancelBtn type="button" disabled={busy} onClick={() => setLeaveArchiveModalOpen(false)}>
+              </DepartModalHint>
+            </DepartModalBody>
+            <DepartModalFooter>
+              <DepartModalCancelBtn type="button" disabled={busy} onClick={() => setLeaveArchiveModalOpen(false)}>
                 Πίσω
-              </RejectModalCancelBtn>
-              <RejectModalConfirmBtn
+              </DepartModalCancelBtn>
+              <DepartModalConfirmBtn
                 type="button"
                 disabled={busy}
                 onClick={async () => {
                   setBusy(true);
-                  await onLeaveArchive(task);
-                  setBusy(false);
-                  setLeaveArchiveModalOpen(false);
+                  try {
+                    await onLeaveArchive(task);
+                    setLeaveArchiveModalOpen(false);
+                  } catch (err) {
+                    setError(err.message || 'Σφάλμα');
+                  } finally {
+                    setBusy(false);
+                  }
                 }}
               >
                 {busy ? 'Γίνεται αποχώρηση…' : 'Ναι, αποχώρηση'}
-              </RejectModalConfirmBtn>
-            </RejectModalFooter>
-          </RejectModalCard>
-        </RejectModalBackdrop>
+              </DepartModalConfirmBtn>
+            </DepartModalFooter>
+          </DepartModalCard>
+        </DepartModalBackdrop>
       )}
 
       {error && <ErrorBar>{error}</ErrorBar>}
@@ -1556,11 +1631,18 @@ function TaskAssignmentWorkspace({
                           </time>
                         </OriginMeta>
                       </OriginHeadRow>
-                      <OriginMeta style={{ marginBottom: item.description ? 10 : 0 }}>
-                        {TASK_PRIORITY_LABELS[task.priority] || task.priority}
-                        <span aria-hidden> · </span>
-                        Ολοκλήρωση εργασίας έως: {formatTaskDueDate(task.dueDate, task.dueTime)}
-                      </OriginMeta>
+                      {(() => {
+                        const showPriority = task.priority && task.priority !== 'normal';
+                        const showDue = !!task.dueDate;
+                        if (!showPriority && !showDue) return null;
+                        return (
+                          <OriginMeta style={{ marginBottom: item.description ? 10 : 0 }}>
+                            {showPriority && (TASK_PRIORITY_LABELS[task.priority] || task.priority)}
+                            {showPriority && showDue && <span aria-hidden> · </span>}
+                            {showDue && <>Ολοκλήρωση εργασίας έως: {formatTaskDueDate(task.dueDate, task.dueTime)}</>}
+                          </OriginMeta>
+                        );
+                      })()}
                       {item.description ? (
                         <OriginDescription>{item.description}</OriginDescription>
                       ) : (
@@ -1695,7 +1777,36 @@ function TaskAssignmentWorkspace({
               >
                 📎
               </IconBtn>
+              <EmojiPickerWrapper ref={emojiPickerRef}>
+                <IconBtn
+                  type="button"
+                  onClick={() => setEmojiPickerOpen((o) => !o)}
+                  disabled={busy || (!chatAllowed && !isArchivedReadOnly)}
+                  title="Εισαγωγή emoji"
+                  style={{ fontSize: '1.15rem' }}
+                >
+                  😊
+                </IconBtn>
+                {emojiPickerOpen && (
+                  <EmojiPickerPopup>
+                    <EmojiPicker
+                      data={emojiData}
+                      onEmojiSelect={handleEmojiSelect}
+                      locale="el"
+                      theme="light"
+                      previewPosition="none"
+                      skinTonePosition="none"
+                      searchPosition="sticky"
+                      navPosition="top"
+                      perLine={9}
+                      set="native"
+                      autoFocus
+                    />
+                  </EmojiPickerPopup>
+                )}
+              </EmojiPickerWrapper>
               <ComposerInput
+                ref={composerInputRef}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 onKeyDown={handleComposerKey}

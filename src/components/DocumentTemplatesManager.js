@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -708,7 +710,7 @@ function DocumentTemplatesManager({ onClose }) {
   };
 
   const handleDelete = async (docId) => {
-    if (!window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το έγγραφο;')) {
+    if (!await showConfirm({ title: 'Διαγραφή Εγγράφου', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το έγγραφο;', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       return;
     }
 

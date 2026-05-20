@@ -2,6 +2,7 @@
 import styled from 'styled-components';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
 import SubprojectSearchModal from './SubprojectSearchModal';
+import { safeConfirm } from '../utils/safeDialogs';
 
 const ipcRenderer = window.electronAPI;
 
@@ -894,7 +895,7 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
       }
       
       // Επιβεβαίωση από τον χρήστη
-      const confirmed = window.confirm(
+      const confirmed = safeConfirm(
         `Είστε σίγουροι ότι θέλετε να ακυρώσετε τη συσχέτιση με το υποέργο "${subproject.title}";\n\n` +
         `Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.`
       );

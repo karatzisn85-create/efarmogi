@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { safeWriteJSON } = require('./safeWrite');
+const { withServiceLock } = require('./fileLock');
 
 const TASKS_ROOT = 'ANATHESEIS_ERGASION';
 const FILES_SUBDIR = 'ARXEIA';
@@ -100,8 +101,14 @@ function canUserAssignTo(users, assignerUsername, assigneeUsernames) {
 function createTaskAssignmentService(deps) {
   const { dataDir, loadUsers, getTempDir, onNotifyMainWindow } = deps;
 
+  let lastOwnWriteTs = 0;
+
   function getRoot() {
     return path.join(dataDir, TASKS_ROOT);
+  }
+
+  function getWriteLockPath() {
+    return path.join(getRoot(), '.write.lock');
   }
 
   function getIndexPath() {
@@ -137,14 +144,58 @@ function createTaskAssignmentService(deps) {
     }
   }
 
+  function tryParseIndex(filePath) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (Array.isArray(raw.tasks)) return raw;
+    } catch {}
+    return null;
+  }
+
+  function rebuildIndexFromDisk() {
+    const root = getRoot();
+    const empty = { version: 1, tasks: [], updatedAt: new Date().toISOString() };
+    let entries;
+    try {
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      return empty;
+    }
+    const tasks = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const dataPath = path.join(root, entry.name, 'data.json');
+      try {
+        const raw = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+        if (raw && raw.id) {
+          const { task: migrated } = migrateLegacyTask(raw);
+          if (migrated) tasks.push(taskToIndexEntry(migrated));
+        }
+      } catch {}
+    }
+    const idx = { version: 1, tasks, updatedAt: new Date().toISOString() };
+    try { safeWriteJSON(getIndexPath(), idx); } catch {}
+    console.log(`[taskAssignment] Index rebuilt from disk: ${tasks.length} task(s) recovered`);
+    return idx;
+  }
+
   function readIndex() {
     ensureTaskStorage();
-    try {
-      const raw = JSON.parse(fs.readFileSync(getIndexPath(), 'utf8'));
-      return Array.isArray(raw.tasks) ? raw : { version: 1, tasks: [], updatedAt: '' };
-    } catch {
-      return { version: 1, tasks: [], updatedAt: '' };
+    const mainPath = getIndexPath();
+    const fromMain = tryParseIndex(mainPath);
+    if (fromMain) return fromMain;
+
+    for (let i = 1; i <= 3; i++) {
+      const bak = tryParseIndex(`${mainPath}.bak${i}`);
+      if (bak) {
+        console.warn(`[taskAssignment] Index restored from .bak${i}`);
+        try { safeWriteJSON(mainPath, bak); } catch {}
+        return bak;
+      }
     }
+
+    console.warn('[taskAssignment] Index corrupt/empty — rebuilding from task directories');
+    return rebuildIndexFromDisk();
   }
 
   function writeIndex(tasks) {
@@ -238,26 +289,41 @@ function createTaskAssignmentService(deps) {
     }
   }
 
-  function writeTask(task) {
-    const dir = getTaskDir(task.id);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const filesDir = getTaskFilesDir(task.id);
-    if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
-    safeWriteJSON(getTaskDataPath(task.id), task);
+  const MAX_STATUS_HISTORY = 500;
+  const MAX_COMMENTS = 2000;
 
-    const idx = readIndex();
-    const entry = taskToIndexEntry(task);
-    const i = idx.tasks.findIndex((t) => t.id === task.id);
-    if (i >= 0) idx.tasks[i] = entry;
-    else idx.tasks.push(entry);
-    writeIndex(idx.tasks);
+  function writeTask(task) {
+    withServiceLock(getWriteLockPath(), () => {
+      if (Array.isArray(task.statusHistory) && task.statusHistory.length > MAX_STATUS_HISTORY) {
+        task.statusHistory = task.statusHistory.slice(-MAX_STATUS_HISTORY);
+      }
+      if (Array.isArray(task.comments) && task.comments.length > MAX_COMMENTS) {
+        task.comments = task.comments.slice(-MAX_COMMENTS);
+      }
+      const dir = getTaskDir(task.id);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const filesDir = getTaskFilesDir(task.id);
+      if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
+      safeWriteJSON(getTaskDataPath(task.id), task);
+
+      const idx = readIndex();
+      const entry = taskToIndexEntry(task);
+      const i = idx.tasks.findIndex((t) => t.id === task.id);
+      if (i >= 0) idx.tasks[i] = entry;
+      else idx.tasks.push(entry);
+      writeIndex(idx.tasks);
+      lastOwnWriteTs = Date.now();
+    });
   }
 
   function deleteTaskFromDisk(taskId) {
-    const dir = getTaskDir(taskId);
-    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
-    const idx = readIndex();
-    writeIndex(idx.tasks.filter((t) => t.id !== taskId));
+    withServiceLock(getWriteLockPath(), () => {
+      const dir = getTaskDir(taskId);
+      if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+      const idx = readIndex();
+      writeIndex(idx.tasks.filter((t) => t.id !== taskId));
+      lastOwnWriteTs = Date.now();
+    });
   }
 
   function isAssigner(task, username) {
@@ -313,29 +379,34 @@ function createTaskAssignmentService(deps) {
   function removeNotificationsForTask(taskId) {
     const tid = String(taskId || '').trim();
     if (!tid) return;
-    const before = readNotifications();
-    const items = before.filter((n) => String(n.taskId || '').trim() !== tid);
-    if (items.length !== before.length) {
-      writeNotifications(items);
-    }
+    withServiceLock(getWriteLockPath(), () => {
+      const before = readNotifications();
+      const items = before.filter((n) => String(n.taskId || '').trim() !== tid);
+      if (items.length !== before.length) {
+        writeNotifications(items);
+      }
+    });
   }
 
   function pushNotification({ username, type, taskId, title, message }) {
-    const items = readNotifications();
-    const entry = {
-      id: uuidv4(),
-      username: String(username || '').trim(),
-      type,
-      taskId,
-      title: String(title || '').trim(),
-      message: String(message || '').trim(),
-      createdAt: new Date().toISOString(),
-      readAt: null
-    };
-    items.unshift(entry);
-    if (items.length > 8000) items.length = 8000;
-    writeNotifications(items);
-    if (typeof onNotifyMainWindow === 'function') {
+    let entry;
+    withServiceLock(getWriteLockPath(), () => {
+      const items = readNotifications();
+      entry = {
+        id: uuidv4(),
+        username: String(username || '').trim(),
+        type,
+        taskId,
+        title: String(title || '').trim(),
+        message: String(message || '').trim(),
+        createdAt: new Date().toISOString(),
+        readAt: null
+      };
+      items.unshift(entry);
+      if (items.length > 8000) items.length = 8000;
+      writeNotifications(items);
+    });
+    if (entry && typeof onNotifyMainWindow === 'function') {
       onNotifyMainWindow({ username: entry.username, notification: entry });
     }
     return entry;
@@ -484,10 +555,23 @@ function createTaskAssignmentService(deps) {
     /** SUPERADMIN δεν έχει πάντα taskAssignment στο users.json — πρέπει να βλέπει και τους χώρους που δημιούργησε ως αναθέτης. */
     const assignerListVisibility = ta.canAssign || isSA;
 
+    const orphanedIds = [];
     let list = idx.tasks.map((meta) => {
       const full = readTask(meta.id);
+      if (!full && !fs.existsSync(getTaskDir(meta.id))) {
+        orphanedIds.push(meta.id);
+        return null;
+      }
       return full || meta;
-    });
+    }).filter(Boolean);
+
+    if (orphanedIds.length > 0) {
+      console.log('[taskAssignment] Removing orphaned index entries:', orphanedIds);
+      withServiceLock(getWriteLockPath(), () => {
+        const current = readIndex();
+        writeIndex(current.tasks.filter((t) => !orphanedIds.includes(t.id)));
+      });
+    }
 
     if (view === 'all' && isSA) {
       // all tasks
@@ -631,7 +715,12 @@ function createTaskAssignmentService(deps) {
     if (!assignCheck.ok) return { success: false, error: assignCheck.error };
 
     const now = new Date().toISOString();
-    const copied = copyFilesToTask(taskId, newFiles, actingUsername);
+    let copied;
+    try {
+      copied = copyFilesToTask(taskId, newFiles, actingUsername);
+    } catch (copyErr) {
+      return { success: false, error: copyErr?.message || 'Αποτυχία αντιγραφής αρχείων' };
+    }
     const newAssignees = assignCheck.assignees;
     const activeSet = new Set(newAssignees.map((a) => String(a).toLowerCase()));
     const prevDeparted = Array.isArray(existing.departedAssignees) ? existing.departedAssignees : [];
@@ -678,6 +767,15 @@ function createTaskAssignmentService(deps) {
     if (!isAssigner(existing, actingUsername) && !isSuperAdmin(users, actingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα διαγραφής' };
     }
+    const deleter = findUser(users, actingUsername);
+    const byLabel = deleter?.fullName ? `${deleter.fullName} (${actingUsername})` : actingUsername;
+    safeNotifyTaskEvent(
+      existing,
+      'status_changed',
+      `Ο/Η ${byLabel} διέγραψε τον χώρο «${existing.title}»`,
+      [],
+      { excludeUsernames: [actingUsername] }
+    );
     deleteTaskFromDisk(taskId);
     removeNotificationsForTask(taskId);
     return { success: true };
@@ -692,8 +790,8 @@ function createTaskAssignmentService(deps) {
     const isAssigneeUser = isAssignee(task, actingUsername);
     const isSA = isSuperAdmin(users, actingUsername);
 
-    if (!isAssignerUser && !isAssigneeUser && !isSA) {
-      return { success: false, error: 'Δεν έχετε πρόσβαση' };
+    if (!canAccessTask(users, task, actingUsername)) {
+      return { success: false, error: 'Δεν έχετε πρόσβαση σε αυτόν τον χώρο' };
     }
 
     if (!VALID_STATUSES.includes(status)) return { success: false, error: 'Μη έγκυρη κατάσταση' };
@@ -732,7 +830,7 @@ function createTaskAssignmentService(deps) {
       status,
       at: now,
       by: actingUsername,
-      note: reopenNote || withdrawNote
+      note: reopenNote || withdrawNote || (String(reason || '').trim() ? `Σημείωση: ${String(reason).trim()}` : '')
     });
 
     let withdrawnByAssigner = !!task.withdrawnByAssigner;
@@ -969,7 +1067,12 @@ function createTaskAssignmentService(deps) {
     if (!canAccessTask(users, task, actingUsername)) {
       return { success: false, error: 'Δεν έχετε πρόσβαση' };
     }
-    const copied = copyFilesToTask(taskId, newFiles, actingUsername);
+    let copied;
+    try {
+      copied = copyFilesToTask(taskId, newFiles, actingUsername);
+    } catch (copyErr) {
+      return { success: false, error: copyErr?.message || 'Αποτυχία αντιγραφής αρχείων' };
+    }
     if (copied.length === 0) return { success: false, error: 'Δεν προστέθηκαν αρχεία' };
     const updated = {
       ...task,
@@ -981,6 +1084,16 @@ function createTaskAssignmentService(deps) {
     } catch (err) {
       return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης αρχείων' };
     }
+    const uploader = findUser(users, actingUsername);
+    const uploaderLabel = uploader?.fullName ? `${uploader.fullName} (${actingUsername})` : actingUsername;
+    const fileNames = copied.map((f) => f.name).join(', ');
+    safeNotifyTaskEvent(
+      updated,
+      'status_changed',
+      `${uploaderLabel} πρόσθεσε αρχεία: ${fileNames.length > 150 ? `${fileNames.slice(0, 147)}…` : fileNames}`,
+      [],
+      { excludeUsernames: [actingUsername] }
+    );
     return { success: true, task: updated };
   }
 
@@ -995,13 +1108,15 @@ function createTaskAssignmentService(deps) {
     const u = String(actingUsername || '').toLowerCase();
     const now = new Date().toISOString();
     const ids = notificationIds ? new Set(notificationIds) : null;
-    const items = readNotifications().map((n) => {
-      if (String(n.username || '').toLowerCase() !== u) return n;
-      if (ids && !ids.has(n.id)) return n;
-      if (!ids && n.readAt) return n;
-      return { ...n, readAt: n.readAt || now };
+    withServiceLock(getWriteLockPath(), () => {
+      const items = readNotifications().map((n) => {
+        if (String(n.username || '').toLowerCase() !== u) return n;
+        if (ids && !ids.has(n.id)) return n;
+        if (!ids && n.readAt) return n;
+        return { ...n, readAt: n.readAt || now };
+      });
+      writeNotifications(items);
     });
-    writeNotifications(items);
     return { success: true };
   }
 
@@ -1011,12 +1126,14 @@ function createTaskAssignmentService(deps) {
     const tid = String(taskId || '').trim();
     if (!tid) return { success: false, error: 'Κενό αναγνωριστικό χώρου' };
     const now = new Date().toISOString();
-    const items = readNotifications().map((n) => {
-      if (String(n.username || '').toLowerCase() !== u) return n;
-      if (String(n.taskId || '') !== tid) return n;
-      return { ...n, readAt: n.readAt || now };
+    withServiceLock(getWriteLockPath(), () => {
+      const items = readNotifications().map((n) => {
+        if (String(n.username || '').toLowerCase() !== u) return n;
+        if (String(n.taskId || '') !== tid) return n;
+        return { ...n, readAt: n.readAt || now };
+      });
+      writeNotifications(items);
     });
-    writeNotifications(items);
     return { success: true };
   }
 
@@ -1076,9 +1193,9 @@ function createTaskAssignmentService(deps) {
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     idx.tasks.forEach((meta) => {
-      if (!OPEN_STATUSES.includes(meta.status)) return;
       const task = readTask(meta.id);
       if (!task || !task.dueDate) return;
+      if (!OPEN_STATUSES.includes(task.status)) return;
 
       const due = parseDueDate(task);
       if (!due) return;
@@ -1143,7 +1260,9 @@ function createTaskAssignmentService(deps) {
     runDueDateChecks,
     readIndex,
     isAssignee,
-    isAssigner
+    isAssigner,
+    getTaskDataPath,
+    getLastOwnWriteTs: () => lastOwnWriteTs
   };
 }
 

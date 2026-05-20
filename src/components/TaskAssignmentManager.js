@@ -5,6 +5,7 @@ import TaskAssignmentWorkspace from './TaskAssignmentWorkspace';
 import { DISMISS_TASK_EVENT } from './TaskAssignmentToastHost';
 import {
   TASK_STATUS_LABELS,
+  TASK_STATUS_COLORS,
   TASK_PRIORITY_LABELS,
   formatTaskDueDate,
   isTaskOverdue,
@@ -17,6 +18,7 @@ import {
   resetDocumentInteractionState,
   scheduleDocumentInteractionRecovery
 } from '../utils/documentInteractionReset';
+import { safeConfirm } from '../utils/safeDialogs';
 
 const ipcRenderer = window.electronAPI;
 
@@ -690,12 +692,6 @@ const NotifLineMeta = styled.div`
   margin-top: 0.25rem;
 `;
 
-const statusColors = {
-  pending: { bg: '#fef3c7', color: '#92400e' },
-  in_progress: { bg: '#dbeafe', color: '#1e40af' },
-  completed: { bg: '#d1fae5', color: '#065f46' },
-  cancelled: { bg: '#f1f5f9', color: '#64748b' }
-};
 
 function TaskAssignmentManager({
   isOpen,
@@ -903,9 +899,24 @@ function TaskAssignmentManager({
     const intervalId = setInterval(() => {
       loadTasks({ silent: true });
       loadNotifications();
+      refreshSelectedTask();
     }, 45000);
     return () => clearInterval(intervalId);
-  }, [isOpen, loadTasks, loadNotifications]);
+  }, [isOpen, loadTasks, loadNotifications, refreshSelectedTask]);
+
+  /** Real-time watcher: fs.watch στο data.json του ανοιχτού χώρου. */
+  useEffect(() => {
+    const tid = selectedTask?.id;
+    if (!isOpen || !tid) return undefined;
+    ipcRenderer.invoke('watch-task-file', { taskId: tid }).catch(() => {});
+    const unsub = ipcRenderer.on('task-data-changed', (payload) => {
+      if (payload?.taskId === selectedIdRef.current) refreshSelectedTask();
+    });
+    return () => {
+      ipcRenderer.invoke('unwatch-task-file').catch(() => {});
+      if (typeof unsub === 'function') unsub();
+    };
+  }, [isOpen, selectedTask?.id, refreshSelectedTask]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1023,11 +1034,11 @@ function TaskAssignmentManager({
   );
 
   const openTask = useCallback(
-    async (taskId) => {
-      setTab('asAssignee');
+    async (taskId, { forceTab } = {}) => {
+      if (forceTab) setTab(forceTab);
       const ok = await revealTask(taskId);
       if (ok) {
-        await loadTasks({ silent: true, viewOverride: 'asAssignee' });
+        await loadTasks({ silent: true, viewOverride: forceTab || undefined });
         loadNotifications();
       }
     },
@@ -1091,7 +1102,7 @@ function TaskAssignmentManager({
     const msg = isWorkArchive
       ? `Οριστική διαγραφή του χώρου «${task.title}» από την αποθήκη;`
       : `Διαγραφή χώρου «${task.title}»;`;
-    const confirmed = window.confirm(msg);
+    const confirmed = safeConfirm(msg);
     if (!confirmed) {
       recoverTaskManagerScroll();
       return;
@@ -1122,7 +1133,7 @@ function TaskAssignmentManager({
   };
 
   const renderTaskPreview = (t) => {
-    const sc = statusColors[t.status] || {};
+    const sc = TASK_STATUS_COLORS[t.status] || {};
     const overdue = isTaskOverdue(t);
     const assignees = formatAssigneeDisplayNames(t, usersMap);
     const isActive = selectedId === t.id;
@@ -1312,7 +1323,7 @@ function TaskAssignmentManager({
                           actingUsername,
                           notificationIds: [n.id]
                         });
-                        await openTask(n.taskId);
+                        await openTask(n.taskId, { forceTab: 'asAssignee' });
                         setShowNotif(false);
                         loadNotifications();
                       }}
@@ -1394,7 +1405,8 @@ function TaskAssignmentManager({
                 }}
                 onEdit={
                   canEditSelectedAsAssigner &&
-                  !['completed', 'cancelled'].includes(selectedTask.status)
+                  !(selectedTask.status === 'completed') &&
+                  !(selectedTask.status === 'cancelled' && !selectedTask.withdrawnByAssigner)
                     ? () => openEditAssignmentForm(selectedTask)
                     : undefined
                 }

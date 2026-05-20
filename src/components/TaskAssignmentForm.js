@@ -382,10 +382,12 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
   const handlePickFiles = async () => {
     try {
       const res = await ipcRenderer.invoke('select-multiple-files', 'Επιλογή αρχείων χώρου');
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
       if (res?.success && !res.canceled && Array.isArray(res.files) && res.files.length > 0) {
         setPendingFiles((prev) => [...prev, ...res.files]);
       }
     } catch (e) {
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
       setError(e.message || 'Σφάλμα επιλογής αρχείων');
     }
   };

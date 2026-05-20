@@ -2,7 +2,16 @@ export const TASK_STATUS_LABELS = {
   pending: 'Εκκρεμεί',
   in_progress: 'Σε εξέλιξη',
   completed: 'Ολοκληρώθηκε',
-  cancelled: 'Κλειστός'
+  cancelled: 'Κλειστός',
+  rejected: 'Αποχώρησε (legacy)'
+};
+
+export const TASK_STATUS_COLORS = {
+  pending: { bg: '#fef3c7', color: '#92400e' },
+  in_progress: { bg: '#dbeafe', color: '#1e40af' },
+  completed: { bg: '#d1fae5', color: '#065f46' },
+  cancelled: { bg: '#f1f5f9', color: '#64748b' },
+  rejected: { bg: '#f1f5f9', color: '#9ca3af' }
 };
 
 /** Κλειστός χώρος για συναδέλφους: μένει στον αναθέτη, οι συνάδελφοι δεν τον βλέπουν πλέον. */

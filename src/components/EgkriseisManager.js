@@ -4,6 +4,8 @@ import EgkrisiForm from './EgkrisiForm';
 import EgkriseisStructureViewer from './EgkriseisStructureViewer';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
 import { containsSearchTerm } from '../utils/searchUtils';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -659,7 +661,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
   };
 
   const deleteEgkrisi = async (projectId, subprojectId, egkrisiId) => {
-    if (!window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την έγκριση;')) {
+    if (!await showConfirm({ title: 'Διαγραφή Έγκρισης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την έγκριση;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       return;
     }
 

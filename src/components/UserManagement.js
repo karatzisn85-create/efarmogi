@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import { emptyTaskAssignmentPerms } from '../utils/taskAssignmentDisplay';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -453,14 +455,14 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
   };
 
   const handleReject = async (user) => {
-    if (!window.confirm(`Απόρριψη και διαγραφή αιτήματος του "${user.username}";`)) return;
+    if (!await showConfirm({ title: 'Απόρριψη Αιτήματος', message: `Απόρριψη και διαγραφή αιτήματος του χρήστη "${user.username}";`, confirmLabel: 'Απόρριψη', icon: '🗑' })) return;
     await ipcRenderer.invoke('delete-user', { username: user.username });
     await loadUsers();
     if (onUsersChanged) onUsersChanged();
   };
 
   const handleDelete = async (user) => {
-    if (!window.confirm(`Διαγραφή χρήστη "${user.username}";`)) return;
+    if (!await showConfirm({ title: 'Διαγραφή Χρήστη', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε τον χρήστη "${user.username}";`, detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) return;
     const result = await ipcRenderer.invoke('delete-user', { username: user.username });
     if (result.success) {
       await loadUsers();

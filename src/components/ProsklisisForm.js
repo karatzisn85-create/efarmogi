@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
+import { safeFileDialog } from '../utils/safeDialogs';
 
 const ipcRenderer = window.electronAPI;
 
@@ -368,7 +369,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
 
   const handleFileSelect = async () => {
     try {
-      const result = await ipcRenderer.invoke('select-file', 'Επιλογή Αρχείων Πρόσκλησης (PDF, Word)');
+      const result = await safeFileDialog('select-file', 'Επιλογή Αρχείων Πρόσκλησης (PDF, Word)');
       
       if (result.success && result.files) {
         // Όλα τα αρχεία πηγαίνουν στο "Επισυναπτόμενα"

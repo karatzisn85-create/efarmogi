@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -291,7 +293,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
   };
 
   const handleDeleteFile = async (fileName) => {
-    if (!window.confirm(`Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`)) {
+    if (!await showConfirm({ title: 'Διαγραφή Αρχείου', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       return;
     }
 

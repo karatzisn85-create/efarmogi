@@ -452,6 +452,13 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     createdAt: new Date().toISOString()
   });
   saveUsers(users);
+  logAuditAction({
+    type: 'create',
+    entityType: 'user',
+    entityId: username.trim(),
+    entityTitle: fullName || username,
+    details: `Δημιουργία χρήστη με ρόλο ${role === 'ENGINEER' ? 'Μηχανικός' : role === 'ADMIN' ? 'Διαχειριστής' : role}`
+  });
   return { success: true };
 });
 
@@ -459,6 +466,9 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
   const users = loadUsers();
   const idx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
   if (idx === -1) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
+
+  const oldUserData = { ...users[idx] };
+  delete oldUserData.passwordHash;
 
   if (updates.fullName !== undefined) users[idx].fullName = updates.fullName;
   if (updates.role !== undefined) users[idx].role = updates.role;
@@ -481,7 +491,19 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
     users[idx].taskAssignment = normalizeTaskAssignment(updates.taskAssignment);
   }
 
+  const newUserData = { ...users[idx] };
+  delete newUserData.passwordHash;
+
   saveUsers(users);
+  logAuditAction({
+    type: 'update',
+    entityType: 'user',
+    entityId: username,
+    entityTitle: users[idx].fullName || username,
+    details: 'Ενημέρωση στοιχείων χρήστη',
+    oldValue: oldUserData,
+    newValue: newUserData
+  });
   return { success: true };
 });
 
@@ -497,6 +519,13 @@ ipcMain.handle('delete-user', async (_event, { username }) => {
 
   users = users.filter(u => u.username.toLowerCase() !== username.toLowerCase());
   saveUsers(users);
+  logAuditAction({
+    type: 'delete',
+    entityType: 'user',
+    entityId: username,
+    entityTitle: target.fullName || username,
+    details: 'Διαγραφή χρήστη'
+  });
   return { success: true };
 });
 
@@ -612,18 +641,30 @@ ipcMain.handle('get-update-state', () => {
   return updater.getState();
 });
 
-app.whenReady().then(() => {
-  logger.init(path.join(app.getPath('userData'), 'logs'));
-  logger.info('App', `ERGOHUB v${app.getVersion()} starting`);
-  createWindow();
-  initTaskAssignmentScheduler();
-  if (app.isPackaged) {
-    console.log('[Update] Production mode - auto-update enabled');
-    initAutoUpdate();
-  } else {
-    console.log('[Update] Dev mode - auto-update skipped');
-  }
-});
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    logger.init(path.join(app.getPath('userData'), 'logs'));
+    logger.info('App', `ERGOHUB v${app.getVersion()} starting`);
+    createWindow();
+    initTaskAssignmentScheduler();
+    if (app.isPackaged) {
+      console.log('[Update] Production mode - auto-update enabled');
+      initAutoUpdate();
+    } else {
+      console.log('[Update] Dev mode - auto-update skipped');
+    }
+  });
+}
 
 app.on('before-quit', (event) => {
   if (dashboardSessionActive) {
@@ -642,11 +683,9 @@ app.on('before-quit', (event) => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    // Κλείσιμο του file watcher
-    if (lockWatcher) {
-      lockWatcher.close();
-      lockWatcher = null;
-    }
+    // Κλείσιμο file watchers
+    if (lockWatcher) { lockWatcher.close(); lockWatcher = null; }
+    if (activeTaskWatcher) { activeTaskWatcher.close(); activeTaskWatcher = null; }
     
     // Clean up mainWindow reference
     mainWindow = null;
@@ -1434,14 +1473,11 @@ async function handleSaveProjectData(event, projectData) {
       removeProjectLock(projectId);
     }
     
-    // Log audit action
-    const user = event.sender.getTitle() || 'ADMIN'; // Get user from window title or default
     logAuditAction({
       type: isNewProject ? 'create' : 'update',
       entityType: 'subproject',
       entityId: subprojectId,
       entityTitle: `${dataToSave.projectTitle} - ${dataToSave.subprojectTitle}`,
-      user: user,
       details: isNewProject ? 'Δημιουργία νέου υποέργου' : 'Ενημέρωση υποέργου',
       oldValue: isNewProject ? null : existingData,
       newValue: dataToSave
@@ -1888,6 +1924,7 @@ ipcMain.handle('get-task-assignment-permissions', async (_event, { actingUsernam
   if (!auth.ok) return { success: false, error: auth.error, users: [] };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)', users: [] };
     return svc.getAssignableTargets(auth.username);
   } catch (error) {
     return { success: false, error: error.message, users: [] };
@@ -1899,6 +1936,7 @@ ipcMain.handle('load-task-assignments', async (_event, { actingUsername, view, l
   if (!auth.ok) return { success: false, error: auth.error, tasks: [] };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)', tasks: [] };
     return svc.loadAssignments({
       actingUsername: auth.username,
       view: view || 'asAssignee',
@@ -1914,6 +1952,7 @@ ipcMain.handle('leave-task-work-archive', async (_event, { actingUsername, taskI
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.leaveWorkArchive({ actingUsername: auth.username, taskId });
   } catch (error) {
     return { success: false, error: error.message };
@@ -1925,6 +1964,7 @@ ipcMain.handle('leave-task-assignment-workspace', async (_event, { actingUsernam
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.leaveWorkspace({ actingUsername: auth.username, taskId, note: note || '' });
   } catch (error) {
     return { success: false, error: error.message };
@@ -1936,6 +1976,7 @@ ipcMain.handle('get-task-assignment', async (_event, { actingUsername, taskId })
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.getTask({ actingUsername: auth.username, taskId });
   } catch (error) {
     return { success: false, error: error.message };
@@ -1959,6 +2000,7 @@ ipcMain.handle('update-task-assignment', async (_event, { actingUsername, taskId
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.updateTask({ actingUsername: auth.username, taskId, payload, newFiles: newFiles || [] });
   } catch (error) {
     return { success: false, error: error.message };
@@ -1970,6 +2012,7 @@ ipcMain.handle('delete-task-assignment', async (_event, { actingUsername, taskId
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.deleteTask({ actingUsername: auth.username, taskId });
   } catch (error) {
     return { success: false, error: error.message };
@@ -1981,6 +2024,7 @@ ipcMain.handle('update-task-assignment-status', async (_event, { actingUsername,
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.updateStatus({
       actingUsername: auth.username,
       taskId,
@@ -1998,6 +2042,7 @@ ipcMain.handle('add-task-assignment-comment', async (_event, { actingUsername, t
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.addComment({ actingUsername: auth.username, taskId, text });
   } catch (error) {
     return { success: false, error: error.message };
@@ -2009,6 +2054,7 @@ ipcMain.handle('add-task-assignment-files', async (_event, { actingUsername, tas
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.addFiles({ actingUsername: auth.username, taskId, newFiles: newFiles || [] });
   } catch (error) {
     return { success: false, error: error.message };
@@ -2020,6 +2066,7 @@ ipcMain.handle('load-task-notifications', async (_event, { actingUsername, unrea
   if (!auth.ok) return { success: false, error: auth.error, notifications: [] };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)', notifications: [] };
     return svc.loadNotifications({ actingUsername: auth.username, unreadOnly: !!unreadOnly });
   } catch (error) {
     return { success: false, error: error.message, notifications: [] };
@@ -2031,6 +2078,7 @@ ipcMain.handle('mark-task-notifications-read', async (_event, { actingUsername, 
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.markNotificationsRead({ actingUsername: auth.username, notificationIds });
   } catch (error) {
     return { success: false, error: error.message };
@@ -2042,6 +2090,7 @@ ipcMain.handle('mark-task-notifications-read-for-task', async (_event, { actingU
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.markNotificationsReadForTask({ actingUsername: auth.username, taskId });
   } catch (error) {
     return { success: false, error: error.message };
@@ -2053,13 +2102,51 @@ ipcMain.handle('open-task-assignment-file', async (_event, { actingUsername, tas
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     const check = svc.resolveTaskFilePath({ actingUsername: auth.username, taskId, filePath });
     if (!check.success) return check;
-    await shell.openPath(check.filePath);
+    const openResult = await shell.openPath(check.filePath);
+    if (openResult) return { success: false, error: `Αδυναμία ανοίγματος αρχείου: ${openResult}` };
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
+
+/* ── Real-Time Task Watcher ── */
+let activeTaskWatcher = null;
+let activeTaskWatcherId = null;
+
+ipcMain.handle('watch-task-file', (_event, { taskId }) => {
+  if (activeTaskWatcher) { activeTaskWatcher.close(); activeTaskWatcher = null; }
+  activeTaskWatcherId = null;
+  const svc = getTaskAssignmentService();
+  if (!svc || !taskId) return;
+  const filePath = svc.getTaskDataPath(taskId);
+  if (!fs.existsSync(filePath)) return;
+  activeTaskWatcherId = taskId;
+  let debounceTimer = null;
+  try {
+    activeTaskWatcher = fs.watch(filePath, () => {
+      if (svc.getLastOwnWriteTs && (Date.now() - svc.getLastOwnWriteTs()) < 1500) return;
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('task-data-changed', { taskId: activeTaskWatcherId });
+        }
+      }, 500);
+    });
+    activeTaskWatcher.on('error', () => {
+      if (activeTaskWatcher) { activeTaskWatcher.close(); activeTaskWatcher = null; }
+    });
+  } catch (err) {
+    console.warn('[TaskWatcher] fs.watch failed (fallback to polling):', err.message);
+  }
+});
+
+ipcMain.handle('unwatch-task-file', () => {
+  if (activeTaskWatcher) { activeTaskWatcher.close(); activeTaskWatcher = null; }
+  activeTaskWatcherId = null;
 });
 
 ipcMain.handle('khmdhs-fetch-contract-by-adam', async (_event, { adam }) => {
@@ -2101,10 +2188,20 @@ ipcMain.handle('update-subproject-supervisor-engineers', async (_event, { projec
       return { success: false, error: 'Δεν βρέθηκε το υποέργο' };
     }
     const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    const oldIds = data.supervisorEngineerIds || [];
     data.supervisorEngineerIds = filtered;
     data.updatedAt = new Date().toISOString();
     stripLegacySupervisorField(data);
     safeWriteJSON(jsonPath, data);
+    logAuditAction({
+      type: 'update',
+      entityType: 'subproject',
+      entityId: sid,
+      entityTitle: `${data.projectTitle || pid} - ${data.subprojectTitle || sid}`,
+      details: 'Ενημέρωση επιβλεπόντων μηχανικών υποέργου',
+      oldValue: { supervisorEngineerIds: oldIds },
+      newValue: { supervisorEngineerIds: filtered }
+    });
     return { success: true, supervisorEngineerIds: filtered };
   } catch (error) {
     console.error('update-subproject-supervisor-engineers:', error);
@@ -2296,15 +2393,12 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
     
     console.log('Subproject deletion completed successfully');
     
-    // Log audit action
-    const user = event.sender.getTitle() || 'ADMIN';
     if (deletedData) {
       logAuditAction({
         type: 'delete',
         entityType: 'subproject',
         entityId: subprojectId,
         entityTitle: `${deletedData.projectTitle || 'N/A'} - ${deletedData.subprojectTitle || 'N/A'}`,
-        user: user,
         details: 'Διαγραφή υποέργου',
         oldValue: deletedData,
         newValue: null
@@ -2349,6 +2443,13 @@ ipcMain.handle('save-files', async (event, files, projectId, subprojectId) => {
       savedFiles.push(fileName);
     }
     
+    logAuditAction({
+      type: 'create',
+      entityType: 'file',
+      entityId: subprojectId,
+      entityTitle: savedFiles.join(', '),
+      details: `Προσθήκη ${savedFiles.length} αρχείου/ων στο υποέργο`
+    });
     return { success: true, files: savedFiles };
   } catch (error) {
     console.error('Error saving files:', error);
@@ -2511,6 +2612,13 @@ ipcMain.handle('delete-file', async (event, projectId, subprojectId, fileName) =
       }
     }
     
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file',
+      entityId: subprojectId,
+      entityTitle: fileName,
+      details: 'Διαγραφή αρχείου υποέργου'
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting file:', error);
@@ -2832,6 +2940,13 @@ ipcMain.handle('create-file-group', async (event, projectId, subprojectId, group
     safeWriteJSON(dataFilePath, projectData);
     
     console.log('File group created successfully:', newGroup);
+    logAuditAction({
+      type: 'create',
+      entityType: 'file_group',
+      entityId: newGroup.id,
+      entityTitle: groupTitle,
+      details: `Δημιουργία ομάδας αρχείων με ${filesToGroup.length} αρχεία`
+    });
     return { success: true, groupId: newGroup.id };
   } catch (error) {
     console.error('Error creating file group:', error);
@@ -2900,6 +3015,13 @@ ipcMain.handle('add-files-to-group', async (event, projectId, subprojectId, grou
         safeWriteJSON(dataFilePath, projectData);
         
         console.log('Files added to group successfully');
+        logAuditAction({
+          type: 'update',
+          entityType: 'file_group',
+          entityId: groupId,
+          entityTitle: projectData.fileGroups[groupIndex].title || groupId,
+          details: `Προσθήκη ${filesToAdd.length} αρχείου/ων σε ομάδα`
+        });
         return { success: true };
       } else {
         return { success: false, error: 'Η ομάδα δεν βρέθηκε' };
@@ -3157,7 +3279,21 @@ ipcMain.handle('save-entaxi', async (event, entaxiData) => {
     
     // Save JSON data - ASYNC
     const jsonPath = path.join(entaxiPath, 'data.json');
+    let existingEntaxiData = null;
+    if (fs.existsSync(jsonPath)) {
+      try { existingEntaxiData = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch (_e) { /* ignore */ }
+    }
     await safeWriteJSONAsync(jsonPath, savedData);
+
+    logAuditAction({
+      type: existingEntaxiData ? 'update' : 'create',
+      entityType: 'entaxi',
+      entityId: entaxiId,
+      entityTitle: savedData.title || savedData.projectTitle || entaxiId,
+      details: existingEntaxiData ? 'Ενημέρωση ένταξης' : 'Δημιουργία νέας ένταξης',
+      oldValue: existingEntaxiData,
+      newValue: savedData
+    });
 
     return { success: true, entaxiId };
   } catch (error) {
@@ -3342,6 +3478,14 @@ ipcMain.handle('save-modification', async (event, entaxiId, modificationData) =>
     // Save updated data - ASYNC
     await safeWriteJSONAsync(dataFile, existingData);
     
+    logAuditAction({
+      type: 'create',
+      entityType: 'entaxi_modification',
+      entityId: entaxiId,
+      entityTitle: `${existingData.title || entaxiId} - Τροποποίηση ${existingData.modifications.length}`,
+      details: 'Προσθήκη τροποποίησης ένταξης',
+      newValue: savedModification
+    });
     return { success: true };
   } catch (error) {
     console.error('Error saving modification:', error);
@@ -3353,12 +3497,25 @@ ipcMain.handle('save-modification', async (event, entaxiId, modificationData) =>
 ipcMain.handle('delete-entaxi', async (event, entaxiId) => {
   try {
     const entaxiPath = path.join(entaxisDir, entaxiId);
+    let deletedData = null;
+    const dataFile = path.join(entaxiPath, 'data.json');
+    if (fs.existsSync(dataFile)) {
+      try { deletedData = JSON.parse(fs.readFileSync(dataFile, 'utf8')); } catch (_e) { /* ignore */ }
+    }
     
     if (fs.existsSync(entaxiPath)) {
-      // Recursively delete directory
       fs.rmSync(entaxiPath, { recursive: true, force: true });
     }
     
+    logAuditAction({
+      type: 'delete',
+      entityType: 'entaxi',
+      entityId: entaxiId,
+      entityTitle: deletedData?.title || deletedData?.projectTitle || entaxiId,
+      details: 'Διαγραφή ένταξης',
+      oldValue: deletedData,
+      newValue: null
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting entaxi:', error);
@@ -3898,6 +4055,13 @@ ipcMain.handle('delete-item-from-subfolder', async (event, prosklisiId, parentFo
       fs.unlinkSync(itemPath);
     }
     
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file',
+      entityId: prosklisiId,
+      entityTitle: itemName,
+      details: `Διαγραφή ${isDirectory ? 'φακέλου' : 'αρχείου'} από υποφάκελο πρόσκλησης`
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting item from subfolder:', error);
@@ -3928,6 +4092,13 @@ ipcMain.handle('delete-item-from-folder', async (event, prosklisiId, folderName,
       fs.unlinkSync(itemPath);
     }
     
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file',
+      entityId: prosklisiId,
+      entityTitle: itemName,
+      details: `Διαγραφή ${isDirectory ? 'φακέλου' : 'αρχείου'} από πρόσκληση`
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting item from folder:', error);
@@ -4057,6 +4228,13 @@ ipcMain.handle('delete-file-from-folder', async (event, prosklisiId, folderName,
     }
     
     fs.unlinkSync(filePath);
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file',
+      entityId: prosklisiId,
+      entityTitle: fileName,
+      details: 'Διαγραφή αρχείου από φάκελο πρόσκλησης'
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting file from folder:', error);
@@ -4097,6 +4275,13 @@ ipcMain.handle('delete-prosklisi-folder', async (event, prosklisiId, folderName,
     
     removeFolder(folderPath);
     
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file',
+      entityId: prosklisiId,
+      entityTitle: folderName,
+      details: 'Διαγραφή φακέλου πρόσκλησης'
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting prosklisi folder:', error);
@@ -4189,6 +4374,13 @@ ipcMain.handle('delete-entaxi-file', async (event, entaxiId, fileName, isModific
       }
     }
     
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file',
+      entityId: entaxiId,
+      entityTitle: fileName,
+      details: isModification ? 'Διαγραφή αρχείου τροποποίησης ένταξης' : 'Διαγραφή αρχείου ένταξης'
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting entaxi file:', error);
@@ -4272,6 +4464,15 @@ ipcMain.handle('delete-entaxi-modification', async (event, entaxiId, modificatio
     safeWriteJSON(dataFile, existingData);
 
     console.log(`Deleted modification ${modificationId} for entaxi ${entaxiId}`);
+    logAuditAction({
+      type: 'delete',
+      entityType: 'entaxi_modification',
+      entityId: modificationId,
+      entityTitle: `${existingData.title || entaxiId} - Τροποποίηση`,
+      details: 'Διαγραφή τροποποίησης ένταξης',
+      oldValue: modification,
+      newValue: null
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting entaxi modification:', error);
@@ -4367,6 +4568,15 @@ ipcMain.handle('update-entaxi-modification', async (event, modificationData) => 
     safeWriteJSON(dataFile, existingData);
 
     console.log(`Updated modification ${modificationData.modificationId} for entaxi ${entaxiId}`);
+    logAuditAction({
+      type: 'update',
+      entityType: 'entaxi_modification',
+      entityId: modificationData.modificationId,
+      entityTitle: `${existingData.title || entaxiId} - Τροποποίηση ${modificationNumber}`,
+      details: 'Ενημέρωση τροποποίησης ένταξης',
+      oldValue: existingData.modifications[modificationIndex],
+      newValue: savedModification
+    });
     return { success: true };
   } catch (error) {
     console.error('Error updating entaxi modification:', error);
@@ -4713,6 +4923,10 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
 
     // Save data to JSON file
     const dataFilePath = path.join(prosklisiDir, 'data.json');
+    let existingProsklisiData = null;
+    if (fs.existsSync(dataFilePath)) {
+      try { existingProsklisiData = JSON.parse(fs.readFileSync(dataFilePath, 'utf8')); } catch (_e) { /* ignore */ }
+    }
     safeWriteJSON(dataFilePath, savedData);
     
     // Also save to prosklisi_data.json for file groups
@@ -4738,6 +4952,15 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
     safeWriteJSON(prosklisiDataPath, mergedData);
     
     console.log('Prosklisi saved successfully to:', dataFilePath);
+    logAuditAction({
+      type: existingProsklisiData ? 'update' : 'create',
+      entityType: 'prosklisi',
+      entityId: prosklisiData.prosklisiId,
+      entityTitle: savedData.title || prosklisiData.prosklisiId,
+      details: existingProsklisiData ? 'Ενημέρωση πρόσκλησης' : 'Δημιουργία νέας πρόσκλησης',
+      oldValue: existingProsklisiData,
+      newValue: savedData
+    });
     return { success: true };
   } catch (error) {
     console.error('Error saving prosklisi:', error);
@@ -4749,11 +4972,24 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
 ipcMain.handle('delete-prosklisi', async (event, prosklisiId) => {
   try {
     const prosklisiDir = path.join(proskliseisDir, prosklisiId);
+    let deletedData = null;
+    const dataFile = path.join(prosklisiDir, 'data.json');
+    if (fs.existsSync(dataFile)) {
+      try { deletedData = JSON.parse(fs.readFileSync(dataFile, 'utf8')); } catch (_e) { /* ignore */ }
+    }
     
     if (fs.existsSync(prosklisiDir)) {
-      // Recursively delete the prosklisi directory
       fs.rmSync(prosklisiDir, { recursive: true, force: true });
       console.log('Prosklisi deleted:', prosklisiId);
+      logAuditAction({
+        type: 'delete',
+        entityType: 'prosklisi',
+        entityId: prosklisiId,
+        entityTitle: deletedData?.title || prosklisiId,
+        details: 'Διαγραφή πρόσκλησης',
+        oldValue: deletedData,
+        newValue: null
+      });
       return { success: true };
     } else {
       throw new Error('Prosklisi directory not found');
@@ -4973,6 +5209,13 @@ ipcMain.handle('delete-prosklisi-group', async (event, prosklisiId, groupId) => 
       safeWriteJSON(dataPath, data);
     }
     
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file_group',
+      entityId: groupId,
+      entityTitle: group.title || groupId,
+      details: 'Διαγραφή ομάδας αρχείων πρόσκλησης'
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting prosklisi group:', error);
@@ -5472,6 +5715,13 @@ ipcMain.handle('delete-prosklisi-file', async (event, prosklisiId, fileName, tar
         safeWriteJSON(dataPath, data);
       }
       
+      logAuditAction({
+        type: 'delete',
+        entityType: 'file',
+        entityId: prosklisiId,
+        entityTitle: fileName,
+        details: 'Διαγραφή αρχείου πρόσκλησης'
+      });
       return { success: true };
     } else {
       throw new Error('File not found');
@@ -5581,11 +5831,41 @@ ipcMain.handle('save-egkrisi', async (event, projectId, subprojectId, egkrisiDat
       projectData.egkriseisDialthesisPistosis = [];
     }
     
-    // Add new egkrisi
-    projectData.egkriseisDialthesisPistosis.push(egkrisiData);
-    
-    // Save updated data
-    safeWriteJSON(dataPath, projectData);
+    const isUpdate = projectData.egkriseisDialthesisPistosis.some(e => e.id === egkrisiData.id);
+
+    if (isUpdate) {
+      const idx = projectData.egkriseisDialthesisPistosis.findIndex(e => e.id === egkrisiData.id);
+      const oldValue = projectData.egkriseisDialthesisPistosis[idx];
+      projectData.egkriseisDialthesisPistosis[idx] = egkrisiData;
+      
+      // Save updated data
+      safeWriteJSON(dataPath, projectData);
+
+      logAuditAction({
+        type: 'update',
+        entityType: 'egkrisi',
+        entityId: egkrisiData.id || subprojectId,
+        entityTitle: egkrisiData.fileName || egkrisiData.title || '',
+        details: 'Ενημέρωση έγκρισης διάθεσης πίστωσης',
+        oldValue,
+        newValue: egkrisiData
+      });
+    } else {
+      // Add new egkrisi
+      projectData.egkriseisDialthesisPistosis.push(egkrisiData);
+      
+      // Save updated data
+      safeWriteJSON(dataPath, projectData);
+
+      logAuditAction({
+        type: 'create',
+        entityType: 'egkrisi',
+        entityId: egkrisiData.id || subprojectId,
+        entityTitle: egkrisiData.fileName || egkrisiData.title || '',
+        details: 'Δημιουργία νέας έγκρισης διάθεσης πίστωσης',
+        newValue: egkrisiData
+      });
+    }
     
     return { success: true };
   } catch (error) {
@@ -5651,6 +5931,15 @@ ipcMain.handle('import-egkriseis-csv', async (event, csvContent, projects) => {
       }
     }
     
+    logAuditAction({
+      type: 'create',
+      entityType: 'egkrisi',
+      entityId: 'csv-import',
+      entityTitle: 'Εισαγωγή CSV εγκρίσεων',
+      details: `Εισαγωγή εγκρίσεων από CSV: ${results.imported} εισήχθησαν, ${results.skipped} παραλείφθηκαν`,
+      newValue: results
+    });
+
     return { success: true, results };
   } catch (error) {
     console.error('Error importing CSV:', error);
@@ -5768,6 +6057,15 @@ ipcMain.handle('delete-egkrisi-file', async (event, projectId, subprojectId, egk
           
           // Save updated data
           safeWriteJSON(dataPath, projectData);
+
+          logAuditAction({
+            type: 'delete',
+            entityType: 'file',
+            entityId: egkrisiId,
+            entityTitle: egkrisi.fileName || '',
+            details: 'Διαγραφή αρχείου έγκρισης',
+            oldValue: egkrisi
+          });
         }
       }
     }
@@ -6725,6 +7023,14 @@ ipcMain.handle('save-egkriseis-data', async (event, saveData) => {
     
     await safeWriteJSONAsync(dataFile, existingData);
     console.log('✅ Saved updated egkriseis-data.json with all subproject number changes');
+
+    logAuditAction({
+      type: 'update',
+      entityType: 'egkrisi',
+      entityId: egkrisiId || 'egkriseis-data',
+      entityTitle: saveData.projectTitle || '',
+      details: 'Αποθήκευση δεδομένων εγκρίσεων διάθεσης πίστωσης'
+    });
     
     return { success: true, message: 'Egkriseis data saved successfully', egkrisiId };
   } catch (error) {
@@ -6783,6 +7089,14 @@ ipcMain.handle('delete-egkrisi-pdf-from-subproject', async (event, projectFolder
     safeWriteJSON(dataFile, existingData);
     
     console.log(`✅ Removed PDF link ${pdfFileName} from subproject ${subprojectKey} in project ${projectFolderName}`);
+
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file',
+      entityId: `${projectFolderName}/${subprojectKey}/${pdfFileName}`,
+      entityTitle: pdfFileName,
+      details: 'Αφαίρεση PDF από υποέργο'
+    });
     
     return { success: true, message: 'PDF link removed successfully' };
   } catch (error) {
@@ -6853,7 +7167,15 @@ ipcMain.handle('delete-egkrisi-pdf-completely', async (event, projectFolderName,
     safeWriteJSON(dataFile, existingData);
     
     console.log(`✅ Deleted PDF ${pdfFileName} completely from project ${projectFolderName} (removed from ${removedCount} subprojects)`);
-    
+
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file',
+      entityId: `${projectFolderName}/${pdfFileName}`,
+      entityTitle: pdfFileName,
+      details: 'Πλήρης διαγραφή αρχείου PDF έγκρισης'
+    });
+
     return { success: true, message: `PDF deleted completely (removed from ${removedCount} subprojects)` };
   } catch (error) {
     console.error('Error deleting PDF completely:', error);
@@ -6902,16 +7224,13 @@ ipcMain.handle('delete-egkrisi-subproject', async (event, projectFolderName, sub
     
     console.log(`✅ Deleted subproject ${subprojectKey} from project ${projectFolderName}`);
     
-    // Log audit action
-    const user = event.sender.getTitle() || 'ADMIN';
     if (deletedData) {
       logAuditAction({
         type: 'delete',
-        entityType: 'subproject',
-        entityId: subprojectId,
-        entityTitle: `${deletedData.projectTitle || 'N/A'} - ${deletedData.subprojectTitle || 'N/A'}`,
-        user: user,
-        details: 'Διαγραφή υποέργου',
+        entityType: 'egkrisi_subproject',
+        entityId: subprojectKey,
+        entityTitle: `${deletedData.projectTitle || projectFolderName} - ${deletedData.subprojectTitle || subprojectKey}`,
+        details: 'Διαγραφή υποέργου από εγκρίσεις διάθεσης πίστωσης',
         oldValue: deletedData,
         newValue: null
       });
@@ -7000,6 +7319,14 @@ ipcMain.handle('save-prosklisi-modification', async (event, modificationData) =>
     safeWriteJSON(modificationsPath, modifications);
     
     console.log(`Saved modification for prosklisi ${prosklisiId}`);
+    logAuditAction({
+      type: 'create',
+      entityType: 'prosklisi_modification',
+      entityId: prosklisiId,
+      entityTitle: modificationData.modificationTitle || `Τροποποίηση ${modifications.length}`,
+      details: 'Προσθήκη τροποποίησης πρόσκλησης',
+      newValue: modificationData
+    });
     return { success: true };
   } catch (error) {
     console.error('Error saving prosklisi modification:', error);
@@ -7087,6 +7414,13 @@ ipcMain.handle('update-prosklisi-modification', async (event, modificationData) 
     safeWriteJSON(modificationsPath, modifications);
     
     console.log(`Updated modification ${modificationId} for prosklisi ${originalProsklisiId}`);
+    logAuditAction({
+      type: 'update',
+      entityType: 'prosklisi_modification',
+      entityId: modificationId,
+      entityTitle: modificationData.modificationTitle || `Τροποποίηση πρόσκλησης`,
+      details: 'Ενημέρωση τροποποίησης πρόσκλησης'
+    });
     return { success: true };
   } catch (error) {
     console.error('Error updating prosklisi modification:', error);
@@ -7156,6 +7490,15 @@ ipcMain.handle('delete-prosklisi-modification', async (event, prosklisiId, modif
     }
     
     console.log(`Deleted modification ${modificationId} for prosklisi ${prosklisiId}`);
+    logAuditAction({
+      type: 'delete',
+      entityType: 'prosklisi_modification',
+      entityId: modificationId,
+      entityTitle: modification.modificationTitle || `Τροποποίηση πρόσκλησης`,
+      details: 'Διαγραφή τροποποίησης πρόσκλησης',
+      oldValue: modification,
+      newValue: null
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting prosklisi modification:', error);
@@ -7394,6 +7737,15 @@ ipcMain.handle('create-manual-egkrisi-link', async (event, linkData) => {
     safeWriteJSON(linkFile, linkDataToSave);
     
     console.log('✅ Manual egkrisi link created successfully:', linkFile);
+
+    logAuditAction({
+      type: 'create',
+      entityType: 'egkrisi_link',
+      entityId: egkrisiId,
+      entityTitle: egkrisiTitle || '',
+      details: 'Δημιουργία χειροκίνητης σύνδεσης έγκρισης',
+      newValue: linkDataToSave
+    });
     
     return { success: true, linkData: linkDataToSave };
     
@@ -7488,11 +7840,23 @@ ipcMain.handle('update-egkrisi-project-title', async (event, projectKey, newTitl
       return { success: false, error: 'Project not found' };
     }
     
+    const oldTitle = projects[projectKey].title;
+    
     // Ενημέρωση τίτλου
     projects[projectKey].title = newTitle;
     
     // Αποθήκευση
     await safeWriteJSONAsync(egkriseisDataPath, egkriseisData);
+
+    logAuditAction({
+      type: 'update',
+      entityType: 'egkrisi',
+      entityId: projectKey,
+      entityTitle: newTitle,
+      details: 'Ενημέρωση τίτλου έργου εγκρίσεων',
+      oldValue: { title: oldTitle },
+      newValue: { title: newTitle }
+    });
     
     console.log('✅ Updated egkrisi project title successfully');
     return { success: true };
@@ -7524,11 +7888,23 @@ ipcMain.handle('update-egkrisi-subproject-title', async (event, projectKey, subp
       return { success: false, error: 'Subproject not found' };
     }
     
+    const oldTitle = subprojects[subprojectKey].title;
+    
     // Ενημέρωση τίτλου
     subprojects[subprojectKey].title = newTitle;
     
     // Αποθήκευση
     await safeWriteJSONAsync(egkriseisDataPath, egkriseisData);
+
+    logAuditAction({
+      type: 'update',
+      entityType: 'egkrisi',
+      entityId: `${projectKey}/${subprojectKey}`,
+      entityTitle: newTitle,
+      details: 'Ενημέρωση τίτλου υποέργου εγκρίσεων',
+      oldValue: { title: oldTitle },
+      newValue: { title: newTitle }
+    });
     
     console.log('✅ Updated egkrisi subproject title successfully');
     return { success: true };
@@ -7886,9 +8262,20 @@ ipcMain.handle('delete-egkrisi-link', async (event, egkrisiId) => {
       return { success: false, error: 'Link file not found' };
     }
     
+    const oldLinkData = JSON.parse(fs.readFileSync(linkFilePath, 'utf8'));
+
     // Διαγράφουμε το αρχείο
     fs.unlinkSync(linkFilePath);
     console.log('Link file deleted successfully:', linkFilePath);
+
+    logAuditAction({
+      type: 'delete',
+      entityType: 'egkrisi_link',
+      entityId: egkrisiId,
+      entityTitle: oldLinkData.egkrisiTitle || '',
+      details: 'Διαγραφή σύνδεσης έγκρισης',
+      oldValue: oldLinkData
+    });
     
     return { success: true };
   } catch (error) {
@@ -8529,7 +8916,17 @@ ipcMain.handle('save-notes', async (event, notesData) => {
       });
     }
     
+    const hasChanged = JSON.stringify(dataToSave.notes) !== JSON.stringify(existingData.notes || []);
     safeWriteJSON(notesDataPath, dataToSave);
+    if (hasChanged) {
+      logAuditAction({
+        type: 'update',
+        entityType: 'note',
+        entityId: 'notes',
+        entityTitle: 'Σημειώσεις',
+        details: `Ενημέρωση σημειώσεων (${dataToSave.notes.length} σημειώσεις)`
+      });
+    }
     return { success: true };
   } catch (error) {
     console.error('Error saving notes:', error);
@@ -8569,7 +8966,17 @@ ipcMain.handle('save-note-groups', async (event, groupsData) => {
       groups: groupsToSave
     };
     
+    const groupsChanged = JSON.stringify(groupsToSave) !== JSON.stringify(existingData.groups || []);
     safeWriteJSON(notesDataPath, dataToSave);
+    if (groupsChanged) {
+      logAuditAction({
+        type: 'update',
+        entityType: 'note_group',
+        entityId: 'note_groups',
+        entityTitle: 'Ομάδες Σημειώσεων',
+        details: `Ενημέρωση ομάδων σημειώσεων (${groupsToSave.length} ομάδες)`
+      });
+    }
     return { success: true };
   } catch (error) {
     console.error('Error saving note groups:', error);
@@ -8671,7 +9078,13 @@ ipcMain.handle('add-document-category', async (event, categoryPayload) => {
 
     data.categories.push(newCategory);
     safeWriteJSON(templatesDataPath, data);
-    
+    logAuditAction({
+      type: 'create',
+      entityType: 'document_category',
+      entityId: newCategory.id,
+      entityTitle: categoryName,
+      details: 'Δημιουργία κατηγορίας υποδειγμάτων εγγράφων'
+    });
     return { success: true, category: newCategory };
   } catch (error) {
     console.error('Error adding category:', error);
@@ -8796,7 +9209,13 @@ ipcMain.handle('delete-document-template', async (event, docId) => {
     // Remove from data
     data.documents.splice(documentIndex, 1);
     safeWriteJSON(templatesDataPath, data);
-    
+    logAuditAction({
+      type: 'delete',
+      entityType: 'document_template',
+      entityId: docId,
+      entityTitle: document.name || docId,
+      details: 'Διαγραφή υποδείγματος εγγράφου'
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting template:', error);
@@ -8875,7 +9294,13 @@ ipcMain.handle('update-document-category', async (event, categoryId, updates) =>
     }
 
     safeWriteJSON(templatesDataPath, data);
-
+    logAuditAction({
+      type: 'update',
+      entityType: 'document_category',
+      entityId: categoryId,
+      entityTitle: category.name,
+      details: 'Ενημέρωση κατηγορίας υποδειγμάτων εγγράφων'
+    });
     return { success: true, category };
   } catch (error) {
     console.error('Error updating document category:', error);
@@ -8918,7 +9343,13 @@ ipcMain.handle('delete-document-category', async (event, categoryId) => {
     const deletedCategory = data.categories.splice(categoryIndex, 1)[0];
 
     safeWriteJSON(templatesDataPath, data);
-
+    logAuditAction({
+      type: 'delete',
+      entityType: 'document_category',
+      entityId: categoryId,
+      entityTitle: deletedCategory.name || categoryId,
+      details: `Διαγραφή κατηγορίας υποδειγμάτων εγγράφων (${documentsToDelete.length} έγγραφα)`
+    });
     return {
       success: true,
       category: deletedCategory,
@@ -9550,26 +9981,50 @@ function cleanupOldBackups() {
 // AUDIT TRAIL SYSTEM
 // ============================================================
 
-// Log an action to audit trail
+const { collectAuditChanges } = require('./auditFieldLabels');
+
+function getCurrentAuditUser() {
+  if (!loggedInUsername) return { fullName: 'Σύστημα', role: 'SYSTEM', username: '' };
+  try {
+    const users = loadUsers();
+    const user = users.find(u => u.username.toLowerCase() === loggedInUsername.toLowerCase());
+    if (user) {
+      return { fullName: user.fullName || user.username, role: user.role || 'USER', username: user.username };
+    }
+  } catch (e) { /* ignore */ }
+  return { fullName: loggedInUsername, role: 'USER', username: loggedInUsername };
+}
+
 function logAuditAction(action) {
   try {
-    const { type, entityType, entityId, entityTitle, user, details, oldValue, newValue } = action;
-    
+    const { type, entityType, entityId, entityTitle, details, oldValue, newValue } = action;
+
+    let userFullName = action.userFullName;
+    let userRole = action.userRole;
+    if (!userFullName) {
+      const auditUser = getCurrentAuditUser();
+      userFullName = auditUser.fullName;
+      userRole = auditUser.role;
+    }
+
     const auditEntry = {
       id: uuidv4(),
       timestamp: new Date().toISOString(),
-      user: user || 'ADMIN',
-      action: type, // 'create', 'update', 'delete'
-      entityType: entityType, // 'project', 'subproject', 'prosklisi', 'entaxi', 'egkrisi'
+      userFullName: userFullName,
+      userRole: userRole || 'USER',
+      user: userFullName,
+      action: type,
+      entityType: entityType,
       entityId: entityId,
       entityTitle: entityTitle || 'N/A',
       details: details || '',
       oldValue: oldValue || null,
       newValue: newValue || null,
-      changes: oldValue && newValue ? getChanges(oldValue, newValue) : null
+      changes: oldValue && newValue
+        ? collectAuditChanges(oldValue, newValue, { engineerCatalog: getRegisteredEngineersList() })
+        : null
     };
-    
-    // Load existing audit log
+
     let auditLog = { logs: [] };
     if (fs.existsSync(auditLogPath)) {
       try {
@@ -9579,69 +10034,22 @@ function logAuditAction(action) {
         auditLog = { logs: [] };
       }
     }
-    
-    // Add new entry
+
     auditLog.logs.unshift(auditEntry);
-    
-    // Keep only last 10,000 entries (prevent file from growing too large)
+
     if (auditLog.logs.length > 10000) {
       auditLog.logs = auditLog.logs.slice(0, 10000);
     }
-    
-    // Save audit log
+
     safeWriteJSON(auditLogPath, auditLog);
-    
-    console.log(`📝 Audit log: ${user} ${type} ${entityType} ${entityId}`);
-    
+
+    console.log(`📝 Audit log: ${userFullName} ${type} ${entityType} ${entityId}`);
+
     return true;
   } catch (error) {
     console.error('Error logging audit action:', error);
     return false;
   }
-}
-
-// Get changes between old and new values
-function getChanges(oldValue, newValue) {
-  const changes = {};
-  
-  if (typeof oldValue === 'object' && typeof newValue === 'object') {
-    const allKeys = new Set([...Object.keys(oldValue), ...Object.keys(newValue)]);
-    
-    for (const key of allKeys) {
-      const oldVal = oldValue[key];
-      const newVal = newValue[key];
-      
-      // Ειδική διαχείριση για arrays (π.χ. aleCodes)
-      if (Array.isArray(oldVal) || Array.isArray(newVal)) {
-        const oldArr = Array.isArray(oldVal) ? oldVal : [];
-        const newArr = Array.isArray(newVal) ? newVal : [];
-        
-        // Φιλτράρουμε κενά strings
-        const oldFiltered = oldArr.filter(v => v && String(v).trim() !== '');
-        const newFiltered = newArr.filter(v => v && String(v).trim() !== '');
-        
-        // Σύγκριση
-        if (JSON.stringify(oldFiltered) !== JSON.stringify(newFiltered)) {
-          changes[key] = {
-            old: oldFiltered,
-            new: newFiltered
-          };
-        }
-      } else if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
-        changes[key] = {
-          old: oldVal,
-          new: newVal
-        };
-      }
-    }
-  } else {
-    changes.value = {
-      old: oldValue,
-      new: newValue
-    };
-  }
-  
-  return changes;
 }
 
 // ============================================================
@@ -10354,7 +10762,7 @@ ipcMain.on('restart-app', () => {
 // Get audit log
 ipcMain.handle('get-audit-log', async (event, options = {}) => {
   try {
-    const { limit = 1000, entityType = null, action = null, startDate = null, endDate = null } = options;
+    const { limit = 1000, entityType = null, action = null, startDate = null, endDate = null, requestingUser = null } = options;
     
     let auditLog = { logs: [] };
     if (fs.existsSync(auditLogPath)) {
@@ -10367,6 +10775,27 @@ ipcMain.handle('get-audit-log', async (event, options = {}) => {
     }
     
     let filteredLogs = auditLog.logs || [];
+    
+    // Role-based visibility filtering
+    if (requestingUser && requestingUser.role) {
+      const role = requestingUser.role;
+      const reqUsername = (requestingUser.username || '').toLowerCase();
+      const reqFullName = (requestingUser.fullName || '').toLowerCase();
+      
+      if (role === 'ENGINEER') {
+        filteredLogs = filteredLogs.filter(log => {
+          const logUser = (log.userFullName || log.user || '').toLowerCase();
+          return logUser === reqFullName || logUser === reqUsername;
+        });
+      } else if (role === 'ADMIN') {
+        filteredLogs = filteredLogs.filter(log => {
+          const logRole = (log.userRole || '').toUpperCase();
+          if (!logRole) return true;
+          return logRole === 'ADMIN' || logRole === 'ENGINEER' || logRole === 'USER';
+        });
+      }
+      // SUPERADMIN sees everything - no filtering
+    }
     
     // Filter by entity type
     if (entityType) {
@@ -10722,8 +11151,7 @@ ipcMain.handle('rollback-audit-entry', async (event, auditEntryId) => {
           entityType: 'subproject',
           entityId: subprojectId,
           entityTitle: `${dataToRestore.projectTitle || 'N/A'} - ${dataToRestore.subprojectTitle || 'N/A'}`,
-          user: event.sender.getTitle() || 'ADMIN',
-          details: `Rollback από audit entry ${auditEntryId}`,
+          details: `Επαναφορά δεδομένων σε προηγούμενη κατάσταση`,
           oldValue: null, // Current state (we don't have it)
           newValue: dataToRestore
         });

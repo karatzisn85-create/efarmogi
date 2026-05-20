@@ -5,6 +5,8 @@ import ProsklisisFileManager from './ProsklisisFileManager';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
 import ProsklisisExportDialog from './ProsklisisExportDialog';
 import { containsSearchTerm } from '../utils/searchUtils';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -1377,7 +1379,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
   };
 
   const handleDeleteProsklisi = async (prosklisiId) => {
-    if (window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την πρόσκληση και όλα τα αρχεία της;')) {
+    if (await showConfirm({ title: 'Διαγραφή Πρόσκλησης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την πρόσκληση;', detail: 'Θα διαγραφούν επίσης όλα τα αρχεία της. Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi', prosklisiId);
         if (result.success) {
@@ -1725,7 +1727,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, projectFilter = null, se
   };
 
   const handleDeleteModification = async (prosklisiId, modificationId) => {
-    if (window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την τροποποίηση;')) {
+    if (await showConfirm({ title: 'Διαγραφή Τροποποίησης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την τροποποίηση;', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         await ipcRenderer.invoke('delete-prosklisi-modification', prosklisiId, modificationId);
         await loadProskliseis(); // Reload to update modifications

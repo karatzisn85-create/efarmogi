@@ -36,6 +36,8 @@ import {
   projectMatchesKhmdhsAnadoxosFilters
 } from '../utils/khmdhsFields';
 import { getCharacterization } from '../data/formOptions';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -1889,6 +1891,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const contentWrapperRef = useRef(null);
   const savedScrollPosition = useRef(0);
   const shouldRestoreScroll = useRef(false);
+  // Separate monotonic counters for loadDataWithCache and loadProjects
+  // Keeping them separate so one does not accidentally cancel the other
+  const loadRequestIdRef = useRef(0);
+  const loadProjectsRequestIdRef = useRef(0);
 
   const mainHeaderRef = useRef(null);
   const [mainHeaderOffsetPx, setMainHeaderOffsetPx] = useState(88);
@@ -2527,11 +2533,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       setFilteredProjects(filtered);
     };
 
-    if (typeof window !== 'undefined' && window.requestIdleCallback) {
-      window.requestIdleCallback(performFiltering, { timeout: 100 });
-    } else {
-      setTimeout(performFiltering, 0);
-    }
+    setTimeout(performFiltering, 0);
   }, [visibleProjects, debouncedQuickSearchText, quickSearchStatus, quickSearchType, showArchivedProjects, engineerCatalogForCards]);
 
   // Apply filters when dependencies change
@@ -2651,9 +2653,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   // 🚀 ΚΕΝΤΡΙΚΗ FUNCTION ΜΕ CACHE - Φορτώνει δεδομένα μόνο αν χρειάζεται - NON-BLOCKING
   const loadDataWithCache = async (forceRefresh = false) => {
+    const myRequestId = ++loadRequestIdRef.current;
     try {
       // Χρήση setTimeout για να μην μπλοκάρει το UI thread
       await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Bail out if a newer load request has already started
+      if (loadRequestIdRef.current !== myRequestId) return;
       
       setLoading(true);
       console.log('🔄 Loading data with cache...');
@@ -2682,15 +2688,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       
       if (hasValidCache && dataCache.projects) {
         console.log('✅ Using cached data - no reload needed!');
-        // Use requestAnimationFrame for better UI responsiveness
-        requestAnimationFrame(() => {
-          setProjects(dataCache.projects);
-          setEntaxeis(dataCache.entaxeis || []);
-          setProskliseis(dataCache.proskliseis || []);
-          setCreditApprovals(dataCache.creditApprovals || {});
-          setLinkedEgkriseis(dataCache.linkedEgkriseis || {});
-          setLoading(false);
-        });
+        setProjects(dataCache.projects);
+        setEntaxeis(dataCache.entaxeis || []);
+        setProskliseis(dataCache.proskliseis || []);
+        setCreditApprovals(dataCache.creditApprovals || {});
+        setLinkedEgkriseis(dataCache.linkedEgkriseis || {});
+        setLoading(false);
         return;
       }
       
@@ -2807,38 +2810,28 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         });
       }
       
-      // Update all states - use double requestAnimationFrame to ensure React has time to process
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-        setProjects(sortedProjects);
-        setEntaxeis(loadedEntaxeis || []);
-        setProskliseis(loadedProskliseis || []);
-        setCreditApprovals(approvals);
-        setLinkedEgkriseis(linkedEgkriseisData);
-        
-        // Update cache with fresh data
-        setDataCache({
-          projects: sortedProjects,
-          entaxeis: loadedEntaxeis || [],
-          proskliseis: loadedProskliseis || [],
-          creditApprovals: approvals,
-          linkedEgkriseis: linkedEgkriseisData,
-          lastCacheTime: now,
-          needsRefresh: false
-        });
-        
-          // Clear loading state AFTER state updates
-        setLoading(false);
-          
-          // Force React to process all updates and re-enable inputs
-          // Use setTimeout to ensure this runs after React's render cycle
-          setTimeout(() => {
-            // Trigger a small state update to force React to re-render and re-enable inputs
-            // This ensures all event handlers are properly attached
-            setProjects(prev => [...prev]);
-          }, 50);
-        });
+      // Bail out if a newer load request superseded us while we were awaiting IPC calls
+      if (loadRequestIdRef.current !== myRequestId) return;
+
+      // Update all states directly — no rAF delay needed; React batches these in the same flush
+      setProjects(sortedProjects);
+      setEntaxeis(loadedEntaxeis || []);
+      setProskliseis(loadedProskliseis || []);
+      setCreditApprovals(approvals);
+      setLinkedEgkriseis(linkedEgkriseisData);
+
+      // Update cache with fresh data
+      setDataCache({
+        projects: sortedProjects,
+        entaxeis: loadedEntaxeis || [],
+        proskliseis: loadedProskliseis || [],
+        creditApprovals: approvals,
+        linkedEgkriseis: linkedEgkriseisData,
+        lastCacheTime: now,
+        needsRefresh: false
       });
+
+      setLoading(false);
       
     } catch (error) {
       console.error('Error in loadDataWithCache:', error);
@@ -2870,6 +2863,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, [loadEngineerCatalogForCards]);
 
   const loadProjects = async () => {
+    const myRequestId = ++loadProjectsRequestIdRef.current;
     try {
       // Πρώτα καθάρισε τα κολλημένα locks
       try {
@@ -2887,12 +2881,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         loadedProjects,
         loadedLinkedEgkriseis,
         loadedEntaxeis,
-        prosklisiLinksResult
+        prosklisiLinksResult,
+        loadedProskliseis
       ] = await Promise.all([
         ipcRenderer.invoke('load-all-projects'),
         ipcRenderer.invoke('load-egkrisi-links'),
         ipcRenderer.invoke('load-all-entaxeis').catch(() => []),
-        ipcRenderer.invoke('load-subproject-links').catch(() => ({ success: false, data: {} }))
+        ipcRenderer.invoke('load-subproject-links').catch(() => ({ success: false, data: {} })),
+        ipcRenderer.invoke('load-all-proskliseis').catch(() => [])
       ]);
       
       // Prosklisi links Set
@@ -2956,7 +2952,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         return a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' });
       });
       
+      // Bail out if a newer loadProjects superseded us while awaiting IPC calls
+      if (loadProjectsRequestIdRef.current !== myRequestId) return;
+
       setProjects(sortedProjects);
+      setProskliseis(loadedProskliseis || []);
     } catch (error) {
       console.error('Error loading projects:', error);
     } finally {
@@ -3209,7 +3209,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       return;
     }
     
-    if (window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το υποέργο;')) {
+    if (await showConfirm({ title: 'Διαγραφή Υποέργου', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το υποέργο;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const result = await ipcRenderer.invoke('delete-subproject', projectId, subprojectId);
         
@@ -3238,7 +3238,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
       
       if (lockStatus.locked) {
-        const clearStaleResult = await window.confirm(
+        const clearStaleResult = await safeConfirm(
           'Το έργο φαίνεται κλειδωμένο. Αυτό μπορεί να οφείλεται σε κολλημένο lock. ' +
           'Θέλετε να καθαρίσετε τα κολλημένα locks και να δοκιμάσετε ξανά;'
         );
@@ -3321,19 +3321,17 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   };
 
   const handleDeleteFile = async (projectId, subprojectId, fileName) => {
-    if (window.confirm(`Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`)) {
-      try {
-        const result = await ipcRenderer.invoke('delete-file', projectId, subprojectId, fileName);
-        if (result.success) {
-          await loadProjects();
-          // Ανανέωση των αρχείων στο FileManager αν είναι ανοιχτό για αυτό το έργο
-          if (fileManager.isOpen && fileManager.projectId === projectId && fileManager.subprojectId === subprojectId) {
-            handleOpenFileManager(projectId, subprojectId);
-          }
+    try {
+      const result = await ipcRenderer.invoke('delete-file', projectId, subprojectId, fileName);
+      if (result.success) {
+        await loadProjects();
+        // Ανανέωση των αρχείων στο FileManager αν είναι ανοιχτό για αυτό το έργο
+        if (fileManager.isOpen && fileManager.projectId === projectId && fileManager.subprojectId === subprojectId) {
+          handleOpenFileManager(projectId, subprojectId);
         }
-      } catch (error) {
-        console.error('Error deleting file:', error);
       }
+    } catch (error) {
+      console.error('Error deleting file:', error);
     }
   };
 
@@ -3994,7 +3992,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   }, [noteForm, selectedNoteGroupId, notes, noteGroups, editingNote]);
 
   const handleDeleteNote = useCallback(async (noteId) => {
-    if (!window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή τη σημείωση;')) {
+    if (!await showConfirm({ title: 'Διαγραφή Σημείωσης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή τη σημείωση;', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       return;
     }
     
@@ -4111,49 +4109,35 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setIsNotesOpen(false);
   }, []);
 
+  const refreshTaskAccessRef = useRef(null);
   const refreshTaskAccess = useCallback(async () => {
-    if (!currentUser?.username || !ipcRenderer?.invoke) return;
+    const username = currentUser?.username;
+    if (!username || !ipcRenderer?.invoke) return;
     const fallbackCanAssign = !!currentUser?.taskAssignment?.canAssign || isSuperAdmin;
     try {
-      await ipcRenderer.invoke('set-dashboard-session-active', {
-        active: true,
-        username: currentUser.username
-      });
-      let res = await ipcRenderer.invoke('get-task-assignment-access', {
-        actingUsername: currentUser.username
-      });
+      await ipcRenderer.invoke('set-dashboard-session-active', { active: true, username });
+      if (currentUser?.username !== username) return;
+      let res = await ipcRenderer.invoke('get-task-assignment-access', { actingUsername: username });
       if (!res?.success) {
         await new Promise((r) => setTimeout(r, 120));
-        res = await ipcRenderer.invoke('get-task-assignment-access', {
-          actingUsername: currentUser.username
-        });
+        if (currentUser?.username !== username) return;
+        res = await ipcRenderer.invoke('get-task-assignment-access', { actingUsername: username });
       }
-      if (typeof onSyncCurrentUser === 'function') {
-        await onSyncCurrentUser();
-      }
+      if (currentUser?.username !== username) return;
+      if (typeof onSyncCurrentUser === 'function') await onSyncCurrentUser();
       if (res?.success) {
-        setTaskAccess({
-          showModule: !!res.showModule,
-          unreadCount: res.unreadCount || 0,
-          canAssign: !!res.canAssign
-        });
+        setTaskAccess({ showModule: !!res.showModule, unreadCount: res.unreadCount || 0, canAssign: !!res.canAssign });
       } else if (fallbackCanAssign) {
-        setTaskAccess({
-          showModule: true,
-          unreadCount: 0,
-          canAssign: true
-        });
+        setTaskAccess({ showModule: true, unreadCount: 0, canAssign: true });
       }
     } catch {
+      if (currentUser?.username !== username) return;
       if (fallbackCanAssign) {
-        setTaskAccess({
-          showModule: true,
-          unreadCount: 0,
-          canAssign: true
-        });
+        setTaskAccess({ showModule: true, unreadCount: 0, canAssign: true });
       }
     }
   }, [currentUser?.username, currentUser?.taskAssignment?.canAssign, isSuperAdmin, onSyncCurrentUser]);
+  refreshTaskAccessRef.current = refreshTaskAccess;
 
   const openTaskAssignmentsFromToast = useCallback((taskId) => {
     setTaskAssignmentInitialScreen('workspace');
@@ -4230,15 +4214,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
   // Check if there's a prosklisi for a specific project title or linked projects
   const hasProsklisiForProject = (projectTitle, projectId) => {
+    const normTitle = normalizeText(projectTitle);
     return proskliseis.some(prosklisi => {
-      // Check if prosklisi title matches project title (automatic linking)
-      if (prosklisi.title === projectTitle) {
-        return true;
-      }
-      // Check if prosklisi is manually linked to this project
+      if (normalizeText(prosklisi.title) === normTitle) return true;
       if (prosklisi.linkedProjects && Array.isArray(prosklisi.linkedProjects)) {
-        return prosklisi.linkedProjects.some(linkedProject => 
-          linkedProject.id === projectId || linkedProject.title === projectTitle
+        return prosklisi.linkedProjects.some(linkedProject =>
+          linkedProject.id === projectId || normalizeText(linkedProject.title) === normTitle
         );
       }
       return false;
@@ -4247,15 +4228,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
   // Get the prosklisi for a specific project title or linked projects
   const getProsklisiForProject = (projectTitle, projectId) => {
+    const normTitle = normalizeText(projectTitle);
     return proskliseis.find(prosklisi => {
-      // Check if prosklisi title matches project title (automatic linking)
-      if (prosklisi.title === projectTitle) {
-        return true;
-      }
-      // Check if prosklisi is manually linked to this project
+      if (normalizeText(prosklisi.title) === normTitle) return true;
       if (prosklisi.linkedProjects && Array.isArray(prosklisi.linkedProjects)) {
-        return prosklisi.linkedProjects.some(linkedProject => 
-          linkedProject.id === projectId || linkedProject.title === projectTitle
+        return prosklisi.linkedProjects.some(linkedProject =>
+          linkedProject.id === projectId || normalizeText(linkedProject.title) === normTitle
         );
       }
       return false;
@@ -4819,7 +4797,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               </AdminButton>
               <AdminButton onClick={() => setIsAuditLogOpen(true)}>
                 <AdminButtonIcon>📋</AdminButtonIcon>
-                Ιστορικό Αλλαγών
+                Ιστορικό Ενεργειών
               </AdminButton>
               <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
                 <AdminButtonIcon>📄</AdminButtonIcon>
@@ -4891,16 +4869,14 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           if (projectToUnlock && projectToUnlock.projectId) {
             try {
               await ipcRenderer.invoke('unlock-project', projectToUnlock.projectId);
-              // Αθόρυβη ενημέρωση του lock status με διατήρηση ταξινόμησης
-              const updatedProjects = projects.map(p => 
+              // Functional update ώστε να χρησιμοποιούνται πάντα τα πιο πρόσφατα δεδομένα
+              setProjects(prev => prev.map(p => 
                 p.projectId === projectToUnlock.projectId ? { ...p, isLocked: false } : p
               ).sort((a, b) => {
-                // Διατήρηση αλφαβητικής ταξινόμησης
                 const projectComparison = a.projectTitle.localeCompare(b.projectTitle, 'el', { sensitivity: 'base' });
                 if (projectComparison !== 0) return projectComparison;
                 return a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' });
-              });
-              setProjects(updatedProjects);
+              }));
             } catch (error) {
               console.error('Error unlocking project:', error);
             }
@@ -4922,7 +4898,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             alert('Σφάλμα: Μη έγκυρα δεδομένα για διαγραφή');
             return;
           }
-          if (window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το υποέργο; Η ενέργεια είναι μη αναστρέψιμη.')) {
+          if (await showConfirm({ title: 'Διαγραφή Υποέργου', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το υποέργο;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
             try {
               // Ξεκλείδωμα πριν τη διαγραφή
               if (editingProject && editingProject.projectId) {

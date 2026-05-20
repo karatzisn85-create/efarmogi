@@ -8,6 +8,8 @@ import { ToastProvider } from './components/ToastProvider';
 import WhatsNew from './components/WhatsNew';
 import './App.css';
 import { resetDocumentInteractionState } from './utils/documentInteractionReset';
+import InteractionGuard from './components/InteractionGuard';
+import ConfirmModal from './components/ConfirmModal';
 
 const UserSelection = lazy(() => import('./components/UserSelection'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -361,6 +363,8 @@ function App() {
           </CloseGuardOverlay>
         )}
       </AppContainer>
+      <InteractionGuard />
+      <ConfirmModal />
     </ToastProvider>
   );
 }

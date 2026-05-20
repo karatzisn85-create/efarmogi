@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
+import { safeConfirm } from '../utils/safeDialogs';
+import { formatAuditDisplayValue } from '../utils/formatAuditDisplay';
+import auditConfig from '../data/auditFieldLabels.json';
 
 const ipcRenderer = window.electronAPI;
 
@@ -38,10 +41,93 @@ const ModalHeader = styled.div`
   align-items: center;
 `;
 
+const HeaderLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+`;
+
 const ModalTitle = styled.h2`
   margin: 0;
   font-size: 1.5rem;
   font-weight: 600;
+`;
+
+const InfoButton = styled.button`
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  color: white;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  position: relative;
+  font-style: italic;
+  font-family: Georgia, serif;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.35);
+    border-color: rgba(255, 255, 255, 0.6);
+  }
+`;
+
+const InfoPopover = styled.div`
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  background: white;
+  color: #333;
+  border-radius: 12px;
+  padding: 1.25rem;
+  width: 380px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+  font-style: normal;
+  font-family: inherit;
+  text-align: left;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 12px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    transform: rotate(45deg);
+    box-shadow: -2px -2px 4px rgba(0, 0, 0, 0.05);
+  }
+`;
+
+const InfoTitle = styled.div`
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+  color: #4f46e5;
+`;
+
+const InfoText = styled.div`
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: #555;
+  margin-bottom: 0.5rem;
+`;
+
+const InfoHighlight = styled.div`
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #333;
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #f0f0ff;
+  border-radius: 8px;
+  border-left: 3px solid #4f46e5;
 `;
 
 const CloseButton = styled.button`
@@ -162,15 +248,17 @@ const ActionBadge = styled.span`
   font-size: 0.75rem;
   font-weight: 600;
   background: ${props => {
-    if (props.action === 'create') return '#d4edda';
-    if (props.action === 'update') return '#fff3cd';
-    if (props.action === 'delete') return '#f8d7da';
+    if (props.$action === 'create') return '#d4edda';
+    if (props.$action === 'update') return '#fff3cd';
+    if (props.$action === 'delete') return '#f8d7da';
+    if (props.$action === 'import') return '#d1ecf1';
     return '#e9ecef';
   }};
   color: ${props => {
-    if (props.action === 'create') return '#155724';
-    if (props.action === 'update') return '#856404';
-    if (props.action === 'delete') return '#721c24';
+    if (props.$action === 'create') return '#155724';
+    if (props.$action === 'update') return '#856404';
+    if (props.$action === 'delete') return '#721c24';
+    if (props.$action === 'import') return '#0c5460';
     return '#495057';
   }};
 `;
@@ -274,10 +362,44 @@ const StatValue = styled.div`
   color: #333;
 `;
 
+const ENTITY_TYPE_LABELS = {
+  'project': 'Έργο',
+  'subproject': 'Υποέργο',
+  'prosklisi': 'Πρόσκληση',
+  'entaxi': 'Ένταξη',
+  'egkrisi': 'Έγκριση Διάθεσης Πίστωσης',
+  'egkrisi_subproject': 'Υποέργο Εγκρίσεων',
+  'prosklisi_modification': 'Τροποποίηση Πρόσκλησης',
+  'entaxi_modification': 'Τροποποίηση Ένταξης',
+  'user': 'Χρήστης',
+  'file': 'Αρχείο',
+  'file_group': 'Ομάδα Αρχείων',
+  'document_template': 'Υπόδειγμα Εγγράφου',
+  'document_category': 'Κατηγορία Εγγράφων',
+  'note': 'Σημείωση',
+  'note_group': 'Ομάδα Σημειώσεων',
+  'egkrisi_link': 'Σύνδεση Έγκρισης',
+};
+
+const ACTION_LABELS = {
+  'create': 'Δημιουργία',
+  'update': 'Ενημέρωση',
+  'delete': 'Διαγραφή',
+  'import': 'Εισαγωγή',
+};
+
+function getVisibilityText(role) {
+  if (role === 'SUPERADMIN') return 'Βλέπετε τις ενέργειες ΟΛΩΝ των χρηστών.';
+  if (role === 'ADMIN') return 'Βλέπετε τις ενέργειες όλων των Διαχειριστών και Μηχανικών.';
+  return 'Βλέπετε μόνο τις δικές σας ενέργειες.';
+}
+
 function AuditLogViewer({ isOpen, onClose, currentUser }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [rollingBack, setRollingBack] = useState(null);
+  const [showInfo, setShowInfo] = useState(false);
+  const [engineerCatalog, setEngineerCatalog] = useState([]);
   const [filters, setFilters] = useState({
     entityType: '',
     action: '',
@@ -285,7 +407,7 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
     endDate: ''
   });
 
-  const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
+  const userRole = currentUser?.role || 'USER';
 
   useEffect(() => {
     if (!isOpen) return;
@@ -293,6 +415,13 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (!showInfo) return;
+    const handleClickOutside = () => setShowInfo(false);
+    const timer = setTimeout(() => document.addEventListener('click', handleClickOutside), 10);
+    return () => { clearTimeout(timer); document.removeEventListener('click', handleClickOutside); };
+  }, [showInfo]);
 
   const loadAuditLog = useCallback(async () => {
     setLoading(true);
@@ -302,145 +431,114 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
         entityType: filters.entityType || null,
         action: filters.action || null,
         startDate: filters.startDate || null,
-        endDate: filters.endDate || null
-      });
-      
-      if (result.success) {
-        const allLogs = result.logs || [];
-        if (isSuperAdmin) {
-          setLogs(allLogs);
-        } else {
-          setLogs(allLogs.filter(l => l.user === currentUser?.username || l.user === currentUser?.fullName));
+        endDate: filters.endDate || null,
+        requestingUser: {
+          username: currentUser?.username,
+          fullName: currentUser?.fullName,
+          role: currentUser?.role
         }
+      });
+
+      if (result.success) {
+        setLogs(result.logs || []);
       } else {
         console.error('Error loading audit log:', result.error);
-        alert('Σφάλμα φόρτωσης ιστορικού: ' + result.error);
       }
     } catch (error) {
       console.error('Error loading audit log:', error);
-      alert('Σφάλμα φόρτωσης ιστορικού: ' + error.message);
     } finally {
       setLoading(false);
     }
-  }, [filters, isSuperAdmin, currentUser]);
+  }, [filters, currentUser]);
 
   useEffect(() => {
-    if (isOpen) {
-      loadAuditLog();
-    }
+    if (!isOpen) return;
+    loadAuditLog();
+    (async () => {
+      try {
+        const res = await ipcRenderer.invoke('get-registered-engineers');
+        if (res?.success && Array.isArray(res.engineers)) {
+          setEngineerCatalog(res.engineers);
+        } else {
+          setEngineerCatalog([]);
+        }
+      } catch {
+        setEngineerCatalog([]);
+      }
+    })();
   }, [isOpen, loadAuditLog]);
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
-    return date.toLocaleString('el-GR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
   };
 
-  const getActionLabel = (action) => {
-    const labels = {
-      'create': 'Δημιουργία',
-      'update': 'Ενημέρωση',
-      'delete': 'Διαγραφή'
-    };
-    return labels[action] || action;
-  };
+  const getActionLabel = (action) => ACTION_LABELS[action] || action;
 
-  const getEntityTypeLabel = (entityType) => {
-    const labels = {
-      'project': 'Έργο',
-      'subproject': 'Υποέργο',
-      'prosklisi': 'Πρόσκληση',
-      'entaxi': 'Ένταξη',
-      'egkrisi': 'Έγκριση'
-    };
-    return labels[entityType] || entityType;
-  };
+  const getEntityTypeLabel = (entityType) => ENTITY_TYPE_LABELS[entityType] || entityType;
 
-  const formatChangeValue = (value) => {
-    if (value === null) return 'null';
-    if (value === undefined) return 'undefined';
-    if (typeof value === 'object') {
-      // If it's an array
-      if (Array.isArray(value)) {
-        if (value.length === 0) return '(κενό)';
-        // Αν είναι array από strings (π.χ. aleCodes), δείξε τα
-        if (value.every(v => typeof v === 'string' || typeof v === 'number')) {
-          return value.join(' • ');
-        }
-        return `[${value.length} στοιχείο${value.length > 1 ? 'α' : ''}]`;
-      }
-      // If it's an object with path and name (file object)
-      if (value.path && value.name) {
-        return `${value.name} (${value.path})`;
-      }
-      // For other objects, show a summary
-      const keys = Object.keys(value);
-      if (keys.length === 0) return '{}';
-      if (keys.length <= 3) {
-        return JSON.stringify(value);
-      }
-      return `{${keys.length} πεδία}`;
-    }
-    return String(value);
+  const getUserDisplay = (log) => log.userFullName || log.user || 'Άγνωστος';
+
+  const formatChangeValue = (value) => formatAuditDisplayValue(value, engineerCatalog);
+
+  /** Παλιές καταγραφές μπορεί να έχουν κλειδιά backend — μετάφραση για εμφάνιση */
+  const translateChangeFieldName = (fieldKey) => {
+    if (auditConfig.fieldLabels[fieldKey]) return auditConfig.fieldLabels[fieldKey];
+    return fieldKey;
   };
 
   const handleRollback = async (log) => {
-    // Only allow rollback for update actions with oldValue
     if (log.action === 'create') {
-      alert('⚠️ Δεν μπορεί να γίνει rollback δημιουργίας. Χρησιμοποιήστε διαγραφή αν θέλετε να αφαιρέσετε το στοιχείο.');
+      alert('Δεν μπορεί να γίνει επαναφορά δημιουργίας. Χρησιμοποιήστε διαγραφή αν θέλετε να αφαιρέσετε το στοιχείο.');
       return;
     }
-    
+
     if (log.action === 'delete') {
-      alert('⚠️ Δεν μπορεί να γίνει rollback διαγραφής. Τα δεδομένα έχουν διαγραφεί.');
+      alert('Δεν μπορεί να γίνει επαναφορά διαγραφής. Τα δεδομένα έχουν διαγραφεί.');
       return;
     }
-    
+
     if (!log.oldValue) {
-      alert('⚠️ Δεν υπάρχουν παλιά δεδομένα για rollback.');
+      alert('Δεν υπάρχουν προηγούμενα δεδομένα για επαναφορά.');
       return;
     }
-    
-    if (!window.confirm(
-      `⚠️ ΕΠΙΒΕΒΑΙΩΣΗ ROLLBACK\n\n` +
+
+    if (!safeConfirm(
+      `ΕΠΙΒΕΒΑΙΩΣΗ ΕΠΑΝΑΦΟΡΑΣ\n\n` +
       `Θέλετε να επαναφέρετε το "${log.entityTitle}" στην προηγούμενη κατάσταση;\n\n` +
       `Αυτή η ενέργεια:\n` +
-      `- Θα δημιουργήσει safety backup\n` +
-      `- Θα επαναφέρει τα παλιά δεδομένα\n` +
+      `- Θα δημιουργήσει αντίγραφο ασφαλείας\n` +
+      `- Θα επαναφέρει τα προηγούμενα δεδομένα\n` +
       `- Δεν μπορεί να αναιρεθεί εύκολα\n\n` +
       `Είστε σίγουροι;`
     )) {
       return;
     }
-    
+
     setRollingBack(log.id);
     try {
       const result = await ipcRenderer.invoke('rollback-audit-entry', log.id);
-      
+
       if (result.success) {
-        alert('✅ Το rollback ολοκληρώθηκε επιτυχώς!\n\nΗ εφαρμογή θα ανανεωθεί για να δείτε τις αλλαγές.');
-        // Reload audit log
+        alert('Η επαναφορά ολοκληρώθηκε επιτυχώς!\n\nΗ εφαρμογή θα ανανεωθεί για να δείτε τις αλλαγές.');
         await loadAuditLog();
-        // Reload the app data (trigger refresh)
         window.location.reload();
       } else {
-        alert(`❌ Σφάλμα rollback: ${result.error}`);
+        alert(`Σφάλμα επαναφοράς: ${result.error}`);
       }
     } catch (error) {
       console.error('Error rolling back:', error);
-      alert(`❌ Σφάλμα: ${error.message}`);
+      alert(`Σφάλμα: ${error.message}`);
     } finally {
       setRollingBack(null);
     }
   };
 
-  // Calculate statistics
   const stats = {
     total: logs.length,
     creates: logs.filter(l => l.action === 'create').length,
@@ -454,10 +552,33 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
     <ModalOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <ModalContainer>
         <ModalHeader>
-          <ModalTitle>📋 Ιστορικό Αλλαγών {!isSuperAdmin && '(Οι δικές μου ενέργειες)'}</ModalTitle>
-          <CloseButton onClick={onClose}>✕ Κλείσιμο</CloseButton>
+          <HeaderLeft>
+            <ModalTitle>Ιστορικό Ενεργειών</ModalTitle>
+            <InfoButton
+              onClick={(e) => { e.stopPropagation(); setShowInfo(prev => !prev); }}
+              title="Πληροφορίες"
+            >
+              i
+              {showInfo && (
+                <InfoPopover onClick={(e) => e.stopPropagation()}>
+                  <InfoTitle>Πληροφορίες Ιστορικού Ενεργειών</InfoTitle>
+                  <InfoText>
+                    Η υπηρεσία αυτή καταγράφει όλες τις ενέργειες που επηρεάζουν
+                    δεδομένα στην εφαρμογή (δημιουργία, ενημέρωση, διαγραφή).
+                  </InfoText>
+                  <InfoText>
+                    Δεν καταγράφονται ενέργειες στον Χώρο Εργασίας.
+                  </InfoText>
+                  <InfoHighlight>
+                    {getVisibilityText(userRole)}
+                  </InfoHighlight>
+                </InfoPopover>
+              )}
+            </InfoButton>
+          </HeaderLeft>
+          <CloseButton onClick={onClose}>Κλείσιμο</CloseButton>
         </ModalHeader>
-        
+
         <ModalContent>
           <StatsContainer>
             <StatItem>
@@ -490,7 +611,16 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
                 <option value="project">Έργα</option>
                 <option value="prosklisi">Προσκλήσεις</option>
                 <option value="entaxi">Εντάξεις</option>
-                <option value="egkrisi">Εγκρίσεις</option>
+                <option value="egkrisi">Εγκρίσεις Διάθεσης Πίστωσης</option>
+                <option value="prosklisi_modification">Τροποποιήσεις Προσκλήσεων</option>
+                <option value="entaxi_modification">Τροποποιήσεις Εντάξεων</option>
+                <option value="user">Χρήστες</option>
+                <option value="file">Αρχεία</option>
+                <option value="file_group">Ομάδες Αρχείων</option>
+                <option value="document_template">Υποδείγματα Εγγράφων</option>
+                <option value="document_category">Κατηγορίες Εγγράφων</option>
+                <option value="note">Σημειώσεις</option>
+                <option value="egkrisi_link">Συνδέσεις Εγκρίσεων</option>
               </FilterSelect>
             </FilterGroup>
 
@@ -504,6 +634,7 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
                 <option value="create">Δημιουργία</option>
                 <option value="update">Ενημέρωση</option>
                 <option value="delete">Διαγραφή</option>
+                <option value="import">Εισαγωγή</option>
               </FilterSelect>
             </FilterGroup>
 
@@ -538,13 +669,13 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
                     <LogInfo>
                       <LogTitle>{log.entityTitle}</LogTitle>
                       <LogMeta>
-                        <span><strong>Χρήστης:</strong> {log.user}</span>
+                        <span><strong>Χρήστης:</strong> {getUserDisplay(log)}</span>
                         <span><strong>Ημερομηνία:</strong> {formatDate(log.timestamp)}</span>
                         <span><strong>Τύπος:</strong> {getEntityTypeLabel(log.entityType)}</span>
                       </LogMeta>
                     </LogInfo>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <ActionBadge action={log.action}>
+                      <ActionBadge $action={log.action}>
                         {getActionLabel(log.action)}
                       </ActionBadge>
                       {log.action === 'update' && log.oldValue && (
@@ -553,12 +684,12 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
                           disabled={rollingBack === log.id}
                           title="Επαναφορά στην προηγούμενη κατάσταση"
                         >
-                          {rollingBack === log.id ? '⏳...' : '↩️ Rollback'}
+                          {rollingBack === log.id ? '...' : 'Επαναφορά'}
                         </RollbackButton>
                       )}
                     </div>
                   </LogHeader>
-                  
+
                   {log.details && (
                     <LogDetails>
                       <strong>Λεπτομέρειες:</strong> {log.details}
@@ -570,10 +701,10 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
                       <strong>Αλλαγές:</strong>
                       {Object.entries(log.changes).map(([field, change]) => (
                         <ChangeItem key={field}>
-                          <ChangeField>{field}:</ChangeField>
+                          <ChangeField>{translateChangeFieldName(field)}:</ChangeField>
                           <ChangeValue>
                             <span style={{ color: '#dc3545' }}>"{formatChangeValue(change.old)}"</span>
-                            {' → '}
+                            {' \u2192 '}
                             <span style={{ color: '#28a745' }}>"{formatChangeValue(change.new)}"</span>
                           </ChangeValue>
                         </ChangeItem>
@@ -591,4 +722,3 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
 }
 
 export default AuditLogViewer;
-

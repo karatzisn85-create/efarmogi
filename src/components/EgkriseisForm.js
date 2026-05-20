@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -740,9 +742,13 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
       return;
     }
 
-    const confirmDelete = window.confirm(
-      `Είστε σίγουροι ότι θέλετε να διαγράψετε το υποέργο "${subproject.title}"?`
-    );
+    const confirmDelete = await showConfirm({
+      title: 'Διαγραφή Υποέργου',
+      message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το υποέργο "${subproject.title}";`,
+      detail: 'Η ενέργεια είναι μη αναστρέψιμη.',
+      confirmLabel: 'Διαγραφή',
+      icon: '🗑'
+    });
 
     if (!confirmDelete) {
       return;

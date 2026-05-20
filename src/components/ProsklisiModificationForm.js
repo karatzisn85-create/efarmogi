@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
-
-const ipcRenderer = window.electronAPI;
+import { safeFileDialog } from '../utils/safeDialogs';
 
 // Styled Components
 const FormOverlay = styled.div`
@@ -394,7 +393,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
 
   const handleFileSelect = async () => {
     try {
-      const result = await ipcRenderer.invoke('select-file', 'Επιλογή Αρχείου Τροποποίησης (PDF, Word)');
+      const result = await safeFileDialog('select-file', 'Επιλογή Αρχείου Τροποποίησης (PDF, Word)');
       if (result.success && !result.canceled) {
         setFormData(prev => ({
           ...prev,

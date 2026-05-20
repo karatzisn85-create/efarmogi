@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { safeFileDialog } from '../utils/safeDialogs';
 import { v4 as uuidv4 } from 'uuid';
 import {
   IMPLEMENTATION_FORMS,
@@ -1696,7 +1697,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
 
   const handleFileSelect = async () => {
     try {
-      const result = await ipcRenderer.invoke('open-file-dialog');
+      const result = await safeFileDialog('open-file-dialog');
       if (!result.canceled && result.filePaths.length > 0) {
         const newFiles = result.filePaths.map(path => ({
           path,
@@ -2406,7 +2407,6 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
       console.log('Sending project data:', projectData);
       await onSave(projectData);
       console.log('Project saved successfully');
-      onClose();
     } catch (error) {
       console.error('Error saving project:', error);
     }

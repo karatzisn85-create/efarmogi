@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import SubprojectSearchModal from './SubprojectSearchModal';
+import { safeConfirm } from '../utils/safeDialogs';
 
 const ipcRenderer = window.electronAPI;
 
@@ -1676,7 +1677,7 @@ const CreditApprovalsPanel = ({
       return;
     }
 
-    const confirmed = window.confirm(
+    const confirmed = safeConfirm(
       `Είστε σίγουροι ότι θέλετε να ακυρώσετε τη συσχέτιση με το υποέργο "${subproject.title}";`
     );
 

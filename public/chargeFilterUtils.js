@@ -123,5 +123,6 @@ function collectChargeFilterOptions(projects, catalog) {
 module.exports = {
   collectChargeFilterOptions,
   getProjectChargeFilterKeys,
-  engineerChargeFilterKey
+  engineerChargeFilterKey,
+  resolveChargeLabel
 };

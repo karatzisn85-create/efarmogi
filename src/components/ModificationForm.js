@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
-
-const ipcRenderer = window.electronAPI;
+import { safeFileDialog } from '../utils/safeDialogs';
 
 const FormOverlay = styled.div`
   position: fixed;
@@ -492,7 +491,7 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
 
   const handleFileSelect = async (field, title) => {
     try {
-      const result = await ipcRenderer.invoke('select-file', title);
+      const result = await safeFileDialog('select-file', title);
       if (result.success && !result.canceled) {
         setFormData(prev => ({
           ...prev,

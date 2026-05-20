@@ -52,11 +52,13 @@ const ALLOWED_INVOKE = new Set([
   'validate-and-clean-egkrisi-links','verify-backup','view-egkriseis-pdf',
   'view-egkrisi-file','view-entaxi-file','view-file-from-folder',
   'view-file-from-subfolder','view-modification-pdf','view-prosklisi-file',
+  'watch-task-file','unwatch-task-file',
   'write-debug-log','restart-app'
 ]);
 
 const ALLOWED_RECEIVE = new Set([
   'app-close-blocked','backup-completed','backup-progress','locks-changed',
+  'task-data-changed',
   'update-available','update-downloaded','update-download-progress','update-installed',
   'task-notification'
 ]);

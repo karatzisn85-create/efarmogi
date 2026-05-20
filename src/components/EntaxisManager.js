@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
+import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 import styled from 'styled-components';
 import EntaxisForm from './EntaxisForm';
 import ModificationForm from './ModificationForm';
@@ -903,10 +906,10 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
   useEffect(() => {
     if (isOpen) {
       loadEntaxeis();
-      document.body.style.overflow = 'hidden';
+      lockBodyScroll('entaxis');
     }
     return () => {
-      document.body.style.overflow = 'unset';
+      unlockBodyScroll('entaxis');
     };
   }, [isOpen]);
 
@@ -1190,7 +1193,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
   };
 
   const handleDeleteEntaxi = async (entaxiId) => {
-    if (window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την ένταξη;')) {
+    if (await showConfirm({ title: 'Διαγραφή Ένταξης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την ένταξη;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         await ipcRenderer.invoke('delete-entaxi', entaxiId);
         await loadEntaxeis();
@@ -1277,7 +1280,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
       fileNameType: typeof fileName
     });
     
-    if (window.confirm(`Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${actualFileName}";`)) {
+    if (await showConfirm({ title: 'Διαγραφή Αρχείου', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${actualFileName}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         console.log('📤 Sending delete request to backend...');
         const result = await ipcRenderer.invoke('delete-entaxi-file', entaxiId, actualFileName, isModification);
@@ -1311,7 +1314,7 @@ function EntaxisManager({ isOpen, onClose, userRole, projectFilter = null, onDat
   };
 
   const handleDeleteModification = async (entaxiId, modificationId) => {
-    if (window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την τροποποίηση;')) {
+    if (await showConfirm({ title: 'Διαγραφή Τροποποίησης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την τροποποίηση;', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         await ipcRenderer.invoke('delete-entaxi-modification', entaxiId, modificationId);
         await loadEntaxeis(); // Reload to update UI
