@@ -122,11 +122,19 @@ const RoleBadge = styled.span`
 
 const StatusDot = styled.span`
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: ${p => p.active ? '#4caf50' : '#ccc'};
+  background: ${p => p.$online ? '#22c55e' : p.$active ? '#d1d5db' : '#ef4444'};
   margin-right: 6px;
+  box-shadow: ${p => p.$online ? '0 0 6px rgba(34,197,94,0.6)' : 'none'};
+  transition: all 0.3s;
+`;
+
+const StatusLabel = styled.span`
+  font-size: 0.82rem;
+  font-weight: ${p => p.$online ? 600 : 400};
+  color: ${p => p.$online ? '#16a34a' : p.$active ? '#6b7280' : '#dc2626'};
 `;
 
 const ActionBtn = styled.button`
@@ -286,15 +294,68 @@ const ROLE_LABELS = {
   ENGINEER: 'Μηχανικός'
 };
 
+const SelfSection = styled.div`
+  background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+  border: 1.5px solid #c7d2fe;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 28px;
+`;
+
+const SelfSectionHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+`;
+
+const SelfSectionTitle = styled.h3`
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #4338ca;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const ToggleChevron = styled.span`
+  font-size: 13px;
+  color: #6366f1;
+  transition: transform 0.2s;
+  transform: ${p => p.$open ? 'rotate(90deg)' : 'rotate(0deg)'};
+  display: inline-block;
+`;
+
+const SelfSectionBody = styled.div`
+  margin-top: 18px;
+`;
+
+const SelfHint = styled.p`
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: #64748b;
+  line-height: 1.5;
+`;
+
+const PasswordNote = styled.p`
+  margin: 4px 0 10px;
+  font-size: 11.5px;
+  color: #6366f1;
+  font-style: italic;
+`;
+
 const createEmptyFormData = () => ({
   username: '',
   password: '',
   fullName: '',
+  email: '',
   role: 'USER',
   taskAssignment: emptyTaskAssignmentPerms()
 });
 
-function UserManagement({ onClose, currentUser, onUsersChanged }) {
+function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUser }) {
   const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
   const actingUsername = currentUser?.username || '';
   const [users, setUsers] = useState([]);
@@ -304,11 +365,38 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
   const [message, setMessage] = useState(null);
   const postSuccessTimerRef = useRef(null);
 
+  // Self-edit state (SUPERADMIN only)
+  const [selfOpen, setSelfOpen] = useState(false);
+  const [selfData, setSelfData] = useState({
+    fullName: currentUser?.fullName || '',
+    email: currentUser?.email || '',
+    newUsername: '',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [selfMsg, setSelfMsg] = useState(null);
+  const [selfSaving, setSelfSaving] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+
   useEffect(() => {
     const handleEsc = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await ipcRenderer.invoke('get-online-users');
+        if (!cancelled && res.success) setOnlineUsers(res.onlineUsers || []);
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 10000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   const loadUsers = useCallback(async () => {
     const result = await ipcRenderer.invoke('get-users');
@@ -376,6 +464,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
     if (editingUser) {
       const updates = {
         fullName: formData.fullName,
+        email: formData.email.trim() || null,
         role: formData.role,
         assignedSupervisors: []
       };
@@ -403,6 +492,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
         password: formData.password,
         role: formData.role,
         fullName: formData.fullName.trim() || formData.username.trim(),
+        email: formData.email.trim() || null,
         assignedSupervisors: [],
         actingUsername
       };
@@ -426,6 +516,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
       username: user.username,
       password: '',
       fullName: user.fullName,
+      email: user.email || '',
       role: user.role,
       taskAssignment: user.taskAssignment
         ? { ...emptyTaskAssignmentPerms(), ...user.taskAssignment }
@@ -472,6 +563,92 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
     }
   };
 
+  // ── Self-edit (superadmin) ────────────────────────────────────────────────
+
+  const handleSelfSave = async () => {
+    setSelfMsg(null);
+    const wantsPasswordChange = selfData.newPassword.trim().length > 0;
+    const wantsUsernameChange = selfData.newUsername.trim().length > 0;
+    const needsCurrentPassword = wantsPasswordChange || wantsUsernameChange;
+
+    if (needsCurrentPassword && !selfData.currentPassword) {
+      setSelfMsg({ text: 'Εισάγετε τον τρέχοντα κωδικό για αλλαγή username ή κωδικού', error: true });
+      return;
+    }
+    if (wantsPasswordChange) {
+      if (selfData.newPassword.length < 4) {
+        setSelfMsg({ text: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες', error: true });
+        return;
+      }
+      if (selfData.newPassword !== selfData.confirmPassword) {
+        setSelfMsg({ text: 'Ο νέος κωδικός και η επιβεβαίωση δεν ταιριάζουν', error: true });
+        return;
+      }
+    }
+
+    setSelfSaving(true);
+    try {
+      // 1. fullName + email
+      const infoResult = await ipcRenderer.invoke('update-user', {
+        username: actingUsername,
+        updates: {
+          fullName: selfData.fullName.trim() || actingUsername,
+          email: selfData.email.trim() || null
+        },
+        actingUsername
+      });
+      if (!infoResult.success) {
+        setSelfMsg({ text: infoResult.error || 'Σφάλμα ενημέρωσης', error: true });
+        return;
+      }
+
+      // 2. Password change
+      if (wantsPasswordChange) {
+        const pwResult = await ipcRenderer.invoke('change-password', {
+          username: actingUsername,
+          oldPassword: selfData.currentPassword,
+          newPassword: selfData.newPassword
+        });
+        if (!pwResult.success) {
+          setSelfMsg({ text: pwResult.error || 'Σφάλμα αλλαγής κωδικού', error: true });
+          return;
+        }
+      }
+
+      // 3. Username change (last — affects session)
+      if (wantsUsernameChange) {
+        const unResult = await ipcRenderer.invoke('rename-user', {
+          username: actingUsername,
+          currentPassword: selfData.currentPassword,
+          newUsername: selfData.newUsername.trim()
+        });
+        if (!unResult.success) {
+          setSelfMsg({ text: unResult.error || 'Σφάλμα αλλαγής username', error: true });
+          return;
+        }
+      }
+
+      await loadUsers();
+      if (onUsersChanged) onUsersChanged();
+      if (onSyncCurrentUser) onSyncCurrentUser();
+
+      setSelfData(p => ({
+        ...p,
+        newUsername: '',
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      }));
+
+      const note = wantsUsernameChange
+        ? 'Αποθηκεύτηκε. Το username άλλαξε — θα χρειαστεί επανεκκίνηση ή νέα σύνδεση.'
+        : 'Τα στοιχεία σας αποθηκεύτηκαν επιτυχώς.';
+      setSelfMsg({ text: note, error: false });
+    } finally {
+      setSelfSaving(false);
+    }
+  };
+
   return (
     <Overlay onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <Panel>
@@ -479,6 +656,99 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
           <Title>Διαχείριση Χρηστών</Title>
           <CloseBtn onClick={onClose}>&times;</CloseBtn>
         </Header>
+
+        {/* ── Ο Λογαριασμός μου (μόνο SUPERADMIN) ── */}
+        {isSuperAdmin && (
+          <SelfSection>
+            <SelfSectionHeader onClick={() => setSelfOpen(o => !o)}>
+              <SelfSectionTitle>
+                👤 Ο Λογαριασμός μου
+              </SelfSectionTitle>
+              <ToggleChevron $open={selfOpen}>▶</ToggleChevron>
+            </SelfSectionHeader>
+
+            {selfOpen && (
+              <SelfSectionBody>
+                <SelfHint>
+                  Επεξεργαστείτε τα στοιχεία του λογαριασμού σας. Για αλλαγή <strong>κωδικού</strong> ή <strong>username</strong> απαιτείται ο τρέχων κωδικός.
+                </SelfHint>
+
+                <FormRow>
+                  <FieldGroup>
+                    <Label>Ονοματεπώνυμο</Label>
+                    <Input
+                      value={selfData.fullName}
+                      onChange={e => setSelfData(p => ({ ...p, fullName: e.target.value }))}
+                      placeholder="Ονοματεπώνυμο"
+                    />
+                  </FieldGroup>
+                  <FieldGroup>
+                    <Label>Email <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>(προαιρετικό)</span></Label>
+                    <Input
+                      type="email"
+                      value={selfData.email}
+                      onChange={e => setSelfData(p => ({ ...p, email: e.target.value }))}
+                      placeholder="π.χ. user@example.com"
+                    />
+                  </FieldGroup>
+                </FormRow>
+
+                <FormRow>
+                  <FieldGroup>
+                    <Label>Νέο username <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>(κενό = χωρίς αλλαγή)</span></Label>
+                    <Input
+                      value={selfData.newUsername}
+                      onChange={e => setSelfData(p => ({ ...p, newUsername: e.target.value }))}
+                      placeholder={`τρέχον: ${actingUsername}`}
+                    />
+                  </FieldGroup>
+                  <FieldGroup>
+                    <Label>Τρέχων κωδικός <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>(για αλλαγή username/κωδικού)</span></Label>
+                    <Input
+                      type="password"
+                      value={selfData.currentPassword}
+                      onChange={e => setSelfData(p => ({ ...p, currentPassword: e.target.value }))}
+                      placeholder="Εισάγετε τρέχοντα κωδικό"
+                    />
+                  </FieldGroup>
+                </FormRow>
+
+                <FormRow>
+                  <FieldGroup>
+                    <Label>Νέος κωδικός <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>(κενό = χωρίς αλλαγή)</span></Label>
+                    <Input
+                      type="password"
+                      value={selfData.newPassword}
+                      onChange={e => setSelfData(p => ({ ...p, newPassword: e.target.value }))}
+                      placeholder="Τουλάχιστον 4 χαρακτήρες"
+                    />
+                  </FieldGroup>
+                  <FieldGroup>
+                    <Label>Επιβεβαίωση νέου κωδικού</Label>
+                    <Input
+                      type="password"
+                      value={selfData.confirmPassword}
+                      onChange={e => setSelfData(p => ({ ...p, confirmPassword: e.target.value }))}
+                      placeholder="Επαναλάβετε νέο κωδικό"
+                    />
+                  </FieldGroup>
+                </FormRow>
+
+                {selfMsg && <Message error={selfMsg.error}>{selfMsg.text}</Message>}
+
+                <BtnRow>
+                  <PrimaryBtn onClick={handleSelfSave} disabled={selfSaving}>
+                    {selfSaving ? 'Αποθήκευση…' : '💾 Αποθήκευση στοιχείων'}
+                  </PrimaryBtn>
+                  <SecondaryBtn onClick={() => {
+                    setSelfOpen(false);
+                    setSelfMsg(null);
+                  }}>Ακύρωση</SecondaryBtn>
+                </BtnRow>
+              </SelfSectionBody>
+            )}
+          </SelfSection>
+        )}
 
         {pendingUsers.length > 0 && (
           <>
@@ -519,22 +789,29 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
         <Table>
           <thead>
             <tr>
-              <th>Κατάσταση</th>
+              <th>Σύνδεση</th>
               <th>Χρήστης</th>
               <th>Ονοματεπώνυμο</th>
+              <th>Email</th>
               <th>Ρόλος</th>
               <th>Ενέργειες</th>
             </tr>
           </thead>
           <tbody>
             {approvedUsers.length === 0 ? (
-              <EmptyRow><td colSpan="5">Δεν υπάρχουν εγκεκριμένοι χρήστες</td></EmptyRow>
+              <EmptyRow><td colSpan="6">Δεν υπάρχουν εγκεκριμένοι χρήστες</td></EmptyRow>
             ) : (
               approvedUsers.map(u => (
                 <tr key={u.username}>
-                  <td><StatusDot active={u.active} />{u.active ? 'Ενεργός' : 'Ανενεργός'}</td>
+                  <td>
+                    <StatusDot $online={onlineUsers.includes(u.username)} $active={u.active} />
+                    <StatusLabel $online={onlineUsers.includes(u.username)} $active={u.active}>
+                      {!u.active ? 'Ανενεργός' : onlineUsers.includes(u.username) ? 'Online' : 'Offline'}
+                    </StatusLabel>
+                  </td>
                   <td><strong>{u.username}</strong></td>
                   <td>{u.fullName}</td>
+                  <td style={{ fontSize: 12, color: u.email ? '#2563eb' : '#94a3b8' }}>{u.email || '—'}</td>
                   <td><RoleBadge role={u.role}>{ROLE_LABELS[u.role] || u.role}</RoleBadge></td>
                   <td>
                     {u.role !== 'SUPERADMIN' && (
@@ -600,6 +877,18 @@ function UserManagement({ onClose, currentUser, onUsersChanged }) {
                   placeholder={editingUser ? '(χωρίς αλλαγή)' : 'Τουλάχιστον 4 χαρακτήρες'}
                 />
               </FieldGroup>
+              <FieldGroup>
+                <Label>Email <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>(προαιρετικό)</span></Label>
+                <Input
+                  type="email"
+                  value={formData.email}
+                  onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
+                  placeholder="π.χ. user@example.com"
+                />
+              </FieldGroup>
+            </FormRow>
+
+            <FormRow>
               <FieldGroup>
                 <Label>Ρόλος</Label>
                 <Select

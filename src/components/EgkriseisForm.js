@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { safeConfirm } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
+import { containsSearchTerm } from '../utils/searchUtils';
 
 const ipcRenderer = window.electronAPI;
 
@@ -479,9 +480,8 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
   // Filter projects based on search term
   useEffect(() => {
     if (searchTerm && searchTerm.trim()) {
-      const searchLower = searchTerm.toLowerCase();
       const filtered = availableProjects.filter(project =>
-        project.title && project.title.toLowerCase().includes(searchLower)
+        containsSearchTerm(project.title, searchTerm)
       );
       setFilteredProjects(filtered);
     } else {

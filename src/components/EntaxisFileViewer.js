@@ -1,17 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import { safeConfirm } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
+const C = {
+  white: '#ffffff',
+  indigo: '#6366f1',
+  indigoLight: '#eef2ff',
+  violet: '#8b5cf6',
+  emerald: '#10b981',
+  emeraldDark: '#065f46',
+  red: '#ef4444',
+  slate100: '#f1f5f9',
+  slate200: '#e2e8f0',
+  slate300: '#cbd5e1',
+  slate500: '#64748b',
+  slate600: '#475569',
+  slate800: '#1e293b'
+};
+
 const ModalOverlay = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -20,156 +33,253 @@ const ModalOverlay = styled.div`
 `;
 
 const ModalContainer = styled.div`
-  background: white;
+  background: ${C.white};
   border-radius: 16px;
-  padding: 2rem;
-  max-width: 800px;
+  max-width: 860px;
   width: 95%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 60px rgba(15, 23, 42, 0.28);
+  overflow: hidden;
 `;
 
 const ModalHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 2px solid #e9ecef;
+  padding: 1.25rem 1.75rem;
+  border-bottom: 2px solid ${C.slate200};
+  background: linear-gradient(135deg, ${C.slate100} 0%, ${C.white} 100%);
+  flex-shrink: 0;
 `;
 
 const ModalTitle = styled.h2`
-  color: #333;
-  font-size: 1.5rem;
-  font-weight: 600;
+  color: ${C.slate800};
+  font-size: 1.2rem;
+  font-weight: 700;
   margin: 0;
-`;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 
-const CloseButton = styled.button`
-  background: #dc3545;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-
-  &:hover {
-    background: #c82333;
-    transform: translateY(-2px);
+  &::before {
+    content: '';
+    width: 4px;
+    height: 1.2rem;
+    border-radius: 3px;
+    background: linear-gradient(180deg, ${C.indigo} 0%, ${C.violet} 100%);
+    flex-shrink: 0;
   }
 `;
 
-const FileSection = styled.div`
-  margin-bottom: 2rem;
+const CloseBtn = styled.button`
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid ${C.slate200};
+  background: ${C.white};
+  color: ${C.slate500};
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s, color 0.18s;
+
+  &:hover {
+    background: #fee2e2;
+    color: ${C.red};
+    border-color: #fecaca;
+  }
 `;
 
-const SectionTitle = styled.h3`
-  color: #495057;
-  font-size: 1.2rem;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid #dee2e6;
+const ModalBody = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem 1.75rem 1.75rem;
+`;
+
+const InfoBox = styled.div`
+  background: ${C.slate100};
+  border: 1px solid ${C.slate200};
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.85rem;
+  color: ${C.slate600};
+  line-height: 1.5;
+`;
+
+const InfoRow = styled.div`
+  margin-bottom: 0.4rem;
+  &:last-child { margin-bottom: 0; }
+  strong { color: ${C.slate800}; font-weight: 600; }
+`;
+
+const FileSection = styled.div`
+  margin-bottom: 1.75rem;
+  &:last-child { margin-bottom: 0; }
+`;
+
+const SectionHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid ${C.slate200};
+`;
+
+const SectionIcon = styled.span`
+  font-size: 1rem;
+`;
+
+const SectionLabel = styled.span`
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: ${C.slate600};
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 1;
+`;
+
+const SectionCount = styled.span`
+  font-size: 0.75rem;
+  color: ${C.slate500};
+  background: ${C.slate100};
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  font-weight: 600;
 `;
 
 const FileList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.55rem;
 `;
 
 const FileItem = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem;
-  background: #f8f9fa;
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  transition: all 0.3s ease;
+  padding: 0.65rem 0.9rem;
+  background: ${C.white};
+  border-radius: 10px;
+  border: 1px solid ${C.slate200};
+  transition: box-shadow 0.18s, border-color 0.18s;
+  gap: 0.75rem;
 
   &:hover {
-    background: #e9ecef;
-    border-color: #dee2e6;
+    border-color: ${C.slate300};
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.08);
   }
 `;
 
 const FileInfo = styled.div`
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  flex: 1;
+  gap: 0.7rem;
+`;
+
+const FileIconBadge = styled.div`
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  background: ${(p) => p.$bg || C.indigo};
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  font-size: 0.65rem;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 `;
 
 const FileName = styled.span`
-  color: #333;
+  font-size: 0.875rem;
   font-weight: 500;
-  font-size: 0.9rem;
+  color: ${C.slate800};
+  word-break: break-word;
+  line-height: 1.4;
 `;
 
 const FileActions = styled.div`
   display: flex;
-  gap: 0.5rem;
+  gap: 0.3rem;
+  flex-shrink: 0;
 `;
 
-const ActionButton = styled.button`
-  padding: 0.4rem 0.8rem;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 500;
+const IconActionBtn = styled.button`
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid ${C.slate200};
+  background: ${C.white};
+  color: ${C.slate500};
+  font-size: 0.95rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.18s, color 0.18s, border-color 0.18s, box-shadow 0.18s;
+  flex-shrink: 0;
 
-  ${props => {
-    switch (props.variant) {
-      case 'view':
-        return `
-          background: #007bff;
-          color: white;
-          &:hover {
-            background: #0056b3;
-          }
-        `;
-      case 'download':
-        return `
-          background: #28a745;
-          color: white;
-          &:hover {
-            background: #1e7e34;
-          }
-        `;
-      case 'delete':
-        return `
-          background: #dc3545;
-          color: white;
-          &:hover {
-            background: #c82333;
-          }
-        `;
-      default:
-        return `
-          background: #6c757d;
-          color: white;
-          &:hover {
-            background: #545b62;
-          }
-        `;
-    }
-  }}
+  &:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+`;
+
+const ViewIconBtn = styled(IconActionBtn)`
+  &:hover {
+    background: ${C.indigoLight};
+    color: ${C.indigo};
+    border-color: #c7d2fe;
+  }
+`;
+
+const DownloadIconBtn = styled(IconActionBtn)`
+  &:hover {
+    background: #ecfdf5;
+    color: ${C.emeraldDark};
+    border-color: #a7f3d0;
+  }
+`;
+
+const DeleteIconBtn = styled(IconActionBtn)`
+  &:hover {
+    background: #fee2e2;
+    color: ${C.red};
+    border-color: #fecaca;
+  }
 `;
 
 const NoFilesMessage = styled.div`
   text-align: center;
-  color: #6c757d;
+  color: ${C.slate500};
   font-style: italic;
   padding: 2rem;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border: 1px dashed #dee2e6;
+  font-size: 0.9rem;
+  background: ${C.slate100};
+  border-radius: 10px;
+  border: 1px dashed ${C.slate300};
 `;
+
+function getFileTypeStyle(fileName) {
+  const ext = String(fileName || '').split('.').pop().toLowerCase();
+  switch (ext) {
+    case 'pdf': return { label: 'PDF', bg: '#ef4444' };
+    case 'doc': case 'docx': return { label: 'DOC', bg: '#2563eb' };
+    case 'xls': case 'xlsx': return { label: 'XLS', bg: '#16a34a' };
+    case 'png': case 'jpg': case 'jpeg': return { label: 'IMG', bg: '#8b5cf6' };
+    default: return { label: ext.toUpperCase().slice(0, 3) || 'FILE', bg: '#64748b' };
+  }
+}
 
 function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
@@ -188,78 +298,40 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
     try {
       setLoading(true);
       const files = await ipcRenderer.invoke('get-entaxi-files', entaxi.entaxiId);
-      
-      console.log('📁 All files found in directory:', files);
-      console.log('💾 entaxi.entaxiPDFs from JSON:', entaxi.entaxiPDFs);
-      console.log('💾 entaxi.approvalPDFs from JSON:', entaxi.approvalPDFs);
-      
-      // Separate files by type based on saved arrays or fallback to legacy single files
-      const entaxiPDFs = entaxi.entaxiPDFs && entaxi.entaxiPDFs.length > 0 
-        ? entaxi.entaxiPDFs 
+
+      const entaxiPDFs = entaxi.entaxiPDFs && entaxi.entaxiPDFs.length > 0
+        ? entaxi.entaxiPDFs
         : (entaxi.entaxiPDF ? [entaxi.entaxiPDF] : []);
-      
-      const approvalPDFs = entaxi.approvalPDFs && entaxi.approvalPDFs.length > 0 
-        ? entaxi.approvalPDFs 
+
+      const approvalPDFs = entaxi.approvalPDFs && entaxi.approvalPDFs.length > 0
+        ? entaxi.approvalPDFs
         : (entaxi.approvalPDF ? [entaxi.approvalPDF] : []);
-      
-      // ROBUST FILE DISPLAY LOGIC: Handles both new structure and legacy data
-      console.log('🔄 SMART FILE DETECTION: Αυτόματος εντοπισμός αρχείων');
-      console.log('📁 Files found in directory:', files);
-      console.log('📊 entaxiPDFs array:', entaxiPDFs);
-      console.log('📊 approvalPDFs array:', approvalPDFs);
-      
+
       let availableEntaxiFiles = [];
       let availableApprovalFiles = [];
-      
-      // ΠΡΩΤΟΣ ΕΛΕΓΧΟΣ: Υπάρχουν καταγεγραμμένα approval files;
+
       if (approvalPDFs.length > 0) {
         availableApprovalFiles = files.filter(file => approvalPDFs.includes(file));
-        console.log('✅ Βρέθηκαν καταγεγραμμένα approval files:', availableApprovalFiles);
       }
-      
-      // ΔΕΥΤΕΡΟΣ ΕΛΕΓΧΟΣ: Υπάρχουν καταγεγραμμένα entaxi files;
+
       if (entaxiPDFs.length > 0) {
         availableEntaxiFiles = files.filter(file => entaxiPDFs.includes(file));
-        console.log('✅ Βρέθηκαν καταγεγραμμένα entaxi files:', availableEntaxiFiles);
       }
-      
-      // ΤΡΙΤΟΣ ΕΛΕΓΧΟΣ: Βρες αρχεία που ΔΕΝ είναι καταγεγραμμένα πουθενά
+
       const allRecordedFiles = [...entaxiPDFs, ...approvalPDFs];
       const unaccountedFiles = files.filter(file => !allRecordedFiles.includes(file));
-      console.log('📂 Μη καταγεγραμμένα αρχεία:', unaccountedFiles);
-      
-      // ΤΕΤΑΡΤΟΣ ΕΛΕΓΧΟΣ: Τι κάνουμε με τα μη καταγεγραμμένα αρχεία;
+
       if (unaccountedFiles.length > 0) {
-        
-        // Αν ΚΑΙ ΤΑ ΔΥΟ arrays είναι κενά -> όλα τα αρχεία ως entaxi (legacy mode)
         if (entaxiPDFs.length === 0 && approvalPDFs.length === 0) {
-          console.log('📂 LEGACY MODE: Όλα τα αρχεία ως entaxi files');
           availableEntaxiFiles = files;
           availableApprovalFiles = [];
-        } 
-        // Αν ΜΟΝΟ το entaxiPDFs είναι κενό -> μη καταγεγραμμένα ως entaxi
-        else if (entaxiPDFs.length === 0 && approvalPDFs.length > 0) {
-          console.log('🔗 HYBRID MODE: Μη καταγεγραμμένα αρχεία ως entaxi files');
-          availableEntaxiFiles = unaccountedFiles; // ΜΟΝΟ τα unaccounted
-          console.log('🔗 Entaxi files (unaccounted):', availableEntaxiFiles);
-          console.log('✅ Approval files (recorded):', availableApprovalFiles);
-        }
-        // Αν ΜΟΝΟ το approvalPDFs είναι κενό -> μη καταγεγραμμένα ως approval
-        else if (approvalPDFs.length === 0 && entaxiPDFs.length > 0) {
-          console.log('🔗 REVERSE MODE: Μη καταγεγραμμένα αρχεία ως approval files');
-          availableApprovalFiles = unaccountedFiles; // ΜΟΝΟ τα unaccounted
-          console.log('✅ Entaxi files (recorded):', availableEntaxiFiles);
-          console.log('🔗 Approval files (unaccounted):', availableApprovalFiles);
-        }
-        // Αν και τα δύο arrays έχουν δεδομένα -> απόκρυψη μη καταγεγραμμένων
-        else {
-          console.log('⚠️ STRICT MODE: Τα μη καταγεγραμμένα αρχεία δεν εμφανίζονται:', unaccountedFiles);
+        } else if (entaxiPDFs.length === 0 && approvalPDFs.length > 0) {
+          availableEntaxiFiles = unaccountedFiles;
+        } else if (approvalPDFs.length === 0 && entaxiPDFs.length > 0) {
+          availableApprovalFiles = unaccountedFiles;
         }
       }
-      
-      console.log('✅ Final entaxi files to display:', availableEntaxiFiles);
-      console.log('✅ Final approval files to display:', availableApprovalFiles);
-      
+
       setEntaxiFiles(availableEntaxiFiles);
       setApprovalFiles(availableApprovalFiles);
     } catch (error) {
@@ -293,7 +365,12 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
   };
 
   const handleDeleteFile = async (fileName) => {
-    if (!await showConfirm({ title: 'Διαγραφή Αρχείου', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
+    if (!await showConfirm({
+      title: 'Διαγραφή Αρχείου',
+      message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`,
+      confirmLabel: 'Διαγραφή',
+      icon: '🗑'
+    })) {
       return;
     }
 
@@ -301,7 +378,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
       const result = await ipcRenderer.invoke('delete-entaxi-file', entaxi.entaxiId, fileName);
       if (result.success) {
         alert('Το αρχείο διαγράφηκε επιτυχώς!');
-        loadFiles(); // Reload files
+        loadFiles();
       } else {
         alert('Σφάλμα κατά τη διαγραφή του αρχείου: ' + result.error);
       }
@@ -311,49 +388,42 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
     }
   };
 
-  const renderFileList = (files, title) => (
+  const renderFileRow = (fileName, index) => {
+    const { label, bg } = getFileTypeStyle(fileName);
+    return (
+      <FileItem key={index}>
+        <FileInfo>
+          <FileIconBadge $bg={bg}>{label}</FileIconBadge>
+          <FileName>{fileName}</FileName>
+        </FileInfo>
+        <FileActions>
+          <ViewIconBtn title="Προβολή" onClick={() => handleViewFile(fileName)}>
+            👁
+          </ViewIconBtn>
+          <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFile(fileName)}>
+            ⬇
+          </DownloadIconBtn>
+          {canManageWorkflow && (
+            <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(fileName)}>
+              ✕
+            </DeleteIconBtn>
+          )}
+        </FileActions>
+      </FileItem>
+    );
+  };
+
+  const renderSection = (files, title, icon) => (
     <FileSection>
-      <SectionTitle>{title}</SectionTitle>
+      <SectionHeader>
+        <SectionIcon>{icon}</SectionIcon>
+        <SectionLabel>{title}</SectionLabel>
+        <SectionCount>{files.length}</SectionCount>
+      </SectionHeader>
       {files.length === 0 ? (
-        <NoFilesMessage>
-          Δεν υπάρχουν αρχεία για αυτή την κατηγορία
-        </NoFilesMessage>
+        <NoFilesMessage>Δεν υπάρχουν αρχεία για αυτή την κατηγορία</NoFilesMessage>
       ) : (
-        <FileList>
-          {files.map((fileName, index) => (
-            <FileItem key={index}>
-              <FileInfo>
-                <span>📄</span>
-                <FileName>{fileName}</FileName>
-              </FileInfo>
-              <FileActions>
-                <ActionButton 
-                  variant="view" 
-                  onClick={() => handleViewFile(fileName)}
-                  title="Προβολή αρχείου"
-                >
-                  👁️ Προβολή
-                </ActionButton>
-                <ActionButton 
-                  variant="download" 
-                  onClick={() => handleDownloadFile(fileName)}
-                  title="Λήψη αρχείου"
-                >
-                  💾 Λήψη
-                </ActionButton>
-                {canManageWorkflow && (
-                  <ActionButton 
-                    variant="delete" 
-                    onClick={() => handleDeleteFile(fileName)}
-                    title="Διαγραφή αρχείου"
-                  >
-                    🗑️ Διαγραφή
-                  </ActionButton>
-                )}
-              </FileActions>
-            </FileItem>
-          ))}
-        </FileList>
+        <FileList>{files.map((f, i) => renderFileRow(f, i))}</FileList>
       )}
     </FileSection>
   );
@@ -365,83 +435,32 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
       <ModalContainer>
         <ModalHeader>
           <ModalTitle>Αρχεία Ένταξης</ModalTitle>
-          <CloseButton onClick={onClose}>✕</CloseButton>
+          <CloseBtn onClick={onClose}>✕</CloseBtn>
         </ModalHeader>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '2rem' }}>
-            Φόρτωση αρχείων...
-          </div>
-        ) : (
-          <>
-            {/* Εμφάνιση βασικών δεδομένων εντάξης */}
-            {entaxi && (
-              <div style={{ 
-                background: '#f8f9fa', 
-                padding: '1rem', 
-                borderRadius: '8px', 
-                marginBottom: '1.5rem',
-                border: '1px solid #dee2e6'
-              }}>
-                <h3 style={{ 
-                  color: '#495057', 
-                  margin: '0 0 1rem 0', 
-                  fontSize: '1.1rem',
-                  fontWeight: '600'
-                }}>
-                  📋 Στοιχεία Ένταξης
-                </h3>
-                
-                {entaxi.subject && (
-                  <div style={{ marginBottom: '0.5rem' }}>
-                    <strong>Θέμα:</strong> {entaxi.subject}
-                  </div>
-                )}
-                
-                {entaxi.projectTitle && (
-                  <div style={{ marginBottom: '0.5rem' }}>
-                    <strong>Έργο:</strong> {entaxi.projectTitle}
-                  </div>
-                )}
-                
-                {entaxi.date && (
-                  <div style={{ marginBottom: '0.5rem' }}>
-                    <strong>Ημερομηνία:</strong> {new Date(entaxi.date).toLocaleDateString('el-GR')}
-                  </div>
-                )}
-                
-                {entaxi.amount && (
-                  <div style={{ marginBottom: '0.5rem' }}>
-                    <strong>Ποσό:</strong> {entaxi.amount.toLocaleString('el-GR')} €
-                  </div>
-                )}
-                
-                {entaxi.comments && (
-                  <div style={{ 
-                    marginTop: '1rem', 
-                    padding: '0.75rem', 
-                    background: '#fff', 
-                    borderRadius: '6px',
-                    border: '1px solid #e9ecef'
-                  }}>
-                    <strong style={{ color: '#495057' }}>💬 Σχόλια/Παρατηρήσεις:</strong>
-                    <div style={{ 
-                      marginTop: '0.5rem', 
-                      color: '#6c757d', 
-                      whiteSpace: 'pre-wrap',
-                      lineHeight: '1.5'
-                    }}>
-                      {entaxi.comments}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {renderFileList(entaxiFiles, '📋 Αρχεία Ένταξης')}
-            {renderFileList(approvalFiles, '✅ Αρχεία Αποδοχής Δ.Σ.')}
-          </>
-        )}
+        <ModalBody>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: C.slate500 }}>
+              Φόρτωση αρχείων...
+            </div>
+          ) : (
+            <>
+              {entaxi && (
+                <InfoBox>
+                  {entaxi.subject && (
+                    <InfoRow><strong>Θέμα:</strong> {entaxi.subject}</InfoRow>
+                  )}
+                  {entaxi.projectTitle && (
+                    <InfoRow><strong>Έργο:</strong> {entaxi.projectTitle}</InfoRow>
+                  )}
+                </InfoBox>
+              )}
+
+              {renderSection(entaxiFiles, 'Αρχεία Ένταξης', '📋')}
+              {renderSection(approvalFiles, 'Αρχεία Αποδοχής Δ.Σ.', '✅')}
+            </>
+          )}
+        </ModalBody>
       </ModalContainer>
     </ModalOverlay>
   );

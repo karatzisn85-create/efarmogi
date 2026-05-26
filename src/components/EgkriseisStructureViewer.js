@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { containsSearchTerm } from '../utils/searchUtils';
 const ipcRenderer = window.electronAPI;
 
 const Container = styled.div`
@@ -290,7 +291,7 @@ function EgkriseisStructureViewer() {
       const project = structure[projectTitle];
       
       // Check if project title matches
-      if (projectTitle && searchTerm && projectTitle.toLowerCase().includes(searchTerm.toLowerCase())) {
+      if (projectTitle && searchTerm && containsSearchTerm(projectTitle, searchTerm)) {
         filtered[projectTitle] = project;
         return;
       }
@@ -298,7 +299,7 @@ function EgkriseisStructureViewer() {
       // Check if any subproject matches
       const matchingSubprojects = {};
       Object.keys(project.subprojects).forEach(subprojectTitle => {
-        if (subprojectTitle && searchTerm && subprojectTitle.toLowerCase().includes(searchTerm.toLowerCase())) {
+        if (subprojectTitle && searchTerm && containsSearchTerm(subprojectTitle, searchTerm)) {
           matchingSubprojects[subprojectTitle] = project.subprojects[subprojectTitle];
         }
       });

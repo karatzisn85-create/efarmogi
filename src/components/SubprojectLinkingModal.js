@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { containsSearchTerm } from '../utils/searchUtils';
 
 const ipcRenderer = window.electronAPI;
 
@@ -316,9 +317,9 @@ function SubprojectLinkingModal({ isOpen, onClose, onLink, currentEgkrisi }) {
       const filtered = projects.map(projectGroup => ({
         ...projectGroup,
         subprojects: projectGroup.subprojects.filter(subproject =>
-          (subproject.subprojectTitle && subproject.subprojectTitle.toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (subproject.kaCode && subproject.kaCode.toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (subproject.projectTitle && subproject.projectTitle.toLowerCase().includes(searchTerm.toLowerCase()))
+          containsSearchTerm(subproject.subprojectTitle, searchTerm) ||
+          containsSearchTerm(subproject.kaCode, searchTerm) ||
+          containsSearchTerm(subproject.projectTitle, searchTerm)
         )
       })).filter(projectGroup => projectGroup.subprojects.length > 0);
       setFilteredProjects(filtered);

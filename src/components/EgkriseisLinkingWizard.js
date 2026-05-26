@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { containsSearchTerm } from '../utils/searchUtils';
 
 const ipcRenderer = window.electronAPI;
 
@@ -267,8 +268,8 @@ function EgkriseisLinkingWizard({ onClose }) {
   
   const filteredSuggestions = searchTerm
     ? allSubprojects.filter(sp =>
-        sp.subprojectTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        sp.projectTitle.toLowerCase().includes(searchTerm.toLowerCase())
+        containsSearchTerm(sp.subprojectTitle, searchTerm) ||
+        containsSearchTerm(sp.projectTitle, searchTerm)
       )
     : currentEgkrisi?.suggestions || [];
 

@@ -17,6 +17,8 @@ export const normalizeSearchText = (text) => {
   return text
     .toLowerCase()
     .trim()
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
     // Αφαίρεση τόνων από ελληνικά γράμματα
     .replace(/ά/g, 'α')
     .replace(/έ/g, 'ε')

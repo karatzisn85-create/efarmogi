@@ -142,6 +142,17 @@
     "subprojectKey",
     "user",
     "userRole",
-    "userFullName"
+    "userFullName",
+    "prosklisiFiles",
+    "prosklisiFolders",
+    "fileGroups",
+    "entaxiPDFs",
+    "approvalPDFs",
+    "entaxiPDF",
+    "approvalPDF",
+    "existingEntaxiFiles",
+    "existingApprovalFiles",
+    "pdfFiles",
+    "pdfFileName"
   ]
 }

@@ -44,8 +44,29 @@ function isEmptyValue(v) {
   return false;
 }
 
+function normalizeString(s) {
+  return s
+    .normalize('NFC')
+    .replace(/[\u200B\u200C\u200D\uFEFF\u00AD]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function deepNormalize(v) {
+  if (typeof v === 'string') return normalizeString(v);
+  if (Array.isArray(v)) return v.map(deepNormalize);
+  if (isPlainObject(v)) {
+    const out = {};
+    for (const [k, val] of Object.entries(v)) out[k] = deepNormalize(val);
+    return out;
+  }
+  return v;
+}
+
 function valuesEqual(a, b) {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return JSON.stringify(deepNormalize(a)) === JSON.stringify(deepNormalize(b));
 }
 
 function formatAuditScalar(key, value, catalog) {

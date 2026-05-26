@@ -5,186 +5,214 @@ import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
+const C = {
+  white: '#ffffff', indigo: '#6366f1', indigoLight: '#eef2ff',
+  emeraldDark: '#065f46', red: '#ef4444',
+  slate100: '#f1f5f9', slate200: '#e2e8f0', slate300: '#cbd5e1',
+  slate500: '#64748b', slate600: '#475569', slate800: '#1e293b'
+};
+
 const Overlay = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.8);
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
-  align-items: center;
   justify-content: center;
+  align-items: center;
   z-index: 10000;
-  backdrop-filter: blur(5px);
+  padding: 2rem;
 `;
 
 const Modal = styled.div`
-  background: white;
-  border-radius: 20px;
-  width: 90%;
-  max-width: 1000px;
-  max-height: 80vh;
-  overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  background: ${C.white};
+  border-radius: 16px;
+  max-width: 860px;
+  width: 95%;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 25px 60px rgba(15, 23, 42, 0.28);
+  overflow: hidden;
 `;
 
 const Header = styled.div`
-  padding: 2rem;
-  border-bottom: 1px solid #e9ecef;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 1.25rem 1.75rem;
+  border-bottom: 2px solid ${C.slate200};
+  background: linear-gradient(135deg, ${C.slate100} 0%, ${C.white} 100%);
+  flex-shrink: 0;
 `;
 
 const Title = styled.h2`
+  color: ${C.slate800};
+  font-size: 1.2rem;
+  font-weight: 700;
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
 `;
 
 const CloseButton = styled.button`
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
-  color: white;
-  font-size: 1.5rem;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
+  border: 1px solid ${C.slate300};
+  background: ${C.white};
+  color: ${C.slate500};
+  font-size: 1.1rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: scale(1.1);
-  }
+  transition: background 0.18s, color 0.18s;
+  &:hover { background: #fee2e2; color: ${C.red}; border-color: #fecaca; }
 `;
 
 const Content = styled.div`
-  padding: 2rem;
+  padding: 1.25rem 1.75rem;
   overflow-y: auto;
   flex: 1;
 `;
 
 const FolderSection = styled.div`
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 `;
 
 const FolderTitle = styled.h3`
-  margin: 0 0 1rem 0;
-  color: #333;
-  font-size: 1.2rem;
+  margin: 0 0 0.75rem 0;
+  color: ${C.slate800};
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 1rem;
-  background: #f8f9fa;
+  padding: 0.65rem 0.85rem;
+  background: ${C.slate100};
   border-radius: 10px;
-  border-left: 4px solid #667eea;
+  border-left: 4px solid ${C.indigo};
 `;
 
 const FilesList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-left: 1rem;
+  gap: 0.4rem;
 `;
 
 const FileItem = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem;
-  background: white;
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  transition: all 0.2s ease;
-
+  padding: 0.65rem 0.85rem;
+  background: ${C.white};
+  border: 1px solid ${C.slate200};
+  border-radius: 10px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    border-color: #667eea;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    border-color: #c7d2fe;
   }
 `;
 
 const FileInfo = styled.div`
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.65rem;
   flex: 1;
+  min-width: 0;
 `;
 
-const FileIcon = styled.span`
-  font-size: 1.5rem;
+function getFileTypeStyle(fileName) {
+  const ext = String(fileName || '').split('.').pop().toLowerCase();
+  switch (ext) {
+    case 'pdf': return { label: 'PDF', bg: '#ef4444' };
+    case 'doc': case 'docx': return { label: 'DOC', bg: '#2563eb' };
+    case 'xls': case 'xlsx': return { label: 'XLS', bg: '#16a34a' };
+    case 'png': case 'jpg': case 'jpeg': return { label: 'IMG', bg: '#8b5cf6' };
+    default: return { label: ext.toUpperCase().slice(0, 3) || 'FILE', bg: '#64748b' };
+  }
+}
+
+const FileIconBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  height: 28px;
+  padding: 0 0.35rem;
+  border-radius: 6px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: ${C.white};
+  background: ${(p) => p.$bg || C.slate500};
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 `;
 
 const FileName = styled.span`
+  font-size: 0.875rem;
   font-weight: 500;
-  color: #333;
+  color: ${C.slate800};
+  word-break: break-word;
+  line-height: 1.4;
 `;
 
 const FileActions = styled.div`
   display: flex;
-  gap: 0.5rem;
+  gap: 0.3rem;
+  flex-shrink: 0;
 `;
 
-const ActionButton = styled.button`
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.9rem;
+const IconActionBtn = styled.button`
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid ${C.slate200};
+  background: ${C.white};
+  color: ${C.slate500};
+  font-size: 0.95rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-weight: 500;
+  transition: background 0.18s, color 0.18s, border-color 0.18s, box-shadow 0.18s;
+  flex-shrink: 0;
+  &:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); }
+`;
 
-  ${props => props.view && `
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-    color: white;
-    &:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
-    }
-  `}
-
-  ${props => props.download && `
-    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-    color: white;
-    &:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
-    }
-  `}
-
-  ${props => props.delete && `
-    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-    color: white;
-    &:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
-    }
-  `}
+const ViewIconBtn = styled(IconActionBtn)`
+  &:hover { background: ${C.indigoLight}; color: ${C.indigo}; border-color: #c7d2fe; }
+`;
+const DownloadIconBtn = styled(IconActionBtn)`
+  &:hover { background: #ecfdf5; color: ${C.emeraldDark}; border-color: #a7f3d0; }
+`;
+const DeleteIconBtn = styled(IconActionBtn)`
+  &:hover { background: #fee2e2; color: ${C.red}; border-color: #fecaca; }
+`;
+const FolderOpenBtn = styled(IconActionBtn)`
+  &:hover { background: #fef3c7; color: #92400e; border-color: #fde68a; }
 `;
 
 const EmptyFolder = styled.div`
   text-align: center;
-  padding: 2rem;
-  color: #6c757d;
+  padding: 1.5rem;
+  color: ${C.slate500};
   font-style: italic;
-  margin-left: 1rem;
+  font-size: 0.9rem;
+  background: ${C.slate100};
+  border-radius: 10px;
+  border: 1px dashed ${C.slate300};
 `;
 
 const LoadingMessage = styled.div`
   text-align: center;
-  padding: 3rem;
-  color: #6c757d;
-  font-size: 1.1rem;
+  padding: 2.5rem 1.5rem;
+  color: ${C.slate500};
+  font-size: 1rem;
 `;
 
 function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, onGroupFiles }) {
@@ -697,18 +725,6 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     }
   };
 
-  const getFileIcon = (fileName) => {
-    const extension = fileName && fileName.split('.').pop()?.toLowerCase();
-    switch (extension) {
-      case 'pdf':
-        return '📄';
-      case 'doc':
-      case 'docx':
-        return '📝';
-      default:
-        return '📎';
-    }
-  };
 
   if (!isOpen) return null;
 
@@ -739,69 +755,64 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                     <FolderTitle>
                       📎 ΑΡΧΕΙΑ
                     </FolderTitle>
-                    {canManageWorkflow && (
+                    {canManageWorkflow && onGroupFiles && (
                       <button
-                        onClick={() => onGroupFiles && onGroupFiles(files.attachments.filter(file => !file.isGrouped))}
+                        onClick={() => onGroupFiles(files.attachments.filter(file => !file.isGrouped))}
                         style={{
-                          background: '#007bff',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '6px',
-                          padding: '0.6rem 1.2rem',
-                          fontSize: '0.9rem',
+                          background: 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)',
+                          color: '#f8fafc',
+                          border: '1px solid #3730a3',
+                          borderRadius: '8px',
+                          padding: '0.4rem 0.85rem',
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '0.3rem',
-                          fontWeight: '500',
-                          transition: 'all 0.3s ease'
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.03em'
                         }}
                       >
-                        📁 Ομαδοποίηση Αρχείων
+                        📁 Ομαδοποίηση
                       </button>
                     )}
                   </div>
                   <FilesList>
-                    {files.attachments.filter(file => !file.isGrouped).map((file, index) => (
-                      <FileItem key={index}>
-                        <FileInfo>
-                          <FileIcon>{getFileIcon(file.originalName || file.fileName)}</FileIcon>
-                          <FileName>{file.originalName || file.fileName}</FileName>
-                        </FileInfo>
-                        <FileActions>
-                          <ActionButton view onClick={() => handleViewFile(file.fileName, 'attachments')}>
-                            👁️ Προβολή
-                          </ActionButton>
-                          <ActionButton download onClick={() => handleDownloadFile(file.fileName, 'attachments')}>
-                            📥 Λήψη
-                          </ActionButton>
-                          {canManageWorkflow && (
-                            <ActionButton delete onClick={() => handleDeleteFile(file.fileName, 'attachments')}>
-                              🗑️ Διαγραφή
-                            </ActionButton>
-                          )}
-                        </FileActions>
-                      </FileItem>
-                    ))}
+                    {files.attachments.filter(file => !file.isGrouped).map((file, index) => {
+                      const name = file.originalName || file.fileName;
+                      const { label, bg } = getFileTypeStyle(name);
+                      return (
+                        <FileItem key={index}>
+                          <FileInfo>
+                            <FileIconBadge $bg={bg}>{label}</FileIconBadge>
+                            <FileName>{name}</FileName>
+                          </FileInfo>
+                          <FileActions>
+                            <ViewIconBtn title="Προβολή" onClick={() => handleViewFile(file.fileName, 'attachments')}>👁</ViewIconBtn>
+                            <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFile(file.fileName, 'attachments')}>⬇</DownloadIconBtn>
+                            {canManageWorkflow && (
+                              <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(file.fileName, 'attachments')}>✕</DeleteIconBtn>
+                            )}
+                          </FileActions>
+                        </FileItem>
+                      );
+                    })}
                   </FilesList>
                 
                 {/* Attachments Folders - Show directly under files */}
                 {folders.attachments && folders.attachments.length > 0 && (
                   <div style={{ marginTop: '1rem' }}>
                     {folders.attachments.map((folder, index) => (
-                      <FileItem key={`attachments-folder-${index}`} style={{ background: '#e8f5e8', borderColor: '#c3e6c3' }}>
+                      <FileItem key={`attachments-folder-${index}`} style={{ background: '#f0fdf4', borderColor: '#bbf7d0' }}>
                         <FileInfo>
-                          <FileIcon>📁</FileIcon>
+                          <FileIconBadge $bg="#16a34a">DIR</FileIconBadge>
                           <FileName>{folder.originalName || folder.folderName}</FileName>
                         </FileInfo>
                         <FileActions>
-                          <ActionButton view onClick={() => handleOpenFolder(folder.folderName, 'attachments')}>
-                            📂 Άνοιγμα
-                          </ActionButton>
+                          <FolderOpenBtn title="Άνοιγμα" onClick={() => handleOpenFolder(folder.folderName, 'attachments')}>📂</FolderOpenBtn>
                           {canManageWorkflow && (
-                            <ActionButton delete onClick={() => handleDeleteFolder(folder.folderName, 'attachments')}>
-                              🗑️ Διαγραφή
-                            </ActionButton>
+                            <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFolder(folder.folderName, 'attachments')}>✕</DeleteIconBtn>
                           )}
                         </FileActions>
                       </FileItem>
@@ -819,68 +830,58 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                   </FolderTitle>
                   {fileGroups.map((group, groupIndex) => (
                     <div key={group.id || groupIndex} style={{ 
-                      marginBottom: '1.5rem',
-                      background: '#f8f9fa',
-                      border: '1px solid #e9ecef',
-                      borderRadius: '8px',
-                      padding: '1rem'
+                      marginBottom: '1rem',
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      padding: '0.75rem'
                     }}>
                       <div style={{ 
                         display: 'flex', 
                         alignItems: 'center', 
                         justifyContent: 'space-between',
-                        marginBottom: '0.8rem',
-                        paddingBottom: '0.5rem',
-                        borderBottom: '1px solid #dee2e6'
+                        marginBottom: '0.55rem',
+                        paddingBottom: '0.45rem',
+                        borderBottom: '1px solid #e2e8f0'
                       }}>
                         <h4 style={{ 
                           margin: 0, 
-                          color: '#333', 
-                          fontSize: '1.1rem',
-                          fontWeight: '600'
+                          color: '#1e293b', 
+                          fontSize: '0.82rem',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em'
                         }}>
                           📁 {group.title}
                         </h4>
                         {canManageWorkflow && (
-                          <button
+                          <DeleteIconBtn
+                            title="Διαγραφή Ομάδας"
                             onClick={() => handleDeleteGroup(group.id || groupIndex)}
-                            style={{
-                              background: '#dc3545',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              padding: '0.3rem 0.6rem',
-                              cursor: 'pointer',
-                              fontSize: '0.8rem'
-                            }}
-                          >
-                            🗑️ Διαγραφή Ομάδας
-                          </button>
+                          >✕</DeleteIconBtn>
                         )}
                       </div>
                       <FilesList>
                         {group.files && group.files.length > 0 ? (
-                          group.files.map((file, fileIndex) => (
-                            <FileItem key={fileIndex}>
-                              <FileInfo>
-                                <FileIcon>{getFileIcon(file.originalName || file.fileName)}</FileIcon>
-                                <FileName>{file.originalName || file.fileName}</FileName>
-                              </FileInfo>
-                              <FileActions>
-                                <ActionButton view onClick={() => handleViewFile(file.fileName, 'attachments')}>
-                                  👁️ Προβολή
-                                </ActionButton>
-                                <ActionButton download onClick={() => handleDownloadFile(file.fileName, 'attachments')}>
-                                  📥 Λήψη
-                                </ActionButton>
-                                {canManageWorkflow && (
-                                  <ActionButton delete onClick={() => handleDeleteFile(file.fileName, 'attachments')}>
-                                    🗑️ Διαγραφή
-                                  </ActionButton>
-                                )}
-                              </FileActions>
-                            </FileItem>
-                          ))
+                          group.files.map((file, fileIndex) => {
+                            const name = file.originalName || file.fileName;
+                            const { label, bg } = getFileTypeStyle(name);
+                            return (
+                              <FileItem key={fileIndex}>
+                                <FileInfo>
+                                  <FileIconBadge $bg={bg}>{label}</FileIconBadge>
+                                  <FileName>{name}</FileName>
+                                </FileInfo>
+                                <FileActions>
+                                  <ViewIconBtn title="Προβολή" onClick={() => handleViewFile(file.fileName, 'attachments')}>👁</ViewIconBtn>
+                                  <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFile(file.fileName, 'attachments')}>⬇</DownloadIconBtn>
+                                  {canManageWorkflow && (
+                                    <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(file.fileName, 'attachments')}>✕</DeleteIconBtn>
+                                  )}
+                                </FileActions>
+                              </FileItem>
+                            );
+                          })
                         ) : (
                           <EmptyFolder>Δεν υπάρχουν αρχεία σε αυτή την ομάδα</EmptyFolder>
                         )}

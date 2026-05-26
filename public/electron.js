@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
 const path = require('path');
+const os = require('os');
 const { safeWriteJSON, safeWriteJSONAsync } = require('./safeWrite');
 const { initConfigPath, loadConfig, saveConfig, resolveDataDir } = require('./appConfig');
 const fs = require('fs');
@@ -18,6 +19,14 @@ const {
   normalizeTaskAssignment,
   sanitizeTaskAssignmentForClient
 } = require('./taskAssignmentService');
+const {
+  loadEmailConfig,
+  saveEmailConfig,
+  isConfigured,
+  sendWorkspaceCreatedEmail,
+  sendWorkspaceActivityEmail,
+  sendTestEmail
+} = require('./taskAssignmentEmailService');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -176,6 +185,66 @@ let mainWindow = null;
 let dashboardSessionActive = false;
 /** Συνδεδεμένος χρήστης — για έλεγχο ταυτότητας στις ενέργειες χώρου εργασίας. */
 let loggedInUsername = null;
+let heartbeatInterval = null;
+const HEARTBEAT_INTERVAL_MS = 15000;
+const HEARTBEAT_STALE_MS = 45000;
+
+function getHeartbeatDir() {
+  if (!dataDir) return null;
+  const dir = path.join(dataDir, 'ONLINE_STATUS');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function writeHeartbeat(username) {
+  try {
+    const dir = getHeartbeatDir();
+    if (!dir || !username) return;
+    const filePath = path.join(dir, `${username}.json`);
+    const data = { username, timestamp: Date.now(), hostname: os.hostname(), pid: process.pid };
+    fs.writeFileSync(filePath, JSON.stringify(data), 'utf8');
+  } catch (e) { /* ignore */ }
+}
+
+function removeHeartbeat(username) {
+  try {
+    const dir = getHeartbeatDir();
+    if (!dir || !username) return;
+    const filePath = path.join(dir, `${username}.json`);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (e) { /* ignore */ }
+}
+
+function startHeartbeat(username) {
+  stopHeartbeat();
+  writeHeartbeat(username);
+  heartbeatInterval = setInterval(() => writeHeartbeat(username), HEARTBEAT_INTERVAL_MS);
+}
+
+function stopHeartbeat() {
+  if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+}
+
+function getOnlineUsers() {
+  try {
+    const dir = getHeartbeatDir();
+    if (!dir) return [];
+    const now = Date.now();
+    const online = [];
+    for (const file of fs.readdirSync(dir)) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+        if (data.timestamp && (now - data.timestamp) < HEARTBEAT_STALE_MS) {
+          online.push(data.username);
+        } else {
+          try { fs.unlinkSync(path.join(dir, file)); } catch {}
+        }
+      } catch {}
+    }
+    return online;
+  } catch { return []; }
+}
 
 const isDev = false; // Force production mode
 
@@ -260,6 +329,7 @@ ipcMain.handle('getAppVersion', () => app.getVersion());
 ipcMain.handle('get-app-config', () => loadConfig());
 
 ipcMain.handle('set-dashboard-session-active', (_event, activeOrPayload) => {
+  const prevUser = loggedInUsername;
   if (typeof activeOrPayload === 'boolean') {
     dashboardSessionActive = activeOrPayload;
     if (!activeOrPayload) loggedInUsername = null;
@@ -269,7 +339,17 @@ ipcMain.handle('set-dashboard-session-active', (_event, activeOrPayload) => {
     loggedInUsername =
       dashboardSessionActive && p.username ? String(p.username).trim() : null;
   }
+  if (loggedInUsername) {
+    startHeartbeat(loggedInUsername);
+  } else {
+    stopHeartbeat();
+    if (prevUser) removeHeartbeat(prevUser);
+  }
   return { ok: true };
+});
+
+ipcMain.handle('get-online-users', () => {
+  return { success: true, onlineUsers: getOnlineUsers() };
 });
 
 ipcMain.handle('save-app-config', async (_event, newConfig) => {
@@ -414,6 +494,7 @@ ipcMain.handle('get-users', async () => {
     username: u.username,
     role: u.role,
     fullName: u.fullName,
+    ...(u.email ? { email: u.email } : {}),
     active: u.active !== false,
     approved: u.approved !== false,
     createdAt: u.createdAt,
@@ -422,7 +503,7 @@ ipcMain.handle('get-users', async () => {
   }));
 });
 
-ipcMain.handle('create-user', async (_event, { username, password, role, fullName, assignedSupervisors = [], taskAssignment, actingUsername }) => {
+ipcMain.handle('create-user', async (_event, { username, password, role, fullName, email, assignedSupervisors = [], taskAssignment, actingUsername }) => {
   const users = loadUsers();
   if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
     return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
@@ -441,11 +522,13 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     taskAssignmentNorm = normalizeTaskAssignment(taskAssignment);
   }
 
+  const newUserEmail = String(email || '').trim().toLowerCase() || null;
   users.push({
     username: username.trim(),
     passwordHash: hashPassword(password),
     role,
     fullName: fullName || username,
+    ...(newUserEmail ? { email: newUserEmail } : {}),
     active: true,
     assignedSupervisors: role === 'ENGINEER' ? normalizedSupervisors : [],
     taskAssignment: taskAssignmentNorm,
@@ -475,6 +558,14 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
   if (updates.active !== undefined) users[idx].active = updates.active;
   if (updates.approved !== undefined) users[idx].approved = updates.approved;
   if (updates.password) users[idx].passwordHash = hashPassword(updates.password);
+  if ('email' in updates) {
+    const emailVal = String(updates.email || '').trim().toLowerCase() || null;
+    if (emailVal) {
+      users[idx].email = emailVal;
+    } else {
+      delete users[idx].email;
+    }
+  }
   if (updates.assignedSupervisors !== undefined) {
     const normalizedSupervisors = Array.isArray(updates.assignedSupervisors)
       ? [...new Set(updates.assignedSupervisors.map(s => String(s || '').trim()).filter(Boolean))]
@@ -546,6 +637,37 @@ ipcMain.handle('change-password', async (_event, { username, oldPassword, newPas
 ipcMain.handle('has-users', async () => {
   const users = loadUsers();
   return users.length > 0;
+});
+
+ipcMain.handle('rename-user', async (_event, { username, currentPassword, newUsername }) => {
+  const users = loadUsers();
+  const idx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+  if (idx === -1) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
+
+  if (users[idx].passwordHash !== hashPassword(currentPassword)) {
+    return { success: false, error: 'Ο τρέχων κωδικός είναι λάθος' };
+  }
+
+  const trimmed = String(newUsername || '').trim();
+  if (!trimmed) return { success: false, error: 'Εισάγετε νέο όνομα χρήστη' };
+  if (trimmed.toLowerCase() === username.toLowerCase()) {
+    return { success: false, error: 'Το νέο username είναι ίδιο με το τρέχον' };
+  }
+  if (users.some(u => u.username.toLowerCase() === trimmed.toLowerCase())) {
+    return { success: false, error: 'Το username χρησιμοποιείται ήδη από άλλον χρήστη' };
+  }
+
+  const oldUsername = users[idx].username;
+  users[idx].username = trimmed;
+  saveUsers(users);
+  logAuditAction({
+    type: 'update',
+    entityType: 'user',
+    entityId: trimmed,
+    entityTitle: users[idx].fullName || trimmed,
+    details: `Username άλλαξε από "${oldUsername}" σε "${trimmed}"`
+  });
+  return { success: true };
 });
 
 // ── Auto-Update ──
@@ -683,29 +805,51 @@ app.on('before-quit', (event) => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    // Κλείσιμο file watchers
+    stopHeartbeat();
+    if (loggedInUsername) removeHeartbeat(loggedInUsername);
+
     if (lockWatcher) { lockWatcher.close(); lockWatcher = null; }
     if (activeTaskWatcher) { activeTaskWatcher.close(); activeTaskWatcher = null; }
     
     // Clean up mainWindow reference
     mainWindow = null;
     
-    // Clean up all lock files when app closes
+    // Καθαρισμός lock files κατά το κλείσιμο της εφαρμογής
     try {
+      const myHostname = os.hostname();
+      // Old-style locks
       if (fs.existsSync(dataDir)) {
-        const projectDirs = fs.readdirSync(dataDir);
-        for (const projectDir of projectDirs) {
-          const projectPath = path.join(dataDir, projectDir);
-          if (fs.statSync(projectPath).isDirectory()) {
-            const lockFile = path.join(projectPath, '.lock');
-            if (fs.existsSync(lockFile)) {
-              fs.unlinkSync(lockFile);
+        for (const dir of fs.readdirSync(dataDir)) {
+          try {
+            const lockFile = path.join(dataDir, dir, '.lock');
+            if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+          } catch {}
+        }
+      }
+      // New-style locks — σβήνουμε μόνο τα δικά μας (ίδιο hostname)
+      const locksDir = path.join(dataDir, 'locks');
+      if (fs.existsSync(locksDir)) {
+        for (const entityType of fs.readdirSync(locksDir)) {
+          const entityDir = path.join(locksDir, entityType);
+          try {
+            if (!fs.statSync(entityDir).isDirectory()) continue;
+          } catch { continue; }
+          for (const lockFile of fs.readdirSync(entityDir)) {
+            if (!lockFile.endsWith('.lock')) continue;
+            const lockPath = path.join(entityDir, lockFile);
+            try {
+              const lockData = readLockData(lockPath);
+              if (!lockData || lockData.hostname === myHostname) {
+                fs.unlinkSync(lockPath);
+              }
+            } catch {
+              try { fs.unlinkSync(lockPath); } catch {}
             }
           }
         }
       }
     } catch (error) {
-      console.error('Error cleaning up lock files:', error);
+      console.error('[lock] Error cleaning up lock files:', error);
     }
     
     app.quit();
@@ -820,7 +964,13 @@ function startLockWatcher(mainWindow) {
 // FILE LOCKING FUNCTIONS
 // ============================================================
 
-// Check if process is running (Windows)
+// ============================================================
+// LOCK FILE HELPERS
+// ============================================================
+
+const LOCK_STALE_REMOTE_MS = 30 * 60 * 1000; // 30 λεπτά για remote locks
+
+// Check if process is running (τοπικό μόνο)
 function isProcessRunning(pid) {
   try {
     process.kill(pid, 0);
@@ -830,34 +980,64 @@ function isProcessRunning(pid) {
   }
 }
 
-// Generic lock file creation for any entity type
-function createEntityLock(entityType, entityId) {
+// Διαβάζει lock file — επιστρέφει parsed object ή null αν stale/ανύπαρκτο
+function readLockData(lockFile) {
   try {
-    // Create locks directory structure
+    const raw = fs.readFileSync(lockFile, 'utf8').trim();
+    // Νέο format: JSON
+    if (raw.startsWith('{')) {
+      return JSON.parse(raw);
+    }
+    // Παλιό format: plain PID number — μετατροπή σε object
+    const pid = parseInt(raw);
+    return { hostname: os.hostname(), username: '', pid, createdAt: null };
+  } catch {
+    return null;
+  }
+}
+
+// Ελέγχει αν ένα lock object είναι ακόμα έγκυρο
+function isLockValid(lockData) {
+  if (!lockData) return false;
+  const myHostname = os.hostname();
+  if (lockData.hostname === myHostname) {
+    // Τοπικό: έλεγχος PID
+    return isProcessRunning(lockData.pid);
+  } else {
+    // Απομακρυσμένο: stale αν > 30 λεπτά χωρίς ανανέωση
+    if (!lockData.createdAt) return true; // παλιό format από άλλο PC — θεωρείται έγκυρο
+    const age = Date.now() - new Date(lockData.createdAt).getTime();
+    return age < LOCK_STALE_REMOTE_MS;
+  }
+}
+
+// Generic lock file creation
+function createEntityLock(entityType, entityId, username) {
+  try {
     const locksDir = path.join(dataDir, 'locks', entityType);
     if (!fs.existsSync(locksDir)) {
       fs.mkdirSync(locksDir, { recursive: true });
     }
-    
     const lockFile = path.join(locksDir, `${entityId}.lock`);
-    
-    // Check if lock exists
+
     if (fs.existsSync(lockFile)) {
-      const lockData = fs.readFileSync(lockFile, 'utf8');
-      const lockPid = parseInt(lockData.trim());
-      
-      // Check if process is still running
-      if (isProcessRunning(lockPid)) {
-        return { success: false, error: `Το ${entityType} είναι ανοιχτό από άλλον χρήστη` };
-      } else {
-        // Process is dead, remove stale lock
-        fs.unlinkSync(lockFile);
+      const lockData = readLockData(lockFile);
+      if (isLockValid(lockData)) {
+        const who = lockData.username || lockData.hostname || 'άλλον χρήστη';
+        return { success: false, error: `Ανοιχτό από: ${who}`, lockedBy: who };
       }
+      // stale — σβήνουμε
+      fs.unlinkSync(lockFile);
     }
-    
-    // Create new lock
-    fs.writeFileSync(lockFile, process.pid.toString());
-    console.log(`Created lock for ${entityType}: ${entityId}`);
+
+    const lockData = {
+      hostname: os.hostname(),
+      username: username || '',
+      pid: process.pid,
+      createdAt: new Date().toISOString()
+    };
+    fs.writeFileSync(lockFile, JSON.stringify(lockData));
+    console.log(`[lock] Created lock for ${entityType}/${entityId} by ${username || 'unknown'}`);
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
@@ -865,19 +1045,18 @@ function createEntityLock(entityType, entityId) {
 }
 
 // Create lock file for project (backward compatibility)
-function createProjectLock(projectId) {
-  return createEntityLock('projects', projectId);
+function createProjectLock(projectId, username) {
+  return createEntityLock('projects', projectId, username);
 }
 
-// Generic lock file removal for any entity type
+// Generic lock file removal
 function removeEntityLock(entityType, entityId) {
   try {
     const locksDir = path.join(dataDir, 'locks', entityType);
     const lockFile = path.join(locksDir, `${entityId}.lock`);
-    
     if (fs.existsSync(lockFile)) {
       fs.unlinkSync(lockFile);
-      console.log(`Removed lock for ${entityType}: ${entityId}`);
+      console.log(`[lock] Removed lock for ${entityType}/${entityId}`);
     }
     return { success: true };
   } catch (error) {
@@ -887,68 +1066,49 @@ function removeEntityLock(entityType, entityId) {
 
 // Remove lock file for project (backward compatibility)
 function removeProjectLock(projectId) {
-  // Also remove old-style lock
   try {
-    const projectDir = path.join(dataDir, projectId);
-    const lockFile = path.join(projectDir, '.lock');
-    if (fs.existsSync(lockFile)) {
-      fs.unlinkSync(lockFile);
-    }
-  } catch (error) {
-    console.error('Error removing old-style lock:', error);
-  }
-  
+    const oldLock = path.join(dataDir, projectId, '.lock');
+    if (fs.existsSync(oldLock)) fs.unlinkSync(oldLock);
+  } catch {}
   return removeEntityLock('projects', projectId);
 }
 
-// Generic check if entity is locked
+// Generic check if entity is locked — επιστρέφει { locked, lockedBy }
 function isEntityLocked(entityType, entityId) {
   try {
     const locksDir = path.join(dataDir, 'locks', entityType);
     const lockFile = path.join(locksDir, `${entityId}.lock`);
-    
-    if (fs.existsSync(lockFile)) {
-      const lockData = fs.readFileSync(lockFile, 'utf8');
-      const lockPid = parseInt(lockData.trim());
-      
-      // Check if process is still running
-      if (isProcessRunning(lockPid)) {
-        return { locked: true, pid: lockPid };
-      } else {
-        // Process is dead, remove stale lock
-        fs.unlinkSync(lockFile);
-        return { locked: false };
-      }
+    if (!fs.existsSync(lockFile)) return { locked: false };
+
+    const lockData = readLockData(lockFile);
+    if (!lockData) { fs.unlinkSync(lockFile); return { locked: false }; }
+
+    if (isLockValid(lockData)) {
+      const lockedBy = lockData.username || lockData.hostname || '';
+      return { locked: true, lockedBy, hostname: lockData.hostname };
     }
-    
+    // stale — σβήνουμε
+    fs.unlinkSync(lockFile);
     return { locked: false };
   } catch (error) {
     return { locked: false, error: error.message };
   }
 }
 
-// Check if project is locked (backward compatibility)
+// Check if project is locked (backward compatibility + old-style check)
 function isProjectLocked(projectId) {
-  // First check old-style lock
+  // Πρώτα παλιό format lock
   try {
-    const projectDir = path.join(dataDir, projectId);
-    const lockFile = path.join(projectDir, '.lock');
-    
-    if (fs.existsSync(lockFile)) {
-      const lockData = fs.readFileSync(lockFile, 'utf8');
-      const lockPid = parseInt(lockData.trim());
-      
-      if (isProcessRunning(lockPid)) {
-        return { locked: true, pid: lockPid };
-      } else {
-        fs.unlinkSync(lockFile);
+    const oldLock = path.join(dataDir, projectId, '.lock');
+    if (fs.existsSync(oldLock)) {
+      const raw = fs.readFileSync(oldLock, 'utf8').trim();
+      const pid = parseInt(raw);
+      if (!isNaN(pid) && isProcessRunning(pid)) {
+        return { locked: true, lockedBy: os.hostname() };
       }
+      fs.unlinkSync(oldLock);
     }
-  } catch (error) {
-    console.error('Error checking old-style lock:', error);
-  }
-  
-  // Then check new-style lock
+  } catch {}
   return isEntityLocked('projects', projectId);
 }
 
@@ -962,87 +1122,55 @@ function isProjectLocked(projectId) {
 ipcMain.handle('clear-all-locks', async (event) => {
   try {
     let clearedCount = 0;
-    
-    // Clear old-style project locks
+
+    // Καθαρισμός παλιών (old-style) project locks
     if (fs.existsSync(dataDir)) {
-      const projectDirs = fs.readdirSync(dataDir);
-      
-      for (const projectDir of projectDirs) {
-        const projectPath = path.join(dataDir, projectDir);
-        
-        if (fs.statSync(projectPath).isDirectory()) {
-          const lockFile = path.join(projectPath, '.lock');
-          
-          if (fs.existsSync(lockFile)) {
-            try {
-              // Read the PID from lock file
-              const lockData = fs.readFileSync(lockFile, 'utf8');
-              const lockPid = parseInt(lockData.trim());
-              
-              // Check if process is still running
-              if (!isProcessRunning(lockPid)) {
-                // Process is dead, remove stale lock
-                fs.unlinkSync(lockFile);
-                clearedCount++;
-                console.log(`Cleared stale old-style lock for project: ${projectDir}`);
-              } else {
-                console.log(`Keeping active old-style lock for project: ${projectDir} (PID: ${lockPid})`);
-              }
-            } catch (error) {
-              // If we can't read the lock file, delete it anyway
-              fs.unlinkSync(lockFile);
-              clearedCount++;
-              console.log(`Cleared corrupted old-style lock for project: ${projectDir}`);
-            }
+      for (const dir of fs.readdirSync(dataDir)) {
+        const lockFile = path.join(dataDir, dir, '.lock');
+        if (!fs.existsSync(lockFile)) continue;
+        try {
+          const lockData = readLockData(lockFile);
+          if (!isLockValid(lockData)) {
+            fs.unlinkSync(lockFile);
+            clearedCount++;
+            console.log(`[lock] Cleared stale old-style lock: ${dir}`);
           }
+        } catch {
+          try { fs.unlinkSync(lockFile); clearedCount++; } catch {}
         }
       }
     }
-    
-    // Clear new-style locks
+
+    // Καθαρισμός new-style locks
     const locksDir = path.join(dataDir, 'locks');
     if (fs.existsSync(locksDir)) {
-      const entityTypes = fs.readdirSync(locksDir);
-      
-      for (const entityType of entityTypes) {
-        const entityLocksDir = path.join(locksDir, entityType);
-        
-        if (fs.statSync(entityLocksDir).isDirectory()) {
-          const lockFiles = fs.readdirSync(entityLocksDir);
-          
-          for (const lockFile of lockFiles) {
-            if (lockFile.endsWith('.lock')) {
-              const lockPath = path.join(entityLocksDir, lockFile);
-              
-              try {
-                // Read the PID from lock file
-                const lockData = fs.readFileSync(lockPath, 'utf8');
-                const lockPid = parseInt(lockData.trim());
-                
-                // Check if process is still running
-                if (!isProcessRunning(lockPid)) {
-                  // Process is dead, remove stale lock
-                  fs.unlinkSync(lockPath);
-                  clearedCount++;
-                  console.log(`Cleared stale ${entityType} lock: ${lockFile}`);
-                } else {
-                  console.log(`Keeping active ${entityType} lock: ${lockFile} (PID: ${lockPid})`);
-                }
-              } catch (error) {
-                // If we can't read the lock file, delete it anyway
-                fs.unlinkSync(lockPath);
-                clearedCount++;
-                console.log(`Cleared corrupted ${entityType} lock: ${lockFile}`);
-              }
+      for (const entityType of fs.readdirSync(locksDir)) {
+        const entityDir = path.join(locksDir, entityType);
+        try {
+          if (!fs.statSync(entityDir).isDirectory()) continue;
+        } catch { continue; }
+        for (const lockFile of fs.readdirSync(entityDir)) {
+          if (!lockFile.endsWith('.lock')) continue;
+          const lockPath = path.join(entityDir, lockFile);
+          try {
+            const lockData = readLockData(lockPath);
+            if (!isLockValid(lockData)) {
+              fs.unlinkSync(lockPath);
+              clearedCount++;
+              console.log(`[lock] Cleared stale ${entityType} lock: ${lockFile}`);
+            } else {
+              console.log(`[lock] Keeping active ${entityType} lock: ${lockFile} (${lockData.hostname}/${lockData.username})`);
             }
+          } catch {
+            try { fs.unlinkSync(lockPath); clearedCount++; } catch {}
           }
         }
       }
     }
-    
+
     return { success: true, clearedCount };
   } catch (error) {
-    console.error('Error clearing locks:', error);
+    console.error('[lock] Error clearing locks:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1050,8 +1178,8 @@ ipcMain.handle('clear-all-locks', async (event) => {
 // IPC Handler για ξεκλείδωμα συγκεκριμένου project - REMOVED (duplicate, see backward compatibility section)
 
 // Generic IPC Handlers για locking system
-ipcMain.handle('create-entity-lock', async (event, entityType, entityId) => {
-  return createEntityLock(entityType, entityId);
+ipcMain.handle('create-entity-lock', async (event, entityType, entityId, username) => {
+  return createEntityLock(entityType, entityId, username);
 });
 
 ipcMain.handle('remove-entity-lock', async (event, entityType, entityId) => {
@@ -1063,8 +1191,8 @@ ipcMain.handle('check-entity-lock', async (event, entityType, entityId) => {
 });
 
 // Backward compatibility για project locks
-ipcMain.handle('create-project-lock', async (event, projectId) => {
-  return createProjectLock(projectId);
+ipcMain.handle('create-project-lock', async (event, projectId, username) => {
+  return createProjectLock(projectId, username);
 });
 
 ipcMain.handle('check-project-lock', async (event, projectId) => {
@@ -1989,7 +2117,20 @@ ipcMain.handle('create-task-assignment', async (_event, { actingUsername, payloa
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
-    return svc.createTask({ actingUsername: auth.username, payload, newFiles: newFiles || [] });
+    const result = svc.createTask({ actingUsername: auth.username, payload, newFiles: newFiles || [] });
+    if (result.success && result.task) {
+      const emailConfig = loadEmailConfig(dataDir);
+      sendWorkspaceCreatedEmail(result.task, loadUsers(), emailConfig)
+        .then(emailResult => {
+          if (emailResult.skipped) {
+            console.log(`[email] created email skipped: ${emailResult.reason}`);
+          } else if (emailResult.success) {
+            console.log(`[email] created email sent to: ${(emailResult.sentTo || []).join(', ')}`);
+          }
+        })
+        .catch(e => console.error('[email] sendWorkspaceCreatedEmail error:', e.message));
+    }
+    return result;
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -2043,7 +2184,23 @@ ipcMain.handle('add-task-assignment-comment', async (_event, { actingUsername, t
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
-    return svc.addComment({ actingUsername: auth.username, taskId, text });
+    const result = svc.addComment({ actingUsername: auth.username, taskId, text });
+    if (result.success && result.task) {
+      const emailConfig = loadEmailConfig(dataDir);
+      sendWorkspaceActivityEmail(result.task, auth.username, text, loadUsers(), emailConfig)
+        .then(emailResult => {
+          if (emailResult.skipped) {
+            console.log(`[email] comment email skipped: ${emailResult.reason}`);
+          } else if (emailResult.success) {
+            console.log(`[email] comment email sent to: ${(emailResult.sentTo || []).join(', ')}`);
+          }
+          if (emailResult.updatedLastEmailSentAt) {
+            svc.updateLastEmailSentAt({ taskId, timestamp: emailResult.updatedLastEmailSentAt });
+          }
+        })
+        .catch(e => console.error('[email] sendWorkspaceActivityEmail error:', e.message));
+    }
+    return result;
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -2055,7 +2212,25 @@ ipcMain.handle('add-task-assignment-files', async (_event, { actingUsername, tas
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
-    return svc.addFiles({ actingUsername: auth.username, taskId, newFiles: newFiles || [] });
+    const result = svc.addFiles({ actingUsername: auth.username, taskId, newFiles: newFiles || [] });
+    if (result.success && result.task) {
+      const fileNames = (result.task.files || []).slice(-newFiles.length).map(f => f.name).join(', ');
+      const msgText = `Νέα αρχεία: ${fileNames}`;
+      const emailConfig = loadEmailConfig(dataDir);
+      sendWorkspaceActivityEmail(result.task, auth.username, msgText, loadUsers(), emailConfig)
+        .then(emailResult => {
+          if (emailResult.skipped) {
+            console.log(`[email] files email skipped: ${emailResult.reason}`);
+          } else if (emailResult.success) {
+            console.log(`[email] files email sent to: ${(emailResult.sentTo || []).join(', ')}`);
+          }
+          if (emailResult.updatedLastEmailSentAt) {
+            svc.updateLastEmailSentAt({ taskId, timestamp: emailResult.updatedLastEmailSentAt });
+          }
+        })
+        .catch(e => console.error('[email] sendWorkspaceActivityEmail (files) error:', e.message));
+    }
+    return result;
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -2108,6 +2283,76 @@ ipcMain.handle('open-task-assignment-file', async (_event, { actingUsername, tas
     const openResult = await shell.openPath(check.filePath);
     if (openResult) return { success: false, error: `Αδυναμία ανοίγματος αρχείου: ${openResult}` };
     return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+/* ── Email Config & Workspace Email Toggle ── */
+
+ipcMain.handle('get-email-config', async () => {
+  try {
+    if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    const config = loadEmailConfig(dataDir);
+    // Μάσκαρε το appPassword για ασφάλεια (στέλνε μόνο αν υπάρχει)
+    return {
+      success: true,
+      config: {
+        gmail: {
+          user: config.gmail?.user || '',
+          appPasswordSet: !!(config.gmail?.appPassword),
+          fromName: config.gmail?.fromName || 'ergoHub'
+        }
+      }
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('save-email-config', async (_event, { user, appPassword, fromName }) => {
+  try {
+    if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    const existing = loadEmailConfig(dataDir);
+    let normalizedUser = String(user || '').trim().toLowerCase();
+    if (normalizedUser && !normalizedUser.includes('@')) {
+      normalizedUser = `${normalizedUser}@gmail.com`;
+    }
+    const normalizedPass =
+      appPassword !== undefined
+        ? String(appPassword).replace(/\s+/g, '').trim()
+        : (existing.gmail?.appPassword || '').replace(/\s+/g, '').trim();
+    const updated = {
+      gmail: {
+        user: normalizedUser,
+        appPassword: normalizedPass,
+        fromName: (fromName || 'ergoHub').trim()
+      }
+    };
+    saveEmailConfig(dataDir, updated);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('test-email-config', async (_event, { toAddress }) => {
+  try {
+    if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    const emailConfig = loadEmailConfig(dataDir);
+    return await sendTestEmail(toAddress, emailConfig);
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('toggle-workspace-email-notifications', async (_event, { actingUsername, taskId, enabled }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
+  try {
+    const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
+    return svc.toggleEmailNotifications({ actingUsername: auth.username, taskId, enabled });
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -2443,6 +2688,25 @@ ipcMain.handle('save-files', async (event, files, projectId, subprojectId) => {
       savedFiles.push(fileName);
     }
     
+    const dataPath = path.join(dataDir, projectId, subprojectId, 'data.json');
+    if (fs.existsSync(dataPath) && savedFiles.length > 0) {
+      try {
+        const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+        if (!Array.isArray(data.files)) {
+          data.files = [];
+        }
+        savedFiles.forEach((fileName) => {
+          if (!data.files.includes(fileName)) {
+            data.files.push(fileName);
+          }
+        });
+        data.updatedAt = new Date().toISOString();
+        safeWriteJSON(dataPath, data);
+      } catch (jsonErr) {
+        console.error('Error updating data.json after save-files:', jsonErr);
+      }
+    }
+
     logAuditAction({
       type: 'create',
       entityType: 'file',
@@ -3289,7 +3553,7 @@ ipcMain.handle('save-entaxi', async (event, entaxiData) => {
       type: existingEntaxiData ? 'update' : 'create',
       entityType: 'entaxi',
       entityId: entaxiId,
-      entityTitle: savedData.title || savedData.projectTitle || entaxiId,
+      entityTitle: savedData.subject || savedData.title || savedData.projectTitle || entaxiId,
       details: existingEntaxiData ? 'Ενημέρωση ένταξης' : 'Δημιουργία νέας ένταξης',
       oldValue: existingEntaxiData,
       newValue: savedData
@@ -8897,9 +9161,23 @@ ipcMain.handle('save-notes', async (event, notesData) => {
       }
     }
     
-    // Merge: update notes, preserve groups
+    // Merge reminderSent from disk (the scheduler may have updated it)
+    const existingNotesMap = {};
+    for (const n of (existingData.notes || [])) {
+      if (n.id) existingNotesMap[n.id] = n;
+    }
+    const mergedNotes = notesData.notes.map(n => {
+      const disk = existingNotesMap[n.id];
+      if (disk && disk.reminderSent && !n.reminderSent) {
+        if (n.reminderDate === disk.reminderDate && n.reminderTime === disk.reminderTime) {
+          return { ...n, reminderSent: true };
+        }
+      }
+      return n;
+    });
+
     const dataToSave = {
-      notes: notesData.notes,
+      notes: mergedNotes,
       groups: notesData.groups || existingData.groups || [{
         id: DEFAULT_NOTE_GROUP_ID,
         name: 'Γενικές Σημειώσεις',
@@ -8933,6 +9211,223 @@ ipcMain.handle('save-notes', async (event, notesData) => {
     return { success: false, error: error.message };
   }
 });
+
+// Upload files to a note
+ipcMain.handle('upload-note-files', async (_event, { noteId }) => {
+  try {
+    if (!noteId) return { success: false, error: 'Απαιτείται noteId' };
+
+    const result = await dialog.showOpenDialog({
+      title: 'Επιλογή Αρχείων Σημείωσης',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Όλα τα Αρχεία', extensions: ['*'] }
+      ]
+    });
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    const noteFilesDir = path.join(notesDir, 'ΑΡΧΕΙΑ', noteId);
+    if (!fs.existsSync(noteFilesDir)) {
+      fs.mkdirSync(noteFilesDir, { recursive: true });
+    }
+
+    const savedFiles = [];
+    for (const filePath of result.filePaths) {
+      const fileName = path.basename(filePath);
+      let destName = fileName;
+      let counter = 1;
+      while (fs.existsSync(path.join(noteFilesDir, destName))) {
+        const ext = path.extname(fileName);
+        const base = path.basename(fileName, ext);
+        destName = `${base} (${counter})${ext}`;
+        counter++;
+      }
+      fs.copyFileSync(filePath, path.join(noteFilesDir, destName));
+      savedFiles.push(destName);
+    }
+
+    return { success: true, files: savedFiles };
+  } catch (error) {
+    logger.error('upload-note-files failed', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get files for a note
+ipcMain.handle('get-note-files', async (_event, { noteId }) => {
+  try {
+    if (!noteId) return { success: true, files: [] };
+    const noteFilesDir = path.join(notesDir, 'ΑΡΧΕΙΑ', noteId);
+    if (!fs.existsSync(noteFilesDir)) return { success: true, files: [] };
+
+    const files = fs.readdirSync(noteFilesDir)
+      .filter(f => !f.startsWith('.'))
+      .map(f => {
+        const stat = fs.statSync(path.join(noteFilesDir, f));
+        return { name: f, size: stat.size };
+      });
+    return { success: true, files };
+  } catch (error) {
+    logger.error('get-note-files failed', error);
+    return { success: true, files: [] };
+  }
+});
+
+// Open a note file
+ipcMain.handle('open-note-file', async (_event, { noteId, fileName }) => {
+  try {
+    if (!noteId || !fileName) return { success: false, error: 'Απαιτείται noteId και fileName' };
+    const filePath = path.join(notesDir, 'ΑΡΧΕΙΑ', noteId, fileName);
+    if (!fs.existsSync(filePath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(notesDir))) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+
+    await shell.openPath(resolved);
+    return { success: true };
+  } catch (error) {
+    logger.error('open-note-file failed', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Delete a note file
+ipcMain.handle('delete-note-file', async (_event, { noteId, fileName }) => {
+  try {
+    if (!noteId || !fileName) return { success: false, error: 'Απαιτείται noteId και fileName' };
+    const filePath = path.join(notesDir, 'ΑΡΧΕΙΑ', noteId, fileName);
+
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(notesDir))) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    return { success: true };
+  } catch (error) {
+    logger.error('delete-note-file failed', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Delete all files for a note (cleanup on note delete)
+ipcMain.handle('delete-note-files-dir', async (_event, { noteId }) => {
+  try {
+    if (!noteId) return { success: true };
+    const noteFilesDir = path.join(notesDir, 'ΑΡΧΕΙΑ', noteId);
+    if (fs.existsSync(noteFilesDir)) {
+      fs.rmSync(noteFilesDir, { recursive: true, force: true });
+    }
+    return { success: true };
+  } catch (error) {
+    logger.error('delete-note-files-dir failed', error);
+    return { success: true };
+  }
+});
+
+// Check if user has email + get superadmin name
+ipcMain.handle('check-user-email', async (_event, { username }) => {
+  try {
+    const users = loadUsers();
+    const user = users.find(u => u.username?.toLowerCase() === (username || '').toLowerCase());
+    const hasEmail = !!(user?.email && user.email.includes('@'));
+    const superAdmin = users.find(u => u.role === 'SUPERADMIN');
+    return {
+      hasEmail,
+      userEmail: hasEmail ? user.email : null,
+      superAdminFullName: superAdmin?.fullName || null
+    };
+  } catch (error) {
+    return { hasEmail: false, superAdminFullName: null };
+  }
+});
+
+// ── Note reminder scheduler ──
+let noteReminderInterval = null;
+
+function startNoteReminderChecker() {
+  if (noteReminderInterval) return;
+  noteReminderInterval = setInterval(async () => {
+    try {
+      if (!notesDataPath || !fs.existsSync(notesDataPath)) return;
+      const data = JSON.parse(fs.readFileSync(notesDataPath, 'utf8'));
+      if (!data?.notes || !Array.isArray(data.notes)) return;
+
+      const now = new Date();
+      let changed = false;
+      const emailConfig = loadEmailConfig(dataDir);
+      if (!isConfigured(emailConfig)) return;
+
+      const users = loadUsers();
+
+      for (const note of data.notes) {
+        if (!note.reminderDate || note.reminderSent) continue;
+        const reminderDt = new Date(note.reminderDate + 'T' + (note.reminderTime || '09:00'));
+        if (isNaN(reminderDt.getTime()) || reminderDt > now) continue;
+
+        const creator = note.createdBy
+          ? users.find(u => u.username?.toLowerCase() === note.createdBy.toLowerCase())
+          : null;
+        if (!creator?.email || !creator.email.includes('@')) {
+          note.reminderSent = true;
+          changed = true;
+          continue;
+        }
+
+        try {
+          const nodemailer = require('nodemailer');
+          const user = String(emailConfig.gmail.user || '').trim().toLowerCase();
+          const pass = String(emailConfig.gmail.appPassword || '').replace(/\s+/g, '').trim();
+          const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: { user, pass }
+          });
+
+          const noteTitle = note.title || 'Χωρίς τίτλο';
+          const noteContent = (note.content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+          const html = `
+<div style="font-family:Segoe UI,sans-serif;max-width:540px;margin:0 auto;padding:24px;background:#fff;border-radius:12px;border:1px solid #e2e8f0">
+  <div style="background:linear-gradient(135deg,#4338ca,#6366f1);padding:16px 20px;border-radius:10px;margin-bottom:16px">
+    <h2 style="color:#fff;margin:0;font-size:1.1rem">🔔 Υπενθύμιση Σημείωσης</h2>
+  </div>
+  <h3 style="color:#1e293b;margin:0 0 8px">${noteTitle.replace(/</g, '&lt;')}</h3>
+  <div style="color:#475569;font-size:0.92rem;line-height:1.6;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:12px">${noteContent || '<em>Κενό περιεχόμενο</em>'}</div>
+  <div style="color:#94a3b8;font-size:0.8rem">ergoHub · Γρήγορες Σημειώσεις</div>
+</div>`;
+
+          await transporter.sendMail({
+            from: `ergoHub <${user}>`,
+            to: creator.email,
+            subject: `🔔 Υπενθύμιση: ${noteTitle}`,
+            html
+          });
+
+          logger.info(`Note reminder email sent to ${creator.email} for note "${noteTitle}"`);
+        } catch (emailErr) {
+          logger.error('Failed to send note reminder email', emailErr);
+        }
+
+        note.reminderSent = true;
+        changed = true;
+      }
+
+      if (changed) {
+        safeWriteJSON(notesDataPath, data);
+      }
+    } catch (error) {
+      logger.error('Note reminder check failed', error);
+    }
+  }, 60 * 1000);
+}
+
+startNoteReminderChecker();
 
 // Save note groups
 ipcMain.handle('save-note-groups', async (event, groupsData) => {
@@ -10007,6 +10502,14 @@ function logAuditAction(action) {
       userRole = auditUser.role;
     }
 
+    const changes = (oldValue && newValue)
+      ? collectAuditChanges(oldValue, newValue, { engineerCatalog: getRegisteredEngineersList() })
+      : null;
+
+    if (type === 'update' && changes && Object.keys(changes).length === 0) {
+      return;
+    }
+
     const auditEntry = {
       id: uuidv4(),
       timestamp: new Date().toISOString(),
@@ -10020,9 +10523,7 @@ function logAuditAction(action) {
       details: details || '',
       oldValue: oldValue || null,
       newValue: newValue || null,
-      changes: oldValue && newValue
-        ? collectAuditChanges(oldValue, newValue, { engineerCatalog: getRegisteredEngineersList() })
-        : null
+      changes: changes
     };
 
     let auditLog = { logs: [] };
@@ -10790,8 +11291,7 @@ ipcMain.handle('get-audit-log', async (event, options = {}) => {
       } else if (role === 'ADMIN') {
         filteredLogs = filteredLogs.filter(log => {
           const logRole = (log.userRole || '').toUpperCase();
-          if (!logRole) return true;
-          return logRole === 'ADMIN' || logRole === 'ENGINEER' || logRole === 'USER';
+          return logRole === 'ADMIN' || !logRole;
         });
       }
       // SUPERADMIN sees everything - no filtering
@@ -11079,94 +11579,3 @@ ipcMain.handle('export-invest-projects', async (event, options) => {
 });
 
 // Rollback to previous state
-ipcMain.handle('rollback-audit-entry', async (event, auditEntryId) => {
-  try {
-    // Load audit log
-    let auditLog = { logs: [] };
-    if (fs.existsSync(auditLogPath)) {
-      auditLog = JSON.parse(fs.readFileSync(auditLogPath, 'utf8'));
-    }
-    
-    // Find the audit entry
-    const auditEntry = auditLog.logs.find(log => log.id === auditEntryId);
-    if (!auditEntry) {
-      return { success: false, error: 'Audit entry not found' };
-    }
-    
-    // Only allow rollback for update and delete actions
-    if (auditEntry.action === 'create') {
-      return { success: false, error: 'Cannot rollback create action. Use delete instead.' };
-    }
-    
-    // Create safety backup before rollback
-    console.log('🛡️ Creating safety backup before rollback...');
-    const safetyBackupResult = await createBackup({
-      type: 'safety',
-      background: false,
-      notifyUser: false
-    });
-    
-    if (!safetyBackupResult.success) {
-      console.error('⚠️ Warning: Could not create safety backup');
-      // Continue anyway but warn
-    }
-    
-    // Perform rollback based on entity type
-    if (auditEntry.entityType === 'subproject') {
-      if (auditEntry.action === 'delete') {
-        // Cannot rollback delete - data is gone
-        return { success: false, error: 'Δεν μπορεί να γίνει rollback διαγραφής. Τα δεδομένα έχουν διαγραφεί.' };
-      } else if (auditEntry.action === 'update' && auditEntry.oldValue) {
-        // Restore old values
-        const projectId = auditEntry.oldValue.projectId;
-        const subprojectId = auditEntry.oldValue.subprojectId || auditEntry.entityId;
-        
-        if (!projectId || !subprojectId) {
-          return { success: false, error: 'Missing projectId or subprojectId in audit entry' };
-        }
-        
-        const subprojectDir = path.join(dataDir, projectId, subprojectId);
-        const jsonPath = path.join(subprojectDir, 'data.json');
-        
-        // Ensure directory exists
-        if (!fs.existsSync(subprojectDir)) {
-          fs.mkdirSync(subprojectDir, { recursive: true });
-        }
-        
-        // Restore old data
-        const dataToRestore = {
-          ...auditEntry.oldValue,
-          updatedAt: new Date().toISOString(),
-          restoredAt: new Date().toISOString(),
-          restoredFromAuditEntry: auditEntryId
-        };
-        
-        safeWriteJSON(jsonPath, dataToRestore);
-        
-        console.log(`✅ Rolled back subproject ${subprojectId} to previous state`);
-        
-        // Log the rollback action
-        logAuditAction({
-          type: 'update',
-          entityType: 'subproject',
-          entityId: subprojectId,
-          entityTitle: `${dataToRestore.projectTitle || 'N/A'} - ${dataToRestore.subprojectTitle || 'N/A'}`,
-          details: `Επαναφορά δεδομένων σε προηγούμενη κατάσταση`,
-          oldValue: null, // Current state (we don't have it)
-          newValue: dataToRestore
-        });
-        
-        return { 
-          success: true, 
-          message: 'Το rollback ολοκληρώθηκε επιτυχώς',
-          safetyBackup: safetyBackupResult.backupInfo
-        };
-      }
-    }
-    
-    return { success: false, error: 'Rollback not supported for this entity type or action' };
-  } catch (error) {
-    console.error('Error rolling back audit entry:', error);
-    return { success: false, error: error.message };
-  }
-});

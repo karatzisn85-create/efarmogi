@@ -848,7 +848,10 @@ const normalizeText = (text) => {
     .replace(/\t/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/ά/g, 'α').replace(/έ/g, 'ε').replace(/ή/g, 'η')
+    .replace(/ί/g, 'ι').replace(/ό/g, 'ο').replace(/ύ/g, 'υ').replace(/ώ/g, 'ω')
+    .replace(/ΐ/g, 'ι').replace(/ΰ/g, 'υ');
 };
 
 const CreditApprovalsPanel = ({
@@ -1194,32 +1197,26 @@ const CreditApprovalsPanel = ({
           );
 
           const hasMatchingSubprojects = Object.keys(filteredSubprojects).length > 0;
-          const hasModifications = project.modifications && Array.isArray(project.modifications) && project.modifications.length > 0;
           
           console.log('📊 Project filter result:', {
             projectTitle: project.title,
             totalSubprojects: Object.keys(subprojects).length,
             matchingSubprojects: Object.keys(filteredSubprojects).length,
-            hasModifications: hasModifications,
-            willKeep: hasMatchingSubprojects || hasModifications
+            willKeep: hasMatchingSubprojects
           });
           
-          // Αν δεν έχει matching subprojects ούτε modifications, αποκλείουμε το project
-          if (!hasMatchingSubprojects && !hasModifications) {
+          // Κρατάμε μόνο έργα που έχουν matching subprojects — οι τροποποιήσεις δεν αρκούν
+          if (!hasMatchingSubprojects) {
             return null;
           }
 
-          // Αν έχει matching subprojects, δείξε μόνο αυτά
-          // Αν έχει modifications αλλά όχι matching subprojects, δείξε το project με άδειο subprojects
-          // Προσθέτουμε το folderName (key) σε κάθε subproject για σωστή αναζήτηση PDFs
-          const enrichedSubprojects = hasMatchingSubprojects 
-            ? Object.fromEntries(
-                Object.entries(filteredSubprojects).map(([key, subproject]) => [
-                  key,
-                  { ...subproject, folderName: key }
-                ])
-              )
-            : {};
+          // Εμφανίζουμε μόνο τα matching subprojects
+          const enrichedSubprojects = Object.fromEntries(
+            Object.entries(filteredSubprojects).map(([key, subproject]) => [
+              key,
+              { ...subproject, folderName: key }
+            ])
+          );
           
           return {
             ...project,

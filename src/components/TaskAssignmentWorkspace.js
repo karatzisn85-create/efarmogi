@@ -133,6 +133,31 @@ const ActionsCol = styled.div`
   align-items: flex-end;
 `;
 
+const EmailToggleBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.72rem;
+  min-height: 34px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border: 1.5px solid ${p => p.$active ? '#059669' : '#cbd5e1'};
+  background: ${p => p.$active ? '#ecfdf5' : '#f8fafc'};
+  color: ${p => p.$active ? '#065f46' : '#64748b'};
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  &:hover:not(:disabled) {
+    border-color: ${p => p.$active ? '#047857' : '#94a3b8'};
+    background: ${p => p.$active ? '#d1fae5' : '#f1f5f9'};
+  }
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+`;
+
 const StatusStack = styled.div`
   display: flex;
   flex-direction: column;
@@ -1076,6 +1101,7 @@ function TaskAssignmentWorkspace({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [emailNotifBusy, setEmailNotifBusy] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const feedRef = useRef(null);
   const prevDepartModalRef = useRef(false);
@@ -1117,6 +1143,24 @@ function TaskAssignmentWorkspace({
       el.setSelectionRange(newCursor, newCursor);
     });
   }, [comment]);
+
+  const handleToggleEmailNotifications = useCallback(async () => {
+    if (emailNotifBusy) return;
+    setEmailNotifBusy(true);
+    try {
+      const newVal = !task.emailNotifications;
+      const result = await ipcRenderer.invoke('toggle-workspace-email-notifications', {
+        actingUsername,
+        taskId: task.id,
+        enabled: newVal
+      });
+      if (result.success && onUpdated) onUpdated(result.task);
+    } catch (e) {
+      console.error('[workspace] toggle email notifications error:', e);
+    } finally {
+      setEmailNotifBusy(false);
+    }
+  }, [task, actingUsername, emailNotifBusy, onUpdated]);
 
   const isAssigner = task.createdBy?.toLowerCase() === actingUsername?.toLowerCase();
   const isAssignee = (task.assignees || []).some(
@@ -1348,9 +1392,13 @@ function TaskAssignmentWorkspace({
                   Κλειστός · χρειάζεται ενέργεια
                 </Badge>
               ) : null}
-              <MetaMuted>Ολοκλήρωση έως</MetaMuted>
-              <DueMeta $overdue={overdue}>{formatTaskDueDate(task.dueDate, task.dueTime)}</DueMeta>
-              {overdue ? <Badge $bg="#fee2e2" $color="#991b1b">Εκπρόθεσμη</Badge> : null}
+              {task.dueDate && String(task.dueDate).trim() ? (
+                <>
+                  <MetaMuted>Ολοκλήρωση έως</MetaMuted>
+                  <DueMeta $overdue={overdue}>{formatTaskDueDate(task.dueDate, task.dueTime)}</DueMeta>
+                  {overdue ? <Badge $bg="#fee2e2" $color="#991b1b">Εκπρόθεσμη</Badge> : null}
+                </>
+              ) : null}
             </MetaRow>
           </HeadTitleRow>
           <ParticipantDetails>
@@ -1414,6 +1462,17 @@ function TaskAssignmentWorkspace({
                 )}
               </FlowStatusSelect>
             </StatusStack>
+          )}
+          {isAssigner && (
+            <EmailToggleBtn
+              type="button"
+              $active={!!task.emailNotifications}
+              disabled={emailNotifBusy}
+              title={task.emailNotifications ? 'Ειδοποιήσεις email ενεργές — κλικ για απενεργοποίηση' : 'Ειδοποιήσεις email ανενεργές — κλικ για ενεργοποίηση'}
+              onClick={handleToggleEmailNotifications}
+            >
+              {task.emailNotifications ? '✉ Email ON' : '✉ Email OFF'}
+            </EmailToggleBtn>
           )}
           {workflowOpen && isAssignee && !isAssigner && ['pending', 'in_progress'].includes(task.status) && (
             <ActionBtn

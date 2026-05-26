@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import { safeConfirm } from '../utils/safeDialogs';
 import { formatAuditDisplayValue } from '../utils/formatAuditDisplay';
+import { showConfirm } from '../utils/confirmModal';
 import auditConfig from '../data/auditFieldLabels.json';
 
 const ipcRenderer = window.electronAPI;
@@ -128,6 +128,28 @@ const InfoHighlight = styled.div`
   background: #f0f0ff;
   border-radius: 8px;
   border-left: 3px solid #4f46e5;
+`;
+
+const ClearButton = styled.button`
+  background: rgba(220, 53, 69, 0.8);
+  border: none;
+  color: white;
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  margin-right: 0.5rem;
+
+  &:hover {
+    background: rgba(220, 53, 69, 1);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 
 const CloseButton = styled.button`
@@ -310,30 +332,6 @@ const EmptyMessage = styled.div`
   font-size: 1rem;
 `;
 
-const RollbackButton = styled.button`
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  border: none;
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  transition: all 0.2s;
-  margin-left: auto;
-
-  &:hover {
-    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  }
-
-  &:disabled {
-    background: #ccc;
-    cursor: not-allowed;
-    transform: none;
-  }
-`;
 
 const StatsContainer = styled.div`
   background: #f8f9fa;
@@ -397,7 +395,6 @@ function getVisibilityText(role) {
 function AuditLogViewer({ isOpen, onClose, currentUser }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [rollingBack, setRollingBack] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
   const [engineerCatalog, setEngineerCatalog] = useState([]);
   const [filters, setFilters] = useState({
@@ -440,7 +437,29 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
       });
 
       if (result.success) {
-        setLogs(result.logs || []);
+        const norm = (s) => {
+          if (typeof s !== 'string') return s;
+          return s.normalize('NFC')
+            .replace(/[\u200B\u200C\u200D\uFEFF\u00AD]/g, '')
+            .replace(/\u00A0/g, ' ')
+            .replace(/[\r\n\t]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        };
+        const cleaned = (result.logs || []).map(log => {
+          if (log.action !== 'update' || !log.changes) return log;
+          const realChanges = {};
+          for (const [field, change] of Object.entries(log.changes)) {
+            const o = norm(change.old);
+            const n = norm(change.new);
+            if (o !== n) realChanges[field] = change;
+          }
+          return { ...log, changes: realChanges };
+        }).filter(log => {
+          if (log.action === 'update' && log.changes && Object.keys(log.changes).length === 0) return false;
+          return true;
+        });
+        setLogs(cleaned);
       } else {
         console.error('Error loading audit log:', result.error);
       }
@@ -492,50 +511,22 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
     return fieldKey;
   };
 
-  const handleRollback = async (log) => {
-    if (log.action === 'create') {
-      alert('Δεν μπορεί να γίνει επαναφορά δημιουργίας. Χρησιμοποιήστε διαγραφή αν θέλετε να αφαιρέσετε το στοιχείο.');
-      return;
-    }
-
-    if (log.action === 'delete') {
-      alert('Δεν μπορεί να γίνει επαναφορά διαγραφής. Τα δεδομένα έχουν διαγραφεί.');
-      return;
-    }
-
-    if (!log.oldValue) {
-      alert('Δεν υπάρχουν προηγούμενα δεδομένα για επαναφορά.');
-      return;
-    }
-
-    if (!safeConfirm(
-      `ΕΠΙΒΕΒΑΙΩΣΗ ΕΠΑΝΑΦΟΡΑΣ\n\n` +
-      `Θέλετε να επαναφέρετε το "${log.entityTitle}" στην προηγούμενη κατάσταση;\n\n` +
-      `Αυτή η ενέργεια:\n` +
-      `- Θα δημιουργήσει αντίγραφο ασφαλείας\n` +
-      `- Θα επαναφέρει τα προηγούμενα δεδομένα\n` +
-      `- Δεν μπορεί να αναιρεθεί εύκολα\n\n` +
-      `Είστε σίγουροι;`
-    )) {
-      return;
-    }
-
-    setRollingBack(log.id);
+  const handleClearAuditLog = async () => {
+    const confirmed = await showConfirm({
+      title: 'Εκκαθάριση Ιστορικού Ενεργειών',
+      message: `Πρόκειται να διαγράψετε όλες τις ${logs.length} καταγραφές από το ιστορικό ενεργειών.`,
+      detail: 'Η ενέργεια αυτή είναι μη αναστρέψιμη. Τα δεδομένα της εφαρμογής δεν θα επηρεαστούν.',
+      confirmLabel: 'Εκκαθάριση',
+      icon: '🗑'
+    });
+    if (!confirmed) return;
     try {
-      const result = await ipcRenderer.invoke('rollback-audit-entry', log.id);
-
+      const result = await ipcRenderer.invoke('clear-audit-log', 0);
       if (result.success) {
-        alert('Η επαναφορά ολοκληρώθηκε επιτυχώς!\n\nΗ εφαρμογή θα ανανεωθεί για να δείτε τις αλλαγές.');
         await loadAuditLog();
-        window.location.reload();
-      } else {
-        alert(`Σφάλμα επαναφοράς: ${result.error}`);
       }
     } catch (error) {
-      console.error('Error rolling back:', error);
-      alert(`Σφάλμα: ${error.message}`);
-    } finally {
-      setRollingBack(null);
+      console.error('Error clearing audit log:', error);
     }
   };
 
@@ -576,7 +567,14 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
               )}
             </InfoButton>
           </HeaderLeft>
-          <CloseButton onClick={onClose}>Κλείσιμο</CloseButton>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {userRole === 'SUPERADMIN' && logs.length > 0 && (
+              <ClearButton onClick={handleClearAuditLog}>
+                🗑 Εκκαθάριση
+              </ClearButton>
+            )}
+            <CloseButton onClick={onClose}>Κλείσιμο</CloseButton>
+          </div>
         </ModalHeader>
 
         <ModalContent>
@@ -674,20 +672,9 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
                         <span><strong>Τύπος:</strong> {getEntityTypeLabel(log.entityType)}</span>
                       </LogMeta>
                     </LogInfo>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <ActionBadge $action={log.action}>
-                        {getActionLabel(log.action)}
-                      </ActionBadge>
-                      {log.action === 'update' && log.oldValue && (
-                        <RollbackButton
-                          onClick={() => handleRollback(log)}
-                          disabled={rollingBack === log.id}
-                          title="Επαναφορά στην προηγούμενη κατάσταση"
-                        >
-                          {rollingBack === log.id ? '...' : 'Επαναφορά'}
-                        </RollbackButton>
-                      )}
-                    </div>
+                    <ActionBadge $action={log.action}>
+                      {getActionLabel(log.action)}
+                    </ActionBadge>
                   </LogHeader>
 
                   {log.details && (

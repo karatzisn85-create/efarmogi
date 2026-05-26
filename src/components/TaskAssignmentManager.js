@@ -1149,9 +1149,11 @@ function TaskAssignmentManager({
           </StatusBadge>
           <PriorityPill $priority={t.priority}>{TASK_PRIORITY_LABELS[t.priority] || t.priority}</PriorityPill>
           {showWithdrawBadge ? <WithdrawBadge title="Ο χώρος δεν εμφανίζεται πλέον στους συναδέλφους">Κλειστός · ενέργεια</WithdrawBadge> : null}
-          <span style={{ fontWeight: 700, color: overdue ? '#b91c1c' : '#334155' }}>
-            {formatTaskDueDate(t.dueDate, t.dueTime)}
-          </span>
+          {t.dueDate && String(t.dueDate).trim() ? (
+            <span style={{ fontWeight: 700, color: overdue ? '#b91c1c' : '#334155' }}>
+              {formatTaskDueDate(t.dueDate, t.dueTime)}
+            </span>
+          ) : null}
         </CardMeta>
         {assignees ? (
           <div

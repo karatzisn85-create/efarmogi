@@ -411,7 +411,7 @@ const LoadingMessage = styled.div`
   border: 1px dashed #cbd5e1;
 `;
 
-function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }) {
+function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, onLinkCreated }) {
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState({});
   const [loading, setLoading] = useState(false);
@@ -680,19 +680,20 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, onLinkCreated }
   };
 
   const handleLinkSubproject = async (egkrisi) => {
-    // Έλεγχος αν η έγκριση είναι κλειδωμένη
     const egkrisiId = `egkrisi_${egkrisi.projectKey}_${egkrisi.subprojectKey}`;
     const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'egkriseis', egkrisiId);
-    
+
     if (lockStatus.locked) {
-      alert('Η έγκριση είναι υπό επεξεργασία από άλλον διαχειριστή!');
+      const who = lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή';
+      alert(`Η έγκριση είναι υπό επεξεργασία από ${who}.`);
       return;
     }
 
-    // Δημιουργία lock για την έγκριση
-    const lockResult = await ipcRenderer.invoke('create-entity-lock', 'egkriseis', egkrisiId);
+    const lockOwner = currentUser?.fullName || currentUser?.username || '';
+    const lockResult = await ipcRenderer.invoke('create-entity-lock', 'egkriseis', egkrisiId, lockOwner);
     if (!lockResult.success) {
-      alert('Δεν είναι δυνατή η επεξεργασία αυτή τη στιγμή. Δοκιμάστε ξανά.');
+      const who = lockResult.lockedBy ? `«${lockResult.lockedBy}»` : 'άλλον χρήστη';
+      alert(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${who}.`);
       return;
     }
 

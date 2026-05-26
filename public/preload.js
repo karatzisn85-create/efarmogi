@@ -25,7 +25,7 @@ const ALLOWED_INVOKE = new Set([
   'get-app-config','getAppVersion','get-audit-log','get-backup-info',
   'get-backup-list','get-backup-settings','get-data-dir',
   'get-document-template-path','get-entaxi-file-path','get-entaxi-files',
-  'get-file-path','get-folder-contents','get-projects','get-prosklisi-files','get-registered-engineers',
+  'get-file-path','get-folder-contents','get-note-files','get-online-users','get-projects','get-prosklisi-files','get-registered-engineers',
   'khmdhs-fetch-contract-by-adam',
   'get-subfolder-contents','get-subproject-files','get-subproject-id-by-number',
   'get-task-assignment','get-task-assignment-access','get-task-assignment-permissions',
@@ -37,9 +37,9 @@ const ALLOWED_INVOKE = new Set([
   'load-entaxi-data','load-notes','load-organized-egkriseis-structure','load-task-assignments','load-task-notifications','leave-task-assignment-workspace','leave-task-work-archive',
   'load-project-egkriseis','load-prosklisi-modifications','load-subproject-links',
   'load-unlinked-egkriseis','mark-task-notifications-read','mark-task-notifications-read-for-task','open-document-template','open-egkrisi-v2-pdf',
-  'open-file-dialog','open-pdf-file','open-prosklisi-folder','open-task-assignment-file','preview-subprojects-excel-import','register-user',
+  'open-file-dialog','open-note-file','open-pdf-file','open-prosklisi-folder','open-task-assignment-file','preview-subprojects-excel-import','register-user',
   'remove-entity-lock','rename-document-template','restore-backup',
-  'rollback-audit-entry','save-app-config','save-backup-settings',
+  'save-app-config','save-backup-settings',
   'save-egkriseis-data','save-egkrisi','save-entaxi','save-files',
   'save-modification','save-note-groups','save-notes','save-project-data',
   'save-prosklisi',  'save-prosklisi-modification','scan-egkriseis-folder',
@@ -48,12 +48,14 @@ const ALLOWED_INVOKE = new Set([
   'update-egkrisi-project-title','update-egkrisi-subproject-title',
   'update-entaxi-modification','update-prosklisi-modification','update-subproject-supervisor-engineers',
   'update-task-assignment','update-task-assignment-status','update-user',
-  'upload-document-template','upload-egkriseis-pdfs',
+  'check-user-email','delete-note-file','delete-note-files-dir','upload-document-template','upload-note-files','upload-egkriseis-pdfs',
   'validate-and-clean-egkrisi-links','verify-backup','view-egkriseis-pdf',
   'view-egkrisi-file','view-entaxi-file','view-file-from-folder',
   'view-file-from-subfolder','view-modification-pdf','view-prosklisi-file',
   'watch-task-file','unwatch-task-file',
-  'write-debug-log','restart-app'
+  'get-email-config','save-email-config','test-email-config',
+  'toggle-workspace-email-notifications',
+  'write-debug-log','restart-app','rename-user'
 ]);
 
 const ALLOWED_RECEIVE = new Set([

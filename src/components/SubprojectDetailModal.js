@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
 import styled from 'styled-components';
 import { PROJECT_STATUSES } from '../data/formOptions';
@@ -118,6 +118,45 @@ const CloseButton = styled.button`
   &:hover {
     background: rgba(255,255,255,0.35);
   }
+`;
+
+const UploadFilesButton = styled.button`
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+`;
+
+const UploadHint = styled.p`
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.4;
 `;
 
 const ModalBody = styled.div`
@@ -311,13 +350,36 @@ const EmptyValue = styled.span`
   font-size: 0.9rem;
 `;
 
-function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked, engineerCatalog = [] }) {
+function SubprojectDetailModal({
+  project,
+  onClose,
+  onEdit,
+  onUploadFiles,
+  userRole,
+  isLocked,
+  lockedBy,
+  engineerCatalog = []
+}) {
+  const [isUploading, setIsUploading] = useState(false);
+
   useEffect(() => {
     lockBodyScroll('subdetail');
     return () => {
       unlockBodyScroll('subdetail');
     };
   }, []);
+
+  const canUploadFiles = userRole !== 'USER' && typeof onUploadFiles === 'function';
+
+  const handleUploadClick = async () => {
+    if (!canUploadFiles || isUploading || isLocked) return;
+    setIsUploading(true);
+    try {
+      await onUploadFiles(project);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const { displayChargePrimary, displayChargeParticipants } = useMemo(
     () => getProjectChargeDisplay(project, engineerCatalog),
@@ -381,9 +443,9 @@ function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked, e
               <EditButton
                 onClick={() => { onClose(); onEdit(project); }}
                 disabled={isLocked}
-                title={isLocked ? 'Κλειδωμένο από άλλον χρήστη' : 'Επεξεργασία υποέργου'}
+                title={isLocked ? (lockedBy ? `Κλειδωμένο από: ${lockedBy}` : 'Κλειδωμένο από άλλον χρήστη') : 'Επεξεργασία υποέργου'}
               >
-                ✏️ {isLocked ? 'Κλειδωμένο' : 'Επεξεργασία'}
+                🔒 {isLocked ? (lockedBy ? `Κλειδωμένο (${lockedBy})` : 'Κλειδωμένο') : '✏️ Επεξεργασία'}
               </EditButton>
             )}
             <CloseButton onClick={onClose} title="Κλείσιμο">✕</CloseButton>
@@ -760,6 +822,29 @@ function SubprojectDetailModal({ project, onClose, onEdit, userRole, isLocked, e
               <FieldValue style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
                 {project.eisigitikiEkthesi}
               </FieldValue>
+            </Section>
+          )}
+
+          {canUploadFiles && (
+            <Section>
+              <SectionTitle>Αρχεία Υποέργου</SectionTitle>
+              <UploadFilesButton
+                type="button"
+                onClick={handleUploadClick}
+                disabled={isUploading || isLocked}
+                title={
+                  isLocked
+                    ? (lockedBy ? `Κλειδωμένο από: ${lockedBy}` : 'Το έργο είναι κλειδωμένο')
+                    : 'Επιλογή αρχείων από τον υπολογιστή σας'
+                }
+              >
+                {isUploading ? '⏳ Αποθήκευση…' : '📤 Ανεβάστε αρχεία στο Υποέργο'}
+              </UploadFilesButton>
+              <UploadHint>
+                {isLocked
+                  ? 'Δεν είναι δυνατή η προσθήκη αρχείων όσο το έργο είναι κλειδωμένο για επεξεργασία.'
+                  : 'Μπορείτε επίσης να προσθέσετε αρχεία από την επεξεργασία του υποέργου.'}
+              </UploadHint>
             </Section>
           )}
 

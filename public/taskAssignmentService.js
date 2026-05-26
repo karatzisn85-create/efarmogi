@@ -507,7 +507,9 @@ function createTaskAssignmentService(deps) {
       completedAt: null,
       completedBy: null,
       departedAssignees: [],
-      leftArchiveBy: []
+      leftArchiveBy: [],
+      emailNotifications: false,
+      lastEmailSentAt: null
     };
   }
 
@@ -1237,6 +1239,30 @@ function createTaskAssignmentService(deps) {
     return { success: true };
   }
 
+  function toggleEmailNotifications({ actingUsername, taskId, enabled }) {
+    const users = loadUsers();
+    const task = readTask(taskId);
+    if (!task) return { success: false, error: 'Ο χώρος δεν βρέθηκε' };
+    if (!isAssigner(task, actingUsername) && !isSuperAdmin(users, actingUsername)) {
+      return { success: false, error: 'Μόνο ο δημιουργός μπορεί να αλλάξει τις ειδοποιήσεις email' };
+    }
+    const updated = { ...task, emailNotifications: !!enabled };
+    try {
+      writeTask(updated);
+    } catch (err) {
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης' };
+    }
+    return { success: true, task: updated };
+  }
+
+  function updateLastEmailSentAt({ taskId, timestamp }) {
+    const task = readTask(taskId);
+    if (!task) return;
+    try {
+      writeTask({ ...task, lastEmailSentAt: timestamp });
+    } catch {}
+  }
+
   return {
     normalizeTaskAssignment,
     sanitizeTaskAssignmentForClient,
@@ -1262,6 +1288,8 @@ function createTaskAssignmentService(deps) {
     isAssignee,
     isAssigner,
     getTaskDataPath,
+    toggleEmailNotifications,
+    updateLastEmailSentAt,
     getLastOwnWriteTs: () => lastOwnWriteTs
   };
 }

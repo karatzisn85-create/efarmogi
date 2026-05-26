@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import { safeConfirm } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
+import { containsSearchTerm } from '../utils/searchUtils';
 
 const ipcRenderer = window.electronAPI;
 
@@ -46,22 +47,23 @@ const ManagerContent = styled.div`
 `;
 
 const Header = styled.div`
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #4338ca 0%, #6366f1 60%, #818cf8 100%);
   color: white;
-  padding: 30px 40px;
+  padding: 22px 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-radius: 25px 25px 0 0;
+  border-radius: 20px 20px 0 0;
 `;
 
 const Title = styled.h2`
   margin: 0;
-  font-size: 28px;
+  font-size: 1.35rem;
   font-weight: 700;
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
+  letter-spacing: -0.01em;
 `;
 
 const CloseButton = styled.button`
@@ -91,32 +93,32 @@ const ContentArea = styled.div`
 `;
 
 const Sidebar = styled.div`
-  width: 320px;
-  min-width: 320px;
-  background: #f8f9fa;
-  border-right: 2px solid #e0e0e0;
-  padding: 24px;
+  width: 280px;
+  min-width: 280px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border-right: 1px solid #e2e8f0;
+  padding: 20px;
   overflow-y: auto;
   
   &::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
   }
   
   &::-webkit-scrollbar-track {
-    background: #f0f0f0;
-    border-radius: 10px;
+    background: transparent;
   }
   
   &::-webkit-scrollbar-thumb {
-    background: #667eea;
+    background: #c7d2fe;
     border-radius: 10px;
   }
 `;
 
 const MainContent = styled.div`
   flex: 1;
-  padding: 32px 40px;
+  padding: 24px 32px;
   overflow-y: auto;
+  background: #f8fafc;
   
   &::-webkit-scrollbar {
     width: 10px;
@@ -128,7 +130,7 @@ const MainContent = styled.div`
   }
   
   &::-webkit-scrollbar-thumb {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #c7d2fe;
     border-radius: 10px;
   }
 `;
@@ -138,20 +140,20 @@ const SidebarSection = styled.div`
 `;
 
 const SectionTitle = styled.h3`
-  font-size: 14px;
+  font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  color: #666;
-  margin-bottom: 15px;
+  letter-spacing: 1.2px;
+  color: #94a3b8;
+  margin-bottom: 12px;
 `;
 
 const CategoryContainer = styled.div`
-  margin-bottom: 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: white;
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1.5px solid ${p => p.$active ? '#818cf8' : '#e2e8f0'};
+  background: ${p => p.$active ? 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)' : 'white'};
+  box-shadow: ${p => p.$active ? '0 4px 12px rgba(99,102,241,0.15)' : '0 1px 4px rgba(15,23,42,0.06)'};
   transition: all 0.2s ease;
   overflow: hidden;
 `;
@@ -163,13 +165,12 @@ const CategoryMainButton = styled.button`
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 16px 20px 0;
+  gap: 10px;
+  padding: 14px 16px 0;
   cursor: pointer;
-  font-family: 'Cambria', 'Georgia', serif;
-  font-size: 15px;
+  font-size: 0.82rem;
   font-weight: 600;
-  color: #1f2d3d;
+  color: #1e293b;
   text-align: left;
 `;
 
@@ -183,38 +184,39 @@ const CategoryTitle = styled.span`
 `;
 
 const CategoryCount = styled.span`
-  padding: 6px 12px;
+  padding: 3px 10px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 0.72rem;
   font-weight: 700;
-  font-family: 'Cambria', 'Georgia', serif;
+  background: #e0e7ff;
+  color: #4338ca;
+  flex-shrink: 0;
 `;
 
 const CategoryTools = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px 20px 18px;
+  gap: 6px;
+  padding: 10px 16px 14px;
   background: transparent;
 `;
 
 const CategoryToolButton = styled.button`
   border: none;
-  border-radius: 9px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  font-family: 'Cambria', 'Georgia', serif;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: ${props => props.danger ? '#ffffff' : '#1f2d3d'};
-  background: ${props => props.danger ? '#ef5350' : 'rgba(15, 23, 42, 0.08)'};
+  gap: 4px;
+  color: ${props => props.danger ? '#fff' : '#4338ca'};
+  background: ${props => props.danger ? '#ef4444' : '#e0e7ff'};
   transition: all 0.2s ease;
 
   &:hover {
-    background: ${props => props.danger ? '#d84343' : 'rgba(15, 23, 42, 0.12)'};
+    background: ${props => props.danger ? '#dc2626' : '#c7d2fe'};
     transform: translateY(-1px);
   }
 
@@ -226,27 +228,26 @@ const CategoryToolButton = styled.button`
 const AddCategoryButton = styled.button`
   width: 100%;
   padding: 10px;
-  background: #4caf50;
+  background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
   color: white;
   border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  opacity: 0.9;
 
   &:hover {
-    opacity: 1;
-    background: #45a049;
+    box-shadow: 0 4px 12px rgba(99,102,241,0.3);
+    transform: translateY(-1px);
   }
 
   &:active {
-    transform: scale(0.98);
+    transform: translateY(0);
   }
 `;
 
@@ -311,42 +312,46 @@ const ActionBar = styled.div`
 `;
 
 const UploadButton = styled.button`
-  padding: 10px 18px;
-  background: #667eea;
+  padding: 9px 18px;
+  background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
   color: white;
   border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
   gap: 8px;
-  opacity: 0.9;
 
   &:hover {
-    opacity: 1;
-    background: #5a6fd8;
+    box-shadow: 0 4px 12px rgba(22,163,74,0.3);
+    transform: translateY(-1px);
   }
 
   &:active {
-    transform: scale(0.98);
+    transform: translateY(0);
   }
 `;
 
 const SearchBox = styled.input`
   flex: 1;
-  padding: 10px 16px;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  font-size: 13px;
+  padding: 9px 16px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  background: white;
   transition: all 0.2s ease;
 
   &:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.08);
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+  }
+
+  &::placeholder {
+    color: #94a3b8;
   }
 `;
 
@@ -358,34 +363,36 @@ const DocumentsList = styled.div`
 
 const DocumentItem = styled.div`
   background: white;
-  border-radius: 8px;
-  padding: 14px 18px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+  padding: 12px 16px;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.06);
   transition: all 0.2s ease;
-  border: 1px solid #e8e8e8;
+  border: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 
   &:hover {
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-    border-color: #d0d0d0;
-    background: #fafafa;
+    box-shadow: 0 3px 10px rgba(15,23,42,0.1);
+    border-color: #c7d2fe;
+    transform: translateY(-1px);
   }
 `;
 
 const DocumentIcon = styled.div`
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: 0.65rem;
+  font-weight: 800;
   flex-shrink: 0;
-  opacity: 0.9;
+  color: white;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 `;
 
 const DocumentInfo = styled.div`
@@ -398,19 +405,19 @@ const DocumentInfo = styled.div`
 
 const DocumentName = styled.h4`
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-  color: #2c3e50;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #1e293b;
   word-wrap: break-word;
   word-break: break-word;
-  line-height: 1.5;
+  line-height: 1.4;
   letter-spacing: -0.01em;
 `;
 
 const DocumentMeta = styled.div`
-  font-size: 11px;
-  color: #888;
-  margin-top: 2px;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin-top: 1px;
 `;
 
 const DocumentActions = styled.div`
@@ -419,27 +426,41 @@ const DocumentActions = styled.div`
   flex-shrink: 0;
 `;
 
-const ActionButton = styled.button`
-  padding: 6px 12px;
-  background: ${props => props.danger ? '#ff6b6b' : '#667eea'};
-  color: white;
-  border: none;
-  border-radius: 5px;
-  font-size: 12px;
-  font-weight: 500;
+const IconActionBtn = styled.button`
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid #e2e8f0;
+  background: white;
   cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  transition: all 0.15s;
+  color: #64748b;
 
-  &:hover {
-    opacity: 1;
-    background: ${props => props.danger ? '#ff5252' : '#5a6fd8'};
-  }
+  &:hover { transform: scale(1.1); }
+`;
 
-  &:active {
-    transform: scale(0.98);
-  }
+const ViewBtn = styled(IconActionBtn)`
+  &:hover { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+`;
+
+const DownloadBtn = styled(IconActionBtn)`
+  &:hover { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
+`;
+
+const RenameBtn = styled(IconActionBtn)`
+  &:hover { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+`;
+
+const CopyBtn = styled(IconActionBtn)`
+  &:hover { background: #f0f9ff; color: #0284c7; border-color: #bae6fd; }
+`;
+
+const DeleteBtn = styled(IconActionBtn)`
+  &:hover { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
 `;
 
 const EmptyState = styled.div`
@@ -480,30 +501,32 @@ const Modal = styled.div`
 
 const ModalContent = styled.div`
   background: white;
-  padding: 30px;
-  border-radius: 15px;
+  padding: 28px;
+  border-radius: 16px;
   width: 90%;
-  max-width: 500px;
+  max-width: 480px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 `;
 
 const ModalTitle = styled.h3`
-  margin: 0 0 20px 0;
-  font-size: 20px;
-  color: #333;
+  margin: 0 0 18px 0;
+  font-size: 1.1rem;
+  color: #1e293b;
+  font-weight: 700;
 `;
 
 const ModalInput = styled.input`
   width: 100%;
-  padding: 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 14px;
-  margin-bottom: 20px;
+  padding: 10px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  margin-bottom: 18px;
   
   &:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
   }
 `;
 
@@ -514,30 +537,31 @@ const ModalButtons = styled.div`
 `;
 
 const ModalButton = styled.button`
-  padding: 10px 20px;
+  padding: 9px 20px;
   border: none;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: 10px;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
   
   &.primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
     color: white;
     
     &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(99,102,241,0.35);
     }
   }
   
   &.secondary {
-    background: #e0e0e0;
-    color: #666;
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
     
     &:hover {
-      background: #d0d0d0;
+      background: #e2e8f0;
     }
   }
 `;
@@ -732,12 +756,14 @@ function DocumentTemplatesManager({ onClose }) {
     }
   };
 
-  const getFileIcon = (fileName) => {
-    const ext = fileName.toLowerCase().split('.').pop();
-    if (['doc', 'docx'].includes(ext)) return '📝';
-    if (['xls', 'xlsx'].includes(ext)) return '📊';
-    if (ext === 'pdf') return '📄';
-    return '📄';
+  const getFileTypeBadge = (fileName) => {
+    const ext = (fileName || '').toLowerCase().split('.').pop();
+    if (['doc', 'docx'].includes(ext)) return { label: 'DOC', bg: '#2563eb' };
+    if (['xls', 'xlsx'].includes(ext)) return { label: 'XLS', bg: '#16a34a' };
+    if (ext === 'pdf') return { label: 'PDF', bg: '#dc2626' };
+    if (['ppt', 'pptx'].includes(ext)) return { label: 'PPT', bg: '#ea580c' };
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return { label: 'IMG', bg: '#7c3aed' };
+    return { label: ext?.toUpperCase()?.slice(0,3) || 'FILE', bg: '#64748b' };
   };
 
   const handleCopy = (doc) => {
@@ -889,7 +915,7 @@ function DocumentTemplatesManager({ onClose }) {
 
   const filteredDocuments = documents.filter(doc => {
     const matchesCategory = selectedCategory && doc.category === selectedCategory;
-    const matchesSearch = doc.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = !searchTerm.trim() || containsSearchTerm(doc.name, searchTerm);
     return matchesCategory && matchesSearch;
   });
 
@@ -919,12 +945,11 @@ function DocumentTemplatesManager({ onClose }) {
                 return (
                   <CategoryContainer
                     key={category.id}
-                    active={isActive}
+                    $active={isActive}
                     style={{
-                      borderLeft: `8px solid ${accentColor}`,
-                      borderColor: getCategoryBorder(accentColor, isActive),
-                      background: getCategoryBackground(accentColor, isActive),
-                      boxShadow: `0 10px 24px ${getCategoryShadow(accentColor, isActive)}`
+                      borderLeft: `5px solid ${accentColor}`,
+                      borderColor: isActive ? accentColor : undefined,
+                      background: isActive ? `linear-gradient(135deg, ${accentColor}12 0%, ${accentColor}08 100%)` : undefined,
                     }}
                   >
                     <CategoryMainButton onClick={() => setSelectedCategory(category.id)}>
@@ -954,25 +979,14 @@ function DocumentTemplatesManager({ onClose }) {
                           📋 Επικόλληση
                         </CategoryToolButton>
                       )}
-                      <CategoryToolButton
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenColorModal(category);
-                        }}
-                        title="Ορισμός χρώματος"
-                      >
-                        🎨 Χρώμα
-                      </CategoryToolButton>
-                      <CategoryToolButton
-                        danger
+                      <DeleteBtn
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRequestDeleteCategory(category);
                         }}
                         title="Διαγραφή κατηγορίας"
-                      >
-                        🗑️ Διαγραφή
-                      </CategoryToolButton>
+                        style={{ width: 26, height: 26, fontSize: '0.72rem' }}
+                      >✕</DeleteBtn>
                     </CategoryTools>
                   </CategoryContainer>
                 );
@@ -1016,45 +1030,35 @@ function DocumentTemplatesManager({ onClose }) {
               </EmptyState>
             ) : (
               <DocumentsList>
-                {filteredDocuments.map(doc => (
-                  <DocumentItem key={doc.id}>
-                    <DocumentIcon>{getFileIcon(doc.name)}</DocumentIcon>
-                    <DocumentInfo>
-                      <DocumentName>{doc.name}</DocumentName>
-                      <DocumentMeta>
-                        {new Date(doc.uploadedAt).toLocaleDateString('el-GR', { 
-                          day: '2-digit', 
-                          month: '2-digit', 
-                          year: 'numeric' 
-                        })}
-                      </DocumentMeta>
-                    </DocumentInfo>
-                    <DocumentActions>
-                      <ActionButton onClick={() => handleView(doc.id)}>
-                        👁️ Προβολή
-                      </ActionButton>
-                      <ActionButton onClick={() => handleDownload(doc.id)}>
-                        ⬇️ Λήψη
-                      </ActionButton>
-                      <ActionButton onClick={() => handleRenameClick(doc)}>
-                        ✏️ Μετονομασία
-                      </ActionButton>
-                      <ActionButton 
-                        onClick={() => handleCopy(doc)}
-                        style={{ 
-                          background: copiedDocument?.id === doc.id ? '#2ecc71' : '#17a2b8',
-                          color: 'white'
-                        }}
-                        title="Αντιγραφή εγγράφου"
-                      >
-                        📋 Αντιγραφή
-                      </ActionButton>
-                      <ActionButton danger onClick={() => handleDelete(doc.id)}>
-                        🗑️ Διαγραφή
-                      </ActionButton>
-                    </DocumentActions>
-                  </DocumentItem>
-                ))}
+                {filteredDocuments.map(doc => {
+                  const badge = getFileTypeBadge(doc.name);
+                  return (
+                    <DocumentItem key={doc.id}>
+                      <DocumentIcon style={{ background: badge.bg }}>{badge.label}</DocumentIcon>
+                      <DocumentInfo>
+                        <DocumentName>{doc.name}</DocumentName>
+                        <DocumentMeta>
+                          {new Date(doc.uploadedAt).toLocaleDateString('el-GR', { 
+                            day: '2-digit', 
+                            month: '2-digit', 
+                            year: 'numeric' 
+                          })}
+                        </DocumentMeta>
+                      </DocumentInfo>
+                      <DocumentActions>
+                        <ViewBtn title="Προβολή" onClick={() => handleView(doc.id)}>👁</ViewBtn>
+                        <DownloadBtn title="Λήψη" onClick={() => handleDownload(doc.id)}>⬇</DownloadBtn>
+                        <RenameBtn title="Μετονομασία" onClick={() => handleRenameClick(doc)}>✏</RenameBtn>
+                        <CopyBtn
+                          title="Αντιγραφή εγγράφου"
+                          onClick={() => handleCopy(doc)}
+                          style={copiedDocument?.id === doc.id ? { background: '#f0fdf4', borderColor: '#bbf7d0', color: '#16a34a' } : {}}
+                        >📋</CopyBtn>
+                        <DeleteBtn title="Διαγραφή" onClick={() => handleDelete(doc.id)}>✕</DeleteBtn>
+                      </DocumentActions>
+                    </DocumentItem>
+                  );
+                })}
               </DocumentsList>
             )}
           </MainContent>
@@ -1074,22 +1078,6 @@ function DocumentTemplatesManager({ onClose }) {
               onKeyPress={(e) => e.key === 'Enter' && handleSaveCategory()}
               autoFocus
             />
-            <ModalLabel htmlFor="category-color-input">Χρώμα κατηγορίας</ModalLabel>
-            <ColorPickerRow>
-              <ColorPreview style={{ background: ensureValidHexColor(newCategoryColor) }} />
-              <ColorInput
-                id="category-color-input"
-                type="color"
-                value={ensureValidHexColor(newCategoryColor)}
-                onChange={(e) => setNewCategoryColor(e.target.value)}
-              />
-              <SecondaryLinkButton type="button" onClick={() => setNewCategoryColor(DEFAULT_CATEGORY_COLOR)}>
-                Επαναφορά
-              </SecondaryLinkButton>
-            </ColorPickerRow>
-            <ModalHint>
-              Το χρώμα χρησιμοποιείται για να ξεχωρίζει εύκολα η κατηγορία στη λίστα.
-            </ModalHint>
             <ModalButtons>
               <ModalButton className="secondary" onClick={() => setShowCategoryModal(false)}>
                 Ακύρωση
@@ -1131,44 +1119,6 @@ function DocumentTemplatesManager({ onClose }) {
                 Ακύρωση
               </ModalButton>
               <ModalButton className="primary" onClick={handleSaveRename}>
-                Αποθήκευση
-              </ModalButton>
-            </ModalButtons>
-          </ModalContent>
-        </Modal>
-      )}
-
-      {/* Category Color Modal */}
-      {showColorModal && (
-        <Modal onClick={(e) => e.target === e.currentTarget && handleCloseColorModal()}>
-          <ModalContent>
-            <ModalTitle>🎨 Χρώμα Κατηγορίας</ModalTitle>
-            {categoryToEditColor && (
-              <p style={{ fontSize: '13px', color: '#555', marginTop: '0', marginBottom: '15px' }}>
-                Κατηγορία: <strong>{categoryToEditColor.name}</strong>
-              </p>
-            )}
-            <ModalLabel htmlFor="category-color-edit">Επιλέξτε χρώμα</ModalLabel>
-            <ColorPickerRow>
-              <ColorPreview style={{ background: ensureValidHexColor(categoryColorValue) }} />
-              <ColorInput
-                id="category-color-edit"
-                type="color"
-                value={ensureValidHexColor(categoryColorValue)}
-                onChange={(e) => setCategoryColorValue(e.target.value)}
-              />
-              <SecondaryLinkButton type="button" onClick={() => setCategoryColorValue(DEFAULT_CATEGORY_COLOR)}>
-                Επαναφορά
-              </SecondaryLinkButton>
-            </ColorPickerRow>
-            <ModalHint>
-              Το χρώμα χρησιμοποιείται για την ομαδοποίηση και την ευκολότερη αναγνώριση των κατηγοριών.
-            </ModalHint>
-            <ModalButtons>
-              <ModalButton className="secondary" onClick={handleCloseColorModal}>
-                Ακύρωση
-              </ModalButton>
-              <ModalButton className="primary" onClick={handleSaveCategoryColor}>
                 Αποθήκευση
               </ModalButton>
             </ModalButtons>

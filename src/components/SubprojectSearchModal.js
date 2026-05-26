@@ -157,6 +157,18 @@ const Button = styled.button`
   `}
 `;
 
+const normalizeText = (text) => {
+  if (!text) return '';
+  return text
+    .replace(/\n/g, ' ')
+    .replace(/\\n/g, ' ')
+    .replace(/\r/g, ' ')
+    .replace(/\t/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+};
+
 function SubprojectSearchModal({ isOpen, onClose, onSelectSubproject, egkrisiTitle }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [subprojects, setSubprojects] = useState([]);
@@ -164,9 +176,11 @@ function SubprojectSearchModal({ isOpen, onClose, onSelectSubproject, egkrisiTit
   const [loading, setLoading] = useState(false);
   const [selectedSubproject, setSelectedSubproject] = useState(null);
 
-  // Φόρτωση όλων των υποέργων
+  // Φόρτωση όλων των υποέργων & reset κατάστασης κατά το άνοιγμα/κλείσιμο
   useEffect(() => {
     if (isOpen) {
+      setSearchTerm('');
+      setSelectedSubproject(null);
       loadAllSubprojects();
     }
   }, [isOpen]);
@@ -176,9 +190,10 @@ function SubprojectSearchModal({ isOpen, onClose, onSelectSubproject, egkrisiTit
     if (!searchTerm.trim()) {
       setFilteredSubprojects(subprojects);
     } else {
-      const filtered = subprojects.filter(subproject => 
-        subproject.subprojectTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        subproject.projectTitle.toLowerCase().includes(searchTerm.toLowerCase())
+      const normalized = normalizeText(searchTerm);
+      const filtered = subprojects.filter(subproject =>
+        normalizeText(subproject.subprojectTitle).includes(normalized) ||
+        normalizeText(subproject.projectTitle).includes(normalized)
       );
       setFilteredSubprojects(filtered);
     }

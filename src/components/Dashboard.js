@@ -5,6 +5,7 @@ import EgkriseisForm from './EgkriseisForm';
 
 import ProjectCard from './ProjectCard';
 import SubprojectDetailModal from './SubprojectDetailModal';
+import { uploadSubprojectFiles } from '../utils/uploadSubprojectFiles';
 import Statistics from './Statistics';
 import PDFViewer from './PDFViewer';
 import AdvancedFilters from './AdvancedFilters';
@@ -21,6 +22,7 @@ import DocumentTemplatesManager from './DocumentTemplatesManager';
 import BackupManager from './BackupManager';
 import AuditLogViewer from './AuditLogViewer';
 import UserManagement from './UserManagement';
+import EmailSettingsModal from './EmailSettingsModal';
 import TaskAssignmentManager from './TaskAssignmentManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
 import SubprojectExcelImportModal from './SubprojectExcelImportModal';
@@ -41,23 +43,6 @@ import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
-const DEFAULT_NOTE_GROUP_ID = 'general-notes';
-
-const hexToRgba = (hex, alpha = 0.25) => {
-  if (!hex) return `rgba(99, 102, 241, ${alpha})`;
-  let sanitized = hex.replace('#', '');
-  if (sanitized.length === 3) {
-    sanitized = sanitized.split('').map(ch => ch + ch).join('');
-  }
-  if (sanitized.length !== 6) {
-    return `rgba(99, 102, 241, ${alpha})`;
-  }
-  const bigint = parseInt(sanitized, 16);
-  const r = (bigint >> 16) & 255;
-  const g = (bigint >> 8) & 255;
-  const b = bigint & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-};
 
 /**
  * Τίτλος κεφαλίδας ομάδας υποέργων: όταν το ίδιο έργο έχει διαφορετική κεφαλαιοποίηση στο projectTitle
@@ -936,854 +921,591 @@ const SidebarCountBadge = styled.span`
   line-height: 1.2;
 `;
 
+/* ── Notes (redesigned) ── */
 const NotesOverlay = styled.div`
   position: fixed;
   inset: 0;
-  background: rgba(240, 245, 250, 0.92);
-  backdrop-filter: blur(12px);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 12000;
-  padding: 20px;
-  animation: fadeIn 0.3s ease-out;
+  padding: 24px;
+  animation: notesFadeIn 0.25s ease-out;
 
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
+  @keyframes notesFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
   }
 `;
 
-const NotesContainer = styled.div`
-  width: min(1600px, 98vw);
-  height: min(900px, 95vh);
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.99) 0%, 
-    rgba(250, 252, 255, 0.97) 30%,
-    rgba(248, 250, 252, 0.98) 60%,
-    rgba(241, 245, 249, 0.99) 100%
-  );
-  border-radius: 32px;
-  box-shadow: 
-    0 32px 120px rgba(100, 116, 139, 0.2),
-    0 16px 48px rgba(100, 116, 139, 0.15),
-    0 0 0 1px rgba(203, 213, 225, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(203, 213, 225, 0.5);
+const NotesPanel = styled.div`
+  width: min(960px, 96vw);
+  height: min(680px, 92vh);
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(30, 41, 59, 0.28), 0 0 0 1px rgba(99, 102, 241, 0.06);
   display: flex;
+  flex-direction: column;
   overflow: hidden;
-  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  position: relative;
+  animation: notesSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, 
-      transparent 0%,
-      rgba(99, 102, 241, 0.2) 50%,
-      transparent 100%
-    );
-  }
-
-  @keyframes slideUp {
-    from {
-      opacity: 0;
-      transform: translateY(20px) scale(0.98);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-`;
-
-const NotesSidebar = styled.div`
-  width: 320px;
-  background: linear-gradient(180deg, 
-    rgba(248, 250, 252, 0.98) 0%, 
-    rgba(241, 245, 249, 0.95) 50%,
-    rgba(248, 250, 252, 0.98) 100%
-  );
-  padding: 32px 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  border-right: 1px solid rgba(203, 213, 225, 0.4);
-  overflow-y: auto;
-  position: relative;
-
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: rgba(241, 245, 249, 0.5);
-    border-radius: 10px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(203, 213, 225, 0.6);
-    border-radius: 10px;
-    transition: background 0.2s ease;
-
-    &:hover {
-      background: rgba(148, 163, 184, 0.7);
-    }
-  }
-`;
-
-const NotesMain = styled.div`
-  flex: 1;
-  padding: 40px 36px;
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-  overflow: hidden;
-  background: linear-gradient(180deg, 
-    rgba(255, 255, 255, 0.5) 0%,
-    rgba(248, 250, 252, 0.3) 100%
-  );
-`;
-
-const NotesSidebarHeader = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-`;
-
-const NotesSidebarTitle = styled.h3`
-  margin: 0;
-  color: #334155;
-  font-size: 1.1rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  background: linear-gradient(135deg, #334155 0%, #475569 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  position: relative;
-  padding-bottom: 8px;
-
-  &::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 40px;
-    height: 3px;
-    background: linear-gradient(90deg, #6366f1, #8b5cf6);
-    border-radius: 2px;
-  }
-`;
-
-const GroupList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-`;
-
-const GroupListItem = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-`;
-
-const GroupDeleteButton = styled.button`
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  border: 1px solid rgba(203, 213, 225, 0.5);
-  background: rgba(255, 255, 255, 0.8);
-  color: #64748b;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: rgba(239, 68, 68, 0.15);
-    border-color: rgba(239, 68, 68, 0.4);
-    color: #dc2626;
-  }
-`;
-
-const GroupButton = styled.button`
-  background: ${({ active, color }) =>
-    active 
-      ? `linear-gradient(135deg, ${hexToRgba(color || '#6366f1', 0.18)} 0%, ${hexToRgba(color || '#6366f1', 0.1)} 100%)` 
-      : 'linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(241, 245, 249, 0.8) 100%)'};
-  border: 2px solid ${({ active, color }) => (active ? hexToRgba(color || '#6366f1', 0.6) : 'rgba(203, 213, 225, 0.5)')};
-  color: ${({ active }) => (active ? '#1e293b' : '#64748b')};
-  border-radius: 16px;
-  padding: 16px 18px;
-  text-align: left;
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 600;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: ${({ active, color }) => 
-    active 
-      ? `0 12px 32px ${hexToRgba(color || '#6366f1', 0.3)}, 0 4px 12px ${hexToRgba(color || '#6366f1', 0.2)}` 
-      : '0 2px 8px rgba(100, 116, 139, 0.08), 0 1px 3px rgba(100, 116, 139, 0.05)'};
-  position: relative;
-  overflow: hidden;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, 
-      transparent, 
-      rgba(255, 255, 255, 0.4), 
-      transparent
-    );
-    transition: left 0.5s ease;
-  }
-
-  &:hover::before {
-    left: 100%;
-  }
-
-  span {
-    font-size: 0.8rem;
-    opacity: ${({ active }) => (active ? 0.8 : 0.65)};
-    color: ${({ active }) => (active ? '#475569' : '#94a3b8')};
-    font-weight: 500;
-    transition: all 0.3s ease;
-  }
-
-  &:hover {
-    transform: translateY(-3px) scale(1.02);
-    border-color: ${({ color }) => hexToRgba(color || '#6366f1', 0.7)};
-    box-shadow: ${({ color }) => 
-      `0 16px 40px ${hexToRgba(color || '#6366f1', 0.35)}, 0 6px 16px ${hexToRgba(color || '#6366f1', 0.25)}`};
-  }
-
-  &:active {
-    transform: translateY(-1px) scale(1);
-  }
-`;
-
-const GroupForm = styled.div`
-  margin-top: 8px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(203, 213, 225, 0.5);
-  border-radius: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-`;
-
-const GroupFormRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-`;
-
-const GroupInput = styled.input`
-  flex: 1;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(203, 213, 225, 0.6);
-  background: rgba(255, 255, 255, 0.9);
-  color: #334155;
-  font-size: 0.9rem;
-  font-family: 'Segoe UI', 'Calibri', 'Arial', sans-serif;
-  transition: all 0.2s ease;
-
-  &::placeholder {
-    color: #94a3b8;
-    font-family: 'Segoe UI', 'Calibri', 'Arial', sans-serif;
-  }
-
-  &:focus {
-    border-color: rgba(99, 102, 241, 0.6);
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-    background: rgba(255, 255, 255, 1);
-  }
-`;
-
-const ColorInput = styled.input`
-  width: 48px;
-  height: 48px;
-  padding: 0;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  background: transparent;
-  cursor: pointer;
-`;
-
-const GroupFormButton = styled.button`
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: none;
-  background: linear-gradient(135deg, #38bdf8 0%, #6366f1 100%);
-  color: white;
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  cursor: pointer;
-  transition: all 0.25s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 10px 24px rgba(59, 130, 246, 0.35);
+  @keyframes notesSlideUp {
+    from { opacity: 0; transform: translateY(16px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
   }
 `;
 
 const NotesHeader = styled.div`
+  background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%);
+  padding: 16px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-`;
-
-const NotesHeaderTitle = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 
   h2 {
     margin: 0;
-    color: #1e293b;
-    font-size: 1.6rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #475569 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    letter-spacing: -0.5px;
-  }
-
-  span {
-    color: #64748b;
-    font-size: 0.9rem;
-    font-weight: 500;
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
   }
 `;
 
-const NotesCloseButton = styled.button`
-  background: rgba(241, 245, 249, 0.9);
-  border: 1px solid rgba(203, 213, 225, 0.5);
-  color: #475569;
-  border-radius: 999px;
-  padding: 10px 16px;
+const NotesCloseBtn = styled.button`
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+`;
+
+
+const NoteSearchBar = styled.input`
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+  font-size: 0.8rem;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+
+  &::placeholder { color: #b0b8c4; }
+  &:focus {
+    outline: none;
+    border-color: #818cf8;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.08);
+  }
+`;
+
+const NewNoteBtn = styled.button`
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
+  color: #fff;
   font-size: 0.85rem;
   font-weight: 600;
-  letter-spacing: 0.5px;
   cursor: pointer;
-  transition: all 0.25s ease;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(67, 56, 202, 0.25);
 
   &:hover {
-    background: rgba(99, 102, 241, 0.1);
-    border-color: rgba(99, 102, 241, 0.4);
-    color: #6366f1;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(67, 56, 202, 0.35);
   }
 `;
 
-const NotesSearchRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 14px;
-`;
-
-const NotesSearchInput = styled(GroupInput)`
-  background: rgba(255, 255, 255, 0.9);
-  border-color: rgba(203, 213, 225, 0.6);
-`;
-
-const NoteComposer = styled.div`
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(248, 250, 252, 0.9) 100%
-  );
-  border: 1px solid rgba(203, 213, 225, 0.5);
-  border-radius: 24px;
-  padding: 28px;
+const NotesList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  box-shadow: 
-    0 12px 40px rgba(100, 116, 139, 0.12),
-    0 4px 16px rgba(100, 116, 139, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  position: relative;
-  transition: all 0.3s ease;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, 
-      #6366f1 0%,
-      #8b5cf6 50%,
-      #6366f1 100%
-    );
-    border-radius: 24px 24px 0 0;
-    opacity: 0.6;
-  }
-
-  &:hover {
-    box-shadow: 
-      0 16px 48px rgba(100, 116, 139, 0.15),
-      0 6px 20px rgba(100, 116, 139, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.95);
-    transform: translateY(-2px);
-  }
+  gap: 10px;
 `;
 
-const NoteComposerRow = styled.div`
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  flex-wrap: wrap;
-`;
-
-const NoteGroupSelect = styled.select`
-  padding: 10px 12px;
+const NoteItem = styled.div`
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid transparent;
   border-radius: 10px;
-  border: 1px solid rgba(203, 213, 225, 0.6);
-  background: rgba(255, 255, 255, 0.9);
-  color: #334155;
-  font-size: 0.9rem;
-  font-family: 'Segoe UI', 'Calibri', 'Arial', sans-serif;
-  cursor: pointer;
-  transition: all 0.2s ease;
-
-  &:focus {
-    border-color: rgba(99, 102, 241, 0.6);
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-    background: rgba(255, 255, 255, 1);
-  }
-`;
-
-const NoteTextInput = styled.textarea`
-  width: 100%;
-  min-height: 120px;
-  border-radius: 16px;
-  padding: 14px 16px;
-  font-size: 0.95rem;
-  font-family: 'Segoe UI', 'Calibri', 'Arial', sans-serif;
-  border: 1px solid rgba(203, 213, 225, 0.6);
-  background: rgba(255, 255, 255, 0.9);
-  color: #334155;
-  resize: vertical;
-  transition: all 0.2s ease;
-
-  &::placeholder {
-    color: #94a3b8;
-    font-family: 'Segoe UI', 'Calibri', 'Arial', sans-serif;
-  }
-
-  &:focus {
-    border-color: rgba(99, 102, 241, 0.6);
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-    background: rgba(255, 255, 255, 1);
-  }
-`;
-
-const NoteSubmitRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-`;
-
-const SubtleHint = styled.span`
-  color: #94a3b8;
-  font-size: 0.78rem;
-`;
-
-const NoteSubmitButton = styled.button`
-  background: linear-gradient(135deg, #10b981 0%, #14b8a6 100%);
-  border: none;
-  border-radius: 12px;
-  padding: 12px 22px;
-  color: white;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  cursor: pointer;
-  box-shadow: 0 10px 30px rgba(13, 148, 136, 0.4);
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 14px 36px rgba(13, 148, 136, 0.5);
-  }
-`;
-
-const NotesGrid = styled.div`
-  flex: 1;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 24px;
-  padding: 8px 4px 20px 4px;
-
-  &::-webkit-scrollbar {
-    width: 10px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: rgba(241, 245, 249, 0.5);
-    border-radius: 10px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(203, 213, 225, 0.6);
-    border-radius: 10px;
-    transition: background 0.2s ease;
-
-    &:hover {
-      background: rgba(148, 163, 184, 0.7);
-    }
-  }
-`;
-
-const NoteCard = styled.div`
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(248, 250, 252, 0.9) 100%
-  );
-  border: 1px solid rgba(203, 213, 225, 0.5);
-  border-radius: 20px;
-  padding: 24px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  box-shadow: 
-    0 6px 20px rgba(100, 116, 139, 0.1),
-    0 2px 8px rgba(100, 116, 139, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  gap: 4px;
+  transition: all 0.15s ease;
   position: relative;
-  overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 4px;
-    height: 100%;
-    background: ${({ 'data-accent': accent }) => accent 
-      ? `linear-gradient(180deg, ${accent}, ${accent}dd)` 
-      : 'linear-gradient(180deg, #6366f1, #8b5cf6)'};
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  &::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at top right, rgba(99, 102, 241, 0.1), transparent 70%);
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
 
   &:hover {
-    box-shadow: 
-      0 12px 32px rgba(100, 116, 139, 0.15),
-      0 4px 16px rgba(100, 116, 139, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    transform: translateY(-4px) scale(1.01);
-    border-color: rgba(99, 102, 241, 0.4);
-
-    &::before {
-      opacity: 1;
-    }
-
-    &::after {
-      opacity: 1;
-    }
-  }
-
-  &:active {
-    transform: translateY(-2px) scale(1);
+    border-left-color: #818cf8;
+    background: #eef2ff;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.06);
   }
 `;
 
-const NoteTitle = styled.h4`
-  margin: 0;
+const NoteItemTitle = styled.div`
   color: #1e293b;
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.3;
 `;
 
-const NoteContent = styled.p`
-  margin: 0;
-  color: #475569;
-  font-size: 0.9rem;
-  line-height: 1.5;
+const NoteItemContent = styled.div`
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   white-space: pre-wrap;
 `;
 
-const NoteMeta = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+const NoteItemDate = styled.div`
   color: #94a3b8;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
 `;
 
-const NotesEmptyState = styled.div`
-  flex: 1;
-  border-radius: 20px;
-  border: 1px dashed rgba(203, 213, 225, 0.6);
-  background: rgba(248, 250, 252, 0.6);
+const NoteItemActions = styled.div`
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+
+  ${NoteItem}:hover & {
+    opacity: 1;
+  }
+`;
+
+const NoteActionBtn = styled.button`
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
   color: #64748b;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: ${({ $danger }) => $danger ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.1)'};
+    border-color: ${({ $danger }) => $danger ? 'rgba(239, 68, 68, 0.3)' : 'rgba(99, 102, 241, 0.3)'};
+    color: ${({ $danger }) => $danger ? '#dc2626' : '#6366f1'};
+  }
+`;
+
+const NotesEmpty = styled.div`
+  flex: 1;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  border: 1px dashed #e2e8f0;
+  border-radius: 12px;
+  margin-top: 16px;
+`;
+
+const NotesLayout = styled.div`
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+`;
+
+const NotesListCol = styled.div`
+  width: 300px;
+  min-width: 260px;
+  background: #f8fafc;
+  border-right: 1px solid #e5e7eb;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  &::-webkit-scrollbar { width: 5px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(203, 213, 225, 0.5);
+    border-radius: 10px;
+  }
+`;
+
+const NotePreviewCol = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+
+  &::-webkit-scrollbar { width: 5px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(203, 213, 225, 0.5);
+    border-radius: 10px;
+  }
+`;
+
+const NotePreviewTitle = styled.h3`
+  margin: 0 0 6px;
+  color: #1e293b;
+  font-size: 1.15rem;
+  font-weight: 700;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #e0e7ff;
+`;
+
+const NotePreviewContent = styled.div`
+  color: #334155;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  flex: 1;
+  padding: 14px 0;
+`;
+
+const NotePreviewSection = styled.div`
+  padding: 12px 0;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const NotePreviewSectionLabel = styled.div`
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+`;
+
+const NotePreviewMeta = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  color: #94a3b8;
+  font-size: 0.76rem;
+  padding: 10px 0;
+  border-top: 1px solid #f1f5f9;
+`;
+
+const NotePreviewActions = styled.div`
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+`;
+
+const NotePreviewBtn = styled.button`
+  padding: 9px 18px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+
+  ${({ $primary }) => $primary ? `
+    background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(67, 56, 202, 0.25);
+    &:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(67, 56, 202, 0.35); }
+  ` : `
+    background: #f8fafc;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    &:hover { background: #f1f5f9; color: #475569; }
+  `}
+`;
+
+const NotePreviewEmpty = styled.div`
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  font-size: 0.9rem;
-  letter-spacing: 0.5px;
-  text-align: center;
-`;
-
-const Tag = styled.span`
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
-  font-size: 0.72rem;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-`;
-
-const NoteActions = styled.div`
-  display: flex;
   gap: 8px;
-  margin-top: auto;
-  z-index: 1;
+  color: #cbd5e1;
+  font-size: 0.88rem;
 `;
 
-const NoteActionButton = styled.button`
-  flex: 1;
-  background: rgba(241, 245, 249, 0.8);
-  border: 1px solid rgba(203, 213, 225, 0.5);
-  border-radius: 10px;
-  padding: 8px;
-  color: #475569;
-  font-size: 0.78rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-
-  &:hover {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.3);
-    color: #dc2626;
-  }
+const NoteReminderBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: ${({ $past }) => $past ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)'};
+  color: ${({ $past }) => $past ? '#dc2626' : '#d97706'};
+  font-size: 0.72rem;
+  font-weight: 600;
 `;
 
-const NoteEditButton = styled(NoteActionButton)`
-  &:hover {
-    background: rgba(59, 130, 246, 0.1);
-    border-color: rgba(59, 130, 246, 0.3);
-    color: #2563eb;
-  }
-`;
-
-const NoteCancelButton = styled(NoteActionButton)`
-  background: rgba(241, 245, 249, 0.9);
-  &:hover {
-    background: rgba(148, 163, 184, 0.15);
-    border-color: rgba(148, 163, 184, 0.4);
-    color: #64748b;
-  }
-`;
-
-// Modal for viewing/editing notes
-const NoteModalOverlay = styled.div`
+const NoteEditOverlay = styled.div`
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 13000;
-  padding: 20px;
-  animation: fadeIn 0.2s ease-out;
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
+  padding: 24px;
+  animation: notesFadeIn 0.2s ease-out;
 `;
 
-const NoteModalContainer = styled.div`
-  background: white;
-  border-radius: 24px;
-  width: min(800px, 95vw);
-  max-height: 90vh;
+const NoteEditPanel = styled.div`
+  background: #fff;
+  border-radius: 18px;
+  width: min(600px, 94vw);
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 20px 60px rgba(30, 41, 59, 0.3);
+  animation: notesSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
 
-  @keyframes slideUp {
-    from {
-      opacity: 0;
-      transform: translateY(20px) scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
+  h3 {
+    margin: 0;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 700;
   }
 `;
 
-const NoteModalHeader = styled.div`
-  padding: 24px 28px;
-  border-bottom: 1px solid #e2e8f0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-`;
-
-const NoteModalTitle = styled.h2`
-  margin: 0;
+const NoteEditInput = styled.input`
+  margin: 20px 24px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  font-size: 1rem;
+  font-family: inherit;
   color: #1e293b;
-  font-size: 1.5rem;
-  font-weight: 700;
-`;
-
-const NoteModalCloseButton = styled.button`
-  background: transparent;
-  border: none;
-  font-size: 1.5rem;
-  color: #64748b;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
   transition: all 0.2s ease;
 
-  &:hover {
-    background: #f1f5f9;
-    color: #334155;
+  &::placeholder { color: #94a3b8; }
+  &:focus {
+    outline: none;
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
   }
 `;
 
-const NoteModalContent = styled.div`
-  padding: 28px;
-  overflow-y: auto;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-`;
-
-const NoteModalField = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`;
-
-const NoteModalLabel = styled.label`
-  font-weight: 600;
+const NoteEditTextarea = styled.textarea`
+  margin: 12px 24px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.95rem;
+  font-family: inherit;
   color: #334155;
-  font-size: 0.9rem;
-`;
-
-const NoteModalInput = styled.input`
-  padding: 12px 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  font-size: 1rem;
-  font-family: inherit;
-  transition: all 0.2s ease;
-
-  &:focus {
-    outline: none;
-    border-color: #6366f1;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-  }
-`;
-
-const NoteModalTextarea = styled.textarea`
-  padding: 12px 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  font-size: 1rem;
-  font-family: inherit;
-  min-height: 200px;
+  min-height: 220px;
   resize: vertical;
+  flex: 1;
   transition: all 0.2s ease;
 
+  &::placeholder { color: #94a3b8; }
   &:focus {
     outline: none;
-    border-color: #6366f1;
+    border-color: #818cf8;
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
   }
 `;
 
-const NoteModalFooter = styled.div`
-  padding: 20px 28px;
+const NoteEditFooter = styled.div`
+  padding: 16px 24px;
   border-top: 1px solid #e2e8f0;
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
+  margin-top: auto;
 `;
 
-const NoteModalButton = styled.button`
-  padding: 10px 20px;
+const NoteEditCancelBtn = styled.button`
+  padding: 10px 18px;
   border-radius: 10px;
-  font-size: 0.95rem;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+
+  &:hover { background: #e2e8f0; }
+`;
+
+const NoteEditSaveBtn = styled.button`
+  padding: 10px 22px;
+  border-radius: 10px;
   border: none;
+  background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(67, 56, 202, 0.25);
+  transition: all 0.2s ease;
 
-  ${props => props.primary ? `
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-    color: white;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(67, 56, 202, 0.35);
+  }
+`;
 
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
-    }
-  ` : `
-    background: #f1f5f9;
-    color: #475569;
+const NotesFab = styled.button`
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4338ca 0%, #6366f1 60%, #818cf8 100%);
+  color: #fff;
+  font-size: 1.3rem;
+  cursor: pointer;
+  box-shadow:
+    0 6px 24px rgba(67, 56, 202, 0.45),
+    0 2px 6px rgba(99, 102, 241, 0.3);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: fabFloat 3s ease-in-out infinite;
 
-    &:hover {
-      background: #e2e8f0;
-    }
-  `}
+  @keyframes fabFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+  }
+
+  &:hover {
+    transform: translateY(-3px) scale(1.08);
+    box-shadow:
+      0 10px 36px rgba(67, 56, 202, 0.55),
+      0 4px 12px rgba(99, 102, 241, 0.4);
+    animation: none;
+  }
+
+  &:active {
+    transform: translateY(-1px) scale(0.96);
+    animation: none;
+  }
+`;
+
+const NoteFilesSection = styled.div`
+  margin: 8px 24px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const NoteFileItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #334155;
+  transition: all 0.15s;
+
+  &:hover { background: #eef2ff; border-color: #c7d2fe; }
+`;
+
+const NoteFileName = styled.span`
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+`;
+
+const NoteFileBtn = styled.button`
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #64748b;
+  font-size: 0.78rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+
+  &:hover {
+    background: ${({ $danger }) => $danger ? 'rgba(239,68,68,0.1)' : 'rgba(99,102,241,0.1)'};
+    border-color: ${({ $danger }) => $danger ? 'rgba(239,68,68,0.3)' : 'rgba(99,102,241,0.3)'};
+    color: ${({ $danger }) => $danger ? '#dc2626' : '#6366f1'};
+  }
+`;
+
+const NoteUploadBtn = styled.button`
+  margin: 6px 24px 0;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px dashed #c7d2fe;
+  background: rgba(99, 102, 241, 0.04);
+  color: #6366f1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: #818cf8;
+  }
+`;
+
+const NoteFilesBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.08);
+  color: #6366f1;
+  font-size: 0.72rem;
+  font-weight: 600;
 `;
 
 const ContentWrapper = styled.div`
@@ -1799,6 +1521,179 @@ const ContentWrapper = styled.div`
     max-width: 100%;
   }
 `;
+
+const ipc = window.electronAPI;
+
+const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel, currentUser }) {
+  const [title, setTitle] = useState(note?.title || '');
+  const [content, setContent] = useState(note?.content || '');
+  const [reminderDate, setReminderDate] = useState(note?.reminderDate || '');
+  const initTime = note?.reminderTime || '';
+  const [reminderHour, setReminderHour] = useState(initTime ? initTime.split(':')[0] : '');
+  const [reminderMinute, setReminderMinute] = useState(initTime ? initTime.split(':')[1] : '');
+  const [files, setFiles] = useState([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [emailStatus, setEmailStatus] = useState(null);
+
+  const noteId = note?.id;
+  const isExisting = !!noteId;
+
+  useEffect(() => {
+    if (!isExisting) return;
+    let canceled = false;
+    (async () => {
+      setLoadingFiles(true);
+      try {
+        const res = await ipc.invoke('get-note-files', { noteId });
+        if (!canceled && res?.files) setFiles(res.files);
+      } catch (_) { /* ignore */ }
+      if (!canceled) setLoadingFiles(false);
+    })();
+    return () => { canceled = true; };
+  }, [noteId, isExisting]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await ipc.invoke('check-user-email', { username: currentUser?.username });
+        setEmailStatus(res);
+      } catch (_) { /* ignore */ }
+    })();
+  }, [currentUser?.username]);
+
+  const reminderTime = (reminderHour && reminderMinute) ? `${reminderHour}:${reminderMinute}` : '';
+
+  const handleUpload = useCallback(async () => {
+    let id = noteId;
+    if (!id) {
+      id = `note-${Date.now()}`;
+      onSave({ title: title.trim(), content: content.trim(), reminderDate, reminderTime, id, keepOpen: true });
+    }
+    try {
+      const res = await ipc.invoke('upload-note-files', { noteId: id });
+      if (res?.success && res.files) {
+        setFiles(prev => [...prev, ...res.files.map(name => ({ name, size: 0 }))]);
+      }
+    } catch (_) { /* ignore */ }
+  }, [noteId, title, content, reminderDate, reminderTime, onSave]);
+
+  const handleOpenFile = useCallback(async (fileName) => {
+    if (!noteId) return;
+    await ipc.invoke('open-note-file', { noteId, fileName });
+  }, [noteId]);
+
+  const handleDeleteFile = useCallback(async (fileName) => {
+    if (!noteId) return;
+    const res = await ipc.invoke('delete-note-file', { noteId, fileName });
+    if (res?.success) {
+      setFiles(prev => prev.filter(f => f.name !== fileName));
+    }
+  }, [noteId]);
+
+  const handleSave = useCallback(() => {
+    if (!title.trim() && !content.trim()) return;
+    onSave({ title: title.trim(), content: content.trim(), reminderDate: reminderDate || null, reminderTime: reminderTime || null });
+  }, [title, content, reminderDate, reminderTime, onSave]);
+
+  const userHasEmail = emailStatus?.hasEmail;
+  const superAdminName = emailStatus?.superAdminFullName;
+
+  return (
+    <NoteEditOverlay onClick={(e) => e.target === e.currentTarget && onCancel()}>
+      <NoteEditPanel onClick={(e) => e.stopPropagation()}>
+        <h3>{isExisting ? 'Επεξεργασία Σημείωσης' : 'Νέα Σημείωση'}</h3>
+        <NoteEditInput
+          type="text"
+          placeholder="Τίτλος"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          autoFocus
+        />
+        <NoteEditTextarea
+          placeholder="Περιεχόμενο..."
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+        />
+        <div style={{ margin: '8px 24px 0', padding: '12px', background: '#fefce8', border: '1px solid #fde68a', borderRadius: '10px' }}>
+          <div style={{ fontSize: '0.82rem', fontWeight: '600', color: '#92400e', marginBottom: '8px' }}>
+            🔔 Υπενθύμιση μέσω email (προαιρετικό)
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="date"
+              value={reminderDate}
+              onChange={(e) => setReminderDate(e.target.value)}
+              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', fontFamily: 'inherit' }}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+              <select
+                value={reminderHour}
+                onChange={(e) => setReminderHour(e.target.value)}
+                style={{ padding: '6px 8px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', fontFamily: 'inherit', background: '#fff', cursor: 'pointer', minWidth: '58px' }}
+              >
+                <option value="">ΩΩ</option>
+                {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map(h => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+              <span style={{ fontWeight: '700', color: '#64748b', fontSize: '1rem' }}>:</span>
+              <select
+                value={reminderMinute}
+                onChange={(e) => setReminderMinute(e.target.value)}
+                style={{ padding: '6px 8px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', fontFamily: 'inherit', background: '#fff', cursor: 'pointer', minWidth: '58px' }}
+              >
+                <option value="">ΛΛ</option>
+                {['00','05','10','15','20','25','30','35','40','45','50','55'].map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+            {reminderDate && (
+              <button
+                type="button"
+                onClick={() => { setReminderDate(''); setReminderHour(''); setReminderMinute(''); }}
+                style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '0.78rem', fontWeight: '600' }}
+              >
+                Αφαίρεση
+              </button>
+            )}
+          </div>
+          {reminderDate && !userHasEmail && (
+            <div style={{ marginTop: '8px', padding: '8px 10px', background: 'rgba(239,68,68,0.06)', borderRadius: '8px', fontSize: '0.78rem', color: '#b91c1c', lineHeight: '1.4' }}>
+              Δεν έχει καταχωρηθεί email στον λογαριασμό σας. Επικοινωνήστε με τον διαχειριστή
+              {superAdminName ? ` (${superAdminName})` : ''} για να καταχωρηθεί το email σας ώστε να λαμβάνετε υπενθυμίσεις.
+            </div>
+          )}
+          {reminderDate && userHasEmail && (
+            <div style={{ marginTop: '6px', fontSize: '0.78rem', color: '#15803d' }}>
+              Θα λάβετε email υπενθύμιση στις {reminderDate.split('-').reverse().join('/')}{reminderTime ? ` ${reminderTime}` : ''}.
+            </div>
+          )}
+        </div>
+        {files.length > 0 && (
+          <NoteFilesSection>
+            {files.map(f => (
+              <NoteFileItem key={f.name}>
+                <span style={{ fontSize: '0.9rem' }}>📎</span>
+                <NoteFileName>{f.name}</NoteFileName>
+                {isExisting && <NoteFileBtn type="button" title="Άνοιγμα" onClick={() => handleOpenFile(f.name)}>👁</NoteFileBtn>}
+                <NoteFileBtn type="button" title="Διαγραφή" $danger onClick={() => handleDeleteFile(f.name)}>✕</NoteFileBtn>
+              </NoteFileItem>
+            ))}
+          </NoteFilesSection>
+        )}
+        {loadingFiles && <div style={{ margin: '6px 24px', color: '#94a3b8', fontSize: '0.8rem' }}>Φόρτωση αρχείων...</div>}
+        <NoteUploadBtn type="button" onClick={handleUpload}>
+          📎 Επισύναψη αρχείου
+        </NoteUploadBtn>
+        <NoteEditFooter>
+          <NoteEditCancelBtn type="button" onClick={onCancel}>Ακύρωση</NoteEditCancelBtn>
+          <NoteEditSaveBtn type="button" onClick={handleSave}>Αποθήκευση</NoteEditSaveBtn>
+        </NoteEditFooter>
+      </NoteEditPanel>
+    </NoteEditOverlay>
+  );
+});
 
 function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCurrentUser }) {
   const userRole = currentUser?.role || 'USER';
@@ -1933,6 +1828,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isBackupManagerOpen, setIsBackupManagerOpen] = useState(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [isEmailSettingsOpen, setIsEmailSettingsOpen] = useState(false);
   const [isTaskAssignmentsOpen, setIsTaskAssignmentsOpen] = useState(false);
   const [taskAssignmentInitialScreen, setTaskAssignmentInitialScreen] = useState('workspace');
   const [taskAssignmentsFocusTaskId, setTaskAssignmentsFocusTaskId] = useState(null);
@@ -1957,34 +1853,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [egkriseisRefreshTrigger, setEgkriseisRefreshTrigger] = useState(0);
   const [isDocumentTemplatesOpen, setIsDocumentTemplatesOpen] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
-  const [noteGroups, setNoteGroups] = useState(() => [{
-    id: DEFAULT_NOTE_GROUP_ID,
-    name: 'Γενικές Σημειώσεις',
-    color: '#6366f1'
-  }]);
-  const [selectedNoteGroupId, setSelectedNoteGroupId] = useState(DEFAULT_NOTE_GROUP_ID);
   const [notes, setNotes] = useState([]);
-  const [groupForm, setGroupForm] = useState({ name: '', color: '#38bdf8' });
-  const [noteForm, setNoteForm] = useState({ 
-    title: '', 
-    content: '', 
-    tags: '', 
-    groupId: DEFAULT_NOTE_GROUP_ID,
-    priority: 'medium', // low, medium, high
-    status: 'new', // new, in-progress, completed
-    dueDate: '',
-    checklist: [] // Array of { id, text, completed }
-  });
   const [notesSearch, setNotesSearch] = useState('');
-  // eslint-disable-next-line no-unused-vars
-  const [notesSortBy, _setNotesSortBy] = useState('createdAt');
-  // eslint-disable-next-line no-unused-vars
-  const [notesFilterStatus, _setNotesFilterStatus] = useState('all');
-  // eslint-disable-next-line no-unused-vars
-  const [notesFilterPriority, _setNotesFilterPriority] = useState('all');
   const [editingNote, setEditingNote] = useState(null);
-  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
-  const [selectedNoteForModal, setSelectedNoteForModal] = useState(null);
+  const [noteFileCounts, setNoteFileCounts] = useState({});
+  const [selectedNoteId, setSelectedNoteId] = useState(null);
+  const [previewFiles, setPreviewFiles] = useState([]);
   
   // 🚀 CACHE SYSTEM για να μην φορτώνονται τα στατιστικά κάθε φορά
   const [dataCache, setDataCache] = useState({
@@ -2035,16 +1909,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           currentProjects.map(async (project) => {
             try {
               const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
-              return { projectId: project.projectId, isLocked: lockStatus.locked };
+              return { projectId: project.projectId, isLocked: lockStatus.locked, lockedBy: lockStatus.lockedBy || '' };
             } catch (error) {
               console.error('Error checking lock for project:', project.projectId, error);
-              return { projectId: project.projectId, isLocked: project.isLocked };
+              return { projectId: project.projectId, isLocked: project.isLocked, lockedBy: project.lockedBy || '' };
             }
           })
         ).then(lockChecks => {
           const hasChanges = lockChecks.some((check) => {
             const currentProject = currentProjects.find(p => p.projectId === check.projectId);
-            return currentProject && currentProject.isLocked !== check.isLocked;
+            return currentProject && (currentProject.isLocked !== check.isLocked || currentProject.lockedBy !== check.lockedBy);
           });
           
           if (hasChanges) {
@@ -2052,7 +1926,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             setProjects(prevProjects => {
               return prevProjects.map(project => {
                 const lockCheck = lockChecks.find(c => c.projectId === project.projectId);
-                return lockCheck ? { ...project, isLocked: lockCheck.isLocked } : project;
+                return lockCheck ? { ...project, isLocked: lockCheck.isLocked, lockedBy: lockCheck.lockedBy } : project;
               }).sort((a, b) => {
                 const projectComparison = a.projectTitle.localeCompare(b.projectTitle, 'el', { sensitivity: 'base' });
                 if (projectComparison !== 0) return projectComparison;
@@ -2081,7 +1955,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     loadLinkedEgkriseis();
   }, []); // Load only once on mount to avoid unnecessary re-renders
 
-  // Load notes and groups from file on mount
+  // Load notes from file on mount
   const notesLoadedRef = useRef(false);
   useEffect(() => {
     const loadNotes = async () => {
@@ -2089,9 +1963,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         const data = await ipcRenderer.invoke('load-notes');
         if (data && data.notes && Array.isArray(data.notes)) {
           setNotes(data.notes);
-        }
-        if (data && data.groups && Array.isArray(data.groups) && data.groups.length > 0) {
-          setNoteGroups(data.groups);
         }
       } catch (error) {
         console.error('Error loading notes from file:', error);
@@ -2115,7 +1986,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       try {
         await ipcRenderer.invoke('save-notes', {
           notes,
-          groups: noteGroups
+          groups: []
         });
       } catch (error) {
         console.error('Error saving notes to file:', error);
@@ -2127,21 +1998,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         clearTimeout(saveNotesTimeoutRef.current);
       }
     };
-  }, [notes, noteGroups]);
-
-  useEffect(() => {
-    if (!noteGroups.some(group => group.id === selectedNoteGroupId)) {
-      if (noteGroups.length > 0) {
-        setSelectedNoteGroupId(noteGroups[0].id);
-      } else {
-        setSelectedNoteGroupId(DEFAULT_NOTE_GROUP_ID);
-      }
-    }
-  }, [noteGroups, selectedNoteGroupId]);
-
-  useEffect(() => {
-    setNoteForm(prev => ({ ...prev, groupId: selectedNoteGroupId }));
-  }, [selectedNoteGroupId]);
+  }, [notes]);
 
   useEffect(() => {
     setFilteredProjects(projects.filter(p => p.projectStatus !== 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ'));
@@ -2590,9 +2447,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 batch.map(async (project) => {
                   try {
                     const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
-                    return { projectId: project.projectId, isLocked: lockStatus.locked };
+                    return { projectId: project.projectId, isLocked: lockStatus.locked, lockedBy: lockStatus.lockedBy || '' };
                   } catch (error) {
-                    return { projectId: project.projectId, isLocked: project.isLocked };
+                    return { projectId: project.projectId, isLocked: project.isLocked, lockedBy: project.lockedBy || '' };
                   }
                 })
               );
@@ -2604,14 +2461,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             setProjects(prevProjects => {
               const hasChanges = lockChecks.some((check) => {
                 const currentProject = prevProjects.find(p => p.projectId === check.projectId);
-                return currentProject && currentProject.isLocked !== check.isLocked;
+                return currentProject && (currentProject.isLocked !== check.isLocked || currentProject.lockedBy !== check.lockedBy);
               });
               
               if (hasChanges) {
                 console.log('Lock status changes detected, updating UI silently...');
                 return prevProjects.map(project => {
                   const lockCheck = lockChecks.find(c => c.projectId === project.projectId);
-                  return lockCheck ? { ...project, isLocked: lockCheck.isLocked } : project;
+                  return lockCheck ? { ...project, isLocked: lockCheck.isLocked, lockedBy: lockCheck.lockedBy } : project;
                 }).sort((a, b) => {
                   const projectComparison = a.projectTitle.localeCompare(b.projectTitle, 'el', { sensitivity: 'base' });
                   if (projectComparison !== 0) return projectComparison;
@@ -2762,6 +2619,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               return {
                 ...project,
                 isLocked: lockStatus.locked || false,
+                lockedBy: lockStatus.lockedBy || '',
                 hasEgkrisiLink: egkrisiLinksSet.has(project.subprojectId),
                 hasProsklisiLink: prosklisiLinksSet.has(project.subprojectId),
                 hasEntaxiLink: entaxiLinksMap.has(project.subprojectId)
@@ -2770,6 +2628,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               return {
                 ...project,
                 isLocked: false,
+                lockedBy: '',
                 hasEgkrisiLink: false,
                 hasProsklisiLink: false,
                 hasEntaxiLink: false
@@ -2926,6 +2785,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             return {
               ...project,
               isLocked: lockStatus.locked || false,
+              lockedBy: lockStatus.lockedBy || '',
               hasEgkrisiLink: egkrisiLinksSet.has(project.subprojectId),
               hasProsklisiLink: prosklisiLinksSet.has(project.subprojectId),
               hasEntaxiLink: entaxiLinksMap.has(project.subprojectId)
@@ -2934,6 +2794,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             return {
               ...project,
               isLocked: false,
+              lockedBy: '',
               hasEgkrisiLink: false,
               hasProsklisiLink: false,
               hasEntaxiLink: false
@@ -3238,21 +3099,19 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
       
       if (lockStatus.locked) {
+        const whoLocked = lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον χρήστη';
         const clearStaleResult = await safeConfirm(
-          'Το έργο φαίνεται κλειδωμένο. Αυτό μπορεί να οφείλεται σε κολλημένο lock. ' +
-          'Θέλετε να καθαρίσετε τα κολλημένα locks και να δοκιμάσετε ξανά;'
+          `Το έργο είναι ανοιχτό από ${whoLocked}. ` +
+          'Αν αυτό είναι λάθος (π.χ. κολλημένο lock), θέλετε να καθαρίσετε και να δοκιμάσετε ξανά;'
         );
         
         if (clearStaleResult) {
-          // Καθάρισε τα κολλημένα locks
           await ipcRenderer.invoke('clear-all-locks');
-          // Ανανέωση των projects
           await loadProjects();
-          
-          // Δοκίμασε ξανά
           const newLockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
           if (newLockStatus.locked) {
-            alert('Το έργο είναι ακόμα κλειδωμένο από άλλον διαχειριστή!');
+            const whoStill = newLockStatus.lockedBy ? `«${newLockStatus.lockedBy}»` : 'άλλον διαχειριστή';
+            alert(`Το έργο είναι ακόμα κλειδωμένο από ${whoStill}.`);
             return;
           }
         } else {
@@ -3260,8 +3119,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         }
       }
 
-      // Δημιουργία lock για το έργο
-      const lockResult = await ipcRenderer.invoke('create-project-lock', project.projectId);
+      // Δημιουργία lock με username
+      const lockOwner = currentUser?.fullName || currentUser?.username || '';
+      const lockResult = await ipcRenderer.invoke('create-project-lock', project.projectId, lockOwner);
       if (!lockResult.success) {
         alert('Δεν είναι δυνατή η επεξεργασία αυτή τη στιγμή. Δοκιμάστε ξανά.');
         return;
@@ -3347,6 +3207,50 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       });
     } catch (error) {
       console.error('Error loading project files:', error);
+    }
+  };
+
+  const handleUploadSubprojectFiles = async (project) => {
+    if (userRole === 'USER') {
+      alert('Δεν έχετε δικαίωμα προσθήκης αρχείων.');
+      return;
+    }
+    if (project.isLocked) {
+      const who = project.lockedBy ? `«${project.lockedBy}»` : 'άλλον χρήστη';
+      alert(`Το έργο είναι κλειδωμένο από ${who}. Δεν μπορούν να προστεθούν αρχεία αυτή τη στιγμή.`);
+      return;
+    }
+
+    try {
+      const result = await uploadSubprojectFiles({
+        projectId: project.projectId,
+        subprojectId: project.subprojectId
+      });
+
+      if (result.cancelled) {
+        return;
+      }
+
+      if (!result.success) {
+        alert('Σφάλμα κατά την προσθήκη αρχείων: ' + (result.error || 'Άγνωστο σφάλμα'));
+        return;
+      }
+
+      invalidateCache();
+      await loadDataWithCache(true);
+
+      if (
+        fileManager.isOpen &&
+        fileManager.projectId === project.projectId &&
+        fileManager.subprojectId === project.subprojectId
+      ) {
+        await handleOpenFileManager(project.projectId, project.subprojectId);
+      }
+
+      alert(`✅ Προστέθηκαν επιτυχώς ${result.count} αρχείο(α) στο υποέργο.`);
+    } catch (error) {
+      console.error('Error uploading subproject files:', error);
+      alert('Σφάλμα κατά την προσθήκη αρχείων: ' + error.message);
     }
   };
 
@@ -3799,314 +3703,114 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     }
   };
 
-  const groupCounts = useMemo(() => {
-    const counts = {};
-    notes.forEach(note => {
-      counts[note.groupId] = (counts[note.groupId] || 0) + 1;
-    });
-    return counts;
-  }, [notes]);
-
   const filteredNotes = useMemo(() => {
     const term = notesSearch.trim().toLowerCase();
-    let filtered = notes
-      .filter(note => note.groupId === selectedNoteGroupId)
+    return notes
       .filter(note => {
         if (!term) return true;
-        const haystack = `${note.title || ''} ${note.content || ''} ${(note.tags || []).join(' ')}`.toLowerCase();
-        return haystack.includes(term);
+        return (note.title || '').toLowerCase().includes(term) ||
+               (note.content || '').toLowerCase().includes(term);
       })
-      .filter(note => {
-        if (notesFilterStatus === 'all') return true;
-        return (note.status || 'new') === notesFilterStatus;
-      })
-      .filter(note => {
-        if (notesFilterPriority === 'all') return true;
-        return (note.priority || 'medium') === notesFilterPriority;
-      });
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+  }, [notes, notesSearch]);
 
-    // Sorting
-    filtered.sort((a, b) => {
-      switch (notesSortBy) {
-        case 'dueDate':
-          const aDate = a.dueDate ? new Date(a.dueDate) : new Date(0);
-          const bDate = b.dueDate ? new Date(b.dueDate) : new Date(0);
-          return aDate - bDate;
-        case 'priority':
-          const priorityOrder = { high: 3, medium: 2, low: 1 };
-          return (priorityOrder[b.priority || 'medium'] || 0) - (priorityOrder[a.priority || 'medium'] || 0);
-        case 'status':
-          const statusOrder = { 'in-progress': 2, new: 1, completed: 0 };
-          return (statusOrder[b.status || 'new'] || 0) - (statusOrder[a.status || 'new'] || 0);
-        case 'title':
-          return (a.title || '').localeCompare(b.title || '');
-        case 'createdAt':
-        default:
-          return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
-      }
-    });
+  const handleSaveNote = useCallback(({ title, content, reminderDate, reminderTime, id: forcedId, keepOpen }) => {
+    if (!title && !content) return;
 
-    return filtered;
-  }, [notes, selectedNoteGroupId, notesSearch, notesSortBy, notesFilterStatus, notesFilterPriority]);
-
-  const activeNoteGroup = useMemo(
-    () => noteGroups.find(group => group.id === selectedNoteGroupId),
-    [noteGroups, selectedNoteGroupId]
-  );
-
-  const handleAddGroup = useCallback(async () => {
-    const name = groupForm.name.trim();
-    if (!name) {
-      alert('Παρακαλώ εισάγετε όνομα ομάδας σημειώσεων.');
-      return;
-    }
-    const color = groupForm.color || '#6366f1';
-    const newGroup = {
-      id: `note-group-${Date.now()}`,
-      name,
-      color
-    };
-    const updatedGroups = [...noteGroups, newGroup];
-    setNoteGroups(updatedGroups);
-    setGroupForm(prev => ({ ...prev, name: '' }));
-    setSelectedNoteGroupId(newGroup.id);
-    
-    // Save immediately after adding group
-    try {
-      await ipcRenderer.invoke('save-note-groups', updatedGroups);
-    } catch (error) {
-      console.error('Error saving note group:', error);
-    }
-  }, [groupForm, noteGroups]);
-
-  const handleDeleteGroup = useCallback(async (groupId) => {
-    if (groupId === DEFAULT_NOTE_GROUP_ID) {
-      alert('Η βασική ομάδα δεν μπορεί να διαγραφεί.');
-      return;
-    }
-    const updatedGroups = noteGroups.filter(group => group.id !== groupId);
-    const updatedNotes = notes.map(note =>
-      note.groupId === groupId ? { ...note, groupId: DEFAULT_NOTE_GROUP_ID } : note
-    );
-    
-    setNoteGroups(updatedGroups);
-    setNotes(updatedNotes);
-    setSelectedNoteGroupId(DEFAULT_NOTE_GROUP_ID);
-    
-    // Save immediately after deleting group
-    try {
-      await ipcRenderer.invoke('save-notes', {
-        notes: updatedNotes,
-        groups: updatedGroups
-      });
-    } catch (error) {
-      console.error('Error saving after group deletion:', error);
-    }
-  }, [notes, noteGroups]);
-
-  const handleAddNote = useCallback(async () => {
-    if (!noteForm.title.trim() && !noteForm.content.trim()) {
-      alert('Παρακαλώ γράψτε τουλάχιστον έναν τίτλο ή περιεχόμενο για τη σημείωση.');
-      return;
-    }
-
-    const groupId = noteForm.groupId || selectedNoteGroupId || DEFAULT_NOTE_GROUP_ID;
-    
-    // Αν επεξεργαζόμαστε μια υπάρχουσα σημείωση
-    if (editingNote) {
+    if (editingNote && editingNote.id) {
       const updatedNote = {
         ...editingNote,
-        title: noteForm.title.trim() || 'Χωρίς τίτλο',
-        content: noteForm.content.trim(),
-        tags: noteForm.tags
-          .split(',')
-          .map(tag => tag.trim())
-          .filter(Boolean),
-        groupId,
-        priority: noteForm.priority || 'medium',
-        status: noteForm.status || 'new',
-        dueDate: noteForm.dueDate || '',
-        checklist: noteForm.checklist || [],
+        title,
+        content,
+        reminderDate: reminderDate || null,
+        reminderTime: reminderTime || null,
+        reminderSent: (reminderDate && reminderDate === editingNote.reminderDate && reminderTime === editingNote.reminderTime) ? editingNote.reminderSent : false,
         updatedAt: new Date().toISOString()
       };
-
-      const updatedNotes = notes.map(note => 
-        note.id === editingNote.id ? updatedNote : note
-      );
-      
-      setNotes(updatedNotes);
-      setEditingNote(null);
-      setNoteForm({
-        title: '',
-        content: '',
-        tags: '',
-        groupId
-      });
-      
-      // Save immediately after updating note
-      try {
-        await ipcRenderer.invoke('save-notes', {
-          notes: updatedNotes,
-          groups: noteGroups
-        });
-      } catch (error) {
-        console.error('Error saving note update:', error);
-      }
+      setNotes(prev => prev.map(n => n.id === editingNote.id ? updatedNote : n));
+      if (!keepOpen) setEditingNote(null);
     } else {
-      // Νέα σημείωση
+      const noteId = forcedId || `note-${Date.now()}`;
       const newNote = {
-        id: `note-${Date.now()}`,
-        title: noteForm.title.trim() || 'Χωρίς τίτλο',
-        content: noteForm.content.trim(),
-        tags: noteForm.tags
-          .split(',')
-          .map(tag => tag.trim())
-          .filter(Boolean),
-        groupId,
-        priority: noteForm.priority || 'medium',
-        status: noteForm.status || 'new',
-        dueDate: noteForm.dueDate || '',
-        checklist: noteForm.checklist || [],
-        createdAt: new Date().toISOString()
+        id: noteId,
+        title,
+        content,
+        reminderDate: reminderDate || null,
+        reminderTime: reminderTime || null,
+        reminderSent: false,
+        createdBy: currentUser?.username || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
-
       setNotes(prev => [newNote, ...prev]);
-      setNoteForm(prev => ({
-        ...prev,
-        title: '',
-        content: '',
-        tags: '',
-        groupId
-      }));
-      
-      // Save immediately after adding note
-      try {
-        await ipcRenderer.invoke('save-notes', {
-          notes: [newNote, ...notes],
-          groups: noteGroups
-        });
-      } catch (error) {
-        console.error('Error saving note:', error);
+      if (keepOpen) {
+        setEditingNote(newNote);
+      } else {
+        setEditingNote(null);
       }
     }
-  }, [noteForm, selectedNoteGroupId, notes, noteGroups, editingNote]);
+  }, [editingNote, currentUser?.username]);
 
   const handleDeleteNote = useCallback(async (noteId) => {
     if (!await showConfirm({ title: 'Διαγραφή Σημείωσης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή τη σημείωση;', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       return;
     }
-    
-    const updatedNotes = notes.filter(note => note.id !== noteId);
-    setNotes(updatedNotes);
-    
-    // Αν διαγράφουμε τη σημείωση που επεξεργαζόμασταν, καθαρίζουμε το form
+    setNotes(prev => prev.filter(n => n.id !== noteId));
     if (editingNote && editingNote.id === noteId) {
       setEditingNote(null);
-      setNoteForm({ title: '', content: '', tags: '', groupId: selectedNoteGroupId || DEFAULT_NOTE_GROUP_ID });
     }
-    
-    // Save immediately after deleting note
-    try {
-      await ipcRenderer.invoke('save-notes', {
-        notes: updatedNotes,
-        groups: noteGroups
-      });
-    } catch (error) {
-      console.error('Error saving after note deletion:', error);
-    }
-  }, [notes, noteGroups, editingNote, selectedNoteGroupId]);
+    ipcRenderer.invoke('delete-note-files-dir', { noteId }).catch(() => {});
+  }, [editingNote]);
 
-  const handleOpenNoteModal = useCallback((note) => {
-    setSelectedNoteForModal({ ...note });
-    setIsNoteModalOpen(true);
+  const handleEditNote = useCallback((note) => {
+    setEditingNote(note);
   }, []);
 
-  const handleCloseNoteModal = useCallback(() => {
-    setIsNoteModalOpen(false);
-    setSelectedNoteForModal(null);
-  }, []);
+  useEffect(() => {
+    if (!selectedNoteId) { setPreviewFiles([]); return; }
+    let canceled = false;
+    (async () => {
+      try {
+        const res = await ipcRenderer.invoke('get-note-files', { noteId: selectedNoteId });
+        if (!canceled && res?.files) setPreviewFiles(res.files);
+        else if (!canceled) setPreviewFiles([]);
+      } catch (_) { if (!canceled) setPreviewFiles([]); }
+    })();
+    return () => { canceled = true; };
+  }, [selectedNoteId]);
 
-  const handleSaveNoteFromModal = useCallback(async () => {
-    if (!selectedNoteForModal) return;
-
-    const updatedNote = {
-      ...selectedNoteForModal,
-      title: selectedNoteForModal.title || '',
-      content: selectedNoteForModal.content || '',
-      tags: selectedNoteForModal.tags || [],
-      updatedAt: new Date().toISOString()
-    };
-
-    const updatedNotes = notes.map(note => 
-      note.id === selectedNoteForModal.id ? updatedNote : note
-    );
-    
-    setNotes(updatedNotes);
-    handleCloseNoteModal();
-
-    // Save to file
-    try {
-      await ipcRenderer.invoke('save-notes', {
-        notes: updatedNotes,
-        groups: noteGroups
-      });
-    } catch (error) {
-      console.error('Error saving note from modal:', error);
+  const loadNoteFileCounts = useCallback(async (notesList) => {
+    const counts = {};
+    for (const note of (notesList || notes)) {
+      if (!note.id) continue;
+      try {
+        const res = await ipcRenderer.invoke('get-note-files', { noteId: note.id });
+        if (res?.files?.length) counts[note.id] = res.files.length;
+      } catch (_) { /* ignore */ }
     }
-  }, [selectedNoteForModal, notes, noteGroups, handleCloseNoteModal]);
-
-  const handleUpdateNoteInModal = useCallback((field, value) => {
-    if (!selectedNoteForModal) return;
-    
-    setSelectedNoteForModal(prev => {
-      if (field === 'tags') {
-        const tagsArray = value.split(',').map(tag => tag.trim()).filter(tag => tag);
-        return { ...prev, [field]: tagsArray };
-      }
-      if (field === 'checklist') {
-        // value is the entire checklist array
-        return { ...prev, [field]: value };
-      }
-      return { ...prev, [field]: value };
-    });
-  }, [selectedNoteForModal]);
-
-  const handleAddChecklistItem = useCallback(() => {
-    if (!selectedNoteForModal) return;
-    const newItem = {
-      id: `checklist-${Date.now()}`,
-      text: '',
-      completed: false
-    };
-    setSelectedNoteForModal(prev => ({
-      ...prev,
-      checklist: [...(prev.checklist || []), newItem]
-    }));
-  }, [selectedNoteForModal]);
+    setNoteFileCounts(counts);
+  }, [notes]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingNote(null);
-    setNoteForm({ title: '', content: '', tags: '', groupId: selectedNoteGroupId || DEFAULT_NOTE_GROUP_ID });
-  }, [selectedNoteGroupId]);
+    loadNoteFileCounts();
+    if (selectedNoteId) {
+      ipcRenderer.invoke('get-note-files', { noteId: selectedNoteId })
+        .then(res => { if (res?.files) setPreviewFiles(res.files); })
+        .catch(() => {});
+    }
+  }, [loadNoteFileCounts, selectedNoteId]);
 
   const handleOpenNotes = useCallback(() => {
     setIsNotesOpen(true);
     setNotesSearch('');
     setEditingNote(null);
-    setNoteForm({ 
-      title: '', 
-      content: '', 
-      tags: '', 
-      groupId: selectedNoteGroupId || DEFAULT_NOTE_GROUP_ID,
-      priority: 'medium',
-      status: 'new',
-      dueDate: '',
-      checklist: []
-    });
-  }, [selectedNoteGroupId]);
+    loadNoteFileCounts();
+  }, [loadNoteFileCounts]);
 
   const handleCloseNotes = useCallback(() => {
     setIsNotesOpen(false);
+    setEditingNote(null);
   }, []);
 
   const refreshTaskAccessRef = useRef(null);
@@ -4780,8 +4484,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             </CategoryBody>
           </CategorySection>
 
-        {/* Κατηγορία: ΕΡΓΑΛΕΙΑ - μόνο για ADMIN/SUPERADMIN */}
-        {canManageAll && (
+        {/* Κατηγορία: ΕΡΓΑΛΕΙΑ - ADMIN/SUPERADMIN/ENGINEER */}
+        {(canManageAll || isEngineer) && (
           <CategorySection>
             <CategoryHeader $open={expandedCategories.tools} onClick={() => toggleCategory('tools')}>
               <CategoryHeaderLeft>
@@ -4791,18 +4495,16 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               <CategoryHeaderChevron $open={expandedCategories.tools}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.tools}>
-              <AdminButton onClick={handleOpenNotes}>
-                <AdminButtonIcon>📝</AdminButtonIcon>
-                Σημειώσεις
-              </AdminButton>
               <AdminButton onClick={() => setIsAuditLogOpen(true)}>
                 <AdminButtonIcon>📋</AdminButtonIcon>
                 Ιστορικό Ενεργειών
               </AdminButton>
-              <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
-                <AdminButtonIcon>📄</AdminButtonIcon>
-                Υποδείγματα Εγγράφων
-              </AdminButton>
+              {canManageAll && (
+                <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
+                  <AdminButtonIcon>📄</AdminButtonIcon>
+                  Υποδείγματα Εγγράφων
+                </AdminButton>
+              )}
             </CategoryBody>
           </CategorySection>
         )}
@@ -4826,6 +4528,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <AdminButtonIcon>👥</AdminButtonIcon>
                 Διαχείριση Χρηστών
               </AdminButton>
+              <AdminButton onClick={() => setIsEmailSettingsOpen(true)}>
+                <AdminButtonIcon>✉</AdminButtonIcon>
+                Ρυθμίσεις Email
+              </AdminButton>
             </CategoryBody>
           </CategorySection>
         )}
@@ -4841,8 +4547,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             setSelectedDetailProject(null);
             handleEditProject(p);
           }}
+          onUploadFiles={handleUploadSubprojectFiles}
           userRole={userRole}
           isLocked={selectedDetailProject.isLocked || false}
+          lockedBy={selectedDetailProject.lockedBy || ''}
         />
       )}
 
@@ -5001,6 +4709,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           await loadEntaxeis();
         }} // Callback για ανανέωση όταν αλλάζουν δεδομένα
         userRole={userRoleForWorkflowModals}
+        currentUser={currentUser}
         projectFilter={entaxisProjectFilter}
         proskliseis={proskliseis}
         handleOpenProsklisi={handleOpenLinkedProsklisi}
@@ -5032,6 +4741,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           }, 100);
         }}
         userRole={userRoleForWorkflowModals}
+        currentUser={currentUser}
         projectFilter={prosklisiProjectFilter}
         selectedProsklisiId={selectedProsklisiId}
       />
@@ -5063,375 +4773,146 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         }}
       />
 
-      {isNotesOpen && (
-        <NotesOverlay onClick={(e) => e.target === e.currentTarget && handleCloseNotes()}>
-          <NotesContainer>
-            <NotesSidebar>
-              <NotesSidebarHeader>
-                <NotesSidebarTitle>Ομάδες</NotesSidebarTitle>
-                <SubtleHint>Οργάνωσε τις σημειώσεις σου όπως σε εξυπηρετεί</SubtleHint>
-              </NotesSidebarHeader>
-              <GroupList>
-                {noteGroups.map(group => (
-                  <GroupListItem key={group.id}>
-                    <GroupButton
-                      type="button"
-                      color={group.color}
-                      active={selectedNoteGroupId === group.id}
-                      onClick={() => setSelectedNoteGroupId(group.id)}
-                    >
-                      {group.name}
-                      <span>{groupCounts[group.id] || 0} σημειώσεις</span>
-                    </GroupButton>
-                    {group.id !== DEFAULT_NOTE_GROUP_ID && (
-                      <GroupDeleteButton
-                        type="button"
-                        onClick={() => handleDeleteGroup(group.id)}
-                        title="Διαγραφή ομάδας"
-                      >
-                        ✕
-                      </GroupDeleteButton>
-                    )}
-                  </GroupListItem>
-                ))}
-              </GroupList>
-              <GroupForm>
-                <GroupFormRow>
-                  <GroupInput
-                    type="text"
-                    placeholder="Όνομα νέας ομάδας"
-                    value={groupForm.name}
-                    onChange={(e) => setGroupForm(prev => ({ ...prev, name: e.target.value }))}
-                  />
-                  <ColorInput
-                    type="color"
-                    value={groupForm.color}
-                    onChange={(e) => setGroupForm(prev => ({ ...prev, color: e.target.value }))}
-                  />
-                </GroupFormRow>
-                <GroupFormButton type="button" onClick={handleAddGroup}>
-                  + Προσθήκη Ομάδας
-                </GroupFormButton>
-              </GroupForm>
-            </NotesSidebar>
-            <NotesMain>
+      {isNotesOpen && (() => {
+        const selNote = selectedNoteId ? notes.find(n => n.id === selectedNoteId) : null;
+        const isReminderPast = selNote?.reminderDate && new Date(selNote.reminderDate + 'T' + (selNote.reminderTime || '09:00')) < new Date();
+        return (
+          <NotesOverlay onClick={(e) => e.target === e.currentTarget && handleCloseNotes()}>
+            <NotesPanel onClick={(e) => e.stopPropagation()}>
               <NotesHeader>
-                <NotesHeaderTitle>
-                  <h2>Ψηφιακό Σημειωματάριο</h2>
-                  <span>{activeNoteGroup ? activeNoteGroup.name : '—'} · {filteredNotes.length} σημειώσεις</span>
-                </NotesHeaderTitle>
-                <NotesCloseButton onClick={handleCloseNotes}>Κλείσιμο</NotesCloseButton>
+                <h2>Γρήγορες Σημειώσεις</h2>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <NewNoteBtn type="button" onClick={() => { setEditingNote({}); }} style={{ padding: '8px 14px', fontSize: '0.8rem' }}>
+                    + Νέα Σημείωση
+                  </NewNoteBtn>
+                  <NotesCloseBtn onClick={handleCloseNotes}>✕</NotesCloseBtn>
+                </div>
               </NotesHeader>
-
-              <NotesSearchRow>
-                <NotesSearchInput
-                  type="text"
-                  placeholder="Αναζήτηση σε τίτλους, περιεχόμενο ή ετικέτες..."
-                  value={notesSearch}
-                  onChange={(e) => setNotesSearch(e.target.value)}
-                />
-              </NotesSearchRow>
-
-              <NoteComposer data-note-composer>
-                {editingNote && (
-                  <div style={{ 
-                    marginBottom: '12px', 
-                    padding: '10px 14px', 
-                    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%)',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(59, 130, 246, 0.2)',
-                    color: '#2563eb',
-                    fontSize: '0.85rem',
-                    fontWeight: '600'
-                  }}>
-                    ✏️ Επεξεργασία: {editingNote.title}
-                  </div>
-                )}
-                <NoteComposerRow>
-                  <GroupInput
+              <NotesLayout>
+                <NotesListCol>
+                  <NoteSearchBar
                     type="text"
-                    placeholder="Τίτλος σημείωσης"
-                    value={noteForm.title}
-                    onChange={(e) => setNoteForm(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="🔍 Αναζήτηση..."
+                    value={notesSearch}
+                    onChange={(e) => setNotesSearch(e.target.value)}
                   />
-                  <NoteGroupSelect
-                    value={noteForm.groupId}
-                    onChange={(e) => setNoteForm(prev => ({ ...prev, groupId: e.target.value }))}
-                  >
-                    {noteGroups.map(group => (
-                      <option key={group.id} value={group.id}>{group.name}</option>
-                    ))}
-                  </NoteGroupSelect>
-                  <GroupInput
-                    type="text"
-                    placeholder="Ετικέτες (χωρισμένες με κόμμα)"
-                    value={noteForm.tags}
-                    onChange={(e) => setNoteForm(prev => ({ ...prev, tags: e.target.value }))}
-                  />
-                </NoteComposerRow>
-                <NoteTextInput
-                  placeholder="Κατέγραψε ιδέες, εκκρεμότητες ή υπενθυμίσεις..."
-                  value={noteForm.content}
-                  onChange={(e) => setNoteForm(prev => ({ ...prev, content: e.target.value }))}
-                />
-                {noteForm.checklist && noteForm.checklist.length > 0 && (
-                  <div style={{ 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    gap: '8px',
-                    padding: '12px',
-                    background: 'rgba(241, 245, 249, 0.5)',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(203, 213, 225, 0.5)'
-                  }}>
-                    <div style={{ fontWeight: '600', fontSize: '0.9rem', color: '#334155', marginBottom: '4px' }}>
-                      Checklist:
-                    </div>
-                    {noteForm.checklist.map((item, idx) => (
-                      <div key={item.id || idx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="checkbox"
-                          checked={item.completed || false}
-                          onChange={(e) => {
-                            const updated = noteForm.checklist.map(i => 
-                              i.id === item.id ? { ...i, completed: e.target.checked } : i
-                            );
-                            setNoteForm(prev => ({ ...prev, checklist: updated }));
-                          }}
-                        />
-                        <input
-                          type="text"
-                          value={item.text || ''}
-                          onChange={(e) => {
-                            const updated = noteForm.checklist.map(i => 
-                              i.id === item.id ? { ...i, text: e.target.value } : i
-                            );
-                            setNoteForm(prev => ({ ...prev, checklist: updated }));
-                          }}
-                          placeholder="Εργασία..."
-                          style={{ 
-                            flex: 1, 
-                            padding: '6px 10px', 
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '6px',
-                            fontSize: '0.85rem'
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = noteForm.checklist.filter(i => i.id !== item.id);
-                            setNoteForm(prev => ({ ...prev, checklist: updated }));
-                          }}
-                          style={{
-                            background: '#dc3545',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            padding: '4px 8px',
-                            cursor: 'pointer',
-                            fontSize: '0.75rem'
-                          }}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newItem = { id: `checklist-${Date.now()}`, text: '', completed: false };
-                        setNoteForm(prev => ({ ...prev, checklist: [...(prev.checklist || []), newItem] }));
-                      }}
-                      style={{
-                        background: '#6366f1',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '8px',
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        fontSize: '0.85rem',
-                        fontWeight: '600',
-                        marginTop: '4px'
-                      }}
-                    >
-                      + Προσθήκη Εργασίας
-                    </button>
-                  </div>
-                )}
-                {(!noteForm.checklist || noteForm.checklist.length === 0) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newItem = { id: `checklist-${Date.now()}`, text: '', completed: false };
-                      setNoteForm(prev => ({ ...prev, checklist: [newItem] }));
-                    }}
-                    style={{
-                      background: 'rgba(99, 102, 241, 0.1)',
-                      color: '#6366f1',
-                      border: '1px dashed #6366f1',
-                      borderRadius: '8px',
-                      padding: '8px 12px',
-                      cursor: 'pointer',
-                      fontSize: '0.85rem',
-                      fontWeight: '600'
-                    }}
-                  >
-                    + Προσθήκη Checklist
-                  </button>
-                )}
-                <NoteSubmitRow>
-                  <SubtleHint>
-                    {editingNote 
-                      ? 'Κάνε τις αλλαγές σου και πάτα "Ενημέρωση" για να αποθηκευτούν.'
-                      : 'Χρησιμοποίησε ετικέτες για γρήγορη ομαδοποίηση και αναζήτηση.'}
-                  </SubtleHint>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    {editingNote && (
-                      <NoteCancelButton type="button" onClick={handleCancelEdit}>
-                        Ακύρωση
-                      </NoteCancelButton>
-                    )}
-                    <NoteSubmitButton type="button" onClick={handleAddNote}>
-                      {editingNote ? 'Ενημέρωση Σημείωσης' : 'Προσθήκη Σημείωσης'}
-                    </NoteSubmitButton>
-                  </div>
-                </NoteSubmitRow>
-              </NoteComposer>
-
-              {filteredNotes.length === 0 ? (
-                <NotesEmptyState>
-                  <div style={{ fontSize: '1.5rem' }}>🌌</div>
-                  <div>Δεν υπάρχουν σημειώσεις στην επιλεγμένη ομάδα ακόμη.</div>
-                  <SubtleHint>Ξεκίνα να οργανώνεις τις σκέψεις σου δημιουργώντας την πρώτη σημείωση.</SubtleHint>
-                </NotesEmptyState>
-              ) : (
-                <NotesGrid>
-                  {filteredNotes.map(note => {
-                    const group = noteGroups.find(g => g.id === note.groupId);
-                    const priority = note.priority || 'medium';
-                    const status = note.status || 'new';
-                    const priorityColors = { high: '#dc2626', medium: '#f59e0b', low: '#10b981' };
-                    const statusColors = { 'new': '#3b82f6', 'in-progress': '#f59e0b', 'completed': '#10b981' };
-                    const accent = group?.color || '#6366f1';
-                    const priorityColor = priorityColors[priority] || priorityColors.medium;
-                    const statusColor = statusColors[status] || statusColors.new;
-                    const isOverdue = note.dueDate && new Date(note.dueDate) < new Date() && status !== 'completed';
-                    
-                    return (
-                      <NoteCard
-                        key={note.id}
-                        data-accent={accent}
-                        onClick={() => handleOpenNoteModal(note)}
-                        style={{
-                          borderColor: isOverdue ? '#dc2626' : accent,
-                          boxShadow: `0 12px 28px ${hexToRgba(isOverdue ? '#dc2626' : accent, 0.22)}`,
-                          borderLeftWidth: '4px',
-                          borderLeftColor: priorityColor
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                          <NoteTitle style={{ flex: 1 }}>{note.title || 'Χωρίς τίτλο'}</NoteTitle>
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <span style={{
-                              padding: '4px 8px',
-                              borderRadius: '6px',
-                              fontSize: '0.7rem',
-                              fontWeight: '700',
-                              background: `${priorityColor}20`,
-                              color: priorityColor,
-                              textTransform: 'uppercase'
-                            }}>
-                              {priority === 'high' ? '🔴 Υψηλή' : priority === 'medium' ? '🟡 Μεσαία' : '🟢 Χαμηλή'}
-                            </span>
-                            <span style={{
-                              padding: '4px 8px',
-                              borderRadius: '6px',
-                              fontSize: '0.7rem',
-                              fontWeight: '700',
-                              background: `${statusColor}20`,
-                              color: statusColor,
-                              textTransform: 'uppercase'
-                            }}>
-                              {status === 'new' ? 'Νέο' : status === 'in-progress' ? 'Σε εξέλιξη' : 'Ολοκληρωμένο'}
-                            </span>
-                          </div>
-                        </div>
-                        {note.content && <NoteContent>{note.content}</NoteContent>}
-                        {note.checklist && note.checklist.length > 0 && (
-                          <div style={{ 
-                            marginTop: '8px',
-                            padding: '8px',
-                            background: 'rgba(241, 245, 249, 0.6)',
-                            borderRadius: '8px',
-                            fontSize: '0.8rem'
-                          }}>
-                            <div style={{ fontWeight: '600', marginBottom: '4px', color: '#475569' }}>
-                              Checklist ({note.checklist.filter(item => item.completed).length}/{note.checklist.length}):
+                  {filteredNotes.length === 0 ? (
+                    <NotesEmpty style={{ minHeight: '100px', marginTop: '8px' }}>Δεν υπάρχουν σημειώσεις</NotesEmpty>
+                  ) : (
+                    <NotesList>
+                      {filteredNotes.map(note => {
+                        const isSelected = selectedNoteId === note.id;
+                        return (
+                          <NoteItem
+                            key={note.id}
+                            onClick={() => setSelectedNoteId(note.id)}
+                            style={{
+                              cursor: 'pointer',
+                              background: isSelected ? '#eef2ff' : undefined,
+                              borderLeftColor: isSelected ? '#6366f1' : undefined,
+                              boxShadow: isSelected ? '0 2px 8px rgba(99,102,241,0.1)' : undefined
+                            }}
+                          >
+                            <NoteItemTitle>{note.title || 'Χωρίς τίτλο'}</NoteItemTitle>
+                            {note.content && <NoteItemContent>{note.content}</NoteItemContent>}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
+                              <NoteItemDate>
+                                {new Date(note.updatedAt || note.createdAt || Date.now()).toLocaleString('el-GR', {
+                                  day: '2-digit', month: '2-digit', year: 'numeric',
+                                  hour: '2-digit', minute: '2-digit'
+                                })}
+                              </NoteItemDate>
+                              {noteFileCounts[note.id] > 0 && (
+                                <NoteFilesBadge>📎 {noteFileCounts[note.id]}</NoteFilesBadge>
+                              )}
+                              {note.reminderDate && (
+                                <NoteReminderBadge $past={note.reminderDate && new Date(note.reminderDate + 'T' + (note.reminderTime || '09:00')) < new Date()}>
+                                  🔔 {note.reminderDate.split('-').reverse().join('/')}
+                                </NoteReminderBadge>
+                              )}
                             </div>
-                            {note.checklist.slice(0, 3).map((item, idx) => (
-                              <div key={item.id || idx} style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '6px',
-                                textDecoration: item.completed ? 'line-through' : 'none',
-                                opacity: item.completed ? 0.6 : 1,
-                                color: item.completed ? '#94a3b8' : '#475569'
-                              }}>
-                                <span>{item.completed ? '✅' : '☐'}</span>
-                                <span>{item.text || 'Χωρίς περιεχόμενο'}</span>
-                              </div>
-                            ))}
-                            {note.checklist.length > 3 && (
-                              <div style={{ marginTop: '4px', color: '#64748b', fontSize: '0.75rem' }}>
-                                +{note.checklist.length - 3} περισσότερες...
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {note.tags && note.tags.length > 0 && (
-                          <NoteMeta>
-                            {note.tags.map(tag => (
-                              <Tag key={`${note.id}-${tag}`}>#{tag}</Tag>
-                            ))}
-                          </NoteMeta>
-                        )}
-                        <NoteMeta>
-                          <span>{new Date(note.createdAt || Date.now()).toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                          {note.dueDate && (
-                            <span style={{ 
-                              color: isOverdue ? '#dc2626' : '#64748b',
-                              fontWeight: isOverdue ? '700' : '400'
-                            }}>
-                              • Due: {new Date(note.dueDate).toLocaleDateString('el-GR')}
-                              {isOverdue && ' ⚠️'}
-                            </span>
+                            <NoteItemActions onClick={(e) => e.stopPropagation()}>
+                              <NoteActionBtn type="button" title="Επεξεργασία" onClick={(e) => { e.stopPropagation(); handleEditNote(note); }}>✏</NoteActionBtn>
+                              <NoteActionBtn type="button" title="Διαγραφή" $danger onClick={(e) => { e.stopPropagation(); handleDeleteNote(note.id); }}>✕</NoteActionBtn>
+                            </NoteItemActions>
+                          </NoteItem>
+                        );
+                      })}
+                    </NotesList>
+                  )}
+                </NotesListCol>
+                <NotePreviewCol>
+                  {selNote ? (
+                    <>
+                      <NotePreviewTitle>{selNote.title || 'Χωρίς τίτλο'}</NotePreviewTitle>
+                      <NotePreviewContent>{selNote.content || '(Κενό περιεχόμενο)'}</NotePreviewContent>
+
+                      {(selNote.reminderDate || previewFiles.length > 0) && (
+                        <NotePreviewSection>
+                          {selNote.reminderDate && (
+                            <div>
+                              <NotePreviewSectionLabel>Υπενθύμιση</NotePreviewSectionLabel>
+                              <NoteReminderBadge $past={isReminderPast} style={{ marginTop: '4px', padding: '5px 12px', fontSize: '0.8rem' }}>
+                                🔔 {selNote.reminderDate.split('-').reverse().join('/')}{selNote.reminderTime ? ` στις ${selNote.reminderTime}` : ''}{isReminderPast ? ' — παρήλθε' : ''}
+                              </NoteReminderBadge>
+                            </div>
                           )}
-                          {group && <span style={{ color: hexToRgba(group.color, 0.8) }}>• {group.name}</span>}
-                        </NoteMeta>
-                        <NoteActions onClick={(e) => e.stopPropagation()}>
-                          <NoteEditButton onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenNoteModal(note);
-                          }}>
-                            Επεξεργασία
-                          </NoteEditButton>
-                          <NoteActionButton onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteNote(note.id);
-                          }}>
-                            Διαγραφή
-                          </NoteActionButton>
-                        </NoteActions>
-                      </NoteCard>
-                    );
-                  })}
-                </NotesGrid>
-              )}
-            </NotesMain>
-          </NotesContainer>
-        </NotesOverlay>
-      )}
+                          {previewFiles.length > 0 && (
+                            <div>
+                              <NotePreviewSectionLabel>Επισυναπτόμενα ({previewFiles.length})</NotePreviewSectionLabel>
+                              <NoteFilesSection style={{ margin: '6px 0 0' }}>
+                                {previewFiles.map(f => (
+                                  <NoteFileItem key={f.name}>
+                                    <span style={{ fontSize: '0.85rem' }}>📎</span>
+                                    <NoteFileName>{f.name}</NoteFileName>
+                                    <NoteFileBtn type="button" title="Άνοιγμα" onClick={async () => { await ipcRenderer.invoke('open-note-file', { noteId: selNote.id, fileName: f.name }); }}>👁</NoteFileBtn>
+                                    <NoteFileBtn type="button" title="Διαγραφή" $danger onClick={async () => {
+                                      const res = await ipcRenderer.invoke('delete-note-file', { noteId: selNote.id, fileName: f.name });
+                                      if (res?.success) {
+                                        setPreviewFiles(prev => prev.filter(x => x.name !== f.name));
+                                        loadNoteFileCounts();
+                                      }
+                                    }}>✕</NoteFileBtn>
+                                  </NoteFileItem>
+                                ))}
+                              </NoteFilesSection>
+                            </div>
+                          )}
+                        </NotePreviewSection>
+                      )}
+
+                      <NotePreviewMeta>
+                        <span>Δημιουργία: {new Date(selNote.createdAt || Date.now()).toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        {selNote.updatedAt && selNote.updatedAt !== selNote.createdAt && (
+                          <span>Ενημέρωση: {new Date(selNote.updatedAt).toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        )}
+                      </NotePreviewMeta>
+                      <NotePreviewActions>
+                        <NotePreviewBtn $primary onClick={() => handleEditNote(selNote)}>✏ Επεξεργασία</NotePreviewBtn>
+                        <NotePreviewBtn onClick={() => handleDeleteNote(selNote.id)}>🗑 Διαγραφή</NotePreviewBtn>
+                      </NotePreviewActions>
+                    </>
+                  ) : (
+                    <NotePreviewEmpty>
+                      <span style={{ fontSize: '2rem', opacity: 0.4 }}>📝</span>
+                      Επιλέξτε μια σημείωση για προβολή
+                    </NotePreviewEmpty>
+                  )}
+                </NotePreviewCol>
+              </NotesLayout>
+            </NotesPanel>
+
+            {editingNote && (
+              <NoteEditModal
+                note={editingNote}
+                onSave={handleSaveNote}
+                onCancel={handleCancelEdit}
+                currentUser={currentUser}
+              />
+            )}
+          </NotesOverlay>
+        );
+      })()}
 
       {/* Egkriseis Manager Modal */}
       <EgkriseisManager
@@ -5450,6 +4931,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         }}
         projects={projectsAsArrayOfArrays}
         userRole={userRoleForWorkflowModals}
+        currentUser={currentUser}
       />
 
       {/* Document Templates Manager */}
@@ -5504,174 +4986,22 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           }}
           onUsersChanged={loadEngineerCatalogForCards}
           currentUser={currentUser}
+          onSyncCurrentUser={onSyncCurrentUser}
         />
       )}
 
-      {/* Note Modal */}
-      {isNoteModalOpen && selectedNoteForModal && (
-        <NoteModalOverlay onClick={handleCloseNoteModal}>
-          <NoteModalContainer onClick={(e) => e.stopPropagation()}>
-            <NoteModalHeader>
-              <NoteModalTitle>Επεξεργασία Σημείωσης</NoteModalTitle>
-              <NoteModalCloseButton onClick={handleCloseNoteModal}>✕</NoteModalCloseButton>
-            </NoteModalHeader>
-            <NoteModalContent>
-              <NoteModalField>
-                <NoteModalLabel>Τίτλος</NoteModalLabel>
-                <NoteModalInput
-                  type="text"
-                  value={selectedNoteForModal.title || ''}
-                  onChange={(e) => handleUpdateNoteInModal('title', e.target.value)}
-                  placeholder="Τίτλος σημείωσης"
-                />
-              </NoteModalField>
-              <NoteModalField>
-                <NoteModalLabel>Περιεχόμενο</NoteModalLabel>
-                <NoteModalTextarea
-                  value={selectedNoteForModal.content || ''}
-                  onChange={(e) => handleUpdateNoteInModal('content', e.target.value)}
-                  placeholder="Περιεχόμενο σημείωσης"
-                />
-              </NoteModalField>
-              <NoteModalField>
-                <NoteModalLabel>Ετικέτες (διαχωρισμένες με κόμμα)</NoteModalLabel>
-                <NoteModalInput
-                  type="text"
-                  value={(selectedNoteForModal.tags || []).join(', ')}
-                  onChange={(e) => handleUpdateNoteInModal('tags', e.target.value)}
-                  placeholder="π.χ. σημαντικό, έκτακτο, follow-up"
-                />
-              </NoteModalField>
-              <NoteModalField>
-                <NoteModalLabel>Ομάδα</NoteModalLabel>
-                <NoteGroupSelect
-                  value={selectedNoteForModal.groupId || DEFAULT_NOTE_GROUP_ID}
-                  onChange={(e) => handleUpdateNoteInModal('groupId', e.target.value)}
-                >
-                  {noteGroups.map(group => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
-                </NoteGroupSelect>
-              </NoteModalField>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                <NoteModalField>
-                  <NoteModalLabel>Προτεραιότητα</NoteModalLabel>
-                  <NoteGroupSelect
-                    value={selectedNoteForModal.priority || 'medium'}
-                    onChange={(e) => handleUpdateNoteInModal('priority', e.target.value)}
-                  >
-                    <option value="low">Χαμηλή</option>
-                    <option value="medium">Μεσαία</option>
-                    <option value="high">Υψηλή</option>
-                  </NoteGroupSelect>
-                </NoteModalField>
-                <NoteModalField>
-                  <NoteModalLabel>Status</NoteModalLabel>
-                  <NoteGroupSelect
-                    value={selectedNoteForModal.status || 'new'}
-                    onChange={(e) => handleUpdateNoteInModal('status', e.target.value)}
-                  >
-                    <option value="new">Νέο</option>
-                    <option value="in-progress">Σε εξέλιξη</option>
-                    <option value="completed">Ολοκληρωμένο</option>
-                  </NoteGroupSelect>
-                </NoteModalField>
-                <NoteModalField>
-                  <NoteModalLabel>Due Date</NoteModalLabel>
-                  <NoteModalInput
-                    type="date"
-                    value={selectedNoteForModal.dueDate || ''}
-                    onChange={(e) => handleUpdateNoteInModal('dueDate', e.target.value)}
-                  />
-                </NoteModalField>
-              </div>
-              <NoteModalField>
-                <NoteModalLabel>Checklist</NoteModalLabel>
-                <div style={{ 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  gap: '8px',
-                  padding: '12px',
-                  background: 'rgba(241, 245, 249, 0.5)',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(203, 213, 225, 0.5)'
-                }}>
-                  {(selectedNoteForModal.checklist || []).map((item, idx) => (
-                    <div key={item.id || idx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <input
-                        type="checkbox"
-                        checked={item.completed || false}
-                        onChange={(e) => {
-                          const updated = (selectedNoteForModal.checklist || []).map(i => 
-                            i.id === item.id ? { ...i, completed: e.target.checked } : i
-                          );
-                          handleUpdateNoteInModal('checklist', updated);
-                        }}
-                      />
-                      <NoteModalInput
-                        type="text"
-                        value={item.text || ''}
-                        onChange={(e) => {
-                          const updated = (selectedNoteForModal.checklist || []).map(i => 
-                            i.id === item.id ? { ...i, text: e.target.value } : i
-                          );
-                          handleUpdateNoteInModal('checklist', updated);
-                        }}
-                        placeholder="Εργασία..."
-                        style={{ flex: 1 }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = (selectedNoteForModal.checklist || []).filter(i => i.id !== item.id);
-                          handleUpdateNoteInModal('checklist', updated);
-                        }}
-                        style={{
-                          background: '#dc3545',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          padding: '4px 8px',
-                          cursor: 'pointer',
-                          fontSize: '0.75rem'
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={handleAddChecklistItem}
-                    style={{
-                      background: '#6366f1',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      padding: '8px 12px',
-                      cursor: 'pointer',
-                      fontSize: '0.85rem',
-                      fontWeight: '600',
-                      marginTop: '4px'
-                    }}
-                  >
-                    + Προσθήκη Εργασίας
-                  </button>
-                </div>
-              </NoteModalField>
-            </NoteModalContent>
-            <NoteModalFooter>
-              <NoteModalButton onClick={handleCloseNoteModal}>
-                Ακύρωση
-              </NoteModalButton>
-              <NoteModalButton primary onClick={handleSaveNoteFromModal}>
-                Αποθήκευση
-              </NoteModalButton>
-            </NoteModalFooter>
-          </NoteModalContainer>
-        </NoteModalOverlay>
+      {isEmailSettingsOpen && (
+        <EmailSettingsModal
+          onClose={() => setIsEmailSettingsOpen(false)}
+          currentUser={currentUser}
+        />
+      )}
+
+
+      {canManageAll && !isNotesOpen && (
+        <NotesFab onClick={handleOpenNotes} title="Γρήγορες Σημειώσεις">
+          📝
+        </NotesFab>
       )}
 
     </DashboardContainer>
