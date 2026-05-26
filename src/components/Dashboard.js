@@ -941,8 +941,8 @@ const NotesOverlay = styled.div`
 `;
 
 const NotesPanel = styled.div`
-  width: min(960px, 96vw);
-  height: min(680px, 92vh);
+  width: min(1200px, 96vw);
+  height: min(85vh, 92vh);
   background: #fff;
   border-radius: 18px;
   box-shadow: 0 24px 80px rgba(30, 41, 59, 0.28), 0 0 0 1px rgba(99, 102, 241, 0.06);
@@ -1284,13 +1284,13 @@ const NoteEditOverlay = styled.div`
 const NoteEditPanel = styled.div`
   background: #fff;
   border-radius: 18px;
-  width: min(600px, 94vw);
-  max-height: 85vh;
+  width: min(780px, 94vw);
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(30, 41, 59, 0.3);
   animation: notesSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
+  overflow-y: auto;
 
   h3 {
     margin: 0;
@@ -1508,6 +1508,190 @@ const NoteFilesBadge = styled.span`
   font-weight: 600;
 `;
 
+const NoteLinksBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.08);
+  color: #059669;
+  font-size: 0.72rem;
+  font-weight: 600;
+`;
+
+const LinkPickerWrap = styled.div`
+  margin: 8px 24px 0;
+  padding: 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+`;
+
+const LinkPickerLabel = styled.div`
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #166534;
+  margin-bottom: 8px;
+`;
+
+const LinkTypeTabs = styled.div`
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+`;
+
+const LinkTypeTab = styled.button`
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid ${({ $active }) => $active ? '#059669' : '#d1d5db'};
+  background: ${({ $active }) => $active ? '#059669' : '#fff'};
+  color: ${({ $active }) => $active ? '#fff' : '#6b7280'};
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover { border-color: #059669; }
+`;
+
+const LinkSearchInput = styled.input`
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #d1fae5;
+  background: #fff;
+  font-size: 0.8rem;
+  font-family: inherit;
+  color: #1e293b;
+  box-sizing: border-box;
+
+  &::placeholder { color: #94a3b8; }
+  &:focus { outline: none; border-color: #34d399; box-shadow: 0 0 0 2px rgba(16,185,129,0.1); }
+`;
+
+const LinkResultsList = styled.div`
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+
+  &::-webkit-scrollbar { width: 4px; }
+  &::-webkit-scrollbar-thumb { background: rgba(16,185,129,0.3); border-radius: 10px; }
+`;
+
+const LinkResultItem = styled.div`
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #334155;
+  cursor: pointer;
+  transition: background 0.1s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  &:hover { background: #d1fae5; }
+
+  span.type-icon { font-size: 0.85rem; flex-shrink: 0; }
+  span.parent-hint { color: #94a3b8; font-size: 0.7rem; margin-left: auto; }
+`;
+
+const LinkedChipsWrap = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+`;
+
+const LinkedChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+  font-size: 0.75rem;
+  font-weight: 500;
+  max-width: 220px;
+
+  span.chip-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`;
+
+const LinkedChipRemove = styled.button`
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  font-weight: 700;
+
+  &:hover { color: #991b1b; }
+`;
+
+const NoteLinkedChipPreview = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  max-width: 200px;
+
+  &:hover {
+    border-color: #059669;
+    box-shadow: 0 2px 8px rgba(16,185,129,0.15);
+  }
+
+  span.chip-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`;
+
+const EntityNoteBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
+  color: #6366f1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  animation: ${({ $pulse }) => $pulse ? 'noteBadgePulse 2s ease-in-out infinite' : 'none'};
+
+  @keyframes noteBadgePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.2); }
+    50% { box-shadow: 0 0 0 4px rgba(99,102,241,0); }
+  }
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(139,92,246,0.18));
+    transform: scale(1.05);
+  }
+`;
+
 const ContentWrapper = styled.div`
   margin-left: 240px;
   margin-top: ${(props) => (typeof props.$headerOffset === 'number' ? props.$headerOffset : 0)}px;
@@ -1524,6 +1708,26 @@ const ContentWrapper = styled.div`
 
 const ipc = window.electronAPI;
 
+const ENTITY_TYPE_META = {
+  project:    { icon: '🏗', label: 'Έργο' },
+  subproject: { icon: '📦', label: 'Υποέργο' },
+  entaxi:     { icon: '📋', label: 'Ένταξη' },
+  prosklisi:  { icon: '📢', label: 'Πρόσκληση' },
+  egkrisi:    { icon: '💰', label: 'Έγκριση' }
+};
+
+const VISIBILITY_OPTIONS = [
+  { key: 'private', label: '🔒 Προσωπική', desc: 'Μόνο εσείς' },
+  { key: 'roles', label: '👥 Ορατή σε ρόλους', desc: 'Επιλέξτε ρόλους' },
+  { key: 'users', label: '👤 Ορατή σε χρήστες', desc: 'Επιλέξτε χρήστες' }
+];
+const ROLE_OPTIONS = [
+  { key: 'SUPERADMIN', label: 'Superadmin' },
+  { key: 'ADMIN', label: 'Διαχειριστής' },
+  { key: 'ENGINEER', label: 'Μηχανικός' },
+  { key: 'USER', label: 'Χρήστης' }
+];
+
 const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel, currentUser }) {
   const [title, setTitle] = useState(note?.title || '');
   const [content, setContent] = useState(note?.content || '');
@@ -1534,6 +1738,18 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
   const [files, setFiles] = useState([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [emailStatus, setEmailStatus] = useState(null);
+  const [linkedEntities, setLinkedEntities] = useState(note?.linkedEntities || []);
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [linkTypeFilter, setLinkTypeFilter] = useState('all');
+  const [linkSearch, setLinkSearch] = useState('');
+  const [allEntities, setAllEntities] = useState([]);
+  const [loadingEntities, setLoadingEntities] = useState(false);
+  const [egkrisiSearchBy, setEgkrisiSearchBy] = useState('subproject');
+  const [visibility, setVisibility] = useState(note?.visibility || 'private');
+  const [visibleToRoles, setVisibleToRoles] = useState(note?.visibleToRoles || []);
+  const [visibleToUsers, setVisibleToUsers] = useState(note?.visibleToUsers || []);
+  const [usersList, setUsersList] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
 
   const noteId = note?.id;
   const isExisting = !!noteId;
@@ -1560,6 +1776,71 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
       } catch (_) { /* ignore */ }
     })();
   }, [currentUser?.username]);
+
+  useEffect(() => {
+    if (visibility !== 'users') return;
+    if (usersList.length > 0) return;
+    let canceled = false;
+    (async () => {
+      setUsersLoading(true);
+      try {
+        const res = await ipc.invoke('get-users-list');
+        if (!canceled && res?.success && res.data) {
+          setUsersList(res.data.filter(u => u.username !== currentUser?.username));
+        }
+      } catch (_) { /* ignore */ }
+      if (!canceled) setUsersLoading(false);
+    })();
+    return () => { canceled = true; };
+  }, [visibility, usersList.length, currentUser?.username]);
+
+  const loadEntities = useCallback(async () => {
+    if (allEntities.length > 0) return;
+    setLoadingEntities(true);
+    try {
+      const res = await ipc.invoke('get-all-entity-names');
+      if (res?.success && res.data) setAllEntities(res.data);
+    } catch (_) { /* ignore */ }
+    setLoadingEntities(false);
+  }, [allEntities.length]);
+
+  useEffect(() => {
+    loadEntities();
+  }, [loadEntities]);
+
+  const handleOpenLinkPicker = useCallback(() => {
+    setLinkPickerOpen(true);
+  }, []);
+
+  const handleAddLink = useCallback((entity) => {
+    setLinkedEntities(prev => {
+      if (prev.some(e => e.id === entity.id && e.type === entity.type)) return prev;
+      return [...prev, { type: entity.type, id: entity.id, title: entity.title }];
+    });
+  }, []);
+
+  const handleRemoveLink = useCallback((entityId, entityType) => {
+    setLinkedEntities(prev => prev.filter(e => !(e.id === entityId && e.type === entityType)));
+  }, []);
+
+  const filteredEntities = useMemo(() => {
+    const term = linkSearch.trim();
+    if (!term || term.length < 2) return [];
+    return allEntities.filter(e => {
+      if (linkTypeFilter !== 'all' && e.type !== linkTypeFilter) return false;
+      if (linkedEntities.some(l => l.id === e.id && l.type === e.type)) return false;
+      if (e.type === 'egkrisi' && linkTypeFilter === 'egkrisi') {
+        if (egkrisiSearchBy === 'project') return containsSearchTerm(e.parentTitle, term);
+        return containsSearchTerm(e.title, term);
+      }
+      return containsSearchTerm(e.title, term) || containsSearchTerm(e.parentTitle, term);
+    }).slice(0, 30);
+  }, [allEntities, linkSearch, linkTypeFilter, linkedEntities, egkrisiSearchBy]);
+
+  const isEntityOrphan = useCallback((ent) => {
+    if (allEntities.length === 0) return false;
+    return !allEntities.some(e => e.id === ent.id && e.type === ent.type);
+  }, [allEntities]);
 
   const reminderTime = (reminderHour && reminderMinute) ? `${reminderHour}:${reminderMinute}` : '';
 
@@ -1592,8 +1873,14 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
 
   const handleSave = useCallback(() => {
     if (!title.trim() && !content.trim()) return;
-    onSave({ title: title.trim(), content: content.trim(), reminderDate: reminderDate || null, reminderTime: reminderTime || null });
-  }, [title, content, reminderDate, reminderTime, onSave]);
+    onSave({
+      title: title.trim(), content: content.trim(),
+      reminderDate: reminderDate || null, reminderTime: reminderTime || null,
+      linkedEntities, visibility,
+      visibleToRoles: visibility === 'roles' ? visibleToRoles : [],
+      visibleToUsers: visibility === 'users' ? visibleToUsers : []
+    });
+  }, [title, content, reminderDate, reminderTime, linkedEntities, visibility, visibleToRoles, visibleToUsers, onSave]);
 
   const userHasEmail = emailStatus?.hasEmail;
   const superAdminName = emailStatus?.superAdminFullName;
@@ -1686,6 +1973,155 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
         <NoteUploadBtn type="button" onClick={handleUpload}>
           📎 Επισύναψη αρχείου
         </NoteUploadBtn>
+        <div style={{ margin: '8px 24px 0', padding: '12px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px' }}>
+          <div style={{ fontSize: '0.82rem', fontWeight: '600', color: '#0c4a6e', marginBottom: '8px' }}>
+            👁 Ορατότητα σημείωσης
+          </div>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: visibility !== 'private' ? '8px' : '0' }}>
+            {VISIBILITY_OPTIONS.map(opt => (
+              <label key={opt.key} style={{
+                display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
+                padding: '5px 10px', borderRadius: '8px', fontSize: '0.8rem',
+                background: visibility === opt.key ? '#dbeafe' : '#fff',
+                border: `1px solid ${visibility === opt.key ? '#3b82f6' : '#e2e8f0'}`,
+                fontWeight: visibility === opt.key ? '600' : '400',
+                transition: 'all 0.15s'
+              }}>
+                <input
+                  type="radio" name="noteVisibility" value={opt.key}
+                  checked={visibility === opt.key}
+                  onChange={() => setVisibility(opt.key)}
+                  style={{ accentColor: '#3b82f6' }}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+          {visibility === 'roles' && (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {ROLE_OPTIONS.map(r => (
+                <label key={r.key} style={{
+                  display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
+                  padding: '4px 10px', borderRadius: '6px', fontSize: '0.78rem',
+                  background: visibleToRoles.includes(r.key) ? '#dbeafe' : '#fff',
+                  border: `1px solid ${visibleToRoles.includes(r.key) ? '#3b82f6' : '#cbd5e1'}`,
+                  transition: 'all 0.15s'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={visibleToRoles.includes(r.key)}
+                    onChange={(e) => {
+                      if (e.target.checked) setVisibleToRoles(prev => [...prev, r.key]);
+                      else setVisibleToRoles(prev => prev.filter(x => x !== r.key));
+                    }}
+                    style={{ accentColor: '#3b82f6' }}
+                  />
+                  {r.label}
+                </label>
+              ))}
+            </div>
+          )}
+          {visibility === 'users' && (
+            <div>
+              {usersLoading ? (
+                <div style={{ fontSize: '0.78rem', color: '#94a3b8', padding: '4px' }}>Φόρτωση χρηστών...</div>
+              ) : (
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {usersList.map(u => (
+                    <label key={u.username} style={{
+                      display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
+                      padding: '4px 10px', borderRadius: '6px', fontSize: '0.78rem',
+                      background: visibleToUsers.includes(u.username) ? '#dbeafe' : '#fff',
+                      border: `1px solid ${visibleToUsers.includes(u.username) ? '#3b82f6' : '#cbd5e1'}`,
+                      transition: 'all 0.15s'
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={visibleToUsers.includes(u.username)}
+                        onChange={(e) => {
+                          if (e.target.checked) setVisibleToUsers(prev => [...prev, u.username]);
+                          else setVisibleToUsers(prev => prev.filter(x => x !== u.username));
+                        }}
+                        style={{ accentColor: '#3b82f6' }}
+                      />
+                      {u.fullName} <span style={{ color: '#94a3b8', fontSize: '0.72rem' }}>({u.role})</span>
+                    </label>
+                  ))}
+                  {usersList.length === 0 && (
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Δεν βρέθηκαν χρήστες</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <LinkPickerWrap>
+          <LinkPickerLabel>🔗 Συσχέτιση με Έργο / Υποέργο / Ένταξη / Πρόσκληση / Έγκριση</LinkPickerLabel>
+          {linkedEntities.length > 0 && (
+            <LinkedChipsWrap style={{ marginBottom: '8px' }}>
+              {linkedEntities.map(ent => {
+                const meta = ENTITY_TYPE_META[ent.type] || { icon: '🔗', label: ent.type };
+                const orphan = isEntityOrphan(ent);
+                return (
+                  <LinkedChip key={`${ent.type}-${ent.id}`} style={orphan ? { opacity: 0.5, borderColor: '#fca5a5', background: '#fef2f2' } : undefined}>
+                    <span>{meta.icon}</span>
+                    <span className="chip-title">{ent.title}{orphan ? ' (Διαγράφηκε)' : ''}</span>
+                    <LinkedChipRemove type="button" onClick={() => handleRemoveLink(ent.id, ent.type)}>✕</LinkedChipRemove>
+                  </LinkedChip>
+                );
+              })}
+            </LinkedChipsWrap>
+          )}
+          <LinkTypeTabs>
+            {[{ key: 'all', label: 'Όλα' }, { key: 'project', label: '🏗 Έργα' }, { key: 'subproject', label: '📦 Υποέργα' }, { key: 'entaxi', label: '📋 Εντάξεις' }, { key: 'prosklisi', label: '📢 Προσκλήσεις' }, { key: 'egkrisi', label: '💰 Εγκρίσεις' }].map(tab => (
+              <LinkTypeTab key={tab.key} $active={linkTypeFilter === tab.key} type="button" onClick={() => setLinkTypeFilter(tab.key)}>
+                {tab.label}
+              </LinkTypeTab>
+            ))}
+          </LinkTypeTabs>
+          {linkTypeFilter === 'egkrisi' && (
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '6px', fontSize: '0.76rem', color: '#475569' }}>
+              <span style={{ fontWeight: 600, color: '#166534' }}>Αναζήτηση βάσει:</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <input type="radio" name="egkrisiSearchBy" value="subproject" checked={egkrisiSearchBy === 'subproject'} onChange={() => setEgkrisiSearchBy('subproject')} style={{ accentColor: '#059669' }} />
+                Τίτλου Υποέργου
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                <input type="radio" name="egkrisiSearchBy" value="project" checked={egkrisiSearchBy === 'project'} onChange={() => setEgkrisiSearchBy('project')} style={{ accentColor: '#059669' }} />
+                Τίτλου Έργου
+              </label>
+            </div>
+          )}
+          <div style={{ position: 'relative' }}>
+            <LinkSearchInput
+              type="text"
+              placeholder={linkTypeFilter === 'egkrisi' ? (egkrisiSearchBy === 'project' ? 'Αναζήτηση βάσει τίτλου Έργου...' : 'Αναζήτηση βάσει τίτλου Υποέργου...') : 'Πληκτρολογήστε για αναζήτηση...'}
+              value={linkSearch}
+              onChange={(e) => setLinkSearch(e.target.value)}
+            />
+            {linkSearch.trim().length >= 2 && (
+              <LinkResultsList style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: '#fff', border: '1px solid #d1fae5', borderTop: 'none', borderRadius: '0 0 8px 8px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}>
+                {loadingEntities ? (
+                  <div style={{ padding: '10px', color: '#94a3b8', fontSize: '0.78rem' }}>Φόρτωση...</div>
+                ) : filteredEntities.length === 0 ? (
+                  <div style={{ padding: '10px', color: '#94a3b8', fontSize: '0.78rem' }}>Δεν βρέθηκαν αποτελέσματα</div>
+                ) : (
+                  filteredEntities.map(ent => {
+                    const meta = ENTITY_TYPE_META[ent.type] || { icon: '🔗', label: ent.type };
+                    return (
+                      <LinkResultItem key={`${ent.type}-${ent.id}`} onClick={() => { handleAddLink(ent); setLinkSearch(''); }}>
+                        <span className="type-icon">{meta.icon}</span>
+                        {ent.title}
+                        {ent.parentTitle && <span className="parent-hint">{ent.parentTitle}</span>}
+                      </LinkResultItem>
+                    );
+                  })
+                )}
+              </LinkResultsList>
+            )}
+          </div>
+        </LinkPickerWrap>
         <NoteEditFooter>
           <NoteEditCancelBtn type="button" onClick={onCancel}>Ακύρωση</NoteEditCancelBtn>
           <NoteEditSaveBtn type="button" onClick={handleSave}>Αποθήκευση</NoteEditSaveBtn>
@@ -1719,6 +2155,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isEgkriseisFormOpen, setIsEgkriseisFormOpen] = useState(false);
+  const [isEgkriseisManagerOnly, setIsEgkriseisManagerOnly] = useState(false);
+  const [egkriseisInitialSearch, setEgkriseisInitialSearch] = useState('');
   const [editingProject, setEditingProject] = useState(null);
   const [selectedDetailProject, setSelectedDetailProject] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1844,6 +2282,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   const [isEntaxisOpen, setIsEntaxisOpen] = useState(false);
   const [entaxisProjectFilter, setEntaxisProjectFilter] = useState(null);
+  const [selectedEntaxiId, setSelectedEntaxiId] = useState(null);
   const [isProsklisisOpen, setIsProsklisisOpen] = useState(false);
   const [prosklisiProjectFilter, setProsklisiProjectFilter] = useState(null);
   const [selectedProsklisiId, setSelectedProsklisiId] = useState(null);
@@ -1859,6 +2298,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [noteFileCounts, setNoteFileCounts] = useState({});
   const [selectedNoteId, setSelectedNoteId] = useState(null);
   const [previewFiles, setPreviewFiles] = useState([]);
+  const [linkedNotesMap, setLinkedNotesMap] = useState({});
   
   // 🚀 CACHE SYSTEM για να μην φορτώνονται τα στατιστικά κάθε φορά
   const [dataCache, setDataCache] = useState({
@@ -1896,6 +2336,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   useEffect(() => {
     loadDataWithCache();
     loadLinkedEgkriseis();
+    loadLinkedNotesMap();
 
     // Listener για file watcher events - χρήση functional update για fresh state
     const handleLocksChanged = async () => {
@@ -3703,18 +4144,31 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     }
   };
 
+  const visibleNotes = useMemo(() => {
+    const me = currentUser?.username || '';
+    const myRole = userRole || '';
+    return notes.filter(note => {
+      if (note.createdBy === me) return true;
+      const vis = note.visibility || 'private';
+      if (vis === 'private') return false;
+      if (vis === 'roles') return (note.visibleToRoles || []).includes(myRole);
+      if (vis === 'users') return (note.visibleToUsers || []).includes(me);
+      return false;
+    });
+  }, [notes, currentUser?.username, userRole]);
+
   const filteredNotes = useMemo(() => {
     const term = notesSearch.trim().toLowerCase();
-    return notes
+    return visibleNotes
       .filter(note => {
         if (!term) return true;
         return (note.title || '').toLowerCase().includes(term) ||
                (note.content || '').toLowerCase().includes(term);
       })
       .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
-  }, [notes, notesSearch]);
+  }, [visibleNotes, notesSearch]);
 
-  const handleSaveNote = useCallback(({ title, content, reminderDate, reminderTime, id: forcedId, keepOpen }) => {
+  const handleSaveNote = useCallback(({ title, content, reminderDate, reminderTime, linkedEntities: le, visibility: vis, visibleToRoles: vRoles, visibleToUsers: vUsers, id: forcedId, keepOpen }) => {
     if (!title && !content) return;
 
     if (editingNote && editingNote.id) {
@@ -3722,9 +4176,13 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         ...editingNote,
         title,
         content,
+        linkedEntities: le || editingNote.linkedEntities || [],
         reminderDate: reminderDate || null,
         reminderTime: reminderTime || null,
         reminderSent: (reminderDate && reminderDate === editingNote.reminderDate && reminderTime === editingNote.reminderTime) ? editingNote.reminderSent : false,
+        visibility: vis || editingNote.visibility || 'private',
+        visibleToRoles: vRoles || editingNote.visibleToRoles || [],
+        visibleToUsers: vUsers || editingNote.visibleToUsers || [],
         updatedAt: new Date().toISOString()
       };
       setNotes(prev => prev.map(n => n.id === editingNote.id ? updatedNote : n));
@@ -3735,9 +4193,13 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         id: noteId,
         title,
         content,
+        linkedEntities: le || [],
         reminderDate: reminderDate || null,
         reminderTime: reminderTime || null,
         reminderSent: false,
+        visibility: vis || 'private',
+        visibleToRoles: vRoles || [],
+        visibleToUsers: vUsers || [],
         createdBy: currentUser?.username || '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -3791,27 +4253,76 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setNoteFileCounts(counts);
   }, [notes]);
 
+  const loadLinkedNotesMap = useCallback(async () => {
+    try {
+      const res = await ipcRenderer.invoke('get-notes-linked-entities');
+      if (res?.success && res.data) setLinkedNotesMap(res.data);
+    } catch (_) { /* ignore */ }
+  }, []);
+
   const handleCancelEdit = useCallback(() => {
     setEditingNote(null);
     loadNoteFileCounts();
+    loadLinkedNotesMap();
     if (selectedNoteId) {
       ipcRenderer.invoke('get-note-files', { noteId: selectedNoteId })
         .then(res => { if (res?.files) setPreviewFiles(res.files); })
         .catch(() => {});
     }
-  }, [loadNoteFileCounts, selectedNoteId]);
+  }, [loadNoteFileCounts, loadLinkedNotesMap, selectedNoteId]);
 
   const handleOpenNotes = useCallback(() => {
     setIsNotesOpen(true);
     setNotesSearch('');
     setEditingNote(null);
     loadNoteFileCounts();
-  }, [loadNoteFileCounts]);
+    loadLinkedNotesMap();
+  }, [loadNoteFileCounts, loadLinkedNotesMap]);
 
   const handleCloseNotes = useCallback(() => {
     setIsNotesOpen(false);
     setEditingNote(null);
   }, []);
+
+  const handleOpenNoteFromEntity = useCallback((noteId) => {
+    setIsNotesOpen(true);
+    setNotesSearch('');
+    setEditingNote(null);
+    setSelectedNoteId(noteId);
+    loadNoteFileCounts();
+    loadLinkedNotesMap();
+  }, [loadNoteFileCounts, loadLinkedNotesMap]);
+
+  const handleNavigateToLinkedEntity = useCallback((entity) => {
+    if (!entity) return;
+    setIsNotesOpen(false);
+    setEditingNote(null);
+
+    const { type, id, title } = entity;
+
+    if (type === 'project') {
+      setQuickSearchText(title || '');
+    } else if (type === 'subproject') {
+      const found = projects.find(p => p.subprojectId === id);
+      if (found) setSelectedDetailProject(found);
+    } else if (type === 'entaxi') {
+      setEntaxisProjectFilter(null);
+      setSelectedEntaxiId(id);
+      setIsEntaxisOpen(true);
+    } else if (type === 'prosklisi') {
+      setProsklisiProjectFilter(null);
+      setSelectedProsklisiId(id);
+      setIsProsklisisOpen(true);
+    } else if (type === 'egkrisi') {
+      setHighlightProject({
+        projectTitle: null,
+        subprojectTitle: title || null,
+        projectKey: null,
+        subprojectKey: null
+      });
+      setIsCreditApprovalsOpen(true);
+    }
+  }, [projects]);
 
   const refreshTaskAccessRef = useRef(null);
   const refreshTaskAccess = useCallback(async () => {
@@ -4227,6 +4738,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                               onOpenSpecificProsklisi={() => handleOpenSpecificProsklisi(project.projectTitle, project.projectId)}
                               onViewDetails={(p) => setSelectedDetailProject(p)}
                               engineerCatalog={engineerCatalogForCards}
+                              linkedNotesMap={linkedNotesMap}
+                              notes={notes}
+                              onOpenNoteFromEntity={handleOpenNoteFromEntity}
                             />
                           );
                         })}
@@ -4690,11 +5204,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       {/* Entaxis Manager Modal */}
       <EntaxisManager
         isOpen={isEntaxisOpen}
+        selectedEntaxiId={selectedEntaxiId}
         onClose={async () => {
-          // Καθάρισε όλα τα locks όταν κλείνει η φόρμα
           await ipcRenderer.invoke('clear-all-locks');
           setIsEntaxisOpen(false);
           setEntaxisProjectFilter(null);
+          setSelectedEntaxiId(null);
           // Ανανέωση των projects για να ενημερωθεί το lock status
           await loadProjects();
           // Επαναφορά scroll position
@@ -4720,6 +5235,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             fileName
           });
         }}
+        linkedNotesMap={linkedNotesMap}
+        notes={notes}
+        onOpenNoteFromEntity={handleOpenNoteFromEntity}
       />
 
       {/* Prosklisis Manager Modal */}
@@ -4744,6 +5262,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         currentUser={currentUser}
         projectFilter={prosklisiProjectFilter}
         selectedProsklisiId={selectedProsklisiId}
+        linkedNotesMap={linkedNotesMap}
+        notes={notes}
+        onOpenNoteFromEntity={handleOpenNoteFromEntity}
       />
 
 
@@ -4751,7 +5272,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       <EgkriseisFormComponent
         isOpen={isEgkriseisFormOpen}
         onClose={async () => {
-          // Καθάρισε όλα τα locks όταν κλείνει η φόρμα
           await ipcRenderer.invoke('clear-all-locks');
           setIsEgkriseisFormOpen(false);
           // Reload projects and linked egkriseis to update any changes
@@ -4813,10 +5333,18 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                               boxShadow: isSelected ? '0 2px 8px rgba(99,102,241,0.1)' : undefined
                             }}
                           >
-                            <NoteItemTitle>{note.title || 'Χωρίς τίτλο'}</NoteItemTitle>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                              <NoteItemTitle style={{ flex: 1, marginBottom: 0 }}>{note.title || 'Χωρίς τίτλο'}</NoteItemTitle>
+                              <span title={note.visibility === 'private' ? 'Προσωπική' : note.visibility === 'roles' ? 'Ορατή σε ρόλους' : note.visibility === 'users' ? 'Ορατή σε χρήστες' : 'Προσωπική'} style={{ fontSize: '0.75rem', opacity: 0.7 }}>
+                                {note.visibility === 'roles' ? '👥' : note.visibility === 'users' ? '👤' : '🔒'}
+                              </span>
+                            </div>
                             {note.content && <NoteItemContent>{note.content}</NoteItemContent>}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
                               <NoteItemDate>
+                                {note.createdBy && note.createdBy !== (currentUser?.username || '') && (
+                                  <span style={{ fontWeight: 600, color: '#6366f1', marginRight: '4px' }}>{note.createdBy}</span>
+                                )}
                                 {new Date(note.updatedAt || note.createdAt || Date.now()).toLocaleString('el-GR', {
                                   day: '2-digit', month: '2-digit', year: 'numeric',
                                   hour: '2-digit', minute: '2-digit'
@@ -4825,16 +5353,21 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                               {noteFileCounts[note.id] > 0 && (
                                 <NoteFilesBadge>📎 {noteFileCounts[note.id]}</NoteFilesBadge>
                               )}
+                              {note.linkedEntities && note.linkedEntities.length > 0 && (
+                                <NoteLinksBadge>🔗 {note.linkedEntities.length}</NoteLinksBadge>
+                              )}
                               {note.reminderDate && (
                                 <NoteReminderBadge $past={note.reminderDate && new Date(note.reminderDate + 'T' + (note.reminderTime || '09:00')) < new Date()}>
                                   🔔 {note.reminderDate.split('-').reverse().join('/')}
                                 </NoteReminderBadge>
                               )}
                             </div>
-                            <NoteItemActions onClick={(e) => e.stopPropagation()}>
-                              <NoteActionBtn type="button" title="Επεξεργασία" onClick={(e) => { e.stopPropagation(); handleEditNote(note); }}>✏</NoteActionBtn>
-                              <NoteActionBtn type="button" title="Διαγραφή" $danger onClick={(e) => { e.stopPropagation(); handleDeleteNote(note.id); }}>✕</NoteActionBtn>
-                            </NoteItemActions>
+                            {note.createdBy === (currentUser?.username || '') && (
+                              <NoteItemActions onClick={(e) => e.stopPropagation()}>
+                                <NoteActionBtn type="button" title="Επεξεργασία" onClick={(e) => { e.stopPropagation(); handleEditNote(note); }}>✏</NoteActionBtn>
+                                <NoteActionBtn type="button" title="Διαγραφή" $danger onClick={(e) => { e.stopPropagation(); handleDeleteNote(note.id); }}>✕</NoteActionBtn>
+                              </NoteItemActions>
+                            )}
                           </NoteItem>
                         );
                       })}
@@ -4866,13 +5399,15 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                                     <span style={{ fontSize: '0.85rem' }}>📎</span>
                                     <NoteFileName>{f.name}</NoteFileName>
                                     <NoteFileBtn type="button" title="Άνοιγμα" onClick={async () => { await ipcRenderer.invoke('open-note-file', { noteId: selNote.id, fileName: f.name }); }}>👁</NoteFileBtn>
-                                    <NoteFileBtn type="button" title="Διαγραφή" $danger onClick={async () => {
-                                      const res = await ipcRenderer.invoke('delete-note-file', { noteId: selNote.id, fileName: f.name });
-                                      if (res?.success) {
-                                        setPreviewFiles(prev => prev.filter(x => x.name !== f.name));
-                                        loadNoteFileCounts();
-                                      }
-                                    }}>✕</NoteFileBtn>
+                                    {selNote.createdBy === (currentUser?.username || '') && (
+                                      <NoteFileBtn type="button" title="Διαγραφή" $danger onClick={async () => {
+                                        const res = await ipcRenderer.invoke('delete-note-file', { noteId: selNote.id, fileName: f.name });
+                                        if (res?.success) {
+                                          setPreviewFiles(prev => prev.filter(x => x.name !== f.name));
+                                          loadNoteFileCounts();
+                                        }
+                                      }}>✕</NoteFileBtn>
+                                    )}
                                   </NoteFileItem>
                                 ))}
                               </NoteFilesSection>
@@ -4881,16 +5416,43 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                         </NotePreviewSection>
                       )}
 
+                      {selNote.linkedEntities && selNote.linkedEntities.length > 0 && (
+                        <NotePreviewSection>
+                          <NotePreviewSectionLabel>Συσχετίσεις ({selNote.linkedEntities.length})</NotePreviewSectionLabel>
+                          <LinkedChipsWrap style={{ marginTop: '4px' }}>
+                            {selNote.linkedEntities.map(ent => {
+                              const meta = ENTITY_TYPE_META[ent.type] || { icon: '🔗', label: ent.type };
+                              return (
+                                <NoteLinkedChipPreview key={`${ent.type}-${ent.id}`} title={`Μετάβαση σε: ${meta.label} — ${ent.title}`} onClick={() => handleNavigateToLinkedEntity(ent)}>
+                                  <span>{meta.icon}</span>
+                                  <span className="chip-title">{ent.title}</span>
+                                </NoteLinkedChipPreview>
+                              );
+                            })}
+                          </LinkedChipsWrap>
+                        </NotePreviewSection>
+                      )}
+
                       <NotePreviewMeta>
+                        {selNote.createdBy && (
+                          <span style={{ fontWeight: 600, color: '#6366f1' }}>
+                            ✍ {selNote.createdBy}
+                          </span>
+                        )}
+                        <span>
+                          {selNote.visibility === 'private' ? '🔒 Προσωπική' : selNote.visibility === 'roles' ? `👥 Ορατή σε: ${(selNote.visibleToRoles || []).join(', ')}` : selNote.visibility === 'users' ? `👤 Ορατή σε: ${(selNote.visibleToUsers || []).join(', ')}` : '🔒 Προσωπική'}
+                        </span>
                         <span>Δημιουργία: {new Date(selNote.createdAt || Date.now()).toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         {selNote.updatedAt && selNote.updatedAt !== selNote.createdAt && (
                           <span>Ενημέρωση: {new Date(selNote.updatedAt).toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         )}
                       </NotePreviewMeta>
-                      <NotePreviewActions>
-                        <NotePreviewBtn $primary onClick={() => handleEditNote(selNote)}>✏ Επεξεργασία</NotePreviewBtn>
-                        <NotePreviewBtn onClick={() => handleDeleteNote(selNote.id)}>🗑 Διαγραφή</NotePreviewBtn>
-                      </NotePreviewActions>
+                      {selNote.createdBy === (currentUser?.username || '') && (
+                        <NotePreviewActions>
+                          <NotePreviewBtn $primary onClick={() => handleEditNote(selNote)}>✏ Επεξεργασία</NotePreviewBtn>
+                          <NotePreviewBtn onClick={() => handleDeleteNote(selNote.id)}>🗑 Διαγραφή</NotePreviewBtn>
+                        </NotePreviewActions>
+                      )}
                     </>
                   ) : (
                     <NotePreviewEmpty>
@@ -4916,22 +5478,23 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
       {/* Egkriseis Manager Modal */}
       <EgkriseisManager
-        isOpen={isEgkriseisFormOpen}
+        isOpen={isEgkriseisFormOpen || isEgkriseisManagerOnly}
         onClose={async () => {
-          // Καθάρισε όλα τα locks όταν κλείνει η φόρμα
           await ipcRenderer.invoke('clear-all-locks');
           setIsEgkriseisFormOpen(false);
-          // Reload linked egkriseis when closing the modal
+          setIsEgkriseisManagerOnly(false);
+          setEgkriseisInitialSearch('');
           await loadLinkedEgkriseis();
           await loadProjects();
         }}
         onLinkCreated={async () => {
-          // Reload linked egkriseis when a new link is created
           await loadLinkedEgkriseis();
         }}
         projects={projectsAsArrayOfArrays}
         userRole={userRoleForWorkflowModals}
         currentUser={currentUser}
+        linkedNotesMap={linkedNotesMap}
+        initialSearchTerm={egkriseisInitialSearch}
       />
 
       {/* Document Templates Manager */}
@@ -4998,7 +5561,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       )}
 
 
-      {canManageAll && !isNotesOpen && (
+      {(canManageAll || isEngineer) && !isNotesOpen && (
         <NotesFab onClick={handleOpenNotes} title="Γρήγορες Σημειώσεις">
           📝
         </NotesFab>

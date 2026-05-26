@@ -1315,7 +1315,7 @@ window.fixAllEntaxeis = async () => {
   }
 };
 
-function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile }) {
+function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity }) {
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [entaxeis, setEntaxeis] = useState([]);
   const [filteredEntaxeis, setFilteredEntaxeis] = useState([]);
@@ -1434,7 +1434,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
   useEffect(() => {
     applyFilters();
-  }, [entaxeis, searchFilters, projectFilter, quickSearchTerm]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [entaxeis, searchFilters, projectFilter, quickSearchTerm, selectedEntaxiId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (entaxeis.length > 0) {
@@ -1553,6 +1553,12 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
   const applyFilters = () => {
     let filtered = [...entaxeis];
+
+    if (selectedEntaxiId) {
+      filtered = filtered.filter(entaxi => entaxi.entaxiId === selectedEntaxiId);
+      setFilteredEntaxeis(filtered);
+      return;
+    }
 
     // Project filter (if provided)
     if (projectFilter) {
@@ -2115,6 +2121,15 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                             <TypeDot $main />
                             <CompactLabel>Αρχική Ένταξη</CompactLabel>
                             <MetaChip title="Ημερομηνία έγγραφου">📅 {formatDate(entaxi.documentDate)}</MetaChip>
+                            {linkedNotesMap[entaxi.entaxiId] && linkedNotesMap[entaxi.entaxiId].length > 0 && (
+                              <span
+                                title={`Σημείωση: ${linkedNotesMap[entaxi.entaxiId][0].noteTitle}`}
+                                onClick={(e) => { e.stopPropagation(); onOpenNoteFromEntity && onOpenNoteFromEntity(linkedNotesMap[entaxi.entaxiId][0].noteId); }}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', padding: '2px 7px', borderRadius: '6px', background: 'linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1))', color: '#6366f1', fontSize: '0.7rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.15s' }}
+                              >
+                                📝 {linkedNotesMap[entaxi.entaxiId].length > 1 ? linkedNotesMap[entaxi.entaxiId].length : ''}
+                              </span>
+                            )}
                           </CompactTitleRow>
 
                           <SeeMoreText

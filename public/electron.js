@@ -9129,6 +9129,14 @@ ipcMain.handle('load-notes', async () => {
     if (!data.notes || !Array.isArray(data.notes)) {
       data.notes = [];
     }
+
+    data.notes = data.notes.map(n => ({
+      visibility: 'private',
+      visibleToRoles: [],
+      visibleToUsers: [],
+      createdBy: '',
+      ...n
+    }));
     
     return data;
   } catch (error) {
@@ -9208,6 +9216,146 @@ ipcMain.handle('save-notes', async (event, notesData) => {
     return { success: true };
   } catch (error) {
     console.error('Error saving notes:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-users-list', async () => {
+  try {
+    const users = loadUsers();
+    const safeList = users.map(u => ({
+      username: u.username,
+      fullName: u.fullName || u.username,
+      role: u.role,
+      active: u.active !== false
+    })).filter(u => u.active);
+    return { success: true, data: safeList };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get linked entities map from notes
+ipcMain.handle('get-notes-linked-entities', async () => {
+  try {
+    let notesData = { notes: [] };
+    if (fs.existsSync(notesDataPath)) {
+      try {
+        notesData = JSON.parse(fs.readFileSync(notesDataPath, 'utf8'));
+      } catch (e) { /* ignore */ }
+    }
+    const entityMap = {};
+    for (const note of (notesData.notes || [])) {
+      if (!note.linkedEntities || !Array.isArray(note.linkedEntities)) continue;
+      for (const link of note.linkedEntities) {
+        if (!link.id) continue;
+        if (!entityMap[link.id]) entityMap[link.id] = [];
+        entityMap[link.id].push({ noteId: note.id, noteTitle: note.title || 'Χωρίς τίτλο' });
+      }
+    }
+    return { success: true, data: entityMap };
+  } catch (error) {
+    console.error('Error getting notes linked entities:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get all entity names for note linking picker
+ipcMain.handle('get-all-entity-names', async () => {
+  try {
+    const entities = [];
+    const skipRoot = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'egkriseis_links', 'subproject_links', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'ΣΗΜΕΙΩΣΕΙΣ', 'ANATHESEIS_ERGASION', 'ΥΠΟΔΕΙΓΜΑΤΑ_ΕΓΓΡΑΦΩΝ']);
+    const seenProjects = new Set();
+
+    if (fs.existsSync(dataDir)) {
+      const dirs = fs.readdirSync(dataDir);
+      for (const dir of dirs) {
+        if (skipRoot.has(dir)) continue;
+        const dirPath = path.join(dataDir, dir);
+        try {
+          if (!fs.statSync(dirPath).isDirectory()) continue;
+          const subDirs = fs.readdirSync(dirPath);
+          for (const sub of subDirs) {
+            const dataPath = path.join(dirPath, sub, 'data.json');
+            if (!fs.existsSync(dataPath)) continue;
+            try {
+              const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+              if (data.projectTitle && data.projectId && !seenProjects.has(data.projectId)) {
+                seenProjects.add(data.projectId);
+                entities.push({ type: 'project', id: data.projectId, title: data.projectTitle });
+              }
+              if (data.subprojectTitle && data.subprojectId) {
+                entities.push({ type: 'subproject', id: data.subprojectId, title: data.subprojectTitle, parentTitle: data.projectTitle });
+              }
+              if (data.egkriseisDialthesisPistosis && Array.isArray(data.egkriseisDialthesisPistosis)) {
+                for (const eg of data.egkriseisDialthesisPistosis) {
+                  if (eg.id) {
+                    const dateStr = eg.date ? new Date(eg.date).toLocaleDateString('el-GR') : '';
+                    const egTitle = `${data.subprojectTitle || ''} ${dateStr} ${eg.fileName || ''}`.trim() || eg.id;
+                    entities.push({ type: 'egkrisi', id: eg.id, title: egTitle, parentTitle: data.projectTitle });
+                  }
+                }
+              }
+            } catch (e) { /* skip */ }
+          }
+        } catch (e) { /* skip */ }
+      }
+    }
+
+    // Entaxeis
+    const entaxeisDir = path.join(dataDir, 'entaxeis');
+    if (fs.existsSync(entaxeisDir)) {
+      const entaxiDirs = fs.readdirSync(entaxeisDir).filter(d => { try { return fs.statSync(path.join(entaxeisDir, d)).isDirectory(); } catch (e) { return false; } });
+      for (const dir of entaxiDirs) {
+        const dataPath = path.join(entaxeisDir, dir, 'data.json');
+        if (!fs.existsSync(dataPath)) continue;
+        try {
+          const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+          entities.push({ type: 'entaxi', id: data.entaxiId || dir, title: data.subject || data.projectTitle || dir });
+        } catch (e) { /* skip */ }
+      }
+    }
+
+    // Proskliseis
+    const proskliseisDir = path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ');
+    if (fs.existsSync(proskliseisDir)) {
+      const prosklisiDirs = fs.readdirSync(proskliseisDir).filter(d => { try { return fs.statSync(path.join(proskliseisDir, d)).isDirectory(); } catch (e) { return false; } });
+      for (const dir of prosklisiDirs) {
+        const dataPath = path.join(proskliseisDir, dir, 'data.json');
+        if (!fs.existsSync(dataPath)) continue;
+        try {
+          const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+          entities.push({ type: 'prosklisi', id: data.prosklisiId || dir, title: data.title || dir });
+        } catch (e) { /* skip */ }
+      }
+    }
+
+    // Standalone egkriseis from EgkriseisManager
+    const egkriseisDataPath = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'egkriseis-data.json');
+    if (fs.existsSync(egkriseisDataPath)) {
+      try {
+        const egData = JSON.parse(fs.readFileSync(egkriseisDataPath, 'utf8'));
+        const seenEgkrisiIds = new Set(entities.filter(e => e.type === 'egkrisi').map(e => e.id));
+        if (egData.projects) {
+          for (const [projKey, projVal] of Object.entries(egData.projects)) {
+            const projName = projVal.title || projVal.name || projKey;
+            if (projVal.subprojects) {
+              for (const [subKey, subVal] of Object.entries(projVal.subprojects)) {
+                const subName = subVal.title || subVal.name || subKey.replace(/_/g, ' ');
+                const egId = `egkrisi_${projKey}_${subKey}`;
+                if (!seenEgkrisiIds.has(egId)) {
+                  entities.push({ type: 'egkrisi', id: egId, title: subName, parentTitle: projName });
+                }
+              }
+            }
+          }
+        }
+      } catch (e) { /* skip */ }
+    }
+
+    return { success: true, data: entities };
+  } catch (error) {
+    console.error('Error getting entity names:', error);
     return { success: false, error: error.message };
   }
 });

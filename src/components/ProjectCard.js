@@ -408,6 +408,19 @@ const ToolbarButton = styled.button`
         color: #166534;
       }
     `}
+
+  ${(p) =>
+    p.$tone === 'note' &&
+    css`
+      background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08));
+      border-color: #c7d2fe;
+      color: #4338ca;
+
+      &:hover {
+        background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.15));
+        border-color: #818cf8;
+      }
+    `}
 `;
 
 const MainFilesButton = styled.button`
@@ -535,7 +548,10 @@ function ProjectCard({
   hasProsklisi = false,
   onOpenSpecificProsklisi,
   onViewDetails,
-  engineerCatalog = []
+  engineerCatalog = [],
+  linkedNotesMap = {},
+  notes = [],
+  onOpenNoteFromEntity
 }) {
 
   const handleCardClick = (e) => {
@@ -917,6 +933,16 @@ function ProjectCard({
             <ToolbarButton type="button" onClick={() => onOpenSpecificProsklisi && onOpenSpecificProsklisi()}>
               <IconMegaphone />
               ΠΡΟΣΚΛΗΣΗ
+            </ToolbarButton>
+          )}
+          {linkedNotesMap[project.subprojectId] && linkedNotesMap[project.subprojectId].length > 0 && (
+            <ToolbarButton
+              type="button"
+              $tone="note"
+              title="Υπάρχει συσχετισμένη σημείωση"
+              onClick={() => onOpenNoteFromEntity && onOpenNoteFromEntity(linkedNotesMap[project.subprojectId][0].noteId)}
+            >
+              📝 {linkedNotesMap[project.subprojectId].length > 1 ? linkedNotesMap[project.subprojectId].length : ''}
             </ToolbarButton>
           )}
         </TopButtonsContainer>

@@ -985,7 +985,7 @@ function SeeMoreText({ text, modalTitle, lineClamp = 2, singleLine = false, Text
 
 /* ────────── Main Component ────────── */
 
-function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedProsklisiId = null }) {
+function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedProsklisiId = null, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity }) {
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [proskliseis, setProskliseis] = useState([]);
   const [filteredProskliseis, setFilteredProskliseis] = useState([]);
@@ -1520,6 +1520,15 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                                   )}
                                   {prosklisi.status && (
                                     <StatusChip $status={prosklisi.status}>{prosklisi.status}</StatusChip>
+                                  )}
+                                  {linkedNotesMap[prosklisi.prosklisiId] && linkedNotesMap[prosklisi.prosklisiId].length > 0 && (
+                                    <span
+                                      title={`Σημείωση: ${linkedNotesMap[prosklisi.prosklisiId][0].noteTitle}`}
+                                      onClick={(e) => { e.stopPropagation(); onOpenNoteFromEntity && onOpenNoteFromEntity(linkedNotesMap[prosklisi.prosklisiId][0].noteId); }}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', padding: '2px 7px', borderRadius: '6px', background: 'linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1))', color: '#6366f1', fontSize: '0.7rem', fontWeight: '700', cursor: 'pointer' }}
+                                    >
+                                      📝 {linkedNotesMap[prosklisi.prosklisiId].length > 1 ? linkedNotesMap[prosklisi.prosklisiId].length : ''}
+                                    </span>
                                   )}
                                 </CompactTitleRow>
 

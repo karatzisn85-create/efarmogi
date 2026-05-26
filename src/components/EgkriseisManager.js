@@ -411,7 +411,7 @@ const LoadingMessage = styled.div`
   border: 1px dashed #cbd5e1;
 `;
 
-function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, onLinkCreated }) {
+function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, onLinkCreated, linkedNotesMap = {}, initialSearchTerm = '' }) {
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState({});
   const [loading, setLoading] = useState(false);
@@ -423,6 +423,18 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
   const [currentLinkingEgkrisi, setCurrentLinkingEgkrisi] = useState(null);
   const [linkedSubprojects, setLinkedSubprojects] = useState({});
   const [egkriseisLocks, setEgkriseisLocks] = useState({});
+
+  useEffect(() => {
+    if (isOpen && initialSearchTerm) {
+      let cleaned = initialSearchTerm
+        .replace(/^\d+[_\s]+/, '')
+        .replace(/_/g, ' ')
+        .trim();
+      setSearchTerm(cleaned);
+    } else if (!isOpen) {
+      setSearchTerm('');
+    }
+  }, [isOpen, initialSearchTerm]);
 
   // Load egkriseis for all projects
   useEffect(() => {
@@ -614,6 +626,59 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
           }
         }
       }
+
+      // Also load from standalone egkriseis-data.json
+      try {
+        const standaloneResult = await ipcRenderer.invoke('load-egkriseis-data');
+        if (standaloneResult.success && standaloneResult.data?.projects) {
+          for (const [projKey, projVal] of Object.entries(standaloneResult.data.projects)) {
+            if (!projVal.subprojects) continue;
+            // Find matching projectId from projects array
+            const projTitle = projVal.title || projKey;
+            let matchedProjectId = null;
+            for (const projectGroup of projects) {
+              if (!projectGroup || !Array.isArray(projectGroup)) continue;
+              const match = projectGroup.find(p => p.projectTitle === projTitle);
+              if (match) { matchedProjectId = match.projectId; break; }
+            }
+            if (!matchedProjectId) continue;
+
+            for (const [subKey, subVal] of Object.entries(projVal.subprojects)) {
+              if (!subVal.pdfs || subVal.pdfs.length === 0) continue;
+              const subTitle = subVal.title || subKey.replace(/_/g, ' ');
+              // Find matching subprojectId
+              let matchedSubId = null;
+              for (const projectGroup of projects) {
+                if (!projectGroup || !Array.isArray(projectGroup)) continue;
+                const match = projectGroup.find(p => p.subprojectTitle === subTitle && p.projectId === matchedProjectId);
+                if (match) { matchedSubId = match.subprojectId; break; }
+              }
+              if (!matchedSubId) continue;
+
+              // Check if already loaded
+              const existing = allEgkriseis[matchedProjectId];
+              const alreadyHas = existing?.some(e => e.subprojectId === matchedSubId);
+              if (alreadyHas) continue;
+
+              const egkriseisList = subVal.pdfs.map((pdf, idx) => ({
+                id: `standalone_${projKey}_${subKey}_${idx}`,
+                fileName: pdf,
+                date: null,
+                type: idx === 0 ? 'initial' : 'modification',
+                projectKey: projKey,
+                subprojectKey: subKey
+              }));
+
+              if (!allEgkriseis[matchedProjectId]) allEgkriseis[matchedProjectId] = [];
+              allEgkriseis[matchedProjectId].push({
+                subprojectId: matchedSubId,
+                subprojectTitle: subTitle,
+                egkriseis: egkriseisList
+              });
+            }
+          }
+        }
+      } catch (_) { /* ignore standalone load errors */ }
       
       setEgkriseisData(allEgkriseis);
     } catch (error) {
@@ -877,9 +942,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
             <ToolbarActionButton type="button" primary onClick={() => setShowEgkrisiForm(true)}>
               ➕ Νέα Έγκριση
             </ToolbarActionButton>
-            <ToolbarActionButton type="button" onClick={() => setShowStructureViewer(true)}>
-              📋 Δομή εγκρίσεων
-            </ToolbarActionButton>
+            
           </ActionsBar>
         </ModalTopSection>
 
@@ -897,10 +960,6 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
                 const projectId = projectGroup[0].projectId;
                 const projectTitle = projectGroup[0].projectTitle;
                 const projectEgkriseis = getProjectEgkriseis(projectId);
-                
-                if (projectEgkriseis.length === 0 && searchTerm) {
-                  return null;
-                }
 
                 return (
                   <ProjectGroup key={index}>
@@ -918,10 +977,6 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
                         const subprojectEgkriseis = projectEgkriseis.find(
                           e => e.subprojectId === subproject.subprojectId
                         );
-
-                        if (!subprojectEgkriseis && searchTerm) {
-                          return null;
-                        }
 
                         return (
                           <SubprojectCard key={subproject.subprojectId}>
