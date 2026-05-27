@@ -2206,13 +2206,18 @@ ipcMain.handle('add-task-assignment-comment', async (_event, { actingUsername, t
   }
 });
 
-ipcMain.handle('add-task-assignment-files', async (_event, { actingUsername, taskId, newFiles }) => {
+ipcMain.handle('add-task-assignment-files', async (_event, { actingUsername, taskId, newFiles, batch }) => {
   const auth = resolveTaskActingUser(actingUsername);
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
-    const result = svc.addFiles({ actingUsername: auth.username, taskId, newFiles: newFiles || [] });
+    const result = svc.addFiles({
+      actingUsername: auth.username,
+      taskId,
+      newFiles: newFiles || [],
+      batch: batch || null
+    });
     if (result.success && result.task) {
       const fileNames = (result.task.files || []).slice(-newFiles.length).map(f => f.name).join(', ');
       const msgText = `Νέα αρχεία: ${fileNames}`;
@@ -2272,17 +2277,58 @@ ipcMain.handle('mark-task-notifications-read-for-task', async (_event, { actingU
   }
 });
 
-ipcMain.handle('open-task-assignment-file', async (_event, { actingUsername, taskId, filePath }) => {
+ipcMain.handle('open-task-assignment-file', async (_event, { actingUsername, taskId, filePath, fileId, fileName }) => {
   const auth = resolveTaskActingUser(actingUsername);
   if (!auth.ok) return { success: false, error: auth.error };
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
-    const check = svc.resolveTaskFilePath({ actingUsername: auth.username, taskId, filePath });
+    const check = svc.resolveTaskFilePath({ actingUsername: auth.username, taskId, filePath, fileId, fileName });
     if (!check.success) return check;
     const openResult = await shell.openPath(check.filePath);
     if (openResult) return { success: false, error: `Αδυναμία ανοίγματος αρχείου: ${openResult}` };
     return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('download-task-assignment-file', async (_event, { actingUsername, taskId, filePath, fileId, fileName }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
+  try {
+    const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
+    const check = svc.resolveTaskFilePath({ actingUsername: auth.username, taskId, filePath, fileId, fileName });
+    if (!check.success) return check;
+    const defaultName = fileName || path.basename(check.filePath);
+    const result = await dialog.showSaveDialog({
+      title: 'Αποθήκευση αρχείου',
+      defaultPath: defaultName,
+      filters: [{ name: 'Όλα τα αρχεία', extensions: ['*'] }]
+    });
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true };
+    }
+    fs.copyFileSync(check.filePath, result.filePath);
+    return { success: true, filePath: result.filePath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-task-assignment-attachment', async (_event, { actingUsername, taskId, fileId, batchId }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
+  try {
+    const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
+    return svc.deleteTaskAttachment({
+      actingUsername: auth.username,
+      taskId,
+      fileId: fileId || null,
+      batchId: batchId || null
+    });
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -3922,49 +3968,132 @@ ipcMain.handle('select-file', async (event, title = 'Επιλογή Αρχείο
   }
 });
 
-// File picker for multiple files (specifically for entaxis)
-ipcMain.handle('select-multiple-files', async (event, title = 'Επιλογή Αρχείων') => {
+// File picker for multiple files (entaxis: έγγραφα · chat/χώρος: όλα τα αρχεία με allFileTypes)
+ipcMain.handle('select-multiple-files', async (event, arg = 'Επιλογή Αρχείων') => {
   try {
     const { dialog } = require('electron');
+    const title = typeof arg === 'string' ? arg : (arg?.title || 'Επιλογή Αρχείων');
+    const allFileTypes = typeof arg === 'object' && !!arg?.allFileTypes;
+    const filters = allFileTypes
+      ? [{ name: 'Όλα τα αρχεία', extensions: ['*'] }]
+      : [
+          { name: 'Έγγραφα (PDF, Word)', extensions: ['pdf', 'doc', 'docx'] },
+          { name: 'PDF', extensions: ['pdf'] },
+          { name: 'Word', extensions: ['doc', 'docx'] },
+          { name: 'Όλα τα αρχεία', extensions: ['*'] }
+        ];
     const result = await dialog.showOpenDialog({
-      title: title,
+      title,
       properties: ['openFile', 'multiSelections'],
-      filters: [
-        { name: 'Όλα τα Αρχεία', extensions: ['pdf', 'doc', 'docx'] },
-        { name: 'PDF Files', extensions: ['pdf'] },
-        { name: 'Word Documents', extensions: ['doc', 'docx'] },
-        { name: 'All Files', extensions: ['*'] }
-      ]
+      filters
     });
 
     if (!result.canceled && result.filePaths.length > 0) {
-      // Create temporary directory for uploaded files
-      const tempDir = getTempDir();
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
+      // Χώρος εργασίας: άμεση αναφορά στα πρωτότυπα (αντιγραφή στο addFiles) — αποφυγή collision στο temp
+      if (allFileTypes) {
+        const files = result.filePaths.map((filePath) => ({
+          filePath,
+          fileName: path.basename(filePath).replace(/[<>:"/\\|?*]/g, '_')
+        }));
+        return { success: true, files };
       }
-      
-      // Copy files to temp directory and return temp paths
-      const files = result.filePaths.map(filePath => {
-        const fileName = path.basename(filePath);
-        const tempFilePath = path.join(tempDir, fileName);
-        fs.copyFileSync(filePath, tempFilePath);
-        
-        return {
-          filePath: tempFilePath,
-          fileName: fileName
-        };
-      });
-      
+
+      const files = copyFilePathsToTempUpload(result.filePaths);
       return {
         success: true,
-        files: files
+        files
       };
     } else {
       return { success: false, canceled: true };
     }
   } catch (error) {
     console.error('Error selecting files:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+const TASK_UPLOAD_MAX_FOLDER_FILES = 250;
+
+function copyFilePathsToTempUpload(filePaths) {
+  const tempDir = getTempDir();
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+  const files = [];
+  for (const sourcePath of filePaths) {
+    const baseName = path.basename(sourcePath).replace(/[<>:"/\\|?*]/g, '_');
+    if (!baseName) continue;
+    let destName = baseName;
+    let tempFilePath = path.join(tempDir, destName);
+    let counter = 1;
+    while (fs.existsSync(tempFilePath)) {
+      const ext = path.extname(baseName);
+      const stem = path.basename(baseName, ext);
+      destName = `${stem}_${counter}${ext}`;
+      tempFilePath = path.join(tempDir, destName);
+      counter += 1;
+    }
+    fs.copyFileSync(sourcePath, tempFilePath);
+    files.push({ filePath: tempFilePath, fileName: destName });
+  }
+  return files;
+}
+
+function collectFilesRecursive(dirPath, collected = []) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch {
+    return collected;
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    const full = path.join(dirPath, entry.name);
+    try {
+      if (entry.isDirectory()) {
+        collectFilesRecursive(full, collected);
+      } else if (entry.isFile()) {
+        collected.push(full);
+      }
+    } catch {
+      /* skip inaccessible */
+    }
+  }
+  return collected;
+}
+
+/** Επιλογή ενός φακέλου — όλα τα αρχεία (υποφάκελοι) για ανέβασμα σε χώρο εργασίας */
+ipcMain.handle('select-folder-files-flat', async (_event, arg = {}) => {
+  try {
+    const title = typeof arg === 'string' ? arg : (arg?.title || 'Επιλογή φακέλου');
+    const result = await dialog.showOpenDialog({
+      title,
+      properties: ['openDirectory']
+    });
+    if (result.canceled || !result.filePaths?.length) {
+      return { success: false, canceled: true };
+    }
+    const folderPath = result.filePaths[0];
+    const sourceFiles = collectFilesRecursive(folderPath);
+    if (sourceFiles.length === 0) {
+      return { success: false, error: 'Ο φάκελος δεν περιέχει αρχεία' };
+    }
+    if (sourceFiles.length > TASK_UPLOAD_MAX_FOLDER_FILES) {
+      return {
+        success: false,
+        error: `Ο φάκελος περιέχει πάρα πολλά αρχεία (${sourceFiles.length}). Μέγιστο: ${TASK_UPLOAD_MAX_FOLDER_FILES}.`
+      };
+    }
+    const files = copyFilePathsToTempUpload(sourceFiles);
+    if (!files.length) {
+      return { success: false, error: 'Δεν αντιγράφηκαν αρχεία από τον φάκελο' };
+    }
+    return {
+      success: true,
+      files,
+      folderName: path.basename(folderPath),
+      fileCount: files.length
+    };
+  } catch (error) {
+    console.error('Error selecting folder files:', error);
     return { success: false, error: error.message };
   }
 });

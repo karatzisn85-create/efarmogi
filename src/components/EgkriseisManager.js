@@ -4,6 +4,7 @@ import EgkrisiForm from './EgkrisiForm';
 import EgkriseisStructureViewer from './EgkriseisStructureViewer';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
 import { containsSearchTerm } from '../utils/searchUtils';
+import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import { safeConfirm } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
 
@@ -291,6 +292,7 @@ const EgkrisiCard = styled.div`
   gap: 8px;
   transition: all 0.3s ease;
   position: relative;
+  overflow: visible;
   opacity: ${props => props.isLocked ? 0.7 : 1};
 
   &:hover {
@@ -411,7 +413,7 @@ const LoadingMessage = styled.div`
   border: 1px dashed #cbd5e1;
 `;
 
-function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, onLinkCreated, linkedNotesMap = {}, initialSearchTerm = '' }) {
+function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, onLinkCreated, linkedNotesMap = {}, onOpenNoteFromEntity, initialSearchTerm = '' }) {
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState({});
   const [loading, setLoading] = useState(false);
@@ -1008,11 +1010,20 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
 
                             {subprojectEgkriseis && subprojectEgkriseis.egkriseis.length > 0 && (
                               <EgkriseisList>
-                                {subprojectEgkriseis.egkriseis.map((egkrisi) => (
+                                {subprojectEgkriseis.egkriseis.map((egkrisi) => {
+                                  const egkrisiLinkedNotes = getEntityLinkedNotes(linkedNotesMap, egkrisi.id);
+                                  return (
                                   <EgkrisiCard 
                                     key={egkrisi.id}
                                     isLocked={egkriseisLocks[egkrisi.id]}
                                   >
+                                    {egkrisiLinkedNotes.length > 0 && (
+                                      <LinkedNoteSticker
+                                        links={egkrisiLinkedNotes}
+                                        onOpenNote={onOpenNoteFromEntity}
+                                        placement="top-right"
+                                      />
+                                    )}
                                     <EgkrisiLockIndicator isLocked={egkriseisLocks[egkrisi.id]}>
                                       {egkriseisLocks[egkrisi.id] ? '🔒' : '🔓'}
                                     </EgkrisiLockIndicator>
@@ -1076,7 +1087,8 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
                                       )}
                                     </EgkrisiActions>
                                   </EgkrisiCard>
-                                ))}
+                                  );
+                                })}
                               </EgkriseisList>
                             )}
                           </SubprojectCard>

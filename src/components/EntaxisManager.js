@@ -9,6 +9,7 @@ import ModificationForm from './ModificationForm';
 import EntaxisExportDialog from './EntaxisExportDialog';
 import EntaxisFileViewer from './EntaxisFileViewer';
 import { containsSearchTerm } from '../utils/searchUtils';
+import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 
 const ipcRenderer = window.electronAPI;
 const path = require('path-browserify');
@@ -518,7 +519,7 @@ const ProjectHeader = styled.div`
 `;
 
 const EntaxisList = styled.div`
-  padding: 0.65rem 0.75rem 0.75rem;
+  padding: 0.65rem 1rem 0.75rem 0.75rem;
 `;
 
 const EntaxisItem = styled.div`
@@ -538,10 +539,20 @@ const EntaxisItem = styled.div`
   }
 `;
 
-const LockIndicator = styled.div`
+const CardTopRightCluster = styled.div`
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  z-index: 26;
+`;
+
+const LockIndicator = styled.div`
+  position: relative;
+  flex-shrink: 0;
   width: 26px;
   height: 26px;
   border-radius: 50%;
@@ -553,12 +564,11 @@ const LockIndicator = styled.div`
   font-size: 0.65rem;
   font-weight: bold;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.15);
-  z-index: 10;
   border: 2px solid #ffffff;
 `;
 
 const CompactCardBody = styled.div`
-  padding: 0.75rem 2.5rem 0.75rem 0.85rem;
+  padding: 0.75rem 5.25rem 0.75rem 0.85rem;
   display: flex;
   gap: 0.85rem;
   align-items: flex-start;
@@ -2106,14 +2116,24 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                   {projectEntaxeis.map((entaxi) => {
                     const modCount = entaxi.modifications?.length || 0;
                     const modsOpen = modCount > 0 && isModsExpanded(entaxi.entaxiId, modCount);
+                    const entaxiLinkedNotes = getEntityLinkedNotes(linkedNotesMap, entaxi.entaxiId);
                     return (
                     <EntaxisItem
                       key={entaxi.entaxiId}
                       isLocked={entaxisLocks[entaxi.entaxiId]}
                     >
-                      <LockIndicator isLocked={entaxisLocks[entaxi.entaxiId]}>
-                        {entaxisLocks[entaxi.entaxiId] ? '🔒' : '🔓'}
-                      </LockIndicator>
+                      <CardTopRightCluster>
+                        <LockIndicator isLocked={entaxisLocks[entaxi.entaxiId]}>
+                          {entaxisLocks[entaxi.entaxiId] ? '🔒' : '🔓'}
+                        </LockIndicator>
+                        {entaxiLinkedNotes.length > 0 && (
+                          <LinkedNoteSticker
+                            links={entaxiLinkedNotes}
+                            onOpenNote={onOpenNoteFromEntity}
+                            placement="inline"
+                          />
+                        )}
+                      </CardTopRightCluster>
 
                       <CompactCardBody>
                         <CompactMain>
@@ -2121,15 +2141,6 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                             <TypeDot $main />
                             <CompactLabel>Αρχική Ένταξη</CompactLabel>
                             <MetaChip title="Ημερομηνία έγγραφου">📅 {formatDate(entaxi.documentDate)}</MetaChip>
-                            {linkedNotesMap[entaxi.entaxiId] && linkedNotesMap[entaxi.entaxiId].length > 0 && (
-                              <span
-                                title={`Σημείωση: ${linkedNotesMap[entaxi.entaxiId][0].noteTitle}`}
-                                onClick={(e) => { e.stopPropagation(); onOpenNoteFromEntity && onOpenNoteFromEntity(linkedNotesMap[entaxi.entaxiId][0].noteId); }}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', padding: '2px 7px', borderRadius: '6px', background: 'linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1))', color: '#6366f1', fontSize: '0.7rem', fontWeight: '700', cursor: 'pointer', transition: 'all 0.15s' }}
-                              >
-                                📝 {linkedNotesMap[entaxi.entaxiId].length > 1 ? linkedNotesMap[entaxi.entaxiId].length : ''}
-                              </span>
-                            )}
                           </CompactTitleRow>
 
                           <SeeMoreText

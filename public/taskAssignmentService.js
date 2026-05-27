@@ -281,9 +281,16 @@ function createTaskAssignmentService(deps) {
     if (!fs.existsSync(fp)) return null;
     try {
       const parsed = JSON.parse(fs.readFileSync(fp, 'utf8'));
-      const { task, changed } = migrateLegacyTask(parsed);
-      if (changed && task) writeTask(task);
-      return task;
+      const { task: migrated, changed: migratedChanged } = migrateLegacyTask(parsed);
+      if (!migrated) return null;
+      const { task: reconciled, changed: filesChanged, removed } = reconcileTaskFiles(migrated);
+      if (migratedChanged || filesChanged) {
+        if (removed > 0) {
+          console.warn(`[taskAssignment] Removed ${removed} missing file record(s) from task ${taskId}`);
+        }
+        writeTask(reconciled);
+      }
+      return reconciled;
     } catch {
       return null;
     }
@@ -292,27 +299,35 @@ function createTaskAssignmentService(deps) {
   const MAX_STATUS_HISTORY = 500;
   const MAX_COMMENTS = 2000;
 
-  function writeTask(task) {
-    withServiceLock(getWriteLockPath(), () => {
-      if (Array.isArray(task.statusHistory) && task.statusHistory.length > MAX_STATUS_HISTORY) {
-        task.statusHistory = task.statusHistory.slice(-MAX_STATUS_HISTORY);
-      }
-      if (Array.isArray(task.comments) && task.comments.length > MAX_COMMENTS) {
-        task.comments = task.comments.slice(-MAX_COMMENTS);
-      }
-      const dir = getTaskDir(task.id);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const filesDir = getTaskFilesDir(task.id);
-      if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
-      safeWriteJSON(getTaskDataPath(task.id), task);
+  function persistTask(task) {
+    if (Array.isArray(task.statusHistory) && task.statusHistory.length > MAX_STATUS_HISTORY) {
+      task.statusHistory = task.statusHistory.slice(-MAX_STATUS_HISTORY);
+    }
+    if (Array.isArray(task.comments) && task.comments.length > MAX_COMMENTS) {
+      task.comments = task.comments.slice(-MAX_COMMENTS);
+    }
+    const dir = getTaskDir(task.id);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filesDir = getTaskFilesDir(task.id);
+    if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
+    safeWriteJSON(getTaskDataPath(task.id), task);
 
-      const idx = readIndex();
-      const entry = taskToIndexEntry(task);
-      const i = idx.tasks.findIndex((t) => t.id === task.id);
-      if (i >= 0) idx.tasks[i] = entry;
-      else idx.tasks.push(entry);
-      writeIndex(idx.tasks);
-      lastOwnWriteTs = Date.now();
+    const idx = readIndex();
+    const entry = taskToIndexEntry(task);
+    const i = idx.tasks.findIndex((t) => t.id === task.id);
+    if (i >= 0) idx.tasks[i] = entry;
+    else idx.tasks.push(entry);
+    writeIndex(idx.tasks);
+    lastOwnWriteTs = Date.now();
+  }
+
+  function writeTask(task, { skipLock = false } = {}) {
+    if (skipLock) {
+      persistTask(task);
+      return;
+    }
+    withServiceLock(getWriteLockPath(), () => {
+      persistTask(task);
     });
   }
 
@@ -502,6 +517,7 @@ function createTaskAssignmentService(deps) {
       reminderOffsets: norm.reminderOffsets,
       reminderSentKeys: [],
       files: [],
+      fileBatches: [],
       comments: [],
       statusHistory: [{ status: 'pending', at: now, by: createdBy, note: 'Δημιουργία χώρου' }],
       completedAt: null,
@@ -513,37 +529,105 @@ function createTaskAssignmentService(deps) {
     };
   }
 
-  function copyFilesToTask(taskId, fileObjects, uploadedBy) {
+  function buildTaskFilePathCandidates(filesDir, fileEntry) {
+    const candidates = [];
+    if (fileEntry.batchId && fileEntry.name) {
+      candidates.push(path.resolve(path.join(filesDir, fileEntry.batchId, fileEntry.name)));
+    }
+    if (fileEntry.name) {
+      candidates.push(path.resolve(path.join(filesDir, fileEntry.name)));
+    }
+    if (fileEntry.path) {
+      candidates.push(path.resolve(fileEntry.path));
+    }
+    return [...new Set(candidates)];
+  }
+
+  function findTaskFileOnDisk(filesDir, fileEntry) {
+    for (const candidate of buildTaskFilePathCandidates(filesDir, fileEntry)) {
+      if (isPathInsideOrEqualDir(candidate, filesDir) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  function reconcileTaskFiles(task) {
+    if (!task?.id) return { task, changed: false, removed: 0 };
+    const filesDir = path.resolve(getTaskFilesDir(task.id));
+    const prevFiles = Array.isArray(task.files) ? task.files : [];
+    const kept = [];
+    let changed = false;
+
+    prevFiles.forEach((f) => {
+      const onDisk = findTaskFileOnDisk(filesDir, f);
+      if (!onDisk) {
+        changed = true;
+        return;
+      }
+      const normalized = onDisk !== f.path ? { ...f, path: onDisk } : f;
+      if (normalized !== f) changed = true;
+      kept.push(normalized);
+    });
+
+    const keptBatchIds = new Set(kept.map((f) => f.batchId).filter(Boolean));
+    const prevBatches = Array.isArray(task.fileBatches) ? task.fileBatches : [];
+    const keptBatches = prevBatches.filter((b) => keptBatchIds.has(b.id));
+    if (keptBatches.length !== prevBatches.length) changed = true;
+
+    if (!changed) return { task, changed: false, removed: 0 };
+    const updated = { ...task, files: kept, fileBatches: keptBatches };
+    return { task: updated, changed: true, removed: prevFiles.length - kept.length };
+  }
+
+  function copyFilesToTask(taskId, fileObjects, uploadedBy, { batchId } = {}) {
     const filesDir = getTaskFilesDir(taskId);
-    if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
+    const targetDir = batchId ? path.join(filesDir, batchId) : filesDir;
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     const saved = [];
+    const failed = [];
+    const uploadedAt = new Date().toISOString();
     for (const file of fileObjects || []) {
       const sourcePath = typeof file === 'string' ? file : file.filePath || file.path;
-      if (!sourcePath || !fs.existsSync(sourcePath)) continue;
       const baseName = typeof file === 'string'
-        ? path.basename(sourcePath)
-        : file.fileName || file.name || path.basename(sourcePath);
-      const safeName = baseName.replace(/[<>:"/\\|?*]/g, '_');
+        ? path.basename(sourcePath || '')
+        : file.fileName || file.name || path.basename(sourcePath || '');
+      const safeName = String(baseName || 'file').replace(/[<>:"/\\|?*]/g, '_');
+      if (!sourcePath || !fs.existsSync(sourcePath)) {
+        failed.push({ name: safeName, error: 'Η πηγή του αρχείου δεν βρέθηκε πριν την αποθήκευση' });
+        continue;
+      }
       let destName = safeName;
-      let destPath = path.join(filesDir, destName);
+      let destPath = path.join(targetDir, destName);
       let counter = 1;
       while (fs.existsSync(destPath)) {
         const ext = path.extname(safeName);
         const stem = path.basename(safeName, ext);
         destName = `${stem}_${counter}${ext}`;
-        destPath = path.join(filesDir, destName);
+        destPath = path.join(targetDir, destName);
         counter += 1;
       }
-      fs.copyFileSync(sourcePath, destPath);
-      saved.push({
+      try {
+        fs.copyFileSync(sourcePath, destPath);
+        if (!fs.existsSync(destPath)) {
+          failed.push({ name: safeName, error: 'Η αντιγραφή δεν ολοκληρώθηκε στον φάκελο του χώρου' });
+          continue;
+        }
+      } catch (err) {
+        failed.push({ name: safeName, error: err?.message || 'Αποτυχία αντιγραφής' });
+        continue;
+      }
+      const entry = {
         id: uuidv4(),
         name: destName,
-        path: destPath,
+        path: path.resolve(destPath),
         uploadedBy,
-        uploadedAt: new Date().toISOString()
-      });
+        uploadedAt
+      };
+      if (batchId) entry.batchId = batchId;
+      saved.push(entry);
     }
-    return saved;
+    return { saved, failed };
   }
 
   function loadAssignments({ actingUsername, view = 'asAssignee', listScope = 'default' }) {
@@ -679,8 +763,27 @@ function createTaskAssignmentService(deps) {
 
     const task = buildNewTask(actingUsername, { ...norm, assignees: assignCheck.assignees });
     try {
-      const copied = copyFilesToTask(task.id, newFiles, actingUsername);
-      task.files = copied;
+      if (Array.isArray(newFiles) && newFiles.length > 0) {
+        const batchId = uuidv4();
+        const batchAt = task.createdAt;
+        task.fileBatches = [{
+          id: batchId,
+          kind: 'files',
+          label: null,
+          uploadedBy: actingUsername,
+          uploadedAt: batchAt
+        }];
+        const { saved, failed } = copyFilesToTask(task.id, newFiles, actingUsername, { batchId });
+        if (failed.length > 0) {
+          return {
+            success: false,
+            error: failed.length === newFiles.length
+              ? 'Κανένα αρχείο δεν αποθηκεύτηκε στον χώρο'
+              : `Μερικά αρχεία απέτυχαν: ${failed.map((f) => f.name).join(', ')}`
+          };
+        }
+        task.files = saved;
+      }
       writeTask(task);
     } catch (err) {
       return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης χώρου στον δίσκο' };
@@ -717,11 +820,31 @@ function createTaskAssignmentService(deps) {
     if (!assignCheck.ok) return { success: false, error: assignCheck.error };
 
     const now = new Date().toISOString();
-    let copied;
-    try {
-      copied = copyFilesToTask(taskId, newFiles, actingUsername);
-    } catch (copyErr) {
-      return { success: false, error: copyErr?.message || 'Αποτυχία αντιγραφής αρχείων' };
+    let copied = [];
+    if (Array.isArray(newFiles) && newFiles.length > 0) {
+      try {
+        const batchId = uuidv4();
+        const copyResult = copyFilesToTask(taskId, newFiles, actingUsername, { batchId });
+        copied = copyResult.saved;
+        if (copyResult.failed.length > 0 && copied.length === 0) {
+          return {
+            success: false,
+            error: `Κανένα αρχείο δεν αποθηκεύτηκε: ${copyResult.failed.map((f) => f.name).join(', ')}`
+          };
+        }
+        if (copied.length > 0) {
+          const batchRecord = {
+            id: batchId,
+            kind: 'files',
+            label: null,
+            uploadedBy: actingUsername,
+            uploadedAt: now
+          };
+          existing.fileBatches = [...(existing.fileBatches || []), batchRecord];
+        }
+      } catch (copyErr) {
+        return { success: false, error: copyErr?.message || 'Αποτυχία αντιγραφής αρχείων' };
+      }
     }
     const newAssignees = assignCheck.assignees;
     const activeSet = new Set(newAssignees.map((a) => String(a).toLowerCase()));
@@ -1059,7 +1182,138 @@ function createTaskAssignmentService(deps) {
     return { success: true, task: updated };
   }
 
-  function addFiles({ actingUsername, taskId, newFiles = [] }) {
+  function addFiles({ actingUsername, taskId, newFiles = [], batch = null }) {
+    const users = loadUsers();
+    let result = { success: false, error: 'Άγνωστο σφάλμα' };
+    withServiceLock(getWriteLockPath(), () => {
+      const task = readTask(taskId);
+      if (!task) {
+        result = { success: false, error: 'Ο χώρος δεν βρέθηκε' };
+        return;
+      }
+      if (['completed', 'cancelled'].includes(task.status)) {
+        result = { success: false, error: ARCHIVE_LOCKED_MSG };
+        return;
+      }
+      if (!canAccessTask(users, task, actingUsername)) {
+        result = { success: false, error: 'Δεν έχετε πρόσβαση' };
+        return;
+      }
+      const batchKind = batch?.kind === 'folder' ? 'folder' : batch ? 'files' : null;
+      const batchId = batchKind ? uuidv4() : null;
+      const now = new Date().toISOString();
+      let copied;
+      let failed = [];
+      try {
+        const copyResult = copyFilesToTask(taskId, newFiles, actingUsername, batchId ? { batchId } : {});
+        copied = copyResult.saved;
+        failed = copyResult.failed;
+      } catch (copyErr) {
+        result = { success: false, error: copyErr?.message || 'Αποτυχία αντιγραφής αρχείων' };
+        return;
+      }
+      if (!copied.length) {
+        const detail = failed.length
+          ? failed.map((f) => `${f.name}: ${f.error}`).slice(0, 3).join(' · ')
+          : 'Δεν βρέθηκαν έγκυρα αρχεία προς αντιγραφή';
+        result = { success: false, error: `Δεν προστέθηκαν αρχεία. ${detail}` };
+        return;
+      }
+      const batchRecord = batchKind && batchId
+        ? {
+          id: batchId,
+          kind: batchKind,
+          label: String(batch.label || '').trim() || null,
+          uploadedBy: actingUsername,
+          uploadedAt: now
+        }
+        : null;
+      const updated = {
+        ...task,
+        files: [...(task.files || []), ...copied],
+        fileBatches: batchRecord
+          ? [...(task.fileBatches || []), batchRecord]
+          : (task.fileBatches || []),
+        updatedAt: now
+      };
+      try {
+        writeTask(updated, { skipLock: true });
+      } catch (err) {
+        result = { success: false, error: err?.message || 'Αποτυχία αποθήκευσης αρχείων' };
+        return;
+      }
+      const uploader = findUser(users, actingUsername);
+      const uploaderLabel = uploader?.fullName ? `${uploader.fullName} (${actingUsername})` : actingUsername;
+      let notifyMsg;
+      if (batchKind === 'folder') {
+        const folderLabel = batchRecord.label || 'Φάκελος';
+        notifyMsg = `${uploaderLabel} πρόσθεσε φάκελο «${folderLabel}» (${copied.length} αρχεία)`;
+      } else if (batchKind === 'files') {
+        const names = copied.map((f) => f.name).join(', ');
+        const excerpt = names.length > 120 ? `${names.slice(0, 117)}…` : names;
+        notifyMsg = copied.length === 1
+          ? `${uploaderLabel} πρόσθεσε αρχείο: ${excerpt}`
+          : `${uploaderLabel} πρόσθεσε ${copied.length} αρχεία${excerpt ? `: ${excerpt}` : ''}`;
+      } else {
+        const fileNames = copied.map((f) => f.name).join(', ');
+        notifyMsg = `${uploaderLabel} πρόσθεσε αρχεία: ${fileNames.length > 150 ? `${fileNames.slice(0, 147)}…` : fileNames}`;
+      }
+      safeNotifyTaskEvent(
+        updated,
+        'status_changed',
+        notifyMsg,
+        [],
+        { excludeUsernames: [actingUsername] }
+      );
+      result = {
+        success: true,
+        task: updated,
+        warning: failed.length > 0
+          ? `Αποθηκεύτηκαν ${copied.length} από ${newFiles.length} αρχεία. Δεν προστέθηκαν: ${failed.map((f) => f.name).join(', ')}`
+          : null
+      };
+    });
+    return result;
+  }
+
+  function isPathInsideOrEqualDir(filePath, dirPath) {
+    const resolved = path.resolve(filePath);
+    const dir = path.resolve(dirPath);
+    if (resolved === dir) return true;
+    return isPathInsideDir(resolved, dir);
+  }
+
+  function removeTaskFileFromDisk(filesDir, fileEntry) {
+    if (!fileEntry) return;
+    const candidates = [];
+    if (fileEntry.path) candidates.push(path.resolve(fileEntry.path));
+    if (fileEntry.batchId && fileEntry.name) {
+      candidates.push(path.resolve(path.join(filesDir, fileEntry.batchId, fileEntry.name)));
+    }
+    if (fileEntry.name) {
+      candidates.push(path.resolve(path.join(filesDir, fileEntry.name)));
+    }
+    const seen = new Set();
+    for (const candidate of candidates) {
+      if (seen.has(candidate)) continue;
+      seen.add(candidate);
+      if (!isPathInsideOrEqualDir(candidate, filesDir)) continue;
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        fs.unlinkSync(candidate);
+      }
+    }
+  }
+
+  function removeTaskBatchDirFromDisk(filesDir, batchId) {
+    if (!batchId) return;
+    const batchDir = path.resolve(path.join(filesDir, batchId));
+    if (!isPathInsideOrEqualDir(batchDir, filesDir)) return;
+    if (fs.existsSync(batchDir)) {
+      fs.rmSync(batchDir, { recursive: true, force: true });
+    }
+  }
+
+  function deleteTaskAttachment({ actingUsername, taskId, fileId = null, batchId = null }) {
     const users = loadUsers();
     const task = readTask(taskId);
     if (!task) return { success: false, error: 'Ο χώρος δεν βρέθηκε' };
@@ -1069,34 +1323,80 @@ function createTaskAssignmentService(deps) {
     if (!canAccessTask(users, task, actingUsername)) {
       return { success: false, error: 'Δεν έχετε πρόσβαση' };
     }
-    let copied;
-    try {
-      copied = copyFilesToTask(taskId, newFiles, actingUsername);
-    } catch (copyErr) {
-      return { success: false, error: copyErr?.message || 'Αποτυχία αντιγραφής αρχείων' };
+    if (!fileId && !batchId) {
+      return { success: false, error: 'Δεν καθορίστηκε αρχείο ή φάκελος προς διαγραφή' };
     }
-    if (copied.length === 0) return { success: false, error: 'Δεν προστέθηκαν αρχεία' };
+    if (fileId && batchId) {
+      return { success: false, error: 'Καθορίστε μόνο αρχείο ή φάκελο, όχι και τα δύο' };
+    }
+
+    const actor = String(actingUsername || '').trim().toLowerCase();
+    const filesDir = path.resolve(getTaskFilesDir(taskId));
+    const now = new Date().toISOString();
+    let removedNames = [];
+    let remainingFiles = [...(task.files || [])];
+    let remainingBatches = [...(task.fileBatches || [])];
+
+    if (batchId) {
+      const batch = remainingBatches.find((b) => b.id === batchId);
+      if (!batch) return { success: false, error: 'Ο φάκελος/ομάδα δεν βρέθηκε' };
+      if (String(batch.uploadedBy || '').trim().toLowerCase() !== actor) {
+        return { success: false, error: 'Μπορείτε να διαγράψετε μόνο αρχεία που ανεβάσατε εσείς' };
+      }
+      const batchFiles = remainingFiles.filter((f) => f.batchId === batchId);
+      if (batchFiles.length === 0) {
+        remainingBatches = remainingBatches.filter((b) => b.id !== batchId);
+      } else {
+        removedNames = batchFiles.map((f) => f.name);
+        batchFiles.forEach((f) => removeTaskFileFromDisk(filesDir, f));
+        removeTaskBatchDirFromDisk(filesDir, batchId);
+        remainingFiles = remainingFiles.filter((f) => f.batchId !== batchId);
+        remainingBatches = remainingBatches.filter((b) => b.id !== batchId);
+      }
+    } else {
+      const fileEntry = remainingFiles.find((f) => f.id === fileId);
+      if (!fileEntry) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+      if (String(fileEntry.uploadedBy || '').trim().toLowerCase() !== actor) {
+        return { success: false, error: 'Μπορείτε να διαγράψετε μόνο αρχεία που ανεβάσατε εσείς' };
+      }
+      removedNames = [fileEntry.name];
+      removeTaskFileFromDisk(filesDir, fileEntry);
+      remainingFiles = remainingFiles.filter((f) => f.id !== fileId);
+      if (fileEntry.batchId) {
+        const stillInBatch = remainingFiles.some((f) => f.batchId === fileEntry.batchId);
+        if (!stillInBatch) {
+          remainingBatches = remainingBatches.filter((b) => b.id !== fileEntry.batchId);
+          removeTaskBatchDirFromDisk(filesDir, fileEntry.batchId);
+        }
+      }
+    }
+
     const updated = {
       ...task,
-      files: [...(task.files || []), ...copied],
-      updatedAt: new Date().toISOString()
+      files: remainingFiles,
+      fileBatches: remainingBatches,
+      updatedAt: now
     };
     try {
       writeTask(updated);
     } catch (err) {
-      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης αρχείων' };
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης μετά τη διαγραφή' };
     }
-    const uploader = findUser(users, actingUsername);
-    const uploaderLabel = uploader?.fullName ? `${uploader.fullName} (${actingUsername})` : actingUsername;
-    const fileNames = copied.map((f) => f.name).join(', ');
+
+    const actorUser = findUser(users, actingUsername);
+    const actorLabel = actorUser?.fullName ? `${actorUser.fullName} (${actingUsername})` : actingUsername;
+    const namesExcerpt = removedNames.join(', ');
+    const excerpt = namesExcerpt.length > 120 ? `${namesExcerpt.slice(0, 117)}…` : namesExcerpt;
     safeNotifyTaskEvent(
       updated,
       'status_changed',
-      `${uploaderLabel} πρόσθεσε αρχεία: ${fileNames.length > 150 ? `${fileNames.slice(0, 147)}…` : fileNames}`,
+      removedNames.length === 1
+        ? `${actorLabel} διέγραψε αρχείο: ${excerpt}`
+        : `${actorLabel} διέγραψε ${removedNames.length} αρχεία${excerpt ? `: ${excerpt}` : ''}`,
       [],
       { excludeUsernames: [actingUsername] }
     );
-    return { success: true, task: updated };
+    return { success: true, task: updated, deletedCount: removedNames.length };
   }
 
   function loadNotifications({ actingUsername, unreadOnly = false }) {
@@ -1171,7 +1471,14 @@ function createTaskAssignmentService(deps) {
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  function resolveTaskFilePath({ actingUsername, taskId, filePath }) {
+  function isPathInsideDir(filePath, dirPath) {
+    const resolved = path.resolve(filePath);
+    const dir = path.resolve(dirPath);
+    const rel = path.relative(dir, resolved);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  }
+
+  function resolveTaskFilePath({ actingUsername, taskId, filePath, fileId, fileName }) {
     const users = loadUsers();
     const task = readTask(taskId);
     if (!task) return { success: false, error: 'Ο χώρος δεν βρέθηκε' };
@@ -1179,14 +1486,39 @@ function createTaskAssignmentService(deps) {
       return { success: false, error: 'Δεν έχετε πρόσβαση' };
     }
     const filesDir = path.resolve(getTaskFilesDir(taskId));
-    const resolved = path.resolve(String(filePath || ''));
-    if (!resolved.startsWith(filesDir + path.sep)) {
-      return { success: false, error: 'Μη επιτρεπόμενο αρχείο' };
+    const files = task.files || [];
+
+    let fileEntry = null;
+    if (fileId) {
+      fileEntry = files.find((f) => f.id === fileId) || null;
     }
-    const owned = (task.files || []).some((f) => f.path && path.resolve(f.path) === resolved);
-    if (!owned) return { success: false, error: 'Το αρχείο δεν ανήκει σε αυτόν τον χώρο' };
-    if (!fs.existsSync(resolved)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
-    return { success: true, filePath: resolved };
+    if (!fileEntry && filePath) {
+      const argResolved = path.resolve(String(filePath));
+      const argBase = path.basename(argResolved);
+      fileEntry = files.find((f) => {
+        if (!f.path && !f.name) return false;
+        if (f.path && path.resolve(f.path) === argResolved) return true;
+        if (f.name && (f.name === argBase || f.name === path.basename(String(filePath)))) return true;
+        if (f.path && path.basename(f.path) === argBase) return true;
+        return false;
+      }) || null;
+    }
+    if (!fileEntry && fileName) {
+      fileEntry = files.find((f) => f.name === fileName) || null;
+    }
+    if (!fileEntry) {
+      return { success: false, error: 'Το αρχείο δεν ανήκει σε αυτόν τον χώρο' };
+    }
+
+    const onDisk = findTaskFileOnDisk(filesDir, fileEntry);
+    if (onDisk) {
+      return { success: true, filePath: onDisk };
+    }
+
+    return {
+      success: false,
+      error: 'Το αρχείο δεν βρέθηκε στον φάκελο του χώρου (ARXEIA). Ενδέχεται να μην αποθηκεύτηκε σωστά κατά το ανέβασμα — δοκιμάστε να το ανεβάσετε ξανά.'
+    };
   }
 
   function runDueDateChecks() {
@@ -1279,6 +1611,7 @@ function createTaskAssignmentService(deps) {
     resolveTaskFilePath,
     addComment,
     addFiles,
+    deleteTaskAttachment,
     loadNotifications,
     markNotificationsRead,
     markNotificationsReadForTask,

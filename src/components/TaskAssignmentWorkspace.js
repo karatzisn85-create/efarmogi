@@ -458,24 +458,233 @@ const MessageBundle = styled.div`
   max-width: ${(p) => (p.$mine ? 'min(900px, 94%)' : '100%')};
 `;
 
-const FileBubble = styled.div`
+const CompactAttachmentBubble = styled.div`
   flex: 1;
   min-width: 0;
+  max-width: min(520px, 100%);
   box-sizing: border-box;
-  padding: 0.85rem 1rem;
-  border-radius: 12px;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
   border: 1px solid #bfdbfe;
   background: #f8fafc;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 `;
 
-const FileAttachmentLabel = styled.div`
+const CompactAttachmentLabel = styled.div`
   font-weight: 700;
-  font-size: 0.76rem;
-  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #2563eb;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
+`;
+
+const CompactFileList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+`;
+
+const CompactFileChip = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.18rem 0.3rem;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid #e2e8f0;
+`;
+
+const CompactFileChipName = styled.button`
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: #3730a3;
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  font-family: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  &:hover {
+    color: #4f46e5;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  &:focus-visible {
+    outline: 2px solid rgba(99, 102, 241, 0.45);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+`;
+
+const MiniDownloadBtn = styled.button`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid #86efac;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+  &:hover {
+    background: #dcfce7;
+    border-color: #4ade80;
+  }
+  &:focus-visible {
+    outline: 2px solid #22c55e;
+    outline-offset: 1px;
+  }
+`;
+
+const MiniDeleteBtn = styled.button`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+  &:hover {
+    background: #fee2e2;
+    border-color: #f87171;
+  }
+  &:focus-visible {
+    outline: 2px solid #ef4444;
+    outline-offset: 1px;
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+`;
+
+const FolderAttachmentRow = styled.div`
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+`;
+
+const FolderAttachmentBtn = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: 9px;
+  border: 1px dashed #93c5fd;
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  &:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+  }
+  &:focus-visible {
+    outline: 3px solid rgba(59, 130, 246, 0.4);
+    outline-offset: 2px;
+  }
+`;
+
+const FolderIconWrap = styled.span`
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+`;
+
+const FolderAttachmentMeta = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+
+const FolderAttachmentTitle = styled.div`
+  font-weight: 700;
+  font-size: 0.86rem;
+  color: #1e3a8a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const FolderAttachmentSub = styled.div`
+  margin-top: 0.12rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+`;
+
+const FolderFilesModalList = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+`;
+
+const FolderFilesModalItem = styled.li`
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+`;
+
+const FolderFilesModalName = styled.button`
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: #3730a3;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  font-family: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  &:hover {
+    text-decoration: underline;
+  }
 `;
 
 const ChatSectionHead = styled.div`
@@ -616,6 +825,13 @@ const BubbleText = styled.div`
   word-break: break-word;
 `;
 
+const FileActionsRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.65rem;
+`;
+
 const FileLink = styled.button`
   background: none;
   border: none;
@@ -635,6 +851,34 @@ const FileLink = styled.button`
     outline: 3px solid rgba(99, 102, 241, 0.45);
     outline-offset: 2px;
     border-radius: 4px;
+  }
+`;
+
+const FileDownloadBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #86efac;
+  background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+  color: #166534;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  &:hover {
+    background: #bbf7d0;
+    border-color: #4ade80;
+  }
+  &:focus-visible {
+    outline: 2px solid #22c55e;
+    outline-offset: 2px;
+  }
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 `;
 
@@ -680,6 +924,42 @@ const EmojiPickerPopup = styled.div`
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   border-radius: 12px;
   overflow: hidden;
+`;
+
+const AttachMenuPopup = styled.div`
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 9999;
+  min-width: 220px;
+  padding: 0.35rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
+`;
+
+const AttachMenuItem = styled.button`
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #1e293b;
+  font-size: 0.86rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  &:hover {
+    background: #eef2ff;
+    color: #3730a3;
+  }
+  &:focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: 1px;
+  }
 `;
 
 const ComposerInput = styled.textarea`
@@ -968,6 +1248,43 @@ const DepartModalConfirmBtn = styled.button`
   }
 `;
 
+const DeleteConfirmBackdrop = styled(DepartModalBackdrop)`
+  z-index: 210;
+`;
+
+const DeleteModalHero = styled(DepartModalHero)`
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 46%, #b91c1c 100%);
+`;
+
+const DeleteModalIcon = styled.div`
+  position: relative;
+  z-index: 1;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 0.6rem;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.45rem;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+`;
+
+const DeleteModalFileName = styled.p`
+  position: relative;
+  z-index: 1;
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.65rem;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.4;
+  word-break: break-word;
+`;
+
 
 const AVATAR_PALETTE = ['#6366f1', '#0ea5e9', '#14b8a6', '#f97316', '#a855f7', '#ec4899', '#84cc16'];
 
@@ -1014,7 +1331,7 @@ function roleTagForVariant(variant) {
 
 /** Χρονολογική ροή: έναρξη χώρου → αρχεία & σχόλια. */
 function buildUnifiedTimeline(task) {
-  const TYPE_ORDER = { origin: 0, file: 1, comment: 2, system: 3 };
+  const TYPE_ORDER = { origin: 0, folder: 1, files: 1, file: 1, comment: 2, system: 3 };
   const items = [];
 
   const originAt = task.createdAt || task.statusHistory?.[0]?.at || new Date(0).toISOString();
@@ -1026,7 +1343,33 @@ function buildUnifiedTimeline(task) {
     description: String(task.description || '').trim()
   });
 
+  const batchesById = new Map((task.fileBatches || []).map((b) => [b.id, b]));
+  const filesInBatch = new Map();
+  const orphanFiles = [];
+
   (task.files || []).forEach((f) => {
+    if (f.batchId && batchesById.has(f.batchId)) {
+      if (!filesInBatch.has(f.batchId)) filesInBatch.set(f.batchId, []);
+      filesInBatch.get(f.batchId).push(f);
+    } else {
+      orphanFiles.push(f);
+    }
+  });
+
+  (task.fileBatches || []).forEach((b) => {
+    const files = filesInBatch.get(b.id) || [];
+    if (!files.length) return;
+    items.push({
+      id: `timeline-batch-${b.id}`,
+      type: b.kind === 'folder' ? 'folder' : 'files',
+      at: b.uploadedAt || originAt,
+      author: b.uploadedBy,
+      batch: b,
+      files
+    });
+  });
+
+  orphanFiles.forEach((f) => {
     items.push({
       id: `timeline-file-${f.id}`,
       type: 'file',
@@ -1080,6 +1423,176 @@ function buildUnifiedTimeline(task) {
   return items;
 }
 
+function AttachmentTimelineEntry({
+  item,
+  task,
+  actingUsername,
+  usersMap,
+  canDeleteAttachments,
+  onOpenFile,
+  onDownloadFile,
+  onOpenFolder,
+  onDeleteFile,
+  onDeleteBatch
+}) {
+  const variant = chatBubbleVariant(item.author, actingUsername, task);
+  const mine = variant === 'mine';
+  const displayName = authorDisplayName(item.author, usersMap);
+  const initials = authorInitials(displayName);
+  const roleTag = roleTagForVariant(variant);
+  const avBg = mine ? '#4f46e5' : avatarColorForUser(item.author);
+  const canDeleteBatch =
+    canDeleteAttachments &&
+    item.author &&
+    String(item.author).toLowerCase() === String(actingUsername || '').toLowerCase();
+
+  const renderFileChip = (f) => {
+    const canDeleteFile =
+      canDeleteAttachments &&
+      String(f.uploadedBy || item.author || '').toLowerCase() === String(actingUsername || '').toLowerCase();
+    return (
+      <CompactFileChip key={f.id}>
+        <CompactFileChipName type="button" onClick={() => onOpenFile(f)} title={f.name}>
+          {f.name}
+        </CompactFileChipName>
+        <MiniDownloadBtn
+          type="button"
+          onClick={() => onDownloadFile(f)}
+          title="Αποθήκευση αρχείου στον υπολογιστή σας"
+          aria-label={`Λήψη ${f.name}`}
+        >
+          ⬇
+        </MiniDownloadBtn>
+        {canDeleteFile ? (
+          <MiniDeleteBtn
+            type="button"
+            onClick={() => onDeleteFile(f)}
+            title="Διαγραφή αρχείου"
+            aria-label={`Διαγραφή ${f.name}`}
+          >
+            ✕
+          </MiniDeleteBtn>
+        ) : null}
+      </CompactFileChip>
+    );
+  };
+
+  let body = null;
+  if (item.type === 'folder') {
+    const folderLabel = item.batch?.label || 'Φάκελος';
+    const count = item.files?.length || 0;
+    body = (
+      <>
+        <CompactAttachmentLabel>Φάκελος</CompactAttachmentLabel>
+        <FolderAttachmentRow>
+          <FolderAttachmentBtn
+            type="button"
+            onClick={() =>
+              onOpenFolder({
+                label: folderLabel,
+                files: item.files || [],
+                batchId: item.batch?.id,
+                canDelete: canDeleteBatch,
+                batchItem: item
+              })}
+            title="Προβολή περιεχομένων φακέλου"
+          >
+            <FolderIconWrap aria-hidden>📁</FolderIconWrap>
+            <FolderAttachmentMeta>
+              <FolderAttachmentTitle>{folderLabel}</FolderAttachmentTitle>
+              <FolderAttachmentSub>
+                {count} {count === 1 ? 'αρχείο' : 'αρχεία'} · κλικ για προβολή
+              </FolderAttachmentSub>
+            </FolderAttachmentMeta>
+          </FolderAttachmentBtn>
+          {canDeleteBatch ? (
+            <MiniDeleteBtn
+              type="button"
+              onClick={() => onDeleteBatch(item)}
+              title="Διαγραφή φακέλου και όλων των αρχείων"
+              aria-label={`Διαγραφή φακέλου ${folderLabel}`}
+            >
+              ✕
+            </MiniDeleteBtn>
+          ) : null}
+        </FolderAttachmentRow>
+      </>
+    );
+  } else if (item.type === 'files') {
+    const count = item.files?.length || 0;
+    body = (
+      <>
+        <CompactAttachmentLabel>
+          {count === 1 ? 'Αρχείο' : `${count} αρχεία`}
+          {canDeleteBatch && count > 1 ? (
+            <span style={{ marginLeft: '0.45rem', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>
+              ·{' '}
+              <button
+                type="button"
+                onClick={() => onDeleteBatch(item)}
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  color: '#b91c1c',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: 'inherit',
+                  fontWeight: 700,
+                  padding: 0,
+                  textDecoration: 'underline',
+                  textUnderlineOffset: '2px'
+                }}
+              >
+                διαγραφή όλων
+              </button>
+            </span>
+          ) : null}
+        </CompactAttachmentLabel>
+        <CompactFileList>{(item.files || []).map(renderFileChip)}</CompactFileList>
+      </>
+    );
+  } else if (item.type === 'file' && item.file) {
+    body = (
+      <>
+        <CompactAttachmentLabel>Αρχείο</CompactAttachmentLabel>
+        <CompactFileList>{renderFileChip(item.file)}</CompactFileList>
+      </>
+    );
+  }
+
+  if (!body) return null;
+
+  return (
+    <FileTimelineRow $mine={mine}>
+      <MessageBundle $mine={mine}>
+        <AvatarCircle $bg={avBg} title={`${displayName} (${item.author})`}>
+          {initials}
+        </AvatarCircle>
+        <CompactAttachmentBubble>
+          <BubbleAuthorBar>
+            <BubbleAuthorName $mine={false}>{displayName}</BubbleAuthorName>
+            <BubbleAuthorUser $mine={false}>({item.author})</BubbleAuthorUser>
+            {mine ? (
+              <BubbleRoleTag $bg="#e0e7ff" $color="#3730a3">
+                Εγώ
+              </BubbleRoleTag>
+            ) : null}
+            {!mine && roleTag ? (
+              <BubbleRoleTag $bg={roleTag.bg} $color={roleTag.color}>
+                {roleTag.label}
+              </BubbleRoleTag>
+            ) : null}
+            <BubbleTime $mine={false} dateTime={item.at}>
+              {new Date(item.at).toLocaleString('el-GR', { dateStyle: 'short', timeStyle: 'short' })}
+            </BubbleTime>
+          </BubbleAuthorBar>
+          {body}
+        </CompactAttachmentBubble>
+      </MessageBundle>
+    </FileTimelineRow>
+  );
+}
+
 function TaskAssignmentWorkspace({
   task,
   actingUsername,
@@ -1103,24 +1616,31 @@ function TaskAssignmentWorkspace({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [emailNotifBusy, setEmailNotifBusy] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [folderFilesModal, setFolderFilesModal] = useState(null);
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState(null);
   const feedRef = useRef(null);
   const prevDepartModalRef = useRef(false);
   const prevWithdrawModalRef = useRef(false);
   const prevLeaveArchiveModalRef = useRef(false);
   const composerInputRef = useRef(null);
   const emojiPickerRef = useRef(null);
+  const attachMenuRef = useRef(null);
 
-  // Κλείσιμο emoji picker με κλικ εκτός
+  // Κλείσιμο emoji / attach menu με κλικ εκτός
   useEffect(() => {
-    if (!emojiPickerOpen) return;
+    if (!emojiPickerOpen && !attachMenuOpen) return;
     const handleClickOutside = (e) => {
-      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
+      if (emojiPickerOpen && emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
         setEmojiPickerOpen(false);
+      }
+      if (attachMenuOpen && attachMenuRef.current && !attachMenuRef.current.contains(e.target)) {
+        setAttachMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [emojiPickerOpen]);
+  }, [emojiPickerOpen, attachMenuOpen]);
 
   // Εισαγωγή emoji στη θέση του cursor
   const handleEmojiSelect = useCallback((emoji) => {
@@ -1206,16 +1726,17 @@ function TaskAssignmentWorkspace({
   }, [task.id]);
 
   useEffect(() => {
-    if (!departModalOpen && !withdrawModalOpen) return undefined;
+    if (!departModalOpen && !withdrawModalOpen && !deleteConfirmModal) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape' && !busy) {
         setDepartModalOpen(false);
         setWithdrawModalOpen(false);
+        setDeleteConfirmModal(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [departModalOpen, withdrawModalOpen, busy]);
+  }, [departModalOpen, withdrawModalOpen, deleteConfirmModal, busy]);
 
   useEffect(() => {
     if (prevDepartModalRef.current && !departModalOpen) {
@@ -1261,6 +1782,145 @@ function TaskAssignmentWorkspace({
     setError(archiveReadonlyMessage);
     scheduleDocumentInteractionRecovery({ lockScroll: true });
   };
+
+  const handleOpenTaskFile = useCallback(async (file) => {
+    if (!file) return;
+    setError('');
+    try {
+      const res = await ipcRenderer.invoke('open-task-assignment-file', {
+        actingUsername,
+        taskId: task.id,
+        filePath: file.path,
+        fileId: file.id,
+        fileName: file.name
+      });
+      if (!res?.success) {
+        setError(res?.error || 'Δεν ήταν δυνατό το άνοιγμα του αρχείου');
+      }
+    } catch (err) {
+      setError(err.message || 'Δεν ήταν δυνατό το άνοιγμα του αρχείου');
+    }
+  }, [actingUsername, task.id]);
+
+  const handleDownloadTaskFile = useCallback(async (file) => {
+    if (!file) return;
+    setError('');
+    try {
+      const res = await ipcRenderer.invoke('download-task-assignment-file', {
+        actingUsername,
+        taskId: task.id,
+        filePath: file.path,
+        fileId: file.id,
+        fileName: file.name
+      });
+      if (res?.canceled) return;
+      if (!res?.success) {
+        setError(res?.error || 'Δεν ήταν δυνατή η λήψη του αρχείου');
+      }
+    } catch (err) {
+      setError(err.message || 'Δεν ήταν δυνατή η λήψη του αρχείου');
+    }
+  }, [actingUsername, task.id]);
+
+  const runDeleteAttachment = useCallback(async ({ fileId = null, batchId = null }) => {
+    setBusy(true);
+    setError('');
+    try {
+      const res = await ipcRenderer.invoke('delete-task-assignment-attachment', {
+        actingUsername,
+        taskId: task.id,
+        fileId,
+        batchId
+      });
+      if (res?.success) {
+        onUpdated(res.task);
+        setFolderFilesModal((prev) => {
+          if (!prev) return prev;
+          if (batchId && prev.batchId === batchId) return null;
+          if (fileId) {
+            const nextFiles = (prev.files || []).filter((f) => f.id !== fileId);
+            if (!nextFiles.length) return null;
+            return { ...prev, files: nextFiles };
+          }
+          return prev;
+        });
+        return true;
+      }
+      setError(res?.error || 'Δεν ήταν δυνατή η διαγραφή');
+      return false;
+    } catch (err) {
+      setError(err.message || 'Δεν ήταν δυνατή η διαγραφή');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [actingUsername, task.id, onUpdated]);
+
+  const handleDeleteTaskFile = useCallback((file) => {
+    if (!file?.id || !chatAllowed) {
+      if (!chatAllowed) notifyArchiveReadonly();
+      return;
+    }
+    setDeleteConfirmModal({ mode: 'file', file });
+  }, [chatAllowed, notifyArchiveReadonly]);
+
+  const handleDeleteTaskBatch = useCallback((item) => {
+    if (!item?.batch?.id || !chatAllowed) {
+      if (!chatAllowed) notifyArchiveReadonly();
+      return;
+    }
+    setDeleteConfirmModal({
+      mode: item.type === 'folder' ? 'folder' : 'batch',
+      item
+    });
+  }, [chatAllowed, notifyArchiveReadonly]);
+
+  const confirmDeleteAttachment = async () => {
+    if (!deleteConfirmModal || busy) return;
+    const { mode, file, item } = deleteConfirmModal;
+    let ok = false;
+    if (mode === 'file' && file?.id) {
+      ok = await runDeleteAttachment({ fileId: file.id });
+    } else if (item?.batch?.id) {
+      ok = await runDeleteAttachment({ batchId: item.batch.id });
+    }
+    if (ok) setDeleteConfirmModal(null);
+  };
+
+  const deleteConfirmCopy = useMemo(() => {
+    if (!deleteConfirmModal) return null;
+    if (deleteConfirmModal.mode === 'file') {
+      const name = deleteConfirmModal.file?.name || 'αρχείο';
+      return {
+        icon: '📄',
+        eyebrow: 'Διαγραφή αρχείου',
+        title: 'Διαγραφή συνημμένου;',
+        highlight: `«${name}»`,
+        hint: 'Το αρχείο θα αφαιρεθεί οριστικά από τον χώρο εργασίας. Η ενέργεια δεν αναιρείται.'
+      };
+    }
+    const batchItem = deleteConfirmModal.item;
+    const isFolder = deleteConfirmModal.mode === 'folder';
+    const label = batchItem?.batch?.label || (isFolder ? 'Φάκελος' : 'Ομάδα αρχείων');
+    const count = batchItem?.files?.length || 0;
+    const fileWord = count === 1 ? 'αρχείο' : 'αρχεία';
+    if (isFolder) {
+      return {
+        icon: '📁',
+        eyebrow: 'Διαγραφή φακέλου',
+        title: 'Διαγραφή φακέλου;',
+        highlight: `«${label}» · ${count} ${fileWord}`,
+        hint: `Όλα τα αρχεία του φακέλου (${count} ${fileWord}) θα διαγραφούν από τον χώρο εργασίας. Η ενέργεια δεν αναιρείται.`
+      };
+    }
+    return {
+      icon: '📎',
+      eyebrow: 'Διαγραφή αρχείων',
+      title: 'Διαγραφή ομάδας αρχείων;',
+      highlight: `${count} ${fileWord}`,
+      hint: `Όλα τα αρχεία της ομάδας (${count} ${fileWord}) θα αφαιρεθούν από τον χώρο εργασίας. Η ενέργεια δεν αναιρείται.`
+    };
+  }, [deleteConfirmModal]);
 
   const runStatus = async (status, reason, withdrawFromAssignees = false) => {
     setBusy(true);
@@ -1341,28 +2001,60 @@ function TaskAssignmentWorkspace({
     }
   };
 
-  const addFiles = async () => {
-    if (isArchivedReadOnly) {
-      notifyArchiveReadonly();
+  const uploadPickedFiles = async (picked, uploadBatch = null) => {
+    scheduleDocumentInteractionRecovery({ lockScroll: true });
+    if (!picked?.success || picked.canceled || !Array.isArray(picked.files) || !picked.files.length) {
+      if (picked?.error) setError(picked.error);
       return;
     }
-    const picked = await ipcRenderer.invoke('select-multiple-files', 'Αρχεία χώρου');
-    scheduleDocumentInteractionRecovery({ lockScroll: true });
-    if (!picked?.success || picked.canceled || !Array.isArray(picked.files) || !picked.files.length) return;
     setBusy(true);
+    setError('');
     try {
       const res = await ipcRenderer.invoke('add-task-assignment-files', {
         actingUsername,
         taskId: task.id,
-        newFiles: picked.files
+        newFiles: picked.files,
+        batch: uploadBatch
       });
-      if (res?.success) onUpdated(res.task);
-      else setError(res?.error || 'Σφάλμα');
+      if (res?.success) {
+        onUpdated(res.task);
+        if (res?.warning) setError(res.warning);
+      } else {
+        setError(res?.error || 'Σφάλμα');
+      }
     } catch (err) {
       setError(err.message || 'Σφάλμα');
     } finally {
       setBusy(false);
     }
+  };
+
+  const pickFilesForUpload = async () => {
+    setAttachMenuOpen(false);
+    if (isArchivedReadOnly) {
+      notifyArchiveReadonly();
+      return;
+    }
+    const picked = await ipcRenderer.invoke('select-multiple-files', {
+      title: 'Επιλογή αρχείων',
+      allFileTypes: true
+    });
+    await uploadPickedFiles(picked, { kind: 'files' });
+  };
+
+  const pickFolderForUpload = async () => {
+    setAttachMenuOpen(false);
+    if (isArchivedReadOnly) {
+      notifyArchiveReadonly();
+      return;
+    }
+    const picked = await ipcRenderer.invoke('select-folder-files-flat', {
+      title: 'Επιλογή φακέλου (όλα τα αρχεία μέσα)'
+    });
+    await uploadPickedFiles(picked, {
+      kind: 'folder',
+      label: picked?.folderName || 'Φάκελος'
+    });
   };
 
   const handleComposerKey = (e) => {
@@ -1650,6 +2342,129 @@ function TaskAssignmentWorkspace({
         </DepartModalBackdrop>
       )}
 
+      {deleteConfirmModal && deleteConfirmCopy ? (
+        <DeleteConfirmBackdrop
+          role="presentation"
+          onClick={() => {
+            if (!busy) setDeleteConfirmModal(null);
+          }}
+        >
+          <DepartModalCard
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-attachment-modal-title"
+            aria-describedby="delete-attachment-modal-hint"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <DeleteModalHero>
+              <DeleteModalIcon aria-hidden>{deleteConfirmCopy.icon}</DeleteModalIcon>
+              <DepartModalEyebrow>{deleteConfirmCopy.eyebrow}</DepartModalEyebrow>
+              <DepartModalTitle id="delete-attachment-modal-title">
+                {deleteConfirmCopy.title}
+              </DepartModalTitle>
+              <DeleteModalFileName>{deleteConfirmCopy.highlight}</DeleteModalFileName>
+            </DeleteModalHero>
+            <DepartModalBody>
+              <DepartModalHint id="delete-attachment-modal-hint">
+                {deleteConfirmCopy.hint}
+              </DepartModalHint>
+            </DepartModalBody>
+            <DepartModalFooter>
+              <DepartModalCancelBtn
+                type="button"
+                disabled={busy}
+                onClick={() => setDeleteConfirmModal(null)}
+              >
+                Πίσω
+              </DepartModalCancelBtn>
+              <DepartModalConfirmBtn type="button" disabled={busy} onClick={confirmDeleteAttachment}>
+                {busy ? 'Γίνεται διαγραφή…' : 'Ναι, διαγραφή'}
+              </DepartModalConfirmBtn>
+            </DepartModalFooter>
+          </DepartModalCard>
+        </DeleteConfirmBackdrop>
+      ) : null}
+
+      {folderFilesModal ? (
+        <DepartModalBackdrop
+          role="presentation"
+          onClick={() => {
+            if (!busy && !deleteConfirmModal) setFolderFilesModal(null);
+          }}
+        >
+          <DepartModalCard
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="folder-files-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <DepartModalHero>
+              <DepartModalEyebrow>Περιεχόμενα φακέλου</DepartModalEyebrow>
+              <DepartModalTitle id="folder-files-modal-title">
+                {folderFilesModal.label || 'Φάκελος'}
+              </DepartModalTitle>
+              <DepartModalTaskName>
+                {(folderFilesModal.files || []).length}{' '}
+                {(folderFilesModal.files || []).length === 1 ? 'αρχείο' : 'αρχεία'}
+              </DepartModalTaskName>
+            </DepartModalHero>
+            <DepartModalBody>
+              <FolderFilesModalList>
+                {(folderFilesModal.files || []).map((f) => {
+                  const canDeleteFile =
+                    folderFilesModal.canDelete &&
+                    String(f.uploadedBy || '').toLowerCase() === String(actingUsername || '').toLowerCase();
+                  return (
+                    <FolderFilesModalItem key={f.id}>
+                      <FolderFilesModalName
+                        type="button"
+                        onClick={() => handleOpenTaskFile(f)}
+                        title="Άνοιγμα με προεπιλεγμένο πρόγραμμα"
+                      >
+                        {f.name}
+                      </FolderFilesModalName>
+                      <FileDownloadBtn
+                        type="button"
+                        onClick={() => handleDownloadTaskFile(f)}
+                        title="Αποθήκευση αρχείου στον υπολογιστή σας"
+                      >
+                        ⬇ Λήψη
+                      </FileDownloadBtn>
+                      {canDeleteFile ? (
+                        <MiniDeleteBtn
+                          type="button"
+                          disabled={busy}
+                          onClick={() => handleDeleteTaskFile(f)}
+                          title="Διαγραφή αρχείου"
+                          aria-label={`Διαγραφή ${f.name}`}
+                        >
+                          ✕
+                        </MiniDeleteBtn>
+                      ) : null}
+                    </FolderFilesModalItem>
+                  );
+                })}
+              </FolderFilesModalList>
+            </DepartModalBody>
+            <DepartModalFooter>
+              {folderFilesModal.canDelete && folderFilesModal.batchItem ? (
+                <DepartModalConfirmBtn
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleDeleteTaskBatch(folderFilesModal.batchItem)}
+                  style={{ marginRight: 'auto' }}
+                >
+                  Διαγραφή φακέλου
+                </DepartModalConfirmBtn>
+              ) : null}
+              <DepartModalCancelBtn type="button" onClick={() => setFolderFilesModal(null)}>
+                Κλείσιμο
+              </DepartModalCancelBtn>
+            </DepartModalFooter>
+          </DepartModalCard>
+        </DepartModalBackdrop>
+      ) : null}
+
       {error && <ErrorBar>{error}</ErrorBar>}
 
       <MainStage>
@@ -1710,58 +2525,20 @@ function TaskAssignmentWorkspace({
                     </OriginCard>
                   ) : null}
 
-                  {item.type === 'file'
-                    ? (() => {
-                        const variant = chatBubbleVariant(item.author, actingUsername, task);
-                        const mine = variant === 'mine';
-                        const displayName = authorDisplayName(item.author, usersMap);
-                        const initials = authorInitials(displayName);
-                        const roleTag = roleTagForVariant(variant);
-                        const avBg = mine ? '#4f46e5' : avatarColorForUser(item.author);
-                        const f = item.file;
-                        return (
-                          <FileTimelineRow $mine={mine}>
-                            <MessageBundle $mine={mine}>
-                            <AvatarCircle $bg={avBg} title={`${displayName} (${item.author})`}>
-                              {initials}
-                            </AvatarCircle>
-                            <FileBubble>
-                              <BubbleAuthorBar>
-                                <BubbleAuthorName $mine={false}>{displayName}</BubbleAuthorName>
-                                <BubbleAuthorUser $mine={false}>({item.author})</BubbleAuthorUser>
-                                {mine ? (
-                                  <BubbleRoleTag $bg="#e0e7ff" $color="#3730a3">
-                                    Εγώ
-                                  </BubbleRoleTag>
-                                ) : null}
-                                {!mine && roleTag ? (
-                                  <BubbleRoleTag $bg={roleTag.bg} $color={roleTag.color}>
-                                    {roleTag.label}
-                                  </BubbleRoleTag>
-                                ) : null}
-                                <BubbleTime $mine={false} dateTime={item.at}>
-                                  {new Date(item.at).toLocaleString('el-GR', { dateStyle: 'short', timeStyle: 'short' })}
-                                </BubbleTime>
-                              </BubbleAuthorBar>
-                              <FileAttachmentLabel>Συνημμένο αρχείο</FileAttachmentLabel>
-                              <FileLink
-                                type="button"
-                                onClick={() =>
-                                  ipcRenderer.invoke('open-task-assignment-file', {
-                                    actingUsername,
-                                    taskId: task.id,
-                                    filePath: f.path
-                                  })
-                                }
-                              >
-                                {f.name}
-                              </FileLink>
-                            </FileBubble>
-                            </MessageBundle>
-                          </FileTimelineRow>
-                        );
-                      })()
-                    : null}
+                  {item.type === 'folder' || item.type === 'files' || item.type === 'file' ? (
+                    <AttachmentTimelineEntry
+                      item={item}
+                      task={task}
+                      actingUsername={actingUsername}
+                      usersMap={usersMap}
+                      canDeleteAttachments={chatAllowed}
+                      onOpenFile={handleOpenTaskFile}
+                      onDownloadFile={handleDownloadTaskFile}
+                      onOpenFolder={setFolderFilesModal}
+                      onDeleteFile={handleDeleteTaskFile}
+                      onDeleteBatch={handleDeleteTaskBatch}
+                    />
+                  ) : null}
 
                   {item.type === 'comment'
                     ? (() => {
@@ -1824,18 +2601,37 @@ function TaskAssignmentWorkspace({
             <ComposerInner>
             {isArchivedReadOnly ? <ArchiveComposerNotice>{archiveReadonlyMessage}</ArchiveComposerNotice> : null}
             <ComposerRow>
-              <IconBtn
-                type="button"
-                onClick={addFiles}
-                disabled={busy || (!chatAllowed && !isArchivedReadOnly)}
-                title={
-                  isArchivedReadOnly
-                    ? 'Η αποθήκη είναι μόνο για προβολή'
-                    : 'Προσθήκη συνημμένου αρχείου'
-                }
-              >
-                📎
-              </IconBtn>
+              <EmojiPickerWrapper ref={attachMenuRef}>
+                <IconBtn
+                  type="button"
+                  onClick={() => {
+                    if (isArchivedReadOnly) {
+                      notifyArchiveReadonly();
+                      return;
+                    }
+                    setAttachMenuOpen((o) => !o);
+                    setEmojiPickerOpen(false);
+                  }}
+                  disabled={busy || (!chatAllowed && !isArchivedReadOnly)}
+                  title={
+                    isArchivedReadOnly
+                      ? 'Η αποθήκη είναι μόνο για προβολή'
+                      : 'Προσθήκη αρχείων ή φακέλου'
+                  }
+                >
+                  📎
+                </IconBtn>
+                {attachMenuOpen && chatAllowed && !isArchivedReadOnly && (
+                  <AttachMenuPopup>
+                    <AttachMenuItem type="button" onClick={pickFilesForUpload}>
+                      📄 Αρχεία (ένα ή πολλά)
+                    </AttachMenuItem>
+                    <AttachMenuItem type="button" onClick={pickFolderForUpload}>
+                      📁 Φάκελος (όλα τα αρχεία μέσα)
+                    </AttachMenuItem>
+                  </AttachMenuPopup>
+                )}
+              </EmojiPickerWrapper>
               <EmojiPickerWrapper ref={emojiPickerRef}>
                 <IconBtn
                   type="button"

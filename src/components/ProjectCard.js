@@ -3,6 +3,7 @@ import styled, { css } from 'styled-components';
 import { PROJECT_STATUSES, getCharacterization } from '../data/formOptions';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
 import { getKhmdhsDisplayEntries } from '../utils/khmdhsFields';
+import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 
 const iconProps = { width: 14, height: 14, 'aria-hidden': true };
 
@@ -55,7 +56,7 @@ const Card = styled.div`
   min-height: 480px;
   cursor: pointer;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 
   &::before {
     content: '';
@@ -408,19 +409,6 @@ const ToolbarButton = styled.button`
         color: #166534;
       }
     `}
-
-  ${(p) =>
-    p.$tone === 'note' &&
-    css`
-      background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08));
-      border-color: #c7d2fe;
-      color: #4338ca;
-
-      &:hover {
-        background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.15));
-        border-color: #818cf8;
-      }
-    `}
 `;
 
 const MainFilesButton = styled.button`
@@ -615,10 +603,14 @@ function ProjectCard({
   );
 
   const khmdhsEntries = useMemo(() => getKhmdhsDisplayEntries(project), [project]);
+  const linkedNotes = getEntityLinkedNotes(linkedNotesMap, project.subprojectId);
 
   return (
     <>
       <Card onClick={handleCardClick}>
+        {linkedNotes.length > 0 && (
+          <LinkedNoteSticker links={linkedNotes} onOpenNote={onOpenNoteFromEntity} placement="top-left" />
+        )}
         {/* Lock Status Button */}
         <LockStatusButton isLocked={isLocked}>
           {isLocked ? '🔒' : '🔓'}
@@ -933,16 +925,6 @@ function ProjectCard({
             <ToolbarButton type="button" onClick={() => onOpenSpecificProsklisi && onOpenSpecificProsklisi()}>
               <IconMegaphone />
               ΠΡΟΣΚΛΗΣΗ
-            </ToolbarButton>
-          )}
-          {linkedNotesMap[project.subprojectId] && linkedNotesMap[project.subprojectId].length > 0 && (
-            <ToolbarButton
-              type="button"
-              $tone="note"
-              title="Υπάρχει συσχετισμένη σημείωση"
-              onClick={() => onOpenNoteFromEntity && onOpenNoteFromEntity(linkedNotesMap[project.subprojectId][0].noteId)}
-            >
-              📝 {linkedNotesMap[project.subprojectId].length > 1 ? linkedNotesMap[project.subprojectId].length : ''}
             </ToolbarButton>
           )}
         </TopButtonsContainer>

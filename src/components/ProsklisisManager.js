@@ -6,6 +6,7 @@ import ProsklisisFileManager from './ProsklisisFileManager';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
 import ProsklisisExportDialog from './ProsklisisExportDialog';
 import { containsSearchTerm } from '../utils/searchUtils';
+import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
@@ -385,10 +386,20 @@ const ProsklisisItem = styled.div`
   }
 `;
 
-const LockIndicator = styled.div`
+const CardTopRightCluster = styled.div`
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  z-index: 26;
+`;
+
+const LockIndicator = styled.div`
+  position: relative;
+  flex-shrink: 0;
   width: 26px;
   height: 26px;
   border-radius: 50%;
@@ -400,12 +411,11 @@ const LockIndicator = styled.div`
   font-size: 0.65rem;
   font-weight: bold;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.15);
-  z-index: 10;
   border: 2px solid #ffffff;
 `;
 
 const CompactCardBody = styled.div`
-  padding: 0.75rem 2.5rem 0.75rem 0.85rem;
+  padding: 0.75rem 5.25rem 0.75rem 0.85rem;
   display: flex;
   gap: 0.85rem;
   align-items: flex-start;
@@ -1504,12 +1514,22 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                         const modsOpen = modsExpanded[prosklisi.prosklisiId] !== undefined
                           ? modsExpanded[prosklisi.prosklisiId]
                           : defaultModsExpanded(modCount);
+                        const prosklisiLinkedNotes = getEntityLinkedNotes(linkedNotesMap, prosklisi.prosklisiId);
 
                         return (
                           <ProsklisisItem key={prosklisi.prosklisiId} $isLocked={isLocked} $status={prosklisi.status}>
-                            <LockIndicator $isLocked={isLocked}>
-                              {isLocked ? '🔒' : '🔓'}
-                            </LockIndicator>
+                            <CardTopRightCluster>
+                              <LockIndicator $isLocked={isLocked}>
+                                {isLocked ? '🔒' : '🔓'}
+                              </LockIndicator>
+                              {prosklisiLinkedNotes.length > 0 && (
+                                <LinkedNoteSticker
+                                  links={prosklisiLinkedNotes}
+                                  onOpenNote={onOpenNoteFromEntity}
+                                  placement="inline"
+                                />
+                              )}
+                            </CardTopRightCluster>
 
                             <CompactCardBody>
                               <CompactMain>
@@ -1520,15 +1540,6 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                                   )}
                                   {prosklisi.status && (
                                     <StatusChip $status={prosklisi.status}>{prosklisi.status}</StatusChip>
-                                  )}
-                                  {linkedNotesMap[prosklisi.prosklisiId] && linkedNotesMap[prosklisi.prosklisiId].length > 0 && (
-                                    <span
-                                      title={`Σημείωση: ${linkedNotesMap[prosklisi.prosklisiId][0].noteTitle}`}
-                                      onClick={(e) => { e.stopPropagation(); onOpenNoteFromEntity && onOpenNoteFromEntity(linkedNotesMap[prosklisi.prosklisiId][0].noteId); }}
-                                      style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', padding: '2px 7px', borderRadius: '6px', background: 'linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1))', color: '#6366f1', fontSize: '0.7rem', fontWeight: '700', cursor: 'pointer' }}
-                                    >
-                                      📝 {linkedNotesMap[prosklisi.prosklisiId].length > 1 ? linkedNotesMap[prosklisi.prosklisiId].length : ''}
-                                    </span>
                                   )}
                                 </CompactTitleRow>
 

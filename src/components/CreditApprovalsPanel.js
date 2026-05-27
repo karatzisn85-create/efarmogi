@@ -2,7 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import styled from 'styled-components';
 import SubprojectSearchModal from './SubprojectSearchModal';
 import { safeConfirm } from '../utils/safeDialogs';
-
+import LinkedNoteSticker, {
+  getLinkedNotesForCreditPdf,
+  getLinkedNotesForCreditSubproject
+} from './LinkedNoteSticker';
 const ipcRenderer = window.electronAPI;
 
 const PanelOverlay = styled.div`
@@ -402,6 +405,8 @@ const PdfsGrid = styled.div`
 `;
 
 const PdfGroup = styled.div`
+  position: relative;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -494,6 +499,8 @@ const SubprojectsList = styled.div`
 `;
 
 const SubprojectItem = styled.div`
+  position: relative;
+  overflow: visible;
   background: #ffffff;
   border-radius: 10px;
   border: 1px solid #e2e8f0;
@@ -869,7 +876,11 @@ const CreditApprovalsPanel = ({
   onRequestRefresh = null,
   onEgkriseisDataSaved = null,
   onViewPdf,
-  onDownloadPdf
+  onDownloadPdf,
+  linkedNotesMap = {},
+  onOpenNoteFromEntity,
+  dashboardProjects = [],
+  notes = []
 }) => {
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState(null);
@@ -1891,6 +1902,33 @@ const CreditApprovalsPanel = ({
                           .filter((subproject) => subproject && subproject.title)
                           .map((subproject) => (
                           <SubprojectItem key={`${project.projectId || project.title}-${subproject.number || subproject.title}`}>
+                            {(() => {
+                              const subprojectNoteLinks = getLinkedNotesForCreditSubproject(
+                                dashboardProjects,
+                                project.title,
+                                subproject.title,
+                                linkedNotesMap,
+                                notes
+                              );
+                              const pdfHasOwnSticker = (subproject.pdfs || []).some((pdf) =>
+                                getLinkedNotesForCreditPdf(
+                                  dashboardProjects,
+                                  project.title,
+                                  subproject.title,
+                                  pdf,
+                                  linkedNotesMap,
+                                  notes
+                                ).length > 0
+                              );
+                              if (!subprojectNoteLinks.length || pdfHasOwnSticker) return null;
+                              return (
+                                <LinkedNoteSticker
+                                  links={subprojectNoteLinks}
+                                  onOpenNote={onOpenNoteFromEntity}
+                                  placement="top-right"
+                                />
+                              );
+                            })()}
                             <SubprojectInfo>
                               <SubprojectHeader>
                                 <SubprojectNumber>#{subproject.number || '—'}</SubprojectNumber>
@@ -1949,8 +1987,24 @@ const CreditApprovalsPanel = ({
 
                               {subproject.pdfs?.length ? (
                                 <PdfsGrid>
-                                  {subproject.pdfs.map((pdf) => (
+                                  {subproject.pdfs.map((pdf) => {
+                                    const pdfNoteLinks = getLinkedNotesForCreditPdf(
+                                      dashboardProjects,
+                                      project.title,
+                                      subproject.title,
+                                      pdf,
+                                      linkedNotesMap,
+                                      notes
+                                    );
+                                    return (
                                     <PdfGroup key={pdf}>
+                                      {pdfNoteLinks.length > 0 && (
+                                        <LinkedNoteSticker
+                                          links={pdfNoteLinks}
+                                          onOpenNote={onOpenNoteFromEntity}
+                                          placement="top-right"
+                                        />
+                                      )}
                                       <PdfItem>
                                         📄 {pdf}
                                       </PdfItem>
@@ -1971,7 +2025,8 @@ const CreditApprovalsPanel = ({
                                         )}
                                       </PdfActions>
                                     </PdfGroup>
-                                  ))}
+                                    );
+                                  })}
                                 </PdfsGrid>
                               ) : (
                                 <div style={{ fontStyle: 'italic', color: '#64748b', fontSize: '0.85rem' }}>

@@ -379,16 +379,38 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
     });
   };
 
+  const appendPickedUploadFiles = (res) => {
+    scheduleDocumentInteractionRecovery({ lockScroll: true });
+    if (res?.canceled) return;
+    if (res?.success && Array.isArray(res.files) && res.files.length > 0) {
+      setPendingFiles((prev) => [...prev, ...res.files]);
+      return;
+    }
+    if (res?.error) setError(res.error);
+  };
+
   const handlePickFiles = async () => {
     try {
-      const res = await ipcRenderer.invoke('select-multiple-files', 'Επιλογή αρχείων χώρου');
-      scheduleDocumentInteractionRecovery({ lockScroll: true });
-      if (res?.success && !res.canceled && Array.isArray(res.files) && res.files.length > 0) {
-        setPendingFiles((prev) => [...prev, ...res.files]);
-      }
+      const res = await ipcRenderer.invoke('select-multiple-files', {
+        title: 'Επιλογή αρχείων χώρου',
+        allFileTypes: true
+      });
+      appendPickedUploadFiles(res);
     } catch (e) {
       scheduleDocumentInteractionRecovery({ lockScroll: true });
       setError(e.message || 'Σφάλμα επιλογής αρχείων');
+    }
+  };
+
+  const handlePickFolder = async () => {
+    try {
+      const res = await ipcRenderer.invoke('select-folder-files-flat', {
+        title: 'Επιλογή φακέλου (όλα τα αρχεία μέσα)'
+      });
+      appendPickedUploadFiles(res);
+    } catch (e) {
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
+      setError(e.message || 'Σφάλμα επιλογής φακέλου');
     }
   };
 
@@ -571,9 +593,14 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
               <SectionHint>προαιρετικά</SectionHint>
             </SectionHead>
             <FileZone>
-              <SecondaryBtn type="button" onClick={handlePickFiles} style={{ marginBottom: 0 }}>
-                + Προσθήκη αρχείων
-              </SecondaryBtn>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <SecondaryBtn type="button" onClick={handlePickFiles} style={{ marginBottom: 0 }}>
+                  + Αρχεία
+                </SecondaryBtn>
+                <SecondaryBtn type="button" onClick={handlePickFolder} style={{ marginBottom: 0 }}>
+                  + Φάκελος
+                </SecondaryBtn>
+              </div>
               {pendingFiles.length > 0 && (
                 <FileList>
                   {pendingFiles.map((f, i) => (

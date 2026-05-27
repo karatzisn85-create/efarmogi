@@ -26,6 +26,7 @@ import EmailSettingsModal from './EmailSettingsModal';
 import TaskAssignmentManager from './TaskAssignmentManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
 import SubprojectExcelImportModal from './SubprojectExcelImportModal';
+import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import { containsSearchTerm } from '../utils/searchUtils';
 import {
   getProjectChargeSearchText,
@@ -402,6 +403,8 @@ const ProjectGroup = styled.div`
   backdrop-filter: blur(8px);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: visible;
 
   &:hover {
     box-shadow: 0 8px 32px rgba(99, 102, 241, 0.08);
@@ -501,6 +504,8 @@ const SubprojectsGrid = styled.div`
   gap: 1.25rem;
   grid-auto-rows: 1fr;
   align-items: stretch;
+  overflow: visible;
+  padding-top: 10px;
 `;
 
 const EmptyState = styled.div`
@@ -1667,31 +1672,6 @@ const NoteLinkedChipPreview = styled.div`
   }
 `;
 
-const EntityNoteBadge = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
-  color: #6366f1;
-  font-size: 0.72rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-  animation: ${({ $pulse }) => $pulse ? 'noteBadgePulse 2s ease-in-out infinite' : 'none'};
-
-  @keyframes noteBadgePulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.2); }
-    50% { box-shadow: 0 0 0 4px rgba(99,102,241,0); }
-  }
-
-  &:hover {
-    background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(139,92,246,0.18));
-    transform: scale(1.05);
-  }
-`;
-
 const ContentWrapper = styled.div`
   margin-left: 240px;
   margin-top: ${(props) => (typeof props.$headerOffset === 'number' ? props.$headerOffset : 0)}px;
@@ -2224,6 +2204,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const contentWrapperRef = useRef(null);
   const savedScrollPosition = useRef(0);
   const shouldRestoreScroll = useRef(false);
+  /** Επιστροφή στις σημειώσεις μετά από μετάβαση από chip συσχέτισης */
+  const noteReturnRef = useRef(null);
   // Separate monotonic counters for loadDataWithCache and loadProjects
   // Keeping them separate so one does not accidentally cancel the other
   const loadRequestIdRef = useRef(0);
@@ -4271,34 +4253,72 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     }
   }, [loadNoteFileCounts, loadLinkedNotesMap, selectedNoteId]);
 
+  const clearNoteReturnContext = useCallback(() => {
+    noteReturnRef.current = null;
+  }, []);
+
+  const captureNoteReturnContext = useCallback(() => {
+    if (!isNotesOpen) return;
+    const noteId = editingNote?.id || selectedNoteId;
+    if (!noteId) return;
+    noteReturnRef.current = { noteId, wasEditing: !!editingNote?.id };
+  }, [isNotesOpen, editingNote, selectedNoteId]);
+
+  const restoreNoteReturnContext = useCallback(() => {
+    const ctx = noteReturnRef.current;
+    if (!ctx?.noteId) return false;
+    noteReturnRef.current = null;
+    setIsNotesOpen(true);
+    setNotesSearch('');
+    setSelectedNoteId(ctx.noteId);
+    loadNoteFileCounts();
+    loadLinkedNotesMap();
+    if (ctx.wasEditing) {
+      const note = notes.find((n) => n.id === ctx.noteId);
+      setEditingNote(note || null);
+    } else {
+      setEditingNote(null);
+    }
+    ipcRenderer.invoke('get-note-files', { noteId: ctx.noteId })
+      .then((res) => { if (res?.files) setPreviewFiles(res.files); })
+      .catch(() => {});
+    return true;
+  }, [notes, loadNoteFileCounts, loadLinkedNotesMap]);
+
   const handleOpenNotes = useCallback(() => {
+    clearNoteReturnContext();
     setIsNotesOpen(true);
     setNotesSearch('');
     setEditingNote(null);
     loadNoteFileCounts();
     loadLinkedNotesMap();
-  }, [loadNoteFileCounts, loadLinkedNotesMap]);
+  }, [clearNoteReturnContext, loadNoteFileCounts, loadLinkedNotesMap]);
 
   const handleCloseNotes = useCallback(() => {
+    clearNoteReturnContext();
     setIsNotesOpen(false);
     setEditingNote(null);
-  }, []);
+  }, [clearNoteReturnContext]);
 
   const handleOpenNoteFromEntity = useCallback((noteId) => {
+    clearNoteReturnContext();
     setIsNotesOpen(true);
     setNotesSearch('');
     setEditingNote(null);
     setSelectedNoteId(noteId);
     loadNoteFileCounts();
     loadLinkedNotesMap();
-  }, [loadNoteFileCounts, loadLinkedNotesMap]);
+  }, [clearNoteReturnContext, loadNoteFileCounts, loadLinkedNotesMap]);
 
   const handleNavigateToLinkedEntity = useCallback((entity) => {
     if (!entity) return;
-    setIsNotesOpen(false);
-    setEditingNote(null);
 
     const { type, id, title } = entity;
+    const opensModal = type === 'subproject' || type === 'entaxi' || type === 'prosklisi' || type === 'egkrisi';
+    if (opensModal) captureNoteReturnContext();
+
+    setIsNotesOpen(false);
+    setEditingNote(null);
 
     if (type === 'project') {
       setQuickSearchText(title || '');
@@ -4322,7 +4342,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       });
       setIsCreditApprovalsOpen(true);
     }
-  }, [projects]);
+  }, [projects, captureNoteReturnContext]);
 
   const refreshTaskAccessRef = useRef(null);
   const refreshTaskAccess = useCallback(async () => {
@@ -4696,8 +4716,16 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                     }) + ' €';
                   };
                   
+                  const projectLinkedNotes = getEntityLinkedNotes(linkedNotesMap, projectId);
                   return (
                   <ProjectGroup key={projectId}>
+                    {projectLinkedNotes.length > 0 && (
+                      <LinkedNoteSticker
+                        links={projectLinkedNotes}
+                        onOpenNote={handleOpenNoteFromEntity}
+                        placement="top-right"
+                      />
+                    )}
                     <ProjectGroupTitle>
                       <span style={{ flex: 1 }}>{projectTitle}</span>
                       {totalEntaxiAmount > 0 && (
@@ -4763,6 +4791,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                   subprojectKey: null
                 });
                 loadLinkedEgkriseis();
+                restoreNoteReturnContext();
               }}
               userRole={userRoleForWorkflowModals}
               onOpenForm={() => setIsEgkriseisFormOpen(true)}
@@ -4785,6 +4814,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 await loadLinkedEgkriseis();
               }}
               onEgkriseisDataSaved={egkriseisRefreshTrigger}
+              linkedNotesMap={linkedNotesMap}
+              onOpenNoteFromEntity={handleOpenNoteFromEntity}
+              dashboardProjects={projects.length > 0 ? projects : filteredProjects}
+              notes={notes}
             />
           )}
         </ContentArea>
@@ -5056,7 +5089,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         <SubprojectDetailModal
           project={selectedDetailProject}
           engineerCatalog={engineerCatalogForCards}
-          onClose={() => setSelectedDetailProject(null)}
+          onClose={() => {
+            setSelectedDetailProject(null);
+            restoreNoteReturnContext();
+          }}
           onEdit={(p) => {
             setSelectedDetailProject(null);
             handleEditProject(p);
@@ -5210,14 +5246,13 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           setIsEntaxisOpen(false);
           setEntaxisProjectFilter(null);
           setSelectedEntaxiId(null);
-          // Ανανέωση των projects για να ενημερωθεί το lock status
           await loadProjects();
-          // Επαναφορά scroll position
           setTimeout(() => {
             if (contentWrapperRef.current) {
               contentWrapperRef.current.scrollTop = savedScrollPosition.current;
             }
           }, 100);
+          restoreNoteReturnContext();
         }}
         onDataChange={async () => {
           await loadProjects();
@@ -5244,19 +5279,17 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       <ProsklisisManager
         isOpen={isProsklisisOpen}
         onClose={async () => {
-          // Καθάρισε όλα τα locks όταν κλείνει η φόρμα
           await ipcRenderer.invoke('clear-all-locks');
           setIsProsklisisOpen(false);
           setProsklisiProjectFilter(null);
           setSelectedProsklisiId(null);
-          // Ανανέωση των projects για να ενημερωθεί το lock status
           await loadProjects();
-          // Επαναφορά scroll position
           setTimeout(() => {
             if (contentWrapperRef.current) {
               contentWrapperRef.current.scrollTop = savedScrollPosition.current;
             }
           }, 100);
+          restoreNoteReturnContext();
         }}
         userRole={userRoleForWorkflowModals}
         currentUser={currentUser}
@@ -5494,6 +5527,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         userRole={userRoleForWorkflowModals}
         currentUser={currentUser}
         linkedNotesMap={linkedNotesMap}
+        onOpenNoteFromEntity={handleOpenNoteFromEntity}
         initialSearchTerm={egkriseisInitialSearch}
       />
 
