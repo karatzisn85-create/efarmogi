@@ -332,22 +332,7 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
     if (chargeOptionsLoaded && chargeOptions.length > 0) return;
     setChargeOptionsLoaded(true);
     const fromProjects = collectChargeFilterOptions(projects, engineerCatalog);
-    if (fromProjects.length > 0) {
-      setChargeOptions(fromProjects);
-      return;
-    }
-    window.electronAPI
-      .invoke('get-all-supervisors')
-      .then((result) => {
-        if (result?.success && Array.isArray(result.chargeOptions) && result.chargeOptions.length > 0) {
-          setChargeOptions(result.chargeOptions);
-        } else if (result?.success && Array.isArray(result.supervisors)) {
-          setChargeOptions(result.supervisors.map((label) => ({ value: `free:${String(label).toLowerCase()}`, label })));
-        }
-      })
-      .catch((error) => {
-        console.error('Error loading charge filter options:', error);
-      });
+    setChargeOptions(fromProjects);
   };
 
   // Initialize filters

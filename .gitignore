@@ -1,9 +1,13 @@
-ï»¿# Dependencies
+# Dependencies
 node_modules/
 
 # Build output
 build/
 dist/
+
+# Runtime temp uploads (file picker staging — not source)
+public/temp_uploads/
+**/temp_uploads/
 
 # Data folders (user data - not source code)
 dedomena_ergon/
@@ -12,9 +16,9 @@ ektelestea_erga/
 # Folders with Greek names containing PDFs and documents
 *PDF/
 *PDF*/
-*Î•Î“Î“Î¡Î‘Î¦Î‘*/
-*Î•Î³Î³ÏÎ±Ï†Î±*/
-*Î Î™Î£Î¤Î©Î£*/
+*ÅÃÃÑÁÖÁ*/
+*Åããñáöá*/
+*ĞÉÓÔÙÓ*/
 
 # Backups
 BACKUP_*/

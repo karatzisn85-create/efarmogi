@@ -1,32 +1,20 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import styled from 'styled-components';
 import ProjectForm from './ProjectForm';
-import EgkriseisForm from './EgkriseisForm';
 
 import ProjectCard from './ProjectCard';
 import SubprojectDetailModal from './SubprojectDetailModal';
 import { uploadSubprojectFiles } from '../utils/uploadSubprojectFiles';
-import Statistics from './Statistics';
-import PDFViewer from './PDFViewer';
 import AdvancedFilters from './AdvancedFilters';
 import ActiveFiltersBanner from './ActiveFiltersBanner';
 import FileManager from './FileManager';
-import ExportData from './ExportData';
-import TechnicalProgramExport from './TechnicalProgramExport';
-import InvestExport from './InvestExport';
-import EntaxisManager from './EntaxisManager';
-import ProsklisisManager from './ProsklisisManager';
-import EgkriseisManager from './EgkriseisManager';
-import CreditApprovalsPanel from './CreditApprovalsPanel';
-import DocumentTemplatesManager from './DocumentTemplatesManager';
-import BackupManager from './BackupManager';
-import AuditLogViewer from './AuditLogViewer';
-import UserManagement from './UserManagement';
-import EmailSettingsModal from './EmailSettingsModal';
-import TaskAssignmentManager from './TaskAssignmentManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
-import SubprojectExcelImportModal from './SubprojectExcelImportModal';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
+import {
+  enrichProjectsFromLoad,
+  refreshProjectsLockStatus,
+  sortProjectsForDisplay
+} from '../utils/dashboardProjectLocks';
 import { containsSearchTerm } from '../utils/searchUtils';
 import {
   getProjectChargeSearchText,
@@ -41,6 +29,24 @@ import {
 import { getCharacterization } from '../data/formOptions';
 import { safeConfirm } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
+
+const Statistics = lazy(() => import('./Statistics'));
+const PDFViewer = lazy(() => import('./PDFViewer'));
+const ExportData = lazy(() => import('./ExportData'));
+const TechnicalProgramExport = lazy(() => import('./TechnicalProgramExport'));
+const InvestExport = lazy(() => import('./InvestExport'));
+const EntaxisManager = lazy(() => import('./EntaxisManager'));
+const ProsklisisManager = lazy(() => import('./ProsklisisManager'));
+const EgkriseisManager = lazy(() => import('./EgkriseisManager'));
+const EgkriseisForm = lazy(() => import('./EgkriseisForm'));
+const CreditApprovalsPanel = lazy(() => import('./CreditApprovalsPanel'));
+const DocumentTemplatesManager = lazy(() => import('./DocumentTemplatesManager'));
+const BackupManager = lazy(() => import('./BackupManager'));
+const AuditLogViewer = lazy(() => import('./AuditLogViewer'));
+const UserManagement = lazy(() => import('./UserManagement'));
+const EmailSettingsModal = lazy(() => import('./EmailSettingsModal'));
+const TaskAssignmentManager = lazy(() => import('./TaskAssignmentManager'));
+const SubprojectExcelImportModal = lazy(() => import('./SubprojectExcelImportModal'));
 
 const ipcRenderer = window.electronAPI;
 
@@ -68,8 +74,15 @@ function pickDisplayProjectTitleForGroup(subprojects) {
   return best;
 }
 
-// Force webpack to include EgkriseisForm
-const EgkriseisFormComponent = EgkriseisForm;
+const LOCK_POLL_INTERVAL_MS = 30000;
+
+const LazyChunkFallback = styled.div`
+  padding: 1rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.88rem;
+  font-weight: 600;
+`;
 
 const DashboardContainer = styled.div`
   min-height: 100vh;
@@ -2321,47 +2334,24 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     loadLinkedNotesMap();
 
     // Listener για file watcher events - χρήση functional update για fresh state
-    const handleLocksChanged = async () => {
+    const handleLocksChanged = () => {
       console.log('Locks changed event received, refreshing lock status...');
-      // Χρήση functional update για να πάρουμε το fresh state
-      setProjects(currentProjects => {
+      setProjects((currentProjects) => {
         if (currentProjects.length === 0) return currentProjects;
-        
-        // Ασύγχρονη ενημέρωση locks με timeout για να μην block το UI
-        Promise.all(
-          currentProjects.map(async (project) => {
-            try {
-              const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
-              return { projectId: project.projectId, isLocked: lockStatus.locked, lockedBy: lockStatus.lockedBy || '' };
-            } catch (error) {
-              console.error('Error checking lock for project:', project.projectId, error);
-              return { projectId: project.projectId, isLocked: project.isLocked, lockedBy: project.lockedBy || '' };
+        refreshProjectsLockStatus(ipcRenderer, currentProjects)
+          .then((updated) => {
+            const hasChanges = updated.some((p) => {
+              const prev = currentProjects.find((x) => x.subprojectId === p.subprojectId);
+              return prev && (prev.isLocked !== p.isLocked || (prev.lockedBy || '') !== (p.lockedBy || ''));
+            });
+            if (hasChanges) {
+              setProjects(sortProjectsForDisplay(updated));
             }
           })
-        ).then(lockChecks => {
-          const hasChanges = lockChecks.some((check) => {
-            const currentProject = currentProjects.find(p => p.projectId === check.projectId);
-            return currentProject && (currentProject.isLocked !== check.isLocked || currentProject.lockedBy !== check.lockedBy);
+          .catch((error) => {
+            console.error('Error updating lock status:', error);
           });
-          
-          if (hasChanges) {
-            console.log('Lock status changes detected, updating UI silently...');
-            setProjects(prevProjects => {
-              return prevProjects.map(project => {
-                const lockCheck = lockChecks.find(c => c.projectId === project.projectId);
-                return lockCheck ? { ...project, isLocked: lockCheck.isLocked, lockedBy: lockCheck.lockedBy } : project;
-              }).sort((a, b) => {
-                const projectComparison = a.projectTitle.localeCompare(b.projectTitle, 'el', { sensitivity: 'base' });
-                if (projectComparison !== 0) return projectComparison;
-                return a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' });
-              });
-            });
-          }
-        }).catch(error => {
-          console.error('Error updating lock status:', error);
-        });
-        
-        return currentProjects; // Return immediately, update will happen async
+        return currentProjects;
       });
     };
 
@@ -2841,87 +2831,38 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     let timeoutId = null;
     let intervalId = null;
     
-    const checkLocks = async () => {
+    const checkLocks = () => {
       if (!isActive) return;
-      
-      // Μόνο αν δεν είμαστε σε φόρτωση
-      setLoading(currentLoading => {
+      setLoading((currentLoading) => {
         if (currentLoading) return currentLoading;
-        
-        setProjects(currentProjects => {
+        setProjects((currentProjects) => {
           if (currentProjects.length === 0) return currentProjects;
-          
-          // Batch checking - limit concurrent requests
-          const BATCH_SIZE = 10;
-          const batches = [];
-          for (let i = 0; i < currentProjects.length; i += BATCH_SIZE) {
-            batches.push(currentProjects.slice(i, i + BATCH_SIZE));
-          }
-          
-          // Process batches sequentially to avoid overwhelming the system
-          Promise.all(
-            batches.map(async (batch, batchIndex) => {
-              // Small delay between batches to prevent blocking
-              if (batchIndex > 0) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-              }
-              
-              return Promise.all(
-                batch.map(async (project) => {
-                  try {
-                    const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
-                    return { projectId: project.projectId, isLocked: lockStatus.locked, lockedBy: lockStatus.lockedBy || '' };
-                  } catch (error) {
-                    return { projectId: project.projectId, isLocked: project.isLocked, lockedBy: project.lockedBy || '' };
-                  }
-                })
-              );
-            })
-          ).then(batchResults => {
-            if (!isActive) return;
-            
-            const lockChecks = batchResults.flat();
-            setProjects(prevProjects => {
-              const hasChanges = lockChecks.some((check) => {
-                const currentProject = prevProjects.find(p => p.projectId === check.projectId);
-                return currentProject && (currentProject.isLocked !== check.isLocked || currentProject.lockedBy !== check.lockedBy);
+          refreshProjectsLockStatus(ipcRenderer, currentProjects)
+            .then((updated) => {
+              if (!isActive) return;
+              const hasChanges = updated.some((p) => {
+                const prev = currentProjects.find((x) => x.subprojectId === p.subprojectId);
+                return prev && (prev.isLocked !== p.isLocked || (prev.lockedBy || '') !== (p.lockedBy || ''));
               });
-              
               if (hasChanges) {
-                console.log('Lock status changes detected, updating UI silently...');
-                return prevProjects.map(project => {
-                  const lockCheck = lockChecks.find(c => c.projectId === project.projectId);
-                  return lockCheck ? { ...project, isLocked: lockCheck.isLocked, lockedBy: lockCheck.lockedBy } : project;
-                }).sort((a, b) => {
-                  const projectComparison = a.projectTitle.localeCompare(b.projectTitle, 'el', { sensitivity: 'base' });
-                  if (projectComparison !== 0) return projectComparison;
-                  return a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' });
-                });
+                setProjects(sortProjectsForDisplay(updated));
               }
-              return prevProjects;
+            })
+            .catch((error) => {
+              console.error('Error checking lock status:', error);
             });
-          }).catch(error => {
-            console.error('Error checking lock status:', error);
-          });
-          
           return currentProjects;
         });
-        
         return currentLoading;
       });
     };
-    
-    // Αρχική εκτέλεση με delay
+
     timeoutId = setTimeout(() => {
       checkLocks();
-      
-      // Periodic check - μειωμένη συχνότητα για καλύτερη απόδοση
       intervalId = setInterval(() => {
-        if (isActive) {
-          checkLocks();
-        }
-      }, 10000); // Κάθε 10 δευτερόλεπτα (από 5) για μείωση φορτίου
-    }, 2000); // Αρχικό delay 2 δευτερόλεπτα
+        if (isActive) checkLocks();
+      }, LOCK_POLL_INTERVAL_MS);
+    }, 2000);
     
     return () => {
       isActive = false;
@@ -3027,51 +2968,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       });
       
       console.log(`📊 FINAL TOTALS: ${egkrisiLinksSet.size} egkrisi, ${prosklisiLinksSet.size} prosklisi, ${entaxiLinksMap.size} entaxi`);
-      
-      // Process projects with lock status - ΑΠΛΟΠΟΙΗΜΕΝΟ
-      const BATCH_SIZE = 20;
-      const projectsWithLockStatus = [];
-      
-      for (let i = 0; i < loadedProjects.length; i += BATCH_SIZE) {
-        const batch = loadedProjects.slice(i, i + BATCH_SIZE);
-        const batchResults = await Promise.all(
-          batch.map(async (project) => {
-            try {
-              const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
-              
-              return {
-                ...project,
-                isLocked: lockStatus.locked || false,
-                lockedBy: lockStatus.lockedBy || '',
-                hasEgkrisiLink: egkrisiLinksSet.has(project.subprojectId),
-                hasProsklisiLink: prosklisiLinksSet.has(project.subprojectId),
-                hasEntaxiLink: entaxiLinksMap.has(project.subprojectId)
-              };
-            } catch (error) {
-              return {
-                ...project,
-                isLocked: false,
-                lockedBy: '',
-                hasEgkrisiLink: false,
-                hasProsklisiLink: false,
-                hasEntaxiLink: false
-              };
-            }
-          })
-        );
-        projectsWithLockStatus.push(...batchResults);
-        
-        if (i + BATCH_SIZE < loadedProjects.length) {
-          await new Promise(resolve => setTimeout(resolve, 10));
-        }
-      }
-      
-      // Sort projects
-      const sortedProjects = projectsWithLockStatus.sort((a, b) => {
-        const projectComparison = a.projectTitle.localeCompare(b.projectTitle, 'el', { sensitivity: 'base' });
-        if (projectComparison !== 0) return projectComparison;
-        return a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' });
-      });
+
+      const sortedProjects = sortProjectsForDisplay(
+        enrichProjectsFromLoad(loadedProjects, { egkrisiLinksSet, prosklisiLinksSet, entaxiLinksMap })
+      );
       
       // Process credit approvals
       let approvals = {};
@@ -3198,43 +3098,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       });
       
       console.log(`📊 loadProjects: ${egkrisiLinksSet.size} egkrisi, ${prosklisiLinksSet.size} prosklisi, ${entaxiLinksMap.size} entaxi`);
-      
-      // Check lock status - simplified
-      const projectsWithLockStatus = await Promise.all(
-        loadedProjects.map(async (project) => {
-          try {
-            const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
-            
-            return {
-              ...project,
-              isLocked: lockStatus.locked || false,
-              lockedBy: lockStatus.lockedBy || '',
-              hasEgkrisiLink: egkrisiLinksSet.has(project.subprojectId),
-              hasProsklisiLink: prosklisiLinksSet.has(project.subprojectId),
-              hasEntaxiLink: entaxiLinksMap.has(project.subprojectId)
-            };
-          } catch (error) {
-            return {
-              ...project,
-              isLocked: false,
-              lockedBy: '',
-              hasEgkrisiLink: false,
-              hasProsklisiLink: false,
-              hasEntaxiLink: false
-            };
-          }
-        })
+
+      const sortedProjects = sortProjectsForDisplay(
+        enrichProjectsFromLoad(loadedProjects, { egkrisiLinksSet, prosklisiLinksSet, entaxiLinksMap })
       );
-      
-      // Ταξινόμηση έργων αλφαβητικά πριν την εμφάνιση
-      const sortedProjects = projectsWithLockStatus.sort((a, b) => {
-        // Πρώτα ταξινόμηση ανά έργο
-        const projectComparison = a.projectTitle.localeCompare(b.projectTitle, 'el', { sensitivity: 'base' });
-        if (projectComparison !== 0) return projectComparison;
-        
-        // Μετά ταξινόμηση ανά υποέργο
-        return a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' });
-      });
       
       // Bail out if a newer loadProjects superseded us while awaiting IPC calls
       if (loadProjectsRequestIdRef.current !== myRequestId) return;
@@ -4630,7 +4497,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           />
 
           {/* Statistics — εξαιρούνται τα αρχειοθετημένα εκτός αν επιλεγούν */}
-          <Statistics projects={statisticsProjects} />
+          <Suspense fallback={<LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>}>
+            <Statistics projects={statisticsProjects} />
+          </Suspense>
 
           {/* Banner αρχειοθετημένων έργων */}
           {showArchivedProjects && (
@@ -4780,6 +4649,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           </ProjectsContainer>
 
           {isCreditApprovalsOpen && (
+            <Suspense fallback={<LazyChunkFallback>Φόρτωση εγκρίσεων…</LazyChunkFallback>}>
             <CreditApprovalsPanel
               isOpen={isCreditApprovalsOpen}
               onClose={() => {
@@ -4819,6 +4689,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               dashboardProjects={projects.length > 0 ? projects : filteredProjects}
               notes={notes}
             />
+            </Suspense>
           )}
         </ContentArea>
       </ContentWrapper>
@@ -5105,18 +4976,22 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       )}
 
       {/* Εισαγωγή υποέργων από Excel */}
-      <SubprojectExcelImportModal
-        isOpen={isExcelImportOpen}
-        onClose={() => setIsExcelImportOpen(false)}
-        onImportSuccess={async () => {
-          invalidateCache();
-          if (contentWrapperRef.current) {
-            savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-          }
-          shouldRestoreScroll.current = true;
-          await loadDataWithCache(true);
-        }}
-      />
+      {isExcelImportOpen ? (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση εισαγωγής…</LazyChunkFallback>}>
+          <SubprojectExcelImportModal
+            isOpen={isExcelImportOpen}
+            onClose={() => setIsExcelImportOpen(false)}
+            onImportSuccess={async () => {
+              invalidateCache();
+              if (contentWrapperRef.current) {
+                savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+              }
+              shouldRestoreScroll.current = true;
+              await loadDataWithCache(true);
+            }}
+          />
+        </Suspense>
+      ) : null}
 
       {/* Project Form Modal */}
       <ProjectForm
@@ -5184,12 +5059,16 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
 
       {/* PDF Viewer Modal */}
-      <PDFViewer
-        isOpen={pdfViewer.isOpen}
-        filePath={pdfViewer.filePath}
-        fileName={pdfViewer.fileName}
-        onClose={() => setPdfViewer({ isOpen: false, filePath: '', fileName: '' })}
-      />
+      {pdfViewer.isOpen ? (
+        <Suspense fallback={null}>
+          <PDFViewer
+            isOpen={pdfViewer.isOpen}
+            filePath={pdfViewer.filePath}
+            fileName={pdfViewer.fileName}
+            onClose={() => setPdfViewer({ isOpen: false, filePath: '', fileName: '' })}
+          />
+        </Suspense>
+      ) : null}
 
       {/* Advanced Filters Modal */}
       <AdvancedFilters
@@ -5217,27 +5096,41 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       )}
 
       {/* Export Data Modal */}
-      <ExportData
-        isOpen={isExportOpen}
-        onClose={() => setIsExportOpen(false)}
-        projects={filteredProjects}
-        totalProjects={projects.length}
-      />
+      {isExportOpen ? (
+        <Suspense fallback={null}>
+          <ExportData
+            isOpen={isExportOpen}
+            onClose={() => setIsExportOpen(false)}
+            projects={filteredProjects}
+            totalProjects={projects.length}
+          />
+        </Suspense>
+      ) : null}
 
       {/* Technical Program Export Modal */}
-      <TechnicalProgramExport
-        isOpen={isTechnicalProgramOpen}
-        onClose={() => setIsTechnicalProgramOpen(false)}
-        projects={projects} // Χρησιμοποιούμε όλα τα υποέργα, όχι τα ήδη φιλτραρισμένα, ώστε το τεχνικό πρόγραμμα να περιλαμβάνει κάθε υποέργο με υπόλοιπο στο επιλεγμένο έτος
-      />
+      {isTechnicalProgramOpen ? (
+        <Suspense fallback={null}>
+          <TechnicalProgramExport
+            isOpen={isTechnicalProgramOpen}
+            onClose={() => setIsTechnicalProgramOpen(false)}
+            projects={projects}
+          />
+        </Suspense>
+      ) : null}
 
       {/* Invest Export Modal */}
-      <InvestExport
-        isOpen={isInvestExportOpen}
-        onClose={() => setIsInvestExportOpen(false)}
-      />
+      {isInvestExportOpen ? (
+        <Suspense fallback={null}>
+          <InvestExport
+            isOpen={isInvestExportOpen}
+            onClose={() => setIsInvestExportOpen(false)}
+          />
+        </Suspense>
+      ) : null}
 
       {/* Entaxis Manager Modal */}
+      {isEntaxisOpen ? (
+      <Suspense fallback={<LazyChunkFallback>Φόρτωση εντάξεων…</LazyChunkFallback>}>
       <EntaxisManager
         isOpen={isEntaxisOpen}
         selectedEntaxiId={selectedEntaxiId}
@@ -5274,8 +5167,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         notes={notes}
         onOpenNoteFromEntity={handleOpenNoteFromEntity}
       />
+      </Suspense>
+      ) : null}
 
       {/* Prosklisis Manager Modal */}
+      {isProsklisisOpen ? (
+      <Suspense fallback={<LazyChunkFallback>Φόρτωση προσκλήσεων…</LazyChunkFallback>}>
       <ProsklisisManager
         isOpen={isProsklisisOpen}
         onClose={async () => {
@@ -5299,10 +5196,14 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         notes={notes}
         onOpenNoteFromEntity={handleOpenNoteFromEntity}
       />
+      </Suspense>
+      ) : null}
 
 
       {/* Egkriseis Form Modal */}
-      <EgkriseisFormComponent
+      {(isEgkriseisFormOpen) ? (
+      <Suspense fallback={<LazyChunkFallback>Φόρτωση φόρμας…</LazyChunkFallback>}>
+      <EgkriseisForm
         isOpen={isEgkriseisFormOpen}
         onClose={async () => {
           await ipcRenderer.invoke('clear-all-locks');
@@ -5325,6 +5226,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           }
         }}
       />
+      </Suspense>
+      ) : null}
 
       {isNotesOpen && (() => {
         const selNote = selectedNoteId ? notes.find(n => n.id === selectedNoteId) : null;
@@ -5510,8 +5413,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       })()}
 
       {/* Egkriseis Manager Modal */}
+      {(isEgkriseisFormOpen || isEgkriseisManagerOnly) ? (
+      <Suspense fallback={<LazyChunkFallback>Φόρτωση εγκρίσεων…</LazyChunkFallback>}>
       <EgkriseisManager
-        isOpen={isEgkriseisFormOpen || isEgkriseisManagerOnly}
+        isOpen
         onClose={async () => {
           await ipcRenderer.invoke('clear-all-locks');
           setIsEgkriseisFormOpen(false);
@@ -5530,27 +5435,35 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         onOpenNoteFromEntity={handleOpenNoteFromEntity}
         initialSearchTerm={egkriseisInitialSearch}
       />
+      </Suspense>
+      ) : null}
 
       {/* Document Templates Manager */}
       {isDocumentTemplatesOpen && (
-        <DocumentTemplatesManager
-          onClose={() => setIsDocumentTemplatesOpen(false)}
-        />
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
+          <DocumentTemplatesManager
+            onClose={() => setIsDocumentTemplatesOpen(false)}
+          />
+        </Suspense>
       )}
 
       {isBackupManagerOpen && (
-        <BackupManager
-          isOpen={isBackupManagerOpen}
-          onClose={() => setIsBackupManagerOpen(false)}
-        />
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
+          <BackupManager
+            isOpen={isBackupManagerOpen}
+            onClose={() => setIsBackupManagerOpen(false)}
+          />
+        </Suspense>
       )}
 
       {isAuditLogOpen && (
-        <AuditLogViewer
-          isOpen={isAuditLogOpen}
-          onClose={() => setIsAuditLogOpen(false)}
-          currentUser={currentUser}
-        />
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
+          <AuditLogViewer
+            isOpen={isAuditLogOpen}
+            onClose={() => setIsAuditLogOpen(false)}
+            currentUser={currentUser}
+          />
+        </Suspense>
       )}
 
       {currentUser?.username && (
@@ -5561,37 +5474,45 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         />
       )}
 
-      <TaskAssignmentManager
-        isOpen={isTaskAssignmentsOpen}
-        onClose={() => {
-          setIsTaskAssignmentsOpen(false);
-          setTaskAssignmentsFocusTaskId(null);
-        }}
-        currentUser={currentUser}
-        isSuperAdmin={isSuperAdmin}
-        onAccessRefresh={refreshTaskAccess}
-        focusTaskId={taskAssignmentsFocusTaskId}
-        onFocusTaskConsumed={handleFocusTaskConsumed}
-        initialScreen={taskAssignmentInitialScreen}
-      />
+      {isTaskAssignmentsOpen ? (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση χώρων εργασίας…</LazyChunkFallback>}>
+          <TaskAssignmentManager
+            isOpen={isTaskAssignmentsOpen}
+            onClose={() => {
+              setIsTaskAssignmentsOpen(false);
+              setTaskAssignmentsFocusTaskId(null);
+            }}
+            currentUser={currentUser}
+            isSuperAdmin={isSuperAdmin}
+            onAccessRefresh={refreshTaskAccess}
+            focusTaskId={taskAssignmentsFocusTaskId}
+            onFocusTaskConsumed={handleFocusTaskConsumed}
+            initialScreen={taskAssignmentInitialScreen}
+          />
+        </Suspense>
+      ) : null}
 
       {isUserManagementOpen && (
-        <UserManagement
-          onClose={() => {
-            setIsUserManagementOpen(false);
-            loadEngineerCatalogForCards();
-          }}
-          onUsersChanged={loadEngineerCatalogForCards}
-          currentUser={currentUser}
-          onSyncCurrentUser={onSyncCurrentUser}
-        />
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
+          <UserManagement
+            onClose={() => {
+              setIsUserManagementOpen(false);
+              loadEngineerCatalogForCards();
+            }}
+            onUsersChanged={loadEngineerCatalogForCards}
+            currentUser={currentUser}
+            onSyncCurrentUser={onSyncCurrentUser}
+          />
+        </Suspense>
       )}
 
       {isEmailSettingsOpen && (
-        <EmailSettingsModal
-          onClose={() => setIsEmailSettingsOpen(false)}
-          currentUser={currentUser}
-        />
+        <Suspense fallback={null}>
+          <EmailSettingsModal
+            onClose={() => setIsEmailSettingsOpen(false)}
+            currentUser={currentUser}
+          />
+        </Suspense>
       )}
 
 
