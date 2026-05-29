@@ -358,7 +358,10 @@ function SubprojectDetailModal({
   userRole,
   isLocked,
   lockedBy,
-  engineerCatalog = []
+  engineerCatalog = [],
+  portalEnabled = false,
+  isPublishedToPortal = false,
+  onTogglePortal
 }) {
   const [isUploading, setIsUploading] = useState(false);
 
@@ -822,6 +825,64 @@ function SubprojectDetailModal({
               <FieldValue style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
                 {project.eisigitikiEkthesi}
               </FieldValue>
+            </Section>
+          )}
+
+          {portalEnabled && (
+            <Section>
+              <SectionTitle>Πύλη Διαφάνειας</SectionTitle>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: isPublishedToPortal ? '#f0fdf4' : '#f8fafc',
+                border: `1.5px solid ${isPublishedToPortal ? '#86efac' : '#e2e8f0'}`,
+                borderRadius: 10,
+                padding: '12px 16px',
+                gap: 16
+              }}>
+                <div>
+                  <div style={{
+                    fontWeight: 600,
+                    fontSize: 14,
+                    color: isPublishedToPortal ? '#166534' : '#475569',
+                    marginBottom: 3
+                  }}>
+                    {isPublishedToPortal
+                      ? '🌐 Δημοσιευμένο στην Πύλη Διαφάνειας'
+                      : '🔒 Δεν δημοσιεύεται στην Πύλη Διαφάνειας'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
+                    {isPublishedToPortal
+                      ? 'Το υποέργο εμφανίζεται δημόσια στο portal. Αποεπιλέξτε για να το αποκρύψετε.'
+                      : 'Ενεργοποιήστε για να συμπεριληφθεί στην επόμενη εξαγωγή στο portal.'}
+                  </div>
+                </div>
+                {typeof onTogglePortal === 'function' && (userRole === 'ADMIN' || userRole === 'SUPERADMIN') && (
+                  <button
+                    onClick={() => onTogglePortal(project.subprojectId)}
+                    style={{
+                      flexShrink: 0,
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: 13,
+                      transition: 'all 0.2s',
+                      background: isPublishedToPortal
+                        ? 'linear-gradient(135deg, #dc2626, #ef4444)'
+                        : 'linear-gradient(135deg, #2563eb, #0ea5e9)',
+                      color: 'white',
+                      boxShadow: isPublishedToPortal
+                        ? '0 2px 8px rgba(220,38,38,0.35)'
+                        : '0 2px 8px rgba(37,99,235,0.35)'
+                    }}
+                  >
+                    {isPublishedToPortal ? 'Απόσυρση' : 'Δημοσίευση'}
+                  </button>
+                )}
+              </div>
             </Section>
           )}
 

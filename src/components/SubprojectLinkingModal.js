@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { containsSearchTerm } from '../utils/searchUtils';
+import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 
 const ipcRenderer = window.electronAPI;
 
@@ -28,6 +30,7 @@ const ModalContainer = styled.div`
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   overflow: hidden;
+  min-height: 0;
 `;
 
 const ModalHeader = styled.div`
@@ -62,11 +65,19 @@ const CloseButton = styled.button`
 
 const ModalContent = styled.div`
   flex: 1;
+  min-height: 0;
   padding: 2rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+`;
+
+const ModalFooter = styled.div`
+  flex-shrink: 0;
+  padding: 1rem 2rem 1.5rem;
+  border-top: 2px solid #e0e0e0;
+  background: white;
 `;
 
 const SearchContainer = styled.div`
@@ -207,9 +218,7 @@ const Status = styled.span`
 const ActionButtons = styled.div`
   display: flex;
   gap: 1rem;
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 2px solid #e0e0e0;
+  justify-content: flex-end;
 `;
 
 const Button = styled.button`
@@ -306,6 +315,8 @@ function SubprojectLinkingModal({ isOpen, onClose, onLink, currentEgkrisi }) {
 
   useEffect(() => {
     if (isOpen) {
+      setSelectedSubproject(null);
+      setSearchTerm('');
       loadAllProjects();
     }
   }, [isOpen]);
@@ -333,6 +344,7 @@ function SubprojectLinkingModal({ isOpen, onClose, onLink, currentEgkrisi }) {
   const handleLink = () => {
     if (selectedSubproject && onLink) {
       onLink(selectedSubproject);
+      scheduleDocumentInteractionRecovery();
       onClose();
     }
   };
@@ -340,20 +352,27 @@ function SubprojectLinkingModal({ isOpen, onClose, onLink, currentEgkrisi }) {
   const handleClose = () => {
     setSelectedSubproject(null);
     setSearchTerm('');
+    scheduleDocumentInteractionRecovery();
     onClose();
   };
 
   if (!isOpen) return null;
 
-  return (
-    <ModalOverlay>
-      <ModalContainer>
+  const modal = (
+    <ModalOverlay onClick={(e) => e.target === e.currentTarget && handleClose()}>
+      <ModalContainer onClick={(e) => e.stopPropagation()}>
         <ModalHeader>
           <ModalTitle>Συσχέτιση με Υποέργο</ModalTitle>
           <CloseButton onClick={handleClose}>✕</CloseButton>
         </ModalHeader>
         
         <ModalContent>
+          {currentEgkrisi && (
+            <div style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '-0.5rem' }}>
+              Έγκριση: <strong style={{ color: '#334155' }}>{currentEgkrisi.title || currentEgkrisi.subprojectTitle || '—'}</strong>
+            </div>
+          )}
+
           <SearchContainer>
             <SearchInput
               type="text"
@@ -396,7 +415,14 @@ function SubprojectLinkingModal({ isOpen, onClose, onLink, currentEgkrisi }) {
               ))}
             </ProjectsList>
           )}
+        </ModalContent>
 
+        <ModalFooter>
+          {selectedSubproject && (
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#475569' }}>
+              Επιλεγμένο: <strong>{selectedSubproject.subprojectTitle}</strong>
+            </p>
+          )}
           <ActionButtons>
             <Button className="secondary" onClick={handleClose}>
               Ακύρωση
@@ -409,10 +435,13 @@ function SubprojectLinkingModal({ isOpen, onClose, onLink, currentEgkrisi }) {
               Συσχέτιση με Υποέργο
             </Button>
           </ActionButtons>
-        </ModalContent>
+        </ModalFooter>
       </ModalContainer>
     </ModalOverlay>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }
 
 export default SubprojectLinkingModal;

@@ -4,5 +4,20 @@
   "organizationName": "Αρχανών Αστερουσίων",
   "organizationFullName": "Δήμος Αρχανών Αστερουσίων",
   "department": "Τεχνική Υπηρεσία",
-  "setupCompleted": true
+  "setupCompleted": true,
+  "portalEnabled": true,
+  "portalDimosUid": "dimos-archanon-asteroysion",
+  "portalExportFields": {
+    "xrimatodotisi": true,
+    "proupologismos": true,
+    "approvedAmount": true,
+    "symvasiPoso": true,
+    "anadochos": true,
+    "hmerominia_enarksis": true,
+    "adam": true,
+    "mis": true,
+    "kategoria": true,
+    "titlos_prosklisis": true
+  },
+  "portalMergeCompleted": true
 }

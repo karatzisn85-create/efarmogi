@@ -54,6 +54,9 @@ export function scheduleDocumentInteractionRecovery({ lockScroll = false } = {})
   const epoch = interactionRecoveryEpoch;
   const run = () => {
     if (epoch !== interactionRecoveryEpoch) return;
+    if (!lockScroll) {
+      forceUnlockBodyScroll();
+    }
     applyDomInteractionUnlock();
     if (lockScroll && interactionLockAllowed && epoch === interactionRecoveryEpoch) {
       document.body.style.overflow = 'hidden';

@@ -539,7 +539,9 @@ function ProjectCard({
   engineerCatalog = [],
   linkedNotesMap = {},
   notes = [],
-  onOpenNoteFromEntity
+  onOpenNoteFromEntity,
+  portalEnabled = false,
+  isPublishedToPortal = false
 }) {
 
   const handleCardClick = (e) => {
@@ -622,6 +624,29 @@ function ProjectCard({
         <CardHeader>
           <SubprojectTitle>
             {project.subprojectTitle}
+            {portalEnabled && isPublishedToPortal && (
+              <span
+                title="Δημοσιευμένο στην Πύλη Διαφάνειας"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  background: 'linear-gradient(135deg, #2563eb22, #0ea5e922)',
+                  border: '1px solid #2563eb44',
+                  color: '#2563eb',
+                  borderRadius: 5,
+                  padding: '1px 7px',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  marginLeft: 6,
+                  letterSpacing: '0.03em',
+                  verticalAlign: 'middle',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                🌐 PORTAL
+              </span>
+            )}
             {project.misPraxhsName && project.misPraxhsCode && (
               <MisPraxhsBadge>
                 {project.misPraxhsName}: {project.misPraxhsCode}

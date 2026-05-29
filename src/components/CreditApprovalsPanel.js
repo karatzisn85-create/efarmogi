@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import SubprojectSearchModal from './SubprojectSearchModal';
-import { safeConfirm } from '../utils/safeDialogs';
+import { safeConfirm, safeAlert } from '../utils/safeDialogs';
+import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import LinkedNoteSticker, {
   getLinkedNotesForCreditPdf,
   getLinkedNotesForCreditSubproject
@@ -906,6 +907,12 @@ const CreditApprovalsPanel = ({
   const ITEMS_PER_PAGE = 8;
 
   useEffect(() => {
+    if (!isOpen) {
+      scheduleDocumentInteractionRecovery();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen) return;
     if (externalLinkedEgkriseis) {
       setLinkedMap(externalLinkedEgkriseis);
@@ -1341,7 +1348,7 @@ const CreditApprovalsPanel = ({
       await ipcRenderer.invoke('view-egkriseis-pdf', projectFolderName, pdfName, subFolderName);
     } catch (error) {
       console.error('Error viewing PDF:', error);
-      alert('Προέκυψε σφάλμα κατά την προβολή του αρχείου.');
+      safeAlert('Προέκυψε σφάλμα κατά την προβολή του αρχείου.');
     }
   }, [onViewPdf]);
 
@@ -1353,7 +1360,7 @@ const CreditApprovalsPanel = ({
       }
       const downloadResult = await ipcRenderer.invoke('download-egkriseis-pdf', projectFolderName, pdfName, subFolderName);
       if (!downloadResult?.success) {
-        alert('Προέκυψε σφάλμα κατά τη λήψη του αρχείου.');
+        safeAlert('Προέκυψε σφάλμα κατά τη λήψη του αρχείου.');
         return;
       }
 
@@ -1371,7 +1378,7 @@ const CreditApprovalsPanel = ({
       }
     } catch (error) {
       console.error('Error downloading PDF:', error);
-      alert('Προέκυψε σφάλμα κατά τη λήψη του αρχείου.');
+      safeAlert('Προέκυψε σφάλμα κατά τη λήψη του αρχείου.');
     }
   }, [onDownloadPdf]);
 
@@ -1393,7 +1400,7 @@ const CreditApprovalsPanel = ({
       );
 
       if (result?.success) {
-        alert('Το αρχείο διαγράφηκε εντελώς από όλα τα υποέργα!');
+        safeAlert('Το αρχείο διαγράφηκε εντελώς από όλα τα υποέργα!');
         setDeleteModalOpen(false);
         setPdfToDelete(null);
         // Ανανέωση των δεδομένων
@@ -1402,11 +1409,11 @@ const CreditApprovalsPanel = ({
           onRequestRefresh();
         }
       } else {
-        alert('Σφάλμα κατά τη διαγραφή: ' + (result?.error || 'Άγνωστο σφάλμα'));
+        safeAlert('Σφάλμα κατά τη διαγραφή: ' + (result?.error || 'Άγνωστο σφάλμα'));
       }
     } catch (error) {
       console.error('Error deleting PDF completely:', error);
-      alert('Σφάλμα κατά τη διαγραφή: ' + error.message);
+      safeAlert('Σφάλμα κατά τη διαγραφή: ' + error.message);
     }
   }, [pdfToDelete, loadPanelData, onRequestRefresh]);
 
@@ -1423,7 +1430,7 @@ const CreditApprovalsPanel = ({
       );
 
       if (!subprojectKey) {
-        alert('Σφάλμα: Δεν βρέθηκε το κλειδί του υποέργου');
+        safeAlert('Σφάλμα: Δεν βρέθηκε το κλειδί του υποέργου');
         return;
       }
 
@@ -1435,7 +1442,7 @@ const CreditApprovalsPanel = ({
       );
 
       if (result?.success) {
-        alert('Η συσχέτιση διαγράφηκε επιτυχώς!');
+        safeAlert('Η συσχέτιση διαγράφηκε επιτυχώς!');
         setDeleteModalOpen(false);
         setPdfToDelete(null);
         // Ανανέωση των δεδομένων
@@ -1444,11 +1451,11 @@ const CreditApprovalsPanel = ({
           onRequestRefresh();
         }
       } else {
-        alert('Σφάλμα κατά τη διαγραφή: ' + (result?.error || 'Άγνωστο σφάλμα'));
+        safeAlert('Σφάλμα κατά τη διαγραφή: ' + (result?.error || 'Άγνωστο σφάλμα'));
       }
     } catch (error) {
       console.error('Error deleting PDF from subproject:', error);
-      alert('Σφάλμα κατά τη διαγραφή: ' + error.message);
+      safeAlert('Σφάλμα κατά τη διαγραφή: ' + error.message);
     }
   }, [pdfToDelete, loadPanelData, onRequestRefresh]);
 
@@ -1479,13 +1486,13 @@ const CreditApprovalsPanel = ({
           await loadPanelData();
         }, 100);
         
-        alert('✅ Ο τίτλος του έργου ενημερώθηκε επιτυχώς!');
+        safeAlert('✅ Ο τίτλος του έργου ενημερώθηκε επιτυχώς!');
       } else {
-        alert('❌ Σφάλμα: ' + (result.error || 'Αποτυχία ενημέρωσης'));
+        safeAlert('❌ Σφάλμα: ' + (result.error || 'Αποτυχία ενημέρωσης'));
       }
     } catch (error) {
       console.error('Error updating project title:', error);
-      alert('❌ Σφάλμα κατά την ενημέρωση του τίτλου');
+      safeAlert('❌ Σφάλμα κατά την ενημέρωση του τίτλου');
     }
   }, [editingProjectKey, editingProjectTitle, loadPanelData]);
 
@@ -1512,13 +1519,13 @@ const CreditApprovalsPanel = ({
           await loadPanelData();
         }, 100);
         
-        alert('✅ Ο τίτλος του υποέργου ενημερώθηκε επιτυχώς!');
+        safeAlert('✅ Ο τίτλος του υποέργου ενημερώθηκε επιτυχώς!');
       } else {
-        alert('❌ Σφάλμα: ' + (result.error || 'Αποτυχία ενημέρωσης'));
+        safeAlert('❌ Σφάλμα: ' + (result.error || 'Αποτυχία ενημέρωσης'));
       }
     } catch (error) {
       console.error('Error updating subproject title:', error);
-      alert('❌ Σφάλμα κατά την ενημέρωση του τίτλου');
+      safeAlert('❌ Σφάλμα κατά την ενημέρωση του τίτλου');
     }
   }, [editingSubprojectKey, editingSubprojectTitle, loadPanelData]);
 
@@ -1526,19 +1533,19 @@ const CreditApprovalsPanel = ({
     try {
       // Validation: Έλεγχος ότι έχουμε όλα τα απαραίτητα δεδομένα
       if (!subprojectId) {
-        alert('❌ Σφάλμα: Δεν βρέθηκε το ID του υποέργου.');
+        safeAlert('❌ Σφάλμα: Δεν βρέθηκε το ID του υποέργου.');
         console.error('performLink: Missing subprojectId', { subprojectId, subproject, project });
         return;
       }
 
       if (!subproject || !subproject.title) {
-        alert('❌ Σφάλμα: Δεν βρέθηκε ο τίτλος του υποέργου.');
+        safeAlert('❌ Σφάλμα: Δεν βρέθηκε ο τίτλος του υποέργου.');
         console.error('performLink: Missing subproject title', { subproject, project });
         return;
       }
 
       if (!project || !project.title) {
-        alert('❌ Σφάλμα: Δεν βρέθηκε ο τίτλος του έργου.');
+        safeAlert('❌ Σφάλμα: Δεν βρέθηκε ο τίτλος του έργου.');
         console.error('performLink: Missing project title', { project });
         return;
       }
@@ -1546,7 +1553,7 @@ const CreditApprovalsPanel = ({
       const realProjectId = await ipcRenderer.invoke('find-project-by-subproject-id', subprojectId);
 
       if (!realProjectId) {
-        alert('❌ Δεν βρέθηκε το έργο για το επιλεγμένο υποέργο.');
+        safeAlert('❌ Δεν βρέθηκε το έργο για το επιλεγμένο υποέργο.');
         console.error('performLink: Project not found for subprojectId', subprojectId);
         return;
       }
@@ -1577,13 +1584,13 @@ const CreditApprovalsPanel = ({
 
       // Validation: Έλεγχος ότι όλα τα πεδία είναι valid
       if (!linkData.egkrisiTitle || !linkData.egkrisiProjectTitle) {
-        alert('❌ Σφάλμα: Οι τίτλοι δεν μπορούν να είναι κενά.');
+        safeAlert('❌ Σφάλμα: Οι τίτλοι δεν μπορούν να είναι κενά.');
         console.error('performLink: Empty titles', linkData);
         return;
       }
       
       if (!linkData.egkrisiProjectKey) {
-        alert('❌ Σφάλμα: Δεν βρέθηκε το project key.');
+        safeAlert('❌ Σφάλμα: Δεν βρέθηκε το project key.');
         console.error('performLink: Missing project key', { project, linkData });
         return;
       }
@@ -1606,7 +1613,7 @@ const CreditApprovalsPanel = ({
           [result.linkData.egkrisiId]: result.linkData
         }));
 
-        alert('✅ Η συσχέτιση εγκρίσεως με το υποέργο δημιουργήθηκε επιτυχώς!');
+        safeAlert('✅ Η συσχέτιση εγκρίσεως με το υποέργο δημιουργήθηκε επιτυχώς!');
 
         // Ανανέωση των δεδομένων του panel για να εμφανιστεί η συσχετισμένη έγκριση
         await loadPanelData();
@@ -1627,7 +1634,7 @@ const CreditApprovalsPanel = ({
           subproject: subproject,
           project: project
         });
-        alert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + errorMessage);
+        safeAlert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + errorMessage);
       }
     } catch (error) {
       console.error('Error creating manual egkrisi link:', error);
@@ -1638,7 +1645,7 @@ const CreditApprovalsPanel = ({
         subproject: subproject,
         project: project
       });
-      alert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message);
+      safeAlert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message);
     }
   }, [onLinkCreated, onRequestRefresh, loadPanelData]);
 
@@ -1657,7 +1664,7 @@ const CreditApprovalsPanel = ({
       await performLink(result.subprojectId, subproject, project);
     } catch (error) {
       console.error('Error linking subproject:', error);
-      alert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message);
+      safeAlert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message);
     }
   }, [handleOpenSearchModal, performLink]);
 
@@ -1681,7 +1688,7 @@ const CreditApprovalsPanel = ({
     );
 
     if (!linkToRemove) {
-      alert('Δεν βρέθηκε συσχέτιση για ακύρωση.');
+      safeAlert('Δεν βρέθηκε συσχέτιση για ακύρωση.');
       return;
     }
 
@@ -1702,7 +1709,7 @@ const CreditApprovalsPanel = ({
           return updated;
         });
 
-        alert('Η συσχέτιση ακυρώθηκε επιτυχώς.');
+        safeAlert('Η συσχέτιση ακυρώθηκε επιτυχώς.');
 
         if (onLinkRemoved) {
           onLinkRemoved(linkToRemove);
@@ -1712,11 +1719,11 @@ const CreditApprovalsPanel = ({
           onRequestRefresh();
         }
       } else {
-        alert('Προέκυψε σφάλμα κατά την ακύρωση της συσχέτισης.');
+        safeAlert('Προέκυψε σφάλμα κατά την ακύρωση της συσχέτισης.');
       }
     } catch (error) {
       console.error('Error unlinking subproject:', error);
-      alert('Προέκυψε σφάλμα κατά την ακύρωση της συσχέτισης.');
+      safeAlert('Προέκυψε σφάλμα κατά την ακύρωση της συσχέτισης.');
     }
   }, [linkedMap, onLinkRemoved, onRequestRefresh]);
 
@@ -2094,6 +2101,7 @@ const CreditApprovalsPanel = ({
           onClose={() => {
             setIsSearchModalOpen(false);
             setCurrentSubprojectForLink(null);
+            scheduleDocumentInteractionRecovery();
           }}
           onSelectSubproject={handleSearchModalSelect}
           egkrisiTitle={currentSubprojectForLink?.subproject?.title}

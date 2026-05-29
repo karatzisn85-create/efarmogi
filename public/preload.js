@@ -55,7 +55,8 @@ const ALLOWED_INVOKE = new Set([
   'watch-task-file','unwatch-task-file',
   'get-email-config','save-email-config','test-email-config',
   'toggle-workspace-email-notifications',
-  'write-debug-log','restart-app','rename-user'
+  'write-debug-log','restart-app','rename-user',
+  'export-portal-data','load-portal-published','save-portal-published'
 ]);
 
 const ALLOWED_RECEIVE = new Set([

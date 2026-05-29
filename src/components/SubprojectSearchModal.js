@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
+import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 
 const ModalOverlay = styled.div`
   position: fixed;
@@ -17,20 +19,28 @@ const ModalOverlay = styled.div`
 const ModalContent = styled.div`
   background: white;
   border-radius: 12px;
-  padding: 2rem;
   max-width: 800px;
   width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+`;
+
+const ModalBody = styled.div`
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 2rem;
 `;
 
 const Header = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
+  padding: 2rem 2rem 1rem;
+  flex-shrink: 0;
   border-bottom: 2px solid #e9ecef;
 `;
 
@@ -56,7 +66,8 @@ const CloseButton = styled.button`
 `;
 
 const SearchContainer = styled.div`
-  margin-bottom: 1.5rem;
+  padding: 1.5rem 0 1rem;
+  flex-shrink: 0;
 `;
 
 const SearchInput = styled.input`
@@ -73,10 +84,11 @@ const SearchInput = styled.input`
 `;
 
 const ResultsContainer = styled.div`
-  max-height: 400px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
   border: 1px solid #e9ecef;
   border-radius: 8px;
+  margin-bottom: 1rem;
 `;
 
 const SubprojectItem = styled.div`
@@ -128,8 +140,11 @@ const LoadingSpinner = styled.div`
 const ButtonContainer = styled.div`
   display: flex;
   gap: 1rem;
-  margin-top: 1.5rem;
+  padding: 1rem 2rem 1.5rem;
   justify-content: flex-end;
+  flex-shrink: 0;
+  border-top: 1px solid #e9ecef;
+  background: #fafafa;
 `;
 
 const Button = styled.button`
@@ -144,8 +159,13 @@ const Button = styled.button`
     background: #007bff;
     color: white;
     
-    &:hover {
+    &:hover:not(:disabled) {
       background: #0056b3;
+    }
+
+    &:disabled {
+      background: #adb5bd;
+      cursor: not-allowed;
     }
   ` : `
     background: #6c757d;
@@ -228,15 +248,21 @@ function SubprojectSearchModal({ isOpen, onClose, onSelectSubproject, egkrisiTit
   const handleConfirmSelection = () => {
     if (selectedSubproject && onSelectSubproject) {
       onSelectSubproject(selectedSubproject);
+      scheduleDocumentInteractionRecovery();
       onClose();
     }
   };
 
+  const handleClose = () => {
+    scheduleDocumentInteractionRecovery();
+    onClose();
+  };
+
   if (!isOpen) return null;
 
-  return (
-    <ModalOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <ModalContent>
+  const modal = (
+    <ModalOverlay onClick={(e) => e.target === e.currentTarget && handleClose()}>
+      <ModalContent onClick={(e) => e.stopPropagation()}>
         <Header>
           <Title>
             🔍 Αναζήτηση Υποέργου για Συσχέτιση
@@ -246,44 +272,51 @@ function SubprojectSearchModal({ isOpen, onClose, onSelectSubproject, egkrisiTit
               </div>
             )}
           </Title>
-          <CloseButton onClick={onClose}>Κλείσιμο</CloseButton>
+          <CloseButton onClick={handleClose}>Κλείσιμο</CloseButton>
         </Header>
 
-        <SearchContainer>
-          <SearchInput
-            type="text"
-            placeholder="Αναζήτηση υποέργου ή έργου..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </SearchContainer>
+        <ModalBody>
+          <SearchContainer>
+            <SearchInput
+              type="text"
+              placeholder="Αναζήτηση υποέργου ή έργου..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </SearchContainer>
 
-        <ResultsContainer>
-          {loading ? (
-            <LoadingSpinner>Φόρτωση υποέργων...</LoadingSpinner>
-          ) : filteredSubprojects.length === 0 ? (
-            <NoResults>
-              {searchTerm ? 'Δεν βρέθηκαν υποέργα που να ταιριάζουν με την αναζήτηση' : 'Δεν υπάρχουν υποέργα στο σύστημα'}
-            </NoResults>
-          ) : (
-            filteredSubprojects.map((subproject) => (
-              <SubprojectItem
-                key={subproject.subprojectId}
-                onClick={() => handleSelectSubproject(subproject)}
-                style={{
-                  backgroundColor: selectedSubproject?.subprojectId === subproject.subprojectId ? '#e3f2fd' : 'transparent'
-                }}
-              >
-                <SubprojectTitle>{subproject.subprojectTitle}</SubprojectTitle>
-                <ProjectTitle>Έργο: {subproject.projectTitle}</ProjectTitle>
-                <SubprojectId>ID: {subproject.subprojectId}</SubprojectId>
-              </SubprojectItem>
-            ))
-          )}
-        </ResultsContainer>
+          <ResultsContainer>
+            {loading ? (
+              <LoadingSpinner>Φόρτωση υποέργων...</LoadingSpinner>
+            ) : filteredSubprojects.length === 0 ? (
+              <NoResults>
+                {searchTerm ? 'Δεν βρέθηκαν υποέργα που να ταιριάζουν με την αναζήτηση' : 'Δεν υπάρχουν υποέργα στο σύστημα'}
+              </NoResults>
+            ) : (
+              filteredSubprojects.map((subproject) => (
+                <SubprojectItem
+                  key={subproject.subprojectId}
+                  onClick={() => handleSelectSubproject(subproject)}
+                  style={{
+                    backgroundColor: selectedSubproject?.subprojectId === subproject.subprojectId ? '#e3f2fd' : 'transparent'
+                  }}
+                >
+                  <SubprojectTitle>{subproject.subprojectTitle}</SubprojectTitle>
+                  <ProjectTitle>Έργο: {subproject.projectTitle}</ProjectTitle>
+                  <SubprojectId>ID: {subproject.subprojectId}</SubprojectId>
+                </SubprojectItem>
+              ))
+            )}
+          </ResultsContainer>
+        </ModalBody>
 
         <ButtonContainer>
-          <Button onClick={onClose}>Ακύρωση</Button>
+          {selectedSubproject && (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: '#475569', flex: 1, alignSelf: 'center' }}>
+              Επιλεγμένο: <strong>{selectedSubproject.subprojectTitle}</strong>
+            </p>
+          )}
+          <Button onClick={handleClose}>Ακύρωση</Button>
           <Button 
             primary 
             onClick={handleConfirmSelection}
@@ -295,6 +328,9 @@ function SubprojectSearchModal({ isOpen, onClose, onSelectSubproject, egkrisiTit
       </ModalContent>
     </ModalOverlay>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }
 
 export default SubprojectSearchModal;

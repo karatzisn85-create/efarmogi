@@ -15,6 +15,8 @@
  *   icon         – emoji shown in badge  (default: '⚠️')
  */
 
+import { scheduleDocumentInteractionRecovery } from './documentInteractionReset';
+
 let _setState = null;
 let _resolve  = null;
 
@@ -42,10 +44,12 @@ export function _confirmYes() {
   _resolve?.(true);
   _resolve = null;
   _setState?.({ open: false });
+  scheduleDocumentInteractionRecovery();
 }
 
 export function _confirmNo() {
   _resolve?.(false);
   _resolve = null;
   _setState?.({ open: false });
+  scheduleDocumentInteractionRecovery();
 }

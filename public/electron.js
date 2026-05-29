@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const yauzl = require('yauzl');
 const { DropboxUpdater } = require('./dropbox-updater');
 const { UPDATE_CONFIG } = require('./update-config');
+const { uploadPortalJson } = require('./portalDropboxUploader');
 const { logger } = require('./logger');
 const {
   createTaskAssignmentService,
@@ -11856,3 +11857,220 @@ ipcMain.handle('export-invest-projects', async (event, options) => {
 });
 
 // Rollback to previous state
+
+// ============================================================
+// PORTAL DIAFANIAS IPC HANDLERS
+// ============================================================
+
+// Helper: convert Greek-formatted amount string (e.g. "142.500,00") to number
+function parseGreekAmount(str) {
+  if (!str) return null;
+  const cleaned = String(str).replace(/\./g, '').replace(',', '.');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
+
+// Helper: read entaxeis from disk (sync, lightweight — for portal export only)
+function loadEntaxeisForPortal() {
+  if (!entaxisDir || !fs.existsSync(entaxisDir)) return [];
+  const result = [];
+  try {
+    for (const dir of fs.readdirSync(entaxisDir)) {
+      const dataFile = path.join(entaxisDir, dir, 'data.json');
+      if (fs.existsSync(dataFile)) {
+        try { result.push(JSON.parse(fs.readFileSync(dataFile, 'utf8'))); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return result;
+}
+
+// Helper: read proskliseis from disk (sync, lightweight — for portal export only)
+function loadProskliseisForPortal() {
+  if (!proskliseisDir || !fs.existsSync(proskliseisDir)) return [];
+  const result = [];
+  try {
+    for (const dir of fs.readdirSync(proskliseisDir)) {
+      const dataFile = path.join(proskliseisDir, dir, 'data.json');
+      if (fs.existsSync(dataFile)) {
+        try { result.push(JSON.parse(fs.readFileSync(dataFile, 'utf8'))); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return result;
+}
+
+// Default portal export fields — all enabled
+const PORTAL_EXPORT_FIELDS_DEFAULT = {
+  xrimatodotisi: true,
+  proupologismos: true,
+  approvedAmount: true,
+  symvasiPoso: true,
+  anadochos: true,
+  hmerominia_enarksis: true,
+  adam: true,
+  mis: true,
+  kategoria: true,
+};
+
+// Statuses for which ΑΔΑΜ is relevant (contract signed/active/completed)
+const ADAM_VISIBLE_STATUSES = new Set([
+  'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+  'ΟΛΟΚΛΗΡΩΜΕΝΟ',
+  'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ',
+]);
+
+// Helper: map one subproject to the erga.json ergon entry format
+// fieldMask controls which optional fields are included (id/titlos/katastasi always included)
+// mergeCompleted: if true, "ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ" is normalized to "ΟΛΟΚΛΗΡΩΜΕΝΟ"
+function buildErgonEntry(sp, fieldMask = PORTAL_EXPORT_FIELDS_DEFAULT, mergeCompleted = false) {
+  const mask = { ...PORTAL_EXPORT_FIELDS_DEFAULT, ...fieldMask };
+
+  let symvasiPoso = null;
+  let anadochos = null;
+  let hmEnarksis = null;
+
+  let adam = null;
+
+  if (sp.implementationForm === 'Πολλές Συμβάσεις' && Array.isArray(sp.contracts) && sp.contracts.length > 0) {
+    let total = 0;
+    for (const c of sp.contracts) {
+      const v = parseGreekAmount(c.amount);
+      if (v !== null) total += v;
+    }
+    symvasiPoso = total > 0 ? total : null;
+
+    for (const c of sp.contracts) {
+      const name = c.khmdhsContractSnapshot?.anadoxosName;
+      if (name) { anadochos = name; break; }
+    }
+    const firstWithDate = sp.contracts.find(c => c.date);
+    if (firstWithDate) hmEnarksis = firstWithDate.date;
+
+    // ΑΔΑΜ: συγκέντρωση όλων των μη-κενών ΑΔΑΜ από τις συμβάσεις
+    const adamValues = sp.contracts
+      .map(c => (c.khmdhsAdam || '').trim())
+      .filter(Boolean);
+    adam = adamValues.length > 0 ? adamValues.join(', ') : null;
+  } else {
+    symvasiPoso = parseGreekAmount(sp.contractAmount);
+    anadochos = sp.khmdhsContractSnapshot?.anadoxosName || null;
+    hmEnarksis = sp.contractDate || null;
+    adam = (sp.khmdhsAdam || '').trim() || null;
+  }
+
+  const mis = sp.misPraxhsCode ? String(sp.misPraxhsCode).trim() || null : null;
+
+  // Κανονικοποίηση κατάστασης αν ενεργοποιηθεί η συγχώνευση
+  const rawStatus = sp.projectStatus || null;
+  const katastasi = (mergeCompleted && rawStatus === 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ')
+    ? 'ΟΛΟΚΛΗΡΩΜΕΝΟ'
+    : rawStatus;
+
+  // Πάντα παρόν: id, titlos, katastasi
+  const entry = {
+    id: sp.subprojectId,
+    titlos: sp.subprojectTitle || null,
+    katastasi,
+  };
+
+  if (mask.kategoria)           entry.kategoria           = sp.projectType || null;
+  if (mask.xrimatodotisi)       entry.xrimatodotisi       = sp.fundingSource || null;
+  if (mask.proupologismos)      entry.proupologismos      = parseGreekAmount(sp.projectBudget);
+  if (mask.approvedAmount)      entry.approvedAmount      = parseGreekAmount(sp.approvedAmount);
+  if (mask.symvasiPoso)         entry.symvasiPoso         = symvasiPoso;
+  if (mask.anadochos)           entry.anadochos           = anadochos;
+  if (mask.hmerominia_enarksis) entry.hmerominia_enarksis = hmEnarksis || null;
+  // ΑΔΑΜ: εμφανίζεται μόνο για εκτελούμενα/ολοκληρωμένα/αποπληρωμένα (σύμβαση υπαρκτή)
+  if (mask.adam && ADAM_VISIBLE_STATUSES.has(sp.projectStatus)) entry.adam = adam;
+  if (mask.mis)                 entry.mis                 = mis;
+
+  return entry;
+}
+
+ipcMain.handle('export-portal-data', async (_event, { selectedSubprojectIds, actingUsername, dimosUid }) => {
+  try {
+    const actingUser = findUserByUsername(actingUsername);
+    if (!actingUser || (actingUser.role !== 'ADMIN' && actingUser.role !== 'SUPERADMIN')) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα εξαγωγής για την Πύλη Διαφάνειας.' };
+    }
+
+    if (!Array.isArray(selectedSubprojectIds) || selectedSubprojectIds.length === 0) {
+      return { success: false, error: 'Δεν επιλέχθηκαν υποέργα.' };
+    }
+
+    const uid = String(dimosUid || '').trim();
+    if (!uid) return { success: false, error: 'Το αναγνωριστικό Δήμου (dimosUid) δεν έχει οριστεί.' };
+
+    const allProjects = await loadAllProjects();
+    const selectedSet = new Set(selectedSubprojectIds);
+    const selected = allProjects.filter(p => selectedSet.has(p.subprojectId));
+
+    const config = loadConfig();
+    const dimosOnoma = config.organizationName || '';
+    const fieldMask = { ...PORTAL_EXPORT_FIELDS_DEFAULT, ...(config.portalExportFields || {}) };
+    const mergeCompleted = config.portalMergeCompleted === true;
+
+    const erga = selected.map(sp => buildErgonEntry(sp, fieldMask, mergeCompleted));
+
+    const ergaJson = {
+      dimos: dimosOnoma,
+      dimosUid: uid,
+      lastUpdated: new Date().toISOString(),
+      erga
+    };
+
+    const jsonContent = JSON.stringify(ergaJson, null, 2);
+
+    const { dropboxLink } = await uploadPortalJson(jsonContent, uid);
+
+    const publishedPath = path.join(dataDir, 'portal-published.json');
+    safeWriteJSON(publishedPath, {
+      subprojectIds: selectedSubprojectIds,
+      lastExportedAt: new Date().toISOString(),
+      lastDropboxLink: dropboxLink
+    });
+
+    if (!config.portalDimosUid || config.portalDimosUid !== uid) {
+      saveConfig({ portalDimosUid: uid });
+    }
+
+    logger.info(`Portal export: ${erga.length} υποέργα → Dropbox /portal/${uid}/erga.json (by ${actingUsername})`);
+
+    return { success: true, dropboxLink, count: erga.length };
+  } catch (e) {
+    logger.error('export-portal-data failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('load-portal-published', async () => {
+  try {
+    const publishedPath = path.join(dataDir, 'portal-published.json');
+    if (!fs.existsSync(publishedPath)) {
+      return { success: true, data: { subprojectIds: [], lastExportedAt: null, lastDropboxLink: null } };
+    }
+    const data = JSON.parse(fs.readFileSync(publishedPath, 'utf8'));
+    return { success: true, data };
+  } catch (e) {
+    logger.error('load-portal-published failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-portal-published', async (_event, { subprojectIds }) => {
+  try {
+    const publishedPath = path.join(dataDir, 'portal-published.json');
+    const existing = fs.existsSync(publishedPath)
+      ? JSON.parse(fs.readFileSync(publishedPath, 'utf8'))
+      : {};
+    safeWriteJSON(publishedPath, {
+      ...existing,
+      subprojectIds: Array.isArray(subprojectIds) ? subprojectIds : []
+    });
+    return { success: true };
+  } catch (e) {
+    logger.error('save-portal-published failed', e);
+    return { success: false, error: e.message };
+  }
+});

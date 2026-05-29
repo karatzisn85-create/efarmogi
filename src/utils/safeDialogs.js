@@ -5,27 +5,12 @@
  * Μετά το κλείσιμο, inline styles (overflow, pointer-events) μπορεί
  * να μείνουν κολλημένα. Οι wrappers τρέχουν cleanup μετά κάθε dialog.
  */
+import { scheduleDocumentInteractionRecovery } from './documentInteractionReset';
 
 const ipcRenderer = window.electronAPI;
 
 function cleanupBodyInteraction() {
-  if (typeof document === 'undefined') return;
-  const targets = [document.body, document.documentElement, document.getElementById('root')].filter(Boolean);
-
-  const unlock = () => {
-    targets.forEach((el) => {
-      el.style.removeProperty('pointer-events');
-    });
-    document.body.removeAttribute('inert');
-  };
-
-  unlock();
-  if (typeof requestAnimationFrame === 'function') {
-    requestAnimationFrame(() => {
-      unlock();
-      requestAnimationFrame(unlock);
-    });
-  }
+  scheduleDocumentInteractionRecovery();
 }
 
 export function safeConfirm(message) {

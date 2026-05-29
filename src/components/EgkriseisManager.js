@@ -5,7 +5,8 @@ import EgkriseisStructureViewer from './EgkriseisStructureViewer';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
 import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
-import { safeConfirm } from '../utils/safeDialogs';
+import { safeConfirm, safeAlert } from '../utils/safeDialogs';
+import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
@@ -435,6 +436,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
       setSearchTerm(cleaned);
     } else if (!isOpen) {
       setSearchTerm('');
+      scheduleDocumentInteractionRecovery();
     }
   }, [isOpen, initialSearchTerm]);
 
@@ -685,7 +687,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
       setEgkriseisData(allEgkriseis);
     } catch (error) {
       console.error('Error loading egkriseis:', error);
-      alert('Σφάλμα κατά τη φόρτωση των εγκρίσεων');
+      safeAlert('Σφάλμα κατά τη φόρτωση των εγκρίσεων');
     } finally {
       setLoading(false);
     }
@@ -719,11 +721,11 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
     try {
       const result = await ipcRenderer.invoke('view-egkrisi-file', projectId, subprojectId, fileName);
       if (!result.success) {
-        alert('Σφάλμα κατά το άνοιγμα του αρχείου: ' + result.error);
+        safeAlert('Σφάλμα κατά το άνοιγμα του αρχείου: ' + result.error);
       }
     } catch (error) {
       console.error('Error viewing file:', error);
-      alert('Σφάλμα κατά το άνοιγμα του αρχείου');
+      safeAlert('Σφάλμα κατά το άνοιγμα του αρχείου');
     }
   };
 
@@ -738,11 +740,11 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
       if (result.success) {
         loadAllEgkriseis();
       } else {
-        alert('Σφάλμα κατά τη διαγραφή: ' + result.error);
+        safeAlert('Σφάλμα κατά τη διαγραφή: ' + result.error);
       }
     } catch (error) {
       console.error('Error deleting egkrisi:', error);
-      alert('Σφάλμα κατά τη διαγραφή');
+      safeAlert('Σφάλμα κατά τη διαγραφή');
     }
   };
 
@@ -752,7 +754,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
 
     if (lockStatus.locked) {
       const who = lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή';
-      alert(`Η έγκριση είναι υπό επεξεργασία από ${who}.`);
+      safeAlert(`Η έγκριση είναι υπό επεξεργασία από ${who}.`);
       return;
     }
 
@@ -760,7 +762,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
     const lockResult = await ipcRenderer.invoke('create-entity-lock', 'egkriseis', egkrisiId, lockOwner);
     if (!lockResult.success) {
       const who = lockResult.lockedBy ? `«${lockResult.lockedBy}»` : 'άλλον χρήστη';
-      alert(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${who}.`);
+      safeAlert(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${who}.`);
       return;
     }
 
@@ -816,7 +818,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
         setIsLinkingModalOpen(false);
         setCurrentLinkingEgkrisi(null);
         
-        alert('Η συσχέτιση με το υποέργο δημιουργήθηκε επιτυχώς!');
+        safeAlert('Η συσχέτιση με το υποέργο δημιουργήθηκε επιτυχώς!');
       } else {
         // Ξεκλείδωμα ακόμα και σε περίπτωση σφάλματος
         const egkrisiId = `egkrisi_${currentLinkingEgkrisi.projectKey}_${currentLinkingEgkrisi.subprojectKey}`;
@@ -826,7 +828,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
           [egkrisiId]: false
         }));
         
-        alert('Σφάλμα κατά τη συσχέτιση: ' + result.error);
+        safeAlert('Σφάλμα κατά τη συσχέτιση: ' + result.error);
       }
     } catch (error) {
       console.error('Error linking subproject:', error);
@@ -839,13 +841,13 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
         [egkrisiId]: false
       }));
       
-      alert('Σφάλμα κατά τη συσχέτιση');
+      safeAlert('Σφάλμα κατά τη συσχέτιση');
     }
   };
 
   const handleCreateApproval = async (egkrisi) => {
     if (!linkedSubprojects[egkrisi.id]) {
-      alert('Παρακαλώ συσχετίστε πρώτα την έγκριση με ένα υποέργο');
+      safeAlert('Παρακαλώ συσχετίστε πρώτα την έγκριση με ένα υποέργο');
       return;
     }
 
@@ -857,15 +859,15 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
       });
 
       if (result.success) {
-        alert('Η έγκριση διαθέσεως πίστωσης δημιουργήθηκε επιτυχώς!');
+        safeAlert('Η έγκριση διαθέσεως πίστωσης δημιουργήθηκε επιτυχώς!');
         // Refresh data
         loadAllEgkriseis();
       } else {
-        alert('Σφάλμα κατά τη δημιουργία έγκρισης: ' + result.error);
+        safeAlert('Σφάλμα κατά τη δημιουργία έγκρισης: ' + result.error);
       }
     } catch (error) {
       console.error('Error creating approval:', error);
-      alert('Σφάλμα κατά τη δημιουργία έγκρισης');
+      safeAlert('Σφάλμα κατά τη δημιουργία έγκρισης');
     }
   };
 
@@ -1149,6 +1151,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
               }
               setIsLinkingModalOpen(false);
               setCurrentLinkingEgkrisi(null);
+              scheduleDocumentInteractionRecovery();
             }}
             onLink={handleSubprojectLinked}
             currentEgkrisi={currentLinkingEgkrisi}

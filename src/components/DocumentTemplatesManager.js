@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
-import { safeConfirm } from '../utils/safeDialogs';
+import { safeAlert } from '../utils/safeDialogs';
+import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import { showConfirm } from '../utils/confirmModal';
 import { containsSearchTerm } from '../utils/searchUtils';
 
@@ -670,7 +672,7 @@ function DocumentTemplatesManager({ onClose }) {
 
   const handleSaveCategory = async () => {
     if (!newCategoryName.trim()) {
-      alert('Παρακαλώ εισάγετε όνομα κατηγορίας!');
+      safeAlert('Παρακαλώ εισάγετε όνομα κατηγορίας!');
       return;
     }
 
@@ -690,13 +692,13 @@ function DocumentTemplatesManager({ onClose }) {
       }
     } catch (error) {
       console.error('Error adding category:', error);
-      alert('Σφάλμα κατά την προσθήκη κατηγορίας');
+      safeAlert('Σφάλμα κατά την προσθήκη κατηγορίας');
     }
   };
 
   const handleUploadDocument = async () => {
     if (!selectedCategory) {
-      alert('Παρακαλώ επιλέξτε μια κατηγορία πρώτα!');
+      safeAlert('Παρακαλώ επιλέξτε μια κατηγορία πρώτα!');
       return;
     }
 
@@ -708,17 +710,17 @@ function DocumentTemplatesManager({ onClose }) {
           await loadData();
           // Show success message with count
           if (result.count === 1) {
-            alert(`Επιτυχής ανέβασμα ${result.count} εγγράφου!`);
+            safeAlert(`Επιτυχής ανέβασμα ${result.count} εγγράφου!`);
           } else {
-            alert(`Επιτυχής ανέβασμα ${result.count} εγγράφων!`);
+            safeAlert(`Επιτυχής ανέβασμα ${result.count} εγγράφων!`);
           }
         }
       } else if (!result.canceled) {
-        alert('Σφάλμα κατά το ανέβασμα εγγράφων');
+        safeAlert('Σφάλμα κατά το ανέβασμα εγγράφων');
       }
     } catch (error) {
       console.error('Error uploading document:', error);
-      alert('Σφάλμα κατά το ανέβασμα εγγράφων');
+      safeAlert('Σφάλμα κατά το ανέβασμα εγγράφων');
     } finally {
       setLoading(false);
     }
@@ -729,7 +731,7 @@ function DocumentTemplatesManager({ onClose }) {
       await ipcRenderer.invoke('download-document-template', docId);
     } catch (error) {
       console.error('Error downloading document:', error);
-      alert('Σφάλμα κατά τη λήψη εγγράφου');
+      safeAlert('Σφάλμα κατά τη λήψη εγγράφου');
     }
   };
 
@@ -743,7 +745,7 @@ function DocumentTemplatesManager({ onClose }) {
       await loadData();
     } catch (error) {
       console.error('Error deleting document:', error);
-      alert('Σφάλμα κατά τη διαγραφή εγγράφου');
+      safeAlert('Σφάλμα κατά τη διαγραφή εγγράφου');
     }
   };
 
@@ -752,7 +754,7 @@ function DocumentTemplatesManager({ onClose }) {
       await ipcRenderer.invoke('open-document-template', docId, false);
     } catch (error) {
       console.error('Error viewing document:', error);
-      alert('Σφάλμα κατά την προβολή εγγράφου');
+      safeAlert('Σφάλμα κατά την προβολή εγγράφου');
     }
   };
 
@@ -768,12 +770,12 @@ function DocumentTemplatesManager({ onClose }) {
 
   const handleCopy = (doc) => {
     setCopiedDocument(doc);
-    alert(`Το έγγραφο "${doc.name}" αντιγράφηκε! Επιλέξτε κατηγορία για επικόλληση.`);
+    safeAlert(`Το έγγραφο "${doc.name}" αντιγράφηκε! Επιλέξτε κατηγορία για επικόλληση.`);
   };
 
   const handlePaste = async (targetCategoryId) => {
     if (!copiedDocument) {
-      alert('Δεν υπάρχει αντιγραμμένο έγγραφο');
+      safeAlert('Δεν υπάρχει αντιγραμμένο έγγραφο');
       return;
     }
 
@@ -784,14 +786,14 @@ function DocumentTemplatesManager({ onClose }) {
         await loadData();
         // Επιλογή της κατηγορίας όπου έγινε το paste
         setSelectedCategory(targetCategoryId);
-        alert(`Το έγγραφο "${copiedDocument.name}" επικολλήθηκε επιτυχώς!`);
+        safeAlert(`Το έγγραφο "${copiedDocument.name}" επικολλήθηκε επιτυχώς!`);
         // Μπορούμε να αφήσουμε το copiedDocument για να μπορεί να γίνει paste και σε άλλες κατηγορίες
       } else {
-        alert('Σφάλμα κατά την επικόλληση: ' + (result.error || 'Άγνωστο σφάλμα'));
+        safeAlert('Σφάλμα κατά την επικόλληση: ' + (result.error || 'Άγνωστο σφάλμα'));
       }
     } catch (error) {
       console.error('Error pasting document:', error);
-      alert('Σφάλμα κατά την επικόλληση: ' + error.message);
+      safeAlert('Σφάλμα κατά την επικόλληση: ' + error.message);
     }
   };
 
@@ -822,11 +824,11 @@ function DocumentTemplatesManager({ onClose }) {
         await loadData();
         handleCloseColorModal();
       } else {
-        alert('Σφάλμα κατά την ενημέρωση κατηγορίας: ' + (result.error || 'Άγνωστο σφάλμα'));
+        safeAlert('Σφάλμα κατά την ενημέρωση κατηγορίας: ' + (result.error || 'Άγνωστο σφάλμα'));
       }
     } catch (error) {
       console.error('Error updating category color:', error);
-      alert('Σφάλμα κατά την ενημέρωση χρώματος κατηγορίας');
+      safeAlert('Σφάλμα κατά την ενημέρωση χρώματος κατηγορίας');
     }
   };
 
@@ -838,6 +840,7 @@ function DocumentTemplatesManager({ onClose }) {
   const handleCloseDeleteCategoryModal = () => {
     setShowDeleteCategoryModal(false);
     setCategoryToDelete(null);
+    scheduleDocumentInteractionRecovery();
   };
 
   const handleConfirmDeleteCategory = async () => {
@@ -850,19 +853,20 @@ function DocumentTemplatesManager({ onClose }) {
       const result = await ipcRenderer.invoke('delete-document-category', categoryToDelete.id);
       if (result.success) {
         await loadData();
-        alert(`Η κατηγορία "${categoryToDelete.name}" διαγράφηκε. Διαγράφηκαν ${result.removedDocuments || 0} συνημμένα αρχεία.`);
+        safeAlert(`Η κατηγορία "${categoryToDelete.name}" διαγράφηκε. Διαγράφηκαν ${result.removedDocuments || 0} συνημμένα αρχεία.`);
       } else {
-        alert('Σφάλμα κατά τη διαγραφή κατηγορίας: ' + (result.error || 'Άγνωστο σφάλμα'));
+        safeAlert('Σφάλμα κατά τη διαγραφή κατηγορίας: ' + (result.error || 'Άγνωστο σφάλμα'));
       }
     } catch (error) {
       console.error('Error deleting category:', error);
-      alert('Σφάλμα κατά τη διαγραφή κατηγορίας');
+      safeAlert('Σφάλμα κατά τη διαγραφή κατηγορίας');
     } finally {
       handleCloseDeleteCategoryModal();
     }
   };
 
   const handleRenameClick = (doc) => {
+    scheduleDocumentInteractionRecovery();
     const lastDotIndex = doc.name.lastIndexOf('.');
     const baseName = lastDotIndex > 0 ? doc.name.substring(0, lastDotIndex) : doc.name;
     setDocumentToRename(doc);
@@ -872,9 +876,12 @@ function DocumentTemplatesManager({ onClose }) {
 
   useEffect(() => {
     if (showRenameModal && renameInputRef.current) {
-      // Keep focus stable in Electron modal flow after copy/paste actions.
-      renameInputRef.current.focus();
-      renameInputRef.current.select();
+      const timer = setTimeout(() => {
+        scheduleDocumentInteractionRecovery();
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [showRenameModal, documentToRename?.id]);
 
@@ -882,6 +889,7 @@ function DocumentTemplatesManager({ onClose }) {
     setShowRenameModal(false);
     setDocumentToRename(null);
     setRenameDocumentName('');
+    scheduleDocumentInteractionRecovery();
   };
 
   const handleSaveRename = async () => {
@@ -891,7 +899,7 @@ function DocumentTemplatesManager({ onClose }) {
 
     const trimmedName = renameDocumentName.trim();
     if (!trimmedName) {
-      alert('Παρακαλώ εισάγετε νέο όνομα εγγράφου.');
+      safeAlert('Παρακαλώ εισάγετε νέο όνομα εγγράφου.');
       return;
     }
 
@@ -905,11 +913,11 @@ function DocumentTemplatesManager({ onClose }) {
         await loadData();
         handleCloseRenameModal();
       } else {
-        alert('Σφάλμα κατά τη μετονομασία: ' + (result.error || 'Άγνωστο σφάλμα'));
+        safeAlert('Σφάλμα κατά τη μετονομασία: ' + (result.error || 'Άγνωστο σφάλμα'));
       }
     } catch (error) {
       console.error('Error renaming document:', error);
-      alert('Σφάλμα κατά τη μετονομασία εγγράφου');
+      safeAlert('Σφάλμα κατά τη μετονομασία εγγράφου');
     }
   };
 
@@ -923,15 +931,32 @@ function DocumentTemplatesManager({ onClose }) {
     return documents.filter(doc => doc.category === categoryId).length;
   };
 
+  const handleCloseManager = () => {
+    scheduleDocumentInteractionRecovery();
+    onClose();
+  };
+
+  useEffect(() => () => scheduleDocumentInteractionRecovery(), []);
+
+  const renderOverlayModal = (open, onBackdropClose, content) => {
+    if (!open || typeof document === 'undefined') return null;
+    return createPortal(
+      <Modal onClick={(e) => e.target === e.currentTarget && onBackdropClose()}>
+        {content}
+      </Modal>,
+      document.body
+    );
+  };
+
   return (
-    <ManagerContainer onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <ManagerContainer onClick={(e) => e.target === e.currentTarget && handleCloseManager()}>
       <ManagerContent>
         <Header>
           <Title>
             <span>📄</span>
             Υποδείγματα Εγγράφων
           </Title>
-          <CloseButton onClick={onClose}>×</CloseButton>
+          <CloseButton onClick={handleCloseManager}>×</CloseButton>
         </Header>
 
         <ContentArea>
@@ -1065,9 +1090,10 @@ function DocumentTemplatesManager({ onClose }) {
         </ContentArea>
       </ManagerContent>
 
-      {/* Category Modal */}
-      {showCategoryModal && (
-        <Modal onClick={(e) => e.target === e.currentTarget && setShowCategoryModal(false)}>
+      {renderOverlayModal(showCategoryModal, () => {
+        setShowCategoryModal(false);
+        scheduleDocumentInteractionRecovery();
+      }, (
           <ModalContent>
             <ModalTitle>➕ Νέα Κατηγορία</ModalTitle>
             <ModalInput
@@ -1079,7 +1105,10 @@ function DocumentTemplatesManager({ onClose }) {
               autoFocus
             />
             <ModalButtons>
-              <ModalButton className="secondary" onClick={() => setShowCategoryModal(false)}>
+              <ModalButton className="secondary" onClick={() => {
+                setShowCategoryModal(false);
+                scheduleDocumentInteractionRecovery();
+              }}>
                 Ακύρωση
               </ModalButton>
               <ModalButton className="primary" onClick={handleSaveCategory}>
@@ -1087,12 +1116,9 @@ function DocumentTemplatesManager({ onClose }) {
               </ModalButton>
             </ModalButtons>
           </ModalContent>
-        </Modal>
-      )}
+      ))}
 
-      {/* Rename Document Modal */}
-      {showRenameModal && (
-        <Modal onClick={(e) => e.target === e.currentTarget && handleCloseRenameModal()}>
+      {renderOverlayModal(showRenameModal, handleCloseRenameModal, (
           <ModalContent>
             <ModalTitle>✏️ Μετονομασία Εγγράφου</ModalTitle>
             {documentToRename && (
@@ -1123,12 +1149,9 @@ function DocumentTemplatesManager({ onClose }) {
               </ModalButton>
             </ModalButtons>
           </ModalContent>
-        </Modal>
-      )}
+      ))}
 
-      {/* Delete Category Modal */}
-      {showDeleteCategoryModal && (
-        <Modal onClick={(e) => e.target === e.currentTarget && handleCloseDeleteCategoryModal()}>
+      {renderOverlayModal(showDeleteCategoryModal, handleCloseDeleteCategoryModal, (
           <ModalContent>
             <ModalTitle>🗑️ Διαγραφή Κατηγορίας</ModalTitle>
             {categoryToDelete && (
@@ -1157,8 +1180,7 @@ function DocumentTemplatesManager({ onClose }) {
               </ModalButton>
             </ModalButtons>
           </ModalContent>
-        </Modal>
-      )}
+      ))}
     </ManagerContainer>
   );
 }

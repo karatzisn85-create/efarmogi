@@ -1442,7 +1442,7 @@ function createTaskAssignmentService(deps) {
   function userHasTaskAccess(actingUsername) {
     const users = loadUsers();
     const actor = findUser(users, actingUsername);
-    if (!actor) return { canAssign: false, hasInvolvement: false, unreadCount: 0 };
+    if (!actor) return { canAssign: false, hasInvolvement: false, unreadCount: 0, showModule: false };
     const ta = normalizeTaskAssignment(actor.taskAssignment);
     const idx = readIndex();
     const involved = idx.tasks.some((meta) => {
@@ -1455,11 +1455,13 @@ function createTaskAssignmentService(deps) {
     });
     const notif = loadNotifications({ actingUsername, unreadOnly: true });
     const canAssign = ta.canAssign || isSuperAdmin(users, actingUsername);
+    /** Όλοι οι ενεργοί/εγκεκριμένοι χρήστες (συμπ. USER/viewer) βλέπουν τον Χώρο Εργασίας — όχι μόνο όταν είναι ήδη αναθέτης ή έχουν ειδοποίηση. */
+    const showModule = isActiveApprovedUser(actor);
     return {
       canAssign,
       hasInvolvement: involved,
       unreadCount: notif.unreadCount || 0,
-      showModule: canAssign || involved || (notif.unreadCount || 0) > 0
+      showModule
     };
   }
 

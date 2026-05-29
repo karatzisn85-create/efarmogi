@@ -28,6 +28,7 @@ import {
 } from '../utils/khmdhsFields';
 import { getCharacterization } from '../data/formOptions';
 import { safeConfirm } from '../utils/safeDialogs';
+import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import { showConfirm } from '../utils/confirmModal';
 
 const Statistics = lazy(() => import('./Statistics'));
@@ -35,6 +36,8 @@ const PDFViewer = lazy(() => import('./PDFViewer'));
 const ExportData = lazy(() => import('./ExportData'));
 const TechnicalProgramExport = lazy(() => import('./TechnicalProgramExport'));
 const InvestExport = lazy(() => import('./InvestExport'));
+const PortalExport = lazy(() => import('./PortalExport'));
+const PortalSettingsModal = lazy(() => import('./PortalSettingsModal'));
 const EntaxisManager = lazy(() => import('./EntaxisManager'));
 const ProsklisisManager = lazy(() => import('./ProsklisisManager'));
 const EgkriseisManager = lazy(() => import('./EgkriseisManager'));
@@ -2258,6 +2261,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isTechnicalProgramOpen, setIsTechnicalProgramOpen] = useState(false);
   const [isInvestExportOpen, setIsInvestExportOpen] = useState(false);
+  const [isPortalExportOpen, setIsPortalExportOpen] = useState(false);
+  const [isPortalSettingsOpen, setIsPortalSettingsOpen] = useState(false);
+  const [portalEnabled, setPortalEnabled] = useState(appConfig.portalEnabled === true);
+  const [publishedSubprojectIds, setPublishedSubprojectIds] = useState(new Set());
   const [isBackupManagerOpen, setIsBackupManagerOpen] = useState(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
@@ -2367,6 +2374,19 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   useEffect(() => {
     loadLinkedEgkriseis();
   }, []); // Load only once on mount to avoid unnecessary re-renders
+
+  // Φόρτωση επιλεγμένων υποέργων πύλης (όταν η υπηρεσία είναι ενεργή)
+  useEffect(() => {
+    if (!portalEnabled) {
+      setPublishedSubprojectIds(new Set());
+      return;
+    }
+    ipcRenderer.invoke('load-portal-published').then((res) => {
+      if (res?.success && Array.isArray(res.data?.subprojectIds)) {
+        setPublishedSubprojectIds(new Set(res.data.subprojectIds));
+      }
+    }).catch(() => {});
+  }, [portalEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load notes from file on mount
   const notesLoadedRef = useRef(false);
@@ -4229,14 +4249,22 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       if (typeof onSyncCurrentUser === 'function') await onSyncCurrentUser();
       if (res?.success) {
         setTaskAccess({ showModule: !!res.showModule, unreadCount: res.unreadCount || 0, canAssign: !!res.canAssign });
-      } else if (fallbackCanAssign) {
-        setTaskAccess({ showModule: true, unreadCount: 0, canAssign: true });
+      } else {
+        const approvedViewer = currentUser?.approved !== false && currentUser?.active !== false;
+        setTaskAccess({
+          showModule: approvedViewer || fallbackCanAssign,
+          unreadCount: 0,
+          canAssign: fallbackCanAssign
+        });
       }
     } catch {
       if (currentUser?.username !== username) return;
-      if (fallbackCanAssign) {
-        setTaskAccess({ showModule: true, unreadCount: 0, canAssign: true });
-      }
+      const approvedViewer = currentUser?.approved !== false && currentUser?.active !== false;
+      setTaskAccess({
+        showModule: approvedViewer || fallbackCanAssign,
+        unreadCount: 0,
+        canAssign: fallbackCanAssign
+      });
     }
   }, [currentUser?.username, currentUser?.taskAssignment?.canAssign, isSuperAdmin, onSyncCurrentUser]);
   refreshTaskAccessRef.current = refreshTaskAccess;
@@ -4261,6 +4289,19 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
   const handleFocusTaskConsumed = useCallback(() => {
     setTaskAssignmentsFocusTaskId(null);
+  }, []);
+
+  const handleTogglePortalSubproject = useCallback(async (subprojectId) => {
+    setPublishedSubprojectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(subprojectId)) {
+        next.delete(subprojectId);
+      } else {
+        next.add(subprojectId);
+      }
+      ipcRenderer.invoke('save-portal-published', { subprojectIds: Array.from(next) }).catch(() => {});
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -4638,6 +4679,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                               linkedNotesMap={linkedNotesMap}
                               notes={notes}
                               onOpenNoteFromEntity={handleOpenNoteFromEntity}
+                              portalEnabled={portalEnabled}
+                              isPublishedToPortal={publishedSubprojectIds.has(project.subprojectId)}
                             />
                           );
                         })}
@@ -4662,6 +4705,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 });
                 loadLinkedEgkriseis();
                 restoreNoteReturnContext();
+                scheduleDocumentInteractionRecovery();
               }}
               userRole={userRoleForWorkflowModals}
               onOpenForm={() => setIsEgkriseisFormOpen(true)}
@@ -4895,6 +4939,18 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                   Εκτελεστέα Έργα
                 </AdminButton>
               )}
+              {isSuperAdmin && (
+                <AdminButton onClick={() => setIsPortalSettingsOpen(true)}>
+                  <AdminButtonIcon>⚙️</AdminButtonIcon>
+                  Ρυθμίσεις Πύλης
+                </AdminButton>
+              )}
+              {canManageAll && portalEnabled && (
+                <AdminButton onClick={() => setIsPortalExportOpen(true)}>
+                  <AdminButtonIcon>🌐</AdminButtonIcon>
+                  Πύλη Διαφάνειας
+                </AdminButton>
+              )}
               <AdminButton onClick={() => setIsExportOpen(true)}>
                 <AdminButtonIcon>📑</AdminButtonIcon>
                 Εξαγωγή Δεδομένων
@@ -4972,6 +5028,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           userRole={userRole}
           isLocked={selectedDetailProject.isLocked || false}
           lockedBy={selectedDetailProject.lockedBy || ''}
+          portalEnabled={portalEnabled}
+          isPublishedToPortal={publishedSubprojectIds.has(selectedDetailProject.subprojectId)}
+          onTogglePortal={handleTogglePortalSubproject}
         />
       )}
 
@@ -5124,6 +5183,26 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <InvestExport
             isOpen={isInvestExportOpen}
             onClose={() => setIsInvestExportOpen(false)}
+          />
+        </Suspense>
+      ) : null}
+
+      {/* Portal Diafanias Export Modal */}
+      {isPortalExportOpen ? (
+        <Suspense fallback={null}>
+          <PortalExport
+            isOpen={isPortalExportOpen}
+            onClose={() => setIsPortalExportOpen(false)}
+            projects={projects}
+            currentUser={currentUser}
+            appConfig={appConfig}
+            onDimosUidSaved={(uid) => {
+              // Ενημέρωση του τοπικού appConfig αντικειμένου ώστε το
+              // modal να μην ξαναζητά το slug στην ίδια session
+              if (appConfig && !appConfig.portalDimosUid) {
+                appConfig.portalDimosUid = uid;
+              }
+            }}
           />
         </Suspense>
       ) : null}
@@ -5424,6 +5503,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           setEgkriseisInitialSearch('');
           await loadLinkedEgkriseis();
           await loadProjects();
+          scheduleDocumentInteractionRecovery();
         }}
         onLinkCreated={async () => {
           await loadLinkedEgkriseis();
@@ -5442,7 +5522,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       {isDocumentTemplatesOpen && (
         <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
           <DocumentTemplatesManager
-            onClose={() => setIsDocumentTemplatesOpen(false)}
+            onClose={() => {
+              setIsDocumentTemplatesOpen(false);
+              scheduleDocumentInteractionRecovery();
+            }}
           />
         </Suspense>
       )}
@@ -5511,6 +5594,23 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <EmailSettingsModal
             onClose={() => setIsEmailSettingsOpen(false)}
             currentUser={currentUser}
+          />
+        </Suspense>
+      )}
+
+      {isPortalSettingsOpen && (
+        <Suspense fallback={null}>
+          <PortalSettingsModal
+            isOpen={isPortalSettingsOpen}
+            onClose={() => setIsPortalSettingsOpen(false)}
+            appConfig={{ ...appConfig, portalEnabled, portalDimosUid: appConfig.portalDimosUid, portalExportFields: appConfig.portalExportFields, portalMergeCompleted: appConfig.portalMergeCompleted }}
+            onConfigSaved={({ portalEnabled: enabled, portalDimosUid: uid, portalExportFields: fields, portalMergeCompleted: merge }) => {
+              setPortalEnabled(enabled);
+              appConfig.portalEnabled = enabled;
+              appConfig.portalDimosUid = uid;
+              if (fields) appConfig.portalExportFields = fields;
+              appConfig.portalMergeCompleted = !!merge;
+            }}
           />
         </Suspense>
       )}
