@@ -509,7 +509,8 @@ ipcMain.handle('authenticate', async (_event, { username, password }) => {
       role: user.role,
       fullName: user.fullName,
       assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : [],
-      taskAssignment: sanitizeTaskAssignmentForClient(user.taskAssignment)
+      taskAssignment: sanitizeTaskAssignmentForClient(user.taskAssignment),
+      orimanthiCanEdit: user.role === 'USER' ? user.orimanthiCanEdit === true : false,
     }
   };
 });
@@ -547,11 +548,12 @@ ipcMain.handle('get-users', async () => {
     approved: u.approved !== false,
     createdAt: u.createdAt,
     assignedSupervisors: Array.isArray(u.assignedSupervisors) ? u.assignedSupervisors : [],
-    taskAssignment: sanitizeTaskAssignmentForClient(u.taskAssignment)
+    taskAssignment: sanitizeTaskAssignmentForClient(u.taskAssignment),
+    orimanthiCanEdit: u.role === 'USER' ? u.orimanthiCanEdit === true : false,
   }));
 });
 
-ipcMain.handle('create-user', async (_event, { username, password, role, fullName, email, assignedSupervisors = [], taskAssignment, actingUsername }) => {
+ipcMain.handle('create-user', async (_event, { username, password, role, fullName, email, assignedSupervisors = [], taskAssignment, orimanthiCanEdit, actingUsername }) => {
   const users = loadUsers();
   if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
     return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
@@ -570,6 +572,10 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     taskAssignmentNorm = normalizeTaskAssignment(taskAssignment);
   }
 
+  if (orimanthiCanEdit !== undefined && !isSuperAdminUser(actingUsername)) {
+    return { success: false, error: 'Μόνο ο superadmin μπορεί να ορίσει δικαιώματα ωρίμανσης έργων' };
+  }
+
   const newUserEmail = String(email || '').trim().toLowerCase() || null;
   users.push({
     username: username.trim(),
@@ -581,6 +587,7 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     approved: role === 'SUPERADMIN' ? true : false,
     assignedSupervisors: role === 'ENGINEER' ? normalizedSupervisors : [],
     taskAssignment: taskAssignmentNorm,
+    ...(role === 'USER' && orimanthiCanEdit === true ? { orimanthiCanEdit: true } : {}),
     createdAt: new Date().toISOString()
   });
   saveUsers(users);
@@ -629,6 +636,19 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
       return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα χώρου εργασίας' };
     }
     users[idx].taskAssignment = normalizeTaskAssignment(updates.taskAssignment);
+  }
+  if (updates.orimanthiCanEdit !== undefined) {
+    if (!isSuperAdminUser(actingUsername)) {
+      return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα ωρίμανσης έργων' };
+    }
+    if (users[idx].role === 'USER' && updates.orimanthiCanEdit === true) {
+      users[idx].orimanthiCanEdit = true;
+    } else {
+      delete users[idx].orimanthiCanEdit;
+    }
+  }
+  if (updates.role !== undefined && updates.role !== 'USER') {
+    delete users[idx].orimanthiCanEdit;
   }
 
   const newUserData = { ...users[idx] };
@@ -2213,6 +2233,71 @@ ipcMain.handle('download-task-assignment-file', async (_event, { actingUsername,
     }
     fs.copyFileSync(check.filePath, result.filePath);
     return { success: true, filePath: result.filePath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('download-task-assignment-folder', async (_event, { actingUsername, taskId, batchId }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
+  try {
+    const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
+    const batchInfo = svc.resolveTaskBatchForDownload({
+      actingUsername: auth.username,
+      taskId,
+      batchId
+    });
+    if (!batchInfo.success) return batchInfo;
+
+    const pickResult = await dialog.showOpenDialog({
+      title: 'Επιλογή φακέλου προορισμού',
+      properties: ['openDirectory', 'createDirectory']
+    });
+    if (pickResult.canceled || !pickResult.filePaths?.[0]) {
+      return { success: false, canceled: true };
+    }
+
+    const sanitizeFolderName = (name) => {
+      const cleaned = String(name || 'Φάκελος').replace(/[<>:"/\\|?*]/g, '_').trim();
+      return cleaned || 'Φάκελος';
+    };
+
+    const destParent = pickResult.filePaths[0];
+    const baseName = sanitizeFolderName(batchInfo.label);
+    let folderName = baseName;
+    let destDir = path.join(destParent, folderName);
+    let folderCounter = 1;
+    while (fs.existsSync(destDir)) {
+      folderName = `${baseName}_${folderCounter}`;
+      destDir = path.join(destParent, folderName);
+      folderCounter += 1;
+    }
+    fs.mkdirSync(destDir, { recursive: true });
+
+    let copied = 0;
+    batchInfo.files.forEach((fileEntry) => {
+      const ext = path.extname(fileEntry.name);
+      const nameNoExt = path.basename(fileEntry.name, ext);
+      let destName = fileEntry.name;
+      let destPath = path.join(destDir, destName);
+      let fileCounter = 1;
+      while (fs.existsSync(destPath)) {
+        destName = `${nameNoExt}_${fileCounter}${ext}`;
+        destPath = path.join(destDir, destName);
+        fileCounter += 1;
+      }
+      fs.copyFileSync(fileEntry.filePath, destPath);
+      copied += 1;
+    });
+
+    return {
+      success: true,
+      destDir,
+      copied,
+      missing: batchInfo.missing?.length ? batchInfo.missing : undefined
+    };
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -12585,6 +12670,19 @@ function resolveProposalGroupPath(proposalId, groupId, ...parts) {
   return target;
 }
 
+function canManageOrimanthi(username) {
+  const user = findUserByUsername(username);
+  if (!user || user.active === false || user.approved === false) return false;
+  if (user.role === 'SUPERADMIN' || user.role === 'ADMIN') return true;
+  if (user.role === 'USER' && user.orimanthiCanEdit === true) return true;
+  return false;
+}
+
+function denyOrimanthiManage(username) {
+  if (canManageOrimanthi(username)) return null;
+  return { success: false, error: 'Δεν έχετε δικαίωμα επεξεργασίας ωρίμανσης έργων' };
+}
+
 ipcMain.handle('load-all-proposals', async () => {
   try {
     const rootDir = ensureOrimanthiDir();
@@ -12605,6 +12703,8 @@ ipcMain.handle('load-all-proposals', async () => {
 
 ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipAudit } = {}) => {
   try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
     if (!proposal || !proposal.id) return { success: false, error: 'Μη έγκυρα δεδομένα πρότασης' };
     const proposalDir = getProposalDir(proposal.id);
     if (!fs.existsSync(proposalDir)) fs.mkdirSync(proposalDir, { recursive: true });
@@ -12630,6 +12730,8 @@ ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipA
 
 ipcMain.handle('delete-proposal', async (_event, { proposalId, actingUsername } = {}) => {
   try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
     if (!proposalId) return { success: false, error: 'Απαιτείται proposalId' };
     const resolved = path.resolve(getProposalDir(proposalId));
     const rootResolved = path.resolve(getOrimanthiDir());
@@ -12653,8 +12755,10 @@ ipcMain.handle('delete-proposal', async (_event, { proposalId, actingUsername } 
   }
 });
 
-ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, files } = {}) => {
+ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, files, actingUsername } = {}) => {
   try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
     if (!proposalId || !groupId || !Array.isArray(files) || files.length === 0) {
       return { success: false, error: 'Μη έγκυρες παράμετροι ανεβάσματος' };
     }
@@ -12696,8 +12800,10 @@ ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, fi
   }
 });
 
-ipcMain.handle('upload-proposal-folder', async (_event, { proposalId, groupId, folderName, files } = {}) => {
+ipcMain.handle('upload-proposal-folder', async (_event, { proposalId, groupId, folderName, files, actingUsername } = {}) => {
   try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
     if (!proposalId || !groupId || !Array.isArray(files) || files.length === 0) {
       return { success: false, error: 'Μη έγκυρες παράμετροι ανεβάσματος φακέλου' };
     }
@@ -12750,8 +12856,10 @@ ipcMain.handle('upload-proposal-folder', async (_event, { proposalId, groupId, f
   }
 });
 
-ipcMain.handle('delete-proposal-file', async (_event, { proposalId, groupId, fileName } = {}) => {
+ipcMain.handle('delete-proposal-file', async (_event, { proposalId, groupId, fileName, actingUsername } = {}) => {
   try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
     if (!proposalId || !groupId || !fileName) {
       return { success: false, error: 'Απαιτούνται proposalId, groupId και fileName' };
     }
@@ -12767,8 +12875,57 @@ ipcMain.handle('delete-proposal-file', async (_event, { proposalId, groupId, fil
   }
 });
 
-ipcMain.handle('delete-proposal-folder', async (_event, { proposalId, groupId, folderId } = {}) => {
+ipcMain.handle('rename-proposal-file', async (_event, {
+  proposalId,
+  groupId,
+  folderId,
+  oldFileName,
+  newFileName,
+  actingUsername,
+} = {}) => {
   try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
+    if (!proposalId || !groupId || !oldFileName || !newFileName) {
+      return { success: false, error: 'Απαιτούνται proposalId, groupId, oldFileName και newFileName' };
+    }
+
+    const safeOld = path.basename(String(oldFileName).trim());
+    let safeNew = path.basename(String(newFileName).trim());
+    safeNew = safeNew.replace(/[<>:"/\\|?*]/g, '_').trim();
+    if (!safeOld || !safeNew || safeOld === '.' || safeOld === '..' || safeNew === '.' || safeNew === '..') {
+      return { success: false, error: 'Μη έγκυρο όνομα αρχείου' };
+    }
+    if (safeOld === safeNew) {
+      return { success: false, error: 'Το νέο όνομα είναι ίδιο με το παλιό' };
+    }
+
+    const srcPath = folderId
+      ? resolveProposalGroupPath(proposalId, groupId, folderId, safeOld)
+      : resolveProposalGroupPath(proposalId, groupId, safeOld);
+    const destPath = folderId
+      ? resolveProposalGroupPath(proposalId, groupId, folderId, safeNew)
+      : resolveProposalGroupPath(proposalId, groupId, safeNew);
+
+    if (!fs.existsSync(srcPath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+    const stat = fs.statSync(srcPath);
+    if (!stat.isFile()) return { success: false, error: 'Η εγγραφή δεν είναι αρχείο' };
+    if (fs.existsSync(destPath)) {
+      return { success: false, error: 'Υπάρχει ήδη αρχείο με αυτό το όνομα' };
+    }
+
+    fs.renameSync(srcPath, destPath);
+    return { success: true, oldFileName: safeOld, newFileName: safeNew };
+  } catch (e) {
+    logger.error('rename-proposal-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-proposal-folder', async (_event, { proposalId, groupId, folderId, actingUsername } = {}) => {
+  try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
     if (!proposalId || !groupId || !folderId) {
       return { success: false, error: 'Απαιτούνται proposalId, groupId και folderId' };
     }
@@ -12778,6 +12935,74 @@ ipcMain.handle('delete-proposal-folder', async (_event, { proposalId, groupId, f
     return { success: true };
   } catch (e) {
     logger.error('delete-proposal-folder error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('move-proposal-entry', async (_event, {
+  proposalId,
+  sourceGroupId,
+  targetGroupId,
+  entryKind,
+  fileName,
+  folderId,
+  actingUsername,
+} = {}) => {
+  try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
+    if (!proposalId || !sourceGroupId || !targetGroupId || !entryKind) {
+      return { success: false, error: 'Μη έγκυρες παράμετροι μεταφοράς' };
+    }
+    if (sourceGroupId === targetGroupId) {
+      return { success: false, error: 'Η κατηγορία προορισμού είναι ίδια με την πηγή' };
+    }
+
+    const targetDir = path.join(getProposalDir(proposalId), 'files', targetGroupId);
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+    if (entryKind === 'folder') {
+      if (!folderId) return { success: false, error: 'Απαιτείται folderId' };
+      const srcPath = resolveProposalGroupPath(proposalId, sourceGroupId, folderId);
+      if (!fs.existsSync(srcPath)) return { success: false, error: 'Ο φάκελος δεν βρέθηκε' };
+      const destPath = resolveProposalGroupPath(proposalId, targetGroupId, folderId);
+      if (fs.existsSync(destPath)) {
+        return { success: false, error: 'Υπάρχει ήδη φάκελος με το ίδιο όνομα στον προορισμό' };
+      }
+      await fse.move(srcPath, destPath);
+      return { success: true, entry: { kind: 'folder', id: folderId } };
+    }
+
+    if (!fileName) return { success: false, error: 'Απαιτείται fileName' };
+    const srcPath = resolveProposalGroupPath(proposalId, sourceGroupId, fileName);
+    if (!fs.existsSync(srcPath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+    const stat = fs.statSync(srcPath);
+    if (!stat.isFile()) return { success: false, error: 'Η εγγραφή δεν είναι αρχείο' };
+
+    let destName = fileName;
+    let destPath = path.join(targetDir, destName);
+    let counter = 1;
+    while (fs.existsSync(destPath)) {
+      const ext = path.extname(fileName);
+      const nameNoExt = path.basename(fileName, ext);
+      destName = `${nameNoExt}_${counter}${ext}`;
+      destPath = path.join(targetDir, destName);
+      counter += 1;
+    }
+    await fse.move(srcPath, destPath);
+    const movedStat = fs.statSync(destPath);
+    return {
+      success: true,
+      entry: {
+        kind: 'file',
+        name: destName,
+        originalName: fileName,
+        size: movedStat.size,
+        uploadedAt: movedStat.mtime.toISOString(),
+      },
+    };
+  } catch (e) {
+    logger.error('move-proposal-entry error:', e.message);
     return { success: false, error: e.message };
   }
 });

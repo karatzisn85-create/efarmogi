@@ -262,12 +262,14 @@ function App() {
           const sameName = nextName === prev.fullName;
           const sameTA =
             JSON.stringify(prev.taskAssignment || null) === JSON.stringify(me.taskAssignment || null);
-          if (sameRole && sameName && sameTA) return prev;
+          const sameOrimanthi = !!prev.orimanthiCanEdit === !!me.orimanthiCanEdit;
+          if (sameRole && sameName && sameTA && sameOrimanthi) return prev;
           return {
             ...prev,
             taskAssignment: me.taskAssignment,
             role: nextRole,
-            fullName: nextName
+            fullName: nextName,
+            orimanthiCanEdit: !!me.orimanthiCanEdit,
           };
         });
       }

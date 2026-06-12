@@ -37,7 +37,7 @@ const ALLOWED_INVOKE = new Set([
   'load-entaxi-data','load-notes','load-organized-egkriseis-structure','load-task-assignments','load-task-notifications','leave-task-assignment-workspace','leave-task-work-archive',
   'load-project-egkriseis','load-prosklisi-modifications','load-subproject-links',
   'load-unlinked-egkriseis','mark-task-notifications-read','mark-task-notifications-read-for-task','open-document-template','open-egkrisi-v2-pdf',
-  'open-file-dialog','open-note-file','open-pdf-file','open-prosklisi-folder','open-task-assignment-file','download-task-assignment-file','register-user',
+  'open-file-dialog','open-note-file','open-pdf-file','open-prosklisi-folder','open-task-assignment-file','download-task-assignment-file','download-task-assignment-folder','register-user',
   'remove-entity-lock','rename-document-template','restore-backup',
   'save-app-config','save-backup-settings',
   'save-egkriseis-data','save-egkrisi','save-entaxi','save-files',
@@ -75,7 +75,7 @@ const ALLOWED_INVOKE = new Set([
   'get-ep-subproject-link-map',
   'open-exported-file',
   'load-all-proposals','save-proposal','delete-proposal',
-  'upload-proposal-files','upload-proposal-folder','delete-proposal-file','delete-proposal-folder','open-proposal-file','download-proposal-file','get-proposal-folder-files','get-proposal-files','export-proposal',
+  'upload-proposal-files','upload-proposal-folder','delete-proposal-file','rename-proposal-file','delete-proposal-folder','move-proposal-entry','open-proposal-file','download-proposal-file','get-proposal-folder-files','get-proposal-files','export-proposal',
 ]);
 
 const ALLOWED_RECEIVE = new Set([

@@ -352,7 +352,8 @@ const createEmptyFormData = () => ({
   fullName: '',
   email: '',
   role: 'USER',
-  taskAssignment: emptyTaskAssignmentPerms()
+  taskAssignment: emptyTaskAssignmentPerms(),
+  orimanthiCanEdit: false,
 });
 
 function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUser }) {
@@ -469,7 +470,14 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
         assignedSupervisors: []
       };
       if (formData.password) updates.password = formData.password;
-      if (isSuperAdmin) updates.taskAssignment = formData.taskAssignment;
+      if (isSuperAdmin) {
+        updates.taskAssignment = formData.taskAssignment;
+        if (formData.role === 'USER') {
+          updates.orimanthiCanEdit = !!formData.orimanthiCanEdit;
+        } else {
+          updates.orimanthiCanEdit = false;
+        }
+      }
       const result = await ipcRenderer.invoke('update-user', {
         username: editingUser,
         updates,
@@ -479,6 +487,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
         setMessage({ text: 'Ο χρήστης ενημερώθηκε', error: false });
         await loadUsers();
         if (onUsersChanged) onUsersChanged();
+        if (onSyncCurrentUser) onSyncCurrentUser();
         scheduleCloseAfterSuccess();
       } else {
         setMessage({ text: result.error, error: true });
@@ -496,7 +505,12 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
         assignedSupervisors: [],
         actingUsername
       };
-      if (isSuperAdmin) createPayload.taskAssignment = formData.taskAssignment;
+      if (isSuperAdmin) {
+        createPayload.taskAssignment = formData.taskAssignment;
+        if (formData.role === 'USER') {
+          createPayload.orimanthiCanEdit = !!formData.orimanthiCanEdit;
+        }
+      }
       const result = await ipcRenderer.invoke('create-user', createPayload);
 
       if (result.success) {
@@ -520,7 +534,8 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
       role: user.role,
       taskAssignment: user.taskAssignment
         ? { ...emptyTaskAssignmentPerms(), ...user.taskAssignment }
-        : emptyTaskAssignmentPerms()
+        : emptyTaskAssignmentPerms(),
+      orimanthiCanEdit: !!user.orimanthiCanEdit,
     });
     setEditingUser(user.username);
     setShowForm(true);
@@ -897,7 +912,8 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                     const role = e.target.value;
                     setFormData((f) => ({
                       ...f,
-                      role
+                      role,
+                      orimanthiCanEdit: role === 'USER' ? f.orimanthiCanEdit : false,
                     }));
                   }}
                 >
@@ -907,6 +923,20 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                 </Select>
               </FieldGroup>
             </FormRow>
+
+            {isSuperAdmin && formData.role === 'USER' && (
+              <TaskPermSection>
+                <SectionTitle>Ωρίμανση Έργων</SectionTitle>
+                <CheckboxRow>
+                  <input
+                    type="checkbox"
+                    checked={!!formData.orimanthiCanEdit}
+                    onChange={(e) => setFormData((f) => ({ ...f, orimanthiCanEdit: e.target.checked }))}
+                  />
+                  Επεξεργασία πρότασης (viewer με δικαιώματα admin μόνο σε αυτή την υπηρεσία)
+                </CheckboxRow>
+              </TaskPermSection>
+            )}
 
             {isSuperAdmin && (
               <TaskPermSection>

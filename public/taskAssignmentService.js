@@ -1523,6 +1523,50 @@ function createTaskAssignmentService(deps) {
     };
   }
 
+  function resolveTaskBatchForDownload({ actingUsername, taskId, batchId }) {
+    const users = loadUsers();
+    const task = readTask(taskId);
+    if (!task) return { success: false, error: 'Ο χώρος δεν βρέθηκε' };
+    if (!canAccessTask(users, task, actingUsername)) {
+      return { success: false, error: 'Δεν έχετε πρόσβαση' };
+    }
+    if (!batchId) return { success: false, error: 'Απαιτείται αναγνωριστικό φακέλου' };
+
+    const batch = (task.fileBatches || []).find((b) => b.id === batchId);
+    if (!batch) return { success: false, error: 'Ο φάκελος δεν βρέθηκε' };
+    if (batch.kind !== 'folder') {
+      return { success: false, error: 'Η επιλεγμένη ομάδα δεν είναι φάκελος' };
+    }
+
+    const filesDir = path.resolve(getTaskFilesDir(taskId));
+    const batchFiles = (task.files || []).filter((f) => f.batchId === batchId);
+    if (!batchFiles.length) {
+      return { success: false, error: 'Ο φάκελος δεν περιέχει αρχεία' };
+    }
+
+    const files = [];
+    const missing = [];
+    batchFiles.forEach((fileEntry) => {
+      const onDisk = findTaskFileOnDisk(filesDir, fileEntry);
+      if (onDisk) {
+        files.push({ name: fileEntry.name, filePath: onDisk });
+      } else {
+        missing.push(fileEntry.name);
+      }
+    });
+
+    if (!files.length) {
+      return { success: false, error: 'Δεν βρέθηκαν αρχεία του φακέλου στο δίσκο' };
+    }
+
+    return {
+      success: true,
+      label: String(batch.label || '').trim() || 'Φάκελος',
+      files,
+      missing
+    };
+  }
+
   function runDueDateChecks() {
     const idx = readIndex();
     const now = new Date();
@@ -1611,6 +1655,7 @@ function createTaskAssignmentService(deps) {
     leaveWorkspace,
     leaveWorkArchive,
     resolveTaskFilePath,
+    resolveTaskBatchForDownload,
     addComment,
     addFiles,
     deleteTaskAttachment,

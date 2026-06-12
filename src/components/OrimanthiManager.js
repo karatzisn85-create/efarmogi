@@ -302,7 +302,10 @@ const ProposalItem = styled.button`
 const ProposalItemTitle = styled.div`
   font-size: 0.8rem; font-weight: 700;
   color: ${(p) => p.$active ? C.indigoDark : C.slate800};
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
   margin-bottom: 0.25rem;
 `;
 const ProposalItemMeta = styled.div`
@@ -409,7 +412,7 @@ const DetailHeader = styled.div`
   flex-shrink: 0;
 `;
 const TitleRow = styled.div`
-  display: flex; align-items: center; gap: 0.5rem;
+  display: flex; align-items: flex-end; gap: 0.5rem;
   margin-bottom: 0.5rem;
   min-width: 0;
   width: 100%;
@@ -418,18 +421,27 @@ const TitleInput = styled.input`
   flex: 1;
   min-width: 0;
   width: 100%;
-  font-size: 0.98rem; font-weight: 800;
+  font-size: 1rem; font-weight: 800;
   color: ${C.slate900};
-  border: none; outline: none;
-  background: transparent;
-  border-bottom: 1.5px solid ${C.slate200};
-  padding: 0.12rem 0 0.22rem;
-  transition: border-color 0.2s;
+  outline: none;
+  background: ${C.white};
+  border: 1px solid ${C.slate200};
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
   box-sizing: border-box;
   letter-spacing: -0.01em;
-  &:focus { border-bottom-color: ${C.indigo}; }
+  &:focus {
+    border-color: ${C.indigo};
+    box-shadow: 0 0 0 3px ${C.indigoLight};
+  }
   &::placeholder { color: ${C.slate300}; font-weight: 600; }
-  &:read-only { border-bottom-color: transparent; }
+  &:read-only {
+    background: ${C.slate50};
+    border-color: transparent;
+    cursor: default;
+    color: ${C.slate700};
+  }
 `;
 const MetaGrid = styled.div`
   display: grid;
@@ -611,6 +623,32 @@ const GroupsList = styled.div`
   display: flex; flex-direction: column; gap: 0.75rem;
   flex: 1;
 `;
+const GroupsToolbar = styled.div`
+  display: flex; align-items: center; justify-content: flex-end;
+  flex-shrink: 0;
+  margin-bottom: 0.45rem;
+`;
+const ExpandAllBtn = styled.button`
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.32rem 0.7rem;
+  border: 1px solid ${C.slate200};
+  border-radius: 999px;
+  background: ${C.slate50};
+  color: ${C.slate600};
+  font-size: 0.7rem; font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.18s;
+  &:hover {
+    border-color: ${C.indigo};
+    color: ${C.indigoDark};
+    background: ${C.indigoLight};
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+`;
 
 /* ── File Groups tab ── */
 const GroupCard = styled.div`
@@ -750,6 +788,40 @@ const DeleteIconBtn = styled(IconActionBtn)`
     color: ${C.rose};
     border-color: #fecaca;
   }
+`;
+const MoveIconBtn = styled(IconActionBtn)`
+  font-size: 0.82rem;
+  &:hover {
+    background: ${C.indigoLight};
+    color: ${C.indigoDark};
+    border-color: #c7d2fe;
+  }
+`;
+const RenameIconBtn = styled(IconActionBtn)`
+  font-size: 0.78rem;
+  &:hover {
+    background: #fef9c3;
+    color: #854d0e;
+    border-color: #fde047;
+  }
+`;
+const MoveTargetList = styled.div`
+  display: flex; flex-direction: column; gap: 0.35rem;
+  max-height: 220px; overflow-y: auto;
+  margin: 0.75rem 0;
+`;
+const MoveTargetOption = styled.button`
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%; text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1.5px solid ${(p) => (p.$active ? C.indigo : C.slate200)};
+  background: ${(p) => (p.$active ? C.indigoLight : C.white)};
+  color: ${C.slate700};
+  font-size: 0.78rem; font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  &:hover { border-color: ${C.indigo}; background: ${C.indigoLight}; }
 `;
 
 /* ── Folder contents modal ── */
@@ -975,11 +1047,10 @@ const OpenFolderBtn = styled.button`
 `;
 
 /* ─── Main Component ─────────────────────────────────────────────────────── */
-export default function OrimanthiManager({ onClose, loggedInUsername, userRole }) {
+export default function OrimanthiManager({ onClose, loggedInUsername, userRole, orimanthiCanEdit = false }) {
   const { showToast } = useToast();
 
-  // USER role = read-only (can view & download, cannot create/edit/delete)
-  const isReadOnly = userRole === 'USER';
+  const isReadOnly = userRole === 'USER' && !orimanthiCanEdit;
 
   const [proposals, setProposals] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -987,8 +1058,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Per-group collapse state
-  const [collapsedGroups, setCollapsedGroups] = useState({});
+  // Per-group expand state (default: collapsed)
+  const [expandedGroups, setExpandedGroups] = useState({});
 
   // Inline "create new" form in sidebar
   const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -1006,6 +1077,9 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
 
   // Drag state
   const [folderModal, setFolderModal] = useState(null);
+  const [moveModal, setMoveModal] = useState(null);
+  const [renameModal, setRenameModal] = useState(null);
+  const renameInputRef = useRef(null);
   const [draggingGroupId, setDraggingGroupId] = useState(null);
 
   // Export
@@ -1040,6 +1114,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
     setShowCategoryPicker(false);
     setAddingGroup(false);
     setNewGroupName('');
+    setExpandedGroups({});
   }, [selectedId]);
 
   // Sync ref με το τρέχον state
@@ -1064,14 +1139,34 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
     setProposals((prev) =>
       prev.map((p) => p.id === selectedId ? { ...p, ...changes } : p)
     );
-    // Καθαρισμός προηγούμενου timer — μόνο το τελευταίο change αποθηκεύεται
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      // Διαβάζουμε το τελευταίο state από ref — αποφεύγουμε stale closure
       const latest = proposalsRef.current.find((p) => p.id === selectedId);
       if (latest) saveProposal({ ...latest, ...changes }, { skipAudit: true });
     }, 1200);
   }, [selectedId, saveProposal]);
+
+  const handleTitleBlur = useCallback(() => {
+    if (isReadOnly || !selectedId) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const latest = proposalsRef.current.find((p) => p.id === selectedId);
+    if (latest) saveProposal(latest, { skipAudit: true });
+  }, [isReadOnly, selectedId, saveProposal]);
+
+  const handleExpandAllGroups = useCallback(() => {
+    const groups = selectedProposal?.fileGroups || [];
+    if (!groups.length) return;
+    const next = {};
+    groups.forEach((g) => { next[g.id] = true; });
+    setExpandedGroups(next);
+  }, [selectedProposal?.fileGroups]);
+
+  const toggleGroupExpanded = useCallback((groupId) => {
+    setExpandedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  }, []);
 
   /* ── Create proposal — shows inline title form first ── */
   const handleStartCreate = () => {
@@ -1192,6 +1287,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
       proposalId: selectedId,
       groupId,
       files,
+      actingUsername: loggedInUsername,
     });
     if (!res.success) return showToast(`Σφάλμα ανεβάσματος: ${res.error}`, 'error');
 
@@ -1214,7 +1310,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
       return next;
     });
     showToast(`Ανέβηκαν ${res.files.length} αρχεία`, 'success');
-  }, [selectedId, showToast, saveProposal]);
+  }, [selectedId, showToast, saveProposal, loggedInUsername]);
 
   const uploadFolderToGroup = useCallback(async (groupId, picked) => {
     if (!picked?.files?.length || !selectedId) return;
@@ -1226,6 +1322,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
         path: f.filePath || f.path,
         name: f.fileName || f.name,
       })),
+      actingUsername: loggedInUsername,
     });
     if (!res.success) return showToast(`Σφάλμα ανεβάσματος φακέλου: ${res.error}`, 'error');
 
@@ -1247,7 +1344,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
       return next;
     });
     showToast(`Προστέθηκε φάκελος «${res.folder.name}» (${res.folder.fileCount} αρχεία)`, 'success');
-  }, [selectedId, showToast, saveProposal]);
+  }, [selectedId, showToast, saveProposal, loggedInUsername]);
 
   const handleSelectFiles = async (groupId) => {
     if (isReadOnly) return;
@@ -1320,6 +1417,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
       proposalId: selectedId,
       groupId,
       folderId: folder.id,
+      actingUsername: loggedInUsername,
     });
     if (!res.success) return showToast('Σφάλμα διαγραφής φακέλου', 'error');
     setProposals((prev) => {
@@ -1339,6 +1437,101 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
       return next;
     });
     if (folderModal?.folderId === folder.id) setFolderModal(null);
+  };
+
+  const handleOpenMove = (sourceGroupId, entry) => {
+    if (isReadOnly) return;
+    const otherGroups = (selectedProposal?.fileGroups || []).filter((g) => g.id !== sourceGroupId);
+    setMoveModal({
+      sourceGroupId,
+      entry,
+      targetGroupId: otherGroups[0]?.id || '',
+      targetMode: otherGroups.length ? 'existing' : 'new',
+      newCategoryName: '',
+    });
+  };
+
+  const handleConfirmMove = async () => {
+    if (!moveModal || !selectedProposal || !selectedId) return;
+
+    let targetGroupId = moveModal.targetGroupId;
+    let targetLabel = '';
+    let fileGroups = [...(selectedProposal.fileGroups || [])];
+
+    if (moveModal.targetMode === 'new') {
+      targetLabel = moveModal.newCategoryName.trim();
+      if (!targetLabel) {
+        showToast('Δώστε όνομα για τη νέα κατηγορία', 'error');
+        return;
+      }
+      const existing = fileGroups.find(
+        (g) => g.label.trim().toLowerCase() === targetLabel.toLowerCase()
+      );
+      if (existing) {
+        targetGroupId = existing.id;
+      } else {
+        targetGroupId = uuidv4();
+        fileGroups = [...fileGroups, { id: targetGroupId, label: targetLabel, files: [] }];
+      }
+    } else if (!targetGroupId) {
+      showToast('Επιλέξτε κατηγορία προορισμού', 'error');
+      return;
+    }
+
+    if (targetGroupId === moveModal.sourceGroupId) {
+      showToast('Η κατηγορία προορισμού είναι ίδια με την πηγή', 'error');
+      return;
+    }
+
+    const entry = moveModal.entry;
+    const sourceKey = getProposalEntryKey(entry);
+    const payload = {
+      proposalId: selectedId,
+      sourceGroupId: moveModal.sourceGroupId,
+      targetGroupId,
+      actingUsername: loggedInUsername,
+    };
+
+    if (isProposalFolder(entry)) {
+      payload.entryKind = 'folder';
+      payload.folderId = entry.id;
+    } else {
+      payload.entryKind = 'file';
+      payload.fileName = entry.name;
+    }
+
+    const res = await window.electronAPI.invoke('move-proposal-entry', payload);
+    if (!res.success) {
+      showToast(res.error || 'Σφάλμα μεταφοράς', 'error');
+      return;
+    }
+
+    const movedEntry = isProposalFolder(entry)
+      ? { ...entry }
+      : res.entry;
+
+    const nextGroups = fileGroups.map((g) => {
+      if (g.id === moveModal.sourceGroupId) {
+        return { ...g, files: g.files.filter((f) => getProposalEntryKey(f) !== sourceKey) };
+      }
+      if (g.id === targetGroupId) {
+        const withoutDup = g.files.filter((f) => getProposalEntryKey(f) !== getProposalEntryKey(movedEntry));
+        return { ...g, files: [...withoutDup, movedEntry] };
+      }
+      return g;
+    });
+
+    const updatedProposal = { ...selectedProposal, fileGroups: nextGroups };
+    setProposals((prev) => prev.map((p) => (p.id === selectedId ? updatedProposal : p)));
+    await saveProposal(updatedProposal, { skipAudit: true });
+
+    if (folderModal?.groupId === moveModal.sourceGroupId && isProposalFolder(entry)) {
+      setFolderModal(null);
+    }
+
+    setMoveModal(null);
+    const destLabel = nextGroups.find((g) => g.id === targetGroupId)?.label || 'κατηγορία';
+    showToast(`Μεταφέρθηκε στο «${destLabel}»`, 'success');
   };
 
   const handleOpenFile = async (groupId, fileName) => {
@@ -1365,7 +1558,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
       icon: '🗑',
     })) return;
     const res = await window.electronAPI.invoke('delete-proposal-file', {
-      proposalId: selectedId, groupId, fileName
+      proposalId: selectedId, groupId, fileName,
+      actingUsername: loggedInUsername,
     });
     if (!res.success) return showToast('Σφάλμα διαγραφής αρχείου', 'error');
     setProposals((prev) => {
@@ -1385,6 +1579,103 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
       return next;
     });
   };
+
+  const getRenameBaseName = (fileName) => {
+    const lastDot = String(fileName || '').lastIndexOf('.');
+    if (lastDot > 0) return fileName.slice(0, lastDot);
+    return fileName || '';
+  };
+
+  const getRenameExtension = (fileName) => {
+    const lastDot = String(fileName || '').lastIndexOf('.');
+    if (lastDot > 0) return fileName.slice(lastDot);
+    return '';
+  };
+
+  const handleOpenRename = (groupId, fileName, folderId = null) => {
+    if (isReadOnly) return;
+    setRenameModal({
+      groupId,
+      folderId,
+      oldName: fileName,
+      newName: getRenameBaseName(fileName),
+      extension: getRenameExtension(fileName),
+    });
+  };
+
+  const handleCloseRename = () => setRenameModal(null);
+
+  const handleConfirmRename = async () => {
+    if (!renameModal || !selectedId) return;
+    const trimmed = renameModal.newName.trim();
+    if (!trimmed) {
+      showToast('Δώστε νέο όνομα αρχείου', 'error');
+      return;
+    }
+    const finalName = `${trimmed}${renameModal.extension || ''}`;
+
+    const res = await window.electronAPI.invoke('rename-proposal-file', {
+      proposalId: selectedId,
+      groupId: renameModal.groupId,
+      folderId: renameModal.folderId || undefined,
+      oldFileName: renameModal.oldName,
+      newFileName: finalName,
+      actingUsername: loggedInUsername,
+    });
+    if (!res.success) {
+      showToast(res.error || 'Σφάλμα μετονομασίας', 'error');
+      return;
+    }
+
+    const newFileName = res.newFileName;
+
+    if (renameModal.folderId) {
+      setFolderModal((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          files: (prev.files || []).map((f) =>
+            f.name === renameModal.oldName ? { ...f, name: newFileName } : f
+          ),
+        };
+      });
+    } else {
+      setProposals((prev) => {
+        const next = prev.map((p) => {
+          if (p.id !== selectedId) return p;
+          return {
+            ...p,
+            fileGroups: p.fileGroups.map((g) => {
+              if (g.id !== renameModal.groupId) return g;
+              return {
+                ...g,
+                files: g.files.map((f) => {
+                  if (isProposalFolder(f)) return f;
+                  if (f.name !== renameModal.oldName) return f;
+                  return { ...f, name: newFileName };
+                }),
+              };
+            }),
+          };
+        });
+        const updated = next.find((pp) => pp.id === selectedId);
+        if (updated) saveProposal(updated, { skipAudit: true });
+        return next;
+      });
+    }
+
+    setRenameModal(null);
+    showToast(`Μετονομάστηκε σε «${newFileName}»`, 'success');
+  };
+
+  useEffect(() => {
+    if (!renameModal) return undefined;
+    const t = setTimeout(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [renameModal]);
 
   /* ── Drag & drop ── */
   const handleDrop = useCallback(async (e, groupId) => {
@@ -1626,14 +1917,18 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
               <>
                 <DetailHeader>
                   <TitleRow>
-                    <TitleInput
-                      placeholder="Τίτλος πρότασης…"
-                      value={selectedProposal.title}
-                      readOnly={isReadOnly}
-                      onChange={isReadOnly ? undefined : (e) => updateProposal({ title: e.target.value })}
-                      style={isReadOnly ? { cursor: 'default', color: C.slate700 } : undefined}
-                    />
-                    {saving && <Saving>Αποθήκευση…</Saving>}
+                    <MetaField style={{ flex: 1, minWidth: 0 }}>
+                      <MetaLabel htmlFor="proposal-title-input">Τίτλος πρότασης</MetaLabel>
+                      <TitleInput
+                        id="proposal-title-input"
+                        placeholder="Τίτλος πρότασης…"
+                        value={selectedProposal.title}
+                        readOnly={isReadOnly}
+                        onChange={isReadOnly ? undefined : (e) => updateProposal({ title: e.target.value })}
+                        onBlur={handleTitleBlur}
+                      />
+                    </MetaField>
+                    {saving && <Saving style={{ alignSelf: 'flex-end' }}>Αποθήκευση…</Saving>}
                   </TitleRow>
                   <MetaGrid>
                     <MetaField>
@@ -1755,18 +2050,28 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
                         </div>
                       )}
 
+                      {(selectedProposal.fileGroups || []).length > 0 && (
+                        <GroupsToolbar>
+                          <ExpandAllBtn
+                            type="button"
+                            onClick={handleExpandAllGroups}
+                            title="Άνοιγμα όλων των κατηγοριών ταυτόχρονα"
+                          >
+                            ▼ Προβολή όλων των κατηγοριών
+                          </ExpandAllBtn>
+                        </GroupsToolbar>
+                      )}
+
                       <GroupsList>
                       {(selectedProposal.fileGroups || []).map((group) => {
-                        const collapsed = collapsedGroups[group.id];
+                        const expanded = expandedGroups[group.id] === true;
                         const isDragging = draggingGroupId === group.id;
                         const isEmpty = group.files.length === 0;
                         return (
                           <GroupCard key={group.id}>
                             <GroupCardHeader
-                              $open={!collapsed}
-                              onClick={() =>
-                                setCollapsedGroups((prev) => ({ ...prev, [group.id]: !prev[group.id] }))
-                              }
+                              $open={expanded}
+                              onClick={() => toggleGroupExpanded(group.id)}
                             >
                               <GroupName>
                                 <span>{group.label}</span>
@@ -1775,7 +2080,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
                                 </GroupCount>
                               </GroupName>
                               <GroupActions onClick={(e) => e.stopPropagation()}>
-                                {!isReadOnly && !collapsed && (
+                                {!isReadOnly && expanded && (
                                   <>
                                     <Btn $sm $variant="ghost" onClick={() => handleSelectFiles(group.id)}>
                                       + Αρχεία
@@ -1788,18 +2093,18 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
                                     </Btn>
                                   </>
                                 )}
-                                {!isReadOnly && collapsed && (
+                                {!isReadOnly && !expanded && (
                                   <Btn $sm $variant="danger" onClick={() => deleteGroup(group.id, group.label)}>
                                     ✕
                                   </Btn>
                                 )}
                                 <span style={{ fontSize: '0.7rem', color: C.slate400, marginLeft: '0.15rem' }}>
-                                  {collapsed ? '▶' : '▼'}
+                                  {expanded ? '▼' : '▶'}
                                 </span>
                               </GroupActions>
                             </GroupCardHeader>
 
-                            {!collapsed && (
+                            {expanded && (
                               <GroupFilesArea
                                 $empty={isEmpty}
                                 $dragging={isDragging}
@@ -1833,12 +2138,20 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
                                                 👁
                                               </ViewIconBtn>
                                               {!isReadOnly && (
-                                                <DeleteIconBtn
-                                                  title="Διαγραφή φακέλου"
-                                                  onClick={() => handleDeleteFolder(group.id, entry)}
-                                                >
-                                                  ✕
-                                                </DeleteIconBtn>
+                                                <>
+                                                  <MoveIconBtn
+                                                    title="Μεταφορά σε άλλη κατηγορία"
+                                                    onClick={() => handleOpenMove(group.id, entry)}
+                                                  >
+                                                    ⇄
+                                                  </MoveIconBtn>
+                                                  <DeleteIconBtn
+                                                    title="Διαγραφή φακέλου"
+                                                    onClick={() => handleDeleteFolder(group.id, entry)}
+                                                  >
+                                                    ✕
+                                                  </DeleteIconBtn>
+                                                </>
                                               )}
                                             </FileActions>
                                           </FileItem>
@@ -1868,12 +2181,26 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
                                               ⬇
                                             </DownloadIconBtn>
                                             {!isReadOnly && (
-                                              <DeleteIconBtn
-                                                title="Διαγραφή"
-                                                onClick={() => handleDeleteFile(group.id, entry.name)}
-                                              >
-                                                ✕
-                                              </DeleteIconBtn>
+                                              <>
+                                                <RenameIconBtn
+                                                  title="Μετονομασία"
+                                                  onClick={() => handleOpenRename(group.id, entry.name)}
+                                                >
+                                                  ✎
+                                                </RenameIconBtn>
+                                                <MoveIconBtn
+                                                  title="Μεταφορά σε άλλη κατηγορία"
+                                                  onClick={() => handleOpenMove(group.id, entry)}
+                                                >
+                                                  ⇄
+                                                </MoveIconBtn>
+                                                <DeleteIconBtn
+                                                  title="Διαγραφή"
+                                                  onClick={() => handleDeleteFile(group.id, entry.name)}
+                                                >
+                                                  ✕
+                                                </DeleteIconBtn>
+                                              </>
                                             )}
                                           </FileActions>
                                         </FileItem>
@@ -2006,6 +2333,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
                       <FileActions>
                         <ViewIconBtn title="Προβολή" onClick={() => handleOpenFolderFile(f.name)}>👁</ViewIconBtn>
                         <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFolderFile(f.name)}>⬇</DownloadIconBtn>
+                        {!isReadOnly && (
+                          <RenameIconBtn
+                            title="Μετονομασία"
+                            onClick={() => handleOpenRename(folderModal.groupId, f.name, folderModal.folderId)}
+                          >
+                            ✎
+                          </RenameIconBtn>
+                        )}
                       </FileActions>
                     </FileItem>
                   ))}
@@ -2018,6 +2353,118 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole }
           </FolderModalCard>
         </FolderModalOverlay>
       )}
+
+      {renameModal && (
+        <FolderModalOverlay onClick={handleCloseRename}>
+          <FolderModalCard onClick={(e) => e.stopPropagation()}>
+            <FolderModalHeader>
+              <FolderModalTitle>✎ Μετονομασία αρχείου</FolderModalTitle>
+              <FolderModalSub>
+                Τρέχον όνομα: «{renameModal.oldName}»
+              </FolderModalSub>
+            </FolderModalHeader>
+            <FolderModalBody>
+              <MetaField>
+                <MetaLabel htmlFor="rename-proposal-file">Νέο όνομα{renameModal.extension ? ' (χωρίς κατάληξη)' : ''}</MetaLabel>
+                <AddPendingInput
+                  id="rename-proposal-file"
+                  ref={renameInputRef}
+                  placeholder="Νέο όνομα αρχείου"
+                  value={renameModal.newName}
+                  onChange={(e) => setRenameModal((m) => ({ ...m, newName: e.target.value }))}
+                  onKeyDown={(e) => e.key === 'Enter' && handleConfirmRename()}
+                />
+                {renameModal.extension ? (
+                  <div style={{ fontSize: '0.72rem', color: C.slate500, fontWeight: 600, marginTop: '0.35rem' }}>
+                    Η κατάληξη <strong>{renameModal.extension}</strong> θα διατηρηθεί αυτόματα.
+                  </div>
+                ) : null}
+              </MetaField>
+            </FolderModalBody>
+            <FolderModalFooter>
+              <Btn $sm $variant="ghost" onClick={handleCloseRename}>Ακύρωση</Btn>
+              <Btn $sm $variant="primary" onClick={handleConfirmRename}>Αποθήκευση</Btn>
+            </FolderModalFooter>
+          </FolderModalCard>
+        </FolderModalOverlay>
+      )}
+
+      {moveModal && selectedProposal && (() => {
+        const sourceGroup = (selectedProposal.fileGroups || []).find((g) => g.id === moveModal.sourceGroupId);
+        const otherGroups = (selectedProposal.fileGroups || []).filter((g) => g.id !== moveModal.sourceGroupId);
+        const entryLabel = moveModal.entry.name;
+        const entryKindLabel = isProposalFolder(moveModal.entry) ? 'φάκελος' : 'αρχείο';
+        return (
+          <FolderModalOverlay onClick={() => setMoveModal(null)}>
+            <FolderModalCard onClick={(e) => e.stopPropagation()}>
+              <FolderModalHeader>
+                <FolderModalTitle>⇄ Μεταφορά {entryKindLabel}</FolderModalTitle>
+                <FolderModalSub>
+                  «{entryLabel}» από «{sourceGroup?.label || '—'}»
+                </FolderModalSub>
+              </FolderModalHeader>
+              <FolderModalBody>
+                {otherGroups.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.65rem' }}>
+                    <Btn
+                      $sm
+                      $variant={moveModal.targetMode === 'existing' ? 'primary' : 'ghost'}
+                      onClick={() => setMoveModal((m) => ({
+                        ...m,
+                        targetMode: 'existing',
+                        targetGroupId: m.targetGroupId || otherGroups[0]?.id || '',
+                      }))}
+                    >
+                      Υπάρχουσα κατηγορία
+                    </Btn>
+                    <Btn
+                      $sm
+                      $variant={moveModal.targetMode === 'new' ? 'primary' : 'ghost'}
+                      onClick={() => setMoveModal((m) => ({ ...m, targetMode: 'new' }))}
+                    >
+                      Νέα κατηγορία
+                    </Btn>
+                  </div>
+                )}
+
+                {moveModal.targetMode === 'existing' && otherGroups.length > 0 ? (
+                  <MoveTargetList>
+                    {otherGroups.map((g) => (
+                      <MoveTargetOption
+                        key={g.id}
+                        type="button"
+                        $active={moveModal.targetGroupId === g.id}
+                        onClick={() => setMoveModal((m) => ({ ...m, targetGroupId: g.id }))}
+                      >
+                        <span>{g.label}</span>
+                        <span style={{ marginLeft: 'auto', color: C.slate400, fontWeight: 600 }}>
+                          {g.files?.length || 0} {(g.files?.length || 0) === 1 ? 'στοιχείο' : 'στοιχεία'}
+                        </span>
+                      </MoveTargetOption>
+                    ))}
+                  </MoveTargetList>
+                ) : (
+                  <MetaField>
+                    <MetaLabel htmlFor="move-new-category">Όνομα νέας κατηγορίας</MetaLabel>
+                    <AddPendingInput
+                      id="move-new-category"
+                      placeholder="π.χ. Περιβαλλοντικά"
+                      value={moveModal.newCategoryName}
+                      onChange={(e) => setMoveModal((m) => ({ ...m, newCategoryName: e.target.value }))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleConfirmMove()}
+                      autoFocus
+                    />
+                  </MetaField>
+                )}
+              </FolderModalBody>
+              <FolderModalFooter>
+                <Btn $sm $variant="ghost" onClick={() => setMoveModal(null)}>Ακύρωση</Btn>
+                <Btn $sm $variant="primary" onClick={handleConfirmMove}>Μεταφορά</Btn>
+              </FolderModalFooter>
+            </FolderModalCard>
+          </FolderModalOverlay>
+        );
+      })()}
 
       {showExportDialog && selectedProposal && (
         <FolderModalOverlay onClick={() => !exporting && setShowExportDialog(false)}>

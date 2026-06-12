@@ -548,6 +548,10 @@ const MiniDownloadBtn = styled.button`
     outline: 2px solid #22c55e;
     outline-offset: 1px;
   }
+  &:disabled {
+    opacity: 0.55;
+    cursor: wait;
+  }
 `;
 
 const MiniDeleteBtn = styled.button`
@@ -1431,9 +1435,11 @@ function AttachmentTimelineEntry({
   canDeleteAttachments,
   onOpenFile,
   onDownloadFile,
+  onDownloadFolder,
   onOpenFolder,
   onDeleteFile,
-  onDeleteBatch
+  onDeleteBatch,
+  downloadingFolderId
 }) {
   const variant = chatBubbleVariant(item.author, actingUsername, task);
   const mine = variant === 'mine';
@@ -1505,6 +1511,15 @@ function AttachmentTimelineEntry({
               </FolderAttachmentSub>
             </FolderAttachmentMeta>
           </FolderAttachmentBtn>
+          <MiniDownloadBtn
+            type="button"
+            disabled={downloadingFolderId === item.batch?.id}
+            onClick={() => onDownloadFolder(item.batch?.id)}
+            title="Λήψη ολόκληρου φακέλου στον υπολογιστή σας"
+            aria-label={`Λήψη φακέλου ${folderLabel}`}
+          >
+            {downloadingFolderId === item.batch?.id ? '…' : '⬇'}
+          </MiniDownloadBtn>
           {canDeleteBatch ? (
             <MiniDeleteBtn
               type="button"
@@ -1618,6 +1633,7 @@ function TaskAssignmentWorkspace({
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [folderFilesModal, setFolderFilesModal] = useState(null);
+  const [downloadingFolderId, setDownloadingFolderId] = useState(null);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState(null);
   const feedRef = useRef(null);
   const prevDepartModalRef = useRef(false);
@@ -1819,6 +1835,31 @@ function TaskAssignmentWorkspace({
       }
     } catch (err) {
       setError(err.message || 'Δεν ήταν δυνατή η λήψη του αρχείου');
+    }
+  }, [actingUsername, task.id]);
+
+  const handleDownloadTaskFolder = useCallback(async (batchId) => {
+    if (!batchId) return;
+    setError('');
+    setDownloadingFolderId(batchId);
+    try {
+      const res = await ipcRenderer.invoke('download-task-assignment-folder', {
+        actingUsername,
+        taskId: task.id,
+        batchId
+      });
+      if (res?.canceled) return;
+      if (!res?.success) {
+        setError(res?.error || 'Δεν ήταν δυνατή η λήψη του φακέλου');
+        return;
+      }
+      if (res.missing?.length) {
+        setError(`Ο φάκελος αντιγράφηκε με ${res.copied} αρχεία. Δεν βρέθηκαν: ${res.missing.join(', ')}`);
+      }
+    } catch (err) {
+      setError(err.message || 'Δεν ήταν δυνατή η λήψη του φακέλου');
+    } finally {
+      setDownloadingFolderId(null);
     }
   }, [actingUsername, task.id]);
 
@@ -2457,6 +2498,14 @@ function TaskAssignmentWorkspace({
                   Διαγραφή φακέλου
                 </DepartModalConfirmBtn>
               ) : null}
+              <FileDownloadBtn
+                type="button"
+                disabled={busy || downloadingFolderId === folderFilesModal.batchId || !(folderFilesModal.files || []).length}
+                onClick={() => handleDownloadTaskFolder(folderFilesModal.batchId)}
+                title="Αποθήκευση όλων των αρχείων του φακέλου"
+              >
+                {downloadingFolderId === folderFilesModal.batchId ? '⏳ Λήψη…' : '⬇ Λήψη φακέλου'}
+              </FileDownloadBtn>
               <DepartModalCancelBtn type="button" onClick={() => setFolderFilesModal(null)}>
                 Κλείσιμο
               </DepartModalCancelBtn>
@@ -2534,9 +2583,11 @@ function TaskAssignmentWorkspace({
                       canDeleteAttachments={chatAllowed}
                       onOpenFile={handleOpenTaskFile}
                       onDownloadFile={handleDownloadTaskFile}
+                      onDownloadFolder={handleDownloadTaskFolder}
                       onOpenFolder={setFolderFilesModal}
                       onDeleteFile={handleDeleteTaskFile}
                       onDeleteBatch={handleDeleteTaskBatch}
+                      downloadingFolderId={downloadingFolderId}
                     />
                   ) : null}
 

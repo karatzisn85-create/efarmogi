@@ -5638,6 +5638,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             onClose={() => setIsOrimanthiOpen(false)}
             loggedInUsername={currentUser?.username || ''}
             userRole={userRole}
+            orimanthiCanEdit={!!currentUser?.orimanthiCanEdit}
           />
         </Suspense>
       ) : null}
