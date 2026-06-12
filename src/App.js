@@ -7,7 +7,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { ToastProvider } from './components/ToastProvider';
 import WhatsNew from './components/WhatsNew';
 import './App.css';
-import { resetDocumentInteractionState } from './utils/documentInteractionReset';
+import { resetDocumentInteractionState, isInteractionLockAllowed } from './utils/documentInteractionReset';
+import { getHolderCount } from './utils/bodyScrollLock';
 import InteractionGuard from './components/InteractionGuard';
 import ConfirmModal from './components/ConfirmModal';
 
@@ -19,7 +20,7 @@ const ipcRenderer = window.electronAPI;
 
 const AppContainer = styled.div`
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #0f172a;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 `;
 
@@ -150,6 +151,54 @@ function App() {
   const [loadingStatus, setLoadingStatus] = useState("Εκκίνηση εφαρμογής...");
   const [appVersion, setAppVersion] = useState('');
   const [appConfig, setAppConfig] = useState({});
+
+  // ── Debug tool — σάρωση τι μπλοκάρει clicks/keyboard ──
+  useEffect(() => {
+    window.__interactionDebug = () => {
+      const b = document.body;
+      const root = document.getElementById('root');
+      const snapshot = {
+        'body.overflow': b.style.overflow || '(unset)',
+        'body.pointerEvents': b.style.pointerEvents || '(unset)',
+        'body[data-modal-open]': b.hasAttribute('data-modal-open'),
+        'body[inert]': b.hasAttribute('inert'),
+        'root.overflow': root ? (root.style.overflow || '(unset)') : 'N/A',
+        'root.pointerEvents': root ? (root.style.pointerEvents || '(unset)') : 'N/A',
+        'html.overflow': document.documentElement.style.overflow || '(unset)',
+        'bodyScrollLock holders': getHolderCount(),
+        'interactionLockAllowed': isInteractionLockAllowed(),
+      };
+      console.table(snapshot);
+
+      // Σάρωση: ψάξε position:fixed/absolute overlays πάνω στη σελίδα
+      const allFixed = Array.from(document.querySelectorAll('*')).filter(el => {
+        const cs = window.getComputedStyle(el);
+        return (cs.position === 'fixed' || cs.position === 'absolute') &&
+          cs.display !== 'none' && cs.visibility !== 'hidden' &&
+          el.offsetWidth > 100 && el.offsetHeight > 100 &&
+          parseInt(cs.zIndex, 10) > 100;
+      });
+      if (allFixed.length > 0) {
+        console.warn('⚠️ Fixed/Absolute overlays βρέθηκαν:', allFixed.length);
+        allFixed.forEach(el => {
+          const cs = window.getComputedStyle(el);
+          console.log({
+            tag: el.tagName,
+            className: el.className?.toString?.()?.substring?.(0, 80),
+            zIndex: cs.zIndex,
+            pointerEvents: cs.pointerEvents,
+            size: `${el.offsetWidth}x${el.offsetHeight}`,
+            innerHTML: el.innerHTML?.substring?.(0, 120),
+          });
+        });
+      } else {
+        console.log('✅ Κανένα visible fixed/absolute overlay');
+      }
+
+      return snapshot;
+    };
+    return () => { delete window.__interactionDebug; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [initError, setInitError] = useState(null);
   const [closeGuardModalOpen, setCloseGuardModalOpen] = useState(false);
 

@@ -1,7 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import styled from 'styled-components';
 import { getCharacterization } from '../data/formOptions';
+import { useToast } from './ToastProvider';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
+import {
+  getProjectAnadoxosNamesExport,
+  getProjectAnadoxosVatsExport,
+  getProjectKhmdhsAdamExport,
+  getProjectAssignmentProcedureExport
+} from '../utils/contractorFields';
+import EpProgramStatsPanel from './EpProgramStatsPanel';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -29,7 +37,7 @@ const ExportContainer = styled.div`
   background: #ffffff;
   border-radius: 16px;
   padding: 2.5rem 3rem;
-  max-width: 960px;
+  max-width: ${props => props.$wide ? '1180px' : '960px'};
   width: 95%;
   max-height: 90vh;
   overflow-y: auto;
@@ -77,6 +85,31 @@ const Title = styled.h2`
     content: "📋";
     font-size: 1.4rem;
   }
+`;
+
+const PageTabs = styled.div`
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  padding: 0.35rem;
+  background: #f1f5f9;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+`;
+
+const PageTab = styled.button`
+  flex: 1;
+  padding: 0.65rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: ${p => p.$active ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : 'transparent'};
+  color: ${p => p.$active ? 'white' : '#475569'};
+  box-shadow: ${p => p.$active ? '0 4px 12px rgba(99,102,241,0.3)' : 'none'};
+  &:hover { opacity: 0.92; }
 `;
 
 const CloseButton = styled.button`
@@ -351,6 +384,10 @@ const COLUMN_DEFINITIONS = [
   { key: 'contractDate', label: 'Ημ. Σύμβασης', mandatory: false, group: 'contract', width: 120, type: 'string' },
   { key: 'contractAmount', label: 'Ποσό Σύμβασης', mandatory: false, group: 'contract', width: 140, type: 'amount' },
   { key: 'contractProcessStartDate', label: 'Ημ. Έναρξης Διαδ. Σύμβασης', mandatory: false, group: 'contract', width: 180, type: 'string' },
+  { key: 'assignmentProcedure', label: 'Διαδικασία Ανάθεσης', mandatory: false, group: 'contract', width: 220, type: 'string' },
+  { key: 'anadoxosName', label: 'Επωνυμία Αναδόχου', mandatory: false, group: 'contract', width: 240, type: 'string' },
+  { key: 'anadoxosVat', label: 'ΑΦΜ Αναδόχου', mandatory: false, group: 'contract', width: 140, type: 'string' },
+  { key: 'khmdhsAdam', label: 'ΑΔΑΜ (ΚΗΜΔΗΣ)', mandatory: false, group: 'contract', width: 160, type: 'string' },
   { key: 'apeAmount', label: 'Ποσό ΑΠΕ', mandatory: false, group: 'contract', width: 130, type: 'amount' },
   { key: 'apeComments', label: 'Σχόλια ΑΠΕ', mandatory: false, group: 'contract', width: 200, type: 'string' },
 
@@ -370,7 +407,9 @@ const GROUPS = [
   { id: 'other', label: 'Λοιπά', icon: '📌', color: '#455a64', borderColor: '#cfd8dc' },
 ];
 
-function TechnicalProgramExport({ isOpen, onClose, projects }) {
+function TechnicalProgramExport({ isOpen, onClose, projects, organizationName = '', currentUser, appConfig = {} }) {
+  const { showToast } = useToast();
+  const [pageView, setPageView] = useState('technical'); // 'technical' | 'epStats'
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
 
   const defaultSelected = COLUMN_DEFINITIONS
@@ -481,6 +520,10 @@ function TechnicalProgramExport({ isOpen, onClose, projects }) {
       case 'contractDate': return row.project.contractDate || '';
       case 'contractAmount': return row.project.contractAmount || '';
       case 'contractProcessStartDate': return row.project.contractProcessStartDate || '';
+      case 'assignmentProcedure': return getProjectAssignmentProcedureExport(row.project);
+      case 'anadoxosName': return getProjectAnadoxosNamesExport(row.project);
+      case 'anadoxosVat': return getProjectAnadoxosVatsExport(row.project);
+      case 'khmdhsAdam': return getProjectKhmdhsAdamExport(row.project);
       case 'apeAmount': return row.project.apeAmount || '';
       case 'apeComments': return row.project.apeComments || '';
       case 'chargeTo':
@@ -497,7 +540,7 @@ function TechnicalProgramExport({ isOpen, onClose, projects }) {
 
   const exportToExcel = () => {
     if (exportRows.length === 0) {
-      alert(`Δεν βρέθηκαν υποέργα με υπόλοιπα για το έτος ${selectedYear}.`);
+      showToast(`Δεν βρέθηκαν υποέργα με υπόλοιπα για το έτος ${selectedYear}.`, 'info');
       return;
     }
 
@@ -582,6 +625,14 @@ function TechnicalProgramExport({ isOpen, onClose, projects }) {
       <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#1B5E20"/>
       <Interior ss:Color="#E8F5E9" ss:Pattern="Solid"/>
     </Style>
+    <Style ss:ID="BrandFooter">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+      <Font ss:FontName="Calibri" ss:Size="9" ss:Italic="1" ss:Color="#4338CA"/>
+      <Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#6366F1"/>
+      </Borders>
+    </Style>
   </Styles>
   <Worksheet ss:Name="Τεχνικό Πρόγραμμα ${selectedYear}">
     <Table>
@@ -616,6 +667,15 @@ function TechnicalProgramExport({ isOpen, onClose, projects }) {
         htmlContent += `      </Row>\n`;
       });
 
+      const brandText = organizationName
+        ? `${organizationName}  |  Δημιουργήθηκε με ERGOHUB`
+        : 'Δημιουργήθηκε με ERGOHUB';
+      htmlContent += `      <Row>
+        <Cell ss:MergeAcross="${activeColumns.length - 1}" ss:StyleID="BrandFooter">
+          <Data ss:Type="String">${brandText}</Data>
+        </Cell>
+      </Row>\n`;
+
       htmlContent += `    </Table>
     <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
       <PageSetup>
@@ -646,7 +706,7 @@ function TechnicalProgramExport({ isOpen, onClose, projects }) {
       onClose();
     } catch (error) {
       console.error('Error exporting technical program:', error);
-      alert('Προέκυψε σφάλμα κατά την εξαγωγή. Παρακαλώ δοκιμάστε ξανά.');
+      showToast('Προέκυψε σφάλμα κατά την εξαγωγή. Παρακαλώ δοκιμάστε ξανά.', 'error');
     }
   };
 
@@ -654,12 +714,27 @@ function TechnicalProgramExport({ isOpen, onClose, projects }) {
 
   return (
     <ExportOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <ExportContainer>
+      <ExportContainer $wide={pageView === 'epStats'}>
         <Header>
-          <Title>Εξαγωγή Τεχνικού Προγράμματος</Title>
+          <Title>
+            {pageView === 'technical' ? 'Τεχνικό Πρόγραμμα' : 'Στατιστικά Επιχειρησιακού'}
+          </Title>
           <CloseButton onClick={onClose}>ΚΛΕΙΣΙΜΟ</CloseButton>
         </Header>
 
+        <PageTabs>
+          <PageTab $active={pageView === 'technical'} onClick={() => setPageView('technical')}>
+            📋 Εξαγωγή Τεχνικού Προγράμματος
+          </PageTab>
+          <PageTab $active={pageView === 'epStats'} onClick={() => setPageView('epStats')}>
+            🗺️ Στατιστικά Επιχειρησιακού Προγράμματος
+          </PageTab>
+        </PageTabs>
+
+        {pageView === 'epStats' ? (
+          <EpProgramStatsPanel currentUser={currentUser} appConfig={appConfig} />
+        ) : (
+        <>
         <TopRow>
           <SectionCard bg="#f0f4ff" borderColor="#bbdefb">
             <SectionTitle color="#1565c0">📅 Έτος Εξαγωγής</SectionTitle>
@@ -750,6 +825,8 @@ function TechnicalProgramExport({ isOpen, onClose, projects }) {
             📊 Εξαγωγή σε Excel ({exportRows.length} γραμμές)
           </ActionButton>
         </ActionsBar>
+        </>
+        )}
       </ExportContainer>
     </ExportOverlay>
   );

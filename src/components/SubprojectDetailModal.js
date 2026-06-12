@@ -1,9 +1,87 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
 import styled from 'styled-components';
-import { PROJECT_STATUSES } from '../data/formOptions';
+import {
+  statusShowsAssignmentProcedure,
+  getProjectTypeBadgeColors,
+  normalizeProjectType
+} from '../data/formOptions';
+import { formatViolationSummary } from '../utils/directAssignmentCompliance';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
-import { getKhmdhsDisplayEntries } from '../utils/khmdhsFields';
+import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm } from '../utils/khmdhsFields';
+import {
+  filterAndRankEpActions,
+  highlightTitleMatches
+} from '../utils/epActionSearch';
+
+const ipcRenderer = window.electronAPI;
+
+function formatEpBudget(val) {
+  if (!val || val === 0) return null;
+  return new Intl.NumberFormat('el-GR', {
+    style: 'currency', currency: 'EUR', maximumFractionDigits: 0
+  }).format(val);
+}
+
+function EpPickerResultRow({
+  action,
+  subprojectTitle,
+  searchQuery,
+  matchLabel,
+  highlight,
+  disabled,
+  onSelect
+}) {
+  const titleParts = highlightTitleMatches(action.title, subprojectTitle, searchQuery);
+  const hierarchy = [action.axisCode, action.measureCode, action.objectiveCode].filter(Boolean).join(' › ');
+  const budget = formatEpBudget(action.total);
+
+  return (
+    <EpPickerItem
+      $highlight={highlight}
+      onClick={() => !disabled && onSelect()}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !disabled) {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
+      <EpPickerItemMain>
+        <EpPickerItemTop>
+          <EpPickerItemCode>#{action.aa}</EpPickerItemCode>
+          {hierarchy && <EpPickerHierarchy>{hierarchy}</EpPickerHierarchy>}
+          {matchLabel && (
+            <EpPickerMatchBadge $v={matchLabel.variant}>{matchLabel.text}</EpPickerMatchBadge>
+          )}
+        </EpPickerItemTop>
+        <EpPickerItemTitle>
+          {titleParts.map((part, i) =>
+            part.match ? <mark key={i}>{part.text}</mark> : <span key={i}>{part.text}</span>
+          )}
+        </EpPickerItemTitle>
+        <EpPickerItemMeta>
+          {action.actionType && <span>📋 {action.actionType}</span>}
+          {action.location && <span>📍 {action.location}</span>}
+          {action.priority && <span>Προτ. {action.priority}</span>}
+          {budget && <span>💰 {budget}</span>}
+          {action.isNew != null && (
+            <span>{action.isNew ? '🟢 Νέα' : '🟡 Συνεχιζόμενη'}</span>
+          )}
+        </EpPickerItemMeta>
+      </EpPickerItemMain>
+      <EpPickerSelectBtn
+        type="button"
+        disabled={disabled}
+        onClick={(e) => { e.stopPropagation(); if (!disabled) onSelect(); }}
+      >
+        Επιλογή
+      </EpPickerSelectBtn>
+    </EpPickerItem>
+  );
+}
 
 const Overlay = styled.div`
   position: fixed;
@@ -169,6 +247,232 @@ const Section = styled.div`
   margin-bottom: 1.8rem;
 `;
 
+// EP Program link styled components
+const EpActionChip = styled.div`
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+`;
+const EpActionChipCode = styled.span`
+  flex-shrink: 0;
+  background: #6366f1;
+  color: white;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  margin-top: 2px;
+`;
+const EpActionChipTitle = styled.div`
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3730a3;
+  line-height: 1.4;
+`;
+const EpActionChipMeta = styled.div`
+  font-size: 11px;
+  color: #6366f1;
+  margin-top: 3px;
+`;
+const EpUnlinkBtn = styled.button`
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  color: #dc2626;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  transition: all 0.13s;
+  &:hover { background: #fee2e2; }
+`;
+const EpLinkBtn = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  transition: all 0.15s;
+  margin-top: 6px;
+  &:hover { opacity: 0.88; }
+`;
+const EpPickerOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,0.5);
+  backdrop-filter: blur(3px);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`;
+const EpPickerBox = styled.div`
+  background: white;
+  border-radius: 12px;
+  width: min(720px, 95vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  overflow: hidden;
+`;
+const EpPickerHeader = styled.div`
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  padding: 16px 20px 14px;
+`;
+const EpPickerHeaderRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+`;
+const EpPickerTitle = styled.h3`margin: 0; font-size: 15px; font-weight: 700; color: white;`;
+const EpPickerSubtitle = styled.div`
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.78);
+  line-height: 1.4;
+`;
+const EpPickerClose = styled.button`
+  background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 6px; color: white; cursor: pointer; font-size: 13px;
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  &:hover { background: rgba(255,255,255,0.25); }
+`;
+const EpPickerContext = styled.div`
+  margin: 0 16px 10px;
+  padding: 10px 12px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #4338ca;
+  line-height: 1.5;
+  strong { font-weight: 700; }
+`;
+const EpPickerSearchWrap = styled.div`padding: 0 16px 8px;`;
+const EpPickerSearch = styled.input`
+  width: 100%;
+  box-sizing: border-box;
+  background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;
+  color: #1e293b; font-size: 13px; padding: 10px 12px; outline: none;
+  &:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.12); background: white; }
+`;
+const EpPickerSearchHint = styled.div`
+  margin-top: 6px;
+  font-size: 11px;
+  color: #64748b;
+`;
+const EpPickerList = styled.div`
+  flex: 1; overflow-y: auto; padding: 0 12px 14px;
+  &::-webkit-scrollbar { width: 8px; }
+  &::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+  &::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #a5b4fc, #6366f1); border-radius: 4px; }
+`;
+const EpPickerSectionLabel = styled.div`
+  font-size: 11px;
+  font-weight: 700;
+  color: #6366f1;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin: 8px 4px 8px;
+`;
+const EpPickerItem = styled.div`
+  border: 1px solid ${({ $highlight }) => $highlight ? '#a5b4fc' : '#e2e8f0'};
+  border-left: 4px solid ${({ $highlight }) => $highlight ? '#6366f1' : '#cbd5e1'};
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  background: ${({ $highlight }) => $highlight ? '#f5f3ff' : 'white'};
+  transition: all 0.12s;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  &:hover {
+    border-color: #818cf8;
+    border-left-color: #4f46e5;
+    background: #eef2ff;
+    box-shadow: 0 4px 14px rgba(99,102,241,0.12);
+  }
+`;
+const EpPickerItemMain = styled.div`flex: 1; min-width: 0;`;
+const EpPickerItemTop = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+`;
+const EpPickerItemCode = styled.span`
+  font-size: 11px; font-weight: 700; color: white;
+  background: #6366f1; border-radius: 5px; padding: 2px 7px;
+`;
+const EpPickerHierarchy = styled.span`
+  font-size: 10px; color: #64748b; font-family: monospace;
+  background: #f1f5f9; border-radius: 4px; padding: 2px 6px;
+`;
+const EpPickerMatchBadge = styled.span`
+  font-size: 10px; font-weight: 700; border-radius: 12px; padding: 2px 8px;
+  background: ${({ $v }) => $v === 'high' ? '#dcfce7' : $v === 'good' ? '#dbeafe' : '#fef3c7'};
+  color: ${({ $v }) => $v === 'high' ? '#166534' : $v === 'good' ? '#1d4ed8' : '#92400e'};
+  border: 1px solid ${({ $v }) => $v === 'high' ? '#bbf7d0' : $v === 'good' ? '#bfdbfe' : '#fde68a'};
+`;
+const EpPickerItemTitle = styled.div`
+  font-size: 14px; font-weight: 600; color: #1e293b; line-height: 1.45;
+  mark {
+    background: #fef08a;
+    color: #854d0e;
+    border-radius: 3px;
+    padding: 0 2px;
+  }
+`;
+const EpPickerItemMeta = styled.div`
+  font-size: 11px; color: #64748b; margin-top: 6px;
+  display: flex; flex-wrap: wrap; gap: 8px;
+`;
+const EpPickerSelectBtn = styled.button`
+  flex-shrink: 0;
+  align-self: center;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  &:hover:not(:disabled) { opacity: 0.9; }
+`;
+const EpPickerEmpty = styled.div`
+  text-align: center;
+  padding: 28px 16px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  margin: 4px;
+`;
+
 const SectionTitle = styled.h3`
   font-size: 0.8rem;
   font-weight: 700;
@@ -250,6 +554,7 @@ const StatusBadge = styled.span`
       case 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ': return '#007bff';
       case 'ΟΛΟΚΛΗΡΩΜΕΝΟ': return '#28a745';
       case 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ': return '#20c997';
+      case 'ΑΠΕΝΤΑΓΜΕΝΟ': return '#64748b';
       default: return '#6c757d';
     }
   }};
@@ -262,24 +567,8 @@ const TypeBadge = styled.span`
   border-radius: 12px;
   font-size: 0.8rem;
   font-weight: 600;
-  background: ${props => {
-    switch (props.type) {
-      case 'ΠΡΟΜΗΘΕΙΑ': return '#e3f2fd';
-      case 'ΕΡΓΟ': return '#f3e5f5';
-      case 'ΜΕΛΕΤΗ': return '#e8f5e8';
-      case 'ΥΠΗΡΕΣΙΑ': return '#fff3e0';
-      default: return '#f8f9fa';
-    }
-  }};
-  color: ${props => {
-    switch (props.type) {
-      case 'ΠΡΟΜΗΘΕΙΑ': return '#1976d2';
-      case 'ΕΡΓΟ': return '#7b1fa2';
-      case 'ΜΕΛΕΤΗ': return '#388e3c';
-      case 'ΥΠΗΡΕΣΙΑ': return '#f57c00';
-      default: return '#495057';
-    }
-  }};
+  background: ${(props) => getProjectTypeBadgeColors(props.type).bg};
+  color: ${(props) => getProjectTypeBadgeColors(props.type).color};
 `;
 
 const AmountValue = styled.span`
@@ -356,14 +645,165 @@ function SubprojectDetailModal({
   onEdit,
   onUploadFiles,
   userRole,
+  currentUser,
   isLocked,
   lockedBy,
   engineerCatalog = [],
   portalEnabled = false,
   isPublishedToPortal = false,
-  onTogglePortal
+  onTogglePortal,
+  onRefreshProject,
+  onEpLinksChanged,
+  directAssignmentViolations = []
 }) {
   const [isUploading, setIsUploading] = useState(false);
+  const requestingUsername = currentUser?.username || '';
+
+  // EP Program link state
+  const [epLinkedActions, setEpLinkedActions] = useState([]);
+  const [epLoading, setEpLoading] = useState(false);
+  const [showEpPicker, setShowEpPicker] = useState(false);
+  const [epPickerSearch, setEpPickerSearch] = useState('');
+  const [epPickerProgram, setEpPickerProgram] = useState(null);
+  const [epPickerLoading, setEpPickerLoading] = useState(false);
+  const [epPickerError, setEpPickerError] = useState('');
+  const [epLinkLoading, setEpLinkLoading] = useState(false);
+  const canManageEp = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
+
+  const subprojectTitle = project?.subprojectTitle || project?.projectTitle || '';
+
+  const loadEpLinks = useCallback(async () => {
+    if (!project?.subprojectId) return;
+    setEpLoading(true);
+    try {
+      const res = await ipcRenderer.invoke('get-ep-actions-for-subproject', {
+        subprojectId: project.subprojectId,
+        requestingUsername
+      });
+      if (res.success) setEpLinkedActions(res.actions || []);
+    } catch (e) {}
+    finally { setEpLoading(false); }
+  }, [project?.subprojectId, requestingUsername]);
+
+  useEffect(() => { loadEpLinks(); }, [loadEpLinks]);
+
+  const openEpPicker = async () => {
+    setEpPickerSearch(subprojectTitle);
+    setEpPickerError('');
+    setEpPickerProgram(null);
+    setShowEpPicker(true);
+    setEpPickerLoading(true);
+    try {
+      const res = await ipcRenderer.invoke('get-ep-program', { requestingUsername });
+      if (!res.success) {
+        setEpPickerError(res.error || 'Σφάλμα φόρτωσης Επιχειρησιακού Προγράμματος');
+        setEpPickerProgram(null);
+      } else if (!res.program) {
+        setEpPickerError('Δεν υπάρχει ενεργό Επιχειρησιακό Πρόγραμμα.');
+        setEpPickerProgram(null);
+      } else {
+        setEpPickerProgram(res.program);
+      }
+    } catch (e) {
+      setEpPickerError(e.message || 'Σφάλμα φόρτωσης');
+      setEpPickerProgram(null);
+    } finally {
+      setEpPickerLoading(false);
+    }
+  };
+
+  const handleEpLink = async (action) => {
+    setEpLinkLoading(true);
+    try {
+      const res = await ipcRenderer.invoke('link-ep-subproject', {
+        programId: action.programId || epPickerProgram?.id,
+        actionId: action.id,
+        subprojectId: project.subprojectId,
+        link: true,
+        requestingUsername
+      });
+      if (res?.success === false) {
+        alert(res.error || 'Σφάλμα σύνδεσης');
+        return;
+      }
+      setShowEpPicker(false);
+      await loadEpLinks();
+      if (typeof onEpLinksChanged === 'function') onEpLinksChanged();
+      if (typeof onRefreshProject === 'function') await onRefreshProject();
+    } catch (e) {
+      alert(e.message || 'Σφάλμα σύνδεσης');
+    } finally {
+      setEpLinkLoading(false);
+    }
+  };
+
+  const handleEpUnlink = async (action) => {
+    setEpLinkLoading(true);
+    try {
+      const res = await ipcRenderer.invoke('link-ep-subproject', {
+        programId: action.programId,
+        actionId: action.id,
+        subprojectId: project.subprojectId,
+        link: false,
+        requestingUsername
+      });
+      if (res?.success === false) {
+        alert(res.error || 'Σφάλμα αποσύνδεσης');
+        return;
+      }
+      await loadEpLinks();
+      if (typeof onEpLinksChanged === 'function') onEpLinksChanged();
+      if (typeof onRefreshProject === 'function') await onRefreshProject();
+    } catch (e) {
+      alert(e.message || 'Σφάλμα αποσύνδεσης');
+    } finally {
+      setEpLinkLoading(false);
+    }
+  };
+
+  const epPickerRanked = useMemo(() => {
+    if (!epPickerProgram) return { suggestions: [], searchResults: [], showAll: false };
+    const linkedIds = epLinkedActions.map(a => a.id);
+    const query = epPickerSearch.trim();
+    const hasQuery = query.length > 0;
+
+    const suggestions = filterAndRankEpActions({
+      actions: epPickerProgram.actions || [],
+      subprojectTitle,
+      searchQuery: '',
+      linkedActionIds: linkedIds,
+      showAllWhenEmpty: false,
+      limit: 15
+    });
+
+    const searchResults = hasQuery
+      ? filterAndRankEpActions({
+          actions: epPickerProgram.actions || [],
+          subprojectTitle,
+          searchQuery: query,
+          linkedActionIds: linkedIds,
+          showAllWhenEmpty: false,
+          limit: 80
+        })
+      : [];
+
+    const showAll = hasQuery && searchResults.length === 0;
+
+    return { suggestions, searchResults, showAll, hasQuery };
+  }, [epPickerProgram, epPickerSearch, epLinkedActions, subprojectTitle]);
+
+  const epPickerShowAll = useMemo(() => {
+    if (!epPickerProgram || !epPickerRanked.showAll) return [];
+    const linkedIds = epLinkedActions.map(a => a.id);
+    return filterAndRankEpActions({
+      actions: epPickerProgram.actions || [],
+      subprojectTitle: '',
+      searchQuery: '',
+      linkedActionIds: linkedIds,
+      showAllWhenEmpty: true,
+      limit: 40
+    });
+  }, [epPickerProgram, epPickerRanked.showAll, epLinkedActions]);
 
   useEffect(() => {
     lockBodyScroll('subdetail');
@@ -409,26 +849,14 @@ function SubprojectDetailModal({
 
   const val = (v) => v && v.toString().trim() ? v : null;
 
-  const hasContractInfo = project.contractDate || project.contractAmount ||
-    (project.contracts && project.contracts.length > 0);
+  const hasContractInfo = isMultipleContractsForm(project.implementationForm)
+    ? (project.contracts && project.contracts.length > 0)
+    : (project.contractDate || project.contractAmount);
 
-  const showContractProcessDate = project.projectStatus &&
-    PROJECT_STATUSES.indexOf(project.projectStatus) >= PROJECT_STATUSES.indexOf('ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ');
+  const showAssignmentProcedure = statusShowsAssignmentProcedure(project.projectStatus);
+  const showContractProcessDate = showAssignmentProcedure;
 
-  const calculateTotalContractAmount = () => {
-    let total = 0;
-    const parse = (v) => {
-      if (!v) return 0;
-      const n = parseFloat(v.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'));
-      return isNaN(n) ? 0 : n;
-    };
-    total += parse(project.contractAmount);
-    (project.contracts || []).forEach(c => { total += parse(c.amount); });
-    (project.supplementaryContracts || []).forEach(c => { total += parse(c.amount); });
-    return total;
-  };
-
-  const totalContractAmount = calculateTotalContractAmount();
+  const totalContractAmount = getTotalContractAmount(project);
 
   const multipleAle = project.aleCodes && project.aleCodes.length > 1;
 
@@ -458,6 +886,30 @@ function SubprojectDetailModal({
         {/* Body */}
         <ModalBody>
 
+          {directAssignmentViolations.length > 0 && (
+            <Section style={{ marginBottom: '1rem' }}>
+              <SectionTitle style={{ color: '#b45309' }}>⚠️ Προειδοποίηση — Κανόνας 12 μηνών (απευθείας ανάθεση)</SectionTitle>
+              {directAssignmentViolations.map((v, idx) => (
+                <FieldValue
+                  key={idx}
+                  style={{
+                    display: 'block',
+                    padding: '0.75rem 0.9rem',
+                    background: '#fffbeb',
+                    border: '1px solid #fcd34d',
+                    borderRadius: 10,
+                    color: '#92400e',
+                    fontSize: '0.85rem',
+                    lineHeight: 1.5,
+                    marginBottom: idx < directAssignmentViolations.length - 1 ? '0.5rem' : 0
+                  }}
+                >
+                  {formatViolationSummary(v)}
+                </FieldValue>
+              ))}
+            </Section>
+          )}
+
           {/* Βασικά Στοιχεία */}
           <Section>
             <SectionTitle>Βασικά Στοιχεία</SectionTitle>
@@ -471,7 +923,7 @@ function SubprojectDetailModal({
                   <FieldLabel>Είδος</FieldLabel>
                   <FieldValue>
                     {project.projectType
-                      ? <TypeBadge type={project.projectType}>{project.projectType}</TypeBadge>
+                      ? <TypeBadge type={project.projectType}>{normalizeProjectType(project.projectType)}</TypeBadge>
                       : <EmptyValue>—</EmptyValue>}
                   </FieldValue>
                 </Field>
@@ -681,16 +1133,26 @@ function SubprojectDetailModal({
             <Section>
               <SectionTitle>Στοιχεία Σύμβασης</SectionTitle>
 
-              {showContractProcessDate && project.contractProcessStartDate && (
+              {(showAssignmentProcedure && project.assignmentProcedure) || (showContractProcessDate && project.contractProcessStartDate) ? (
                 <FieldGrid style={{ marginBottom: '1rem' }}>
-                  <Field>
-                    <FieldLabel>Ημερ. Έναρξης Διαδικασίας</FieldLabel>
-                    <FieldValue style={{ color: '#5c6bc0', fontWeight: 600 }}>
-                      {formatDate(project.contractProcessStartDate)}
-                    </FieldValue>
-                  </Field>
+                  {showAssignmentProcedure && project.assignmentProcedure && (
+                    <Field>
+                      <FieldLabel>Διαδικασία Ανάθεσης</FieldLabel>
+                      <FieldValue style={{ color: '#5c6bc0', fontWeight: 600 }}>
+                        {project.assignmentProcedure}
+                      </FieldValue>
+                    </Field>
+                  )}
+                  {showContractProcessDate && project.contractProcessStartDate && (
+                    <Field>
+                      <FieldLabel>Ημερ. Έναρξης Διαδικασίας</FieldLabel>
+                      <FieldValue style={{ color: '#5c6bc0', fontWeight: 600 }}>
+                        {formatDate(project.contractProcessStartDate)}
+                      </FieldValue>
+                    </Field>
+                  )}
                 </FieldGrid>
-              )}
+              ) : null}
 
               {project.implementationForm === 'Μια Σύμβαση' ? (
                 <ContractBox>
@@ -826,6 +1288,171 @@ function SubprojectDetailModal({
                 {project.eisigitikiEkthesi}
               </FieldValue>
             </Section>
+          )}
+
+          {/* Επιχειρησιακό Πρόγραμμα */}
+          <Section>
+            <SectionTitle>🗺️ Επιχειρησιακό Πρόγραμμα</SectionTitle>
+            {epLoading ? (
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>Φόρτωση...</div>
+            ) : epLinkedActions.length === 0 ? (
+              <div style={{
+                background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+                padding: '10px 14px', fontSize: 13, color: '#94a3b8'
+              }}>
+                Δεν έχει συνδεθεί με δράση Επιχειρησιακού Προγράμματος.
+              </div>
+            ) : (
+              epLinkedActions.map(action => (
+                <EpActionChip key={action.id}>
+                  <EpActionChipCode>#{action.aa}</EpActionChipCode>
+                  <div style={{ flex: 1 }}>
+                    <EpActionChipTitle>{action.title}</EpActionChipTitle>
+                    <EpActionChipMeta>
+                      {[action.axisCode, action.measureCode, action.objectiveCode].filter(Boolean).join(' › ')}
+                      {action.actionType && ` · ${action.actionType}`}
+                    </EpActionChipMeta>
+                    <div style={{ fontSize: 11, color: '#6b7fa3', marginTop: 2 }}>{action.programTitle}</div>
+                  </div>
+                  {canManageEp && (
+                    <EpUnlinkBtn onClick={() => handleEpUnlink(action)} disabled={epLinkLoading}>
+                      Αποσύνδεση
+                    </EpUnlinkBtn>
+                  )}
+                </EpActionChip>
+              ))
+            )}
+            {canManageEp && (
+              <EpLinkBtn onClick={openEpPicker} disabled={epLinkLoading}>
+                🔗 Σύνδεση με Δράση ΕΠ
+              </EpLinkBtn>
+            )}
+          </Section>
+
+          {/* EP Picker Modal */}
+          {showEpPicker && (
+            <EpPickerOverlay onClick={e => e.target === e.currentTarget && !epLinkLoading && setShowEpPicker(false)}>
+              <EpPickerBox onClick={e => e.stopPropagation()}>
+                <EpPickerHeader>
+                  <EpPickerHeaderRow>
+                    <EpPickerTitle>🗺️ Επιλογή Δράσης Επιχειρησιακού Προγράμματος</EpPickerTitle>
+                    <EpPickerClose onClick={() => !epLinkLoading && setShowEpPicker(false)}>✕</EpPickerClose>
+                  </EpPickerHeaderRow>
+                  {epPickerProgram && (
+                    <EpPickerSubtitle>
+                      {epPickerProgram.title} · {(epPickerProgram.actions || []).length} δράσεις
+                    </EpPickerSubtitle>
+                  )}
+                </EpPickerHeader>
+
+                <EpPickerContext>
+                  Σύνδεση υποέργου: <strong>{subprojectTitle || '—'}</strong>
+                  <br />
+                  Η αναζήτηση συγκρίνει τον τίτλο του υποέργου με τους τίτλους δράσεων του ενεργού ΕΠ.
+                </EpPickerContext>
+
+                <EpPickerSearchWrap>
+                  <EpPickerSearch
+                    autoFocus
+                    placeholder="Αναζήτηση σε τίτλο δράσης, κωδικό, χωροθέτηση..."
+                    value={epPickerSearch}
+                    onChange={e => setEpPickerSearch(e.target.value)}
+                  />
+                  <EpPickerSearchHint>
+                    {epPickerSearch.trim()
+                      ? 'Εμφανίζονται δράσεις που ταιριάζουν με την αναζήτηση και/ή τον τίτλο υποέργου.'
+                      : 'Προ-συμπληρώθηκε ο τίτλος υποέργου — επεξεργαστεί τον για πιο στοχευμένα αποτελέσματα.'}
+                  </EpPickerSearchHint>
+                </EpPickerSearchWrap>
+
+                <EpPickerList>
+                  {epPickerLoading && (
+                    <EpPickerEmpty>⏳ Φόρτωση δράσεων Επιχειρησιακού Προγράμματος...</EpPickerEmpty>
+                  )}
+
+                  {!epPickerLoading && epPickerError && (
+                    <EpPickerEmpty>⚠️ {epPickerError}</EpPickerEmpty>
+                  )}
+
+                  {!epPickerLoading && !epPickerError && epPickerProgram && (
+                    <>
+                      {!epPickerRanked.hasQuery && epPickerRanked.suggestions.length > 0 && (
+                        <>
+                          <EpPickerSectionLabel>Προτεινόμενες βάσει τίτλου υποέργου</EpPickerSectionLabel>
+                          {epPickerRanked.suggestions.map(({ action, matchLabel }) => (
+                            <EpPickerResultRow
+                              key={`sug-${action.id}`}
+                              action={action}
+                              subprojectTitle={subprojectTitle}
+                              searchQuery={epPickerSearch}
+                              matchLabel={matchLabel}
+                              highlight
+                              disabled={epLinkLoading}
+                              onSelect={() => handleEpLink(action)}
+                            />
+                          ))}
+                        </>
+                      )}
+
+                      {epPickerRanked.hasQuery && epPickerRanked.searchResults.length > 0 && (
+                        <>
+                          <EpPickerSectionLabel>
+                            Αποτελέσματα αναζήτησης ({epPickerRanked.searchResults.length})
+                          </EpPickerSectionLabel>
+                          {epPickerRanked.searchResults.map(({ action, matchLabel }) => (
+                            <EpPickerResultRow
+                              key={`res-${action.id}`}
+                              action={action}
+                              subprojectTitle={subprojectTitle}
+                              searchQuery={epPickerSearch}
+                              matchLabel={matchLabel}
+                              highlight={!!matchLabel}
+                              disabled={epLinkLoading}
+                              onSelect={() => handleEpLink(action)}
+                            />
+                          ))}
+                        </>
+                      )}
+
+                      {epPickerRanked.hasQuery && epPickerRanked.searchResults.length === 0 && (
+                        <>
+                          <EpPickerEmpty>
+                            Δεν βρέθηκαν δράσεις που να ταιριάζουν με «{epPickerSearch.trim()}».
+                            <br />
+                            Δοκιμάστε λιγότερες ή διαφορετικές λέξεις από τον τίτλο του υποέργου.
+                          </EpPickerEmpty>
+                          {epPickerShowAll.length > 0 && (
+                            <>
+                              <EpPickerSectionLabel>Όλες οι διαθέσιμες δράσεις</EpPickerSectionLabel>
+                              {epPickerShowAll.map(({ action }) => (
+                                <EpPickerResultRow
+                                  key={`all-${action.id}`}
+                                  action={action}
+                                  subprojectTitle={subprojectTitle}
+                                  searchQuery=""
+                                  matchLabel={null}
+                                  highlight={false}
+                                  disabled={epLinkLoading}
+                                  onSelect={() => handleEpLink(action)}
+                                />
+                              ))}
+                            </>
+                          )}
+                        </>
+                      )}
+
+                      {!epPickerRanked.hasQuery && epPickerRanked.suggestions.length === 0 && (
+                        <EpPickerEmpty>
+                          Δεν βρέθηκαν προτεινόμενες δράσεις για αυτόν τον τίτλο υποέργου.
+                          <br />
+                          Πληκτρολογήστε λέξεις-κλειδιά για χειροκίνητη αναζήτηση.
+                        </EpPickerEmpty>
+                      )}
+                    </>
+                  )}
+                </EpPickerList>
+              </EpPickerBox>
+            </EpPickerOverlay>
           )}
 
           {portalEnabled && (

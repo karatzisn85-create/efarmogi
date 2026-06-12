@@ -1,31 +1,33 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import { safeFileDialog } from '../utils/safeDialogs';
 
 const FormOverlay = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.9);
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
-  align-items: center;
-  z-index: 10001;
-  padding: 2rem;
+  align-items: flex-start;
+  z-index: 10002;
+  padding: 1.25rem 1rem 2rem;
+  overflow-y: auto;
+  box-sizing: border-box;
 `;
 
 const FormContainer = styled.div`
   background: white;
-  border-radius: 20px;
-  padding: 3rem;
-  max-width: 700px;
-  width: 90%;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  border-radius: 16px;
+  padding: 1.75rem 2rem 2rem;
+  max-width: 720px;
+  width: 100%;
+  margin: auto 0;
+  flex-shrink: 0;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+  border: 1px solid #e2e8f0;
 `;
 
 const FormHeader = styled.div`
@@ -574,7 +576,7 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
 
   const newAmountCalc = calculateNewAmount();
 
-  return (
+  return createPortal(
     <FormOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <FormContainer>
         <FormHeader>
@@ -699,7 +701,8 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
           </ButtonContainer>
         </form>
       </FormContainer>
-    </FormOverlay>
+    </FormOverlay>,
+    document.body
   );
 }
 

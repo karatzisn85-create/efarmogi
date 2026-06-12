@@ -196,6 +196,7 @@ const Status = styled.span`
       case 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ': return '#e3f2fd';
       case 'ΟΛΟΚΛΗΡΩΜΕΝΟ': return '#f3e5f5';
       case 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ': return '#e8f5e8';
+      case 'ΑΠΕΝΤΑΓΜΕΝΟ': return '#e2e8f0';
       default: return '#f5f5f5';
     }
   }};
@@ -206,6 +207,7 @@ const Status = styled.span`
       case 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ': return '#1976d2';
       case 'ΟΛΟΚΛΗΡΩΜΕΝΟ': return '#7b1fa2';
       case 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ': return '#388e3c';
+      case 'ΑΠΕΝΤΑΓΜΕΝΟ': return '#475569';
       default: return '#666';
     }
   }};
@@ -343,9 +345,9 @@ function SubprojectLinkingModal({ isOpen, onClose, onLink, currentEgkrisi }) {
 
   const handleLink = () => {
     if (selectedSubproject && onLink) {
+      // Μόνο onLink — το κλείσιμο και το cleanup γίνονται από τον parent
+      // μέσα στο handleSubprojectLinked αφού ολοκληρωθεί η αποθήκευση.
       onLink(selectedSubproject);
-      scheduleDocumentInteractionRecovery();
-      onClose();
     }
   };
 

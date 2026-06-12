@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { safeConfirm } from '../utils/safeDialogs';
+import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
 import { containsSearchTerm } from '../utils/searchUtils';
 
@@ -428,6 +429,7 @@ const SuccessMessage = styled.div`
 `;
 
 function EgkriseisForm({ isOpen, onClose, onSave }) {
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     projectType: 'existing', // 'existing' or 'new'
     selectedProject: null,
@@ -679,11 +681,11 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
           await loadSubprojectsForProject(formData.selectedProject);
         }, 100);
       } else {
-        alert('Σφάλμα κατά τη διαγραφή: ' + (result.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά τη διαγραφή: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
     } catch (error) {
       console.error('Error deleting PDF completely:', error);
-      alert('Σφάλμα κατά τη διαγραφή: ' + error.message);
+      showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
     } finally {
       requestAnimationFrame(() => {
         setLoading(false);
@@ -719,11 +721,11 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
           await loadSubprojectsForProject(formData.selectedProject);
         }, 100);
       } else {
-        alert('Σφάλμα κατά τη διαγραφή: ' + (result.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά τη διαγραφή: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
     } catch (error) {
       console.error('Error deleting PDF from subproject:', error);
-      alert('Σφάλμα κατά τη διαγραφή: ' + error.message);
+      showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
     } finally {
       requestAnimationFrame(() => {
         setLoading(false);
@@ -733,12 +735,12 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
 
   const handleDeleteSubproject = async (subproject) => {
     if (!formData.selectedProject) {
-      alert('Παρακαλώ επιλέξτε πρώτα ένα έργο');
+      showToast('Παρακαλώ επιλέξτε πρώτα ένα έργο', 'warning');
       return;
     }
 
     if (!subproject.subprojectKey) {
-      alert('Σφάλμα: Δεν βρέθηκε το κλειδί του υποέργου');
+      showToast('Σφάλμα: Δεν βρέθηκε το κλειδί του υποέργου', 'error');
       return;
     }
 
@@ -778,11 +780,11 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
           await loadSubprojectsForProject(formData.selectedProject);
         }, 100);
       } else {
-        alert('Σφάλμα κατά τη διαγραφή: ' + (result.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά τη διαγραφή: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
     } catch (error) {
       console.error('Error deleting subproject:', error);
-      alert('Σφάλμα κατά τη διαγραφή: ' + error.message);
+      showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
     } finally {
       requestAnimationFrame(() => {
       setLoading(false);

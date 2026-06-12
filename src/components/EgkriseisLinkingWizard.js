@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { containsSearchTerm } from '../utils/searchUtils';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -234,6 +235,7 @@ const ProgressIndicator = styled.div`
 `;
 
 function EgkriseisLinkingWizard({ onClose }) {
+  const { showToast } = useToast();
   const [unlinkedEgkriseis, setUnlinkedEgkriseis] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [allSubprojects, setAllSubprojects] = useState([]);
@@ -292,12 +294,12 @@ function EgkriseisLinkingWizard({ onClose }) {
       if (currentIndex < unlinkedEgkriseis.length - 1) {
         setCurrentIndex(currentIndex + 1);
       } else {
-        alert(`Ολοκληρώθηκε! Συσχετίστηκαν: ${linkedCount + 1}, Παραλείφθηκαν: ${skippedCount}`);
+        showToast(`Ολοκληρώθηκε! Συσχετίστηκαν: ${linkedCount + 1}, Παραλείφθηκαν: ${skippedCount}`, 'success');
         onClose?.();
       }
     } catch (error) {
       console.error('Error linking:', error);
-      alert('Σφάλμα κατά τη συσχέτιση');
+      showToast('Σφάλμα κατά τη συσχέτιση', 'error');
     }
   };
 
@@ -309,7 +311,7 @@ function EgkriseisLinkingWizard({ onClose }) {
     if (currentIndex < unlinkedEgkriseis.length - 1) {
       setCurrentIndex(currentIndex + 1);
     } else {
-      alert(`Ολοκληρώθηκε! Συσχετίστηκαν: ${linkedCount}, Παραλείφθηκαν: ${skippedCount + 1}`);
+      showToast(`Ολοκληρώθηκε! Συσχετίστηκαν: ${linkedCount}, Παραλείφθηκαν: ${skippedCount + 1}`, 'info');
       onClose?.();
     }
   };

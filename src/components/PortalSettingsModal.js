@@ -277,10 +277,11 @@ const EXPORT_FIELD_DEFS = [
   { key: 'approvedAmount',      label: 'Εγκεκριμένο Ποσό',        desc: 'Εγκεκριμένη χρηματοδότηση βάσει απόφασης' },
   { key: 'symvasiPoso',         label: 'Ποσό Σύμβασης',           desc: 'Αξία υπογεγραμμένης σύμβασης' },
   { key: 'anadochos',           label: 'Ανάδοχος',                desc: 'Εργολάβος/Προμηθευτής (από ΚΗΜΔΗΣ)' },
+  { key: 'diadikasia_anathesis', label: 'Διαδικασία Ανάθεσης',    desc: 'Τύπος διαδικασίας (π.χ. Ανοιχτός Διαγωνισμός, Απευθείας Ανάθεση)' },
   { key: 'hmerominia_enarksis', label: 'Ημερομηνία Έναρξης',      desc: 'Ημερομηνία υπογραφής σύμβασης' },
   { key: 'adam',                label: 'ΑΔΑΜ Σύμβασης',           desc: 'Εμφανίζεται μόνο για εκτελούμενα/ολοκληρωμένα (ΚΗΜΔΗΣ)' },
   { key: 'mis',                 label: 'Κωδικός ΜΙΣ',             desc: 'MIS κωδικός πράξης (ΕΣΠΑ)' },
-  { key: 'kategoria',           label: 'Κατηγορία Έργου',         desc: 'π.χ. ΕΡΓΟ, ΜΕΛΕΤΗ, ΠΡΟΜΗΘΕΙΑ' },
+  { key: 'kategoria',           label: 'Κατηγορία Έργου',         desc: 'π.χ. ΕΡΓΟ, ΜΕΛΕΤΗ, ΠΡΟΜΗΘΕΙΑ, ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ' },
 ];
 
 const DEFAULT_EXPORT_FIELDS = Object.fromEntries(EXPORT_FIELD_DEFS.map(f => [f.key, true]));
@@ -290,6 +291,7 @@ const DEFAULT_EXPORT_FIELDS = Object.fromEntries(EXPORT_FIELD_DEFS.map(f => [f.k
 function PortalSettingsModal({ isOpen, onClose, appConfig = {}, onConfigSaved }) {
   const [portalEnabled, setPortalEnabled] = useState(false);
   const [dimosUid, setDimosUid] = useState('');
+  const [portalPublicUrl, setPortalPublicUrl] = useState('');
   const [exportFields, setExportFields] = useState(DEFAULT_EXPORT_FIELDS);
   const [mergeCompleted, setMergeCompleted] = useState(false);
   const [lastExport, setLastExport] = useState(null);
@@ -306,6 +308,7 @@ function PortalSettingsModal({ isOpen, onClose, appConfig = {}, onConfigSaved })
 
     setPortalEnabled(appConfig.portalEnabled === true);
     setMergeCompleted(appConfig.portalMergeCompleted === true);
+    setPortalPublicUrl(appConfig.portalPublicUrl || '');
 
     const savedUid = appConfig.portalDimosUid || '';
     if (savedUid) {
@@ -342,6 +345,7 @@ function PortalSettingsModal({ isOpen, onClose, appConfig = {}, onConfigSaved })
       await ipcRenderer.invoke('save-app-config', {
         portalEnabled,
         portalDimosUid: uid,
+        portalPublicUrl: portalPublicUrl.trim(),
         portalExportFields: exportFields,
         portalMergeCompleted: mergeCompleted,
       });
@@ -350,7 +354,7 @@ function PortalSettingsModal({ isOpen, onClose, appConfig = {}, onConfigSaved })
       setStatusMsg('✓ Οι ρυθμίσεις αποθηκεύτηκαν.');
 
       if (onConfigSaved) {
-        onConfigSaved({ portalEnabled, portalDimosUid: uid, portalExportFields: exportFields, portalMergeCompleted: mergeCompleted });
+        onConfigSaved({ portalEnabled, portalDimosUid: uid, portalPublicUrl: portalPublicUrl.trim(), portalExportFields: exportFields, portalMergeCompleted: mergeCompleted });
       }
     } catch (e) {
       setStatusError(true);
@@ -433,6 +437,21 @@ function PortalSettingsModal({ isOpen, onClose, appConfig = {}, onConfigSaved })
               Δημιουργήθηκε αυτόματα από το όνομα Δήμου — μπορείτε να το τροποποιήσετε.{' '}
               Διαδρομή Dropbox:{' '}
               <code style={{ color: '#7dd3fc' }}>/portal/{dimosUid || '<slug>'}/erga.json</code>
+            </HintText>
+          </FormGroup>
+
+          <FormGroup>
+            <Label>Δημόσιο URL Πύλης Διαφάνειας</Label>
+            <Input
+              type="url"
+              value={portalPublicUrl}
+              onChange={(e) => setPortalPublicUrl(e.target.value)}
+              placeholder="π.χ. https://portal.ergohub.gr/archanes-asterousion"
+              disabled={saving}
+            />
+            <HintText>
+              Το link που θα εμφανίζεται εμφανώς στο modal και θα δίνεται στον υπεύθυνο ιστοσελίδας του Δήμου.
+              Προαιρετικό — αν δεν οριστεί δεν εμφανίζεται κουμπί «Άνοιγμα Πύλης».
             </HintText>
           </FormGroup>
         </Section>

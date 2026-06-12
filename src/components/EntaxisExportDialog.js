@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
+import { useToast } from './ToastProvider';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -332,7 +333,8 @@ const EXPORT_FIELDS = {
   }
 };
 
-function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis }) {
+function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis, organizationName = '' }) {
+  const { showToast } = useToast();
   const [selectedFields, setSelectedFields] = useState([
     'rowNumber', 'projectTitle', 'subject', 'documentDate', 'fundingAuthority', 'initialAmount', 'cumulativeAmount'
   ]);
@@ -417,7 +419,7 @@ function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis }) {
 
   const exportToExcel = () => {
     if (selectedFields.length === 0) {
-      alert('Παρακαλώ επιλέξτε τουλάχιστον ένα πεδίο για εξαγωγή.');
+      showToast('Παρακαλώ επιλέξτε τουλάχιστον ένα πεδίο για εξαγωγή.', 'warning');
       return;
     }
 
@@ -486,6 +488,14 @@ function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis }) {
       </Borders>
       <Font ss:FontName="Calibri" ss:Size="10"/>
       <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
+    </Style>
+    <Style ss:ID="BrandFooter">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+      <Font ss:FontName="Calibri" ss:Size="9" ss:Italic="1" ss:Color="#4338CA"/>
+      <Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#6366F1"/>
+      </Borders>
     </Style>
   </Styles>
   <Worksheet ss:Name="Εξαγωγή Εντάξεων">
@@ -559,6 +569,15 @@ function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis }) {
         htmlContent += `      </Row>\n`;
       });
 
+      const brandText = organizationName
+        ? `${organizationName}  |  Δημιουργήθηκε με ERGOHUB`
+        : 'Δημιουργήθηκε με ERGOHUB';
+      htmlContent += `      <Row>
+        <Cell ss:MergeAcross="${fieldsInOrder.length - 1}" ss:StyleID="BrandFooter">
+          <Data ss:Type="String">${brandText}</Data>
+        </Cell>
+      </Row>\n`;
+
       htmlContent += `    </Table>
     <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
       <PageSetup>
@@ -595,7 +614,7 @@ function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis }) {
       onClose();
     } catch (error) {
       console.error('Error exporting data:', error);
-      alert('Προέκυψε σφάλμα κατά την εξαγωγή. Παρακαλώ δοκιμάστε ξανά.');
+      showToast('Προέκυψε σφάλμα κατά την εξαγωγή. Παρακαλώ δοκιμάστε ξανά.', 'error');
     }
   };
 

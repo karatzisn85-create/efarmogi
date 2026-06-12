@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { showConfirm } from '../utils/confirmModal';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -282,6 +283,7 @@ function getFileTypeStyle(fileName) {
 }
 
 function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
+  const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [entaxiFiles, setEntaxiFiles] = useState([]);
   const [approvalFiles, setApprovalFiles] = useState([]);
@@ -346,7 +348,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
       await ipcRenderer.invoke('view-entaxi-file', entaxi.entaxiId, fileName);
     } catch (error) {
       console.error('Error viewing file:', error);
-      alert('Σφάλμα κατά το άνοιγμα του αρχείου: ' + error.message);
+      showToast('Σφάλμα κατά το άνοιγμα του αρχείου: ' + error.message, 'error');
     }
   };
 
@@ -354,13 +356,13 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
     try {
       const result = await ipcRenderer.invoke('download-entaxi-file', entaxi.entaxiId, fileName);
       if (result.success) {
-        alert('Το αρχείο αποθηκεύτηκε επιτυχώς!');
+        showToast('Το αρχείο αποθηκεύτηκε επιτυχώς!', 'success');
       } else {
-        alert('Σφάλμα κατά τη λήψη του αρχείου: ' + result.error);
+        showToast('Σφάλμα κατά τη λήψη του αρχείου: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error downloading file:', error);
-      alert('Σφάλμα κατά τη λήψη του αρχείου: ' + error.message);
+      showToast('Σφάλμα κατά τη λήψη του αρχείου: ' + error.message, 'error');
     }
   };
 
@@ -377,14 +379,14 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
     try {
       const result = await ipcRenderer.invoke('delete-entaxi-file', entaxi.entaxiId, fileName);
       if (result.success) {
-        alert('Το αρχείο διαγράφηκε επιτυχώς!');
+        showToast('Το αρχείο διαγράφηκε επιτυχώς!', 'success');
         loadFiles();
       } else {
-        alert('Σφάλμα κατά τη διαγραφή του αρχείου: ' + result.error);
+        showToast('Σφάλμα κατά τη διαγραφή του αρχείου: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error deleting file:', error);
-      alert('Σφάλμα κατά τη διαγραφή του αρχείου: ' + error.message);
+      showToast('Σφάλμα κατά τη διαγραφή του αρχείου: ' + error.message, 'error');
     }
   };
 

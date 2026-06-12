@@ -2,7 +2,8 @@
 import styled from 'styled-components';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
 import SubprojectSearchModal from './SubprojectSearchModal';
-import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -533,6 +534,7 @@ const LinkedStatus = styled.div`
 `;
 
 function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, highlightProjectTitle = null, highlightSubprojectTitle = null, onLinkCreated = null }) {
+  const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState(null);
   const [filteredProjects, setFilteredProjects] = useState([]);
@@ -790,7 +792,7 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
       const realProjectId = await ipcRenderer.invoke('find-project-by-subproject-id', realSubprojectId);
       
       if (!realProjectId) {
-        alert('❌ Δεν βρέθηκε το έργο για το υποέργο');
+        showToast('Δεν βρέθηκε το έργο για το υποέργο', 'error');
         return;
       }
       
@@ -814,18 +816,18 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
           [result.linkData.egkrisiId]: result.linkData
         }));
         
-        alert('✅ Η συσχέτιση εγκρίσεως με το υποέργο δημιουργήθηκε επιτυχώς!');
+        showToast('Η συσχέτιση εγκρίσεως με το υποέργο δημιουργήθηκε επιτυχώς!', 'success');
         
         // Ανανέωση των δεδομένων
         if (onLinkCreated) {
           onLinkCreated();
         }
       } else {
-        alert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + result.error);
+        showToast('Σφάλμα κατά τη δημιουργία συσχέτισης: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error creating manual egkrisi link:', error);
-      alert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message);
+      showToast('Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message, 'error');
     }
   };
 
@@ -835,7 +837,7 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
       const realProjectId = await ipcRenderer.invoke('find-project-by-subproject-id', subprojectId);
       
       if (!realProjectId) {
-        alert('❌ Δεν βρέθηκε το έργο για το υποέργο');
+        showToast('Δεν βρέθηκε το έργο για το υποέργο', 'error');
         return;
       }
       
@@ -859,18 +861,18 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
           [result.linkData.egkrisiId]: result.linkData
         }));
         
-        alert('✅ Η συσχέτιση εγκρίσεως με το υποέργο δημιουργήθηκε επιτυχώς!');
+        showToast('Η συσχέτιση εγκρίσεως με το υποέργο δημιουργήθηκε επιτυχώς!', 'success');
         
         // Ανανέωση των δεδομένων
         if (onLinkCreated) {
           onLinkCreated();
         }
       } else {
-        alert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + result.error);
+        showToast('Σφάλμα κατά τη δημιουργία συσχέτισης: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error performing link:', error);
-      alert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης');
+      showToast('Σφάλμα κατά τη δημιουργία συσχέτισης', 'error');
     }
   };
 
@@ -890,16 +892,19 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
       );
       
       if (!linkToRemove) {
-        alert('❌ Δεν βρέθηκε συσχέτιση για ακύρωση');
+        showToast('Δεν βρέθηκε συσχέτιση για ακύρωση', 'error');
         return;
       }
       
-      // Επιβεβαίωση από τον χρήστη
-      const confirmed = safeConfirm(
-        `Είστε σίγουροι ότι θέλετε να ακυρώσετε τη συσχέτιση με το υποέργο "${subproject.title}";\n\n` +
-        `Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.`
-      );
-      
+      const confirmed = await showConfirm({
+        title: 'Ακύρωση συσχέτισης',
+        message: `Είστε σίγουροι ότι θέλετε να ακυρώσετε τη συσχέτιση με το υποέργο "${subproject.title}";`,
+        detail: 'Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.',
+        confirmLabel: 'Ακύρωση συσχέτισης',
+        cancelLabel: 'Πίσω',
+        icon: '🔗',
+      });
+
       if (!confirmed) {
         return;
       }
@@ -920,14 +925,14 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
           onLinkCreated();
         }
         
-        alert('✅ Η συσχέτιση ακυρώθηκε επιτυχώς!');
+        showToast('Η συσχέτιση ακυρώθηκε επιτυχώς!', 'success');
         console.log('Removed link:', linkToRemove.egkrisiId);
       } else {
-        alert('Σφάλμα κατά την ακύρωση συσχέτισης: ' + result.error);
+        showToast('Σφάλμα κατά την ακύρωση συσχέτισης: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error unlinking subproject:', error);
-      alert('Σφάλμα κατά την ακύρωση συσχέτισης');
+      showToast('Σφάλμα κατά την ακύρωση συσχέτισης', 'error');
     }
   };
 
@@ -949,14 +954,14 @@ function EgkriseisCreditApprovalViewer({ isOpen, onClose, userRole, onOpenForm, 
           ...prev,
           [currentLinkingSubproject.number]: linkedSubproject
         }));
-        alert('Η συσχέτιση με το υποέργο δημιουργήθηκε επιτυχώς!');
+        showToast('Η συσχέτιση με το υποέργο δημιουργήθηκε επιτυχώς!', 'success');
         console.log('Updated linkedSubprojects:', { [currentLinkingSubproject.number]: linkedSubproject });
       } else {
-        alert('Σφάλμα κατά τη συσχέτιση: ' + result.error);
+        showToast('Σφάλμα κατά τη συσχέτιση: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error linking subproject:', error);
-      alert('Σφάλμα κατά τη συσχέτιση');
+      showToast('Σφάλμα κατά τη συσχέτιση', 'error');
     }
   };
 

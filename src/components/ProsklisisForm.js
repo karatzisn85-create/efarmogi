@@ -1,33 +1,38 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
 import { safeFileDialog } from '../utils/safeDialogs';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
 // Styled Components
 const FormOverlay = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
-  align-items: center;
-  z-index: 1100;
+  align-items: flex-start;
+  z-index: 10001;
+  padding: 1.25rem 1rem 2rem;
+  overflow-y: auto;
+  box-sizing: border-box;
 `;
 
 const FormContainer = styled.div`
   background: white;
-  border-radius: 15px;
+  border-radius: 16px;
   max-width: 1400px;
-  width: 95%;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  margin: auto 0;
+  flex-shrink: 0;
+  overflow-y: visible;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+  border: 1px solid #e2e8f0;
 `;
 
 const FormHeader = styled.div`
@@ -233,6 +238,7 @@ const STATUS_OPTIONS = [
 
 
 function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingProsklisi = null }) {
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     title: '',
     axis: '',
@@ -412,11 +418,11 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
           }));
         }
       } else if (result.error) {
-        alert('Σφάλμα επιλογής αρχείου: ' + result.error);
+        showToast('Σφάλμα επιλογής αρχείου: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error selecting files:', error);
-      alert('Σφάλμα επιλογής αρχείων: ' + error.message);
+      showToast('Σφάλμα επιλογής αρχείων: ' + error.message, 'error');
     }
   };
 
@@ -643,7 +649,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
         if (title) {
           cleanup({ action: 'new', title });
         } else {
-          alert('Παρακαλώ εισάγετε τίτλο ομάδας');
+          showToast('Παρακαλώ εισάγετε τίτλο ομάδας', 'warning');
         }
       });
 
@@ -659,7 +665,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
           const selectedGroup = existingGroups.find(g => g.id === selectedGroupId);
           cleanup({ action: 'existing', groupId: selectedGroupId, groupTitle: selectedGroup.title });
         } else {
-          alert('Παρακαλώ επιλέξτε ομάδα');
+          showToast('Παρακαλώ επιλέξτε ομάδα', 'warning');
         }
       });
 
@@ -764,7 +770,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
       await onSave(prosklisiData);
     } catch (error) {
       console.error('Error saving prosklisi:', error);
-      alert('Σφάλμα αποθήκευσης: ' + error.message);
+      showToast('Σφάλμα αποθήκευσης: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }
@@ -784,6 +790,8 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
   if (!isOpen) return null;
 
   return (
+    <>
+    {createPortal(
     <FormOverlay onClick={async (e) => {
       if (e.target === e.currentTarget) {
         // Ξεκλείδωμα της πρόσκλησης πριν το κλείσιμο
@@ -1159,14 +1167,16 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
           </form>
         </FormContent>
       </FormContainer>
-      
+    </FormOverlay>,
+    document.body
+    )}
       <ProsklisiModificationForm
         isOpen={isModificationFormOpen}
         onClose={() => setIsModificationFormOpen(false)}
         onSave={handleModificationSave}
         originalProsklisi={editingProsklisi}
       />
-    </FormOverlay>
+    </>
   );
 }
 

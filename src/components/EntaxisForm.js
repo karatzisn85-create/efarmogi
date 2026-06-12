@@ -1,31 +1,37 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import { safeFileDialog } from '../utils/safeDialogs';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
 const FormOverlay = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.9);
-  z-index: 10000;
-  padding: 2rem 1rem;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 10001;
+  padding: 1.25rem 1rem 2rem;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 `;
 
 const FormContainer = styled.div`
   background: white;
-  border-radius: 20px;
-  padding: 3rem;
+  border-radius: 16px;
+  padding: 2rem;
   max-width: min(1400px, calc(100vw - 2rem));
   width: 100%;
-  margin: 0 auto 2rem;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  margin: auto 0;
+  flex-shrink: 0;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+  border: 1px solid #e2e8f0;
   position: relative;
   overflow-x: clip;
   overflow-y: visible;
@@ -392,6 +398,7 @@ const DropdownItem = styled.li`
 `;
 
 function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     documentDate: '',
     fundingAuthority: '',
@@ -697,7 +704,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
       }
     } catch (error) {
       console.error('Error selecting files:', error);
-      alert('Σφάλμα κατά την επιλογή αρχείων: ' + error.message);
+      showToast('Σφάλμα κατά την επιλογή αρχείων: ' + error.message, 'error');
     }
   };
 
@@ -822,7 +829,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <FormOverlay onClick={async (e) => {
       if (e.target === e.currentTarget) {
         // Ξεκλείδωμα της ένταξης πριν το κλείσιμο
@@ -1050,7 +1057,8 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
           </ButtonContainer>
         </TheForm>
       </FormContainer>
-    </FormOverlay>
+    </FormOverlay>,
+    document.body
   );
 }
 

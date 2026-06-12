@@ -5,9 +5,9 @@ import EgkriseisStructureViewer from './EgkriseisStructureViewer';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
 import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
-import { safeConfirm, safeAlert } from '../utils/safeDialogs';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import { showConfirm } from '../utils/confirmModal';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -415,6 +415,7 @@ const LoadingMessage = styled.div`
 `;
 
 function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, onLinkCreated, linkedNotesMap = {}, onOpenNoteFromEntity, initialSearchTerm = '' }) {
+  const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState({});
   const [loading, setLoading] = useState(false);
@@ -687,7 +688,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
       setEgkriseisData(allEgkriseis);
     } catch (error) {
       console.error('Error loading egkriseis:', error);
-      safeAlert('Σφάλμα κατά τη φόρτωση των εγκρίσεων');
+      showToast('Σφάλμα κατά τη φόρτωση των εγκρίσεων', 'error');
     } finally {
       setLoading(false);
     }
@@ -721,11 +722,11 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
     try {
       const result = await ipcRenderer.invoke('view-egkrisi-file', projectId, subprojectId, fileName);
       if (!result.success) {
-        safeAlert('Σφάλμα κατά το άνοιγμα του αρχείου: ' + result.error);
+        showToast('Σφάλμα κατά το άνοιγμα του αρχείου: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error viewing file:', error);
-      safeAlert('Σφάλμα κατά το άνοιγμα του αρχείου');
+      showToast('Σφάλμα κατά το άνοιγμα του αρχείου', 'error');
     }
   };
 
@@ -740,11 +741,11 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
       if (result.success) {
         loadAllEgkriseis();
       } else {
-        safeAlert('Σφάλμα κατά τη διαγραφή: ' + result.error);
+        showToast('Σφάλμα κατά τη διαγραφή: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error deleting egkrisi:', error);
-      safeAlert('Σφάλμα κατά τη διαγραφή');
+      showToast('Σφάλμα κατά τη διαγραφή', 'error');
     }
   };
 
@@ -754,7 +755,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
 
     if (lockStatus.locked) {
       const who = lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή';
-      safeAlert(`Η έγκριση είναι υπό επεξεργασία από ${who}.`);
+      showToast(`Η έγκριση είναι υπό επεξεργασία από ${who}.`, 'warning');
       return;
     }
 
@@ -762,7 +763,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
     const lockResult = await ipcRenderer.invoke('create-entity-lock', 'egkriseis', egkrisiId, lockOwner);
     if (!lockResult.success) {
       const who = lockResult.lockedBy ? `«${lockResult.lockedBy}»` : 'άλλον χρήστη';
-      safeAlert(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${who}.`);
+      showToast(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${who}.`, 'warning');
       return;
     }
 
@@ -794,11 +795,8 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
           [currentLinkingEgkrisi.id]: subproject
         }));
         
-        // Also reload the links to ensure persistence
+        // Reload only the links — the egkriseis themselves haven't changed
         await loadEgkrisiLinks();
-        
-        // Force reload all egkriseis to refresh the UI
-        await loadAllEgkriseis();
         
         // Notify parent component about the new link
         if (onLinkCreated) {
@@ -814,11 +812,12 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
           [egkrisiId]: false
         }));
         
-        // Close the linking modal
+        // Close the linking modal and restore DOM state
         setIsLinkingModalOpen(false);
         setCurrentLinkingEgkrisi(null);
+        scheduleDocumentInteractionRecovery();
         
-        safeAlert('Η συσχέτιση με το υποέργο δημιουργήθηκε επιτυχώς!');
+        showToast('Η συσχέτιση με το υποέργο δημιουργήθηκε επιτυχώς!', 'success');
       } else {
         // Ξεκλείδωμα ακόμα και σε περίπτωση σφάλματος
         const egkrisiId = `egkrisi_${currentLinkingEgkrisi.projectKey}_${currentLinkingEgkrisi.subprojectKey}`;
@@ -828,7 +827,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
           [egkrisiId]: false
         }));
         
-        safeAlert('Σφάλμα κατά τη συσχέτιση: ' + result.error);
+        showToast('Σφάλμα κατά τη συσχέτιση: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error linking subproject:', error);
@@ -841,13 +840,13 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
         [egkrisiId]: false
       }));
       
-      safeAlert('Σφάλμα κατά τη συσχέτιση');
+      showToast('Σφάλμα κατά τη συσχέτιση', 'error');
     }
   };
 
   const handleCreateApproval = async (egkrisi) => {
     if (!linkedSubprojects[egkrisi.id]) {
-      safeAlert('Παρακαλώ συσχετίστε πρώτα την έγκριση με ένα υποέργο');
+      showToast('Παρακαλώ συσχετίστε πρώτα την έγκριση με ένα υποέργο', 'warning');
       return;
     }
 
@@ -859,15 +858,15 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
       });
 
       if (result.success) {
-        safeAlert('Η έγκριση διαθέσεως πίστωσης δημιουργήθηκε επιτυχώς!');
+        showToast('Η έγκριση διαθέσεως πίστωσης δημιουργήθηκε επιτυχώς!', 'success');
         // Refresh data
         loadAllEgkriseis();
       } else {
-        safeAlert('Σφάλμα κατά τη δημιουργία έγκρισης: ' + result.error);
+        showToast('Σφάλμα κατά τη δημιουργία έγκρισης: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error creating approval:', error);
-      safeAlert('Σφάλμα κατά τη δημιουργία έγκρισης');
+      showToast('Σφάλμα κατά τη δημιουργία έγκρισης', 'error');
     }
   };
 

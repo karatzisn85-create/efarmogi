@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import styled from 'styled-components';
 import { safeFileDialog } from '../utils/safeDialogs';
+import { useToast } from './ToastProvider';
 import { v4 as uuidv4 } from 'uuid';
 import {
   IMPLEMENTATION_FORMS,
@@ -8,14 +9,21 @@ import {
   FUNDING_SOURCES,
   PROJECT_STATUSES,
   FUNDING_DETAILS,
+  ASSIGNMENT_PROCEDURES,
   STATUSES_WITH_CONTRACT_FIELDS,
-  STATUSES_WITH_KHMDHS_ADAM
+  STATUSES_WITH_KHMDHS_ADAM,
+  statusShowsAssignmentProcedure
 } from '../data/formOptions';
 import {
   emptyKhmdhsOnContract,
   isMultipleContractsForm,
   normalizeContractsFromProject
 } from '../utils/khmdhsFields';
+import FundingOptionsModal from './FundingOptionsModal';
+import {
+  checkProjectDirectAssignmentCompliance,
+  formatViolationSummary
+} from '../utils/directAssignmentCompliance';
 
 const ipcRenderer = window.electronAPI;
 
@@ -104,9 +112,28 @@ function resolveKhmdhsFieldsForSave(formData, editingProject) {
     };
   }
   return {
-    contracts: (formData.contracts || []).map((c) => ({ ...c, ...emptyKhmdhsOnContract() })),
+    contracts: [],
     ...resolveSingleKhmdhsForSave(formData, editingProject)
   };
+}
+
+/** Καθαρισμός πεδίων σύμβασης ανά μορφή υλοποίησης κατά την αποθήκευση */
+function resolveContractStorageForSave(formData, editingProject) {
+  const khmdhs = resolveKhmdhsFieldsForSave(formData, editingProject);
+  if (isMultipleContractsForm(formData.implementationForm)) {
+    return {
+      ...khmdhs,
+      contractDate: '',
+      contractAmount: '',
+      apeAmount: '',
+      apeComments: ''
+    };
+  }
+  return khmdhs;
+}
+
+function createEmptyContractRow() {
+  return { date: '', amount: '', apeAmount: '', comments: '', ...emptyKhmdhsOnContract() };
 }
 
 const FormOverlay = styled.div`
@@ -911,7 +938,50 @@ const ErrorMessage = styled.div`
   border: 1px solid #fecaca;
 `;
 
-function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null }) {
+const ComplianceAlert = styled.div`
+  margin-top: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid ${(props) => (props.$warn ? '#fcd34d' : '#bfdbfe')};
+  background: ${(props) => (props.$warn ? '#fffbeb' : '#eff6ff')};
+  color: ${(props) => (props.$warn ? '#92400e' : '#1e40af')};
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-weight: 600;
+`;
+
+const ComplianceAlertTitle = styled.div`
+  font-weight: 800;
+  margin-bottom: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+`;
+
+function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null, userRole = 'USER', allProjects = [] }) {
+  const { showToast } = useToast();
+  const canManageFunding = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
+
+  // Dynamic funding options (loaded from disk + merged with built-ins)
+  const [fundingOptions, setFundingOptions] = useState({ sources: [], details: {} });
+  const [showFundingModal, setShowFundingModal] = useState(false);
+  const [fundingModalTab, setFundingModalTab] = useState('sources');
+  const [fundingModalSource, setFundingModalSource] = useState(null);
+
+  const loadFundingOptions = useCallback(async () => {
+    try {
+      const res = await ipcRenderer.invoke('load-funding-options');
+      if (res?.success) {
+        setFundingOptions(res.data);
+      }
+    } catch {
+      // Fallback: leave empty (built-ins will still load on next try)
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) loadFundingOptions();
+  }, [isOpen, loadFundingOptions]);
   const [touched, setTouched] = useState({}); // Track which fields have been touched
   const [formData, setFormData] = useState({
     projectTitle: '',
@@ -929,6 +999,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
     approvedAmount: '',
     projectBudget: '',
     projectStatus: '',
+    assignmentProcedure: '',
     contractProcessStartDate: '', // Ημερομηνία έναρξης διαδικασίας σύναψης Σύμβασης
     contractDate: '',
     contractAmount: '',
@@ -959,6 +1030,16 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
   const [auxPickerKey, setAuxPickerKey] = useState(0);
   const [khmdhsFetchLoadingTarget, setKhmdhsFetchLoadingTarget] = useState(null);
   const khmdhsFetchGenRef = React.useRef(0);
+
+  const directAssignmentCompliance = useMemo(() => {
+    if (!isOpen) return { applicable: false, violations: [], missingData: false };
+    const draftProject = {
+      ...formData,
+      subprojectId: editingProject?.subprojectId || formData.subprojectId || null,
+      projectId: editingProject?.projectId || formData.projectId || null
+    };
+    return checkProjectDirectAssignmentCompliance(draftProject, allProjects);
+  }, [isOpen, formData, editingProject, allProjects]);
 
   const cancelKhmdhsFetch = React.useCallback(() => {
     khmdhsFetchGenRef.current += 1;
@@ -1063,6 +1144,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
         approvedAmount: '',
         projectBudget: '',
         projectStatus: '',
+        assignmentProcedure: '',
         contractProcessStartDate: '',
         contractDate: '',
         contractAmount: '',
@@ -1478,19 +1560,22 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
         if (!formData.apeAmount) {
           newErrors.apeAmount = 'Απαιτείται ποσό ΑΠΕ + Συμπληρωματικές συμβάσεις';
         }
-      } else {
-        // Validate multiple contracts
-        formData.contracts.forEach((contract, index) => {
-          if (!contract.date) {
-            newErrors[`contractDate${index}`] = 'Απαιτείται ημερομηνία';
-          }
-          if (!contract.amount) {
-            newErrors[`contractAmount${index}`] = 'Απαιτείται ποσό';
-          }
-          if (!contract.apeAmount) {
-            newErrors[`apeAmount${index}`] = 'Απαιτείται ποσό ΑΠΕ';
-          }
-        });
+      } else if (isMultipleContractsForm(formData.implementationForm)) {
+        if (!formData.contracts || formData.contracts.length === 0) {
+          newErrors.contracts = 'Προσθέστε τουλάχιστον μία σύμβαση';
+        } else {
+          formData.contracts.forEach((contract, index) => {
+            if (!contract.date) {
+              newErrors[`contractDate${index}`] = 'Απαιτείται ημερομηνία';
+            }
+            if (!contract.amount) {
+              newErrors[`contractAmount${index}`] = 'Απαιτείται ποσό';
+            }
+            if (!contract.apeAmount && contract.apeAmount !== '0' && contract.apeAmount !== '0,00') {
+              newErrors[`apeAmount${index}`] = 'Απαιτείται ποσό ΑΠΕ';
+            }
+          });
+        }
       }
     }
 
@@ -1526,6 +1611,67 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
       value = sanitizeAdamInput(value);
     }
 
+    if (field === 'implementationForm') {
+      cancelKhmdhsFetch();
+      setFormData((prev) => {
+        const next = { ...prev, implementationForm: value };
+
+        if (value === 'Πολλές Συμβάσεις') {
+          const hasSingleData =
+            prev.contractDate || prev.contractAmount || prev.apeAmount || prev.apeComments || prev.khmdhsAdam;
+          if ((!prev.contracts || prev.contracts.length === 0) && hasSingleData) {
+            next.contracts = [{
+              date: prev.contractDate || '',
+              amount: prev.contractAmount || '',
+              apeAmount: prev.apeAmount || '',
+              comments: prev.apeComments || '',
+              khmdhsAdam: prev.khmdhsAdam || '',
+              khmdhsContractSnapshot: prev.khmdhsContractSnapshot || null,
+              khmdhsContractFetchedAt: prev.khmdhsContractFetchedAt || ''
+            }];
+          } else if (!prev.contracts || prev.contracts.length === 0) {
+            next.contracts = [createEmptyContractRow()];
+          }
+          next.contractDate = '';
+          next.contractAmount = '';
+          next.apeAmount = '';
+          next.apeComments = '';
+          next.khmdhsAdam = '';
+          next.khmdhsContractSnapshot = null;
+          next.khmdhsContractFetchedAt = '';
+        } else if (value === 'Μια Σύμβαση') {
+          const first = prev.contracts?.[0];
+          if (first) {
+            next.contractDate = first.date || '';
+            next.contractAmount = first.amount || '';
+            next.apeAmount = first.apeAmount || '';
+            next.apeComments = first.comments || '';
+            next.khmdhsAdam = first.khmdhsAdam || '';
+            next.khmdhsContractSnapshot = first.khmdhsContractSnapshot || null;
+            next.khmdhsContractFetchedAt = first.khmdhsContractFetchedAt || '';
+          }
+          next.contracts = [];
+        }
+
+        return next;
+      });
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.contracts;
+        delete next.contractDate;
+        delete next.contractAmount;
+        delete next.apeAmount;
+        delete next.khmdhsAdam;
+        Object.keys(next).forEach((key) => {
+          if (key.startsWith('contractDate') || key.startsWith('contractAmount') || key.startsWith('apeAmount') || key.startsWith('khmdhsAdam')) {
+            delete next[key];
+          }
+        });
+        return next;
+      });
+      return;
+    }
+
     if (field === 'projectStatus') {
       cancelKhmdhsFetch();
       setFormData((prev) => {
@@ -1537,6 +1683,9 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
           next.khmdhsAdam = '';
           next.khmdhsContractSnapshot = null;
           next.khmdhsContractFetchedAt = '';
+        }
+        if (!statusShowsAssignmentProcedure(value)) {
+          next.assignmentProcedure = '';
         }
         return next;
       });
@@ -1976,7 +2125,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
           document.body.removeChild(modal);
           resolve({ action: 'new', title });
         } else {
-          alert('Παρακαλώ εισάγετε τίτλο ομάδας');
+          showToast('Παρακαλώ εισάγετε τίτλο ομάδας', 'warning');
         }
       });
 
@@ -2003,7 +2152,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
         if (selectedGroupId) {
           cleanup({ action: 'existing', groupId: selectedGroupId });
         } else {
-          alert('Παρακαλώ επιλέξτε ομάδα');
+          showToast('Παρακαλώ επιλέξτε ομάδα', 'warning');
         }
       });
 
@@ -2088,11 +2237,11 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
           return next;
         });
       } else {
-        alert(res?.error || 'Η ανάκτηση από το ΚΗΜΔΗΣ απέτυχε.');
+        showToast(res?.error || 'Η ανάκτηση από το ΚΗΜΔΗΣ απέτυχε.', 'error');
       }
     } catch (e) {
       if (gen === khmdhsFetchGenRef.current) {
-        alert(e?.message || 'Σφάλμα κατά την επικοινωνία με το ΚΗΜΔΗΣ.');
+        showToast(e?.message || 'Σφάλμα κατά την επικοινωνία με το ΚΗΜΔΗΣ.', 'error');
       }
     } finally {
       if (gen === khmdhsFetchGenRef.current) {
@@ -2206,6 +2355,13 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
 
     console.log('Validation passed, proceeding with save...');
 
+    if (directAssignmentCompliance.violations?.length > 0) {
+      showToast(
+        `Προειδοποίηση: ${directAssignmentCompliance.violations.length} πιθανή/ές παράβαση/εις κανόνα 12μήνου απευθείας ανάθεσης.`,
+        'warning'
+      );
+    }
+
     try {
       // Normalize τα κείμενα πριν την αποθήκευση
       let outside = Boolean(formData.supervisorChargeOutsideEngineers);
@@ -2255,7 +2411,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
         supervisorChargeOutsideEngineers: outside,
         supervisorChargeFreePrimary,
         supervisorChargeFreeParticipants,
-        ...resolveKhmdhsFieldsForSave(formData, editingProject)
+        ...resolveContractStorageForSave(formData, editingProject)
       };
 
       const projectData = {
@@ -2480,9 +2636,11 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
   if (!isOpen) return null;
 
   const showContractFields = STATUSES_WITH_CONTRACT_FIELDS.includes(formData.projectStatus);
-  const availableFundingDetails = FUNDING_DETAILS[formData.fundingSource] || [];
+  const visibleFundingSources = fundingOptions.sources.filter(s => !s.hidden);
+  const visibleFundingDetails = (fundingOptions.details[formData.fundingSource] || []).filter(d => !d.hidden);
 
   return (
+    <>
     <FormOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <FormContainer>
         {/* Header */}
@@ -2635,29 +2793,53 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
               </FormGroup>
 
               <FormGroup>
-                <Label>Βασική Πηγή Χρηματοδότησης *</Label>
+                <Label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Βασική Πηγή Χρηματοδότησης *</span>
+                  {canManageFunding && (
+                    <button
+                      type="button"
+                      title="Διαχείριση βασικών πηγών"
+                      onClick={() => { setFundingModalTab('sources'); setFundingModalSource(null); setShowFundingModal(true); }}
+                      style={{ background: 'none', border: '1px solid #c7d2fe', borderRadius: '6px', color: '#6366f1', fontSize: '0.75rem', padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      ⚙ Διαχείριση
+                    </button>
+                  )}
+                </Label>
                 <Select
                   value={formData.fundingSource}
                   onChange={(e) => handleFundingSourceChange(e.target.value)}
                 >
                   <option value="">Επιλέξτε πηγή</option>
-                  {FUNDING_SOURCES.map(source => (
-                    <option key={source} value={source}>{source}</option>
+                  {visibleFundingSources.map(src => (
+                    <option key={src.value} value={src.value}>{src.label}</option>
                   ))}
                 </Select>
                 {errors.fundingSource && <ErrorMessage>{errors.fundingSource}</ErrorMessage>}
               </FormGroup>
 
               <FormGroup>
-                <Label>Εξειδίκευση Πηγής *</Label>
+                <Label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Εξειδίκευση Πηγής *</span>
+                  {canManageFunding && formData.fundingSource && (
+                    <button
+                      type="button"
+                      title="Διαχείριση εξειδικεύσεων"
+                      onClick={() => { setFundingModalTab('details'); setFundingModalSource(formData.fundingSource); setShowFundingModal(true); }}
+                      style={{ background: 'none', border: '1px solid #c7d2fe', borderRadius: '6px', color: '#6366f1', fontSize: '0.75rem', padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      ⚙ Διαχείριση
+                    </button>
+                  )}
+                </Label>
                 <Select
                   value={formData.fundingDetails}
                   onChange={(e) => handleInputChange('fundingDetails', e.target.value)}
                   disabled={!formData.fundingSource}
                 >
                   <option value="">Επιλέξτε εξειδίκευση</option>
-                  {availableFundingDetails.map(detail => (
-                    <option key={detail} value={detail}>{detail}</option>
+                  {visibleFundingDetails.map(det => (
+                    <option key={det.value} value={det.value}>{det.label}</option>
                   ))}
                 </Select>
                 {errors.fundingDetails && <ErrorMessage>{errors.fundingDetails}</ErrorMessage>}
@@ -2757,7 +2939,38 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
                 {errors.projectStatus && <ErrorMessage>{errors.projectStatus}</ErrorMessage>}
               </FormGroup>
 
-              {formData.projectStatus && PROJECT_STATUSES.indexOf(formData.projectStatus) >= PROJECT_STATUSES.indexOf('ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ') && (
+              {statusShowsAssignmentProcedure(formData.projectStatus) && (
+                <FormGroup fullWidth cols={3}>
+                  <Label>Διαδικασία Ανάθεσης</Label>
+                  <Select
+                    value={formData.assignmentProcedure || ''}
+                    onChange={(e) => handleInputChange('assignmentProcedure', e.target.value)}
+                  >
+                    <option value="">Επιλέξτε διαδικασία ανάθεσης</option>
+                    {ASSIGNMENT_PROCEDURES.map((procedure) => (
+                      <option key={procedure} value={procedure}>{procedure}</option>
+                    ))}
+                  </Select>
+                  {directAssignmentCompliance.applicable && directAssignmentCompliance.missingData && (
+                    <ComplianceAlert $warn={false}>
+                      <ComplianceAlertTitle>ℹ️ Έλεγχος 12μήνου απευθείας ανάθεσης</ComplianceAlertTitle>
+                      {directAssignmentCompliance.message}
+                    </ComplianceAlert>
+                  )}
+                  {directAssignmentCompliance.violations?.length > 0 && (
+                    <ComplianceAlert $warn>
+                      <ComplianceAlertTitle>⚠️ Πιθανή παράβαση κανόνα 12 μηνών</ComplianceAlertTitle>
+                      {directAssignmentCompliance.violations.map((v, idx) => (
+                        <div key={idx} style={{ marginTop: idx > 0 ? '0.5rem' : 0 }}>
+                          {formatViolationSummary(v)}
+                        </div>
+                      ))}
+                    </ComplianceAlert>
+                  )}
+                </FormGroup>
+              )}
+
+              {statusShowsAssignmentProcedure(formData.projectStatus) && (
                 <FormGroup>
                   <Label>Ημερ. Έναρξης Διαδικασίας Σύμβασης</Label>
                   <Input
@@ -3012,6 +3225,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
                     </ContractPanel>
                   ))}
                   <AddContractButton onClick={addContract}>+ Προσθήκη Σύμβασης</AddContractButton>
+                  {errors.contracts && <ErrorMessage>{errors.contracts}</ErrorMessage>}
                 </ContractsListWrap>
               )}
 
@@ -3115,6 +3329,16 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null 
         </StickyFooter>
       </FormContainer>
     </FormOverlay>
+    {showFundingModal && (
+      <FundingOptionsModal
+        isOpen={showFundingModal}
+        onClose={() => setShowFundingModal(false)}
+        initialTab={fundingModalTab}
+        activeSource={fundingModalSource}
+        onOptionsChanged={loadFundingOptions}
+      />
+    )}
+    </>
   );
 }
 

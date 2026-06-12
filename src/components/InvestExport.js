@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -204,6 +205,7 @@ const MONTHS = [
 ];
 
 function InvestExport({ isOpen, onClose }) {
+  const { showToast } = useToast();
   const currentYear = new Date().getFullYear();
   const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
   
@@ -251,14 +253,14 @@ function InvestExport({ isOpen, onClose }) {
           message += `\n💾 Το αρχείο αποθηκεύτηκε επιτυχώς!`;
         }
         
-        alert(message);
+        showToast(message, 'success');
         onClose();
       } else {
         throw new Error(result.error || 'Άγνωστο σφάλμα');
       }
     } catch (error) {
       console.error('Export error:', error);
-      alert(`❌ Σφάλμα κατά την εξαγωγή:\n\n${error.message}`);
+      showToast(`Σφάλμα κατά την εξαγωγή:\n\n${error.message}`, 'error');
     } finally {
       setIsExporting(false);
       setProgress('');

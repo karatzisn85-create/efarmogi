@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
-import { safeAlert } from '../utils/safeDialogs';
+import { useToast } from './ToastProvider';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import { showConfirm } from '../utils/confirmModal';
 import { containsSearchTerm } from '../utils/searchUtils';
@@ -614,6 +614,7 @@ const getCategoryShadow = (color, isActive) => hexToRGBA(color, isActive ? 0.35 
 const getCountBackground = (color, isActive) => hexToRGBA(color, isActive ? 0.35 : 0.22);
 
 function DocumentTemplatesManager({ onClose }) {
+  const { showToast } = useToast();
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -672,7 +673,7 @@ function DocumentTemplatesManager({ onClose }) {
 
   const handleSaveCategory = async () => {
     if (!newCategoryName.trim()) {
-      safeAlert('Παρακαλώ εισάγετε όνομα κατηγορίας!');
+      showToast('Παρακαλώ εισάγετε όνομα κατηγορίας!', 'warning');
       return;
     }
 
@@ -692,13 +693,13 @@ function DocumentTemplatesManager({ onClose }) {
       }
     } catch (error) {
       console.error('Error adding category:', error);
-      safeAlert('Σφάλμα κατά την προσθήκη κατηγορίας');
+      showToast('Σφάλμα κατά την προσθήκη κατηγορίας', 'error');
     }
   };
 
   const handleUploadDocument = async () => {
     if (!selectedCategory) {
-      safeAlert('Παρακαλώ επιλέξτε μια κατηγορία πρώτα!');
+      showToast('Παρακαλώ επιλέξτε μια κατηγορία πρώτα!', 'warning');
       return;
     }
 
@@ -710,17 +711,17 @@ function DocumentTemplatesManager({ onClose }) {
           await loadData();
           // Show success message with count
           if (result.count === 1) {
-            safeAlert(`Επιτυχής ανέβασμα ${result.count} εγγράφου!`);
+            showToast(`Επιτυχής ανέβασμα ${result.count} εγγράφου!`, 'success');
           } else {
-            safeAlert(`Επιτυχής ανέβασμα ${result.count} εγγράφων!`);
+            showToast(`Επιτυχής ανέβασμα ${result.count} εγγράφων!`, 'success');
           }
         }
       } else if (!result.canceled) {
-        safeAlert('Σφάλμα κατά το ανέβασμα εγγράφων');
+        showToast('Σφάλμα κατά το ανέβασμα εγγράφων', 'error');
       }
     } catch (error) {
       console.error('Error uploading document:', error);
-      safeAlert('Σφάλμα κατά το ανέβασμα εγγράφων');
+      showToast('Σφάλμα κατά το ανέβασμα εγγράφων', 'error');
     } finally {
       setLoading(false);
     }
@@ -731,7 +732,7 @@ function DocumentTemplatesManager({ onClose }) {
       await ipcRenderer.invoke('download-document-template', docId);
     } catch (error) {
       console.error('Error downloading document:', error);
-      safeAlert('Σφάλμα κατά τη λήψη εγγράφου');
+      showToast('Σφάλμα κατά τη λήψη εγγράφου', 'error');
     }
   };
 
@@ -745,7 +746,7 @@ function DocumentTemplatesManager({ onClose }) {
       await loadData();
     } catch (error) {
       console.error('Error deleting document:', error);
-      safeAlert('Σφάλμα κατά τη διαγραφή εγγράφου');
+      showToast('Σφάλμα κατά τη διαγραφή εγγράφου', 'error');
     }
   };
 
@@ -754,7 +755,7 @@ function DocumentTemplatesManager({ onClose }) {
       await ipcRenderer.invoke('open-document-template', docId, false);
     } catch (error) {
       console.error('Error viewing document:', error);
-      safeAlert('Σφάλμα κατά την προβολή εγγράφου');
+      showToast('Σφάλμα κατά την προβολή εγγράφου', 'error');
     }
   };
 
@@ -770,12 +771,12 @@ function DocumentTemplatesManager({ onClose }) {
 
   const handleCopy = (doc) => {
     setCopiedDocument(doc);
-    safeAlert(`Το έγγραφο "${doc.name}" αντιγράφηκε! Επιλέξτε κατηγορία για επικόλληση.`);
+    showToast(`Το έγγραφο "${doc.name}" αντιγράφηκε! Επιλέξτε κατηγορία για επικόλληση.`, 'info');
   };
 
   const handlePaste = async (targetCategoryId) => {
     if (!copiedDocument) {
-      safeAlert('Δεν υπάρχει αντιγραμμένο έγγραφο');
+      showToast('Δεν υπάρχει αντιγραμμένο έγγραφο', 'warning');
       return;
     }
 
@@ -786,14 +787,14 @@ function DocumentTemplatesManager({ onClose }) {
         await loadData();
         // Επιλογή της κατηγορίας όπου έγινε το paste
         setSelectedCategory(targetCategoryId);
-        safeAlert(`Το έγγραφο "${copiedDocument.name}" επικολλήθηκε επιτυχώς!`);
+        showToast(`Το έγγραφο "${copiedDocument.name}" επικολλήθηκε επιτυχώς!`, 'success');
         // Μπορούμε να αφήσουμε το copiedDocument για να μπορεί να γίνει paste και σε άλλες κατηγορίες
       } else {
-        safeAlert('Σφάλμα κατά την επικόλληση: ' + (result.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά την επικόλληση: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
     } catch (error) {
       console.error('Error pasting document:', error);
-      safeAlert('Σφάλμα κατά την επικόλληση: ' + error.message);
+      showToast('Σφάλμα κατά την επικόλληση: ' + error.message, 'error');
     }
   };
 
@@ -824,11 +825,11 @@ function DocumentTemplatesManager({ onClose }) {
         await loadData();
         handleCloseColorModal();
       } else {
-        safeAlert('Σφάλμα κατά την ενημέρωση κατηγορίας: ' + (result.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά την ενημέρωση κατηγορίας: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
     } catch (error) {
       console.error('Error updating category color:', error);
-      safeAlert('Σφάλμα κατά την ενημέρωση χρώματος κατηγορίας');
+      showToast('Σφάλμα κατά την ενημέρωση χρώματος κατηγορίας', 'error');
     }
   };
 
@@ -853,13 +854,13 @@ function DocumentTemplatesManager({ onClose }) {
       const result = await ipcRenderer.invoke('delete-document-category', categoryToDelete.id);
       if (result.success) {
         await loadData();
-        safeAlert(`Η κατηγορία "${categoryToDelete.name}" διαγράφηκε. Διαγράφηκαν ${result.removedDocuments || 0} συνημμένα αρχεία.`);
+        showToast(`Η κατηγορία "${categoryToDelete.name}" διαγράφηκε. Διαγράφηκαν ${result.removedDocuments || 0} συνημμένα αρχεία.`, 'success');
       } else {
-        safeAlert('Σφάλμα κατά τη διαγραφή κατηγορίας: ' + (result.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά τη διαγραφή κατηγορίας: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
     } catch (error) {
       console.error('Error deleting category:', error);
-      safeAlert('Σφάλμα κατά τη διαγραφή κατηγορίας');
+      showToast('Σφάλμα κατά τη διαγραφή κατηγορίας', 'error');
     } finally {
       handleCloseDeleteCategoryModal();
     }
@@ -899,7 +900,7 @@ function DocumentTemplatesManager({ onClose }) {
 
     const trimmedName = renameDocumentName.trim();
     if (!trimmedName) {
-      safeAlert('Παρακαλώ εισάγετε νέο όνομα εγγράφου.');
+      showToast('Παρακαλώ εισάγετε νέο όνομα εγγράφου.', 'warning');
       return;
     }
 
@@ -913,11 +914,11 @@ function DocumentTemplatesManager({ onClose }) {
         await loadData();
         handleCloseRenameModal();
       } else {
-        safeAlert('Σφάλμα κατά τη μετονομασία: ' + (result.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά τη μετονομασία: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
     } catch (error) {
       console.error('Error renaming document:', error);
-      safeAlert('Σφάλμα κατά τη μετονομασία εγγράφου');
+      showToast('Σφάλμα κατά τη μετονομασία εγγράφου', 'error');
     }
   };
 

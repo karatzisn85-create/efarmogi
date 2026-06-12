@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
+import { useToast } from './ToastProvider';
 import ProsklisisForm from './ProsklisisForm';
 import ProsklisisFileManager from './ProsklisisFileManager';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
@@ -995,7 +996,8 @@ function SeeMoreText({ text, modalTitle, lineClamp = 2, singleLine = false, Text
 
 /* ────────── Main Component ────────── */
 
-function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedProsklisiId = null, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity }) {
+function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedProsklisiId = null, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '' }) {
+  const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [proskliseis, setProskliseis] = useState([]);
   const [filteredProskliseis, setFilteredProskliseis] = useState([]);
@@ -1036,16 +1038,19 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
   const closeMenu = useCallback(() => setMenuState((s) => ({ ...s, open: false })), []);
 
   useEffect(() => {
-    if (!menuState.open) return;
-    const handle = (e) => {
+    if (!menuState.open) return undefined;
+    const handleKey = (e) => {
       if (e.key === 'Escape') closeMenu();
     };
-    const handleClick = () => closeMenu();
-    document.addEventListener('keydown', handle);
-    document.addEventListener('click', handleClick, true);
+    const handleOutside = (e) => {
+      if (e.target.closest('[data-prosklisi-menu]')) return;
+      closeMenu();
+    };
+    document.addEventListener('keydown', handleKey);
+    document.addEventListener('mousedown', handleOutside);
     return () => {
-      document.removeEventListener('keydown', handle);
-      document.removeEventListener('click', handleClick, true);
+      document.removeEventListener('keydown', handleKey);
+      document.removeEventListener('mousedown', handleOutside);
     };
   }, [menuState.open, closeMenu]);
 
@@ -1218,7 +1223,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       setEditingProsklisi(null);
     } catch (error) {
       console.error('Error saving prosklisi:', error);
-      alert('Σφάλμα αποθήκευσης πρόσκλησης: ' + error.message);
+      showToast('Σφάλμα αποθήκευσης πρόσκλησης: ' + error.message, 'error');
     } finally {
       if (editingProsklisi && editingProsklisi.prosklisiId) {
         try {
@@ -1227,6 +1232,22 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
         } catch (lockErr) { console.error('Error removing lock:', lockErr); }
       }
     }
+  };
+
+  const tryAcquireProsklisiLock = async (prosklisi) => {
+    const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'proskliseis', prosklisi.prosklisiId);
+    if (lockStatus.locked) {
+      showToast(`Η πρόσκληση είναι υπό επεξεργασία από ${lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή'}.`, 'warning');
+      return false;
+    }
+    const lockOwner = currentUser?.fullName || currentUser?.username || '';
+    const lockResult = await ipcRenderer.invoke('create-entity-lock', 'proskliseis', prosklisi.prosklisiId, lockOwner);
+    if (!lockResult.success) {
+      showToast(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${lockResult.lockedBy ? `«${lockResult.lockedBy}»` : 'άλλον χρήστη'}.`, 'warning');
+      return false;
+    }
+    setProsklisiLocks((prev) => ({ ...prev, [prosklisi.prosklisiId]: true }));
+    return true;
   };
 
   const handleSaveModification = async (modificationData) => {
@@ -1247,9 +1268,11 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
         await ipcRenderer.invoke('save-prosklisi', updatedProsklisiData);
       }
       await loadProskliseis();
+      setEditingModification(null);
+      setIsModificationFormOpen(false);
     } catch (error) {
       console.error('Error saving modification:', error);
-      alert('Σφάλμα αποθήκευσης τροποποίησης: ' + error.message);
+      showToast('Σφάλμα αποθήκευσης τροποποίησης: ' + error.message, 'error');
     } finally {
       if (modificationData.originalProsklisiId) {
         try {
@@ -1262,12 +1285,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
 
   const handleEditProsklisi = async (prosklisi) => {
     closeMenu();
-    const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'proskliseis', prosklisi.prosklisiId);
-    if (lockStatus.locked) { alert(`Η πρόσκληση είναι υπό επεξεργασία από ${lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή'}.`); return; }
-    const lockOwner = currentUser?.fullName || currentUser?.username || '';
-    const lockResult = await ipcRenderer.invoke('create-entity-lock', 'proskliseis', prosklisi.prosklisiId, lockOwner);
-    if (!lockResult.success) { alert(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${lockResult.lockedBy ? `«${lockResult.lockedBy}»` : 'άλλον χρήστη'}.`); return; }
-    setProsklisiLocks(prev => ({ ...prev, [prosklisi.prosklisiId]: true }));
+    if (!(await tryAcquireProsklisiLock(prosklisi))) return;
     setEditingProsklisi(prosklisi);
     setIsFormOpen(true);
   };
@@ -1278,34 +1296,32 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi', prosklisiId);
         if (result.success) await loadProskliseis();
-        else alert('Σφάλμα διαγραφής πρόσκλησης: ' + result.error);
-      } catch (error) { alert('Σφάλμα διαγραφής πρόσκλησης: ' + error.message); }
+        else showToast('Σφάλμα διαγραφής πρόσκλησης: ' + result.error, 'error');
+      } catch (error) { showToast('Σφάλμα διαγραφής πρόσκλησης: ' + error.message, 'error'); }
     }
   };
 
   const handleViewFiles = (prosklisiId) => {
     const prosklisi = proskliseis.find(p => p.prosklisiId === prosklisiId);
-    if (!prosklisi) { alert('Δεν βρέθηκε η πρόσκληση'); return; }
+    if (!prosklisi) { showToast('Δεν βρέθηκε η πρόσκληση', 'error'); return; }
     setFileManagerOpen({ isOpen: true, prosklisiId, prosklisiTitle: prosklisi.title });
   };
 
   const handleViewModificationPDF = async (prosklisiId, modificationId) => {
     try {
       const result = await ipcRenderer.invoke('view-modification-pdf', prosklisiId, modificationId);
-      if (!result.success) alert('Σφάλμα προβολής PDF: ' + result.error);
-    } catch (error) { alert('Σφάλμα προβολής PDF: ' + error.message); }
+      if (!result.success) showToast('Σφάλμα προβολής PDF: ' + result.error, 'error');
+    } catch (error) { showToast('Σφάλμα προβολής PDF: ' + error.message, 'error'); }
   };
 
   const handleEditModification = async (modification, prosklisiId) => {
-    closeMenu();
-    const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'proskliseis', prosklisiId);
-    if (lockStatus.locked) { alert(`Η πρόσκληση είναι υπό επεξεργασία από ${lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή'}.`); return; }
-    const lockOwner = currentUser?.fullName || currentUser?.username || '';
-    const lockResult = await ipcRenderer.invoke('create-entity-lock', 'proskliseis', prosklisiId, lockOwner);
-    if (!lockResult.success) { alert(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${lockResult.lockedBy ? `«${lockResult.lockedBy}»` : 'άλλον χρήστη'}.`); return; }
-    setProsklisiLocks(prev => ({ ...prev, [prosklisiId]: true }));
-    const originalProsklisi = proskliseis.find(p => p.prosklisiId === prosklisiId);
-    setEditingModification({ ...modification, prosklisiId, originalProsklisiData: originalProsklisi });
+    const prosklisi = proskliseis.find((p) => p.prosklisiId === prosklisiId);
+    if (!prosklisi) {
+      showToast('Δεν βρέθηκε η πρόσκληση', 'error');
+      return;
+    }
+    if (!(await tryAcquireProsklisiLock(prosklisi))) return;
+    setEditingModification({ ...modification, prosklisiId, originalProsklisiData: prosklisi });
     setIsModificationFormOpen(true);
   };
 
@@ -1314,7 +1330,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       try {
         await ipcRenderer.invoke('delete-prosklisi-modification', prosklisiId, modificationId);
         await loadProskliseis();
-      } catch (error) { alert('Σφάλμα διαγραφής τροποποίησης: ' + error.message); }
+      } catch (error) { showToast('Σφάλμα διαγραφής τροποποίησης: ' + error.message, 'error'); }
     }
   };
 
@@ -1328,13 +1344,14 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       await loadProskliseis();
       setEditingModification(null);
       setIsModificationFormOpen(false);
-    } catch (error) { alert('Σφάλμα ενημέρωσης τροποποίησης: ' + error.message); }
+    } catch (error) { showToast('Σφάλμα ενημέρωσης τροποποίησης: ' + error.message, 'error'); }
   };
 
-  const handleNewModification = (prosklisi) => {
+  const handleNewModification = async (prosklisi) => {
     closeMenu();
-    setEditingProsklisi(prosklisi);
-    setIsFormOpen(true);
+    if (!(await tryAcquireProsklisiLock(prosklisi))) return;
+    setEditingModification(prosklisi);
+    setIsModificationFormOpen(true);
   };
 
   /* ── Helpers ── */
@@ -1688,10 +1705,14 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
 
       {/* Portal dropdown menu */}
       {menuState.open && menuState.prosklisi && createPortal(
-        <MenuDropdown style={{ top: menuState.top, left: menuState.left }}>
-          <MenuItem onClick={() => handleNewModification(menuState.prosklisi)}>📝 Νέα Τροποποίηση</MenuItem>
-          <MenuItem onClick={() => handleEditProsklisi(menuState.prosklisi)}>✏️ Επεξεργασία Πρόσκλησης</MenuItem>
-          <MenuItem $danger onClick={() => handleDeleteProsklisi(menuState.prosklisi.prosklisiId)}>🗑️ Διαγραφή Πρόσκλησης</MenuItem>
+        <MenuDropdown
+          data-prosklisi-menu="true"
+          style={{ top: menuState.top, left: menuState.left }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <MenuItem type="button" onClick={() => handleNewModification(menuState.prosklisi)}>📝 Νέα Τροποποίηση</MenuItem>
+          <MenuItem type="button" onClick={() => handleEditProsklisi(menuState.prosklisi)}>✏️ Επεξεργασία Πρόσκλησης</MenuItem>
+          <MenuItem type="button" $danger onClick={() => handleDeleteProsklisi(menuState.prosklisi.prosklisiId)}>🗑️ Διαγραφή Πρόσκλησης</MenuItem>
         </MenuDropdown>,
         document.body
       )}
@@ -1735,22 +1756,23 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
         userRole={userRole}
       />
 
-      {/* Modification Edit Modal */}
+      {/* Modification Form Modal (νέα ή επεξεργασία) */}
       {isModificationFormOpen && editingModification && (
         <ProsklisiModificationForm
           isOpen={isModificationFormOpen}
           onClose={async () => {
-            if (editingModification && editingModification.prosklisiId) {
-              await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingModification.prosklisiId);
-              setProsklisiLocks(prev => ({ ...prev, [editingModification.prosklisiId]: false }));
+            const prosklisiId = editingModification.prosklisiId || editingModification.id;
+            if (prosklisiId) {
+              await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', prosklisiId);
+              setProsklisiLocks((prev) => ({ ...prev, [prosklisiId]: false }));
             }
             setIsModificationFormOpen(false);
             setEditingModification(null);
             await loadProskliseis();
           }}
-          onSave={handleSaveModificationEdit}
+          onSave={editingModification.modificationId ? handleSaveModificationEdit : handleSaveModification}
           originalProsklisi={editingModification}
-          isEditMode={true}
+          isEditMode={!!editingModification.modificationId}
         />
       )}
 
@@ -1760,6 +1782,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
         onClose={() => setIsExportDialogOpen(false)}
         proskliseis={filteredProskliseis}
         totalProskliseis={proskliseis.length}
+        organizationName={organizationName}
       />
     </ModalOverlay>
   );

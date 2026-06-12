@@ -9,8 +9,49 @@ export const PROJECT_TYPES = [
   'ΠΡΟΜΗΘΕΙΑ',
   'ΕΡΓΟ',
   'ΜΕΛΕΤΗ',
-  'ΥΠΗΡΕΣΙΑ'
+  'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ',
+  'ΠΑΡΟΧΗ ΤΕΧΝΙΚΩΝ ΚΑΙ ΛΟΙΠΩΝ ΣΥΝΑΦΩΝ ΕΠΙΣΤΗΜΟΝΙΚΩΝ ΥΠΗΡΕΣΙΩΝ',
+  'ΚΟΙΝΩΝΙΚΕΣ ΚΑΙ ΑΛΛΕΣ ΕΙΔΙΚΕΣ ΥΠΗΡΕΣΙΕΣ'
 ];
+
+/** Παλιά ονομασία — μετατρέπεται σε ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ */
+export const LEGACY_PROJECT_TYPE_ALIASES = {
+  'ΥΠΗΡΕΣΙΑ': 'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ'
+};
+
+export function normalizeProjectType(type) {
+  if (!type) return '';
+  const t = String(type).trim();
+  return LEGACY_PROJECT_TYPE_ALIASES[t] || t;
+}
+
+export function isServiceProjectType(type) {
+  const t = normalizeProjectType(type);
+  return t === 'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ'
+    || t === 'ΠΑΡΟΧΗ ΤΕΧΝΙΚΩΝ ΚΑΙ ΛΟΙΠΩΝ ΣΥΝΑΦΩΝ ΕΠΙΣΤΗΜΟΝΙΚΩΝ ΥΠΗΡΕΣΙΩΝ'
+    || t === 'ΚΟΙΝΩΝΙΚΕΣ ΚΑΙ ΑΛΛΕΣ ΕΙΔΙΚΕΣ ΥΠΗΡΕΣΙΕΣ';
+}
+
+/** Χρώματα badge ανά είδος υποέργου */
+export function getProjectTypeBadgeColors(type) {
+  const t = normalizeProjectType(type);
+  switch (t) {
+    case 'ΠΡΟΜΗΘΕΙΑ':
+      return { bg: '#e3f2fd', color: '#1976d2' };
+    case 'ΕΡΓΟ':
+      return { bg: '#f3e5f5', color: '#7b1fa2' };
+    case 'ΜΕΛΕΤΗ':
+      return { bg: '#e8f5e8', color: '#388e3c' };
+    case 'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ':
+      return { bg: '#fff3e0', color: '#f57c00' };
+    case 'ΠΑΡΟΧΗ ΤΕΧΝΙΚΩΝ ΚΑΙ ΛΟΙΠΩΝ ΣΥΝΑΦΩΝ ΕΠΙΣΤΗΜΟΝΙΚΩΝ ΥΠΗΡΕΣΙΩΝ':
+      return { bg: '#e0f2f1', color: '#00796b' };
+    case 'ΚΟΙΝΩΝΙΚΕΣ ΚΑΙ ΑΛΛΕΣ ΕΙΔΙΚΕΣ ΥΠΗΡΕΣΙΕΣ':
+      return { bg: '#fce4ec', color: '#c2185b' };
+    default:
+      return { bg: '#f8f9fa', color: '#495057' };
+  }
+}
 
 export const FUNDING_SOURCES = [
   'ΠΡΟΓΡΑΜΜΑ ΑΝΤΩΝΗΣ ΤΡΙΤΣΗΣ',
@@ -23,13 +64,28 @@ export const FUNDING_SOURCES = [
   'ΛΟΙΠΑ ΠΡΟΓΡΑΜΜΑΤΑ ή ΠΟΡΟΙ'
 ];
 
+/** Υποέργο αποσυρμένο — δεν μετράει σε στατιστικά/εξαγωγές, παραμένει για επαναφορά */
+export const PROJECT_STATUS_ABANDONED = 'ΑΠΕΝΤΑΓΜΕΝΟ';
+
 export const PROJECT_STATUSES = [
   'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ',
   'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
   'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
   'ΟΛΟΚΛΗΡΩΜΕΝΟ',
-  'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ'
+  'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ',
+  PROJECT_STATUS_ABANDONED
 ];
+
+export function isAbandonedSubproject(projectOrStatus) {
+  const status = typeof projectOrStatus === 'string'
+    ? projectOrStatus
+    : projectOrStatus?.projectStatus;
+  return status === PROJECT_STATUS_ABANDONED;
+}
+
+export function excludeAbandonedSubprojects(projects = []) {
+  return (projects || []).filter((p) => !isAbandonedSubproject(p));
+}
 
 export const FUNDING_DETAILS = {
   'ΠΡΟΓΡΑΜΜΑ ΑΝΤΩΝΗΣ ΤΡΙΤΣΗΣ': [
@@ -180,20 +236,43 @@ export const FUNDING_DETAILS = {
   ]
 };
 
-export const STATUSES_WITH_CONTRACT_FIELDS = [
-  'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
-  'ΟΛΟΚΛΗΡΩΜΕΝΟ'
+export const ASSIGNMENT_PROCEDURES = [
+  'ΑΝΟΙΚΤΟΣ ΔΙΑΓΩΝΙΣΜΟΣ',
+  'ΑΝΤΑΓΩΝΙΣΤΙΚΗ ΔΙΑΔΙΚΑΣΙΑ ΜΕ ΔΙΑΠΡΑΓΜΑΤΕΥΣΗ',
+  'ΑΝΤΑΓΩΝΙΣΤΙΚΟΣ ΔΙΑΛΟΓΟΣ',
+  'ΑΠΕΥΘΕΙΑΣ ΑΝΑΘΕΣΗ',
+  'ΔΙΑΠΡΑΓΜΑΤΕΥΣΗ ΧΩΡΙΣ ΔΗΜΟΣΙΕΥΣΗ ΑΡΘΡΟ 32Α',
+  'ΚΛΕΙΣΤΟΣ ΔΙΑΓΩΝΙΣΜΟΣ',
+  'ΣΥΝΟΠΤΙΚΟΣ ΔΙΑΓΩΝΙΣΜΟΣ',
+  'ΣΥΜΠΡΑΞΗ ΚΑΙΝΟΤΟΜΙΑΣ',
+  'ΔΙΑΠΡΑΓΜΑΤΕΥΣΗ ΧΩΡΙΣ ΔΗΜΟΣΙΕΥΣΗ ΠΛΕΟΝ ΑΡ. 32Α',
+  'ΕΝΕΡΓΕΙΕΣ ΤΕΧΝΙΚΗΣ ΒΟΗΘΕΙΑΣ',
+  'ΗΣΣΟΝΟΣ ΑΞΙΑΣ'
 ];
 
-/** Καταστάσεις με υπογεγραμμένη σύμβαση — υποχρεωτικός ΑΔΑΜ ΚΗΜΔΗΣ στη φόρμα */
+/** Καταστάσεις από «ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ» και μετά — εμφάνιση διαδικασίας ανάθεσης */
+export const MIN_STATUS_FOR_ASSIGNMENT_PROCEDURE = 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ';
+
+export function statusShowsAssignmentProcedure(status) {
+  if (!status || isAbandonedSubproject(status)) return false;
+  return PROJECT_STATUSES.indexOf(status) >= PROJECT_STATUSES.indexOf(MIN_STATUS_FOR_ASSIGNMENT_PROCEDURE);
+}
+
+/** Καταστάσεις με υπογεγραμμένη σύμβαση — ΑΔΑΜ ΚΗΜΔΗΣ + στοιχεία σύμβασης στη φόρμα */
 export const STATUSES_WITH_KHMDHS_ADAM = [
   'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
   'ΟΛΟΚΛΗΡΩΜΕΝΟ',
   'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ'
 ];
 
-// Ο χαρακτηρισμός ΝΕΟ/ΣΥΝΕΧΙΖΟΜΕΝΟ δεν ισχύει για αυτή την κατάσταση
+export const STATUSES_WITH_CONTRACT_FIELDS = STATUSES_WITH_KHMDHS_ADAM;
+
+// Ο χαρακτηρισμός ΝΕΟ/ΣΥΝΕΧΙΖΟΜΕΝΟ δεν ισχύει για αυτές τις καταστάσεις
 export const STATUS_NO_CHARACTERIZATION = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
+export const STATUSES_WITHOUT_CHARACTERIZATION = [
+  STATUS_NO_CHARACTERIZATION,
+  PROJECT_STATUS_ABANDONED
+];
 
 /**
  * Υπολογίζει τον χαρακτηρισμό ενός υποέργου: 'ΝΕΟ', 'ΣΥΝΕΧΙΖΟΜΕΝΟ', ή null.
@@ -203,7 +282,7 @@ export const STATUS_NO_CHARACTERIZATION = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠ�
  */
 export const getCharacterization = (project) => {
   if (!project) return null;
-  if (project.projectStatus === STATUS_NO_CHARACTERIZATION) return null;
+  if (STATUSES_WITHOUT_CHARACTERIZATION.includes(project.projectStatus)) return null;
 
   const currentYear = new Date().getFullYear();
 

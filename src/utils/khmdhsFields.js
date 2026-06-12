@@ -27,6 +27,30 @@ export function isMultipleContractsForm(implementationForm) {
   return implementationForm === 'Πολλές Συμβάσεις';
 }
 
+export function parseGreekAmountString(val) {
+  if (!val) return 0;
+  const cleaned = String(val).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+}
+
+/** Συνολικό ποσό σύμβασης — χωρίς διπλομέτρηση πεδίων επιπέδου έργου + contracts[] */
+export function getTotalContractAmount(project) {
+  if (!project) return 0;
+  let total = 0;
+  if (isMultipleContractsForm(project.implementationForm)) {
+    (project.contracts || []).forEach((c) => {
+      total += parseGreekAmountString(c.amount);
+    });
+  } else {
+    total += parseGreekAmountString(project.contractAmount);
+  }
+  (project.supplementaryContracts || []).forEach((c) => {
+    total += parseGreekAmountString(c.amount);
+  });
+  return total;
+}
+
 /** Μεταφορά παλιού ενιαίου ΑΔΑΜ στην 1η σύμβαση */
 export function normalizeContractsFromProject(project) {
   if (!project) return [];

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 import ProjectForm from './ProjectForm';
 
 import ProjectCard from './ProjectCard';
@@ -26,18 +26,33 @@ import {
   getProjectKhmdhsSearchText,
   projectMatchesKhmdhsAnadoxosFilters
 } from '../utils/khmdhsFields';
-import { getCharacterization } from '../data/formOptions';
-import { safeConfirm } from '../utils/safeDialogs';
+import {
+  getCharacterization,
+  statusShowsAssignmentProcedure,
+  normalizeProjectType,
+  PROJECT_STATUS_ABANDONED,
+  isAbandonedSubproject,
+  excludeAbandonedSubprojects
+} from '../data/formOptions';
+import {
+  findDirectAssignmentViolations,
+  getViolationSubprojectIds,
+  getViolationsForSubproject
+} from '../utils/directAssignmentCompliance';
+import { useToast } from './ToastProvider';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import { showConfirm } from '../utils/confirmModal';
+import { exportSubprojectReport } from '../utils/subprojectReportExport';
 
 const Statistics = lazy(() => import('./Statistics'));
 const PDFViewer = lazy(() => import('./PDFViewer'));
 const ExportData = lazy(() => import('./ExportData'));
 const TechnicalProgramExport = lazy(() => import('./TechnicalProgramExport'));
+const ReportsModal = lazy(() => import('./ReportsModal'));
 const InvestExport = lazy(() => import('./InvestExport'));
 const PortalExport = lazy(() => import('./PortalExport'));
 const PortalSettingsModal = lazy(() => import('./PortalSettingsModal'));
+const PortalHubModal = lazy(() => import('./PortalHubModal'));
 const EntaxisManager = lazy(() => import('./EntaxisManager'));
 const ProsklisisManager = lazy(() => import('./ProsklisisManager'));
 const EgkriseisManager = lazy(() => import('./EgkriseisManager'));
@@ -49,7 +64,8 @@ const AuditLogViewer = lazy(() => import('./AuditLogViewer'));
 const UserManagement = lazy(() => import('./UserManagement'));
 const EmailSettingsModal = lazy(() => import('./EmailSettingsModal'));
 const TaskAssignmentManager = lazy(() => import('./TaskAssignmentManager'));
-const SubprojectExcelImportModal = lazy(() => import('./SubprojectExcelImportModal'));
+const EpProgramManager = lazy(() => import('./EpProgramManager'));
+const OrimanthiManager = lazy(() => import('./OrimanthiManager'));
 
 const ipcRenderer = window.electronAPI;
 
@@ -522,28 +538,193 @@ const SubprojectsGrid = styled.div`
   align-items: stretch;
   overflow: visible;
   padding-top: 10px;
+  padding-right: 14px;
 `;
 
 const EmptyState = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
   text-align: center;
-  padding: 4rem;
-  color: #6c757d;
 `;
 
 const EmptyStateIcon = styled.div`
-  font-size: 4rem;
-  margin-bottom: 1rem;
-  opacity: 0.5;
+  width: 80px;
+  height: 80px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.08));
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.2rem;
+  margin-bottom: 1.25rem;
 `;
 
 const EmptyStateText = styled.p`
-  font-size: 1.2rem;
-  margin-bottom: 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #334155;
+  margin: 0 0 0.5rem 0;
 `;
 
 const EmptyStateSubtext = styled.p`
-  font-size: 1rem;
-  opacity: 0.7;
+  font-size: 0.875rem;
+  color: #64748b;
+  margin: 0 0 1.5rem 0;
+  max-width: 380px;
+  line-height: 1.6;
+`;
+
+const EmptyStateAction = styled.button`
+  padding: 0.65rem 1.5rem;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(99, 102, 241, 0.45);
+  }
+`;
+
+const skeletonShimmer = keyframes`
+  0%   { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+`;
+
+const SkeletonBase = styled.div`
+  background: linear-gradient(
+    90deg,
+    rgba(226, 232, 240, 0.7) 25%,
+    rgba(241, 245, 249, 0.9) 50%,
+    rgba(226, 232, 240, 0.7) 75%
+  );
+  background-size: 600px 100%;
+  animation: ${skeletonShimmer} 1.4s ease-in-out infinite;
+  border-radius: 6px;
+`;
+
+const SkeletonCard = styled.div`
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  padding: 1.5rem;
+  border: 1px solid rgba(226, 232, 240, 0.7);
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+`;
+
+const SkeletonLine = styled(SkeletonBase)`
+  height: ${props => props.$h || '14px'};
+  width: ${props => props.$w || '100%'};
+`;
+
+const SkeletonGroup = styled.div`
+  margin-bottom: 2.5rem;
+  border: 1px solid rgba(226, 232, 240, 0.7);
+  border-radius: 16px;
+  padding: 1.75rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(248, 250, 252, 0.9) 100%);
+`;
+
+function SkeletonProjectsGrid() {
+  return (
+    <>
+      <SkeletonGroup>
+        <SkeletonLine $h="22px" $w="45%" style={{ marginBottom: '1.5rem' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '1.25rem' }}>
+          {[1, 2, 3].map(i => (
+            <SkeletonCard key={i}>
+              <SkeletonLine $h="20px" $w="85%" />
+              <SkeletonLine $h="12px" $w="60%" />
+              <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.3rem' }}>
+                {[1, 2, 3, 4].map(j => <SkeletonLine key={j} $h="20px" $w="70px" style={{ borderRadius: '20px' }} />)}
+              </div>
+              <SkeletonLine $h="12px" $w="70%" style={{ marginTop: '0.5rem' }} />
+              <SkeletonLine $h="12px" $w="55%" />
+              <SkeletonLine $h="12px" $w="80%" />
+              <SkeletonLine $h="12px" $w="65%" />
+              <SkeletonLine $h="12px" $w="75%" />
+              <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid rgba(226,232,240,0.6)', display: 'flex', gap: '0.5rem' }}>
+                <SkeletonLine $h="32px" $w="48%" style={{ borderRadius: '8px' }} />
+                <SkeletonLine $h="32px" $w="48%" style={{ borderRadius: '8px' }} />
+              </div>
+            </SkeletonCard>
+          ))}
+        </div>
+      </SkeletonGroup>
+      <SkeletonGroup>
+        <SkeletonLine $h="22px" $w="55%" style={{ marginBottom: '1.5rem' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '1.25rem' }}>
+          {[1, 2].map(i => (
+            <SkeletonCard key={i}>
+              <SkeletonLine $h="20px" $w="75%" />
+              <SkeletonLine $h="12px" $w="50%" />
+              <SkeletonLine $h="12px" $w="70%" style={{ marginTop: '0.5rem' }} />
+              <SkeletonLine $h="12px" $w="60%" />
+            </SkeletonCard>
+          ))}
+        </div>
+      </SkeletonGroup>
+    </>
+  );
+}
+
+const GroupHeaderWrap = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 10px;
+  padding: 0.25rem 0.35rem;
+  margin: -0.25rem -0.35rem;
+  transition: background 0.2s ease;
+
+  &:hover {
+    background: rgba(99, 102, 241, 0.05);
+  }
+`;
+
+const GroupCollapseIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  transition: transform 0.25s ease, background 0.2s ease;
+  transform: ${props => props.$collapsed ? 'rotate(-90deg)' : 'rotate(0deg)'};
+  margin-left: 0.5rem;
+`;
+
+const GroupSubCount = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.6rem;
+  border-radius: 20px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin-left: 0.6rem;
 `;
 
 const LoadingSpinner = styled.div`
@@ -781,10 +962,23 @@ const SidebarBrandSubtitle = styled.span`
   margin-top: 2px;
 `;
 
+// Μετατροπή hex (#rrggbb) σε "r, g, b" για χρήση με rgba(var(--x), opacity)
+function hexToRgbStr(hex) {
+  const h = (hex || '#6366f1').replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `${r}, ${g}, ${b}`;
+}
+
 const CategorySection = styled.div`
   display: flex;
   flex-direction: column;
   margin-bottom: 4px;
+  /* CSS custom properties κληρονομούνται από CategoryBody και AdminButton */
+  --sec-accent: ${props => props.$accentColor || '#6366f1'};
+  --sec-rgb: ${props => hexToRgbStr(props.$accentColor)};
+  --sec-grad: ${props => props.$accentGrad || 'linear-gradient(135deg, #6366f1, #8b5cf6)'};
 `;
 
 const CategoryHeader = styled.button`
@@ -794,17 +988,19 @@ const CategoryHeader = styled.button`
   width: 100%;
   padding: 9px 12px;
   background: ${props => props.$open
-    ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.18) 0%, rgba(139, 92, 246, 0.14) 100%)'
+    ? 'rgba(var(--sec-rgb), 0.16)'
     : 'rgba(255, 255, 255, 0.025)'};
-  border: 1px solid ${props => props.$open ? 'rgba(99, 102, 241, 0.35)' : 'rgba(255, 255, 255, 0.05)'};
+  border: 1px solid ${props => props.$open
+    ? 'rgba(var(--sec-rgb), 0.4)'
+    : 'rgba(255, 255, 255, 0.05)'};
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: inherit;
 
   &:hover {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(139, 92, 246, 0.16) 100%);
-    border-color: rgba(99, 102, 241, 0.45);
+    background: rgba(var(--sec-rgb), 0.2);
+    border-color: rgba(var(--sec-rgb), 0.5);
     transform: translateX(2px);
   }
 `;
@@ -850,18 +1046,24 @@ const CategoryBody = styled.div`
   max-height: ${props => props.$open ? '900px' : '0'};
   opacity: ${props => props.$open ? '1' : '0'};
   margin-top: ${props => props.$open ? '6px' : '0'};
-  padding-left: 6px;
+  padding-left: 10px;
+  /* Αριστερή γραμμή σύνδεσης — χρώμα από την κατηγορία */
+  border-left: 2px solid rgba(var(--sec-rgb), ${props => props.$open ? '0.35' : '0'});
+  margin-left: 3px;
   transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
               opacity 0.25s ease,
-              margin-top 0.25s ease;
+              margin-top 0.25s ease,
+              border-color 0.3s ease;
 `;
 
 const AdminButton = styled.button`
   background: ${props => props.primary
-    ? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)'
+    ? 'var(--sec-grad)'
     : 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.9) 100%)'};
   color: ${props => props.primary ? '#ffffff' : '#e2e8f0'};
-  border: 1px solid ${props => props.primary ? 'rgba(165, 180, 252, 0.4)' : 'rgba(99, 102, 241, 0.18)'};
+  border: 1px solid ${props => props.primary
+    ? 'rgba(var(--sec-rgb), 0.45)'
+    : 'rgba(var(--sec-rgb), 0.15)'};
   padding: 10px 12px;
   border-radius: 9px;
   font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
@@ -879,12 +1081,13 @@ const AdminButton = styled.button`
   min-height: 40px;
   width: 100%;
   box-shadow: ${props => props.primary
-    ? '0 4px 14px rgba(79, 70, 229, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
+    ? '0 4px 14px rgba(var(--sec-rgb), 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
     : '0 1px 3px rgba(0, 0, 0, 0.25)'};
   line-height: 1.25;
   position: relative;
   overflow: hidden;
 
+  /* Left accent stripe — πάντα ορατό, χρώμα κατηγορίας */
   &::before {
     content: '';
     position: absolute;
@@ -894,23 +1097,24 @@ const AdminButton = styled.button`
     width: 3px;
     background: ${props => props.primary
       ? 'linear-gradient(180deg, #fbbf24, #f59e0b)'
-      : 'transparent'};
+      : 'rgba(var(--sec-rgb), 0.55)'};
     transition: all 0.25s ease;
   }
 
   &:hover {
     transform: translateX(3px);
     background: ${props => props.primary
-      ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
-      : 'linear-gradient(135deg, rgba(99, 102, 241, 0.22) 0%, rgba(139, 92, 246, 0.16) 100%)'};
-    border-color: rgba(165, 180, 252, 0.55);
+      ? 'var(--sec-grad)'
+      : 'rgba(var(--sec-rgb), 0.18)'};
+    border-color: rgba(var(--sec-rgb), 0.5);
     box-shadow: ${props => props.primary
-      ? '0 6px 18px rgba(99, 102, 241, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-      : '0 4px 12px rgba(99, 102, 241, 0.25)'};
+      ? '0 6px 18px rgba(var(--sec-rgb), 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+      : '0 4px 12px rgba(var(--sec-rgb), 0.25)'};
     color: #ffffff;
 
     &::before {
-      background: linear-gradient(180deg, #6366f1, #ec4899);
+      background: var(--sec-grad);
+      width: 4px;
     }
   }
 
@@ -2128,6 +2332,7 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
 });
 
 function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCurrentUser }) {
+  const { showToast } = useToast();
   const userRole = currentUser?.role || 'USER';
   const isSuperAdmin = userRole === 'SUPERADMIN';
   const canManageAll = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
@@ -2149,7 +2354,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [entaxeis, setEntaxeis] = useState([]);
   const [proskliseis, setProskliseis] = useState([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isEgkriseisFormOpen, setIsEgkriseisFormOpen] = useState(false);
   const [isEgkriseisManagerOnly, setIsEgkriseisManagerOnly] = useState(false);
   const [egkriseisInitialSearch, setEgkriseisInitialSearch] = useState('');
@@ -2209,12 +2413,27 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     apeAmountMax: '',
     anadoxosName: '',
     anadoxosVat: '',
+    assignmentProcedure: [],
+    hasAssignmentProcedure: '',
     sortBy: 'kaCode',
     sortOrder: 'asc'
   });
   
   // Εμφάνιση αρχειοθετημένων (Ολοκληρωμένα & Αποπληρωμένα)
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set());
+
+  const toggleGroupCollapse = useCallback((projectId) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
+  }, []);
 
   // Scroll position preservation
   const contentWrapperRef = useRef(null);
@@ -2260,8 +2479,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   });
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isTechnicalProgramOpen, setIsTechnicalProgramOpen] = useState(false);
+  const [isReportsOpen, setIsReportsOpen] = useState(false);
+  const [reportsInitialTab, setReportsInitialTab] = useState('subprojects');
   const [isInvestExportOpen, setIsInvestExportOpen] = useState(false);
   const [isPortalExportOpen, setIsPortalExportOpen] = useState(false);
+  const [isPortalHubOpen, setIsPortalHubOpen] = useState(false);
   const [isPortalSettingsOpen, setIsPortalSettingsOpen] = useState(false);
   const [portalEnabled, setPortalEnabled] = useState(appConfig.portalEnabled === true);
   const [publishedSubprojectIds, setPublishedSubprojectIds] = useState(new Set());
@@ -2292,6 +2514,22 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [creditApprovals, setCreditApprovals] = useState({});
   const [linkedEgkriseis, setLinkedEgkriseis] = useState({});
   const [egkriseisRefreshTrigger, setEgkriseisRefreshTrigger] = useState(0);
+  const [isEpProgramOpen, setIsEpProgramOpen] = useState(false);
+  const [isOrimanthiOpen, setIsOrimanthiOpen] = useState(false);
+  const [epSubprojectMap, setEpSubprojectMap] = useState({}); // subprojectId → epActionInfo
+
+  const refreshEpSubprojectMap = useCallback(async () => {
+    const username = currentUser?.username || '';
+    if (!username) return;
+    try {
+      const epRes = await ipcRenderer.invoke('get-ep-subproject-link-map', { requestingUsername: username });
+      if (epRes?.success) {
+        setEpSubprojectMap(epRes.map || {});
+      }
+    } catch {
+      /* non-blocking */
+    }
+  }, [currentUser?.username]);
   const [isDocumentTemplatesOpen, setIsDocumentTemplatesOpen] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [notes, setNotes] = useState([]);
@@ -2300,8 +2538,25 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [noteFileCounts, setNoteFileCounts] = useState({});
   const [selectedNoteId, setSelectedNoteId] = useState(null);
   const [previewFiles, setPreviewFiles] = useState([]);
-  const [linkedNotesMap, setLinkedNotesMap] = useState({});
-  
+
+  // Χάρτης entityId → σημειώσεις — υπολογίζεται από in-memory notes (όχι IPC/δίσκο)
+  // ώστε τα stickers ενημερώνονται αμέσως μετά από αποθήκευση σημείωσης.
+  const linkedNotesMap = useMemo(() => {
+    const entityMap = {};
+    for (const note of notes) {
+      if (!note?.linkedEntities || !Array.isArray(note.linkedEntities)) continue;
+      for (const link of note.linkedEntities) {
+        if (!link?.id) continue;
+        if (!entityMap[link.id]) entityMap[link.id] = [];
+        entityMap[link.id].push({
+          noteId: note.id,
+          noteTitle: note.title || 'Χωρίς τίτλο',
+        });
+      }
+    }
+    return entityMap;
+  }, [notes]);
+
   // 🚀 CACHE SYSTEM για να μην φορτώνονται τα στατιστικά κάθε φορά
   const [dataCache, setDataCache] = useState({
     projects: null,
@@ -2338,7 +2593,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   useEffect(() => {
     loadDataWithCache();
     loadLinkedEgkriseis();
-    loadLinkedNotesMap();
 
     // Listener για file watcher events - χρήση functional update για fresh state
     const handleLocksChanged = () => {
@@ -2434,7 +2688,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, [notes]);
 
   useEffect(() => {
-    setFilteredProjects(projects.filter(p => p.projectStatus !== 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ'));
+    setFilteredProjects(projects.filter(
+      (p) => p.projectStatus !== 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ' && !isAbandonedSubproject(p)
+    ));
   }, [projects]);
 
 
@@ -2505,6 +2761,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     if (filters.apeAmountMin || filters.apeAmountMax) count++;
     if (filters.anadoxosName) count++;
     if (filters.anadoxosVat) count++;
+    if (filters.assignmentProcedure && filters.assignmentProcedure.length > 0) count++;
+    if (filters.hasAssignmentProcedure) count++;
     return count;
   }, []);
 
@@ -2536,7 +2794,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
       // Quick Search - project type filter
       if (quickSearchType) {
-        filtered = filtered.filter(p => p.projectType === quickSearchType);
+        filtered = filtered.filter((p) => normalizeProjectType(p.projectType) === quickSearchType);
       }
 
       // Advanced Filters
@@ -2579,7 +2837,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       }
 
       if (filters.projectType && filters.projectType.length > 0) {
-        filtered = filtered.filter(p => filters.projectType.includes(p.projectType));
+        filtered = filtered.filter((p) =>
+          filters.projectType.includes(normalizeProjectType(p.projectType))
+        );
       }
 
       if (filters.fundingSource && filters.fundingSource.length > 0) {
@@ -2598,6 +2858,19 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
       if (filters.implementationForm && filters.implementationForm.length > 0) {
         filtered = filtered.filter(p => filters.implementationForm.includes(p.implementationForm));
+      }
+
+      if (filters.assignmentProcedure && filters.assignmentProcedure.length > 0) {
+        filtered = filtered.filter((p) => filters.assignmentProcedure.includes(p.assignmentProcedure));
+      }
+
+      if (filters.hasAssignmentProcedure === 'yes') {
+        filtered = filtered.filter((p) => !!(p.assignmentProcedure && String(p.assignmentProcedure).trim()));
+      } else if (filters.hasAssignmentProcedure === 'no') {
+        filtered = filtered.filter((p) =>
+          statusShowsAssignmentProcedure(p.projectStatus)
+            && !(p.assignmentProcedure && String(p.assignmentProcedure).trim())
+        );
       }
 
       if (filters.characterization) {
@@ -2806,11 +3079,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         });
       }
 
-      // Εξαίρεση αρχειοθετημένων έργων από την κανονική προβολή
+      // Εξαίρεση αρχειοθετημένων / απενταγμένων από την κανονική προβολή
       const ARCHIVED_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
       const userExplicitlyFilteredByArchived =
         (filters.projectStatus && filters.projectStatus.includes(ARCHIVED_STATUS)) ||
         quickSearchStatus === ARCHIVED_STATUS;
+      const userExplicitlyFilteredByAbandoned =
+        (filters.projectStatus && filters.projectStatus.includes(PROJECT_STATUS_ABANDONED)) ||
+        quickSearchStatus === PROJECT_STATUS_ABANDONED;
 
       if (showArchivedProjects) {
         // Εμφάνιση ΜΟΝΟ αρχειοθετημένων
@@ -2818,6 +3094,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       } else if (!userExplicitlyFilteredByArchived) {
         // Απόκρυψη αρχειοθετημένων από την κανονική λίστα
         filtered = filtered.filter(p => p.projectStatus !== ARCHIVED_STATUS);
+      }
+
+      if (!userExplicitlyFilteredByAbandoned) {
+        filtered = filtered.filter(p => !isAbandonedSubproject(p));
       }
 
       setFilteredProjects(filtered);
@@ -2955,6 +3235,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         ipcRenderer.invoke('load-egkrisi-links')
       ]);
       
+      refreshEpSubprojectMap();
+
       // Φόρτωμα prosklisi links - ΠΕΡΙΜΕΝΟΥΜΕ
       const prosklisiLinksResult = await ipcRenderer.invoke('load-subproject-links').catch((err) => {
         console.error('Error loading prosklisi links:', err);
@@ -3315,11 +3597,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         await loadEngineerCatalogForCards();
       } else {
         console.error('Error saving project:', result.error);
-        alert('Σφάλμα αποθήκευσης: ' + result.error);
+        showToast('Σφάλμα αποθήκευσης: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error saving project:', error);
-      alert('Σφάλμα αποθήκευσης: ' + error.message);
+      showToast('Σφάλμα αποθήκευσης: ' + error.message, 'error');
     }
   };
 
@@ -3364,6 +3646,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       apeAmountMax: '',
       anadoxosName: '',
       anadoxosVat: '',
+      assignmentProcedure: [],
+      hasAssignmentProcedure: '',
       sortBy: 'kaCode',
       sortOrder: 'asc'
     });
@@ -3376,7 +3660,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     // Έλεγχος αν τα IDs είναι έγκυρα
     if (!projectId || !subprojectId) {
       console.error('Invalid IDs for deletion:', { projectId, subprojectId });
-      alert('Σφάλμα: Μη έγκυρα δεδομένα για διαγραφή');
+      showToast('Σφάλμα: Μη έγκυρα δεδομένα για διαγραφή', 'error');
       return;
     }
     
@@ -3391,14 +3675,14 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           await loadProjects();
           // Also reload linked egkriseis to update the UI
           await loadLinkedEgkriseis();
-          alert('Το υποέργο διαγράφηκε επιτυχώς!');
+          showToast('Το υποέργο διαγράφηκε επιτυχώς!', 'success');
         } else {
           console.error('Deletion failed:', result.error);
-          alert('Σφάλμα κατά τη διαγραφή: ' + result.error);
+          showToast('Σφάλμα κατά τη διαγραφή: ' + result.error, 'error');
         }
       } catch (error) {
         console.error('Error deleting project:', error);
-        alert('Σφάλμα κατά τη διαγραφή: ' + error.message);
+        showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
       }
     }
   };
@@ -3410,10 +3694,15 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       
       if (lockStatus.locked) {
         const whoLocked = lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον χρήστη';
-        const clearStaleResult = await safeConfirm(
-          `Το έργο είναι ανοιχτό από ${whoLocked}. ` +
-          'Αν αυτό είναι λάθος (π.χ. κολλημένο lock), θέλετε να καθαρίσετε και να δοκιμάσετε ξανά;'
-        );
+        const clearStaleResult = await showConfirm({
+          title: 'Κλειδωμένο έργο',
+          message: `Το έργο είναι ανοιχτό από ${whoLocked}.`,
+          detail: 'Αν αυτό είναι λάθος (π.χ. κολλημένο lock), θέλετε να καθαρίσετε και να δοκιμάσετε ξανά;',
+          confirmLabel: 'Καθαρισμός lock',
+          cancelLabel: 'Άκυρο',
+          icon: '🔒',
+          danger: false,
+        });
         
         if (clearStaleResult) {
           await ipcRenderer.invoke('clear-all-locks');
@@ -3421,7 +3710,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           const newLockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
           if (newLockStatus.locked) {
             const whoStill = newLockStatus.lockedBy ? `«${newLockStatus.lockedBy}»` : 'άλλον διαχειριστή';
-            alert(`Το έργο είναι ακόμα κλειδωμένο από ${whoStill}.`);
+            showToast(`Το έργο είναι ακόμα κλειδωμένο από ${whoStill}.`, 'warning');
             return;
           }
         } else {
@@ -3433,7 +3722,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       const lockOwner = currentUser?.fullName || currentUser?.username || '';
       const lockResult = await ipcRenderer.invoke('create-project-lock', project.projectId, lockOwner);
       if (!lockResult.success) {
-        alert('Δεν είναι δυνατή η επεξεργασία αυτή τη στιγμή. Δοκιμάστε ξανά.');
+        showToast('Δεν είναι δυνατή η επεξεργασία αυτή τη στιγμή. Δοκιμάστε ξανά.', 'warning');
         return;
       }
 
@@ -3456,7 +3745,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       setIsFormOpen(true);
     } catch (error) {
       console.error('Error in handleEditProject:', error);
-      alert('Σφάλμα κατά το άνοιγμα του έργου: ' + error.message);
+      showToast('Σφάλμα κατά το άνοιγμα του έργου: ' + error.message, 'error');
     }
   };
 
@@ -3477,16 +3766,16 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     try {
       const result = await ipcRenderer.invoke('download-subproject-file', projectId, subprojectId, fileName);
       if (result.success) {
-        alert('✅ Το αρχείο αποθηκεύτηκε επιτυχώς!');
+        showToast('Το αρχείο αποθηκεύτηκε επιτυχώς!', 'success');
       } else if (result.canceled) {
         // User cancelled the save dialog - no need to show error
         return;
       } else {
-        alert('❌ Σφάλμα κατά τη λήψη: ' + result.error);
+        showToast('Σφάλμα κατά τη λήψη: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error downloading file:', error);
-      alert('❌ Σφάλμα κατά τη λήψη: ' + error.message);
+      showToast('Σφάλμα κατά τη λήψη: ' + error.message, 'error');
     }
   };
 
@@ -3522,12 +3811,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
   const handleUploadSubprojectFiles = async (project) => {
     if (userRole === 'USER') {
-      alert('Δεν έχετε δικαίωμα προσθήκης αρχείων.');
+      showToast('Δεν έχετε δικαίωμα προσθήκης αρχείων.', 'warning');
       return;
     }
     if (project.isLocked) {
       const who = project.lockedBy ? `«${project.lockedBy}»` : 'άλλον χρήστη';
-      alert(`Το έργο είναι κλειδωμένο από ${who}. Δεν μπορούν να προστεθούν αρχεία αυτή τη στιγμή.`);
+      showToast(`Το έργο είναι κλειδωμένο από ${who}. Δεν μπορούν να προστεθούν αρχεία αυτή τη στιγμή.`, 'warning');
       return;
     }
 
@@ -3542,7 +3831,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       }
 
       if (!result.success) {
-        alert('Σφάλμα κατά την προσθήκη αρχείων: ' + (result.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά την προσθήκη αρχείων: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
         return;
       }
 
@@ -3557,10 +3846,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         await handleOpenFileManager(project.projectId, project.subprojectId);
       }
 
-      alert(`✅ Προστέθηκαν επιτυχώς ${result.count} αρχείο(α) στο υποέργο.`);
+      showToast(`Προστέθηκαν επιτυχώς ${result.count} αρχείο(α) στο υποέργο.`, 'success');
     } catch (error) {
       console.error('Error uploading subproject files:', error);
-      alert('Σφάλμα κατά την προσθήκη αρχείων: ' + error.message);
+      showToast('Σφάλμα κατά την προσθήκη αρχείων: ' + error.message, 'error');
     }
   };
 
@@ -3584,7 +3873,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   // Συνάρτηση για ομαδοποίηση αρχείων στο FileManager
   const handleGroupFiles = async (filesToGroup, existingGroups = []) => {
     if (!filesToGroup || filesToGroup.length === 0) {
-      alert('Δεν υπάρχουν αρχεία για ομαδοποίηση');
+      showToast('Δεν υπάρχουν αρχεία για ομαδοποίηση', 'warning');
       return;
     }
 
@@ -3698,7 +3987,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           if (title) {
             cleanup(title);
           } else {
-            alert('Παρακαλώ εισάγετε τίτλο ομάδας');
+            showToast('Παρακαλώ εισάγετε τίτλο ομάδας', 'warning');
           }
         });
 
@@ -3987,9 +4276,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         if (result.success) {
           // Ανανέωση των αρχείων
           await handleOpenFileManager(fileManager.projectId, fileManager.subprojectId);
-          alert(`Ομάδα "${groupTitle}" δημιουργήθηκε επιτυχώς με ${selectedFiles.length} αρχείο(α)!`);
+          showToast(`Ομάδα "${groupTitle}" δημιουργήθηκε επιτυχώς με ${selectedFiles.length} αρχείο(α)!`, 'success');
         } else {
-          alert('Σφάλμα δημιουργίας ομάδας: ' + result.error);
+          showToast('Σφάλμα δημιουργίας ομάδας: ' + result.error, 'error');
         }
       } else if (groupType === 'existing') {
         // Μεταφορά σε υπάρχουσα ομάδα
@@ -4002,14 +4291,14 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           // Ανανέωση των αρχείων
           await handleOpenFileManager(fileManager.projectId, fileManager.subprojectId);
           const selectedGroup = existingGroups.find(g => g.id === selectedGroupId);
-          alert(`${filesToGroup.length} αρχείο(α) μεταφέρθηκαν επιτυχώς στην ομάδα "${selectedGroup?.title || 'Ομάδα'}"!`);
+          showToast(`${filesToGroup.length} αρχείο(α) μεταφέρθηκαν επιτυχώς στην ομάδα "${selectedGroup?.title || 'Ομάδα'}"!`, 'success');
         } else {
-          alert('Σφάλμα μεταφοράς αρχείων: ' + result.error);
+          showToast('Σφάλμα μεταφοράς αρχείων: ' + result.error, 'error');
         }
       }
     } catch (error) {
       console.error('Error grouping files:', error);
-      alert('Σφάλμα ομαδοποίησης αρχείων: ' + error.message);
+      showToast('Σφάλμα ομαδοποίησης αρχείων: ' + error.message, 'error');
     }
   };
 
@@ -4122,23 +4411,15 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setNoteFileCounts(counts);
   }, [notes]);
 
-  const loadLinkedNotesMap = useCallback(async () => {
-    try {
-      const res = await ipcRenderer.invoke('get-notes-linked-entities');
-      if (res?.success && res.data) setLinkedNotesMap(res.data);
-    } catch (_) { /* ignore */ }
-  }, []);
-
   const handleCancelEdit = useCallback(() => {
     setEditingNote(null);
     loadNoteFileCounts();
-    loadLinkedNotesMap();
     if (selectedNoteId) {
       ipcRenderer.invoke('get-note-files', { noteId: selectedNoteId })
         .then(res => { if (res?.files) setPreviewFiles(res.files); })
         .catch(() => {});
     }
-  }, [loadNoteFileCounts, loadLinkedNotesMap, selectedNoteId]);
+  }, [loadNoteFileCounts, selectedNoteId]);
 
   const clearNoteReturnContext = useCallback(() => {
     noteReturnRef.current = null;
@@ -4159,7 +4440,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setNotesSearch('');
     setSelectedNoteId(ctx.noteId);
     loadNoteFileCounts();
-    loadLinkedNotesMap();
     if (ctx.wasEditing) {
       const note = notes.find((n) => n.id === ctx.noteId);
       setEditingNote(note || null);
@@ -4170,7 +4450,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       .then((res) => { if (res?.files) setPreviewFiles(res.files); })
       .catch(() => {});
     return true;
-  }, [notes, loadNoteFileCounts, loadLinkedNotesMap]);
+  }, [notes, loadNoteFileCounts]);
 
   const handleOpenNotes = useCallback(() => {
     clearNoteReturnContext();
@@ -4178,8 +4458,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setNotesSearch('');
     setEditingNote(null);
     loadNoteFileCounts();
-    loadLinkedNotesMap();
-  }, [clearNoteReturnContext, loadNoteFileCounts, loadLinkedNotesMap]);
+  }, [clearNoteReturnContext, loadNoteFileCounts]);
 
   const handleCloseNotes = useCallback(() => {
     clearNoteReturnContext();
@@ -4194,8 +4473,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setEditingNote(null);
     setSelectedNoteId(noteId);
     loadNoteFileCounts();
-    loadLinkedNotesMap();
-  }, [clearNoteReturnContext, loadNoteFileCounts, loadLinkedNotesMap]);
+  }, [clearNoteReturnContext, loadNoteFileCounts]);
 
   const handleNavigateToLinkedEntity = useCallback((entity) => {
     if (!entity) return;
@@ -4458,7 +4736,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   }, [visibleProjects]);
 
   const getUniqueTypes = useMemo(() => {
-    const types = [...new Set(visibleProjects.map(p => p.projectType).filter(Boolean))];
+    const types = [...new Set(visibleProjects.map((p) => normalizeProjectType(p.projectType)).filter(Boolean))];
     return types.sort();
   }, [visibleProjects]);
 
@@ -4477,19 +4755,77 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
   // Τα έργα που περνάνε στα στατιστικά — εξαιρούνται τα αρχειοθετημένα
   // εκτός αν ο χρήστης τα έχει επιλέξει ρητά
+  const directAssignmentViolations = useMemo(
+    () => findDirectAssignmentViolations(projects),
+    [projects]
+  );
+
+  const directAssignmentViolationSubprojectIds = useMemo(
+    () => getViolationSubprojectIds(directAssignmentViolations),
+    [directAssignmentViolations]
+  );
+
+  const handleExportSubprojectReport = useCallback(async (project) => {
+    try {
+      await exportSubprojectReport({
+        project,
+        entaxeis,
+        proskliseis,
+        linkedEgkriseis,
+        engineerCatalog: engineerCatalogForCards,
+        linkedNotesMap,
+        directAssignmentViolations: getViolationsForSubproject(
+          directAssignmentViolations,
+          project.subprojectId
+        ),
+        isPublishedToPortal: publishedSubprojectIds.has(project.subprojectId),
+        appConfig,
+        appVersion,
+        requestingUsername: currentUser?.username || '',
+        showToast
+      });
+    } catch (error) {
+      console.error('Subproject report export error:', error);
+      showToast('Σφάλμα κατά τη δημιουργία αναφοράς', 'error');
+    }
+  }, [
+    entaxeis,
+    proskliseis,
+    linkedEgkriseis,
+    engineerCatalogForCards,
+    linkedNotesMap,
+    directAssignmentViolations,
+    publishedSubprojectIds,
+    appConfig,
+    appVersion,
+    currentUser?.username,
+    showToast
+  ]);
+
   const statisticsProjects = useMemo(() => {
     const ARCHIVED_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
     const userExplicitlyFilteredByArchived =
       (Array.isArray(advancedFilters?.projectStatus) && advancedFilters.projectStatus.includes(ARCHIVED_STATUS)) ||
       quickSearchStatus === ARCHIVED_STATUS;
 
-    // Αν ο χρήστης βλέπει "Αρχείο" ή έχει φιλτράρει ρητά την κατάσταση,
-    // τότε τα στατιστικά πρέπει να ακολουθούν τη λίστα (δηλ. να περιλάβουν τα αρχειοθετημένα).
-    if (showArchivedProjects || userExplicitlyFilteredByArchived) return filteredProjects;
+    let base = filteredProjects;
+    // Απενταγμένα: ποτέ στα στατιστικά
+    base = excludeAbandonedSubprojects(base);
 
-    // Αλλιώς, στην κανονική προβολή, εξαιρούμε τα αρχειοθετημένα από τα στατιστικά.
-    return filteredProjects.filter(p => p.projectStatus !== ARCHIVED_STATUS);
+    // Αν ο χρήστης βλέπει "Αρχείο" ή έχει φιλτράρει ρητά την κατάσταση,
+    // τότε τα στατιστικά περιλαμβάνουν τα αρχειοθετημένα.
+    if (showArchivedProjects || userExplicitlyFilteredByArchived) return base;
+
+    return base.filter(p => p.projectStatus !== ARCHIVED_STATUS);
   }, [filteredProjects, showArchivedProjects, advancedFilters?.projectStatus, quickSearchStatus]);
+
+  const exportProjects = useMemo(() => {
+    const userExplicitlyFilteredByAbandoned =
+      (Array.isArray(advancedFilters?.projectStatus) && advancedFilters.projectStatus.includes(PROJECT_STATUS_ABANDONED)) ||
+      quickSearchStatus === PROJECT_STATUS_ABANDONED;
+    if (userExplicitlyFilteredByAbandoned) return filteredProjects;
+    return excludeAbandonedSubprojects(filteredProjects);
+  }, [filteredProjects, advancedFilters?.projectStatus, quickSearchStatus]);
 
   // Group projects as array of arrays for EgkriseisManager
   const projectsAsArrayOfArrays = useMemo(() => {
@@ -4539,7 +4875,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
           {/* Statistics — εξαιρούνται τα αρχειοθετημένα εκτός αν επιλεγούν */}
           <Suspense fallback={<LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>}>
-            <Statistics projects={statisticsProjects} />
+            <Statistics
+              projects={statisticsProjects}
+              directAssignmentViolations={directAssignmentViolations}
+            />
           </Suspense>
 
           {/* Banner αρχειοθετημένων έργων */}
@@ -4572,18 +4911,34 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             </ProjectsTitle>
 
             {loading ? (
-              <LoadingSpinner>Φόρτωση δεδομένων...</LoadingSpinner>
+              <SkeletonProjectsGrid />
             ) : Object.keys(groupedProjects).length === 0 ? (
-              <EmptyState>
-                <EmptyStateIcon>📁</EmptyStateIcon>
-                <EmptyStateText>Δεν υπάρχουν έργα</EmptyStateText>
-                <EmptyStateSubtext>
-                  {canManageAll
-                    ? 'Κάντε κλικ στο κουμπί "ΕΙΣΑΓΩΓΗ ΝΕΟΥ ΥΠΟΕΡΓΟΥ" για να προσθέσετε το πρώτο έργο'
-                    : 'Δεν έχουν εισαχθεί έργα ακόμα'
-                  }
-                </EmptyStateSubtext>
-              </EmptyState>
+              (() => {
+                const hasActiveFilters = activeFilterCount > 0 || quickSearchText.trim() || quickSearchStatus || quickSearchType;
+                return (
+                  <EmptyState>
+                    <EmptyStateIcon>
+                      {hasActiveFilters ? '🔍' : '📁'}
+                    </EmptyStateIcon>
+                    <EmptyStateText>
+                      {hasActiveFilters ? 'Κανένα αποτέλεσμα' : 'Δεν υπάρχουν έργα'}
+                    </EmptyStateText>
+                    <EmptyStateSubtext>
+                      {hasActiveFilters
+                        ? 'Τα φίλτρα που εφαρμόσατε δεν επέστρεψαν αποτελέσματα. Δοκιμάστε να αλλάξετε τα κριτήρια αναζήτησης.'
+                        : canManageAll
+                          ? 'Δεν έχει εισαχθεί ακόμα κανένα υποέργο. Ξεκινήστε πατώντας το κουμπί "ΕΙΣΑΓΩΓΗ ΝΕΟΥ ΥΠΟΕΡΓΟΥ".'
+                          : 'Δεν έχουν εισαχθεί έργα ακόμα.'
+                      }
+                    </EmptyStateSubtext>
+                    {hasActiveFilters && (
+                      <EmptyStateAction onClick={handleClearAdvancedFilters}>
+                        Εκκαθάριση φίλτρων
+                      </EmptyStateAction>
+                    )}
+                  </EmptyState>
+                );
+              })()
             ) : (
               Object.entries(groupedProjects)
                 .sort(([, subsA], [, subsB]) => {
@@ -4627,6 +4982,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                   };
                   
                   const projectLinkedNotes = getEntityLinkedNotes(linkedNotesMap, projectId);
+                  const isGroupCollapsed = collapsedGroups.has(projectId);
                   return (
                   <ProjectGroup key={projectId}>
                     {projectLinkedNotes.length > 0 && (
@@ -4637,54 +4993,63 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                       />
                     )}
                     <ProjectGroupTitle>
-                      <span style={{ flex: 1 }}>{projectTitle}</span>
-                      {totalEntaxiAmount > 0 && (
-                        <EntaxiAmountChip>
-                          <EntaxiIcon>💰</EntaxiIcon>
-                          <EntaxiLabel>Ποσό ένταξης:</EntaxiLabel>
-                          <EntaxiValue>{formatAmount(totalEntaxiAmount)}</EntaxiValue>
-                        </EntaxiAmountChip>
-                      )}
+                      <GroupHeaderWrap onClick={() => toggleGroupCollapse(projectId)}>
+                        <span style={{ flex: 1 }}>{projectTitle}</span>
+                        <GroupSubCount>{subprojects.length} {subprojects.length === 1 ? 'υποέργο' : 'υποέργα'}</GroupSubCount>
+                        {totalEntaxiAmount > 0 && (
+                          <EntaxiAmountChip onClick={e => e.stopPropagation()}>
+                            <EntaxiIcon>💰</EntaxiIcon>
+                            <EntaxiLabel>Ποσό ένταξης:</EntaxiLabel>
+                            <EntaxiValue>{formatAmount(totalEntaxiAmount)}</EntaxiValue>
+                          </EntaxiAmountChip>
+                        )}
+                        <GroupCollapseIcon $collapsed={isGroupCollapsed}>▼</GroupCollapseIcon>
+                      </GroupHeaderWrap>
                     </ProjectGroupTitle>
-                    <SubprojectsGrid>
-                      {subprojects
-                        .sort((a, b) => a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' })) // Ταξινόμηση υποέργων
-                        .map(project => {
-                          const linkedProsklisi = findLinkedProsklisi(project.subprojectId, project.projectTitle);
-                          const isLocked = project.isLocked || false;
-                          return (
-                            <ProjectCard
-                              key={project.subprojectId}
-                              project={project}
-                              userRole={userRole}
-                              onEdit={handleEditProject}
-                              onDelete={canManageAll ? handleDeleteProject : undefined}
-                              onViewFile={handleViewFile}
-                              onDownloadFile={handleDownloadFile}
-                              onDeleteFile={handleDeleteFile}
-                              onOpenFileManager={handleOpenFileManager}
-                              onOpenEntaxis={handleOpenEntaxis}
-                              onOpenEgkriseis={() => handleOpenEgkriseis(project.projectTitle, project.subprojectTitle, project.subprojectId)}
-                              hasCreditApproval={hasCreditApproval(project.projectTitle, project.subprojectTitle, project.subprojectId)}
-                              hasLinkedEgkrisi={hasLinkedEgkrisi(project.subprojectId, project.subprojectTitle)}
-                              linkedProsklisi={linkedProsklisi}
-                              onOpenLinkedProsklisi={handleOpenLinkedProsklisi}
-                              isLocked={isLocked}
-                              hasEntaxi={hasEntaxiForSubproject(project.subprojectId)}
-                              onOpenSpecificEntaxi={() => handleOpenSpecificEntaxi(project.subprojectId)}
-                              hasProsklisi={hasProsklisiForProject(project.projectTitle, project.projectId)}
-                              onOpenSpecificProsklisi={() => handleOpenSpecificProsklisi(project.projectTitle, project.projectId)}
-                              onViewDetails={(p) => setSelectedDetailProject(p)}
-                              engineerCatalog={engineerCatalogForCards}
-                              linkedNotesMap={linkedNotesMap}
-                              notes={notes}
-                              onOpenNoteFromEntity={handleOpenNoteFromEntity}
-                              portalEnabled={portalEnabled}
-                              isPublishedToPortal={publishedSubprojectIds.has(project.subprojectId)}
-                            />
-                          );
-                        })}
-                    </SubprojectsGrid>
+                    {!isGroupCollapsed && (
+                      <SubprojectsGrid>
+                        {subprojects
+                          .sort((a, b) => a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' }))
+                          .map(project => {
+                            const linkedProsklisi = findLinkedProsklisi(project.subprojectId, project.projectTitle);
+                            const isLocked = project.isLocked || false;
+                            return (
+                              <ProjectCard
+                                key={project.subprojectId}
+                                project={project}
+                                userRole={userRole}
+                                onEdit={handleEditProject}
+                                onDelete={canManageAll ? handleDeleteProject : undefined}
+                                onViewFile={handleViewFile}
+                                onDownloadFile={handleDownloadFile}
+                                onDeleteFile={handleDeleteFile}
+                                onOpenFileManager={handleOpenFileManager}
+                                onOpenEntaxis={handleOpenEntaxis}
+                                onOpenEgkriseis={() => handleOpenEgkriseis(project.projectTitle, project.subprojectTitle, project.subprojectId)}
+                                hasCreditApproval={hasCreditApproval(project.projectTitle, project.subprojectTitle, project.subprojectId)}
+                                hasLinkedEgkrisi={hasLinkedEgkrisi(project.subprojectId, project.subprojectTitle)}
+                                linkedProsklisi={linkedProsklisi}
+                                onOpenLinkedProsklisi={handleOpenLinkedProsklisi}
+                                isLocked={isLocked}
+                                hasEntaxi={hasEntaxiForSubproject(project.subprojectId)}
+                                onOpenSpecificEntaxi={() => handleOpenSpecificEntaxi(project.subprojectId)}
+                                hasProsklisi={hasProsklisiForProject(project.projectTitle, project.projectId)}
+                                onOpenSpecificProsklisi={() => handleOpenSpecificProsklisi(project.projectTitle, project.projectId)}
+                                onViewDetails={(p) => setSelectedDetailProject(p)}
+                                engineerCatalog={engineerCatalogForCards}
+                                linkedNotesMap={linkedNotesMap}
+                                notes={notes}
+                                onOpenNoteFromEntity={handleOpenNoteFromEntity}
+                                portalEnabled={portalEnabled}
+                                isPublishedToPortal={publishedSubprojectIds.has(project.subprojectId)}
+                                epLinkedAction={epSubprojectMap[project.subprojectId] || null}
+                                hasDirectAssignmentViolation={directAssignmentViolationSubprojectIds.has(project.subprojectId)}
+                                onExportReport={handleExportSubprojectReport}
+                              />
+                            );
+                          })}
+                      </SubprojectsGrid>
+                    )}
                   </ProjectGroup>
                   );
                 })
@@ -4715,13 +5080,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               highlightSubprojectKey={highlightProject.subprojectKey}
               onLinkCreated={async () => {
                 await loadLinkedEgkriseis();
-                invalidateCache();
-                await loadDataWithCache(true);
               }}
               onLinkRemoved={async () => {
                 await loadLinkedEgkriseis();
-                invalidateCache();
-                await loadDataWithCache(true);
               }}
               externalLinkedEgkriseis={linkedEgkriseis}
               onRequestRefresh={async () => {
@@ -4803,7 +5164,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         </QuickSearchContainer>
 
         {/* Κατηγορία: ΕΡΓΑ */}
-        <CategorySection>
+        <CategorySection $accentColor="#4f46e5" $accentGrad="linear-gradient(135deg, #4f46e5, #7c3aed)">
           <CategoryHeader $open={expandedCategories.projects} onClick={() => toggleCategory('projects')}>
             <CategoryHeaderLeft>
               <CategoryHeaderIcon $accent="linear-gradient(135deg, #4f46e5, #7c3aed)">📁</CategoryHeaderIcon>
@@ -4812,19 +5173,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             <CategoryHeaderChevron $open={expandedCategories.projects}>▶</CategoryHeaderChevron>
           </CategoryHeader>
           <CategoryBody $open={expandedCategories.projects}>
-            {canManageAll && (
-              <AdminButton
-                onClick={() => {
-                  if (contentWrapperRef.current) {
-                    savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-                  }
-                  setIsExcelImportOpen(true);
-                }}
-              >
-                <AdminButtonIcon>📥</AdminButtonIcon>
-                Εισαγωγή από Excel
-              </AdminButton>
-            )}
             {canManageAll && (
               <AdminButton primary onClick={() => {
                 if (contentWrapperRef.current) {
@@ -4854,11 +5202,22 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               <AdminButtonIcon>🗄️</AdminButtonIcon>
               Ολοκληρωμένα &amp; Αποπληρωμένα
             </ArchiveButton>
+            {canManageAll && (
+              <AdminButton onClick={() => {
+                if (contentWrapperRef.current) {
+                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                }
+                setIsEpProgramOpen(true);
+              }}>
+                <AdminButtonIcon>🗺️</AdminButtonIcon>
+                Επιχειρησιακό Πρόγραμμα
+              </AdminButton>
+            )}
           </CategoryBody>
         </CategorySection>
 
         {/* Κατηγορία: ΦΑΚΕΛΟΣ ΕΡΓΟΥ */}
-        <CategorySection>
+        <CategorySection $accentColor="#0891b2" $accentGrad="linear-gradient(135deg, #0891b2, #06b6d4)">
             <CategoryHeader $open={expandedCategories.management} onClick={() => toggleCategory('management')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #0891b2, #06b6d4)">📂</CategoryHeaderIcon>
@@ -4889,11 +5248,15 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <AdminButtonIcon>📋</AdminButtonIcon>
                 Εγκρίσεις Διάθεσης Πίστωσης
               </AdminButton>
+              <AdminButton onClick={() => setIsOrimanthiOpen(true)}>
+                <AdminButtonIcon>🌱</AdminButtonIcon>
+                Ωρίμανση Έργων
+              </AdminButton>
             </CategoryBody>
           </CategorySection>
 
         {taskAccess.showModule && (
-          <CategorySection>
+          <CategorySection $accentColor="#6366f1" $accentGrad="linear-gradient(135deg, #6366f1, #4f46e5)">
             <CategoryHeader $open={expandedCategories.assignments} onClick={() => toggleCategory('assignments')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #6366f1, #4f46e5)">📌</CategoryHeaderIcon>
@@ -4918,7 +5281,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         )}
 
         {/* Κατηγορία: ΕΞΑΓΩΓΕΣ */}
-        <CategorySection>
+        <CategorySection $accentColor="#059669" $accentGrad="linear-gradient(135deg, #059669, #10b981)">
             <CategoryHeader $open={expandedCategories.exports} onClick={() => toggleCategory('exports')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #059669, #10b981)">📤</CategoryHeaderIcon>
@@ -4939,14 +5302,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                   Εκτελεστέα Έργα
                 </AdminButton>
               )}
-              {isSuperAdmin && (
-                <AdminButton onClick={() => setIsPortalSettingsOpen(true)}>
-                  <AdminButtonIcon>⚙️</AdminButtonIcon>
-                  Ρυθμίσεις Πύλης
-                </AdminButton>
-              )}
-              {canManageAll && portalEnabled && (
-                <AdminButton onClick={() => setIsPortalExportOpen(true)}>
+              {(canManageAll || isEngineer) && (
+                <AdminButton onClick={() => setIsPortalHubOpen(true)}>
                   <AdminButtonIcon>🌐</AdminButtonIcon>
                   Πύλη Διαφάνειας
                 </AdminButton>
@@ -4955,12 +5312,16 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <AdminButtonIcon>📑</AdminButtonIcon>
                 Εξαγωγή Δεδομένων
               </AdminButton>
+              <AdminButton onClick={() => { setReportsInitialTab('subprojects'); setIsReportsOpen(true); }}>
+                <AdminButtonIcon>📊</AdminButtonIcon>
+                Αναφορές σε PDF
+              </AdminButton>
             </CategoryBody>
           </CategorySection>
 
         {/* Κατηγορία: ΕΡΓΑΛΕΙΑ - ADMIN/SUPERADMIN/ENGINEER */}
         {(canManageAll || isEngineer) && (
-          <CategorySection>
+          <CategorySection $accentColor="#d97706" $accentGrad="linear-gradient(135deg, #d97706, #f59e0b)">
             <CategoryHeader $open={expandedCategories.tools} onClick={() => toggleCategory('tools')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #d97706, #f59e0b)">🛠️</CategoryHeaderIcon>
@@ -4985,7 +5346,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
         {/* Κατηγορία: ΣΥΣΤΗΜΑ - μόνο για SUPERADMIN */}
         {isSuperAdmin && (
-          <CategorySection>
+          <CategorySection $accentColor="#be185d" $accentGrad="linear-gradient(135deg, #be185d, #ec4899)">
             <CategoryHeader $open={expandedCategories.system} onClick={() => toggleCategory('system')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #be185d, #ec4899)">⚙️</CategoryHeaderIcon>
@@ -5026,31 +5387,30 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           }}
           onUploadFiles={handleUploadSubprojectFiles}
           userRole={userRole}
+          currentUser={currentUser}
           isLocked={selectedDetailProject.isLocked || false}
           lockedBy={selectedDetailProject.lockedBy || ''}
           portalEnabled={portalEnabled}
           isPublishedToPortal={publishedSubprojectIds.has(selectedDetailProject.subprojectId)}
           onTogglePortal={handleTogglePortalSubproject}
+          onRefreshProject={async () => {
+            await loadDataWithCache(true);
+            // Ενημέρωση του ανοιχτού modal με τα νέα δεδομένα
+            const refreshed = await ipcRenderer.invoke('load-all-projects');
+            if (refreshed && Array.isArray(refreshed)) {
+              const updated = refreshed.find(
+                (p) => p.subprojectId === selectedDetailProject.subprojectId
+              );
+              if (updated) setSelectedDetailProject(updated);
+            }
+          }}
+          onEpLinksChanged={refreshEpSubprojectMap}
+          directAssignmentViolations={getViolationsForSubproject(
+            directAssignmentViolations,
+            selectedDetailProject.subprojectId
+          )}
         />
       )}
-
-      {/* Εισαγωγή υποέργων από Excel */}
-      {isExcelImportOpen ? (
-        <Suspense fallback={<LazyChunkFallback>Φόρτωση εισαγωγής…</LazyChunkFallback>}>
-          <SubprojectExcelImportModal
-            isOpen={isExcelImportOpen}
-            onClose={() => setIsExcelImportOpen(false)}
-            onImportSuccess={async () => {
-              invalidateCache();
-              if (contentWrapperRef.current) {
-                savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-              }
-              shouldRestoreScroll.current = true;
-              await loadDataWithCache(true);
-            }}
-          />
-        </Suspense>
-      ) : null}
 
       {/* Project Form Modal */}
       <ProjectForm
@@ -5087,7 +5447,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         onSave={handleSaveProject}
         onDelete={canManageAll ? async (projectId, subprojectId) => {
           if (!projectId || !subprojectId) {
-            alert('Σφάλμα: Μη έγκυρα δεδομένα για διαγραφή');
+            showToast('Σφάλμα: Μη έγκυρα δεδομένα για διαγραφή', 'error');
             return;
           }
           if (await showConfirm({ title: 'Διαγραφή Υποέργου', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το υποέργο;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
@@ -5104,16 +5464,18 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 setFilteredProjects([]);
                 await loadProjects();
                 await loadLinkedEgkriseis();
-                alert('Το υποέργο διαγράφηκε επιτυχώς!');
+                showToast('Το υποέργο διαγράφηκε επιτυχώς!', 'success');
               } else {
-                alert('Σφάλμα κατά τη διαγραφή: ' + result.error);
+                showToast('Σφάλμα κατά τη διαγραφή: ' + result.error, 'error');
               }
             } catch (error) {
-              alert('Σφάλμα κατά τη διαγραφή: ' + error.message);
+              showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
             }
           }
         } : undefined}
         editingProject={editingProject}
+        userRole={userRole}
+        allProjects={projects}
       />
 
 
@@ -5160,8 +5522,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <ExportData
             isOpen={isExportOpen}
             onClose={() => setIsExportOpen(false)}
-            projects={filteredProjects}
-            totalProjects={projects.length}
+            projects={exportProjects}
+            totalProjects={excludeAbandonedSubprojects(projects).length}
+            organizationName={appConfig?.organizationFullName || ''}
+            appVersion={appVersion}
           />
         </Suspense>
       ) : null}
@@ -5172,7 +5536,24 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <TechnicalProgramExport
             isOpen={isTechnicalProgramOpen}
             onClose={() => setIsTechnicalProgramOpen(false)}
-            projects={projects}
+            projects={excludeAbandonedSubprojects(projects)}
+            organizationName={appConfig?.organizationFullName || ''}
+            currentUser={currentUser}
+            appConfig={appConfig}
+          />
+        </Suspense>
+      ) : null}
+
+      {/* Reports Modal */}
+      {isReportsOpen ? (
+        <Suspense fallback={null}>
+          <ReportsModal
+            projects={exportProjects}
+            entaxeis={entaxeis}
+            proskliseis={proskliseis}
+            appConfig={appConfig}
+            initialTab={reportsInitialTab}
+            onClose={() => setIsReportsOpen(false)}
           />
         </Suspense>
       ) : null}
@@ -5193,7 +5574,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <PortalExport
             isOpen={isPortalExportOpen}
             onClose={() => setIsPortalExportOpen(false)}
-            projects={projects}
+            projects={excludeAbandonedSubprojects(projects)}
             currentUser={currentUser}
             appConfig={appConfig}
             onDimosUidSaved={(uid) => {
@@ -5245,8 +5626,41 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         linkedNotesMap={linkedNotesMap}
         notes={notes}
         onOpenNoteFromEntity={handleOpenNoteFromEntity}
+        organizationName={appConfig?.organizationFullName || ''}
       />
       </Suspense>
+      ) : null}
+
+      {/* Ωρίμανση Έργων */}
+      {isOrimanthiOpen ? (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση Ωρίμανσης Έργων…</LazyChunkFallback>}>
+          <OrimanthiManager
+            onClose={() => setIsOrimanthiOpen(false)}
+            loggedInUsername={currentUser?.username || ''}
+            userRole={userRole}
+          />
+        </Suspense>
+      ) : null}
+
+      {/* EP Program Manager */}
+      {isEpProgramOpen ? (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση Επιχειρησιακού Προγράμματος…</LazyChunkFallback>}>
+          <EpProgramManager
+            isOpen={isEpProgramOpen}
+            onClose={() => {
+              setIsEpProgramOpen(false);
+              refreshEpSubprojectMap();
+              setTimeout(() => {
+                if (contentWrapperRef.current) {
+                  contentWrapperRef.current.scrollTop = savedScrollPosition.current;
+                }
+              }, 100);
+            }}
+            currentUser={currentUser}
+            appConfig={appConfig}
+            canManageAll={canManageAll}
+          />
+        </Suspense>
       ) : null}
 
       {/* Prosklisis Manager Modal */}
@@ -5274,6 +5688,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         linkedNotesMap={linkedNotesMap}
         notes={notes}
         onOpenNoteFromEntity={handleOpenNoteFromEntity}
+        organizationName={appConfig?.organizationFullName || ''}
       />
       </Suspense>
       ) : null}
@@ -5502,7 +5917,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           setIsEgkriseisManagerOnly(false);
           setEgkriseisInitialSearch('');
           await loadLinkedEgkriseis();
-          await loadProjects();
           scheduleDocumentInteractionRecovery();
         }}
         onLinkCreated={async () => {
@@ -5604,13 +6018,36 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             isOpen={isPortalSettingsOpen}
             onClose={() => setIsPortalSettingsOpen(false)}
             appConfig={{ ...appConfig, portalEnabled, portalDimosUid: appConfig.portalDimosUid, portalExportFields: appConfig.portalExportFields, portalMergeCompleted: appConfig.portalMergeCompleted }}
-            onConfigSaved={({ portalEnabled: enabled, portalDimosUid: uid, portalExportFields: fields, portalMergeCompleted: merge }) => {
+            onConfigSaved={({ portalEnabled: enabled, portalDimosUid: uid, portalPublicUrl: purl, portalExportFields: fields, portalMergeCompleted: merge }) => {
               setPortalEnabled(enabled);
               appConfig.portalEnabled = enabled;
               appConfig.portalDimosUid = uid;
+              if (purl !== undefined) appConfig.portalPublicUrl = purl;
               if (fields) appConfig.portalExportFields = fields;
               appConfig.portalMergeCompleted = !!merge;
             }}
+          />
+        </Suspense>
+      )}
+
+      {isPortalHubOpen && (
+        <Suspense fallback={null}>
+          <PortalHubModal
+            isOpen={isPortalHubOpen}
+            onClose={() => setIsPortalHubOpen(false)}
+            projects={projects}
+            currentUser={currentUser}
+            appConfig={{ ...appConfig, portalEnabled, portalDimosUid: appConfig.portalDimosUid, portalPublicUrl: appConfig.portalPublicUrl, portalExportFields: appConfig.portalExportFields, portalMergeCompleted: appConfig.portalMergeCompleted }}
+            isSuperAdmin={isSuperAdmin}
+            onConfigSaved={({ portalEnabled: enabled, portalDimosUid: uid, portalPublicUrl: purl, portalExportFields: fields, portalMergeCompleted: merge }) => {
+              setPortalEnabled(enabled);
+              appConfig.portalEnabled = enabled;
+              appConfig.portalDimosUid = uid;
+              if (purl !== undefined) appConfig.portalPublicUrl = purl;
+              if (fields) appConfig.portalExportFields = fields;
+              appConfig.portalMergeCompleted = !!merge;
+            }}
+            onDimosUidSaved={(uid) => { appConfig.portalDimosUid = uid; }}
           />
         </Suspense>
       )}

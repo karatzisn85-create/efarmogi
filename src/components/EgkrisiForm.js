@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -245,6 +246,7 @@ const ErrorMessage = styled.div`
 `;
 
 function EgkrisiForm({ projects, selectedProject, onClose }) {
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     type: 'initial',
@@ -321,7 +323,7 @@ function EgkrisiForm({ projects, selectedProject, onClose }) {
       setSelectedFile(file);
       setErrors(prev => ({ ...prev, file: '' }));
     } else {
-      alert('Παρακαλώ επιλέξτε ένα αρχείο PDF ή Word (.doc, .docx)');
+      showToast('Παρακαλώ επιλέξτε ένα αρχείο PDF ή Word (.doc, .docx)', 'warning');
     }
   };
 
@@ -415,11 +417,11 @@ function EgkrisiForm({ projects, selectedProject, onClose }) {
         throw new Error(uploadResult.error || 'Failed to upload PDF');
       }
 
-      alert('Η έγκριση αποθηκεύτηκε επιτυχώς!');
+      showToast('Η έγκριση αποθηκεύτηκε επιτυχώς!', 'success');
       onClose();
     } catch (error) {
       console.error('Error saving egkrisi:', error);
-      alert('Σφάλμα κατά την αποθήκευση: ' + error.message);
+      showToast('Σφάλμα κατά την αποθήκευση: ' + error.message, 'error');
     } finally {
       setSubmitting(false);
     }

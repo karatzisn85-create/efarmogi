@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -185,6 +186,7 @@ const BtnInstall = styled(BtnPrimary)`
 `;
 
 const UpdateNotifier = () => {
+  const { showToast } = useToast();
   const [updateInfo, setUpdateInfo] = useState(null);
   const [downloaded, setDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -226,7 +228,7 @@ const UpdateNotifier = () => {
     try {
       await ipcRenderer.invoke('install-update');
     } catch (err) {
-      alert('Σφάλμα εγκατάστασης: ' + err.message);
+      showToast('Σφάλμα εγκατάστασης: ' + err.message, 'error');
       setInstalling(false);
     }
   }, []);
@@ -237,7 +239,7 @@ const UpdateNotifier = () => {
     try {
       await ipcRenderer.invoke('download-update', updateInfo.downloadUrl);
     } catch (err) {
-      alert('Σφάλμα λήψης: ' + err.message);
+      showToast('Σφάλμα λήψης: ' + err.message, 'error');
       setDownloading(false);
     }
   }, [updateInfo]);

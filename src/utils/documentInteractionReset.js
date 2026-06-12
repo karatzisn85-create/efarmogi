@@ -44,8 +44,19 @@ export function allowDocumentInteractionLock() {
 }
 
 /**
- * Μετά από window.confirm / alert: διπλό rAF ώστε να προλάβει το Electron να
+ * Επιστρέφει αν υπάρχει ενεργό «direct lock» (π.χ. TaskAssignmentManager).
+ * Χρησιμοποιείται από InteractionGuard για να διακρίνει legitimate από stale lock.
+ */
+export function isInteractionLockAllowed() {
+  return interactionLockAllowed;
+}
+
+/**
+ * Μετά από κλείσιμο overlay/modal/alert: διπλό rAF ώστε να προλάβει το Electron να
  * απελευθερώσει focus/pointer-events πριν ξανακλειδώσουμε scroll (αν χρειάζεται).
+ * Στο τελευταίο rAF (cleanup path) εκτελείται και window.blur+focus ώστε να
+ * επαναφερθεί σωστά η δρομολόγηση keyboard events — γνωστό Electron bug μετά από
+ * αφαίρεση focused element από το DOM.
  * Οι εκκρεμείς rAF ακυρώνονται όταν καλεστεί resetDocumentInteractionState() (π.χ. αποσύνδεση).
  */
 export function scheduleDocumentInteractionRecovery({ lockScroll = false } = {}) {
@@ -72,6 +83,12 @@ export function scheduleDocumentInteractionRecovery({ lockScroll = false } = {})
       requestAnimationFrame(() => {
         if (epoch !== interactionRecoveryEpoch) return;
         run();
+        // OS-level BrowserWindow focus cycle μέσω main process.
+        // window.blur/focus() (DOM API) δεν αρκεί — χρειάζεται mainWindow.blur/focus()
+        // από τον main process για πλήρη επαναφορά keyboard routing στο Electron.
+        if (!lockScroll) {
+          try { window.electronAPI.invoke('refocus-window').catch(() => {}); } catch { /* ignore */ }
+        }
       });
     });
   } else {
@@ -82,6 +99,9 @@ export function scheduleDocumentInteractionRecovery({ lockScroll = false } = {})
     setTimeout(() => {
       if (epoch !== interactionRecoveryEpoch) return;
       run();
-    }, 16);
+      if (!lockScroll) {
+        try { window.electronAPI.invoke('refocus-window').catch(() => {}); } catch { /* ignore */ }
+      }
+    }, 32);
   }
 }

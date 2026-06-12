@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { getCharacterization } from '../data/formOptions';
+import { useToast } from './ToastProvider';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
+import {
+  getProjectAnadoxosNamesExport,
+  getProjectAnadoxosVatsExport,
+  getProjectKhmdhsAdamExport,
+  getProjectAssignmentProcedureExport
+} from '../utils/contractorFields';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -322,6 +329,10 @@ const EXPORT_FIELDS_ORDER = [
   { id: 'fundingSource', label: 'Βασική Πηγή Χρηματοδότησης', width: 25 },
   { id: 'fundingDetails', label: 'Εξειδίκευση Πηγής Χρηματοδότησης', width: 35 },
   { id: 'projectStatus', label: 'Κατάσταση Υποέργου', width: 25 },
+  { id: 'assignmentProcedure', label: 'Διαδικασία Ανάθεσης', width: 40 },
+  { id: 'anadoxosName', label: 'Επωνυμία Αναδόχου (ΚΗΜΔΗΣ)', width: 35 },
+  { id: 'anadoxosVat', label: 'ΑΦΜ Αναδόχου (ΚΗΜΔΗΣ)', width: 18 },
+  { id: 'khmdhsAdam', label: 'ΑΔΑΜ Σύμβασης (ΚΗΜΔΗΣ)', width: 22 },
   { id: 'contractProcessStartDate', label: 'Ημερομηνία έναρξης διαδικασίας σύναψης Σύμβασης', width: 30 },
   { id: 'contractDate', label: 'Ημερομηνία Υπογραφής Σύμβασης', width: 18 },
   { id: 'contractAmount', label: 'Ποσό Σύμβασης', width: 16 },
@@ -362,10 +373,23 @@ const EXPORT_FIELDS = {
     title: '📊 Κατάσταση & Πρόοδος',
     fields: [
       { id: 'projectStatus', label: 'Κατάσταση Υποέργου', width: 25 },
+      { id: 'assignmentProcedure', label: 'Διαδικασία Ανάθεσης', width: 40 },
+      { id: 'anadoxosName', label: 'Επωνυμία Αναδόχου (ΚΗΜΔΗΣ)', width: 35 },
+      { id: 'anadoxosVat', label: 'ΑΦΜ Αναδόχου (ΚΗΜΔΗΣ)', width: 18 },
+      { id: 'khmdhsAdam', label: 'ΑΔΑΜ Σύμβασης (ΚΗΜΔΗΣ)', width: 22 },
       { id: 'contractProcessStartDate', label: 'Ημερομηνία έναρξης διαδικασίας σύναψης Σύμβασης', width: 30 },
       { id: 'contractDate', label: 'Ημερομηνία Υπογραφής Σύμβασης', width: 18 },
       { id: 'contractAmount', label: 'Ποσό Σύμβασης', width: 16 },
       { id: 'apeAmount', label: 'ΑΠΕ + Συμπληρωματικές Συμβάσεις', width: 22 },
+    ]
+  },
+  contractor: {
+    title: '🏢 Ανάδοχος & Ανάθεση',
+    fields: [
+      { id: 'assignmentProcedure', label: 'Διαδικασία Ανάθεσης', width: 40 },
+      { id: 'anadoxosName', label: 'Επωνυμία Αναδόχου (ΚΗΜΔΗΣ)', width: 35 },
+      { id: 'anadoxosVat', label: 'ΑΦΜ Αναδόχου (ΚΗΜΔΗΣ)', width: 18 },
+      { id: 'khmdhsAdam', label: 'ΑΔΑΜ Σύμβασης (ΚΗΜΔΗΣ)', width: 22 },
     ]
   },
   additional: {
@@ -381,7 +405,18 @@ const EXPORT_FIELDS = {
   }
 };
 
-function ExportData({ isOpen, onClose, projects, totalProjects }) {
+const APP_NAME = 'ERGOHUB';
+
+function xmlEsc(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function ExportData({ isOpen, onClose, projects, totalProjects, organizationName = '', appVersion = '' }) {
+  const { showToast } = useToast();
   const [selectedFields, setSelectedFields] = useState([
     'rowNumber', 'kaCode', 'aleCode', 'projectTitle', 'subprojectTitle', 'projectType', 'fundingSource', 'fundingDetails', 'projectStatus'
   ]);
@@ -446,7 +481,7 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
 
   const exportToExcel = () => {
     if (selectedFields.length === 0) {
-      alert('Παρακαλώ επιλέξτε τουλάχιστον ένα πεδίο για εξαγωγή.');
+      showToast('Παρακαλώ επιλέξτε τουλάχιστον ένα πεδίο για εξαγωγή.', 'warning');
       return;
     }
 
@@ -465,7 +500,15 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
       const minutes = now.getMinutes().toString().padStart(2, '0');
       const seconds = now.getSeconds().toString().padStart(2, '0');
       const exportDateTime = `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-      
+      const versionSuffix = appVersion ? ` v${appVersion}` : '';
+      const brandHeaderText = organizationName
+        ? `${APP_NAME}${versionSuffix} — Εξαγωγή Δεδομένων | ${organizationName} | ${exportDateTime}`
+        : `${APP_NAME}${versionSuffix} — Εξαγωγή Δεδομένων | ${exportDateTime}`;
+      const brandFooterText = organizationName
+        ? `${organizationName} | Δημιουργήθηκε με ${APP_NAME}${versionSuffix}`
+        : `Δημιουργήθηκε με ${APP_NAME}${versionSuffix}`;
+      const mergeAcross = Math.max(0, fieldsInOrder.length - 1);
+
       // Δημιουργία Excel Spreadsheet XML με πλήρη μορφοποίηση
       let htmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
@@ -475,7 +518,9 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
           xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
           xmlns:html="http://www.w3.org/TR/REC-html40">
   <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
-    <Title>Εξαγωγή Έργων</Title>
+    <Title>${APP_NAME} — Εξαγωγή Δεδομένων</Title>
+    <Author>${APP_NAME}</Author>
+    <Company>${APP_NAME}</Company>
     <Created>${now.toISOString()}</Created>
   </DocumentProperties>
   <Styles>
@@ -516,6 +561,25 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
       <Font ss:FontName="Calibri" ss:Size="10"/>
       <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
     </Style>
+    <Style ss:ID="BrandHeader">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+      <Font ss:FontName="Calibri" ss:Size="12" ss:Bold="1" ss:Color="#FFFFFF"/>
+      <Interior ss:Color="#4338CA" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#6366F1"/>
+        <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#6366F1"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#6366F1"/>
+        <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#6366F1"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="BrandFooter">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+      <Font ss:FontName="Calibri" ss:Size="9" ss:Italic="1" ss:Color="#4338CA"/>
+      <Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#6366F1"/>
+      </Borders>
+    </Style>
   </Styles>
   <Worksheet ss:Name="Εξαγωγή Έργων">
     <Table>
@@ -525,13 +589,18 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
       fieldsInOrder.forEach(field => {
         htmlContent += `      <Column ss:Width="${field.width * 8}"/>\n`;
       });
-      
+
+      htmlContent += `      <Row ss:Height="30">
+        <Cell ss:MergeAcross="${mergeAcross}" ss:StyleID="BrandHeader">
+          <Data ss:Type="String">${xmlEsc(brandHeaderText)}</Data>
+        </Cell>
+      </Row>\n`;
+
       htmlContent += `      <Row>\n`;
       
       // Headers
       fieldsInOrder.forEach(field => {
-        const escapedLabel = String(field.label).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        htmlContent += `        <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">${escapedLabel}</Data></Cell>\n`;
+        htmlContent += `        <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">${xmlEsc(field.label)}</Data></Cell>\n`;
       });
       
       htmlContent += `      </Row>\n`;
@@ -561,6 +630,14 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
             value = getProjectChargeDisplay(project, []).displayChargePrimary;
           } else if (field.id === 'chargeParticipants') {
             value = getProjectChargeDisplay(project, []).displayChargeParticipants;
+          } else if (field.id === 'anadoxosName') {
+            value = getProjectAnadoxosNamesExport(project);
+          } else if (field.id === 'anadoxosVat') {
+            value = getProjectAnadoxosVatsExport(project);
+          } else if (field.id === 'khmdhsAdam') {
+            value = getProjectKhmdhsAdamExport(project);
+          } else if (field.id === 'assignmentProcedure') {
+            value = getProjectAssignmentProcedureExport(project);
           } else {
             value = project[field.id] || '';
             
@@ -579,12 +656,18 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
         htmlContent += `      </Row>\n`;
       });
 
+      htmlContent += `      <Row>
+        <Cell ss:MergeAcross="${mergeAcross}" ss:StyleID="BrandFooter">
+          <Data ss:Type="String">${xmlEsc(brandFooterText)}</Data>
+        </Cell>
+      </Row>\n`;
+
       htmlContent += `    </Table>
     <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
       <PageSetup>
         <Layout x:Orientation="Landscape"/>
-        <Header x:Margin="0.3" x:Data="Ημερομηνία Εξαγωγής: ${exportDateTime}"/>
-        <Footer x:Margin="0.3" x:Data="Σελίδα &amp;P από &amp;N"/>
+        <Header x:Margin="0.3" x:Data="${APP_NAME} | Ημερομηνία Εξαγωγής: ${exportDateTime}"/>
+        <Footer x:Margin="0.3" x:Data="${APP_NAME} | Σελίδα &amp;P από &amp;N"/>
       </PageSetup>
       <Print>
         <ValidPrinterInfo/>
@@ -599,7 +682,7 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
         type: 'application/vnd.ms-excel' 
       });
       
-      const fileName = `Εξαγωγή_Έργων_${day}-${month}-${year}.xls`;
+      const fileName = `${APP_NAME}_Εξαγωγή_Έργων_${day}-${month}-${year}.xls`;
       
       // Δημιουργία download link
       const link = document.createElement('a');
@@ -615,7 +698,7 @@ function ExportData({ isOpen, onClose, projects, totalProjects }) {
       onClose();
     } catch (error) {
       console.error('Error exporting data:', error);
-      alert('Προέκυψε σφάλμα κατά την εξαγωγή. Παρακαλώ δοκιμάστε ξανά.');
+      showToast('Προέκυψε σφάλμα κατά την εξαγωγή. Παρακαλώ δοκιμάστε ξανά.', 'error');
     }
   };
 

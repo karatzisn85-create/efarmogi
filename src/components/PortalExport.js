@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import styled from 'styled-components';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -374,6 +375,7 @@ const EmptyState = styled.div`
 // ── Component ────────────────────────────────────────────────────────────────
 
 function PortalExport({ isOpen, onClose, projects = [], currentUser, appConfig = {}, onDimosUidSaved }) {
+  const { showToast } = useToast();
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [dimosUid, setDimosUid] = useState(appConfig.portalDimosUid || '');
   const [isExporting, setIsExporting] = useState(false);
@@ -473,7 +475,7 @@ function PortalExport({ isOpen, onClose, projects = [], currentUser, appConfig =
       }
     } catch (err) {
       setProgress('');
-      alert(`❌ Σφάλμα κατά την εξαγωγή:\n\n${err.message}`);
+      showToast(`Σφάλμα κατά την εξαγωγή:\n\n${err.message}`, 'error');
     } finally {
       setIsExporting(false);
     }

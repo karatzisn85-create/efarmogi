@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('el
 const path = require('path');
 const os = require('os');
 const { safeWriteJSON, safeWriteJSONAsync } = require('./safeWrite');
-const { initConfigPath, loadConfig, saveConfig, resolveDataDir } = require('./appConfig');
+const { bootstrapConfig, setActiveDataDir, loadConfig, saveConfig } = require('./appConfig');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { exec, spawn } = require('child_process');
@@ -44,6 +44,15 @@ const getTempDir = () => {
 function stripLegacySupervisorField(obj) {
   if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, 'supervisor')) {
     delete obj.supervisor;
+  }
+  return obj;
+}
+
+/** Μετονομασία παλιού «ΥΠΗΡΕΣΙΑ» → «ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ» */
+function normalizeProjectTypeField(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (obj.projectType === 'ΥΠΗΡΕΣΙΑ') {
+    obj.projectType = 'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ';
   }
   return obj;
 }
@@ -354,8 +363,35 @@ ipcMain.handle('get-online-users', () => {
 });
 
 ipcMain.handle('save-app-config', async (_event, newConfig) => {
+  // Ενημέρωση in-memory dataDir πριν από οποιαδήποτε εγγραφή (κρίσιμο για setup wizard)
+  if (newConfig.dataDir) {
+    dataDir = newConfig.dataDir;
+    setActiveDataDir(newConfig.dataDir);
+    ensureSubDirs();
+  }
+
   saveConfig(newConfig);
-  if (newConfig.setupCompleted || newConfig.dataDir) {
+
+  // Αποθήκευση org στοιχείων στον dataDir ώστε να είναι διαθέσιμα σε επόμενες εγκαταστάσεις
+  // (π.χ. νέο μηχάνημα που δείχνει στον ίδιο κοινόχρηστο φάκελο)
+  if (newConfig.organizationName !== undefined || newConfig.organizationFullName !== undefined) {
+    const targetDir = newConfig.dataDir || dataDir;
+    if (targetDir && fs.existsSync(targetDir)) {
+      const merged = loadConfig(true);
+      const orgData = {
+        organizationType:    merged.organizationType    || newConfig.organizationType    || '',
+        organizationName:    merged.organizationName    || newConfig.organizationName    || '',
+        organizationFullName:merged.organizationFullName|| newConfig.organizationFullName|| '',
+        department:          merged.department          || newConfig.department          || '',
+      };
+      try {
+        safeWriteJSON(path.join(targetDir, 'org-config.json'), orgData);
+      } catch (_e) { /* non-critical */ }
+    }
+  }
+
+  // Relaunch μόνο όταν ολοκληρώνεται η αρχική ρύθμιση — όχι σε ενδιάμεση αποθήκευση dataDir
+  if (newConfig.setupCompleted === true) {
     setTimeout(() => {
       app.relaunch();
       app.exit(0);
@@ -386,7 +422,13 @@ ipcMain.handle('check-folder-has-config', async (_event, folderPath) => {
       projectCount = fs.readdirSync(projectsDir).filter(f => f.endsWith('.json')).length;
     } catch (_e) { /* ignore */ }
   }
-  return { hasUsers, hasProjects: projectCount > 0, projectCount };
+  // Διαβάζουμε τα org στοιχεία που αποθηκεύτηκαν στον dataDir κατά την αρχική ρύθμιση
+  let orgConfig = null;
+  const orgConfigPath = path.join(folderPath, 'org-config.json');
+  if (fs.existsSync(orgConfigPath)) {
+    try { orgConfig = JSON.parse(fs.readFileSync(orgConfigPath, 'utf8')); } catch (_e) { /* ignore */ }
+  }
+  return { hasUsers, hasProjects: projectCount > 0, projectCount, orgConfig };
 });
 
 // ── User Management ──
@@ -427,6 +469,11 @@ function findUserByUsername(username) {
 function isSuperAdminUser(username) {
   const u = findUserByUsername(username);
   return !!(u && u.role === 'SUPERADMIN');
+}
+
+function isSuperAdminOrAdminUser(username) {
+  const u = findUserByUsername(username);
+  return !!(u && (u.role === 'SUPERADMIN' || u.role === 'ADMIN'));
 }
 
 let taskAssignmentService = null;
@@ -531,6 +578,7 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     fullName: fullName || username,
     ...(newUserEmail ? { email: newUserEmail } : {}),
     active: true,
+    approved: role === 'SUPERADMIN' ? true : false,
     assignedSupervisors: role === 'ENGINEER' ? normalizedSupervisors : [],
     taskAssignment: taskAssignmentNorm,
     createdAt: new Date().toISOString()
@@ -863,8 +911,7 @@ app.on('activate', () => {
   }
 });
 
-initConfigPath(app);
-let dataDir = resolveDataDir(app);
+let dataDir = bootstrapConfig(app);
 
 console.log('Active dataDir:', dataDir);
 
@@ -1507,7 +1554,8 @@ async function handleSaveProjectData(event, projectData) {
     }
 
     stripLegacySupervisorField(dataToSave);
-    
+    normalizeProjectTypeField(dataToSave);
+
     // Αντιγραφή αρχείων από fileGroups στον φάκελο ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ
     if (mergedFileGroups && mergedFileGroups.length > 0) {
       console.log('📁 Copying files from fileGroups to ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ...');
@@ -1621,155 +1669,6 @@ async function handleSaveProjectData(event, projectData) {
 
 ipcMain.handle('save-project-data', handleSaveProjectData);
 
-const subprojectExcelImport = require('./subprojectExcelImport');
-
-ipcMain.handle('export-subprojects-import-template', async () => {
-  try {
-    const ExcelJS = require('exceljs');
-    const wb = await subprojectExcelImport.buildTemplateWorkbook(ExcelJS);
-    const buffer = await wb.xlsx.writeBuffer();
-    const saveResult = await dialog.showSaveDialog({
-      title: 'Αποθήκευση προτύπου εισαγωγής υποέργων (Excel)',
-      defaultPath: `ErgoHub_Φόρμα_εισαγωγής_δεδομένων.xlsx`,
-      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
-    });
-    if (saveResult.canceled || !saveResult.filePath) {
-      return { success: true, canceled: true };
-    }
-    fs.writeFileSync(saveResult.filePath, Buffer.from(buffer));
-    return { success: true, path: saveResult.filePath };
-  } catch (error) {
-    console.error('export-subprojects-import-template:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('preview-subprojects-excel-import', async (event, filePath) => {
-  try {
-    if (!filePath || typeof filePath !== 'string' || !fs.existsSync(filePath)) {
-      return { success: false, error: 'Μη έγκυρη διαδρομή αρχείου' };
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    if (ext !== '.xlsx') {
-      return { success: false, error: 'Επιτρέπεται μόνο αρχείο .xlsx' };
-    }
-    const buf = fs.readFileSync(filePath);
-    const parsed = await subprojectExcelImport.parseImportWorkbookBuffer(buf);
-    const blockingErrors = [...parsed.parseErrors];
-    const headerMissing = blockingErrors.some(
-      (e) => e.excelRow === 1 && /λείπουν|αναγνωρίζονται/i.test(String(e.message))
-    );
-    const sheetMissing = blockingErrors.some((e) =>
-      String(e.message).includes(`Δεν βρέθηκε το φύλλο`)
-    );
-
-    let ok = [];
-    let validationErrors = [];
-    if (!headerMissing && !sheetMissing) {
-      const v = subprojectExcelImport.validateAllRows(parsed.rows);
-      ok = v.ok;
-      validationErrors = v.errors;
-    }
-
-    const existing = await loadAllProjects();
-    const warnings = subprojectExcelImport.duplicateWarnings(ok, existing);
-    const previewRows = ok.slice(0, 50).map(({ excelRow, projectData }) => ({
-      excelRow,
-      projectTitle: projectData.projectTitle,
-      subprojectTitle: projectData.subprojectTitle,
-      projectStatus: projectData.projectStatus,
-      fundingSource: projectData.fundingSource
-    }));
-
-    return {
-      success: true,
-      versionOk: parsed.versionOk,
-      metaVersion: parsed.metaVersion,
-      rowCount: parsed.rows.length,
-      validCount: ok.length,
-      blockingErrors,
-      validationErrors,
-      warnings,
-      previewRows
-    };
-  } catch (error) {
-    console.error('preview-subprojects-excel-import:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('commit-subprojects-excel-import', async (event, filePath) => {
-  const fakeEvent = { sender: { getTitle: () => 'EXCEL_IMPORT' } };
-  try {
-    if (!filePath || typeof filePath !== 'string' || !fs.existsSync(filePath)) {
-      return { success: false, error: 'Μη έγκυρη διαδρομή αρχείου' };
-    }
-    if (path.extname(filePath).toLowerCase() !== '.xlsx') {
-      return { success: false, error: 'Επιτρέπεται μόνο αρχείο .xlsx' };
-    }
-    const buf = fs.readFileSync(filePath);
-    const parsed = await subprojectExcelImport.parseImportWorkbookBuffer(buf);
-    if (parsed.parseErrors.length > 0) {
-      return {
-        success: false,
-        error: 'Το αρχείο δεν πέρασε τους ελέγχους μορφής',
-        blockingErrors: parsed.parseErrors,
-        saved: 0
-      };
-    }
-    const { ok, errors } = subprojectExcelImport.validateAllRows(parsed.rows);
-    if (errors.length > 0) {
-      return {
-        success: false,
-        error: 'Η εισαγωγή ακυρώθηκε λόγω σφαλμάτων επικύρωσης',
-        blockingErrors: [],
-        validationErrors: errors,
-        saved: 0
-      };
-    }
-    let saved = 0;
-    const results = [];
-    for (const { excelRow, projectData } of ok) {
-      const res = await handleSaveProjectData(fakeEvent, {
-        ...projectData,
-        projectId: null,
-        subprojectId: null
-      });
-      if (!res.success) {
-        return {
-          success: false,
-          error: res.error || 'Αποτυχία αποθήκευσης',
-          saved,
-          failedAtRow: excelRow,
-          results
-        };
-      }
-      saved += 1;
-      results.push({ excelRow, projectId: res.projectId, subprojectId: res.subprojectId });
-    }
-    return { success: true, saved, results };
-  } catch (error) {
-    console.error('commit-subprojects-excel-import:', error);
-    return { success: false, error: error.message, saved: 0 };
-  }
-});
-
-ipcMain.handle('select-subprojects-import-xlsx', async () => {
-  try {
-    const result = await dialog.showOpenDialog({
-      title: 'Επιλογή αρχείου εισαγωγής υποέργων (.xlsx)',
-      properties: ['openFile'],
-      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
-    });
-    if (result.canceled || !result.filePaths || !result.filePaths[0]) {
-      return { success: false, canceled: true };
-    }
-    return { success: true, filePath: result.filePaths[0] };
-  } catch (error) {
-    console.error('select-subprojects-import-xlsx:', error);
-    return { success: false, error: error.message };
-  }
-});
 
 /**
  * Κανονικοποίηση τίτλου έργου για σύγκριση (ίδια λογική παντού: φόρμα, find-by-title, αποθήκευση).
@@ -1853,6 +1752,7 @@ const loadAllProjects = async () => {
             if (!fs.existsSync(jsonPath)) { continue; }
 
             const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            normalizeProjectTypeField(data);
 
             // Add lock information to project data
             data.isLocked = lockStatus.locked;
@@ -8317,6 +8217,7 @@ ipcMain.handle('find-egkrisi-keys-by-subproject-id', async (event, subprojectId)
     // Ψάχνουμε σε όλα τα έργα
     const projectDirs = fs.readdirSync(dataDir);
     let projectId = null;
+    let projectTitle = null;
     let subprojectTitle = null;
     
     for (const projectDir of projectDirs) {
@@ -8337,6 +8238,7 @@ ipcMain.handle('find-egkrisi-keys-by-subproject-id', async (event, subprojectId)
               const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
               if (data.subprojectId === subprojectId) {
                 projectId = data.projectId;
+                projectTitle = data.projectTitle;
                 subprojectTitle = data.subprojectTitle;
                 break;
               }
@@ -8352,6 +8254,18 @@ ipcMain.handle('find-egkrisi-keys-by-subproject-id', async (event, subprojectId)
       console.log('❌ Project or subproject title not found for subprojectId:', subprojectId);
       return null;
     }
+
+    const normalizeEgkrisiText = (text) => {
+      if (!text) return '';
+      return text
+        .replace(/\\n/g, ' ')
+        .replace(/\n/g, ' ')
+        .replace(/\r/g, ' ')
+        .replace(/\t/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+    };
     
     // Φορτώνουμε το egkriseis-data.json
     const egkriseisDataPath = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'egkriseis-data.json');
@@ -8369,28 +8283,32 @@ ipcMain.handle('find-egkrisi-keys-by-subproject-id', async (event, subprojectId)
       
       // Ψάχνουμε σε όλα τα subprojects
       for (const [subprojectKey, subproject] of Object.entries(subprojects)) {
-        // Σύγκριση με normalized text
-        const normalizeText = (text) => {
-          if (!text) return '';
-          return text
-            .replace(/\\n/g, ' ')
-            .replace(/\n/g, ' ')
-            .replace(/\r/g, ' ')
-            .replace(/\t/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .toLowerCase();
-        };
+        const normalizedSubprojectTitle = normalizeEgkrisiText(subproject.title);
+        const normalizedSearchTitle = normalizeEgkrisiText(subprojectTitle);
         
-        const normalizedSubprojectTitle = normalizeText(subproject.title);
-        const normalizedSearchTitle = normalizeText(subprojectTitle);
-        
-        // Ελέγχουμε αν ταιριάζει ο τίτλος (μπορεί να έχει μικρές διαφορές)
         if (normalizedSubprojectTitle === normalizedSearchTitle || 
             normalizedSubprojectTitle.includes(normalizedSearchTitle.substring(0, 20)) ||
             normalizedSearchTitle.includes(normalizedSubprojectTitle.substring(0, 20))) {
           console.log('✅ Found egkrisi keys:', { projectKey, subprojectKey });
           return { projectKey, subprojectKey };
+        }
+      }
+    }
+
+    // Fallback: τροποποίηση/έγκριση επιπέδου έργου χωρίς καταχώρηση υποέργου
+    if (projectTitle) {
+      const normalizedDashboardProjectTitle = normalizeEgkrisiText(projectTitle);
+      for (const [projectKey, project] of Object.entries(projects)) {
+        const normalizedEgkrisiProjectTitle = normalizeEgkrisiText(project.title);
+        const hasModifications = Array.isArray(project.modifications) && project.modifications.length > 0;
+        const titleMatches =
+          normalizedEgkrisiProjectTitle === normalizedDashboardProjectTitle ||
+          normalizedEgkrisiProjectTitle.includes(normalizedDashboardProjectTitle.substring(0, 20)) ||
+          normalizedDashboardProjectTitle.includes(normalizedEgkrisiProjectTitle.substring(0, 20));
+
+        if (titleMatches && hasModifications) {
+          console.log('✅ Found egkrisi project-level keys:', { projectKey });
+          return { projectKey, subprojectKey: null, projectLevelOnly: true };
         }
       }
     }
@@ -11534,6 +11452,278 @@ ipcMain.on('restart-app', () => {
   app.exit(0);
 });
 
+// Επαναφορά keyboard routing μετά από native dialogs (window.alert/confirm).
+// Χρησιμοποιεί sendInputEvent για να εγχύσει συνθετικό Shift keydown/keyup
+// κατευθείαν στο Chromium IPC — παρακάμπτει το OS keyboard routing
+// και επαναφέρει τον Chromium keyboard dispatcher χωρίς κανένα visual flicker.
+ipcMain.handle('refocus-window', (_event) => {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const wc = mainWindow.webContents;
+      // Πρώτα webContents.focus() για να βεβαιωθούμε ότι έχει focus
+      wc.focus();
+      // Στη συνέχεια synthetic Shift key — αόρατο, χωρίς side effects στο app,
+      // αλλά επαναφέρει τον Chromium keyboard event dispatcher
+      setTimeout(() => {
+        try {
+          if (!mainWindow.isDestroyed()) {
+            wc.sendInputEvent({ type: 'keyDown', keyCode: 'Shift' });
+            wc.sendInputEvent({ type: 'keyUp', keyCode: 'Shift' });
+          }
+        } catch { /* ignore */ }
+      }, 50);
+    }
+  } catch (e) {
+    logger.warn('refocus-window error:', e.message);
+  }
+  return { success: true };
+});
+
+// ============================================================
+// FUNDING OPTIONS IPC HANDLERS
+// ============================================================
+
+const fundingOptionsPath = path.join(dataDir, 'funding_options.json');
+
+// Built-in defaults — αντιγραφή από formOptions.js (δεν γίνεται require του renderer bundle)
+const BUILT_IN_FUNDING_SOURCES = [
+  'ΠΡΟΓΡΑΜΜΑ ΑΝΤΩΝΗΣ ΤΡΙΤΣΗΣ',
+  'ΠΡΟΓΡΑΜΜΑ ΦΙΛΟΔΗΜΟΣ ΙΙ',
+  'ΠΔΕ ΥΠΕΣ ΣΑΕ055',
+  'ΕΣΠΑ 2014_2020',
+  'ΕΣΠΑ 2021_2027',
+  'ΕΘΝΙΚΟ ΠΔΕ ή EΠΑ_2021_2025',
+  'ΤΑΜΕΙΟ ΑΝΑΚΑΜΨΗΣ και ΑΝΘΕΚΤΙΚΟΤΗΤΑΣ',
+  'ΛΟΙΠΑ ΠΡΟΓΡΑΜΜΑΤΑ ή ΠΟΡΟΙ',
+];
+
+const BUILT_IN_FUNDING_DETAILS = {
+  'ΠΡΟΓΡΑΜΜΑ ΑΝΤΩΝΗΣ ΤΡΙΤΣΗΣ': ['ΑΤ01. Υποδομές ύδρευσης','ΑΤ02. Ολοκληρωμένη διαχείριση αστικών λυμάτων','ΑΤ03. Παρεμβάσεις και δράσεις βελτίωσης της διαχείρισης ενέργειας και αξιοποίηση Ανανεώσιμων Πηγών Ενέργειας στις υποδομές διαχείρισης υδάτων και λυμάτων','ΑΤ04. Χωριστή Συλλογή Βιοαποβλήτων, Γωνιές Ανακύκλωσης και Σταθμοί Μεταφόρτωσης Απορριμμάτων','ΑΤ05. Ανάπτυξη της υπαίθρου-Αγροτική Οδοποιία','ΑΤ06. Αστική Αναζωογόνηση','ΑΤ07. Αξιοποίηση του κτιριακού αποθέματος των Δήμων','ΑΤ08. Smart cities, ευφυείς εφαρμογές, συστήματα και πλατφόρμες για την ασφάλεια, υγεία - πρόνοια, ηλεκτρονική διακυβέρνηση….','ΑΤ09. Ωρίμανση έργων και δράσεων για την υλοποίηση του Προγράμματος','ΑΤ10. Συντήρηση δημοτικών ανοιχτών αθλητικών χώρων, σχολικών μονάδων, προσβασιμότητα ΑμΕΑ','ΑΤ11. Δράσεις για υποδομές που χρήζουν αντισεισμικής προστασίας (προσεισμικός έλεγχος)','ΑΤ12. Δράσεις Ηλεκτροκίνησης στους Δήμους','ΑΤ13. Έργα αντιπλημμυρικής προστασίας','ΑΤ14. Ελλάδα 1821 - Ελλάδα 2021'],
+  'ΠΡΟΓΡΑΜΜΑ ΦΙΛΟΔΗΜΟΣ ΙΙ': ['Π000. Επιχορήγηση των Δήμων της χώρας από το πρόγραμμα «Φιλόδημος ΙΙ» βάσει της 30292/19.04.2019 υπουργικής απόφασης','Π001. Προμήθεια μηχανημάτων έργου, οχημάτων ή/και συνοδευτικού εξοπλισμού','Π002. Επισκευή, συντήρηση σχολικών κτιρίων & αύλειων χώρων και λοιπές δράσεις','Π003. Προμήθεια-τοποθέτηση εξοπλισμού για την αναβάθμιση παιδικών χαρών των δήμων της Χώρας','Π004. Κατασκευή, επισκευή και συντήρηση αθλητικών εγκαταστάσεων των Δήμων','Π005. Προμήθεια εξοπλισμού, κατασκευή, μεταφορά και τοποθέτηση στεγάστρων, για την δημιουργία ή και αναβάθμιση των στάσεων.','Π006. Σύνταξη / Επικαιροποίηση Γενικών Σχεδίων Ύδρευσης (Masterplan) και Σύνταξη / Επικαιροποίηση Σχεδίων Ασφάλειας Νερού','Π007. Σύνταξη / Επικαιροποίηση Σχεδίων και Μελετών στο πλαίσιο της κατασκευής, βελτίωσης και συντήρησης των λιμενικών υποδομών των Δημοτικών Λιμενικών Ταμείων και Γραφείων.','Π008. Εκπόνηση μελετών και υλοποίηση μέτρων και μέσων πυροπροστασίας στις σχολικές μονάδες της χώρας','Π009. Κατασκευή ραμπών και χώρων υγιεινής για την πρόσβαση και την εξυπηρέτηση ΑΜΕΑ σε σχολικές μονάδες','Π010. Κατασκευή, επισκευή, συντήρηση και εξοπλισμός εγκαταστάσεων καταφυγίων αδέσποτων ζώων συντροφιάς.','Π011. Ειδική Επιχορήγηση των δήμων οι οποίοι έχουν συσταθεί δυνάμει του άρθρου 154 του Ν. 4600/2019','Π012. Κατασκευή, επισκευή, συντήρηση και εξοπλισμός εγκαταστάσεων καταφυγίων αδέσποτων ζώων συντροφιάς – Πρόγραμμα «Άργος»','Π099. Λοιπές περιπτώσεις (διευκρινίστε στη στήλη ΠΑΡΑΤΗΡΗΣΕΙΣ)'],
+  'ΠΔΕ ΥΠΕΣ ΣΑΕ055': ['0301. ΠΥΡΚΑΓΙΕΣ: Πρόληψη και αντιμετώπιση ζημιών και καταστροφών από πυρκαγιές.','0302. ΘΕΟΜΗΝΙΕΣ: Πρόληψη και αντιμετώπιση ζημιών και καταστροφών από θεομηνίες.','0303. ΛΕΙΨΥΔΡΙΑ: Εκτέλεση εργασιών για την αντιμετώπιση του φαινομένου της λειψυδρίας.','0304. ΣΤΑΘΜΟΙ: Πρασαρμογή βρεφικών, παιδικών και βρεφονηπιακών σταθμών στο ΠΔ 99/2017.','0305. ΛΟΙΠΑ'],
+  'ΕΣΠΑ 2014_2020': ['0401. ΕΠ ΑΝΕΚ: Ανταγωνιστικότητα, Επιχειρηματικότητα και Καινοτομία','0402. ΕΠ ΥΜΕΠΕΡΑΑ: Υποδομές Μεταφορών, Περιβάλλον και Αειφόρος Ανάπτυξη','0403. ΕΠ ΑΝΑΔΕΔΒ: Ανάπτυξη Ανθρώπινου Δυναμικού, Εκπαίδευση και Διά Βίου Μάθηση','0404. ΕΠ ΜΔΤ: Μεταρρύθμιση Δημόσιου Τομέα','0405. ΕΠ ΑλΘ: Αλιείας και Θάλασσας','0406. Επιχειρησιακό Πρόγραμμα Αγροτική Ανάπτυξη','0407. ΠΕΠ Ανατολικής Μακεδονίας και Θράκης','0408. ΠΕΠ Αττικής','0409. ΠΕΠ Βορείου Αιγαίου','0410. ΠΕΠ Δυτικής Ελλάδας','0411. ΠΕΠ Δυτικής Μακεδονίας','0412. ΠΕΠ Ηπείρου','0413. ΠΕΠ Θεσσαλίας','0414. ΠΕΠ Ιονίων Νήσων','0415. ΠΕΠ Κεντρικής Μακεδονίας','0416. ΠΕΠ Κρήτης','0417. ΠΕΠ Νοτίου Αιγαίου','0418. ΠΕΠ Πελοποννήσου','0419. ΠΕΠ Στερεάς Ελλάδας','0420. ΕΣΠΑ 2007-2013 (μεταφερόμενο)','0499. Άλλο (διευκρινίστε στη στήλη ΠΑΡΑΤΗΡΗΣΕΙΣ)'],
+  'ΕΣΠΑ 2021_2027': ['0501. ΕΠ Ανταγωνιστικότητα','0502. ΕΠ Ψηφιακός μετασχηματισμός','0503. ΕΠ Περιβάλλον και κλιματική αλλαγή','0504. ΕΠ Μεταφορές','0505. ΕΠ Πολιτική προστασία','0506. ΕΠ Ανθρώπινο δυναμικό και κοινωνική συνοχή','0507. ΕΠ Δίκαιο αναπτυξιακή μετάβαση','0508. ΕΠ Αλιεία, υδατοκαλλιέργεια και θάλασσα','0509. ΠΕΠ Ανατολικής Μακεδονίας και Θράκης','0510. ΠΕΠ Αττικής','0511. ΠΕΠ Βορείου Αιγαίου','0512. ΠΕΠ Δυτικής Ελλάδας','0513. ΠΕΠ Δυτικής Μακεδονίας','0514. ΠΕΠ Ηπείρου','0515. ΠΕΠ Θεσσαλίας','0516. ΠΕΠ Ιονίων Νήσων','0517. ΠΕΠ Κεντρικής Μακεδονίας','0518. ΠΕΠ Κρήτης','0519. ΠΕΠ Νοτίου Αιγαίου','0520. ΠΕΠ Πελοποννήσου','0521. ΠΕΠ Στερεάς Ελλάδας','0599. Άλλο (διευκρινίστε στη στήλη ΠΑΡΑΤΗΡΗΣΕΙΣ)'],
+  'ΕΘΝΙΚΟ ΠΔΕ ή EΠΑ_2021_2025': ['0601. Υπουργείο Οικονομικών','0602. Υπουργείο Ανάπτυξης & Επενδύσεων','0603. Υπουργείο Παιδείας & Θρησκευμάτων','0604. Υπουργείο Εργασίας & Κοινωνικών Υποθέσεων','0605. Υπουργείο Υγείας','0606. Υπουργείο Περιβάλλοντος & Ενέργειας','0607. Υπουργείο Προστασίας του Πολίτη','0608. Υπουργείο Πολιτισμού & Αθλητισμού','0609. Υπουργείο Εσωτερικών','0610. Υπουργείο Μετανάστευσης και Ασύλου','0611. Υπουργείο Ψηφιακής Διακυβέρνησης','0612. Υπουργείο Υποδομών & Μεταφορών','0613. Υπουργείο Ναυτιλίας & Νησιωτικής Πολιτικής','0614. Υπουργείο Αγροτικής Ανάπτυξης &Τροφίμων','0615. Υπουργείο Τουρισμού','0616. Υπουργείο Κλιματικής Αλλαγής & Πολιτικής Προστασίας','0617. Περιφέρειας Ανατολικής Μακεδονίας και Θράκης','0618. Περιφέρειας Αττικής','0619. Περιφέρειας Βορείου Αιγαίου','0620. Περιφέρειας Δυτικής Ελλάδας','0621. Περιφέρειας Δυτικής Μακεδονίας','0622. Περιφέρειας Ηπείρου','0623. Περιφέρειας Θεσσαλίας','0624. Περιφέρειας Ιονίων Νήσων','0625. Περιφέρειας Κεντρικής Μακεδονίας','0626. Περιφέρειας Κρήτης','0627. Περιφέρειας Νοτίου Αιγαίου','0628. Περιφέρειας Πελοποννήσου','0629. Περιφέρειας Στερεάς Ελλάδας','0630. Αναπτυξιακό Πρόγραμμα Ειδικού Σκοπού Βορείου Αιγαίου','0631. Αναπτυξιακό Πρόγραμμα Ειδικού Σκοπού Νοτίου Αιγαίου','0632. Ειδικό Πρόγραμμα Δήμου Αθηναίων','0633. Ειδικό Πρόγραμμα Φυσικών Καταστροφών','0634. Ειδικό Πρόγραμμα Αντιμετώπισης Έκτακτων Αναγκών','0699. Άλλο (διευκρινίστε στη στήλη ΠΑΡΑΤΗΡΗΣΕΙΣ)'],
+  'ΤΑΜΕΙΟ ΑΝΑΚΑΜΨΗΣ και ΑΝΘΕΚΤΙΚΟΤΗΤΑΣ': ['0701. Smart Cities','0702. Παρεμβάσεις με στόχο τη βελτίωση του Δημόσιου Χώρου','0703. Αειφόρος χρήση των πόρων, ανθεκτικότητα στην κλιματική αλλαγή και διατήρηση της βιοοιποικιλότητας (Πράσινη Μετάβαση - Επεξεργασία Λυμάτων)','0704. Βελτίωση οδικής ασφάλειας','0705. Παρεμβάσεις αναβάθμισης περιφερειακών λιμένων','0706. Στρατηγικές αστικές αναπλάσεις','0707. Εκσυγχρονισμός των ΚΕΠ','0708. Αειφόρος χρήση των πόρων, ανθεκτικότητα στην κλιματική αλλαγή και διατήρηση της βιοποικιλότητας (Ύδατα)','0709. Αειφόρος χρήση των πόρων, ανθεκτικότητα στην κλιματική αλλαγή και διατήρηση της βιοποικιλότητας (Εθνικό Δίκτυο Μονοπατιών)','0710. Βελτίωση της ενεργειακής απόδοσης σε εγκαταστάσεις οδοφωτισμού στους ΟΤΑ','0799. Άλλο (διευκρινίστε στη στήλη ΠΑΡΑΤΗΡΗΣΕΙΣ)'],
+  'ΛΟΙΠΑ ΠΡΟΓΡΑΜΜΑΤΑ ή ΠΟΡΟΙ': ['1001. Πράσινο Ταμείο','1002. Ταμείο Αλληλεγγύης (Υπουργείου Μετανάστευσης και Ασύλου)','1003. Ίδρυση νέων τμημάτων βρεφικής, παιδικής και βρεφονηπιακής φροντίδας','1004. ΗΛΕΚΤΡΑ: Πρόγραμμα Ενεργειακής Αναβάθμισης Δημόσιων Κτιρίων (Υπουργείου Περιβάλλοντος και Ενέργειας)','1005. θα καλυφθεί από ΚΑΠ για επενδύσεις (πρώην ΣΑΤΑ)','1006. Παραμένει κενό προς μελλοντική χρήση','1007. Εκπόνηση Τοπικών Πολεοδομικών Σχεδίων (ΤΠΣ) (Υπουργείου Περιβάλλοντος και Ενέργειας)','1099. ΙΔΙΟΙ ΠΟΡΟΙ'],
+};
+
+function loadFundingOptionsFromDisk() {
+  try {
+    if (fs.existsSync(fundingOptionsPath)) {
+      return JSON.parse(fs.readFileSync(fundingOptionsPath, 'utf8'));
+    }
+  } catch (e) {
+    logger.error('Error reading funding_options.json:', e.message);
+  }
+  return { sourceOverrides: {}, customSources: [], detailOverrides: {}, customDetails: {} };
+}
+
+function mergeFundingOptions(local) {
+  const overrides = local.sourceOverrides || {};
+  const customSources = local.customSources || [];
+  const detailOverrides = local.detailOverrides || {};
+  const customDetails = local.customDetails || {};
+
+  // Πηγές: built-ins + custom, εφαρμογή overrides
+  const sources = [
+    ...BUILT_IN_FUNDING_SOURCES.map(s => {
+      const ov = overrides[s] || {};
+      return { value: s, label: ov.label || s, hidden: !!ov.hidden, isBuiltIn: true };
+    }),
+    ...customSources.map(s => ({ value: s.value, label: s.label || s.value, hidden: !!s.hidden, isBuiltIn: false })),
+  ];
+
+  // Εξειδικεύσεις: για κάθε πηγή
+  const details = {};
+  const allSourceValues = sources.map(s => s.value);
+  for (const srcValue of allSourceValues) {
+    const builtInList = BUILT_IN_FUNDING_DETAILS[srcValue] || [];
+    const srcDetailOverrides = detailOverrides[srcValue] || {};
+    const srcCustomDetails = customDetails[srcValue] || [];
+    details[srcValue] = [
+      ...builtInList.map(d => {
+        const ov = srcDetailOverrides[d] || {};
+        return { value: d, label: ov.label || d, hidden: !!ov.hidden, isBuiltIn: true };
+      }),
+      ...srcCustomDetails.map(d => ({ value: d.value, label: d.label || d.value, hidden: !!d.hidden, isBuiltIn: false })),
+    ];
+  }
+
+  return { sources, details };
+}
+
+ipcMain.handle('load-funding-options', async () => {
+  try {
+    const local = loadFundingOptionsFromDisk();
+    const merged = mergeFundingOptions(local);
+    return { success: true, data: merged, raw: local };
+  } catch (e) {
+    logger.error('load-funding-options error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-funding-options', async (_event, payload) => {
+  try {
+    if (!payload || typeof payload !== 'object') {
+      return { success: false, error: 'Μη έγκυρο payload' };
+    }
+    const toSave = {
+      sourceOverrides: payload.sourceOverrides || {},
+      customSources: payload.customSources || [],
+      detailOverrides: payload.detailOverrides || {},
+      customDetails: payload.customDetails || {},
+    };
+    safeWriteJSON(fundingOptionsPath, toSave);
+    return { success: true };
+  } catch (e) {
+    logger.error('save-funding-options error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+// ============================================================
+// PDF EXPORT IPC HANDLER
+// ============================================================
+
+ipcMain.handle('save-pdf-file', async (_event, { buffer, defaultName }) => {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: path.join(require('os').homedir(), 'Desktop', defaultName || 'ERGOHUB_Report.pdf'),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      title: 'Αποθήκευση Αναφοράς PDF',
+    });
+    if (result.canceled || !result.filePath) {
+      return { success: true, canceled: true };
+    }
+    fs.writeFileSync(result.filePath, Buffer.from(buffer));
+    return { success: true, path: result.filePath };
+  } catch (e) {
+    logger.error('save-pdf-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+// ============================================================
+// SUBPROJECT REPORT ATTACHMENT RESOLVER
+// ============================================================
+
+ipcMain.handle('get-subproject-report-attachments', async (_event, {
+  projectId, subprojectId,
+  entaxeis = [], proskliseis = [], egkriseis = []
+}) => {
+  try {
+    const attachments = [];
+
+    // ── Ένταξη PDFs ──────────────────────────────────────────
+    const entaxisDir = path.join(dataDir, 'entaxeis');
+    for (const entaxi of entaxeis) {
+      if (!entaxi.entaxiId) continue;
+      const base = path.join(entaxisDir, entaxi.entaxiId, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ');
+      for (const fileName of (entaxi.entaxiPDFs || [])) {
+        const p = path.join(base, fileName);
+        if (fs.existsSync(p)) attachments.push({ label: `Ένταξη: ${fileName}`, filePath: p });
+      }
+      for (const fileName of (entaxi.approvalPDFs || [])) {
+        const p = path.join(base, fileName);
+        if (fs.existsSync(p)) attachments.push({ label: `Έγκριση Ένταξης: ${fileName}`, filePath: p });
+      }
+    }
+
+    // ── Πρόσκληση PDFs ───────────────────────────────────────
+    const proskliseisDir = path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ');
+    for (const prosk of proskliseis) {
+      if (!prosk.prosklisiId) continue;
+      const base = path.join(proskliseisDir, prosk.prosklisiId);
+      if (!fs.existsSync(base)) continue;
+      try {
+        const files = fs.readdirSync(base).filter(f =>
+          f.toLowerCase().endsWith('.pdf') && !f.startsWith('.')
+        );
+        for (const f of files) {
+          attachments.push({ label: `Πρόσκληση: ${f}`, filePath: path.join(base, f) });
+        }
+      } catch { /* skip */ }
+    }
+
+    // ── Έγκριση Διάθεσης Πίστωσης — πιο πρόσφατη ────────────
+    // Τα αρχεία έχουν ως όνομα ημερομηνία· επιλέγουμε το μεγαλύτερο (λεξικογραφικά)
+    const possibleEgkrisiPaths = [];
+    for (const eg of egkriseis) {
+      if (!eg.fileName) continue;
+      const candidates = [
+        path.join(dataDir, 'EGKRISEIS_DIATHESIS_PISTOSIS', 'projects', projectId, 'subprojects', subprojectId, 'egkriseis', eg.fileName),
+        eg.fileName.endsWith('.pdf')
+          ? path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', projectId, subprojectId, eg.fileName)
+          : path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', projectId, subprojectId, eg.fileName + '.pdf'),
+      ];
+      for (const c of candidates) {
+        if (fs.existsSync(c)) {
+          possibleEgkrisiPaths.push({ name: eg.fileName, filePath: c });
+          break;
+        }
+      }
+    }
+    if (possibleEgkrisiPaths.length > 0) {
+      // Sort by filename descending → most recent date first
+      possibleEgkrisiPaths.sort((a, b) => b.name.localeCompare(a.name));
+      const best = possibleEgkrisiPaths[0];
+      attachments.push({ label: `Έγκριση Διάθεσης Πίστωσης: ${best.name}`, filePath: best.filePath });
+    }
+
+    return { success: true, attachments };
+  } catch (e) {
+    logger.error('get-subproject-report-attachments error:', e.message);
+    return { success: false, error: e.message, attachments: [] };
+  }
+});
+
+// ============================================================
+// MERGE AND SAVE PDF (main report + attachments)
+// ============================================================
+
+ipcMain.handle('merge-and-save-pdf', async (_event, { mainBuffer, attachmentPaths = [], defaultName }) => {
+  try {
+    const { PDFDocument } = require('pdf-lib');
+
+    const merged = await PDFDocument.create();
+
+    // Copy pages from main report
+    const mainDoc = await PDFDocument.load(Buffer.from(mainBuffer));
+    const mainPages = await merged.copyPages(mainDoc, mainDoc.getPageIndices());
+    mainPages.forEach(p => merged.addPage(p));
+
+    // Append each attachment
+    for (const filePath of attachmentPaths) {
+      if (!filePath || !fs.existsSync(filePath)) continue;
+      try {
+        const resolved = path.resolve(filePath);
+        if (!resolved.startsWith(path.resolve(dataDir))) continue; // security check
+        const bytes = fs.readFileSync(resolved);
+        const attDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const pages = await merged.copyPages(attDoc, attDoc.getPageIndices());
+        pages.forEach(p => merged.addPage(p));
+      } catch (attachErr) {
+        logger.warn('merge-and-save-pdf: skipping attachment', filePath, attachErr.message);
+      }
+    }
+
+    const mergedBytes = await merged.save();
+    const result = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: path.join(require('os').homedir(), 'Desktop', defaultName || 'ERGOHUB_Report.pdf'),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      title: 'Αποθήκευση Αναφοράς PDF',
+    });
+    if (result.canceled || !result.filePath) return { success: true, canceled: true };
+    fs.writeFileSync(result.filePath, Buffer.from(mergedBytes));
+    return { success: true, path: result.filePath };
+  } catch (e) {
+    logger.error('merge-and-save-pdf error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
 // ============================================================
 // AUDIT TRAIL IPC HANDLERS
 // ============================================================
@@ -11788,6 +11978,7 @@ ipcMain.handle('fix-audit-log-projectids', async (event) => {
 // ============================================================
 
 const investExportHandler = require('./investExportHandler');
+const orimanthiExportHandler = require('./orimanthiExportHandler');
 
 ipcMain.handle('export-invest-projects', async (event, options) => {
   try {
@@ -11907,6 +12098,7 @@ const PORTAL_EXPORT_FIELDS_DEFAULT = {
   approvedAmount: true,
   symvasiPoso: true,
   anadochos: true,
+  diadikasia_anathesis: true,
   hmerominia_enarksis: true,
   adam: true,
   mis: true,
@@ -11980,6 +12172,10 @@ function buildErgonEntry(sp, fieldMask = PORTAL_EXPORT_FIELDS_DEFAULT, mergeComp
   if (mask.approvedAmount)      entry.approvedAmount      = parseGreekAmount(sp.approvedAmount);
   if (mask.symvasiPoso)         entry.symvasiPoso         = symvasiPoso;
   if (mask.anadochos)           entry.anadochos           = anadochos;
+  if (mask.diadikasia_anathesis) {
+    const proc = sp.assignmentProcedure != null ? String(sp.assignmentProcedure).trim() : '';
+    entry.diadikasia_anathesis = proc || null;
+  }
   if (mask.hmerominia_enarksis) entry.hmerominia_enarksis = hmEnarksis || null;
   // ΑΔΑΜ: εμφανίζεται μόνο για εκτελούμενα/ολοκληρωμένα/αποπληρωμένα (σύμβαση υπαρκτή)
   if (mask.adam && ADAM_VISIBLE_STATUSES.has(sp.projectStatus)) entry.adam = adam;
@@ -12004,7 +12200,9 @@ ipcMain.handle('export-portal-data', async (_event, { selectedSubprojectIds, act
 
     const allProjects = await loadAllProjects();
     const selectedSet = new Set(selectedSubprojectIds);
-    const selected = allProjects.filter(p => selectedSet.has(p.subprojectId));
+    const selected = allProjects.filter(
+      (p) => selectedSet.has(p.subprojectId) && p.projectStatus !== 'ΑΠΕΝΤΑΓΜΕΝΟ'
+    );
 
     const config = loadConfig();
     const dimosOnoma = config.organizationName || '';
@@ -12071,6 +12269,646 @@ ipcMain.handle('save-portal-published', async (_event, { subprojectIds }) => {
     return { success: true };
   } catch (e) {
     logger.error('save-portal-published failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+// ============================================================
+// ΕΠΙΧΕΙΡΗΣΙΑΚΟ ΠΡΟΓΡΑΜΜΑ IPC HANDLERS
+// ============================================================
+
+ipcMain.handle('select-excel-file', async () => {
+  try {
+    const result = await dialog.showOpenDialog({
+      title: 'Επιλογή αρχείου Excel',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Excel Αρχεία', extensions: ['xlsx', 'xls'] },
+        { name: 'Όλα τα Αρχεία', extensions: ['*'] }
+      ]
+    });
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { success: true, filePath: null };
+    }
+    return { success: true, filePath: result.filePaths[0] };
+  } catch (e) {
+    logger.error('select-excel-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+const {
+  loadAllPrograms: _epLoadAll,
+  getActiveProgram: _epGetActive,
+  getProgramById: _epGetById,
+  importEpProgram: _epImport,
+  saveEpAction: _epSaveAction,
+  deleteEpAction: _epDeleteAction,
+  getEpActionsForSubproject: _epGetActionsForSubproject,
+  linkEpSubproject: _epLinkSubproject
+} = require('./epProgramService');
+
+ipcMain.handle('load-ep-programs', async (_event, { requestingUsername } = {}) => {
+  try {
+    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στο Επιχειρησιακό Πρόγραμμα' };
+    }
+    const programs = _epLoadAll(dataDir);
+    return { success: true, programs };
+  } catch (e) {
+    logger.error('load-ep-programs error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-ep-program', async (_event, { programId, requestingUsername } = {}) => {
+  try {
+    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στο Επιχειρησιακό Πρόγραμμα' };
+    }
+    const program = programId
+      ? _epGetById(dataDir, programId)
+      : _epGetActive(dataDir);
+    if (!program) return { success: true, program: null };
+    return { success: true, program };
+  } catch (e) {
+    logger.error('get-ep-program error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('import-ep-program', async (_event, { filePath, startYear, endYear, requestingUsername }) => {
+  try {
+    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα εισαγωγής Επιχειρησιακού Προγράμματος' };
+    }
+    const result = _epImport(dataDir, { filePath, startYear, endYear, importedBy: requestingUsername });
+    logger.info(`EP Program imported by ${requestingUsername}: ${result.title} (${result.actionCount} actions)`);
+    return result;
+  } catch (e) {
+    logger.error('import-ep-program error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-ep-action', async (_event, { programId, action, requestingUsername }) => {
+  try {
+    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα επεξεργασίας δράσεων' };
+    }
+    return _epSaveAction(dataDir, { programId, action });
+  } catch (e) {
+    logger.error('save-ep-action error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-ep-action', async (_event, { programId, actionId, requestingUsername }) => {
+  try {
+    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα διαγραφής δράσεων' };
+    }
+    return _epDeleteAction(dataDir, { programId, actionId });
+  } catch (e) {
+    logger.error('delete-ep-action error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-ep-actions-for-subproject', async (_event, { subprojectId, requestingUsername }) => {
+  try {
+    const actions = _epGetActionsForSubproject(dataDir, subprojectId);
+    return { success: true, actions };
+  } catch (e) {
+    logger.error('get-ep-actions-for-subproject error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+function _epBuildSubprojectLinkMap(program) {
+  const map = {};
+  if (!program) return map;
+  for (const action of program.actions || []) {
+    for (const sid of action.linkedSubprojectIds || []) {
+      if (!map[sid]) {
+        map[sid] = {
+          id: action.id,
+          aa: action.aa,
+          title: action.title,
+          axisCode: action.axisCode,
+          measureCode: action.measureCode,
+          objectiveCode: action.objectiveCode,
+          actionType: action.actionType,
+          programId: program.id
+        };
+      }
+    }
+  }
+  return map;
+}
+
+ipcMain.handle('get-ep-subproject-link-map', async (_event, { requestingUsername, programId } = {}) => {
+  try {
+    if (!findUserByUsername(requestingUsername)) {
+      return { success: false, error: 'Μη έγκυρος χρήστης' };
+    }
+    const program = programId ? _epGetById(dataDir, programId) : _epGetActive(dataDir);
+    return { success: true, map: _epBuildSubprojectLinkMap(program) };
+  } catch (e) {
+    logger.error('get-ep-subproject-link-map error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('link-ep-subproject', async (_event, { programId, actionId, subprojectId, link, requestingUsername }) => {
+  try {
+    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα σύνδεσης δράσεων' };
+    }
+    return _epLinkSubproject(dataDir, { programId, actionId, subprojectId, link });
+  } catch (e) {
+    logger.error('link-ep-subproject error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+const epProgramExportHandler = require('./epProgramExportHandler');
+const { computeEpProgramStatistics, computeEpImplementationStats } = require('./epProgramStats');
+
+ipcMain.handle('get-ep-program-statistics', async (_event, { programId, requestingUsername } = {}) => {
+  try {
+    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στα στατιστικά ΕΠ' };
+    }
+    const program = programId
+      ? _epGetById(dataDir, programId)
+      : _epGetActive(dataDir);
+    if (!program) {
+      return { success: false, error: 'Δεν βρέθηκε Επιχειρησιακό Πρόγραμμα' };
+    }
+    const stats = computeEpProgramStatistics(program);
+
+    // Φόρτωση υποέργων για υπολογισμό στατιστικών υλοποίησης
+    let implStats = null;
+    try {
+      const subprojects = await loadAllProjects();
+      implStats = computeEpImplementationStats(program, subprojects);
+    } catch (implErr) {
+      logger.warn('get-ep-program-statistics: impl stats skipped:', implErr.message);
+    }
+
+    return { success: true, stats: { ...stats, implStats } };
+  } catch (e) {
+    logger.error('get-ep-program-statistics error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('open-exported-file', async (_event, { filePath, revealInFolder } = {}) => {
+  try {
+    if (!filePath || typeof filePath !== 'string') {
+      return { success: false, error: 'Μη έγκυρο path αρχείου' };
+    }
+    const resolved = path.resolve(filePath);
+    if (!fs.existsSync(resolved)) {
+      return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+    }
+    const stat = fs.statSync(resolved);
+    if (stat.isDirectory()) {
+      const openErr = await shell.openPath(resolved);
+      if (openErr) return { success: false, error: openErr };
+      return { success: true };
+    }
+    if (!stat.isFile()) {
+      return { success: false, error: 'Μη έγκυρο path' };
+    }
+    if (revealInFolder) {
+      shell.showItemInFolder(resolved);
+    } else {
+      const openErr = await shell.openPath(resolved);
+      if (openErr) return { success: false, error: openErr };
+    }
+    return { success: true };
+  } catch (e) {
+    logger.error('open-exported-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('export-ep-program', async (_event, { programId, requestingUsername } = {}) => {
+  try {
+    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα εξαγωγής Επιχειρησιακού Προγράμματος' };
+    }
+
+    const program = programId
+      ? _epGetById(dataDir, programId)
+      : _epGetActive(dataDir);
+
+    if (!program) {
+      return { success: false, error: 'Δεν βρέθηκε ενεργό Επιχειρησιακό Πρόγραμμα για εξαγωγή' };
+    }
+
+    const result = await epProgramExportHandler.exportEpProgram({
+      program,
+      exportedBy: requestingUsername,
+      appVersion: app.getVersion()
+    });
+
+    if (!result.success) return result;
+
+    const saveResult = await dialog.showSaveDialog({
+      title: 'Αποθήκευση Επιχειρησιακού Προγράμματος (Excel)',
+      defaultPath: result.filename,
+      filters: [{ name: 'Excel Αρχεία', extensions: ['xlsx'] }]
+    });
+
+    if (saveResult.canceled || !saveResult.filePath) {
+      try {
+        if (fs.existsSync(result.outputPath)) fs.unlinkSync(result.outputPath);
+      } catch (e) {}
+      return { success: true, canceled: true };
+    }
+
+    fs.copyFileSync(result.outputPath, saveResult.filePath);
+    logger.info(`EP Program exported by ${requestingUsername}: ${saveResult.filePath}`);
+
+    return {
+      ...result,
+      canceled: false,
+      downloadPath: saveResult.filePath
+    };
+  } catch (e) {
+    logger.error('export-ep-program error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+// ─── ΩΡΙΜΑΝΣΗ ΕΡΓΩΝ (Project Maturation / Proposal Pipeline) ─────────────────
+
+const ORIMANTHI_DIR_NAME = 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ';
+
+function getOrimanthiDir() {
+  return path.join(dataDir, ORIMANTHI_DIR_NAME);
+}
+
+function ensureOrimanthiDir() {
+  const dir = getOrimanthiDir();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function getProposalDir(proposalId) {
+  return path.join(ensureOrimanthiDir(), proposalId);
+}
+
+function getProposalDataPath(proposalId) {
+  return path.join(getProposalDir(proposalId), 'data.json');
+}
+
+function loadProposal(proposalId) {
+  const dataPath = getProposalDataPath(proposalId);
+  if (!fs.existsSync(dataPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function resolveProposalGroupPath(proposalId, groupId, ...parts) {
+  const target = path.resolve(path.join(getProposalDir(proposalId), 'files', groupId, ...parts));
+  const root = path.resolve(getOrimanthiDir());
+  if (!target.startsWith(root + path.sep)) {
+    throw new Error('Μη επιτρεπτό path');
+  }
+  return target;
+}
+
+ipcMain.handle('load-all-proposals', async () => {
+  try {
+    const rootDir = ensureOrimanthiDir();
+    const entries = fs.readdirSync(rootDir, { withFileTypes: true });
+    const proposals = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const proposal = loadProposal(entry.name);
+      if (proposal) proposals.push(proposal);
+    }
+    proposals.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return { success: true, proposals };
+  } catch (e) {
+    logger.error('load-all-proposals error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipAudit } = {}) => {
+  try {
+    if (!proposal || !proposal.id) return { success: false, error: 'Μη έγκυρα δεδομένα πρότασης' };
+    const proposalDir = getProposalDir(proposal.id);
+    if (!fs.existsSync(proposalDir)) fs.mkdirSync(proposalDir, { recursive: true });
+    const toSave = { ...proposal, updatedAt: new Date().toISOString() };
+    safeWriteJSON(getProposalDataPath(proposal.id), toSave);
+    // Καταγραφή audit μόνο για ρητές ενέργειες — όχι για κάθε auto-save keystroke
+    if (!skipAudit) {
+      logAuditAction({
+        type: 'update',
+        entityType: 'proposal',
+        entityId: proposal.id,
+        entityTitle: proposal.title || '',
+        userFullName: actingUsername || '',
+        details: 'Αποθήκευση πρότασης ωρίμανσης'
+      });
+    }
+    return { success: true, proposal: toSave };
+  } catch (e) {
+    logger.error('save-proposal error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-proposal', async (_event, { proposalId, actingUsername } = {}) => {
+  try {
+    if (!proposalId) return { success: false, error: 'Απαιτείται proposalId' };
+    const resolved = path.resolve(getProposalDir(proposalId));
+    const rootResolved = path.resolve(getOrimanthiDir());
+    if (!resolved.startsWith(rootResolved + path.sep)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+    const proposal = loadProposal(proposalId);
+    if (fs.existsSync(resolved)) fs.rmSync(resolved, { recursive: true, force: true });
+    logAuditAction({
+      type: 'delete',
+      entityType: 'proposal',
+      entityId: proposalId,
+      entityTitle: proposal?.title || proposalId,
+      userFullName: actingUsername || '',
+      details: 'Διαγραφή πρότασης ωρίμανσης'
+    });
+    return { success: true };
+  } catch (e) {
+    logger.error('delete-proposal error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, files } = {}) => {
+  try {
+    if (!proposalId || !groupId || !Array.isArray(files) || files.length === 0) {
+      return { success: false, error: 'Μη έγκυρες παράμετροι ανεβάσματος' };
+    }
+    const groupDir = path.join(getProposalDir(proposalId), 'files', groupId);
+    if (!fs.existsSync(groupDir)) fs.mkdirSync(groupDir, { recursive: true });
+
+    const rootResolved = path.resolve(getOrimanthiDir());
+    const groupResolved = path.resolve(groupDir);
+    if (!groupResolved.startsWith(rootResolved + path.sep)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+
+    const saved = [];
+    for (const file of files) {
+      if (!file.path || !fs.existsSync(file.path)) continue;
+      let baseName = path.basename(file.name || file.path);
+      let destPath = path.join(groupDir, baseName);
+      // Αποφυγή overwrite — προσθέτει suffix αν υπάρχει ήδη
+      let counter = 1;
+      while (fs.existsSync(destPath)) {
+        const ext = path.extname(baseName);
+        const nameNoExt = path.basename(baseName, ext);
+        destPath = path.join(groupDir, `${nameNoExt}_${counter}${ext}`);
+        counter++;
+      }
+      fs.copyFileSync(file.path, destPath);
+      saved.push({
+        kind: 'file',
+        name: path.basename(destPath),
+        originalName: baseName,
+        size: fs.statSync(destPath).size,
+        uploadedAt: new Date().toISOString()
+      });
+    }
+    return { success: true, files: saved };
+  } catch (e) {
+    logger.error('upload-proposal-files error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('upload-proposal-folder', async (_event, { proposalId, groupId, folderName, files } = {}) => {
+  try {
+    if (!proposalId || !groupId || !Array.isArray(files) || files.length === 0) {
+      return { success: false, error: 'Μη έγκυρες παράμετροι ανεβάσματος φακέλου' };
+    }
+    const groupDir = resolveProposalGroupPath(proposalId, groupId);
+    if (!fs.existsSync(groupDir)) fs.mkdirSync(groupDir, { recursive: true });
+
+    const folderId = uuidv4();
+    const folderDir = resolveProposalGroupPath(proposalId, groupId, folderId);
+    fs.mkdirSync(folderDir, { recursive: true });
+
+    const saved = [];
+    let totalSize = 0;
+    for (const file of files) {
+      const sourcePath = file.path || file.filePath;
+      if (!sourcePath || !fs.existsSync(sourcePath)) continue;
+      let baseName = path.basename(file.name || file.fileName || sourcePath);
+      baseName = baseName.replace(/[<>:"/\\|?*]/g, '_');
+      let destPath = path.join(folderDir, baseName);
+      let counter = 1;
+      while (fs.existsSync(destPath)) {
+        const ext = path.extname(baseName);
+        const nameNoExt = path.basename(baseName, ext);
+        destPath = path.join(folderDir, `${nameNoExt}_${counter}${ext}`);
+        counter += 1;
+      }
+      fs.copyFileSync(sourcePath, destPath);
+      const size = fs.statSync(destPath).size;
+      totalSize += size;
+      saved.push({
+        name: path.basename(destPath),
+        size,
+        uploadedAt: new Date().toISOString()
+      });
+    }
+    if (!saved.length) return { success: false, error: 'Δεν αντιγράφηκαν αρχεία από τον φάκελο' };
+
+    const safeLabel = String(folderName || 'Φάκελος').trim() || 'Φάκελος';
+    const folder = {
+      kind: 'folder',
+      id: folderId,
+      name: safeLabel,
+      fileCount: saved.length,
+      size: totalSize,
+      uploadedAt: new Date().toISOString()
+    };
+    return { success: true, folder, files: saved };
+  } catch (e) {
+    logger.error('upload-proposal-folder error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-proposal-file', async (_event, { proposalId, groupId, fileName } = {}) => {
+  try {
+    if (!proposalId || !groupId || !fileName) {
+      return { success: false, error: 'Απαιτούνται proposalId, groupId και fileName' };
+    }
+    const filePath = resolveProposalGroupPath(proposalId, groupId, fileName);
+    if (!fs.existsSync(filePath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return { success: false, error: 'Η εγγραφή δεν είναι αρχείο' };
+    fs.unlinkSync(filePath);
+    return { success: true };
+  } catch (e) {
+    logger.error('delete-proposal-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-proposal-folder', async (_event, { proposalId, groupId, folderId } = {}) => {
+  try {
+    if (!proposalId || !groupId || !folderId) {
+      return { success: false, error: 'Απαιτούνται proposalId, groupId και folderId' };
+    }
+    const folderPath = resolveProposalGroupPath(proposalId, groupId, folderId);
+    if (!fs.existsSync(folderPath)) return { success: false, error: 'Ο φάκελος δεν βρέθηκε' };
+    fs.rmSync(folderPath, { recursive: true, force: true });
+    return { success: true };
+  } catch (e) {
+    logger.error('delete-proposal-folder error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('open-proposal-file', async (_event, { proposalId, groupId, fileName, folderId } = {}) => {
+  try {
+    if (!proposalId || !groupId || !fileName) {
+      return { success: false, error: 'Απαιτούνται proposalId, groupId και fileName' };
+    }
+    const filePath = folderId
+      ? resolveProposalGroupPath(proposalId, groupId, folderId, fileName)
+      : resolveProposalGroupPath(proposalId, groupId, fileName);
+    if (!fs.existsSync(filePath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+    const openErr = await shell.openPath(filePath);
+    if (openErr) return { success: false, error: openErr };
+    return { success: true };
+  } catch (e) {
+    logger.error('open-proposal-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('download-proposal-file', async (_event, { proposalId, groupId, fileName, folderId } = {}) => {
+  try {
+    if (!proposalId || !groupId || !fileName) {
+      return { success: false, error: 'Απαιτούνται proposalId, groupId και fileName' };
+    }
+    const filePath = folderId
+      ? resolveProposalGroupPath(proposalId, groupId, folderId, fileName)
+      : resolveProposalGroupPath(proposalId, groupId, fileName);
+    if (!fs.existsSync(filePath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+
+    const { dialog } = require('electron');
+    const result = await dialog.showSaveDialog({
+      title: 'Αποθήκευση αρχείου',
+      defaultPath: fileName,
+      filters: [{ name: 'All Files', extensions: ['*'] }],
+    });
+    if (result.canceled || !result.filePath) return { success: false, canceled: true };
+    fs.copyFileSync(filePath, result.filePath);
+    return { success: true, filePath: result.filePath };
+  } catch (e) {
+    logger.error('download-proposal-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-proposal-folder-files', async (_event, { proposalId, groupId, folderId } = {}) => {
+  try {
+    if (!proposalId || !groupId || !folderId) {
+      return { success: false, error: 'Απαιτούνται proposalId, groupId και folderId' };
+    }
+    const folderPath = resolveProposalGroupPath(proposalId, groupId, folderId);
+    if (!fs.existsSync(folderPath)) return { success: true, files: [] };
+    const files = fs.readdirSync(folderPath, { withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => ({
+        name: e.name,
+        size: fs.statSync(path.join(folderPath, e.name)).size,
+        uploadedAt: fs.statSync(path.join(folderPath, e.name)).mtime.toISOString()
+      }));
+    return { success: true, files };
+  } catch (e) {
+    logger.error('get-proposal-folder-files error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-proposal-files', async (_event, { proposalId, groupId } = {}) => {
+  try {
+    if (!proposalId || !groupId) return { success: false, error: 'Απαιτούνται proposalId και groupId' };
+    const groupDir = path.join(getProposalDir(proposalId), 'files', groupId);
+    if (!fs.existsSync(groupDir)) return { success: true, files: [] };
+    const entries = fs.readdirSync(groupDir, { withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => ({
+        name: e.name,
+        size: fs.statSync(path.join(groupDir, e.name)).size,
+        uploadedAt: fs.statSync(path.join(groupDir, e.name)).mtime.toISOString()
+      }));
+    return { success: true, files: entries };
+  } catch (e) {
+    logger.error('get-proposal-files error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('export-proposal', async (_event, { proposalId, includeFiles, actingUsername } = {}) => {
+  try {
+    if (!proposalId) return { success: false, error: 'Απαιτείται proposalId' };
+    const proposal = loadProposal(proposalId);
+    if (!proposal) return { success: false, error: 'Η πρόταση δεν βρέθηκε' };
+
+    const { dialog } = require('electron');
+    const pickResult = await dialog.showOpenDialog({
+      title: 'Επιλογή φακέλου προορισμού εξαγωγής',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (pickResult.canceled || !pickResult.filePaths?.[0]) {
+      return { success: false, canceled: true };
+    }
+
+    const actingUser = findUserByUsername(actingUsername);
+    const exportedByLabel = (actingUser?.fullName || '').trim() || actingUsername || '';
+
+    const result = await orimanthiExportHandler.exportProposal({
+      proposal,
+      proposalId,
+      destParentDir: pickResult.filePaths[0],
+      includeFiles: includeFiles !== false,
+      appVersion: app.getVersion(),
+      exportedBy: exportedByLabel,
+      resolveProposalGroupPath,
+    });
+
+    if (result.success) {
+      logAuditAction({
+        type: 'export',
+        entityType: 'proposal',
+        entityId: proposalId,
+        entityTitle: proposal.title || '',
+        userFullName: exportedByLabel,
+        details: includeFiles !== false
+          ? 'Εξαγωγή πρότασης ωρίμανσης με αρχεία'
+          : 'Εξαγωγή πρότασης ωρίμανσης (Word μόνο)',
+      });
+    }
+
+    return result;
+  } catch (e) {
+    logger.error('export-proposal error:', e.message);
     return { success: false, error: e.message };
   }
 });

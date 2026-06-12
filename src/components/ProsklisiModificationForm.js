@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import { safeFileDialog } from '../utils/safeDialogs';
@@ -6,25 +7,28 @@ import { safeFileDialog } from '../utils/safeDialogs';
 // Styled Components
 const FormOverlay = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.9);
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
-  align-items: center;
-  z-index: 1200;
+  align-items: flex-start;
+  z-index: 10003;
+  padding: 1.25rem 1rem 2rem;
+  overflow-y: auto;
+  box-sizing: border-box;
 `;
 
 const FormContainer = styled.div`
   background: white;
-  border-radius: 15px;
+  border-radius: 16px;
   max-width: 1400px;
-  width: 95%;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  margin: auto 0;
+  flex-shrink: 0;
+  overflow-y: visible;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+  border: 1px solid #e2e8f0;
 `;
 
 const FormHeader = styled.div`
@@ -499,7 +503,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
 
   const hasChanges = Object.keys(changes).length > 0;
 
-  return (
+  return createPortal(
     <FormOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <FormContainer>
         <FormHeader>
@@ -658,7 +662,8 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
           </form>
         </FormContent>
       </FormContainer>
-    </FormOverlay>
+    </FormOverlay>,
+    document.body
   );
 }
 

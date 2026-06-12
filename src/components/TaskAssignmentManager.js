@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import styled, { css } from 'styled-components';
 import TaskAssignmentForm from './TaskAssignmentForm';
+import { useToast } from './ToastProvider';
 import TaskAssignmentWorkspace from './TaskAssignmentWorkspace';
 import { DISMISS_TASK_EVENT } from './TaskAssignmentToastHost';
 import {
@@ -18,7 +19,7 @@ import {
   resetDocumentInteractionState,
   scheduleDocumentInteractionRecovery
 } from '../utils/documentInteractionReset';
-import { safeConfirm } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -703,6 +704,7 @@ function TaskAssignmentManager({
   onFocusTaskConsumed,
   initialScreen = 'workspace'
 }) {
+  const { showToast } = useToast();
   const actingUsername = currentUser?.username || '';
   const canAssign = currentUser?.taskAssignment?.canAssign || isSuperAdmin;
 
@@ -1093,16 +1095,20 @@ function TaskAssignmentManager({
       loadTasks({ silent: true });
       onAccessRefreshRef.current?.();
     } else {
-      alert(res?.error || 'Αποτυχία αποχώρησης');
+      showToast(res?.error || 'Αποτυχία αποχώρησης', 'error');
       recoverTaskManagerScroll();
     }
   };
 
   const handleDelete = async (task) => {
-    const msg = isWorkArchive
-      ? `Οριστική διαγραφή του χώρου «${task.title}» από την αποθήκη;`
-      : `Διαγραφή χώρου «${task.title}»;`;
-    const confirmed = safeConfirm(msg);
+    const confirmed = await showConfirm({
+      title: isWorkArchive ? 'Οριστική διαγραφή' : 'Διαγραφή χώρου εργασίας',
+      message: isWorkArchive
+        ? `Οριστική διαγραφή του χώρου «${task.title}» από την αποθήκη;`
+        : `Διαγραφή χώρου «${task.title}»;`,
+      confirmLabel: 'Διαγραφή',
+      icon: '🗑',
+    });
     if (!confirmed) {
       recoverTaskManagerScroll();
       return;
@@ -1117,7 +1123,7 @@ function TaskAssignmentManager({
       loadTasks({ silent: true });
       onAccessRefreshRef.current?.();
     } else {
-      alert(res?.error || 'Αποτυχία διαγραφής');
+      showToast(res?.error || 'Αποτυχία διαγραφής', 'error');
     }
     resetDocumentInteractionState();
     if (isOpen) {

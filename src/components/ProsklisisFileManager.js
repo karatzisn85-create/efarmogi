@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { safeConfirm } from '../utils/safeDialogs';
+import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
 
 const ipcRenderer = window.electronAPI;
@@ -216,6 +217,7 @@ const LoadingMessage = styled.div`
 `;
 
 function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, onGroupFiles }) {
+  const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [files, setFiles] = useState({
     main: [],
@@ -270,7 +272,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       await ipcRenderer.invoke('view-prosklisi-file', prosklisiId, fileName, targetFolder);
     } catch (error) {
       console.error('Error viewing file:', error);
-      alert('Σφάλμα προβολής αρχείου: ' + error.message);
+      showToast('Σφάλμα προβολής αρχείου: ' + error.message, 'error');
     }
   };
 
@@ -278,13 +280,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     try {
       const result = await ipcRenderer.invoke('download-prosklisi-file', prosklisiId, fileName, targetFolder);
       if (result.success) {
-        alert('Το αρχείο αποθηκεύτηκε επιτυχώς!');
+        showToast('Το αρχείο αποθηκεύτηκε επιτυχώς!', 'success');
       } else {
-        alert('Σφάλμα λήψης αρχείου: ' + result.error);
+        showToast('Σφάλμα λήψης αρχείου: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error downloading file:', error);
-      alert('Σφάλμα λήψης αρχείου: ' + error.message);
+      showToast('Σφάλμα λήψης αρχείου: ' + error.message, 'error');
     }
   };
 
@@ -295,11 +297,11 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         if (result.success) {
           await loadFiles(); // Reload files
         } else {
-          alert('Σφάλμα διαγραφής αρχείου: ' + result.error);
+          showToast('Σφάλμα διαγραφής αρχείου: ' + result.error, 'error');
         }
       } catch (error) {
         console.error('Error deleting file:', error);
-        alert('Σφάλμα διαγραφής αρχείου: ' + error.message);
+        showToast('Σφάλμα διαγραφής αρχείου: ' + error.message, 'error');
       }
     }
   };
@@ -311,11 +313,11 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       if (result.success) {
         showFolderContentsModal(folderName, result.contents, targetFolder);
       } else {
-        alert('Σφάλμα φόρτωσης περιεχομένων φακέλου: ' + result.error);
+        showToast('Σφάλμα φόρτωσης περιεχομένων φακέλου: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error loading folder contents:', error);
-      alert('Σφάλμα φόρτωσης περιεχομένων φακέλου: ' + error.message);
+      showToast('Σφάλμα φόρτωσης περιεχομένων φακέλου: ' + error.message, 'error');
     }
   };
 
@@ -397,7 +399,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         // The handler will open the file directly, no need to check result
       } catch (error) {
         console.error('Error viewing file:', error);
-        alert('Σφάλμα προβολής αρχείου: ' + error.message);
+        showToast('Σφάλμα προβολής αρχείου: ' + error.message, 'error');
       }
     };
 
@@ -405,13 +407,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       try {
         const result = await ipcRenderer.invoke('download-file-from-folder', prosklisiId, folderName, fileName, targetFolder);
         if (result.success) {
-          alert('Το αρχείο λήφθηκε επιτυχώς!');
+          showToast('Το αρχείο λήφθηκε επιτυχώς!', 'success');
         } else if (result.error !== 'Download cancelled') {
-          alert('Σφάλμα κατά τη λήψη του αρχείου: ' + result.error);
+          showToast('Σφάλμα κατά τη λήψη του αρχείου: ' + result.error, 'error');
         }
       } catch (error) {
         console.error('Error downloading file:', error);
-        alert('Σφάλμα κατά τη λήψη του αρχείου: ' + error.message);
+        showToast('Σφάλμα κατά τη λήψη του αρχείου: ' + error.message, 'error');
       }
     };
 
@@ -425,13 +427,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             if (fileElement) {
               fileElement.remove();
             }
-            alert('Το αρχείο διαγράφηκε επιτυχώς!');
+            showToast('Το αρχείο διαγράφηκε επιτυχώς!', 'success');
           } else {
-            alert('Σφάλμα διαγραφής αρχείου: ' + result.error);
+            showToast('Σφάλμα διαγραφής αρχείου: ' + result.error, 'error');
           }
         } catch (error) {
           console.error('Error deleting file:', error);
-          alert('Σφάλμα διαγραφής αρχείου: ' + error.message);
+          showToast('Σφάλμα διαγραφής αρχείου: ' + error.message, 'error');
         }
       }
     };
@@ -445,12 +447,12 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         const result = await ipcRenderer.invoke('get-subfolder-contents', prosklisiId, parentFolderName, subfolderName, targetFolder);
         if (result.success) {
           showSubfolderContentsModal(subfolderName, result.contents, parentFolderName, targetFolder);
-        } else {
-          alert('Σφάλμα φόρτωσης περιεχομένων υποφακέλου: ' + result.error);
-        }
-      } catch (error) {
-        console.error('Error loading subfolder contents:', error);
-        alert('Σφάλμα φόρτωσης περιεχομένων υποφακέλου: ' + error.message);
+      } else {
+        showToast('Σφάλμα φόρτωσης περιεχομένων υποφακέλου: ' + result.error, 'error');
+      }
+    } catch (error) {
+      console.error('Error loading subfolder contents:', error);
+      showToast('Σφάλμα φόρτωσης περιεχομένων υποφακέλου: ' + error.message, 'error');
       }
     };
 
@@ -466,13 +468,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             if (itemElement) {
               itemElement.remove();
             }
-            alert(`Το ${itemType} διαγράφηκε επιτυχώς!`);
+            showToast(`Το ${itemType} διαγράφηκε επιτυχώς!`, 'success');
           } else {
-            alert(`Σφάλμα διαγραφής ${itemType}: ` + result.error);
+            showToast(`Σφάλμα διαγραφής ${itemType}: ` + result.error, 'error');
           }
         } catch (error) {
           console.error('Error deleting item:', error);
-          alert(`Σφάλμα διαγραφής ${itemType}: ` + error.message);
+          showToast(`Σφάλμα διαγραφής ${itemType}: ` + error.message, 'error');
         }
       }
     };
@@ -599,7 +601,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         // The handler will open the file directly, no need to check result
       } catch (error) {
         console.error('Error opening file from subfolder:', error);
-        alert('Σφάλμα ανοίγματος αρχείου: ' + error.message);
+        showToast('Σφάλμα ανοίγματος αρχείου: ' + error.message, 'error');
       }
     };
 
@@ -607,13 +609,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       try {
         const result = await ipcRenderer.invoke('download-file-from-subfolder', prosklisiId, parentFolderName, subfolderName, fileName, targetFolder);
         if (result.success) {
-          alert('Το αρχείο λήφθηκε επιτυχώς!');
+          showToast('Το αρχείο λήφθηκε επιτυχώς!', 'success');
         } else if (result.error !== 'Download cancelled') {
-          alert('Σφάλμα κατά τη λήψη του αρχείου: ' + result.error);
+          showToast('Σφάλμα κατά τη λήψη του αρχείου: ' + result.error, 'error');
         }
       } catch (error) {
         console.error('Error downloading file from subfolder:', error);
-        alert('Σφάλμα κατά τη λήψη του αρχείου: ' + error.message);
+        showToast('Σφάλμα κατά τη λήψη του αρχείου: ' + error.message, 'error');
       }
     };
 
@@ -628,13 +630,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             if (itemElement) {
               itemElement.remove();
             }
-            alert(`Το ${itemType} διαγράφηκε επιτυχώς!`);
+            showToast(`Το ${itemType} διαγράφηκε επιτυχώς!`, 'success');
           } else {
-            alert(`Σφάλμα διαγραφής ${itemType}: ` + result.error);
+            showToast(`Σφάλμα διαγραφής ${itemType}: ` + result.error, 'error');
           }
         } catch (error) {
           console.error('Error deleting item from subfolder:', error);
-          alert(`Σφάλμα διαγραφής ${itemType}: ` + error.message);
+          showToast(`Σφάλμα διαγραφής ${itemType}: ` + error.message, 'error');
         }
       }
     };
@@ -699,11 +701,11 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         if (result.success) {
           await loadFiles(); // Reload files and folders
         } else {
-          alert('Σφάλμα διαγραφής φακέλου: ' + result.error);
+          showToast('Σφάλμα διαγραφής φακέλου: ' + result.error, 'error');
         }
       } catch (error) {
         console.error('Error deleting folder:', error);
-        alert('Σφάλμα διαγραφής φακέλου: ' + error.message);
+        showToast('Σφάλμα διαγραφής φακέλου: ' + error.message, 'error');
       }
     }
   };
@@ -716,11 +718,11 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         if (result.success) {
           await loadFiles(); // Reload files and groups
         } else {
-          alert('Σφάλμα διαγραφής ομάδας: ' + result.error);
+          showToast('Σφάλμα διαγραφής ομάδας: ' + result.error, 'error');
         }
       } catch (error) {
         console.error('Error deleting group:', error);
-        alert('Σφάλμα διαγραφής ομάδας: ' + error.message);
+        showToast('Σφάλμα διαγραφής ομάδας: ' + error.message, 'error');
       }
     }
   };

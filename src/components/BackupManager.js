@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import { safeConfirm } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -436,6 +436,7 @@ const SecondaryButton = styled.button`
 `;
 
 function BackupManager({ isOpen, onClose }) {
+  const { showToast } = useToast();
   const [view, setView] = useState('main'); // 'main', 'create', 'history', 'restore'
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -478,11 +479,11 @@ function BackupManager({ isOpen, onClose }) {
       setIsBackupInProgress(false);
       setBackupProgress(null);
       if (result.success) {
-        alert(`✅ Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}`);
+        showToast(`Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}`, 'success');
         loadBackups(); // Reload list
         setView('history'); // Show history
       } else {
-        alert(`❌ Σφάλμα κατά το backup: ${result.message || 'Άγνωστο σφάλμα'}`);
+        showToast(`Σφάλμα κατά το backup: ${result.message || 'Άγνωστο σφάλμα'}`, 'error');
       }
     };
     
@@ -506,7 +507,7 @@ function BackupManager({ isOpen, onClose }) {
   
   const handleCreateBackup = async () => {
     if (isBackupInProgress) {
-      alert('⏳ Το backup είναι ήδη σε εξέλιξη...');
+      showToast('Το backup είναι ήδη σε εξέλιξη...', 'info');
       return;
     }
     
@@ -522,19 +523,19 @@ function BackupManager({ isOpen, onClose }) {
       if (result.success) {
         setIsBackupInProgress(false);
         setBackupProgress(null);
-        alert(`✅ Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}`);
+        showToast(`Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}`, 'success');
         loadBackups();
         setView('history');
       } else {
         setIsBackupInProgress(false);
         setBackupProgress(null);
-        alert(`❌ Σφάλμα κατά το backup: ${result.error || 'Άγνωστο σφάλμα'}`);
+        showToast(`Σφάλμα κατά το backup: ${result.error || 'Άγνωστο σφάλμα'}`, 'error');
       }
     } catch (error) {
       console.error('Error creating backup:', error);
       setIsBackupInProgress(false);
       setBackupProgress(null);
-      alert(`❌ Σφάλμα κατά το backup: ${error.message}`);
+      showToast(`Σφάλμα κατά το backup: ${error.message}`, 'error');
     }
   };
   
@@ -547,13 +548,13 @@ function BackupManager({ isOpen, onClose }) {
       const result = await ipcRenderer.invoke('delete-backup', backupId);
       if (result.success) {
         loadBackups();
-        alert('✅ Το backup διαγράφηκε επιτυχώς');
+        showToast('Το backup διαγράφηκε επιτυχώς', 'success');
       } else {
-        alert(`❌ Σφάλμα: ${result.error}`);
+        showToast(`Σφάλμα: ${result.error}`, 'error');
       }
     } catch (error) {
       console.error('Error deleting backup:', error);
-      alert(`❌ Σφάλμα: ${error.message}`);
+      showToast(`Σφάλμα: ${error.message}`, 'error');
     }
   };
   
@@ -563,16 +564,16 @@ function BackupManager({ isOpen, onClose }) {
       const result = await ipcRenderer.invoke('verify-backup', backupId);
       if (result.success) {
         if (result.valid) {
-          alert('✅ Το backup είναι έγκυρο και ακέραιο');
+          showToast('Το backup είναι έγκυρο και ακέραιο', 'success');
         } else {
-          alert('⚠️ Το backup έχει αλλοιωθεί! Ο checksum δεν ταιριάζει.');
+          showToast('Το backup έχει αλλοιωθεί! Ο checksum δεν ταιριάζει.', 'warning');
         }
       } else {
-        alert(`❌ Σφάλμα: ${result.error}`);
+        showToast(`Σφάλμα: ${result.error}`, 'error');
       }
     } catch (error) {
       console.error('Error verifying backup:', error);
-      alert(`❌ Σφάλμα: ${error.message}`);
+      showToast(`Σφάλμα: ${error.message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -612,7 +613,15 @@ function BackupManager({ isOpen, onClose }) {
   };
   
   const handleConfirmRestore = async () => {
-    if (!safeConfirm('⚠️ Είστε σίγουροι ότι θέλετε να κάνετε restore; Αυτό θα αντικαταστήσει τα τρέχοντα δεδομένα!')) {
+    const confirmed = await showConfirm({
+      title: 'Επαναφορά δεδομένων',
+      message: 'Είστε σίγουροι ότι θέλετε να κάνετε restore;',
+      detail: 'Αυτό θα αντικαταστήσει τα τρέχοντα δεδομένα!',
+      confirmLabel: 'Επαναφορά',
+      cancelLabel: 'Άκυρο',
+      icon: '⚠️',
+    });
+    if (!confirmed) {
       return;
     }
     
@@ -626,18 +635,18 @@ function BackupManager({ isOpen, onClose }) {
       });
       
       if (result.success) {
-        alert('✅ Το restore ολοκληρώθηκε επιτυχώς! Η εφαρμογή θα επανεκκινηθεί.');
+        showToast('Το restore ολοκληρώθηκε επιτυχώς! Η εφαρμογή θα επανεκκινηθεί.', 'success');
         // Restart the app
         ipcRenderer.send('restart-app');
       } else {
-        alert(`❌ Σφάλμα restore: ${result.error || result.message || 'Άγνωστο σφάλμα'}`);
+        showToast(`Σφάλμα restore: ${result.error || result.message || 'Άγνωστο σφάλμα'}`, 'error');
       }
       
       setView('main');
       setRestoreStep(1);
     } catch (error) {
       console.error('Error restoring backup:', error);
-      alert(`❌ Σφάλμα: ${error.message}`);
+      showToast(`Σφάλμα: ${error.message}`, 'error');
     } finally {
       setLoading(false);
       setRestoreInProgress(false);

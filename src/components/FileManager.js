@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
 import styled from 'styled-components';
+import { useToast } from './ToastProvider';
 
 /* ─── Design tokens (app palette) ──────────────────────────────────────── */
 const C = {
@@ -501,6 +502,7 @@ function FileManager({
   onRefresh,
   onGroupFiles
 }) {
+  const { showToast } = useToast();
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, fileName: null });
 
@@ -546,7 +548,7 @@ function FileManager({
 
   const handleMoveToGroup = () => {
     if (selectedFiles.size === 0) {
-      alert('Παρακαλώ επιλέξτε τουλάχιστον ένα αρχείο');
+      showToast('Παρακαλώ επιλέξτε τουλάχιστον ένα αρχείο', 'warning');
       return;
     }
     if (onGroupFiles) onGroupFiles(Array.from(selectedFiles), fileGroups);

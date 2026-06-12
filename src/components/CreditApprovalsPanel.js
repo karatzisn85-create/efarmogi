@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import SubprojectSearchModal from './SubprojectSearchModal';
-import { safeConfirm, safeAlert } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import LinkedNoteSticker, {
   getLinkedNotesForCreditPdf,
   getLinkedNotesForCreditSubproject
 } from './LinkedNoteSticker';
+import { useToast } from './ToastProvider';
 const ipcRenderer = window.electronAPI;
 
 const PanelOverlay = styled.div`
@@ -235,6 +236,8 @@ const ContentScroll = styled.div`
 
 const ProjectCard = styled.div`
   position: relative;
+  align-self: flex-start;
+  width: 100%;
   background: #ffffff;
   border-radius: 14px;
   border: 1px solid #94a3b8;
@@ -377,17 +380,10 @@ const ModificationsBadge = styled.div`
   }
 `;
 
-const ModificationsDropdown = styled.div`
-  position: absolute;
-  right: 1.8rem;
-  top: calc(100% + 0.75rem);
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
-  border: 1px solid #e2e8f0;
-  padding: 1.1rem;
-  z-index: 50;
-  min-width: 320px;
+const ModificationsInlinePanel = styled.div`
+  background: #fffbeb;
+  border-top: 1px solid #fcd34d;
+  padding: 1rem 1.2rem 1.1rem;
 `;
 
 const ModificationsTitle = styled.div`
@@ -883,6 +879,7 @@ const CreditApprovalsPanel = ({
   dashboardProjects = [],
   notes = []
 }) => {
+  const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [egkriseisData, setEgkriseisData] = useState(null);
   const [linkedMap, setLinkedMap] = useState({});
@@ -1121,7 +1118,18 @@ const CreditApprovalsPanel = ({
             subprojects = {
               [subMatch.storedKey]: { ...subMatch.subproject, folderName: subMatch.storedKey }
             };
+          } else {
+            subprojects = {};
           }
+        } else if (highlightSubprojectTitle?.trim()) {
+          const normalizedTitle = normalizeText(highlightSubprojectTitle);
+          const titleMatches = Object.fromEntries(
+            Object.entries(subprojects).filter(([, subproject]) => {
+              const subTitle = normalizeText(subproject?.title || '');
+              return subTitle.includes(normalizedTitle) || normalizedTitle.includes(subTitle);
+            })
+          );
+          subprojects = Object.keys(titleMatches).length > 0 ? titleMatches : {};
         }
         
         // Προσθέτουμε το folderName σε όλα τα subprojects
@@ -1215,27 +1223,38 @@ const CreditApprovalsPanel = ({
           );
 
           const hasMatchingSubprojects = Object.keys(filteredSubprojects).length > 0;
-          
+          const hasModifications =
+            (project.modifications && Array.isArray(project.modifications) && project.modifications.length > 0) ||
+            (project.modificationsDetails && Array.isArray(project.modificationsDetails) && project.modificationsDetails.length > 0);
+          const normalizedProjectTitle = normalizeText(project.title || '');
+          const projectTitleMatchesSubprojectSearch = normalizedProjectTitle.includes(searchTerm);
+
           console.log('📊 Project filter result:', {
             projectTitle: project.title,
             totalSubprojects: Object.keys(subprojects).length,
             matchingSubprojects: Object.keys(filteredSubprojects).length,
-            willKeep: hasMatchingSubprojects
+            hasModifications,
+            willKeep: hasMatchingSubprojects || (hasModifications && projectTitleMatchesSubprojectSearch)
           });
-          
-          // Κρατάμε μόνο έργα που έχουν matching subprojects — οι τροποποιήσεις δεν αρκούν
+
+          // Κρατάμε έργα με matching υποέργα ή τροποποιήσεις επιπέδου έργου που ταιριάζουν στην αναζήτηση
           if (!hasMatchingSubprojects) {
-            return null;
+            if (!(hasModifications && projectTitleMatchesSubprojectSearch)) {
+              return null;
+            }
+            return {
+              ...project,
+              subprojects: {}
+            };
           }
 
-          // Εμφανίζουμε μόνο τα matching subprojects
           const enrichedSubprojects = Object.fromEntries(
             Object.entries(filteredSubprojects).map(([key, subproject]) => [
               key,
               { ...subproject, folderName: key }
             ])
           );
-          
+
           return {
             ...project,
             subprojects: enrichedSubprojects
@@ -1265,7 +1284,8 @@ const CreditApprovalsPanel = ({
     debouncedProjectSearchTerm,
     debouncedSubprojectSearchTerm,
     highlightProjectKey,
-    highlightSubprojectKey
+    highlightSubprojectKey,
+    highlightSubprojectTitle
   ]);
 
   useEffect(() => {
@@ -1276,11 +1296,11 @@ const CreditApprovalsPanel = ({
   }, [isOpen, highlightProjectTitle, highlightProjectKey]);
 
   useEffect(() => {
-    if (isOpen && highlightSubprojectTitle && !highlightSubprojectKey) {
+    if (isOpen && highlightSubprojectTitle && !highlightSubprojectKey && !highlightProjectKey) {
       setSubprojectSearchTerm(highlightSubprojectTitle);
       setDebouncedSubprojectSearchTerm(highlightSubprojectTitle);
     }
-  }, [isOpen, highlightSubprojectTitle, highlightSubprojectKey]);
+  }, [isOpen, highlightSubprojectTitle, highlightSubprojectKey, highlightProjectKey]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1292,6 +1312,30 @@ const CreditApprovalsPanel = ({
       setOpenModificationsDropdown(null);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || filteredProjects.length !== 1) return;
+
+    const project = filteredProjects[0];
+    const hasMods =
+      (project.modifications && project.modifications.length > 0) ||
+      (project.modificationsDetails && project.modificationsDetails.length > 0);
+    const hasSubs = Object.values(project.subprojects || {}).some((sub) => sub && sub.title);
+
+    if (hasMods && !hasSubs && (highlightProjectKey || highlightProjectTitle)) {
+      setOpenModificationsDropdown(project.projectId || project.title);
+    }
+  }, [isOpen, filteredProjects, highlightProjectKey, highlightProjectTitle]);
+
+  const getProjectModificationsPdfs = useCallback((project) => {
+    if (project.modifications && Array.isArray(project.modifications) && project.modifications.length > 0) {
+      return project.modifications.map((fileName) => ({ fileName }));
+    }
+    if (project.modificationsDetails && Array.isArray(project.modificationsDetails) && project.modificationsDetails.length > 0) {
+      return project.modificationsDetails;
+    }
+    return [];
+  }, []);
 
   const handleClearFilters = useCallback(() => {
     setProjectSearchTerm('');
@@ -1348,7 +1392,7 @@ const CreditApprovalsPanel = ({
       await ipcRenderer.invoke('view-egkriseis-pdf', projectFolderName, pdfName, subFolderName);
     } catch (error) {
       console.error('Error viewing PDF:', error);
-      safeAlert('Προέκυψε σφάλμα κατά την προβολή του αρχείου.');
+      showToast('Προέκυψε σφάλμα κατά την προβολή του αρχείου.', 'error');
     }
   }, [onViewPdf]);
 
@@ -1360,7 +1404,7 @@ const CreditApprovalsPanel = ({
       }
       const downloadResult = await ipcRenderer.invoke('download-egkriseis-pdf', projectFolderName, pdfName, subFolderName);
       if (!downloadResult?.success) {
-        safeAlert('Προέκυψε σφάλμα κατά τη λήψη του αρχείου.');
+        showToast('Προέκυψε σφάλμα κατά τη λήψη του αρχείου.', 'error');
         return;
       }
 
@@ -1378,7 +1422,7 @@ const CreditApprovalsPanel = ({
       }
     } catch (error) {
       console.error('Error downloading PDF:', error);
-      safeAlert('Προέκυψε σφάλμα κατά τη λήψη του αρχείου.');
+      showToast('Προέκυψε σφάλμα κατά τη λήψη του αρχείου.', 'error');
     }
   }, [onDownloadPdf]);
 
@@ -1400,7 +1444,7 @@ const CreditApprovalsPanel = ({
       );
 
       if (result?.success) {
-        safeAlert('Το αρχείο διαγράφηκε εντελώς από όλα τα υποέργα!');
+        showToast('Το αρχείο διαγράφηκε εντελώς από όλα τα υποέργα!', 'success');
         setDeleteModalOpen(false);
         setPdfToDelete(null);
         // Ανανέωση των δεδομένων
@@ -1409,13 +1453,13 @@ const CreditApprovalsPanel = ({
           onRequestRefresh();
         }
       } else {
-        safeAlert('Σφάλμα κατά τη διαγραφή: ' + (result?.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά τη διαγραφή: ' + (result?.error || 'Άγνωστο σφάλμα'), 'error');
       }
     } catch (error) {
       console.error('Error deleting PDF completely:', error);
-      safeAlert('Σφάλμα κατά τη διαγραφή: ' + error.message);
+      showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
     }
-  }, [pdfToDelete, loadPanelData, onRequestRefresh]);
+  }, [pdfToDelete, loadPanelData, onRequestRefresh, showToast]);
 
   const handleDeletePdfFromSubproject = useCallback(async () => {
     if (!pdfToDelete) return;
@@ -1423,14 +1467,13 @@ const CreditApprovalsPanel = ({
     const { project, subproject, pdfFileName } = pdfToDelete;
 
     try {
-      // Βρίσκουμε το subprojectKey
       const subprojectKey = Object.keys(project.subprojects || {}).find(key => 
         project.subprojects[key] === subproject || 
         (project.subprojects[key].title === subproject.title && project.subprojects[key].number === subproject.number)
       );
 
       if (!subprojectKey) {
-        safeAlert('Σφάλμα: Δεν βρέθηκε το κλειδί του υποέργου');
+        showToast('Σφάλμα: Δεν βρέθηκε το κλειδί του υποέργου', 'error');
         return;
       }
 
@@ -1442,22 +1485,21 @@ const CreditApprovalsPanel = ({
       );
 
       if (result?.success) {
-        safeAlert('Η συσχέτιση διαγράφηκε επιτυχώς!');
+        showToast('Η συσχέτιση διαγράφηκε επιτυχώς!', 'success');
         setDeleteModalOpen(false);
         setPdfToDelete(null);
-        // Ανανέωση των δεδομένων
         await loadPanelData();
         if (onRequestRefresh) {
           onRequestRefresh();
         }
       } else {
-        safeAlert('Σφάλμα κατά τη διαγραφή: ' + (result?.error || 'Άγνωστο σφάλμα'));
+        showToast('Σφάλμα κατά τη διαγραφή: ' + (result?.error || 'Άγνωστο σφάλμα'), 'error');
       }
     } catch (error) {
       console.error('Error deleting PDF from subproject:', error);
-      safeAlert('Σφάλμα κατά τη διαγραφή: ' + error.message);
+      showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
     }
-  }, [pdfToDelete, loadPanelData, onRequestRefresh]);
+  }, [pdfToDelete, loadPanelData, onRequestRefresh, showToast]);
 
   const handleOpenSearchModal = useCallback((subproject, project) => {
     setCurrentSubprojectForLink({ subproject, project });
@@ -1486,13 +1528,13 @@ const CreditApprovalsPanel = ({
           await loadPanelData();
         }, 100);
         
-        safeAlert('✅ Ο τίτλος του έργου ενημερώθηκε επιτυχώς!');
+        showToast('Ο τίτλος του έργου ενημερώθηκε επιτυχώς!', 'success');
       } else {
-        safeAlert('❌ Σφάλμα: ' + (result.error || 'Αποτυχία ενημέρωσης'));
+        showToast('Σφάλμα: ' + (result.error || 'Αποτυχία ενημέρωσης'), 'error');
       }
     } catch (error) {
       console.error('Error updating project title:', error);
-      safeAlert('❌ Σφάλμα κατά την ενημέρωση του τίτλου');
+      showToast('Σφάλμα κατά την ενημέρωση του τίτλου', 'error');
     }
   }, [editingProjectKey, editingProjectTitle, loadPanelData]);
 
@@ -1519,13 +1561,13 @@ const CreditApprovalsPanel = ({
           await loadPanelData();
         }, 100);
         
-        safeAlert('✅ Ο τίτλος του υποέργου ενημερώθηκε επιτυχώς!');
+        showToast('Ο τίτλος του υποέργου ενημερώθηκε επιτυχώς!', 'success');
       } else {
-        safeAlert('❌ Σφάλμα: ' + (result.error || 'Αποτυχία ενημέρωσης'));
+        showToast('Σφάλμα: ' + (result.error || 'Αποτυχία ενημέρωσης'), 'error');
       }
     } catch (error) {
       console.error('Error updating subproject title:', error);
-      safeAlert('❌ Σφάλμα κατά την ενημέρωση του τίτλου');
+      showToast('Σφάλμα κατά την ενημέρωση του τίτλου', 'error');
     }
   }, [editingSubprojectKey, editingSubprojectTitle, loadPanelData]);
 
@@ -1533,19 +1575,19 @@ const CreditApprovalsPanel = ({
     try {
       // Validation: Έλεγχος ότι έχουμε όλα τα απαραίτητα δεδομένα
       if (!subprojectId) {
-        safeAlert('❌ Σφάλμα: Δεν βρέθηκε το ID του υποέργου.');
+        showToast('Σφάλμα: Δεν βρέθηκε το ID του υποέργου.', 'error');
         console.error('performLink: Missing subprojectId', { subprojectId, subproject, project });
         return;
       }
 
       if (!subproject || !subproject.title) {
-        safeAlert('❌ Σφάλμα: Δεν βρέθηκε ο τίτλος του υποέργου.');
+        showToast('Σφάλμα: Δεν βρέθηκε ο τίτλος του υποέργου.', 'error');
         console.error('performLink: Missing subproject title', { subproject, project });
         return;
       }
 
       if (!project || !project.title) {
-        safeAlert('❌ Σφάλμα: Δεν βρέθηκε ο τίτλος του έργου.');
+        showToast('Σφάλμα: Δεν βρέθηκε ο τίτλος του έργου.', 'error');
         console.error('performLink: Missing project title', { project });
         return;
       }
@@ -1553,7 +1595,7 @@ const CreditApprovalsPanel = ({
       const realProjectId = await ipcRenderer.invoke('find-project-by-subproject-id', subprojectId);
 
       if (!realProjectId) {
-        safeAlert('❌ Δεν βρέθηκε το έργο για το επιλεγμένο υποέργο.');
+        showToast('Δεν βρέθηκε το έργο για το επιλεγμένο υποέργο.', 'error');
         console.error('performLink: Project not found for subprojectId', subprojectId);
         return;
       }
@@ -1584,13 +1626,13 @@ const CreditApprovalsPanel = ({
 
       // Validation: Έλεγχος ότι όλα τα πεδία είναι valid
       if (!linkData.egkrisiTitle || !linkData.egkrisiProjectTitle) {
-        safeAlert('❌ Σφάλμα: Οι τίτλοι δεν μπορούν να είναι κενά.');
+        showToast('Σφάλμα: Οι τίτλοι δεν μπορούν να είναι κενά.', 'error');
         console.error('performLink: Empty titles', linkData);
         return;
       }
       
       if (!linkData.egkrisiProjectKey) {
-        safeAlert('❌ Σφάλμα: Δεν βρέθηκε το project key.');
+        showToast('Σφάλμα: Δεν βρέθηκε το project key.', 'error');
         console.error('performLink: Missing project key', { project, linkData });
         return;
       }
@@ -1613,7 +1655,7 @@ const CreditApprovalsPanel = ({
           [result.linkData.egkrisiId]: result.linkData
         }));
 
-        safeAlert('✅ Η συσχέτιση εγκρίσεως με το υποέργο δημιουργήθηκε επιτυχώς!');
+        showToast('Η συσχέτιση εγκρίσεως με το υποέργο δημιουργήθηκε επιτυχώς!', 'success');
 
         // Ανανέωση των δεδομένων του panel για να εμφανιστεί η συσχετισμένη έγκριση
         await loadPanelData();
@@ -1634,7 +1676,7 @@ const CreditApprovalsPanel = ({
           subproject: subproject,
           project: project
         });
-        safeAlert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + errorMessage);
+        showToast('Σφάλμα κατά τη δημιουργία συσχέτισης: ' + errorMessage, 'error');
       }
     } catch (error) {
       console.error('Error creating manual egkrisi link:', error);
@@ -1645,7 +1687,7 @@ const CreditApprovalsPanel = ({
         subproject: subproject,
         project: project
       });
-      safeAlert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message);
+      showToast('Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message, 'error');
     }
   }, [onLinkCreated, onRequestRefresh, loadPanelData]);
 
@@ -1664,7 +1706,7 @@ const CreditApprovalsPanel = ({
       await performLink(result.subprojectId, subproject, project);
     } catch (error) {
       console.error('Error linking subproject:', error);
-      safeAlert('❌ Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message);
+      showToast('Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message, 'error');
     }
   }, [handleOpenSearchModal, performLink]);
 
@@ -1677,8 +1719,9 @@ const CreditApprovalsPanel = ({
     } finally {
       setIsSearchModalOpen(false);
       setCurrentSubprojectForLink(null);
+      scheduleDocumentInteractionRecovery();
     }
-  }, [currentSubprojectForLink, performLink]);
+  }, [currentSubprojectForLink, performLink, scheduleDocumentInteractionRecovery]);
 
   const handleUnlinkSubproject = useCallback(async (subproject) => {
     const linkToRemove = Object.values(linkedMap).find(
@@ -1688,13 +1731,17 @@ const CreditApprovalsPanel = ({
     );
 
     if (!linkToRemove) {
-      safeAlert('Δεν βρέθηκε συσχέτιση για ακύρωση.');
+      showToast('Δεν βρέθηκε συσχέτιση για ακύρωση.', 'warning');
       return;
     }
 
-    const confirmed = safeConfirm(
-      `Είστε σίγουροι ότι θέλετε να ακυρώσετε τη συσχέτιση με το υποέργο "${subproject.title}";`
-    );
+    const confirmed = await showConfirm({
+      title: 'Ακύρωση συσχέτισης',
+      message: `Είστε σίγουροι ότι θέλετε να ακυρώσετε τη συσχέτιση με το υποέργο "${subproject.title}";`,
+      confirmLabel: 'Ακύρωση συσχέτισης',
+      cancelLabel: 'Πίσω',
+      icon: '🔗',
+    });
 
     if (!confirmed) {
       return;
@@ -1709,7 +1756,7 @@ const CreditApprovalsPanel = ({
           return updated;
         });
 
-        safeAlert('Η συσχέτιση ακυρώθηκε επιτυχώς.');
+        showToast('Η συσχέτιση ακυρώθηκε επιτυχώς.', 'success');
 
         if (onLinkRemoved) {
           onLinkRemoved(linkToRemove);
@@ -1719,13 +1766,13 @@ const CreditApprovalsPanel = ({
           onRequestRefresh();
         }
       } else {
-        safeAlert('Προέκυψε σφάλμα κατά την ακύρωση της συσχέτισης.');
+        showToast('Προέκυψε σφάλμα κατά την ακύρωση της συσχέτισης.', 'error');
       }
     } catch (error) {
       console.error('Error unlinking subproject:', error);
-      safeAlert('Προέκυψε σφάλμα κατά την ακύρωση της συσχέτισης.');
+      showToast('Προέκυψε σφάλμα κατά την ακύρωση της συσχέτισης.', 'error');
     }
-  }, [linkedMap, onLinkRemoved, onRequestRefresh]);
+  }, [linkedMap, onLinkRemoved, onRequestRefresh, showToast]);
 
   const isSubprojectLinked = useCallback((subprojectTitle) => {
     if (!subprojectTitle) return false;
@@ -1807,8 +1854,12 @@ const CreditApprovalsPanel = ({
                 </EmptyState>
               ) : (
                 <>
-                  {paginationData.currentProjects.map((project) => (
-                    <ProjectCard key={project.projectId || project.title}>
+                  {paginationData.currentProjects.map((project) => {
+                    const modificationPdfs = getProjectModificationsPdfs(project);
+                    const projectCardKey = project.projectId || project.title;
+
+                    return (
+                    <ProjectCard key={projectCardKey}>
                       <ProjectHeader>
                         {editingProjectKey === project.folderName ? (
                           <>
@@ -1842,68 +1893,40 @@ const CreditApprovalsPanel = ({
                             )}
                           </>
                         )}
-                        {((project.modifications && project.modifications.length > 0) || (project.modificationsDetails && project.modificationsDetails.length > 0)) && (() => {
-                          // Προτιμάμε πάντα το modifications array αν υπάρχει και δεν είναι άδειο
-                          // Το modificationsDetails είναι παλιά δομή και μπορεί να έχει λάθος/ατελή δεδομένα
-                          let pdfsToShow;
-                          if (project.modifications && Array.isArray(project.modifications) && project.modifications.length > 0) {
-                            // Χρησιμοποιούμε το modifications array (πιο αξιόπιστο)
-                            pdfsToShow = project.modifications.map(fileName => ({ fileName }));
-                          } else if (project.modificationsDetails && Array.isArray(project.modificationsDetails) && project.modificationsDetails.length > 0) {
-                            // Fallback στο modificationsDetails μόνο αν δεν υπάρχει modifications
-                            pdfsToShow = project.modificationsDetails;
-                          } else {
-                            pdfsToShow = [];
-                          }
-                          const count = pdfsToShow.length;
-                          
-                          // Debug: Log modifications for this specific project
-                          if (project.title && project.title.includes('ΚΕΝΤΡΟ ΣΕΜΙΝΑΡΙΟΥ')) {
-                            console.log('🔍 Rendering modifications for project:', {
-                              title: project.title,
-                              folderName: project.folderName,
-                              modifications: project.modifications,
-                              modificationsDetails: project.modificationsDetails,
-                              pdfsToShow: pdfsToShow,
-                              count: count
-                            });
-                          }
-                          
-                          return (
-                            <>
-                              <ModificationsBadge onClick={() => handleToggleDropdown(project.projectId || project.title)}>
-                                📝 Τροποποιήσεις ({count})
-                              </ModificationsBadge>
-                              {openModificationsDropdown === (project.projectId || project.title) && (
-                                <ModificationsDropdown>
-                                  <ModificationsTitle>Τροποποιήσεις έργου</ModificationsTitle>
-                                  <PdfsGrid>
-                                    {pdfsToShow.map((pdf, index) => {
-                                      const fileName = pdf.fileName || pdf;
-                                      return (
-                                        <PdfGroup key={fileName || index}>
-                                          <PdfItem>
-                                            📄 {fileName}
-                                          </PdfItem>
-                                          <PdfActions>
-                                            <ViewButton onClick={() => viewPdf(project.folderName, fileName)}>
-                                              Προβολή
-                                            </ViewButton>
-                                            <DownloadButton onClick={() => downloadPdf(project.folderName, fileName)}>
-                                              Λήψη
-                                            </DownloadButton>
-                                          </PdfActions>
-                                        </PdfGroup>
-                                      );
-                                    })}
-                                  </PdfsGrid>
-                                </ModificationsDropdown>
-                              )}
-                            </>
-                          );
-                        })()}
+                        {modificationPdfs.length > 0 && (
+                          <ModificationsBadge onClick={() => handleToggleDropdown(projectCardKey)}>
+                            📝 Τροποποιήσεις ({modificationPdfs.length})
+                          </ModificationsBadge>
+                        )}
                       </ProjectHeader>
 
+                      {openModificationsDropdown === projectCardKey && modificationPdfs.length > 0 && (
+                        <ModificationsInlinePanel>
+                          <ModificationsTitle>Τροποποιήσεις έργου</ModificationsTitle>
+                          <PdfsGrid>
+                            {modificationPdfs.map((pdf, index) => {
+                              const fileName = pdf.fileName || pdf;
+                              return (
+                                <PdfGroup key={fileName || index}>
+                                  <PdfItem>
+                                    📄 {fileName}
+                                  </PdfItem>
+                                  <PdfActions>
+                                    <ViewButton onClick={() => viewPdf(project.folderName, fileName)}>
+                                      Προβολή
+                                    </ViewButton>
+                                    <DownloadButton onClick={() => downloadPdf(project.folderName, fileName)}>
+                                      Λήψη
+                                    </DownloadButton>
+                                  </PdfActions>
+                                </PdfGroup>
+                              );
+                            })}
+                          </PdfsGrid>
+                        </ModificationsInlinePanel>
+                      )}
+
+                      {Object.values(project.subprojects || {}).some((subproject) => subproject && subproject.title) && (
                       <SubprojectsList>
                         {Object.values(project.subprojects || {})
                           .filter((subproject) => subproject && subproject.title)
@@ -2044,8 +2067,10 @@ const CreditApprovalsPanel = ({
                           </SubprojectItem>
                         ))}
                       </SubprojectsList>
+                      )}
                     </ProjectCard>
-                  ))}
+                    );
+                  })}
 
                   {paginationData.totalPages > 1 && (
                     <PaginationContainer>

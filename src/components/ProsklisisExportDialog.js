@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
+import { useToast } from './ToastProvider';
 
 // Styled Components
 const ModalOverlay = styled.div`
@@ -266,7 +267,8 @@ const EXPORT_FIELDS = {
   }
 };
 
-function ProsklisisExportDialog({ isOpen, onClose, proskliseis, totalProskliseis }) {
+function ProsklisisExportDialog({ isOpen, onClose, proskliseis, totalProskliseis, organizationName = '' }) {
+  const { showToast } = useToast();
   const [selectedFields, setSelectedFields] = useState([
     'rowNumber', 'title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status'
   ]);
@@ -301,7 +303,7 @@ function ProsklisisExportDialog({ isOpen, onClose, proskliseis, totalProskliseis
 
   const exportToExcel = () => {
     if (selectedFields.length === 0) {
-      alert('Παρακαλώ επιλέξτε τουλάχιστον ένα πεδίο για εξαγωγή.');
+      showToast('Παρακαλώ επιλέξτε τουλάχιστον ένα πεδίο για εξαγωγή.', 'warning');
       return;
     }
 
@@ -371,6 +373,14 @@ function ProsklisisExportDialog({ isOpen, onClose, proskliseis, totalProskliseis
       <Font ss:FontName="Calibri" ss:Size="10"/>
       <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
     </Style>
+    <Style ss:ID="BrandFooter">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+      <Font ss:FontName="Calibri" ss:Size="9" ss:Italic="1" ss:Color="#4338CA"/>
+      <Interior ss:Color="#EEF2FF" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#6366F1"/>
+      </Borders>
+    </Style>
   </Styles>
   <Worksheet ss:Name="Εξαγωγή Προσκλήσεων">
     <Table>
@@ -419,6 +429,15 @@ function ProsklisisExportDialog({ isOpen, onClose, proskliseis, totalProskliseis
         htmlContent += `      </Row>\n`;
       });
 
+      const brandText = organizationName
+        ? `${organizationName}  |  Δημιουργήθηκε με ERGOHUB`
+        : 'Δημιουργήθηκε με ERGOHUB';
+      htmlContent += `      <Row>
+        <Cell ss:MergeAcross="${fieldsInOrder.length - 1}" ss:StyleID="BrandFooter">
+          <Data ss:Type="String">${brandText}</Data>
+        </Cell>
+      </Row>\n`;
+
       htmlContent += `    </Table>
     <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
       <PageSetup>
@@ -455,7 +474,7 @@ function ProsklisisExportDialog({ isOpen, onClose, proskliseis, totalProskliseis
       onClose();
     } catch (error) {
       console.error('Error exporting proskliseis:', error);
-      alert('Σφάλμα κατά την εξαγωγή: ' + error.message);
+      showToast('Σφάλμα κατά την εξαγωγή: ' + error.message, 'error');
     }
   };
 

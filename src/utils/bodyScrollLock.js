@@ -31,3 +31,8 @@ export function forceUnlockBodyScroll() {
 export function isBodyScrollLocked() {
   return holders.size > 0;
 }
+
+/** Αριθμός ενεργών holders — χρησιμοποιείται από InteractionGuard για ανίχνευση stale lock. */
+export function getHolderCount() {
+  return holders.size;
+}

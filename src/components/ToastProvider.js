@@ -25,22 +25,21 @@ const slideOut = keyframes`
   }
 `;
 
+// Μόνο accent — το σκούρο φόντο παραμένει σταθερό για αντίθεση με λευκό κείμενο.
+// Τα ημιδιαφανή gradients αντικαθιστούσαν το background και έκαναν το toast
+// σχεδόν αόρατο πάνω σε ανοιχτόχρωμες σελίδες (π.χ. Υποδείγματα Εγγράφων).
 const typeStyles = {
   success: css`
     border-left: 4px solid #4caf50;
-    background: linear-gradient(135deg, rgba(76, 175, 80, 0.15), rgba(76, 175, 80, 0.05));
   `,
   error: css`
     border-left: 4px solid #f44336;
-    background: linear-gradient(135deg, rgba(244, 67, 54, 0.15), rgba(244, 67, 54, 0.05));
   `,
   warning: css`
     border-left: 4px solid #ff9800;
-    background: linear-gradient(135deg, rgba(255, 152, 0, 0.15), rgba(255, 152, 0, 0.05));
   `,
   info: css`
     border-left: 4px solid #667eea;
-    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15), rgba(102, 126, 234, 0.05));
   `,
 };
 
@@ -71,12 +70,12 @@ const ToastContainer = styled.div`
 
 const ToastItem = styled.div`
   min-width: 300px;
-  max-width: 420px;
+  max-width: 480px;
   padding: 14px 18px;
   border-radius: 10px;
-  backdrop-filter: blur(16px);
-  background: rgba(30, 30, 46, 0.92);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  background: rgba(22, 27, 40, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -107,7 +106,7 @@ const ToastBody = styled.div`
 
 const ToastMessage = styled.p`
   margin: 0;
-  color: rgba(255, 255, 255, 0.92);
+  color: #f5f7fb;
   font-size: 14px;
   line-height: 1.45;
   word-break: break-word;

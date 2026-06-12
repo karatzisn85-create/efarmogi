@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from
 import { createPortal } from 'react-dom';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
 import { safeConfirm } from '../utils/safeDialogs';
+import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
 import styled from 'styled-components';
 import EntaxisForm from './EntaxisForm';
@@ -1318,14 +1319,15 @@ window.fixAllEntaxeis = async () => {
       console.log(`  ${result.success ? '✅' : '❌'} ${result.message || result.error}`);
     }
     
-    alert('✅ Όλες οι εντάξεις διορθώθηκαν! Κάντε F5 για refresh.');
+    alert('Όλες οι εντάξεις διορθώθηκαν! Κάντε F5 για refresh.');
   } catch (error) {
-    console.error('❌ Error:', error);
-    alert('❌ Σφάλμα: ' + error.message);
+    console.error('Error:', error);
+    alert('Σφάλμα: ' + error.message);
   }
 };
 
-function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity }) {
+function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '' }) {
+  const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [entaxeis, setEntaxeis] = useState([]);
   const [filteredEntaxeis, setFilteredEntaxeis] = useState([]);
@@ -1404,14 +1406,14 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'entaxeis', entaxi.entaxiId);
     if (lockStatus.locked) {
       const who = lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή';
-      alert(`Η ένταξη είναι υπό επεξεργασία από ${who}.`);
+      showToast(`Η ένταξη είναι υπό επεξεργασία από ${who}.`, 'warning');
       return false;
     }
     const lockOwner = currentUser?.fullName || currentUser?.username || '';
     const lockResult = await ipcRenderer.invoke('create-entity-lock', 'entaxeis', entaxi.entaxiId, lockOwner);
     if (!lockResult.success) {
       const who = lockResult.lockedBy ? `«${lockResult.lockedBy}»` : 'άλλον χρήστη';
-      alert(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${who}.`);
+      showToast(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${who}.`, 'warning');
       return false;
     }
     setEntaxisLocks((prev) => ({ ...prev, [entaxi.entaxiId]: true }));
@@ -1689,7 +1691,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       }
     } catch (error) {
       console.error('Error saving entaxi:', error);
-      alert('Σφάλμα αποθήκευσης ένταξης: ' + error.message);
+      showToast('Σφάλμα αποθήκευσης ένταξης: ' + error.message, 'error');
     } finally {
       if (editingEntaxi && editingEntaxi.entaxiId) {
         try {
@@ -1752,7 +1754,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       await ipcRenderer.invoke('view-entaxi-file', entaxiId, actualFileName);
     } catch (error) {
       console.error('Error viewing file:', error);
-      alert('Σφάλμα κατά την προβολή του αρχείου: ' + error.message);
+      showToast('Σφάλμα κατά την προβολή του αρχείου: ' + error.message, 'error');
     }
   };
 
@@ -1773,13 +1775,13 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       const result = await ipcRenderer.invoke('download-entaxi-file', entaxiId, actualFileName);
       
       if (result.success) {
-        alert('Το αρχείο λήφθηκε επιτυχώς!');
+        showToast('Το αρχείο λήφθηκε επιτυχώς!', 'success');
       } else if (result.error !== 'Download cancelled') {
-        alert('Σφάλμα κατά τη λήψη του αρχείου: ' + result.error);
+        showToast('Σφάλμα κατά τη λήψη του αρχείου: ' + result.error, 'error');
       }
     } catch (error) {
       console.error('Error downloading file:', error);
-      alert('Σφάλμα κατά τη λήψη του αρχείου: ' + error.message);
+      showToast('Σφάλμα κατά τη λήψη του αρχείου: ' + error.message, 'error');
     }
   };
 
@@ -1799,11 +1801,11 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       
       // Extract filename from object for display
       actualFileName = fileName.fileName || fileName.name || path.basename(fileName.filePath || '');
-      alert(`Τα δεδομένα διορθώθηκαν. Παρακαλώ πατήστε Διαγραφή ξανά.`);
+      showToast('Τα δεδομένα διορθώθηκαν. Παρακαλώ πατήστε Διαγραφή ξανά.', 'info');
       return;
     } else {
-      console.error('❌ Invalid fileName:', fileName);
-      alert('Σφάλμα: Μη έγκυρο όνομα αρχείου');
+      console.error('Invalid fileName:', fileName);
+      showToast('Σφάλμα: Μη έγκυρο όνομα αρχείου', 'error');
       return;
     }
     
@@ -1825,14 +1827,14 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
           console.log('✅ Delete successful, reloading entaxeis...');
           await loadEntaxeis(); // Reload to update UI
           console.log('✅ Entaxeis reloaded');
-          alert('Το αρχείο διαγράφηκε επιτυχώς!');
+          showToast('Το αρχείο διαγράφηκε επιτυχώς!', 'success');
         } else {
-          console.error('❌ Delete failed:', result.error);
-          alert('Σφάλμα κατά τη διαγραφή του αρχείου: ' + result.error);
+          console.error('Delete failed:', result.error);
+          showToast('Σφάλμα κατά τη διαγραφή του αρχείου: ' + result.error, 'error');
         }
       } catch (error) {
-        console.error('❌ Error deleting file:', error);
-        alert('Σφάλμα κατά τη διαγραφή του αρχείου: ' + error.message);
+        console.error('Error deleting file:', error);
+        showToast('Σφάλμα κατά τη διαγραφή του αρχείου: ' + error.message, 'error');
       }
     }
   };
@@ -1853,10 +1855,10 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       try {
         await ipcRenderer.invoke('delete-entaxi-modification', entaxiId, modificationId);
         await loadEntaxeis(); // Reload to update UI
-        alert('Η τροποποίηση διαγράφηκε επιτυχώς');
+        showToast('Η τροποποίηση διαγράφηκε επιτυχώς', 'success');
       } catch (error) {
         console.error('Error deleting modification:', error);
-        alert('Σφάλμα διαγραφής τροποποίησης: ' + error.message);
+        showToast('Σφάλμα διαγραφής τροποποίησης: ' + error.message, 'error');
       }
     }
   };
@@ -1880,7 +1882,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       setIsModificationFormOpen(false);
     } catch (error) {
       console.error('Error updating modification:', error);
-      alert('Σφάλμα ενημέρωσης τροποποίησης: ' + error.message);
+      showToast('Σφάλμα ενημέρωσης τροποποίησης: ' + error.message, 'error');
     }
   };
 
@@ -2426,6 +2428,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
           onClose={() => setIsExportDialogOpen(false)}
           entaxeis={filteredEntaxeis}
           totalEntaxeis={entaxeis.length}
+          organizationName={organizationName}
         />
 
         {/* Comments Modal (τροποποίηση) */}

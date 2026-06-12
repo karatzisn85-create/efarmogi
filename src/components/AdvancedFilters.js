@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
-import { PROJECT_TYPES, FUNDING_SOURCES, PROJECT_STATUSES, FUNDING_DETAILS, IMPLEMENTATION_FORMS } from '../data/formOptions';
+import {
+  PROJECT_TYPES,
+  FUNDING_SOURCES,
+  PROJECT_STATUSES,
+  FUNDING_DETAILS,
+  IMPLEMENTATION_FORMS,
+  ASSIGNMENT_PROCEDURES
+} from '../data/formOptions';
 import { collectChargeFilterOptions } from '../utils/supervisorChargeDisplay';
 
 const FiltersOverlay = styled.div`
@@ -324,6 +331,8 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
     apeAmountMax: '',
     anadoxosName: '',
     anadoxosVat: '',
+    assignmentProcedure: [],
+    hasAssignmentProcedure: '',
     sortBy: 'kaCode',
     sortOrder: 'asc'
   });
@@ -418,6 +427,8 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
       apeAmountMax: '',
       anadoxosName: '',
       anadoxosVat: '',
+      assignmentProcedure: [],
+      hasAssignmentProcedure: '',
       sortBy: 'kaCode',
       sortOrder: 'asc'
     };
@@ -633,6 +644,32 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
                   ))}
                 </FilterSelect>
                 <HelpText>Κρατήστε Ctrl (ή Cmd) για πολλαπλή επιλογή</HelpText>
+              </FilterSection>
+
+              <FilterSection>
+                <FilterLabel>📋 Διαδικασία Ανάθεσης</FilterLabel>
+                <FilterSelect
+                  multiple
+                  value={filters.assignmentProcedure}
+                  onChange={(e) => handleMultiSelectChange('assignmentProcedure', e)}
+                >
+                  {ASSIGNMENT_PROCEDURES.map((procedure) => (
+                    <option key={procedure} value={procedure}>{procedure}</option>
+                  ))}
+                </FilterSelect>
+                <HelpText>Κρατήστε Ctrl (ή Cmd) για πολλαπλή επιλογή · ισχύει για υποέργα σε διαδικασία/σύμβαση και μετά</HelpText>
+              </FilterSection>
+
+              <FilterSection>
+                <FilterLabel>📋 Καταχώριση Διαδικασίας</FilterLabel>
+                <FilterSelect
+                  value={filters.hasAssignmentProcedure}
+                  onChange={(e) => handleInputChange('hasAssignmentProcedure', e.target.value)}
+                >
+                  <option value="">Όλα</option>
+                  <option value="yes">Με καταχωρισμένη διαδικασία</option>
+                  <option value="no">Χωρίς καταχώριση (σε σχετική κατάσταση)</option>
+                </FilterSelect>
               </FilterSection>
 
               <FilterSection>
