@@ -105,7 +105,14 @@
     "noteText": "Κείμενο σημείωσης",
     "noteTitle": "Τίτλος σημείωσης",
     "isArchived": "Αρχειοθετημένο",
-    "archived": "Αρχειοθετημένο"
+    "archived": "Αρχειοθετημένο",
+    "projectCategory": "Κατηγορία έργου",
+    "infrastructureSpecialization": "Εξειδίκευση υποδομής",
+    "aepoRenewalDate": "Ημερομηνία ανανέωσης ΑΕΠΟ",
+    "targetProgram": "Σχετικό πρόγραμμα / χρηματοδότηση",
+    "estimatedBudget": "Εκτιμώμενος προϋπολογισμός",
+    "description": "Περιγραφή",
+    "notes": "Σημειώσεις"
   },
   "arrayItemPrefixes": {
     "contracts": "Σύμβαση",

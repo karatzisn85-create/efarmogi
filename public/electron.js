@@ -11816,7 +11816,7 @@ ipcMain.handle('merge-and-save-pdf', async (_event, { mainBuffer, attachmentPath
 // Get audit log
 ipcMain.handle('get-audit-log', async (event, options = {}) => {
   try {
-    const { limit = 1000, entityType = null, action = null, startDate = null, endDate = null, requestingUser = null } = options;
+    const { limit = 1000, entityType = null, entityId = null, action = null, startDate = null, endDate = null, requestingUser = null } = options;
     
     let auditLog = { logs: [] };
     if (fs.existsSync(auditLogPath)) {
@@ -11853,6 +11853,11 @@ ipcMain.handle('get-audit-log', async (event, options = {}) => {
     // Filter by entity type
     if (entityType) {
       filteredLogs = filteredLogs.filter(log => log.entityType === entityType);
+    }
+
+    // Filter by entity id
+    if (entityId) {
+      filteredLogs = filteredLogs.filter(log => log.entityId === entityId);
     }
     
     // Filter by action
@@ -12661,6 +12666,31 @@ function loadProposal(proposalId) {
   }
 }
 
+function pickProposalAuditSnapshot(proposal) {
+  if (!proposal) return {};
+  return {
+    title: proposal.title || '',
+    status: proposal.status || '',
+    projectCategory: proposal.projectCategory || '',
+    infrastructureSpecialization: proposal.infrastructureSpecialization || '',
+    aepoRenewalDate: proposal.aepoRenewalDate || '',
+    description: proposal.description || '',
+    notes: proposal.notes || '',
+  };
+}
+
+function logProposalActivity(proposalId, type, details, actingUsername) {
+  const proposal = loadProposal(proposalId);
+  logAuditAction({
+    type: type || 'update',
+    entityType: 'proposal',
+    entityId: proposalId,
+    entityTitle: proposal?.title || '',
+    userFullName: actingUsername || '',
+    details: details || '',
+  });
+}
+
 function resolveProposalGroupPath(proposalId, groupId, ...parts) {
   const target = path.resolve(path.join(getProposalDir(proposalId), 'files', groupId, ...parts));
   const root = path.resolve(getOrimanthiDir());
@@ -12705,21 +12735,35 @@ ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipA
   try {
     const denied = denyOrimanthiManage(actingUsername);
     if (denied) return denied;
-    if (!proposal || !proposal.id) return { success: false, error: 'Μη έγκυρα δεδομένα πρότασης' };
+    if (!proposal || !proposal.id) return { success: false, error: 'Μη έγκυρα δεδομένα έργου' };
     const proposalDir = getProposalDir(proposal.id);
+    const existedBefore = fs.existsSync(getProposalDataPath(proposal.id));
+    const existing = existedBefore ? loadProposal(proposal.id) : null;
     if (!fs.existsSync(proposalDir)) fs.mkdirSync(proposalDir, { recursive: true });
     const toSave = { ...proposal, updatedAt: new Date().toISOString() };
+    if (existing?.createdAt && !toSave.createdAt) toSave.createdAt = existing.createdAt;
     safeWriteJSON(getProposalDataPath(proposal.id), toSave);
-    // Καταγραφή audit μόνο για ρητές ενέργειες — όχι για κάθε auto-save keystroke
     if (!skipAudit) {
-      logAuditAction({
-        type: 'update',
-        entityType: 'proposal',
-        entityId: proposal.id,
-        entityTitle: proposal.title || '',
-        userFullName: actingUsername || '',
-        details: 'Αποθήκευση πρότασης ωρίμανσης'
-      });
+      if (!existedBefore) {
+        logAuditAction({
+          type: 'create',
+          entityType: 'proposal',
+          entityId: proposal.id,
+          entityTitle: proposal.title || '',
+          userFullName: actingUsername || '',
+          details: 'Δημιουργία νέου έργου ωρίμανσης',
+        });
+      } else {
+        logAuditAction({
+          type: 'update',
+          entityType: 'proposal',
+          entityId: proposal.id,
+          entityTitle: proposal.title || '',
+          userFullName: actingUsername || '',
+          oldValue: pickProposalAuditSnapshot(existing),
+          newValue: pickProposalAuditSnapshot(toSave),
+        });
+      }
     }
     return { success: true, proposal: toSave };
   } catch (e) {
@@ -12746,7 +12790,7 @@ ipcMain.handle('delete-proposal', async (_event, { proposalId, actingUsername } 
       entityId: proposalId,
       entityTitle: proposal?.title || proposalId,
       userFullName: actingUsername || '',
-      details: 'Διαγραφή πρότασης ωρίμανσης'
+      details: 'Διαγραφή έργου ωρίμανσης'
     });
     return { success: true };
   } catch (e) {
@@ -12792,6 +12836,14 @@ ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, fi
         size: fs.statSync(destPath).size,
         uploadedAt: new Date().toISOString()
       });
+    }
+    if (saved.length) {
+      logProposalActivity(
+        proposalId,
+        'update',
+        `Προστέθηκαν ${saved.length} αρχεία στην κατηγορία: ${saved.map((f) => f.name).join(', ')}`,
+        actingUsername
+      );
     }
     return { success: true, files: saved };
   } catch (e) {
@@ -12849,6 +12901,12 @@ ipcMain.handle('upload-proposal-folder', async (_event, { proposalId, groupId, f
       size: totalSize,
       uploadedAt: new Date().toISOString()
     };
+    logProposalActivity(
+      proposalId,
+      'update',
+      `Προστέθηκε φάκελος «${safeLabel}» (${saved.length} αρχεία)`,
+      actingUsername
+    );
     return { success: true, folder, files: saved };
   } catch (e) {
     logger.error('upload-proposal-folder error:', e.message);
@@ -12868,6 +12926,7 @@ ipcMain.handle('delete-proposal-file', async (_event, { proposalId, groupId, fil
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) return { success: false, error: 'Η εγγραφή δεν είναι αρχείο' };
     fs.unlinkSync(filePath);
+    logProposalActivity(proposalId, 'update', `Διαγράφηκε αρχείο «${fileName}»`, actingUsername);
     return { success: true };
   } catch (e) {
     logger.error('delete-proposal-file error:', e.message);
@@ -12915,6 +12974,12 @@ ipcMain.handle('rename-proposal-file', async (_event, {
     }
 
     fs.renameSync(srcPath, destPath);
+    logProposalActivity(
+      proposalId,
+      'update',
+      `Μετονομασία αρχείου: «${safeOld}» → «${safeNew}»`,
+      actingUsername
+    );
     return { success: true, oldFileName: safeOld, newFileName: safeNew };
   } catch (e) {
     logger.error('rename-proposal-file error:', e.message);
@@ -12932,6 +12997,7 @@ ipcMain.handle('delete-proposal-folder', async (_event, { proposalId, groupId, f
     const folderPath = resolveProposalGroupPath(proposalId, groupId, folderId);
     if (!fs.existsSync(folderPath)) return { success: false, error: 'Ο φάκελος δεν βρέθηκε' };
     fs.rmSync(folderPath, { recursive: true, force: true });
+    logProposalActivity(proposalId, 'update', `Διαγράφηκε φάκελος αρχείων`, actingUsername);
     return { success: true };
   } catch (e) {
     logger.error('delete-proposal-folder error:', e.message);
@@ -12970,6 +13036,7 @@ ipcMain.handle('move-proposal-entry', async (_event, {
         return { success: false, error: 'Υπάρχει ήδη φάκελος με το ίδιο όνομα στον προορισμό' };
       }
       await fse.move(srcPath, destPath);
+      logProposalActivity(proposalId, 'update', 'Μεταφορά φακέλου σε άλλη κατηγορία αρχείων', actingUsername);
       return { success: true, entry: { kind: 'folder', id: folderId } };
     }
 
@@ -12991,6 +13058,12 @@ ipcMain.handle('move-proposal-entry', async (_event, {
     }
     await fse.move(srcPath, destPath);
     const movedStat = fs.statSync(destPath);
+    logProposalActivity(
+      proposalId,
+      'update',
+      `Μεταφορά αρχείου «${fileName}» σε άλλη κατηγορία`,
+      actingUsername
+    );
     return {
       success: true,
       entry: {
@@ -13094,7 +13167,7 @@ ipcMain.handle('export-proposal', async (_event, { proposalId, includeFiles, act
   try {
     if (!proposalId) return { success: false, error: 'Απαιτείται proposalId' };
     const proposal = loadProposal(proposalId);
-    if (!proposal) return { success: false, error: 'Η πρόταση δεν βρέθηκε' };
+    if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
 
     const { dialog } = require('electron');
     const pickResult = await dialog.showOpenDialog({
@@ -13126,14 +13199,145 @@ ipcMain.handle('export-proposal', async (_event, { proposalId, includeFiles, act
         entityTitle: proposal.title || '',
         userFullName: exportedByLabel,
         details: includeFiles !== false
-          ? 'Εξαγωγή πρότασης ωρίμανσης με αρχεία'
-          : 'Εξαγωγή πρότασης ωρίμανσης (Word μόνο)',
+          ? 'Εξαγωγή έργου ωρίμανσης με αρχεία'
+          : 'Εξαγωγή έργου ωρίμανσης (Word μόνο)',
       });
     }
 
     return result;
   } catch (e) {
     logger.error('export-proposal error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('log-proposal-activity', async (_event, { proposalId, type, details, actingUsername } = {}) => {
+  try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
+    if (!proposalId || !details) return { success: false, error: 'Απαιτούνται proposalId και details' };
+    logProposalActivity(proposalId, type || 'update', details, actingUsername);
+    return { success: true };
+  } catch (e) {
+    logger.error('log-proposal-activity error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('clear-proposal-audit-log', async (_event, { proposalId, actingUsername } = {}) => {
+  try {
+    const denied = denyOrimanthiManage(actingUsername);
+    if (denied) return denied;
+    if (!proposalId) return { success: false, error: 'Απαιτείται proposalId' };
+
+    const proposal = loadProposal(proposalId);
+    if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
+
+    let auditLog = { logs: [] };
+    if (fs.existsSync(auditLogPath)) {
+      try {
+        auditLog = JSON.parse(fs.readFileSync(auditLogPath, 'utf8'));
+      } catch (e) {
+        logger.error('clear-proposal-audit-log read error:', e.message);
+        return { success: false, error: 'Σφάλμα ανάγνωσης ιστορικού' };
+      }
+    }
+
+    const logs = auditLog.logs || [];
+    const remaining = logs.filter(
+      (log) => !(log.entityType === 'proposal' && log.entityId === proposalId)
+    );
+    const deletedCount = logs.length - remaining.length;
+
+    auditLog.logs = remaining;
+    safeWriteJSON(auditLogPath, auditLog);
+
+    return { success: true, deletedCount };
+  } catch (e) {
+    logger.error('clear-proposal-audit-log error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+function walkProposalFiles(proposalId, groupId, groupLabel, relDir, proposalMeta, query, results, seen) {
+  const absDir = relDir
+    ? resolveProposalGroupPath(proposalId, groupId, relDir)
+    : path.join(getProposalDir(proposalId), 'files', groupId);
+  if (!fs.existsSync(absDir)) return;
+  let entries;
+  try {
+    entries = fs.readdirSync(absDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const name = entry.name;
+    const key = `${proposalId}:${groupId}:${relDir || ''}:${name}`;
+    if (seen.has(key)) continue;
+    if (entry.isFile() && name.toLowerCase().includes(query)) {
+      seen.add(key);
+      results.push({
+        projectId: proposalId,
+        projectTitle: proposalMeta.title || '(Χωρίς τίτλο)',
+        projectCategory: proposalMeta.projectCategory || '',
+        groupLabel,
+        entryKind: 'file',
+        fileName: name,
+        folderId: relDir || null,
+        pathHint: relDir ? `${relDir}/${name}` : name,
+      });
+    }
+    if (entry.isDirectory()) {
+      if (name.toLowerCase().includes(query)) {
+        seen.add(key);
+        results.push({
+          projectId: proposalId,
+          projectTitle: proposalMeta.title || '(Χωρίς τίτλο)',
+          projectCategory: proposalMeta.projectCategory || '',
+          groupLabel,
+          entryKind: 'folder',
+          fileName: name,
+          folderId: relDir ? `${relDir}/${name}` : name,
+          pathHint: relDir ? `${relDir}/${name}` : name,
+        });
+      }
+      walkProposalFiles(
+        proposalId,
+        groupId,
+        groupLabel,
+        relDir ? path.join(relDir, name) : name,
+        proposalMeta,
+        query,
+        results,
+        seen
+      );
+    }
+  }
+}
+
+ipcMain.handle('search-proposal-files', async (_event, { query } = {}) => {
+  try {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q || q.length < 2) return { success: true, results: [] };
+    const root = ensureOrimanthiDir();
+    const results = [];
+    const seen = new Set();
+    const entries = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory());
+    for (const entry of entries) {
+      const proposalId = entry.name;
+      const proposal = loadProposal(proposalId);
+      if (!proposal) continue;
+      (proposal.fileGroups || []).forEach((group) => {
+        walkProposalFiles(proposalId, group.id, group.label, '', proposal, q, results, seen);
+      });
+    }
+    results.sort((a, b) =>
+      a.fileName.localeCompare(b.fileName, 'el') ||
+      a.projectTitle.localeCompare(b.projectTitle, 'el')
+    );
+    return { success: true, results: results.slice(0, 200) };
+  } catch (e) {
+    logger.error('search-proposal-files error:', e.message);
     return { success: false, error: e.message };
   }
 });

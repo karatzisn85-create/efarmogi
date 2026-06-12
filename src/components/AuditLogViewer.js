@@ -377,6 +377,7 @@ const ENTITY_TYPE_LABELS = {
   'note': 'Σημείωση',
   'note_group': 'Ομάδα Σημειώσεων',
   'egkrisi_link': 'Σύνδεση Έγκρισης',
+  'proposal': 'Έργο Ωρίμανσης',
 };
 
 const ACTION_LABELS = {
@@ -384,6 +385,7 @@ const ACTION_LABELS = {
   'update': 'Ενημέρωση',
   'delete': 'Διαγραφή',
   'import': 'Εισαγωγή',
+  'export': 'Εξαγωγή',
 };
 
 function getVisibilityText(role) {

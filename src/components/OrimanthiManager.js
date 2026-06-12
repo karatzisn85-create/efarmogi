@@ -4,6 +4,16 @@ import { v4 as uuidv4 } from 'uuid';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
 import { showConfirm } from '../utils/confirmModal';
 import { useToast } from './ToastProvider';
+import {
+  computeExtendedHubStats,
+  buildDonutGradient,
+  summarizeHistoryEntry,
+  formatDateTimeEl,
+  formatShortDateEl,
+  isImageFileName,
+  filterGroupFiles,
+  PROPOSAL_ACTION_LABELS,
+} from '../utils/orimanthiHelpers';
 
 /* ─── Tokens ─────────────────────────────────────────────────────────────── */
 const C = {
@@ -29,13 +39,13 @@ const C = {
   white:       '#ffffff',
 };
 
-const PROPOSAL_STATUSES = [
-  { value: 'draft',       label: 'Προσχέδιο',        color: C.slate400,  bg: C.slate100 },
-  { value: 'maturing',   label: 'Υπό ωρίμανση',      color: C.amber,     bg: '#fffbeb' },
-  { value: 'ready',      label: 'Έτοιμη προς υποβολή', color: C.teal,   bg: C.tealLight },
-  { value: 'submitted',  label: 'Υποβλήθηκε',         color: C.indigo,   bg: C.indigoLight },
-  { value: 'approved',   label: 'Εγκρίθηκε',          color: C.emerald,  bg: '#f0fdf4' },
-  { value: 'rejected',   label: 'Απορρίφθηκε',        color: C.rose,     bg: '#fff1f2' },
+const PROJECT_MATURITY_STATUSES = [
+  { value: 'draft',      label: 'Αρχική καταγραφή',     color: C.slate400,  bg: C.slate100 },
+  { value: 'maturing',   label: 'Υπό ωρίμανση',         color: C.amber,     bg: '#fffbeb' },
+  { value: 'ready',      label: 'Πλήρως ώριμο',         color: C.teal,      bg: C.tealLight },
+  { value: 'submitted',  label: 'Σε διαδικασία έγκρισης', color: C.indigo,  bg: C.indigoLight },
+  { value: 'approved',   label: 'Εγκεκριμένο',          color: C.emerald,   bg: '#f0fdf4' },
+  { value: 'rejected',   label: 'Απορρίφθηκε',          color: C.rose,      bg: '#fff1f2' },
 ];
 
 const PRESET_GROUPS = [
@@ -53,8 +63,184 @@ const PRESET_GROUPS = [
   { label: 'Διάφορα', icon: '📁' },
 ];
 
+const INFRASTRUCTURE_CATEGORY = 'Έργα υποδομής';
+const DEFAULT_PROJECT_CATEGORIES = [
+  INFRASTRUCTURE_CATEGORY,
+  'Οδοποιία',
+  'Αναπλάσεις οικισμών',
+  'Κτιριακά',
+  'Διάφορα',
+];
+const DEFAULT_INFRA_SPECIALIZATIONS = ['Υδραυλικά', 'Αποχετεύσεις', 'Γεωτρήσεις'];
+const LS_CUSTOM_CATEGORIES = 'orimanthiCustomProjectCategories';
+const LS_CUSTOM_SPECIALIZATIONS = 'orimanthiCustomInfraSpecializations';
+const NEW_PROJECT_FILES_GROUP_LABEL = 'Αρχεία έργου'; // legacy — χρησιμοποιείται μόνο σε παλιά records
+const ADD_NEW_CATEGORY_OPTION = '__add_new_category__';
+const ADD_NEW_SPECIALIZATION_OPTION = '__add_new_specialization__';
+
+const EMPTY_NEW_PROJECT_DRAFT = {
+  title: '',
+  projectCategory: '',
+  infrastructureSpecialization: '',
+  aepoRenewalDate: '',
+};
+
+function loadStoredList(key, defaults) {
+  try {
+    const raw = localStorage.getItem(key);
+    const custom = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(custom)) return [...defaults];
+    const merged = [...defaults];
+    custom.forEach((item) => {
+      const label = String(item || '').trim();
+      if (!label) return;
+      if (!merged.some((x) => x.toLowerCase() === label.toLowerCase())) merged.push(label);
+    });
+    return merged;
+  } catch {
+    return [...defaults];
+  }
+}
+
+function saveCustomList(key, defaults, fullList) {
+  const custom = fullList.filter(
+    (item) => !defaults.some((d) => d.toLowerCase() === String(item).toLowerCase())
+  );
+  localStorage.setItem(key, JSON.stringify(custom));
+}
+
+function getCustomOnlyItems(fullList, defaults) {
+  return fullList.filter(
+    (item) => !defaults.some((d) => d.toLowerCase() === String(item).toLowerCase())
+  );
+}
+
+function isDefaultCategory(label) {
+  return DEFAULT_PROJECT_CATEGORIES.some(
+    (d) => d.toLowerCase() === String(label || '').trim().toLowerCase()
+  );
+}
+
+function isDefaultSpecialization(label) {
+  return DEFAULT_INFRA_SPECIALIZATIONS.some(
+    (d) => d.toLowerCase() === String(label || '').trim().toLowerCase()
+  );
+}
+
+function isInfrastructureCategory(category) {
+  return String(category || '').trim().toLowerCase() === INFRASTRUCTURE_CATEGORY.toLowerCase();
+}
+
+function formatAepoDate(value) {
+  if (!value) return '';
+  const isoMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  return String(value);
+}
+
+function parseProjectSearch(project, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    project.title,
+    project.projectCategory,
+    project.infrastructureSpecialization,
+    project.description,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return haystack.includes(q);
+}
+
+function getProjectFileCount(project) {
+  return (project.fileGroups || []).reduce((sum, g) => sum + (g.files?.length || 0), 0);
+}
+
+function getProjectPendingOpen(project) {
+  return (project.pendingItems || []).filter((i) => !i.done).length;
+}
+
+const HUB_SORT_OPTIONS = [
+  { value: 'created_desc', label: 'Νεότερα πρώτα' },
+  { value: 'created_asc', label: 'Παλαιότερα πρώτα' },
+  { value: 'title_asc', label: 'Τίτλος Α → Ω' },
+  { value: 'title_desc', label: 'Τίτλος Ω → Α' },
+  { value: 'category_asc', label: 'Κατηγορία Α → Ω' },
+  { value: 'status', label: 'Κατάσταση ωρίμανσης' },
+  { value: 'files_desc', label: 'Περισσότερα αρχεία' },
+  { value: 'aepo_asc', label: 'ΑΕΠΟ (επόμενες)' },
+  { value: 'pending_desc', label: 'Περισσότερες εκκρεμότητες' },
+];
+
+function sortHubProjects(list, sortBy) {
+  const statusOrder = Object.fromEntries(
+    PROJECT_MATURITY_STATUSES.map((s, index) => [s.value, index])
+  );
+  const sorted = [...list];
+  sorted.sort((a, b) => {
+    switch (sortBy) {
+      case 'created_asc':
+        return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      case 'title_asc':
+        return String(a.title || '').localeCompare(String(b.title || ''), 'el');
+      case 'title_desc':
+        return String(b.title || '').localeCompare(String(a.title || ''), 'el');
+      case 'category_asc':
+        return String(a.projectCategory || 'ΩΩΩ').localeCompare(String(b.projectCategory || 'ΩΩΩ'), 'el');
+      case 'status':
+        return (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+      case 'files_desc':
+        return getProjectFileCount(b) - getProjectFileCount(a);
+      case 'aepo_asc': {
+        const da = a.aepoRenewalDate || '9999-12-31';
+        const db = b.aepoRenewalDate || '9999-12-31';
+        return da.localeCompare(db);
+      }
+      case 'pending_desc':
+        return getProjectPendingOpen(b) - getProjectPendingOpen(a);
+      case 'created_desc':
+      default:
+        return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    }
+  });
+  return sorted;
+}
+
+function matchesHubQuickFilter(project, quickFilter) {
+  if (!quickFilter) return true;
+  switch (quickFilter) {
+    case 'maturing':
+      return project.status === 'maturing' || project.status === 'draft';
+    case 'ready':
+      return project.status === 'ready';
+    case 'approved':
+      return project.status === 'approved';
+    case 'aepo_soon': {
+      if (!project.aepoRenewalDate) return false;
+      const d = new Date(project.aepoRenewalDate);
+      if (Number.isNaN(d.getTime())) return false;
+      const limit = new Date();
+      limit.setDate(limit.getDate() + 60);
+      return d <= limit;
+    }
+    case 'pending':
+      return getProjectPendingOpen(project) > 0;
+    default:
+      return true;
+  }
+}
+
+function matchesHubFilters(project, { search, categoryFilter, statusFilter }) {
+  if (!parseProjectSearch(project, search)) return false;
+  if (categoryFilter && (project.projectCategory || '') !== categoryFilter) return false;
+  if (statusFilter && project.status !== statusFilter) return false;
+  return true;
+}
+
 function getStatusStyle(value) {
-  return PROPOSAL_STATUSES.find((s) => s.value === value) || PROPOSAL_STATUSES[0];
+  return PROJECT_MATURITY_STATUSES.find((s) => s.value === value) || PROJECT_MATURITY_STATUSES[0];
+}
+
+function formatProjectCount(count) {
+  return count === 1 ? '1 έργο' : `${count} έργα`;
 }
 
 function formatBytes(bytes) {
@@ -95,8 +281,9 @@ function emptyProposal() {
     title: '',
     description: '',
     status: 'draft',
-    targetProgram: '',
-    estimatedBudget: '',
+    projectCategory: '',
+    infrastructureSpecialization: '',
+    aepoRenewalDate: '',
     notes: '',
     pendingItems: [],
     fileGroups: [],
@@ -127,6 +314,10 @@ const fadeIn = keyframes`
 const pulse = keyframes`
   0%, 100% { opacity: 1; } 50% { opacity: 0.5; }
 `;
+const shimmer = keyframes`
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+`;
 
 /* ─── Styled components ─────────────────────────────────────────────────── */
 const Overlay = styled.div`
@@ -154,22 +345,34 @@ const Modal = styled.div`
 `;
 
 const ModalHeader = styled.div`
-  background: linear-gradient(135deg, ${C.teal} 0%, ${C.indigo} 60%, ${C.violet} 100%);
-  padding: 1.35rem 1.75rem;
+  background: ${(p) => (p.$formal
+    ? `linear-gradient(135deg, ${C.slate800} 0%, ${C.indigoDark} 50%, ${C.teal} 100%)`
+    : `linear-gradient(135deg, ${C.teal} 0%, ${C.indigo} 55%, ${C.violet} 100%)`)};
+  padding: 1.1rem 1.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
+  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.25);
+
+  &::before {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, ${C.teal}, ${C.emerald}, ${C.indigo}, ${C.violet});
+    opacity: 0.85;
+  }
 
   &::after {
     content: '';
     position: absolute;
     top: -40%; right: -5%;
-    width: 200px; height: 200px;
+    width: 220px; height: 220px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.08);
     pointer-events: none;
   }
 `;
@@ -180,11 +383,12 @@ const HeaderTitle = styled.div`
 `;
 const HeaderIcon = styled.span`
   font-size: 1.5rem;
-  background: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.2);
   width: 46px; height: 46px;
   border-radius: 13px;
   display: flex; align-items: center; justify-content: center;
-  border: 1px solid rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.28);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 `;
 const HeaderText = styled.div``;
 const HeaderH = styled.h2`
@@ -206,14 +410,14 @@ const CloseBtn = styled.button`
   &:hover { background: rgba(255,255,255,0.22); color: white; }
 `;
 
-const HeaderActionBtn = styled.button`
+const HeaderPrimaryBtn = styled.button`
   color: white;
-  background: rgba(255,255,255,0.18);
-  border: 1px solid rgba(255,255,255,0.28);
-  padding: 0.42rem 0.85rem;
+  background: linear-gradient(135deg, ${C.teal} 0%, ${C.emerald} 100%);
+  border: 1px solid rgba(255,255,255,0.25);
+  padding: 0.48rem 1rem;
   border-radius: 10px;
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.74rem;
+  font-weight: 800;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -221,16 +425,45 @@ const HeaderActionBtn = styled.button`
   white-space: nowrap;
   transition: all 0.2s;
   z-index: 1;
-  &:hover:not(:disabled) { background: rgba(255,255,255,0.28); }
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.4);
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(13, 148, 136, 0.5);
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+`;
+
+const HeaderActionBtn = styled.button`
+  color: white;
+  background: linear-gradient(135deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.12) 100%);
+  border: 1px solid rgba(255,255,255,0.35);
+  padding: 0.42rem 0.85rem;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  transition: all 0.2s;
+  z-index: 1;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15);
+  &:hover:not(:disabled) {
+    background: rgba(255,255,255,0.32);
+    transform: translateY(-1px);
+  }
   &:disabled { opacity: 0.45; cursor: not-allowed; }
 `;
 
 const Body = styled.div`
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+  background: linear-gradient(180deg, #eef2ff 0%, ${C.slate50} 35%, ${C.slate50} 100%);
 `;
 
 /* ── Sidebar ── */
@@ -391,10 +624,1339 @@ const NewProposalBtns = styled.div`
   width: 100%;
 `;
 
+const HubViewToggle = styled.div`
+  display: inline-flex;
+  border: 1px solid ${C.slate200};
+  border-radius: 10px;
+  overflow: hidden;
+  background: ${C.white};
+`;
+const HubViewBtn = styled.button`
+  padding: 0.48rem 0.72rem;
+  border: none;
+  background: ${(p) => (p.$active
+    ? `linear-gradient(135deg, ${C.indigo} 0%, ${C.indigoDark} 100%)`
+    : 'transparent')};
+  color: ${(p) => (p.$active ? C.white : C.slate600)};
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.18s;
+  box-shadow: ${(p) => (p.$active ? '0 2px 8px rgba(99,102,241,0.3)' : 'none')};
+  &:hover {
+    background: ${(p) => (p.$active
+      ? `linear-gradient(135deg, ${C.indigoDark} 0%, ${C.violet} 100%)`
+      : C.indigoLight)};
+    color: ${(p) => (p.$active ? C.white : C.indigoDark)};
+  }
+`;
+const HubSkeletonGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 0.85rem;
+`;
+const HubSkeletonCard = styled.div`
+  height: 148px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, ${C.slate100} 25%, ${C.slate200} 50%, ${C.slate100} 75%);
+  background-size: 200% 100%;
+  animation: ${shimmer} 1.2s ease-in-out infinite;
+`;
+const HubKanban = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+`;
+const KanbanColumn = styled.div`
+  background: ${C.white};
+  border: 1px solid ${C.slate200};
+  border-radius: 12px;
+  min-height: 120px;
+  overflow: hidden;
+`;
+const KanbanColumnHeader = styled.div`
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid ${C.slate200};
+  background: ${(p) => p.$bg || C.slate50};
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+`;
+const KanbanColumnTitle = styled.div`
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: ${(p) => p.$color || C.slate700};
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+`;
+const KanbanColumnCount = styled.span`
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: ${C.slate500};
+  background: ${C.white};
+  border: 1px solid ${C.slate200};
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+`;
+const KanbanColumnBody = styled.div`
+  padding: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: min(62vh, 520px);
+  overflow-y: auto;
+`;
+const FileSearchPanel = styled.div`
+  margin-bottom: 0.85rem;
+  border: 1px solid ${C.indigo}33;
+  border-radius: 14px;
+  background: ${C.white};
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.1);
+`;
+const FileSearchPanelHead = styled.div`
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid ${C.indigo}22;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: ${C.indigoDark};
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(90deg, ${C.indigoLight} 0%, ${C.white} 100%);
+`;
+const FileSearchResults = styled.div`
+  max-height: 220px;
+  overflow-y: auto;
+`;
+const FileSearchRow = styled.button`
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid ${C.slate100};
+  background: ${C.white};
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s;
+  &:hover { background: ${C.indigoLight}; }
+  &:last-child { border-bottom: none; }
+`;
+const FileSearchRowTitle = styled.div`
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: ${C.slate800};
+  margin-bottom: 0.15rem;
+`;
+const FileSearchRowMeta = styled.div`
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  line-height: 1.35;
+`;
+const HubShell = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.1rem 1.5rem 1.35rem;
+  min-height: 0;
+`;
+const HubControlsPanel = styled.div`
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  margin-bottom: 1rem;
+  padding: 0.9rem;
+  background: linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(238,242,255,0.92) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.1), inset 0 1px 0 rgba(255,255,255,0.8);
+  backdrop-filter: blur(10px);
+`;
+const HubToolbarCard = styled.div`
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.75rem 0.85rem;
+  background: ${C.white};
+  border: 1px solid ${C.slate200};
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, ${C.teal}, ${C.indigo}, ${C.violet});
+  }
+`;
+const HubIntro = styled.div`
+  margin-bottom: 1rem;
+`;
+const HubIntroTitle = styled.h3`
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: ${C.slate900};
+`;
+const HubIntroSub = styled.p`
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  line-height: 1.45;
+  max-width: 720px;
+`;
+const HubToolbar = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  margin-bottom: 1rem;
+`;
+const HubFilterSelect = styled.select`
+  padding: 0.5rem 0.65rem;
+  border: 1px solid ${C.slate200};
+  border-radius: 10px;
+  background: ${C.white};
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: ${C.slate700};
+  outline: none;
+  min-width: 148px;
+  box-sizing: border-box;
+  font-family: inherit;
+  cursor: pointer;
+  &:focus { border-color: ${C.indigo}; box-shadow: 0 0 0 3px ${C.indigoLight}; }
+`;
+const HubToolbarActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-left: auto;
+`;
+const HubStatsBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.85rem;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, ${C.indigo} 0%, ${C.violet} 100%);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45);
+  }
+`;
+const HubClearFiltersBtn = styled.button`
+  padding: 0.5rem 0.7rem;
+  border: 1px solid ${C.rose}44;
+  border-radius: 10px;
+  background: #fff1f2;
+  color: ${C.rose};
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  &:hover { border-color: ${C.rose}; background: #ffe4e6; }
+`;
+const HubFiltersToggleBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid ${(p) => (p.$active ? C.indigo : C.slate200)};
+  border-radius: 10px;
+  background: ${(p) => (p.$active
+    ? `linear-gradient(135deg, ${C.indigoLight}, ${C.white})`
+    : C.white)};
+  color: ${(p) => (p.$active ? C.indigoDark : C.slate700)};
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.18s;
+  box-shadow: ${(p) => (p.$active ? '0 3px 10px rgba(99,102,241,0.15)' : 'none')};
+  &:hover { border-color: ${C.indigo}; color: ${C.indigoDark}; }
+`;
+const HubFiltersPanel = styled.div`
+  margin-bottom: 0.75rem;
+  padding: 0.85rem;
+  border: 1px dashed ${C.indigo}55;
+  border-radius: 12px;
+  background: linear-gradient(180deg, ${C.indigoLight}44 0%, ${C.white} 100%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  animation: ${fadeIn} 0.2s ease;
+`;
+const HubSummaryBar = styled.button`
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid ${C.indigo}33;
+  border-radius: 12px;
+  background: linear-gradient(135deg, ${C.white} 0%, ${C.indigoLight} 100%);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: ${C.slate600};
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.08);
+  &:hover {
+    border-color: ${C.indigo};
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.15);
+    transform: translateY(-1px);
+  }
+  strong { color: ${C.indigoDark}; font-weight: 800; }
+`;
+const HubStatHighlight = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 8px;
+  background: ${(p) => p.$bg || C.white};
+  color: ${(p) => p.$color || C.slate700};
+  font-weight: 700;
+  border: 1px solid ${(p) => `${p.$color || C.slate300}33`};
+`;
+const HubSummarySep = styled.span`
+  color: ${C.slate300};
+  font-weight: 400;
+`;
+const HubQuickFilters = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0;
+  padding-top: 0.15rem;
+`;
+const HubQuickFilterPill = styled.button`
+  padding: 0.36rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid ${(p) => (p.$active ? 'transparent' : C.slate200)};
+  background: ${(p) => (p.$active
+    ? `linear-gradient(135deg, ${C.indigo} 0%, ${C.indigoDark} 100%)`
+    : C.white)};
+  color: ${(p) => (p.$active ? C.white : C.slate600)};
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.18s;
+  box-shadow: ${(p) => (p.$active ? '0 3px 12px rgba(99,102,241,0.35)' : '0 1px 3px rgba(15,23,42,0.04)')};
+  &:hover {
+    border-color: ${C.indigo};
+    ${(p) => !p.$active && css`background: ${C.indigoLight}; color: ${C.indigoDark};`}
+    transform: translateY(-1px);
+  }
+`;
+const HubListWrap = styled.div`
+  background: ${C.white};
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08);
+`;
+const HubListHead = styled.div`
+  display: grid;
+  grid-template-columns: minmax(200px, 2.2fr) 120px 88px 56px 88px 130px;
+  gap: 0.5rem;
+  padding: 0.6rem 0.85rem;
+  background: linear-gradient(90deg, ${C.slate800} 0%, ${C.indigoDark} 100%);
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.88);
+`;
+const HubListRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(200px, 2.2fr) 120px 88px 56px 88px 130px;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid ${C.slate100};
+  font-size: 0.76rem;
+  transition: all 0.15s;
+  &:nth-child(even) { background: ${C.slate50}99; }
+  &:last-child { border-bottom: none; }
+  &:hover {
+    background: linear-gradient(90deg, ${C.indigoLight}88 0%, ${C.tealLight}66 100%);
+    box-shadow: inset 4px 0 0 ${C.indigo};
+  }
+`;
+const HubListCell = styled.div`
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: ${C.slate600};
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+const HubListTitleCell = styled.button`
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 0;
+`;
+const HubListTitle = styled.div`
+  font-weight: 700;
+  color: ${C.slate900};
+  line-height: 1.35;
+  word-break: break-word;
+  white-space: normal;
+`;
+const HubListSub = styled.div`
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  margin-top: 0.15rem;
+  line-height: 1.3;
+`;
+const HubRowStatus = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: ${(p) => p.$color || C.slate600};
+  white-space: nowrap;
+`;
+const HubRowActions = styled.div`
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+`;
+const HubRowBtn = styled.button`
+  padding: 0.32rem 0.62rem;
+  border-radius: 8px;
+  border: 1px solid ${C.slate200};
+  background: ${C.white};
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: ${C.slate700};
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: all 0.15s;
+  ${(p) => p.$primary && css`
+    background: linear-gradient(135deg, ${C.teal} 0%, ${C.indigo} 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 3px 10px rgba(99, 102, 241, 0.3);
+    &:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 5px 14px rgba(99, 102, 241, 0.4);
+      color: white;
+    }
+  `}
+  &:hover:not(:disabled) {
+    border-color: ${C.indigo};
+    color: ${C.indigoDark};
+    background: ${C.indigoLight};
+  }
+  &:disabled { opacity: 0.45; cursor: wait; }
+`;
+const HubSkeletonList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`;
+const HubSkeletonRow = styled.div`
+  height: 52px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, ${C.slate100} 25%, ${C.slate200} 50%, ${C.slate100} 75%);
+  background-size: 200% 100%;
+  animation: ${shimmer} 1.2s ease-in-out infinite;
+`;
+const HubSearch = styled.input`
+  flex: 1;
+  min-width: 220px;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid ${C.slate200};
+  border-radius: 10px;
+  background: ${C.white};
+  font-size: 0.82rem;
+  color: ${C.slate700};
+  outline: none;
+  box-sizing: border-box;
+  transition: all 0.18s;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.04);
+  &:focus {
+    border-color: ${C.indigo};
+    box-shadow: 0 0 0 3px ${C.indigoLight}, inset 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+`;
+const HubStats = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+`;
+const HubStatChip = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: ${C.white};
+  border: 1px solid ${C.slate200};
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: ${C.slate600};
+`;
+const HubGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 0.75rem;
+`;
+const HubCard = styled.div`
+  text-align: left;
+  background: ${C.white};
+  border: 1px solid ${C.slate200};
+  border-radius: 14px;
+  padding: 0;
+  transition: all 0.2s;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  animation: ${fadeIn} 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  &:hover {
+    border-color: ${C.indigo}55;
+    box-shadow: 0 10px 28px rgba(99, 102, 241, 0.12);
+    transform: translateY(-2px);
+  }
+`;
+const HubCardHeader = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem 0.55rem;
+  border-bottom: 1px solid ${C.slate100};
+  background: linear-gradient(180deg, ${C.indigoLight}55 0%, ${C.white} 100%);
+`;
+const HubCardStatusBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: ${(p) => p.$color || C.slate600};
+  background: ${(p) => p.$bg || C.slate100};
+  white-space: nowrap;
+  flex-shrink: 0;
+`;
+const HubCardBody = styled.div`
+  padding: 0.65rem 0.9rem 0.75rem;
+  flex: 1;
+  min-width: 0;
+`;
+const HubCardFooter = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.9rem;
+  border-top: 1px solid ${C.slate100};
+  background: ${C.slate50};
+`;
+const HubCardMetaLine = styled.div`
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  line-height: 1.4;
+  margin-top: 0.35rem;
+`;
+const HubCardStat = styled.span`
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: ${C.slate500};
+`;
+const HubCardExportLink = styled.button`
+  border: none;
+  background: transparent;
+  color: ${C.indigoDark};
+  font-size: 0.66rem;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0.15rem 0.25rem;
+  border-radius: 4px;
+  &:hover { background: ${C.indigoLight}; }
+  &:disabled { opacity: 0.45; cursor: wait; }
+`;
+const HubCardTop = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+`;
+const HubCardClickArea = styled.button`
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+`;
+const HubCardExportBtn = styled.button`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid ${C.slate200};
+  background: ${C.slate50};
+  color: ${C.slate600};
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  &:hover {
+    background: ${C.indigoLight};
+    border-color: ${C.indigo};
+    color: ${C.indigoDark};
+  }
+  &:disabled { opacity: 0.45; cursor: wait; }
+`;
+const StatsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+`;
+const StatsCard = styled.div`
+  background: ${C.slate50};
+  border: 1px solid ${C.slate200};
+  border-radius: 12px;
+  padding: 0.8rem 0.85rem;
+`;
+const StatsCardValue = styled.div`
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: ${C.indigoDark};
+  line-height: 1.1;
+`;
+const StatsCardLabel = styled.div`
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: ${C.slate500};
+  margin-top: 0.25rem;
+  line-height: 1.3;
+`;
+const StatsSectionTitle = styled.h4`
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: ${C.slate700};
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+`;
+const StatsBreakdown = styled.div`
+  margin-bottom: 1rem;
+  border: 1px solid ${C.slate200};
+  border-radius: 12px;
+  overflow: hidden;
+  background: ${C.white};
+`;
+const StatsBreakdownRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid ${C.slate100};
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: ${C.slate700};
+  &:last-child { border-bottom: none; }
+`;
+const StatsBreakdownCount = styled.span`
+  font-weight: 800;
+  color: ${C.indigoDark};
+  background: ${C.indigoLight};
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+`;
+const StatsDonutRow = styled.div`
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+`;
+const StatsDonutBlock = styled.div`
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem;
+  border: 1px solid ${C.slate200};
+  border-radius: 12px;
+  background: ${C.white};
+`;
+const StatsDonut = styled.div`
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: ${(p) => p.$gradient || C.slate200};
+  position: relative;
+  flex-shrink: 0;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 14px;
+    border-radius: 50%;
+    background: ${C.white};
+  }
+`;
+const StatsDonutLegend = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+const StatsDonutLegendItem = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0.2rem 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: ${C.slate700};
+  text-align: left;
+  &:hover { color: ${C.indigoDark}; }
+`;
+const StatsDonutDot = styled.span`
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: ${(p) => p.$color || C.slate400};
+  flex-shrink: 0;
+  margin-right: 0.35rem;
+`;
+const StatsInsightList = styled.div`
+  border: 1px solid ${C.slate200};
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+  background: ${C.white};
+`;
+const StatsInsightRow = styled.button`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-bottom: 1px solid ${C.slate100};
+  background: ${C.white};
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  &:hover { background: ${C.indigoLight}; }
+  &:last-child { border-bottom: none; }
+`;
+const StatsInsightMain = styled.div`
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: ${C.slate800};
+  min-width: 0;
+  word-break: break-word;
+`;
+const StatsInsightSub = styled.div`
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  margin-top: 0.12rem;
+`;
+const StatsClickableRow = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-bottom: 1px solid ${C.slate100};
+  background: ${C.white};
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: ${C.slate700};
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+  &:last-child { border-bottom: none; }
+  &:hover { background: ${C.indigoLight}; }
+`;
+const BreadcrumbBar = styled.div`
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  min-width: 0;
+  flex: 1;
+`;
+const DetailTopBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(90deg, ${C.indigoLight} 0%, ${C.tealLight} 100%);
+  border-bottom: 2px solid ${C.indigo}33;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.1);
+  flex-shrink: 0;
+`;
+const BackToHubBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1.1rem;
+  border: none;
+  border-radius: 11px;
+  background: linear-gradient(135deg, ${C.indigo} 0%, ${C.indigoDark} 100%);
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+  transition: all 0.2s;
+  flex-shrink: 0;
+  white-space: nowrap;
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+    background: linear-gradient(135deg, ${C.indigoDark} 0%, ${C.violet} 100%);
+  }
+`;
+const BackToHubIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.2);
+  font-size: 0.85rem;
+  line-height: 1;
+`;
+const BreadcrumbLink = styled.button`
+  border: none;
+  background: transparent;
+  color: ${C.indigoDark};
+  font-size: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+  &:hover { text-decoration: underline; }
+`;
+const BreadcrumbSep = styled.span`color: ${C.slate300};`;
+const BreadcrumbCurrent = styled.span`
+  color: ${C.slate800};
+  font-weight: 800;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+const StickyDetailHeader = styled.div`
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid ${C.slate200};
+  box-shadow: 0 6px 28px rgba(15, 23, 42, 0.08);
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, ${C.teal}, ${C.indigo}, ${C.violet});
+  }
+`;
+const StickyTitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1.25rem 0.5rem;
+  min-width: 0;
+`;
+const StickyTitleText = styled.div`
+  flex: 1;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: ${C.slate900};
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.02em;
+`;
+const DetailStatusBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: ${(p) => p.$color || C.slate600};
+  background: ${(p) => p.$bg || C.slate100};
+  border: 1px solid ${(p) => p.$color || C.slate300}22;
+  white-space: nowrap;
+  flex-shrink: 0;
+`;
+const MetaToggleBtn = styled.button`
+  border: 1px solid ${C.slate200};
+  background: ${C.white};
+  color: ${C.slate600};
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: all 0.18s;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  &:hover {
+    border-color: ${C.indigo};
+    color: ${C.indigoDark};
+    background: ${C.indigoLight};
+  }
+`;
+const DetailScrollArea = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 50%, #f1f5f9 100%);
+  padding: 0.85rem 1.25rem 1rem;
+  &::-webkit-scrollbar { width: 6px; }
+  &::-webkit-scrollbar-thumb { background: ${C.indigo}55; border-radius: 99px; }
+`;
+const MetaCollapsible = styled.div`
+  animation: ${fadeIn} 0.22s ease;
+`;
+const MetaCompactPanel = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+`;
+const MetaCompactRow = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.55rem;
+`;
+const MetaSection = styled.section`
+  background: ${C.white};
+  border: 1px solid ${C.slate200};
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+`;
+const MetaSectionTitle = styled.h4`
+  margin: 0 0 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: ${C.slate500};
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  &::before {
+    content: '';
+    width: 3px;
+    height: 12px;
+    border-radius: 99px;
+    background: linear-gradient(180deg, ${C.indigo}, ${C.teal});
+    flex-shrink: 0;
+  }
+`;
+const MetaFieldBox = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  padding: 0.5rem 0.6rem;
+  background: ${C.slate50};
+  border: 1px solid ${C.slate100};
+  border-radius: 10px;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  &:focus-within {
+    border-color: ${C.indigo}55;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.08);
+    background: ${C.white};
+  }
+`;
+const MetaFieldBoxWide = styled(MetaFieldBox)`
+  grid-column: 1 / -1;
+`;
+const DetailFileFilter = styled.input`
+  flex: 1;
+  min-width: 180px;
+  max-width: 340px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid ${C.slate200};
+  border-radius: 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: ${C.slate700};
+  outline: none;
+  box-sizing: border-box;
+  background: ${C.white};
+  transition: border-color 0.18s, box-shadow 0.18s;
+  &:focus {
+    border-color: ${C.indigo};
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  }
+  &::placeholder { color: ${C.slate400}; font-weight: 500; }
+`;
+const HistoryList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+`;
+const HistoryItem = styled.div`
+  border: 1px solid ${C.slate200};
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  background: ${C.slate50};
+  transition: background 0.15s;
+  &:hover { background: ${C.white}; }
+`;
+const HistoryItemHead = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+`;
+const HistoryAction = styled.span`
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: ${C.indigoDark};
+  letter-spacing: 0.01em;
+`;
+const HistoryTime = styled.span`
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: ${C.slate400};
+`;
+const HistoryBody = styled.div`
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: ${C.slate700};
+  line-height: 1.45;
+`;
+const HistoryUser = styled.div`
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  margin-top: 0.25rem;
+`;
+const NotesPreview = styled.div`
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: ${C.slate700};
+  line-height: 1.6;
+  padding: 1rem 1.1rem;
+  border: 1px solid ${C.slate200};
+  border-radius: 12px;
+  background: linear-gradient(180deg, ${C.slate50} 0%, ${C.white} 100%);
+  margin-bottom: 0.75rem;
+  min-height: 3rem;
+`;
+const HubCardTitle = styled.div`
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: ${C.slate900};
+  line-height: 1.35;
+  word-break: break-word;
+  margin-bottom: 0.55rem;
+`;
+const HubCardMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.45rem;
+`;
+const HubCardBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  color: ${(p) => p.$color || C.slate600};
+  background: ${(p) => p.$bg || C.slate100};
+`;
+const HubCardLine = styled.div`
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  line-height: 1.35;
+`;
+const HubEmpty = styled.div`
+  text-align: center;
+  padding: 3rem 1rem;
+  color: ${C.slate400};
+  font-size: 0.82rem;
+  font-style: italic;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+`;
+const FabButton = styled.button`
+  position: absolute;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.85rem 1.35rem;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, ${C.teal}, ${C.indigo});
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(13, 148, 136, 0.35);
+  transition: transform 0.18s, box-shadow 0.18s;
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px rgba(99, 102, 241, 0.35);
+  }
+`;
+const DetailBackBar = styled.div`
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid ${C.slate200};
+  background: ${C.white};
+  flex-shrink: 0;
+`;
+const WideModalCard = styled.div`
+  background: ${C.white};
+  border-radius: 16px;
+  width: min(920px, 96vw);
+  max-height: min(92vh, 900px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+  animation: ${slideIn} 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+`;
+const WideModalBody = styled.div`
+  padding: 1.15rem 1.35rem;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+`;
+const WideModalFooter = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.85rem 1.35rem;
+  border-top: 1px solid ${C.slate200};
+  background: ${C.slate50};
+  flex-shrink: 0;
+`;
+const FormGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 0.85rem;
+  @media (max-width: 760px) { grid-template-columns: 1fr; }
+`;
+const FormField = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+`;
+const FormFieldFull = styled(FormField)`
+  grid-column: 1 / -1;
+`;
+const InlineAddRow = styled.div`
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.35rem;
+`;
+const MetaLabelRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+`;
+const ManageListsLink = styled.button`
+  border: none;
+  background: transparent;
+  color: ${C.indigoDark};
+  font-size: 0.64rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0.1rem 0.2rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  &:hover { text-decoration: underline; background: ${C.indigoLight}; }
+`;
+const ManageListSection = styled.div`
+  margin-bottom: 1rem;
+  &:last-child { margin-bottom: 0; }
+`;
+const ManageListSectionTitle = styled.h4`
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: ${C.slate700};
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+`;
+const ManageListEmpty = styled.div`
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: ${C.slate400};
+  font-style: italic;
+  padding: 0.5rem 0;
+`;
+const ManageListRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid ${C.slate200};
+  border-radius: 10px;
+  background: ${C.white};
+  margin-bottom: 0.4rem;
+  &:last-child { margin-bottom: 0; }
+`;
+const ManageListRowLabel = styled.div`
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: ${C.slate800};
+  word-break: break-word;
+`;
+const ManageListRowMeta = styled.div`
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  white-space: nowrap;
+`;
+const ManageListDeleteBtn = styled.button`
+  flex-shrink: 0;
+  border: 1px solid ${C.rose}44;
+  background: #fff1f2;
+  color: ${C.rose};
+  border-radius: 8px;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  &:hover { background: #ffe4e6; border-color: ${C.rose}; }
+  &:disabled { opacity: 0.45; cursor: wait; }
+`;
+const StagedFilesBox = styled.div`
+  margin-top: 0.75rem;
+  border: 1px dashed ${C.slate300};
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: ${C.slate50};
+`;
+const StagedFilesHead = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+`;
+const StagedFilesTitle = styled.div`
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: ${C.slate700};
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+`;
+const StagedFileItem = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid ${C.slate200};
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: ${C.slate700};
+  &:last-child { border-bottom: none; }
+`;
+
 /* ── Main content ── */
 const MainContent = styled.div`
-  display: flex; flex-direction: column;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  flex: 1;
+  min-height: 0;
 `;
 const EmptyState = styled.div`
   flex: 1; display: flex; flex-direction: column;
@@ -403,6 +1965,14 @@ const EmptyState = styled.div`
 `;
 const EmptyStateIcon = styled.div`font-size: 3.5rem; opacity: 0.5;`;
 const EmptyStateText = styled.div`font-size: 0.88rem; font-weight: 600;`;
+const EmptyStateSub = styled.div`
+  margin-top: 0.45rem;
+  max-width: 420px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  line-height: 1.45;
+`;
 
 /* ── Proposal detail (tabs) ── */
 const DetailHeader = styled.div`
@@ -412,8 +1982,9 @@ const DetailHeader = styled.div`
   flex-shrink: 0;
 `;
 const TitleRow = styled.div`
-  display: flex; align-items: flex-end; gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
   min-width: 0;
   width: 100%;
 `;
@@ -421,114 +1992,147 @@ const TitleInput = styled.input`
   flex: 1;
   min-width: 0;
   width: 100%;
-  font-size: 1rem; font-weight: 800;
+  font-size: 1.05rem;
+  font-weight: 700;
   color: ${C.slate900};
   outline: none;
-  background: ${C.white};
-  border: 1px solid ${C.slate200};
-  border-radius: 8px;
-  padding: 0.45rem 0.65rem;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  background: transparent;
+  border: none;
+  padding: 0;
   box-sizing: border-box;
-  letter-spacing: -0.01em;
-  &:focus {
-    border-color: ${C.indigo};
-    box-shadow: 0 0 0 3px ${C.indigoLight};
-  }
-  &::placeholder { color: ${C.slate300}; font-weight: 600; }
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  &::placeholder { color: ${C.slate400}; font-weight: 500; }
   &:read-only {
-    background: ${C.slate50};
-    border-color: transparent;
     cursor: default;
-    color: ${C.slate700};
+    color: ${C.slate800};
   }
 `;
 const MetaGrid = styled.div`
   display: grid;
-  grid-template-columns: minmax(110px, 0.75fr) minmax(140px, 1.1fr) minmax(110px, 0.75fr) minmax(160px, 1.4fr);
-  gap: 0.4rem 0.55rem;
-  margin-bottom: 0.5rem;
-  align-items: end;
-
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+  }
+`;
+const MetaGridThree = styled(MetaGrid)`
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   @media (max-width: 1100px) {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
   }
 `;
 const MetaField = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.12rem;
+  gap: 0.35rem;
   min-width: 0;
 `;
 const MetaLabel = styled.label`
-  font-size: 0.58rem; font-weight: 800; color: ${C.slate400};
-  text-transform: uppercase; letter-spacing: 0.55px;
-  line-height: 1;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: ${C.slate500};
+  letter-spacing: 0.01em;
+  line-height: 1.3;
 `;
 /* Keep MetaRowLabel for backward compat in JSX we haven't replaced yet */
 const MetaRowLabel = MetaLabel;
 const metaControlStyles = css`
   width: 100%;
-  padding: 0.32rem 0.55rem;
-  border: 1px solid ${C.slate200};
-  border-radius: 7px;
-  font-size: 0.74rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 0.8rem;
   min-width: 0;
   box-sizing: border-box;
-  transition: border-color 0.18s, box-shadow 0.18s;
+  transition: border-color 0.18s, background 0.18s;
+  background: transparent;
   &:focus {
-    border-color: ${C.indigo};
-    box-shadow: 0 0 0 2px ${C.indigoLight};
+    border-color: ${C.indigo}44;
+    background: ${C.white};
     outline: none;
   }
-  &::placeholder { color: ${C.slate300}; }
+  &::placeholder { color: ${C.slate400}; font-weight: 500; }
 `;
 const StatusSelect = styled.select`
   ${metaControlStyles}
-  font-weight: 700;
-  color: ${(p) => p.$color || C.slate600};
-  background: ${(p) => p.$bg || C.white};
+  font-weight: 600;
+  color: ${(p) => p.$color || C.slate700};
+  background: ${(p) => p.$bg || 'transparent'};
   cursor: pointer;
-  &:disabled { opacity: 0.7; cursor: default; }
+  &:disabled { opacity: 0.75; cursor: default; }
 `;
 const MetaInput = styled.input`
   ${metaControlStyles}
-  color: ${C.slate700};
-  background: ${C.white};
-  &:read-only { background: ${C.slate50}; cursor: default; }
+  color: ${C.slate800};
+  font-weight: 600;
+  &:read-only { cursor: default; opacity: 0.9; }
 `;
 const DescriptionInput = styled.input`
   ${metaControlStyles}
-  color: ${C.slate700};
+  color: ${C.slate800};
+  font-weight: 500;
+  &:read-only { cursor: default; }
+`;
+const FormSelect = styled.select`
+  ${metaControlStyles}
   background: ${C.white};
-  &:read-only { background: ${C.slate50}; cursor: default; }
+  font-weight: 600;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.78rem;
+`;
+const FormInput = styled.input`
+  ${metaControlStyles}
+  background: ${C.white};
+  font-weight: 600;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.78rem;
 `;
 const TabBar = styled.div`
-  display: flex; gap: 0.35rem;
-  padding-bottom: 0.55rem;
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.35rem;
+  margin: 0 1.25rem 0.6rem;
+  background: linear-gradient(180deg, ${C.slate100} 0%, ${C.indigoLight}44 100%);
+  border-radius: 14px;
+  border: 1px solid ${C.indigo}22;
+  overflow-x: auto;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.04);
+  &::-webkit-scrollbar { height: 0; }
 `;
 const Tab = styled.button`
-  display: inline-flex; align-items: center; gap: 0.35rem;
-  padding: 0.34rem 0.72rem;
-  border: 1px solid ${(p) => {
-    if (p.$active) return C.indigo;
-    if (p.$hasContent) return '#fcd34d';
-    return C.slate200;
-  }};
-  border-radius: 999px;
-  background: ${(p) => {
-    if (p.$active) return C.indigoLight;
-    if (p.$hasContent) return '#fffbeb';
-    return C.white;
-  }};
-  color: ${(p) => p.$active ? C.indigoDark : C.slate500};
-  font-size: 0.71rem; font-weight: ${(p) => p.$active ? '700' : '600'};
-  cursor: pointer; transition: all 0.18s;
+  flex: 1 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.5rem 0.65rem;
+  border: none;
+  border-radius: 10px;
+  background: ${(p) => (p.$active
+    ? `linear-gradient(135deg, ${C.white} 0%, ${C.indigoLight} 100%)`
+    : 'transparent')};
+  color: ${(p) => (p.$active ? C.indigoDark : C.slate500)};
+  font-size: 0.7rem;
+  font-weight: ${(p) => (p.$active ? '800' : '600')};
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-shadow: ${(p) => (p.$active ? '0 3px 12px rgba(99,102,241,0.18), inset 0 -2px 0 ' + C.indigo : 'none')};
+  white-space: nowrap;
+  min-width: 0;
   &:hover {
     color: ${C.indigoDark};
-    border-color: ${C.indigo};
-    background: ${(p) => p.$active ? C.indigoLight : C.slate50};
+    background: ${(p) => (p.$active
+      ? `linear-gradient(135deg, ${C.white} 0%, ${C.indigoLight} 100%)`
+      : 'rgba(255,255,255,0.65)')};
   }
+  ${(p) => p.$hasContent && !p.$active && css`
+    color: ${C.amber};
+  `}
 `;
 const TabIndicator = styled.span`
   width: 7px; height: 7px;
@@ -538,23 +2142,34 @@ const TabIndicator = styled.span`
 `;
 
 const DetailBody = styled.div`
-  flex: 1; overflow-y: auto; padding: 0.85rem 1.25rem 1.1rem;
-  display: flex; flex-direction: column; min-height: 0;
-  &::-webkit-scrollbar { width: 5px; }
-  &::-webkit-scrollbar-thumb { background: ${C.slate300}; border-radius: 99px; }
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: ${C.white};
+  border: 1px solid ${C.indigo}22;
+  border-top: 3px solid ${C.indigo};
+  border-radius: 16px;
+  padding: 1rem 1.1rem 1.1rem;
+  box-shadow: 0 10px 36px rgba(15, 23, 42, 0.08);
+  animation: ${fadeIn} 0.2s ease;
 `;
 
 /* ── File Groups tab layout ── */
 const FilesTabLayout = styled.div`
-  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 `;
 const AddGroupToolbar = styled.div`
   flex-shrink: 0;
-  position: sticky; top: 0; z-index: 5;
-  background: ${C.white};
-  padding-bottom: 0.5rem;
-  margin-bottom: 0.5rem;
-  border-bottom: 1px solid ${C.slate200};
+  padding: 0.75rem 0.85rem;
+  margin-bottom: 0.65rem;
+  background: linear-gradient(135deg, ${C.tealLight} 0%, ${C.indigoLight} 100%);
+  border: 1px solid ${C.indigo}33;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.08);
 `;
 const PresetChipsRow = styled.div`
   display: flex; flex-wrap: wrap; gap: 0.28rem; align-items: center;
@@ -624,7 +2239,11 @@ const GroupsList = styled.div`
   flex: 1;
 `;
 const GroupsToolbar = styled.div`
-  display: flex; align-items: center; justify-content: flex-end;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   flex-shrink: 0;
   margin-bottom: 0.45rem;
 `;
@@ -657,20 +2276,33 @@ const GroupCard = styled.div`
   border-radius: 14px;
   overflow: hidden;
   animation: ${fadeIn} 0.3s ease;
-  box-shadow: 0 1px 4px rgba(15,23,42,0.04);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  transition: all 0.2s;
+  &:hover {
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12);
+    border-color: ${C.indigo}44;
+    transform: translateY(-1px);
+  }
 `;
 const GroupCardHeader = styled.div`
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0.65rem 1rem;
-  background: ${C.slate50};
-  border-bottom: 1px solid ${(p) => p.$open ? C.slate200 : 'transparent'};
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(90deg, ${C.indigoLight}88 0%, ${C.white} 100%);
+  border-bottom: 1px solid ${(p) => (p.$open ? C.indigo + '33' : 'transparent')};
   cursor: pointer;
   user-select: none;
-  &:hover { background: ${C.slate100}; }
+  transition: background 0.18s;
+  &:hover { background: ${C.slate50}; }
 `;
 const GroupName = styled.div`
-  font-size: 0.83rem; font-weight: 800; color: ${C.slate700};
-  display: flex; align-items: center; gap: 0.55rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: ${C.slate800};
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
 `;
 const GroupCount = styled.span`
   font-size: 0.68rem; font-weight: 700;
@@ -731,6 +2363,12 @@ const FileTypeIcon = styled.div`
   font-size: 0.65rem;
   letter-spacing: 0.02em;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+`;
+const FileTypeIconLarge = styled(FileTypeIcon)`
+  width: 42px;
+  height: 42px;
+  font-size: 0.72rem;
+  border-radius: 10px;
 `;
 const FileListName = styled.span`
   font-size: 0.84rem;
@@ -972,9 +2610,13 @@ const Btn = styled.button`
 `;
 
 const SectionLabel = styled.div`
-  font-size: 0.72rem; font-weight: 800; color: ${C.slate500};
-  text-transform: uppercase; letter-spacing: 0.55px;
-  margin-bottom: 0.6rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: ${C.slate600};
+  letter-spacing: 0.01em;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid ${C.slate100};
 `;
 
 const Saving = styled.span`
@@ -993,11 +2635,14 @@ const ReadOnlyBadge = styled.span`
 `;
 
 const DetailFooter = styled.div`
-  padding: 0.85rem 1.5rem;
-  border-top: 1px solid ${C.slate200};
-  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  border-top: 2px solid ${C.rose}22;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   flex-shrink: 0;
-  background: ${C.slate50};
+  background: linear-gradient(180deg, ${C.white} 0%, #fff1f2 100%);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.04);
 `;
 
 const ExportOptionRow = styled.label`
@@ -1056,15 +2701,53 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const [selectedId, setSelectedId] = useState(null);
   const [activeTab, setActiveTab] = useState('files');
   const [search, setSearch] = useState('');
+  const [hubCategoryFilter, setHubCategoryFilter] = useState('');
+  const [hubStatusFilter, setHubStatusFilter] = useState('');
+  const [hubSortBy, setHubSortBy] = useState('created_desc');
+  const [showHubStatsModal, setShowHubStatsModal] = useState(false);
+  const [loadingProposals, setLoadingProposals] = useState(true);
+  const [hubViewMode, setHubViewMode] = useState('list');
+  const [showHubFiltersPanel, setShowHubFiltersPanel] = useState(false);
+  const [hubQuickFilter, setHubQuickFilter] = useState('');
+  const [fileSearch, setFileSearch] = useState('');
+  const [fileSearchResults, setFileSearchResults] = useState([]);
+  const [fileSearchLoading, setFileSearchLoading] = useState(false);
+  const [detailFileFilter, setDetailFileFilter] = useState('');
+  const [projectHistory, setProjectHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
 
   // Per-group expand state (default: collapsed)
   const [expandedGroups, setExpandedGroups] = useState({});
 
-  // Inline "create new" form in sidebar
-  const [isCreatingNew, setIsCreatingNew] = useState(false);
-  const [newProposalTitle, setNewProposalTitle] = useState('');
-  const newTitleRef = useRef(null);
+  // New project modal
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [newProjectDraft, setNewProjectDraft] = useState(EMPTY_NEW_PROJECT_DRAFT);
+  const [newProjectStagedGroups, setNewProjectStagedGroups] = useState([]);
+  const [newProjectShowCategoryPicker, setNewProjectShowCategoryPicker] = useState(false);
+  const [newProjectAddingGroup, setNewProjectAddingGroup] = useState(false);
+  const [newProjectNewGroupName, setNewProjectNewGroupName] = useState('');
+  const [newProjectExpandedGroups, setNewProjectExpandedGroups] = useState({});
+  const [newCategoryInput, setNewCategoryInput] = useState('');
+  const [newSpecializationInput, setNewSpecializationInput] = useState('');
+  const [showAddCategoryInput, setShowAddCategoryInput] = useState(false);
+  const [showAddSpecializationInput, setShowAddSpecializationInput] = useState(false);
+  const [detailShowAddCategoryInput, setDetailShowAddCategoryInput] = useState(false);
+  const [detailNewCategoryInput, setDetailNewCategoryInput] = useState('');
+  const [detailShowAddSpecializationInput, setDetailShowAddSpecializationInput] = useState(false);
+  const [detailNewSpecializationInput, setDetailNewSpecializationInput] = useState('');
+  const [showManageListsModal, setShowManageListsModal] = useState(false);
+  const [removingListItem, setRemovingListItem] = useState('');
+  const [projectCategories, setProjectCategories] = useState(() =>
+    loadStoredList(LS_CUSTOM_CATEGORIES, DEFAULT_PROJECT_CATEGORIES)
+  );
+  const [infraSpecializations, setInfraSpecializations] = useState(() =>
+    loadStoredList(LS_CUSTOM_SPECIALIZATIONS, DEFAULT_INFRA_SPECIALIZATIONS)
+  );
+  const newProjectTitleRef = useRef(null);
+  const newProjectAddGroupInputRef = useRef(null);
 
   // Add group UI
   const [newGroupName, setNewGroupName] = useState('');
@@ -1087,8 +2770,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const [exportIncludeFiles, setExportIncludeFiles] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(null);
+  const [exportTargetId, setExportTargetId] = useState(null);
 
   const saveTimerRef = useRef(null);
+  const fileSearchTimerRef = useRef(null);
   // Ref που κρατά πάντα το τελευταίο state proposals χωρίς να δημιουργεί νέα closure
   const proposalsRef = useRef([]);
 
@@ -1099,22 +2784,119 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
 
   useEffect(() => {
     (async () => {
-      const res = await window.electronAPI.invoke('load-all-proposals');
-      if (res.success) setProposals(res.proposals || []);
+      setLoadingProposals(true);
+      try {
+        const res = await window.electronAPI.invoke('load-all-proposals');
+        if (res.success) setProposals(res.proposals || []);
+      } finally {
+        setLoadingProposals(false);
+      }
     })();
   }, []);
 
   useEffect(() => {
-    if (!isCreatingNew) return;
-    const t = setTimeout(() => newTitleRef.current?.focus(), 80);
+    if (fileSearchTimerRef.current) clearTimeout(fileSearchTimerRef.current);
+    const q = fileSearch.trim();
+    if (q.length < 2) {
+      setFileSearchResults([]);
+      setFileSearchLoading(false);
+      return undefined;
+    }
+    setFileSearchLoading(true);
+    fileSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await window.electronAPI.invoke('search-proposal-files', { query: q });
+        if (res.success) setFileSearchResults(res.results || []);
+      } finally {
+        setFileSearchLoading(false);
+      }
+    }, 350);
+    return () => {
+      if (fileSearchTimerRef.current) clearTimeout(fileSearchTimerRef.current);
+    };
+  }, [fileSearch]);
+
+  const loadProjectHistory = useCallback(async (proposalId) => {
+    if (!proposalId) {
+      setProjectHistory([]);
+      return;
+    }
+    setHistoryLoading(true);
+    try {
+      const res = await window.electronAPI.invoke('get-audit-log', {
+        limit: 200,
+        entityType: 'proposal',
+        entityId: proposalId,
+      });
+      if (res.success) {
+        const cleaned = (res.logs || []).filter((log) => {
+          if (log.action === 'update' && log.changes && Object.keys(log.changes).length === 0 && !log.details) {
+            return false;
+          }
+          return true;
+        });
+        setProjectHistory(cleaned);
+      }
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const handleClearProjectHistory = useCallback(async () => {
+    if (isReadOnly || !selectedId || clearingHistory) return;
+    if (!await showConfirm({
+      title: 'Εκκαθάριση ιστορικού',
+      message: 'Να διαγραφούν όλες οι καταγραφές ιστορικού για αυτό το έργο;',
+      detail: 'Η ενέργεια είναι μη αναστρέψιμη.',
+      confirmLabel: 'Εκκάθαριση',
+      icon: '🗑',
+    })) return;
+
+    setClearingHistory(true);
+    try {
+      const res = await window.electronAPI.invoke('clear-proposal-audit-log', {
+        proposalId: selectedId,
+        actingUsername: loggedInUsername,
+      });
+      if (!res.success) {
+        showToast(res.error || 'Σφάλμα εκκαθάρισης ιστορικού', 'error');
+        return;
+      }
+      setProjectHistory([]);
+      showToast(
+        res.deletedCount > 0
+          ? `Διαγράφηκαν ${res.deletedCount} καταγραφές ιστορικού`
+          : 'Δεν υπήρχαν καταγραφές προς διαγραφή',
+        'success'
+      );
+    } finally {
+      setClearingHistory(false);
+    }
+  }, [isReadOnly, selectedId, clearingHistory, loggedInUsername, showToast]);
+
+  useEffect(() => {
+    if (activeTab === 'history' && selectedId) {
+      loadProjectHistory(selectedId);
+    }
+  }, [activeTab, selectedId, loadProjectHistory]);
+
+  useEffect(() => {
+    if (!showNewProjectModal) return undefined;
+    const t = setTimeout(() => newProjectTitleRef.current?.focus(), 80);
     return () => clearTimeout(t);
-  }, [isCreatingNew]);
+  }, [showNewProjectModal]);
 
   useEffect(() => {
     setShowCategoryPicker(false);
     setAddingGroup(false);
     setNewGroupName('');
     setExpandedGroups({});
+    setDetailFileFilter('');
+    setActiveTab('files');
+    setDetailShowAddCategoryInput(false);
+    setDetailNewCategoryInput('');
+    setDetailShowAddSpecializationInput(false);
+    setDetailNewSpecializationInput('');
   }, [selectedId]);
 
   // Sync ref με το τρέχον state
@@ -1146,6 +2928,43 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     }, 1200);
   }, [selectedId, saveProposal]);
 
+  const saveProposalAudited = useCallback(async (updated) => {
+    if (isReadOnly) return;
+    setSaving(true);
+    const res = await window.electronAPI.invoke('save-proposal', {
+      proposal: updated,
+      actingUsername: loggedInUsername,
+      skipAudit: false,
+    });
+    setSaving(false);
+    if (!res.success) showToast(`Σφάλμα αποθήκευσης: ${res.error}`, 'error');
+    else if (activeTab === 'history' && selectedId === updated.id) {
+      loadProjectHistory(updated.id);
+    }
+  }, [isReadOnly, loggedInUsername, showToast, activeTab, selectedId, loadProjectHistory]);
+
+  const updateProposalAudited = useCallback((changes) => {
+    setProposals((prev) =>
+      prev.map((p) => p.id === selectedId ? { ...p, ...changes } : p)
+    );
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const latest = proposalsRef.current.find((p) => p.id === selectedId);
+      if (latest) saveProposalAudited({ ...latest, ...changes });
+    }, 450);
+  }, [selectedId, saveProposalAudited]);
+
+  const logProposalActivityClient = useCallback(async (details, type = 'update') => {
+    if (isReadOnly || !selectedId) return;
+    await window.electronAPI.invoke('log-proposal-activity', {
+      proposalId: selectedId,
+      type,
+      details,
+      actingUsername: loggedInUsername,
+    });
+    if (activeTab === 'history') loadProjectHistory(selectedId);
+  }, [isReadOnly, selectedId, loggedInUsername, activeTab, loadProjectHistory]);
+
   const handleTitleBlur = useCallback(() => {
     if (isReadOnly || !selectedId) return;
     if (saveTimerRef.current) {
@@ -1153,8 +2972,16 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       saveTimerRef.current = null;
     }
     const latest = proposalsRef.current.find((p) => p.id === selectedId);
-    if (latest) saveProposal(latest, { skipAudit: true });
-  }, [isReadOnly, selectedId, saveProposal]);
+    if (latest) saveProposalAudited(latest);
+  }, [isReadOnly, selectedId, saveProposalAudited]);
+
+  const handleNotesBlur = useCallback(() => {
+    handleTitleBlur();
+  }, [handleTitleBlur]);
+
+  const handleDescriptionBlur = useCallback(() => {
+    handleTitleBlur();
+  }, [handleTitleBlur]);
 
   const handleExpandAllGroups = useCallback(() => {
     const groups = selectedProposal?.fileGroups || [];
@@ -1168,38 +2995,375 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     setExpandedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
   }, []);
 
-  /* ── Create proposal — shows inline title form first ── */
-  const handleStartCreate = () => {
+  const resetNewProjectModal = useCallback(() => {
+    setShowNewProjectModal(false);
+    setNewProjectDraft(EMPTY_NEW_PROJECT_DRAFT);
+    setNewProjectStagedGroups([]);
+    setNewProjectShowCategoryPicker(false);
+    setNewProjectAddingGroup(false);
+    setNewProjectNewGroupName('');
+    setNewProjectExpandedGroups({});
+    setNewCategoryInput('');
+    setNewSpecializationInput('');
+    setShowAddCategoryInput(false);
+    setShowAddSpecializationInput(false);
+  }, []);
+
+  const openNewProjectModal = useCallback(() => {
     if (isReadOnly) return;
-    setSelectedId(null);
-    setIsCreatingNew(true);
-    setNewProposalTitle('');
+    setNewProjectDraft(EMPTY_NEW_PROJECT_DRAFT);
+    setNewProjectStagedGroups([]);
+    setNewProjectShowCategoryPicker(false);
+    setNewProjectAddingGroup(false);
+    setNewProjectNewGroupName('');
+    setNewProjectExpandedGroups({});
+    setNewCategoryInput('');
+    setNewSpecializationInput('');
+    setShowAddCategoryInput(false);
+    setShowAddSpecializationInput(false);
+    setShowNewProjectModal(true);
+  }, [isReadOnly]);
+
+  const addCustomProjectCategory = useCallback((label) => {
+    const trimmed = String(label || '').trim();
+    if (!trimmed) return null;
+    let added = trimmed;
+    setProjectCategories((prev) => {
+      if (prev.some((x) => x.toLowerCase() === trimmed.toLowerCase())) {
+        added = prev.find((x) => x.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+        return prev;
+      }
+      const next = [...prev, trimmed];
+      saveCustomList(LS_CUSTOM_CATEGORIES, DEFAULT_PROJECT_CATEGORIES, next);
+      return next;
+    });
+    return added;
+  }, []);
+
+  const addCustomInfraSpecialization = useCallback((label) => {
+    const trimmed = String(label || '').trim();
+    if (!trimmed) return null;
+    let added = trimmed;
+    setInfraSpecializations((prev) => {
+      if (prev.some((x) => x.toLowerCase() === trimmed.toLowerCase())) {
+        added = prev.find((x) => x.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+        return prev;
+      }
+      const next = [...prev, trimmed];
+      saveCustomList(LS_CUSTOM_SPECIALIZATIONS, DEFAULT_INFRA_SPECIALIZATIONS, next);
+      return next;
+    });
+    return added;
+  }, []);
+
+  const customCategories = useMemo(
+    () => getCustomOnlyItems(projectCategories, DEFAULT_PROJECT_CATEGORIES),
+    [projectCategories]
+  );
+  const customSpecializations = useMemo(
+    () => getCustomOnlyItems(infraSpecializations, DEFAULT_INFRA_SPECIALIZATIONS),
+    [infraSpecializations]
+  );
+
+  const countProjectsWithCategory = useCallback((label) => {
+    const q = String(label || '').trim().toLowerCase();
+    if (!q) return 0;
+    return proposals.filter(
+      (p) => String(p.projectCategory || '').trim().toLowerCase() === q
+    ).length;
+  }, [proposals]);
+
+  const countProjectsWithSpecialization = useCallback((label) => {
+    const q = String(label || '').trim().toLowerCase();
+    if (!q) return 0;
+    return proposals.filter(
+      (p) => String(p.infrastructureSpecialization || '').trim().toLowerCase() === q
+    ).length;
+  }, [proposals]);
+
+  const removeCustomProjectCategory = useCallback(async (label) => {
+    const trimmed = String(label || '').trim();
+    if (!trimmed || isDefaultCategory(trimmed)) {
+      showToast('Δεν μπορείτε να διαγράψετε προεπιλεγμένη κατηγορία', 'error');
+      return false;
+    }
+    const inUse = countProjectsWithCategory(trimmed);
+    if (inUse > 0) {
+      const ok = await showConfirm({
+        title: 'Κατηγορία σε χρήση',
+        message: `Η κατηγορία «${trimmed}» χρησιμοποιείται από ${inUse} ${inUse === 1 ? 'έργο' : 'έργα'}. Θα αφαιρεθεί από τη λίστα επιλογών, αλλά τα έργα θα διατηρήσουν την τιμή τους. Συνέχεια;`,
+      });
+      if (!ok) return false;
+    }
+    setProjectCategories((prev) => {
+      const next = prev.filter((x) => x.toLowerCase() !== trimmed.toLowerCase());
+      saveCustomList(LS_CUSTOM_CATEGORIES, DEFAULT_PROJECT_CATEGORIES, next);
+      return next;
+    });
+    showToast(`Η κατηγορία «${trimmed}» αφαιρέθηκε από τη λίστα`, 'success');
+    return true;
+  }, [countProjectsWithCategory, showToast]);
+
+  const removeCustomInfraSpecialization = useCallback(async (label) => {
+    const trimmed = String(label || '').trim();
+    if (!trimmed || isDefaultSpecialization(trimmed)) {
+      showToast('Δεν μπορείτε να διαγράψετε προεπιλεγμένη εξειδίκευση', 'error');
+      return false;
+    }
+    const inUse = countProjectsWithSpecialization(trimmed);
+    if (inUse > 0) {
+      const ok = await showConfirm({
+        title: 'Εξειδίκευση σε χρήση',
+        message: `Η εξειδίκευση «${trimmed}» χρησιμοποιείται από ${inUse} ${inUse === 1 ? 'έργο' : 'έργα'}. Θα αφαιρεθεί από τη λίστα επιλογών, αλλά τα έργα θα διατηρήσουν την τιμή τους. Συνέχεια;`,
+      });
+      if (!ok) return false;
+    }
+    setInfraSpecializations((prev) => {
+      const next = prev.filter((x) => x.toLowerCase() !== trimmed.toLowerCase());
+      saveCustomList(LS_CUSTOM_SPECIALIZATIONS, DEFAULT_INFRA_SPECIALIZATIONS, next);
+      return next;
+    });
+    showToast(`Η εξειδίκευση «${trimmed}» αφαιρέθηκε από τη λίστα`, 'success');
+    return true;
+  }, [countProjectsWithSpecialization, showToast]);
+
+  const handleRemoveCustomCategory = useCallback(async (label) => {
+    setRemovingListItem(`cat:${label}`);
+    try {
+      await removeCustomProjectCategory(label);
+    } finally {
+      setRemovingListItem('');
+    }
+  }, [removeCustomProjectCategory]);
+
+  const handleRemoveCustomSpecialization = useCallback(async (label) => {
+    setRemovingListItem(`spec:${label}`);
+    try {
+      await removeCustomInfraSpecialization(label);
+    } finally {
+      setRemovingListItem('');
+    }
+  }, [removeCustomInfraSpecialization]);
+
+  const handleNewProjectPickFiles = async (groupId) => {
+    const res = await window.electronAPI.invoke('select-multiple-files', { allFileTypes: true });
+    if (!res || res.canceled || !res.success) return;
+    const picked = (res.files || []).map((f) => ({
+      path: f.filePath || f.path,
+      name: f.fileName || f.name || (f.filePath || f.path || '').split(/[\\/]/).pop(),
+    })).filter((f) => f.path);
+    if (!picked.length) return;
+    setNewProjectStagedGroups((prev) => prev.map((g) => {
+      if (g.id !== groupId) return g;
+      const existing = new Set((g.stagedFiles || []).map((f) => f.path));
+      return {
+        ...g,
+        stagedFiles: [
+          ...(g.stagedFiles || []),
+          ...picked.filter((f) => !existing.has(f.path)),
+        ],
+      };
+    }));
+    setNewProjectExpandedGroups((prev) => ({ ...prev, [groupId]: true }));
   };
 
-  const handleConfirmCreate = async () => {
-    if (isReadOnly) return;
-    const title = newProposalTitle.trim();
-    if (!title) {
-      showToast('Δώστε τίτλο για τη νέα πρόταση', 'warning');
-      newTitleRef.current?.focus();
+  const handleNewProjectPickFolder = async (groupId) => {
+    const res = await window.electronAPI.invoke('select-folder-files-flat', {
+      title: 'Επιλογή φακέλου για ανέβασμα',
+    });
+    if (!res || res.canceled || !res.success || !Array.isArray(res.files) || !res.files.length) {
+      if (res?.error) showToast(res.error, 'error');
       return;
     }
-    const proposal = { ...emptyProposal(), title };
-    const res = await window.electronAPI.invoke('save-proposal', {
-      proposal,
-      actingUsername: loggedInUsername,
-    });
-    if (!res.success) return showToast('Σφάλμα δημιουργίας πρότασης', 'error');
-    setProposals((prev) => [res.proposal, ...prev]);
-    setSelectedId(res.proposal.id);
-    setActiveTab('files');
-    setIsCreatingNew(false);
-    setNewProposalTitle('');
+    const folderName = res.folderName || 'Φάκελος';
+    const files = res.files.map((f) => ({
+      path: f.filePath || f.path,
+      name: f.fileName || f.name || (f.filePath || f.path || '').split(/[\\/]/).pop(),
+    })).filter((f) => f.path);
+    if (!files.length) return;
+    const folderEntry = { id: uuidv4(), folderName, files };
+    setNewProjectStagedGroups((prev) => prev.map((g) => {
+      if (g.id !== groupId) return g;
+      return {
+        ...g,
+        stagedFolders: [...(g.stagedFolders || []), folderEntry],
+      };
+    }));
+    setNewProjectExpandedGroups((prev) => ({ ...prev, [groupId]: true }));
   };
 
-  const handleCancelCreate = () => {
-    setIsCreatingNew(false);
-    setNewProposalTitle('');
+  const addNewProjectGroup = useCallback((label) => {
+    const trimmed = String(label || '').trim();
+    if (!trimmed) return;
+    let newGroupId = null;
+    setNewProjectStagedGroups((prev) => {
+      if (prev.some((g) => g.label.toLowerCase() === trimmed.toLowerCase())) return prev;
+      newGroupId = uuidv4();
+      return [...prev, {
+        id: newGroupId,
+        label: trimmed,
+        stagedFiles: [],
+        stagedFolders: [],
+      }];
+    });
+    if (newGroupId) {
+      setNewProjectExpandedGroups((prev) => ({ ...prev, [newGroupId]: true }));
+    }
+    setNewProjectNewGroupName('');
+    setNewProjectAddingGroup(false);
+    setNewProjectShowCategoryPicker(false);
+  }, []);
+
+  const handleNewProjectOpenCategoryPicker = () => {
+    setNewProjectShowCategoryPicker(true);
+    setNewProjectAddingGroup(false);
+    setNewProjectNewGroupName('');
+  };
+
+  const handleNewProjectCancelAddGroup = () => {
+    setNewProjectAddingGroup(false);
+    setNewProjectNewGroupName('');
+    setNewProjectShowCategoryPicker(false);
+  };
+
+  const handleNewProjectStartAddGroup = () => {
+    setNewProjectAddingGroup(true);
+    setTimeout(() => newProjectAddGroupInputRef.current?.focus(), 50);
+  };
+
+  const deleteNewProjectGroup = async (groupId, groupLabel) => {
+    const group = newProjectStagedGroups.find((g) => g.id === groupId);
+    const hasContent = (group?.stagedFiles?.length || 0) + (group?.stagedFolders?.length || 0) > 0;
+    if (hasContent) {
+      const ok = await showConfirm({
+        title: 'Διαγραφή κατηγορίας',
+        message: groupLabel
+          ? `Να διαγραφεί η κατηγορία «${groupLabel}» και τα προσωρινά αρχεία της;`
+          : 'Να διαγραφεί αυτή η κατηγορία και τα προσωρινά αρχεία της;',
+        confirmLabel: 'Διαγραφή',
+        icon: '🗑',
+      });
+      if (!ok) return;
+    }
+    setNewProjectStagedGroups((prev) => prev.filter((g) => g.id !== groupId));
+    setNewProjectExpandedGroups((prev) => {
+      const next = { ...prev };
+      delete next[groupId];
+      return next;
+    });
+  };
+
+  const toggleNewProjectGroupExpanded = useCallback((groupId) => {
+    setNewProjectExpandedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  }, []);
+
+  const uploadStagedProjectGroups = useCallback(async (proposalId, stagedGroups) => {
+    const fileGroups = [];
+    for (const group of stagedGroups) {
+      let files = [];
+      const groupId = group.id;
+
+      if (group.stagedFiles?.length) {
+        const res = await window.electronAPI.invoke('upload-proposal-files', {
+          proposalId,
+          groupId,
+          files: group.stagedFiles,
+          actingUsername: loggedInUsername,
+        });
+        if (!res.success) throw new Error(res.error || 'Σφάλμα ανεβάσματος αρχείων');
+        files = [...files, ...(res.files || [])];
+      }
+
+      for (const folder of group.stagedFolders || []) {
+        const res = await window.electronAPI.invoke('upload-proposal-folder', {
+          proposalId,
+          groupId,
+          folderName: folder.folderName,
+          files: folder.files,
+          actingUsername: loggedInUsername,
+        });
+        if (!res.success) throw new Error(res.error || 'Σφάλμα ανεβάσματος φακέλου');
+        const exists = files.some((f) => isProposalFolder(f) && f.id === res.folder.id);
+        if (!exists) files = [...files, res.folder];
+      }
+
+      fileGroups.push({ id: groupId, label: group.label, files });
+    }
+    return fileGroups;
+  }, [loggedInUsername]);
+
+  const handleConfirmNewProject = async () => {
+    if (isReadOnly || creatingProject) return;
+    const title = newProjectDraft.title.trim();
+    if (!title) {
+      showToast('Δώστε τίτλο για το νέο έργο', 'warning');
+      newProjectTitleRef.current?.focus();
+      return;
+    }
+    if (!newProjectDraft.projectCategory) {
+      showToast('Επιλέξτε κατηγορία έργου', 'warning');
+      return;
+    }
+    if (
+      isInfrastructureCategory(newProjectDraft.projectCategory) &&
+      !newProjectDraft.infrastructureSpecialization
+    ) {
+      showToast('Επιλέξτε εξειδίκευση για έργα υποδομής', 'warning');
+      return;
+    }
+
+    const hasStagedGroups = newProjectStagedGroups.length > 0;
+    const hasStagedUploads = newProjectStagedGroups.some(
+      (g) => (g.stagedFiles?.length || 0) + (g.stagedFolders?.length || 0) > 0
+    );
+    const proposal = {
+      ...emptyProposal(),
+      title,
+      projectCategory: newProjectDraft.projectCategory,
+      infrastructureSpecialization: isInfrastructureCategory(newProjectDraft.projectCategory)
+        ? newProjectDraft.infrastructureSpecialization
+        : '',
+      aepoRenewalDate: newProjectDraft.aepoRenewalDate || '',
+      status: 'maturing',
+      fileGroups: hasStagedGroups
+        ? newProjectStagedGroups.map((g) => ({ id: g.id, label: g.label, files: [] }))
+        : [],
+    };
+
+    setCreatingProject(true);
+    try {
+      const res = await window.electronAPI.invoke('save-proposal', {
+        proposal,
+        actingUsername: loggedInUsername,
+      });
+      if (!res.success) {
+        showToast('Σφάλμα δημιουργίας έργου', 'error');
+        return;
+      }
+
+      let savedProposal = res.proposal;
+      if (hasStagedGroups) {
+        const fileGroups = hasStagedUploads
+          ? await uploadStagedProjectGroups(savedProposal.id, newProjectStagedGroups)
+          : proposal.fileGroups;
+        const saveFilesRes = await window.electronAPI.invoke('save-proposal', {
+          proposal: { ...savedProposal, fileGroups },
+          actingUsername: loggedInUsername,
+          skipAudit: true,
+        });
+        if (saveFilesRes.success) savedProposal = saveFilesRes.proposal;
+      }
+
+      setProposals((prev) => [savedProposal, ...prev]);
+      setSelectedId(savedProposal.id);
+      setActiveTab('files');
+      resetNewProjectModal();
+      showToast('Το έργο δημιουργήθηκε', 'success');
+    } catch (err) {
+      showToast(err.message || 'Σφάλμα δημιουργίας έργου', 'error');
+    } finally {
+      setCreatingProject(false);
+    }
   };
 
   /* ── Delete proposal ── */
@@ -1207,8 +3371,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (isReadOnly || !selectedProposal) return;
     const title = selectedProposal.title || 'Χωρίς τίτλο';
     if (!await showConfirm({
-      title: 'Διαγραφή Πρότασης',
-      message: `Είστε σίγουροι ότι θέλετε να διαγράψετε την πρόταση «${title}»;`,
+      title: 'Διαγραφή Έργου',
+      message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το έργο «${title}»;`,
       detail: 'Θα διαγραφούν και όλα τα αρχεία της. Η ενέργεια είναι μη αναστρέψιμη.',
       confirmLabel: 'Διαγραφή',
       icon: '🗑',
@@ -1220,11 +3384,9 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (!res.success) return showToast('Σφάλμα διαγραφής', 'error');
     setProposals((prev) => prev.filter((p) => p.id !== selectedId));
     setSelectedId(null);
-    setCollapsedGroups({});
-    setIsCreatingNew(true);
-    setNewProposalTitle('');
+    setExpandedGroups({});
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    showToast('Η πρόταση διαγράφηκε', 'success');
+    showToast('Το έργο διαγράφηκε', 'success');
   };
 
   /* ── File groups ── */
@@ -1691,25 +3853,37 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   /* ── Pending items ── */
   const addPendingItem = () => {
     if (isReadOnly || !pendingInput.trim()) return;
-    const item = { id: uuidv4(), text: pendingInput.trim(), done: false, createdAt: new Date().toISOString() };
-    updateProposal({ pendingItems: [...(selectedProposal.pendingItems || []), item] });
+    const text = pendingInput.trim();
+    const item = { id: uuidv4(), text, done: false, createdAt: new Date().toISOString() };
+    const nextItems = [...(selectedProposal.pendingItems || []), item];
+    updateProposal({ pendingItems: nextItems });
     setPendingInput('');
+    logProposalActivityClient(`Προστέθηκε εκκρεμότητα: «${text}»`);
   };
 
   const togglePendingItem = (itemId) => {
     if (isReadOnly) return;
-    updateProposal({
-      pendingItems: (selectedProposal.pendingItems || []).map((it) =>
-        it.id === itemId ? { ...it, done: !it.done } : it
-      )
-    });
+    const item = (selectedProposal.pendingItems || []).find((it) => it.id === itemId);
+    const nextItems = (selectedProposal.pendingItems || []).map((it) =>
+      it.id === itemId ? { ...it, done: !it.done } : it
+    );
+    updateProposal({ pendingItems: nextItems });
+    if (item) {
+      logProposalActivityClient(
+        item.done
+          ? `Επανάνοιγμα εκκρεμότητας: «${item.text}»`
+          : `Ολοκλήρωση εκκρεμότητας: «${item.text}»`
+      );
+    }
   };
 
   const deletePendingItem = (itemId) => {
     if (isReadOnly) return;
+    const item = (selectedProposal.pendingItems || []).find((it) => it.id === itemId);
     updateProposal({
       pendingItems: (selectedProposal.pendingItems || []).filter((it) => it.id !== itemId)
     });
+    if (item) logProposalActivityClient(`Διαγραφή εκκρεμότητας: «${item.text}»`);
   };
 
   const flushProposalSave = useCallback(async () => {
@@ -1724,13 +3898,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   }, [selectedId, isReadOnly, saveProposal]);
 
   const handleExportConfirm = async () => {
-    if (!selectedProposal || exporting) return;
+    const target = proposals.find((p) => p.id === (exportTargetId || selectedId)) || null;
+    if (!target || exporting) return;
     setShowExportDialog(false);
     setExporting(true);
     try {
-      await flushProposalSave();
+      if (selectedId === target.id) await flushProposalSave();
       const res = await window.electronAPI.invoke('export-proposal', {
-        proposalId: selectedProposal.id,
+        proposalId: target.id,
         includeFiles: exportIncludeFiles,
         actingUsername: loggedInUsername,
       });
@@ -1747,8 +3922,220 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       showToast(`Σφάλμα εξαγωγής: ${e.message}`, 'error');
     } finally {
       setExporting(false);
+      setExportTargetId(null);
     }
   };
+
+  const closeExportDialog = () => {
+    if (exporting) return;
+    setShowExportDialog(false);
+    setExportTargetId(null);
+  };
+
+  const handleOpenExportFromHub = (e, proposal) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setExportTargetId(proposal.id);
+    setExportIncludeFiles(true);
+    setShowExportDialog(true);
+  };
+
+  const handleOpenExportFromDetail = () => {
+    setExportTargetId(selectedId);
+    setShowExportDialog(true);
+  };
+
+  const hubCategoryOptions = useMemo(() => {
+    const set = new Set();
+    proposals.forEach((p) => {
+      const cat = String(p.projectCategory || '').trim();
+      if (cat) set.add(cat);
+    });
+    projectCategories.forEach((cat) => set.add(cat));
+    return [...set].sort((a, b) => a.localeCompare(b, 'el'));
+  }, [proposals, projectCategories]);
+
+  const detailCategoryOptions = useMemo(() => {
+    const set = new Set(projectCategories);
+    const current = String(selectedProposal?.projectCategory || '').trim();
+    if (current) set.add(current);
+    return [...set].sort((a, b) => a.localeCompare(b, 'el'));
+  }, [projectCategories, selectedProposal?.projectCategory]);
+
+  const detailSpecializationOptions = useMemo(() => {
+    const set = new Set(infraSpecializations);
+    const current = String(selectedProposal?.infrastructureSpecialization || '').trim();
+    if (current) set.add(current);
+    return [...set].sort((a, b) => a.localeCompare(b, 'el'));
+  }, [infraSpecializations, selectedProposal?.infrastructureSpecialization]);
+
+  const hubFilteredProposals = useMemo(() => {
+    const filtered = proposals.filter((p) => matchesHubFilters(p, {
+      search,
+      categoryFilter: hubCategoryFilter,
+      statusFilter: hubStatusFilter,
+    }) && matchesHubQuickFilter(p, hubQuickFilter));
+    return sortHubProjects(filtered, hubSortBy);
+  }, [proposals, search, hubCategoryFilter, hubStatusFilter, hubSortBy, hubQuickFilter]);
+
+  const hubHasSecondaryFilters = Boolean(
+    hubCategoryFilter
+    || hubStatusFilter
+    || hubSortBy !== 'created_desc'
+    || fileSearch.trim()
+    || hubQuickFilter
+    || hubViewMode !== 'list'
+  );
+
+  const hubHasActiveFilters = Boolean(
+    search.trim()
+    || hubCategoryFilter
+    || hubStatusFilter
+    || hubSortBy !== 'created_desc'
+    || hubQuickFilter
+    || fileSearch.trim()
+  );
+
+  const clearHubFilters = useCallback(() => {
+    setSearch('');
+    setHubCategoryFilter('');
+    setHubStatusFilter('');
+    setHubSortBy('created_desc');
+    setHubQuickFilter('');
+    setFileSearch('');
+    setFileSearchResults([]);
+  }, []);
+
+  const applyHubQuickFilter = useCallback((value) => {
+    setHubQuickFilter((prev) => (prev === value ? '' : value));
+    if (value === 'maturing' || value === 'ready' || value === 'approved') {
+      setHubStatusFilter('');
+    }
+  }, []);
+
+  const richHubStats = useMemo(
+    () => computeExtendedHubStats(proposals, PROJECT_MATURITY_STATUSES),
+    [proposals]
+  );
+
+  const applyStatsFilter = useCallback(({ status, category } = {}) => {
+    if (status) {
+      setHubStatusFilter(status);
+      setHubQuickFilter('');
+    }
+    if (category) setHubCategoryFilter(category === 'Χωρίς κατηγορία' ? '' : category);
+    setShowHubStatsModal(false);
+  }, []);
+
+  const openProjectFromFileSearch = useCallback((result) => {
+    setSelectedId(result.projectId);
+    setActiveTab('files');
+    setFileSearch('');
+    setFileSearchResults([]);
+  }, []);
+
+  const renderFormalHubCard = (p) => {
+    const st = getStatusStyle(p.status);
+    const fileCount = getProjectFileCount(p);
+    const pendingTotal = (p.pendingItems || []).length;
+    const pendingOpen = getProjectPendingOpen(p);
+    const categoryLine = [
+      p.projectCategory,
+      isInfrastructureCategory(p.projectCategory) ? p.infrastructureSpecialization : '',
+    ].filter(Boolean).join(' · ');
+    const openProject = () => {
+      setSelectedId(p.id);
+      setActiveTab('files');
+    };
+    return (
+      <HubCard key={p.id}>
+        <HubCardHeader>
+          <HubCardClickArea type="button" onClick={openProject}>
+            <HubCardTitle>{p.title || '(Χωρίς τίτλο)'}</HubCardTitle>
+          </HubCardClickArea>
+          <HubCardStatusBadge $color={st.color} $bg={st.bg}>
+            <StatusDot $color={st.color} />
+            {st.label}
+          </HubCardStatusBadge>
+        </HubCardHeader>
+        <HubCardBody>
+          {categoryLine ? (
+            <HubCardMetaLine>{categoryLine}</HubCardMetaLine>
+          ) : (
+            <HubCardMetaLine style={{ color: C.slate400, fontStyle: 'italic' }}>Χωρίς κατηγορία</HubCardMetaLine>
+          )}
+          {p.aepoRenewalDate ? (
+            <HubCardMetaLine>ΑΕΠΟ: {formatAepoDate(p.aepoRenewalDate)}</HubCardMetaLine>
+          ) : null}
+        </HubCardBody>
+        <HubCardFooter>
+          <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
+            <HubCardStat>{fileCount} αρχεία</HubCardStat>
+            {pendingTotal > 0 && (
+              <HubCardStat>{pendingOpen} ανοιχτές / {pendingTotal}</HubCardStat>
+            )}
+            <HubCardStat>Ενημ.: {formatShortDateEl(p.updatedAt || p.createdAt)}</HubCardStat>
+          </div>
+          <div style={{ display: 'flex', gap: '0.35rem' }}>
+            <HubRowBtn type="button" $primary onClick={openProject}>Άνοιγμα</HubRowBtn>
+            <HubRowBtn
+              type="button"
+              title="Εξαγωγή έργου"
+              disabled={exporting}
+              onClick={(e) => handleOpenExportFromHub(e, p)}
+            >
+              Εξαγωγή
+            </HubRowBtn>
+          </div>
+        </HubCardFooter>
+      </HubCard>
+    );
+  };
+
+  const renderHubListRow = (p) => {
+    const st = getStatusStyle(p.status);
+    const fileCount = getProjectFileCount(p);
+    const categoryLine = [
+      p.projectCategory,
+      isInfrastructureCategory(p.projectCategory) ? p.infrastructureSpecialization : '',
+    ].filter(Boolean).join(' · ');
+    const openProject = () => {
+      setSelectedId(p.id);
+      setActiveTab('files');
+    };
+    return (
+      <HubListRow key={p.id}>
+        <HubListTitleCell type="button" onClick={openProject}>
+          <HubListTitle>{p.title || '(Χωρίς τίτλο)'}</HubListTitle>
+          {categoryLine ? <HubListSub>{categoryLine}</HubListSub> : null}
+        </HubListTitleCell>
+        <HubListCell>
+          <HubRowStatus $color={st.color}>
+            <StatusDot $color={st.color} />
+            {st.label}
+          </HubRowStatus>
+        </HubListCell>
+        <HubListCell>{p.aepoRenewalDate ? formatAepoDate(p.aepoRenewalDate) : '—'}</HubListCell>
+        <HubListCell>{fileCount}</HubListCell>
+        <HubListCell>{formatShortDateEl(p.updatedAt || p.createdAt)}</HubListCell>
+        <HubRowActions>
+          <HubRowBtn type="button" $primary onClick={openProject}>Άνοιγμα</HubRowBtn>
+          <HubRowBtn
+            type="button"
+            disabled={exporting}
+            onClick={(e) => handleOpenExportFromHub(e, p)}
+          >
+            Εξαγωγή
+          </HubRowBtn>
+        </HubRowActions>
+      </HubListRow>
+    );
+  };
+
+  const exportDialogProposal = useMemo(
+    () => proposals.find((p) => p.id === (exportTargetId || selectedId)) || null,
+    [proposals, exportTargetId, selectedId]
+  );
 
   const handleOpenExportFolder = async () => {
     if (!exportSuccess?.exportPath) return;
@@ -1762,10 +4149,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     }
   };
 
-  /* ── Filtered proposals ── */
-  const filteredProposals = proposals.filter((p) =>
-    !search || (p.title || '').toLowerCase().includes(search.toLowerCase())
-  );
+  /* ── Hub list ── */
+  const hubStats = richHubStats;
 
   const statusStyle = selectedProposal ? getStatusStyle(selectedProposal.status) : null;
 
@@ -1782,19 +4167,28 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     return PRESET_GROUPS.filter((p) => !groupLabelExists(selectedProposal.fileGroups, p.label));
   }, [selectedProposal]);
 
+  const newProjectAvailablePresetGroups = useMemo(
+    () => PRESET_GROUPS.filter(
+      (p) => !newProjectStagedGroups.some(
+        (g) => g.label.toLowerCase() === p.label.toLowerCase()
+      )
+    ),
+    [newProjectStagedGroups]
+  );
+
   return (
     <Overlay onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <Modal onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <ModalHeader>
+        <ModalHeader $formal={!selectedProposal}>
           <HeaderTitle>
-            <HeaderIcon>🌱</HeaderIcon>
+            <HeaderIcon>{selectedProposal ? '🌱' : '📋'}</HeaderIcon>
             <HeaderText>
               <HeaderH>Ωρίμανση Έργων</HeaderH>
               <HeaderSub>
                 {proposals.length > 0
-                  ? `${proposals.length} πρόταση/εις · Pipeline προ-χρηματοδοτικής ωρίμανσης`
-                  : 'Pipeline προ-χρηματοδοτικής ωρίμανσης'}
+                  ? `${formatProjectCount(proposals.length)} · Βάση Δεδομένων Ωρίμανσης`
+                  : 'Βάση Δεδομένων Ωρίμανσης Έργων'}
               </HeaderSub>
             </HeaderText>
           </HeaderTitle>
@@ -1802,196 +4196,575 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
             {isReadOnly && (
               <ReadOnlyBadge>👁 Προβολή μόνο</ReadOnlyBadge>
             )}
-            {selectedProposal && !isCreatingNew && (
+            {!selectedProposal && !isReadOnly && (
+              <HeaderPrimaryBtn
+                type="button"
+                onClick={openNewProjectModal}
+                disabled={creatingProject}
+              >
+                ＋ Νέο έργο
+              </HeaderPrimaryBtn>
+            )}
+            {selectedProposal && (
               <HeaderActionBtn
                 type="button"
-                onClick={() => setShowExportDialog(true)}
+                onClick={handleOpenExportFromDetail}
                 disabled={exporting}
-                title="Εξαγωγή πρότασης"
+                title="Εξαγωγή έργου"
               >
                 {exporting ? '⏳ Εξαγωγή…' : '📤 Εξαγωγή'}
               </HeaderActionBtn>
             )}
-            <CloseBtn onClick={onClose} title="Κλείσιμο">✕</CloseBtn>
+            <CloseBtn onClick={onClose} title="Κλείσιμο και επιστροφή στο Dashboard">✕</CloseBtn>
           </div>
         </ModalHeader>
 
         {/* Body */}
         <Body>
-          {/* Sidebar */}
-          <Sidebar>
-            <SidebarHeader>
-              <SidebarSearch
-                placeholder="Αναζήτηση πρότασης…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              {!isReadOnly && (
-                <AddProposalBtn onClick={handleStartCreate} disabled={isCreatingNew}>
-                  {isCreatingNew ? '… Δημιουργία πρότασης' : '＋ Νέα Πρόταση'}
-                </AddProposalBtn>
-              )}
-            </SidebarHeader>
-            <SidebarList>
-              {filteredProposals.length === 0 && !isCreatingNew && (
-                <EmptyProposals>
-                  {search ? 'Δεν βρέθηκαν αποτελέσματα' : 'Δεν υπάρχουν προτάσεις.\nΠροσθέστε μια νέα.'}
-                </EmptyProposals>
-              )}
-              {filteredProposals.map((p) => {
-                const st = getStatusStyle(p.status);
-                const fileCount = (p.fileGroups || []).reduce((s, g) => s + g.files.length, 0);
-                const notesExist = hasProposalNotes(p.notes);
-                return (
-                  <ProposalItem
-                    key={p.id}
-                    type="button"
-                    $active={p.id === selectedId}
-                    onClick={() => {
-                      setIsCreatingNew(false);
-                      setNewProposalTitle('');
-                      setSelectedId(p.id);
-                      setActiveTab('files');
-                    }}
-                  >
-                    <ProposalItemTitle $active={p.id === selectedId}>
-                      {p.title || '(Χωρίς τίτλο)'}
-                    </ProposalItemTitle>
-                    <ProposalItemMeta>
-                      <StatusDot $color={st.color} />
-                      <ProposalItemSub>{st.label}</ProposalItemSub>
-                      <ProposalItemIcons>
-                        {notesExist && (
-                          <ProposalItemIcon title="Υπάρχουν σημειώσεις">📝</ProposalItemIcon>
-                        )}
-                        {fileCount > 0 && (
-                          <ProposalItemIcon title="Αρχεία">📎 {fileCount}</ProposalItemIcon>
-                        )}
-                      </ProposalItemIcons>
-                    </ProposalItemMeta>
-                    {p.targetProgram && (
-                      <ProposalItemSub style={{ marginTop: '0.15rem', opacity: 0.8 }}>
-                        🎯 {p.targetProgram}
-                      </ProposalItemSub>
-                    )}
-                  </ProposalItem>
-                );
-              })}
-            </SidebarList>
-          </Sidebar>
-
-          {/* Main */}
-          <MainContent>
-            {isCreatingNew ? (
-              <CreateProposalPanel>
-                <NewProposalForm>
-                  <NewProposalHeading>Νέα πρόταση</NewProposalHeading>
-                  <NewProposalHint>
-                    Δώστε έναν σαφή τίτλο για την πρόταση που θα ωριμάσετε πριν την υποβολή σε πρόγραμμα χρηματοδότησης.
-                  </NewProposalHint>
-                  <NewProposalLabel htmlFor="new-proposal-title">Τίτλος πρότασης</NewProposalLabel>
-                  <NewProposalInput
-                    id="new-proposal-title"
-                    ref={newTitleRef}
-                    placeholder="π.χ. Ανακατασκευή οδού Κεντρικής…"
-                    value={newProposalTitle}
-                    onChange={(e) => setNewProposalTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleConfirmCreate();
-                      if (e.key === 'Escape') handleCancelCreate();
-                    }}
-                    autoComplete="off"
-                  />
-                  <NewProposalBtns>
-                    <Btn $variant="ghost" onClick={handleCancelCreate}>Ακύρωση</Btn>
-                    <Btn $variant="primary" onClick={handleConfirmCreate}>✓ Δημιουργία πρότασης</Btn>
-                  </NewProposalBtns>
-                </NewProposalForm>
-              </CreateProposalPanel>
-            ) : !selectedProposal ? (
-              <EmptyState>
-                <EmptyStateIcon>🌱</EmptyStateIcon>
-                <EmptyStateText>Επιλέξτε ή δημιουργήστε μια πρόταση</EmptyStateText>
-              </EmptyState>
-            ) : (
-              <>
-                <DetailHeader>
-                  <TitleRow>
-                    <MetaField style={{ flex: 1, minWidth: 0 }}>
-                      <MetaLabel htmlFor="proposal-title-input">Τίτλος πρότασης</MetaLabel>
-                      <TitleInput
-                        id="proposal-title-input"
-                        placeholder="Τίτλος πρότασης…"
-                        value={selectedProposal.title}
-                        readOnly={isReadOnly}
-                        onChange={isReadOnly ? undefined : (e) => updateProposal({ title: e.target.value })}
-                        onBlur={handleTitleBlur}
-                      />
-                    </MetaField>
-                    {saving && <Saving style={{ alignSelf: 'flex-end' }}>Αποθήκευση…</Saving>}
-                  </TitleRow>
-                  <MetaGrid>
-                    <MetaField>
-                      <MetaLabel>Κατάσταση</MetaLabel>
-                      <StatusSelect
-                        value={selectedProposal.status}
-                        $color={statusStyle?.color}
-                        $bg={statusStyle?.bg}
-                        disabled={isReadOnly}
-                        onChange={isReadOnly ? undefined : (e) => updateProposal({ status: e.target.value })}
-                      >
-                        {PROPOSAL_STATUSES.map((s) => (
-                          <option key={s.value} value={s.value}>{s.label}</option>
-                        ))}
-                      </StatusSelect>
-                    </MetaField>
-                    <MetaField>
-                      <MetaLabel>Στοχευόμενο πρόγραμμα</MetaLabel>
-                      <MetaInput
-                        placeholder="π.χ. ΕΣΠΑ 2021–2027…"
-                        value={selectedProposal.targetProgram}
-                        readOnly={isReadOnly}
-                        onChange={isReadOnly ? undefined : (e) => updateProposal({ targetProgram: e.target.value })}
-                      />
-                    </MetaField>
-                    <MetaField>
-                      <MetaLabel>Εκτιμώμενος προϋπολογισμός</MetaLabel>
-                      <MetaInput
-                        placeholder="π.χ. 850.000 €"
-                        value={selectedProposal.estimatedBudget}
-                        readOnly={isReadOnly}
-                        onChange={isReadOnly ? undefined : (e) => updateProposal({ estimatedBudget: e.target.value })}
-                      />
-                    </MetaField>
-                    <MetaField>
-                      <MetaLabel>Περιγραφή</MetaLabel>
-                      <DescriptionInput
-                        placeholder="Σύντομη περιγραφή (προαιρετικό)…"
-                        value={selectedProposal.description}
-                        readOnly={isReadOnly}
-                        onChange={isReadOnly ? undefined : (e) => updateProposal({ description: e.target.value })}
-                      />
-                    </MetaField>
-                  </MetaGrid>
-                  <TabBar>
-                    <Tab $active={activeTab === 'files'} onClick={() => setActiveTab('files')}>
-                      📁 Αρχεία ({totalFiles})
-                    </Tab>
-                    <Tab $active={activeTab === 'pending'} onClick={() => setActiveTab('pending')}>
-                      ✅ Εκκρεμότητες ({doneItems}/{totalItems})
-                    </Tab>
-                    <Tab
-                      $active={activeTab === 'notes'}
-                      $hasContent={hasNotes && activeTab !== 'notes'}
-                      onClick={() => setActiveTab('notes')}
+          {!selectedProposal ? (
+            <>
+              <HubShell>
+                <HubControlsPanel>
+                  <HubToolbarCard>
+                    <HubSearch
+                      placeholder="Αναζήτηση έργου, κατηγορίας, περιγραφής…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                    <HubFiltersToggleBtn
+                      type="button"
+                      $active={showHubFiltersPanel || hubHasSecondaryFilters}
+                      onClick={() => setShowHubFiltersPanel((v) => !v)}
                     >
-                      📝 Σημειώσεις
-                      {hasNotes && <TabIndicator title="Υπάρχουν σημειώσεις" />}
-                    </Tab>
-                  </TabBar>
-                </DetailHeader>
-
+                      ⚙ Φίλτρα & ταξινόμηση
+                      {hubHasSecondaryFilters ? ' ●' : ''}
+                    </HubFiltersToggleBtn>
+                    <HubStatsBtn type="button" onClick={() => setShowHubStatsModal(true)}>
+                      📊 Στατιστικά
+                    </HubStatsBtn>
+                    {hubHasActiveFilters && (
+                      <HubClearFiltersBtn type="button" onClick={clearHubFilters}>
+                        ✕ Καθαρισμός
+                      </HubClearFiltersBtn>
+                    )}
+                  </HubToolbarCard>
+                  {showHubFiltersPanel && (
+                    <HubFiltersPanel>
+                    <HubSearch
+                      placeholder="Αναζήτηση αρχείων (min. 2 χαρακτήρες)…"
+                      value={fileSearch}
+                      onChange={(e) => setFileSearch(e.target.value)}
+                      style={{ flex: '1 1 220px', minWidth: 200 }}
+                    />
+                    <HubFilterSelect
+                      value={hubCategoryFilter}
+                      onChange={(e) => setHubCategoryFilter(e.target.value)}
+                      title="Φίλτρο κατηγορίας"
+                    >
+                      <option value="">Όλες οι κατηγορίες</option>
+                      {hubCategoryOptions.map((cat) => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </HubFilterSelect>
+                    <HubFilterSelect
+                      value={hubStatusFilter}
+                      onChange={(e) => {
+                        setHubStatusFilter(e.target.value);
+                        setHubQuickFilter('');
+                      }}
+                      title="Φίλτρο κατάστασης"
+                    >
+                      <option value="">Όλες οι καταστάσεις</option>
+                      {PROJECT_MATURITY_STATUSES.map((s) => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
+                      ))}
+                    </HubFilterSelect>
+                    <HubFilterSelect
+                      value={hubSortBy}
+                      onChange={(e) => setHubSortBy(e.target.value)}
+                      title="Ταξινόμηση"
+                    >
+                      {HUB_SORT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </HubFilterSelect>
+                    <HubViewToggle>
+                      <HubViewBtn
+                        type="button"
+                        $active={hubViewMode === 'list'}
+                        onClick={() => setHubViewMode('list')}
+                      >
+                        Λίστα
+                      </HubViewBtn>
+                      <HubViewBtn
+                        type="button"
+                        $active={hubViewMode === 'grid'}
+                        onClick={() => setHubViewMode('grid')}
+                      >
+                        Πλέγμα
+                      </HubViewBtn>
+                      <HubViewBtn
+                        type="button"
+                        $active={hubViewMode === 'kanban'}
+                        onClick={() => setHubViewMode('kanban')}
+                      >
+                        Kanban
+                      </HubViewBtn>
+                    </HubViewToggle>
+                  </HubFiltersPanel>
+                  )}
+                  {!loadingProposals && proposals.length > 0 && (
+                    <>
+                      <HubSummaryBar type="button" onClick={() => setShowHubStatsModal(true)} title="Άνοιγμα στατιστικών">
+                        <HubStatHighlight $color={C.indigoDark} $bg={C.indigoLight}>
+                          <strong>{proposals.length}</strong> έργα
+                        </HubStatHighlight>
+                        <HubStatHighlight $color={C.amber} $bg="#fffbeb">
+                          {hubStats.maturing} υπό ωρίμανση
+                        </HubStatHighlight>
+                        <HubStatHighlight $color={C.teal} $bg={C.tealLight}>
+                          {hubStats.ready} ώριμα
+                        </HubStatHighlight>
+                        <HubStatHighlight $color={C.emerald} $bg="#f0fdf4">
+                          {hubStats.approved} εγκεκριμένα
+                        </HubStatHighlight>
+                        {hubFilteredProposals.length !== proposals.length && (
+                          <>
+                            <HubSummarySep>·</HubSummarySep>
+                            <span>Εμφάνιση <strong>{hubFilteredProposals.length}</strong></span>
+                          </>
+                        )}
+                      </HubSummaryBar>
+                      <HubQuickFilters>
+                        {[
+                          { value: '', label: 'Όλα' },
+                          { value: 'maturing', label: 'Υπό ωρίμανση' },
+                          { value: 'ready', label: 'Ώριμα' },
+                          { value: 'approved', label: 'Εγκεκριμένα' },
+                          { value: 'aepo_soon', label: 'ΑΕΠΟ ≤60 ημέρες' },
+                          { value: 'pending', label: 'Με εκκρεμότητες' },
+                        ].map((pill) => (
+                          <HubQuickFilterPill
+                            key={pill.value || 'all'}
+                            type="button"
+                            $active={hubQuickFilter === pill.value}
+                            onClick={() => applyHubQuickFilter(pill.value)}
+                          >
+                            {pill.label}
+                          </HubQuickFilterPill>
+                        ))}
+                      </HubQuickFilters>
+                    </>
+                  )}
+                </HubControlsPanel>
+                {(fileSearch.trim().length >= 2 || fileSearchLoading) && (
+                  <FileSearchPanel>
+                    <FileSearchPanelHead>
+                      <span>
+                        {fileSearchLoading
+                          ? 'Αναζήτηση αρχείων…'
+                          : `Αποτελέσματα αρχείων (${fileSearchResults.length})`}
+                      </span>
+                      {!fileSearchLoading && (
+                        <HubClearFiltersBtn type="button" onClick={() => setFileSearch('')}>
+                          Κλείσιμο
+                        </HubClearFiltersBtn>
+                      )}
+                    </FileSearchPanelHead>
+                    {!fileSearchLoading && fileSearchResults.length > 0 && (
+                      <FileSearchResults>
+                        {fileSearchResults.map((row, idx) => (
+                          <FileSearchRow
+                            key={`${row.projectId}-${row.fileName}-${idx}`}
+                            type="button"
+                            onClick={() => openProjectFromFileSearch(row)}
+                          >
+                            <FileSearchRowTitle>{row.fileName}</FileSearchRowTitle>
+                            <FileSearchRowMeta>
+                              {row.projectTitle} · {row.groupLabel}
+                              {row.projectCategory ? ` · ${row.projectCategory}` : ''}
+                            </FileSearchRowMeta>
+                          </FileSearchRow>
+                        ))}
+                      </FileSearchResults>
+                    )}
+                    {!fileSearchLoading && fileSearchResults.length === 0 && (
+                      <HubEmpty style={{ padding: '1rem', fontSize: '0.76rem' }}>
+                        Δεν βρέθηκαν αρχεία με αυτό το κριτήριο.
+                      </HubEmpty>
+                    )}
+                  </FileSearchPanel>
+                )}
+                {loadingProposals ? (
+                  hubViewMode === 'list' ? (
+                    <HubSkeletonList>
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                        <HubSkeletonRow key={i} />
+                      ))}
+                    </HubSkeletonList>
+                  ) : (
+                    <HubSkeletonGrid>
+                      {[1, 2, 3, 4, 5, 6].map((i) => (
+                        <HubSkeletonCard key={i} />
+                      ))}
+                    </HubSkeletonGrid>
+                  )
+                ) : hubFilteredProposals.length === 0 ? (
+                  <HubEmpty>
+                    {proposals.length === 0 ? (
+                      <>
+                        <EmptyStateIcon>📋</EmptyStateIcon>
+                        <EmptyStateText>Δεν υπάρχουν καταγεγραμμένα έργα</EmptyStateText>
+                        <EmptyStateSub>
+                          Ξεκινήστε με «Νέο έργο» για να καταγράψετε έργα υπό ωρίμανση, αδειοδοτήσεις και μελέτες.
+                        </EmptyStateSub>
+                      </>
+                    ) : (
+                      'Δεν βρέθηκαν έργα με τα τρέχοντα κριτήρια.\nΔοκιμάστε άλλο φίλτρο ή καθαρισμό.'
+                    )}
+                  </HubEmpty>
+                ) : hubViewMode === 'list' ? (
+                  <HubListWrap>
+                    <HubListHead>
+                      <span>Τίτλος / κατηγορία</span>
+                      <span>Κατάσταση</span>
+                      <span>ΑΕΠΟ</span>
+                      <span>Αρχ.</span>
+                      <span>Ενημέρωση</span>
+                      <span />
+                    </HubListHead>
+                    {hubFilteredProposals.map((p) => renderHubListRow(p))}
+                  </HubListWrap>
+                ) : hubViewMode === 'kanban' ? (
+                  <HubKanban>
+                    {PROJECT_MATURITY_STATUSES.map((statusDef) => {
+                      const columnItems = hubFilteredProposals.filter((p) => p.status === statusDef.value);
+                      if (columnItems.length === 0 && hubStatusFilter && hubStatusFilter !== statusDef.value) {
+                        return null;
+                      }
+                      return (
+                        <KanbanColumn key={statusDef.value}>
+                          <KanbanColumnHeader $bg={statusDef.bg}>
+                            <KanbanColumnTitle $color={statusDef.color}>
+                              <StatusDot $color={statusDef.color} />
+                              {statusDef.label}
+                            </KanbanColumnTitle>
+                            <KanbanColumnCount>{columnItems.length}</KanbanColumnCount>
+                          </KanbanColumnHeader>
+                          <KanbanColumnBody>
+                            {columnItems.length === 0 ? (
+                              <HubCardMetaLine style={{ padding: '0.35rem', fontStyle: 'italic' }}>
+                                Κανένα έργο
+                              </HubCardMetaLine>
+                            ) : (
+                              columnItems.map((p) => renderFormalHubCard(p))
+                            )}
+                          </KanbanColumnBody>
+                        </KanbanColumn>
+                      );
+                    })}
+                  </HubKanban>
+                ) : (
+                  <HubGrid>
+                    {hubFilteredProposals.map((p) => renderFormalHubCard(p))}
+                  </HubGrid>
+                )}
+              </HubShell>
+            </>
+          ) : (
+            <MainContent>
+              <DetailTopBar>
+                <BackToHubBtn type="button" onClick={() => setSelectedId(null)}>
+                  <BackToHubIcon>←</BackToHubIcon>
+                  Επιστροφή στη λίστα
+                </BackToHubBtn>
+                <BreadcrumbBar>
+                  <span style={{ color: C.slate400, fontWeight: 700 }}>Τρέχον έργο:</span>
+                  {selectedProposal.projectCategory ? (
+                    <>
+                      <span>{selectedProposal.projectCategory}</span>
+                      <BreadcrumbSep>/</BreadcrumbSep>
+                    </>
+                  ) : null}
+                  <BreadcrumbCurrent title={selectedProposal.title || ''}>
+                    {selectedProposal.title || '(Χωρίς τίτλο)'}
+                  </BreadcrumbCurrent>
+                </BreadcrumbBar>
+              </DetailTopBar>
+              <StickyDetailHeader>
+                <StickyTitleRow>
+                  <StickyTitleText title={selectedProposal.title || ''}>
+                    {selectedProposal.title || '(Χωρίς τίτλο)'}
+                  </StickyTitleText>
+                  <DetailStatusBadge $color={statusStyle?.color} $bg={statusStyle?.bg}>
+                    <StatusDot $color={statusStyle?.color} />
+                    {statusStyle?.label}
+                  </DetailStatusBadge>
+                  {saving && <Saving>Αποθήκευση…</Saving>}
+                </StickyTitleRow>
+                <TabBar>
+                  <Tab $active={activeTab === 'details'} onClick={() => setActiveTab('details')}>
+                    Στοιχεία
+                  </Tab>
+                  <Tab $active={activeTab === 'files'} onClick={() => setActiveTab('files')}>
+                    Αρχεία ({totalFiles})
+                  </Tab>
+                  <Tab $active={activeTab === 'pending'} onClick={() => setActiveTab('pending')}>
+                    Εκκρεμ. ({doneItems}/{totalItems})
+                  </Tab>
+                  <Tab
+                    $active={activeTab === 'notes'}
+                    $hasContent={hasNotes && activeTab !== 'notes'}
+                    onClick={() => setActiveTab('notes')}
+                  >
+                    Σημειώσεις
+                    {hasNotes && <TabIndicator title="Υπάρχουν σημειώσεις" />}
+                  </Tab>
+                  <Tab $active={activeTab === 'history'} onClick={() => setActiveTab('history')}>
+                    Ιστορικό
+                  </Tab>
+                </TabBar>
+              </StickyDetailHeader>
+              <DetailScrollArea>
                 <DetailBody>
+                  {activeTab === 'details' && (
+                    <MetaCompactPanel>
+                      <MetaFieldBoxWide as="div">
+                        <MetaLabel htmlFor="proposal-title-input">Τίτλος έργου</MetaLabel>
+                        <TitleInput
+                          id="proposal-title-input"
+                          placeholder="Τίτλος έργου…"
+                          value={selectedProposal.title}
+                          readOnly={isReadOnly}
+                          onChange={isReadOnly ? undefined : (e) => updateProposal({ title: e.target.value })}
+                          onBlur={handleTitleBlur}
+                        />
+                      </MetaFieldBoxWide>
+                      <MetaCompactRow>
+                        <MetaFieldBox>
+                          <MetaLabel>Κατάσταση</MetaLabel>
+                          <StatusSelect
+                            value={selectedProposal.status}
+                            $color={statusStyle?.color}
+                            $bg={statusStyle?.bg}
+                            disabled={isReadOnly}
+                            onChange={isReadOnly ? undefined : (e) => updateProposalAudited({ status: e.target.value })}
+                          >
+                            {PROJECT_MATURITY_STATUSES.map((s) => (
+                              <option key={s.value} value={s.value}>{s.label}</option>
+                            ))}
+                          </StatusSelect>
+                        </MetaFieldBox>
+                        <MetaFieldBox>
+                          <MetaLabelRow>
+                            <MetaLabel>Κατηγορία</MetaLabel>
+                            {!isReadOnly && (
+                              <ManageListsLink
+                                type="button"
+                                onClick={() => setShowManageListsModal(true)}
+                                title="Διαχείριση προσαρμοσμένων κατηγοριών και εξειδικεύσεων"
+                              >
+                                Διαχείριση λιστών
+                              </ManageListsLink>
+                            )}
+                          </MetaLabelRow>
+                          <StatusSelect
+                            value={detailShowAddCategoryInput ? '' : (selectedProposal.projectCategory || '')}
+                            disabled={isReadOnly}
+                            onChange={isReadOnly ? undefined : (e) => {
+                              const val = e.target.value;
+                              if (val === ADD_NEW_CATEGORY_OPTION) {
+                                setDetailShowAddCategoryInput(true);
+                                setDetailNewCategoryInput('');
+                                return;
+                              }
+                              setDetailShowAddCategoryInput(false);
+                              setDetailNewCategoryInput('');
+                              updateProposalAudited({
+                                projectCategory: val,
+                                infrastructureSpecialization: isInfrastructureCategory(val)
+                                  ? selectedProposal.infrastructureSpecialization
+                                  : '',
+                              });
+                            }}
+                          >
+                            <option value="">— Επιλογή —</option>
+                            {detailCategoryOptions.map((cat) => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                            {!isReadOnly && (
+                              <>
+                                <option disabled value="__sep_cat__">──────────────</option>
+                                <option value={ADD_NEW_CATEGORY_OPTION}>+ Νέα κατηγορία</option>
+                              </>
+                            )}
+                          </StatusSelect>
+                          {!isReadOnly && detailShowAddCategoryInput && (
+                            <InlineAddRow style={{ marginTop: '0.35rem' }}>
+                              <FormInput
+                                placeholder="Όνομα κατηγορίας…"
+                                value={detailNewCategoryInput}
+                                onChange={(e) => setDetailNewCategoryInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const added = addCustomProjectCategory(detailNewCategoryInput);
+                                    if (added) {
+                                      updateProposalAudited({
+                                        projectCategory: added,
+                                        infrastructureSpecialization: isInfrastructureCategory(added)
+                                          ? selectedProposal.infrastructureSpecialization
+                                          : '',
+                                      });
+                                      setDetailNewCategoryInput('');
+                                      setDetailShowAddCategoryInput(false);
+                                    }
+                                  }
+                                  if (e.key === 'Escape') {
+                                    setDetailShowAddCategoryInput(false);
+                                    setDetailNewCategoryInput('');
+                                  }
+                                }}
+                                autoFocus
+                              />
+                              <Btn
+                                $sm
+                                $variant="primary"
+                                type="button"
+                                onClick={() => {
+                                  const added = addCustomProjectCategory(detailNewCategoryInput);
+                                  if (added) {
+                                    updateProposalAudited({
+                                      projectCategory: added,
+                                      infrastructureSpecialization: isInfrastructureCategory(added)
+                                        ? selectedProposal.infrastructureSpecialization
+                                        : '',
+                                    });
+                                    setDetailNewCategoryInput('');
+                                    setDetailShowAddCategoryInput(false);
+                                  }
+                                }}
+                              >
+                                ✓
+                              </Btn>
+                              <Btn
+                                $sm
+                                $variant="ghost"
+                                type="button"
+                                onClick={() => {
+                                  setDetailShowAddCategoryInput(false);
+                                  setDetailNewCategoryInput('');
+                                }}
+                              >
+                                ✕
+                              </Btn>
+                            </InlineAddRow>
+                          )}
+                        </MetaFieldBox>
+                        {isInfrastructureCategory(selectedProposal.projectCategory) ? (
+                          <MetaFieldBox>
+                            <MetaLabel>Εξειδίκευση</MetaLabel>
+                            <StatusSelect
+                              value={detailShowAddSpecializationInput ? '' : (selectedProposal.infrastructureSpecialization || '')}
+                              disabled={isReadOnly}
+                              onChange={isReadOnly ? undefined : (e) => {
+                                const val = e.target.value;
+                                if (val === ADD_NEW_SPECIALIZATION_OPTION) {
+                                  setDetailShowAddSpecializationInput(true);
+                                  setDetailNewSpecializationInput('');
+                                  return;
+                                }
+                                setDetailShowAddSpecializationInput(false);
+                                setDetailNewSpecializationInput('');
+                                updateProposalAudited({ infrastructureSpecialization: val });
+                              }}
+                            >
+                              <option value="">— Επιλογή —</option>
+                              {detailSpecializationOptions.map((spec) => (
+                                <option key={spec} value={spec}>{spec}</option>
+                              ))}
+                              {!isReadOnly && (
+                                <>
+                                  <option disabled value="__sep_spec__">──────────────</option>
+                                  <option value={ADD_NEW_SPECIALIZATION_OPTION}>+ Νέα εξειδίκευση</option>
+                                </>
+                              )}
+                            </StatusSelect>
+                            {!isReadOnly && detailShowAddSpecializationInput && (
+                              <InlineAddRow style={{ marginTop: '0.35rem' }}>
+                                <FormInput
+                                  placeholder="Όνομα εξειδίκευσης…"
+                                  value={detailNewSpecializationInput}
+                                  onChange={(e) => setDetailNewSpecializationInput(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      const added = addCustomInfraSpecialization(detailNewSpecializationInput);
+                                      if (added) {
+                                        updateProposalAudited({ infrastructureSpecialization: added });
+                                        setDetailNewSpecializationInput('');
+                                        setDetailShowAddSpecializationInput(false);
+                                      }
+                                    }
+                                    if (e.key === 'Escape') {
+                                      setDetailShowAddSpecializationInput(false);
+                                      setDetailNewSpecializationInput('');
+                                    }
+                                  }}
+                                  autoFocus
+                                />
+                                <Btn
+                                  $sm
+                                  $variant="primary"
+                                  type="button"
+                                  onClick={() => {
+                                    const added = addCustomInfraSpecialization(detailNewSpecializationInput);
+                                    if (added) {
+                                      updateProposalAudited({ infrastructureSpecialization: added });
+                                      setDetailNewSpecializationInput('');
+                                      setDetailShowAddSpecializationInput(false);
+                                    }
+                                  }}
+                                >
+                                  ✓
+                                </Btn>
+                                <Btn
+                                  $sm
+                                  $variant="ghost"
+                                  type="button"
+                                  onClick={() => {
+                                    setDetailShowAddSpecializationInput(false);
+                                    setDetailNewSpecializationInput('');
+                                  }}
+                                >
+                                  ✕
+                                </Btn>
+                              </InlineAddRow>
+                            )}
+                          </MetaFieldBox>
+                        ) : null}
+                        <MetaFieldBox>
+                          <MetaLabel>Ανανέωση ΑΕΠΟ</MetaLabel>
+                          <MetaInput
+                            type="date"
+                            value={selectedProposal.aepoRenewalDate || ''}
+                            readOnly={isReadOnly}
+                            onChange={isReadOnly ? undefined : (e) => updateProposalAudited({ aepoRenewalDate: e.target.value })}
+                            title={selectedProposal.aepoRenewalDate ? formatAepoDate(selectedProposal.aepoRenewalDate) : ''}
+                          />
+                        </MetaFieldBox>
+                      </MetaCompactRow>
+                      <MetaFieldBoxWide>
+                        <MetaLabel>Περιγραφή</MetaLabel>
+                        <DescriptionInput
+                          placeholder="Σύντομη περιγραφή (προαιρετικό)"
+                          value={selectedProposal.description}
+                          readOnly={isReadOnly}
+                          onChange={isReadOnly ? undefined : (e) => updateProposal({ description: e.target.value })}
+                          onBlur={handleDescriptionBlur}
+                        />
+                      </MetaFieldBoxWide>
+                    </MetaCompactPanel>
+                  )}
+
                   {/* Tab: Files */}
                   {activeTab === 'files' && (
                     <FilesTabLayout>
@@ -2057,8 +4830,13 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                             onClick={handleExpandAllGroups}
                             title="Άνοιγμα όλων των κατηγοριών ταυτόχρονα"
                           >
-                            ▼ Προβολή όλων των κατηγοριών
+                            ▼ Όλες οι κατηγορίες
                           </ExpandAllBtn>
+                          <DetailFileFilter
+                            placeholder="Αναζήτηση αρχείου σε αυτό το έργο…"
+                            value={detailFileFilter}
+                            onChange={(e) => setDetailFileFilter(e.target.value)}
+                          />
                         </GroupsToolbar>
                       )}
 
@@ -2066,7 +4844,9 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                       {(selectedProposal.fileGroups || []).map((group) => {
                         const expanded = expandedGroups[group.id] === true;
                         const isDragging = draggingGroupId === group.id;
-                        const isEmpty = group.files.length === 0;
+                        const visibleFiles = filterGroupFiles(group, detailFileFilter);
+                        const isEmpty = visibleFiles.length === 0;
+                        if (detailFileFilter.trim() && visibleFiles.length === 0) return null;
                         return (
                           <GroupCard key={group.id}>
                             <GroupCardHeader
@@ -2112,9 +4892,9 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                                 onDragLeave={!isReadOnly ? () => setDraggingGroupId(null) : undefined}
                                 onDrop={!isReadOnly ? (e) => handleDrop(e, group.id) : undefined}
                               >
-                                {group.files.length > 0 ? (
+                                {visibleFiles.length > 0 ? (
                                   <FilesList>
-                                    {group.files.map((entry) => {
+                                    {visibleFiles.map((entry) => {
                                       if (isProposalFolder(entry)) {
                                         const count = entry.fileCount || 0;
                                         return (
@@ -2158,10 +4938,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                                         );
                                       }
                                       const typeStyle = getFileTypeStyle(entry.name);
+                                      const IconWrap = isImageFileName(entry.name) ? FileTypeIconLarge : FileTypeIcon;
                                       return (
                                         <FileItem key={entry.name}>
                                           <FileInfo>
-                                            <FileTypeIcon $bg={typeStyle.bg}>{typeStyle.label}</FileTypeIcon>
+                                            <IconWrap $bg={typeStyle.bg}>{typeStyle.label}</IconWrap>
                                             <div style={{ minWidth: 0 }}>
                                               <FileListName title={entry.name}>{entry.name}</FileListName>
                                               <FileListMeta>{formatBytes(entry.size)}</FileListMeta>
@@ -2273,21 +5054,82 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                   {activeTab === 'notes' && (
                     <>
                       <SectionLabel>Σημειώσεις</SectionLabel>
-                      <NotesTextarea
-                        placeholder="Ελεύθερες σημειώσεις για την πρόταση… (κατάσταση αδειοδοτήσεων, επαφές, χρονοδιάγραμμα κ.ά.)"
-                        value={selectedProposal.notes}
-                        readOnly={isReadOnly}
-                        onChange={isReadOnly ? undefined : (e) => updateProposal({ notes: e.target.value })}
-                        style={isReadOnly ? { cursor: 'default', background: C.slate50 } : undefined}
-                      />
+                      {hasNotes && (
+                        <NotesPreview>{selectedProposal.notes}</NotesPreview>
+                      )}
+                      {!isReadOnly ? (
+                        <NotesTextarea
+                          placeholder="Ελεύθερες σημειώσεις για το έργο… (κατάσταση αδειοδοτήσεων, επαφές, χρονοδιάγραμμα κ.ά.)"
+                          value={selectedProposal.notes}
+                          onChange={(e) => updateProposal({ notes: e.target.value })}
+                          onBlur={handleNotesBlur}
+                        />
+                      ) : !hasNotes ? (
+                        <div style={{ color: C.slate400, fontSize: '0.8rem', fontStyle: 'italic' }}>
+                          Δεν υπάρχουν σημειώσεις.
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+
+                  {/* Tab: History */}
+                  {activeTab === 'history' && (
+                    <>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.75rem',
+                        marginBottom: '0.65rem',
+                      }}
+                      >
+                        <SectionLabel style={{ marginBottom: 0, flex: 1 }}>Ιστορικό αλλαγών</SectionLabel>
+                        {!isReadOnly && (
+                          <Btn
+                            $sm
+                            $variant="ghost"
+                            type="button"
+                            onClick={handleClearProjectHistory}
+                            disabled={clearingHistory || historyLoading || projectHistory.length === 0}
+                            title="Διαγραφή όλων των καταγραφών ιστορικού για αυτό το έργο"
+                          >
+                            {clearingHistory ? '⏳ Εκκαθάριση…' : '🗑 Εκκάθαριση ιστορικού'}
+                          </Btn>
+                        )}
+                      </div>
+                      {historyLoading ? (
+                        <div style={{ color: C.slate500, fontSize: '0.8rem', fontWeight: 600 }}>
+                          Φόρτωση ιστορικού…
+                        </div>
+                      ) : projectHistory.length === 0 ? (
+                        <div style={{ color: C.slate400, fontSize: '0.8rem', fontStyle: 'italic' }}>
+                          Δεν υπάρχουν καταγεγραμμένες ενέργειες για αυτό το έργο.
+                        </div>
+                      ) : (
+                        <HistoryList>
+                          {projectHistory.map((log) => (
+                            <HistoryItem key={log.id || `${log.timestamp}-${log.action}`}>
+                              <HistoryItemHead>
+                                <HistoryAction>
+                                  {PROPOSAL_ACTION_LABELS[log.action] || log.action}
+                                </HistoryAction>
+                                <HistoryTime>{formatDateTimeEl(log.timestamp)}</HistoryTime>
+                              </HistoryItemHead>
+                              <HistoryBody>{summarizeHistoryEntry(log)}</HistoryBody>
+                              <HistoryUser>{log.userFullName || log.user || 'Άγνωστος'}</HistoryUser>
+                            </HistoryItem>
+                          ))}
+                        </HistoryList>
+                      )}
                     </>
                   )}
                 </DetailBody>
+              </DetailScrollArea>
 
-                <DetailFooter>
+              <DetailFooter>
                   {!isReadOnly ? (
                     <Btn $sm $variant="danger" onClick={handleDeleteProposal}>
-                      🗑 Διαγραφή πρότασης
+                      🗑 Διαγραφή έργου
                     </Btn>
                   ) : (
                     <span style={{ fontSize: '0.72rem', color: C.slate400, fontWeight: 600 }}>
@@ -2296,11 +5138,356 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                   )}
                   {saving && <Saving>Αποθηκεύεται…</Saving>}
                 </DetailFooter>
-              </>
-            )}
-          </MainContent>
+            </MainContent>
+          )}
         </Body>
       </Modal>
+
+      {showNewProjectModal && (
+        <FolderModalOverlay onClick={() => !creatingProject && resetNewProjectModal()}>
+          <WideModalCard onClick={(e) => e.stopPropagation()}>
+            <FolderModalHeader>
+              <FolderModalTitle>＋ Νέο Έργο</FolderModalTitle>
+              <FolderModalSub>
+                Καταγραφή νέου έργου στη βάση ωρίμανσης — συμπληρώστε τα στοιχεία και προσθέστε αρχεία/φακέλους.
+              </FolderModalSub>
+            </FolderModalHeader>
+            <WideModalBody>
+              <FormGrid>
+                <FormFieldFull>
+                  <MetaLabel htmlFor="new-project-title">Τίτλος έργου *</MetaLabel>
+                  <FormInput
+                    id="new-project-title"
+                    ref={newProjectTitleRef}
+                    placeholder="π.χ. Ανακατασκευή οδού Κεντρικής…"
+                    value={newProjectDraft.title}
+                    onChange={(e) => setNewProjectDraft((d) => ({ ...d, title: e.target.value }))}
+                  />
+                </FormFieldFull>
+                <FormField>
+                  <MetaLabelRow>
+                    <MetaLabel htmlFor="new-project-category">Κατηγορία *</MetaLabel>
+                    <ManageListsLink
+                      type="button"
+                      onClick={() => setShowManageListsModal(true)}
+                      title="Διαχείριση προσαρμοσμένων κατηγοριών και εξειδικεύσεων"
+                    >
+                      Διαχείριση λιστών
+                    </ManageListsLink>
+                  </MetaLabelRow>
+                  <FormSelect
+                    id="new-project-category"
+                    value={showAddCategoryInput ? '' : newProjectDraft.projectCategory}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === ADD_NEW_CATEGORY_OPTION) {
+                        setShowAddCategoryInput(true);
+                        setNewCategoryInput('');
+                        return;
+                      }
+                      setShowAddCategoryInput(false);
+                      setNewCategoryInput('');
+                      setNewProjectDraft((d) => ({
+                        ...d,
+                        projectCategory: val,
+                        infrastructureSpecialization: isInfrastructureCategory(val)
+                          ? d.infrastructureSpecialization
+                          : '',
+                      }));
+                    }}
+                  >
+                    <option value="">— Επιλέξτε κατηγορία —</option>
+                    {projectCategories.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                    <option disabled value="__sep__">──────────────</option>
+                    <option value={ADD_NEW_CATEGORY_OPTION}>+ Νέα κατηγορία</option>
+                  </FormSelect>
+                  {showAddCategoryInput && (
+                    <InlineAddRow>
+                      <FormInput
+                        placeholder="Όνομα κατηγορίας…"
+                        value={newCategoryInput}
+                        onChange={(e) => setNewCategoryInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const added = addCustomProjectCategory(newCategoryInput);
+                            if (added) {
+                              setNewProjectDraft((d) => ({ ...d, projectCategory: added }));
+                              setNewCategoryInput('');
+                              setShowAddCategoryInput(false);
+                            }
+                          }
+                          if (e.key === 'Escape') {
+                            setShowAddCategoryInput(false);
+                            setNewCategoryInput('');
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <Btn
+                        $sm
+                        $variant="primary"
+                        type="button"
+                        onClick={() => {
+                          const added = addCustomProjectCategory(newCategoryInput);
+                          if (added) {
+                            setNewProjectDraft((d) => ({ ...d, projectCategory: added }));
+                            setNewCategoryInput('');
+                            setShowAddCategoryInput(false);
+                          }
+                        }}
+                      >
+                        ✓
+                      </Btn>
+                      <Btn $sm $variant="ghost" type="button" onClick={() => {
+                        setShowAddCategoryInput(false);
+                        setNewCategoryInput('');
+                      }}
+                      >
+                        ✕
+                      </Btn>
+                    </InlineAddRow>
+                  )}
+                </FormField>
+                {isInfrastructureCategory(newProjectDraft.projectCategory) ? (
+                  <FormField>
+                    <MetaLabel htmlFor="new-project-spec">Εξειδίκευση υποδομής *</MetaLabel>
+                    <FormSelect
+                      id="new-project-spec"
+                      value={showAddSpecializationInput ? '' : newProjectDraft.infrastructureSpecialization}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === ADD_NEW_SPECIALIZATION_OPTION) {
+                          setShowAddSpecializationInput(true);
+                          setNewSpecializationInput('');
+                          return;
+                        }
+                        setShowAddSpecializationInput(false);
+                        setNewSpecializationInput('');
+                        setNewProjectDraft((d) => ({
+                          ...d,
+                          infrastructureSpecialization: val,
+                        }));
+                      }}
+                    >
+                      <option value="">— Επιλέξτε εξειδίκευση —</option>
+                      {infraSpecializations.map((spec) => (
+                        <option key={spec} value={spec}>{spec}</option>
+                      ))}
+                      <option disabled value="__sep_spec__">──────────────</option>
+                      <option value={ADD_NEW_SPECIALIZATION_OPTION}>+ Νέα εξειδίκευση</option>
+                    </FormSelect>
+                    {showAddSpecializationInput && (
+                      <InlineAddRow>
+                        <FormInput
+                          placeholder="Όνομα εξειδίκευσης…"
+                          value={newSpecializationInput}
+                          onChange={(e) => setNewSpecializationInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const added = addCustomInfraSpecialization(newSpecializationInput);
+                              if (added) {
+                                setNewProjectDraft((d) => ({ ...d, infrastructureSpecialization: added }));
+                                setNewSpecializationInput('');
+                                setShowAddSpecializationInput(false);
+                              }
+                            }
+                            if (e.key === 'Escape') {
+                              setShowAddSpecializationInput(false);
+                              setNewSpecializationInput('');
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <Btn
+                          $sm
+                          $variant="primary"
+                          type="button"
+                          onClick={() => {
+                            const added = addCustomInfraSpecialization(newSpecializationInput);
+                            if (added) {
+                              setNewProjectDraft((d) => ({ ...d, infrastructureSpecialization: added }));
+                              setNewSpecializationInput('');
+                              setShowAddSpecializationInput(false);
+                            }
+                          }}
+                        >
+                          ✓
+                        </Btn>
+                        <Btn $sm $variant="ghost" type="button" onClick={() => {
+                          setShowAddSpecializationInput(false);
+                          setNewSpecializationInput('');
+                        }}
+                        >
+                          ✕
+                        </Btn>
+                      </InlineAddRow>
+                    )}
+                  </FormField>
+                ) : null}
+                <FormField>
+                  <MetaLabel htmlFor="new-project-aepo">Ημερομηνία ανανέωσης ΑΕΠΟ</MetaLabel>
+                  <FormInput
+                    id="new-project-aepo"
+                    type="date"
+                    value={newProjectDraft.aepoRenewalDate}
+                    onChange={(e) => setNewProjectDraft((d) => ({ ...d, aepoRenewalDate: e.target.value }))}
+                  />
+                </FormField>
+              </FormGrid>
+
+              <StagedFilesBox>
+                <StagedFilesHead>
+                  <StagedFilesTitle>Αρχεία ανά κατηγορία</StagedFilesTitle>
+                </StagedFilesHead>
+                <AddGroupToolbar style={{ marginBottom: '0.65rem' }}>
+                  {!newProjectShowCategoryPicker ? (
+                    <AddCategoryTrigger type="button" onClick={handleNewProjectOpenCategoryPicker}>
+                      + Προσθήκη κατηγορίας
+                    </AddCategoryTrigger>
+                  ) : (
+                    <>
+                      <CategoryPickerHeader>
+                        <CategoryPickerLabel>Επιλέξτε κατηγορία αρχείων</CategoryPickerLabel>
+                        <Btn $sm $variant="ghost" onClick={handleNewProjectCancelAddGroup}>✕</Btn>
+                      </CategoryPickerHeader>
+                      <PresetChipsRow>
+                        {newProjectAvailablePresetGroups.map((p) => (
+                          <PresetChip key={p.label} onClick={() => addNewProjectGroup(p.label)}>
+                            {p.icon} {p.label}
+                          </PresetChip>
+                        ))}
+                        <AddCategoryBtn
+                          type="button"
+                          title="Νέα κατηγορία με δικό σας όνομα"
+                          onClick={handleNewProjectStartAddGroup}
+                        >
+                          +
+                        </AddCategoryBtn>
+                      </PresetChipsRow>
+                      {newProjectAddingGroup && (
+                        <CustomGroupRow>
+                          <CustomGroupInput
+                            ref={newProjectAddGroupInputRef}
+                            placeholder="Όνομα κατηγορίας…"
+                            value={newProjectNewGroupName}
+                            onChange={(e) => setNewProjectNewGroupName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') addNewProjectGroup(newProjectNewGroupName);
+                              if (e.key === 'Escape') handleNewProjectCancelAddGroup();
+                            }}
+                          />
+                          <Btn $sm $variant="primary" onClick={() => addNewProjectGroup(newProjectNewGroupName)}>✓</Btn>
+                          <Btn $sm $variant="ghost" onClick={handleNewProjectCancelAddGroup}>✕</Btn>
+                        </CustomGroupRow>
+                      )}
+                    </>
+                  )}
+                </AddGroupToolbar>
+
+                {newProjectStagedGroups.length === 0 ? (
+                  <div style={{ fontSize: '0.74rem', color: C.slate400, fontStyle: 'italic' }}>
+                    Προαιρετικά — προσθέστε κατηγορίες αρχείων (π.χ. Περιβαλλοντικά, Τοπογραφικά) και ανεβάστε αρχεία ή φακέλους σε κάθε μία.
+                  </div>
+                ) : (
+                  <GroupsList>
+                    {newProjectStagedGroups.map((group) => {
+                      const expanded = newProjectExpandedGroups[group.id] === true;
+                      const itemCount = (group.stagedFiles?.length || 0) + (group.stagedFolders?.length || 0);
+                      return (
+                        <GroupCard key={group.id}>
+                          <GroupCardHeader
+                            $open={expanded}
+                            onClick={() => toggleNewProjectGroupExpanded(group.id)}
+                          >
+                            <GroupName>
+                              <span>{group.label}</span>
+                              <GroupCount $hasFiles={itemCount > 0}>{itemCount}</GroupCount>
+                            </GroupName>
+                            <GroupActions onClick={(e) => e.stopPropagation()}>
+                              {expanded && (
+                                <>
+                                  <Btn $sm $variant="ghost" onClick={() => handleNewProjectPickFiles(group.id)}>
+                                    + Αρχεία
+                                  </Btn>
+                                  <Btn $sm $variant="teal" onClick={() => handleNewProjectPickFolder(group.id)}>
+                                    Φάκελος
+                                  </Btn>
+                                </>
+                              )}
+                              <Btn
+                                $sm
+                                $variant="danger"
+                                onClick={() => deleteNewProjectGroup(group.id, group.label)}
+                              >
+                                ✕
+                              </Btn>
+                              <span style={{ fontSize: '0.7rem', color: C.slate400, marginLeft: '0.15rem' }}>
+                                {expanded ? '▼' : '▶'}
+                              </span>
+                            </GroupActions>
+                          </GroupCardHeader>
+                          {expanded && (
+                            <GroupFilesArea $empty={itemCount === 0} $dragging={false}>
+                              {itemCount === 0 ? (
+                                <div style={{ color: C.slate400, fontSize: '0.76rem', fontStyle: 'italic', padding: '0.35rem 0' }}>
+                                  Πατήστε «+ Αρχεία» ή «Φάκελος» για να προσθέσετε περιεχόμενο σε αυτή την κατηγορία.
+                                </div>
+                              ) : (
+                                <>
+                                  {(group.stagedFiles || []).map((f) => (
+                                    <StagedFileItem key={f.path}>
+                                      <span>📄 {f.name}</span>
+                                      <DeleteIconBtn
+                                        type="button"
+                                        title="Αφαίρεση"
+                                        onClick={() => setNewProjectStagedGroups((prev) => prev.map((g) => (
+                                          g.id === group.id
+                                            ? { ...g, stagedFiles: g.stagedFiles.filter((x) => x.path !== f.path) }
+                                            : g
+                                        )))}
+                                      >
+                                        ✕
+                                      </DeleteIconBtn>
+                                    </StagedFileItem>
+                                  ))}
+                                  {(group.stagedFolders || []).map((folder) => (
+                                    <StagedFileItem key={folder.id}>
+                                      <span>📁 {folder.folderName} ({folder.files.length} αρχεία)</span>
+                                      <DeleteIconBtn
+                                        type="button"
+                                        title="Αφαίρεση"
+                                        onClick={() => setNewProjectStagedGroups((prev) => prev.map((g) => (
+                                          g.id === group.id
+                                            ? { ...g, stagedFolders: g.stagedFolders.filter((x) => x.id !== folder.id) }
+                                            : g
+                                        )))}
+                                      >
+                                        ✕
+                                      </DeleteIconBtn>
+                                    </StagedFileItem>
+                                  ))}
+                                </>
+                              )}
+                            </GroupFilesArea>
+                          )}
+                        </GroupCard>
+                      );
+                    })}
+                  </GroupsList>
+                )}
+              </StagedFilesBox>
+            </WideModalBody>
+            <WideModalFooter>
+              <Btn $sm $variant="ghost" onClick={resetNewProjectModal} disabled={creatingProject}>Ακύρωση</Btn>
+              <Btn $sm $variant="primary" onClick={handleConfirmNewProject} disabled={creatingProject}>
+                {creatingProject ? '⏳ Δημιουργία…' : '✓ Δημιουργία έργου'}
+              </Btn>
+            </WideModalFooter>
+          </WideModalCard>
+        </FolderModalOverlay>
+      )}
 
       {folderModal && (
         <FolderModalOverlay onClick={() => setFolderModal(null)}>
@@ -2466,18 +5653,293 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
         );
       })()}
 
-      {showExportDialog && selectedProposal && (
-        <FolderModalOverlay onClick={() => !exporting && setShowExportDialog(false)}>
+      {showManageListsModal && (
+        <FolderModalOverlay onClick={() => setShowManageListsModal(false)}>
+          <FolderModalCard onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <FolderModalHeader>
+              <FolderModalTitle>Διαχείριση λιστών</FolderModalTitle>
+              <FolderModalSub>
+                Διαγραφή προσαρμοσμένων κατηγοριών και εξειδικεύσεων από τις λίστες επιλογής.
+                Οι προεπιλεγμένες τιμές δεν μπορούν να αφαιρεθούν.
+              </FolderModalSub>
+            </FolderModalHeader>
+            <FolderModalBody style={{ maxHeight: '65vh', overflowY: 'auto' }}>
+              <ManageListSection>
+                <ManageListSectionTitle>Προσαρμοσμένες κατηγορίες</ManageListSectionTitle>
+                {customCategories.length === 0 ? (
+                  <ManageListEmpty>Δεν υπάρχουν προσαρμοσμένες κατηγορίες.</ManageListEmpty>
+                ) : (
+                  customCategories.map((cat) => {
+                    const usage = countProjectsWithCategory(cat);
+                    return (
+                      <ManageListRow key={cat}>
+                        <ManageListRowLabel>{cat}</ManageListRowLabel>
+                        <ManageListRowMeta>
+                          {usage > 0 ? `${usage} ${usage === 1 ? 'έργο' : 'έργα'}` : 'χωρίς χρήση'}
+                        </ManageListRowMeta>
+                        <ManageListDeleteBtn
+                          type="button"
+                          disabled={removingListItem === `cat:${cat}`}
+                          onClick={() => handleRemoveCustomCategory(cat)}
+                          title="Αφαίρεση από τη λίστα"
+                        >
+                          {removingListItem === `cat:${cat}` ? '…' : 'Διαγραφή'}
+                        </ManageListDeleteBtn>
+                      </ManageListRow>
+                    );
+                  })
+                )}
+              </ManageListSection>
+              <ManageListSection>
+                <ManageListSectionTitle>Προσαρμοσμένες εξειδικεύσεις</ManageListSectionTitle>
+                {customSpecializations.length === 0 ? (
+                  <ManageListEmpty>Δεν υπάρχουν προσαρμοσμένες εξειδικεύσεις.</ManageListEmpty>
+                ) : (
+                  customSpecializations.map((spec) => {
+                    const usage = countProjectsWithSpecialization(spec);
+                    return (
+                      <ManageListRow key={spec}>
+                        <ManageListRowLabel>{spec}</ManageListRowLabel>
+                        <ManageListRowMeta>
+                          {usage > 0 ? `${usage} ${usage === 1 ? 'έργο' : 'έργα'}` : 'χωρίς χρήση'}
+                        </ManageListRowMeta>
+                        <ManageListDeleteBtn
+                          type="button"
+                          disabled={removingListItem === `spec:${spec}`}
+                          onClick={() => handleRemoveCustomSpecialization(spec)}
+                          title="Αφαίρεση από τη λίστα"
+                        >
+                          {removingListItem === `spec:${spec}` ? '…' : 'Διαγραφή'}
+                        </ManageListDeleteBtn>
+                      </ManageListRow>
+                    );
+                  })
+                )}
+              </ManageListSection>
+            </FolderModalBody>
+            <FolderModalFooter>
+              <Btn $sm $variant="ghost" onClick={() => setShowManageListsModal(false)}>Κλείσιμο</Btn>
+            </FolderModalFooter>
+          </FolderModalCard>
+        </FolderModalOverlay>
+      )}
+
+      {showHubStatsModal && (
+        <FolderModalOverlay onClick={() => setShowHubStatsModal(false)}>
+          <FolderModalCard onClick={(e) => e.stopPropagation()} style={{ maxWidth: '680px' }}>
+            <FolderModalHeader>
+              <FolderModalTitle>Στατιστικά ωρίμανσης έργων</FolderModalTitle>
+              <FolderModalSub>
+                Πλήρης επισκόπηση {formatProjectCount(richHubStats.total)} · {richHubStats.totalFiles} αρχεία · {richHubStats.totalPendingOpen} ανοιχτές εκκρεμότητες
+              </FolderModalSub>
+            </FolderModalHeader>
+            <FolderModalBody style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+              <StatsGrid>
+                <StatsCard>
+                  <StatsCardValue>{richHubStats.total}</StatsCardValue>
+                  <StatsCardLabel>Σύνολο έργων</StatsCardLabel>
+                </StatsCard>
+                <StatsCard>
+                  <StatsCardValue>{richHubStats.totalFiles}</StatsCardValue>
+                  <StatsCardLabel>Συνολικά αρχεία</StatsCardLabel>
+                </StatsCard>
+                <StatsCard>
+                  <StatsCardValue>{richHubStats.totalPendingOpen}</StatsCardValue>
+                  <StatsCardLabel>Ανοιχτές εκκρεμότητες</StatsCardLabel>
+                </StatsCard>
+                <StatsCard>
+                  <StatsCardValue>{richHubStats.withAepo}</StatsCardValue>
+                  <StatsCardLabel>Με ημερομηνία ΑΕΠΟ</StatsCardLabel>
+                </StatsCard>
+                <StatsCard>
+                  <StatsCardValue>{richHubStats.aepoDueSoon}</StatsCardValue>
+                  <StatsCardLabel>ΑΕΠΟ εντός 60 ημερών</StatsCardLabel>
+                </StatsCard>
+                <StatsCard>
+                  <StatsCardValue>{richHubStats.withNotes}</StatsCardValue>
+                  <StatsCardLabel>Με σημειώσεις</StatsCardLabel>
+                </StatsCard>
+              </StatsGrid>
+
+              <StatsDonutRow>
+                <StatsDonutBlock>
+                  <StatsDonut $gradient={buildDonutGradient(richHubStats.statusDonut)} />
+                  <StatsDonutLegend>
+                    <StatsSectionTitle style={{ marginBottom: '0.35rem' }}>Κατάσταση</StatsSectionTitle>
+                    {richHubStats.statusDonut.filter((s) => s.value > 0).map((seg) => (
+                      <StatsDonutLegendItem
+                        key={seg.key}
+                        type="button"
+                        onClick={() => applyStatsFilter({ status: seg.key })}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                          <StatsDonutDot $color={seg.color} />
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {seg.label}
+                          </span>
+                        </span>
+                        <StatsBreakdownCount>{seg.value}</StatsBreakdownCount>
+                      </StatsDonutLegendItem>
+                    ))}
+                  </StatsDonutLegend>
+                </StatsDonutBlock>
+                {richHubStats.categoryDonut.length > 0 && (
+                  <StatsDonutBlock>
+                    <StatsDonut $gradient={buildDonutGradient(richHubStats.categoryDonut)} />
+                    <StatsDonutLegend>
+                      <StatsSectionTitle style={{ marginBottom: '0.35rem' }}>Κατηγορίες (top)</StatsSectionTitle>
+                      {richHubStats.categoryDonut.map((seg) => (
+                        <StatsDonutLegendItem
+                          key={seg.key}
+                          type="button"
+                          onClick={() => applyStatsFilter({ category: seg.key })}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                            <StatsDonutDot $color={seg.color} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {seg.label}
+                            </span>
+                          </span>
+                          <StatsBreakdownCount>{seg.value}</StatsBreakdownCount>
+                        </StatsDonutLegendItem>
+                      ))}
+                    </StatsDonutLegend>
+                  </StatsDonutBlock>
+                )}
+              </StatsDonutRow>
+
+              {richHubStats.aepoSoonList.length > 0 && (
+                <>
+                  <StatsSectionTitle>ΑΕΠΟ — λήξη εντός 60 ημερών</StatsSectionTitle>
+                  <StatsInsightList>
+                    {richHubStats.aepoSoonList.map((row) => (
+                      <StatsInsightRow
+                        key={row.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(row.id);
+                          setShowHubStatsModal(false);
+                        }}
+                      >
+                        <div>
+                          <StatsInsightMain>{row.title}</StatsInsightMain>
+                          <StatsInsightSub>
+                            {formatShortDateEl(row.date)}
+                            {row.daysLeft >= 0 ? ` · σε ${row.daysLeft} ημέρες` : ' · έληξε'}
+                          </StatsInsightSub>
+                        </div>
+                      </StatsInsightRow>
+                    ))}
+                  </StatsInsightList>
+                </>
+              )}
+
+              {richHubStats.topPending.length > 0 && (
+                <>
+                  <StatsSectionTitle>Περισσότερες ανοιχτές εκκρεμότητες</StatsSectionTitle>
+                  <StatsInsightList>
+                    {richHubStats.topPending.map((row) => (
+                      <StatsInsightRow
+                        key={row.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(row.id);
+                          setActiveTab('pending');
+                          setShowHubStatsModal(false);
+                        }}
+                      >
+                        <div>
+                          <StatsInsightMain>{row.title}</StatsInsightMain>
+                          <StatsInsightSub>{row.open} ανοιχτές από {row.total}</StatsInsightSub>
+                        </div>
+                        <StatsBreakdownCount>{row.open}</StatsBreakdownCount>
+                      </StatsInsightRow>
+                    ))}
+                  </StatsInsightList>
+                </>
+              )}
+
+              {richHubStats.recentlyUpdated.length > 0 && (
+                <>
+                  <StatsSectionTitle>Πρόσφατη ενημέρωση</StatsSectionTitle>
+                  <StatsInsightList>
+                    {richHubStats.recentlyUpdated.map((row) => (
+                      <StatsInsightRow
+                        key={row.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(row.id);
+                          setShowHubStatsModal(false);
+                        }}
+                      >
+                        <div>
+                          <StatsInsightMain>{row.title}</StatsInsightMain>
+                          <StatsInsightSub>{formatDateTimeEl(row.updatedAt)}</StatsInsightSub>
+                        </div>
+                      </StatsInsightRow>
+                    ))}
+                  </StatsInsightList>
+                </>
+              )}
+
+              <StatsSectionTitle>Αναλυτική κατανομή κατάστασης</StatsSectionTitle>
+              <StatsBreakdown>
+                {PROJECT_MATURITY_STATUSES.map((s) => {
+                  const count = richHubStats.byStatus[s.value] || 0;
+                  return (
+                    <StatsClickableRow
+                      key={s.value}
+                      type="button"
+                      onClick={() => count > 0 && applyStatsFilter({ status: s.value })}
+                      style={{ cursor: count > 0 ? 'pointer' : 'default', opacity: count > 0 ? 1 : 0.55 }}
+                    >
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <StatusDot $color={s.color} />
+                        {s.label}
+                      </span>
+                      <StatsBreakdownCount>{count}</StatsBreakdownCount>
+                    </StatsClickableRow>
+                  );
+                })}
+              </StatsBreakdown>
+
+              <StatsSectionTitle>Αναλυτική κατανομή κατηγοριών</StatsSectionTitle>
+              <StatsBreakdown>
+                {Object.entries(richHubStats.byCategory)
+                  .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'el'))
+                  .map(([cat, count]) => (
+                    <StatsClickableRow
+                      key={cat}
+                      type="button"
+                      onClick={() => applyStatsFilter({ category: cat })}
+                    >
+                      <span>{cat}</span>
+                      <StatsBreakdownCount>{count}</StatsBreakdownCount>
+                    </StatsClickableRow>
+                  ))}
+              </StatsBreakdown>
+            </FolderModalBody>
+            <FolderModalFooter>
+              <Btn $sm $variant="primary" onClick={() => setShowHubStatsModal(false)}>
+                Κλείσιμο
+              </Btn>
+            </FolderModalFooter>
+          </FolderModalCard>
+        </FolderModalOverlay>
+      )}
+
+      {showExportDialog && exportDialogProposal && (
+        <FolderModalOverlay onClick={closeExportDialog}>
           <FolderModalCard onClick={(e) => e.stopPropagation()}>
             <FolderModalHeader>
-              <FolderModalTitle>📤 Εξαγωγή πρότασης</FolderModalTitle>
+              <FolderModalTitle>📤 Εξαγωγή έργου</FolderModalTitle>
               <FolderModalSub>
-                {selectedProposal.title || 'Άτιτλος πρότασης'}
+                {exportDialogProposal.title || 'Άτιτλο έργου'}
               </FolderModalSub>
             </FolderModalHeader>
             <FolderModalBody>
               <p style={{ margin: '0 0 0.85rem', fontSize: '0.8rem', color: C.slate600, lineHeight: 1.5 }}>
-                Θα δημιουργηθεί φάκελος με το όνομα της πρότασης, υποφάκελοι ανά κατηγορία αρχείων
+                Θα δημιουργηθεί φάκελος με το όνομα του έργου, υποφάκελοι ανά κατηγορία αρχείων
                 και Word με σημειώσεις και εκκρεμότητες (με επωνυμία ERGOHUB).
               </p>
               <ExportOptionRow>
@@ -2489,13 +5951,13 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                 <span>
                   Συμπερίληψη αρχείων και αδειοδοτήσεων
                   <div style={{ fontSize: '0.72rem', color: C.slate500, fontWeight: 600, marginTop: '0.25rem' }}>
-                    Αν αποεπιλεγεί, εξάγεται μόνο το αρχείο Word με τα στοιχεία της πρότασης.
+                    Αν αποεπιλεγεί, εξάγεται μόνο το αρχείο Word με τα στοιχεία του έργου.
                   </div>
                 </span>
               </ExportOptionRow>
             </FolderModalBody>
             <FolderModalFooter>
-              <Btn $sm $variant="ghost" onClick={() => setShowExportDialog(false)} disabled={exporting}>
+              <Btn $sm $variant="ghost" onClick={closeExportDialog} disabled={exporting}>
                 Ακύρωση
               </Btn>
               <Btn $sm $variant="primary" onClick={handleExportConfirm} disabled={exporting}>
@@ -2516,7 +5978,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
               </FolderModalSub>
             </FolderModalHeader>
             <ExportSuccessBody>
-              Η πρόταση εξήχθη επιτυχώς στον φάκελο που επιλέξατε.
+              Το έργο εξήχθη επιτυχώς στον φάκελο που επιλέξατε.
             </ExportSuccessBody>
             <ExportSuccessActions>
               <OpenFolderBtn type="button" onClick={handleOpenExportFolder}>

@@ -1,6 +1,6 @@
 /**
  * orimanthiExportHandler.js
- * Εξαγωγή πρότασης ωρίμανσης: φάκελος κατηγοριών + Word (.doc HTML) με σημειώσεις/εκκρεμότητες.
+ * Εξαγωγή έργου ωρίμανσης: φάκελος κατηγοριών + Word (.doc HTML) με σημειώσεις/εκκρεμότητες.
  * Μορφή Word HTML για συμβατότητα με Word 2007+.
  */
 const fs = require('fs');
@@ -12,11 +12,11 @@ const APP_TAGLINE = 'Σύστημα Διαχείρισης Έργων Δήμου
 const WORD_FILE_NAME = 'Σημειώσεις_και_Εκκρεμότητες.doc';
 
 const PROPOSAL_STATUS_LABELS = {
-  draft: 'Προσχέδιο',
+  draft: 'Αρχική καταγραφή',
   maturing: 'Υπό ωρίμανση',
-  ready: 'Έτοιμη προς υποβολή',
-  submitted: 'Υποβλήθηκε',
-  approved: 'Εγκρίθηκε',
+  ready: 'Πλήρως ώριμο',
+  submitted: 'Σε διαδικασία έγκρισης',
+  approved: 'Εγκεκριμένο',
   rejected: 'Απορρίφθηκε',
 };
 
@@ -183,11 +183,18 @@ function buildCategoryExportHtml(categorySummary) {
   return html;
 }
 
+function formatAepoDateExport(value) {
+  if (!value) return '';
+  const isoMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  return String(value);
+}
+
 function buildProposalWordDocument({ proposal, appVersion, exportedBy, categorySummary }) {
   const statusLabel = PROPOSAL_STATUS_LABELS[proposal.status] || proposal.status || '-';
   const exportDate = formatDateGreek(new Date().toISOString());
   const pendingItems = Array.isArray(proposal.pendingItems) ? proposal.pendingItems : [];
-  const title = escapeHtml(proposal.title || 'Άτιτλος πρότασης');
+  const title = escapeHtml(proposal.title || 'Άτιτλο έργου');
 
   const categoryHtml = buildCategoryExportHtml(categorySummary);
 
@@ -343,15 +350,16 @@ function buildProposalWordDocument({ proposal, appVersion, exportedBy, categoryS
 </head>
 <body>
   <p class="brand">${APP_NAME}</p>
-  <p class="subtitle">Αναφορά Πρότασης &mdash; Ωρίμανση Έργων</p>
+  <p class="subtitle">Αναφορά Έργου &mdash; Βάση Ωρίμανσης</p>
   <h1>${title}</h1>
 
-  <h2>Στοιχεία πρότασης</h2>
+  <h2>Στοιχεία έργου</h2>
   <table class="info">
-    ${infoRow('Τίτλος πρότασης', proposal.title)}
-    ${infoRow('Κατάσταση', statusLabel)}
-    ${infoRow('Στόχος / Πρόγραμμα', proposal.targetProgram)}
-    ${infoRow('Εκτιμώμενος προϋπολογισμός', proposal.estimatedBudget)}
+    ${infoRow('Τίτλος έργου', proposal.title)}
+    ${infoRow('Κατάσταση ωρίμανσης', statusLabel)}
+    ${infoRow('Κατηγορία έργου', proposal.projectCategory)}
+    ${infoRow('Εξειδίκευση υποδομής', proposal.infrastructureSpecialization)}
+    ${infoRow('Ημερομηνία ανανέωσης ΑΕΠΟ', proposal.aepoRenewalDate ? formatAepoDateExport(proposal.aepoRenewalDate) : '')}
     ${infoRow('Περιγραφή', proposal.description)}
     ${infoRow('Ημερομηνία εξαγωγής', exportDate)}
     ${exportedBy ? infoRow('Εξαγωγή από', exportedBy) : ''}
@@ -457,7 +465,7 @@ async function exportProposal(options) {
     return { success: false, error: 'Λείπουν απαιτούμενες παράμετροι εξαγωγής' };
   }
 
-  const folderTitle = sanitizeFolderName(proposal.title || 'Πρόταση');
+  const folderTitle = sanitizeFolderName(proposal.title || 'Έργο');
   const exportRoot = getUniqueDirPath(destParentDir, folderTitle);
   await fse.ensureDir(exportRoot);
 

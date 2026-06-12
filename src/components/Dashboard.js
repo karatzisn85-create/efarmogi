@@ -5248,7 +5248,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <AdminButtonIcon>📋</AdminButtonIcon>
                 Εγκρίσεις Διάθεσης Πίστωσης
               </AdminButton>
-              <AdminButton onClick={() => setIsOrimanthiOpen(true)}>
+              <AdminButton onClick={() => setIsOrimanthiOpen(true)} title="Βάση Δεδομένων — καταγραφή ωρίμανσης έργων">
                 <AdminButtonIcon>🌱</AdminButtonIcon>
                 Ωρίμανση Έργων
               </AdminButton>

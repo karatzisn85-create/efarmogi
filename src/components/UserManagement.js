@@ -933,7 +933,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                     checked={!!formData.orimanthiCanEdit}
                     onChange={(e) => setFormData((f) => ({ ...f, orimanthiCanEdit: e.target.checked }))}
                   />
-                  Επεξεργασία πρότασης (viewer με δικαιώματα admin μόνο σε αυτή την υπηρεσία)
+                  Επεξεργασία έργου (viewer με δικαιώματα admin μόνο σε αυτή την υπηρεσία)
                 </CheckboxRow>
               </TaskPermSection>
             )}
