@@ -75,7 +75,7 @@ const ALLOWED_INVOKE = new Set([
   'get-ep-subproject-link-map',
   'open-exported-file',
   'load-all-proposals','save-proposal','delete-proposal',
-  'upload-proposal-files','upload-proposal-folder','delete-proposal-file','rename-proposal-file','delete-proposal-folder','move-proposal-entry','open-proposal-file','download-proposal-file','get-proposal-folder-files','get-proposal-files','export-proposal','log-proposal-activity','clear-proposal-audit-log','search-proposal-files',
+  'upload-proposal-files','upload-proposal-folder','delete-proposal-file','delete-proposal-folder-file','rename-proposal-file','delete-proposal-folder','delete-proposal-group','move-proposal-entry','open-proposal-file','download-proposal-file','get-proposal-folder-files','get-proposal-files','export-proposal','log-proposal-activity','clear-proposal-audit-log','search-proposal-files',
 ]);
 
 const ALLOWED_RECEIVE = new Set([

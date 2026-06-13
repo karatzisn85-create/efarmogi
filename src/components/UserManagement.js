@@ -472,7 +472,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
       if (formData.password) updates.password = formData.password;
       if (isSuperAdmin) {
         updates.taskAssignment = formData.taskAssignment;
-        if (formData.role === 'USER') {
+        if (formData.role === 'USER' || formData.role === 'ENGINEER') {
           updates.orimanthiCanEdit = !!formData.orimanthiCanEdit;
         } else {
           updates.orimanthiCanEdit = false;
@@ -507,7 +507,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
       };
       if (isSuperAdmin) {
         createPayload.taskAssignment = formData.taskAssignment;
-        if (formData.role === 'USER') {
+        if (formData.role === 'USER' || formData.role === 'ENGINEER') {
           createPayload.orimanthiCanEdit = !!formData.orimanthiCanEdit;
         }
       }
@@ -913,7 +913,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                     setFormData((f) => ({
                       ...f,
                       role,
-                      orimanthiCanEdit: role === 'USER' ? f.orimanthiCanEdit : false,
+                      orimanthiCanEdit: (role === 'USER' || role === 'ENGINEER') ? f.orimanthiCanEdit : false,
                     }));
                   }}
                 >
@@ -924,7 +924,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
               </FieldGroup>
             </FormRow>
 
-            {isSuperAdmin && formData.role === 'USER' && (
+            {isSuperAdmin && (formData.role === 'USER' || formData.role === 'ENGINEER') && (
               <TaskPermSection>
                 <SectionTitle>Ωρίμανση Έργων</SectionTitle>
                 <CheckboxRow>
@@ -933,7 +933,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                     checked={!!formData.orimanthiCanEdit}
                     onChange={(e) => setFormData((f) => ({ ...f, orimanthiCanEdit: e.target.checked }))}
                   />
-                  Επεξεργασία έργου (viewer με δικαιώματα admin μόνο σε αυτή την υπηρεσία)
+                  Δικαίωμα επεξεργασίας (viewer / μηχανικός — μόνο στο module Ωρίμανση Έργων)
                 </CheckboxRow>
               </TaskPermSection>
             )}

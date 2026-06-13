@@ -466,6 +466,14 @@ function findUserByUsername(username) {
   return users.find((x) => x.username.toLowerCase() === u.toLowerCase()) || null;
 }
 
+function orimanthiEditEligibleRole(role) {
+  return role === 'USER' || role === 'ENGINEER';
+}
+
+function resolveOrimanthiCanEditFlag(user) {
+  return orimanthiEditEligibleRole(user?.role) && user.orimanthiCanEdit === true;
+}
+
 function isSuperAdminUser(username) {
   const u = findUserByUsername(username);
   return !!(u && u.role === 'SUPERADMIN');
@@ -510,7 +518,7 @@ ipcMain.handle('authenticate', async (_event, { username, password }) => {
       fullName: user.fullName,
       assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : [],
       taskAssignment: sanitizeTaskAssignmentForClient(user.taskAssignment),
-      orimanthiCanEdit: user.role === 'USER' ? user.orimanthiCanEdit === true : false,
+      orimanthiCanEdit: resolveOrimanthiCanEditFlag(user),
     }
   };
 });
@@ -549,7 +557,7 @@ ipcMain.handle('get-users', async () => {
     createdAt: u.createdAt,
     assignedSupervisors: Array.isArray(u.assignedSupervisors) ? u.assignedSupervisors : [],
     taskAssignment: sanitizeTaskAssignmentForClient(u.taskAssignment),
-    orimanthiCanEdit: u.role === 'USER' ? u.orimanthiCanEdit === true : false,
+    orimanthiCanEdit: resolveOrimanthiCanEditFlag(u),
   }));
 });
 
@@ -587,7 +595,7 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     approved: role === 'SUPERADMIN' ? true : false,
     assignedSupervisors: role === 'ENGINEER' ? normalizedSupervisors : [],
     taskAssignment: taskAssignmentNorm,
-    ...(role === 'USER' && orimanthiCanEdit === true ? { orimanthiCanEdit: true } : {}),
+    ...(orimanthiEditEligibleRole(role) && orimanthiCanEdit === true ? { orimanthiCanEdit: true } : {}),
     createdAt: new Date().toISOString()
   });
   saveUsers(users);
@@ -641,13 +649,14 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
     if (!isSuperAdminUser(actingUsername)) {
       return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα ωρίμανσης έργων' };
     }
-    if (users[idx].role === 'USER' && updates.orimanthiCanEdit === true) {
+    const effectiveRole = updates.role !== undefined ? updates.role : users[idx].role;
+    if (orimanthiEditEligibleRole(effectiveRole) && updates.orimanthiCanEdit === true) {
       users[idx].orimanthiCanEdit = true;
     } else {
       delete users[idx].orimanthiCanEdit;
     }
   }
-  if (updates.role !== undefined && updates.role !== 'USER') {
+  if (updates.role !== undefined && !orimanthiEditEligibleRole(updates.role)) {
     delete users[idx].orimanthiCanEdit;
   }
 
@@ -12666,8 +12675,92 @@ function loadProposal(proposalId) {
   }
 }
 
+const PROPOSAL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const ALLOWED_CLIENT_PROPOSAL_ACTIVITY = [
+  /^Προστέθηκε εκκρεμότητα:/,
+  /^Ολοκλήρωση εκκρεμότητας:/,
+  /^Επανάνοιγμα εκκρεμότητας:/,
+  /^Διαγραφή εκκρεμότητας:/,
+];
+
+const proposalUploadQueues = new Map();
+
+function resolveOrimanthiActingUser(actingUsername) {
+  return resolveTaskActingUser(actingUsername);
+}
+
+function assertValidProposalId(proposalId) {
+  const id = String(proposalId || '').trim();
+  if (!PROPOSAL_ID_RE.test(id)) {
+    return { ok: false, error: 'Μη έγκυρο αναγνωριστικό έργου' };
+  }
+  const resolved = path.resolve(getProposalDir(id));
+  const rootResolved = path.resolve(getOrimanthiDir());
+  if (!resolved.startsWith(rootResolved + path.sep)) {
+    return { ok: false, error: 'Μη επιτρεπτό path έργου' };
+  }
+  return { ok: true, id };
+}
+
+function requireOrimanthiSession(actingUsername) {
+  const auth = resolveOrimanthiActingUser(actingUsername);
+  if (!auth.ok) return auth;
+  const user = findUserByUsername(auth.username);
+  if (!user || user.active === false || user.approved === false) {
+    return { ok: false, error: 'Δεν έχετε πρόσβαση στο σύστημα' };
+  }
+  return { ok: true, username: auth.username, user };
+}
+
+function requireOrimanthiManage(actingUsername) {
+  const session = requireOrimanthiSession(actingUsername);
+  if (!session.ok) return session;
+  const denied = denyOrimanthiManage(session.username);
+  if (denied) return { ok: false, error: denied.error };
+  return { ok: true, username: session.username, user: session.user };
+}
+
+function requireProposalGroup(proposalId, groupId) {
+  const idCheck = assertValidProposalId(proposalId);
+  if (!idCheck.ok) return idCheck;
+  const proposal = loadProposal(idCheck.id);
+  if (!proposal) return { ok: false, error: 'Το έργο δεν βρέθηκε' };
+  const group = (proposal.fileGroups || []).find((g) => g.id === groupId);
+  if (!group) return { ok: false, error: 'Η κατηγορία δεν βρέθηκε στο έργο' };
+  return { ok: true, proposalId: idCheck.id, proposal, group };
+}
+
+function enqueueProposalUpload(proposalId, fn) {
+  const prev = proposalUploadQueues.get(proposalId) || Promise.resolve();
+  const run = prev.then(() => fn());
+  proposalUploadQueues.set(proposalId, run.catch(() => {}));
+  return run;
+}
+
+function proposalAuditedFieldsChanged(before, after) {
+  const keys = [
+    'title', 'status', 'projectCategory', 'infrastructureSpecialization',
+    'aepoRenewalDate', 'description', 'notes',
+  ];
+  for (const key of keys) {
+    if (String(before?.[key] ?? '') !== String(after?.[key] ?? '')) return true;
+  }
+  if (JSON.stringify(before?.pendingItems || []) !== JSON.stringify(after?.pendingItems || [])) {
+    return true;
+  }
+  if (JSON.stringify(before?.fileGroups || []) !== JSON.stringify(after?.fileGroups || [])) {
+    return true;
+  }
+  return false;
+}
+
 function pickProposalAuditSnapshot(proposal) {
   if (!proposal) return {};
+  const pending = proposal.pendingItems || [];
+  const fileGroups = proposal.fileGroups || [];
+  let fileEntries = 0;
+  fileGroups.forEach((g) => { fileEntries += (g.files || []).length; });
   return {
     title: proposal.title || '',
     status: proposal.status || '',
@@ -12676,19 +12769,165 @@ function pickProposalAuditSnapshot(proposal) {
     aepoRenewalDate: proposal.aepoRenewalDate || '',
     description: proposal.description || '',
     notes: proposal.notes || '',
+    pendingOpen: pending.filter((i) => !i.done).length,
+    pendingTotal: pending.length,
+    fileCategories: fileGroups.length,
+    fileEntries,
   };
+}
+
+function getOrimanthiAuditActor(actingUsername) {
+  const user = findUserByUsername(actingUsername);
+  return {
+    fullName: (user?.fullName || '').trim() || actingUsername || '',
+    role: user?.role || 'USER',
+  };
+}
+
+function getOrimanthiActorLabel(actingUsername) {
+  return getOrimanthiAuditActor(actingUsername).fullName;
 }
 
 function logProposalActivity(proposalId, type, details, actingUsername) {
   const proposal = loadProposal(proposalId);
+  const actor = getOrimanthiAuditActor(actingUsername);
   logAuditAction({
     type: type || 'update',
     entityType: 'proposal',
     entityId: proposalId,
     entityTitle: proposal?.title || '',
-    userFullName: actingUsername || '',
+    userFullName: actor.fullName,
+    userRole: actor.role,
     details: details || '',
   });
+}
+
+function atomicUpdateProposalFileGroups(proposalId, nextFileGroups) {
+  const idCheck = assertValidProposalId(proposalId);
+  if (!idCheck.ok) return { success: false, error: idCheck.error };
+  const proposal = loadProposal(idCheck.id);
+  if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
+  const previousSnapshot = JSON.parse(JSON.stringify(proposal));
+  const toSave = {
+    ...proposal,
+    fileGroups: nextFileGroups,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    safeWriteJSON(getProposalDataPath(idCheck.id), toSave);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+  return { success: true, proposal: toSave, previousSnapshot, proposalId: idCheck.id };
+}
+
+function rollbackProposalSnapshot(proposalId, snapshot) {
+  if (!snapshot) return;
+  const idCheck = assertValidProposalId(proposalId);
+  if (!idCheck.ok) return;
+  try {
+    safeWriteJSON(getProposalDataPath(idCheck.id), snapshot);
+  } catch (e) {
+    logger.error('rollbackProposalSnapshot failed:', e.message);
+  }
+}
+
+function listProposalFolderFilesOnDisk(proposalId, groupId, folderId) {
+  try {
+    const folderPath = resolveProposalGroupPath(proposalId, groupId, folderId);
+    if (!fs.existsSync(folderPath)) return [];
+    return fs.readdirSync(folderPath, { withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => {
+        const fp = path.join(folderPath, e.name);
+        const st = fs.statSync(fp);
+        return {
+          name: e.name,
+          size: st.size,
+          uploadedAt: st.mtime.toISOString(),
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+function reconcileProposalFolderEntry(proposalId, groupId, folderId) {
+  const idCheck = assertValidProposalId(proposalId);
+  if (!idCheck.ok) return { ok: false, error: idCheck.error };
+  const pid = idCheck.id;
+  const filesOnDisk = listProposalFolderFilesOnDisk(pid, groupId, folderId);
+  const proposal = loadProposal(pid);
+  if (!proposal) return { ok: false, error: 'Το έργο δεν βρέθηκε' };
+
+  let removed = false;
+  const totalSize = filesOnDisk.reduce((s, f) => s + (f.size || 0), 0);
+  const updatedGroups = (proposal.fileGroups || []).map((g) => {
+    if (g.id !== groupId) return g;
+    const newFiles = (g.files || []).flatMap((f) => {
+      if (f.kind !== 'folder' || f.id !== folderId) return [f];
+      if (filesOnDisk.length === 0) {
+        removed = true;
+        return [];
+      }
+      return [{ ...f, fileCount: filesOnDisk.length, size: totalSize }];
+    });
+    return { ...g, files: newFiles };
+  });
+
+  if (filesOnDisk.length === 0) {
+    removed = removed || (proposal.fileGroups || []).some(
+      (g) => g.id === groupId && (g.files || []).some((f) => f.kind === 'folder' && f.id === folderId)
+    );
+    try {
+      const folderPath = resolveProposalGroupPath(pid, groupId, folderId);
+      if (fs.existsSync(folderPath)) fs.rmSync(folderPath, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  }
+
+  const toSave = { ...proposal, fileGroups: updatedGroups, updatedAt: new Date().toISOString() };
+  safeWriteJSON(getProposalDataPath(pid), toSave);
+  return {
+    ok: true,
+    proposal: loadProposal(pid),
+    filesOnDisk,
+    removed,
+  };
+}
+
+function mergeUploadedFilesIntoProposal(proposalId, groupId, savedFiles) {
+  const proposal = loadProposal(proposalId);
+  if (!proposal) return null;
+  const groupExists = (proposal.fileGroups || []).some((g) => g.id === groupId);
+  if (!groupExists) return null;
+  const updatedGroups = (proposal.fileGroups || []).map((g) => {
+    if (g.id !== groupId) return g;
+    const existingKeys = new Set((g.files || []).map((f) => (f.kind === 'folder' ? f.id : f.name)));
+    const merged = [...(g.files || [])];
+    savedFiles.forEach((f) => {
+      if (!existingKeys.has(f.name)) merged.push(f);
+    });
+    return { ...g, files: merged };
+  });
+  const toSave = { ...proposal, fileGroups: updatedGroups, updatedAt: new Date().toISOString() };
+  safeWriteJSON(getProposalDataPath(proposalId), toSave);
+  return loadProposal(proposalId);
+}
+
+function mergeUploadedFolderIntoProposal(proposalId, groupId, folderEntry) {
+  const proposal = loadProposal(proposalId);
+  if (!proposal) return null;
+  const groupExists = (proposal.fileGroups || []).some((g) => g.id === groupId);
+  if (!groupExists) return null;
+  const updatedGroups = (proposal.fileGroups || []).map((g) => {
+    if (g.id !== groupId) return g;
+    const exists = (g.files || []).some((f) => f.kind === 'folder' && f.id === folderEntry.id);
+    if (exists) return g;
+    return { ...g, files: [...(g.files || []), folderEntry] };
+  });
+  const toSave = { ...proposal, fileGroups: updatedGroups, updatedAt: new Date().toISOString() };
+  safeWriteJSON(getProposalDataPath(proposalId), toSave);
+  return loadProposal(proposalId);
 }
 
 function resolveProposalGroupPath(proposalId, groupId, ...parts) {
@@ -12704,7 +12943,7 @@ function canManageOrimanthi(username) {
   const user = findUserByUsername(username);
   if (!user || user.active === false || user.approved === false) return false;
   if (user.role === 'SUPERADMIN' || user.role === 'ADMIN') return true;
-  if (user.role === 'USER' && user.orimanthiCanEdit === true) return true;
+  if (resolveOrimanthiCanEditFlag(user)) return true;
   return false;
 }
 
@@ -12731,35 +12970,55 @@ ipcMain.handle('load-all-proposals', async () => {
   }
 });
 
-ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipAudit } = {}) => {
+ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipAudit, expectedUpdatedAt } = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
     if (!proposal || !proposal.id) return { success: false, error: 'Μη έγκυρα δεδομένα έργου' };
-    const proposalDir = getProposalDir(proposal.id);
-    const existedBefore = fs.existsSync(getProposalDataPath(proposal.id));
-    const existing = existedBefore ? loadProposal(proposal.id) : null;
+    const idCheck = assertValidProposalId(proposal.id);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+
+    const proposalDir = getProposalDir(idCheck.id);
+    const dataPath = getProposalDataPath(idCheck.id);
+    const existedBefore = fs.existsSync(dataPath);
+    const existing = existedBefore ? loadProposal(idCheck.id) : null;
+
+    if (existing && expectedUpdatedAt && existing.updatedAt !== expectedUpdatedAt) {
+      return {
+        success: false,
+        conflict: true,
+        error: 'Το έργο τροποποιήθηκε από άλλη ενέργεια. Φορτώστε ξανά και επαναλάβετε.',
+        proposal: existing,
+      };
+    }
+
     if (!fs.existsSync(proposalDir)) fs.mkdirSync(proposalDir, { recursive: true });
-    const toSave = { ...proposal, updatedAt: new Date().toISOString() };
+    const toSave = { ...proposal, id: idCheck.id, updatedAt: new Date().toISOString() };
     if (existing?.createdAt && !toSave.createdAt) toSave.createdAt = existing.createdAt;
-    safeWriteJSON(getProposalDataPath(proposal.id), toSave);
-    if (!skipAudit) {
+
+    const mustAudit = !skipAudit || (existing && proposalAuditedFieldsChanged(existing, toSave));
+    safeWriteJSON(dataPath, toSave);
+
+    if (mustAudit) {
+      const actor = getOrimanthiAuditActor(auth.username);
       if (!existedBefore) {
         logAuditAction({
           type: 'create',
           entityType: 'proposal',
-          entityId: proposal.id,
+          entityId: idCheck.id,
           entityTitle: proposal.title || '',
-          userFullName: actingUsername || '',
+          userFullName: actor.fullName,
+          userRole: actor.role,
           details: 'Δημιουργία νέου έργου ωρίμανσης',
         });
       } else {
         logAuditAction({
           type: 'update',
           entityType: 'proposal',
-          entityId: proposal.id,
+          entityId: idCheck.id,
           entityTitle: proposal.title || '',
-          userFullName: actingUsername || '',
+          userFullName: actor.fullName,
+          userRole: actor.role,
           oldValue: pickProposalAuditSnapshot(existing),
           newValue: pickProposalAuditSnapshot(toSave),
         });
@@ -12774,22 +13033,25 @@ ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipA
 
 ipcMain.handle('delete-proposal', async (_event, { proposalId, actingUsername } = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
-    if (!proposalId) return { success: false, error: 'Απαιτείται proposalId' };
-    const resolved = path.resolve(getProposalDir(proposalId));
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const resolved = path.resolve(getProposalDir(idCheck.id));
     const rootResolved = path.resolve(getOrimanthiDir());
     if (!resolved.startsWith(rootResolved + path.sep)) {
       return { success: false, error: 'Μη επιτρεπτό path' };
     }
-    const proposal = loadProposal(proposalId);
+    const proposal = loadProposal(idCheck.id);
     if (fs.existsSync(resolved)) fs.rmSync(resolved, { recursive: true, force: true });
+    const actor = getOrimanthiAuditActor(auth.username);
     logAuditAction({
       type: 'delete',
       entityType: 'proposal',
-      entityId: proposalId,
-      entityTitle: proposal?.title || proposalId,
-      userFullName: actingUsername || '',
+      entityId: idCheck.id,
+      entityTitle: proposal?.title || idCheck.id,
+      userFullName: actor.fullName,
+      userRole: actor.role,
       details: 'Διαγραφή έργου ωρίμανσης'
     });
     return { success: true };
@@ -12801,51 +13063,63 @@ ipcMain.handle('delete-proposal', async (_event, { proposalId, actingUsername } 
 
 ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, files, actingUsername } = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
     if (!proposalId || !groupId || !Array.isArray(files) || files.length === 0) {
       return { success: false, error: 'Μη έγκυρες παράμετροι ανεβάσματος' };
     }
-    const groupDir = path.join(getProposalDir(proposalId), 'files', groupId);
-    if (!fs.existsSync(groupDir)) fs.mkdirSync(groupDir, { recursive: true });
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
 
-    const rootResolved = path.resolve(getOrimanthiDir());
-    const groupResolved = path.resolve(groupDir);
-    if (!groupResolved.startsWith(rootResolved + path.sep)) {
-      return { success: false, error: 'Μη επιτρεπτό path' };
-    }
+    return enqueueProposalUpload(idCheck.id, async () => {
+      const groupCheck = requireProposalGroup(idCheck.id, groupId);
+      if (!groupCheck.ok) return { success: false, error: groupCheck.error };
 
-    const saved = [];
-    for (const file of files) {
-      if (!file.path || !fs.existsSync(file.path)) continue;
-      let baseName = path.basename(file.name || file.path);
-      let destPath = path.join(groupDir, baseName);
-      // Αποφυγή overwrite — προσθέτει suffix αν υπάρχει ήδη
-      let counter = 1;
-      while (fs.existsSync(destPath)) {
-        const ext = path.extname(baseName);
-        const nameNoExt = path.basename(baseName, ext);
-        destPath = path.join(groupDir, `${nameNoExt}_${counter}${ext}`);
-        counter++;
+      const groupDir = resolveProposalGroupPath(idCheck.id, groupId);
+      if (!fs.existsSync(groupDir)) fs.mkdirSync(groupDir, { recursive: true });
+
+      const saved = [];
+      for (const file of files) {
+        if (!file.path || !fs.existsSync(file.path)) continue;
+        let baseName = path.basename(file.name || file.path);
+        let destPath = path.join(groupDir, baseName);
+        let counter = 1;
+        while (fs.existsSync(destPath)) {
+          const ext = path.extname(baseName);
+          const nameNoExt = path.basename(baseName, ext);
+          destPath = path.join(groupDir, `${nameNoExt}_${counter}${ext}`);
+          counter++;
+        }
+        fs.copyFileSync(file.path, destPath);
+        saved.push({
+          kind: 'file',
+          name: path.basename(destPath),
+          originalName: baseName,
+          size: fs.statSync(destPath).size,
+          uploadedAt: new Date().toISOString()
+        });
       }
-      fs.copyFileSync(file.path, destPath);
-      saved.push({
-        kind: 'file',
-        name: path.basename(destPath),
-        originalName: baseName,
-        size: fs.statSync(destPath).size,
-        uploadedAt: new Date().toISOString()
-      });
-    }
-    if (saved.length) {
+      if (saved.length === 0) {
+        return { success: false, error: 'Δεν αντιγράφηκε κανένα αρχείο' };
+      }
+      const updatedProposal = mergeUploadedFilesIntoProposal(idCheck.id, groupId, saved);
+      if (!updatedProposal) {
+        saved.forEach((f) => {
+          try {
+            const p = path.join(groupDir, f.name);
+            if (fs.existsSync(p)) fs.unlinkSync(p);
+          } catch { /* ignore rollback errors */ }
+        });
+        return { success: false, error: 'Αποτυχία αποθήκευσης metadata μετά το ανέβασμα' };
+      }
       logProposalActivity(
-        proposalId,
+        idCheck.id,
         'update',
         `Προστέθηκαν ${saved.length} αρχεία στην κατηγορία: ${saved.map((f) => f.name).join(', ')}`,
-        actingUsername
+        auth.username
       );
-    }
-    return { success: true, files: saved };
+      return { success: true, files: saved, proposal: updatedProposal };
+    });
   } catch (e) {
     logger.error('upload-proposal-files error:', e.message);
     return { success: false, error: e.message };
@@ -12854,80 +13128,114 @@ ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, fi
 
 ipcMain.handle('upload-proposal-folder', async (_event, { proposalId, groupId, folderName, files, actingUsername } = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
     if (!proposalId || !groupId || !Array.isArray(files) || files.length === 0) {
       return { success: false, error: 'Μη έγκυρες παράμετροι ανεβάσματος φακέλου' };
     }
-    const groupDir = resolveProposalGroupPath(proposalId, groupId);
-    if (!fs.existsSync(groupDir)) fs.mkdirSync(groupDir, { recursive: true });
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
 
-    const folderId = uuidv4();
-    const folderDir = resolveProposalGroupPath(proposalId, groupId, folderId);
-    fs.mkdirSync(folderDir, { recursive: true });
+    return enqueueProposalUpload(idCheck.id, async () => {
+      const groupCheck = requireProposalGroup(idCheck.id, groupId);
+      if (!groupCheck.ok) return { success: false, error: groupCheck.error };
 
-    const saved = [];
-    let totalSize = 0;
-    for (const file of files) {
-      const sourcePath = file.path || file.filePath;
-      if (!sourcePath || !fs.existsSync(sourcePath)) continue;
-      let baseName = path.basename(file.name || file.fileName || sourcePath);
-      baseName = baseName.replace(/[<>:"/\\|?*]/g, '_');
-      let destPath = path.join(folderDir, baseName);
-      let counter = 1;
-      while (fs.existsSync(destPath)) {
-        const ext = path.extname(baseName);
-        const nameNoExt = path.basename(baseName, ext);
-        destPath = path.join(folderDir, `${nameNoExt}_${counter}${ext}`);
-        counter += 1;
+      const groupDir = resolveProposalGroupPath(idCheck.id, groupId);
+      if (!fs.existsSync(groupDir)) fs.mkdirSync(groupDir, { recursive: true });
+
+      const folderId = uuidv4();
+      const folderDir = resolveProposalGroupPath(idCheck.id, groupId, folderId);
+      fs.mkdirSync(folderDir, { recursive: true });
+
+      const saved = [];
+      let totalSize = 0;
+      for (const file of files) {
+        const sourcePath = file.path || file.filePath;
+        if (!sourcePath || !fs.existsSync(sourcePath)) continue;
+        let baseName = path.basename(file.name || file.fileName || sourcePath);
+        baseName = baseName.replace(/[<>:"/\\|?*]/g, '_');
+        let destPath = path.join(folderDir, baseName);
+        let counter = 1;
+        while (fs.existsSync(destPath)) {
+          const ext = path.extname(baseName);
+          const nameNoExt = path.basename(baseName, ext);
+          destPath = path.join(folderDir, `${nameNoExt}_${counter}${ext}`);
+          counter += 1;
+        }
+        fs.copyFileSync(sourcePath, destPath);
+        const size = fs.statSync(destPath).size;
+        totalSize += size;
+        saved.push({
+          name: path.basename(destPath),
+          size,
+          uploadedAt: new Date().toISOString()
+        });
       }
-      fs.copyFileSync(sourcePath, destPath);
-      const size = fs.statSync(destPath).size;
-      totalSize += size;
-      saved.push({
-        name: path.basename(destPath),
-        size,
-        uploadedAt: new Date().toISOString()
-      });
-    }
-    if (!saved.length) return { success: false, error: 'Δεν αντιγράφηκαν αρχεία από τον φάκελο' };
+      if (!saved.length) {
+        try {
+          if (fs.existsSync(folderDir)) fs.rmSync(folderDir, { recursive: true, force: true });
+        } catch { /* ignore */ }
+        return { success: false, error: 'Δεν αντιγράφηκαν αρχεία από τον φάκελο' };
+      }
 
-    const safeLabel = String(folderName || 'Φάκελος').trim() || 'Φάκελος';
-    const folder = {
-      kind: 'folder',
-      id: folderId,
-      name: safeLabel,
-      fileCount: saved.length,
-      size: totalSize,
-      uploadedAt: new Date().toISOString()
-    };
-    logProposalActivity(
-      proposalId,
-      'update',
-      `Προστέθηκε φάκελος «${safeLabel}» (${saved.length} αρχεία)`,
-      actingUsername
-    );
-    return { success: true, folder, files: saved };
+      const safeLabel = String(folderName || 'Φάκελος').trim() || 'Φάκελος';
+      const folder = {
+        kind: 'folder',
+        id: folderId,
+        name: safeLabel,
+        fileCount: saved.length,
+        size: totalSize,
+        uploadedAt: new Date().toISOString()
+      };
+      const updatedProposal = mergeUploadedFolderIntoProposal(idCheck.id, groupId, folder);
+      if (!updatedProposal) {
+        try {
+          if (fs.existsSync(folderDir)) fs.rmSync(folderDir, { recursive: true, force: true });
+        } catch { /* ignore rollback errors */ }
+        return { success: false, error: 'Αποτυχία αποθήκευσης metadata μετά το ανέβασμα φακέλου' };
+      }
+      logProposalActivity(
+        idCheck.id,
+        'update',
+        `Προστέθηκε φάκελος «${safeLabel}» (${saved.length} αρχεία)`,
+        auth.username
+      );
+      return { success: true, folder, files: saved, proposal: updatedProposal };
+    });
   } catch (e) {
     logger.error('upload-proposal-folder error:', e.message);
     return { success: false, error: e.message };
   }
 });
 
-ipcMain.handle('delete-proposal-file', async (_event, { proposalId, groupId, fileName, actingUsername } = {}) => {
+ipcMain.handle('delete-proposal-file', async (_event, {
+  proposalId, groupId, fileName, nextFileGroups, actingUsername,
+} = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
     if (!proposalId || !groupId || !fileName) {
       return { success: false, error: 'Απαιτούνται proposalId, groupId και fileName' };
     }
-    const filePath = resolveProposalGroupPath(proposalId, groupId, fileName);
-    if (!fs.existsSync(filePath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
-    const stat = fs.statSync(filePath);
-    if (!stat.isFile()) return { success: false, error: 'Η εγγραφή δεν είναι αρχείο' };
-    fs.unlinkSync(filePath);
-    logProposalActivity(proposalId, 'update', `Διαγράφηκε αρχείο «${fileName}»`, actingUsername);
-    return { success: true };
+    if (!Array.isArray(nextFileGroups)) {
+      return { success: false, error: 'Απαιτούνται nextFileGroups' };
+    }
+    const metaRes = atomicUpdateProposalFileGroups(proposalId, nextFileGroups);
+    if (!metaRes.success) return metaRes;
+    const pid = metaRes.proposalId;
+    const filePath = resolveProposalGroupPath(pid, groupId, fileName);
+    try {
+      if (fs.existsSync(filePath)) {
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile()) throw new Error('Η εγγραφή δεν είναι αρχείο');
+        fs.unlinkSync(filePath);
+      }
+    } catch (e) {
+      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+      return { success: false, error: e.message };
+    }
+    logProposalActivity(pid, 'update', `Διαγράφηκε αρχείο «${fileName}»`, auth.username);
+    return { success: true, proposal: loadProposal(pid) };
   } catch (e) {
     logger.error('delete-proposal-file error:', e.message);
     return { success: false, error: e.message };
@@ -12943,11 +13251,14 @@ ipcMain.handle('rename-proposal-file', async (_event, {
   actingUsername,
 } = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
     if (!proposalId || !groupId || !oldFileName || !newFileName) {
       return { success: false, error: 'Απαιτούνται proposalId, groupId, oldFileName και newFileName' };
     }
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const pid = idCheck.id;
 
     const safeOld = path.basename(String(oldFileName).trim());
     let safeNew = path.basename(String(newFileName).trim());
@@ -12960,11 +13271,11 @@ ipcMain.handle('rename-proposal-file', async (_event, {
     }
 
     const srcPath = folderId
-      ? resolveProposalGroupPath(proposalId, groupId, folderId, safeOld)
-      : resolveProposalGroupPath(proposalId, groupId, safeOld);
+      ? resolveProposalGroupPath(pid, groupId, folderId, safeOld)
+      : resolveProposalGroupPath(pid, groupId, safeOld);
     const destPath = folderId
-      ? resolveProposalGroupPath(proposalId, groupId, folderId, safeNew)
-      : resolveProposalGroupPath(proposalId, groupId, safeNew);
+      ? resolveProposalGroupPath(pid, groupId, folderId, safeNew)
+      : resolveProposalGroupPath(pid, groupId, safeNew);
 
     if (!fs.existsSync(srcPath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
     const stat = fs.statSync(srcPath);
@@ -12974,33 +13285,121 @@ ipcMain.handle('rename-proposal-file', async (_event, {
     }
 
     fs.renameSync(srcPath, destPath);
+
+    if (!folderId) {
+      const proposal = loadProposal(pid);
+      if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
+      const updatedGroups = (proposal.fileGroups || []).map((g) => {
+        if (g.id !== groupId) return g;
+        return {
+          ...g,
+          files: (g.files || []).map((f) => {
+            if (f.kind === 'folder' || f.name !== safeOld) return f;
+            return { ...f, name: safeNew };
+          }),
+        };
+      });
+      try {
+        safeWriteJSON(getProposalDataPath(pid), {
+          ...proposal,
+          fileGroups: updatedGroups,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        try { fs.renameSync(destPath, srcPath); } catch { /* ignore rollback */ }
+        return { success: false, error: e.message };
+      }
+    } else {
+      reconcileProposalFolderEntry(pid, groupId, folderId);
+    }
+
     logProposalActivity(
-      proposalId,
+      pid,
       'update',
       `Μετονομασία αρχείου: «${safeOld}» → «${safeNew}»`,
-      actingUsername
+      auth.username
     );
-    return { success: true, oldFileName: safeOld, newFileName: safeNew };
+    const updatedProposal = loadProposal(pid);
+    return {
+      success: true,
+      oldFileName: safeOld,
+      newFileName: safeNew,
+      proposal: updatedProposal,
+    };
   } catch (e) {
     logger.error('rename-proposal-file error:', e.message);
     return { success: false, error: e.message };
   }
 });
 
-ipcMain.handle('delete-proposal-folder', async (_event, { proposalId, groupId, folderId, actingUsername } = {}) => {
+ipcMain.handle('delete-proposal-folder', async (_event, {
+  proposalId, groupId, folderId, nextFileGroups, actingUsername,
+} = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
     if (!proposalId || !groupId || !folderId) {
       return { success: false, error: 'Απαιτούνται proposalId, groupId και folderId' };
     }
-    const folderPath = resolveProposalGroupPath(proposalId, groupId, folderId);
-    if (!fs.existsSync(folderPath)) return { success: false, error: 'Ο φάκελος δεν βρέθηκε' };
-    fs.rmSync(folderPath, { recursive: true, force: true });
-    logProposalActivity(proposalId, 'update', `Διαγράφηκε φάκελος αρχείων`, actingUsername);
-    return { success: true };
+    if (!Array.isArray(nextFileGroups)) {
+      return { success: false, error: 'Απαιτούνται nextFileGroups' };
+    }
+    const metaRes = atomicUpdateProposalFileGroups(proposalId, nextFileGroups);
+    if (!metaRes.success) return metaRes;
+    const pid = metaRes.proposalId;
+    const folderPath = resolveProposalGroupPath(pid, groupId, folderId);
+    try {
+      if (fs.existsSync(folderPath)) fs.rmSync(folderPath, { recursive: true, force: true });
+    } catch (e) {
+      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+      return { success: false, error: e.message };
+    }
+    logProposalActivity(pid, 'update', 'Διαγράφηκε φάκελος αρχείων', auth.username);
+    return { success: true, proposal: loadProposal(pid) };
   } catch (e) {
     logger.error('delete-proposal-folder error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-proposal-group', async (_event, {
+  proposalId, groupId, groupLabel, nextFileGroups, actingUsername,
+} = {}) => {
+  try {
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!proposalId || !groupId) {
+      return { success: false, error: 'Απαιτούνται proposalId και groupId' };
+    }
+    if (!Array.isArray(nextFileGroups)) {
+      return { success: false, error: 'Απαιτούνται nextFileGroups' };
+    }
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const pid = idCheck.id;
+    const groupPath = path.resolve(path.join(getProposalDir(pid), 'files', groupId));
+    const rootResolved = path.resolve(getOrimanthiDir());
+    if (!groupPath.startsWith(rootResolved + path.sep)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+    const metaRes = atomicUpdateProposalFileGroups(pid, nextFileGroups);
+    if (!metaRes.success) return metaRes;
+    try {
+      if (fs.existsSync(groupPath)) fs.rmSync(groupPath, { recursive: true, force: true });
+    } catch (e) {
+      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+      return { success: false, error: e.message };
+    }
+    const label = String(groupLabel || '').trim();
+    logProposalActivity(
+      pid,
+      'update',
+      label ? `Διαγράφηκε κατηγορία αρχείων «${label}»` : 'Διαγράφηκε κατηγορία αρχείων',
+      auth.username
+    );
+    return { success: true, proposal: loadProposal(pid) };
+  } catch (e) {
+    logger.error('delete-proposal-group error:', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -13012,68 +13411,106 @@ ipcMain.handle('move-proposal-entry', async (_event, {
   entryKind,
   fileName,
   folderId,
+  nextFileGroups,
   actingUsername,
 } = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
     if (!proposalId || !sourceGroupId || !targetGroupId || !entryKind) {
       return { success: false, error: 'Μη έγκυρες παράμετροι μεταφοράς' };
     }
     if (sourceGroupId === targetGroupId) {
       return { success: false, error: 'Η κατηγορία προορισμού είναι ίδια με την πηγή' };
     }
+    if (!Array.isArray(nextFileGroups)) {
+      return { success: false, error: 'Απαιτούνται nextFileGroups' };
+    }
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const pid = idCheck.id;
 
-    const targetDir = path.join(getProposalDir(proposalId), 'files', targetGroupId);
-    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+    const metaRes = atomicUpdateProposalFileGroups(pid, nextFileGroups);
+    if (!metaRes.success) return metaRes;
 
-    if (entryKind === 'folder') {
-      if (!folderId) return { success: false, error: 'Απαιτείται folderId' };
-      const srcPath = resolveProposalGroupPath(proposalId, sourceGroupId, folderId);
-      if (!fs.existsSync(srcPath)) return { success: false, error: 'Ο φάκελος δεν βρέθηκε' };
-      const destPath = resolveProposalGroupPath(proposalId, targetGroupId, folderId);
-      if (fs.existsSync(destPath)) {
-        return { success: false, error: 'Υπάρχει ήδη φάκελος με το ίδιο όνομα στον προορισμό' };
+    let movedEntry = null;
+    try {
+      if (entryKind === 'folder') {
+        if (!folderId) throw new Error('Απαιτείται folderId');
+        const srcPath = resolveProposalGroupPath(pid, sourceGroupId, folderId);
+        if (!fs.existsSync(srcPath)) throw new Error('Ο φάκελος δεν βρέθηκε');
+        const destPath = resolveProposalGroupPath(pid, targetGroupId, folderId);
+        if (fs.existsSync(destPath)) {
+          throw new Error('Υπάρχει ήδη φάκελος με το ίδιο όνομα στον προορισμό');
+        }
+        await fse.move(srcPath, destPath);
+        movedEntry = { kind: 'folder', id: folderId };
+      } else {
+        if (!fileName) throw new Error('Απαιτείται fileName');
+        const safeName = path.basename(String(fileName).trim());
+        const srcPath = resolveProposalGroupPath(pid, sourceGroupId, safeName);
+        if (!fs.existsSync(srcPath)) throw new Error('Το αρχείο δεν βρέθηκε');
+        const stat = fs.statSync(srcPath);
+        if (!stat.isFile()) throw new Error('Η εγγραφή δεν είναι αρχείο');
+
+        let destName = safeName;
+        let destPath = resolveProposalGroupPath(pid, targetGroupId, destName);
+        let counter = 1;
+        while (fs.existsSync(destPath)) {
+          const ext = path.extname(safeName);
+          const nameNoExt = path.basename(safeName, ext);
+          destName = `${nameNoExt}_${counter}${ext}`;
+          destPath = resolveProposalGroupPath(pid, targetGroupId, destName);
+          counter += 1;
+        }
+        await fse.move(srcPath, destPath);
+        const movedStat = fs.statSync(destPath);
+        movedEntry = {
+          kind: 'file',
+          name: destName,
+          originalName: safeName,
+          size: movedStat.size,
+          uploadedAt: movedStat.mtime.toISOString(),
+        };
       }
-      await fse.move(srcPath, destPath);
-      logProposalActivity(proposalId, 'update', 'Μεταφορά φακέλου σε άλλη κατηγορία αρχείων', actingUsername);
-      return { success: true, entry: { kind: 'folder', id: folderId } };
+    } catch (e) {
+      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+      return { success: false, error: e.message };
     }
 
-    if (!fileName) return { success: false, error: 'Απαιτείται fileName' };
-    const srcPath = resolveProposalGroupPath(proposalId, sourceGroupId, fileName);
-    if (!fs.existsSync(srcPath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
-    const stat = fs.statSync(srcPath);
-    if (!stat.isFile()) return { success: false, error: 'Η εγγραφή δεν είναι αρχείο' };
-
-    let destName = fileName;
-    let destPath = path.join(targetDir, destName);
-    let counter = 1;
-    while (fs.existsSync(destPath)) {
-      const ext = path.extname(fileName);
-      const nameNoExt = path.basename(fileName, ext);
-      destName = `${nameNoExt}_${counter}${ext}`;
-      destPath = path.join(targetDir, destName);
-      counter += 1;
-    }
-    await fse.move(srcPath, destPath);
-    const movedStat = fs.statSync(destPath);
     logProposalActivity(
-      proposalId,
+      pid,
       'update',
-      `Μεταφορά αρχείου «${fileName}» σε άλλη κατηγορία`,
-      actingUsername
+      entryKind === 'folder'
+        ? 'Μεταφορά φακέλου σε άλλη κατηγορία αρχείων'
+        : `Μεταφορά αρχείου «${fileName}» σε άλλη κατηγορία`,
+      auth.username
     );
-    return {
-      success: true,
-      entry: {
-        kind: 'file',
-        name: destName,
-        originalName: fileName,
-        size: movedStat.size,
-        uploadedAt: movedStat.mtime.toISOString(),
-      },
-    };
+
+    let finalProposal = loadProposal(pid);
+    if (entryKind === 'file' && movedEntry) {
+      const safeOrig = path.basename(String(fileName).trim());
+      if (movedEntry.name !== safeOrig) {
+        const patchedGroups = (finalProposal.fileGroups || []).map((g) => {
+          if (g.id !== targetGroupId) return g;
+          return {
+            ...g,
+            files: (g.files || []).map((f) => {
+              if (f.kind === 'file' && f.name === safeOrig) return { ...f, name: movedEntry.name };
+              return f;
+            }),
+          };
+        });
+        safeWriteJSON(getProposalDataPath(pid), {
+          ...finalProposal,
+          fileGroups: patchedGroups,
+          updatedAt: new Date().toISOString(),
+        });
+        finalProposal = loadProposal(pid);
+      }
+    }
+
+    return { success: true, proposal: finalProposal, entry: movedEntry };
   } catch (e) {
     logger.error('move-proposal-entry error:', e.message);
     return { success: false, error: e.message };
@@ -13123,20 +13560,29 @@ ipcMain.handle('download-proposal-file', async (_event, { proposalId, groupId, f
   }
 });
 
-ipcMain.handle('get-proposal-folder-files', async (_event, { proposalId, groupId, folderId } = {}) => {
+ipcMain.handle('get-proposal-folder-files', async (_event, {
+  proposalId, groupId, folderId, syncMetadata,
+} = {}) => {
   try {
     if (!proposalId || !groupId || !folderId) {
       return { success: false, error: 'Απαιτούνται proposalId, groupId και folderId' };
     }
-    const folderPath = resolveProposalGroupPath(proposalId, groupId, folderId);
-    if (!fs.existsSync(folderPath)) return { success: true, files: [] };
-    const files = fs.readdirSync(folderPath, { withFileTypes: true })
-      .filter((e) => e.isFile())
-      .map((e) => ({
-        name: e.name,
-        size: fs.statSync(path.join(folderPath, e.name)).size,
-        uploadedAt: fs.statSync(path.join(folderPath, e.name)).mtime.toISOString()
-      }));
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const pid = idCheck.id;
+
+    if (syncMetadata) {
+      const reconciled = reconcileProposalFolderEntry(pid, groupId, folderId);
+      if (!reconciled.ok) return { success: false, error: reconciled.error };
+      return {
+        success: true,
+        files: reconciled.filesOnDisk,
+        proposal: reconciled.proposal,
+        folderRemoved: reconciled.removed,
+      };
+    }
+
+    const files = listProposalFolderFilesOnDisk(pid, groupId, folderId);
     return { success: true, files };
   } catch (e) {
     logger.error('get-proposal-folder-files error:', e.message);
@@ -13147,7 +13593,7 @@ ipcMain.handle('get-proposal-folder-files', async (_event, { proposalId, groupId
 ipcMain.handle('get-proposal-files', async (_event, { proposalId, groupId } = {}) => {
   try {
     if (!proposalId || !groupId) return { success: false, error: 'Απαιτούνται proposalId και groupId' };
-    const groupDir = path.join(getProposalDir(proposalId), 'files', groupId);
+    const groupDir = resolveProposalGroupPath(proposalId, groupId);
     if (!fs.existsSync(groupDir)) return { success: true, files: [] };
     const entries = fs.readdirSync(groupDir, { withFileTypes: true })
       .filter((e) => e.isFile())
@@ -13163,10 +13609,64 @@ ipcMain.handle('get-proposal-files', async (_event, { proposalId, groupId } = {}
   }
 });
 
+ipcMain.handle('delete-proposal-folder-file', async (_event, {
+  proposalId, groupId, folderId, fileName, nextFileGroups, actingUsername,
+} = {}) => {
+  try {
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!proposalId || !groupId || !folderId || !fileName) {
+      return { success: false, error: 'Απαιτούνται proposalId, groupId, folderId και fileName' };
+    }
+    if (!Array.isArray(nextFileGroups)) {
+      return { success: false, error: 'Απαιτούνται nextFileGroups' };
+    }
+    const metaRes = atomicUpdateProposalFileGroups(proposalId, nextFileGroups);
+    if (!metaRes.success) return metaRes;
+    const pid = metaRes.proposalId;
+    const filePath = resolveProposalGroupPath(pid, groupId, folderId, fileName);
+    try {
+      if (fs.existsSync(filePath)) {
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile()) throw new Error('Η εγγραφή δεν είναι αρχείο');
+        fs.unlinkSync(filePath);
+      }
+    } catch (e) {
+      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+      return { success: false, error: e.message };
+    }
+    const reconciled = reconcileProposalFolderEntry(pid, groupId, folderId);
+    if (!reconciled.ok) {
+      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+      return { success: false, error: reconciled.error };
+    }
+    logProposalActivity(
+      pid,
+      'update',
+      reconciled.removed
+        ? `Διαγράφηκε αρχείο «${fileName}» — ο φάκελος αφαιρέθηκε (ήταν κενός)`
+        : `Διαγράφηκε αρχείο «${fileName}» από φάκελο`,
+      auth.username
+    );
+    return {
+      success: true,
+      proposal: reconciled.proposal,
+      folderRemoved: reconciled.removed,
+      files: reconciled.filesOnDisk,
+    };
+  } catch (e) {
+    logger.error('delete-proposal-folder-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('export-proposal', async (_event, { proposalId, includeFiles, actingUsername } = {}) => {
   try {
-    if (!proposalId) return { success: false, error: 'Απαιτείται proposalId' };
-    const proposal = loadProposal(proposalId);
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const proposal = loadProposal(idCheck.id);
     if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
 
     const { dialog } = require('electron');
@@ -13178,12 +13678,12 @@ ipcMain.handle('export-proposal', async (_event, { proposalId, includeFiles, act
       return { success: false, canceled: true };
     }
 
-    const actingUser = findUserByUsername(actingUsername);
-    const exportedByLabel = (actingUser?.fullName || '').trim() || actingUsername || '';
+    const actor = getOrimanthiAuditActor(auth.username);
+    const exportedByLabel = actor.fullName || auth.username;
 
     const result = await orimanthiExportHandler.exportProposal({
       proposal,
-      proposalId,
+      proposalId: idCheck.id,
       destParentDir: pickResult.filePaths[0],
       includeFiles: includeFiles !== false,
       appVersion: app.getVersion(),
@@ -13195,9 +13695,10 @@ ipcMain.handle('export-proposal', async (_event, { proposalId, includeFiles, act
       logAuditAction({
         type: 'export',
         entityType: 'proposal',
-        entityId: proposalId,
+        entityId: idCheck.id,
         entityTitle: proposal.title || '',
-        userFullName: exportedByLabel,
+        userFullName: actor.fullName,
+        userRole: actor.role,
         details: includeFiles !== false
           ? 'Εξαγωγή έργου ωρίμανσης με αρχεία'
           : 'Εξαγωγή έργου ωρίμανσης (Word μόνο)',
@@ -13211,12 +13712,20 @@ ipcMain.handle('export-proposal', async (_event, { proposalId, includeFiles, act
   }
 });
 
-ipcMain.handle('log-proposal-activity', async (_event, { proposalId, type, details, actingUsername } = {}) => {
+ipcMain.handle('log-proposal-activity', async (_event, { proposalId, details, actingUsername } = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
     if (!proposalId || !details) return { success: false, error: 'Απαιτούνται proposalId και details' };
-    logProposalActivity(proposalId, type || 'update', details, actingUsername);
+    const detailText = String(details).trim();
+    if (detailText.length > 500) {
+      return { success: false, error: 'Το κείμενο καταγραφής είναι πολύ μεγάλο' };
+    }
+    const allowed = ALLOWED_CLIENT_PROPOSAL_ACTIVITY.some((re) => re.test(detailText));
+    if (!allowed) {
+      return { success: false, error: 'Μη επιτρεπτή καταγραφή δραστηριότητας' };
+    }
+    logProposalActivity(proposalId, 'update', detailText, auth.username);
     return { success: true };
   } catch (e) {
     logger.error('log-proposal-activity error:', e.message);
@@ -13226,11 +13735,15 @@ ipcMain.handle('log-proposal-activity', async (_event, { proposalId, type, detai
 
 ipcMain.handle('clear-proposal-audit-log', async (_event, { proposalId, actingUsername } = {}) => {
   try {
-    const denied = denyOrimanthiManage(actingUsername);
-    if (denied) return denied;
-    if (!proposalId) return { success: false, error: 'Απαιτείται proposalId' };
+    const auth = requireOrimanthiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!isSuperAdminUser(auth.username)) {
+      return { success: false, error: 'Μόνο super admin μπορεί να εκκαθαρίσει ιστορικό' };
+    }
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
 
-    const proposal = loadProposal(proposalId);
+    const proposal = loadProposal(idCheck.id);
     if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
 
     let auditLog = { logs: [] };
@@ -13245,12 +13758,25 @@ ipcMain.handle('clear-proposal-audit-log', async (_event, { proposalId, actingUs
 
     const logs = auditLog.logs || [];
     const remaining = logs.filter(
-      (log) => !(log.entityType === 'proposal' && log.entityId === proposalId)
+      (log) => !(log.entityType === 'proposal' && log.entityId === idCheck.id)
     );
     const deletedCount = logs.length - remaining.length;
 
     auditLog.logs = remaining;
     safeWriteJSON(auditLogPath, auditLog);
+
+    const actor = getOrimanthiAuditActor(auth.username);
+    logAuditAction({
+      type: 'delete',
+      entityType: 'proposal',
+      entityId: idCheck.id,
+      entityTitle: proposal.title || '',
+      userFullName: actor.fullName,
+      userRole: actor.role,
+      details: deletedCount > 0
+        ? `Εκκαθάριση ιστορικού ωρίμανσης (${deletedCount} καταγραφές)`
+        : 'Εκκαθάριση ιστορικού ωρίμανσης (κανένα entry)',
+    });
 
     return { success: true, deletedCount };
   } catch (e) {
@@ -13259,10 +13785,13 @@ ipcMain.handle('clear-proposal-audit-log', async (_event, { proposalId, actingUs
   }
 });
 
-function walkProposalFiles(proposalId, groupId, groupLabel, relDir, proposalMeta, query, results, seen) {
-  const absDir = relDir
-    ? resolveProposalGroupPath(proposalId, groupId, relDir)
-    : path.join(getProposalDir(proposalId), 'files', groupId);
+function searchFilesInKnownFolder(proposalId, groupId, groupLabel, folderId, folderDisplayName, proposalMeta, query, results, seen) {
+  let absDir;
+  try {
+    absDir = resolveProposalGroupPath(proposalId, groupId, folderId);
+  } catch {
+    return;
+  }
   if (!fs.existsSync(absDir)) return;
   let entries;
   try {
@@ -13271,46 +13800,102 @@ function walkProposalFiles(proposalId, groupId, groupLabel, relDir, proposalMeta
     return;
   }
   for (const entry of entries) {
+    if (!entry.isFile()) continue;
     const name = entry.name;
-    const key = `${proposalId}:${groupId}:${relDir || ''}:${name}`;
+    if (!name.toLowerCase().includes(query)) continue;
+    const key = `${proposalId}:${groupId}:${folderId}:${name}`;
     if (seen.has(key)) continue;
-    if (entry.isFile() && name.toLowerCase().includes(query)) {
-      seen.add(key);
-      results.push({
-        projectId: proposalId,
-        projectTitle: proposalMeta.title || '(Χωρίς τίτλο)',
-        projectCategory: proposalMeta.projectCategory || '',
-        groupLabel,
-        entryKind: 'file',
-        fileName: name,
-        folderId: relDir || null,
-        pathHint: relDir ? `${relDir}/${name}` : name,
-      });
-    }
-    if (entry.isDirectory()) {
-      if (name.toLowerCase().includes(query)) {
+    seen.add(key);
+    results.push({
+      projectId: proposalId,
+      projectTitle: proposalMeta.title || '(Χωρίς τίτλο)',
+      projectCategory: proposalMeta.projectCategory || '',
+      groupId,
+      groupLabel,
+      entryKind: 'file',
+      fileName: name,
+      folderId,
+      folderDisplayName: folderDisplayName || 'Φάκελος',
+      pathHint: `${folderDisplayName || 'Φάκελος'}/${name}`,
+    });
+  }
+}
+
+function searchProposalFilesInMetadata(proposal, query, results, seen) {
+  const proposalId = proposal.id;
+  for (const group of proposal.fileGroups || []) {
+    for (const entry of group.files || []) {
+      if (entry.kind === 'folder') {
+        const displayName = entry.name || 'Φάκελος';
+        if (displayName.toLowerCase().includes(query)) {
+          let folderDir;
+          try {
+            folderDir = resolveProposalGroupPath(proposalId, group.id, entry.id);
+          } catch {
+            folderDir = null;
+          }
+          if (folderDir && fs.existsSync(folderDir)) {
+            const key = `${proposalId}:${group.id}:folder:${entry.id}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              results.push({
+                projectId: proposalId,
+                projectTitle: proposal.title || '(Χωρίς τίτλο)',
+                projectCategory: proposal.projectCategory || '',
+                groupId: group.id,
+                groupLabel: group.label || '',
+                entryKind: 'folder',
+                fileName: displayName,
+                folderId: entry.id,
+                pathHint: displayName,
+              });
+            }
+          }
+        }
+        let folderDirForSearch;
+        try {
+          folderDirForSearch = resolveProposalGroupPath(proposalId, group.id, entry.id);
+        } catch {
+          folderDirForSearch = null;
+        }
+        if (folderDirForSearch && fs.existsSync(folderDirForSearch)) {
+          searchFilesInKnownFolder(
+            proposalId,
+            group.id,
+            group.label || '',
+            entry.id,
+            displayName,
+            proposal,
+            query,
+            results,
+            seen
+          );
+        }
+      } else {
+        const fileName = entry.name || '';
+        if (!fileName.toLowerCase().includes(query)) continue;
+        let srcFile;
+        try {
+          srcFile = resolveProposalGroupPath(proposalId, group.id, fileName);
+        } catch {
+          continue;
+        }
+        if (!fs.existsSync(srcFile) || !fs.statSync(srcFile).isFile()) continue;
+        const key = `${proposalId}:${group.id}:file:${fileName}`;
+        if (seen.has(key)) continue;
         seen.add(key);
         results.push({
           projectId: proposalId,
-          projectTitle: proposalMeta.title || '(Χωρίς τίτλο)',
-          projectCategory: proposalMeta.projectCategory || '',
-          groupLabel,
-          entryKind: 'folder',
-          fileName: name,
-          folderId: relDir ? `${relDir}/${name}` : name,
-          pathHint: relDir ? `${relDir}/${name}` : name,
+          projectTitle: proposal.title || '(Χωρίς τίτλο)',
+          projectCategory: proposal.projectCategory || '',
+          groupId: group.id,
+          groupLabel: group.label || '',
+          entryKind: 'file',
+          fileName,
+          folderId: null,
+          pathHint: fileName,
         });
       }
-      walkProposalFiles(
-        proposalId,
-        groupId,
-        groupLabel,
-        relDir ? path.join(relDir, name) : name,
-        proposalMeta,
-        query,
-        results,
-        seen
-      );
     }
   }
 }
@@ -13327,9 +13912,7 @@ ipcMain.handle('search-proposal-files', async (_event, { query } = {}) => {
       const proposalId = entry.name;
       const proposal = loadProposal(proposalId);
       if (!proposal) continue;
-      (proposal.fileGroups || []).forEach((group) => {
-        walkProposalFiles(proposalId, group.id, group.label, '', proposal, q, results, seen);
-      });
+      searchProposalFilesInMetadata(proposal, q, results, seen);
     }
     results.sort((a, b) =>
       a.fileName.localeCompare(b.fileName, 'el') ||

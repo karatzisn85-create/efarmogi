@@ -395,16 +395,23 @@ async function copyDirectoryRecursive(src, dest) {
   }
 }
 
-async function listFolderFileNames(folderPath) {
+function listFolderFileNames(folderPath, relativePrefix = '') {
   if (!fs.existsSync(folderPath)) return [];
+  const names = [];
   try {
-    return fs.readdirSync(folderPath, { withFileTypes: true })
-      .filter((entry) => entry.isFile())
-      .map((entry) => entry.name)
-      .sort((a, b) => a.localeCompare(b, 'el', { sensitivity: 'base' }));
+    const entries = fs.readdirSync(folderPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const rel = relativePrefix ? `${relativePrefix}/${entry.name}` : entry.name;
+      if (entry.isFile()) {
+        names.push(rel);
+      } else if (entry.isDirectory()) {
+        names.push(...listFolderFileNames(path.join(folderPath, entry.name), rel));
+      }
+    }
   } catch {
-    return [];
+    return names;
   }
+  return names.sort((a, b) => a.localeCompare(b, 'el', { sensitivity: 'base' }));
 }
 
 async function copyGroupFiles({ proposalId, group, destCategoryDir, resolveProposalGroupPath }) {
@@ -412,16 +419,24 @@ async function copyGroupFiles({ proposalId, group, destCategoryDir, resolvePropo
   let fileCount = 0;
   let folderCount = 0;
   const items = [];
+  const skipped = [];
 
   for (const entry of group.files || []) {
     if (entry.kind === 'folder') {
       const srcFolder = resolveProposalGroupPath(proposalId, group.id, entry.id);
-      if (!fs.existsSync(srcFolder)) continue;
+      if (!fs.existsSync(srcFolder)) {
+        skipped.push({
+          kind: 'folder',
+          name: entry.name || 'Φάκελος',
+          category: group.label || 'Κατηγορία',
+        });
+        continue;
+      }
       const folderName = sanitizeFolderName(entry.name || 'Φάκελος');
       const destFolder = getUniqueDirPath(destCategoryDir, folderName);
       await copyDirectoryRecursive(srcFolder, destFolder);
       const exportedFolderName = path.basename(destFolder);
-      const innerFiles = await listFolderFileNames(destFolder);
+      const innerFiles = listFolderFileNames(destFolder);
       items.push({
         kind: 'folder',
         name: exportedFolderName,
@@ -431,7 +446,14 @@ async function copyGroupFiles({ proposalId, group, destCategoryDir, resolvePropo
       fileCount += innerFiles.length;
     } else {
       const srcFile = resolveProposalGroupPath(proposalId, group.id, entry.name);
-      if (!fs.existsSync(srcFile) || !fs.statSync(srcFile).isFile()) continue;
+      if (!fs.existsSync(srcFile) || !fs.statSync(srcFile).isFile()) {
+        skipped.push({
+          kind: 'file',
+          name: entry.name || '(άγνωστο)',
+          category: group.label || 'Κατηγορία',
+        });
+        continue;
+      }
       const destFile = getUniqueFilePath(destCategoryDir, entry.name);
       await fse.copy(srcFile, destFile);
       items.push({
@@ -447,7 +469,7 @@ async function copyGroupFiles({ proposalId, group, destCategoryDir, resolvePropo
     return a.name.localeCompare(b.name, 'el', { sensitivity: 'base' });
   });
 
-  return { fileCount, folderCount, items };
+  return { fileCount, folderCount, items, skipped };
 }
 
 async function exportProposal(options) {
@@ -472,6 +494,7 @@ async function exportProposal(options) {
   const categorySummary = [];
   let totalFiles = 0;
   let totalFolders = 0;
+  const missingItems = [];
 
   if (includeFiles) {
     for (const group of proposal.fileGroups || []) {
@@ -483,6 +506,7 @@ async function exportProposal(options) {
         destCategoryDir: categoryDir,
         resolveProposalGroupPath,
       });
+      if (stats.skipped?.length) missingItems.push(...stats.skipped);
       categorySummary.push({
         label: group.label || categoryName,
         fileCount: stats.fileCount,
@@ -513,7 +537,9 @@ async function exportProposal(options) {
       files: totalFiles,
       folders: totalFolders,
       includeFiles,
+      missingCount: missingItems.length,
     },
+    missingItems,
   };
 }
 

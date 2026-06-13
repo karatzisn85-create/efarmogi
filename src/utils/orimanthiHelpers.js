@@ -90,55 +90,34 @@ export function summarizeHistoryEntry(log) {
   return PROPOSAL_ACTION_LABELS[log.action] || 'Ενέργεια στο έργο';
 }
 
-/** Αναζήτηση ονομάτων αρχείων/φακέλων σε όλα τα έργα (metadata από data.json). */
-export function searchProjectFiles(proposals, query) {
-  const q = String(query || '').trim().toLowerCase();
-  if (!q || q.length < 2) return [];
-  const results = [];
-  (proposals || []).forEach((project) => {
-    (project.fileGroups || []).forEach((group) => {
-      (group.files || []).forEach((entry) => {
-        if (entry.kind === 'folder') {
-          const name = String(entry.name || '').toLowerCase();
-          if (name.includes(q)) {
-            results.push({
-              projectId: project.id,
-              projectTitle: project.title || '(Χωρίς τίτλο)',
-              projectCategory: project.projectCategory || '',
-              groupLabel: group.label,
-              entryKind: 'folder',
-              fileName: entry.name,
-              folderId: entry.id,
-            });
-          }
-          return;
-        }
-        const name = String(entry.name || entry.originalName || '').toLowerCase();
-        if (name.includes(q)) {
-          results.push({
-            projectId: project.id,
-            projectTitle: project.title || '(Χωρίς τίτλο)',
-            projectCategory: project.projectCategory || '',
-            groupLabel: group.label,
-            entryKind: 'file',
-            fileName: entry.name,
-            folderId: null,
-          });
-        }
-      });
-    });
-  });
-  return results.sort((a, b) =>
-    a.fileName.localeCompare(b.fileName, 'el') ||
-    a.projectTitle.localeCompare(b.projectTitle, 'el')
+/** Μετρά αρχεία μιας κατηγορίας (φάκελοι → fileCount, αρχεία → 1). */
+export function countGroupFileEntries(group) {
+  return (group?.files || []).reduce(
+    (sum, entry) => sum + (entry?.kind === 'folder' ? (entry.fileCount || 0) : 1),
+    0
+  );
+}
+
+/** Συνολικός αριθμός αρχείων έργου (ίδια λογική παντού). */
+export function countProposalFiles(project) {
+  return (project?.fileGroups || []).reduce(
+    (sum, g) => sum + countGroupFileEntries(g),
+    0
   );
 }
 
 /** Φίλτρο αρχείων εντός τρέχοντος έργου (tab Αρχεία). */
-export function filterGroupFiles(group, query) {
+export function filterGroupFiles(group, query, folderIdsWithInnerMatch = null) {
   const q = String(query || '').trim().toLowerCase();
   if (!q) return group.files || [];
+  const innerMatch = folderIdsWithInnerMatch instanceof Set ? folderIdsWithInnerMatch : null;
   return (group.files || []).filter((entry) => {
+    if (entry.kind === 'folder') {
+      const name = String(entry.name || '').toLowerCase();
+      if (name.includes(q)) return true;
+      if (innerMatch?.has(entry.id)) return true;
+      return false;
+    }
     const name = String(entry.name || entry.originalName || '').toLowerCase();
     return name.includes(q);
   });
@@ -183,11 +162,7 @@ export function computeExtendedHubStats(proposals, statusDefs) {
     const cat = String(p.projectCategory || '').trim() || 'Χωρίς κατηγορία';
     byCategory[cat] = (byCategory[cat] || 0) + 1;
 
-    const fileCount = (p.fileGroups || []).reduce(
-      (sum, g) => sum + (g.files?.length || 0),
-      0
-    );
-    totalFiles += fileCount;
+    totalFiles += countProposalFiles(p);
 
     const pending = p.pendingItems || [];
     const openPending = pending.filter((i) => !i.done).length;

@@ -5216,12 +5216,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           </CategoryBody>
         </CategorySection>
 
-        {/* Κατηγορία: ΦΑΚΕΛΟΣ ΕΡΓΟΥ */}
+        {/* Κατηγορία: ΦΑΚΕΛΟΣ ΕΡΓΩΝ */}
         <CategorySection $accentColor="#0891b2" $accentGrad="linear-gradient(135deg, #0891b2, #06b6d4)">
             <CategoryHeader $open={expandedCategories.management} onClick={() => toggleCategory('management')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #0891b2, #06b6d4)">📂</CategoryHeaderIcon>
-                <CategoryHeaderTitle>Φάκελος Έργου</CategoryHeaderTitle>
+                <CategoryHeaderTitle>Φάκελος Έργων</CategoryHeaderTitle>
               </CategoryHeaderLeft>
               <CategoryHeaderChevron $open={expandedCategories.management}>▶</CategoryHeaderChevron>
             </CategoryHeader>
