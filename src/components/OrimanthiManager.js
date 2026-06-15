@@ -14,8 +14,48 @@ import {
   filterGroupFiles,
   countProposalFiles,
   countGroupFileEntries,
+  proposalPersistFingerprint,
   PROPOSAL_ACTION_LABELS,
 } from '../utils/orimanthiHelpers';
+import OrimanthiFileCategoryPicker from './OrimanthiFileCategoryPicker';
+import {
+  FILE_CATEGORY_ROOTS,
+  FILE_CATEGORY_ROOT_MELETES,
+  FILE_CATEGORY_ROOT_ADEIODOTISEIS,
+  DEFAULT_MELETES_SPECS,
+  DEFAULT_ADEIODOTISEIS_SPECS,
+  LS_CUSTOM_MELETES_SPECS,
+  LS_CUSTOM_ADEIODOTISEIS_SPECS,
+  loadCustomFileSpecs,
+  saveCustomFileSpecs,
+  getMeletesSpecs,
+  getAdeiodotiseisSpecs,
+  buildFileGroupPayload,
+  fileGroupExists,
+  getFileGroupIdentity,
+  migrateProposalFileGroups,
+} from '../utils/orimanthiFileCategories';
+import {
+  loadCustomCategoriesList,
+  saveCustomCategoriesList,
+  getMergedProjectCategories,
+  getCustomProjectCategoriesOnly,
+  isDefaultProjectCategory,
+  loadCustomCategorySpecializations,
+  saveCustomCategorySpecializations,
+  getSpecializationsForCategory,
+  categoryHasSpecializations,
+  isDefaultCategorySpecialization,
+  getCustomSpecsForCategory,
+  getCategoriesWithCustomSpecs,
+  resolveCategoryLabel,
+  categoriesAreEquivalent,
+  reconcilePendingTemplateCategory,
+  validateProposalCategoryFields,
+  shouldShowSpecializationField,
+  LS_CUSTOM_CATEGORIES,
+  LS_CUSTOM_CATEGORY_SPECS,
+} from '../utils/orimanthiProjectCategories';
 
 /* ─── Tokens ─────────────────────────────────────────────────────────────── */
 const C = {
@@ -50,33 +90,6 @@ const PROJECT_MATURITY_STATUSES = [
   { value: 'rejected',   label: 'Απορρίφθηκε',          color: C.rose,      bg: '#fff1f2' },
 ];
 
-const PRESET_GROUPS = [
-  { label: 'Αδειοδοτήσεις', icon: '📋' },
-  { label: 'Μελέτες', icon: '📐' },
-  { label: 'Τοπογραφικά', icon: '🗺️' },
-  { label: 'Γεωτεχνικά', icon: '🪨' },
-  { label: 'Αρχαιολογία', icon: '🏛️' },
-  { label: 'Περιβαλλοντικά', icon: '🌿' },
-  { label: 'Στατικά', icon: '🏗️' },
-  { label: 'Η/Μ Μελέτες', icon: '⚡' },
-  { label: 'Κτηματολόγιο', icon: '📌' },
-  { label: 'Τεύχη Δημοπράτησης', icon: '📄' },
-  { label: 'Φωτογραφίες', icon: '📷' },
-  { label: 'Διάφορα', icon: '📁' },
-];
-
-const INFRASTRUCTURE_CATEGORY = 'Έργα υποδομής';
-const DEFAULT_PROJECT_CATEGORIES = [
-  INFRASTRUCTURE_CATEGORY,
-  'Οδοποιία',
-  'Αναπλάσεις οικισμών',
-  'Κτιριακά',
-  'Διάφορα',
-];
-const DEFAULT_INFRA_SPECIALIZATIONS = ['Υδραυλικά', 'Αποχετεύσεις', 'Γεωτρήσεις'];
-const LS_CUSTOM_CATEGORIES = 'orimanthiCustomProjectCategories';
-const LS_CUSTOM_SPECIALIZATIONS = 'orimanthiCustomInfraSpecializations';
-const NEW_PROJECT_FILES_GROUP_LABEL = 'Αρχεία έργου'; // legacy — χρησιμοποιείται μόνο σε παλιά records
 const ADD_NEW_CATEGORY_OPTION = '__add_new_category__';
 const ADD_NEW_SPECIALIZATION_OPTION = '__add_new_specialization__';
 
@@ -84,60 +97,30 @@ const EMPTY_NEW_PROJECT_DRAFT = {
   title: '',
   projectCategory: '',
   infrastructureSpecialization: '',
+  municipalUnit: '',
+  settlement: '',
   aepoRenewalDate: '',
 };
-
-function loadStoredList(key, defaults) {
-  try {
-    const raw = localStorage.getItem(key);
-    const custom = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(custom)) return [...defaults];
-    const merged = [...defaults];
-    custom.forEach((item) => {
-      const label = String(item || '').trim();
-      if (!label) return;
-      if (!merged.some((x) => x.toLowerCase() === label.toLowerCase())) merged.push(label);
-    });
-    return merged;
-  } catch {
-    return [...defaults];
-  }
-}
-
-function saveCustomList(key, defaults, fullList) {
-  const custom = fullList.filter(
-    (item) => !defaults.some((d) => d.toLowerCase() === String(item).toLowerCase())
-  );
-  localStorage.setItem(key, JSON.stringify(custom));
-}
-
-function getCustomOnlyItems(fullList, defaults) {
-  return fullList.filter(
-    (item) => !defaults.some((d) => d.toLowerCase() === String(item).toLowerCase())
-  );
-}
-
-function isDefaultCategory(label) {
-  return DEFAULT_PROJECT_CATEGORIES.some(
-    (d) => d.toLowerCase() === String(label || '').trim().toLowerCase()
-  );
-}
-
-function isDefaultSpecialization(label) {
-  return DEFAULT_INFRA_SPECIALIZATIONS.some(
-    (d) => d.toLowerCase() === String(label || '').trim().toLowerCase()
-  );
-}
-
-function isInfrastructureCategory(category) {
-  return String(category || '').trim().toLowerCase() === INFRASTRUCTURE_CATEGORY.toLowerCase();
-}
 
 function formatAepoDate(value) {
   if (!value) return '';
   const isoMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  const d = new Date(value);
+  if (!Number.isNaN(d.getTime())) {
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
   return String(value);
+}
+
+function keepSpecializationForCategory(category, currentSpec, customSpecMap) {
+  const specs = getSpecializationsForCategory(category, customSpecMap);
+  const cur = String(currentSpec || '').trim();
+  if (!cur || !specs.length) return '';
+  return specs.some((s) => s.toLowerCase() === cur.toLowerCase()) ? cur : '';
 }
 
 function parseProjectSearch(project, query) {
@@ -148,6 +131,8 @@ function parseProjectSearch(project, query) {
     project.title,
     project.projectCategory,
     project.infrastructureSpecialization,
+    project.municipalUnit,
+    project.settlement,
     project.description,
     project.notes,
     pendingText,
@@ -172,6 +157,8 @@ function getProjectPendingOpen(project) {
 }
 
 const HUB_UNCategorized_FILTER = '__uncategorized__';
+const HUB_NO_MUNICIPAL_FILTER = '__no_municipal_unit__';
+const HUB_NO_SETTLEMENT_FILTER = '__no_settlement__';
 
 const HUB_SORT_OPTIONS = [
   { value: 'created_desc', label: 'Νεότερα πρώτα' },
@@ -179,6 +166,8 @@ const HUB_SORT_OPTIONS = [
   { value: 'title_asc', label: 'Τίτλος Α → Ω' },
   { value: 'title_desc', label: 'Τίτλος Ω → Α' },
   { value: 'category_asc', label: 'Κατηγορία Α → Ω' },
+  { value: 'municipal_unit_asc', label: 'Δημοτική ενότητα Α → Ω' },
+  { value: 'settlement_asc', label: 'Οικισμός Α → Ω' },
   { value: 'status', label: 'Κατάσταση ωρίμανσης' },
   { value: 'files_desc', label: 'Περισσότερα αρχεία' },
   { value: 'aepo_asc', label: 'ΑΕΠΟ (επόμενες)' },
@@ -200,6 +189,10 @@ function sortHubProjects(list, sortBy) {
         return String(b.title || '').localeCompare(String(a.title || ''), 'el');
       case 'category_asc':
         return String(a.projectCategory || 'ΩΩΩ').localeCompare(String(b.projectCategory || 'ΩΩΩ'), 'el');
+      case 'municipal_unit_asc':
+        return String(a.municipalUnit || 'ΩΩΩ').localeCompare(String(b.municipalUnit || 'ΩΩΩ'), 'el');
+      case 'settlement_asc':
+        return String(a.settlement || 'ΩΩΩ').localeCompare(String(b.settlement || 'ΩΩΩ'), 'el');
       case 'status':
         return (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
       case 'files_desc':
@@ -243,7 +236,9 @@ function matchesHubQuickFilter(project, quickFilter) {
   }
 }
 
-function matchesHubFilters(project, { search, categoryFilter, statusFilter }) {
+function matchesHubFilters(project, {
+  search, categoryFilter, statusFilter, municipalUnitFilter, settlementFilter,
+}) {
   if (!parseProjectSearch(project, search)) return false;
   if (categoryFilter === HUB_UNCategorized_FILTER) {
     if (project.projectCategory) return false;
@@ -251,6 +246,16 @@ function matchesHubFilters(project, { search, categoryFilter, statusFilter }) {
     return false;
   }
   if (statusFilter && project.status !== statusFilter) return false;
+  if (municipalUnitFilter === HUB_NO_MUNICIPAL_FILTER) {
+    if (String(project.municipalUnit || '').trim()) return false;
+  } else if (municipalUnitFilter && (project.municipalUnit || '') !== municipalUnitFilter) {
+    return false;
+  }
+  if (settlementFilter === HUB_NO_SETTLEMENT_FILTER) {
+    if (String(project.settlement || '').trim()) return false;
+  } else if (settlementFilter && (project.settlement || '') !== settlementFilter) {
+    return false;
+  }
   return true;
 }
 
@@ -294,6 +299,10 @@ function getProposalEntryKey(entry) {
   return isProposalFolder(entry) ? entry.id : entry.name;
 }
 
+function getFolderExpandKey(groupId, folderId) {
+  return `${groupId}:${folderId}`;
+}
+
 function emptyProposal() {
   return {
     id: uuidv4(),
@@ -302,9 +311,12 @@ function emptyProposal() {
     status: 'draft',
     projectCategory: '',
     infrastructureSpecialization: '',
+    municipalUnit: '',
+    settlement: '',
     aepoRenewalDate: '',
     notes: '',
     pendingItems: [],
+    pendingTemplateCategory: '',
     fileGroups: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -315,10 +327,18 @@ function hasProposalNotes(notes) {
   return String(notes || '').trim().length > 0;
 }
 
-function groupLabelExists(groups, label) {
-  const normalized = String(label || '').trim().toLowerCase();
-  if (!normalized) return false;
-  return (groups || []).some((g) => String(g.label || '').trim().toLowerCase() === normalized);
+function renderFileGroupTitle(group) {
+  const identity = getFileGroupIdentity(group);
+  const rootMeta = identity.rootId ? FILE_CATEGORY_ROOTS[identity.rootId] : null;
+  if (rootMeta && identity.spec) {
+    return (
+      <>
+        <span>{identity.spec}</span>
+        <GroupRootBadge $color={rootMeta.accent}>{rootMeta.shortLabel}</GroupRootBadge>
+      </>
+    );
+  }
+  return <span>{group.label || 'Κατηγορία'}</span>;
 }
 
 /* ─── Animations ─────────────────────────────────────────────────────────── */
@@ -1002,7 +1022,7 @@ const HubListWrap = styled.div`
 `;
 const HubListHead = styled.div`
   display: grid;
-  grid-template-columns: minmax(200px, 2.2fr) 120px 88px 56px 88px 130px;
+  grid-template-columns: ${(p) => p.$gridColumns};
   gap: 0.5rem;
   padding: 0.6rem 0.85rem;
   background: linear-gradient(90deg, ${C.slate800} 0%, ${C.indigoDark} 100%);
@@ -1014,7 +1034,7 @@ const HubListHead = styled.div`
 `;
 const HubListRow = styled.div`
   display: grid;
-  grid-template-columns: minmax(200px, 2.2fr) 120px 88px 56px 88px 130px;
+  grid-template-columns: ${(p) => p.$gridColumns};
   gap: 0.5rem;
   align-items: center;
   padding: 0.7rem 0.85rem;
@@ -2360,27 +2380,6 @@ const AddGroupToolbar = styled.div`
   border-radius: 12px;
   box-shadow: 0 2px 10px rgba(99, 102, 241, 0.08);
 `;
-const PresetChipsRow = styled.div`
-  display: flex; flex-wrap: wrap; gap: 0.28rem; align-items: center;
-`;
-const AddCategoryBtn = styled.button`
-  width: 28px; height: 28px;
-  border-radius: 999px;
-  border: 1.5px dashed ${C.slate300};
-  background: ${C.white};
-  color: ${C.slate500};
-  font-size: 1.05rem; font-weight: 700; line-height: 1;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.18s;
-  &:hover {
-    border-color: ${C.indigo};
-    color: ${C.indigo};
-    background: ${C.indigoLight};
-    border-style: solid;
-  }
-`;
 const AddCategoryTrigger = styled.button`
   display: inline-flex; align-items: center; gap: 0.35rem;
   padding: 0.38rem 0.75rem;
@@ -2397,31 +2396,6 @@ const AddCategoryTrigger = styled.button`
     background: ${C.indigoLight};
     border-style: solid;
   }
-`;
-const CategoryPickerHeader = styled.div`
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
-`;
-const CategoryPickerLabel = styled.span`
-  font-size: 0.68rem; font-weight: 800; color: ${C.slate500};
-  text-transform: uppercase; letter-spacing: 0.45px;
-`;
-const CustomGroupRow = styled.div`
-  display: flex; gap: 0.35rem; align-items: center;
-  margin-top: 0.4rem;
-  animation: ${fadeIn} 0.2s ease;
-`;
-const CustomGroupInput = styled.input`
-  width: 160px;
-  padding: 0.3rem 0.55rem;
-  border: 1px solid ${C.indigo};
-  border-radius: 7px;
-  font-size: 0.75rem; color: ${C.slate700};
-  outline: none; box-sizing: border-box;
-  background: ${C.white};
-  &:focus { box-shadow: 0 0 0 2px ${C.indigoLight}; }
-  &::placeholder { color: ${C.slate300}; }
 `;
 const GroupsList = styled.div`
   display: flex; flex-direction: column; gap: 0.75rem;
@@ -2492,6 +2466,25 @@ const GroupName = styled.div`
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  min-width: 0;
+  flex: 1;
+  & > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`;
+const GroupRootBadge = styled.span`
+  flex-shrink: 0;
+  font-size: 0.58rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.12rem 0.38rem;
+  border-radius: 999px;
+  background: ${(p) => `${p.$color}18`};
+  color: ${(p) => p.$color};
+  border: 1px solid ${(p) => `${p.$color}33`};
 `;
 const GroupCount = styled.span`
   font-size: 0.68rem; font-weight: 700;
@@ -2516,6 +2509,11 @@ const FilesList = styled.div`
   flex-direction: column;
   gap: 0.45rem;
 `;
+const FolderEntryBlock = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+`;
 const FileItem = styled.div`
   display: flex;
   justify-content: space-between;
@@ -2529,6 +2527,44 @@ const FileItem = styled.div`
   &:hover {
     border-color: ${C.slate300};
     box-shadow: 0 2px 10px rgba(99, 102, 241, 0.08);
+  }
+`;
+const FolderHeaderItem = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.85rem;
+  background: ${(p) => (p.$open ? C.indigoLight + '66' : C.white)};
+  border-radius: 10px;
+  border: 1px solid ${(p) => (p.$open ? C.indigo + '55' : C.slate200)};
+  transition: box-shadow 0.18s, border-color 0.18s, background 0.18s;
+  gap: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+  &:hover {
+    border-color: ${C.indigo}44;
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.08);
+  }
+`;
+const NestedFilesTree = styled.div`
+  margin: 0.35rem 0 0.55rem 0.5rem;
+  padding: 0.35rem 0 0.15rem 1.1rem;
+  border-left: 2px solid ${C.indigo}44;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+`;
+const NestedFileItem = styled(FileItem)`
+  position: relative;
+  background: ${C.slate50};
+  &::before {
+    content: '';
+    position: absolute;
+    left: -1.1rem;
+    top: 50%;
+    width: 0.85rem;
+    height: 2px;
+    background: ${C.indigo}44;
   }
 `;
 const FileInfo = styled.div`
@@ -2699,17 +2735,6 @@ const EmptyGroupHint = styled.div`
   transition: color 0.2s;
 `;
 
-/* ── Add group chips ── */
-const PresetChip = styled.button`
-  padding: 0.22rem 0.5rem;
-  border: 1px solid ${C.slate200};
-  border-radius: 999px;
-  background: white;
-  font-size: 0.66rem; font-weight: 700; color: ${C.slate600};
-  cursor: pointer; transition: all 0.15s;
-  &:hover { border-color: ${C.teal}; color: ${C.teal}; background: ${C.tealLight}; }
-`;
-
 /* ── Notes tab ── */
 const NotesTextarea = styled.textarea`
   width: 100%; min-height: 260px;
@@ -2729,7 +2754,7 @@ const PendingList = styled.div`
   display: flex; flex-direction: column; gap: 0.55rem; margin-bottom: 1rem;
 `;
 const PendingItem = styled.div`
-  display: flex; align-items: flex-start; gap: 0.65rem;
+  display: flex; align-items: center; gap: 0.65rem;
   padding: 0.7rem 0.85rem;
   background: ${(p) => p.$done ? C.slate50 : C.white};
   border: 1px solid ${(p) => p.$done ? C.slate200 : C.slate200};
@@ -2748,6 +2773,19 @@ const PendingText = styled.div`
   color: ${(p) => p.$done ? C.slate400 : C.slate700};
   text-decoration: ${(p) => p.$done ? 'line-through' : 'none'};
   word-break: break-word;
+`;
+const PendingDeleteBtn = styled(DeleteIconBtn)`
+  color: ${C.rose};
+  border-color: #fecaca;
+  background: #fff1f2;
+  font-size: 0.82rem;
+  font-weight: 800;
+  &:hover {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+    box-shadow: 0 2px 8px rgba(244, 63, 94, 0.25);
+  }
 `;
 const AddPendingRow = styled.div`
   display: flex; gap: 0.5rem; min-width: 0;
@@ -2892,6 +2930,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const [search, setSearch] = useState('');
   const [hubCategoryFilter, setHubCategoryFilter] = useState('');
   const [hubStatusFilter, setHubStatusFilter] = useState('');
+  const [hubMunicipalUnitFilter, setHubMunicipalUnitFilter] = useState('');
+  const [hubSettlementFilter, setHubSettlementFilter] = useState('');
   const [hubSortBy, setHubSortBy] = useState('created_desc');
   const [showHubStatsModal, setShowHubStatsModal] = useState(false);
   const [loadingProposals, setLoadingProposals] = useState(true);
@@ -2916,8 +2956,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const [newProjectDraft, setNewProjectDraft] = useState(EMPTY_NEW_PROJECT_DRAFT);
   const [newProjectStagedGroups, setNewProjectStagedGroups] = useState([]);
   const [newProjectShowCategoryPicker, setNewProjectShowCategoryPicker] = useState(false);
-  const [newProjectAddingGroup, setNewProjectAddingGroup] = useState(false);
-  const [newProjectNewGroupName, setNewProjectNewGroupName] = useState('');
   const [newProjectExpandedGroups, setNewProjectExpandedGroups] = useState({});
   const [newCategoryInput, setNewCategoryInput] = useState('');
   const [newSpecializationInput, setNewSpecializationInput] = useState('');
@@ -2927,28 +2965,36 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const [detailNewCategoryInput, setDetailNewCategoryInput] = useState('');
   const [detailShowAddSpecializationInput, setDetailShowAddSpecializationInput] = useState(false);
   const [detailNewSpecializationInput, setDetailNewSpecializationInput] = useState('');
+  const [detailShowSpecializationField, setDetailShowSpecializationField] = useState(false);
+  const [newProjectShowSpecializationField, setNewProjectShowSpecializationField] = useState(false);
   const [showManageListsModal, setShowManageListsModal] = useState(false);
   const [removingListItem, setRemovingListItem] = useState('');
   const [projectCategories, setProjectCategories] = useState(() =>
-    loadStoredList(LS_CUSTOM_CATEGORIES, DEFAULT_PROJECT_CATEGORIES)
+    getMergedProjectCategories(loadCustomCategoriesList())
   );
-  const [infraSpecializations, setInfraSpecializations] = useState(() =>
-    loadStoredList(LS_CUSTOM_SPECIALIZATIONS, DEFAULT_INFRA_SPECIALIZATIONS)
+  const [customCategorySpecs, setCustomCategorySpecs] = useState(() =>
+    loadCustomCategorySpecializations()
+  );
+  const [manageSpecCategory, setManageSpecCategory] = useState('');
+  const [manageSpecInput, setManageSpecInput] = useState('');
+  const [customMeletesFileSpecs, setCustomMeletesFileSpecs] = useState(() =>
+    loadCustomFileSpecs(LS_CUSTOM_MELETES_SPECS)
+  );
+  const [customAdeiodotiseisFileSpecs, setCustomAdeiodotiseisFileSpecs] = useState(() =>
+    loadCustomFileSpecs(LS_CUSTOM_ADEIODOTISEIS_SPECS)
   );
   const newProjectTitleRef = useRef(null);
-  const newProjectAddGroupInputRef = useRef(null);
 
   // Add group UI
-  const [newGroupName, setNewGroupName] = useState('');
-  const [addingGroup, setAddingGroup] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
-  const addGroupInputRef = useRef(null);
 
   // Pending item input
   const [pendingInput, setPendingInput] = useState('');
 
-  // Drag state
-  const [folderModal, setFolderModal] = useState(null);
+  // Drag state / folder expansion
+  const [expandedFolderKeys, setExpandedFolderKeys] = useState({});
+  const [folderFilesCache, setFolderFilesCache] = useState({});
+  const [nestedFileHighlight, setNestedFileHighlight] = useState(null);
   const [moveModal, setMoveModal] = useState(null);
   const [renameModal, setRenameModal] = useState(null);
   const renameInputRef = useRef(null);
@@ -2962,6 +3008,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const [exportTargetId, setExportTargetId] = useState(null);
   const [uploadingGroupId, setUploadingGroupId] = useState(null);
   const [detailFolderFilterMatches, setDetailFolderFilterMatches] = useState(() => new Set());
+  const [unsavedNavModal, setUnsavedNavModal] = useState(null);
+  const [proposalLocks, setProposalLocks] = useState({});
+  const [showAepoSettingsModal, setShowAepoSettingsModal] = useState(false);
+  const [orimanthiConfig, setOrimanthiConfig] = useState(null);
+  const [orimanthiListsSynced, setOrimanthiListsSynced] = useState(false);
+  const [municipalUnits, setMunicipalUnits] = useState([]);
+  const [hubReportExporting, setHubReportExporting] = useState(false);
+  const [applyingPendingTemplate, setApplyingPendingTemplate] = useState(false);
 
   const saveTimerRef = useRef(null);
   const pendingSaveProjectIdRef = useRef(null);
@@ -2973,6 +3027,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const highlightedFolderFileRef = useRef(null);
   const fileSearchSeqRef = useRef(0);
   const fileSearchTimerRef = useRef(null);
+  const persistedSnapshotsRef = useRef({});
+  const lockedProposalIdRef = useRef(null);
   // Ref που κρατά πάντα το τελευταίο state proposals χωρίς να δημιουργεί νέα closure
   const proposalsRef = useRef([]);
 
@@ -2987,7 +3043,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       try {
         const res = await window.electronAPI.invoke('load-all-proposals');
         if (res.success) {
-          setProposals(res.proposals || []);
+          const list = (res.proposals || []).map(migrateProposalFileGroups);
+          setProposals(list);
+          proposalsRef.current = list;
+          list.forEach((p) => {
+            if (p?.id) {
+              persistedSnapshotsRef.current[p.id] = JSON.parse(JSON.stringify(p));
+            }
+          });
         } else {
           showToast(res.error || 'Σφάλμα φόρτωσης έργων ωρίμανσης', 'error');
         }
@@ -2998,6 +3061,142 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       }
     })();
   }, [showToast]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.electronAPI.invoke('get-orimanthi-config');
+        if (res.success) setOrimanthiConfig(res.config);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  const persistOrimanthiListsToConfig = useCallback(async (categoriesList, specMap) => {
+    const customOnly = getCustomProjectCategoriesOnly(categoriesList);
+    const merged = {
+      ...(orimanthiConfig || {}),
+      customProjectCategories: customOnly,
+      customCategorySpecializations: specMap || {},
+    };
+    const res = await window.electronAPI.invoke('save-orimanthi-config', {
+      config: merged,
+      actingUsername: loggedInUsername,
+    });
+    if (!res.success) {
+      showToast(res.error || 'Σφάλμα αποθήκευσης λιστών', 'error');
+      return false;
+    }
+    setOrimanthiConfig(res.config);
+    return true;
+  }, [orimanthiConfig, loggedInUsername, showToast]);
+
+  useEffect(() => {
+    if (!orimanthiConfig || orimanthiListsSynced) return;
+    let cancelled = false;
+    (async () => {
+      const cfgCats = orimanthiConfig.customProjectCategories || [];
+      const cfgSpecs = orimanthiConfig.customCategorySpecializations || {};
+      const lsCats = loadCustomCategoriesList();
+      const lsSpecs = loadCustomCategorySpecializations();
+      const hasCfg = cfgCats.length > 0 || Object.keys(cfgSpecs).length > 0;
+      const hasLs = lsCats.length > 0 || Object.keys(lsSpecs).length > 0;
+
+      if (hasLs && !hasCfg) {
+        const mergedCats = getMergedProjectCategories(lsCats);
+        if (!cancelled) {
+          setProjectCategories(mergedCats);
+          setCustomCategorySpecs(lsSpecs);
+        }
+        const ok = await persistOrimanthiListsToConfig(mergedCats, lsSpecs);
+        if (ok) {
+          localStorage.removeItem(LS_CUSTOM_CATEGORIES);
+          localStorage.removeItem(LS_CUSTOM_CATEGORY_SPECS);
+        }
+      } else if (!cancelled) {
+        setProjectCategories(getMergedProjectCategories(cfgCats));
+        setCustomCategorySpecs(cfgSpecs);
+      }
+      if (!cancelled) setOrimanthiListsSynced(true);
+    })();
+    return () => { cancelled = true; };
+  }, [orimanthiConfig, orimanthiListsSynced, persistOrimanthiListsToConfig]);
+
+  const loadMunicipalUnits = useCallback(async () => {
+    try {
+      const res = await window.electronAPI.invoke('get-municipal-units-config');
+      if (res.success) setMunicipalUnits(res.config?.units || []);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    loadMunicipalUnits();
+  }, [loadMunicipalUnits]);
+
+  const warnIfMunicipalUnitsEmpty = useCallback(() => {
+    if (municipalUnits.length > 0) return false;
+    showToast(
+      'Τα δεδομένα δημοτικών ενοτήτων δεν έχουν ενημερωθεί. Επικοινωνήστε με τον διαχειριστή συστήματος.',
+      'warning'
+    );
+    return true;
+  }, [municipalUnits, showToast]);
+
+  useEffect(() => {
+    if (selectedId || !proposals.length) return undefined;
+    let cancelled = false;
+    const pollLocks = async () => {
+      const next = {};
+      for (const p of proposals) {
+        try {
+          const st = await window.electronAPI.invoke('check-entity-lock', 'orimanthi', p.id);
+          next[p.id] = st.locked ? (st.lockedBy || true) : false;
+        } catch {
+          next[p.id] = false;
+        }
+      }
+      if (!cancelled) setProposalLocks(next);
+    };
+    pollLocks();
+    const t = setInterval(pollLocks, 12000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [selectedId, proposals]);
+
+  useEffect(() => {
+    if (!selectedId || isReadOnly) return undefined;
+    let cancelled = false;
+    (async () => {
+      const status = await window.electronAPI.invoke('check-entity-lock', 'orimanthi', selectedId);
+      if (cancelled) return;
+      if (status.locked) {
+        showToast(`Το έργο είναι ανοιχτό από ${status.lockedBy || 'άλλο χρήστη'}`, 'warning');
+        setSelectedId(null);
+        return;
+      }
+      const res = await window.electronAPI.invoke(
+        'create-entity-lock',
+        'orimanthi',
+        selectedId,
+        loggedInUsername || ''
+      );
+      if (cancelled) return;
+      if (!res.success) {
+        const who = res.lockedBy || res.error || 'άλλο χρήστη';
+        showToast(`Δεν ήταν δυνατό το άνοιγμα — ανοιχτό από ${who}`, 'warning');
+        setSelectedId(null);
+        return;
+      }
+      lockedProposalIdRef.current = selectedId;
+    })();
+    return () => { cancelled = true; };
+  }, [selectedId, isReadOnly, loggedInUsername, showToast]);
+
+  useEffect(() => () => {
+    const id = lockedProposalIdRef.current;
+    if (id) {
+      window.electronAPI.invoke('remove-entity-lock', 'orimanthi', id);
+      lockedProposalIdRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (fileSearchTimerRef.current) clearTimeout(fileSearchTimerRef.current);
@@ -3110,8 +3309,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
 
   useEffect(() => {
     setShowCategoryPicker(false);
-    setAddingGroup(false);
-    setNewGroupName('');
     setExpandedGroups({});
     setDetailFileFilter('');
     setDetailFolderFilterMatches(new Set());
@@ -3120,9 +3317,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     setDetailNewCategoryInput('');
     setDetailShowAddSpecializationInput(false);
     setDetailNewSpecializationInput('');
-    setFolderModal(null);
     setMoveModal(null);
     setRenameModal(null);
+    setExpandedFolderKeys({});
+    setFolderFilesCache({});
+    setNestedFileHighlight(null);
   }, [selectedId]);
 
   useEffect(() => () => {
@@ -3162,10 +3361,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   }, [selectedProposal, detailFileFilter]);
 
   useEffect(() => {
-    if (folderModal?.highlightFile && highlightedFolderFileRef.current) {
+    if (nestedFileHighlight?.fileName && highlightedFolderFileRef.current) {
       highlightedFolderFileRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
-  }, [folderModal]);
+  }, [nestedFileHighlight, folderFilesCache]);
 
   /* ── Auto-save — skipAudit=true για να μη γεμίζει το audit log με κάθε keystroke ── */
   const mergeSavedProposal = useCallback((saved) => {
@@ -3174,16 +3373,145 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     proposalsRef.current = proposalsRef.current.map((p) => (p.id === saved.id ? { ...p, ...saved } : p));
   }, []);
 
+  const markProposalPersisted = useCallback((proposal) => {
+    if (!proposal?.id) return;
+    persistedSnapshotsRef.current[proposal.id] = JSON.parse(JSON.stringify(proposal));
+  }, []);
+
+  const isProposalDirty = useCallback((projectId) => {
+    if (!projectId) return false;
+    if (pendingSaveProjectIdRef.current === projectId && saveTimerRef.current) return true;
+    const current = proposalsRef.current.find((p) => p.id === projectId);
+    const persisted = persistedSnapshotsRef.current[projectId];
+    if (!current || !persisted) return false;
+    return proposalPersistFingerprint(current) !== proposalPersistFingerprint(persisted);
+  }, []);
+
+  const revertProposalToPersisted = useCallback((projectId) => {
+    const snap = persistedSnapshotsRef.current[projectId];
+    if (!snap) return;
+    setProposals((prev) => prev.map((p) => (p.id === projectId ? { ...snap } : p)));
+    proposalsRef.current = proposalsRef.current.map((p) => (p.id === projectId ? { ...snap } : p));
+  }, []);
+
+  const releaseProposalLock = useCallback(async (projectId) => {
+    if (!projectId || lockedProposalIdRef.current !== projectId) return;
+    await window.electronAPI.invoke('remove-entity-lock', 'orimanthi', projectId);
+    lockedProposalIdRef.current = null;
+  }, []);
+
   const refreshHistoryIfVisible = useCallback((proposalId) => {
     if (activeTab === 'history' && selectedId === proposalId) {
       loadProjectHistory(proposalId);
     }
   }, [activeTab, selectedId, loadProjectHistory]);
 
+  const loadFolderFiles = useCallback(async (groupId, folderId, { syncMetadata = false } = {}) => {
+    if (!selectedId) return null;
+    const key = getFolderExpandKey(groupId, folderId);
+    setFolderFilesCache((prev) => ({
+      ...prev,
+      [key]: { files: prev[key]?.files || [], loading: true },
+    }));
+    try {
+      const res = await window.electronAPI.invoke('get-proposal-folder-files', {
+        proposalId: selectedId,
+        groupId,
+        folderId,
+        syncMetadata,
+      });
+      if (!res.success) {
+        showToast(res.error || 'Σφάλμα φόρτωσης φακέλου', 'error');
+        setFolderFilesCache((prev) => ({
+          ...prev,
+          [key]: { files: prev[key]?.files || [], loading: false },
+        }));
+        return null;
+      }
+      if (res.proposal) mergeSavedProposal(res.proposal);
+      if (res.folderRemoved) {
+        setExpandedFolderKeys((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        setFolderFilesCache((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        showToast('Ο φάκελος ήταν κενός και αφαιρέθηκε', 'info');
+        return { removed: true };
+      }
+      setFolderFilesCache((prev) => ({
+        ...prev,
+        [key]: { files: res.files || [], loading: false },
+      }));
+      return { files: res.files || [] };
+    } catch (e) {
+      showToast(`Σφάλμα φόρτωσης φακέλου: ${e.message}`, 'error');
+      setFolderFilesCache((prev) => ({
+        ...prev,
+        [key]: { files: prev[key]?.files || [], loading: false },
+      }));
+      return null;
+    }
+  }, [selectedId, showToast, mergeSavedProposal]);
+
+  const toggleFolderExpanded = useCallback(async (groupId, folder) => {
+    const key = getFolderExpandKey(groupId, folder.id);
+    if (expandedFolderKeys[key]) {
+      setExpandedFolderKeys((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+    setExpandedFolderKeys((prev) => ({ ...prev, [key]: true }));
+    await loadFolderFiles(groupId, folder.id, { syncMetadata: true });
+  }, [expandedFolderKeys, loadFolderFiles]);
+
+  const clearFolderExpandState = useCallback((groupId, folderId) => {
+    const key = getFolderExpandKey(groupId, folderId);
+    setExpandedFolderKeys((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setFolderFilesCache((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedProposal || !detailFileFilter.trim() || detailFolderFilterMatches.size === 0) return undefined;
+    let cancelled = false;
+    (async () => {
+      for (const group of selectedProposal.fileGroups || []) {
+        for (const entry of group.files || []) {
+          if (entry.kind !== 'folder' || !detailFolderFilterMatches.has(entry.id)) continue;
+          if (cancelled) return;
+          const key = getFolderExpandKey(group.id, entry.id);
+          setExpandedFolderKeys((prev) => ({ ...prev, [key]: true }));
+          await loadFolderFiles(group.id, entry.id, { syncMetadata: false });
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedProposal, detailFileFilter, detailFolderFilterMatches, loadFolderFiles]);
+
   const saveProposalImmediate = useCallback(async (updated, { skipAudit = false } = {}) => {
     if (isReadOnly) return { success: false };
     if (blockedProposalSavesRef.current === updated?.id) {
       return { success: false, error: 'Η αποθήκευση ακυρώθηκε — το έργο διαγράφεται' };
+    }
+    const validation = validateProposalCategoryFields(updated, customCategorySpecs);
+    if (!validation.ok) {
+      showToast(validation.error, 'warning');
+      return { success: false, error: validation.error };
     }
     setSaving(true);
     const res = await window.electronAPI.invoke('save-proposal', {
@@ -3199,9 +3527,12 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       return res;
     }
     if (!res.success) showToast(`Σφάλμα αποθήκευσης: ${res.error}`, 'error');
-    else if (res.proposal) mergeSavedProposal(res.proposal);
+    else if (res.proposal) {
+      mergeSavedProposal(res.proposal);
+      markProposalPersisted(res.proposal);
+    }
     return res;
-  }, [isReadOnly, loggedInUsername, showToast, mergeSavedProposal]);
+  }, [isReadOnly, loggedInUsername, showToast, mergeSavedProposal, markProposalPersisted, customCategorySpecs]);
 
   const saveProposal = useCallback((updated, options = {}) => {
     const run = saveChainRef.current
@@ -3261,13 +3592,44 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     }, delay);
   }, [clearPendingSaveTimer, saveProposal, saveProposalAudited]);
 
-  useEffect(() => {
-    const prevId = prevSelectedIdRef.current;
-    if (prevId != null && prevId !== selectedId) {
-      void flushProposalSaveById(prevId);
+  const requestSelectProposal = useCallback(async (targetId) => {
+    if (targetId === selectedId) return true;
+    const currentId = selectedId;
+    if (currentId && !isReadOnly && isProposalDirty(currentId)) {
+      return new Promise((resolve) => {
+        setUnsavedNavModal({ targetId, resolve });
+      });
     }
-    prevSelectedIdRef.current = selectedId;
-  }, [selectedId, flushProposalSaveById]);
+    if (currentId && !isReadOnly) {
+      await flushProposalSaveById(currentId);
+      const latest = proposalsRef.current.find((p) => p.id === currentId);
+      if (latest) markProposalPersisted(latest);
+    }
+    if (currentId && !isReadOnly) await releaseProposalLock(currentId);
+    setSelectedId(targetId);
+    return true;
+  }, [selectedId, isReadOnly, isProposalDirty, flushProposalSaveById, markProposalPersisted, releaseProposalLock]);
+
+  const refreshExpandedFoldersInGroup = useCallback(async (groupId, proposalId = selectedId) => {
+    if (!proposalId) return;
+    const keys = Object.keys(expandedFolderKeys).filter((k) => k.startsWith(`${groupId}:`));
+    for (const key of keys) {
+      if (!expandedFolderKeys[key]) continue;
+      const folderId = key.split(':')[1];
+      const res = await window.electronAPI.invoke('get-proposal-folder-files', {
+        proposalId,
+        groupId,
+        folderId,
+        syncMetadata: false,
+      });
+      if (res.success && !res.folderRemoved) {
+        setFolderFilesCache((prev) => ({
+          ...prev,
+          [key]: { files: res.files || [], loading: false },
+        }));
+      }
+    }
+  }, [selectedId, expandedFolderKeys]);
 
   const updateProposal = useCallback((changes) => {
     const projectId = selectedId;
@@ -3356,69 +3718,84 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     setNewProjectDraft(EMPTY_NEW_PROJECT_DRAFT);
     setNewProjectStagedGroups([]);
     setNewProjectShowCategoryPicker(false);
-    setNewProjectAddingGroup(false);
-    setNewProjectNewGroupName('');
     setNewProjectExpandedGroups({});
     setNewCategoryInput('');
     setNewSpecializationInput('');
     setShowAddCategoryInput(false);
     setShowAddSpecializationInput(false);
+    setNewProjectShowSpecializationField(false);
   }, []);
 
   const openNewProjectModal = useCallback(() => {
     if (isReadOnly) return;
+    void loadMunicipalUnits();
     setNewProjectDraft(EMPTY_NEW_PROJECT_DRAFT);
     setNewProjectStagedGroups([]);
     setNewProjectShowCategoryPicker(false);
-    setNewProjectAddingGroup(false);
-    setNewProjectNewGroupName('');
     setNewProjectExpandedGroups({});
     setNewCategoryInput('');
     setNewSpecializationInput('');
     setShowAddCategoryInput(false);
     setShowAddSpecializationInput(false);
+    setNewProjectShowSpecializationField(false);
     setShowNewProjectModal(true);
-  }, [isReadOnly]);
+  }, [isReadOnly, loadMunicipalUnits]);
 
   const addCustomProjectCategory = useCallback((label) => {
     const trimmed = String(label || '').trim();
     if (!trimmed) return null;
     let added = trimmed;
+    let nextCategories = projectCategories;
     setProjectCategories((prev) => {
       if (prev.some((x) => x.toLowerCase() === trimmed.toLowerCase())) {
         added = prev.find((x) => x.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+        nextCategories = prev;
         return prev;
       }
-      const next = [...prev, trimmed];
-      saveCustomList(LS_CUSTOM_CATEGORIES, DEFAULT_PROJECT_CATEGORIES, next);
-      return next;
+      nextCategories = [...prev, trimmed];
+      saveCustomCategoriesList(nextCategories);
+      return nextCategories;
     });
+    void persistOrimanthiListsToConfig(nextCategories, customCategorySpecs);
     return added;
-  }, []);
+  }, [projectCategories, customCategorySpecs, persistOrimanthiListsToConfig]);
 
-  const addCustomInfraSpecialization = useCallback((label) => {
+  const addCustomCategorySpecialization = useCallback((category, label, { showSuccessToast = false } = {}) => {
+    const cat = resolveCategoryLabel(category);
     const trimmed = String(label || '').trim();
-    if (!trimmed) return null;
+    if (!cat || !trimmed) return null;
     let added = trimmed;
-    setInfraSpecializations((prev) => {
-      if (prev.some((x) => x.toLowerCase() === trimmed.toLowerCase())) {
-        added = prev.find((x) => x.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+    let nextSpecs = customCategorySpecs;
+    setCustomCategorySpecs((prev) => {
+      const existingAll = getSpecializationsForCategory(cat, prev);
+      if (existingAll.some((x) => x.toLowerCase() === trimmed.toLowerCase())) {
+        added = existingAll.find((x) => x.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+        nextSpecs = prev;
         return prev;
       }
-      const next = [...prev, trimmed];
-      saveCustomList(LS_CUSTOM_SPECIALIZATIONS, DEFAULT_INFRA_SPECIALIZATIONS, next);
-      return next;
+      nextSpecs = {
+        ...prev,
+        [cat]: [...(prev[cat] || []), trimmed],
+      };
+      saveCustomCategorySpecializations(nextSpecs);
+      return nextSpecs;
+    });
+    void persistOrimanthiListsToConfig(projectCategories, nextSpecs).then((ok) => {
+      if (ok && showSuccessToast) {
+        showToast(`Η εξειδίκευση «${added}» προστέθηκε στην κατηγορία «${cat}»`, 'success');
+      }
     });
     return added;
-  }, []);
+  }, [customCategorySpecs, projectCategories, persistOrimanthiListsToConfig, showToast]);
 
   const customCategories = useMemo(
-    () => getCustomOnlyItems(projectCategories, DEFAULT_PROJECT_CATEGORIES),
+    () => getCustomProjectCategoriesOnly(projectCategories),
     [projectCategories]
   );
-  const customSpecializations = useMemo(
-    () => getCustomOnlyItems(infraSpecializations, DEFAULT_INFRA_SPECIALIZATIONS),
-    [infraSpecializations]
+
+  const categoriesWithCustomSpecs = useMemo(
+    () => getCategoriesWithCustomSpecs(customCategorySpecs),
+    [customCategorySpecs]
   );
 
   const countProjectsWithCategory = useCallback((label) => {
@@ -3429,17 +3806,19 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     ).length;
   }, [proposals]);
 
-  const countProjectsWithSpecialization = useCallback((label) => {
-    const q = String(label || '').trim().toLowerCase();
-    if (!q) return 0;
+  const countProjectsWithSpecialization = useCallback((category, label) => {
+    const catQ = resolveCategoryLabel(category).toLowerCase();
+    const specQ = String(label || '').trim().toLowerCase();
+    if (!catQ || !specQ) return 0;
     return proposals.filter(
-      (p) => String(p.infrastructureSpecialization || '').trim().toLowerCase() === q
+      (p) => resolveCategoryLabel(p.projectCategory).toLowerCase() === catQ
+        && String(p.infrastructureSpecialization || '').trim().toLowerCase() === specQ
     ).length;
   }, [proposals]);
 
   const removeCustomProjectCategory = useCallback(async (label) => {
     const trimmed = String(label || '').trim();
-    if (!trimmed || isDefaultCategory(trimmed)) {
+    if (!trimmed || isDefaultProjectCategory(trimmed)) {
       showToast('Δεν μπορείτε να διαγράψετε προεπιλεγμένη κατηγορία', 'error');
       return false;
     }
@@ -3453,35 +3832,51 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     }
     setProjectCategories((prev) => {
       const next = prev.filter((x) => x.toLowerCase() !== trimmed.toLowerCase());
-      saveCustomList(LS_CUSTOM_CATEGORIES, DEFAULT_PROJECT_CATEGORIES, next);
+      saveCustomCategoriesList(next);
+      void persistOrimanthiListsToConfig(next, customCategorySpecs);
+      return next;
+    });
+    setCustomCategorySpecs((prev) => {
+      if (!prev[trimmed]) return prev;
+      const next = { ...prev };
+      delete next[trimmed];
+      saveCustomCategorySpecializations(next);
+      void persistOrimanthiListsToConfig(
+        projectCategories.filter((x) => x.toLowerCase() !== trimmed.toLowerCase()),
+        next
+      );
       return next;
     });
     showToast(`Η κατηγορία «${trimmed}» αφαιρέθηκε από τη λίστα`, 'success');
     return true;
-  }, [countProjectsWithCategory, showToast]);
+  }, [countProjectsWithCategory, showToast, customCategorySpecs, projectCategories, persistOrimanthiListsToConfig]);
 
-  const removeCustomInfraSpecialization = useCallback(async (label) => {
+  const removeCustomCategorySpecialization = useCallback(async (category, label) => {
+    const cat = resolveCategoryLabel(category);
     const trimmed = String(label || '').trim();
-    if (!trimmed || isDefaultSpecialization(trimmed)) {
+    if (!cat || !trimmed || isDefaultCategorySpecialization(cat, trimmed)) {
       showToast('Δεν μπορείτε να διαγράψετε προεπιλεγμένη εξειδίκευση', 'error');
       return false;
     }
-    const inUse = countProjectsWithSpecialization(trimmed);
+    const inUse = countProjectsWithSpecialization(cat, trimmed);
     if (inUse > 0) {
       const ok = await showConfirm({
         title: 'Εξειδίκευση σε χρήση',
-        message: `Η εξειδίκευση «${trimmed}» χρησιμοποιείται από ${inUse} ${inUse === 1 ? 'έργο' : 'έργα'}. Θα αφαιρεθεί από τη λίστα επιλογών, αλλά τα έργα θα διατηρήσουν την τιμή τους. Συνέχεια;`,
+        message: `Η εξειδίκευση «${trimmed}» (${cat}) χρησιμοποιείται από ${inUse} ${inUse === 1 ? 'έργο' : 'έργα'}. Θα αφαιρεθεί από τη λίστα επιλογών, αλλά τα έργα θα διατηρήσουν την τιμή τους. Συνέχεια;`,
       });
       if (!ok) return false;
     }
-    setInfraSpecializations((prev) => {
-      const next = prev.filter((x) => x.toLowerCase() !== trimmed.toLowerCase());
-      saveCustomList(LS_CUSTOM_SPECIALIZATIONS, DEFAULT_INFRA_SPECIALIZATIONS, next);
+    setCustomCategorySpecs((prev) => {
+      const next = { ...prev };
+      next[cat] = (prev[cat] || []).filter((x) => x.toLowerCase() !== trimmed.toLowerCase());
+      if (!next[cat].length) delete next[cat];
+      saveCustomCategorySpecializations(next);
+      void persistOrimanthiListsToConfig(projectCategories, next);
       return next;
     });
-    showToast(`Η εξειδίκευση «${trimmed}» αφαιρέθηκε από τη λίστα`, 'success');
+    showToast(`Η εξειδίκευση «${trimmed}» αφαιρέθηκε από «${cat}»`, 'success');
     return true;
-  }, [countProjectsWithSpecialization, showToast]);
+  }, [countProjectsWithSpecialization, showToast, projectCategories, persistOrimanthiListsToConfig]);
 
   const handleRemoveCustomCategory = useCallback(async (label) => {
     setRemovingListItem(`cat:${label}`);
@@ -3492,14 +3887,40 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     }
   }, [removeCustomProjectCategory]);
 
-  const handleRemoveCustomSpecialization = useCallback(async (label) => {
-    setRemovingListItem(`spec:${label}`);
+  const handleRemoveCustomSpecialization = useCallback(async (category, label) => {
+    setRemovingListItem(`spec:${category}:${label}`);
     try {
-      await removeCustomInfraSpecialization(label);
+      await removeCustomCategorySpecialization(category, label);
     } finally {
       setRemovingListItem('');
     }
-  }, [removeCustomInfraSpecialization]);
+  }, [removeCustomCategorySpecialization]);
+
+  const handleRemoveCustomMeletesFileSpec = useCallback((label) => {
+    const trimmed = String(label || '').trim();
+    if (!trimmed) return;
+    setCustomMeletesFileSpecs((prev) => {
+      const next = prev.filter((x) => x.toLowerCase() !== trimmed.toLowerCase());
+      saveCustomFileSpecs(LS_CUSTOM_MELETES_SPECS, DEFAULT_MELETES_SPECS, getMeletesSpecs(next));
+      return next;
+    });
+    showToast(`Η εξειδίκευση «${trimmed}» αφαιρέθηκε από Μελέτες έργου`, 'success');
+  }, [showToast]);
+
+  const handleRemoveCustomAdeiodotiseisFileSpec = useCallback((label) => {
+    const trimmed = String(label || '').trim();
+    if (!trimmed) return;
+    setCustomAdeiodotiseisFileSpecs((prev) => {
+      const next = prev.filter((x) => x.toLowerCase() !== trimmed.toLowerCase());
+      saveCustomFileSpecs(
+        LS_CUSTOM_ADEIODOTISEIS_SPECS,
+        DEFAULT_ADEIODOTISEIS_SPECS,
+        getAdeiodotiseisSpecs(next)
+      );
+      return next;
+    });
+    showToast(`Η εξειδίκευση «${trimmed}» αφαιρέθηκε από Αδειοδοτήσεις`, 'success');
+  }, [showToast]);
 
   const handleNewProjectPickFiles = async (groupId) => {
     const res = await window.electronAPI.invoke('select-multiple-files', { allFileTypes: true });
@@ -3548,46 +3969,31 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     setNewProjectExpandedGroups((prev) => ({ ...prev, [groupId]: true }));
   };
 
-  const addNewProjectGroup = useCallback((label) => {
-    const trimmed = String(label || '').trim();
-    if (!trimmed) return;
-    let newGroupId = null;
-    setNewProjectStagedGroups((prev) => {
-      if (prev.some((g) => g.label.toLowerCase() === trimmed.toLowerCase())) {
-        showToast(`Η κατηγορία «${trimmed}» υπάρχει ήδη`, 'warning');
-        return prev;
-      }
-      newGroupId = uuidv4();
-      return [...prev, {
-        id: newGroupId,
-        label: trimmed,
-        stagedFiles: [],
-        stagedFolders: [],
-      }];
-    });
-    if (newGroupId) {
-      setNewProjectExpandedGroups((prev) => ({ ...prev, [newGroupId]: true }));
+  const addNewProjectFileCategoryGroup = useCallback(({ rootId, spec, label }) => {
+    if (!rootId || !spec) return;
+    if (fileGroupExists(newProjectStagedGroups, rootId, spec)) {
+      showToast(`Η κατηγορία «${label}» υπάρχει ήδη`, 'warning');
+      setNewProjectShowCategoryPicker(false);
+      return;
     }
-    setNewProjectNewGroupName('');
-    setNewProjectAddingGroup(false);
+    const payload = buildFileGroupPayload(rootId, spec);
+    const newGroupId = uuidv4();
+    setNewProjectStagedGroups((prev) => [...prev, {
+      id: newGroupId,
+      ...payload,
+      stagedFiles: [],
+      stagedFolders: [],
+    }]);
+    setNewProjectExpandedGroups((prev) => ({ ...prev, [newGroupId]: true }));
     setNewProjectShowCategoryPicker(false);
-  }, [showToast]);
+  }, [newProjectStagedGroups, showToast]);
 
   const handleNewProjectOpenCategoryPicker = () => {
     setNewProjectShowCategoryPicker(true);
-    setNewProjectAddingGroup(false);
-    setNewProjectNewGroupName('');
   };
 
   const handleNewProjectCancelAddGroup = () => {
-    setNewProjectAddingGroup(false);
-    setNewProjectNewGroupName('');
     setNewProjectShowCategoryPicker(false);
-  };
-
-  const handleNewProjectStartAddGroup = () => {
-    setNewProjectAddingGroup(true);
-    setTimeout(() => newProjectAddGroupInputRef.current?.focus(), 50);
   };
 
   const deleteNewProjectGroup = async (groupId, groupLabel) => {
@@ -3646,7 +4052,13 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
         if (!exists) files = [...files, res.folder];
       }
 
-      fileGroups.push({ id: groupId, label: group.label, files });
+      fileGroups.push({
+        id: groupId,
+        label: group.label,
+        fileCategoryRoot: group.fileCategoryRoot,
+        fileCategorySpec: group.fileCategorySpec,
+        files,
+      });
     }
     return fileGroups;
   }, [loggedInUsername]);
@@ -3664,10 +4076,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       return;
     }
     if (
-      isInfrastructureCategory(newProjectDraft.projectCategory) &&
-      !newProjectDraft.infrastructureSpecialization
+      categoryHasSpecializations(newProjectDraft.projectCategory, customCategorySpecs) &&
+      !String(newProjectDraft.infrastructureSpecialization || '').trim()
     ) {
-      showToast('Επιλέξτε εξειδίκευση για έργα υποδομής', 'warning');
+      showToast('Επιλέξτε εξειδίκευση για την επιλεγμένη κατηγορία', 'warning');
       return;
     }
 
@@ -3679,13 +4091,24 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       ...emptyProposal(),
       title,
       projectCategory: newProjectDraft.projectCategory,
-      infrastructureSpecialization: isInfrastructureCategory(newProjectDraft.projectCategory)
+      infrastructureSpecialization: categoryHasSpecializations(
+        newProjectDraft.projectCategory,
+        customCategorySpecs
+      )
         ? newProjectDraft.infrastructureSpecialization
         : '',
+      municipalUnit: newProjectDraft.municipalUnit || '',
+      settlement: newProjectDraft.settlement?.trim() || '',
       aepoRenewalDate: newProjectDraft.aepoRenewalDate || '',
       status: 'maturing',
       fileGroups: hasStagedGroups
-        ? newProjectStagedGroups.map((g) => ({ id: g.id, label: g.label, files: [] }))
+        ? newProjectStagedGroups.map((g) => ({
+          id: g.id,
+          label: g.label,
+          fileCategoryRoot: g.fileCategoryRoot,
+          fileCategorySpec: g.fileCategorySpec,
+          files: [],
+        }))
         : [],
     };
 
@@ -3770,6 +4193,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       }
       setProposals((prev) => prev.filter((p) => p.id !== deletingId));
       proposalsRef.current = proposalsRef.current.filter((p) => p.id !== deletingId);
+      delete persistedSnapshotsRef.current[deletingId];
+      await releaseProposalLock(deletingId);
       setSelectedId(null);
       setExpandedGroups({});
       showToast('Το έργο διαγράφηκε', 'success');
@@ -3781,39 +4206,59 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   };
 
   /* ── File groups ── */
-  const addGroup = (label) => {
-    if (isReadOnly || !label.trim()) return;
-    const already = selectedProposal.fileGroups.find(
-      (g) => g.label.toLowerCase() === label.trim().toLowerCase()
-    );
-    if (already) {
-      showToast(`Η κατηγορία «${label.trim()}» υπάρχει ήδη`, 'warning');
-      setNewGroupName('');
-      setAddingGroup(false);
+  const addCustomFileSpec = useCallback((rootId, spec) => {
+    const trimmed = String(spec || '').trim();
+    if (!trimmed) return;
+    const defaults = rootId === FILE_CATEGORY_ROOT_MELETES
+      ? DEFAULT_MELETES_SPECS
+      : DEFAULT_ADEIODOTISEIS_SPECS;
+    if (defaults.some((d) => d.toLowerCase() === trimmed.toLowerCase())) return;
+
+    if (rootId === FILE_CATEGORY_ROOT_MELETES) {
+      setCustomMeletesFileSpecs((prev) => {
+        if (prev.some((x) => x.toLowerCase() === trimmed.toLowerCase())) return prev;
+        const nextCustom = [...prev, trimmed];
+        saveCustomFileSpecs(
+          LS_CUSTOM_MELETES_SPECS,
+          DEFAULT_MELETES_SPECS,
+          getMeletesSpecs(nextCustom)
+        );
+        return nextCustom;
+      });
+      return;
+    }
+    if (rootId === FILE_CATEGORY_ROOT_ADEIODOTISEIS) {
+      setCustomAdeiodotiseisFileSpecs((prev) => {
+        if (prev.some((x) => x.toLowerCase() === trimmed.toLowerCase())) return prev;
+        const nextCustom = [...prev, trimmed];
+        saveCustomFileSpecs(
+          LS_CUSTOM_ADEIODOTISEIS_SPECS,
+          DEFAULT_ADEIODOTISEIS_SPECS,
+          getAdeiodotiseisSpecs(nextCustom)
+        );
+        return nextCustom;
+      });
+    }
+  }, []);
+
+  const addFileCategoryGroup = useCallback(({ rootId, spec, label }) => {
+    if (isReadOnly || !selectedProposal || !rootId || !spec) return;
+    if (fileGroupExists(selectedProposal.fileGroups, rootId, spec)) {
+      showToast(`Η κατηγορία «${label}» υπάρχει ήδη`, 'warning');
       setShowCategoryPicker(false);
       return;
     }
-    const group = { id: uuidv4(), label: label.trim(), files: [] };
+    const payload = buildFileGroupPayload(rootId, spec);
+    const group = { id: uuidv4(), ...payload, files: [] };
     updateProposal({ fileGroups: [...(selectedProposal.fileGroups || []), group] });
-    setNewGroupName('');
-    setAddingGroup(false);
     setShowCategoryPicker(false);
-  };
-
-  const handleStartAddGroup = () => {
-    setAddingGroup(true);
-    setTimeout(() => addGroupInputRef.current?.focus(), 50);
-  };
+  }, [isReadOnly, selectedProposal, showToast, updateProposal]);
 
   const handleOpenCategoryPicker = () => {
     setShowCategoryPicker(true);
-    setAddingGroup(false);
-    setNewGroupName('');
   };
 
   const handleCancelAddGroup = () => {
-    setAddingGroup(false);
-    setNewGroupName('');
     setShowCategoryPicker(false);
   };
 
@@ -3873,11 +4318,12 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       }
       if (res.proposal) mergeSavedProposal(res.proposal);
       refreshHistoryIfVisible(selectedId);
+      await refreshExpandedFoldersInGroup(groupId, selectedId);
       showToast(`Ανέβηκαν ${res.files.length} αρχεία`, 'success');
     } finally {
       setUploadingGroupId(null);
     }
-  }, [selectedId, uploadingGroupId, showToast, loggedInUsername, mergeSavedProposal, refreshHistoryIfVisible]);
+  }, [selectedId, uploadingGroupId, showToast, loggedInUsername, mergeSavedProposal, refreshHistoryIfVisible, refreshExpandedFoldersInGroup]);
 
   const uploadFolderToGroup = useCallback(async (groupId, picked) => {
     if (!picked?.files?.length || !selectedId) return;
@@ -3903,11 +4349,17 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       }
       if (res.proposal) mergeSavedProposal(res.proposal);
       refreshHistoryIfVisible(selectedId);
+      if (res.folder?.id) {
+        const key = getFolderExpandKey(groupId, res.folder.id);
+        if (expandedFolderKeys[key]) {
+          await loadFolderFiles(groupId, res.folder.id, { syncMetadata: false });
+        }
+      }
       showToast(`Προστέθηκε φάκελος «${res.folder.name}» (${res.folder.fileCount} αρχεία)`, 'success');
     } finally {
       setUploadingGroupId(null);
     }
-  }, [selectedId, uploadingGroupId, showToast, loggedInUsername, mergeSavedProposal, refreshHistoryIfVisible]);
+  }, [selectedId, uploadingGroupId, showToast, loggedInUsername, mergeSavedProposal, refreshHistoryIfVisible, expandedFolderKeys, loadFolderFiles]);
 
   const handleSelectFiles = async (groupId) => {
     if (isReadOnly) return;
@@ -3931,44 +4383,21 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     await uploadFolderToGroup(groupId, res);
   };
 
-  const handleOpenFolder = async (groupId, folder) => {
-    const res = await window.electronAPI.invoke('get-proposal-folder-files', {
-      proposalId: selectedId,
-      groupId,
-      folderId: folder.id,
-      syncMetadata: true,
-    });
-    if (!res.success) return showToast(res.error || 'Σφάλμα φόρτωσης φακέλου', 'error');
-    if (res.proposal) mergeSavedProposal(res.proposal);
-    if (res.folderRemoved) {
-      showToast('Ο φάκελος ήταν κενός και αφαιρέθηκε', 'info');
-      return;
-    }
-    setFolderModal({
-      groupId,
-      folderId: folder.id,
-      label: folder.name,
-      files: res.files || [],
-    });
-  };
-
-  const handleOpenFolderFile = async (fileName) => {
-    if (!folderModal) return;
+  const handleOpenFolderFile = async (groupId, folderId, fileName) => {
     const res = await window.electronAPI.invoke('open-proposal-file', {
       proposalId: selectedId,
-      groupId: folderModal.groupId,
-      folderId: folderModal.folderId,
+      groupId,
+      folderId,
       fileName,
     });
     if (!res.success) showToast(`Σφάλμα ανοίγματος: ${res.error}`, 'error');
   };
 
-  const handleDownloadFolderFile = async (fileName) => {
-    if (!folderModal) return;
+  const handleDownloadFolderFile = async (groupId, folderId, fileName) => {
     const res = await window.electronAPI.invoke('download-proposal-file', {
       proposalId: selectedId,
-      groupId: folderModal.groupId,
-      folderId: folderModal.folderId,
+      groupId,
+      folderId,
       fileName,
     });
     if (res.success) showToast('Το αρχείο αποθηκεύτηκε επιτυχώς!', 'success');
@@ -3999,11 +4428,13 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (!res.success) return showToast(res.error || 'Σφάλμα διαγραφής φακέλου', 'error');
     if (res.proposal) mergeSavedProposal(res.proposal);
     refreshHistoryIfVisible(selectedId);
-    if (folderModal?.folderId === folder.id) setFolderModal(null);
+    clearFolderExpandState(groupId, folder.id);
   };
 
-  const handleDeleteFolderFile = async (fileName) => {
-    if (isReadOnly || !selectedProposal || !folderModal) return;
+  const handleDeleteFolderFile = async (groupId, folderId, fileName) => {
+    if (isReadOnly || !selectedProposal) return;
+    const cacheKey = getFolderExpandKey(groupId, folderId);
+    const cachedFiles = folderFilesCache[cacheKey]?.files || [];
     if (!await showConfirm({
       title: 'Διαγραφή Αρχείου',
       message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο «${fileName}» από τον φάκελο;`,
@@ -4011,8 +4442,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       icon: '🗑',
     })) return;
 
-    const { groupId, folderId } = folderModal;
-    const remainingFiles = (folderModal.files || []).filter((f) => f.name !== fileName);
+    const remainingFiles = cachedFiles.filter((f) => f.name !== fileName);
     const remainingCount = remainingFiles.length;
 
     const nextFileGroups = selectedProposal.fileGroups.map((g) => {
@@ -4023,7 +4453,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
           files: (g.files || []).filter((f) => !(f.kind === 'folder' && f.id === folderId)),
         };
       }
-      const deletedSize = folderModal.files?.find((x) => x.name === fileName)?.size || 0;
+      const deletedSize = cachedFiles.find((x) => x.name === fileName)?.size || 0;
       return {
         ...g,
         files: (g.files || []).map((f) => {
@@ -4052,16 +4482,17 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (res.proposal) mergeSavedProposal(res.proposal);
     refreshHistoryIfVisible(selectedId);
     if (res.folderRemoved) {
-      setFolderModal(null);
+      clearFolderExpandState(groupId, folderId);
       showToast('Το αρχείο διαγράφηκε — ο κενός φάκελος αφαιρέθηκε', 'success');
       return;
     }
-    setFolderModal((prev) => {
-      if (!prev) return prev;
-      const nextFiles = (prev.files || []).filter((f) => f.name !== fileName);
-      if (nextFiles.length === 0) return null;
-      return { ...prev, files: nextFiles };
-    });
+    setFolderFilesCache((prev) => ({
+      ...prev,
+      [cacheKey]: {
+        files: res.files || remainingFiles,
+        loading: false,
+      },
+    }));
     showToast('Το αρχείο διαγράφηκε', 'success');
   };
 
@@ -4149,8 +4580,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (res.proposal) mergeSavedProposal(res.proposal);
     refreshHistoryIfVisible(selectedId);
 
-    if (folderModal?.groupId === moveModal.sourceGroupId && isProposalFolder(entry)) {
-      setFolderModal(null);
+    if (isProposalFolder(entry)) {
+      clearFolderExpandState(moveModal.sourceGroupId, entry.id);
     }
 
     setMoveModal(null);
@@ -4248,21 +4679,30 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     const newFileName = res.newFileName;
 
     if (renameModal.folderId) {
-      setFolderModal((prev) => {
-        if (!prev) return prev;
+      const cacheKey = getFolderExpandKey(renameModal.groupId, renameModal.folderId);
+      setFolderFilesCache((prev) => {
+        const cached = prev[cacheKey];
+        if (!cached) return prev;
         return {
           ...prev,
-          files: (prev.files || []).map((f) =>
-            f.name === renameModal.oldName ? { ...f, name: newFileName } : f
-          ),
+          [cacheKey]: {
+            ...cached,
+            files: (cached.files || []).map((f) =>
+              f.name === renameModal.oldName ? { ...f, name: newFileName } : f
+            ),
+          },
         };
       });
     }
     if (res.proposal) {
       mergeSavedProposal(res.proposal);
+      markProposalPersisted(res.proposal);
     }
 
     refreshHistoryIfVisible(selectedId);
+    if (renameModal.folderId) {
+      await refreshExpandedFoldersInGroup(renameModal.groupId, selectedId);
+    }
     setRenameModal(null);
     showToast(`Μετονομάστηκε σε «${newFileName}»`, 'success');
   };
@@ -4345,10 +4785,59 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (latest) await saveProposalAudited(latest);
   }, [selectedId, isReadOnly, clearPendingSaveTimer, saveProposalAudited]);
 
+  const completeUnsavedNavigation = useCallback(async (action) => {
+    const modal = unsavedNavModal;
+    if (!modal) return;
+    const currentId = selectedId;
+    const { targetId, resolve } = modal;
+    setUnsavedNavModal(null);
+
+    if (action === 'cancel') {
+      resolve(false);
+      return;
+    }
+    if (action === 'save') {
+      await persistProjectSnapshot(currentId);
+      const latest = proposalsRef.current.find((p) => p.id === currentId);
+      if (latest) markProposalPersisted(latest);
+    } else if (action === 'discard') {
+      clearPendingSaveTimer();
+      pendingSaveProjectIdRef.current = null;
+      pendingSaveAuditedRef.current = false;
+      revertProposalToPersisted(currentId);
+    }
+    if (currentId && !isReadOnly) await releaseProposalLock(currentId);
+    if (targetId === '__close__') {
+      resolve(true);
+      onClose();
+      return;
+    }
+    setSelectedId(targetId);
+    resolve(true);
+  }, [
+    unsavedNavModal,
+    selectedId,
+    isReadOnly,
+    persistProjectSnapshot,
+    markProposalPersisted,
+    revertProposalToPersisted,
+    clearPendingSaveTimer,
+    releaseProposalLock,
+    onClose,
+  ]);
+
   const handleClose = useCallback(async () => {
-    await flushProposalSave();
+    if (selectedId && !isReadOnly && isProposalDirty(selectedId)) {
+      const ok = await new Promise((resolve) => {
+        setUnsavedNavModal({ targetId: '__close__', resolve });
+      });
+      if (!ok) return;
+    } else {
+      await flushProposalSave();
+    }
+    await releaseProposalLock(selectedId);
     onClose();
-  }, [flushProposalSave, onClose]);
+  }, [selectedId, isReadOnly, isProposalDirty, flushProposalSave, releaseProposalLock, onClose]);
 
   const applyFileSearchNavigation = useCallback(async (nav, proposal) => {
     if (!nav || !proposal) return;
@@ -4358,31 +4847,33 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (group) {
       setExpandedGroups((prev) => ({ ...prev, [group.id]: true }));
     }
-    const openFolderModal = async (groupId, folder, highlightFile = null) => {
-      const res = await window.electronAPI.invoke('get-proposal-folder-files', {
+    const expandFolderInline = async (groupId, folder, highlightFile = null) => {
+      const key = getFolderExpandKey(groupId, folder.id);
+      setExpandedFolderKeys((prev) => ({ ...prev, [key]: true }));
+      const result = await window.electronAPI.invoke('get-proposal-folder-files', {
         proposalId: proposal.id,
         groupId,
         folderId: folder.id,
         syncMetadata: true,
       });
-      if (!res.success) {
-        showToast(res.error || 'Δεν ήταν δυνατή η φόρτωση του φακέλου', 'error');
+      if (!result.success) {
+        showToast(result.error || 'Δεν ήταν δυνατή η φόρτωση του φακέλου', 'error');
         return;
       }
-      if (res.folderRemoved) return;
-      setFolderModal({
-        groupId,
-        folderId: folder.id,
-        label: folder.name,
-        files: res.files || [],
-        highlightFile,
-      });
+      if (result.folderRemoved) return;
+      setFolderFilesCache((prev) => ({
+        ...prev,
+        [key]: { files: result.files || [], loading: false },
+      }));
+      if (highlightFile) {
+        setNestedFileHighlight({ key, fileName: highlightFile });
+      }
     };
     if (nav.entryKind === 'folder' && group && nav.folderId) {
       const folder = (group.files || []).find((f) => f.kind === 'folder' && f.id === nav.folderId);
       if (folder) {
         setDetailFileFilter('');
-        await openFolderModal(group.id, folder);
+        await expandFolderInline(group.id, folder);
         return;
       }
     }
@@ -4390,7 +4881,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       const folder = (group.files || []).find((f) => f.kind === 'folder' && f.id === nav.folderId);
       if (folder) {
         setDetailFileFilter('');
-        await openFolderModal(group.id, folder, nav.fileName);
+        await expandFolderInline(group.id, folder, nav.fileName);
         return;
       }
     }
@@ -4474,6 +4965,35 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     return [...set].sort((a, b) => a.localeCompare(b, 'el'));
   }, [proposals, projectCategories]);
 
+  const hubMunicipalUnitOptions = useMemo(() => {
+    const set = new Set(municipalUnits);
+    proposals.forEach((p) => {
+      const mu = String(p.municipalUnit || '').trim();
+      if (mu) set.add(mu);
+    });
+    return [...set].sort((a, b) => a.localeCompare(b, 'el'));
+  }, [proposals, municipalUnits]);
+
+  const hubSettlementOptions = useMemo(() => {
+    const set = new Set();
+    proposals.forEach((p) => {
+      const st = String(p.settlement || '').trim();
+      if (st) set.add(st);
+    });
+    return [...set].sort((a, b) => a.localeCompare(b, 'el'));
+  }, [proposals]);
+
+  const showMunicipalUnitFilters = hubMunicipalUnitOptions.length > 0;
+  const showSettlementFilters = hubSettlementOptions.length > 0;
+
+  const hubListGridColumns = useMemo(() => {
+    const cols = ['minmax(200px, 2.2fr)', '120px'];
+    if (showMunicipalUnitFilters) cols.push('minmax(88px, 1fr)');
+    if (showSettlementFilters) cols.push('minmax(88px, 1fr)');
+    cols.push('88px', '56px', '88px', '130px');
+    return cols.join(' ');
+  }, [showMunicipalUnitFilters, showSettlementFilters]);
+
   const detailCategoryOptions = useMemo(() => {
     const set = new Set(projectCategories);
     const current = String(selectedProposal?.projectCategory || '').trim();
@@ -4482,24 +5002,38 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   }, [projectCategories, selectedProposal?.projectCategory]);
 
   const detailSpecializationOptions = useMemo(() => {
-    const set = new Set(infraSpecializations);
+    const cat = selectedProposal?.projectCategory;
+    const specs = getSpecializationsForCategory(cat, customCategorySpecs);
     const current = String(selectedProposal?.infrastructureSpecialization || '').trim();
-    if (current) set.add(current);
-    return [...set].sort((a, b) => a.localeCompare(b, 'el'));
-  }, [infraSpecializations, selectedProposal?.infrastructureSpecialization]);
+    if (current && !specs.some((s) => s.toLowerCase() === current.toLowerCase())) {
+      return [...specs, current].sort((a, b) => a.localeCompare(b, 'el'));
+    }
+    return specs;
+  }, [customCategorySpecs, selectedProposal?.projectCategory, selectedProposal?.infrastructureSpecialization]);
+
+  const newProjectSpecializationOptions = useMemo(() => {
+    return getSpecializationsForCategory(newProjectDraft.projectCategory, customCategorySpecs);
+  }, [newProjectDraft.projectCategory, customCategorySpecs]);
 
   const hubFilteredProposals = useMemo(() => {
     const filtered = proposals.filter((p) => matchesHubFilters(p, {
       search,
       categoryFilter: hubCategoryFilter,
       statusFilter: hubStatusFilter,
+      municipalUnitFilter: hubMunicipalUnitFilter,
+      settlementFilter: hubSettlementFilter,
     }) && matchesHubQuickFilter(p, hubQuickFilter));
     return sortHubProjects(filtered, hubSortBy);
-  }, [proposals, search, hubCategoryFilter, hubStatusFilter, hubSortBy, hubQuickFilter]);
+  }, [
+    proposals, search, hubCategoryFilter, hubStatusFilter,
+    hubMunicipalUnitFilter, hubSettlementFilter, hubSortBy, hubQuickFilter,
+  ]);
 
   const hubHasSecondaryFilters = Boolean(
     hubCategoryFilter
     || hubStatusFilter
+    || hubMunicipalUnitFilter
+    || hubSettlementFilter
     || hubSortBy !== 'created_desc'
     || fileSearch.trim()
     || hubQuickFilter
@@ -4510,6 +5044,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     search.trim()
     || hubCategoryFilter
     || hubStatusFilter
+    || hubMunicipalUnitFilter
+    || hubSettlementFilter
     || hubSortBy !== 'created_desc'
     || hubQuickFilter
     || fileSearch.trim()
@@ -4519,6 +5055,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     setSearch('');
     setHubCategoryFilter('');
     setHubStatusFilter('');
+    setHubMunicipalUnitFilter('');
+    setHubSettlementFilter('');
     setHubSortBy('created_desc');
     setHubQuickFilter('');
     setFileSearch('');
@@ -4537,7 +5075,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     [proposals]
   );
 
-  const applyStatsFilter = useCallback(({ status, category } = {}) => {
+  const applyStatsFilter = useCallback(({ status, category, municipalUnit, settlement } = {}) => {
     if (status) {
       setHubStatusFilter(status);
       setHubQuickFilter('');
@@ -4545,16 +5083,192 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (category) {
       setHubCategoryFilter(category === 'Χωρίς κατηγορία' ? HUB_UNCategorized_FILTER : category);
     }
+    if (municipalUnit) {
+      setHubMunicipalUnitFilter(
+        municipalUnit === 'Χωρίς δημοτική ενότητα' ? HUB_NO_MUNICIPAL_FILTER : municipalUnit
+      );
+    }
+    if (settlement) {
+      setHubSettlementFilter(
+        settlement === 'Χωρίς οικισμό' ? HUB_NO_SETTLEMENT_FILTER : settlement
+      );
+    }
     setShowHubStatsModal(false);
   }, []);
 
   const openProjectFromFileSearch = useCallback((result) => {
     pendingFileSearchNavRef.current = result;
-    setSelectedId(result.projectId);
-    setActiveTab('files');
-    setFileSearch('');
-    setFileSearchResults([]);
-  }, []);
+    void requestSelectProposal(result.projectId).then((ok) => {
+      if (!ok) {
+        pendingFileSearchNavRef.current = null;
+        return;
+      }
+      setActiveTab('files');
+      setFileSearch('');
+      setFileSearchResults([]);
+    });
+  }, [requestSelectProposal]);
+
+  const applyPendingTemplate = useCallback(async () => {
+    if (isReadOnly || !selectedId || !selectedProposal) return;
+    if (!selectedProposal.projectCategory) {
+      showToast('Ορίστε κατηγορία έργου στα Στοιχεία', 'warning');
+      setActiveTab('details');
+      return;
+    }
+    setApplyingPendingTemplate(true);
+    try {
+      const res = await window.electronAPI.invoke('apply-orimanthi-pending-template', {
+        proposalId: selectedId,
+        category: selectedProposal.projectCategory,
+        actingUsername: loggedInUsername,
+        action: 'apply',
+      });
+      if (!res.success) {
+        showToast(res.error || 'Σφάλμα εφαρμογής προτύπου', 'error');
+        return;
+      }
+      if (res.proposal) {
+        mergeSavedProposal(res.proposal);
+        markProposalPersisted(res.proposal);
+      }
+      if (res.addedCount > 0) {
+        showToast(`Προστέθηκαν ${res.addedCount} εκκρεμότητες από πρότυπο`, 'success');
+        setActiveTab('pending');
+      } else {
+        showToast(res.message || 'Το πρότυπο εφαρμόστηκε', 'success');
+      }
+    } finally {
+      setApplyingPendingTemplate(false);
+    }
+  }, [
+    isReadOnly,
+    selectedId,
+    selectedProposal,
+    loggedInUsername,
+    showToast,
+    mergeSavedProposal,
+    markProposalPersisted,
+  ]);
+
+  const removePendingTemplate = useCallback(async () => {
+    if (isReadOnly || !selectedId || !selectedProposal?.projectCategory) return;
+    if (!await showConfirm({
+      title: 'Αφαίρεση προτύπου',
+      message: 'Να αφαιρεθούν όλες οι εκκρεμότητες που προστέθηκαν από το πρότυπο;',
+      detail: 'Οι χειροκίνητα προστεθείσες εκκρεμότητες δεν επηρεάζονται.',
+      confirmLabel: 'Αφαίρεση',
+      icon: '↩',
+      danger: true,
+    })) return;
+
+    setApplyingPendingTemplate(true);
+    try {
+      const res = await window.electronAPI.invoke('apply-orimanthi-pending-template', {
+        proposalId: selectedId,
+        category: selectedProposal.projectCategory,
+        actingUsername: loggedInUsername,
+        action: 'remove',
+      });
+      if (!res.success) {
+        showToast(res.error || 'Σφάλμα αφαίρεσης προτύπου', 'error');
+        return;
+      }
+      if (res.proposal) {
+        mergeSavedProposal(res.proposal);
+        markProposalPersisted(res.proposal);
+      }
+      if (res.removedCount > 0) {
+        showToast(`Αφαιρέθηκαν ${res.removedCount} εκκρεμότητες του προτύπου`, 'success');
+      } else {
+        showToast('Το πρότυπο αφαιρέθηκε', 'info');
+      }
+      logProposalActivityClient(`Αφαίρεση προτύπου εκκρεμοτήτων (${selectedProposal.projectCategory})`);
+    } finally {
+      setApplyingPendingTemplate(false);
+    }
+  }, [
+    isReadOnly,
+    selectedId,
+    selectedProposal,
+    loggedInUsername,
+    showToast,
+    mergeSavedProposal,
+    markProposalPersisted,
+    logProposalActivityClient,
+  ]);
+
+  const isPendingTemplateActive = selectedProposal?.pendingTemplateCategory
+    && categoriesAreEquivalent(
+      selectedProposal.pendingTemplateCategory,
+      selectedProposal.projectCategory
+    );
+
+  const showDetailSpecialization = selectedProposal?.projectCategory
+    && shouldShowSpecializationField(
+      selectedProposal.projectCategory,
+      customCategorySpecs,
+      {
+        currentSpec: selectedProposal.infrastructureSpecialization,
+        forceVisible: detailShowSpecializationField,
+      }
+    );
+
+  const showNewProjectSpecialization = newProjectDraft.projectCategory
+    && shouldShowSpecializationField(
+      newProjectDraft.projectCategory,
+      customCategorySpecs,
+      {
+        currentSpec: newProjectDraft.infrastructureSpecialization,
+        forceVisible: newProjectShowSpecializationField,
+      }
+    );
+
+  const handleHubReportExport = useCallback(async (format) => {
+    if (hubReportExporting || isReadOnly) return;
+    setHubReportExporting(true);
+    try {
+      const res = await window.electronAPI.invoke('export-orimanthi-hub-report', {
+        format,
+        actingUsername: loggedInUsername,
+        proposalIds: hubHasActiveFilters
+          ? hubFilteredProposals.map((p) => p.id)
+          : undefined,
+      });
+      if (res.canceled) return;
+      if (!res.success) showToast(res.error || 'Σφάλμα εξαγωγής αναφοράς', 'error');
+      else if (res.pdfFallback) {
+        showToast(
+          res.message || 'Δεν ήταν δυνατή η δημιουργία PDF. Αποθηκεύτηκε styled HTML — ανοίξτε το και εκτυπώστε σε PDF.',
+          'warning'
+        );
+      } else if (res.format === 'html') {
+        showToast(`Η αναφορά αποθηκεύτηκε ως HTML (${res.rowCount || 0} έργα) — εκτύπωση σε PDF από browser`, 'success');
+      } else {
+        showToast(`Η αναφορά αποθηκεύτηκε (${res.rowCount || 0} έργα)`, 'success');
+      }
+    } finally {
+      setHubReportExporting(false);
+    }
+  }, [hubReportExporting, isReadOnly, loggedInUsername, showToast, hubHasActiveFilters, hubFilteredProposals]);
+
+  const saveAepoReminderSettings = useCallback(async (nextAepoCfg) => {
+    const merged = {
+      ...(orimanthiConfig || {}),
+      aepoReminders: { ...(orimanthiConfig?.aepoReminders || {}), ...nextAepoCfg },
+    };
+    const res = await window.electronAPI.invoke('save-orimanthi-config', {
+      config: merged,
+      actingUsername: loggedInUsername,
+    });
+    if (!res.success) {
+      showToast(res.error || 'Σφάλμα αποθήκευσης ρυθμίσεων', 'error');
+      return;
+    }
+    setOrimanthiConfig(res.config);
+    showToast('Οι ρυθμίσεις ΑΕΠΟ αποθηκεύτηκαν', 'success');
+    setShowAepoSettingsModal(false);
+  }, [orimanthiConfig, loggedInUsername, showToast]);
 
   const renderFormalHubCard = (p) => {
     const st = getStatusStyle(p.status);
@@ -4563,12 +5277,12 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     const pendingOpen = getProjectPendingOpen(p);
     const categoryLine = [
       p.projectCategory,
-      isInfrastructureCategory(p.projectCategory) ? p.infrastructureSpecialization : '',
+      p.infrastructureSpecialization || '',
     ].filter(Boolean).join(' · ');
     const openProject = () => {
-      setSelectedId(p.id);
-      setActiveTab('files');
+      void requestSelectProposal(p.id).then((ok) => { if (ok) setActiveTab('files'); });
     };
+    const lockInfo = proposalLocks[p.id];
     return (
       <HubCard key={p.id}>
         <HubCardHeader>
@@ -4579,6 +5293,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
             <StatusDot $color={st.color} />
             {st.label}
           </HubCardStatusBadge>
+          {lockInfo ? (
+            <span
+              title={`Ανοιχτό από ${typeof lockInfo === 'string' ? lockInfo : 'άλλο χρήστη'}`}
+              style={{ fontSize: '0.85rem', marginLeft: '0.25rem' }}
+            >
+              🔒
+            </span>
+          ) : null}
         </HubCardHeader>
         <HubCardBody>
           {categoryLine ? (
@@ -4588,6 +5310,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
           )}
           {p.aepoRenewalDate ? (
             <HubCardMetaLine>ΑΕΠΟ: {formatAepoDate(p.aepoRenewalDate)}</HubCardMetaLine>
+          ) : null}
+          {(p.municipalUnit || p.settlement) ? (
+            <HubCardMetaLine>
+              {[p.municipalUnit, p.settlement].filter(Boolean).join(' · ')}
+            </HubCardMetaLine>
           ) : null}
         </HubCardBody>
         <HubCardFooter>
@@ -4619,14 +5346,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     const fileCount = getProjectFileCount(p);
     const categoryLine = [
       p.projectCategory,
-      isInfrastructureCategory(p.projectCategory) ? p.infrastructureSpecialization : '',
+      p.infrastructureSpecialization || '',
     ].filter(Boolean).join(' · ');
     const openProject = () => {
-      setSelectedId(p.id);
-      setActiveTab('files');
+      void requestSelectProposal(p.id).then((ok) => { if (ok) setActiveTab('files'); });
     };
+    const lockInfo = proposalLocks[p.id];
     return (
-      <HubListRow key={p.id}>
+      <HubListRow key={p.id} $gridColumns={hubListGridColumns}>
         <HubListTitleCell type="button" onClick={openProject}>
           <HubListTitle>{p.title || '(Χωρίς τίτλο)'}</HubListTitle>
           {categoryLine ? <HubListSub>{categoryLine}</HubListSub> : null}
@@ -4637,6 +5364,16 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
             {st.label}
           </HubRowStatus>
         </HubListCell>
+        {showMunicipalUnitFilters ? (
+          <HubListCell title={p.municipalUnit || ''}>
+            {p.municipalUnit || '—'}
+          </HubListCell>
+        ) : null}
+        {showSettlementFilters ? (
+          <HubListCell title={p.settlement || ''}>
+            {p.settlement || '—'}
+          </HubListCell>
+        ) : null}
         <HubListCell>{p.aepoRenewalDate ? formatAepoDate(p.aepoRenewalDate) : '—'}</HubListCell>
         <HubListCell>{fileCount}</HubListCell>
         <HubListCell>{formatShortDateEl(p.updatedAt || p.createdAt)}</HubListCell>
@@ -4682,19 +5419,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     : 0;
   const totalItems = selectedProposal ? (selectedProposal.pendingItems || []).length : 0;
   const hasNotes = selectedProposal ? hasProposalNotes(selectedProposal.notes) : false;
-  const availablePresetGroups = useMemo(() => {
-    if (!selectedProposal) return PRESET_GROUPS;
-    return PRESET_GROUPS.filter((p) => !groupLabelExists(selectedProposal.fileGroups, p.label));
-  }, [selectedProposal]);
-
-  const newProjectAvailablePresetGroups = useMemo(
-    () => PRESET_GROUPS.filter(
-      (p) => !newProjectStagedGroups.some(
-        (g) => g.label.toLowerCase() === p.label.toLowerCase()
-      )
-    ),
-    [newProjectStagedGroups]
-  );
 
   return (
     <Overlay onClick={(e) => { if (e.target === e.currentTarget) void handleClose(); }}>
@@ -4747,7 +5471,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                 <HubControlsPanel>
                   <HubToolbarCard>
                     <HubSearch
-                      placeholder="Αναζήτηση έργου, κατηγορίας, περιγραφής…"
+                      placeholder="Αναζήτηση έργου, κατηγορίας, δημ. ενότητας, οικισμού…"
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
@@ -4762,6 +5486,29 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                     <HubStatsBtn type="button" onClick={() => setShowHubStatsModal(true)}>
                       📊 Στατιστικά
                     </HubStatsBtn>
+                    {!isReadOnly && (
+                      <>
+                        <HubStatsBtn
+                          type="button"
+                          disabled={hubReportExporting}
+                          onClick={() => handleHubReportExport('excel')}
+                          title="Εξαγωγή λίστας έργων σε Excel"
+                        >
+                          {hubReportExporting ? '⏳ …' : '📗 Excel'}
+                        </HubStatsBtn>
+                        <HubStatsBtn
+                          type="button"
+                          disabled={hubReportExporting}
+                          onClick={() => handleHubReportExport('pdf')}
+                          title="Εξαγωγή λίστας έργων σε PDF"
+                        >
+                          {hubReportExporting ? '⏳ …' : '📕 PDF'}
+                        </HubStatsBtn>
+                        <HubStatsBtn type="button" onClick={() => setShowAepoSettingsModal(true)} title="Ρυθμίσεις email ΑΕΠΟ">
+                          🔔 ΑΕΠΟ
+                        </HubStatsBtn>
+                      </>
+                    )}
                     {hubHasActiveFilters && (
                       <HubClearFiltersBtn type="button" onClick={clearHubFilters}>
                         ✕ Καθαρισμός
@@ -4800,6 +5547,32 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                         <option key={s.value} value={s.value}>{s.label}</option>
                       ))}
                     </HubFilterSelect>
+                    {showMunicipalUnitFilters ? (
+                      <HubFilterSelect
+                        value={hubMunicipalUnitFilter}
+                        onChange={(e) => setHubMunicipalUnitFilter(e.target.value)}
+                        title="Φίλτρο δημοτικής ενότητας"
+                      >
+                        <option value="">Όλες οι δημ. ενότητες</option>
+                        <option value={HUB_NO_MUNICIPAL_FILTER}>Χωρίς δημοτική ενότητα</option>
+                        {hubMunicipalUnitOptions.map((unit) => (
+                          <option key={unit} value={unit}>{unit}</option>
+                        ))}
+                      </HubFilterSelect>
+                    ) : null}
+                    {showSettlementFilters ? (
+                      <HubFilterSelect
+                        value={hubSettlementFilter}
+                        onChange={(e) => setHubSettlementFilter(e.target.value)}
+                        title="Φίλτρο οικισμού"
+                      >
+                        <option value="">Όλοι οι οικισμοί</option>
+                        <option value={HUB_NO_SETTLEMENT_FILTER}>Χωρίς οικισμό</option>
+                        {hubSettlementOptions.map((st) => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </HubFilterSelect>
+                    ) : null}
                     <HubFilterSelect
                       value={hubSortBy}
                       onChange={(e) => setHubSortBy(e.target.value)}
@@ -4946,9 +5719,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                   </HubEmpty>
                 ) : hubViewMode === 'list' ? (
                   <HubListWrap>
-                    <HubListHead>
+                    <HubListHead $gridColumns={hubListGridColumns}>
                       <span>Τίτλος / κατηγορία</span>
                       <span>Κατάσταση</span>
+                      {showMunicipalUnitFilters ? <span>Δημ. ενότητα</span> : null}
+                      {showSettlementFilters ? <span>Οικισμός</span> : null}
                       <span>ΑΕΠΟ</span>
                       <span>Αρχ.</span>
                       <span>Ενημέρωση</span>
@@ -4995,7 +5770,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
           ) : (
             <MainContent>
               <DetailTopBar>
-                <BackToHubBtn type="button" onClick={() => setSelectedId(null)}>
+                <BackToHubBtn type="button" onClick={() => void requestSelectProposal(null)}>
                   <BackToHubIcon>←</BackToHubIcon>
                   Επιστροφή στη λίστα
                 </BackToHubBtn>
@@ -5101,11 +5876,21 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                               }
                               setDetailShowAddCategoryInput(false);
                               setDetailNewCategoryInput('');
+                              setDetailShowSpecializationField(
+                                categoryHasSpecializations(val, customCategorySpecs)
+                              );
                               updateProposalAudited({
                                 projectCategory: val,
-                                infrastructureSpecialization: isInfrastructureCategory(val)
-                                  ? selectedProposal.infrastructureSpecialization
-                                  : '',
+                                pendingTemplateCategory: reconcilePendingTemplateCategory(
+                                  selectedProposal.projectCategory,
+                                  val,
+                                  selectedProposal.pendingTemplateCategory
+                                ),
+                                infrastructureSpecialization: keepSpecializationForCategory(
+                                  val,
+                                  selectedProposal.infrastructureSpecialization,
+                                  customCategorySpecs
+                                ),
                               });
                             }}
                           >
@@ -5132,9 +5917,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                                     if (added) {
                                       updateProposalAudited({
                                         projectCategory: added,
-                                        infrastructureSpecialization: isInfrastructureCategory(added)
-                                          ? selectedProposal.infrastructureSpecialization
-                                          : '',
+                                        infrastructureSpecialization: keepSpecializationForCategory(
+                                          added,
+                                          selectedProposal.infrastructureSpecialization,
+                                          customCategorySpecs
+                                        ),
                                       });
                                       setDetailNewCategoryInput('');
                                       setDetailShowAddCategoryInput(false);
@@ -5156,9 +5943,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                                   if (added) {
                                     updateProposalAudited({
                                       projectCategory: added,
-                                      infrastructureSpecialization: isInfrastructureCategory(added)
-                                        ? selectedProposal.infrastructureSpecialization
-                                        : '',
+                                      infrastructureSpecialization: keepSpecializationForCategory(
+                                        added,
+                                        selectedProposal.infrastructureSpecialization,
+                                        customCategorySpecs
+                                      ),
                                     });
                                     setDetailNewCategoryInput('');
                                     setDetailShowAddCategoryInput(false);
@@ -5181,9 +5970,15 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                             </InlineAddRow>
                           )}
                         </MetaFieldBox>
-                        {isInfrastructureCategory(selectedProposal.projectCategory) ? (
+                        {selectedProposal.projectCategory ? (
+                          showDetailSpecialization ? (
                           <MetaFieldBox>
-                            <MetaLabel>Εξειδίκευση</MetaLabel>
+                            <MetaLabel>
+                              Εξειδίκευση
+                              {categoryHasSpecializations(selectedProposal.projectCategory, customCategorySpecs)
+                                ? ' *'
+                                : ''}
+                            </MetaLabel>
                             <StatusSelect
                               value={detailShowAddSpecializationInput ? '' : (selectedProposal.infrastructureSpecialization || '')}
                               disabled={isReadOnly}
@@ -5218,7 +6013,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                                   onChange={(e) => setDetailNewSpecializationInput(e.target.value)}
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
-                                      const added = addCustomInfraSpecialization(detailNewSpecializationInput);
+                                      const added = addCustomCategorySpecialization(
+                                        selectedProposal.projectCategory,
+                                        detailNewSpecializationInput
+                                      );
                                       if (added) {
                                         updateProposalAudited({ infrastructureSpecialization: added });
                                         setDetailNewSpecializationInput('');
@@ -5237,7 +6035,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                                   $variant="primary"
                                   type="button"
                                   onClick={() => {
-                                    const added = addCustomInfraSpecialization(detailNewSpecializationInput);
+                                    const added = addCustomCategorySpecialization(
+                                      selectedProposal.projectCategory,
+                                      detailNewSpecializationInput
+                                    );
                                     if (added) {
                                       updateProposalAudited({ infrastructureSpecialization: added });
                                       setDetailNewSpecializationInput('');
@@ -5261,7 +6062,43 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                               </InlineAddRow>
                             )}
                           </MetaFieldBox>
+                          ) : !isReadOnly ? (
+                            <MetaFieldBox>
+                              <ManageListsLink
+                                type="button"
+                                onClick={() => setDetailShowSpecializationField(true)}
+                                title="Εμφάνιση πεδίου εξειδίκευσης"
+                              >
+                                + Ορισμός εξειδικεύσης
+                              </ManageListsLink>
+                            </MetaFieldBox>
+                          ) : null
                         ) : null}
+                        <MetaFieldBox>
+                          <MetaLabel>Δημοτική Ενότητα</MetaLabel>
+                          <StatusSelect
+                            value={selectedProposal.municipalUnit || ''}
+                            disabled={isReadOnly}
+                            onMouseDown={isReadOnly ? undefined : warnIfMunicipalUnitsEmpty}
+                            onFocus={isReadOnly ? undefined : warnIfMunicipalUnitsEmpty}
+                            onChange={isReadOnly ? undefined : (e) => updateProposalAudited({ municipalUnit: e.target.value })}
+                          >
+                            <option value="">— Επιλογή —</option>
+                            {municipalUnits.map((unit) => (
+                              <option key={unit} value={unit}>{unit}</option>
+                            ))}
+                          </StatusSelect>
+                        </MetaFieldBox>
+                        <MetaFieldBox>
+                          <MetaLabel>Οικισμός</MetaLabel>
+                          <MetaInput
+                            placeholder="Όνομα οικισμού…"
+                            value={selectedProposal.settlement || ''}
+                            readOnly={isReadOnly}
+                            onChange={isReadOnly ? undefined : (e) => updateProposal({ settlement: e.target.value })}
+                            onBlur={isReadOnly ? undefined : handleDescriptionBlur}
+                          />
+                        </MetaFieldBox>
                         <MetaFieldBox>
                           <MetaLabel>Ανανέωση ΑΕΠΟ</MetaLabel>
                           <MetaInput
@@ -5296,42 +6133,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                               + Προσθήκη κατηγορίας
                             </AddCategoryTrigger>
                           ) : (
-                            <>
-                              <CategoryPickerHeader>
-                                <CategoryPickerLabel>Επιλέξτε κατηγορία</CategoryPickerLabel>
-                                <Btn $sm $variant="ghost" onClick={handleCancelAddGroup}>✕</Btn>
-                              </CategoryPickerHeader>
-                              <PresetChipsRow>
-                                {availablePresetGroups.map((p) => (
-                                  <PresetChip key={p.label} onClick={() => addGroup(p.label)}>
-                                    {p.icon} {p.label}
-                                  </PresetChip>
-                                ))}
-                                <AddCategoryBtn
-                                  type="button"
-                                  title="Νέα κατηγορία με δικό σας όνομα"
-                                  onClick={handleStartAddGroup}
-                                >
-                                  +
-                                </AddCategoryBtn>
-                              </PresetChipsRow>
-                              {addingGroup && (
-                                <CustomGroupRow>
-                                  <CustomGroupInput
-                                    ref={addGroupInputRef}
-                                    placeholder="Όνομα…"
-                                    value={newGroupName}
-                                    onChange={(e) => setNewGroupName(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') addGroup(newGroupName);
-                                      if (e.key === 'Escape') handleCancelAddGroup();
-                                    }}
-                                  />
-                                  <Btn $sm $variant="primary" onClick={() => addGroup(newGroupName)}>✓</Btn>
-                                  <Btn $sm $variant="ghost" onClick={handleCancelAddGroup}>✕</Btn>
-                                </CustomGroupRow>
-                              )}
-                            </>
+                            <OrimanthiFileCategoryPicker
+                              existingGroups={selectedProposal?.fileGroups || []}
+                              customMeletesSpecs={customMeletesFileSpecs}
+                              customAdeiodotiseisSpecs={customAdeiodotiseisFileSpecs}
+                              onSelect={addFileCategoryGroup}
+                              onCancel={handleCancelAddGroup}
+                              onAddCustomSpec={(rootId, spec) => addCustomFileSpec(rootId, spec)}
+                            />
                           )}
                         </AddGroupToolbar>
                       )}
@@ -5377,7 +6186,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                               onClick={() => toggleGroupExpanded(group.id)}
                             >
                               <GroupName>
-                                <span>{group.label}</span>
+                                {renderFileGroupTitle(group)}
                                 <GroupCount $hasFiles={countGroupFileEntries(group) > 0}>
                                   {countGroupFileEntries(group)}
                                 </GroupCount>
@@ -5430,44 +6239,120 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                                     {visibleFiles.map((entry) => {
                                       if (isProposalFolder(entry)) {
                                         const count = entry.fileCount || 0;
+                                        const expandKey = getFolderExpandKey(group.id, entry.id);
+                                        const folderExpanded = !!expandedFolderKeys[expandKey];
+                                        const folderCache = folderFilesCache[expandKey];
                                         return (
-                                          <FileItem key={entry.id}>
-                                            <FileInfo>
-                                              <FileTypeIcon $bg={FOLDER_TYPE_STYLE.bg} style={{ fontSize: '1.05rem' }}>
-                                                {FOLDER_TYPE_STYLE.label}
-                                              </FileTypeIcon>
-                                              <div style={{ minWidth: 0 }}>
-                                                <FileListName title={entry.name}>{entry.name}</FileListName>
-                                                <FileListMeta>
-                                                  {count} {count === 1 ? 'αρχείο' : 'αρχεία'} · κλικ για προβολή
-                                                </FileListMeta>
-                                              </div>
-                                            </FileInfo>
-                                            <FileActions>
-                                              <ViewIconBtn
-                                                title="Προβολή περιεχομένων"
-                                                onClick={() => handleOpenFolder(group.id, entry)}
-                                              >
-                                                👁
-                                              </ViewIconBtn>
-                                              {!isReadOnly && (
-                                                <>
-                                                  <MoveIconBtn
-                                                    title="Μεταφορά σε άλλη κατηγορία"
-                                                    onClick={() => handleOpenMove(group.id, entry)}
-                                                  >
-                                                    ⇄
-                                                  </MoveIconBtn>
-                                                  <DeleteIconBtn
-                                                    title="Διαγραφή φακέλου"
-                                                    onClick={() => handleDeleteFolder(group.id, entry)}
-                                                  >
-                                                    ✕
-                                                  </DeleteIconBtn>
-                                                </>
-                                              )}
-                                            </FileActions>
-                                          </FileItem>
+                                          <FolderEntryBlock key={entry.id}>
+                                            <FolderHeaderItem
+                                              $open={folderExpanded}
+                                              onClick={() => toggleFolderExpanded(group.id, entry)}
+                                            >
+                                              <FileInfo>
+                                                <span style={{ fontSize: '0.65rem', color: C.slate400, flexShrink: 0, width: '0.85rem' }}>
+                                                  {folderExpanded ? '▼' : '▶'}
+                                                </span>
+                                                <FileTypeIcon $bg={FOLDER_TYPE_STYLE.bg} style={{ fontSize: '1.05rem' }}>
+                                                  {FOLDER_TYPE_STYLE.label}
+                                                </FileTypeIcon>
+                                                <div style={{ minWidth: 0 }}>
+                                                  <FileListName title={entry.name}>{entry.name}</FileListName>
+                                                  <FileListMeta>
+                                                    {count} {count === 1 ? 'αρχείο' : 'αρχεία'}
+                                                    {folderExpanded ? ' · κλικ για σύμπτυξη' : ' · κλικ για ανάπτυξη'}
+                                                  </FileListMeta>
+                                                </div>
+                                              </FileInfo>
+                                              <FileActions onClick={(e) => e.stopPropagation()}>
+                                                {!isReadOnly && (
+                                                  <>
+                                                    <MoveIconBtn
+                                                      title="Μεταφορά σε άλλη κατηγορία"
+                                                      onClick={() => handleOpenMove(group.id, entry)}
+                                                    >
+                                                      ⇄
+                                                    </MoveIconBtn>
+                                                    <DeleteIconBtn
+                                                      title="Διαγραφή φακέλου"
+                                                      onClick={() => handleDeleteFolder(group.id, entry)}
+                                                    >
+                                                      ✕
+                                                    </DeleteIconBtn>
+                                                  </>
+                                                )}
+                                              </FileActions>
+                                            </FolderHeaderItem>
+                                            {folderExpanded && (
+                                              <NestedFilesTree>
+                                                {folderCache?.loading ? (
+                                                  <div style={{ color: C.slate400, fontSize: '0.78rem', fontStyle: 'italic', padding: '0.25rem 0' }}>
+                                                    Φόρτωση αρχείων…
+                                                  </div>
+                                                ) : (folderCache?.files || []).length === 0 ? (
+                                                  <div style={{ color: C.slate400, fontSize: '0.78rem', fontStyle: 'italic', padding: '0.25rem 0' }}>
+                                                    Ο φάκελος είναι κενός.
+                                                  </div>
+                                                ) : (
+                                                  (folderCache.files || []).map((f) => {
+                                                    const typeStyle = getFileTypeStyle(f.name);
+                                                    const NestedIconWrap = isImageFileName(f.name) ? FileTypeIconLarge : FileTypeIcon;
+                                                    const isHighlighted =
+                                                      nestedFileHighlight?.key === expandKey
+                                                      && nestedFileHighlight?.fileName === f.name;
+                                                    return (
+                                                      <NestedFileItem
+                                                        key={f.name}
+                                                        ref={isHighlighted ? highlightedFolderFileRef : undefined}
+                                                        style={
+                                                          isHighlighted
+                                                            ? { background: C.indigoLight, outline: `2px solid ${C.indigo}` }
+                                                            : undefined
+                                                        }
+                                                      >
+                                                        <FileInfo>
+                                                          <NestedIconWrap $bg={typeStyle.bg}>{typeStyle.label}</NestedIconWrap>
+                                                          <div style={{ minWidth: 0 }}>
+                                                            <FileListName title={f.name}>{f.name}</FileListName>
+                                                            <FileListMeta>{formatBytes(f.size)}</FileListMeta>
+                                                          </div>
+                                                        </FileInfo>
+                                                        <FileActions>
+                                                          <ViewIconBtn
+                                                            title="Προβολή"
+                                                            onClick={() => handleOpenFolderFile(group.id, entry.id, f.name)}
+                                                          >
+                                                            👁
+                                                          </ViewIconBtn>
+                                                          <DownloadIconBtn
+                                                            title="Λήψη"
+                                                            onClick={() => handleDownloadFolderFile(group.id, entry.id, f.name)}
+                                                          >
+                                                            ⬇
+                                                          </DownloadIconBtn>
+                                                          {!isReadOnly && (
+                                                            <>
+                                                              <RenameIconBtn
+                                                                title="Μετονομασία"
+                                                                onClick={() => handleOpenRename(group.id, f.name, entry.id)}
+                                                              >
+                                                                ✎
+                                                              </RenameIconBtn>
+                                                              <DeleteIconBtn
+                                                                title="Διαγραφή"
+                                                                onClick={() => handleDeleteFolderFile(group.id, entry.id, f.name)}
+                                                              >
+                                                                ✕
+                                                              </DeleteIconBtn>
+                                                            </>
+                                                          )}
+                                                        </FileActions>
+                                                      </NestedFileItem>
+                                                    );
+                                                  })
+                                                )}
+                                              </NestedFilesTree>
+                                            )}
+                                          </FolderEntryBlock>
                                         );
                                       }
                                       const typeStyle = getFileTypeStyle(entry.name);
@@ -5545,6 +6430,44 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                   {activeTab === 'pending' && (
                     <>
                       <SectionLabel>Εκκρεμότητες &amp; Ενέργειες</SectionLabel>
+                      {!isReadOnly && selectedProposal?.projectCategory && (
+                        <div style={{ marginBottom: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.45rem', alignItems: 'center' }}>
+                          {isPendingTemplateActive ? (
+                            <>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                color: C.amber,
+                                background: '#fffbeb',
+                                border: `1px solid ${C.amber}44`,
+                                borderRadius: 999,
+                                padding: '0.2rem 0.55rem',
+                              }}>
+                                📋 Πρότυπο ενεργό
+                              </span>
+                              <Btn
+                                $sm
+                                $variant="ghost"
+                                disabled={applyingPendingTemplate}
+                                onClick={() => void removePendingTemplate()}
+                                title={`Αφαίρεση προτύπου «${selectedProposal.projectCategory}»`}
+                              >
+                                {applyingPendingTemplate ? '⏳ …' : '↩ Αφαίρεση προτύπου'}
+                              </Btn>
+                            </>
+                          ) : (
+                            <Btn
+                              $sm
+                              $variant="teal"
+                              disabled={applyingPendingTemplate}
+                              onClick={() => void applyPendingTemplate()}
+                              title={`Πρότυπο για «${selectedProposal.projectCategory}»`}
+                            >
+                              {applyingPendingTemplate ? '⏳ …' : '📋 Εφαρμογή προτύπου εκκρεμοτήτων'}
+                            </Btn>
+                          )}
+                        </div>
+                      )}
                       <PendingList>
                         {(selectedProposal.pendingItems || []).length === 0 && (
                           <div style={{ color: C.slate400, fontSize: '0.8rem', fontStyle: 'italic' }}>
@@ -5561,14 +6484,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                             />
                             <PendingText $done={item.done}>{item.text}</PendingText>
                             {!isReadOnly && (
-                              <IconBtn
-                                $color="#fca5a5"
-                                $hoverColor="#dc2626"
+                              <PendingDeleteBtn
+                                type="button"
                                 onClick={() => deletePendingItem(item.id)}
-                                title="Διαγραφή"
+                                title="Διαγραφή εκκρεμότητας"
+                                aria-label={`Διαγραφή: ${item.text}`}
                               >
-                                🗑
-                              </IconBtn>
+                                ✕
+                              </PendingDeleteBtn>
                             )}
                           </PendingItem>
                         ))}
@@ -5729,12 +6652,17 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                         }
                         setShowAddCategoryInput(false);
                         setNewCategoryInput('');
+                        setNewProjectShowSpecializationField(
+                          categoryHasSpecializations(val, customCategorySpecs)
+                        );
                         setNewProjectDraft((d) => ({
                           ...d,
                           projectCategory: val,
-                          infrastructureSpecialization: isInfrastructureCategory(val)
-                            ? d.infrastructureSpecialization
-                            : '',
+                          infrastructureSpecialization: keepSpecializationForCategory(
+                            val,
+                            d.infrastructureSpecialization,
+                            customCategorySpecs
+                          ),
                         }));
                       }}
                     >
@@ -5792,9 +6720,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                       </InlineAddRow>
                     )}
                   </ModalFormField>
-                  {isInfrastructureCategory(newProjectDraft.projectCategory) ? (
+                  {showNewProjectSpecialization ? (
                     <ModalFormField>
-                      <ModalFormLabel htmlFor="new-project-spec">Εξειδίκευση υποδομής *</ModalFormLabel>
+                      <ModalFormLabel htmlFor="new-project-spec">
+                        Εξειδίκευση
+                        {categoryHasSpecializations(newProjectDraft.projectCategory, customCategorySpecs)
+                          ? ' *'
+                          : ''}
+                      </ModalFormLabel>
                       <ModalFormSelect
                         id="new-project-spec"
                         value={showAddSpecializationInput ? '' : newProjectDraft.infrastructureSpecialization}
@@ -5814,7 +6747,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                         }}
                       >
                         <option value="">— Επιλέξτε εξειδίκευση —</option>
-                        {infraSpecializations.map((spec) => (
+                        {newProjectSpecializationOptions.map((spec) => (
                           <option key={spec} value={spec}>{spec}</option>
                         ))}
                         <option disabled value="__sep_spec__">──────────────</option>
@@ -5828,7 +6761,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                             onChange={(e) => setNewSpecializationInput(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
-                                const added = addCustomInfraSpecialization(newSpecializationInput);
+                                const added = addCustomCategorySpecialization(
+                                  newProjectDraft.projectCategory,
+                                  newSpecializationInput
+                                );
                                 if (added) {
                                   setNewProjectDraft((d) => ({ ...d, infrastructureSpecialization: added }));
                                   setNewSpecializationInput('');
@@ -5847,7 +6783,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                             $variant="primary"
                             type="button"
                             onClick={() => {
-                              const added = addCustomInfraSpecialization(newSpecializationInput);
+                              const added = addCustomCategorySpecialization(
+                                newProjectDraft.projectCategory,
+                                newSpecializationInput
+                              );
                               if (added) {
                                 setNewProjectDraft((d) => ({ ...d, infrastructureSpecialization: added }));
                                 setNewSpecializationInput('');
@@ -5867,7 +6806,41 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                         </InlineAddRow>
                       )}
                     </ModalFormField>
+                  ) : newProjectDraft.projectCategory ? (
+                    <ModalFormField>
+                      <ManageListsLink
+                        type="button"
+                        onClick={() => setNewProjectShowSpecializationField(true)}
+                        title="Εμφάνιση πεδίου εξειδίκευσης"
+                      >
+                        + Ορισμός εξειδικεύσης
+                      </ManageListsLink>
+                    </ModalFormField>
                   ) : null}
+                  <ModalFormField>
+                    <ModalFormLabel htmlFor="new-project-municipal-unit">Δημοτική Ενότητα</ModalFormLabel>
+                    <ModalFormSelect
+                      id="new-project-municipal-unit"
+                      value={newProjectDraft.municipalUnit}
+                      onMouseDown={warnIfMunicipalUnitsEmpty}
+                      onFocus={warnIfMunicipalUnitsEmpty}
+                      onChange={(e) => setNewProjectDraft((d) => ({ ...d, municipalUnit: e.target.value }))}
+                    >
+                      <option value="">— Επιλέξτε δημοτική ενότητα —</option>
+                      {municipalUnits.map((unit) => (
+                        <option key={unit} value={unit}>{unit}</option>
+                      ))}
+                    </ModalFormSelect>
+                  </ModalFormField>
+                  <ModalFormField>
+                    <ModalFormLabel htmlFor="new-project-settlement">Οικισμός</ModalFormLabel>
+                    <ModalFormInput
+                      id="new-project-settlement"
+                      placeholder="Όνομα οικισμού…"
+                      value={newProjectDraft.settlement}
+                      onChange={(e) => setNewProjectDraft((d) => ({ ...d, settlement: e.target.value }))}
+                    />
+                  </ModalFormField>
                   <ModalFormField>
                     <ModalFormLabel htmlFor="new-project-aepo">Ημερομηνία ανανέωσης ΑΕΠΟ</ModalFormLabel>
                     <ModalFormInput
@@ -5890,48 +6863,20 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                       + Προσθήκη κατηγορίας
                     </AddCategoryTrigger>
                   ) : (
-                    <>
-                      <CategoryPickerHeader>
-                        <CategoryPickerLabel>Επιλέξτε κατηγορία αρχείων</CategoryPickerLabel>
-                        <Btn $sm $variant="ghost" onClick={handleNewProjectCancelAddGroup}>✕</Btn>
-                      </CategoryPickerHeader>
-                      <PresetChipsRow>
-                        {newProjectAvailablePresetGroups.map((p) => (
-                          <PresetChip key={p.label} onClick={() => addNewProjectGroup(p.label)}>
-                            {p.icon} {p.label}
-                          </PresetChip>
-                        ))}
-                        <AddCategoryBtn
-                          type="button"
-                          title="Νέα κατηγορία με δικό σας όνομα"
-                          onClick={handleNewProjectStartAddGroup}
-                        >
-                          +
-                        </AddCategoryBtn>
-                      </PresetChipsRow>
-                      {newProjectAddingGroup && (
-                        <CustomGroupRow>
-                          <CustomGroupInput
-                            ref={newProjectAddGroupInputRef}
-                            placeholder="Όνομα κατηγορίας…"
-                            value={newProjectNewGroupName}
-                            onChange={(e) => setNewProjectNewGroupName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') addNewProjectGroup(newProjectNewGroupName);
-                              if (e.key === 'Escape') handleNewProjectCancelAddGroup();
-                            }}
-                          />
-                          <Btn $sm $variant="primary" onClick={() => addNewProjectGroup(newProjectNewGroupName)}>✓</Btn>
-                          <Btn $sm $variant="ghost" onClick={handleNewProjectCancelAddGroup}>✕</Btn>
-                        </CustomGroupRow>
-                      )}
-                    </>
+                    <OrimanthiFileCategoryPicker
+                      existingGroups={newProjectStagedGroups}
+                      customMeletesSpecs={customMeletesFileSpecs}
+                      customAdeiodotiseisSpecs={customAdeiodotiseisFileSpecs}
+                      onSelect={addNewProjectFileCategoryGroup}
+                      onCancel={handleNewProjectCancelAddGroup}
+                      onAddCustomSpec={(rootId, spec) => addCustomFileSpec(rootId, spec)}
+                    />
                   )}
                 </AddGroupToolbar>
 
                 {newProjectStagedGroups.length === 0 ? (
                   <div style={{ fontSize: '0.74rem', color: C.slate400, fontStyle: 'italic' }}>
-                    Προαιρετικά — προσθέστε κατηγορίες αρχείων (π.χ. Περιβαλλοντικά, Τοπογραφικά) και ανεβάστε αρχεία ή φακέλους σε κάθε μία.
+                    Προαιρετικά — προσθέστε κατηγορίες αρχείων (Μελέτες έργου ή Αδειοδοτήσεις) και ανεβάστε αρχεία ή φακέλους σε κάθε μία.
                   </div>
                 ) : (
                   <GroupsList>
@@ -5945,7 +6890,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                             onClick={() => toggleNewProjectGroupExpanded(group.id)}
                           >
                             <GroupName>
-                              <span>{group.label}</span>
+                              {renderFileGroupTitle(group)}
                               <GroupCount $hasFiles={itemCount > 0}>{itemCount}</GroupCount>
                             </GroupName>
                             <GroupActions onClick={(e) => e.stopPropagation()}>
@@ -6029,79 +6974,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
               </Btn>
             </WideModalFooter>
           </WideModalCard>
-        </FolderModalOverlay>
-      )}
-
-      {folderModal && (
-        <FolderModalOverlay onClick={() => setFolderModal(null)}>
-          <FolderModalCard onClick={(e) => e.stopPropagation()}>
-            <FolderModalHeader>
-              <FolderModalTitle>{folderModal.label}</FolderModalTitle>
-              <FolderModalSub>
-                {(folderModal.files || []).length}{' '}
-                {(folderModal.files || []).length === 1 ? 'αρχείο' : 'αρχεία'}
-              </FolderModalSub>
-            </FolderModalHeader>
-            <FolderModalBody>
-              {(folderModal.files || []).length === 0 ? (
-                <div style={{ color: C.slate400, fontSize: '0.8rem', fontStyle: 'italic' }}>
-                  Ο φάκελος είναι κενός.
-                </div>
-              ) : (
-                <FilesList>
-                  {(folderModal.files || []).map((f) => (
-                    <div
-                      key={f.name}
-                      ref={folderModal.highlightFile === f.name ? highlightedFolderFileRef : undefined}
-                    >
-                    <FileItem
-                      style={
-                        folderModal.highlightFile === f.name
-                          ? { background: C.indigoLight, outline: `2px solid ${C.indigo}` }
-                          : undefined
-                      }
-                    >
-                      <FileInfo>
-                        <FileTypeIcon $bg={getFileTypeStyle(f.name).bg}>
-                          {getFileTypeStyle(f.name).label}
-                        </FileTypeIcon>
-                        <div style={{ minWidth: 0 }}>
-                          <FileListName title={f.name}>{f.name}</FileListName>
-                          <FileListMeta>{formatBytes(f.size)}</FileListMeta>
-                        </div>
-                      </FileInfo>
-                      <FileActions>
-                        <ViewIconBtn title="Προβολή" onClick={() => handleOpenFolderFile(f.name)}>👁</ViewIconBtn>
-                        <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFolderFile(f.name)}>⬇</DownloadIconBtn>
-                        {!isReadOnly && (
-                          <>
-                            <RenameIconBtn
-                              title="Μετονομασία"
-                              onClick={() => handleOpenRename(folderModal.groupId, f.name, folderModal.folderId)}
-                            >
-                              ✎
-                            </RenameIconBtn>
-                            <IconBtn
-                              title="Διαγραφή"
-                              $color="#fca5a5"
-                              $hoverColor="#dc2626"
-                              onClick={() => handleDeleteFolderFile(f.name)}
-                            >
-                              🗑
-                            </IconBtn>
-                          </>
-                        )}
-                      </FileActions>
-                    </FileItem>
-                    </div>
-                  ))}
-                </FilesList>
-              )}
-            </FolderModalBody>
-            <FolderModalFooter>
-              <Btn $sm $variant="ghost" onClick={() => setFolderModal(null)}>Κλείσιμο</Btn>
-            </FolderModalFooter>
-          </FolderModalCard>
         </FolderModalOverlay>
       )}
 
@@ -6223,7 +7095,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
             <FolderModalHeader>
               <FolderModalTitle>Διαχείριση λιστών</FolderModalTitle>
               <FolderModalSub>
-                Διαγραφή προσαρμοσμένων κατηγοριών και εξειδικεύσεων από τις λίστες επιλογής.
+                Διαγραφή προσαρμοσμένων κατηγοριών, εξειδικεύσεων και τύπων αρχείων από τις λίστες επιλογής.
                 Οι προεπιλεγμένες τιμές δεν μπορούν να αφαιρεθούν.
               </FolderModalSub>
             </FolderModalHeader>
@@ -6255,29 +7127,111 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                 )}
               </ManageListSection>
               <ManageListSection>
-                <ManageListSectionTitle>Προσαρμοσμένες εξειδικεύσεις</ManageListSectionTitle>
-                {customSpecializations.length === 0 ? (
+                <ManageListSectionTitle>Προσθήκη εξειδίκευσης σε κατηγορία</ManageListSectionTitle>
+                <InlineAddRow style={{ marginBottom: '0.5rem' }}>
+                  <ModalFormSelect
+                    value={manageSpecCategory}
+                    onChange={(e) => setManageSpecCategory(e.target.value)}
+                    style={{ flex: 1, minWidth: 0 }}
+                  >
+                    <option value="">— Κατηγορία —</option>
+                    {projectCategories.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </ModalFormSelect>
+                  <ModalFormInput
+                    placeholder="Νέα εξειδίκευση…"
+                    value={manageSpecInput}
+                    onChange={(e) => setManageSpecInput(e.target.value)}
+                    style={{ flex: 1, minWidth: 0 }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && manageSpecCategory && manageSpecInput.trim()) {
+                        addCustomCategorySpecialization(manageSpecCategory, manageSpecInput, { showSuccessToast: true });
+                        setManageSpecInput('');
+                      }
+                    }}
+                  />
+                  <Btn
+                    $sm
+                    $variant="primary"
+                    type="button"
+                    disabled={!manageSpecCategory || !manageSpecInput.trim()}
+                    onClick={() => {
+                      if (addCustomCategorySpecialization(manageSpecCategory, manageSpecInput, { showSuccessToast: true })) {
+                        setManageSpecInput('');
+                      }
+                    }}
+                  >
+                    +
+                  </Btn>
+                </InlineAddRow>
+              </ManageListSection>
+              {categoriesWithCustomSpecs.length === 0 ? (
+                <ManageListSection>
+                  <ManageListEmpty>Δεν υπάρχουν προσαρμοσμένες εξειδικεύσεις κατηγοριών.</ManageListEmpty>
+                </ManageListSection>
+              ) : (
+                categoriesWithCustomSpecs.map((cat) => (
+                  <ManageListSection key={cat}>
+                    <ManageListSectionTitle>Εξειδικεύσεις — {cat}</ManageListSectionTitle>
+                    {getCustomSpecsForCategory(cat, customCategorySpecs).map((spec) => {
+                      const usage = countProjectsWithSpecialization(cat, spec);
+                      return (
+                        <ManageListRow key={`${cat}:${spec}`}>
+                          <ManageListRowLabel>{spec}</ManageListRowLabel>
+                          <ManageListRowMeta>
+                            {usage > 0 ? `${usage} ${usage === 1 ? 'έργο' : 'έργα'}` : 'χωρίς χρήση'}
+                          </ManageListRowMeta>
+                          <ManageListDeleteBtn
+                            type="button"
+                            disabled={removingListItem === `spec:${cat}:${spec}`}
+                            onClick={() => handleRemoveCustomSpecialization(cat, spec)}
+                            title="Αφαίρεση από τη λίστα"
+                          >
+                            {removingListItem === `spec:${cat}:${spec}` ? '…' : 'Διαγραφή'}
+                          </ManageListDeleteBtn>
+                        </ManageListRow>
+                      );
+                    })}
+                  </ManageListSection>
+                ))
+              )}
+              <ManageListSection>
+                <ManageListSectionTitle>Προσαρμοσμένες εξειδικεύσεις — Μελέτες έργου</ManageListSectionTitle>
+                {customMeletesFileSpecs.length === 0 ? (
                   <ManageListEmpty>Δεν υπάρχουν προσαρμοσμένες εξειδικεύσεις.</ManageListEmpty>
                 ) : (
-                  customSpecializations.map((spec) => {
-                    const usage = countProjectsWithSpecialization(spec);
-                    return (
-                      <ManageListRow key={spec}>
-                        <ManageListRowLabel>{spec}</ManageListRowLabel>
-                        <ManageListRowMeta>
-                          {usage > 0 ? `${usage} ${usage === 1 ? 'έργο' : 'έργα'}` : 'χωρίς χρήση'}
-                        </ManageListRowMeta>
-                        <ManageListDeleteBtn
-                          type="button"
-                          disabled={removingListItem === `spec:${spec}`}
-                          onClick={() => handleRemoveCustomSpecialization(spec)}
-                          title="Αφαίρεση από τη λίστα"
-                        >
-                          {removingListItem === `spec:${spec}` ? '…' : 'Διαγραφή'}
-                        </ManageListDeleteBtn>
-                      </ManageListRow>
-                    );
-                  })
+                  customMeletesFileSpecs.map((spec) => (
+                    <ManageListRow key={`meletes:${spec}`}>
+                      <ManageListRowLabel>{spec}</ManageListRowLabel>
+                      <ManageListDeleteBtn
+                        type="button"
+                        onClick={() => handleRemoveCustomMeletesFileSpec(spec)}
+                        title="Αφαίρεση από τη λίστα"
+                      >
+                        Διαγραφή
+                      </ManageListDeleteBtn>
+                    </ManageListRow>
+                  ))
+                )}
+              </ManageListSection>
+              <ManageListSection>
+                <ManageListSectionTitle>Προσαρμοσμένες εξειδικεύσεις — Αδειοδοτήσεις</ManageListSectionTitle>
+                {customAdeiodotiseisFileSpecs.length === 0 ? (
+                  <ManageListEmpty>Δεν υπάρχουν προσαρμοσμένες εξειδικεύσεις.</ManageListEmpty>
+                ) : (
+                  customAdeiodotiseisFileSpecs.map((spec) => (
+                    <ManageListRow key={`adeiod:${spec}`}>
+                      <ManageListRowLabel>{spec}</ManageListRowLabel>
+                      <ManageListDeleteBtn
+                        type="button"
+                        onClick={() => handleRemoveCustomAdeiodotiseisFileSpec(spec)}
+                        title="Αφαίρεση από τη λίστα"
+                      >
+                        Διαγραφή
+                      </ManageListDeleteBtn>
+                    </ManageListRow>
+                  ))
                 )}
               </ManageListSection>
             </FolderModalBody>
@@ -6323,6 +7277,18 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                   <StatsCardValue>{richHubStats.withNotes}</StatsCardValue>
                   <StatsCardLabel>Με σημειώσεις</StatsCardLabel>
                 </StatsCard>
+                {showMunicipalUnitFilters ? (
+                  <StatsCard>
+                    <StatsCardValue>{richHubStats.withMunicipalUnit}</StatsCardValue>
+                    <StatsCardLabel>Με δημοτική ενότητα</StatsCardLabel>
+                  </StatsCard>
+                ) : null}
+                {showSettlementFilters ? (
+                  <StatsCard>
+                    <StatsCardValue>{richHubStats.withSettlement}</StatsCardValue>
+                    <StatsCardLabel>Με οικισμό</StatsCardLabel>
+                  </StatsCard>
+                ) : null}
               </StatsGrid>
 
               <StatsDonutRow>
@@ -6370,6 +7336,52 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                     </StatsDonutLegend>
                   </StatsDonutBlock>
                 )}
+                {showMunicipalUnitFilters && richHubStats.municipalUnitDonut.length > 0 && (
+                  <StatsDonutBlock>
+                    <StatsDonut $gradient={buildDonutGradient(richHubStats.municipalUnitDonut)} />
+                    <StatsDonutLegend>
+                      <StatsSectionTitle style={{ marginBottom: '0.35rem' }}>Δημοτικές ενότητες</StatsSectionTitle>
+                      {richHubStats.municipalUnitDonut.map((seg) => (
+                        <StatsDonutLegendItem
+                          key={seg.key}
+                          type="button"
+                          onClick={() => applyStatsFilter({ municipalUnit: seg.key })}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                            <StatsDonutDot $color={seg.color} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {seg.label}
+                            </span>
+                          </span>
+                          <StatsBreakdownCount>{seg.value}</StatsBreakdownCount>
+                        </StatsDonutLegendItem>
+                      ))}
+                    </StatsDonutLegend>
+                  </StatsDonutBlock>
+                )}
+                {showSettlementFilters && richHubStats.settlementDonut.length > 0 && (
+                  <StatsDonutBlock>
+                    <StatsDonut $gradient={buildDonutGradient(richHubStats.settlementDonut)} />
+                    <StatsDonutLegend>
+                      <StatsSectionTitle style={{ marginBottom: '0.35rem' }}>Οικισμοί (top)</StatsSectionTitle>
+                      {richHubStats.settlementDonut.map((seg) => (
+                        <StatsDonutLegendItem
+                          key={seg.key}
+                          type="button"
+                          onClick={() => applyStatsFilter({ settlement: seg.key })}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                            <StatsDonutDot $color={seg.color} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {seg.label}
+                            </span>
+                          </span>
+                          <StatsBreakdownCount>{seg.value}</StatsBreakdownCount>
+                        </StatsDonutLegendItem>
+                      ))}
+                    </StatsDonutLegend>
+                  </StatsDonutBlock>
+                )}
               </StatsDonutRow>
 
               {richHubStats.aepoSoonList.length > 0 && (
@@ -6381,8 +7393,9 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                         key={row.id}
                         type="button"
                         onClick={() => {
-                          setSelectedId(row.id);
-                          setShowHubStatsModal(false);
+                          void requestSelectProposal(row.id).then((ok) => {
+                            if (ok) setShowHubStatsModal(false);
+                          });
                         }}
                       >
                         <div>
@@ -6432,8 +7445,9 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                         key={row.id}
                         type="button"
                         onClick={() => {
-                          setSelectedId(row.id);
-                          setShowHubStatsModal(false);
+                          void requestSelectProposal(row.id).then((ok) => {
+                            if (ok) setShowHubStatsModal(false);
+                          });
                         }}
                       >
                         <div>
@@ -6482,6 +7496,46 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                     </StatsClickableRow>
                   ))}
               </StatsBreakdown>
+
+              {showMunicipalUnitFilters ? (
+                <>
+                  <StatsSectionTitle>Αναλυτική κατανομή δημοτικών ενοτήτων</StatsSectionTitle>
+                  <StatsBreakdown>
+                    {Object.entries(richHubStats.byMunicipalUnit)
+                      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'el'))
+                      .map(([unit, count]) => (
+                        <StatsClickableRow
+                          key={unit}
+                          type="button"
+                          onClick={() => applyStatsFilter({ municipalUnit: unit })}
+                        >
+                          <span>{unit}</span>
+                          <StatsBreakdownCount>{count}</StatsBreakdownCount>
+                        </StatsClickableRow>
+                      ))}
+                  </StatsBreakdown>
+                </>
+              ) : null}
+
+              {showSettlementFilters ? (
+                <>
+                  <StatsSectionTitle>Αναλυτική κατανομή οικισμών</StatsSectionTitle>
+                  <StatsBreakdown>
+                    {Object.entries(richHubStats.bySettlement)
+                      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'el'))
+                      .map(([st, count]) => (
+                        <StatsClickableRow
+                          key={st}
+                          type="button"
+                          onClick={() => applyStatsFilter({ settlement: st })}
+                        >
+                          <span>{st}</span>
+                          <StatsBreakdownCount>{count}</StatsBreakdownCount>
+                        </StatsClickableRow>
+                      ))}
+                  </StatsBreakdown>
+                </>
+              ) : null}
             </FolderModalBody>
             <FolderModalFooter>
               <Btn $sm $variant="primary" onClick={() => setShowHubStatsModal(false)}>
@@ -6572,6 +7626,121 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
           </ExportSuccessCard>
         </ExportSuccessOverlay>
       )}
+
+      {unsavedNavModal && (
+        <FolderModalOverlay onClick={() => void completeUnsavedNavigation('cancel')}>
+          <FolderModalCard onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+            <FolderModalHeader>
+              <FolderModalTitle>💾 Μη αποθηκευμένες αλλαγές</FolderModalTitle>
+              <FolderModalSub>
+                Έχετε αλλαγές που δεν έχουν αποθηκευτεί στο δίσκο.
+              </FolderModalSub>
+            </FolderModalHeader>
+            <FolderModalBody>
+              <p style={{ margin: 0, fontSize: '0.82rem', color: C.slate600, lineHeight: 1.55 }}>
+                Να αποθηκευτούν πριν συνεχίσετε; Αν απορρίψετε, οι τοπικές αλλαγές θα χαθούν.
+              </p>
+            </FolderModalBody>
+            <FolderModalFooter style={{ flexWrap: 'wrap', gap: '0.35rem' }}>
+              <Btn $sm $variant="ghost" onClick={() => void completeUnsavedNavigation('cancel')}>
+                Ακύρωση
+              </Btn>
+              <Btn $sm $variant="danger" onClick={() => void completeUnsavedNavigation('discard')}>
+                Απόρριψη
+              </Btn>
+              <Btn $sm $variant="primary" onClick={() => void completeUnsavedNavigation('save')}>
+                Αποθήκευση
+              </Btn>
+            </FolderModalFooter>
+          </FolderModalCard>
+        </FolderModalOverlay>
+      )}
+
+      {showAepoSettingsModal && (
+        <FolderModalOverlay onClick={() => setShowAepoSettingsModal(false)}>
+          <FolderModalCard onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <FolderModalHeader>
+              <FolderModalTitle>🔔 Υπενθυμίσεις ΑΕΠΟ</FolderModalTitle>
+              <FolderModalSub>Email μέσω SMTP · ειδοποίηση 30 / 60 / 90 ημέρες πριν τη λήξη</FolderModalSub>
+            </FolderModalHeader>
+            <FolderModalBody>
+              <AepoSettingsForm
+                config={orimanthiConfig?.aepoReminders}
+                onSave={saveAepoReminderSettings}
+                onCancel={() => setShowAepoSettingsModal(false)}
+                isReadOnly={isReadOnly}
+              />
+            </FolderModalBody>
+          </FolderModalCard>
+        </FolderModalOverlay>
+      )}
     </Overlay>
+  );
+}
+
+function AepoSettingsForm({ config, onSave, onCancel, isReadOnly }) {
+  const [enabled, setEnabled] = useState(config?.enabled !== false);
+  const [useAdminEmails, setUseAdminEmails] = useState(config?.useAdminEmails !== false);
+  const [days30, setDays30] = useState((config?.daysBefore || [30, 60, 90]).includes(30));
+  const [days60, setDays60] = useState((config?.daysBefore || [30, 60, 90]).includes(60));
+  const [days90, setDays90] = useState((config?.daysBefore || [30, 60, 90]).includes(90));
+  const [extraEmails, setExtraEmails] = useState((config?.recipientEmails || []).join(', '));
+
+  const handleSave = () => {
+    const daysBefore = [];
+    if (days90) daysBefore.push(90);
+    if (days60) daysBefore.push(60);
+    if (days30) daysBefore.push(30);
+    if (!daysBefore.length) daysBefore.push(30, 60, 90);
+    onSave({
+      enabled,
+      useAdminEmails,
+      daysBefore,
+      recipientEmails: extraEmails
+        .split(/[,;]+/)
+        .map((e) => e.trim())
+        .filter((e) => e.includes('@')),
+    });
+  };
+
+  return (
+    <>
+      <ExportOptionRow>
+        <input type="checkbox" checked={enabled} disabled={isReadOnly} onChange={(e) => setEnabled(e.target.checked)} />
+        <span>Ενεργές email υπενθυμίσεις</span>
+      </ExportOptionRow>
+      <ExportOptionRow>
+        <input type="checkbox" checked={useAdminEmails} disabled={isReadOnly} onChange={(e) => setUseAdminEmails(e.target.checked)} />
+        <span>Αποστολή σε ADMIN / SUPERADMIN (email από προφίλ)</span>
+      </ExportOptionRow>
+      <div style={{ margin: '0.75rem 0 0.35rem', fontSize: '0.78rem', fontWeight: 700, color: C.slate600 }}>
+        Όρια ημερών πριν τη λήξη ΑΕΠΟ
+      </div>
+      <ExportOptionRow>
+        <input type="checkbox" checked={days90} disabled={isReadOnly} onChange={(e) => setDays90(e.target.checked)} />
+        <span>90 ημέρες πριν</span>
+      </ExportOptionRow>
+      <ExportOptionRow>
+        <input type="checkbox" checked={days60} disabled={isReadOnly} onChange={(e) => setDays60(e.target.checked)} />
+        <span>60 ημέρες πριν</span>
+      </ExportOptionRow>
+      <ExportOptionRow>
+        <input type="checkbox" checked={days30} disabled={isReadOnly} onChange={(e) => setDays30(e.target.checked)} />
+        <span>30 ημέρες πριν</span>
+      </ExportOptionRow>
+      <FormInput
+        style={{ marginTop: '0.65rem' }}
+        placeholder="Επιπλέον emails (χωρισμένα με κόμμα)…"
+        value={extraEmails}
+        disabled={isReadOnly}
+        onChange={(e) => setExtraEmails(e.target.value)}
+      />
+      <FolderModalFooter style={{ padding: '0.85rem 0 0', marginTop: '0.5rem' }}>
+        <Btn $sm $variant="ghost" onClick={onCancel}>Κλείσιμο</Btn>
+        {!isReadOnly && (
+          <Btn $sm $variant="primary" onClick={handleSave}>Αποθήκευση</Btn>
+        )}
+      </FolderModalFooter>
+    </>
   );
 }

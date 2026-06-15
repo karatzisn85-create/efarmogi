@@ -1,6 +1,6 @@
 {
   "name": "efarmogi-app",
-  "version": "1.3.36",
+  "version": "1.3.39",
   "description": "Desktop εφαρμογή διαχείρισης έργων",
   "author": "Δήμος Αρχανών-Αστερούσιων",
   "main": "public/electron.js",
@@ -10,6 +10,7 @@
     "@craco/craco": "^7.1.0",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
+    "@pdf-lib/fontkit": "^1.1.1",
     "@react-pdf/renderer": "^4.5.1",
     "@testing-library/jest-dom": "^5.16.4",
     "@testing-library/react": "^13.3.0",

@@ -63,7 +63,9 @@ const PROPOSAL_FIELD_LABELS = {
   title: 'Τίτλος',
   status: 'Κατάσταση ωρίμανσης',
   projectCategory: 'Κατηγορία έργου',
-  infrastructureSpecialization: 'Εξειδίκευση υποδομής',
+  infrastructureSpecialization: 'Εξειδίκευση',
+  municipalUnit: 'Δημοτική Ενότητα',
+  settlement: 'Οικισμός',
   aepoRenewalDate: 'Ημερομηνία ανανέωσης ΑΕΠΟ',
   description: 'Περιγραφή',
   notes: 'Σημειώσεις',
@@ -106,6 +108,25 @@ export function countProposalFiles(project) {
   );
 }
 
+/** Fingerprint για έλεγχο μη αποθηκευμένων αλλαγών. */
+export function proposalPersistFingerprint(proposal) {
+  if (!proposal) return '';
+  return JSON.stringify({
+    title: proposal.title || '',
+    status: proposal.status || '',
+    projectCategory: proposal.projectCategory || '',
+    infrastructureSpecialization: proposal.infrastructureSpecialization || '',
+    municipalUnit: proposal.municipalUnit || '',
+    settlement: proposal.settlement || '',
+    aepoRenewalDate: proposal.aepoRenewalDate || '',
+    description: proposal.description || '',
+    notes: proposal.notes || '',
+    pendingItems: proposal.pendingItems || [],
+    pendingTemplateCategory: proposal.pendingTemplateCategory || '',
+    fileGroups: proposal.fileGroups || [],
+  });
+}
+
 /** Φίλτρο αρχείων εντός τρέχοντος έργου (tab Αρχεία). */
 export function filterGroupFiles(group, query, folderIdsWithInnerMatch = null) {
   const q = String(query || '').trim().toLowerCase();
@@ -143,12 +164,16 @@ const C_FALLBACK = '#e2e8f0';
 export function computeExtendedHubStats(proposals, statusDefs) {
   const byStatus = {};
   const byCategory = {};
+  const byMunicipalUnit = {};
+  const bySettlement = {};
   let totalFiles = 0;
   let totalPending = 0;
   let totalPendingOpen = 0;
   let withAepo = 0;
   let aepoDueSoon = 0;
   let withNotes = 0;
+  let withMunicipalUnit = 0;
+  let withSettlement = 0;
   const aepoSoonList = [];
   const topPending = [];
   const recentlyUpdated = [];
@@ -161,6 +186,20 @@ export function computeExtendedHubStats(proposals, statusDefs) {
     byStatus[statusKey] = (byStatus[statusKey] || 0) + 1;
     const cat = String(p.projectCategory || '').trim() || 'Χωρίς κατηγορία';
     byCategory[cat] = (byCategory[cat] || 0) + 1;
+
+    const mu = String(p.municipalUnit || '').trim();
+    if (mu) {
+      withMunicipalUnit += 1;
+      byMunicipalUnit[mu] = (byMunicipalUnit[mu] || 0) + 1;
+    } else {
+      byMunicipalUnit['Χωρίς δημοτική ενότητα'] = (byMunicipalUnit['Χωρίς δημοτική ενότητα'] || 0) + 1;
+    }
+
+    const settlement = String(p.settlement || '').trim();
+    if (settlement) {
+      withSettlement += 1;
+      bySettlement[settlement] = (bySettlement[settlement] || 0) + 1;
+    }
 
     totalFiles += countProposalFiles(p);
 
@@ -226,16 +265,40 @@ export function computeExtendedHubStats(proposals, statusDefs) {
       key: label,
     }));
 
+  const municipalUnitDonut = Object.entries(byMunicipalUnit)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([label, value], i) => ({
+      label,
+      value,
+      color: CATEGORY_DONUT_COLORS[i % CATEGORY_DONUT_COLORS.length],
+      key: label,
+    }));
+
+  const settlementDonut = Object.entries(bySettlement)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([label, value], i) => ({
+      label,
+      value,
+      color: CATEGORY_DONUT_COLORS[(i + 3) % CATEGORY_DONUT_COLORS.length],
+      key: label,
+    }));
+
   return {
     total: proposals.length,
     byStatus,
     byCategory,
+    byMunicipalUnit,
+    bySettlement,
     totalFiles,
     totalPending,
     totalPendingOpen,
     withAepo,
     aepoDueSoon,
     withNotes,
+    withMunicipalUnit,
+    withSettlement,
     maturing: proposals.filter((p) => p.status === 'maturing' || p.status === 'draft').length,
     ready: proposals.filter((p) => p.status === 'ready').length,
     approved: proposals.filter((p) => p.status === 'approved').length,
@@ -246,6 +309,8 @@ export function computeExtendedHubStats(proposals, statusDefs) {
     recentlyUpdated: recentlyUpdated.slice(0, 8),
     statusDonut,
     categoryDonut,
+    municipalUnitDonut,
+    settlementDonut,
   };
 }
 

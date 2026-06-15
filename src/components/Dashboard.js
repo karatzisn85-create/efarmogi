@@ -4,7 +4,7 @@ import ProjectForm from './ProjectForm';
 
 import ProjectCard from './ProjectCard';
 import SubprojectDetailModal from './SubprojectDetailModal';
-import { uploadSubprojectFiles } from '../utils/uploadSubprojectFiles';
+import { uploadSubprojectFiles, uploadSubprojectFolder } from '../utils/uploadSubprojectFiles';
 import AdvancedFilters from './AdvancedFilters';
 import ActiveFiltersBanner from './ActiveFiltersBanner';
 import FileManager from './FileManager';
@@ -63,9 +63,12 @@ const BackupManager = lazy(() => import('./BackupManager'));
 const AuditLogViewer = lazy(() => import('./AuditLogViewer'));
 const UserManagement = lazy(() => import('./UserManagement'));
 const EmailSettingsModal = lazy(() => import('./EmailSettingsModal'));
+const MunicipalUnitsManager = lazy(() => import('./MunicipalUnitsManager'));
 const TaskAssignmentManager = lazy(() => import('./TaskAssignmentManager'));
 const EpProgramManager = lazy(() => import('./EpProgramManager'));
 const OrimanthiManager = lazy(() => import('./OrimanthiManager'));
+const OrimanthiAepoWidget = lazy(() => import('./OrimanthiAepoWidget'));
+const MeletaiManager = lazy(() => import('./MeletaiManager'));
 
 const ipcRenderer = window.electronAPI;
 
@@ -1913,7 +1916,8 @@ const ENTITY_TYPE_META = {
   subproject: { icon: '📦', label: 'Υποέργο' },
   entaxi:     { icon: '📋', label: 'Ένταξη' },
   prosklisi:  { icon: '📢', label: 'Πρόσκληση' },
-  egkrisi:    { icon: '💰', label: 'Έγκριση' }
+  egkrisi:    { icon: '💰', label: 'Έγκριση' },
+  meleti:     { icon: '📐', label: 'Μελέτη' },
 };
 
 const VISIBILITY_OPTIONS = [
@@ -2274,7 +2278,7 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
             </LinkedChipsWrap>
           )}
           <LinkTypeTabs>
-            {[{ key: 'all', label: 'Όλα' }, { key: 'project', label: '🏗 Έργα' }, { key: 'subproject', label: '📦 Υποέργα' }, { key: 'entaxi', label: '📋 Εντάξεις' }, { key: 'prosklisi', label: '📢 Προσκλήσεις' }, { key: 'egkrisi', label: '💰 Εγκρίσεις' }].map(tab => (
+            {[{ key: 'all', label: 'Όλα' }, { key: 'project', label: '🏗 Έργα' }, { key: 'subproject', label: '📦 Υποέργα' }, { key: 'entaxi', label: '📋 Εντάξεις' }, { key: 'prosklisi', label: '📢 Προσκλήσεις' }, { key: 'egkrisi', label: '💰 Εγκρίσεις' }, { key: 'meleti', label: '📐 Μελέτες' }].map(tab => (
               <LinkTypeTab key={tab.key} $active={linkTypeFilter === tab.key} type="button" onClick={() => setLinkTypeFilter(tab.key)}>
                 {tab.label}
               </LinkTypeTab>
@@ -2441,6 +2445,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const shouldRestoreScroll = useRef(false);
   /** Επιστροφή στις σημειώσεις μετά από μετάβαση από chip συσχέτισης */
   const noteReturnRef = useRef(null);
+  const meletaiReturnRef = useRef(null);
   // Separate monotonic counters for loadDataWithCache and loadProjects
   // Keeping them separate so one does not accidentally cancel the other
   const loadRequestIdRef = useRef(0);
@@ -2477,6 +2482,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     files: [], 
     fileGroups: [] 
   });
+  const [fileManagerUploading, setFileManagerUploading] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isTechnicalProgramOpen, setIsTechnicalProgramOpen] = useState(false);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
@@ -2491,6 +2497,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [isEmailSettingsOpen, setIsEmailSettingsOpen] = useState(false);
+  const [isMunicipalUnitsOpen, setIsMunicipalUnitsOpen] = useState(false);
   const [isTaskAssignmentsOpen, setIsTaskAssignmentsOpen] = useState(false);
   const [taskAssignmentInitialScreen, setTaskAssignmentInitialScreen] = useState('workspace');
   const [taskAssignmentsFocusTaskId, setTaskAssignmentsFocusTaskId] = useState(null);
@@ -2504,6 +2511,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     );
   }, [projects, isEngineer, engineerVisibilityContext, engineerCatalogForCards]);
 
+  const engineerVisibleSubprojectIds = useMemo(() => {
+    if (!isEngineer) return null;
+    return new Set(visibleProjects.map((p) => p.subprojectId).filter(Boolean));
+  }, [isEngineer, visibleProjects]);
+
   const [isEntaxisOpen, setIsEntaxisOpen] = useState(false);
   const [entaxisProjectFilter, setEntaxisProjectFilter] = useState(null);
   const [selectedEntaxiId, setSelectedEntaxiId] = useState(null);
@@ -2516,6 +2528,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [egkriseisRefreshTrigger, setEgkriseisRefreshTrigger] = useState(0);
   const [isEpProgramOpen, setIsEpProgramOpen] = useState(false);
   const [isOrimanthiOpen, setIsOrimanthiOpen] = useState(false);
+  const [isMeletaiOpen, setIsMeletaiOpen] = useState(false);
+  const [selectedMeletiId, setSelectedMeletiId] = useState(null);
+  const [meletaiRestoreScrollTop, setMeletaiRestoreScrollTop] = useState(0);
+  const [meletaiBySubproject, setMeletaiBySubproject] = useState({});
   const [epSubprojectMap, setEpSubprojectMap] = useState({}); // subprojectId → epActionInfo
 
   const refreshEpSubprojectMap = useCallback(async () => {
@@ -2525,6 +2541,26 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       const epRes = await ipcRenderer.invoke('get-ep-subproject-link-map', { requestingUsername: username });
       if (epRes?.success) {
         setEpSubprojectMap(epRes.map || {});
+      }
+    } catch {
+      /* non-blocking */
+    }
+  }, [currentUser?.username]);
+
+  const refreshMeletaiSubprojectMap = useCallback(async () => {
+    const username = currentUser?.username || '';
+    if (!username) return;
+    try {
+      const res = await ipcRenderer.invoke('load-all-meletai', {
+        actingUsername: username,
+        skipMaintenance: true,
+      });
+      if (res?.success) {
+        const map = {};
+        (res.meletai || []).forEach((m) => {
+          if (m.linkedSubprojectId) map[m.linkedSubprojectId] = m;
+        });
+        setMeletaiBySubproject(map);
       }
     } catch {
       /* non-blocking */
@@ -3236,6 +3272,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       ]);
       
       refreshEpSubprojectMap();
+      refreshMeletaiSubprojectMap();
+      if (currentUser?.username) {
+        void ipcRenderer.invoke('run-meletai-maintenance', {
+          actingUsername: currentUser.username,
+        }).then(() => refreshMeletaiSubprojectMap());
+      }
 
       // Φόρτωμα prosklisi links - ΠΕΡΙΜΕΝΟΥΜΕ
       const prosklisiLinksResult = await ipcRenderer.invoke('load-subproject-links').catch((err) => {
@@ -3809,21 +3851,80 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     }
   };
 
-  const handleUploadSubprojectFiles = async (project) => {
+  const findSubprojectByIds = (projectId, subprojectId) =>
+    projects.find((p) => p.projectId === projectId && p.subprojectId === subprojectId) || null;
+
+  const assertSubprojectUploadAllowed = (project) => {
     if (userRole === 'USER') {
       showToast('Δεν έχετε δικαίωμα προσθήκης αρχείων.', 'warning');
-      return;
+      return false;
     }
-    if (project.isLocked) {
+    if (project?.isLocked) {
       const who = project.lockedBy ? `«${project.lockedBy}»` : 'άλλον χρήστη';
       showToast(`Το έργο είναι κλειδωμένο από ${who}. Δεν μπορούν να προστεθούν αρχεία αυτή τη στιγμή.`, 'warning');
-      return;
+      return false;
+    }
+    return true;
+  };
+
+  const refreshAfterSubprojectUpload = async (projectId, subprojectId, count, groupTitle) => {
+    invalidateCache();
+    await loadDataWithCache(true);
+
+    if (
+      fileManager.isOpen &&
+      fileManager.projectId === projectId &&
+      fileManager.subprojectId === subprojectId
+    ) {
+      await handleOpenFileManager(projectId, subprojectId);
     }
 
+    const suffix = groupTitle ? ` στον φάκελο «${groupTitle}»` : '';
+    showToast(`Προστέθηκαν επιτυχώς ${count} αρχείο(α) στο υποέργο${suffix}.`, 'success');
+  };
+
+  const handleUploadSubprojectFolder = async (projectId, subprojectId) => {
+    const project = findSubprojectByIds(projectId, subprojectId);
+    if (!assertSubprojectUploadAllowed(project)) return;
+
+    setFileManagerUploading(true);
+    try {
+      const result = await uploadSubprojectFolder({ projectId, subprojectId });
+
+      if (result.cancelled) {
+        return;
+      }
+
+      if (!result.success) {
+        showToast('Σφάλμα κατά την προσθήκη φακέλου: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
+        return;
+      }
+
+      await refreshAfterSubprojectUpload(
+        projectId,
+        subprojectId,
+        result.count,
+        result.groupTitle
+      );
+    } catch (error) {
+      console.error('Error uploading subproject folder:', error);
+      showToast('Σφάλμα κατά την προσθήκη φακέλου: ' + error.message, 'error');
+    } finally {
+      setFileManagerUploading(false);
+    }
+  };
+
+  const handleUploadSubprojectFilesFromManager = async () => {
+    if (!fileManager.isOpen || !fileManager.projectId || !fileManager.subprojectId) return;
+
+    const project = findSubprojectByIds(fileManager.projectId, fileManager.subprojectId);
+    if (!assertSubprojectUploadAllowed(project)) return;
+
+    setFileManagerUploading(true);
     try {
       const result = await uploadSubprojectFiles({
-        projectId: project.projectId,
-        subprojectId: project.subprojectId
+        projectId: fileManager.projectId,
+        subprojectId: fileManager.subprojectId
       });
 
       if (result.cancelled) {
@@ -3835,21 +3936,16 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         return;
       }
 
-      invalidateCache();
-      await loadDataWithCache(true);
-
-      if (
-        fileManager.isOpen &&
-        fileManager.projectId === project.projectId &&
-        fileManager.subprojectId === project.subprojectId
-      ) {
-        await handleOpenFileManager(project.projectId, project.subprojectId);
-      }
-
-      showToast(`Προστέθηκαν επιτυχώς ${result.count} αρχείο(α) στο υποέργο.`, 'success');
+      await refreshAfterSubprojectUpload(
+        fileManager.projectId,
+        fileManager.subprojectId,
+        result.count
+      );
     } catch (error) {
       console.error('Error uploading subproject files:', error);
       showToast('Σφάλμα κατά την προσθήκη αρχείων: ' + error.message, 'error');
+    } finally {
+      setFileManagerUploading(false);
     }
   };
 
@@ -4425,6 +4521,42 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     noteReturnRef.current = null;
   }, []);
 
+  const clearMeletiReturnContext = useCallback(() => {
+    meletaiReturnRef.current = null;
+    setMeletaiRestoreScrollTop(0);
+  }, []);
+
+  const captureMeletiReturnContext = useCallback(({ meletiId, scrollTop = 0 } = {}) => {
+    const id = meletiId || selectedMeletiId;
+    if (!isMeletaiOpen || !id) return;
+    meletaiReturnRef.current = {
+      meletiId: id,
+      scrollTop: scrollTop || 0,
+    };
+  }, [isMeletaiOpen, selectedMeletiId]);
+
+  const restoreMeletiReturnContext = useCallback(() => {
+    const ctx = meletaiReturnRef.current;
+    if (!ctx?.meletiId) return false;
+    meletaiReturnRef.current = null;
+    setMeletaiRestoreScrollTop(ctx.scrollTop || 0);
+    setSelectedMeletiId(ctx.meletiId);
+    setIsMeletaiOpen(true);
+    return true;
+  }, []);
+
+  const handleNavigateToSubprojectFromMeleti = useCallback((subprojectId, { scrollTop, meletiId } = {}) => {
+    if (!subprojectId) return;
+    captureMeletiReturnContext({ meletiId, scrollTop });
+    setIsMeletaiOpen(false);
+    const found = projects.find((p) => p.subprojectId === subprojectId);
+    if (found) {
+      setSelectedDetailProject(found);
+    } else {
+      showToast('Δεν έχετε πρόσβαση σε αυτό το υποέργο ή δεν υπάρχει πλέον', 'warning');
+    }
+  }, [projects, captureMeletiReturnContext, showToast]);
+
   const captureNoteReturnContext = useCallback(() => {
     if (!isNotesOpen) return;
     const noteId = editingNote?.id || selectedNoteId;
@@ -4479,7 +4611,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     if (!entity) return;
 
     const { type, id, title } = entity;
-    const opensModal = type === 'subproject' || type === 'entaxi' || type === 'prosklisi' || type === 'egkrisi';
+    const opensModal = type === 'subproject' || type === 'entaxi' || type === 'prosklisi' || type === 'egkrisi' || type === 'meleti';
     if (opensModal) captureNoteReturnContext();
 
     setIsNotesOpen(false);
@@ -4506,6 +4638,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         subprojectKey: null
       });
       setIsCreditApprovalsOpen(true);
+    } else if (type === 'meleti') {
+      setSelectedMeletiId(id);
+      setIsMeletaiOpen(true);
     }
   }, [projects, captureNoteReturnContext]);
 
@@ -4630,6 +4765,16 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       setEntaxisProjectFilter(entaxi.projectTitle);
       setIsEntaxisOpen(true);
       // TODO: Highlight the specific entaxi when the modal opens
+    }
+  };
+
+  const hasMeletiForSubproject = (subprojectId) => !!meletaiBySubproject[subprojectId];
+
+  const handleOpenSpecificMeleti = (subprojectId) => {
+    const meleti = meletaiBySubproject[subprojectId];
+    if (meleti) {
+      setSelectedMeletiId(meleti.id);
+      setIsMeletaiOpen(true);
     }
   };
 
@@ -4881,6 +5026,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             />
           </Suspense>
 
+          {(userRole === 'ADMIN' || userRole === 'SUPERADMIN' || !!currentUser?.orimanthiCanEdit) && (
+            <Suspense fallback={null}>
+              <OrimanthiAepoWidget onOpenOrimanthi={() => setIsOrimanthiOpen(true)} />
+            </Suspense>
+          )}
+
           {/* Banner αρχειοθετημένων έργων */}
           {showArchivedProjects && (
             <ArchiveBanner>
@@ -5035,6 +5186,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                                 onOpenSpecificEntaxi={() => handleOpenSpecificEntaxi(project.subprojectId)}
                                 hasProsklisi={hasProsklisiForProject(project.projectTitle, project.projectId)}
                                 onOpenSpecificProsklisi={() => handleOpenSpecificProsklisi(project.projectTitle, project.projectId)}
+                                hasMeleti={hasMeletiForSubproject(project.subprojectId)}
+                                onOpenSpecificMeleti={() => handleOpenSpecificMeleti(project.subprojectId)}
                                 onViewDetails={(p) => setSelectedDetailProject(p)}
                                 engineerCatalog={engineerCatalogForCards}
                                 linkedNotesMap={linkedNotesMap}
@@ -5216,12 +5369,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           </CategoryBody>
         </CategorySection>
 
-        {/* Κατηγορία: ΦΑΚΕΛΟΣ ΕΡΓΩΝ */}
-        <CategorySection $accentColor="#0891b2" $accentGrad="linear-gradient(135deg, #0891b2, #06b6d4)">
+        {/* Κατηγορία: ΔΙΑΔΙΚΑΣΙΕΣ ΕΡΓΩΝ */}
+          <CategorySection $accentColor="#0891b2" $accentGrad="linear-gradient(135deg, #0891b2, #06b6d4)">
             <CategoryHeader $open={expandedCategories.management} onClick={() => toggleCategory('management')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #0891b2, #06b6d4)">📂</CategoryHeaderIcon>
-                <CategoryHeaderTitle>Φάκελος Έργων</CategoryHeaderTitle>
+                <CategoryHeaderTitle>Διαδικασίες Έργων</CategoryHeaderTitle>
               </CategoryHeaderLeft>
               <CategoryHeaderChevron $open={expandedCategories.management}>▶</CategoryHeaderChevron>
             </CategoryHeader>
@@ -5251,6 +5404,16 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               <AdminButton onClick={() => setIsOrimanthiOpen(true)} title="Βάση Δεδομένων — καταγραφή ωρίμανσης έργων">
                 <AdminButtonIcon>🌱</AdminButtonIcon>
                 Ωρίμανση Έργων
+              </AdminButton>
+              <AdminButton onClick={() => {
+                if (contentWrapperRef.current) {
+                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                }
+                setSelectedMeletiId(null);
+                setIsMeletaiOpen(true);
+              }} title="Μητρώο καταχώρησης μελετών">
+                <AdminButtonIcon>📐</AdminButtonIcon>
+                Μητρώο Μελετών
               </AdminButton>
             </CategoryBody>
           </CategorySection>
@@ -5367,6 +5530,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <AdminButtonIcon>✉</AdminButtonIcon>
                 Ρυθμίσεις Email
               </AdminButton>
+              <AdminButton onClick={() => setIsMunicipalUnitsOpen(true)}>
+                <AdminButtonIcon>🏘</AdminButtonIcon>
+                Δημοτικές Ενότητες
+              </AdminButton>
             </CategoryBody>
           </CategorySection>
         )}
@@ -5379,13 +5546,15 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           engineerCatalog={engineerCatalogForCards}
           onClose={() => {
             setSelectedDetailProject(null);
-            restoreNoteReturnContext();
+            if (!restoreMeletiReturnContext()) {
+              restoreNoteReturnContext();
+            }
           }}
           onEdit={(p) => {
             setSelectedDetailProject(null);
             handleEditProject(p);
           }}
-          onUploadFiles={handleUploadSubprojectFiles}
+          onOpenFileManager={() => handleOpenFileManager(selectedDetailProject.projectId, selectedDetailProject.subprojectId)}
           userRole={userRole}
           currentUser={currentUser}
           isLocked={selectedDetailProject.isLocked || false}
@@ -5507,6 +5676,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           files={fileManager.files}
           fileGroups={fileManager.fileGroups}
           userRole={userRole}
+          canUpload={userRole !== 'USER'}
+          isUploading={fileManagerUploading}
+          onUploadFiles={handleUploadSubprojectFilesFromManager}
+          onUploadFolder={() => handleUploadSubprojectFolder(fileManager.projectId, fileManager.subprojectId)}
           onViewFile={(fileName) => handleViewFile(fileManager.projectId, fileManager.subprojectId, fileName)}
           onDownloadFile={(fileName) => handleDownloadFile(fileManager.projectId, fileManager.subprojectId, fileName)}
           onDeleteFile={(fileName) => handleDeleteFile(fileManager.projectId, fileManager.subprojectId, fileName)}
@@ -5639,6 +5812,33 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             loggedInUsername={currentUser?.username || ''}
             userRole={userRole}
             orimanthiCanEdit={!!currentUser?.orimanthiCanEdit}
+          />
+        </Suspense>
+      ) : null}
+
+      {/* Μητρώο Μελετών */}
+      {isMeletaiOpen ? (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση Μητρώου Μελετών…</LazyChunkFallback>}>
+          <MeletaiManager
+            onClose={() => {
+              clearMeletiReturnContext();
+              setIsMeletaiOpen(false);
+              setSelectedMeletiId(null);
+              refreshMeletaiSubprojectMap();
+              setTimeout(() => {
+                if (contentWrapperRef.current) {
+                  contentWrapperRef.current.scrollTop = savedScrollPosition.current;
+                }
+              }, 100);
+            }}
+            loggedInUsername={currentUser?.username || ''}
+            userRole={userRole}
+            meletaiCanEdit={!!currentUser?.meletaiCanEdit}
+            visibleSubprojectIds={engineerVisibleSubprojectIds}
+            initialMeletiId={selectedMeletiId}
+            onNavigateToSubproject={handleNavigateToSubprojectFromMeleti}
+            initialDetailScrollTop={meletaiRestoreScrollTop}
+            onDetailScrollRestored={() => setMeletaiRestoreScrollTop(0)}
           />
         </Suspense>
       ) : null}
@@ -6008,6 +6208,15 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         <Suspense fallback={null}>
           <EmailSettingsModal
             onClose={() => setIsEmailSettingsOpen(false)}
+            currentUser={currentUser}
+          />
+        </Suspense>
+      )}
+
+      {isMunicipalUnitsOpen && (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
+          <MunicipalUnitsManager
+            onClose={() => setIsMunicipalUnitsOpen(false)}
             currentUser={currentUser}
           />
         </Suspense>

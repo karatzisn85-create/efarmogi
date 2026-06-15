@@ -354,6 +354,7 @@ const createEmptyFormData = () => ({
   role: 'USER',
   taskAssignment: emptyTaskAssignmentPerms(),
   orimanthiCanEdit: false,
+  meletaiCanEdit: false,
 });
 
 function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUser }) {
@@ -474,8 +475,10 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
         updates.taskAssignment = formData.taskAssignment;
         if (formData.role === 'USER' || formData.role === 'ENGINEER') {
           updates.orimanthiCanEdit = !!formData.orimanthiCanEdit;
+          updates.meletaiCanEdit = !!formData.meletaiCanEdit;
         } else {
           updates.orimanthiCanEdit = false;
+          updates.meletaiCanEdit = false;
         }
       }
       const result = await ipcRenderer.invoke('update-user', {
@@ -509,6 +512,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
         createPayload.taskAssignment = formData.taskAssignment;
         if (formData.role === 'USER' || formData.role === 'ENGINEER') {
           createPayload.orimanthiCanEdit = !!formData.orimanthiCanEdit;
+          createPayload.meletaiCanEdit = !!formData.meletaiCanEdit;
         }
       }
       const result = await ipcRenderer.invoke('create-user', createPayload);
@@ -536,6 +540,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
         ? { ...emptyTaskAssignmentPerms(), ...user.taskAssignment }
         : emptyTaskAssignmentPerms(),
       orimanthiCanEdit: !!user.orimanthiCanEdit,
+      meletaiCanEdit: !!user.meletaiCanEdit,
     });
     setEditingUser(user.username);
     setShowForm(true);
@@ -914,6 +919,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                       ...f,
                       role,
                       orimanthiCanEdit: (role === 'USER' || role === 'ENGINEER') ? f.orimanthiCanEdit : false,
+                      meletaiCanEdit: (role === 'USER' || role === 'ENGINEER') ? f.meletaiCanEdit : false,
                     }));
                   }}
                 >
@@ -934,6 +940,20 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                     onChange={(e) => setFormData((f) => ({ ...f, orimanthiCanEdit: e.target.checked }))}
                   />
                   Δικαίωμα επεξεργασίας (viewer / μηχανικός — μόνο στο module Ωρίμανση Έργων)
+                </CheckboxRow>
+              </TaskPermSection>
+            )}
+
+            {isSuperAdmin && (formData.role === 'USER' || formData.role === 'ENGINEER') && (
+              <TaskPermSection>
+                <SectionTitle>Μητρώο Μελετών</SectionTitle>
+                <CheckboxRow>
+                  <input
+                    type="checkbox"
+                    checked={!!formData.meletaiCanEdit}
+                    onChange={(e) => setFormData((f) => ({ ...f, meletaiCanEdit: e.target.checked }))}
+                  />
+                  Δικαίωμα επεξεργασίας (viewer / μηχανικός — μόνο στο Μητρώο Μελετών)
                 </CheckboxRow>
               </TaskPermSection>
             )}

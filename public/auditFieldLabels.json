@@ -108,11 +108,21 @@
     "archived": "Αρχειοθετημένο",
     "projectCategory": "Κατηγορία έργου",
     "infrastructureSpecialization": "Εξειδίκευση υποδομής",
+    "municipalUnit": "Δημοτική Ενότητα",
+    "settlement": "Οικισμός",
     "aepoRenewalDate": "Ημερομηνία ανανέωσης ΑΕΠΟ",
     "targetProgram": "Σχετικό πρόγραμμα / χρηματοδότηση",
     "estimatedBudget": "Εκτιμώμενος προϋπολογισμός",
     "description": "Περιγραφή",
-    "notes": "Σημειώσεις"
+    "notes": "Σημειώσεις",
+    "studyNumber": "Αριθμός Μελέτης",
+    "assignedTo": "Χρεωμένη σε",
+    "category": "Κατηγορία Μελέτης",
+    "linkedSubprojectId": "Συνδ. Υποέργο (ID)",
+    "linkedSubprojectTitle": "Συνδ. Υποέργο",
+    "linkedProjectTitle": "Συνδ. Έργο",
+    "fileCategories": "Κατηγορίες αρχείων",
+    "fileEntries": "Εγγραφές αρχείων"
   },
   "arrayItemPrefixes": {
     "contracts": "Σύμβαση",

@@ -198,43 +198,29 @@ const CloseButton = styled.button`
   }
 `;
 
-const UploadFilesButton = styled.button`
+const ViewSubprojectFilesButton = styled.button`
   width: 100%;
   margin-top: 0.25rem;
   padding: 1rem 1.5rem;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: white;
   border: none;
   border-radius: 10px;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 700;
+  letter-spacing: 0.02em;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 
-  &:hover:not(:disabled) {
+  &:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45);
   }
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-  }
-`;
-
-const UploadHint = styled.p`
-  margin: 0.5rem 0 0;
-  font-size: 0.82rem;
-  color: #64748b;
-  text-align: center;
-  line-height: 1.4;
 `;
 
 const ModalBody = styled.div`
@@ -643,7 +629,7 @@ function SubprojectDetailModal({
   project,
   onClose,
   onEdit,
-  onUploadFiles,
+  onOpenFileManager,
   userRole,
   currentUser,
   isLocked,
@@ -656,7 +642,6 @@ function SubprojectDetailModal({
   onEpLinksChanged,
   directAssignmentViolations = []
 }) {
-  const [isUploading, setIsUploading] = useState(false);
   const requestingUsername = currentUser?.username || '';
 
   // EP Program link state
@@ -811,18 +796,6 @@ function SubprojectDetailModal({
       unlockBodyScroll('subdetail');
     };
   }, []);
-
-  const canUploadFiles = userRole !== 'USER' && typeof onUploadFiles === 'function';
-
-  const handleUploadClick = async () => {
-    if (!canUploadFiles || isUploading || isLocked) return;
-    setIsUploading(true);
-    try {
-      await onUploadFiles(project);
-    } finally {
-      setIsUploading(false);
-    }
-  };
 
   const { displayChargePrimary, displayChargeParticipants } = useMemo(
     () => getProjectChargeDisplay(project, engineerCatalog),
@@ -1513,28 +1486,14 @@ function SubprojectDetailModal({
             </Section>
           )}
 
-          {canUploadFiles && (
-            <Section>
-              <SectionTitle>Αρχεία Υποέργου</SectionTitle>
-              <UploadFilesButton
-                type="button"
-                onClick={handleUploadClick}
-                disabled={isUploading || isLocked}
-                title={
-                  isLocked
-                    ? (lockedBy ? `Κλειδωμένο από: ${lockedBy}` : 'Το έργο είναι κλειδωμένο')
-                    : 'Επιλογή αρχείων από τον υπολογιστή σας'
-                }
-              >
-                {isUploading ? '⏳ Αποθήκευση…' : '📤 Ανεβάστε αρχεία στο Υποέργο'}
-              </UploadFilesButton>
-              <UploadHint>
-                {isLocked
-                  ? 'Δεν είναι δυνατή η προσθήκη αρχείων όσο το έργο είναι κλειδωμένο για επεξεργασία.'
-                  : 'Μπορείτε επίσης να προσθέσετε αρχεία από την επεξεργασία του υποέργου.'}
-              </UploadHint>
-            </Section>
-          )}
+          <Section>
+            <SectionTitle>Αρχεία Υποέργου</SectionTitle>
+            {typeof onOpenFileManager === 'function' && (
+              <ViewSubprojectFilesButton type="button" onClick={() => onOpenFileManager()}>
+                📁 Προβολή Αρχείων Υποέργου
+              </ViewSubprojectFilesButton>
+            )}
+          </Section>
 
         </ModalBody>
       </Modal>

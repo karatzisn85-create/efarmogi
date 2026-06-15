@@ -702,7 +702,6 @@ const FileUploadSection = styled.div`
   border-radius: 14px;
   padding: 1.75rem 1.5rem;
   text-align: center;
-  margin: 1rem 0;
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
   background: linear-gradient(180deg, rgba(238, 242, 255, 0.65) 0%, rgba(255, 255, 255, 0.9) 100%);
@@ -712,6 +711,24 @@ const FileUploadSection = styled.div`
     background: linear-gradient(180deg, rgba(224, 231, 255, 0.9) 0%, #fff 100%);
     box-shadow: 0 4px 16px rgba(99, 102, 241, 0.12);
   }
+`;
+
+const FolderUploadSection = styled(FileUploadSection)`
+  border-color: rgba(16, 185, 129, 0.45);
+  background: linear-gradient(180deg, rgba(236, 253, 245, 0.65) 0%, rgba(255, 255, 255, 0.9) 100%);
+
+  &:hover {
+    border-color: #10b981;
+    background: linear-gradient(180deg, rgba(209, 250, 229, 0.9) 0%, #fff 100%);
+    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.12);
+  }
+`;
+
+const FileUploadGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.85rem;
+  margin: 1rem 0;
 `;
 
 const FileList = styled.div`
@@ -1885,6 +1902,46 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       }
     } catch (error) {
       console.error('Error selecting files:', error);
+    }
+  };
+
+  const handleFolderSelect = async () => {
+    try {
+      const pick = await ipcRenderer.invoke('select-folder-files-flat', {
+        title: 'Επιλογή φακέλου για το υποέργο'
+      });
+
+      if (pick.canceled) {
+        return;
+      }
+      if (!pick.success) {
+        showToast(pick.error || 'Αποτυχία επιλογής φακέλου', 'error');
+        return;
+      }
+
+      const newFiles = (pick.files || []).map((file) => ({
+        path: file.filePath || file.path,
+        name: file.fileName || file.name || (file.filePath || file.path || '').split(/[/\\]/).pop()
+      })).filter((file) => file.path);
+
+      if (newFiles.length === 0) {
+        showToast('Ο φάκελος δεν περιέχει αρχεία', 'warning');
+        return;
+      }
+
+      const folderTitle = String(pick.folderName || 'Φάκελος').trim() || 'Φάκελος';
+      setFormData((prev) => ({
+        ...prev,
+        fileGroups: [...(prev.fileGroups || []), {
+          id: uuidv4(),
+          title: folderTitle,
+          files: newFiles
+        }]
+      }));
+      showToast(`Προστέθηκαν ${newFiles.length} αρχείο(α) από τον φάκελο «${folderTitle}».`, 'success');
+    } catch (error) {
+      console.error('Error selecting folder:', error);
+      showToast('Σφάλμα κατά την επιλογή φακέλου: ' + error.message, 'error');
     }
   };
 
@@ -3266,12 +3323,20 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
           {/* ── SECTION 6: Αρχεία ── */}
           <Section>
             <SectionTitle>📁 Αρχεία Υποέργου</SectionTitle>
-            <FileUploadSection onClick={handleFileSelect}>
-              <div>
-                <FileUploadTitle>Ανέβασμα αρχείων</FileUploadTitle>
-                <FileUploadHint>Κλικ εδώ για επιλογή αρχείων (π.χ. PDF, Word). Μπορείτε στη συνέχεια να τα ομαδοποιήσετε σε ομάδες.</FileUploadHint>
-              </div>
-            </FileUploadSection>
+            <FileUploadGrid>
+              <FileUploadSection onClick={handleFileSelect}>
+                <div>
+                  <FileUploadTitle>📤 Ανέβασμα αρχείων</FileUploadTitle>
+                  <FileUploadHint>Επιλογή επιμέρους αρχείων (PDF, Word κ.λπ.) με δυνατότητα ομαδοποίησης.</FileUploadHint>
+                </div>
+              </FileUploadSection>
+              <FolderUploadSection onClick={handleFolderSelect}>
+                <div>
+                  <FileUploadTitle>📁 Ανέβασμα φακέλου</FileUploadTitle>
+                  <FileUploadHint>Επιλογή ολόκληρου φακέλου — όλα τα αρχεία (και υποφάκελοι) δημιουργούν αυτόματα νέα ομάδα.</FileUploadHint>
+                </div>
+              </FolderUploadSection>
+            </FileUploadGrid>
 
             {formData.fileGroups && formData.fileGroups.length > 0 && (
               <FileList>

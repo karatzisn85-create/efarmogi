@@ -409,6 +409,8 @@ module.exports = {
   loadEmailConfig,
   saveEmailConfig,
   isConfigured,
+  createTransporter,
+  getAppDisplayName,
   sendWorkspaceCreatedEmail,
   sendWorkspaceActivityEmail,
   sendTestEmail

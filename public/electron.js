@@ -298,6 +298,7 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    cleanupStaleEntityLocks();
     // Εκκίνηση του lock watcher
     startLockWatcher(mainWindow);
     // Καθαρισμός παλιών temp files κατά την εκκίνηση
@@ -474,6 +475,20 @@ function resolveOrimanthiCanEditFlag(user) {
   return orimanthiEditEligibleRole(user?.role) && user.orimanthiCanEdit === true;
 }
 
+function meletaiEditEligibleRole(role) {
+  return role === 'USER' || role === 'ENGINEER';
+}
+
+function resolveMeletaiCanEditFlag(user) {
+  return meletaiEditEligibleRole(user?.role) && user.meletaiCanEdit === true;
+}
+
+function canManageMeletaiUser(user) {
+  if (!user) return false;
+  if (user.role === 'SUPERADMIN' || user.role === 'ADMIN') return true;
+  return resolveMeletaiCanEditFlag(user);
+}
+
 function isSuperAdminUser(username) {
   const u = findUserByUsername(username);
   return !!(u && u.role === 'SUPERADMIN');
@@ -519,6 +534,7 @@ ipcMain.handle('authenticate', async (_event, { username, password }) => {
       assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : [],
       taskAssignment: sanitizeTaskAssignmentForClient(user.taskAssignment),
       orimanthiCanEdit: resolveOrimanthiCanEditFlag(user),
+      meletaiCanEdit: resolveMeletaiCanEditFlag(user),
     }
   };
 });
@@ -558,10 +574,11 @@ ipcMain.handle('get-users', async () => {
     assignedSupervisors: Array.isArray(u.assignedSupervisors) ? u.assignedSupervisors : [],
     taskAssignment: sanitizeTaskAssignmentForClient(u.taskAssignment),
     orimanthiCanEdit: resolveOrimanthiCanEditFlag(u),
+    meletaiCanEdit: resolveMeletaiCanEditFlag(u),
   }));
 });
 
-ipcMain.handle('create-user', async (_event, { username, password, role, fullName, email, assignedSupervisors = [], taskAssignment, orimanthiCanEdit, actingUsername }) => {
+ipcMain.handle('create-user', async (_event, { username, password, role, fullName, email, assignedSupervisors = [], taskAssignment, orimanthiCanEdit, meletaiCanEdit, actingUsername }) => {
   const users = loadUsers();
   if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
     return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
@@ -583,6 +600,9 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
   if (orimanthiCanEdit !== undefined && !isSuperAdminUser(actingUsername)) {
     return { success: false, error: 'Μόνο ο superadmin μπορεί να ορίσει δικαιώματα ωρίμανσης έργων' };
   }
+  if (meletaiCanEdit !== undefined && !isSuperAdminUser(actingUsername)) {
+    return { success: false, error: 'Μόνο ο superadmin μπορεί να ορίσει δικαιώματα μητρώου μελετών' };
+  }
 
   const newUserEmail = String(email || '').trim().toLowerCase() || null;
   users.push({
@@ -596,6 +616,7 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     assignedSupervisors: role === 'ENGINEER' ? normalizedSupervisors : [],
     taskAssignment: taskAssignmentNorm,
     ...(orimanthiEditEligibleRole(role) && orimanthiCanEdit === true ? { orimanthiCanEdit: true } : {}),
+    ...(meletaiEditEligibleRole(role) && meletaiCanEdit === true ? { meletaiCanEdit: true } : {}),
     createdAt: new Date().toISOString()
   });
   saveUsers(users);
@@ -656,8 +677,22 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
       delete users[idx].orimanthiCanEdit;
     }
   }
+  if (updates.meletaiCanEdit !== undefined) {
+    if (!isSuperAdminUser(actingUsername)) {
+      return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα μητρώου μελετών' };
+    }
+    const effectiveRole = updates.role !== undefined ? updates.role : users[idx].role;
+    if (meletaiEditEligibleRole(effectiveRole) && updates.meletaiCanEdit === true) {
+      users[idx].meletaiCanEdit = true;
+    } else {
+      delete users[idx].meletaiCanEdit;
+    }
+  }
   if (updates.role !== undefined && !orimanthiEditEligibleRole(updates.role)) {
     delete users[idx].orimanthiCanEdit;
+  }
+  if (updates.role !== undefined && !meletaiEditEligibleRole(updates.role)) {
+    delete users[idx].meletaiCanEdit;
   }
 
   const newUserData = { ...users[idx] };
@@ -1046,6 +1081,7 @@ function startLockWatcher(mainWindow) {
 // ============================================================
 
 const LOCK_STALE_REMOTE_MS = 30 * 60 * 1000; // 30 λεπτά για remote locks
+const LOCK_STALE_LOCAL_MS = 8 * 60 * 60 * 1000; // 8 ώρες για τοπικά locks με νεκρό PID ή χωρίς ανανέωση
 
 // Check if process is running (τοπικό μόνο)
 function isProcessRunning(pid) {
@@ -1078,13 +1114,48 @@ function isLockValid(lockData) {
   if (!lockData) return false;
   const myHostname = os.hostname();
   if (lockData.hostname === myHostname) {
-    // Τοπικό: έλεγχος PID
-    return isProcessRunning(lockData.pid);
-  } else {
-    // Απομακρυσμένο: stale αν > 30 λεπτά χωρίς ανανέωση
-    if (!lockData.createdAt) return true; // παλιό format από άλλο PC — θεωρείται έγκυρο
-    const age = Date.now() - new Date(lockData.createdAt).getTime();
-    return age < LOCK_STALE_REMOTE_MS;
+    if (lockData.pid === process.pid) return true;
+    if (!isProcessRunning(lockData.pid)) return false;
+    if (lockData.createdAt) {
+      const age = Date.now() - new Date(lockData.createdAt).getTime();
+      if (age >= LOCK_STALE_LOCAL_MS) return false;
+    }
+    return true;
+  }
+  // Απομακρυσμένο: stale αν > 30 λεπτά χωρίς ανανέωση
+  if (!lockData.createdAt) return true; // παλιό format από άλλο PC — θεωρείται έγκυρο
+  const age = Date.now() - new Date(lockData.createdAt).getTime();
+  return age < LOCK_STALE_REMOTE_MS;
+}
+
+function cleanupStaleEntityLocks() {
+  try {
+    if (!dataDir) return { removed: 0 };
+    const locksDir = path.join(dataDir, 'locks');
+    if (!fs.existsSync(locksDir)) return { removed: 0 };
+    let removed = 0;
+    for (const entityType of fs.readdirSync(locksDir)) {
+      const entityDir = path.join(locksDir, entityType);
+      try {
+        if (!fs.statSync(entityDir).isDirectory()) continue;
+      } catch { continue; }
+      for (const lockFile of fs.readdirSync(entityDir)) {
+        if (!lockFile.endsWith('.lock')) continue;
+        const lockPath = path.join(entityDir, lockFile);
+        try {
+          const lockData = readLockData(lockPath);
+          if (!isLockValid(lockData)) {
+            fs.unlinkSync(lockPath);
+            removed += 1;
+          }
+        } catch { /* ignore */ }
+      }
+    }
+    if (removed > 0) console.log(`[lock] Cleaned ${removed} stale entity lock(s) at startup`);
+    return { removed };
+  } catch (error) {
+    console.error('[lock] cleanupStaleEntityLocks failed:', error);
+    return { removed: 0 };
   }
 }
 
@@ -1100,11 +1171,14 @@ function createEntityLock(entityType, entityId, username) {
     if (fs.existsSync(lockFile)) {
       const lockData = readLockData(lockFile);
       if (isLockValid(lockData)) {
+        if (lockData.username === (username || '')) {
+          return { success: true, alreadyHeld: true };
+        }
         const who = lockData.username || lockData.hostname || 'άλλον χρήστη';
         return { success: false, error: `Ανοιχτό από: ${who}`, lockedBy: who };
       }
       // stale — σβήνουμε
-      fs.unlinkSync(lockFile);
+      try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
     }
 
     const lockData = {
@@ -1113,7 +1187,25 @@ function createEntityLock(entityType, entityId, username) {
       pid: process.pid,
       createdAt: new Date().toISOString()
     };
-    fs.writeFileSync(lockFile, JSON.stringify(lockData));
+    try {
+      const fd = fs.openSync(lockFile, 'wx');
+      fs.writeSync(fd, JSON.stringify(lockData));
+      fs.closeSync(fd);
+    } catch (writeErr) {
+      if (writeErr.code === 'EEXIST' && fs.existsSync(lockFile)) {
+        const lockDataExisting = readLockData(lockFile);
+        if (isLockValid(lockDataExisting)) {
+          const who = lockDataExisting.username || lockDataExisting.hostname || 'άλλον χρήστη';
+          return { success: false, error: `Ανοιχτό από: ${who}`, lockedBy: who };
+        }
+        try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
+        const fd = fs.openSync(lockFile, 'wx');
+        fs.writeSync(fd, JSON.stringify(lockData));
+        fs.closeSync(fd);
+      } else {
+        throw writeErr;
+      }
+    }
     console.log(`[lock] Created lock for ${entityType}/${entityId} by ${username || 'unknown'}`);
     return { success: true };
   } catch (error) {
@@ -1370,6 +1462,34 @@ async function updateRelatedDataAfterProjectTitleChange(projectId, oldProjectTit
       }
     }
     
+    // 4. Ενημέρωση συνδεδεμένων μελετών (τίτλος έργου)
+    try {
+      const meletaiSvc = getMeletaiService();
+      if (meletaiSvc && fs.existsSync(projectDir)) {
+        for (const subprojectDir of fs.readdirSync(projectDir)) {
+          const subprojectPath = path.join(projectDir, subprojectDir);
+          try {
+            if (!fs.statSync(subprojectPath).isDirectory()) continue;
+          } catch { continue; }
+          const dataFile = path.join(subprojectPath, 'data.json');
+          if (!fs.existsSync(dataFile)) continue;
+          try {
+            const subprojectData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+            if (subprojectData.subprojectId) {
+              meletaiSvc.syncLinkedTitlesForSubproject(subprojectData.subprojectId, {
+                projectTitle: newProjectTitle,
+                subprojectTitle: subprojectData.subprojectTitle || '',
+              });
+            }
+          } catch (err) {
+            console.error(`Error syncing meletai titles for subproject ${subprojectDir}:`, err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error syncing meletai linked project titles:', err);
+    }
+
     console.log('Finished updating related data after project title change');
   } catch (error) {
     console.error('Error updating related data after project title change:', error);
@@ -1487,6 +1607,9 @@ async function handleSaveProjectData(event, projectData) {
     const oldProjectTitle = existingData.projectTitle;
     const newProjectTitle = projectData.projectTitle;
     const projectTitleChanged = !isNewProject && oldProjectTitle && oldProjectTitle !== newProjectTitle;
+    const oldSubprojectTitle = String(existingData.subprojectTitle || '').trim();
+    const newSubprojectTitle = String(projectData.subprojectTitle || '').trim();
+    const subprojectTitleChanged = !isNewProject && oldSubprojectTitle !== newSubprojectTitle;
     
     // Το projectId ΠΑΝΤΑ παραμένει το ίδιο - δεν αλλάζει ποτέ όταν επεξεργάζεται ένα υποέργο
     // Αυτό εξασφαλίζει ότι το υποέργο παραμένει στο ίδιο έργο ακόμα και αν αλλάξει ο τίτλος
@@ -1671,6 +1794,18 @@ async function handleSaveProjectData(event, projectData) {
     if (projectTitleChanged) {
       console.log(`Project title changed from "${oldProjectTitle}" to "${newProjectTitle}". Updating related data...`);
       await updateRelatedDataAfterProjectTitleChange(projectId, oldProjectTitle, newProjectTitle);
+    } else if (subprojectTitleChanged) {
+      try {
+        const meletaiSvc = getMeletaiService();
+        if (meletaiSvc) {
+          meletaiSvc.syncLinkedTitlesForSubproject(subprojectId, {
+            projectTitle: dataToSave.projectTitle,
+            subprojectTitle: dataToSave.subprojectTitle,
+          });
+        }
+      } catch (err) {
+        console.error('Error syncing meletai linked subproject title:', err);
+      }
     }
     
     // Για νέα έργα, ξεκλειδώνουμε μετά την αποθήκευση
@@ -2666,6 +2801,32 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
     } catch (err) {
       console.error('Error cleaning up proskliseis data:', err);
     }
+
+    // Αποσύνδεση μελετών από διαγραμμένο υποέργο
+    try {
+      const meletaiSvc = getMeletaiService();
+      if (meletaiSvc) {
+        const unlinkRes = meletaiSvc.unlinkStudiesForSubproject(subprojectId);
+        if (unlinkRes?.unlinked > 0) {
+          console.log(`Unlinked ${unlinkRes.unlinked} meleti record(s) from subproject ${subprojectId}`);
+          logAuditAction({
+            type: 'update',
+            entityType: 'meleti',
+            entityId: unlinkRes.meletiId,
+            entityTitle: unlinkRes.previous
+              ? `${unlinkRes.previous.studyNumber} — ${unlinkRes.previous.title}`
+              : unlinkRes.meletiId,
+            userFullName: 'Σύστημα',
+            userRole: 'SYSTEM',
+            details: `Αυτόματη αποσύνδεση — διαγράφηκε υποέργο ${deletedData?.subprojectTitle || subprojectId}`,
+            oldValue: meletaiSvc.pickAuditSnapshot(unlinkRes.previous),
+            newValue: meletaiSvc.pickAuditSnapshot(unlinkRes.meleti),
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error unlinking meletai from subproject:', err);
+    }
     
     // Έλεγχος αν το έργο είναι άδειο
     const projectDir = path.join(dataDir, projectId);
@@ -2723,8 +2884,19 @@ ipcMain.handle('save-files', async (event, files, projectId, subprojectId) => {
     const savedFiles = [];
     
     for (const file of files) {
-      const fileName = path.basename(file.path);
-      const destPath = path.join(filesDir, fileName);
+      let fileName = path.basename(file.name || file.path || '');
+      if (!fileName) continue;
+
+      let destPath = path.join(filesDir, fileName);
+      let counter = 1;
+      while (fs.existsSync(destPath)) {
+        const ext = path.extname(fileName);
+        const stem = path.basename(fileName, ext);
+        fileName = `${stem}_${counter}${ext}`;
+        destPath = path.join(filesDir, fileName);
+        counter += 1;
+      }
+
       fs.copyFileSync(file.path, destPath);
       savedFiles.push(fileName);
     }
@@ -8478,47 +8650,34 @@ ipcMain.handle('find-subproject-by-title', async (event, { projectId, subproject
 // IPC handler για φόρτωση όλων των υποέργων
 ipcMain.handle('get-all-subprojects', async () => {
   try {
-    console.log('📋 Loading all subprojects...');
-    
     const subprojects = [];
-    const projectDirs = fs.readdirSync(dataDir);
-    
-    for (const projectDir of projectDirs) {
-      // Skip special directories
-      if (projectDir === 'entaxeis' || projectDir === 'ΠΡΟΣΚΛΗΣΕΙΣ' || projectDir === 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ' || projectDir === 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ' || projectDir === 'egkriseis_links') {
-        continue;
-      }
-      
+    if (!dataDir || !fs.existsSync(dataDir)) {
+      return { success: true, data: subprojects };
+    }
+    for (const projectDir of fs.readdirSync(dataDir)) {
+      if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
       const projectPath = path.join(dataDir, projectDir);
-      if (fs.statSync(projectPath).isDirectory()) {
-        const subprojectDirs = fs.readdirSync(projectPath);
-        
-        for (const subprojectDir of subprojectDirs) {
-          const subprojectPath = path.join(projectPath, subprojectDir);
-          if (fs.statSync(subprojectPath).isDirectory()) {
-            const jsonPath = path.join(subprojectPath, 'data.json');
-            if (fs.existsSync(jsonPath)) {
-              try {
-                const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-                
-                if (data.subprojectId && data.subprojectTitle && data.projectTitle) {
-                  subprojects.push({
-                    subprojectId: data.subprojectId,
-                    subprojectTitle: data.subprojectTitle,
-                    projectTitle: data.projectTitle,
-                    projectId: data.projectId
-                  });
-                }
-              } catch (error) {
-                console.error('Error reading subproject data:', error);
-              }
-            }
+      if (!fs.statSync(projectPath).isDirectory()) continue;
+      for (const subprojectDir of fs.readdirSync(projectPath)) {
+        const subprojectPath = path.join(projectPath, subprojectDir);
+        if (!fs.statSync(subprojectPath).isDirectory()) continue;
+        const jsonPath = path.join(subprojectPath, 'data.json');
+        if (!fs.existsSync(jsonPath)) continue;
+        try {
+          const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+          if (data.subprojectId && data.subprojectTitle && data.projectTitle) {
+            subprojects.push({
+              subprojectId: data.subprojectId,
+              subprojectTitle: data.subprojectTitle,
+              projectTitle: data.projectTitle,
+              projectId: data.projectId,
+            });
           }
+        } catch (error) {
+          console.error('Error reading subproject data:', error);
         }
       }
     }
-    
-    console.log(`📋 Loaded ${subprojects.length} subprojects`);
     return { success: true, data: subprojects };
   } catch (error) {
     console.error('Error loading all subprojects:', error);
@@ -9406,7 +9565,7 @@ ipcMain.handle('get-notes-linked-entities', async () => {
 ipcMain.handle('get-all-entity-names', async () => {
   try {
     const entities = [];
-    const skipRoot = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'egkriseis_links', 'subproject_links', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'ΣΗΜΕΙΩΣΕΙΣ', 'ANATHESEIS_ERGASION', 'ΥΠΟΔΕΙΓΜΑΤΑ_ΕΓΓΡΑΦΩΝ']);
+    const skipRoot = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'egkriseis_links', 'subproject_links', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'ΣΗΜΕΙΩΣΕΙΣ', 'ANATHESEIS_ERGASION', 'ΥΠΟΔΕΙΓΜΑΤΑ_ΕΓΓΡΑΦΩΝ', 'ΜΕΛΕΤΕΣ', 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'config']);
     const seenProjects = new Set();
 
     if (fs.existsSync(dataDir)) {
@@ -9493,6 +9652,30 @@ ipcMain.handle('get-all-entity-names', async () => {
           }
         }
       } catch (e) { /* skip */ }
+    }
+
+    // Meletai (Μητρώο Μελετών)
+    const meletaiDir = path.join(dataDir, 'ΜΕΛΕΤΕΣ');
+    if (fs.existsSync(meletaiDir)) {
+      const meletaiDirs = fs.readdirSync(meletaiDir).filter(d => {
+        try { return fs.statSync(path.join(meletaiDir, d)).isDirectory(); } catch (e) { return false; }
+      });
+      for (const dir of meletaiDirs) {
+        const dataPath = path.join(meletaiDir, dir, 'data.json');
+        if (!fs.existsSync(dataPath)) continue;
+        try {
+          const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+          if (data.id) {
+            const title = `${data.studyNumber || ''} — ${data.title || dir}`.trim();
+            entities.push({
+              type: 'meleti',
+              id: data.id,
+              title,
+              parentTitle: data.linkedSubprojectTitle || data.linkedProjectTitle || '',
+            });
+          }
+        } catch (e) { /* skip */ }
+      }
     }
 
     return { success: true, data: entities };
@@ -9718,6 +9901,30 @@ function startNoteReminderChecker() {
 }
 
 startNoteReminderChecker();
+
+function startOrimanthiAepoReminderChecker() {
+  const run = () => {
+    try {
+      orimanthiAepoReminderService.checkAndSendAepoReminders({
+        dataDir,
+        loadUsers,
+        loadAllProposals: loadAllProposalsList,
+      }).catch((e) => logger.error('Orimanthi AEPO reminder check failed', e));
+    } catch (e) {
+      logger.error('Orimanthi AEPO reminder init failed', e);
+    }
+  };
+  setTimeout(run, 45 * 1000);
+  setInterval(run, 6 * 60 * 60 * 1000);
+}
+
+// Defer until dataDir is ready — registered after Orimanthi section defines loadAllProposalsList
+let orimanthiAepoCheckerStarted = false;
+function ensureOrimanthiAepoCheckerStarted() {
+  if (orimanthiAepoCheckerStarted || !dataDir) return;
+  orimanthiAepoCheckerStarted = true;
+  startOrimanthiAepoReminderChecker();
+}
 
 // Save note groups
 ipcMain.handle('save-note-groups', async (event, groupsData) => {
@@ -10376,7 +10583,13 @@ function saveBackupMetadata(metadata) {
 // Get files to backup (with filtering)
 async function getFilesToBackup(options = {}) {
   const files = [];
-  const { includeProjects = true, includeProskliseis = true, includeEntaxeis = true, includeEgkriseis = true } = options;
+  const {
+    includeProjects = true,
+    includeProskliseis = true,
+    includeEntaxeis = true,
+    includeEgkriseis = true,
+    includeMeletai = true,
+  } = options;
   
   try {
     // Projects
@@ -10435,6 +10648,26 @@ async function getFilesToBackup(options = {}) {
         });
       }
     }
+
+    // Meletai (Μητρώο Μελετών)
+    if (includeMeletai) {
+      const meletaiDir = path.join(dataDir, 'ΜΕΛΕΤΕΣ');
+      if (fs.existsSync(meletaiDir)) {
+        files.push({
+          type: 'meletai',
+          path: meletaiDir,
+          relativePath: 'ΜΕΛΕΤΕΣ',
+        });
+      }
+      const meletaiConfigPath = path.join(dataDir, 'config', 'meletai-config.json');
+      if (fs.existsSync(meletaiConfigPath)) {
+        files.push({
+          type: 'meletai_config',
+          path: meletaiConfigPath,
+          relativePath: path.join('config', 'meletai-config.json'),
+        });
+      }
+    }
   } catch (error) {
     console.error('Error getting files to backup:', error);
   }
@@ -10450,6 +10683,7 @@ async function createBackup(options = {}) {
     includeProskliseis = true,
     includeEntaxeis = true,
     includeEgkriseis = true,
+    includeMeletai = true,
     background = true,
     notifyUser = false,
     onProgress = null
@@ -10472,7 +10706,8 @@ async function createBackup(options = {}) {
       projects: 0,
       proskliseis: 0,
       entaxeis: 0,
-      egkriseis: 0
+      egkriseis: 0,
+      meletai: 0,
     },
     error: null
   };
@@ -10485,7 +10720,8 @@ async function createBackup(options = {}) {
       includeProjects,
       includeProskliseis,
       includeEntaxeis,
-      includeEgkriseis
+      includeEgkriseis,
+      includeMeletai,
     });
     
     // Count contents
@@ -10500,6 +10736,9 @@ async function createBackup(options = {}) {
     }
     if (includeEgkriseis) {
       backupInfo.contents.egkriseis = filesToBackup.filter(f => f.type === 'egkriseis').length > 0 ? 1 : 0;
+    }
+    if (includeMeletai) {
+      backupInfo.contents.meletai = filesToBackup.filter(f => f.type === 'meletai').length > 0 ? 1 : 0;
     }
     
     // Create ZIP archive
@@ -12646,6 +12885,37 @@ ipcMain.handle('export-ep-program', async (_event, { programId, requestingUserna
 // ─── ΩΡΙΜΑΝΣΗ ΕΡΓΩΝ (Project Maturation / Proposal Pipeline) ─────────────────
 
 const ORIMANTHI_DIR_NAME = 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ';
+const orimanthiConfigService = require('./orimanthiConfigService');
+const orimanthiAepoReminderService = require('./orimanthiAepoReminderService');
+const municipalUnitsConfigService = require('./municipalUnitsConfigService');
+const { migrateProposalFileGroups } = require('./orimanthiFileCategoriesHelper');
+const orimanthiProjectCategoriesHelper = require('./orimanthiProjectCategoriesHelper');
+
+function loadProposalWithFileGroupMigration(proposalId, { persist = false } = {}) {
+  const proposal = loadProposal(proposalId);
+  if (!proposal) return null;
+  const { proposal: migrated, changed } = migrateProposalFileGroups(proposal);
+  if (!changed) return proposal;
+  if (persist) {
+    const toSave = { ...migrated, updatedAt: new Date().toISOString() };
+    safeWriteJSON(getProposalDataPath(proposalId), toSave);
+    return toSave;
+  }
+  return migrated;
+}
+
+function loadAllProposalsList() {
+  const rootDir = ensureOrimanthiDir();
+  const entries = fs.readdirSync(rootDir, { withFileTypes: true });
+  const proposals = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const proposal = loadProposalWithFileGroupMigration(entry.name, { persist: true });
+    if (proposal) proposals.push(proposal);
+  }
+  proposals.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  return proposals;
+}
 
 function getOrimanthiDir() {
   return path.join(dataDir, ORIMANTHI_DIR_NAME);
@@ -12741,7 +13011,7 @@ function enqueueProposalUpload(proposalId, fn) {
 function proposalAuditedFieldsChanged(before, after) {
   const keys = [
     'title', 'status', 'projectCategory', 'infrastructureSpecialization',
-    'aepoRenewalDate', 'description', 'notes',
+    'municipalUnit', 'settlement', 'aepoRenewalDate', 'description', 'notes',
   ];
   for (const key of keys) {
     if (String(before?.[key] ?? '') !== String(after?.[key] ?? '')) return true;
@@ -12766,6 +13036,8 @@ function pickProposalAuditSnapshot(proposal) {
     status: proposal.status || '',
     projectCategory: proposal.projectCategory || '',
     infrastructureSpecialization: proposal.infrastructureSpecialization || '',
+    municipalUnit: proposal.municipalUnit || '',
+    settlement: proposal.settlement || '',
     aepoRenewalDate: proposal.aepoRenewalDate || '',
     description: proposal.description || '',
     notes: proposal.notes || '',
@@ -12959,7 +13231,7 @@ ipcMain.handle('load-all-proposals', async () => {
     const proposals = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const proposal = loadProposal(entry.name);
+      const proposal = loadProposalWithFileGroupMigration(entry.name, { persist: true });
       if (proposal) proposals.push(proposal);
     }
     proposals.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -12990,6 +13262,15 @@ ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipA
         error: 'Το έργο τροποποιήθηκε από άλλη ενέργεια. Φορτώστε ξανά και επαναλάβετε.',
         proposal: existing,
       };
+    }
+
+    const orimanthiCfg = orimanthiConfigService.loadOrimanthiConfig(dataDir);
+    const categoryValidation = orimanthiProjectCategoriesHelper.validateProposalCategoryFields(
+      proposal,
+      orimanthiCfg.customCategorySpecializations
+    );
+    if (!categoryValidation.ok) {
+      return { success: false, error: categoryValidation.error };
     }
 
     if (!fs.existsSync(proposalDir)) fs.mkdirSync(proposalDir, { recursive: true });
@@ -13900,6 +14181,240 @@ function searchProposalFilesInMetadata(proposal, query, results, seen) {
   }
 }
 
+ipcMain.handle('get-municipal-units-config', async () => {
+  try {
+    return { success: true, config: municipalUnitsConfigService.loadMunicipalUnitsConfig(dataDir) };
+  } catch (e) {
+    logger.error('get-municipal-units-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-municipal-units-config', async (_event, { units, actingUsername } = {}) => {
+  try {
+    if (!isSuperAdminUser(actingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    if (!Array.isArray(units)) {
+      return { success: false, error: 'Μη έγκυρη λίστα δημοτικών ενοτήτων' };
+    }
+    const saved = municipalUnitsConfigService.saveMunicipalUnitsConfig(dataDir, units);
+    const actor = findUserByUsername(actingUsername);
+    logAuditAction({
+      type: 'update',
+      entityType: 'municipalUnitsConfig',
+      entityId: 'municipal-units',
+      entityTitle: 'Δημοτικές Ενότητες',
+      userFullName: actor?.fullName || actingUsername || '',
+      userRole: actor?.role || 'SUPERADMIN',
+      details: `Ενημέρωση λίστας (${saved.units.length} ενότητες)`,
+    });
+    return { success: true, config: saved };
+  } catch (e) {
+    logger.error('save-municipal-units-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-orimanthi-config', async () => {
+  try {
+    return { success: true, config: orimanthiConfigService.loadOrimanthiConfig(dataDir) };
+  } catch (e) {
+    logger.error('get-orimanthi-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-orimanthi-config', async (_event, { config, actingUsername } = {}) => {
+  try {
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!config || typeof config !== 'object') {
+      return { success: false, error: 'Μη έγκυρες ρυθμίσεις' };
+    }
+    const current = orimanthiConfigService.loadOrimanthiConfig(dataDir);
+    const merged = {
+      pendingTemplates: { ...current.pendingTemplates, ...(config.pendingTemplates || {}) },
+      aepoReminders: { ...current.aepoReminders, ...(config.aepoReminders || {}) },
+      customProjectCategories: current.customProjectCategories,
+      customCategorySpecializations: current.customCategorySpecializations,
+    };
+    if (Array.isArray(config.customProjectCategories)) {
+      merged.customProjectCategories = config.customProjectCategories
+        .map((x) => String(x || '').trim())
+        .filter(Boolean);
+    }
+    if (config.customCategorySpecializations && typeof config.customCategorySpecializations === 'object') {
+      merged.customCategorySpecializations = {};
+      Object.entries(config.customCategorySpecializations).forEach(([cat, specs]) => {
+        const label = String(cat || '').trim();
+        if (!label) return;
+        merged.customCategorySpecializations[label] = Array.isArray(specs)
+          ? specs.map((x) => String(x || '').trim()).filter(Boolean)
+          : [];
+      });
+    }
+    orimanthiConfigService.saveOrimanthiConfig(dataDir, merged);
+    return { success: true, config: merged };
+  } catch (e) {
+    logger.error('save-orimanthi-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apply-orimanthi-pending-template', async (_event, {
+  proposalId, category, actingUsername, action = 'apply',
+} = {}) => {
+  try {
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const proposal = loadProposal(idCheck.id);
+    if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
+    const config = orimanthiConfigService.loadOrimanthiConfig(dataDir);
+    const cat = String(category || proposal.projectCategory || '').trim();
+    const templateTexts = orimanthiConfigService.getPendingTemplateForCategory(config, cat);
+    if (!templateTexts.length) {
+      return { success: false, error: `Δεν υπάρχει πρότυπο εκκρεμοτήτων για την κατηγορία «${cat || '—'}»` };
+    }
+
+    if (action === 'remove') {
+      const beforeCount = (proposal.pendingItems || []).length;
+      const pendingItems = orimanthiConfigService.removePendingTemplateItems(
+        proposal.pendingItems || [],
+        cat
+      );
+      const removedCount = beforeCount - pendingItems.length;
+      const toSave = {
+        ...proposal,
+        pendingItems,
+        pendingTemplateCategory: orimanthiProjectCategoriesHelper.categoriesAreEquivalent(
+          proposal.pendingTemplateCategory,
+          cat
+        ) ? '' : (proposal.pendingTemplateCategory || ''),
+        updatedAt: new Date().toISOString(),
+      };
+      safeWriteJSON(getProposalDataPath(idCheck.id), toSave);
+      const actor = getOrimanthiAuditActor(auth.username);
+      logAuditAction({
+        type: 'update',
+        entityType: 'proposal',
+        entityId: idCheck.id,
+        entityTitle: proposal.title || '',
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: removedCount > 0
+          ? `Αφαίρεση προτύπου εκκρεμοτήτων (${cat}) — ${removedCount} στοιχεία`
+          : `Αφαίρεση προτύπου εκκρεμοτήτων (${cat}) — καμία αλλαγή`,
+      });
+      return { success: true, proposal: toSave, removedCount, action: 'remove' };
+    }
+
+    const pendingItems = orimanthiConfigService.mergePendingTemplateItems(
+      proposal.pendingItems || [],
+      templateTexts,
+      cat
+    );
+    const addedCount = pendingItems.length - (proposal.pendingItems || []).length;
+    const finalItems = addedCount === 0
+      ? orimanthiConfigService.reTagExistingTemplateItems(pendingItems, cat, templateTexts)
+      : pendingItems;
+    const toSave = {
+      ...proposal,
+      pendingItems: finalItems,
+      pendingTemplateCategory: cat,
+      updatedAt: new Date().toISOString(),
+    };
+    if (addedCount === 0 && !orimanthiConfigService.isPendingTemplateApplied(proposal, cat, templateTexts)) {
+      return {
+        success: true,
+        proposal,
+        addedCount: 0,
+        action: 'apply',
+        message: 'Δεν βρέθηκαν νέες εκκρεμότητες προς προσθήκη από το πρότυπο',
+      };
+    }
+    safeWriteJSON(getProposalDataPath(idCheck.id), toSave);
+    const actor = getOrimanthiAuditActor(auth.username);
+    logAuditAction({
+      type: 'update',
+      entityType: 'proposal',
+      entityId: idCheck.id,
+      entityTitle: proposal.title || '',
+      userFullName: actor.fullName,
+      userRole: actor.role,
+      details: addedCount > 0
+        ? `Εφαρμογή προτύπου εκκρεμοτήτων (${cat}) — ${addedCount} νέα στοιχεία`
+        : `Εφαρμογή προτύπου εκκρεμοτήτων (${cat})`,
+    });
+    return { success: true, proposal: toSave, addedCount, action: 'apply' };
+  } catch (e) {
+    logger.error('apply-orimanthi-pending-template error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-orimanthi-aepo-alerts', async (_event, { limit = 5, maxDays = 90 } = {}) => {
+  try {
+    const proposals = loadAllProposalsList();
+    const alerts = orimanthiAepoReminderService.computeAepoAlerts(proposals, { limit, maxDays });
+    return { success: true, alerts, total: alerts.length };
+  } catch (e) {
+    logger.error('get-orimanthi-aepo-alerts error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('export-orimanthi-hub-report', async (_event, { format, actingUsername, proposalIds } = {}) => {
+  try {
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const fmt = format === 'pdf' ? 'pdf' : 'excel';
+    const allProposals = loadAllProposalsList();
+    let proposals = allProposals;
+    if (Array.isArray(proposalIds) && proposalIds.length > 0) {
+      const idSet = new Set(proposalIds.filter(Boolean));
+      proposals = allProposals.filter((p) => idSet.has(p.id));
+    }
+    const { dialog } = require('electron');
+    const defaultName = fmt === 'pdf'
+      ? `Αναφορά_Ωρίμανσης_${new Date().toISOString().slice(0, 10)}.pdf`
+      : `Αναφορά_Ωρίμανσης_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση αναφοράς Hub Ωρίμανσης',
+      defaultPath: defaultName,
+      filters: fmt === 'pdf'
+        ? [{ name: 'PDF', extensions: ['pdf'] }]
+        : [{ name: 'Excel', extensions: ['xlsx'] }],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    const actor = getOrimanthiAuditActor(auth.username);
+    const result = await orimanthiExportHandler.exportHubReport({
+      proposals,
+      format: fmt,
+      destFilePath: pick.filePath,
+      exportedBy: actor.fullName || auth.username,
+      appVersion: app.getVersion(),
+    });
+    if (result.success) {
+      logAuditAction({
+        type: 'export',
+        entityType: 'orimanthi_hub',
+        entityId: 'hub',
+        entityTitle: 'Αναφορά Hub Ωρίμανσης',
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: fmt === 'pdf' ? 'Εξαγωγή αναφοράς Hub (PDF)' : 'Εξαγωγή αναφοράς Hub (Excel)',
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('export-orimanthi-hub-report error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('search-proposal-files', async (_event, { query } = {}) => {
   try {
     const q = String(query || '').trim().toLowerCase();
@@ -13924,3 +14439,716 @@ ipcMain.handle('search-proposal-files', async (_event, { query } = {}) => {
     return { success: false, error: e.message };
   }
 });
+
+// ─── ΜΗΤΡΩΟ ΜΕΛΕΤΩΝ ───────────────────────────────────────────────────────────
+
+const meletaiConfigService = require('./meletaiConfigService');
+const meletaiExportHandler = require('./meletaiExportHandler');
+const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
+
+let meletaiService = null;
+
+function getMeletaiService() {
+  if (!meletaiService && dataDir) {
+    meletaiService = createMeletaiService({ dataDir });
+  }
+  return meletaiService;
+}
+
+function canManageMeletaiRole(role) {
+  return role === 'SUPERADMIN' || role === 'ADMIN';
+}
+
+function canViewMeletaiRole(role) {
+  return canManageMeletaiRole(role) || role === 'USER' || role === 'ENGINEER';
+}
+
+function requireMeletaiSession(actingUsername) {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return auth;
+  const user = findUserByUsername(auth.username);
+  if (!user || user.active === false || user.approved === false) {
+    return { ok: false, error: 'Δεν έχετε πρόσβαση στο σύστημα' };
+  }
+  if (!canViewMeletaiRole(user.role)) {
+    return { ok: false, error: 'Δεν έχετε πρόσβαση στο μητρώο μελετών' };
+  }
+  return { ok: true, username: auth.username, user };
+}
+
+function requireMeletaiManage(actingUsername) {
+  const session = requireMeletaiSession(actingUsername);
+  if (!session.ok) return session;
+  if (!canManageMeletaiUser(session.user)) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα επεξεργασίας μελετών' };
+  }
+  return session;
+}
+
+function getMeletaiAuditActor(actingUsername) {
+  const user = findUserByUsername(actingUsername);
+  return {
+    fullName: (user?.fullName || '').trim() || actingUsername || '',
+    role: user?.role || 'USER',
+  };
+}
+
+function requireMeletiEntityLock(meletiId, actingUsername) {
+  const id = String(meletiId || '').trim();
+  if (!id) return { ok: true };
+  const lockStatus = isEntityLocked('meleti', id);
+  if (!lockStatus.locked) return { ok: true };
+  try {
+    const lockFile = path.join(dataDir, 'locks', 'meleti', `${id}.lock`);
+    if (fs.existsSync(lockFile)) {
+      const lockData = readLockData(lockFile);
+      const acting = String(actingUsername || '').trim();
+      if (lockData && lockData.username === acting) return { ok: true };
+    }
+  } catch { /* ignore */ }
+  return {
+    ok: false,
+    error: `Η μελέτη είναι κλειδωμένη από ${lockStatus.lockedBy || 'άλλον χρήστη'}`,
+    locked: true,
+    lockedBy: lockStatus.lockedBy,
+  };
+}
+
+function meletaiEngineerChargeFilterKey(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const lower = s.toLowerCase();
+  return lower.startsWith('user:') ? lower : `user:${lower}`;
+}
+
+function meletaiFreeChargeFilterKey(text) {
+  const t = String(text || '').trim().toLowerCase();
+  return t ? `free:${t}` : '';
+}
+
+function findSubprojectDataById(subprojectId) {
+  const sid = String(subprojectId || '').trim();
+  if (!sid || !dataDir || !fs.existsSync(dataDir)) return null;
+  const skipRoot = new Set([
+    'entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'egkriseis_links', 'subproject_links',
+    'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ',
+    'ΣΗΜΕΙΩΣΕΙΣ', 'ANATHESEIS_ERGASION', 'ΥΠΟΔΕΙΓΜΑΤΑ_ΕΓΓΡΑΦΩΝ',
+    'ΜΕΛΕΤΕΣ', 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'config', 'backups',
+  ]);
+  for (const dir of fs.readdirSync(dataDir)) {
+    if (skipRoot.has(dir)) continue;
+    const projectPath = path.join(dataDir, dir);
+    try {
+      if (!fs.statSync(projectPath).isDirectory()) continue;
+    } catch { continue; }
+    const directJson = path.join(projectPath, sid, 'data.json');
+    if (fs.existsSync(directJson)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(directJson, 'utf8'));
+        if (!data.subprojectId || data.subprojectId === sid) return data;
+      } catch { /* skip */ }
+    }
+    for (const sub of fs.readdirSync(projectPath)) {
+      const jsonPath = path.join(projectPath, sub, 'data.json');
+      if (!fs.existsSync(jsonPath)) continue;
+      try {
+        const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        if (data.subprojectId === sid) return data;
+      } catch { /* skip */ }
+    }
+  }
+  return null;
+}
+
+function getSubprojectChargeFilterKeys(subproject) {
+  if (!subproject) return [];
+  const keys = new Set();
+  const ids = Array.isArray(subproject.supervisorEngineerIds)
+    ? subproject.supervisorEngineerIds.map((x) => String(x || '').trim()).filter(Boolean)
+    : [];
+  const freeP = String(subproject.supervisorChargeFreePrimary || '').trim();
+  const freePart = String(subproject.supervisorChargeFreeParticipants || '').trim();
+  const outsideMode = subproject.outsideEngineerCharge === true
+    || subproject.outsideEngineerCharge === 1
+    || String(subproject.outsideEngineerCharge || '').toLowerCase() === 'true';
+  ids.forEach((id) => {
+    const k = meletaiEngineerChargeFilterKey(id);
+    if (k) keys.add(k);
+  });
+  if (outsideMode || ids.length === 0) {
+    const fp = meletaiFreeChargeFilterKey(freeP);
+    if (fp) keys.add(fp);
+  }
+  if (freePart) {
+    freePart.split(/\n|·/).map((s) => s.trim()).filter(Boolean).forEach((part) => {
+      const pk = meletaiFreeChargeFilterKey(part);
+      if (pk) keys.add(pk);
+    });
+  }
+  return [...keys];
+}
+
+function buildEngineerVisibilityKeys(user) {
+  const keys = new Set();
+  const username = String(user?.username || '').trim().toLowerCase();
+  if (username) keys.add(`user:${username}`);
+  (Array.isArray(user?.assignedSupervisors) ? user.assignedSupervisors : []).forEach((label) => {
+    const fk = meletaiFreeChargeFilterKey(label);
+    if (fk) keys.add(fk);
+  });
+  return keys;
+}
+
+function canEngineerLinkMeletiSubproject(user, subprojectId) {
+  if (user?.role !== 'ENGINEER') return { ok: true };
+  const sid = String(subprojectId || '').trim();
+  if (!sid) return { ok: true };
+  const sp = findSubprojectDataById(sid);
+  if (!sp) return { ok: false, error: 'Το υποέργο δεν βρέθηκε' };
+  const userKeys = buildEngineerVisibilityKeys(user);
+  const projectKeys = getSubprojectChargeFilterKeys(sp);
+  const match = projectKeys.some((pk) => userKeys.has(String(pk).toLowerCase()));
+  if (!match) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα σύνδεσης με αυτό το υποέργο' };
+  }
+  return { ok: true };
+}
+
+ipcMain.handle('load-all-meletai', async (_event, { actingUsername, skipMaintenance } = {}) => {
+  try {
+    const auth = requireMeletaiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getMeletaiService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+    if (!skipMaintenance) {
+      const { migration, cleared } = svc.runMeletaiMaintenance();
+      if (migration.formatFixed > 0 || migration.duplicatesResolved > 0) {
+        console.log(`[meletai] Migration: formatFixed=${migration.formatFixed}, duplicatesResolved=${migration.duplicatesResolved}`);
+      }
+      if (Array.isArray(cleared) && cleared.length > 0) {
+        cleared.forEach(({ previous, meleti }) => {
+          logAuditAction({
+            type: 'update',
+            entityType: 'meleti',
+            entityId: meleti.id,
+            entityTitle: `${meleti.studyNumber} — ${meleti.title}`,
+            userFullName: 'Σύστημα',
+            userRole: 'SYSTEM',
+            details: 'Αυτόματη αποσύνδεση — το συνδεδεμένο υποέργο δεν υπάρχει πλέον',
+            oldValue: svc.pickAuditSnapshot(previous),
+            newValue: svc.pickAuditSnapshot(meleti),
+          });
+        });
+      }
+    }
+    return { success: true, meletai: svc.loadAllMeletai() };
+  } catch (e) {
+    logger.error('load-all-meletai error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('run-meletai-maintenance', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getMeletaiService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+    const { migration, cleared } = svc.runMeletaiMaintenance();
+    if (Array.isArray(cleared) && cleared.length > 0) {
+      cleared.forEach(({ previous, meleti }) => {
+        logAuditAction({
+          type: 'update',
+          entityType: 'meleti',
+          entityId: meleti.id,
+          entityTitle: `${meleti.studyNumber} — ${meleti.title}`,
+          userFullName: 'Σύστημα',
+          userRole: 'SYSTEM',
+          details: 'Αυτόματη αποσύνδεση — το συνδεδεμένο υποέργο δεν υπάρχει πλέον',
+          oldValue: svc.pickAuditSnapshot(previous),
+          newValue: svc.pickAuditSnapshot(meleti),
+        });
+      });
+    }
+    return {
+      success: true,
+      formatFixed: migration.formatFixed,
+      duplicatesResolved: migration.duplicatesResolved,
+      orphansCleared: cleared.length,
+    };
+  } catch (e) {
+    logger.error('run-meletai-maintenance error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-meletai-subprojects', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getMeletaiService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+    return { success: true, data: svc.listAllSubprojectsBrief() };
+  } catch (e) {
+    logger.error('get-meletai-subprojects error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('check-meleti-number', async (_event, { studyNumber, excludeId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getMeletaiService();
+    const result = svc.checkStudyNumberAvailable(studyNumber, excludeId || null);
+    return { success: true, ...result };
+  } catch (e) {
+    logger.error('check-meleti-number error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-meleti', async (_event, { meleti, actingUsername, expectedUpdatedAt } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getMeletaiService();
+    const existing = meleti?.id ? svc.loadMeleti(meleti.id) : null;
+    if (existing) {
+      const lockCheck = requireMeletiEntityLock(meleti.id, auth.username);
+      if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    } else if (meleti?.linkedSubprojectId) {
+      const engineerCheck = canEngineerLinkMeletiSubproject(auth.user, meleti.linkedSubprojectId);
+      if (!engineerCheck.ok) return { success: false, error: engineerCheck.error };
+    }
+    const result = await svc.saveMeleti(meleti, { expectedUpdatedAt });
+    if (!result.success) return result;
+
+    const actor = getMeletaiAuditActor(auth.username);
+    if (result.isNew) {
+      logAuditAction({
+        type: 'create',
+        entityType: 'meleti',
+        entityId: result.meleti.id,
+        entityTitle: `${result.meleti.studyNumber} — ${result.meleti.title}`,
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: 'Δημιουργία νέας μελέτης',
+      });
+    } else if (result.previous) {
+      logAuditAction({
+        type: 'update',
+        entityType: 'meleti',
+        entityId: result.meleti.id,
+        entityTitle: `${result.meleti.studyNumber} — ${result.meleti.title}`,
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        oldValue: svc.pickAuditSnapshot(result.previous),
+        newValue: svc.pickAuditSnapshot(result.meleti),
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('save-meleti error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-meleti', async (_event, { meletiId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    const svc = getMeletaiService();
+    const result = await svc.deleteMeleti(meletiId);
+    if (result.success) {
+      const actor = getMeletaiAuditActor(auth.username);
+      logAuditAction({
+        type: 'delete',
+        entityType: 'meleti',
+        entityId: meletiId,
+        entityTitle: result.meleti ? `${result.meleti.studyNumber} — ${result.meleti.title}` : meletiId,
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: 'Διαγραφή μελέτης',
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('delete-meleti error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('link-meleti-subproject', async (_event, { meletiId, subprojectId, projectTitle, subprojectTitle, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    if (subprojectId) {
+      const engineerCheck = canEngineerLinkMeletiSubproject(auth.user, subprojectId);
+      if (!engineerCheck.ok) return { success: false, error: engineerCheck.error };
+    }
+    const svc = getMeletaiService();
+    const result = await svc.linkSubproject(meletiId, subprojectId, projectTitle, subprojectTitle);
+    if (result.success) {
+      const actor = getMeletaiAuditActor(auth.username);
+      logAuditAction({
+        type: 'update',
+        entityType: 'meleti',
+        entityId: meletiId,
+        entityTitle: `${result.meleti.studyNumber} — ${result.meleti.title}`,
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: subprojectId
+          ? `Σύνδεση με υποέργο: ${subprojectTitle || subprojectId}`
+          : 'Αποσύνδεση υποέργου',
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('link-meleti-subproject error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('unlink-meleti-subproject', async (_event, { meletiId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    const svc = getMeletaiService();
+    const result = await svc.unlinkSubproject(meletiId);
+    if (result.success) {
+      const actor = getMeletaiAuditActor(auth.username);
+      logAuditAction({
+        type: 'update',
+        entityType: 'meleti',
+        entityId: meletiId,
+        entityTitle: `${result.meleti.studyNumber} — ${result.meleti.title}`,
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: 'Αποσύνδεση υποέργου',
+        oldValue: svc.pickAuditSnapshot(result.previous),
+        newValue: svc.pickAuditSnapshot(result.meleti),
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('unlink-meleti-subproject error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-meleti-by-subproject', async (_event, { subprojectId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getMeletaiService();
+    const meleti = svc.getMeletiBySubprojectId(subprojectId);
+    return { success: true, meleti };
+  } catch (e) {
+    logger.error('get-meleti-by-subproject error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-meletai-config', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const config = meletaiConfigService.loadMeletaiConfig(dataDir);
+    return { success: true, config };
+  } catch (e) {
+    logger.error('get-meletai-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-meletai-config', async (_event, { config, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const saved = meletaiConfigService.saveMeletaiConfig(dataDir, config);
+    return { success: true, config: saved };
+  } catch (e) {
+    logger.error('save-meletai-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('add-meletai-study-category', async (_event, { label, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    return meletaiConfigService.addStudyCategory(dataDir, label);
+  } catch (e) {
+    logger.error('add-meletai-study-category error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('remove-meletai-study-category', async (_event, { label, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const configResult = meletaiConfigService.removeStudyCategory(dataDir, label);
+    if (!configResult.success) return configResult;
+    const svc = getMeletaiService();
+    const cleared = svc ? svc.clearStudyCategoryFromAllMeletai(label) : { updated: 0 };
+    return { ...configResult, meletaiCategoryCleared: cleared.updated || 0 };
+  } catch (e) {
+    logger.error('remove-meletai-study-category error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('add-meleti-file-group', async (_event, { meletiId, label, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    return await getMeletaiService().addFileGroup(meletiId, label);
+  } catch (e) {
+    logger.error('add-meleti-file-group error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('upload-meleti-files', async (_event, { meletiId, groupId, files, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    return await getMeletaiService().uploadFiles(meletiId, groupId || null, files);
+  } catch (e) {
+    logger.error('upload-meleti-files error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('upload-meleti-folder', async (_event, { meletiId, groupId, folderName, files, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    return await getMeletaiService().uploadFolder(meletiId, groupId || null, folderName, files);
+  } catch (e) {
+    logger.error('upload-meleti-folder error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-meleti-file', async (_event, { meletiId, groupId, fileName, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    return await getMeletaiService().deleteFile(meletiId, groupId, fileName);
+  } catch (e) {
+    logger.error('delete-meleti-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-meleti-folder', async (_event, { meletiId, groupId, folderId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    return await getMeletaiService().deleteFolder(meletiId, groupId, folderId);
+  } catch (e) {
+    logger.error('delete-meleti-folder error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-meleti-folder-file', async (_event, { meletiId, groupId, folderId, fileName, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    return await getMeletaiService().deleteFolderFile(meletiId, groupId, folderId, fileName);
+  } catch (e) {
+    logger.error('delete-meleti-folder-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('rename-meleti-file', async (_event, { meletiId, groupId, oldName, newName, folderId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    return await getMeletaiService().renameFile(meletiId, groupId, oldName, newName, folderId || null);
+  } catch (e) {
+    logger.error('rename-meleti-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-meleti-group', async (_event, { meletiId, groupId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireMeletiEntityLock(meletiId, auth.username);
+    if (!lockCheck.ok) return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    return await getMeletaiService().deleteGroup(meletiId, groupId);
+  } catch (e) {
+    logger.error('delete-meleti-group error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-meleti-folder-files', async (_event, { meletiId, groupId, folderId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    return getMeletaiService().getFolderFiles(meletiId, groupId, folderId);
+  } catch (e) {
+    logger.error('get-meleti-folder-files error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('open-meleti-file', async (_event, { meletiId, groupId, fileName, folderId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const fp = getMeletaiService().getFilePath(meletiId, groupId, fileName, folderId);
+    if (!fp.success) return fp;
+    await shell.openPath(fp.filePath);
+    return { success: true };
+  } catch (e) {
+    logger.error('open-meleti-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('download-meleti-file', async (_event, { meletiId, groupId, fileName, folderId, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiSession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const fp = getMeletaiService().getFilePath(meletiId, groupId, fileName, folderId);
+    if (!fp.success) return fp;
+    const { dialog } = require('electron');
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση αρχείου',
+      defaultPath: fileName,
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    fs.copyFileSync(fp.filePath, pick.filePath);
+    return { success: true, filePath: pick.filePath };
+  } catch (e) {
+    logger.error('download-meleti-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('export-meletai-hub-report', async (_event, { format, meletiIds, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const fmt = format === 'pdf' ? 'pdf' : 'excel';
+    let meletai = getMeletaiService().loadAllMeletai();
+    if (Array.isArray(meletiIds) && meletiIds.length > 0) {
+      const idSet = new Set(meletiIds.map((id) => String(id || '').trim()).filter(Boolean));
+      meletai = meletai.filter((m) => idSet.has(m.id));
+    }
+    const { dialog } = require('electron');
+    const defaultName = fmt === 'pdf'
+      ? `Αναφορά_Μελετών_${new Date().toISOString().slice(0, 10)}.pdf`
+      : `Αναφορά_Μελετών_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση αναφοράς Μητρώου Μελετών',
+      defaultPath: defaultName,
+      filters: fmt === 'pdf'
+        ? [{ name: 'PDF', extensions: ['pdf'] }]
+        : [{ name: 'Excel', extensions: ['xlsx'] }],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    const actor = getMeletaiAuditActor(auth.username);
+    const result = await meletaiExportHandler.exportHubReport({
+      meletai,
+      format: fmt,
+      destFilePath: pick.filePath,
+      exportedBy: actor.fullName || auth.username,
+      appVersion: app.getVersion(),
+    });
+    if (result.success) {
+      logAuditAction({
+        type: 'export',
+        entityType: 'meletai_hub',
+        entityId: 'hub',
+        entityTitle: 'Αναφορά Μητρώου Μελετών',
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: fmt === 'pdf' ? 'Εξαγωγή αναφοράς Hub (PDF)' : 'Εξαγωγή αναφοράς Hub (Excel)',
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('export-meletai-hub-report error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('export-meletai-study-report', async (_event, { meletiId, format, actingUsername } = {}) => {
+  try {
+    const auth = requireMeletaiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const fmt = format === 'pdf' ? 'pdf' : 'excel';
+    const inventoryResult = getMeletaiService().buildFileInventory(meletiId);
+    if (!inventoryResult.success) return inventoryResult;
+    const meleti = inventoryResult.meleti;
+    const safeNumber = String(meleti.studyNumber || 'μελέτη').replace(/[<>:"/\\|?*]/g, '_');
+    const { dialog } = require('electron');
+    const defaultName = fmt === 'pdf'
+      ? `Μελέτη_${safeNumber}_${new Date().toISOString().slice(0, 10)}.pdf`
+      : `Μελέτη_${safeNumber}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση αναφοράς μελέτης',
+      defaultPath: defaultName,
+      filters: fmt === 'pdf'
+        ? [{ name: 'PDF', extensions: ['pdf'] }]
+        : [{ name: 'Excel', extensions: ['xlsx'] }],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    const actor = getMeletaiAuditActor(auth.username);
+    const result = await meletaiExportHandler.exportStudyReport({
+      meleti,
+      fileInventory: inventoryResult.rows,
+      format: fmt,
+      destFilePath: pick.filePath,
+      exportedBy: actor.fullName || auth.username,
+      appVersion: app.getVersion(),
+    });
+    if (result.success) {
+      logAuditAction({
+        type: 'export',
+        entityType: 'meleti',
+        entityId: meleti.id,
+        entityTitle: meleti.title || meleti.studyNumber || 'Μελέτη',
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: fmt === 'pdf' ? 'Εξαγωγή αναφοράς μελέτης (PDF)' : 'Εξαγωγή αναφοράς μελέτης (Excel)',
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('export-meletai-study-report error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ensureOrimanthiAepoCheckerStarted();

@@ -921,6 +921,8 @@ function ProjectCard({
   onOpenSpecificEntaxi,
   hasProsklisi = false,
   onOpenSpecificProsklisi,
+  hasMeleti = false,
+  onOpenSpecificMeleti,
   onViewDetails,
   engineerCatalog = [],
   linkedNotesMap = {},
@@ -1402,6 +1404,12 @@ function ProjectCard({
             <ToolbarButton type="button" onClick={() => onOpenSpecificProsklisi && onOpenSpecificProsklisi()}>
               <IconMegaphone />
               ΠΡΟΣΚΛΗΣΗ
+            </ToolbarButton>
+          )}
+          {hasMeleti && (
+            <ToolbarButton type="button" onClick={() => onOpenSpecificMeleti && onOpenSpecificMeleti()}>
+              📐
+              ΜΕΛΕΤΗ
             </ToolbarButton>
           )}
         </TopButtonsContainer>

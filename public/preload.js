@@ -76,6 +76,12 @@ const ALLOWED_INVOKE = new Set([
   'open-exported-file',
   'load-all-proposals','save-proposal','delete-proposal',
   'upload-proposal-files','upload-proposal-folder','delete-proposal-file','delete-proposal-folder-file','rename-proposal-file','delete-proposal-folder','delete-proposal-group','move-proposal-entry','open-proposal-file','download-proposal-file','get-proposal-folder-files','get-proposal-files','export-proposal','log-proposal-activity','clear-proposal-audit-log','search-proposal-files',
+  'get-municipal-units-config','save-municipal-units-config',
+  'get-orimanthi-config','save-orimanthi-config','apply-orimanthi-pending-template','get-orimanthi-aepo-alerts','export-orimanthi-hub-report',
+  'load-all-meletai','run-meletai-maintenance','get-meletai-subprojects','check-meleti-number','save-meleti','delete-meleti','link-meleti-subproject','unlink-meleti-subproject','get-meleti-by-subproject',
+  'get-meletai-config','save-meletai-config','add-meletai-study-category','remove-meletai-study-category',
+  'add-meleti-file-group','upload-meleti-files','upload-meleti-folder','delete-meleti-file','delete-meleti-folder','delete-meleti-folder-file','rename-meleti-file','delete-meleti-group',
+  'get-meleti-folder-files','open-meleti-file','download-meleti-file','export-meletai-hub-report','export-meletai-study-report',
 ]);
 
 const ALLOWED_RECEIVE = new Set([

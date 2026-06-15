@@ -8,8 +8,47 @@ function basenameFromPath(filePath) {
   return parts[parts.length - 1] || '';
 }
 
+function mapPickedFiles(fileRefs) {
+  return (fileRefs || []).map((file) => ({
+    path: file.filePath || file.path,
+    name: file.fileName || file.name || basenameFromPath(file.filePath || file.path)
+  })).filter((f) => f.path);
+}
+
+async function applyGroupingChoice(groupingChoice, projectId, subprojectId, fileNames) {
+  if (groupingChoice === null || groupingChoice === false) {
+    return { success: true };
+  }
+
+  if (groupingChoice.action === 'new') {
+    const groupResult = await ipcRenderer.invoke(
+      'create-file-group',
+      projectId,
+      subprojectId,
+      groupingChoice.title,
+      fileNames
+    );
+    if (!groupResult.success) {
+      return { success: false, error: groupResult.error || 'Αποτυχία δημιουργίας ομάδας' };
+    }
+  } else if (groupingChoice.action === 'existing') {
+    const addResult = await ipcRenderer.invoke(
+      'add-files-to-group',
+      projectId,
+      subprojectId,
+      groupingChoice.groupId,
+      fileNames
+    );
+    if (!addResult.success) {
+      return { success: false, error: addResult.error || 'Αποτυχία προσθήκης σε ομάδα' };
+    }
+  }
+
+  return { success: true };
+}
+
 /**
- * Ανέβασμα αρχείων σε υποέργο (ίδια ροή με την επεξεργασία φόρμας).
+ * Ανέβασμα μεμονωμένων αρχείων σε υποέργο (ίδια ροή με την επεξεργασία φόρμας).
  */
 export async function uploadSubprojectFiles({ projectId, subprojectId }) {
   const pickResult = await safeFileDialog('open-file-dialog');
@@ -38,32 +77,53 @@ export async function uploadSubprojectFiles({ projectId, subprojectId }) {
   }
 
   const fileNames = saveResult.files || newFiles.map((f) => f.name);
-
-  if (groupingChoice !== null && groupingChoice !== false) {
-    if (groupingChoice.action === 'new') {
-      const groupResult = await ipcRenderer.invoke(
-        'create-file-group',
-        projectId,
-        subprojectId,
-        groupingChoice.title,
-        fileNames
-      );
-      if (!groupResult.success) {
-        return { success: false, error: groupResult.error || 'Αποτυχία δημιουργίας ομάδας' };
-      }
-    } else if (groupingChoice.action === 'existing') {
-      const addResult = await ipcRenderer.invoke(
-        'add-files-to-group',
-        projectId,
-        subprojectId,
-        groupingChoice.groupId,
-        fileNames
-      );
-      if (!addResult.success) {
-        return { success: false, error: addResult.error || 'Αποτυχία προσθήκης σε ομάδα' };
-      }
-    }
+  const groupingResult = await applyGroupingChoice(groupingChoice, projectId, subprojectId, fileNames);
+  if (!groupingResult.success) {
+    return groupingResult;
   }
 
   return { success: true, count: fileNames.length };
+}
+
+/**
+ * Ανέβασμα ολόκληρου φακέλου — όλα τα αρχεία (και υποφάκελοι) αποθηκεύονται
+ * και δημιουργείται αυτόματα ομάδα με το όνομα του φακέλου.
+ */
+export async function uploadSubprojectFolder({ projectId, subprojectId }) {
+  const pick = await ipcRenderer.invoke('select-folder-files-flat', {
+    title: 'Επιλογή φακέλου για το υποέργο'
+  });
+
+  if (pick.canceled) {
+    return { cancelled: true };
+  }
+  if (!pick.success) {
+    return { success: false, error: pick.error || 'Αποτυχία επιλογής φακέλου' };
+  }
+
+  const newFiles = mapPickedFiles(pick.files);
+  if (newFiles.length === 0) {
+    return { success: false, error: 'Ο φάκελος δεν περιέχει αρχεία' };
+  }
+
+  const saveResult = await ipcRenderer.invoke('save-files', newFiles, projectId, subprojectId);
+  if (!saveResult.success) {
+    return { success: false, error: saveResult.error || 'Αποτυχία αποθήκευσης αρχείων φακέλου' };
+  }
+
+  const fileNames = saveResult.files || newFiles.map((f) => f.name);
+  const folderTitle = String(pick.folderName || 'Φάκελος').trim() || 'Φάκελος';
+  const groupResult = await ipcRenderer.invoke(
+    'create-file-group',
+    projectId,
+    subprojectId,
+    folderTitle,
+    fileNames
+  );
+
+  if (!groupResult.success) {
+    return { success: false, error: groupResult.error || 'Αποτυχία δημιουργίας ομάδας φακέλου' };
+  }
+
+  return { success: true, count: fileNames.length, groupTitle: folderTitle };
 }

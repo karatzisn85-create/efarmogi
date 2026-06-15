@@ -259,11 +259,11 @@ export default function ExportSuccessModal({
         <Body>
           <StatsGrid>
             <StatCard>
-              <StatValue>{actionCount ?? '—'}</StatValue>
+              <StatValue>{actionCount != null ? actionCount : '—'}</StatValue>
               <StatLabel>{actionLabel}</StatLabel>
             </StatCard>
             <StatCard>
-              <StatValue>{sheetCount ?? '—'}</StatValue>
+              <StatValue>{sheetCount != null ? sheetCount : '—'}</StatValue>
               <StatLabel>{sheetLabel}</StatLabel>
             </StatCard>
             <StatCard>

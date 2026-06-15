@@ -189,6 +189,63 @@ const HeaderDivider = styled.div`
   border-radius: 2px;
 `;
 
+const UploadBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid ${C.slate100};
+`;
+
+const UploadBarLabel = styled.span`
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: ${C.slate500};
+  letter-spacing: 0.02em;
+  margin-right: 0.1rem;
+`;
+
+const UploadBtn = styled.button`
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+  font-family: inherit;
+
+  ${(p) => p.$variant === 'ghost' && `
+    background: ${C.white};
+    color: ${C.slate600};
+    border-color: ${C.slate200};
+    &:hover:not(:disabled) {
+      background: ${C.slate100};
+      color: ${C.slate800};
+    }
+  `}
+
+  ${(p) => p.$variant === 'teal' && `
+    background: #ecfdf5;
+    color: ${C.emeraldDark};
+    border-color: #a7f3d0;
+    &:hover:not(:disabled) {
+      background: #d1fae5;
+    }
+  `}
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
 /* Scrollable body */
 const Body = styled.div`
   flex: 1;
@@ -495,6 +552,10 @@ function FileManager({
   files,
   fileGroups = [],
   userRole,
+  canUpload = false,
+  isUploading = false,
+  onUploadFiles,
+  onUploadFolder,
   onViewFile,
   onDownloadFile,
   onDeleteFile,
@@ -661,10 +722,35 @@ function FileManager({
 
         {/* ── Body ───────────────────────────────────────────────────── */}
         <Body>
+          {canUpload && (
+            <UploadBar>
+              <UploadBarLabel>Προσθήκη</UploadBarLabel>
+              <UploadBtn
+                type="button"
+                $variant="ghost"
+                onClick={onUploadFiles}
+                disabled={isUploading}
+              >
+                {isUploading ? '⏳ Ανέβασμα…' : '+ Αρχεία'}
+              </UploadBtn>
+              <UploadBtn
+                type="button"
+                $variant="teal"
+                onClick={onUploadFolder}
+                disabled={isUploading}
+              >
+                Φάκελος
+              </UploadBtn>
+            </UploadBar>
+          )}
           {!hasFiles ? (
             <EmptyState>
               <EmptyIcon>📄</EmptyIcon>
-              <EmptyText>Δεν υπάρχουν αρχεία για αυτό το υποέργο</EmptyText>
+              <EmptyText>
+                {canUpload
+                  ? 'Δεν υπάρχουν αρχεία. Χρησιμοποιήστε «+ Αρχεία» ή «Φάκελος».'
+                  : 'Δεν υπάρχουν αρχεία για αυτό το υποέργο'}
+              </EmptyText>
             </EmptyState>
           ) : (
             <FilesList>

@@ -378,6 +378,8 @@ const ENTITY_TYPE_LABELS = {
   'note_group': 'Ομάδα Σημειώσεων',
   'egkrisi_link': 'Σύνδεση Έγκρισης',
   'proposal': 'Έργο Ωρίμανσης',
+  'meleti': 'Μελέτη',
+  'meletai_hub': 'Μητρώο Μελετών',
 };
 
 const ACTION_LABELS = {
@@ -621,6 +623,9 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
                 <option value="document_category">Κατηγορίες Εγγράφων</option>
                 <option value="note">Σημειώσεις</option>
                 <option value="egkrisi_link">Συνδέσεις Εγκρίσεων</option>
+                <option value="meleti">Μελέτες</option>
+                <option value="meletai_hub">Μητρώο Μελετών (εξαγωγές)</option>
+                <option value="proposal">Έργα Ωρίμανσης</option>
               </FilterSelect>
             </FilterGroup>
 
