@@ -255,7 +255,7 @@ function SearchFilters({ onApplyFilters }) {
       <CollapsibleSection isOpen={isExpanded}>
         <FiltersGrid>
           <FilterGroup>
-            <FilterLabel>Τίτλος Έργου</FilterLabel>
+            <FilterLabel>Τίτλος Έργου / Τίτλος Πράξης</FilterLabel>
             <FilterInput
               type="text"
               placeholder="Αναζήτηση στον τίτλο έργου..."

@@ -1,5 +1,6 @@
 import { statusShowsAssignmentProcedure } from '../data/formOptions';
 import { getKhmdhsDisplayEntries, parseGreekAmountString } from './khmdhsFields';
+import { getProjectAssignmentProcedure } from './khmdhsNoticeFields';
 
 function getContractAmountForKhmdhsEntry(project, entry) {
   if (!project || !entry) return 0;
@@ -63,7 +64,7 @@ export function getProjectKhmdhsAdamExport(project) {
 /** Διαδικασία ανάθεσης — μόνο για σχετικές καταστάσεις */
 export function getProjectAssignmentProcedureExport(project) {
   if (!statusShowsAssignmentProcedure(project?.projectStatus)) return '';
-  return (project?.assignmentProcedure && String(project.assignmentProcedure).trim()) || '';
+  return getProjectAssignmentProcedure(project);
 }
 
 function contractorProfileKey(snapshot) {
@@ -79,7 +80,97 @@ function contractorProfileKey(snapshot) {
  * Πλήρη προφίλ αναδόχων με ιστορικό αναθέσεων, διαδικασίες, χρονοδιάγραμμα.
  * @returns {Array<{ key, name, vat, count, amount, assignments, procedureCounts, contractsByYear, firstContractDate, lastContractDate }>}
  */
+
+/** Κανονικοποίηση επωνυμίας για συγχώνευση διπλότυπων (π.χ. με/χωρίς ΑΦΜ). */
+function normalizeContractorDisplayName(name) {
+  return String(name || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\./g, '');
+}
+
+function mergeContractorProfileInto(target, source) {
+  target.count += source.count || 0;
+  target.amount += source.amount || 0;
+  target.assignments = [...(target.assignments || []), ...(source.assignments || [])];
+  Object.entries(source.procedureCounts || {}).forEach(([k, v]) => {
+    target.procedureCounts[k] = (target.procedureCounts[k] || 0) + v;
+  });
+  Object.entries(source.contractsByYear || {}).forEach(([y, v]) => {
+    target.contractsByYear[y] = (target.contractsByYear[y] || 0) + v;
+  });
+  if (!target.vat && source.vat) target.vat = source.vat;
+}
+
+function finalizeContractorProfile(profile) {
+  const validDates = (profile.assignments || [])
+    .map((a) => a.contractDate)
+    .filter(Boolean)
+    .map((d) => new Date(d))
+    .filter((d) => !Number.isNaN(d.getTime()));
+
+  const sortedAssignments = [...(profile.assignments || [])].sort(
+    (a, b) => (b.contractDate || '').localeCompare(a.contractDate || '')
+  );
+
+  return {
+    ...profile,
+    assignments: sortedAssignments,
+    firstContractDate: validDates.length
+      ? new Date(Math.min(...validDates.map((d) => d.getTime()))).toISOString().slice(0, 10)
+      : null,
+    lastContractDate: validDates.length
+      ? new Date(Math.max(...validDates.map((d) => d.getTime()))).toISOString().slice(0, 10)
+      : null
+  };
+}
+
+/**
+ * Συγχώνευση προφίλ με ίδια επωνυμία ή ίδιο ΑΦΜ — αποφυγή διπλών εγγραφών στην αναφορά.
+ */
+export function consolidateContractorProfiles(profiles) {
+  const merged = [];
+  const byVat = new Map();
+  const byName = new Map();
+
+  (profiles || []).forEach((raw) => {
+    const p = {
+      ...raw,
+      assignments: [...(raw.assignments || [])],
+      procedureCounts: { ...(raw.procedureCounts || {}) },
+      contractsByYear: { ...(raw.contractsByYear || {}) },
+    };
+    const vatDigits = String(p.vat || '').replace(/\D/g, '');
+    const nameKey = normalizeContractorDisplayName(p.name);
+
+    let target = null;
+    if (vatDigits && byVat.has(vatDigits)) target = byVat.get(vatDigits);
+    else if (nameKey && byName.has(nameKey)) target = byName.get(nameKey);
+
+    if (target) {
+      mergeContractorProfileInto(target, p);
+      return;
+    }
+
+    merged.push(p);
+    const idx = merged.length - 1;
+    const ref = () => merged[idx];
+    if (vatDigits) byVat.set(vatDigits, ref());
+    if (nameKey) byName.set(nameKey, ref());
+  });
+
+  return merged
+    .map(finalizeContractorProfile)
+    .sort((a, b) => b.amount - a.amount || b.count - a.count);
+}
+
 export function buildContractorProfiles(projects) {
+  const raw = buildContractorProfilesRaw(projects);
+  return consolidateContractorProfiles(raw);
+}
+
+function buildContractorProfilesRaw(projects) {
   const map = {};
 
   (projects || []).forEach((project) => {
@@ -136,30 +227,7 @@ export function buildContractorProfiles(projects) {
     });
   });
 
-  return Object.values(map)
-    .map((profile) => {
-      const validDates = profile.assignments
-        .map((a) => a.contractDate)
-        .filter(Boolean)
-        .map((d) => new Date(d))
-        .filter((d) => !Number.isNaN(d.getTime()));
-
-      const sortedAssignments = [...profile.assignments].sort(
-        (a, b) => (b.contractDate || '').localeCompare(a.contractDate || '')
-      );
-
-      return {
-        ...profile,
-        assignments: sortedAssignments,
-        firstContractDate: validDates.length
-          ? new Date(Math.min(...validDates.map((d) => d.getTime()))).toISOString().slice(0, 10)
-          : null,
-        lastContractDate: validDates.length
-          ? new Date(Math.max(...validDates.map((d) => d.getTime()))).toISOString().slice(0, 10)
-          : null
-      };
-    })
-    .sort((a, b) => b.amount - a.amount || b.count - a.count);
+  return Object.values(map);
 }
 
 /** Συγκεντρωτικό χρονοδιάγραμμα συμβάσεων ανά έτος (όλοι οι ανάδοχοι) */

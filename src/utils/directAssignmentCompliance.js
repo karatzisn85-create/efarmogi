@@ -1,5 +1,7 @@
 import { isAbandonedSubproject, normalizeProjectType } from '../data/formOptions';
 import { getKhmdhsDisplayEntries, parseGreekAmountString } from './khmdhsFields';
+import { getProjectAssignmentProcedure } from './khmdhsNoticeFields';
+import { formatDateEl } from './dateFormat';
 
 export const DIRECT_ASSIGNMENT_PROCEDURE = 'ΑΠΕΥΘΕΙΑΣ ΑΝΑΘΕΣΗ';
 export const DIRECT_ASSIGNMENT_COOLING_MONTHS = 12;
@@ -7,14 +9,7 @@ export const DIRECT_ASSIGNMENT_COOLING_MONTHS = 12;
 const RESTRICTED_PROJECT_TYPES = new Set(['ΕΡΓΟ', 'ΜΕΛΕΤΗ']);
 
 export function formatComplianceDate(dateStr) {
-  if (!dateStr) return '—';
-  try {
-    const d = new Date(dateStr);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString('el-GR');
-  } catch {
-    return '—';
-  }
+  return formatDateEl(dateStr, '—');
 }
 
 /** Έργο ή μελέτη με διαδικασία απευθείας ανάθεσης */
@@ -22,7 +17,7 @@ export function isDirectAssignmentRestrictedProject(project) {
   if (!project) return false;
   const type = normalizeProjectType(project.projectType);
   if (!RESTRICTED_PROJECT_TYPES.has(type)) return false;
-  const proc = (project.assignmentProcedure && String(project.assignmentProcedure).trim()) || '';
+  const proc = getProjectAssignmentProcedure(project);
   return proc === DIRECT_ASSIGNMENT_PROCEDURE;
 }
 

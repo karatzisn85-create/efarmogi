@@ -275,11 +275,13 @@ function buildHubReportHtml({ rows, exportedAt, exportedBy, appVersion }) {
         <td class="file-name">${escapeHtml(r.title)}</td>
         <td>${escapeHtml(r.category)}</td>
         <td>${escapeHtml(r.assignedTo)}</td>
+        <td class="num-cell">${escapeHtml(r.projectBudget || '—')}</td>
+        <td>${escapeHtml(r.studyApprovalDate || '—')}</td>
         <td>${escapeHtml(r.subproject)}</td>
         <td class="num-cell">${r.files}</td>
         <td>${escapeHtml(r.updatedAt)}</td>
       </tr>`).join('')
-    : `<tr><td colspan="7" class="empty-msg">Δεν υπάρχουν μελέτες προς εμφάνιση</td></tr>`;
+    : `<tr><td colspan="9" class="empty-msg">Δεν υπάρχουν μελέτες προς εμφάνιση</td></tr>`;
 
   const bodyHtml = `
     <section class="section">
@@ -295,6 +297,8 @@ function buildHubReportHtml({ rows, exportedAt, exportedBy, appVersion }) {
             <th>Τίτλος</th>
             <th>Κατηγορία</th>
             <th>Χρεωμένη σε</th>
+            <th>Προυπολογισμός</th>
+            <th>Θεώρηση</th>
             <th>Υποέργο</th>
             <th>Αρχεία</th>
             <th>Ενημέρωση</th>
@@ -326,6 +330,12 @@ function buildStudyReportHtml({ meleti, fileInventory, exportedAt, exportedBy, a
     ['Κατηγορία', meleti.category || '—'],
     ['Τίτλος', meleti.title || '(Χωρίς τίτλο)'],
     ['Χρεωμένη σε', meleti.assignedTo || '—'],
+    ['Προυπολογισμός δαπάνης έργου', meleti.projectExpenditureBudget
+      ? `${String(meleti.projectExpenditureBudget).replace(/€/gi, '').trim()} €`
+      : '—'],
+    ['Ημερομηνία θεώρησης', meleti.studyApprovalDate
+      ? formatDateOnlyGreek(meleti.studyApprovalDate)
+      : '—'],
     ['Συνδεδεμένο υποέργο', meleti.linkedSubprojectTitle
       ? `${meleti.linkedProjectTitle ? `${meleti.linkedProjectTitle} · ` : ''}${meleti.linkedSubprojectTitle}`
       : '—'],

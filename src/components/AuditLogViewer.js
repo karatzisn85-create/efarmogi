@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { formatAuditDisplayValue } from '../utils/formatAuditDisplay';
 import { showConfirm } from '../utils/confirmModal';
 import auditConfig from '../data/auditFieldLabels.json';
+import { formatDateTimeEl } from '../utils/dateFormat';
 
 const ipcRenderer = window.electronAPI;
 
@@ -380,6 +381,8 @@ const ENTITY_TYPE_LABELS = {
   'proposal': 'Έργο Ωρίμανσης',
   'meleti': 'Μελέτη',
   'meletai_hub': 'Μητρώο Μελετών',
+  'calendarConfig': 'Ρυθμίσεις Ημερολογίου',
+  'municipalUnitsConfig': 'Δημοτικές Ενότητες',
 };
 
 const ACTION_LABELS = {
@@ -491,15 +494,7 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
     })();
   }, [isOpen, loadAuditLog]);
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    return `${day}/${month}/${year} ${hours}:${minutes}`;
-  };
+  const formatDate = (dateString) => formatDateTimeEl(dateString, '—');
 
   const getActionLabel = (action) => ACTION_LABELS[action] || action;
 

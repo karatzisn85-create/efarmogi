@@ -333,6 +333,7 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
     anadoxosVat: '',
     assignmentProcedure: [],
     hasAssignmentProcedure: '',
+    khmdhsDeadlineFilter: '',
     sortBy: 'kaCode',
     sortOrder: 'asc'
   });
@@ -429,6 +430,7 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
       anadoxosVat: '',
       assignmentProcedure: [],
       hasAssignmentProcedure: '',
+      khmdhsDeadlineFilter: '',
       sortBy: 'kaCode',
       sortOrder: 'asc'
     };
@@ -471,7 +473,7 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
           {activeTab === 'basic' && (
             <FiltersGrid>
               <FilterSection>
-                <FilterLabel>📝 Τίτλος Έργου</FilterLabel>
+                <FilterLabel>📝 Τίτλος Έργου / Τίτλος Πράξης</FilterLabel>
                 <FilterInput
                   type="text"
                   placeholder="Αναζήτηση στον τίτλο έργου..."
@@ -521,7 +523,7 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
               </FilterSection>
 
               <FilterSection>
-                <FilterLabel>📄 Εισηγητική Έκθεση</FilterLabel>
+                <FilterLabel>📄 Αναφορά από πρόγραμμα Οικονομικής</FilterLabel>
                 <FilterSelect
                   value={filters.hasEisigitikiEkthesi || ''}
                   onChange={(e) => handleInputChange('hasEisigitikiEkthesi', e.target.value)}
@@ -670,6 +672,20 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
                   <option value="yes">Με καταχωρισμένη διαδικασία</option>
                   <option value="no">Χωρίς καταχώριση (σε σχετική κατάσταση)</option>
                 </FilterSelect>
+              </FilterSection>
+
+              <FilterSection>
+                <FilterLabel>🌐 ΚΗΜΔΗΣ — Προθεσμίες δημοσίευσης</FilterLabel>
+                <FilterSelect
+                  value={filters.khmdhsDeadlineFilter || ''}
+                  onChange={(e) => handleInputChange('khmdhsDeadlineFilter', e.target.value)}
+                >
+                  <option value="">Όλα</option>
+                  <option value="upcoming30">Επερχόμενη καταληκτική (30 ημέρες)</option>
+                  <option value="expiredNoContract">Ληγμένη καταληκτική χωρίς σύμβαση</option>
+                  <option value="cancelled">Ματαιωμένες δημοσίευσεις ΚΗΜΔΗΣ</option>
+                </FilterSelect>
+                <HelpText>Απαιτείται ΑΔΑΜ προκήρυξης/πρόσκλησης (PROC) με δεδομένα από ΚΗΜΔΗΣ</HelpText>
               </FilterSection>
 
               <FilterSection>
@@ -926,7 +942,7 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
                 >
                   <option value="kaCode">Κωδικός ΚΑ</option>
                   <option value="aleCode">Κωδ. Α.Λ.Ε.</option>
-                  <option value="projectTitle">Τίτλος Έργου</option>
+                  <option value="projectTitle">Τίτλος Έργου / Τίτλος Πράξης</option>
                   <option value="subprojectTitle">Τίτλος Υποέργου</option>
                   <option value="approvedAmount">Εγκεκριμένο Ποσό</option>
                   <option value="contractAmount">Συμβατικό Ποσό</option>

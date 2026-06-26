@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { useToast } from './ToastProvider';
+import { formatDateEl } from '../utils/dateFormat';
 
 // Styled Components
 const ModalOverlay = styled.div`
@@ -292,14 +293,7 @@ function ProsklisisExportDialog({ isOpen, onClose, proskliseis, totalProskliseis
     setSelectedFields([]);
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '-';
-    const date = new Date(dateString);
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-  };
+  const formatDate = (dateString) => formatDateEl(dateString, '-');
 
   const exportToExcel = () => {
     if (selectedFields.length === 0) {

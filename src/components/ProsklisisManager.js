@@ -6,6 +6,7 @@ import ProsklisisForm from './ProsklisisForm';
 import ProsklisisFileManager from './ProsklisisFileManager';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
 import ProsklisisExportDialog from './ProsklisisExportDialog';
+import { formatDateEl } from '../utils/dateFormat';
 import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import { showConfirm } from '../utils/confirmModal';
@@ -1356,22 +1357,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
 
   /* ── Helpers ── */
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '-';
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) {
-        if (/^\d{2}-\d{2}-\d{4}$/.test(dateString)) {
-          return dateString.replace(/-/g, '/');
-        }
-        if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateString)) return dateString;
-        return dateString;
-      }
-      const day = date.getDate().toString().padStart(2, '0');
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      return `${day}/${month}/${date.getFullYear()}`;
-    } catch { return dateString || '-'; }
-  };
+  const formatDate = (dateString) => formatDateEl(dateString, '-');
 
   const getFieldLabel = (field) => {
     const labels = { fundingSource: 'Πηγή Χρηματοδότησης', deadline: 'Ημ. Λήξης', title: 'Τίτλος', axis: 'Άξονας', code: 'Κωδικός', budgetRange: 'Εύρος Π/Υ', status: 'Κατάσταση' };

@@ -1,5 +1,9 @@
 /** Pure helpers for Ωρίμανση Έργων (Hub, stats, search, history). */
 
+import { formatDateEl } from './dateFormat';
+
+export { formatDateEl as formatShortDateEl, formatDateTimeEl } from './dateFormat';
+
 export const PROPOSAL_STATUS_LABELS = {
   draft: 'Αρχική καταγραφή',
   maturing: 'Υπό ωρίμανση',
@@ -23,28 +27,6 @@ export function isImageFileName(fileName) {
   return IMAGE_EXT.has(ext);
 }
 
-export function formatDateTimeEl(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  return `${day}/${month}/${year} ${hours}:${minutes}`;
-}
-
-export function formatShortDateEl(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}/${month}/${year}`;
-}
-
 export function formatProposalStatusValue(value) {
   return PROPOSAL_STATUS_LABELS[value] || value || '(κενό)';
 }
@@ -52,7 +34,7 @@ export function formatProposalStatusValue(value) {
 export function formatAuditFieldValue(fieldKey, value) {
   if (fieldKey === 'status') return formatProposalStatusValue(value);
   if (value === null || value === undefined || value === '') return '(κενό)';
-  if (fieldKey === 'aepoRenewalDate') return formatShortDateEl(value);
+  if (fieldKey === 'aepoRenewalDate') return formatDateEl(value);
   if (typeof value === 'string' && value.length > 120) {
     return `${value.slice(0, 117)}…`;
   }

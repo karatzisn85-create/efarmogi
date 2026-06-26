@@ -120,9 +120,46 @@ function collectChargeFilterOptions(projects, catalog) {
     .sort((a, b) => a.label.localeCompare(b.label, 'el', { sensitivity: 'base' }));
 }
 
+function buildEngineerVisibilityContext(username, assignedSupervisors = []) {
+  const uname = String(username || '').trim().toLowerCase();
+  const engineerIds = uname ? [`user:${uname}`] : [];
+  const chargeFilterKeys = engineerIds.map((id) => engineerChargeFilterKey(id)).filter(Boolean);
+  (Array.isArray(assignedSupervisors) ? assignedSupervisors : []).forEach((label) => {
+    const fk = freeChargeFilterKey(label);
+    if (fk) chargeFilterKeys.push(fk);
+  });
+  return {
+    engineerIds,
+    chargeFilterKeys: [...new Set(chargeFilterKeys)],
+  };
+}
+
+function projectVisibleToEngineerContext(project, engineerContext) {
+  const ctx =
+    engineerContext && typeof engineerContext === 'object' && !Array.isArray(engineerContext)
+      ? engineerContext
+      : { engineerIds: [], chargeFilterKeys: [] };
+
+  const keys = new Set();
+  (Array.isArray(ctx.chargeFilterKeys) ? ctx.chargeFilterKeys : []).forEach((k) => {
+    const n = String(k || '').trim().toLowerCase();
+    if (n) keys.add(n);
+  });
+  (Array.isArray(ctx.engineerIds) ? ctx.engineerIds : []).forEach((id) => {
+    const k = engineerChargeFilterKey(id);
+    if (k) keys.add(k);
+  });
+  if (keys.size === 0) return false;
+
+  const projectKeys = getProjectChargeFilterKeys(project);
+  return projectKeys.some((pk) => keys.has(String(pk || '').trim().toLowerCase()));
+}
+
 module.exports = {
   collectChargeFilterOptions,
   getProjectChargeFilterKeys,
   engineerChargeFilterKey,
-  resolveChargeLabel
+  resolveChargeLabel,
+  buildEngineerVisibilityContext,
+  projectVisibleToEngineerContext,
 };

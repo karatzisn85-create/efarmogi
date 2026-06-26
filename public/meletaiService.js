@@ -355,6 +355,8 @@ function createMeletaiService({ dataDir }) {
       assignedTo: String(meleti.assignedTo || '').trim(),
       category: String(meleti.category || '').trim(),
       notes: String(meleti.notes || '').trim(),
+      projectExpenditureBudget: String(meleti.projectExpenditureBudget || '').trim().replace(/€/gi, '').replace(/\s+/g, ''),
+      studyApprovalDate: String(meleti.studyApprovalDate || '').trim().slice(0, 10),
       updatedAt: now,
     };
 
@@ -1146,6 +1148,8 @@ function createMeletaiService({ dataDir }) {
       assignedTo: meleti.assignedTo || '',
       category: meleti.category || '',
       notes: meleti.notes || '',
+      projectExpenditureBudget: meleti.projectExpenditureBudget || '',
+      studyApprovalDate: meleti.studyApprovalDate || '',
       linkedSubprojectId: meleti.linkedSubprojectId || '',
       linkedSubprojectTitle: meleti.linkedSubprojectTitle || '',
       fileCategories: fileGroups.length,

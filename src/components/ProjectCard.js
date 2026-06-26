@@ -1,17 +1,25 @@
 import React, { useMemo, useState } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import {
-  PROJECT_STATUSES,
   PROJECT_STATUS_ABANDONED,
   isAbandonedSubproject,
   getCharacterization,
-  statusShowsAssignmentProcedure,
   getProjectTypeBadgeColors,
   normalizeProjectType
 } from '../data/formOptions';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
-import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm } from '../utils/khmdhsFields';
+import { getKhmdhsChainFreshness } from '../utils/khmdhsChainRefresh';
+import { findActRootSiblings, getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
+import { formatDateEl } from '../utils/dateFormat';
+import KhmdhsFreshnessBadge from './KhmdhsFreshnessBadge';
+import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
+import {
+  buildProjectCardContractRows,
+  shouldShowContractZone,
+  shouldShowProcedureZone,
+  formatAleCodes,
+} from '../utils/projectCardDisplay';
 
 const iconProps = { width: 14, height: 14, 'aria-hidden': true };
 
@@ -115,20 +123,23 @@ function IconFolder() {
 }
 
 const Card = styled.div`
-  background: rgba(255, 255, 255, 0.92);
+  background: linear-gradient(165deg, #ffffff 0%, #f8fafc 100%);
   backdrop-filter: blur(12px);
-  border-radius: 16px;
-  padding: 1.5rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid rgba(226, 232, 240, 0.7);
+  border-radius: 18px;
+  padding: 1.25rem 1.35rem 1.15rem;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px rgba(15, 23, 42, 0.06);
+  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.32s ease, border-color 0.32s ease;
+  border: 1.5px solid rgba(203, 213, 225, 0.9);
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 480px;
+  min-height: 320px;
   cursor: pointer;
   position: relative;
   overflow: visible;
+  isolation: isolate;
 
   &::before {
     content: '';
@@ -137,16 +148,18 @@ const Card = styled.div`
     left: 0;
     right: 0;
     height: 4px;
-    background: ${props => props.$statusGrad || 'linear-gradient(90deg, #6366f1, #8b5cf6, #ec4899)'};
-    border-radius: 16px 16px 0 0;
-    opacity: 0.7;
+    background: ${(props) => props.$statusGrad || 'linear-gradient(90deg, #6366f1, #8b5cf6)'};
+    border-radius: 18px 18px 0 0;
+    opacity: 0.9;
     transition: opacity 0.35s ease, height 0.25s ease;
   }
 
   &:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 20px 40px ${props => props.$statusShadow || 'rgba(99, 102, 241, 0.12)'}, 0 8px 16px rgba(0, 0, 0, 0.06);
-    border-color: rgba(165, 180, 252, 0.6);
+    transform: translateY(-3px);
+    box-shadow:
+      0 16px 36px ${(props) => props.$statusShadow || 'rgba(99, 102, 241, 0.14)'},
+      0 4px 12px rgba(15, 23, 42, 0.06);
+    border-color: rgba(165, 180, 252, 0.55);
 
     &::before {
       opacity: 1;
@@ -207,23 +220,328 @@ const ViewDetailsHint = styled.div`
 `;
 
 const CardHeader = styled.div`
-  border-bottom: 1px solid rgba(226, 232, 240, 0.6);
-  padding-bottom: 1rem;
-  margin-bottom: 1rem;
+  margin: -1.25rem -1.35rem 0.85rem;
+  padding: 0.95rem 3.25rem 0.85rem 1.35rem;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 0.55) 100%);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+  border-radius: 16px 16px 0 0;
+`;
+
+const CardKindLabel = styled.span`
+  display: block;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6366f1;
+  margin-bottom: 0.3rem;
+`;
+
+const TypeBadgeProminent = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 0.32rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  background: ${(props) => getProjectTypeBadgeColors(props.type).bg};
+  color: ${(props) => getProjectTypeBadgeColors(props.type).color};
+  border: 1px solid ${(props) => getProjectTypeBadgeColors(props.type).color}33;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+`;
+
+const StatusStrip = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 11px;
+  background: ${(p) => p.$bg || 'rgba(248, 250, 252, 0.9)'};
+  border: 1px solid ${(p) => p.$border || '#e2e8f0'};
+`;
+
+const HeaderTopRow = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+`;
+
+const HeaderMetaTags = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+`;
+
+const MetaTag = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: ${(p) => p.$color || '#64748b'};
+  background: ${(p) => p.$bg || '#f8fafc'};
+  border: 1px solid ${(p) => p.$border || '#e2e8f0'};
+  white-space: nowrap;
+`;
+
+const StatusPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.38rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  color: ${(p) => p.$text || '#334155'};
+  background: ${(p) => p.$bg || '#f1f5f9'};
+  border: 1px solid ${(p) => p.$border || '#e2e8f0'};
+  box-shadow: 0 1px 3px ${(p) => p.$shadow || 'rgba(15, 23, 42, 0.06)'};
+  max-width: 100%;
+
+  &::before {
+    content: '';
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: ${(p) => p.$primary || '#64748b'};
+    box-shadow: 0 0 0 3px ${(p) => `${p.$primary || '#64748b'}30`};
+  }
+`;
+
+const OverviewDivider = styled.div`
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(203, 213, 225, 0.9), transparent);
+`;
+
+const TitleBadges = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+`;
+
+const OverviewPanel = styled.div`
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  padding: 0.75rem 0.85rem;
+  display: grid;
+  gap: 0.65rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition: box-shadow 0.28s ease;
+
+  ${Card}:hover & {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 2px 10px rgba(15, 23, 42, 0.04);
+  }
+`;
+
+const CardSection = styled.section`
+  border-radius: 14px;
+  background: ${(p) => p.$tint || 'rgba(255, 255, 255, 0.65)'};
+  border: 1px solid rgba(226, 232, 240, 0.7);
+  padding: 0.65rem 0.75rem 0.7rem 0.88rem;
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow 0.28s ease, border-color 0.28s ease;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    background: ${(p) => p.$accent || '#6366f1'};
+    border-radius: 0 3px 3px 0;
+    opacity: 0.75;
+  }
+
+  ${Card}:hover & {
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.05);
+    border-color: rgba(203, 213, 225, 0.9);
+  }
+`;
+
+const SectionHeader = styled.div`
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  margin-bottom: 0.5rem;
+`;
+
+const MetaGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+`;
+
+const MetaCell = styled.div`
+  min-width: 0;
+
+  ${(p) => p.$full && 'grid-column: 1 / -1;'}
+`;
+
+const MetaLabel = styled.div`
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.15rem;
+`;
+
+const MetaValue = styled.div`
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #1e293b;
+  word-break: break-word;
+  line-height: 1.38;
+`;
+
+const FinanceRow = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+`;
+
+const FinanceBox = styled.div`
+  padding: 0.55rem 0.5rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  text-align: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+
+  ${Card}:hover & {
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);
+  }
+`;
+
+const FinanceBoxLabel = styled.div`
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.2rem;
+`;
+
+const FinanceBoxValue = styled.div`
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #059669;
+  letter-spacing: 0.01em;
+`;
+
+const CommentsBlock = styled.div`
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #475569;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+`;
+
+const SupplementaryHint = styled.div`
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: #64748b;
+  font-family: ui-monospace, monospace;
+  margin-top: 0.15rem;
+`;
+
+const AmendmentsLine = styled.div`
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: #64748b;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed rgba(203, 213, 225, 0.7);
+`;
+
+const ContractRowBlock = styled.div`
+  padding: 0.55rem 0.62rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(199, 210, 254, 0.45);
+
+  &:not(:last-child) {
+    margin-bottom: 0.45rem;
+  }
+`;
+
+const ContractRowTitle = styled.div`
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #4338ca;
+  margin-bottom: 0.4rem;
+`;
+
+const IdentityStrip = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+`;
+
+const KhmdhsContractLine = styled.div`
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+
+  &:not(:last-child) {
+    margin-bottom: 0.35rem;
+  }
+
+  strong {
+    color: #4338ca;
+    font-weight: 700;
+  }
 `;
 
 const SubprojectTitle = styled.h4`
-  color: #1e293b;
+  color: #0f172a;
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  line-height: 1.4;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  letter-spacing: 0.3px;
-  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  flex: 1;
+  min-width: 0;
 `;
 
 const MisPraxhsBadge = styled.span`
@@ -276,10 +594,11 @@ function formatEpDisplayCode(epLinkedAction) {
 
 
 const CardContent = styled.div`
-  display: grid;
-  gap: 0.8rem;
-  flex: 1; /* Γεμίζει τον διαθέσιμο χώρο */
-  align-content: start; /* Στοιχίζει περιεχόμενο στην αρχή */
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  flex: 1;
+  align-content: start;
 `;
 
 const InfoRow = styled.div`
@@ -303,49 +622,12 @@ const InfoValue = styled.span`
   font-weight: 500;
 `;
 
-const StatusBadge = styled.span`
-  display: inline-block;
-  padding: 0.3rem 0.75rem;
-  border-radius: 8px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-align: center;
-  letter-spacing: 0.3px;
-  background: ${props => getStatusColor(props.status).gradient};
-  color: white;
-  box-shadow: 0 2px 6px ${props => getStatusColor(props.status).shadow};
-`;
-
-const CompletionRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  margin-top: 0.6rem;
-`;
-
-const CompletionChip = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.18rem 0.55rem;
-  border-radius: 20px;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  background: ${props => props.$active ? props.$activeBg || '#d1fae5' : 'rgba(226, 232, 240, 0.5)'};
-  color: ${props => props.$active ? props.$activeText || '#065f46' : '#94a3b8'};
-  border: 1px solid ${props => props.$active ? props.$activeBorder || '#6ee7b7' : 'rgba(203, 213, 225, 0.5)'};
-  transition: all 0.2s ease;
-  line-height: 1;
-`;
-
 const BudgetBarWrap = styled.div`
-  margin: 0.75rem 0 0.5rem;
-  padding: 0.65rem 0.85rem;
-  background: linear-gradient(135deg, rgba(248, 250, 252, 0.9), rgba(241, 245, 249, 0.9));
+  margin: 0.15rem 0 0;
+  padding: 0.55rem 0.65rem;
+  background: rgba(248, 250, 252, 0.85);
   border-radius: 10px;
-  border: 1px solid rgba(226, 232, 240, 0.6);
+  border: 1px solid rgba(226, 232, 240, 0.55);
 `;
 
 const BudgetBarLabels = styled.div`
@@ -473,14 +755,14 @@ const HoverPreviewBudgetFill = styled.div`
 
 const CharacterizationBadge = styled.span`
   display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  background: ${props => props.$type === 'ΝΕΟ' ? '#e3f2fd' : '#fff8e1'};
-  color: ${props => props.$type === 'ΝΕΟ' ? '#1565c0' : '#e65100'};
-  border: 1px solid ${props => props.$type === 'ΝΕΟ' ? '#90caf9' : '#ffcc80'};
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: ${(props) => (props.$type === 'ΝΕΟ' ? '#eff6ff' : '#fffbeb')};
+  color: ${(props) => (props.$type === 'ΝΕΟ' ? '#1d4ed8' : '#b45309')};
+  border: 1px solid ${(props) => (props.$type === 'ΝΕΟ' ? '#bfdbfe' : '#fde68a')};
 `;
 
 const TypeBadge = styled.span`
@@ -560,20 +842,35 @@ const CatalogAuxLine = styled.div`
 `;
 
 const ContractInfo = styled.div`
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border-radius: 10px;
-  padding: 1rem;
-  margin-top: 1rem;
-  border-left: 3px solid #6366f1;
-  border: 1px solid rgba(226, 232, 240, 0.6);
-  border-left: 3px solid #6366f1;
+  background: linear-gradient(145deg, rgba(238, 242, 255, 0.55) 0%, rgba(248, 250, 252, 0.95) 100%);
+  border-radius: 12px;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid rgba(165, 180, 252, 0.35);
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, #6366f1, #818cf8);
+    border-radius: 3px 0 0 3px;
+  }
 `;
 
 const ContractTitle = styled.div`
-  font-weight: 600;
-  color: #495057;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
+  font-weight: 800;
+  color: #4338ca;
+  margin-bottom: 0.55rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 `;
 
 const MultipleContracts = styled.div`
@@ -593,9 +890,14 @@ const ButtonContainer = styled.div`
   flex-direction: column;
   gap: 0.5rem;
   margin-top: auto;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(226, 232, 240, 0.6);
+  padding-top: 0.85rem;
+  border-top: 1px dashed rgba(203, 213, 225, 0.85);
   flex-shrink: 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(248, 250, 252, 0.5) 100%);
+  margin-left: -0.15rem;
+  margin-right: -0.15rem;
+  padding-left: 0.15rem;
+  padding-right: 0.15rem;
 `;
 
 const TopButtonsContainer = styled.div`
@@ -842,31 +1144,26 @@ function IconReport() {
   );
 }
 
-// Κόκκινο κουμπάκι για lock status
 const LockStatusButton = styled.button`
   position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 32px;
-  height: 32px;
-  border: none;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
   border-radius: 50%;
-  background: ${props => props.isLocked ? '#dc3545' : '#28a745'};
+  background: ${(props) => (props.isLocked ? '#dc3545' : '#28a745')};
   color: white;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s ease;
+  cursor: default;
+  transition: all 0.25s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  z-index: 10;
-
-  &:hover {
-    transform: scale(1.1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+  z-index: 12;
+  pointer-events: none;
 `;
 
 // Tooltip για το lock status
@@ -932,7 +1229,8 @@ function ProjectCard({
   isPublishedToPortal = false,
   epLinkedAction = null,
   hasDirectAssignmentViolation = false,
-  onExportReport
+  onExportReport,
+  allSubprojects = [],
 }) {
   const [exportingReport, setExportingReport] = useState(false);
   const statusColor = getStatusColor(project.projectStatus);
@@ -963,42 +1261,90 @@ function ProjectCard({
     return `${amount} €`;
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '-';
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return '-';
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-  };
+  const formatDate = (dateString) => formatDateEl(dateString, '-');
 
-  const hasContractInfo = isMultipleContractsForm(project.implementationForm)
-    ? (project.contracts && project.contracts.length > 0)
-    : (project.contractDate || project.contractAmount);
-
-  const safeParseAmount = (val) => {
-    if (!val) return 0;
-    const str = typeof val === 'number' ? String(val) : val;
-    const cleaned = str.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
-    const amount = parseFloat(cleaned);
-    return isNaN(amount) ? 0 : amount;
-  };
-
-  const totalContractAmount = getTotalContractAmount(project);
-
-  const approvedAmountNum = safeParseAmount(project.approvedAmount);
-  const progressPct = approvedAmountNum > 0 && totalContractAmount > 0
-    ? Math.min(100, Math.round((totalContractAmount / approvedAmountNum) * 100))
-    : 0;
+  const characterization = getCharacterization(project);
+  const aleDisplay = formatAleCodes(project);
+  const contractRows = useMemo(() => buildProjectCardContractRows(project), [project]);
+  const showProcedureZone = shouldShowProcedureZone(project);
+  const showContractZone = shouldShowContractZone(project);
 
   const { displayChargePrimary, displayChargeParticipants } = useMemo(
     () => getProjectChargeDisplay(project, engineerCatalog),
     [project, engineerCatalog]
   );
 
-  const khmdhsEntries = useMemo(() => getKhmdhsDisplayEntries(project), [project]);
   const linkedNotes = getEntityLinkedNotes(linkedNotesMap, project.subprojectId);
+
+  const chainFreshness = useMemo(
+    () => getKhmdhsChainFreshness(project),
+    [project]
+  );
+
+  const actRootSiblings = useMemo(() => {
+    const root = getSubprojectActRootReq(project);
+    if (!root) return [];
+    return findActRootSiblings(allSubprojects, root, project.subprojectId);
+  }, [project, allSubprojects]);
+
+  const renderContractRow = (row, key) => (
+    <ContractRowBlock key={key}>
+      {row.label && <ContractRowTitle>{row.label}</ContractRowTitle>}
+      <MetaGrid>
+        {row.date && (
+          <MetaCell>
+            <MetaLabel>Ημ. σύμβασης</MetaLabel>
+            <MetaValue style={{ color: '#4338ca', fontWeight: 700 }}>{formatDate(row.date)}</MetaValue>
+          </MetaCell>
+        )}
+        {row.amount && (
+          <MetaCell>
+            <MetaLabel>Ποσό</MetaLabel>
+            <MetaValue style={{ color: '#059669', fontWeight: 800 }}>{formatAmount(row.amount)}</MetaValue>
+          </MetaCell>
+        )}
+        {row.deadline && (
+          <MetaCell $full>
+            <MetaLabel>{row.deadline.label}</MetaLabel>
+            <MetaValue>{row.deadline.value}</MetaValue>
+          </MetaCell>
+        )}
+        {row.apeAmount && (
+          <MetaCell>
+            <MetaLabel>ΑΠΕ</MetaLabel>
+            <MetaValue style={{ color: '#059669' }}>{formatAmount(row.apeAmount)}</MetaValue>
+          </MetaCell>
+        )}
+        {row.supplementarySummary?.displayAmount && (
+          <MetaCell>
+            <MetaLabel>{row.supplementarySummary.label}</MetaLabel>
+            <MetaValue style={{ color: '#16a34a', fontWeight: 800 }}>
+              {row.supplementarySummary.count === 1 && row.supplementarySummary.items[0]?.amount
+                ? formatAmount(row.supplementarySummary.displayAmount)
+                : `${row.supplementarySummary.displayAmount} €`}
+            </MetaValue>
+            {row.supplementarySummary.count === 1 && row.supplementarySummary.items[0]?.adam ? (
+              <SupplementaryHint>{row.supplementarySummary.items[0].adam}</SupplementaryHint>
+            ) : null}
+          </MetaCell>
+        )}
+        {(row.contractorName || row.contractorVat) && (
+          <MetaCell $full>
+            <MetaLabel>Ανάδοχος</MetaLabel>
+            <MetaValue>
+              {row.contractorName || '—'}
+              {row.contractorVat ? (
+                <span style={{ color: '#64748b', fontWeight: 500 }}> · ΑΦΜ {row.contractorVat}</span>
+              ) : null}
+            </MetaValue>
+          </MetaCell>
+        )}
+      </MetaGrid>
+      {row.amendmentsLine ? (
+        <AmendmentsLine>Τροποποιήσεις / παρατάσεις: {row.amendmentsLine}</AmendmentsLine>
+      ) : null}
+    </ContractRowBlock>
+  );
 
   return (
     <>
@@ -1036,340 +1382,160 @@ function ProjectCard({
         )}
         
         <CardHeader>
-          <SubprojectTitle>
-            {project.subprojectTitle}
-            {portalEnabled && isPublishedToPortal && (
-              <span
-                title="Δημοσιευμένο στην Πύλη Διαφάνειας"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 3,
-                  background: 'linear-gradient(135deg, #2563eb22, #0ea5e922)',
-                  border: '1px solid #2563eb44',
-                  color: '#2563eb',
-                  borderRadius: 5,
-                  padding: '1px 7px',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  marginLeft: 6,
-                  letterSpacing: '0.03em',
-                  verticalAlign: 'middle',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                🌐 PORTAL
-              </span>
+          <CardKindLabel>Υποέργο</CardKindLabel>
+          <HeaderTopRow>
+            <SubprojectTitle>{project.subprojectTitle}</SubprojectTitle>
+            {chainFreshness.level !== 'none' && (
+              <KhmdhsFreshnessBadge
+                freshness={chainFreshness}
+                compact
+                title={chainFreshness.label}
+              />
             )}
-            {project.misPraxhsName && project.misPraxhsCode && (
-              <MisPraxhsBadge>
-                {project.misPraxhsName}: {project.misPraxhsCode}
-              </MisPraxhsBadge>
-            )}
-            {epLinkedAction && (
-              <EpLinkBadge
-                title={`Επιχειρησιακό Πρόγραμμα — Δράση #${epLinkedAction.aa || '—'}: ${epLinkedAction.title || ''}`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                🔗 Επιχειρησιακό
-              </EpLinkBadge>
-            )}
-            {hasDirectAssignmentViolation && (
-              <span
-                title="Πιθανή παράβαση κανόνα 12 μηνών — απευθείας ανάθεση έργου/μελέτης στον ίδιο ανάδοχο"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 3,
-                  background: '#fef3c7',
-                  border: '1px solid #f59e0b',
-                  color: '#b45309',
-                  borderRadius: 5,
-                  padding: '1px 7px',
-                  fontSize: 10,
-                  fontWeight: 800,
-                  marginLeft: 6,
-                  verticalAlign: 'middle',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                ⚠️ 12μ.
-              </span>
-            )}
-          </SubprojectTitle>
+          </HeaderTopRow>
 
+          {(portalEnabled && isPublishedToPortal) || (project.misPraxhsName && project.misPraxhsCode) || epLinkedAction || hasDirectAssignmentViolation || actRootSiblings.length > 0 ? (
+            <HeaderMetaTags>
+              {actRootSiblings.length > 0 && (
+                <MetaTag
+                  $color="#5b21b6"
+                  $bg="#f5f3ff"
+                  $border="#c4b5fd"
+                  title={actRootSiblings.map((s) => s.subprojectTitle).join('\n')}
+                >
+                  Κοινή πράξη · {actRootSiblings.length + 1} υποέργα
+                </MetaTag>
+              )}
+              {project.misPraxhsName && project.misPraxhsCode && (
+                <MetaTag $color="#475569" $bg="#f8fafc" $border="#e2e8f0">
+                  {project.misPraxhsName}: {project.misPraxhsCode}
+                </MetaTag>
+              )}
+              {epLinkedAction && (
+                <MetaTag
+                  $color="#065f46"
+                  $bg="#ecfdf5"
+                  $border="#6ee7b7"
+                  title={`Επιχειρησιακό Πρόγραμμα — Δράση #${epLinkedAction.aa || '—'}: ${epLinkedAction.title || ''}`}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ cursor: 'default' }}
+                >
+                  Επιχειρησιακό
+                </MetaTag>
+              )}
+              {portalEnabled && isPublishedToPortal && (
+                <MetaTag $color="#1d4ed8" $bg="#eff6ff" $border="#93c5fd">
+                  Portal
+                </MetaTag>
+              )}
+              {hasDirectAssignmentViolation && (
+                <MetaTag $color="#b45309" $bg="#fffbeb" $border="#fcd34d" title="Πιθανή παράβαση κανόνα 12 μηνών">
+                  ⚠ 12μ.
+                </MetaTag>
+              )}
+            </HeaderMetaTags>
+          ) : null}
         </CardHeader>
 
-      <CardContent>
-        <InfoRow>
-          <InfoLabel>Μορφή Υλοποίησης:</InfoLabel>
-          <InfoValue>{project.implementationForm}</InfoValue>
-        </InfoRow>
+        <CardContent>
+        <KhmdhsLifecycleRail project={project} variant="compact" freshness={chainFreshness} />
 
-        <InfoRow>
-          <InfoLabel>Κωδικός ΚΑ:</InfoLabel>
-          <InfoValue>{project.kaCode}</InfoValue>
-        </InfoRow>
-
-        {((project.aleCodes && project.aleCodes.length > 0) || project.aleCode) && (
-          <InfoRow>
-            <InfoLabel>Κωδ. Α.Λ.Ε.:</InfoLabel>
-            <InfoValue>
-              {project.aleCodes && Array.isArray(project.aleCodes) && project.aleCodes.length > 0
-                ? project.aleCodes.filter(c => c && c.trim()).join(' • ')
-                : project.aleCode || ''}
-            </InfoValue>
-          </InfoRow>
-        )}
-
-        <InfoRow>
-          <InfoLabel>Είδος:</InfoLabel>
-          <InfoValue>
-            <TypeBadge type={project.projectType}>{normalizeProjectType(project.projectType)}</TypeBadge>
-          </InfoValue>
-        </InfoRow>
-
-        <InfoRow>
-          <InfoLabel>Πηγή Χρηματοδότησης:</InfoLabel>
-          <InfoValue>{project.fundingSource}</InfoValue>
-        </InfoRow>
-
-        <InfoRow>
-          <InfoLabel>Εξειδίκευση:</InfoLabel>
-          <InfoValue>{project.fundingDetails}</InfoValue>
-        </InfoRow>
-
-        <InfoRow>
-          <InfoLabel>Εγκεκριμένο Ποσό:</InfoLabel>
-          <InfoValue>
-            <AmountValue>{formatAmount(project.approvedAmount)}</AmountValue>
-          </InfoValue>
-        </InfoRow>
-
-        <InfoRow>
-          <InfoLabel>Προϋπολογισμός:</InfoLabel>
-          <InfoValue>
-            <AmountValue>{formatAmount(project.projectBudget)}</AmountValue>
-          </InfoValue>
-        </InfoRow>
-
-        <InfoRow>
-          <InfoLabel>Κατάσταση:</InfoLabel>
-          <InfoValue style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <StatusBadge status={project.projectStatus}>{project.projectStatus}</StatusBadge>
-            {getCharacterization(project) && (
-              <CharacterizationBadge $type={getCharacterization(project)}>
-                {getCharacterization(project)}
+        <CardSection $accent="#6366f1" $tint="rgba(238, 242, 255, 0.35)">
+          <SectionHeader>Ταυτότητα</SectionHeader>
+          <IdentityStrip>
+            <TypeBadgeProminent type={project.projectType}>
+              {normalizeProjectType(project.projectType)}
+            </TypeBadgeProminent>
+            <StatusPill
+              $primary={statusColor.primary}
+              $bg={statusColor.bg}
+              $text={statusColor.text}
+              $border={statusColor.border}
+              $shadow={statusColor.shadow}
+            >
+              {project.projectStatus}
+            </StatusPill>
+            {characterization && (
+              <CharacterizationBadge $type={characterization}>
+                {characterization}
               </CharacterizationBadge>
             )}
-          </InfoValue>
-        </InfoRow>
+          </IdentityStrip>
+          {aleDisplay && (
+            <div style={{ marginTop: '0.55rem' }}>
+              <MetaLabel>Κωδ. Α.Λ.Ε.</MetaLabel>
+              <MetaValue>{aleDisplay}</MetaValue>
+            </div>
+          )}
+        </CardSection>
 
-        {statusShowsAssignmentProcedure(project.projectStatus) && project.assignmentProcedure && (
-          <InfoRow>
-            <InfoLabel>Διαδικασία ανάθεσης:</InfoLabel>
-            <InfoValue style={{ fontWeight: 600, color: '#5c6bc0', fontSize: '0.9rem' }}>
-              {project.assignmentProcedure}
-            </InfoValue>
-          </InfoRow>
+        <CardSection $accent="#059669" $tint="rgba(236, 253, 245, 0.45)">
+          <SectionHeader>Χρηματοδότηση</SectionHeader>
+          <MetaGrid>
+            <MetaCell>
+              <MetaLabel>Πηγή</MetaLabel>
+              <MetaValue>{project.fundingSource || '—'}</MetaValue>
+            </MetaCell>
+            {project.fundingDetails && (
+              <MetaCell>
+                <MetaLabel>Εξειδίκευση</MetaLabel>
+                <MetaValue style={{ fontSize: '0.76rem', fontWeight: 500, color: '#64748b' }}>
+                  {project.fundingDetails}
+                </MetaValue>
+              </MetaCell>
+            )}
+            <MetaCell>
+              <MetaLabel>Εγκεκριμένο</MetaLabel>
+              <MetaValue style={{ color: '#059669', fontWeight: 800 }}>{formatAmount(project.approvedAmount)}</MetaValue>
+            </MetaCell>
+            {project.projectBudget && (
+              <MetaCell>
+                <MetaLabel>Προϋπολογισμός</MetaLabel>
+                <MetaValue>{formatAmount(project.projectBudget)}</MetaValue>
+              </MetaCell>
+            )}
+          </MetaGrid>
+        </CardSection>
+
+        {showProcedureZone && (
+          <CardSection $accent="#6366f1" $tint="rgba(238, 242, 255, 0.35)">
+            <SectionHeader>Διαδικασία ανάθεσης</SectionHeader>
+            <MetaValue style={{ color: '#4338ca', fontSize: '0.86rem' }}>{project.assignmentProcedure}</MetaValue>
+          </CardSection>
         )}
 
-        {khmdhsEntries.length > 0 && (
-          <InfoRow>
-            <InfoLabel>ΚΗΜΔΗΣ:</InfoLabel>
-            <InfoValue style={{ fontSize: '0.86rem', lineHeight: 1.5 }}>
-              {khmdhsEntries.map((entry, idx) => (
-                <div key={entry.contractIndex ?? `k-${idx}`} style={{ marginBottom: idx < khmdhsEntries.length - 1 ? '0.35rem' : 0 }}>
-                  {entry.contractIndex != null && (
-                    <span style={{ color: '#64748b', fontWeight: 600 }}>Σύμβαση {entry.contractIndex}: </span>
-                  )}
-                  {entry.adam && (
-                    <>
-                      <strong>ΑΔΑΜ</strong> {entry.adam}
-                    </>
-                  )}
-                  {entry.snapshot?.anadoxosName && (
-                    <>
-                      {entry.adam ? ' · ' : null}
-                      {entry.snapshot.anadoxosName}
-                    </>
-                  )}
-                  {entry.snapshot?.anadoxosVat && (
-                    <span style={{ color: '#64748b' }}> (ΑΦΜ {entry.snapshot.anadoxosVat})</span>
-                  )}
-                </div>
-              ))}
-            </InfoValue>
-          </InfoRow>
+        {showContractZone && contractRows.length > 0 && (
+          <CardSection $accent="#4338ca" $tint="rgba(238, 242, 255, 0.2)">
+            <SectionHeader>Σύμβαση{contractRows.length > 1 ? ' · Πολλές γραμμές' : ''}</SectionHeader>
+            {contractRows.map((row, idx) => renderContractRow(row, idx))}
+          </CardSection>
         )}
 
         {(displayChargePrimary || displayChargeParticipants) && (
-          <CatalogSupervisorRow>
-            {displayChargePrimary && (
-              <CatalogChargeRow>
-                <InfoLabel>Χρεωμένο σε:</InfoLabel>
-                <CatalogPrimaryName>{displayChargePrimary}</CatalogPrimaryName>
-              </CatalogChargeRow>
-            )}
-            {displayChargeParticipants && (
-              <CatalogChargeRow>
-                <InfoLabel>Συμμετέχουν:</InfoLabel>
-                <CatalogAuxLine>{displayChargeParticipants}</CatalogAuxLine>
-              </CatalogChargeRow>
-            )}
-          </CatalogSupervisorRow>
+          <CardSection $accent="#7c3aed" $tint="rgba(245, 243, 255, 0.4)">
+            <SectionHeader>Χρέωση</SectionHeader>
+            <CatalogSupervisorRow style={{ margin: 0, padding: 0, background: 'transparent', border: 'none', boxShadow: 'none' }}>
+              {displayChargePrimary && (
+                <CatalogChargeRow style={{ gridTemplateColumns: '130px 1fr' }}>
+                  <InfoLabel>ΕΠΙΒΛΕΠΩΝ / ΟΥΣΑ</InfoLabel>
+                  <CatalogPrimaryName>{displayChargePrimary}</CatalogPrimaryName>
+                </CatalogChargeRow>
+              )}
+              {displayChargeParticipants && (
+                <CatalogChargeRow style={{ gridTemplateColumns: '110px 1fr' }}>
+                  <InfoLabel>Συμμετέχουν:</InfoLabel>
+                  <CatalogAuxLine>{displayChargeParticipants}</CatalogAuxLine>
+                </CatalogChargeRow>
+              )}
+            </CatalogSupervisorRow>
+          </CardSection>
         )}
 
-        {project.comments && (
-          <InfoRow>
-            <InfoLabel>Σχόλια:</InfoLabel>
-            <InfoValue style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {project.comments}
-            </InfoValue>
-          </InfoRow>
-        )}
-
-        {hasContractInfo && (
-          <ContractInfo>
-            <ContractTitle>Στοιχεία Σύμβασης</ContractTitle>
-            
-            {project.implementationForm === 'Μια Σύμβαση' ? (
-              <div>
-                {statusShowsAssignmentProcedure(project.projectStatus) && project.contractProcessStartDate && (
-                  <InfoRow>
-                    <InfoLabel>Ημερομηνία έναρξης διαδικασίας:</InfoLabel>
-                    <InfoValue>{formatDate(project.contractProcessStartDate)}</InfoValue>
-                  </InfoRow>
-                )}
-                {project.contractDate && (
-                  <InfoRow>
-                    <ContractDateLabel>Ημερ. Σύμβασης:</ContractDateLabel>
-                    <ContractDateValue>{formatDate(project.contractDate)}</ContractDateValue>
-                  </InfoRow>
-                )}
-                {project.contractAmount && (
-                  <InfoRow>
-                    <ContractAmountLabel>Ποσό Σύμβασης:</ContractAmountLabel>
-                    <ContractAmountValue>{formatAmount(project.contractAmount)}</ContractAmountValue>
-                  </InfoRow>
-                )}
-                {project.apeAmount && (
-                  <InfoRow>
-                    <InfoLabel>ΑΠΕ + Συμπλ.:</InfoLabel>
-                    <InfoValue>
-                      <AmountValue>{formatAmount(project.apeAmount)}</AmountValue>
-                    </InfoValue>
-                  </InfoRow>
-                )}
-                {project.apeComments && (
-                  <InfoRow>
-                    <InfoLabel>Σχόλια ΑΠΕ:</InfoLabel>
-                    <InfoValue>{project.apeComments}</InfoValue>
-                  </InfoRow>
-                )}
-              </div>
-            ) : (
-              <MultipleContracts>
-                {/* Ημερομηνία έναρξης διαδικασίας - εμφανίζεται μόνο για multiple contracts αν υπάρχει */}
-                {statusShowsAssignmentProcedure(project.projectStatus) && project.contractProcessStartDate && (
-                  <InfoRow style={{ marginBottom: '0.5rem', paddingBottom: '0.5rem', borderBottom: '1px solid #dee2e6' }}>
-                    <InfoLabel style={{ fontWeight: 600, color: '#5c6bc0' }}>Ημερομηνία έναρξης διαδικασίας:</InfoLabel>
-                    <InfoValue style={{ fontWeight: 600, color: '#5c6bc0', fontSize: '0.95rem' }}>{formatDate(project.contractProcessStartDate)}</InfoValue>
-                  </InfoRow>
-                )}
-                {project.contracts && project.contracts.map((contract, index) => (
-                  <ContractItem key={index}>
-                    <strong>Σύμβαση {index + 1}</strong>
-                    {contract.date && (
-                      <InfoRow>
-                        <InfoLabel>Ημερομηνία:</InfoLabel>
-                        <InfoValue>{formatDate(contract.date)}</InfoValue>
-                      </InfoRow>
-                    )}
-                    {contract.amount && (
-                      <InfoRow>
-                        <InfoLabel>Ποσό:</InfoLabel>
-                        <InfoValue>
-                          <AmountValue>{formatAmount(contract.amount)}</AmountValue>
-                        </InfoValue>
-                      </InfoRow>
-                    )}
-                    {contract.apeAmount && (
-                      <InfoRow>
-                        <InfoLabel>ΑΠΕ + Συμπλ.:</InfoLabel>
-                        <InfoValue>
-                          <AmountValue>{formatAmount(contract.apeAmount)}</AmountValue>
-                        </InfoValue>
-                      </InfoRow>
-                    )}
-                    {contract.comments && (
-                      <InfoRow>
-                        <InfoLabel>Σχόλια:</InfoLabel>
-                        <InfoValue>{contract.comments}</InfoValue>
-                      </InfoRow>
-                    )}
-                  </ContractItem>
-                ))}
-              </MultipleContracts>
-            )}
-            
-          </ContractInfo>
-        )}
-
-        {/* Supplementary Contracts */}
-        {project.hasSupplementaryContracts && project.supplementaryContracts && project.supplementaryContracts.length > 0 && (
-          <ContractInfo style={{ background: '#e8f5e8', border: '2px solid #28a745' }}>
-            <ContractTitle style={{ color: '#155724' }}>Συμπληρωματικές Συμβάσεις</ContractTitle>
-            
-            {project.supplementaryContracts.map((contract, index) => (
-              <ContractItem key={index} style={{ background: 'white', marginBottom: '1rem' }}>
-                <InfoRow>
-                  <InfoLabel>Συμπληρωματική {index + 1}:</InfoLabel>
-                  <InfoValue>
-                    {contract.date && formatDate(contract.date)}
-                    {contract.amount && (
-                      <span style={{ marginLeft: '1rem' }}>
-                        <AmountValue>{formatAmount(contract.amount)}</AmountValue>
-                      </span>
-                    )}
-                  </InfoValue>
-                </InfoRow>
-                {contract.comments && (
-                  <InfoRow>
-                    <InfoLabel>Σχόλια:</InfoLabel>
-                    <InfoValue>{contract.comments}</InfoValue>
-                  </InfoRow>
-                )}
-              </ContractItem>
-            ))}
-          </ContractInfo>
-        )}
-
-        {/* Total Contract Amount - Only show if there are supplementary contracts - MOVED TO BOTTOM */}
-        {project.hasSupplementaryContracts && project.supplementaryContracts && project.supplementaryContracts.length > 0 && totalContractAmount > 0 && (
-          <ContractInfo style={{ 
-            background: '#f8f9fa', 
-            border: '2px solid #007bff',
-            marginTop: '0.5rem'
-          }}>
-            <ContractTitle style={{ color: '#007bff', fontSize: '1rem', marginBottom: '0.5rem' }}>
-              Σύνολο Συμβάσεων
-            </ContractTitle>
-            <InfoRow style={{ padding: '0.5rem 0' }}>
-              <InfoLabel style={{ fontWeight: 'bold', fontSize: '1rem', color: '#007bff' }}>
-                Συνολικό Ποσό:
-              </InfoLabel>
-              <InfoValue>
-                <AmountValue style={{ fontSize: '1.1rem', color: '#007bff' }}>
-                  {totalContractAmount.toLocaleString('el-GR', { 
-                    minimumFractionDigits: 2, 
-                    maximumFractionDigits: 2,
-                    useGrouping: true
-                  })} €
-                </AmountValue>
-              </InfoValue>
-            </InfoRow>
-          </ContractInfo>
+        {project.comments && String(project.comments).trim() && (
+          <CardSection $accent="#94a3b8" $tint="rgba(248, 250, 252, 0.5)">
+            <SectionHeader>Σχόλια</SectionHeader>
+            <CommentsBlock>{project.comments}</CommentsBlock>
+          </CardSection>
         )}
       </CardContent>
 

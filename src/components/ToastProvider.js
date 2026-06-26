@@ -61,7 +61,7 @@ const ToastContainer = styled.div`
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 10000;
+  z-index: 100010;
   display: flex;
   flex-direction: column-reverse;
   gap: 10px;

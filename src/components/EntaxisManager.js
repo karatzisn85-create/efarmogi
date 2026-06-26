@@ -6,6 +6,7 @@ import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
 import styled from 'styled-components';
 import EntaxisForm from './EntaxisForm';
+import { formatDateEl } from '../utils/dateFormat';
 import ModificationForm from './ModificationForm';
 import EntaxisExportDialog from './EntaxisExportDialog';
 import EntaxisFileViewer from './EntaxisFileViewer';
@@ -1891,14 +1892,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     return amount.toString().replace(/\./g, ',');
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '-';
-    const date = new Date(dateString);
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-  };
+  const formatDate = (dateString) => formatDateEl(dateString, '-');
 
   const getProsklisiTitle = (prosklisiId) => {
     const prosklisi = proskliseis.find(p => p.prosklisiId === prosklisiId);

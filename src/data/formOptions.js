@@ -251,7 +251,13 @@ export const ASSIGNMENT_PROCEDURES = [
 ];
 
 /** Καταστάσεις από «ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ» και μετά — εμφάνιση διαδικασίας ανάθεσης */
-export const MIN_STATUS_FOR_ASSIGNMENT_PROCEDURE = 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ';
+export const PROJECT_STATUS_CONTRACT_PROCESS = 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ';
+export const MIN_STATUS_FOR_ASSIGNMENT_PROCEDURE = PROJECT_STATUS_CONTRACT_PROCESS;
+
+/** ΑΔΑΜ προκήρυξης/διαγωνισμού — από «ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ» και μετά */
+export function statusAllowsKhmdhsNoticeInput(status) {
+  return statusShowsAssignmentProcedure(status);
+}
 
 export function statusShowsAssignmentProcedure(status) {
   if (!status || isAbandonedSubproject(status)) return false;
@@ -273,6 +279,14 @@ export const STATUSES_WITHOUT_CHARACTERIZATION = [
   STATUS_NO_CHARACTERIZATION,
   PROJECT_STATUS_ABANDONED
 ];
+
+/** Κλειστός κύκλος ΚΗΜΔΗΣ — δεν εφαρμόζεται ανανέωση αλυσίδας */
+export function isKhmdhsChainClosedSubproject(projectOrStatus) {
+  const status = typeof projectOrStatus === 'string'
+    ? projectOrStatus
+    : projectOrStatus?.projectStatus;
+  return status === STATUS_NO_CHARACTERIZATION;
+}
 
 /**
  * Υπολογίζει τον χαρακτηρισμό ενός υποέργου: 'ΝΕΟ', 'ΣΥΝΕΧΙΖΟΜΕΝΟ', ή null.

@@ -411,6 +411,8 @@ module.exports = {
   isConfigured,
   createTransporter,
   getAppDisplayName,
+  escapeHtml,
+  buildEmailHtml,
   sendWorkspaceCreatedEmail,
   sendWorkspaceActivityEmail,
   sendTestEmail

@@ -6,6 +6,7 @@ import SubprojectLinkingModal from './SubprojectLinkingModal';
 import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
+import { formatDateEl } from '../utils/dateFormat';
 import { showConfirm } from '../utils/confirmModal';
 import { useToast } from './ToastProvider';
 
@@ -870,11 +871,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'Χωρίς ημερομηνία';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('el-GR');
-  };
+  const formatDate = (dateString) => formatDateEl(dateString, 'Χωρίς ημερομηνία');
 
   const filterProjects = () => {
     if (!projects || !Array.isArray(projects)) return [];

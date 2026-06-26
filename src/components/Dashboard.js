@@ -26,6 +26,7 @@ import {
   getProjectKhmdhsSearchText,
   projectMatchesKhmdhsAnadoxosFilters
 } from '../utils/khmdhsFields';
+import { getProjectAssignmentProcedure } from '../utils/khmdhsNoticeFields';
 import {
   getCharacterization,
   statusShowsAssignmentProcedure,
@@ -39,12 +40,15 @@ import {
   getViolationSubprojectIds,
   getViolationsForSubproject
 } from '../utils/directAssignmentCompliance';
+import { matchesKhmdhsDeadlineFilter } from '../utils/procurementDeadlines';
 import { useToast } from './ToastProvider';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
+import { formatDateEl } from '../utils/dateFormat';
 import { showConfirm } from '../utils/confirmModal';
 import { exportSubprojectReport } from '../utils/subprojectReportExport';
 
 const Statistics = lazy(() => import('./Statistics'));
+const StatisticsModal = lazy(() => import('./StatisticsModal'));
 const PDFViewer = lazy(() => import('./PDFViewer'));
 const ExportData = lazy(() => import('./ExportData'));
 const TechnicalProgramExport = lazy(() => import('./TechnicalProgramExport'));
@@ -63,11 +67,13 @@ const BackupManager = lazy(() => import('./BackupManager'));
 const AuditLogViewer = lazy(() => import('./AuditLogViewer'));
 const UserManagement = lazy(() => import('./UserManagement'));
 const EmailSettingsModal = lazy(() => import('./EmailSettingsModal'));
+const CalendarSettings = lazy(() => import('./CalendarSettings'));
 const MunicipalUnitsManager = lazy(() => import('./MunicipalUnitsManager'));
 const TaskAssignmentManager = lazy(() => import('./TaskAssignmentManager'));
 const EpProgramManager = lazy(() => import('./EpProgramManager'));
 const OrimanthiManager = lazy(() => import('./OrimanthiManager'));
-const OrimanthiAepoWidget = lazy(() => import('./OrimanthiAepoWidget'));
+const CalendarDeadlineWidget = lazy(() => import('./CalendarDeadlineWidget'));
+const ProcurementCalendar = lazy(() => import('./ProcurementCalendar'));
 const MeletaiManager = lazy(() => import('./MeletaiManager'));
 
 const ipcRenderer = window.electronAPI;
@@ -431,50 +437,72 @@ const ProjectsTitle = styled.h2`
 
 const ProjectGroup = styled.div`
   margin-bottom: 2.5rem;
-  border: 1px solid rgba(226, 232, 240, 0.7);
-  border-radius: 16px;
-  padding: 1.75rem;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(248, 250, 252, 0.9) 100%);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1.5px solid rgba(165, 180, 252, 0.45);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow:
+    0 2px 6px rgba(15, 23, 42, 0.04),
+    0 10px 28px rgba(99, 102, 241, 0.07);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
   position: relative;
-  overflow: visible;
+  overflow: hidden;
 
   &:hover {
-    box-shadow: 0 8px 32px rgba(99, 102, 241, 0.08);
-    border-color: rgba(165, 180, 252, 0.5);
+    box-shadow:
+      0 4px 10px rgba(15, 23, 42, 0.05),
+      0 14px 36px rgba(99, 102, 241, 0.11);
+    border-color: rgba(129, 140, 248, 0.55);
   }
 `;
 
-const ProjectGroupTitle = styled.h3`
-  color: #1e293b;
-  margin-bottom: 1.5rem;
-  font-size: 1.2rem;
-  font-weight: 800;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-  padding-bottom: 0.9rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1rem;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
+const ProjectGroupHeaderBand = styled.div`
+  padding: 1rem 1.35rem 0.95rem;
+  background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 52%, #ffffff 100%);
+  border-bottom: 2px solid rgba(165, 180, 252, 0.32);
   position: relative;
-  padding-left: 14px;
+`;
 
-  &::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 4px;
-    height: 60%;
-    background: linear-gradient(180deg, #6366f1, #ec4899);
-    border-radius: 4px;
-  }
+const ProjectGroupHeaderTop = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+  min-height: 28px;
+`;
+
+const ProjectKindLabel = styled.span`
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #4338ca;
+  margin: 0;
+  flex-shrink: 0;
+`;
+
+const ProjectGroupTitleText = styled.span`
+  flex: 1;
+  min-width: 0;
+  font-size: 1.16rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.38;
+  letter-spacing: 0.01em;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+`;
+
+const ProjectGroupBody = styled.div`
+  padding: 1.15rem 1.25rem 1.35rem;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.65) 0%, rgba(255, 255, 255, 0.9) 100%);
+`;
+
+const ProjectGroupTitle = styled.h3`
+  margin: 0;
+  padding: 0;
+  border: none;
 `;
 
 const EntaxiAmountChip = styled.div`
@@ -536,12 +564,10 @@ const EntaxiValue = styled.span`
 const SubprojectsGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 1.25rem;
+  gap: 1.15rem;
   grid-auto-rows: 1fr;
   align-items: stretch;
   overflow: visible;
-  padding-top: 10px;
-  padding-right: 14px;
 `;
 
 const EmptyState = styled.div`
@@ -1134,6 +1160,75 @@ const AdminButtonIcon = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
+`;
+
+const CalendarNavButton = styled.button`
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  text-align: left;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(5, 150, 105, 0.12) 100%);
+  color: #ecfdf5;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: all 0.22s ease;
+
+  &:hover {
+    transform: translateX(3px);
+    border-color: rgba(52, 211, 153, 0.75);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.35) 0%, rgba(5, 150, 105, 0.2) 100%);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.32);
+  }
+
+  &:active {
+    transform: translateX(1px);
+  }
+`;
+
+const CalendarNavIcon = styled.span`
+  font-size: 1.05rem;
+  flex-shrink: 0;
+`;
+
+const StatsNavButton = styled.button`
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  text-align: left;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.28) 0%, rgba(79, 70, 229, 0.14) 100%);
+  color: #eef2ff;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: all 0.22s ease;
+
+  &:hover {
+    transform: translateX(3px);
+    border-color: rgba(129, 140, 248, 0.75);
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.4) 0%, rgba(79, 70, 229, 0.22) 100%);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.32);
+  }
+
+  &:active {
+    transform: translateX(1px);
+  }
 `;
 
 const SidebarCountBadge = styled.span`
@@ -2157,7 +2252,7 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
           )}
           {reminderDate && userHasEmail && (
             <div style={{ marginTop: '6px', fontSize: '0.78rem', color: '#15803d' }}>
-              Θα λάβετε email υπενθύμιση στις {reminderDate.split('-').reverse().join('/')}{reminderTime ? ` ${reminderTime}` : ''}.
+              Θα λάβετε email υπενθύμιση στις {formatDateEl(reminderDate, '')}{reminderTime ? ` ${reminderTime}` : ''}.
             </div>
           )}
         </div>
@@ -2419,12 +2514,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     anadoxosVat: '',
     assignmentProcedure: [],
     hasAssignmentProcedure: '',
+    khmdhsDeadlineFilter: '',
     sortBy: 'kaCode',
     sortOrder: 'asc'
   });
   
   // Εμφάνιση αρχειοθετημένων (Ολοκληρωμένα & Αποπληρωμένα)
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+  const [isStatisticsModalOpen, setIsStatisticsModalOpen] = useState(false);
+  const [portfolioDrillFilter, setPortfolioDrillFilter] = useState(null);
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
 
   const toggleGroupCollapse = useCallback((projectId) => {
@@ -2440,8 +2538,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, []);
 
   // Scroll position preservation
+  const dashboardScrollRef = useRef(null);
   const contentWrapperRef = useRef(null);
   const savedScrollPosition = useRef(0);
+  /** Scroll πριν ανοίξει η φόρμα υποέργου — δεν ενημερώνεται όσο το modal είναι ανοιχτό */
+  const dashboardScrollBeforeFormRef = useRef(null);
+  const projectsListRef = useRef(null);
   const shouldRestoreScroll = useRef(false);
   /** Επιστροφή στις σημειώσεις μετά από μετάβαση από chip συσχέτισης */
   const noteReturnRef = useRef(null);
@@ -2453,6 +2555,58 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   const mainHeaderRef = useRef(null);
   const [mainHeaderOffsetPx, setMainHeaderOffsetPx] = useState(88);
+
+  const captureDashboardScrollForForm = useCallback(() => {
+    const y = dashboardScrollRef.current?.scrollTop ?? 0;
+    dashboardScrollBeforeFormRef.current = y;
+    savedScrollPosition.current = y;
+  }, []);
+
+  const restoreDashboardScrollPosition = useCallback((y) => {
+    if (y == null) return;
+    const apply = () => {
+      if (dashboardScrollRef.current) {
+        dashboardScrollRef.current.scrollTop = y;
+      }
+    };
+    apply();
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(() => {
+        apply();
+        setTimeout(apply, 50);
+      });
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (isFormOpen) return;
+    const y = dashboardScrollBeforeFormRef.current;
+    if (y == null) return;
+    restoreDashboardScrollPosition(y);
+    dashboardScrollBeforeFormRef.current = null;
+  }, [isFormOpen, restoreDashboardScrollPosition]);
+
+  useEffect(() => {
+    if (!isFormOpen) return undefined;
+    const dash = dashboardScrollRef.current;
+    const blockDashboardScroll = (e) => {
+      if (e.target.closest('[data-project-form-modal]')) return;
+      if (e.target.closest('[data-khmdhs-review-modal]')) return;
+      if (e.target.closest('[data-khmdhs-situation-modal]')) return;
+      if (e.target.closest('[data-khmdhs-document-registry-modal]')) return;
+      if (e.target.closest('[data-khmdhs-branch-picker-modal]')) return;
+      if (e.target.closest('[data-khmdhs-related-docs-modal]')) return;
+      if (e.target.closest('[data-file-manager-modal]')) return;
+      e.preventDefault();
+    };
+    dash?.addEventListener('wheel', blockDashboardScroll, { passive: false });
+    dash?.addEventListener('touchmove', blockDashboardScroll, { passive: false });
+    return () => {
+      dash?.removeEventListener('wheel', blockDashboardScroll);
+      dash?.removeEventListener('touchmove', blockDashboardScroll);
+    };
+  }, [isFormOpen]);
 
   useLayoutEffect(() => {
     const el = mainHeaderRef.current;
@@ -2480,9 +2634,27 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     projectId: null, 
     subprojectId: null, 
     files: [], 
-    fileGroups: [] 
+    fileGroups: [],
+    khmdhsDocumentRegistry: [],
+    khmdhsRelatedDocuments: [],
   });
   const [fileManagerUploading, setFileManagerUploading] = useState(false);
+
+  useEffect(() => {
+    if (!fileManager.isOpen) return undefined;
+    const dash = dashboardScrollRef.current;
+    const blockBehindFileManager = (e) => {
+      if (e.target.closest('[data-file-manager-modal]')) return;
+      e.preventDefault();
+    };
+    dash?.addEventListener('wheel', blockBehindFileManager, { passive: false });
+    dash?.addEventListener('touchmove', blockBehindFileManager, { passive: false });
+    return () => {
+      dash?.removeEventListener('wheel', blockBehindFileManager);
+      dash?.removeEventListener('touchmove', blockBehindFileManager);
+    };
+  }, [fileManager.isOpen]);
+
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isTechnicalProgramOpen, setIsTechnicalProgramOpen] = useState(false);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
@@ -2495,8 +2667,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [publishedSubprojectIds, setPublishedSubprojectIds] = useState(new Set());
   const [isBackupManagerOpen, setIsBackupManagerOpen] = useState(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
+  const [isProcurementCalendarOpen, setIsProcurementCalendarOpen] = useState(false);
+  const [calendarFocusCustomEventId, setCalendarFocusCustomEventId] = useState(null);
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [isEmailSettingsOpen, setIsEmailSettingsOpen] = useState(false);
+  const [isCalendarSettingsOpen, setIsCalendarSettingsOpen] = useState(false);
   const [isMunicipalUnitsOpen, setIsMunicipalUnitsOpen] = useState(false);
   const [isTaskAssignmentsOpen, setIsTaskAssignmentsOpen] = useState(false);
   const [taskAssignmentInitialScreen, setTaskAssignmentInitialScreen] = useState('workspace');
@@ -2510,6 +2686,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       projectVisibleToAssignedEngineer(project, engineerVisibilityContext, engineerCatalogForCards)
     );
   }, [projects, isEngineer, engineerVisibilityContext, engineerCatalogForCards]);
+
+  const canOpenProcurementCalendar = true;
 
   const engineerVisibleSubprojectIds = useMemo(() => {
     if (!isEngineer) return null;
@@ -2606,25 +2784,23 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   // Επαναφορά scroll position όταν αλλάζουν τα projects (μετά από save)
   useEffect(() => {
-    if (shouldRestoreScroll.current && contentWrapperRef.current && filteredProjects.length > 0) {
-      // Χρησιμοποιούμε πολλαπλά requestAnimationFrame και setTimeout για να επιβεβαιώσουμε ότι το DOM έχει render
+    if (shouldRestoreScroll.current && dashboardScrollRef.current && filteredProjects.length > 0) {
+      const y = savedScrollPosition.current;
       const restoreScroll = () => {
-        if (contentWrapperRef.current) {
-          contentWrapperRef.current.scrollTop = savedScrollPosition.current;
+        if (dashboardScrollRef.current) {
+          dashboardScrollRef.current.scrollTop = y;
           shouldRestoreScroll.current = false;
         }
       };
-      
-      // Δοκιμάζουμε πολλές φορές για να βεβαιωθούμε
+      restoreDashboardScrollPosition(y);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          setTimeout(restoreScroll, 50);
           setTimeout(restoreScroll, 150);
           setTimeout(restoreScroll, 300);
         });
       });
     }
-  }, [filteredProjects.length]);
+  }, [filteredProjects.length, restoreDashboardScrollPosition]);
 
   useEffect(() => {
     loadDataWithCache();
@@ -2799,6 +2975,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     if (filters.anadoxosVat) count++;
     if (filters.assignmentProcedure && filters.assignmentProcedure.length > 0) count++;
     if (filters.hasAssignmentProcedure) count++;
+    if (filters.khmdhsDeadlineFilter) count++;
     return count;
   }, []);
 
@@ -2897,15 +3074,21 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       }
 
       if (filters.assignmentProcedure && filters.assignmentProcedure.length > 0) {
-        filtered = filtered.filter((p) => filters.assignmentProcedure.includes(p.assignmentProcedure));
+        filtered = filtered.filter((p) => filters.assignmentProcedure.includes(getProjectAssignmentProcedure(p)));
       }
 
       if (filters.hasAssignmentProcedure === 'yes') {
-        filtered = filtered.filter((p) => !!(p.assignmentProcedure && String(p.assignmentProcedure).trim()));
+        filtered = filtered.filter((p) => !!getProjectAssignmentProcedure(p));
       } else if (filters.hasAssignmentProcedure === 'no') {
         filtered = filtered.filter((p) =>
           statusShowsAssignmentProcedure(p.projectStatus)
-            && !(p.assignmentProcedure && String(p.assignmentProcedure).trim())
+            && !getProjectAssignmentProcedure(p)
+        );
+      }
+
+      if (filters.khmdhsDeadlineFilter) {
+        filtered = filtered.filter((p) =>
+          matchesKhmdhsDeadlineFilter(p, filters.khmdhsDeadlineFilter)
         );
       }
 
@@ -3609,41 +3792,57 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       // Η λογική ελέγχου τίτλου έχει μεταφερθεί στο ProjectForm.js
       // Εδώ απλά αποθηκεύουμε τα δεδομένα όπως τα έλαβε
       
-      const result = await ipcRenderer.invoke('save-project-data', projectData);
+      const { keepFormOpen, files, ...dataForSave } = projectData;
+      const result = await ipcRenderer.invoke('save-project-data', dataForSave);
       
       if (result.success) {
         // Save files if any
-        if (projectData.files && projectData.files.length > 0) {
-          await ipcRenderer.invoke('save-files', projectData.files, result.projectId, result.subprojectId);
+        if (files && files.length > 0) {
+          await ipcRenderer.invoke('save-files', files, result.projectId, result.subprojectId);
         }
-        
-        // Ξεκλείδωμα του έργου μετά την επιτυχή αποθήκευση
-        if (editingProject && editingProject.projectId) {
+
+        const shouldKeepFormOpen = keepFormOpen === true;
+
+        // Ξεκλείδωμα του έργου μετά την επιτυχή αποθήκευση (μόνο όταν κλείνει η φόρμα)
+        if (!shouldKeepFormOpen && editingProject && editingProject.projectId) {
           await ipcRenderer.invoke('unlock-project', editingProject.projectId);
         }
-        
-        // Αποθήκευση scroll position πριν το reload
-        if (contentWrapperRef.current) {
-          savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-        }
-        
-        // 🗑️ INVALIDATE CACHE μετά την αποθήκευση υποέργου
+
+        // Διατήρηση scroll — όχι ανάγνωση από container όσο το modal είναι ανοιχτό (scrollTop ≈ 0)
+        const scrollY = dashboardScrollBeforeFormRef.current ?? savedScrollPosition.current;
+        savedScrollPosition.current = scrollY;
+
         invalidateCache();
-        
-        // Ορίζουμε flag για επαναφορά scroll position
         shouldRestoreScroll.current = true;
+
+        await loadDataWithCache(true);
+        await loadEngineerCatalogForCards();
+
+        if (shouldKeepFormOpen) {
+          setEditingProject({
+            ...dataForSave,
+            projectId: result.projectId,
+            subprojectId: result.subprojectId,
+          });
+          return {
+            success: true,
+            projectId: result.projectId,
+            subprojectId: result.subprojectId,
+          };
+        }
+
         setIsFormOpen(false);
         setEditingProject(null);
-        
-        await loadDataWithCache(true); // Force refresh για να δείξει τις αλλαγές
-        await loadEngineerCatalogForCards();
+        return { success: true, projectId: result.projectId, subprojectId: result.subprojectId };
       } else {
         console.error('Error saving project:', result.error);
         showToast('Σφάλμα αποθήκευσης: ' + result.error, 'error');
+        return { success: false, error: result.error };
       }
     } catch (error) {
       console.error('Error saving project:', error);
       showToast('Σφάλμα αποθήκευσης: ' + error.message, 'error');
+      return { success: false, error: error.message };
     }
   };
 
@@ -3690,10 +3889,32 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       anadoxosVat: '',
       assignmentProcedure: [],
       hasAssignmentProcedure: '',
+      khmdhsDeadlineFilter: '',
       sortBy: 'kaCode',
       sortOrder: 'asc'
     });
   }, []);
+
+  const handleClearAllListFilters = useCallback(() => {
+    setPortfolioDrillFilter(null);
+    setQuickSearchText('');
+    setQuickSearchStatus('');
+    setQuickSearchType('');
+    handleClearAdvancedFilters();
+  }, [handleClearAdvancedFilters]);
+
+  const handlePortfolioDrillDown = useCallback((label, subprojectIds) => {
+    const ids = Array.isArray(subprojectIds) ? subprojectIds.filter(Boolean) : [];
+    if (!ids.length) {
+      showToast('Δεν υπάρχουν υποέργα σε αυτή την κατηγορία', 'info');
+      return;
+    }
+    setPortfolioDrillFilter({ label: label || 'Φιλτράρισμα ΚΗΜΔΗΣ', subprojectIds: ids });
+    requestAnimationFrame(() => {
+      projectsListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    showToast(`Φιλτράρισμα: ${label} (${ids.length} υποέργα)`, 'info');
+  }, [showToast]);
 
   const activeFilterCount = useMemo(() => countActiveFilters(advancedFilters), [advancedFilters, countActiveFilters]);
 const handleDeleteProject = async (projectId, subprojectId) => {
@@ -3730,6 +3951,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   };
 
   const handleEditProject = async (project) => {
+    captureDashboardScrollForForm();
     try {
       // Έλεγχος αν το έργο είναι ήδη κλειδωμένο
       const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
@@ -3779,10 +4001,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       setProjects(updatedProjects);
 
       setEditingProject(project);
-      // Αποθήκευση scroll position
-      if (contentWrapperRef.current) {
-        savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-      }
       loadEngineerCatalogForCards();
       setIsFormOpen(true);
     } catch (error) {
@@ -3839,12 +4057,15 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   const handleOpenFileManager = async (projectId, subprojectId) => {
     try {
       const result = await ipcRenderer.invoke('get-subproject-files', projectId, subprojectId);
+      const subproject = findSubprojectByIds(projectId, subprojectId);
       setFileManager({
         isOpen: true,
         projectId,
         subprojectId,
         files: result.files || [],
-        fileGroups: result.fileGroups || []
+        fileGroups: result.fileGroups || [],
+        khmdhsDocumentRegistry: subproject?.khmdhsDocumentRegistry || [],
+        khmdhsRelatedDocuments: subproject?.khmdhsRelatedDocuments || [],
       });
     } catch (error) {
       console.error('Error loading project files:', error);
@@ -3962,7 +4183,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       projectId: null,
       subprojectId: null,
       files: [],
-      fileGroups: []
+      fileGroups: [],
+      khmdhsDocumentRegistry: [],
+      khmdhsRelatedDocuments: [],
     });
   };
 
@@ -4888,7 +5111,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
   // Ομαδοποίηση κατά projectId (πηγή αλήθειας)· ο τίτλος μπορεί να διαφέρει σε κεφαλαιοποίηση ανά υποέργο.
   const groupedProjects = useMemo(() => {
-    return filteredProjects.reduce((groups, project) => {
+    let source = filteredProjects;
+    if (portfolioDrillFilter?.subprojectIds?.length) {
+      const idSet = new Set(portfolioDrillFilter.subprojectIds);
+      source = source.filter((p) => idSet.has(p.subprojectId));
+    }
+    return source.reduce((groups, project) => {
       const key = project.projectId || `__missing_project_id__:${project.subprojectId || 'unknown'}`;
       if (!groups[key]) {
         groups[key] = [];
@@ -4896,7 +5124,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       groups[key].push(project);
       return groups;
     }, {});
-  }, [filteredProjects]);
+  }, [filteredProjects, portfolioDrillFilter]);
 
   // Τα έργα που περνάνε στα στατιστικά — εξαιρούνται τα αρχειοθετημένα
   // εκτός αν ο χρήστης τα έχει επιλέξει ρητά
@@ -4919,6 +5147,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         linkedEgkriseis,
         engineerCatalog: engineerCatalogForCards,
         linkedNotesMap,
+        notes,
         directAssignmentViolations: getViolationsForSubproject(
           directAssignmentViolations,
           project.subprojectId
@@ -4941,28 +5170,70 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     linkedNotesMap,
     directAssignmentViolations,
     publishedSubprojectIds,
+    notes,
     appConfig,
     appVersion,
     currentUser?.username,
     showToast
   ]);
 
+  // Τα έργα που περνάνε στα στατιστικά — πλήρες χαρτοφυλάκιο για ADMIN/SUPERADMIN/USER,
+  // μόνο χρεωμένα υποέργα για μηχανικούς
+  const statisticsScopeProjects = useMemo(() => (
+    isEngineer ? visibleProjects : projects
+  ), [isEngineer, visibleProjects, projects]);
+
   const statisticsProjects = useMemo(() => {
-    const ARCHIVED_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
-    const userExplicitlyFilteredByArchived =
-      (Array.isArray(advancedFilters?.projectStatus) && advancedFilters.projectStatus.includes(ARCHIVED_STATUS)) ||
-      quickSearchStatus === ARCHIVED_STATUS;
-
     let base = filteredProjects;
-    // Απενταγμένα: ποτέ στα στατιστικά
-    base = excludeAbandonedSubprojects(base);
+    if (portfolioDrillFilter?.subprojectIds?.length) {
+      const idSet = new Set(portfolioDrillFilter.subprojectIds);
+      base = base.filter((p) => idSet.has(p.subprojectId));
+    }
+    return base;
+  }, [filteredProjects, portfolioDrillFilter]);
 
-    // Αν ο χρήστης βλέπει "Αρχείο" ή έχει φιλτράρει ρητά την κατάσταση,
-    // τότε τα στατιστικά περιλαμβάνουν τα αρχειοθετημένα.
-    if (showArchivedProjects || userExplicitlyFilteredByArchived) return base;
+  const statisticsDirectAssignmentViolations = useMemo(
+    () => findDirectAssignmentViolations(statisticsProjects),
+    [statisticsProjects]
+  );
 
-    return base.filter(p => p.projectStatus !== ARCHIVED_STATUS);
-  }, [filteredProjects, showArchivedProjects, advancedFilters?.projectStatus, quickSearchStatus]);
+  const statisticsScopeNote = useMemo(() => {
+    if (!isEngineer) return '';
+    const n = statisticsScopeProjects.length;
+    return `Μόνο υποέργα της χρέωσής σας (${n})`;
+  }, [isEngineer, statisticsScopeProjects.length]);
+
+  const statisticsFilterNote = useMemo(() => {
+    const parts = [];
+    if (statisticsScopeNote) {
+      parts.push(statisticsScopeNote);
+    }
+    if (portfolioDrillFilter?.label) {
+      parts.push(`λίστα: ${portfolioDrillFilter.label}`);
+    }
+    if (activeFilterCount > 0) {
+      parts.push(`${activeFilterCount} φίλτρα`);
+    }
+    if (quickSearchText.trim()) {
+      parts.push(`αναζήτηση «${quickSearchText.trim().slice(0, 40)}»`);
+    }
+    if (quickSearchStatus) {
+      parts.push(`κατάσταση: ${quickSearchStatus}`);
+    }
+    if (quickSearchType) {
+      parts.push(`είδος: ${quickSearchType}`);
+    }
+    const scope = statisticsProjects.length;
+    return parts.length ? `${scope} υποέργα · ${parts.join(' · ')}` : `${scope} υποέργα`;
+  }, [
+    portfolioDrillFilter,
+    statisticsScopeNote,
+    activeFilterCount,
+    quickSearchText,
+    quickSearchStatus,
+    quickSearchType,
+    statisticsProjects.length,
+  ]);
 
   const exportProjects = useMemo(() => {
     const userExplicitlyFilteredByAbandoned =
@@ -4988,7 +5259,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   }, [projects, filteredProjects]);
 
   return (
-    <DashboardContainer>
+    <DashboardContainer ref={dashboardScrollRef}>
       <Header ref={mainHeaderRef}>
         <UserInfo>
           <UserRole role={userRole}>
@@ -5015,22 +5286,45 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           {/* Active Filters Banner */}
           <ActiveFiltersBanner
             activeFilterCount={activeFilterCount}
-            onClearFilters={handleClearAdvancedFilters}
+            portfolioDrillLabel={portfolioDrillFilter?.label || ''}
+            onClearFilters={handleClearAllListFilters}
           />
 
           {/* Statistics — εξαιρούνται τα αρχειοθετημένα εκτός αν επιλεγούν */}
           <Suspense fallback={<LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>}>
             <Statistics
+              variant="summary"
               projects={statisticsProjects}
-              directAssignmentViolations={directAssignmentViolations}
+              directAssignmentViolations={statisticsDirectAssignmentViolations}
+              loggedInUsername={currentUser?.username || ''}
+              onPortfolioDrillDown={handlePortfolioDrillDown}
+              statisticsFilterNote={statisticsFilterNote}
+              statisticsScopeNote={statisticsScopeNote}
+              onOpenFullStatistics={() => setIsStatisticsModalOpen(true)}
             />
           </Suspense>
 
-          {(userRole === 'ADMIN' || userRole === 'SUPERADMIN' || !!currentUser?.orimanthiCanEdit) && (
-            <Suspense fallback={null}>
-              <OrimanthiAepoWidget onOpenOrimanthi={() => setIsOrimanthiOpen(true)} />
-            </Suspense>
-          )}
+          <Suspense fallback={null}>
+            <CalendarDeadlineWidget
+              projects={visibleProjects}
+              userRole={userRole}
+              currentUser={currentUser}
+              engineerCatalog={engineerCatalogForCards}
+              includeAepo={userRole === 'ADMIN' || userRole === 'SUPERADMIN' || !!currentUser?.orimanthiCanEdit}
+              maxDays={30}
+              limit={8}
+              refreshKey={calendarRefreshKey}
+              onOpenOrimanthi={() => setIsOrimanthiOpen(true)}
+              onOpenCalendar={(opts) => {
+                if (opts?.customEventId) setCalendarFocusCustomEventId(opts.customEventId);
+                setIsProcurementCalendarOpen(true);
+              }}
+              onViewSubproject={(subprojectId) => {
+                const p = projects.find((row) => row.subprojectId === subprojectId);
+                if (p) setSelectedDetailProject(p);
+              }}
+            />
+          </Suspense>
 
           {/* Banner αρχειοθετημένων έργων */}
           {showArchivedProjects && (
@@ -5056,7 +5350,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             </ArchiveBanner>
           )}
 
-          <ProjectsContainer>
+          <ProjectsContainer ref={projectsListRef}>
             <ProjectsTitle>
               {showArchivedProjects ? 'Αρχείο — Ολοκληρωμένα & Αποπληρωμένα' : 'Έργα & Υποέργα'}
             </ProjectsTitle>
@@ -5065,7 +5359,11 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               <SkeletonProjectsGrid />
             ) : Object.keys(groupedProjects).length === 0 ? (
               (() => {
-                const hasActiveFilters = activeFilterCount > 0 || quickSearchText.trim() || quickSearchStatus || quickSearchType;
+                const hasActiveFilters = activeFilterCount > 0
+                  || portfolioDrillFilter
+                  || quickSearchText.trim()
+                  || quickSearchStatus
+                  || quickSearchType;
                 return (
                   <EmptyState>
                     <EmptyStateIcon>
@@ -5083,7 +5381,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                       }
                     </EmptyStateSubtext>
                     {hasActiveFilters && (
-                      <EmptyStateAction onClick={handleClearAdvancedFilters}>
+                      <EmptyStateAction onClick={handleClearAllListFilters}>
                         Εκκαθάριση φίλτρων
                       </EmptyStateAction>
                     )}
@@ -5136,29 +5434,35 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                   const isGroupCollapsed = collapsedGroups.has(projectId);
                   return (
                   <ProjectGroup key={projectId}>
-                    {projectLinkedNotes.length > 0 && (
-                      <LinkedNoteSticker
-                        links={projectLinkedNotes}
-                        onOpenNote={handleOpenNoteFromEntity}
-                        placement="top-right"
-                      />
-                    )}
-                    <ProjectGroupTitle>
-                      <GroupHeaderWrap onClick={() => toggleGroupCollapse(projectId)}>
-                        <span style={{ flex: 1 }}>{projectTitle}</span>
-                        <GroupSubCount>{subprojects.length} {subprojects.length === 1 ? 'υποέργο' : 'υποέργα'}</GroupSubCount>
-                        {totalEntaxiAmount > 0 && (
-                          <EntaxiAmountChip onClick={e => e.stopPropagation()}>
-                            <EntaxiIcon>💰</EntaxiIcon>
-                            <EntaxiLabel>Ποσό ένταξης:</EntaxiLabel>
-                            <EntaxiValue>{formatAmount(totalEntaxiAmount)}</EntaxiValue>
-                          </EntaxiAmountChip>
+                    <ProjectGroupHeaderBand>
+                      <ProjectGroupHeaderTop>
+                        <ProjectKindLabel>Πράξη</ProjectKindLabel>
+                        {projectLinkedNotes.length > 0 && (
+                          <LinkedNoteSticker
+                            links={projectLinkedNotes}
+                            onOpenNote={handleOpenNoteFromEntity}
+                            placement="inline"
+                          />
                         )}
-                        <GroupCollapseIcon $collapsed={isGroupCollapsed}>▼</GroupCollapseIcon>
-                      </GroupHeaderWrap>
-                    </ProjectGroupTitle>
+                      </ProjectGroupHeaderTop>
+                      <ProjectGroupTitle>
+                        <GroupHeaderWrap onClick={() => toggleGroupCollapse(projectId)}>
+                          <ProjectGroupTitleText>{projectTitle}</ProjectGroupTitleText>
+                          <GroupSubCount>{subprojects.length} {subprojects.length === 1 ? 'υποέργο' : 'υποέργα'}</GroupSubCount>
+                          {totalEntaxiAmount > 0 && (
+                            <EntaxiAmountChip onClick={(e) => e.stopPropagation()}>
+                              <EntaxiIcon>💰</EntaxiIcon>
+                              <EntaxiLabel>Ποσό ένταξης:</EntaxiLabel>
+                              <EntaxiValue>{formatAmount(totalEntaxiAmount)}</EntaxiValue>
+                            </EntaxiAmountChip>
+                          )}
+                          <GroupCollapseIcon $collapsed={isGroupCollapsed}>▼</GroupCollapseIcon>
+                        </GroupHeaderWrap>
+                      </ProjectGroupTitle>
+                    </ProjectGroupHeaderBand>
                     {!isGroupCollapsed && (
-                      <SubprojectsGrid>
+                      <ProjectGroupBody>
+                        <SubprojectsGrid>
                         {subprojects
                           .sort((a, b) => a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' }))
                           .map(project => {
@@ -5198,10 +5502,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                                 epLinkedAction={epSubprojectMap[project.subprojectId] || null}
                                 hasDirectAssignmentViolation={directAssignmentViolationSubprojectIds.has(project.subprojectId)}
                                 onExportReport={handleExportSubprojectReport}
+                                allSubprojects={projects}
                               />
                             );
                           })}
-                      </SubprojectsGrid>
+                        </SubprojectsGrid>
+                      </ProjectGroupBody>
                     )}
                   </ProjectGroup>
                   );
@@ -5316,6 +5622,18 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           </QuickSearchGrid>
         </QuickSearchContainer>
 
+        {canOpenProcurementCalendar && (
+          <CalendarNavButton type="button" onClick={() => setIsProcurementCalendarOpen(true)}>
+            <CalendarNavIcon>📅</CalendarNavIcon>
+            Ημερολόγιο Προθεσμιών
+          </CalendarNavButton>
+        )}
+
+        <StatsNavButton type="button" onClick={() => setIsStatisticsModalOpen(true)}>
+          <CalendarNavIcon>📊</CalendarNavIcon>
+          Στατιστικά & Αναφορές
+        </StatsNavButton>
+
         {/* Κατηγορία: ΕΡΓΑ */}
         <CategorySection $accentColor="#4f46e5" $accentGrad="linear-gradient(135deg, #4f46e5, #7c3aed)">
           <CategoryHeader $open={expandedCategories.projects} onClick={() => toggleCategory('projects')}>
@@ -5328,9 +5646,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <CategoryBody $open={expandedCategories.projects}>
             {canManageAll && (
               <AdminButton primary onClick={() => {
-                if (contentWrapperRef.current) {
-                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
-                }
+                captureDashboardScrollForForm();
                 setEditingProject(null);
                 loadEngineerCatalogForCards();
                 setIsFormOpen(true);
@@ -5347,8 +5663,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               $active={showArchivedProjects}
               onClick={() => {
                 setShowArchivedProjects(prev => !prev);
-                if (contentWrapperRef.current) {
-                  contentWrapperRef.current.scrollTop = 0;
+                if (dashboardScrollRef.current) {
+                  dashboardScrollRef.current.scrollTop = 0;
                 }
               }}
             >
@@ -5357,8 +5673,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             </ArchiveButton>
             {canManageAll && (
               <AdminButton onClick={() => {
-                if (contentWrapperRef.current) {
-                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                if (dashboardScrollRef.current) {
+                  savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
                 setIsEpProgramOpen(true);
               }}>
@@ -5380,8 +5696,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.management}>
               <AdminButton onClick={() => {
-                if (contentWrapperRef.current) {
-                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                if (dashboardScrollRef.current) {
+                  savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
                 setIsEntaxisOpen(true);
               }}>
@@ -5389,8 +5705,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 Εντάξεις Έργων
               </AdminButton>
               <AdminButton onClick={() => {
-                if (contentWrapperRef.current) {
-                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                if (dashboardScrollRef.current) {
+                  savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
                 setIsProsklisisOpen(true);
               }}>
@@ -5406,8 +5722,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 Ωρίμανση Έργων
               </AdminButton>
               <AdminButton onClick={() => {
-                if (contentWrapperRef.current) {
-                  savedScrollPosition.current = contentWrapperRef.current.scrollTop;
+                if (dashboardScrollRef.current) {
+                  savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
                 setSelectedMeletiId(null);
                 setIsMeletaiOpen(true);
@@ -5498,6 +5814,12 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 Ιστορικό Ενεργειών
               </AdminButton>
               {canManageAll && (
+                <AdminButton onClick={() => setIsCalendarSettingsOpen(true)}>
+                  <AdminButtonIcon>📅</AdminButtonIcon>
+                  Ρυθμίσεις Ημερολογίου
+                </AdminButton>
+              )}
+              {canManageAll && (
                 <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
                   <AdminButtonIcon>📄</AdminButtonIcon>
                   Υποδείγματα Εγγράφων
@@ -5544,6 +5866,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         <SubprojectDetailModal
           project={selectedDetailProject}
           engineerCatalog={engineerCatalogForCards}
+          engineerVisibilityContext={engineerVisibilityContext}
           onClose={() => {
             setSelectedDetailProject(null);
             if (!restoreMeletiReturnContext()) {
@@ -5578,6 +5901,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             directAssignmentViolations,
             selectedDetailProject.subprojectId
           )}
+          engineerVisibilityContext={engineerVisibilityContext}
+          allSubprojects={projects}
         />
       )}
 
@@ -5604,14 +5929,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           }
           setIsFormOpen(false);
           setEditingProject(null);
-          // Επαναφορά scroll position
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              if (contentWrapperRef.current) {
-                contentWrapperRef.current.scrollTop = savedScrollPosition.current;
-              }
-            });
-          });
         }}
         onSave={handleSaveProject}
         onDelete={canManageAll ? async (projectId, subprojectId) => {
@@ -5675,6 +5992,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         <FileManager
           files={fileManager.files}
           fileGroups={fileManager.fileGroups}
+          khmdhsDocumentRegistry={fileManager.khmdhsDocumentRegistry}
+          khmdhsRelatedDocuments={fileManager.khmdhsRelatedDocuments}
           userRole={userRole}
           canUpload={userRole !== 'USER'}
           isUploading={fileManagerUploading}
@@ -5774,8 +6093,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           setSelectedEntaxiId(null);
           await loadProjects();
           setTimeout(() => {
-            if (contentWrapperRef.current) {
-              contentWrapperRef.current.scrollTop = savedScrollPosition.current;
+            if (dashboardScrollRef.current) {
+              dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
             }
           }, 100);
           restoreNoteReturnContext();
@@ -5826,8 +6145,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               setSelectedMeletiId(null);
               refreshMeletaiSubprojectMap();
               setTimeout(() => {
-                if (contentWrapperRef.current) {
-                  contentWrapperRef.current.scrollTop = savedScrollPosition.current;
+                if (dashboardScrollRef.current) {
+                  dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
                 }
               }, 100);
             }}
@@ -5852,8 +6171,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               setIsEpProgramOpen(false);
               refreshEpSubprojectMap();
               setTimeout(() => {
-                if (contentWrapperRef.current) {
-                  contentWrapperRef.current.scrollTop = savedScrollPosition.current;
+                if (dashboardScrollRef.current) {
+                  dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
                 }
               }, 100);
             }}
@@ -5876,8 +6195,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           setSelectedProsklisiId(null);
           await loadProjects();
           setTimeout(() => {
-            if (contentWrapperRef.current) {
-              contentWrapperRef.current.scrollTop = savedScrollPosition.current;
+            if (dashboardScrollRef.current) {
+              dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
             }
           }, 100);
           restoreNoteReturnContext();
@@ -5989,7 +6308,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                               )}
                               {note.reminderDate && (
                                 <NoteReminderBadge $past={note.reminderDate && new Date(note.reminderDate + 'T' + (note.reminderTime || '09:00')) < new Date()}>
-                                  🔔 {note.reminderDate.split('-').reverse().join('/')}
+                                  🔔 {formatDateEl(note.reminderDate, '')}
                                 </NoteReminderBadge>
                               )}
                             </div>
@@ -6017,7 +6336,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                             <div>
                               <NotePreviewSectionLabel>Υπενθύμιση</NotePreviewSectionLabel>
                               <NoteReminderBadge $past={isReminderPast} style={{ marginTop: '4px', padding: '5px 12px', fontSize: '0.8rem' }}>
-                                🔔 {selNote.reminderDate.split('-').reverse().join('/')}{selNote.reminderTime ? ` στις ${selNote.reminderTime}` : ''}{isReminderPast ? ' — παρήλθε' : ''}
+                                🔔 {formatDateEl(selNote.reminderDate, '')}{selNote.reminderTime ? ` στις ${selNote.reminderTime}` : ''}{isReminderPast ? ' — παρήλθε' : ''}
                               </NoteReminderBadge>
                             </div>
                           )}
@@ -6164,6 +6483,53 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         </Suspense>
       )}
 
+      {isProcurementCalendarOpen && (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση ημερολογίου…</LazyChunkFallback>}>
+          <ProcurementCalendar
+            isOpen={isProcurementCalendarOpen}
+            initialCustomEventId={calendarFocusCustomEventId}
+            onClose={() => {
+              setIsProcurementCalendarOpen(false);
+              setCalendarFocusCustomEventId(null);
+              setCalendarRefreshKey((k) => k + 1);
+            }}
+            onCalendarDataChanged={() => setCalendarRefreshKey((k) => k + 1)}
+            projects={projects}
+            userRole={userRole}
+            currentUser={currentUser}
+            engineerCatalog={engineerCatalogForCards}
+            includeAepo={userRole === 'ADMIN' || userRole === 'SUPERADMIN' || !!currentUser?.orimanthiCanEdit}
+            onOpenOrimanthi={() => {
+              setIsProcurementCalendarOpen(false);
+              setIsOrimanthiOpen(true);
+            }}
+            onViewSubproject={(subprojectId) => {
+              setIsProcurementCalendarOpen(false);
+              const p = projects.find((x) => x.subprojectId === subprojectId);
+              if (p) setSelectedDetailProject(p);
+            }}
+          />
+        </Suspense>
+      )}
+
+      {isStatisticsModalOpen && (
+        <Suspense fallback={null}>
+          <StatisticsModal
+            isOpen={isStatisticsModalOpen}
+            onClose={() => setIsStatisticsModalOpen(false)}
+            projects={statisticsProjects}
+            directAssignmentViolations={statisticsDirectAssignmentViolations}
+            loggedInUsername={currentUser?.username || ''}
+            statisticsScopeNote={statisticsScopeNote}
+            onPortfolioDrillDown={(label, ids) => {
+              setIsStatisticsModalOpen(false);
+              handlePortfolioDrillDown(label, ids);
+            }}
+            statisticsFilterNote={statisticsFilterNote}
+          />
+        </Suspense>
+      )}
+
       {currentUser?.username && (
         <TaskAssignmentToastHost
           actingUsername={currentUser.username}
@@ -6208,6 +6574,15 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         <Suspense fallback={null}>
           <EmailSettingsModal
             onClose={() => setIsEmailSettingsOpen(false)}
+            currentUser={currentUser}
+          />
+        </Suspense>
+      )}
+
+      {isCalendarSettingsOpen && (
+        <Suspense fallback={null}>
+          <CalendarSettings
+            onClose={() => setIsCalendarSettingsOpen(false)}
             currentUser={currentUser}
           />
         </Suspense>

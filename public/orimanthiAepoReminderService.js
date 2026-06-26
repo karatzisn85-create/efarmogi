@@ -53,7 +53,7 @@ function reminderKey(proposalId, daysBefore) {
   return `${proposalId}:${daysBefore}`;
 }
 
-function computeAepoAlerts(proposals, { maxDays = 90, limit = 5 } = {}) {
+function computeAepoAlerts(proposals, { maxDays = 90, limit = 0 } = {}) {
   const rows = [];
   for (const p of proposals || []) {
     if (!p.aepoRenewalDate) continue;
@@ -69,7 +69,11 @@ function computeAepoAlerts(proposals, { maxDays = 90, limit = 5 } = {}) {
     });
   }
   rows.sort((a, b) => a.daysLeft - b.daysLeft || a.title.localeCompare(b.title, 'el'));
-  return rows.slice(0, limit);
+  const total = rows.length;
+  if (limit > 0) {
+    return { alerts: rows.slice(0, limit), total };
+  }
+  return { alerts: rows, total };
 }
 
 function resolveRecipientEmails(config, users) {

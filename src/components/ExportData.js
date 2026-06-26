@@ -3,12 +3,18 @@ import styled from 'styled-components';
 import { getCharacterization } from '../data/formOptions';
 import { useToast } from './ToastProvider';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
+import { formatDateEl } from '../utils/dateFormat';
 import {
   getProjectAnadoxosNamesExport,
   getProjectAnadoxosVatsExport,
   getProjectKhmdhsAdamExport,
   getProjectAssignmentProcedureExport
 } from '../utils/contractorFields';
+import {
+  KHMDHS_NOTICE_EXPORT_FIELDS,
+  getKhmdhsNoticeExportValue,
+  isKhmdhsNoticeExportField
+} from '../utils/khmdhsExportFields';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -316,7 +322,7 @@ const EXPORT_FIELDS_ORDER = [
   { id: 'rowNumber', label: 'Α/Α', width: 8 },
   { id: 'kaCode', label: 'Κωδικός ΚΑ', width: 14 },
   { id: 'aleCode', label: 'Κωδ. Α.Λ.Ε.', width: 16 },
-  { id: 'projectTitle', label: 'Τίτλος Έργου', width: 40 },
+  { id: 'projectTitle', label: 'Τίτλος Έργου / Τίτλος Πράξης', width: 40 },
   { id: 'subprojectTitle', label: 'Τίτλος Υποέργου', width: 40 },
   { id: 'projectType', label: 'Είδος Υποέργου', width: 25 },
   { id: 'misPraxhsName', label: 'Όνομα Κωδικού Πράξης', width: 20 },
@@ -340,8 +346,9 @@ const EXPORT_FIELDS_ORDER = [
   { id: 'chargeTo', label: 'Χρεωμένο σε', width: 25 },
   { id: 'chargeParticipants', label: 'Συμμετέχουν', width: 30 },
   { id: 'comments', label: 'Σχόλια', width: 40 },
-  { id: 'eisigitikiEkthesi', label: 'Εισηγητική Έκθεση', width: 60 },
-  { id: 'characterization', label: 'Χαρακτηρισμός (ΝΕΟ/ΣΥΝΕΧΙΖΟΜΕΝΟ)', width: 30 }
+  { id: 'eisigitikiEkthesi', label: 'Αναφορά από πρόγραμμα Οικονομικής', width: 60 },
+  { id: 'characterization', label: 'Χαρακτηρισμός (ΝΕΟ/ΣΥΝΕΧΙΖΟΜΕΝΟ)', width: 30 },
+  ...KHMDHS_NOTICE_EXPORT_FIELDS
 ];
 
 // Διαθέσιμα πεδία για εξαγωγή (για το UI)
@@ -352,7 +359,7 @@ const EXPORT_FIELDS = {
       { id: 'rowNumber', label: 'Α/Α', width: 8 },
       { id: 'kaCode', label: 'Κωδικός ΚΑ', width: 14 },
       { id: 'aleCode', label: 'Κωδ. Α.Λ.Ε.', width: 16 },
-      { id: 'projectTitle', label: 'Τίτλος Έργου', width: 40 },
+      { id: 'projectTitle', label: 'Τίτλος Έργου / Τίτλος Πράξης', width: 40 },
       { id: 'subprojectTitle', label: 'Τίτλος Υποέργου', width: 40 },
       { id: 'projectType', label: 'Είδος Υποέργου', width: 25 },
       { id: 'misPraxhs', label: 'Όνομα & Κωδικός Πράξης', width: 30, linkedFields: ['misPraxhsName', 'misPraxhsCode'] },
@@ -399,9 +406,13 @@ const EXPORT_FIELDS = {
       { id: 'chargeParticipants', label: 'Συμμετέχουν', width: 30 },
       { id: 'remainingAmountComments', label: 'Σχόλια Υπολοίπων', width: 25 },
       { id: 'comments', label: 'Σχόλια', width: 40 },
-      { id: 'eisigitikiEkthesi', label: 'Εισηγητική Έκθεση', width: 60 },
+      { id: 'eisigitikiEkthesi', label: 'Αναφορά από πρόγραμμα Οικονομικής', width: 60 },
       { id: 'characterization', label: 'Χαρακτηρισμός (ΝΕΟ/ΣΥΝΕΧΙΖΟΜΕΝΟ)', width: 30 },
     ]
+  },
+  procurement: {
+    title: '📢 Δημοσίευση (ΚΗΜΔΗΣ)',
+    fields: KHMDHS_NOTICE_EXPORT_FIELDS.map((f) => ({ ...f }))
   }
 };
 
@@ -638,12 +649,14 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
             value = getProjectKhmdhsAdamExport(project);
           } else if (field.id === 'assignmentProcedure') {
             value = getProjectAssignmentProcedureExport(project);
+          } else if (isKhmdhsNoticeExportField(field.id)) {
+            value = getKhmdhsNoticeExportValue(project, field.id);
           } else {
             value = project[field.id] || '';
             
             // Μορφοποίηση ειδικών πεδίων
             if ((field.id === 'contractDate' || field.id === 'contractProcessStartDate') && value) {
-              value = new Date(value).toLocaleDateString('el-GR');
+              value = formatDateEl(value, '');
             }
           }
           

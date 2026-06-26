@@ -296,6 +296,13 @@ function createWindow() {
     console.error('Error loading file:', err);
   });
 
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     cleanupStaleEntityLocks();
@@ -1497,6 +1504,68 @@ async function updateRelatedDataAfterProjectTitleChange(projectId, oldProjectTit
   }
 }
 
+function isPathInsideDir(candidatePath, rootDir) {
+  if (!candidatePath || !rootDir) return false;
+  try {
+    const resolved = path.resolve(candidatePath);
+    const root = path.resolve(rootDir);
+    return resolved === root || resolved.startsWith(root + path.sep);
+  } catch {
+    return false;
+  }
+}
+
+/** Μετά την αντιγραφή στον φάκελο υποέργου, κρατά μόνο όνομα — όχι προσωρινό path. */
+function normalizeFileGroupsAfterCopy(fileGroups, filesDir) {
+  const root = path.resolve(filesDir);
+  return (fileGroups || []).map((group) => ({
+    ...group,
+    files: (group.files || []).map((file) => {
+      const name = typeof file === 'string'
+        ? path.basename(file)
+        : String(file?.name || file?.fileName || '').trim()
+          || (file?.path ? path.basename(file.path) : '');
+      if (!name) return file;
+      const localPath = path.join(filesDir, name);
+      if (fs.existsSync(localPath)) return { name };
+      if (typeof file === 'object' && file.path && isPathInsideDir(file.path, root) && fs.existsSync(file.path)) {
+        return { name };
+      }
+      return typeof file === 'string' ? name : { ...file, name };
+    }),
+  }));
+}
+
+function findFileInDirectoryTree(dir, fileName) {
+  const target = String(fileName || '').trim().toLowerCase();
+  if (!target || !fs.existsSync(dir)) return null;
+
+  const stack = [dir];
+  while (stack.length) {
+    const current = stack.pop();
+    let items = [];
+    try {
+      items = fs.readdirSync(current);
+    } catch {
+      continue;
+    }
+    for (const item of items) {
+      const itemPath = path.join(current, item);
+      try {
+        const stat = fs.statSync(itemPath);
+        if (stat.isDirectory()) {
+          stack.push(itemPath);
+        } else if (stat.isFile() && item.toLowerCase().trim() === target) {
+          return itemPath;
+        }
+      } catch {
+        /* skip */
+      }
+    }
+  }
+  return null;
+}
+
 // IPC Handlers για διαχείριση αρχείων
 async function handleSaveProjectData(event, projectData) {
   try {
@@ -1760,6 +1829,8 @@ async function handleSaveProjectData(event, projectData) {
         }
       }
     }
+
+    dataToSave.fileGroups = normalizeFileGroupsAfterCopy(mergedFileGroups, finalFilesDir);
     
     // Συγχρονισμός remainingAmount/remainingAmountYear με remainingAmountsByYear[]
     if (dataToSave.remainingAmount || dataToSave.remainingAmountYear) {
@@ -2047,7 +2118,7 @@ function getAllowedSupervisorEngineerIdSet() {
   return ids;
 }
 
-const { engineerChargeFilterKey } = require('./chargeFilterUtils');
+const { engineerChargeFilterKey, buildEngineerVisibilityContext, projectVisibleToEngineerContext } = require('./chargeFilterUtils');
 
 function filterSupervisorEngineerIds(ids) {
   const allowed = getAllowedSupervisorEngineerIdSet();
@@ -2589,6 +2660,174 @@ ipcMain.handle('khmdhs-fetch-contract-by-adam', async (_event, { adam }) => {
     };
   } catch (error) {
     console.error('khmdhs-fetch-contract-by-adam:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('diavgeia-fetch-decision-by-ada', async (_event, { ada }) => {
+  try {
+    const dg = require('./diavgeiaOpenData');
+    return await dg.fetchDiavgeiaDecisionByAda(ada);
+  } catch (error) {
+    console.error('diavgeia-fetch-decision-by-ada:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('diavgeia-download-decision-pdf', async (_event, { ada, documentUrl, fileName }) => {
+  try {
+    const dg = require('./diavgeiaOpenData');
+    return await dg.downloadDiavgeiaDecisionPdf(ada, { documentUrl, fileName });
+  } catch (error) {
+    console.error('diavgeia-download-decision-pdf:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('khmdhs-fetch-notice-by-adam', async (_event, { adam }) => {
+  try {
+    const kh = require('./khmdhsOpenData');
+    const res = await kh.fetchKhmdhsNoticeByAdam(adam);
+    if (!res.success) return res;
+    const snapshot = kh.pickKhmdhsNoticeSnapshot(res.snapshot);
+    if (!snapshot) {
+      return {
+        success: false,
+        error: 'Βρέθηκε η πράξη αλλά δεν επιστράφηκαν δεδομένα προκήρυξης από το ΚΗΜΔΗΣ.'
+      };
+    }
+    return {
+      success: true,
+      snapshot,
+      fetchedAt: new Date().toISOString(),
+      mappedAssignmentProcedure: snapshot.mappedAssignmentProcedure || null
+    };
+  } catch (error) {
+    console.error('khmdhs-fetch-notice-by-adam:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('khmdhs-resolve-adam-chain', async (_event, { adam, apeAmount }) => {
+  try {
+    const chainSvc = require('./khmdhsAdamChainService');
+    return await chainSvc.resolveKhmdhsAdamChain(adam, { apeAmount: apeAmount ?? null });
+  } catch (error) {
+    console.error('khmdhs-resolve-adam-chain:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectId, actingUsername } = {}) => {
+  try {
+    const username = String(actingUsername || '').trim();
+    if (!username) {
+      return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
+    }
+    const user = findUserByUsername(username);
+    if (!user || user.active === false || user.approved === false) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+
+    const sid = String(subprojectId || '').trim();
+    if (!sid) {
+      return { success: false, error: 'Λείπει αναγνωριστικό υποέργου' };
+    }
+
+    const project = findSubprojectDataById(sid);
+    if (!project) {
+      return { success: false, error: 'Δεν βρέθηκε το υποέργο' };
+    }
+
+    const refreshSeed = require('./khmdhsChainRefreshSeed');
+    if (refreshSeed.isKhmdhsChainClosedSubproject(project)) {
+      return {
+        success: false,
+        error: 'Το υποέργο είναι ολοκληρωμένο και αποπληρωμένο — ο κύκλος ΚΗΜΔΗΣ έχει κλείσει.',
+      };
+    }
+    if (!refreshSeed.canUserRefreshKhmdhsOnServer(user, project)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα ανανέωσης ΚΗΜΔΗΣ για αυτό το υποέργο' };
+    }
+
+    const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
+    if (!seedInfo.adam) {
+      return {
+        success: false,
+        error: 'Δεν βρέθηκε ΑΔΑΜ πρωτογενούς αιτήματος ή άλλου σταδίου για ανανέωση. Ανοίξτε την επεξεργασία για πρώτη ανάκτηση.',
+      };
+    }
+
+    const parseAmt = (v) => {
+      const n = parseFloat(String(v || '').replace(/\./g, '').replace(',', '.'));
+      return Number.isNaN(n) ? null : n;
+    };
+    let apeAmount = parseAmt(project.apeAmount);
+    if (apeAmount == null && Array.isArray(project.contracts) && project.contracts[0]?.apeAmount) {
+      apeAmount = parseAmt(project.contracts[0].apeAmount);
+    }
+
+    const chainSvc = require('./khmdhsAdamChainService');
+    const chainRes = await chainSvc.resolveKhmdhsAdamChain(seedInfo.adam, { apeAmount });
+
+    if (!chainRes?.success) {
+      return {
+        success: false,
+        error: chainRes?.error || 'Η ανάκτηση από το ΚΗΜΔΗΣ απέτυχε.',
+        seedAdam: seedInfo.adam,
+        seedSource: seedInfo.source,
+        seedLabel: seedInfo.label,
+      };
+    }
+
+    return {
+      success: true,
+      chainRes,
+      seedAdam: seedInfo.adam,
+      seedSource: seedInfo.source,
+      seedLabel: seedInfo.label,
+      projectSnapshot: project,
+    };
+  } catch (e) {
+    logger.error('preview-subproject-khmdhs-refresh error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('khmdhs-fetch-supplementary-contract', async (_event, payload = {}) => {
+  try {
+    const chainSvc = require('./khmdhsAdamChainService');
+    return await chainSvc.resolveKhmdhsSupplementaryContract(payload.adam, {
+      primaryContractAdam: payload.primaryContractAdam,
+      existingChainAdams: payload.existingChainAdams,
+      amountContext: payload.amountContext,
+    });
+  } catch (error) {
+    console.error('khmdhs-fetch-supplementary-contract:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('open-external-url', async (_event, { url }) => {
+  try {
+    const u = String(url || '').trim();
+    if (!/^https?:\/\//i.test(u)) {
+      return { success: false, error: 'Μη έγκυρο URL' };
+    }
+    await shell.openExternal(u);
+    return { success: true };
+  } catch (error) {
+    console.error('open-external-url:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('open-khmdhs-act-view', async (_event, { adam, label } = {}) => {
+  try {
+    const { openKhmdhsPdfInBrowser } = require('./khmdhsPdfBrowserView');
+    return await openKhmdhsPdfInBrowser(adam, label);
+  } catch (error) {
+    logger.error('open-khmdhs-act-view:', error);
     return { success: false, error: error.message || String(error) };
   }
 });
@@ -3205,19 +3444,17 @@ ipcMain.handle('get-file-path', async (event, projectId, subprojectId, fileName)
               );
               
               if (matches) {
-                // First, try the original path from data.json (if it exists)
-                if (filePathFromData && fs.existsSync(filePathFromData)) {
-                  console.log('✅ File found at original path from data.json:', filePathFromData);
-                  return filePathFromData;
+                const mainFilePath = path.join(mainFilesDir, actualFileName);
+                if (fs.existsSync(mainFilePath)) {
+                  console.log('✅ File found in main directory (from group):', mainFilePath);
+                  return mainFilePath;
                 }
-                
-                // Try to find the file in the group folder
+
                 const safeGroupName = (group.title || group.id || 'GROUP')
                   .replace(/[<>:"/\\|?*]/g, '_')
                   .substring(0, 50);
                 const groupFolderPath = path.join(mainFilesDir, safeGroupName);
-                
-                // Check if group folder exists
+
                 if (fs.existsSync(groupFolderPath)) {
                   const groupFilePath = path.join(groupFolderPath, actualFileName);
                   if (fs.existsSync(groupFilePath)) {
@@ -3225,12 +3462,17 @@ ipcMain.handle('get-file-path', async (event, projectId, subprojectId, fileName)
                     return groupFilePath;
                   }
                 }
-                
-                // Also try with the actual file name in main directory
-                const mainFilePath = path.join(mainFilesDir, actualFileName);
-                if (fs.existsSync(mainFilePath)) {
-                  console.log('✅ File found in main directory (from group):', mainFilePath);
-                  return mainFilePath;
+
+                const treeMatch = findFileInDirectoryTree(mainFilesDir, actualFileName);
+                if (treeMatch) {
+                  console.log('✅ File found in directory tree (from group):', treeMatch);
+                  return treeMatch;
+                }
+
+                if (filePathFromData && fs.existsSync(filePathFromData)
+                  && isPathInsideDir(filePathFromData, mainFilesDir)) {
+                  console.log('✅ File found at path inside subproject files:', filePathFromData);
+                  return filePathFromData;
                 }
               }
             }
@@ -6070,6 +6312,25 @@ ipcMain.handle('open-pdf-file', async (event, filePath) => {
     }
 
     console.log('✅ File exists, attempting to open:', filePath);
+
+    if (!isPathInsideDir(filePath, dataDir)) {
+      const fileName = path.basename(filePath);
+      const parentParts = String(filePath).split(/[/\\]/);
+      const subprojectHint = parentParts.find((p) => p && p.length === 36) || '';
+      if (subprojectHint) {
+        const projectHint = parentParts[parentParts.indexOf(subprojectHint) - 1] || '';
+        if (projectHint) {
+          const filesDir = path.join(dataDir, projectHint, subprojectHint, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ');
+          const resolved = findFileInDirectoryTree(filesDir, fileName);
+          if (resolved) filePath = resolved;
+        }
+      }
+    }
+
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+
     console.log('File stats:', fs.statSync(filePath));
     
     return new Promise((resolve, reject) => {
@@ -9918,12 +10179,40 @@ function startOrimanthiAepoReminderChecker() {
   setInterval(run, 6 * 60 * 60 * 1000);
 }
 
+function startProcurementCalendarReminderChecker() {
+  const run = () => {
+    try {
+      procurementCalendarReminderService.checkAndSendProcurementCalendarReminders({
+        dataDir,
+        loadUsers,
+        loadAllProjects,
+      }).catch((e) => logger.error('Procurement calendar reminder check failed', e));
+    } catch (e) {
+      logger.error('Procurement calendar reminder init failed', e);
+    }
+  };
+  setTimeout(run, 90 * 1000);
+  setInterval(run, 2 * 60 * 60 * 1000);
+  try {
+    schedule.scheduleJob('0 8 * * *', run);
+  } catch (e) {
+    logger.error('Procurement calendar daily scheduler error', e);
+  }
+}
+
 // Defer until dataDir is ready — registered after Orimanthi section defines loadAllProposalsList
 let orimanthiAepoCheckerStarted = false;
 function ensureOrimanthiAepoCheckerStarted() {
   if (orimanthiAepoCheckerStarted || !dataDir) return;
   orimanthiAepoCheckerStarted = true;
   startOrimanthiAepoReminderChecker();
+}
+
+let procurementCalendarCheckerStarted = false;
+function ensureProcurementCalendarCheckerStarted() {
+  if (procurementCalendarCheckerStarted || !dataDir) return;
+  procurementCalendarCheckerStarted = true;
+  startProcurementCalendarReminderChecker();
 }
 
 // Save note groups
@@ -12887,6 +13176,9 @@ ipcMain.handle('export-ep-program', async (_event, { programId, requestingUserna
 const ORIMANTHI_DIR_NAME = 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ';
 const orimanthiConfigService = require('./orimanthiConfigService');
 const orimanthiAepoReminderService = require('./orimanthiAepoReminderService');
+const calendarConfigService = require('./calendarConfigService');
+const calendarCustomEventsService = require('./calendarCustomEventsService');
+const procurementCalendarReminderService = require('./procurementCalendarReminderService');
 const municipalUnitsConfigService = require('./municipalUnitsConfigService');
 const { migrateProposalFileGroups } = require('./orimanthiFileCategoriesHelper');
 const orimanthiProjectCategoriesHelper = require('./orimanthiProjectCategoriesHelper');
@@ -14199,7 +14491,7 @@ ipcMain.handle('save-municipal-units-config', async (_event, { units, actingUser
       return { success: false, error: 'Μη έγκυρη λίστα δημοτικών ενοτήτων' };
     }
     const saved = municipalUnitsConfigService.saveMunicipalUnitsConfig(dataDir, units);
-    const actor = findUserByUsername(actingUsername);
+    const actor = findUserByUsername(auth.username);
     logAuditAction({
       type: 'update',
       entityType: 'municipalUnitsConfig',
@@ -14212,6 +14504,145 @@ ipcMain.handle('save-municipal-units-config', async (_event, { units, actingUser
     return { success: true, config: saved };
   } catch (e) {
     logger.error('save-municipal-units-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-calendar-config', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = resolveTaskActingUser(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!isSuperAdminOrAdminUser(auth.username)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    return { success: true, config: calendarConfigService.loadCalendarConfig(dataDir) };
+  } catch (e) {
+    logger.error('get-calendar-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-calendar-config', async (_event, { config, actingUsername } = {}) => {
+  try {
+    const auth = resolveTaskActingUser(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!isSuperAdminOrAdminUser(auth.username)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    if (!config || typeof config !== 'object') {
+      return { success: false, error: 'Μη έγκυρες ρυθμίσεις' };
+    }
+    const saved = calendarConfigService.saveCalendarConfig(dataDir, config);
+    const actor = findUserByUsername(auth.username);
+    logAuditAction({
+      type: 'update',
+      entityType: 'calendarConfig',
+      entityId: 'procurement-calendar',
+      entityTitle: 'Ρυθμίσεις Ημερολογίου',
+      userFullName: actor?.fullName || actingUsername || '',
+      userRole: actor?.role || 'SUPERADMIN',
+      details: `Ενημέρωση ρυθμίσεων ημερολογίου (ενεργό: ${saved.enabled ? 'ναι' : 'όχι'})`,
+    });
+    return { success: true, config: saved };
+  } catch (e) {
+    logger.error('save-calendar-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-calendar-custom-events', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = resolveTaskActingUser(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const actor = findUserByUsername(auth.username);
+    if (!actor) return { success: false, error: 'Μη έγκυρος χρήστης' };
+    if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    const events = calendarCustomEventsService.listEventsForUser(dataDir, actor);
+    return { success: true, events };
+  } catch (e) {
+    logger.error('get-calendar-custom-events error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-calendar-custom-event', async (_event, { event, actingUsername } = {}) => {
+  try {
+    const auth = resolveTaskActingUser(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!isSuperAdminOrAdminUser(auth.username)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    const actor = findUserByUsername(auth.username);
+    const isUpdate = !!(event && event.id);
+    const result = calendarCustomEventsService.upsertEvent(dataDir, event, actor);
+    if (!result.success) return result;
+    logAuditAction({
+      type: isUpdate ? 'update' : 'create',
+      entityType: 'calendarCustomEvent',
+      entityId: result.event.id,
+      entityTitle: result.event.title,
+      userFullName: actor?.fullName || actingUsername || '',
+      userRole: actor?.role || 'ADMIN',
+      details: `${isUpdate ? 'Ενημέρωση' : 'Δημιουργία'} ειδοποίησης ημερολογίου`,
+    });
+    return result;
+  } catch (e) {
+    logger.error('save-calendar-custom-event error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-calendar-custom-event', async (_event, { eventId, actingUsername } = {}) => {
+  try {
+    const auth = resolveTaskActingUser(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!isSuperAdminOrAdminUser(auth.username)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    const actor = findUserByUsername(auth.username);
+    const result = calendarCustomEventsService.deleteEvent(dataDir, eventId, actor);
+    if (!result.success) return result;
+    logAuditAction({
+      type: 'delete',
+      entityType: 'calendarCustomEvent',
+      entityId: String(eventId || ''),
+      entityTitle: 'Ειδοποίηση ημερολογίου',
+      userFullName: actor?.fullName || actingUsername || '',
+      userRole: actor?.role || 'ADMIN',
+      details: 'Διαγραφή ειδοποίησης ημερολογίου',
+    });
+    return result;
+  } catch (e) {
+    logger.error('delete-calendar-custom-event error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('send-test-procurement-calendar-reminder', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = resolveTaskActingUser(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!isSuperAdminOrAdminUser(auth.username)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    const actor = findUserByUsername(auth.username);
+    const toEmail = String(actor?.email || '').trim();
+    if (!toEmail.includes('@')) {
+      return { success: false, error: 'Δεν υπάρχει email στο προφίλ σας' };
+    }
+    return await procurementCalendarReminderService.sendTestProcurementCalendarReminder({
+      dataDir,
+      loadUsers,
+      loadAllProjects,
+      toEmail,
+    });
+  } catch (e) {
+    logger.error('send-test-procurement-calendar-reminder error:', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -14358,8 +14789,8 @@ ipcMain.handle('apply-orimanthi-pending-template', async (_event, {
 ipcMain.handle('get-orimanthi-aepo-alerts', async (_event, { limit = 5, maxDays = 90 } = {}) => {
   try {
     const proposals = loadAllProposalsList();
-    const alerts = orimanthiAepoReminderService.computeAepoAlerts(proposals, { limit, maxDays });
-    return { success: true, alerts, total: alerts.length };
+    const { alerts, total } = orimanthiAepoReminderService.computeAepoAlerts(proposals, { limit, maxDays });
+    return { success: true, alerts, total };
   } catch (e) {
     logger.error('get-orimanthi-aepo-alerts error:', e.message);
     return { success: false, error: e.message };
@@ -14444,6 +14875,8 @@ ipcMain.handle('search-proposal-files', async (_event, { query } = {}) => {
 
 const meletaiConfigService = require('./meletaiConfigService');
 const meletaiExportHandler = require('./meletaiExportHandler');
+const khmdhsPortfolioExportHandler = require('./khmdhsPortfolioExportHandler');
+const statisticsExportHandler = require('./statisticsExportHandler');
 const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
 
 let meletaiService = null;
@@ -14597,6 +15030,33 @@ function buildEngineerVisibilityKeys(user) {
     if (fk) keys.add(fk);
   });
   return keys;
+}
+
+/** Έλεγχος δικαιώματος εξαγωγής στατιστικών — μηχανικοί μόνο στο εύρος χρέωσής τους. */
+function assertStatisticsExportPermission(user, { scopeSubprojectIds } = {}) {
+  if (!user || user.approved === false) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα εξαγωγής' };
+  }
+  const role = String(user.role || 'USER').toUpperCase();
+  if (!['SUPERADMIN', 'ADMIN', 'USER', 'ENGINEER'].includes(role)) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα εξαγωγής' };
+  }
+  if (role !== 'ENGINEER') return { ok: true, role };
+
+  const ids = Array.isArray(scopeSubprojectIds)
+    ? [...new Set(scopeSubprojectIds.map((id) => String(id || '').trim()).filter(Boolean))]
+    : [];
+  if (!ids.length) {
+    return { ok: false, error: 'Κενό εύρος εξαγωγής' };
+  }
+  const ctx = buildEngineerVisibilityContext(user.username, user.assignedSupervisors);
+  for (const sid of ids) {
+    const sp = findSubprojectDataById(sid);
+    if (!sp || !projectVisibleToEngineerContext(sp, ctx)) {
+      return { ok: false, error: 'Δεν έχετε δικαίωμα εξαγωγής για μέρος των δεδομένων' };
+    }
+  }
+  return { ok: true, role };
 }
 
 function canEngineerLinkMeletiSubproject(user, subprojectId) {
@@ -15151,4 +15611,118 @@ ipcMain.handle('export-meletai-study-report', async (_event, { meletiId, format,
   }
 });
 
+ipcMain.handle('export-portfolio-report', async (_event, { reportType, stats, actingUsername, filterNote, projectCount, scopeSubprojectIds } = {}) => {
+  try {
+    const user = findUserByUsername(actingUsername);
+    const perm = assertStatisticsExportPermission(user, { scopeSubprojectIds });
+    if (!perm.ok) {
+      return { success: false, error: perm.error };
+    }
+    const config = loadConfig();
+    const org = config.organizationFullName || config.organizationName || '';
+    const date = new Date().toISOString().slice(0, 10);
+    const defaultNames = {
+      portfolio: `Αναφορά_Χαρτοφυλακίου_${date}.pdf`,
+      gaps: `Κενά_Αλυσίδας_ΚΗΜΔΗΣ_${date}.pdf`,
+      financial: `Οικονομική_Αναφορά_${date}.pdf`,
+    };
+    const type = ['portfolio', 'gaps', 'financial'].includes(reportType) ? reportType : 'portfolio';
+    const { dialog } = require('electron');
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση αναφοράς PDF',
+      defaultPath: defaultNames[type],
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+
+    const result = await khmdhsPortfolioExportHandler.exportPortfolioReport({
+      reportType: type,
+      stats: stats || {},
+      destFilePath: pick.filePath,
+      organizationName: org,
+      exportedBy: user.fullName || user.username,
+      appVersion: app.getVersion(),
+      filterNote: filterNote || '',
+      projectCount: projectCount || 0,
+    });
+    if (result.success) {
+      logAuditAction({
+        type: 'export',
+        entityType: 'portfolio_statistics',
+        entityId: type,
+        entityTitle: defaultNames[type],
+        userFullName: user.fullName,
+        userRole: user.role,
+        details: `Εξαγωγή αναφοράς χαρτοφυλακίου (${type})`,
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('export-portfolio-report error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('export-statistics-report', async (_event, {
+  tabs,
+  actingUsername,
+  filterNote,
+  projectCount,
+  reportTitle,
+  scopeSubprojectIds,
+} = {}) => {
+  try {
+    const user = findUserByUsername(actingUsername);
+    const perm = assertStatisticsExportPermission(user, { scopeSubprojectIds });
+    if (!perm.ok) {
+      return { success: false, error: perm.error };
+    }
+    const tabList = Array.isArray(tabs) ? tabs : [];
+    if (!tabList.length) {
+      return { success: false, error: 'Δεν υπάρχουν δεδομένα για εξαγωγή' };
+    }
+    const config = loadConfig();
+    const org = config.organizationFullName || config.organizationName || '';
+    const date = new Date().toISOString().slice(0, 10);
+    const isFull = tabList.length > 1;
+    const defaultName = isFull
+      ? `Στατιστικές_Αναφορά_Πλήρης_${date}.pdf`
+      : `Στατιστική_${String(tabList[0].tabLabel || tabList[0].tabId || 'tab').replace(/\s+/g, '_')}_${date}.pdf`;
+    const { dialog } = require('electron');
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση στατιστικής αναφοράς PDF',
+      defaultPath: defaultName,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+
+    const result = await statisticsExportHandler.exportStatisticsReport({
+      tabs: tabList,
+      destFilePath: pick.filePath,
+      organizationName: org,
+      exportedBy: user.fullName || user.username,
+      appVersion: app.getVersion(),
+      filterNote: filterNote || '',
+      projectCount: projectCount || 0,
+      reportTitle: reportTitle || (isFull ? 'Πλήρης Στατιστική Αναφορά' : tabList[0].tabLabel),
+    });
+    if (result.success) {
+      logAuditAction({
+        type: 'export',
+        entityType: 'statistics_report',
+        entityId: isFull ? 'all_tabs' : tabList[0].tabId,
+        entityTitle: defaultName,
+        userFullName: user.fullName,
+        userRole: user.role,
+        details: `Εξαγωγή στατιστικής αναφοράς (${tabList.length} ενότητες)`,
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('export-statistics-report error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
 ensureOrimanthiAepoCheckerStarted();
+ensureProcurementCalendarCheckerStarted();

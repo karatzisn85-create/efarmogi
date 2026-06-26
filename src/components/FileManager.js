@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
 import styled from 'styled-components';
 import { useToast } from './ToastProvider';
+import KhmdhsDocumentRegistryPanel from './KhmdhsDocumentRegistryPanel';
+import { KHMDHS_RELATED_DOCS_SECTION_TITLE } from '../utils/khmdhsRelatedDocuments';
 
 /* ─── Design tokens (app palette) ──────────────────────────────────────── */
 const C = {
@@ -68,6 +70,7 @@ const FileManagerContainer = styled.div`
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   box-shadow:
     0 20px 60px rgba(99, 102, 241, 0.13),
     0 4px 16px rgba(0, 0, 0, 0.08);
@@ -248,8 +251,11 @@ const UploadBtn = styled.button`
 
 /* Scrollable body */
 const Body = styled.div`
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   padding: 1.25rem 1.75rem 1.75rem;
 `;
 
@@ -551,6 +557,8 @@ const checkboxStyle = {
 function FileManager({
   files,
   fileGroups = [],
+  khmdhsDocumentRegistry = [],
+  khmdhsRelatedDocuments = [],
   userRole,
   canUpload = false,
   isUploading = false,
@@ -615,7 +623,10 @@ function FileManager({
     if (onGroupFiles) onGroupFiles(Array.from(selectedFiles), fileGroups);
   };
 
-  const hasFiles = files.length > 0 || fileGroups.some(g => g.files.length > 0);
+  const hasKhmdhsRegistry = (khmdhsDocumentRegistry || []).length > 0;
+  const hasKhmdhsRelated = (khmdhsRelatedDocuments || []).length > 0;
+  const hasPhysicalFiles = files.length > 0 || fileGroups.some((g) => g.files.length > 0);
+  const hasFiles = hasKhmdhsRegistry || hasKhmdhsRelated || hasPhysicalFiles;
   const isAdmin  = userRole !== 'USER';
 
   /* Render a single file row — shared between groups and ungrouped */
@@ -664,6 +675,7 @@ function FileManager({
 
   return (
     <FileManagerOverlay
+      data-file-manager-modal
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={{ paddingTop: `${Math.max(50, window.innerHeight * 0.08)}px` }}
     >
@@ -743,6 +755,15 @@ function FileManager({
               </UploadBtn>
             </UploadBar>
           )}
+          {hasKhmdhsRegistry && (
+            <KhmdhsDocumentRegistryPanel entries={khmdhsDocumentRegistry} />
+          )}
+          {hasKhmdhsRelated && (
+            <KhmdhsDocumentRegistryPanel
+              entries={khmdhsRelatedDocuments}
+              headerTitle={KHMDHS_RELATED_DOCS_SECTION_TITLE}
+            />
+          )}
           {!hasFiles ? (
             <EmptyState>
               <EmptyIcon>📄</EmptyIcon>
@@ -752,7 +773,7 @@ function FileManager({
                   : 'Δεν υπάρχουν αρχεία για αυτό το υποέργο'}
               </EmptyText>
             </EmptyState>
-          ) : (
+          ) : hasPhysicalFiles ? (
             <FilesList>
 
               {/* File Groups */}
@@ -783,7 +804,7 @@ function FileManager({
               )}
 
             </FilesList>
-          )}
+          ) : null}
         </Body>
 
       </FileManagerContainer>

@@ -4,8 +4,38 @@ import {
   statusShowsAssignmentProcedure
 } from '../data/formOptions';
 import { getProjectChargeDisplay } from './supervisorChargeDisplay';
-import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm } from './khmdhsFields';
+import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm, normalizeContractRow } from './khmdhsFields';
 import { formatViolationSummary } from './directAssignmentCompliance';
+import {
+  buildKhmdhsNoticeDisplayGroups,
+  formatKhmdhsDateTime,
+  formatKhmdhsDateOnly,
+  getProjectAssignmentProcedure,
+  pickKhmdhsNoticeSnapshot,
+  projectHasKhmdhsNoticeData
+} from './khmdhsNoticeFields';
+import {
+  formatDeadlineCountdownLabel,
+  getProcurementDeadlineInfo
+} from './procurementDeadlines';
+import { countMeletiFiles } from './meletaiHelpers';
+import {
+  pickKhmdhsRequestSnapshot,
+  projectHasKhmdhsRequestData,
+  buildKhmdhsRequestCardSummary,
+} from './khmdhsRequestFields';
+import {
+  projectHasKhmdhsAwardData,
+  pickKhmdhsAwardSnapshot,
+  buildKhmdhsAwardCardSummary,
+} from './khmdhsAwardFields';
+import {
+  collectKhmdhsCommitmentDecisions,
+  buildKhmdhsCommitmentCardSummary,
+  buildKhmdhsPaymentsTotals,
+  getKhmdhsPaymentEntries,
+} from './khmdhsChainExtraFields';
+import { formatKhmdhsCostSnapshotGross } from './khmdhsVatHelper';
 
 function normalizeText(text) {
   if (!text) return '';
@@ -65,6 +95,137 @@ export function buildFileInventory(fileGroups = [], ungroupedFiles = []) {
   return { groups, ungrouped, totalCount: groups.reduce((n, g) => n + g.files.length, 0) + ungrouped.length };
 }
 
+function mapContractForReport(contract) {
+  const c = normalizeContractRow(contract);
+  return {
+    date: c.date,
+    amount: c.amount,
+    apeAmount: c.apeAmount,
+    comments: c.comments,
+    khmdhsAdam: c.khmdhsAdam,
+    khmdhsAnadoxos: c.khmdhsContractSnapshot?.anadoxosName || '',
+    khmdhsVat: c.khmdhsContractSnapshot?.anadoxosVat || '',
+    khmdhsAuthority: c.khmdhsContractSnapshot?.assigningAuthority || '',
+    khmdhsFetchedAt: c.khmdhsContractFetchedAt
+  };
+}
+
+function buildKhmdhsChainForReport(project) {
+  const chain = {};
+
+  // REQ — Πρωτογενές αίτημα
+  if (projectHasKhmdhsRequestData(project)) {
+    const snap = pickKhmdhsRequestSnapshot(project.khmdhsRequestSnapshot);
+    const summary = buildKhmdhsRequestCardSummary(snap);
+    chain.req = {
+      adam: String(project.khmdhsRequestAdam || snap?.referenceNumber || '').trim(),
+      title: snap?.title || '',
+      amount: summary?.amount || formatKhmdhsCostSnapshotGross(snap) || '',
+      contractType: snap?.contractType || '',
+      statusText: [snap?.isInitial && 'Πρωτογενές', snap?.isApproved && 'Εγκεκριμένο'].filter(Boolean).join(' · '),
+      organization: snap?.organization || '',
+      signedDate: snap?.signedDate ? formatKhmdhsDateOnly(snap.signedDate) : '',
+      cancelled: !!snap?.cancelled,
+      fetchedAt: project.khmdhsRequestFetchedAt ? formatKhmdhsDateTime(project.khmdhsRequestFetchedAt) : '',
+    };
+  }
+
+  // COMMIT — Αποφάσεις ανάληψης υποχρέωσης
+  const commitDecisions = collectKhmdhsCommitmentDecisions(project);
+  if (commitDecisions.length > 0) {
+    chain.commit = commitDecisions.map((d) => {
+      const sum = buildKhmdhsCommitmentCardSummary(d.snapshot);
+      return {
+        adam: d.adam || '',
+        title: d.snapshot?.title || '',
+        amount: sum?.amount || '',
+        organization: d.snapshot?.organization || '',
+        signedDate: d.snapshot?.signedDate ? formatKhmdhsDateOnly(d.snapshot.signedDate) : '',
+        cancelled: !!d.snapshot?.cancelled,
+        fetchedAt: d.fetchedAt ? formatKhmdhsDateTime(d.fetchedAt) : '',
+      };
+    });
+  }
+
+  // AWRD — Κατακύρωση
+  if (projectHasKhmdhsAwardData(project)) {
+    const snap = pickKhmdhsAwardSnapshot(project.khmdhsAwardSnapshot);
+    const summary = buildKhmdhsAwardCardSummary(snap);
+    const contractors = Array.isArray(snap?.contractors) && snap.contractors.length
+      ? snap.contractors.map((c) => [c.name, c.vat ? `ΑΦΜ ${c.vat}` : ''].filter(Boolean).join(' ')).join(' · ')
+      : snap?.anadoxosName || '';
+    chain.awrd = {
+      adam: String(project.khmdhsAwardAdam || snap?.referenceNumber || '').trim(),
+      title: snap?.title || '',
+      amount: summary?.amount || '',
+      contractor: contractors,
+      contractorVat: snap?.anadoxosVat || '',
+      organization: snap?.organization || '',
+      awardDate: summary?.awardDate || '',
+      cancelled: !!snap?.cancelled,
+      fetchedAt: project.khmdhsAwardFetchedAt ? formatKhmdhsDateTime(project.khmdhsAwardFetchedAt) : '',
+    };
+  }
+
+  // PAY — Εντάλματα πληρωμής
+  const paymentEntries = getKhmdhsPaymentEntries(project);
+  if (paymentEntries.length > 0) {
+    const totals = buildKhmdhsPaymentsTotals(project);
+    chain.pay = {
+      count: totals.count,
+      totalGross: totals.rawTotalGross,
+      entries: paymentEntries.slice(0, 10).map((e) => ({
+        adam: e.adam || '',
+        title: e.snapshot?.title || '',
+        amount: e.snapshot?.totalCostWithVAT != null
+          ? formatKhmdhsCostSnapshotGross(e.snapshot)
+          : '',
+        signedDate: e.snapshot?.signedDate ? formatKhmdhsDateOnly(e.snapshot.signedDate) : '',
+        organization: e.snapshot?.organization || '',
+        cancelled: !!e.snapshot?.cancelled,
+      })),
+    };
+  }
+
+  return Object.keys(chain).length > 0 ? chain : null;
+}
+
+function buildKhmdhsNoticeBlock(project) {
+  if (!projectHasKhmdhsNoticeData(project)) return null;
+  const snapshot = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
+  const deadlineInfo = getProcurementDeadlineInfo(project);
+  return {
+    adam: project.khmdhsNoticeAdam || snapshot?.referenceNumber || '',
+    fetchedAt: project.khmdhsNoticeFetchedAt || '',
+    fetchedAtLabel: project.khmdhsNoticeFetchedAt ? formatKhmdhsDateTime(project.khmdhsNoticeFetchedAt) : '',
+    deadlineLabel: formatDeadlineCountdownLabel(deadlineInfo),
+    groups: buildKhmdhsNoticeDisplayGroups(snapshot)
+  };
+}
+
+function mapMeletiForReport(meleti) {
+  if (!meleti) return null;
+  const fileGroups = (meleti.fileGroups || []).map((g) => ({
+    label: g.label || 'Κατηγορία',
+    files: (g.files || []).map((f) => {
+      if (f?.kind === 'folder') return `${f.name || f.label || 'Φάκελος'} (${f.fileCount || 0} αρχεία)`;
+      return f?.name || f?.fileName || String(f || '');
+    }).filter(Boolean)
+  })).filter((g) => g.files.length > 0);
+
+  return {
+    studyNumber: meleti.studyNumber || '',
+    title: meleti.title || '',
+    category: meleti.category || '',
+    assignedTo: meleti.assignedTo || '',
+    notes: meleti.notes || '',
+    linkedProjectTitle: meleti.linkedProjectTitle || '',
+    fileCount: countMeletiFiles(meleti),
+    fileGroups,
+    updatedAt: meleti.updatedAt || meleti.createdAt || ''
+  };
+}
+
 function buildBasicFields(project, engineerCatalog) {
   const { displayChargePrimary, displayChargeParticipants } = getProjectChargeDisplay(project, engineerCatalog);
   const characterization = getCharacterization(project);
@@ -73,6 +234,12 @@ function buildBasicFields(project, engineerCatalog) {
   const showAssignment = statusShowsAssignmentProcedure(project.projectStatus);
 
   const aleCodes = (project.aleCodes || []).filter((c) => c && String(c).trim());
+  if (!aleCodes.length && project.aleCode) {
+    aleCodes.push(String(project.aleCode).trim());
+  }
+
+  const contracts = (project.contracts || []).map(mapContractForReport);
+  const supplementaryContracts = (project.supplementaryContracts || []).map(mapContractForReport);
 
   return {
     projectTitle: project.projectTitle || '',
@@ -93,11 +260,13 @@ function buildBasicFields(project, engineerCatalog) {
     remainingAmountYear: project.remainingAmountYear || '',
     remainingAmountComments: project.remainingAmountComments || '',
     aleRemainingAmounts: project.aleRemainingAmounts || [],
-    assignmentProcedure: showAssignment ? (project.assignmentProcedure || '') : '',
+    assignmentProcedure: showAssignment ? getProjectAssignmentProcedure(project) : '',
+    assignmentFromKhmdhs: showAssignment && !!(project.khmdhsNoticeAdam && pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot)),
     contractProcessStartDate: showAssignment ? (project.contractProcessStartDate || '') : '',
     displayChargePrimary,
     displayChargeParticipants,
     khmdhsEntries,
+    khmdhsNotice: buildKhmdhsNoticeBlock(project),
     comments: project.comments || '',
     eisigitikiEkthesi: project.eisigitikiEkthesi || '',
     isMultipleContracts: isMultipleContractsForm(project.implementationForm),
@@ -105,9 +274,12 @@ function buildBasicFields(project, engineerCatalog) {
     contractAmount: project.contractAmount || '',
     apeAmount: project.apeAmount || '',
     apeComments: project.apeComments || '',
-    contracts: project.contracts || [],
+    khmdhsAdam: project.khmdhsAdam || '',
+    khmdhsContractSnapshot: project.khmdhsContractSnapshot || null,
+    khmdhsContractFetchedAt: project.khmdhsContractFetchedAt || '',
+    contracts,
     hasSupplementaryContracts: !!project.hasSupplementaryContracts,
-    supplementaryContracts: project.supplementaryContracts || [],
+    supplementaryContracts,
     totalContractAmount,
     createdAt: project.createdAt || '',
     updatedAt: project.updatedAt || '',
@@ -186,6 +358,7 @@ export function buildSubprojectReportPayload({
   linkedNotes = [],
   directAssignmentViolations = [],
   isPublishedToPortal = false,
+  meleti = null,
   appVersion = ''
 }) {
   const linkedEntaxeis = getLinkedEntaxeis(entaxeis, project.subprojectId).map(mapEntaxiForReport);
@@ -219,6 +392,7 @@ export function buildSubprojectReportPayload({
 
   return {
     basic: buildBasicFields(project, engineerCatalog),
+    khmdhsChain: buildKhmdhsChainForReport(project),
     files: fileInventory,
     entaxeis: linkedEntaxeis,
     proskliseis: linkedProskliseis,
@@ -237,12 +411,17 @@ export function buildSubprojectReportPayload({
       objectiveCode: a.objectiveCode || '',
       actionType: a.actionType || '',
       location: a.location || '',
-      programTitle: a.programTitle || ''
+      programTitle: a.programTitle || '',
+      priority: a.priority || '',
+      total: a.total != null ? a.total : null,
+      isNew: a.isNew
     })),
     linkedNotes: (linkedNotes || []).map((n) => ({
       title: n.title || n.noteTitle || 'Σημείωση',
-      preview: (n.preview || n.content || '').slice(0, 200)
+      content: n.content || n.preview || '',
+      updatedAt: n.updatedAt || n.createdAt || ''
     })),
+    meleti: mapMeletiForReport(meleti),
     complianceWarnings: (directAssignmentViolations || []).map(formatViolationSummary),
     meta: {
       isPublishedToPortal,

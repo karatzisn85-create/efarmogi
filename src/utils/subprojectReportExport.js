@@ -17,6 +17,7 @@ export async function exportSubprojectReport({
   linkedEgkriseis = {},
   engineerCatalog = [],
   linkedNotesMap = {},
+  notes = [],
   directAssignmentViolations = [],
   isPublishedToPortal = false,
   appConfig = {},
@@ -24,7 +25,16 @@ export async function exportSubprojectReport({
   requestingUsername = '',
   showToast
 }) {
-  const linkedNotes = getEntityLinkedNotes(linkedNotesMap, project.subprojectId);
+  const linkedNoteRefs = getEntityLinkedNotes(linkedNotesMap, project.subprojectId);
+  const linkedNotes = linkedNoteRefs.map((ref) => {
+    const note = (notes || []).find((n) => n.id === ref.noteId);
+    return {
+      noteId: ref.noteId,
+      title: note?.title || ref.noteTitle || 'Σημείωση',
+      content: note?.content || '',
+      updatedAt: note?.updatedAt || note?.createdAt || ''
+    };
+  });
 
   let files = { groups: [], ungrouped: [] };
   try {
@@ -64,6 +74,17 @@ export async function exportSubprojectReport({
     epActions = [];
   }
 
+  let meleti = null;
+  try {
+    const meletiRes = await ipcRenderer.invoke('get-meleti-by-subproject', {
+      subprojectId: project.subprojectId,
+      actingUsername: requestingUsername
+    });
+    if (meletiRes?.success && meletiRes.meleti) meleti = meletiRes.meleti;
+  } catch {
+    meleti = null;
+  }
+
   const linkedProskliseisRaw = getLinkedProskliseis(proskliseis, project);
   const prosklisiMods = {};
   await Promise.all(
@@ -94,6 +115,7 @@ export async function exportSubprojectReport({
     linkedNotes,
     directAssignmentViolations,
     isPublishedToPortal,
+    meleti,
     appVersion
   });
 

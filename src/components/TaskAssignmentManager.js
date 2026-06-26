@@ -693,6 +693,20 @@ const NotifLineMeta = styled.div`
   margin-top: 0.25rem;
 `;
 
+const NotifExpandBtn = styled.button`
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(79, 70, 229, 0.28);
+  border-radius: 8px;
+  background: rgba(79, 70, 229, 0.08);
+  color: #4f46e5;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  &:hover { background: rgba(79, 70, 229, 0.14); }
+`;
+
 
 function TaskAssignmentManager({
   isOpen,
@@ -724,6 +738,7 @@ function TaskAssignmentManager({
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [showNotif, setShowNotif] = useState(false);
+  const [notifListExpanded, setNotifListExpanded] = useState(false);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [listError, setListError] = useState('');
   /** workspace = ενεργοί χώροι · workArchive = μόνο ολοκληρωμένοι */
@@ -1322,7 +1337,8 @@ function TaskAssignmentManager({
                 {notifications.length === 0 ? (
                   <NotifEmpty>Δεν υπάρχουν ειδοποιήσεις.</NotifEmpty>
                 ) : (
-                  notifications.slice(0, 40).map((n) => (
+                  <>
+                  {(notifListExpanded ? notifications : notifications.slice(0, 40)).map((n) => (
                     <NotifItem
                       key={n.id}
                       $unread={!n.readAt}
@@ -1339,7 +1355,18 @@ function TaskAssignmentManager({
                       <NotifLinePrimary $bold={!n.readAt}>{n.message || n.title}</NotifLinePrimary>
                       <NotifLineMeta>{new Date(n.createdAt).toLocaleString('el-GR')}</NotifLineMeta>
                     </NotifItem>
-                  ))
+                  ))}
+                  {notifications.length > 40 && (
+                    <NotifExpandBtn
+                      type="button"
+                      onClick={() => setNotifListExpanded((v) => !v)}
+                    >
+                      {notifListExpanded
+                        ? 'Σύμπτυξη λίστας'
+                        : `Εμφάνιση όλων (${notifications.length})`}
+                    </NotifExpandBtn>
+                  )}
+                  </>
                 )}
               </NotifPanel>
             </>

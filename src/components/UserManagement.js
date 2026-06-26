@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { emptyTaskAssignmentPerms } from '../utils/taskAssignmentDisplay';
 import { safeConfirm } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
+import { formatDateEl } from '../utils/dateFormat';
 
 const ipcRenderer = window.electronAPI;
 
@@ -792,7 +793,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                     <td>{u.fullName}</td>
                     <td><RoleBadge role={u.role}>{ROLE_LABELS[u.role] || u.role}</RoleBadge></td>
                     <td style={{ fontSize: 12, color: '#888' }}>
-                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString('el-GR') : '-'}
+                      {u.createdAt ? formatDateEl(u.createdAt, '-') : '-'}
                     </td>
                     <td>
                       <ActionBtn className="approve" onClick={() => handleApprove(u)}>Έγκριση</ActionBtn>

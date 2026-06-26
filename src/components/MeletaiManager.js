@@ -5,6 +5,7 @@ import { useToast } from './ToastProvider';
 import ExportSuccessModal from './ExportSuccessModal';
 import { showConfirm } from '../utils/confirmModal';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
+import { formatDateEl as formatShortDateEl } from '../utils/dateFormat';
 import {
   countMeletiFiles,
   emptyMeleti,
@@ -15,17 +16,48 @@ import {
   validateStudyNumberFormat,
   compareStudyNumbers,
   formatMeletiBytes,
+  filterMeletiBudgetInput,
+  formatMeletiBudgetDisplay,
+  normalizeMeletiBudgetStored,
+  normalizeStudyApprovalDate,
   getMeletiFileTypeStyle,
   MELETI_FOLDER_TYPE_STYLE,
   countMeletiGroupFileEntries,
   isMeletiFolderEntry,
 } from '../utils/meletaiHelpers';
 
-function buildAssignedToOptions(engineerFullNames, currentValue) {
-  const names = [...(engineerFullNames || [])];
-  const cur = String(currentValue || '').trim();
-  if (cur && !names.includes(cur)) names.unshift(cur);
-  return names;
+function AssignedToField({
+  id,
+  value,
+  onChange,
+  engineerFullNames,
+  disabled,
+  InputComponent,
+}) {
+  const listId = `${id}-engineers`;
+  const InputEl = InputComponent;
+  return (
+    <>
+      <InputEl
+        id={id}
+        list={listId}
+        value={value || ''}
+        onChange={onChange}
+        disabled={disabled}
+        placeholder="Επιλογή μηχανικού ή χειροκίνητη καταχώρηση"
+      />
+      <datalist id={listId}>
+        {(engineerFullNames || []).map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
+      {!disabled && (
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: '0.35rem' }}>
+          Επιλέξτε από τους εγγεγραμμένους μηχανικούς ή πληκτρολογήστε όνομα εκτός συστήματος.
+        </div>
+      )}
+    </>
+  );
 }
 
 const ipcRenderer = window.electronAPI;
@@ -1691,15 +1723,6 @@ const HUB_SORT_OPTIONS = [
   { value: 'title', label: 'Τίτλος' },
 ];
 
-function formatShortDateEl(iso) {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleDateString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  } catch {
-    return '—';
-  }
-}
-
 function formatMeletiCount(n) {
   return `${n} ${n === 1 ? 'μελέτη' : 'μελέτες'}`;
 }
@@ -1979,6 +2002,7 @@ function MeletaiManager({
       if (!q) return true;
       const hay = [
         m.studyNumber, m.title, m.assignedTo, m.category,
+        m.projectExpenditureBudget, m.studyApprovalDate,
         m.linkedSubprojectTitle, m.linkedProjectTitle, m.notes,
       ].join(' ').toLowerCase();
       return hay.includes(q);
@@ -2390,6 +2414,8 @@ function MeletaiManager({
         assignedTo: String(newModalDraft.assignedTo || '').trim(),
         category: newModalDraft.category || '',
         notes: String(newModalDraft.notes || '').trim(),
+        projectExpenditureBudget: normalizeMeletiBudgetStored(newModalDraft.projectExpenditureBudget),
+        studyApprovalDate: normalizeStudyApprovalDate(newModalDraft.studyApprovalDate),
       };
       const res = await ipcRenderer.invoke('save-meleti', {
         meleti: meletiData,
@@ -2437,6 +2463,8 @@ function MeletaiManager({
       String(newModalDraft.studyNumber || '').trim()
       || String(newModalDraft.title || '').trim()
       || String(newModalDraft.assignedTo || '').trim()
+      || String(newModalDraft.projectExpenditureBudget || '').trim()
+      || String(newModalDraft.studyApprovalDate || '').trim()
       || String(newModalDraft.notes || '').trim()
     );
     if (hasTypedBasics || newModalBasicsDirty) {
@@ -3617,6 +3645,22 @@ function MeletaiManager({
                         <DetailInfoValue>{draft.assignedTo || '—'}</DetailInfoValue>
                       </DetailInfoItem>
                       <DetailInfoItem>
+                        <DetailInfoLabel>Προυπολογισμός δαπάνης</DetailInfoLabel>
+                        <DetailInfoValue>
+                          {draft.projectExpenditureBudget
+                            ? formatMeletiBudgetDisplay(draft.projectExpenditureBudget)
+                            : '—'}
+                        </DetailInfoValue>
+                      </DetailInfoItem>
+                      <DetailInfoItem>
+                        <DetailInfoLabel>Ημ/νία θεώρησης</DetailInfoLabel>
+                        <DetailInfoValue>
+                          {draft.studyApprovalDate
+                            ? formatShortDateEl(draft.studyApprovalDate)
+                            : '—'}
+                        </DetailInfoValue>
+                      </DetailInfoItem>
+                      <DetailInfoItem>
                         <DetailInfoLabel>Κατηγορία</DetailInfoLabel>
                         <DetailInfoValue>{draft.category || '—'}</DetailInfoValue>
                       </DetailInfoItem>
@@ -3746,21 +3790,38 @@ function MeletaiManager({
                 </Field>
                 <Field>
                   <Label>Χρεωμένη σε</Label>
-                  <Select
+                  <AssignedToField
+                    id="meleti-detail-assigned"
                     value={draft.assignedTo || ''}
                     onChange={(e) => setDraft((d) => ({ ...d, assignedTo: e.target.value }))}
+                    engineerFullNames={engineerFullNames}
                     disabled={isReadOnly}
-                  >
-                    <option value="">— Επιλογή μηχανικού —</option>
-                    {buildAssignedToOptions(engineerFullNames, draft.assignedTo).map((name) => (
-                      <option key={name} value={name}>{name}</option>
-                    ))}
-                  </Select>
-                  {registeredEngineers.length === 0 && !isReadOnly && (
-                    <FieldError style={{ color: C.slate500, marginTop: '0.35rem' }}>
-                      Δεν υπάρχουν ενεργοί μηχανικοί — ορίστε χρήστες με ρόλο «Μηχανικός» στη Διαχείριση χρηστών.
-                    </FieldError>
-                  )}
+                    InputComponent={Input}
+                  />
+                </Field>
+                <Field>
+                  <Label>Προυπολογισμός δαπάνης έργου</Label>
+                  <Input
+                    value={draft.projectExpenditureBudget || ''}
+                    onChange={(e) => setDraft((d) => ({
+                      ...d,
+                      projectExpenditureBudget: filterMeletiBudgetInput(e.target.value),
+                    }))}
+                    placeholder="π.χ. 25.234,25€"
+                    disabled={isReadOnly}
+                  />
+                </Field>
+                <Field>
+                  <Label>Ημερομηνία θεώρησης της μελέτης</Label>
+                  <Input
+                    type="date"
+                    value={draft.studyApprovalDate || ''}
+                    onChange={(e) => setDraft((d) => ({
+                      ...d,
+                      studyApprovalDate: e.target.value,
+                    }))}
+                    disabled={isReadOnly}
+                  />
                 </Field>
                 <Field>
                   <Label>Κατηγορία</Label>
@@ -4046,22 +4107,40 @@ function MeletaiManager({
                   </ModalFormFieldFull>
                   <ModalFormField>
                     <ModalFormLabel htmlFor="new-meleti-assigned">Χρεωμένη σε</ModalFormLabel>
-                    <ModalFormSelect
+                    <AssignedToField
                       id="new-meleti-assigned"
                       value={newModalDraft.assignedTo || ''}
                       onChange={(e) => setNewModalDraft((d) => ({ ...d, assignedTo: e.target.value }))}
+                      engineerFullNames={engineerFullNames}
                       disabled={isReadOnly}
-                    >
-                      <option value="">— Επιλογή μηχανικού —</option>
-                      {buildAssignedToOptions(engineerFullNames, newModalDraft.assignedTo).map((name) => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </ModalFormSelect>
-                    {registeredEngineers.length === 0 && !isReadOnly && (
-                      <FieldError style={{ color: C.slate500, marginTop: '0.35rem' }}>
-                        Δεν υπάρχουν ενεργοί μηχανικοί — ορίστε χρήστες με ρόλο «Μηχανικός» στη Διαχείριση χρηστών.
-                      </FieldError>
-                    )}
+                      InputComponent={ModalFormInput}
+                    />
+                  </ModalFormField>
+                  <ModalFormField>
+                    <ModalFormLabel htmlFor="new-meleti-budget">Προυπολογισμός δαπάνης έργου</ModalFormLabel>
+                    <ModalFormInput
+                      id="new-meleti-budget"
+                      placeholder="π.χ. 25.234,25€"
+                      value={newModalDraft.projectExpenditureBudget || ''}
+                      onChange={(e) => setNewModalDraft((d) => ({
+                        ...d,
+                        projectExpenditureBudget: filterMeletiBudgetInput(e.target.value),
+                      }))}
+                      disabled={isReadOnly}
+                    />
+                  </ModalFormField>
+                  <ModalFormField>
+                    <ModalFormLabel htmlFor="new-meleti-approval-date">Ημερομηνία θεώρησης της μελέτης</ModalFormLabel>
+                    <ModalFormInput
+                      id="new-meleti-approval-date"
+                      type="date"
+                      value={newModalDraft.studyApprovalDate || ''}
+                      onChange={(e) => setNewModalDraft((d) => ({
+                        ...d,
+                        studyApprovalDate: e.target.value,
+                      }))}
+                      disabled={isReadOnly}
+                    />
                   </ModalFormField>
                   <ModalFormFieldFull>
                     <ModalFormLabel htmlFor="new-meleti-notes">Σημειώσεις</ModalFormLabel>

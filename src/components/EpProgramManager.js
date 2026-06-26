@@ -1612,6 +1612,7 @@ function EpActionForm({ action, program, onSave, onClose }) {
 
 // ─── ActionCardItem ───────────────────────────────────────────────────────────
 function ActionCardItem({ action, budgetYears, expanded, onToggleBudget, canManage, onEdit, onDelete }) {
+  const [fundingExpanded, setFundingExpanded] = useState(false);
   const hasLinked = (action.linkedSubprojectIds || []).length > 0;
   const yearValues = (budgetYears || []).map(y => ({ year: y, val: (action.budgetYears || {})[y] || 0 }));
   const hasYearData = yearValues.some(y => y.val > 0);
@@ -1663,11 +1664,24 @@ function ActionCardItem({ action, budgetYears, expanded, onToggleBudget, canMana
                 <span style={{ color: '#6366f1' }}>🏢</span> {action.responsibleService}
               </CardMetaItem>
             )}
-            {action.fundingSources?.length > 0 && action.fundingSources.slice(0, 2).map((f, i) => (
+            {action.fundingSources?.length > 0 && (
+              fundingExpanded
+                ? action.fundingSources
+                : action.fundingSources.slice(0, 2)
+            ).map((f, i) => (
               <FundingTag key={i}>📌 {f}</FundingTag>
             ))}
             {action.fundingSources?.length > 2 && (
-              <FundingTag>+{action.fundingSources.length - 2} πηγές</FundingTag>
+              <FundingTag
+                as="button"
+                type="button"
+                onClick={() => setFundingExpanded((v) => !v)}
+                style={{ cursor: 'pointer', border: 'none' }}
+              >
+                {fundingExpanded
+                  ? '▲ Λιγότερες πηγές'
+                  : `▼ Εμφάνιση όλων (${action.fundingSources.length})`}
+              </FundingTag>
             )}
           </CardMeta>
         </CardMain>

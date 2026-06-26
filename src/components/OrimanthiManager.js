@@ -3005,6 +3005,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const [exportIncludeFiles, setExportIncludeFiles] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(null);
+  const [exportMissingExpanded, setExportMissingExpanded] = useState(false);
   const [exportTargetId, setExportTargetId] = useState(null);
   const [uploadingGroupId, setUploadingGroupId] = useState(null);
   const [detailFolderFilterMatches, setDetailFolderFilterMatches] = useState(() => new Set());
@@ -7587,7 +7588,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       )}
 
       {exportSuccess && (
-        <ExportSuccessOverlay onClick={() => setExportSuccess(null)}>
+        <ExportSuccessOverlay onClick={() => { setExportSuccess(null); setExportMissingExpanded(false); }}>
           <ExportSuccessCard onClick={(e) => e.stopPropagation()}>
             <FolderModalHeader>
               <FolderModalTitle>✓ Η εξαγωγή ολοκληρώθηκε</FolderModalTitle>
@@ -7604,17 +7605,38 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                     {exportSuccess.missingCount === 1 ? 'στοιχείο δεν' : 'στοιχεία δεν'} βρέθηκαν στον δίσκο:
                   </div>
                   <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.82rem', color: C.slate600 }}>
-                    {(exportSuccess.missingItems || []).slice(0, 12).map((item, idx) => (
+                    {(exportMissingExpanded
+                      ? (exportSuccess.missingItems || [])
+                      : (exportSuccess.missingItems || []).slice(0, 12)
+                    ).map((item, idx) => (
                       <li key={`${item.name}-${idx}`}>
                         {item.kind === 'folder' ? '📁' : '📄'}{' '}
                         {item.category ? `«${item.category}» / ` : ''}
                         {item.name}
                       </li>
                     ))}
-                    {(exportSuccess.missingItems || []).length > 12 && (
-                      <li>…και {(exportSuccess.missingItems || []).length - 12} ακόμη</li>
-                    )}
                   </ul>
+                  {(exportSuccess.missingItems || []).length > 12 && (
+                    <button
+                      type="button"
+                      onClick={() => setExportMissingExpanded((v) => !v)}
+                      style={{
+                        marginTop: '0.5rem',
+                        padding: '0.35rem 0.65rem',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        color: C.indigo,
+                        background: 'rgba(99, 102, 241, 0.1)',
+                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {exportMissingExpanded
+                        ? 'Σύμπτυξη λίστας'
+                        : `Εμφάνιση όλων (${(exportSuccess.missingItems || []).length})`}
+                    </button>
+                  )}
                 </div>
               )}
             </ExportSuccessBody>

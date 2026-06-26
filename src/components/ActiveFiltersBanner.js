@@ -94,16 +94,18 @@ const ClearButton = styled.button`
   }
 `;
 
-function ActiveFiltersBanner({ activeFilterCount, onClearFilters }) {
-  if (activeFilterCount === 0) return null;
+function ActiveFiltersBanner({ activeFilterCount, onClearFilters, portfolioDrillLabel }) {
+  const totalCount = activeFilterCount + (portfolioDrillLabel ? 1 : 0);
+  if (totalCount === 0) return null;
 
   return (
     <Banner>
       <LeftSection>
         <FilterIcon>🔍</FilterIcon>
-        <FilterBadge>{activeFilterCount}</FilterBadge>
+        <FilterBadge>{totalCount}</FilterBadge>
         <FilterMessage>
-          {activeFilterCount === 1 ? 'Ενεργό Φίλτρο' : 'Ενεργά Φίλτρα'}
+          {totalCount === 1 ? 'Ενεργό Φίλτρο' : 'Ενεργά Φίλτρα'}
+          {portfolioDrillLabel ? ` · ΚΗΜΔΗΣ: ${portfolioDrillLabel}` : ''}
         </FilterMessage>
       </LeftSection>
       <ClearButton onClick={onClearFilters}>

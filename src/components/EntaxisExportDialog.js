@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { useToast } from './ToastProvider';
+import { formatDateEl } from '../utils/dateFormat';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -265,7 +266,7 @@ const SelectAllButton = styled.button`
 // Σειρά στηλών για τις εντάξεις
 const EXPORT_FIELDS_ORDER = [
   { id: 'rowNumber', label: 'Α/Α', width: 8 },
-  { id: 'projectTitle', label: 'Τίτλος Έργου', width: 40 },
+  { id: 'projectTitle', label: 'Τίτλος Έργου / Τίτλος Πράξης', width: 40 },
   { id: 'subject', label: 'Θέμα Ένταξης', width: 40 },
   { id: 'documentDate', label: 'Ημερομηνία Έγγραφου', width: 18 },
   { id: 'fundingAuthority', label: 'Φορέας Χρηματοδότησης', width: 30 },
@@ -291,7 +292,7 @@ const EXPORT_FIELDS = {
     title: '📋 Βασικά Στοιχεία',
     fields: [
       { id: 'rowNumber', label: 'Α/Α', width: 8 },
-      { id: 'projectTitle', label: 'Τίτλος Έργου', width: 40 },
+      { id: 'projectTitle', label: 'Τίτλος Έργου / Τίτλος Πράξης', width: 40 },
       { id: 'subject', label: 'Θέμα Ένταξης', width: 40 },
     ]
   },
@@ -534,7 +535,7 @@ function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis, organiz
           } else if (field.id.startsWith('modificationDate')) {
             const modIndex = parseInt(field.id.replace('modificationDate', '')) - 1;
             const modification = entaxi.modifications && entaxi.modifications[modIndex];
-            value = modification ? new Date(modification.date).toLocaleDateString('el-GR') : '';
+            value = modification ? formatDateEl(modification.date, '') : '';
           } else if (field.id.startsWith('modificationAmount')) {
             const modIndex = parseInt(field.id.replace('modificationAmount', '')) - 1;
             const modification = entaxi.modifications && entaxi.modifications[modIndex];
@@ -553,7 +554,7 @@ function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis, organiz
             
             // Μορφοποίηση ειδικών πεδίων
             if ((field.id === 'documentDate' || field.id === 'createdAt' || field.id === 'updatedAt') && value) {
-              value = new Date(value).toLocaleDateString('el-GR');
+              value = formatDateEl(value, '');
             } else if (field.id === 'initialAmount' && value) {
               // Μορφοποίηση αρχικού ποσού με την ίδια συνάρτηση
               value = formatGreekAmount(value);

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { useToast } from './ToastProvider';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
+import { formatDateEl } from '../utils/dateFormat';
 import { showConfirm } from '../utils/confirmModal';
 import { containsSearchTerm } from '../utils/searchUtils';
 
@@ -1064,11 +1065,7 @@ function DocumentTemplatesManager({ onClose }) {
                       <DocumentInfo>
                         <DocumentName>{doc.name}</DocumentName>
                         <DocumentMeta>
-                          {new Date(doc.uploadedAt).toLocaleDateString('el-GR', { 
-                            day: '2-digit', 
-                            month: '2-digit', 
-                            year: 'numeric' 
-                          })}
+                          {formatDateEl(doc.uploadedAt, '—')}
                         </DocumentMeta>
                       </DocumentInfo>
                       <DocumentActions>

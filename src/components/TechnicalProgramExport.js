@@ -9,6 +9,10 @@ import {
   getProjectKhmdhsAdamExport,
   getProjectAssignmentProcedureExport
 } from '../utils/contractorFields';
+import {
+  KHMDHS_NOTICE_EXPORT_FIELDS,
+  getKhmdhsNoticeExportValue
+} from '../utils/khmdhsExportFields';
 import EpProgramStatsPanel from './EpProgramStatsPanel';
 
 const ExportOverlay = styled.div`
@@ -364,7 +368,7 @@ const ActionButton = styled.button`
 
 const COLUMN_DEFINITIONS = [
   { key: 'aa', label: 'Α/Α', mandatory: true, group: 'basic', width: 50, type: 'number' },
-  { key: 'projectTitle', label: 'Τίτλος Έργου', mandatory: false, group: 'basic', width: 280, type: 'string', defaultOn: true },
+  { key: 'projectTitle', label: 'Τίτλος Έργου / Τίτλος Πράξης', mandatory: false, group: 'basic', width: 280, type: 'string', defaultOn: true },
   { key: 'subprojectTitle', label: 'Τίτλος Υποέργου', mandatory: true, group: 'basic', width: 300, type: 'string' },
   { key: 'implementationForm', label: 'Μορφή Υλοποίησης', mandatory: false, group: 'basic', width: 150, type: 'string' },
   { key: 'projectType', label: 'Είδος Έργου', mandatory: false, group: 'basic', width: 130, type: 'string' },
@@ -395,8 +399,17 @@ const COLUMN_DEFINITIONS = [
   { key: 'chargeParticipants', label: 'Συμμετέχουν', mandatory: false, group: 'other', width: 200, type: 'string' },
   { key: 'comments', label: 'Σχόλια', mandatory: false, group: 'other', width: 250, type: 'string' },
   { key: 'remainingAmountComments', label: 'Σχόλια Υπολοίπου', mandatory: false, group: 'other', width: 220, type: 'string' },
-  { key: 'eisigitikiEkthesi', label: 'Εισηγητική Έκθεση', mandatory: false, group: 'other', width: 350, type: 'string' },
+  { key: 'eisigitikiEkthesi', label: 'Αναφορά από πρόγραμμα Οικονομικής', mandatory: false, group: 'other', width: 350, type: 'string' },
   { key: 'characterization', label: 'Χαρακτηρισμός (ΝΕΟ/ΣΥΝΕΧΙΖΟΜΕΝΟ)', mandatory: false, group: 'other', width: 200, type: 'string' },
+
+  ...KHMDHS_NOTICE_EXPORT_FIELDS.map((f) => ({
+    key: f.id,
+    label: f.label,
+    mandatory: false,
+    group: 'procurement',
+    width: Math.min(350, Math.max(120, (f.width || 20) * 8)),
+    type: 'string'
+  })),
 ];
 
 const GROUPS = [
@@ -404,6 +417,7 @@ const GROUPS = [
   { id: 'codes', label: 'Κωδικοί', icon: '🔢', color: '#6a1b9a', borderColor: '#e1bee7' },
   { id: 'financial', label: 'Οικονομικά', icon: '💰', color: '#2e7d32', borderColor: '#c8e6c9' },
   { id: 'contract', label: 'Σύμβαση / ΑΠΕ', icon: '📝', color: '#e65100', borderColor: '#ffe0b2' },
+  { id: 'procurement', label: 'Δημοσίευση (ΚΗΜΔΗΣ)', icon: '📢', color: '#c62828', borderColor: '#ffcdd2' },
   { id: 'other', label: 'Λοιπά', icon: '📌', color: '#455a64', borderColor: '#cfd8dc' },
 ];
 
@@ -534,7 +548,10 @@ function TechnicalProgramExport({ isOpen, onClose, projects, organizationName = 
       case 'remainingAmountComments': return row.project.remainingAmountComments || '';
       case 'eisigitikiEkthesi': return row.project.eisigitikiEkthesi || '';
       case 'characterization': return getCharacterization(row.project) || '';
-      default: return '';
+      default: {
+        const khmdhsVal = getKhmdhsNoticeExportValue(row.project, colKey);
+        return khmdhsVal != null && khmdhsVal !== '' ? khmdhsVal : '';
+      }
     }
   };
 

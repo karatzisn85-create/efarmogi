@@ -88,6 +88,14 @@ function buildStudyInfoRows(meleti) {
 
     ['Χρεωμένη σε', meleti.assignedTo || '—'],
 
+    ['Προυπολογισμός δαπάνης έργου', meleti.projectExpenditureBudget
+      ? `${String(meleti.projectExpenditureBudget).replace(/€/gi, '').trim()} €`
+      : '—'],
+
+    ['Ημερομηνία θεώρησης', meleti.studyApprovalDate
+      ? formatDateOnlyGreek(meleti.studyApprovalDate)
+      : '—'],
+
     ['Συνδεδεμένο υποέργο', linked],
 
     ['Σημειώσεις', String(meleti.notes || '').trim() || '—'],
@@ -132,6 +140,12 @@ function buildHubReportRows(meletai) {
 
     assignedTo: m.assignedTo || '—',
 
+    projectBudget: m.projectExpenditureBudget
+      ? `${String(m.projectExpenditureBudget).replace(/€/gi, '').trim()} €`
+      : '—',
+
+    studyApprovalDate: m.studyApprovalDate ? formatDateOnlyGreek(m.studyApprovalDate) : '—',
+
     subproject: m.linkedSubprojectTitle
 
       ? `${m.linkedProjectTitle ? `${m.linkedProjectTitle} · ` : ''}${m.linkedSubprojectTitle}`
@@ -156,13 +170,17 @@ async function exportHubReportExcel({ meletai, destFilePath, exportedBy, appVers
 
   const exportedAt = formatDateOnlyGreek(new Date().toISOString());
 
-  const header = ['Αριθμός', 'Τίτλος', 'Κατηγορία', 'Χρεωμένη σε', 'Συνδ. Υποέργο', 'Αρχεία', 'Τελευταία ενημέρωση'];
+  const header = ['Αριθμός', 'Τίτλος', 'Κατηγορία', 'Χρεωμένη σε', 'Προυπολογισμός', 'Θεώρηση', 'Συνδ. Υποέργο', 'Αρχεία', 'Τελευταία ενημέρωση'];
 
   const data = [
 
     header,
 
-    ...rows.map((r) => [r.studyNumber, r.title, r.category, r.assignedTo, r.subproject, r.files, r.updatedAt]),
+    ...rows.map((r) => [
+      r.studyNumber, r.title, r.category, r.assignedTo,
+      r.projectBudget, r.studyApprovalDate,
+      r.subproject, r.files, r.updatedAt,
+    ]),
 
   ];
 

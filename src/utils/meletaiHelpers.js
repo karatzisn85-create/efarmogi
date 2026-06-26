@@ -1,3 +1,26 @@
+export function filterMeletiBudgetInput(raw) {
+  return String(raw ?? '').replace(/[^\d,.\s€]/gi, '').replace(/\s+/g, ' ');
+}
+
+export function normalizeMeletiBudgetStored(value) {
+  return String(value || '').trim().replace(/\s+/g, '').replace(/€/gi, '');
+}
+
+export function formatMeletiBudgetDisplay(value) {
+  const s = normalizeMeletiBudgetStored(value);
+  if (!s) return '—';
+  return `${s} €`;
+}
+
+export function normalizeStudyApprovalDate(value) {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
 export function countMeletiFiles(meleti) {
   return (meleti?.fileGroups || []).reduce((sum, g) => {
     return sum + (g.files || []).reduce((s, entry) => {
@@ -63,6 +86,8 @@ export function meletiTextFingerprint(meleti) {
     assignedTo: meleti.assignedTo || '',
     category: meleti.category || '',
     notes: meleti.notes || '',
+    projectExpenditureBudget: meleti.projectExpenditureBudget || '',
+    studyApprovalDate: meleti.studyApprovalDate || '',
   });
 }
 
@@ -78,6 +103,8 @@ export function mergeMeletiServerUpdate(local, server, savedTextFingerprint) {
     assignedTo: local.assignedTo,
     category: local.category,
     notes: local.notes,
+    projectExpenditureBudget: local.projectExpenditureBudget,
+    studyApprovalDate: local.studyApprovalDate,
   };
 }
 
@@ -89,6 +116,8 @@ export function emptyMeleti(id, createdBy = '') {
     assignedTo: '',
     category: '',
     notes: '',
+    projectExpenditureBudget: '',
+    studyApprovalDate: '',
     linkedSubprojectId: null,
     linkedProjectTitle: '',
     linkedSubprojectTitle: '',

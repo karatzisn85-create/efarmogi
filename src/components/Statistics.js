@@ -18,6 +18,14 @@ import {
   formatViolationSummary,
   DIRECT_ASSIGNMENT_COOLING_MONTHS
 } from '../utils/directAssignmentCompliance';
+import { buildProcurementStatistics } from '../utils/procurementStatistics';
+import { buildKhmdhsPortfolioStatistics, resolvePortfolioDrillIds, PORTFOLIO_DRILL_LABELS } from '../utils/khmdhsPortfolioStatistics';
+import { LIFECYCLE_STAGE_META } from '../utils/khmdhsLifecycleStages';
+import StatisticsExportModal from './StatisticsExportModal';
+import ExportSuccessModal from './ExportSuccessModal';
+import { useToast } from './ToastProvider';
+import { formatDateEl } from '../utils/dateFormat';
+import { getProjectAssignmentProcedure } from '../utils/khmdhsNoticeFields';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -51,11 +59,62 @@ const StatisticsContainer = styled.div`
   margin-bottom: 1.25rem;
 `;
 
+const EmbeddedStatsRoot = styled.div`
+  width: 100%;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  border: 1px solid rgba(226, 232, 240, 0.75);
+`;
+
 const StatsHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1.25rem;
+  gap: 0.75rem;
+`;
+
+const ExportReportBtn = styled.button`
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.25);
+  transition: all 0.18s ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+`;
+
+const OpenFullStatsBtn = styled.button`
+  background: transparent;
+  color: #4f46e5;
+  border: 1px solid rgba(79, 70, 229, 0.35);
+  border-radius: 10px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+
+  &:hover {
+    background: rgba(79, 70, 229, 0.08);
+    border-color: rgba(79, 70, 229, 0.55);
+  }
 `;
 
 const StatisticsTitle = styled.h2`
@@ -82,10 +141,604 @@ const StatisticsTitle = styled.h2`
   }
 `;
 
+// ─── Chain tab styled components ──────────────────────────────────────────────
+
+
+const ChainBodyGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const ChainFunnelCard = styled.div`
+  background: #fff;
+  border: 1px solid rgba(226,232,240,0.7);
+  border-radius: 14px;
+  padding: 1rem 1.15rem;
+`;
+
+const ChainSectionTitle = styled.div`
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.5rem;
+`;
+
+const ChainFunnelNote = styled.div`
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin-bottom: 0.85rem;
+`;
+
+const FunnelRow = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.55rem;
+  width: 100%;
+  padding: 0.25rem 0.35rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  &:hover {
+    background: #f8fafc;
+  }
+`;
+const FunnelLabel = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 160px;
+  flex-shrink: 0;
+`;
+const FunnelIcon = styled.span`
+  font-size: 0.85rem;
+`;
+const FunnelLabelText = styled.span`
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+const FunnelBarWrap = styled.div`
+  flex: 1;
+  height: 10px;
+  background: rgba(226,232,240,0.5);
+  border-radius: 99px;
+  overflow: hidden;
+`;
+const FunnelBar = styled.div`
+  height: 100%;
+  width: ${p => p.$pct || 0}%;
+  background: ${p => p.$color || '#6366f1'};
+  border-radius: 99px;
+  transition: width 0.5s ease;
+`;
+const FunnelCountBadge = styled.div`
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: ${p => p.$color || '#1e293b'};
+  white-space: nowrap;
+  min-width: 48px;
+  text-align: right;
+`;
+const FunnelPctSpan = styled.span`
+  font-weight: 600;
+  color: #94a3b8;
+  font-size: 0.65rem;
+`;
+const FunnelAmtBadge = styled.div`
+  font-size: 0.65rem;
+  color: #64748b;
+  font-weight: 700;
+  white-space: nowrap;
+  min-width: 50px;
+  text-align: right;
+`;
+
+const ChainStageGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  align-content: start;
+`;
+
+const StageDetailCard = styled.button`
+  background: ${p => p.$bg || '#f8fafc'};
+  border: 1px solid ${p => p.$border || 'rgba(226,232,240,0.6)'};
+  border-left: 3px solid ${p => p.$accent || '#6366f1'};
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  &:hover {
+    box-shadow: 0 2px 8px rgba(15,23,42,0.06);
+  }
+`;
+const StageCardHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+`;
+const StageCardIcon = styled.span`
+  font-size: 0.9rem;
+`;
+const StageCardTitle = styled.div`
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #334155;
+  flex: 1;
+`;
+const StageCardCount = styled.div`
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: ${p => p.$accent || '#6366f1'};
+  line-height: 1;
+`;
+const StageCardAmount = styled.div`
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #1e293b;
+  margin-top: 0.15rem;
+`;
+const StageCardExtras = styled.div`
+  font-size: 0.62rem;
+  color: #94a3b8;
+  margin-top: 0.15rem;
+`;
+
+const ChainGapSection = styled.div`
+  margin-bottom: 1.25rem;
+`;
+const GapGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+`;
+const GapCard = styled.div`
+  background: ${p => p.$bg || '#fff'};
+  border: 1px solid ${p => p.$color ? p.$color + '33' : 'rgba(226,232,240,0.7)'};
+  border-radius: 12px;
+  padding: 0.8rem 0.9rem;
+`;
+const GapCardHeader = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+`;
+const GapCardTitle = styled.div`
+  flex: 1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: ${p => p.$color || '#334155'};
+`;
+const GapCardCount = styled.div`
+  font-size: 1rem;
+  font-weight: 900;
+  color: ${p => p.$color || '#1e293b'};
+`;
+const GapList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+`;
+const GapListItem = styled.button`
+  border-top: 1px solid rgba(226,232,240,0.5);
+  padding-top: 0.3rem;
+  width: 100%;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  &:hover {
+    background: rgba(248,250,252,0.85);
+  }
+`;
+const GapListTitle = styled.div`
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+const GapListMeta = styled.div`
+  font-size: 0.62rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+const ExpandMoreBtn = styled.button`
+  font-size: 0.65rem;
+  color: #4f46e5;
+  padding: 0.4rem 0.55rem;
+  margin-top: 0.35rem;
+  font-weight: 700;
+  background: rgba(79, 70, 229, 0.08);
+  border: 1px solid rgba(79, 70, 229, 0.28);
+  border-radius: 8px;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: rgba(79, 70, 229, 0.14);
+    border-color: rgba(79, 70, 229, 0.45);
+  }
+`;
+
+const ChainPipelineSection = styled.div`
+  background: #fff;
+  border: 1px solid rgba(226,232,240,0.7);
+  border-radius: 14px;
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+`;
+const PipelineNote = styled.div`
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin-bottom: 0.85rem;
+  line-height: 1.5;
+`;
+const PipelineRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.6rem;
+`;
+const PipelineRowLabel = styled.div`
+  width: 200px;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+`;
+const PipelineRowCount = styled.div`
+  font-size: 0.6rem;
+  color: #94a3b8;
+  font-weight: 500;
+`;
+const PipelineBarWrap = styled.div`
+  flex: 1;
+  height: 12px;
+  background: rgba(226,232,240,0.5);
+  border-radius: 99px;
+  overflow: hidden;
+`;
+const PipelineBar = styled.div`
+  height: 100%;
+  width: ${p => p.$pct || 0}%;
+  background: ${p => p.$color || '#6366f1'};
+  border-radius: 99px;
+  transition: width 0.5s ease;
+`;
+const PipelineRowValue = styled.div`
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #1e293b;
+  white-space: nowrap;
+  min-width: 110px;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  justify-content: flex-end;
+`;
+const PipelinePct = styled.span`
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: ${p => p.$color || '#94a3b8'};
+`;
+const PipelineSummaryRow = styled.div`
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(226,232,240,0.6);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 600;
+`;
+const PipelineExecBadge = styled.span`
+  background: ${p => p.$pct >= 70 ? '#ecfdf5' : p.$pct >= 30 ? '#fffbeb' : '#f8fafc'};
+  color: ${p => p.$pct >= 70 ? '#059669' : p.$pct >= 30 ? '#b45309' : '#64748b'};
+  border: 1px solid ${p => p.$pct >= 70 ? 'rgba(5,150,105,0.25)' : p.$pct >= 30 ? 'rgba(245,158,11,0.25)' : 'rgba(226,232,240,0.7)'};
+  border-radius: 8px;
+  padding: 0.2rem 0.55rem;
+  font-weight: 800;
+  font-size: 0.72rem;
+`;
+
+const ChainDepthRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(226,232,240,0.5);
+`;
+const ChainDepthLabel = styled.div`
+  font-size: 0.68rem;
+  color: #94a3b8;
+`;
+const ChainDepthValue = styled.div`
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+`;
+
+const FinancialTopGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const FinancialExecCard = styled.div`
+  background: #fff;
+  border: 1px solid rgba(226,232,240,0.7);
+  border-top: 3px solid ${p => p.$accent || '#6366f1'};
+  border-radius: 14px;
+  padding: 1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+`;
+
+const FinancialExecTitle = styled.div`
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.35rem;
+`;
+
+const FinancialExecBig = styled.div`
+  font-size: 2rem;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.1;
+`;
+
+const FinancialExecSub = styled.div`
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+  margin-bottom: 0.5rem;
+`;
+
+const FinancialDoughnutWrap = styled.div`
+  width: 100%;
+  max-width: 200px;
+  height: 160px;
+  margin-top: 0.25rem;
+`;
+
+const FinancialBodyGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 1rem;
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const FinancialTableMore = ExpandMoreBtn;
+
+const PortfolioHealthBar = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+`;
+
+const HealthPill = styled.button`
+  background: ${p => p.$bg || '#f8fafc'};
+  border: 1px solid ${p => p.$border || 'rgba(226,232,240,0.7)'};
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  }
+`;
+
+const HealthPillValue = styled.div`
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: ${p => p.$color || '#0f172a'};
+  line-height: 1;
+`;
+
+const HealthPillLabel = styled.div`
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+`;
+
+const HealthPillSub = styled.div`
+  font-size: 0.62rem;
+  color: #94a3b8;
+`;
+
+const QualityScoreHero = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  background: #fff;
+  border: 1px solid rgba(226,232,240,0.7);
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+  @media (max-width: 640px) {
+    flex-direction: column;
+    text-align: center;
+  }
+`;
+
+const QualityScoreCircle = styled.div`
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  border: 6px solid ${p => p.$color || '#6366f1'};
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: ${p => p.$bg || '#f8fafc'};
+`;
+
+const QualityScoreNumber = styled.div`
+  font-size: 2rem;
+  font-weight: 900;
+  color: ${p => p.$color || '#0f172a'};
+  line-height: 1;
+`;
+
+const QualityScoreOf = styled.div`
+  font-size: 0.65rem;
+  color: #94a3b8;
+  font-weight: 600;
+`;
+
+const QualityScoreBreakdown = styled.div`
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+`;
+
+const QualityScorePart = styled.div``;
+
+const QualityPartLabel = styled.div`
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 0.25rem;
+`;
+
+const QualityPartBar = styled.div`
+  height: 8px;
+  background: rgba(226,232,240,0.5);
+  border-radius: 99px;
+  overflow: hidden;
+`;
+
+const QualityPartFill = styled.div`
+  height: 100%;
+  width: ${p => Math.min(p.$pct || 0, 100)}%;
+  background: ${p => p.$color || '#6366f1'};
+  border-radius: 99px;
+`;
+
+const AttentionList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 420px;
+  overflow-y: auto;
+`;
+
+const AttentionItem = styled.button`
+  background: rgba(248,250,252,0.95);
+  border: 1px solid rgba(226,232,240,0.7);
+  border-left: 3px solid ${p => p.$accent || '#f59e0b'};
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  &:hover {
+    background: #f8fafc;
+  }
+`;
+
+const AttentionTitle = styled.div`
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #334155;
+`;
+
+const AttentionMeta = styled.div`
+  font-size: 0.62rem;
+  color: #94a3b8;
+  margin-top: 0.1rem;
+`;
+
+const AttentionIssues = styled.div`
+  font-size: 0.68rem;
+  color: #64748b;
+  margin-top: 0.35rem;
+  line-height: 1.45;
+`;
+
+// ─── (end chain styled components) ────────────────────────────────────────────
+
 const StatsDivider = styled.div`
   height: 1px;
   background: linear-gradient(90deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.1), transparent);
   margin-bottom: 1.25rem;
+`;
+
+const ScopeNoteBanner = styled.div`
+  margin: -0.5rem 0 1rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #92400e;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
 `;
 
 const StatsTabBar = styled.div`
@@ -952,7 +1605,11 @@ const safeParseAmt = (val) => {
 const STATS_TABS = [
   { id: 'overview', label: 'Σύνοψη', icon: '📊' },
   { id: 'funding', label: 'Χρηματοδότηση', icon: '💰' },
+  { id: 'chain', label: 'Αλυσίδα ΚΗΜΔΗΣ', icon: '🔗' },
+  { id: 'financial', label: 'Οικονομικά ΚΗΜΔΗΣ', icon: '💶' },
+  { id: 'quality', label: 'Ποιότητα Δεδομένων', icon: '✅' },
   { id: 'assignment', label: 'Διαδικασίες Ανάθεσης', icon: '📋' },
+  { id: 'procurement', label: 'Δημοσίευση', icon: '📢' },
   { id: 'contractors', label: 'Ανάδοχοι', icon: '🏢' },
   { id: 'contractor-chronology', label: 'Χρονολόγιο Αναδόχων', icon: '📅' }
 ];
@@ -977,26 +1634,174 @@ const CHART_COLORS = [
   '#8b5cf6', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'
 ];
 
-function formatDateElGR(dateStr) {
-  if (!dateStr) return '—';
-  try {
-    const d = new Date(dateStr);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString('el-GR');
-  } catch {
-    return '—';
-  }
+const STAGE_FUNNEL_ORDER = ['REQ', 'COMMIT', 'PROC', 'AWRD', 'SYMV', 'PAY'];
+
+const GAP_LIST_PREVIEW = 6;
+const FINANCIAL_VARIANCE_PREVIEW = 25;
+const QUALITY_ATTENTION_PREVIEW = 30;
+
+function formatPercentInt(pct, { signed = false } = {}) {
+  if (pct == null || !Number.isFinite(Number(pct))) return '—';
+  const rounded = Math.round(Number(pct));
+  if (signed && rounded > 0) return `+${rounded}%`;
+  return `${rounded}%`;
 }
 
-function Statistics({ projects, directAssignmentViolations: directAssignmentViolationsProp }) {
+const GAP_LABELS = {
+  awrd_no_symv:   { label: 'Ανάθεση χωρίς Σύμβαση', color: '#dc2626', bg: '#fef2f2', icon: '⚠️' },
+  proc_no_awrd:   { label: 'Δημοσίευση χωρίς Ανάθεση', color: '#ea580c', bg: '#fff7ed', icon: '⏳' },
+  proc_cancelled: { label: 'Ματαιωμένη Δημοσίευση', color: '#64748b', bg: '#f8fafc', icon: '🚫' },
+  symv_no_pay:    { label: 'Σύμβαση χωρίς Εντάλματα (εκτελούμενο)', color: '#d97706', bg: '#fffbeb', icon: '💸' },
+};
+
+function formatDateElGR(dateStr) {
+  return formatDateEl(dateStr, '—');
+}
+
+function Statistics({
+  projects,
+  directAssignmentViolations: directAssignmentViolationsProp,
+  loggedInUsername = '',
+  onPortfolioDrillDown,
+  statisticsFilterNote = '',
+  statisticsScopeNote = '',
+  variant = 'full',
+  embedded = false,
+  onOpenFullStatistics,
+}) {
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedContractorKey, setSelectedContractorKey] = useState('');
   const [chronoFilterKey, setChronoFilterKey] = useState('all');
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportingReport, setExportingReport] = useState(false);
+  const [exportSuccess, setExportSuccess] = useState(null);
+  const [expandedGapLists, setExpandedGapLists] = useState({});
+  const [financialVarianceExpanded, setFinancialVarianceExpanded] = useState(false);
+  const [qualityAttentionExpanded, setQualityAttentionExpanded] = useState(false);
+
+  const toggleGapListExpanded = (gapKey) => {
+    setExpandedGapLists((prev) => ({ ...prev, [gapKey]: !prev[gapKey] }));
+  };
+
+  const ipcRenderer = window.electronAPI;
+
+  const scopeSubprojectIds = useMemo(
+    () => (projects || []).map((p) => p.subprojectId).filter(Boolean),
+    [projects]
+  );
+
+  const renderScopeNote = () => (
+    statisticsScopeNote ? <ScopeNoteBanner>{statisticsScopeNote}</ScopeNoteBanner> : null
+  );
 
   const directAssignmentViolations = useMemo(
     () => directAssignmentViolationsProp || findDirectAssignmentViolations(projects),
     [directAssignmentViolationsProp, projects]
   );
+
+  const procurementStats = useMemo(
+    () => buildProcurementStatistics(projects),
+    [projects]
+  );
+
+  const portfolioStats = useMemo(
+    () => buildKhmdhsPortfolioStatistics(projects),
+    [projects]
+  );
+
+  const applyPortfolioDrill = (key, extra = {}) => {
+    if (!onPortfolioDrillDown) return;
+    const ids = resolvePortfolioDrillIds(portfolioStats, key, extra);
+    const label = extra.label
+      || (extra.gapKey && GAP_LABELS[extra.gapKey]?.label)
+      || PORTFOLIO_DRILL_LABELS[key]
+      || 'Φιλτράρισμα ΚΗΜΔΗΣ';
+    onPortfolioDrillDown(label, ids);
+  };
+
+  const handlePortfolioExport = async (reportType) => {
+    if (!loggedInUsername) {
+      showToast('Απαιτείται σύνδεση χρήστη', 'warning');
+      return;
+    }
+    setExportingReport(true);
+    try {
+      const res = await ipcRenderer.invoke('export-portfolio-report', {
+        reportType,
+        stats: portfolioStats,
+        actingUsername: loggedInUsername,
+        filterNote: statisticsFilterNote || `${projects.length} υποέργα`,
+        projectCount: projects.length,
+        scopeSubprojectIds,
+      });
+      if (res?.success) {
+        setExportModalOpen(false);
+        setExportSuccess({
+          filePath: res.filePath,
+          sheetCount: res.sheetCount,
+          exportedAt: res.exportedAt,
+          actionCount: projects.length,
+        });
+      } else if (!res?.canceled) {
+        showToast(res?.error || 'Αποτυχία εξαγωγής', 'error');
+      }
+    } finally {
+      setExportingReport(false);
+    }
+  };
+
+  const buildTabExportPayload = (tabId) => ({
+    tabId,
+    tabLabel: STATS_TABS.find((t) => t.id === tabId)?.label || tabId,
+    statistics,
+    portfolioStats,
+    procurementStats,
+    directAssignmentViolations: (directAssignmentViolations || []).map((v) => ({
+      subprojectTitle: v.laterEvent?.subprojectTitle || v.earlierEvent?.subprojectTitle || '',
+      projectTitle: v.laterEvent?.projectTitle || v.earlierEvent?.projectTitle || '',
+      message: formatViolationSummary(v),
+    })),
+    contractorChronology: buildContractorChronology(statistics.contractors || []),
+  });
+
+  const handleStatisticsTabExport = async (scope) => {
+    if (!loggedInUsername) {
+      showToast('Απαιτείται σύνδεση χρήστη', 'warning');
+      return;
+    }
+    const tabs = scope === 'all'
+      ? STATS_TABS.map((t) => buildTabExportPayload(t.id))
+      : [buildTabExportPayload(activeTab)];
+    setExportingReport(true);
+    try {
+      const res = await ipcRenderer.invoke('export-statistics-report', {
+        tabs,
+        actingUsername: loggedInUsername,
+        filterNote: statisticsFilterNote || `${projects.length} υποέργα`,
+        projectCount: projects.length,
+        scopeSubprojectIds,
+        reportTitle: scope === 'all' ? 'Πλήρης Στατιστική Αναφορά ERGOHUB' : undefined,
+      });
+      if (res?.success) {
+        setExportModalOpen(false);
+        setExportSuccess({
+          filePath: res.filePath,
+          sheetCount: res.sheetCount || tabs.length,
+          exportedAt: res.exportedAt,
+          actionCount: projects.length,
+        });
+      } else if (!res?.canceled) {
+        showToast(res?.error || 'Αποτυχία εξαγωγής', 'error');
+      }
+    } finally {
+      setExportingReport(false);
+    }
+  };
+
+  const handleKhmdhsExportFromModal = async (reportType) => {
+    await handlePortfolioExport(reportType);
+  };
 
   const statistics = useMemo(() => {
     if (!projects || projects.length === 0) {
@@ -1074,7 +1879,7 @@ function Statistics({ projects, directAssignmentViolations: directAssignmentViol
 
     projects.forEach((p) => {
       if (!statusShowsAssignmentProcedure(p.projectStatus)) return;
-      const proc = (p.assignmentProcedure && String(p.assignmentProcedure).trim()) || 'Χωρίς καταχώριση';
+      const proc = getProjectAssignmentProcedure(p) || 'Χωρίς καταχώριση';
       if (!assignmentProcedures[proc]) {
         assignmentProcedures[proc] = { count: 0, amount: 0 };
       }
@@ -1234,6 +2039,54 @@ function Statistics({ projects, directAssignmentViolations: directAssignmentViol
       data: assignmentEntries.map(([, v]) => v.amount),
       backgroundColor: '#0ea5e9cc',
       borderColor: '#0ea5e9',
+      borderWidth: 1,
+      borderRadius: 8
+    }]
+  };
+
+  const procurementProcedureEntries = Object.entries(procurementStats.procedureDistribution || {})
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  const procurementNoticeTypeEntries = Object.entries(procurementStats.noticeTypeDistribution || {})
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  const procurementActiveAmountEntries = Object.entries(procurementStats.activeEstimatedByProcedure || {})
+    .filter(([, v]) => v.count > 0)
+    .sort((a, b) => b[1].amount - a[1].amount);
+
+  const procurementProcedureCountData = {
+    labels: procurementProcedureEntries.map(([k]) => truncateLabel(k, 22)),
+    datasets: [{
+      label: 'Υποέργα με δημοσίευση',
+      data: procurementProcedureEntries.map(([, count]) => count),
+      backgroundColor: '#dc2626cc',
+      borderColor: '#dc2626',
+      borderWidth: 1,
+      borderRadius: 8
+    }]
+  };
+
+  const procurementNoticeTypeData = {
+    labels: procurementNoticeTypeEntries.map(([k]) => truncateLabel(k, 22)),
+    datasets: [{
+      label: 'Υποέργα',
+      data: procurementNoticeTypeEntries.map(([, count]) => count),
+      backgroundColor: '#f97316cc',
+      borderColor: '#f97316',
+      borderWidth: 1,
+      borderRadius: 8
+    }]
+  };
+
+  const procurementActiveAmountData = {
+    labels: procurementActiveAmountEntries.map(([k]) => truncateLabel(k, 22)),
+    datasets: [{
+      label: 'Εκτιμ. αξία (€)',
+      data: procurementActiveAmountEntries.map(([, v]) => v.amount),
+      backgroundColor: '#b91c1ccc',
+      borderColor: '#b91c1c',
       borderWidth: 1,
       borderRadius: 8
     }]
@@ -1442,14 +2295,677 @@ function Statistics({ projects, directAssignmentViolations: directAssignmentViol
     }
   };
 
-  if (projects.length === 0) {
+  // ── Helpers for chain tab ────────────────────────────────────────────────
+  const formatCurrencyShort = (n) => {
+    if (n == null || !Number.isFinite(n)) return '—';
+    if (n >= 1_000_000) return `€${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `€${Math.round(n / 1_000)}K`;
+    return `€${Math.round(n).toLocaleString('el-GR')}`;
+  };
+
+  const reliabilityScoreColor = (score) => {
+    if (score == null) return { color: '#94a3b8', bg: '#f8fafc' };
+    if (score >= 80) return { color: '#059669', bg: '#ecfdf5' };
+    if (score >= 60) return { color: '#d97706', bg: '#fffbeb' };
+    return { color: '#dc2626', bg: '#fef2f2' };
+  };
+
+  const renderPortfolioHealthBar = () => {
+    const hb = portfolioStats.healthBar || {};
+    const total = portfolioStats.total;
+    const payPct = hb.payVsSymvPct;
     return (
-      <StatisticsContainer>
-        <StatsHeader>
-          <StatisticsTitle>Στατιστικά Στοιχεία</StatisticsTitle>
-        </StatsHeader>
+      <PortfolioHealthBar>
+        <HealthPill
+          type="button"
+          $bg="#ecfdf5"
+          $border="rgba(16,185,129,0.25)"
+          onClick={() => applyPortfolioDrill('fullChain')}
+          title="Κλικ για φιλτράρισμα λίστας υποέργων"
+        >
+          <HealthPillValue $color="#059669">{hb.fullChain ?? 0}</HealthPillValue>
+          <HealthPillLabel>Πλήρης αλυσίδα</HealthPillLabel>
+          <HealthPillSub>
+            {total > 0 ? `${Math.round((hb.fullChain / total) * 100)}%` : '—'} επί συνόλου
+          </HealthPillSub>
+        </HealthPill>
+        <HealthPill
+          type="button"
+          $bg="#fffbeb"
+          $border="rgba(245,158,11,0.25)"
+          onClick={() => applyPortfolioDrill('inProgress')}
+          title="Κλικ για φιλτράρισμα λίστας υποέργων"
+        >
+          <HealthPillValue $color="#d97706">{hb.inProgress ?? 0}</HealthPillValue>
+          <HealthPillLabel>Σε εξέλιξη</HealthPillLabel>
+          <HealthPillSub>μερική αλυσίδα ΚΗΜΔΗΣ</HealthPillSub>
+        </HealthPill>
+        <HealthPill
+          type="button"
+          $bg="#fef2f2"
+          $border="rgba(220,38,38,0.2)"
+          onClick={() => applyPortfolioDrill('stuck')}
+          title="Κλικ για φιλτράρισμα λίστας υποέργων"
+        >
+          <HealthPillValue $color="#dc2626">{hb.stuck ?? 0}</HealthPillValue>
+          <HealthPillLabel>Κολλημένα</HealthPillLabel>
+          <HealthPillSub>χωρίς επόμενο στάδιο</HealthPillSub>
+        </HealthPill>
+        <HealthPill
+          type="button"
+          $bg="#ecfeff"
+          $border="rgba(6,182,212,0.22)"
+          onClick={() => applyPortfolioDrill('withSymv')}
+          title="Κλικ για φιλτράρισμα λίστας υποέργων"
+        >
+          <HealthPillValue $color="#0891b2">
+            {payPct != null ? `${payPct}%` : '—'}
+          </HealthPillValue>
+          <HealthPillLabel>Πληρωμές / Σύμβαση</HealthPillLabel>
+          <HealthPillSub>
+            {hb.payTotal > 0
+              ? `${formatCurrencyShort(hb.payTotal)} / ${formatCurrencyShort(hb.symvTotal)}`
+              : 'χωρίς εντάλματα'}
+          </HealthPillSub>
+        </HealthPill>
+      </PortfolioHealthBar>
+    );
+  };
+
+  const renderChainTab = () => {
+    const ps = portfolioStats;
+    const total = ps.total;
+
+    const anyCount = ps.withKhmdhsIds?.length ?? ps.funnel.any.length;
+    const relatedCount = ps.relatedDocsCount ?? ps.funnel.RELATED?.length ?? 0;
+    const pipeline = ps.pipeline;
+
+    return (
+      <>
+        {(relatedCount > 0 || anyCount > 0) && (
+          <ChainFunnelNote style={{ marginBottom: '1rem' }}>
+            {anyCount} υποέργα με κύρια αλυσίδα ΚΗΜΔΗΣ
+            {relatedCount > 0 && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  onClick={() => applyPortfolioDrill('withRelated')}
+                  style={{
+                    border: 'none',
+                    background: 'none',
+                    color: '#2563eb',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    padding: 0,
+                    textDecoration: 'underline',
+                  }}
+                >
+                  {relatedCount} με σχετικά έγγραφα
+                </button>
+              </>
+            )}
+            {onPortfolioDrillDown && ' — κλικ σε στάδιο/κενό για φιλτράρισμα λίστας'}
+          </ChainFunnelNote>
+        )}
+
+        {/* ── Funnel + Stage cards ─────────────────────────────── */}
+        <ChainBodyGrid>
+          {/* Left: Funnel */}
+          <ChainFunnelCard>
+            <ChainSectionTitle>Κύκλος ζωής — Funnel σταδίων</ChainSectionTitle>
+            <ChainFunnelNote>Αριθμός υποέργων που έχουν φτάσει σε κάθε στάδιο ΚΗΜΔΗΣ</ChainFunnelNote>
+            {STAGE_FUNNEL_ORDER.map((id) => {
+              const meta = LIFECYCLE_STAGE_META[id] || {};
+              const ids = ps.funnel[id] || [];
+              const count = ids.length;
+              const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+              const barPct = anyCount > 0 ? Math.round((count / anyCount) * 100) : 0;
+              const stageAmt = ps.stageDetails[id]?.total;
+              return (
+                <FunnelRow
+                  key={id}
+                  type="button"
+                  onClick={() => applyPortfolioDrill(`stage_${id}`)}
+                  title="Φιλτράρισμα λίστας υποέργων"
+                >
+                  <FunnelLabel>
+                    <FunnelIcon>{meta.icon}</FunnelIcon>
+                    <FunnelLabelText>{meta.label || id}</FunnelLabelText>
+                  </FunnelLabel>
+                  <FunnelBarWrap>
+                    <FunnelBar $pct={barPct} $color={meta.accent || '#6366f1'} />
+                  </FunnelBarWrap>
+                  <FunnelCountBadge $color={meta.accent || '#6366f1'}>
+                    {count} <FunnelPctSpan>({pct}%)</FunnelPctSpan>
+                  </FunnelCountBadge>
+                  {stageAmt > 0 && (
+                    <FunnelAmtBadge>{formatCurrencyShort(stageAmt)}</FunnelAmtBadge>
+                  )}
+                </FunnelRow>
+              );
+            })}
+          </ChainFunnelCard>
+
+          {/* Right: Stage detail cards */}
+          <ChainStageGrid>
+            {STAGE_FUNNEL_ORDER.map((id) => {
+              const meta = LIFECYCLE_STAGE_META[id] || {};
+              const det = ps.stageDetails[id] || {};
+              const count = (ps.funnel[id] || []).length;
+              const extras = [];
+              if (det.cancelledIds?.length) extras.push(`${det.cancelledIds.length} ακυρωμέν${det.cancelledIds.length === 1 ? 'ο' : 'α'}`);
+              if (det.multipleIds?.length)  extras.push(`${det.multipleIds.length} με πολλαπλές`);
+              return (
+                <StageDetailCard
+                  key={id}
+                  type="button"
+                  $accent={meta.accent}
+                  $bg={meta.bg}
+                  $border={meta.border}
+                  onClick={() => applyPortfolioDrill(`stage_${id}`)}
+                  title="Φιλτράρισμα λίστας υποέργων"
+                >
+                  <StageCardHeader>
+                    <StageCardIcon>{meta.icon}</StageCardIcon>
+                    <StageCardTitle>{meta.shortLabel || id}</StageCardTitle>
+                    <StageCardCount $accent={meta.accent}>{count}</StageCardCount>
+                  </StageCardHeader>
+                  {det.total > 0 && (
+                    <StageCardAmount>{formatCurrencyShort(det.total)}</StageCardAmount>
+                  )}
+                  {extras.length > 0 && (
+                    <StageCardExtras>{extras.join(' · ')}</StageCardExtras>
+                  )}
+                </StageDetailCard>
+              );
+            })}
+          </ChainStageGrid>
+        </ChainBodyGrid>
+
+        {/* ── Gaps table ───────────────────────────────────────── */}
+        {Object.values(ps.gaps).some((a) => a.length > 0) && (
+          <ChainGapSection>
+            <ChainSectionTitle>⚠️ Κενά αλυσίδας — υποέργα που χρειάζονται ενέργεια</ChainSectionTitle>
+            <GapGrid>
+              {Object.entries(GAP_LABELS).map(([key, meta]) => {
+                const items = ps.gaps[key] || [];
+                if (!items.length) return null;
+                const gapExpanded = !!expandedGapLists[key];
+                const visibleGapItems = gapExpanded ? items : items.slice(0, GAP_LIST_PREVIEW);
+                return (
+                  <GapCard key={key} $color={meta.color} $bg={meta.bg}>
+                    <GapCardHeader
+                      type="button"
+                      onClick={() => applyPortfolioDrill(null, { gapKey: key })}
+                      title="Φιλτράρισμα λίστας υποέργων"
+                    >
+                      <span>{meta.icon}</span>
+                      <GapCardTitle $color={meta.color}>{meta.label}</GapCardTitle>
+                      <GapCardCount $color={meta.color}>{items.length}</GapCardCount>
+                    </GapCardHeader>
+                    <GapList>
+                      {visibleGapItems.map((item) => (
+                        <GapListItem
+                          key={item.subprojectId}
+                          type="button"
+                          onClick={() => applyPortfolioDrill(null, {
+                            subprojectId: item.subprojectId,
+                            label: item.subprojectTitle || item.projectTitle,
+                          })}
+                        >
+                          <GapListTitle title={`${item.projectTitle} — ${item.subprojectTitle}`}>
+                            {item.subprojectTitle || item.projectTitle || item.subprojectId}
+                          </GapListTitle>
+                          <GapListMeta>{item.projectTitle}</GapListMeta>
+                        </GapListItem>
+                      ))}
+                      {items.length > GAP_LIST_PREVIEW && (
+                        <ExpandMoreBtn
+                          type="button"
+                          onClick={() => toggleGapListExpanded(key)}
+                        >
+                          {gapExpanded
+                            ? 'Σύμπτυξη λίστας'
+                            : `Εμφάνιση όλων (${items.length})`}
+                        </ExpandMoreBtn>
+                      )}
+                    </GapList>
+                  </GapCard>
+                );
+              })}
+            </GapGrid>
+          </ChainGapSection>
+        )}
+
+        {/* ── Financial pipeline ───────────────────────────────── */}
+        {pipeline.approved > 0 || pipeline.symvTotal > 0 ? (
+          <ChainPipelineSection>
+            <ChainSectionTitle>💶 Χρηματικός αγωγός (σύνολα από ΚΗΜΔΗΣ)</ChainSectionTitle>
+            <PipelineNote>
+              Πορεία χρήματος από εγκεκριμένο ποσό έως πληρωμές — βάσει δεδομένων ΚΗΜΔΗΣ.
+              Για αποφάσεις ανάληψης υποχρέωσης χρησιμοποιείται η πιο πρόσφατη ετήσια απόφαση ανά υποέργο (όχι άθροισμα ετών).
+            </PipelineNote>
+            {[
+              { label: 'Εγκεκριμένο σύνολο', value: pipeline.approved, pct: 100, color: '#6366f1' },
+              { label: 'Αιτήματα REQ', value: pipeline.reqTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.reqTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.REQ.accent, count: pipeline.reqCount, stage: 'REQ' },
+              { label: LIFECYCLE_STAGE_META.COMMIT.label, value: pipeline.commitTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.commitTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.COMMIT.accent, count: pipeline.commitCount, stage: 'COMMIT' },
+              { label: `Εκτίμηση ${LIFECYCLE_STAGE_META.PROC.label}`, value: pipeline.procTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.procTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.PROC.accent, count: pipeline.procCount, stage: 'PROC' },
+              { label: 'Ανάθεση AWRD', value: pipeline.awrdTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.awrdTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.AWRD.accent, count: pipeline.awrdCount, stage: 'AWRD' },
+              { label: 'Σύμβαση SYMV', value: pipeline.symvTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.symvTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.SYMV.accent, count: pipeline.symvCount, stage: 'SYMV' },
+              { label: 'Πληρωμές PAY', value: pipeline.payTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.payTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.PAY.accent, count: pipeline.payCount, stage: 'PAY' },
+            ].filter((r) => r.value > 0).map((row) => (
+              <PipelineRow key={row.label}>
+                <PipelineRowLabel>
+                  {row.stage && LIFECYCLE_STAGE_META[row.stage]
+                    ? <span>{LIFECYCLE_STAGE_META[row.stage].icon} </span>
+                    : null}
+                  {row.label}
+                  {row.count != null && (
+                    <PipelineRowCount>{row.count} υποέργα</PipelineRowCount>
+                  )}
+                </PipelineRowLabel>
+                <PipelineBarWrap>
+                  <PipelineBar $pct={Math.min(row.pct || 0, 100)} $color={row.color} />
+                </PipelineBarWrap>
+                <PipelineRowValue>
+                  {formatCurrency(row.value)}
+                  {row.pct != null && row.pct !== 100 && (
+                    <PipelinePct $color={row.pct >= 80 ? '#059669' : row.pct >= 40 ? '#f59e0b' : '#94a3b8'}>
+                      {row.pct}%
+                    </PipelinePct>
+                  )}
+                </PipelineRowValue>
+              </PipelineRow>
+            ))}
+            {ps.payVsSymvPct != null && (
+              <PipelineSummaryRow>
+                <span>Εκτέλεση: </span>
+                <PipelineExecBadge $pct={ps.payVsSymvPct}>
+                  {ps.payVsSymvPct}% πληρωμένο / συμβατό
+                </PipelineExecBadge>
+              </PipelineSummaryRow>
+            )}
+          </ChainPipelineSection>
+        ) : null}
+
+        {/* ── Avg depth ─────────────────────────────────────────── */}
+        <ChainDepthRow>
+          <ChainDepthLabel>Μέσο βάθος αλυσίδας ανά υποέργο</ChainDepthLabel>
+          <ChainDepthValue>{ps.avgDepth} / 6 στάδια</ChainDepthValue>
+        </ChainDepthRow>
+      </>
+    );
+  };
+
+  const renderFinancialTab = () => {
+    const ps = portfolioStats;
+    const pipeline = ps.pipeline;
+    const symvT = pipeline.symvTotal || 0;
+    const payT = pipeline.payTotal || 0;
+    const approvedT = pipeline.approved || 0;
+    const payVsSymv = ps.payVsSymvPct;
+    const symvVsApproved = ps.symvVsApprovedPct;
+
+    const executionDoughnut = symvT > 0 ? {
+      labels: ['Πληρωμένο', 'Υπόλοιπο σύμβασης'],
+      datasets: [{
+        data: [payT, Math.max(0, symvT - payT)],
+        backgroundColor: ['#059669', '#e2e8f0'],
+        borderWidth: 2,
+        borderColor: '#fff',
+        hoverOffset: 4,
+      }],
+    } : null;
+
+    const contractingDoughnut = approvedT > 0 ? {
+      labels: ['Συμβασιοποιημένο', 'Μη συμβασιοποιημένο'],
+      datasets: [{
+        data: [symvT, Math.max(0, approvedT - symvT)],
+        backgroundColor: ['#2563eb', '#e2e8f0'],
+        borderWidth: 2,
+        borderColor: '#fff',
+        hoverOffset: 4,
+      }],
+    } : null;
+
+    const payMonths = Object.keys(ps.payByMonthAmounts || {}).sort();
+    const recentMonths = payMonths.slice(-18);
+    const payTimelineData = recentMonths.length ? {
+      labels: recentMonths.map((ym) => {
+        const [y, m] = ym.split('-');
+        const months = ['Ιαν', 'Φεβ', 'Μαρ', 'Απρ', 'Μάι', 'Ιουν', 'Ιουλ', 'Αυγ', 'Σεπ', 'Οκτ', 'Νοε', 'Δεκ'];
+        return `${months[parseInt(m, 10) - 1] || m} '${String(y).slice(2)}`;
+      }),
+      datasets: [{
+        label: 'Πληρωμές (€)',
+        data: recentMonths.map((ym) => ps.payByMonthAmounts[ym]),
+        backgroundColor: 'rgba(6, 182, 212, 0.75)',
+        borderColor: '#0891b2',
+        borderWidth: 1,
+        borderRadius: 6,
+      }],
+    } : null;
+
+    const varianceWithSymv = (ps.varianceRows || []).filter((r) => r.symvAmount != null && r.symvAmount > 0);
+
+    const pipelineRows = [
+      { label: 'Εγκεκριμένο σύνολο', value: pipeline.approved, pct: 100, color: '#6366f1' },
+      { label: 'Αιτήματα REQ', value: pipeline.reqTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.reqTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.REQ.accent, count: pipeline.reqCount, stage: 'REQ' },
+      { label: LIFECYCLE_STAGE_META.COMMIT.label, value: pipeline.commitTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.commitTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.COMMIT.accent, count: pipeline.commitCount, stage: 'COMMIT' },
+      { label: `Εκτίμηση ${LIFECYCLE_STAGE_META.PROC.label}`, value: pipeline.procTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.procTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.PROC.accent, count: pipeline.procCount, stage: 'PROC' },
+      { label: 'Ανάθεση AWRD', value: pipeline.awrdTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.awrdTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.AWRD.accent, count: pipeline.awrdCount, stage: 'AWRD' },
+      { label: 'Σύμβαση SYMV', value: pipeline.symvTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.symvTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.SYMV.accent, count: pipeline.symvCount, stage: 'SYMV' },
+      { label: 'Πληρωμές PAY', value: pipeline.payTotal, pct: pipeline.approved > 0 ? Math.round(pipeline.payTotal / pipeline.approved * 100) : null, color: LIFECYCLE_STAGE_META.PAY.accent, count: pipeline.payCount, stage: 'PAY' },
+    ].filter((r) => r.value > 0);
+
+    return (
+      <>
+        {/* ── Execution KPIs + doughnuts ── */}
+        <FinancialTopGrid>
+          <FinancialExecCard $accent="#059669">
+            <FinancialExecTitle>Εκτέλεση (πληρωμές / σύμβαση)</FinancialExecTitle>
+            {symvT > 0 ? (
+              <>
+                <FinancialExecBig>{formatPercentInt(payVsSymv)}</FinancialExecBig>
+                <FinancialExecSub>
+                  {formatCurrency(payT)} από {formatCurrency(symvT)}
+                </FinancialExecSub>
+                {ps.procVsSymvAggregatePct != null && (
+                  <FinancialExecSub style={{ marginTop: '0.35rem' }}>
+                    Σύνολο σύμβασης vs δημοσίευση: {formatPercentInt(ps.procVsSymvAggregatePct, { signed: true })}
+                  </FinancialExecSub>
+                )}
+                {executionDoughnut && (
+                  <FinancialDoughnutWrap>
+                    <Doughnut data={executionDoughnut} options={doughnutOptions} />
+                  </FinancialDoughnutWrap>
+                )}
+              </>
+            ) : (
+              <NoDataMessage style={{ padding: '1rem 0' }}>Δεν υπάρχουν συμβασιοποιημένα ποσά</NoDataMessage>
+            )}
+          </FinancialExecCard>
+
+          <FinancialExecCard $accent="#2563eb">
+            <FinancialExecTitle>Συμβασιοποίηση (σύμβαση / εγκεκριμένο)</FinancialExecTitle>
+            {approvedT > 0 ? (
+              <>
+                <FinancialExecBig>{formatPercentInt(symvVsApproved)}</FinancialExecBig>
+                <FinancialExecSub>
+                  {formatCurrency(symvT)} από {formatCurrency(approvedT)}
+                </FinancialExecSub>
+                {contractingDoughnut && (
+                  <FinancialDoughnutWrap>
+                    <Doughnut data={contractingDoughnut} options={doughnutOptions} />
+                  </FinancialDoughnutWrap>
+                )}
+              </>
+            ) : (
+              <NoDataMessage style={{ padding: '1rem 0' }}>Δεν υπάρχουν εγκεκριμένα ποσά</NoDataMessage>
+            )}
+          </FinancialExecCard>
+        </FinancialTopGrid>
+
+        {/* ── Pipeline ── */}
+        {pipelineRows.length > 0 && (
+          <ChainPipelineSection>
+            <ChainSectionTitle>💶 Χρηματικός αγωγός</ChainSectionTitle>
+            <PipelineNote>
+              Πορεία χρημάτων από εγκεκριμένο ποσό έως πληρωμές — βάσει δεδομένων ΚΗΜΔΗΣ ανά στάδιο.
+              Οι αποφάσεις ανάληψης υποχρέωσης αθροίζονται με βάση την τελευταία ετήσια απόφαση κάθε υποέργου.
+            </PipelineNote>
+            {pipelineRows.map((row) => (
+              <PipelineRow key={row.label}>
+                <PipelineRowLabel>
+                  {row.stage && LIFECYCLE_STAGE_META[row.stage]
+                    ? <span>{LIFECYCLE_STAGE_META[row.stage].icon} </span>
+                    : null}
+                  {row.label}
+                  {row.count != null && (
+                    <PipelineRowCount>{row.count} υποέργα</PipelineRowCount>
+                  )}
+                </PipelineRowLabel>
+                <PipelineBarWrap>
+                  <PipelineBar $pct={Math.min(row.pct || 0, 100)} $color={row.color} />
+                </PipelineBarWrap>
+                <PipelineRowValue>
+                  {formatCurrency(row.value)}
+                  {row.pct != null && row.pct !== 100 && (
+                    <PipelinePct $color={row.pct >= 80 ? '#059669' : row.pct >= 40 ? '#f59e0b' : '#94a3b8'}>
+                      {row.pct}%
+                    </PipelinePct>
+                  )}
+                </PipelineRowValue>
+              </PipelineRow>
+            ))}
+          </ChainPipelineSection>
+        )}
+
+        {/* ── Variance table + PAY timeline ── */}
+        <FinancialBodyGrid>
+          <ChartContainer>
+            <ChartTitle>📋 Αποκλίσεις ανά υποέργο (δημοσίευση → σύμβαση → πληρωμές)</ChartTitle>
+            {varianceWithSymv.length > 0 ? (
+              <HistoryTableWrap>
+                <HistoryTable>
+                  <thead>
+                    <tr>
+                      <th>Υποέργο</th>
+                      <th>Εκτίμ. δημοσίευσης</th>
+                      <th>Σύμβαση</th>
+                      <th>Δημοσ.→Σύμβ.</th>
+                      <th>Πληρωμές</th>
+                      <th>% εκτ.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(financialVarianceExpanded
+                      ? varianceWithSymv
+                      : varianceWithSymv.slice(0, FINANCIAL_VARIANCE_PREVIEW)
+                    ).map((row) => (
+                      <tr key={row.subprojectId}>
+                        <td title={`${row.projectTitle} — ${row.subprojectTitle}`}>
+                          {row.subprojectTitle || row.projectTitle}
+                        </td>
+                        <td>{row.procAmount != null ? formatCurrency(row.procAmount) : '—'}</td>
+                        <td>{formatCurrency(row.symvAmount)}</td>
+                        <td style={{
+                          fontWeight: 600,
+                          color: row.procVsSymvPct == null ? '#94a3b8'
+                            : row.procVsSymvPct > 10 ? '#dc2626'
+                            : row.procVsSymvPct < -10 ? '#2563eb'
+                            : '#64748b',
+                        }}>
+                          {row.procVsSymvPct != null ? formatPercentInt(row.procVsSymvPct, { signed: true }) : '—'}
+                        </td>
+                        <td>{row.payAmount != null ? formatCurrency(row.payAmount) : '—'}</td>
+                        <td style={{
+                          fontWeight: 700,
+                          color: row.executionPct == null ? '#94a3b8'
+                            : row.executionPct >= 80 ? '#059669'
+                            : row.executionPct >= 40 ? '#d97706'
+                            : '#dc2626',
+                        }}>
+                          {formatPercentInt(row.executionPct)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </HistoryTable>
+              </HistoryTableWrap>
+            ) : (
+              <NoDataMessage>Δεν υπάρχουν υποέργα με καταχωρημένο ποσό σύμβασης</NoDataMessage>
+            )}
+            {varianceWithSymv.length > FINANCIAL_VARIANCE_PREVIEW && (
+              <FinancialTableMore
+                type="button"
+                onClick={() => setFinancialVarianceExpanded((v) => !v)}
+              >
+                {financialVarianceExpanded
+                  ? 'Σύμπτυξη πίνακα'
+                  : `Εμφάνιση όλων (${varianceWithSymv.length} υποέργα)`}
+              </FinancialTableMore>
+            )}
+          </ChartContainer>
+
+          <ChartContainer>
+            <ChartTitle>📅 Timeline πληρωμών (ανά μήνα)</ChartTitle>
+            {payTimelineData ? (
+              <ChartWrapper style={{ height: 280 }}>
+                <Bar data={payTimelineData} options={barChartOptions} />
+              </ChartWrapper>
+            ) : (
+              <NoDataMessage>Δεν υπάρχουν ημερομηνίες ενταλμάτων πληρωμής</NoDataMessage>
+            )}
+          </ChartContainer>
+        </FinancialBodyGrid>
+      </>
+    );
+  };
+
+  const renderQualityTab = () => {
+    const ps = portfolioStats;
+    const score = ps.reliabilityScore;
+    const parts = ps.scoreParts || {};
+    const scoreStyle = reliabilityScoreColor(score);
+    const fresh = ps.freshness || { fresh: [], stale: [], old: [], none: [] };
+
+    const freshnessChartData = {
+      labels: ['< 30 ημέρες', 'Προτείνεται ανανέωση', 'Αναγκαία ανανέωση', 'Χωρίς ΚΗΜΔΗΣ'],
+      datasets: [{
+        label: 'Υποέργα',
+        data: [
+          fresh.fresh.length,
+          fresh.stale.length,
+          fresh.old.length,
+          fresh.none.length,
+        ],
+        backgroundColor: ['#059669', '#f59e0b', '#dc2626', '#94a3b8'],
+        borderWidth: 1,
+        borderRadius: 6,
+      }],
+    };
+
+    const scorePartRows = [
+      { key: 'khmdhsCoverage', label: 'Κάλυψη ΚΗΜΔΗΣ', pct: parts.khmdhsCoverage },
+      { key: 'dqrClean', label: 'Χωρίς εκκρεμή έλεγχο', pct: parts.dqrClean },
+      { key: 'freshnessGood', label: 'Ανανεωμένα / αποδεκτά', pct: parts.freshnessGood },
+      { key: 'noCancelled', label: 'Χωρίς ματαιωμένα στάδια', pct: parts.noCancelled },
+    ];
+
+    return (
+      <>
+        <QualityScoreHero>
+          <QualityScoreCircle $color={scoreStyle.color} $bg={scoreStyle.bg}>
+            <QualityScoreNumber $color={scoreStyle.color}>
+              {score != null ? score : '—'}
+            </QualityScoreNumber>
+            <QualityScoreOf>/ 100</QualityScoreOf>
+          </QualityScoreCircle>
+          <div style={{ flex: 1 }}>
+            <ChainSectionTitle>Σκορ αξιοπιστίας χαρτοφυλακίου</ChainSectionTitle>
+            <PipelineNote style={{ marginBottom: '0.75rem' }}>
+              Συνδυασμός κάλυψης ΚΗΜΔΗΣ, καθαρότητας ελέγχου δεδομένων, φρεσκάδας ανακτήσεων και ακεραιότητας αλυσίδας.
+            </PipelineNote>
+            <QualityScoreBreakdown>
+              {scorePartRows.map((row) => (
+                <QualityScorePart key={row.key}>
+                  <QualityPartLabel>
+                    <span>{row.label}</span>
+                    <span>{row.pct != null ? `${row.pct}%` : '—'}</span>
+                  </QualityPartLabel>
+                  <QualityPartBar>
+                    <QualityPartFill
+                      $pct={row.pct}
+                      $color={row.pct >= 80 ? '#059669' : row.pct >= 50 ? '#f59e0b' : '#dc2626'}
+                    />
+                  </QualityPartBar>
+                </QualityScorePart>
+              ))}
+            </QualityScoreBreakdown>
+          </div>
+        </QualityScoreHero>
+
+        <FinancialBodyGrid>
+          <ChartContainer>
+            <ChartTitle>⚠️ Χρειάζονται προσοχή ({ps.attentionList?.length || 0})</ChartTitle>
+            {(ps.attentionList || []).length > 0 ? (
+              <AttentionList>
+                {(qualityAttentionExpanded
+                  ? ps.attentionList
+                  : ps.attentionList.slice(0, QUALITY_ATTENTION_PREVIEW)
+                ).map((item) => (
+                  <AttentionItem
+                    key={item.subprojectId}
+                    type="button"
+                    $accent={item.unresolvedCount > 0 ? '#dc2626' : '#f59e0b'}
+                    onClick={() => applyPortfolioDrill(null, {
+                      subprojectId: item.subprojectId,
+                      label: item.subprojectTitle || item.projectTitle,
+                    })}
+                  >
+                    <AttentionTitle>{item.subprojectTitle || item.projectTitle}</AttentionTitle>
+                    <AttentionMeta>
+                      {item.projectTitle}
+                      {item.projectStatus ? ` · ${item.projectStatus}` : ''}
+                    </AttentionMeta>
+                    <AttentionIssues>{item.issues.join(' · ')}</AttentionIssues>
+                  </AttentionItem>
+                ))}
+                {ps.attentionList.length > QUALITY_ATTENTION_PREVIEW && (
+                  <ExpandMoreBtn
+                    type="button"
+                    onClick={() => setQualityAttentionExpanded((v) => !v)}
+                  >
+                    {qualityAttentionExpanded
+                      ? 'Σύμπτυξη λίστας'
+                      : `Εμφάνιση όλων (${ps.attentionList.length})`}
+                  </ExpandMoreBtn>
+                )}
+              </AttentionList>
+            ) : (
+              <NoDataMessage>Δεν εντοπίστηκαν θέματα — το χαρτοφυλάκιο είναι σε καλή κατάσταση</NoDataMessage>
+            )}
+          </ChartContainer>
+
+          <ChartContainer>
+            <ChartTitle>🕐 Φρεσκάδα ανακτήσεων ΚΗΜΔΗΣ</ChartTitle>
+            <ChartWrapper style={{ height: 260 }}>
+              <Bar data={freshnessChartData} options={{
+                ...barChartOptions,
+                plugins: {
+                  ...barChartOptions.plugins,
+                  legend: { display: false },
+                },
+              }}
+              />
+            </ChartWrapper>
+            <PipelineNote style={{ marginTop: '0.65rem' }}>
+              {fresh.fresh.length} πρόσφατα · {fresh.stale.length} 1–6 μήνες · {fresh.old.length} παλιά · {fresh.none.length} χωρίς ΚΗΜΔΗΣ
+            </PipelineNote>
+          </ChartContainer>
+        </FinancialBodyGrid>
+      </>
+    );
+  };
+
+  if (projects.length === 0) {
+    const EmptyShell = embedded ? EmbeddedStatsRoot : StatisticsContainer;
+    return (
+      <EmptyShell>
+        {variant === 'full' && (
+          <StatsHeader>
+            <StatisticsTitle>Στατιστικά Στοιχεία</StatisticsTitle>
+          </StatsHeader>
+        )}
+        {variant === 'summary' && (
+          <StatsHeader>
+            <StatisticsTitle>Σύνοψη Υποέργων</StatisticsTitle>
+          </StatsHeader>
+        )}
         <NoDataMessage>Δεν υπάρχουν δεδομένα για την εμφάνιση στατιστικών</NoDataMessage>
-      </StatisticsContainer>
+      </EmptyShell>
     );
   }
 
@@ -1639,7 +3155,7 @@ function Statistics({ projects, directAssignmentViolations: directAssignmentViol
           <ChartTitle>Υποέργα ανά Διαδικασία Ανάθεσης</ChartTitle>
           <ChartWrapper>
             {assignmentEntries.length > 0 ? (
-              <Bar data={assignmentCountData} options={barChartOptions} />
+              <Bar data={assignmentCountData} options={countBarChartOptions} />
             ) : (
               <NoDataMessage>Δεν υπάρχουν υποέργα σε στάδιο σύμβασης/εκτέλεσης</NoDataMessage>
             )}
@@ -1661,18 +3177,97 @@ function Statistics({ projects, directAssignmentViolations: directAssignmentViol
 
   const countBarChartOptions = {
     ...barChartOptions,
+    scales: {
+      ...barChartOptions.scales,
+      y: {
+        ...barChartOptions.scales.y,
+        ticks: {
+          ...barChartOptions.scales.y.ticks,
+          stepSize: 1,
+          precision: 0,
+          callback(value) {
+            if (Number.isInteger(value)) return value;
+            return '';
+          }
+        }
+      }
+    },
     plugins: {
       ...barChartOptions.plugins,
       tooltip: {
         ...barChartOptions.plugins.tooltip,
         callbacks: {
-          label: function(context) {
+          label(context) {
             return `${context.dataset.label}: ${context.raw}`;
           }
         }
       }
     }
   };
+
+  const renderProcurementTab = () => (
+    <>
+      <MiniStatsRow>
+        <MiniStatCard>
+          <MiniStatValue>{procurementStats.activeCount}</MiniStatValue>
+          <MiniStatLabel>Ενεργές δημοσίευσεις</MiniStatLabel>
+        </MiniStatCard>
+        <MiniStatCard>
+          <MiniStatValue>{formatCurrency(procurementStats.totalEstimatedValue)}</MiniStatValue>
+          <MiniStatLabel>Συνολική εκτιμ. αξία (ενεργοί)</MiniStatLabel>
+        </MiniStatCard>
+        <MiniStatCard>
+          <MiniStatValue>{procurementStats.withNoticeCount}</MiniStatValue>
+          <MiniStatLabel>Υποέργα με δημοσίευση (ΚΗΜΔΗΣ)</MiniStatLabel>
+        </MiniStatCard>
+        <MiniStatCard>
+          <MiniStatValue>{procurementStats.cancelledCount}</MiniStatValue>
+          <MiniStatLabel>Ματαιωμένες δημοσίευσεις</MiniStatLabel>
+        </MiniStatCard>
+        <MiniStatCard>
+          <MiniStatValue>
+            {procurementStats.avgDaysSignedToDeadline != null
+              ? procurementStats.avgDaysSignedToDeadline
+              : '—'}
+          </MiniStatValue>
+          <MiniStatLabel>Μέσες ημέρες έκδοσης → καταληκτική</MiniStatLabel>
+        </MiniStatCard>
+      </MiniStatsRow>
+
+      <ChartsGrid>
+        <ChartContainer>
+          <ChartTitle>Υποέργα ανά Διαδικασία (δημοσίευση)</ChartTitle>
+          <ChartWrapper>
+            {procurementProcedureEntries.length > 0 ? (
+              <Bar data={procurementProcedureCountData} options={countBarChartOptions} />
+            ) : (
+              <NoDataMessage>Δεν υπάρχουν δεδομένα δημοσίευσης</NoDataMessage>
+            )}
+          </ChartWrapper>
+        </ChartContainer>
+        <ChartContainer>
+          <ChartTitle>Κατανομή Τύπου Δημοσίευσης</ChartTitle>
+          <ChartWrapper>
+            {procurementNoticeTypeEntries.length > 0 ? (
+              <Bar data={procurementNoticeTypeData} options={countBarChartOptions} />
+            ) : (
+              <NoDataMessage>Δεν υπάρχουν δεδομένα</NoDataMessage>
+            )}
+          </ChartWrapper>
+        </ChartContainer>
+        <ChartContainer style={{ gridColumn: 'span 2' }}>
+          <ChartTitle>Εκτιμ. Αξία Ενεργών Δημοσιεύσεων ανά Διαδικασία</ChartTitle>
+          <ChartWrapper>
+            {procurementActiveAmountEntries.length > 0 ? (
+              <Bar data={procurementActiveAmountData} options={barChartOptions} />
+            ) : (
+              <NoDataMessage>Δεν υπάρχουν ενεργές δημοσίευσεις με εκτιμ. αξία</NoDataMessage>
+            )}
+          </ChartWrapper>
+        </ChartContainer>
+      </ChartsGrid>
+    </>
+  );
 
   const renderContractorsTab = () => (
     <>
@@ -2038,12 +3633,44 @@ function Statistics({ projects, directAssignmentViolations: directAssignmentViol
     </>
   );
 
+  const activeTabMeta = STATS_TABS.find((t) => t.id === activeTab);
+  const Shell = embedded ? EmbeddedStatsRoot : StatisticsContainer;
+
+  if (variant === 'summary') {
+    return (
+      <StatisticsContainer>
+        <StatsHeader>
+          <StatisticsTitle>Σύνοψη Υποέργων</StatisticsTitle>
+          {onOpenFullStatistics && (
+            <OpenFullStatsBtn type="button" onClick={onOpenFullStatistics}>
+              Άνοιγμα αναλυτικών →
+            </OpenFullStatsBtn>
+          )}
+        </StatsHeader>
+        <StatsDivider />
+        {renderScopeNote()}
+        {renderOverviewTab()}
+      </StatisticsContainer>
+    );
+  }
+
   return (
-    <StatisticsContainer>
+    <Shell>
       <StatsHeader>
         <StatisticsTitle>Στατιστικά Στοιχεία</StatisticsTitle>
+        <ExportReportBtn
+          type="button"
+          disabled={exportingReport || projects.length === 0}
+          onClick={() => setExportModalOpen(true)}
+        >
+          Εξαγωγή αναφοράς
+        </ExportReportBtn>
       </StatsHeader>
       <StatsDivider />
+
+      {renderScopeNote()}
+
+      {renderPortfolioHealthBar()}
 
       <StatsTabBar>
         {STATS_TABS.map((tab) => (
@@ -2060,10 +3687,34 @@ function Statistics({ projects, directAssignmentViolations: directAssignmentViol
 
       {activeTab === 'overview' && renderOverviewTab()}
       {activeTab === 'funding' && renderFundingTab()}
+      {activeTab === 'chain' && renderChainTab()}
+      {activeTab === 'financial' && renderFinancialTab()}
+      {activeTab === 'quality' && renderQualityTab()}
       {activeTab === 'assignment' && renderAssignmentTab()}
+      {activeTab === 'procurement' && renderProcurementTab()}
       {activeTab === 'contractors' && renderContractorsTab()}
       {activeTab === 'contractor-chronology' && renderContractorChronologyTab()}
-    </StatisticsContainer>
+
+      <StatisticsExportModal
+        isOpen={exportModalOpen}
+        projectCount={projects.length}
+        exporting={exportingReport}
+        activeTabLabel={activeTabMeta?.label || 'Σύνοψη'}
+        onClose={() => !exportingReport && setExportModalOpen(false)}
+        onExportTab={() => handleStatisticsTabExport('current')}
+        onExportAllTabs={() => handleStatisticsTabExport('all')}
+        onExportKhmdhs={handleKhmdhsExportFromModal}
+      />
+      <ExportSuccessModal
+        isOpen={!!exportSuccess}
+        onClose={() => setExportSuccess(null)}
+        filePath={exportSuccess?.filePath}
+        actionCount={exportSuccess?.actionCount}
+        sheetCount={exportSuccess?.sheetCount}
+        exportedAt={exportSuccess?.exportedAt}
+        title="Η αναφορά εξήχθη επιτυχώς"
+      />
+    </Shell>
   );
 }
 
