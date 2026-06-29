@@ -6,6 +6,7 @@ import {
   normalizeSuspiciousKhmdhsGross,
   resolveModificationSupplementaryAmount,
   prefillSupplementaryModAmount,
+  computeProjectContractTotal,
 } from './khmdhsSupplementaryAmountLogic';
 import {
   computeChainCharacterizationEffects,
@@ -65,5 +66,40 @@ describe('khmdhsSupplementaryAmountLogic', () => {
 
   test('isPlausibleSupplementaryDelta rejects multi-million deltas', () => {
     expect(isPlausibleSupplementaryDelta(7000000, running)).toBe(false);
+  });
+
+  test('computeProjectContractTotal — όχι άθροισμα πλήρων τιμών ΚΗΜΔΗΣ', () => {
+    const project = {
+      implementationForm: 'Μια Σύμβαση',
+      contractAmount: '332.101,10',
+      supplementaryContracts: [
+        {
+          date: '2024-09-19',
+          amount: '7.415.585,00',
+          comments: 'Συμπληρωματική σύμβαση',
+          khmdhsAdam: '24SYMV015482244',
+        },
+        {
+          date: '2025-01-01',
+          amount: '12.500.000,00',
+          comments: 'Συμπληρωματική σύμβαση',
+          khmdhsAdam: '24SYMV099',
+        },
+        {
+          date: '2025-06-01',
+          amount: '50.000,00',
+          comments: 'Παράταση',
+          khmdhsAdam: '25SYMV016439261',
+        },
+      ],
+      khmdhsSymvChainPlan: {
+        items: [
+          { adam: '25SYMV016439261', role: 'extension' },
+        ],
+      },
+    };
+    const total = computeProjectContractTotal(project);
+    expect(total).toBeGreaterThan(332000);
+    expect(total).toBeLessThan(600000);
   });
 });

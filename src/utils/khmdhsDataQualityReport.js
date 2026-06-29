@@ -6,6 +6,7 @@ import {
   parseGreekAmountString,
   isMultipleContractsForm,
   resolveEffectivePayableAmountGrossForPayments,
+  resolveStoredApeAmount,
 } from './khmdhsFields';
 import {
   buildSupplementaryOverrideKey,
@@ -14,7 +15,15 @@ import {
   KHMDHS_OVERRIDE_FIELD_LABELS,
   recordKhmdhsFieldOverride,
 } from './khmdhsFieldOverrides';
+import {
+  applyPaymentRolesToProject,
+  mergePaymentLabelsFromProject,
+  mergePaymentRolesFromProject,
+  PAYMENT_DOCUMENT_ROLE_LABELS,
+  validatePaymentRoleDraft,
+} from './khmdhsPaymentDocumentRoles';
 import { rebuildPaymentsReconciliationItem } from './khmdhsPaymentsReconciliationItem';
+import { computePaymentsReconciliationFromForm } from './khmdhsPaymentReconciliation';
 
 export const KHMDHS_REVIEW_STATUS = {
   COMPLETE: 'complete',
@@ -299,14 +308,17 @@ function paymentsReferenceAmount(item) {
 
 function paymentsItemChanged(before, after) {
   if (!before || !after) return false;
-  if (before.status !== after.status) return true;
   const beforeRecon = before.paymentsReconciliation;
   const afterRecon = after.paymentsReconciliation;
   if (!beforeRecon || !afterRecon) {
-    return before.message !== after.message || before.displayValue !== after.displayValue;
+    const refBefore = paymentsReferenceAmount(before);
+    const refAfter = paymentsReferenceAmount(after);
+    if (refBefore != null && refAfter != null) {
+      return Math.abs(refBefore - refAfter) > 0.5;
+    }
+    return false;
   }
   if (!!beforeRecon.coFinancingPattern !== !!afterRecon.coFinancingPattern) return true;
-  if (!!beforeRecon.needsReview !== !!afterRecon.needsReview) return true;
   if (Math.abs((beforeRecon.rawTotalGross || 0) - (afterRecon.rawTotalGross || 0)) > 0.01) return true;
   if (Math.abs((beforeRecon.estimatedContractorPaymentGross || 0) - (afterRecon.estimatedContractorPaymentGross || 0)) > 0.01) {
     return true;
@@ -338,16 +350,26 @@ export function refreshAmountDependentReviewItems(review, formData) {
     if (formGross == null) return item;
 
     const apeRaw = item.contractIndex != null
-      ? (formData.contracts?.[item.contractIndex]?.apeAmount || formData.apeAmount)
-      : formData.apeAmount;
+      ? resolveStoredApeAmount(formData, item.contractIndex)
+      : resolveStoredApeAmount(formData);
 
     const refreshed = rebuildPaymentsReconciliationItem(item, {
+      formData,
       formContractAmountGross: formGross,
       apeAmount: apeRaw,
     });
 
     if (paymentsItemChanged(item, refreshed)) {
-      nextReview = clearStaleItemAcknowledgment(nextReview, item);
+      const key = reviewItemKey(item);
+      const resolution = nextReview?.resolutions?.[key];
+      const hadPaymentClassification = resolution?.value === 'classified'
+        || !!(resolution?.meta?.paymentRoles && Object.keys(resolution.meta.paymentRoles).length);
+      const nowClassified = !refreshed.paymentsReconciliation?.needsClassification
+        && !refreshed.paymentsReconciliation?.needsReview
+        && refreshed.paymentsReconciliation?.hasUserClassification;
+      if (!(hadPaymentClassification && nowClassified)) {
+        nextReview = clearStaleItemAcknowledgment(nextReview, item);
+      }
     }
     return refreshed;
   });
@@ -454,6 +476,18 @@ export function isReviewItemResolved(review, formData, item) {
     return !!resolution;
   }
 
+  if (item.fieldId === 'paymentsReconciliation') {
+    const liveRecon = computePaymentsReconciliationFromForm(formData, item);
+    const roles = mergePaymentRolesFromProject(formData, review, item);
+    const active = (liveRecon?.entries || []).filter((e) => e?.active && e?.adam);
+    if (!liveRecon?.needsClassification && !liveRecon?.needsReview) return true;
+    if (active.length === 0) return !!resolution;
+    const allClassified = active.every((e) => roles[String(e.adam || '').trim().toUpperCase()]);
+    if (!allClassified) return false;
+    if (liveRecon?.countableExceedsContract) return false;
+    return !!(resolution?.meta?.paymentRoles || resolution?.value === 'classified');
+  }
+
   if (isSupplementaryFieldDeferred(review, item, formData)) return true;
 
   if (resolution?.value != null && String(resolution.value).trim() !== '') {
@@ -463,8 +497,7 @@ export function isReviewItemResolved(review, formData, item) {
         return true;
       }
     }
-    // Για acknowledge-type items (π.χ. paymentsReconciliation, chainKindReview),
-    // οποιαδήποτε αποθηκευμένη τιμή επίλυσης σημαίνει ότι ο χρήστης επιβεβαίωσε.
+    // Για acknowledge-type items, οποιαδήποτε αποθηκευμένη τιμή επίλυσης σημαίνει επιβεβαίωση.
     if (getReviewFieldInputKind(item) === 'acknowledge') return true;
     const formVal = getFormValueForReviewItem(formData, item);
     if (normalizeReviewFieldValue(item, formVal)
@@ -489,7 +522,7 @@ export function isReviewItemResolved(review, formData, item) {
   if (item.status === KHMDHS_REVIEW_STATUS.NEEDS_REVIEW && ack.has(key)) {
     // Τα informational items (paymentsReconciliation κ.ά.) δεν έχουν form value —
     // αρκεί η επιβεβαίωση από τον χρήστη (acknowledgment) για να θεωρηθούν επιλυμένα.
-    const noFormValue = ['chainKindReview', 'paymentsReconciliation'];
+    const noFormValue = ['chainKindReview'];
     return !!getFormValueForReviewItem(formData, item) || noFormValue.includes(item.fieldId);
   }
 
@@ -556,9 +589,17 @@ export function getUnresolvedReviewItems(review, formData) {
 export function getUserResolvedReviewItems(review, formData) {
   if (!review?.items?.length) return [];
   return review.items.filter((item) => {
-    if (item.status === KHMDHS_REVIEW_STATUS.COMPLETE) return false;
     const key = reviewItemKey(item);
-    return !!review.resolutions?.[key] && isReviewItemResolved(review, formData, item);
+    const userClassifiedPayments = item.fieldId === 'paymentsReconciliation'
+      && (() => {
+        const liveRecon = computePaymentsReconciliationFromForm(formData, item);
+        return !!(liveRecon?.hasUserClassification && !liveRecon?.needsClassification);
+      })();
+
+    if (item.status === KHMDHS_REVIEW_STATUS.COMPLETE && !userClassifiedPayments) return false;
+    if (!isReviewItemResolved(review, formData, item)) return false;
+    if (review.resolutions?.[key]) return true;
+    return userClassifiedPayments;
   });
 }
 
@@ -857,8 +898,8 @@ export function normalizeReviewSearchSteps(item, action = null) {
 export function getReviewFieldInputKind(item) {
   if (!item) return 'text';
   const fieldId = String(item.fieldId || '');
-  if (fieldId === 'chainKindReview') return 'acknowledge';
-  if (fieldId === 'paymentsReconciliation') return 'acknowledge';
+  if (fieldId === 'chainKindReview') return 'chainKindReview';
+  if (fieldId === 'paymentsReconciliation') return 'paymentClassification';
   if (fieldId === 'assignmentProcedure') return 'assignmentProcedure';
   if (fieldId.includes('Amount') || fieldId === 'projectBudget') return 'amount';
   if (fieldId.includes('Date') || fieldId === 'contractProcessStartDate') return 'date';
@@ -906,9 +947,19 @@ export function getInitialEditorValue(item, formData) {
 
 export function getReviewActionDescriptor(item) {
   if (!item) return { type: 'none', verb: '', gotoLabel: 'Δείτε στη φόρμα' };
+  if (item.fieldId === 'paymentsReconciliation') {
+    return {
+      type: 'paymentClassification',
+      verb: 'Χαρακτηρισμός εγγράφων',
+      gotoLabel: 'Δείτε εντάλματα',
+      checkLabel: 'Επιβεβαιώνω τους χαρακτηρισμούς',
+      saveLabel: 'Αποθήκευση χαρακτηρισμών',
+      steps: normalizeReviewSearchSteps(item),
+    };
+  }
   if (item.fieldId === 'chainKindReview') {
     return {
-      type: 'acknowledge',
+      type: 'chainKindReview',
       verb: 'Χαρακτηρισμός εγγράφου',
       gotoLabel: 'Δείτε ιστορικό αλυσίδας',
       checkLabel: 'Επιβεβαιώνω τον χαρακτηρισμό',
@@ -1114,7 +1165,38 @@ export function isContractAmountUserProtected(form, review, contractIndex = null
     !== normalizeReviewFieldValue(item, suggested);
 }
 
-export function applyReviewResolution(formData, review, item, { value, source, resolvedBy = '', note = '' } = {}) {
+function formatRegistryPaymentLinkLabel(baseLabel, amount) {
+  const label = String(baseLabel || '').trim();
+  const amt = String(amount || '').trim();
+  if (!label) return '';
+  if (!amt) return label;
+  return `${label} : ${amt}`;
+}
+
+function syncPaymentLabelsToDocumentRegistry(formData) {
+  const registry = formData?.khmdhsDocumentRegistry;
+  if (!Array.isArray(registry) || !registry.length) return formData;
+  const labels = mergePaymentLabelsFromProject(formData);
+  if (!Object.keys(labels).length) return formData;
+
+  let changed = false;
+  const nextRegistry = registry.map((entry) => {
+    if (entry?.stage !== 'PAY') return entry;
+    const adam = String(entry?.adam || '').trim().toUpperCase();
+    const custom = labels[adam];
+    if (!custom || entry.roleLabel === custom) return entry;
+    changed = true;
+    return {
+      ...entry,
+      roleLabel: custom,
+      linkLabel: formatRegistryPaymentLinkLabel(custom, entry.amount),
+    };
+  });
+  if (!changed) return formData;
+  return { ...formData, khmdhsDocumentRegistry: nextRegistry };
+}
+
+export function applyReviewResolution(formData, review, item, { value, source, resolvedBy = '', note = '', meta = null } = {}) {
   const inputKind = getReviewFieldInputKind(item);
   let nextForm = formData;
   let finalValue = value;
@@ -1123,7 +1205,17 @@ export function applyReviewResolution(formData, review, item, { value, source, r
     || String(item.displayValue || '').replace(/\s*€\s*$/i, '').trim()
     || previousValue;
 
-  if (inputKind !== 'acknowledge') {
+  if (inputKind === 'paymentClassification') {
+    const paymentRoles = meta?.paymentRoles && typeof meta.paymentRoles === 'object'
+      ? meta.paymentRoles
+      : {};
+    const paymentLabels = meta?.paymentLabels && typeof meta.paymentLabels === 'object'
+      ? meta.paymentLabels
+      : {};
+    nextForm = applyPaymentRolesToProject(formData, paymentRoles, paymentLabels);
+    nextForm = syncPaymentLabelsToDocumentRegistry(nextForm);
+    finalValue = 'classified';
+  } else if (inputKind !== 'acknowledge' && inputKind !== 'chainKindReview') {
     if (finalValue == null || finalValue === '') {
       finalValue = parseReviewDisplayValue(item) || previousValue;
     }
@@ -1141,12 +1233,12 @@ export function applyReviewResolution(formData, review, item, { value, source, r
         khmdhsBaseline,
       });
     }
-  } else {
+  } else if (inputKind === 'acknowledge' || inputKind === 'chainKindReview') {
     finalValue = item.displayValue || 'confirmed';
   }
 
   const resolvedSource = source
-    || (inputKind === 'acknowledge'
+    || (inputKind === 'acknowledge' || inputKind === 'chainKindReview' || inputKind === 'paymentClassification'
       ? KHMDHS_RESOLUTION_SOURCE.USER_CONFIRMED
       : KHMDHS_RESOLUTION_SOURCE.USER_MANUAL);
 
@@ -1155,6 +1247,12 @@ export function applyReviewResolution(formData, review, item, { value, source, r
     source: resolvedSource,
     resolvedBy,
     note,
+    meta: inputKind === 'paymentClassification'
+      ? {
+        paymentRoles: meta?.paymentRoles || {},
+        paymentLabels: meta?.paymentLabels || {},
+      }
+      : meta,
   });
   nextReview = reconcileReviewState(nextReview, nextForm);
 

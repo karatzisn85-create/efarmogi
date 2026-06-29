@@ -47,12 +47,14 @@ import {
   hasApeEntryData,
   listContractApeEntries,
   getLatestContractApeAmount,
+  isLatestContractApeEntry,
   hasSupplementaryApe,
   readContractApeFields,
   readSupplementaryApeFields,
   readApeFileRef,
   shouldShowApeSubCard,
 } from '../utils/khmdhsApeEntry';
+import { formatProjectAmountDisplay, getKhmdhsAmountSanityReference } from '../utils/projectAmountUtils';
 import KhmdhsApeEntryButton from './KhmdhsApeEntryButton';
 
 export function projectHasKhmdhsFormResults(project) {
@@ -140,10 +142,17 @@ function buildSymvStageTitle(entry, idx, total) {
 function buildPaySummary(project) {
   const totals = buildKhmdhsPaymentsTotals(project);
   if (!totals.count) return '';
-  const amtStr = totals.rawTotalGross != null
-    ? `${totals.rawTotalGross.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
+  const displayAmt = totals.displayTotalGross;
+  const amtStr = displayAmt != null
+    ? `${displayAmt.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
     : '';
-  const parts = [`${totals.count} ένταλμα${totals.count !== 1 ? 'τα' : ''}`, amtStr].filter(Boolean);
+  const suffix = totals.hasUserClassification && totals.rawTotalGross !== totals.countableTotalGross
+    ? ' (μετά χαρακτηρισμό)'
+    : '';
+  const parts = [
+    `${totals.count} ένταλμα${totals.count !== 1 ? 'τα' : ''}`,
+    amtStr ? `${amtStr}${suffix}` : '',
+  ].filter(Boolean);
   return parts.join(' · ');
 }
 
@@ -285,7 +294,14 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
           const label = buildSymvStageTitle(entry, idx, contractEntries.length);
           const apeTarget = { kind: 'contract', arrayIndex, title: label };
           const apeEntries = listContractApeEntries(project, arrayIndex);
-          const latestApeFmt = formatApeAmountDisplay(getLatestContractApeAmount(project, arrayIndex));
+          const sanityRef = getKhmdhsAmountSanityReference(project);
+          const contractRef = entry.storedAmount || '';
+          const contractAmtFmt = formatProjectAmountDisplay(contractRef, sanityRef);
+          const latestApeFmt = formatApeAmountDisplay(
+            getLatestContractApeAmount(project, arrayIndex),
+            contractAmtFmt || contractRef,
+            sanityRef
+          );
           const hasApeEntries = apeEntries.length > 0;
           const openNewApe = () => onOpenApeEntry?.({ ...apeTarget, entryId: null });
           return (
@@ -296,7 +312,11 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
                 title={label}
                 adam={entry.adam || (entry.snapshot?.referenceNumber ?? '')}
                 stepNumber={step}
-                statusLabel={hasApeEntries && latestApeFmt ? `ΑΠΕ ${latestApeFmt} €` : (entry.snapshot ? 'Ενεργή' : undefined)}
+                statusLabel={
+                  contractAmtFmt
+                    ? `${contractAmtFmt} €`
+                    : (hasApeEntries && latestApeFmt ? `ΑΠΕ ${latestApeFmt} €` : (entry.snapshot ? 'Ενεργή' : undefined))
+                }
                 statusOk={!!entry.snapshot && !entry.snapshot?.cancelled}
                 statusWarn={!!entry.snapshot?.cancelled}
                 summary={summary}
@@ -313,6 +333,7 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
                 <KhmdhsContractDetailDisplay
                   entry={entry}
                   variant="detail"
+                  symvChainPlan={project?.khmdhsSymvChainPlan}
                   apeAmount={hasApeEntries ? '' : ''}
                   khmdhsAmount={entry.storedAmount || ''}
                   apeFileName=""
@@ -324,13 +345,18 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
               {apeEntries.map((apeEntry, apeIdx) => {
                 const entryTarget = { ...apeTarget, entryId: apeEntry.id };
                 const entryFields = readContractApeFields(project, arrayIndex, apeEntry.id);
-                const entryFmt = formatApeAmountDisplay(entryFields.apeAmount);
+                const entryFmt = formatApeAmountDisplay(
+                  entryFields.apeAmount,
+                  entryFields.khmdhsAmount || contractAmtFmt || contractRef,
+                  sanityRef
+                );
                 const apeTitleDate = entryFields.documentDate
                   ? new Date(`${entryFields.documentDate}T12:00:00`).toLocaleDateString('el-GR')
                   : '';
                 const apeCardTitle = apeTitleDate
                   ? `ΑΠΕ — ${label} (${apeTitleDate})`
                   : (apeEntries.length > 1 ? `ΑΠΕ — ${label} ${apeIdx + 1}` : `ΑΠΕ — ${label}`);
+                const isLatest = isLatestContractApeEntry(project, arrayIndex, apeEntry.id);
                 return (
                   <KhmdhsStageCard
                     key={apeEntry.id}
@@ -339,7 +365,11 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
                     icon="📑"
                     title={apeCardTitle}
                     adam={entryFields.diavgeiaAda || entryFields.sourceAdam || ''}
-                    statusLabel={entryFmt ? `${entryFmt} €` : 'καταχωρημένο'}
+                    statusLabel={
+                      entryFmt
+                        ? `${entryFmt} €${isLatest && apeEntries.length > 1 ? ' · τρέχον ποσό' : ''}`
+                        : 'καταχωρημένο'
+                    }
                     statusOk
                     summary={buildApeCardSummary(project, entryTarget)}
                     scrollId={`stage-APE-contract-${idx}-${apeEntry.id}`}

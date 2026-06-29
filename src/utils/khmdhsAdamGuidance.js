@@ -1,6 +1,7 @@
 import {
   PROJECT_STATUS_CONTRACT_PROCESS,
   STATUSES_WITH_CONTRACT_FIELDS,
+  isKhmdhsStatusProtectedFromAutoUpdate,
   statusShowsAssignmentProcedure,
 } from '../data/formOptions';
 import { isMultipleContractsForm } from './khmdhsFields';
@@ -22,6 +23,7 @@ export function chainHasAtLeastOneContract(chainRes) {
  * προτείνεται αναβάθμιση σε «Εκτελούμενο - Συμβασιοποιημένο».
  */
 export function suggestProjectStatusAfterKhmdhsChain(currentStatus, chainRes) {
+  if (isKhmdhsStatusProtectedFromAutoUpdate(currentStatus)) return null;
   if (!chainHasAtLeastOneContract(chainRes)) return null;
   if (currentStatus !== PROJECT_STATUS_CONTRACT_PROCESS) return null;
   return PROJECT_STATUS_EXECUTED;

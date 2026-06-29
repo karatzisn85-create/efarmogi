@@ -14,8 +14,10 @@ import { projectHasKhmdhsDerivedSupplementary } from '../utils/khmdhsChainDerive
 import { buildKhmdhsPaymentsTotals } from '../utils/khmdhsChainExtraFields';
 import { formatDateEl } from '../utils/dateFormat';
 import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
+import KhmdhsRefreshActionButton from './KhmdhsRefreshActionButton';
 import KhmdhsFormStageResults, { projectHasKhmdhsFormResults } from './KhmdhsFormStageResults';
 import KhmdhsChainRefreshDialog from './KhmdhsChainRefreshDialog';
+import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
 import { findActRootSiblings, getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
 import { useToast } from './ToastProvider';
 import {
@@ -25,6 +27,10 @@ import {
   buildKhmdhsRefreshChangeSummary,
 } from '../utils/khmdhsChainRefresh';
 import { applyAdamChainResult } from '../utils/khmdhsChainApply';
+import {
+  evaluateKhmdhsContractExpiryPrompt,
+  KHMDHS_COMPLETED_STATUS_SUGGESTION,
+} from '../utils/khmdhsContractExpiryPrompt';
 import {
   filterAndRankEpActions,
   highlightTitleMatches
@@ -244,10 +250,19 @@ const CloseButton = styled.button`
   }
 `;
 
+const PhaseTabRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-top: 0.55rem;
+  flex-wrap: wrap;
+  width: 100%;
+`;
+
 const PhaseTabStrip = styled.div`
   display: flex;
   gap: 0.35rem;
-  margin-top: 0.55rem;
   padding: 0.22rem;
   background: rgba(0, 0, 0, 0.18);
   border-radius: 10px;
@@ -1032,6 +1047,22 @@ function SubprojectDetailModal({
 
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [refreshDialog, setRefreshDialog] = useState(null);
+  const [contractExpiryPrompt, setContractExpiryPrompt] = useState(null);
+  const contractExpiryCheckedRef = React.useRef(false);
+
+  useEffect(() => {
+    contractExpiryCheckedRef.current = false;
+    setContractExpiryPrompt(null);
+  }, [project?.subprojectId]);
+
+  useEffect(() => {
+    if (!project?.subprojectId || contractExpiryCheckedRef.current) return;
+    contractExpiryCheckedRef.current = true;
+    const prompt = evaluateKhmdhsContractExpiryPrompt(project);
+    if (prompt) {
+      window.setTimeout(() => setContractExpiryPrompt(prompt), 350);
+    }
+  }, [project]);
 
   // EP Program link state
   const [epLinkedActions, setEpLinkedActions] = useState([]);
@@ -1098,6 +1129,12 @@ function SubprojectDetailModal({
         changeLines,
         mergedProject,
       });
+      const expiryAfterRefresh = evaluateKhmdhsContractExpiryPrompt(mergedProject, {
+        statusBeforeKhmdhsRefresh: project.projectStatus,
+      });
+      if (expiryAfterRefresh) {
+        window.setTimeout(() => setContractExpiryPrompt(expiryAfterRefresh), 350);
+      }
     } catch (e) {
       showToast(e?.message || 'Σφάλμα κατά την ανανέωση ΚΗΜΔΗΣ.', 'error');
     } finally {
@@ -1111,6 +1148,42 @@ function SubprojectDetailModal({
     requestingUsername,
     showToast,
   ]);
+
+  const handleContractExpiryAccept = useCallback(async () => {
+    const base = refreshDialog?.mergedProject || project;
+    if (!base) {
+      setContractExpiryPrompt(null);
+      return;
+    }
+    const updated = {
+      ...base,
+      projectStatus: KHMDHS_COMPLETED_STATUS_SUGGESTION,
+      updatedAt: new Date().toISOString(),
+    };
+    if (refreshDialog?.mergedProject) {
+      setRefreshDialog({
+        ...refreshDialog,
+        mergedProject: updated,
+      });
+      setContractExpiryPrompt(null);
+      showToast('Η κατάσταση θα οριστεί σε «Ολοκληρωμένο» με την αποθήκευση.', 'info');
+      return;
+    }
+    setContractExpiryPrompt(null);
+    try {
+      const saveRes = await ipcRenderer.invoke('save-project-data', updated);
+      if (!saveRes?.success) {
+        showToast(saveRes?.error || 'Αποτυχία αποθήκευσης.', 'error');
+        return;
+      }
+      showToast('Η κατάσταση ορίστηκε σε «Ολοκληρωμένο».', 'success');
+      if (typeof onRefreshProject === 'function') {
+        await onRefreshProject();
+      }
+    } catch (e) {
+      showToast(e?.message || 'Σφάλμα αποθήκευσης.', 'error');
+    }
+  }, [refreshDialog, project, showToast, onRefreshProject]);
 
   const handleConfirmKhmdhsRefresh = useCallback(async () => {
     if (!refreshDialog?.mergedProject) return;
@@ -1587,7 +1660,7 @@ function SubprojectDetailModal({
   };
 
   return (
-    <Overlay onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <Overlay data-subproject-detail-modal onClick={(e) => e.target === e.currentTarget && onClose()}>
       <Modal>
         {/* Header */}
         <ModalHeader>
@@ -1623,24 +1696,37 @@ function SubprojectDetailModal({
               <CloseButton type="button" onClick={onClose} title="Κλείσιμο" aria-label="Κλείσιμο">×</CloseButton>
             </HeaderActions>
           </div>
-          <PhaseTabStrip>
-            <PhaseTab
-              type="button"
-              $active={activePhaseTab === 'A'}
-              onClick={() => setActivePhaseTab('A')}
-            >
-              <PhaseTabDot $color="#4ade80" />
-              Α — Στοιχεία
-            </PhaseTab>
-            <PhaseTab
-              type="button"
-              $active={activePhaseTab === 'B'}
-              onClick={() => setActivePhaseTab('B')}
-            >
-              <PhaseTabDot $color={hasKhmdhsFormResults ? '#4ade80' : 'rgba(255,255,255,0.45)'} />
-              Β — ΚΗΜΔΗΣ & Σύμβαση
-            </PhaseTab>
-          </PhaseTabStrip>
+          <PhaseTabRow>
+            <PhaseTabStrip>
+              <PhaseTab
+                type="button"
+                $active={activePhaseTab === 'A'}
+                onClick={() => setActivePhaseTab('A')}
+              >
+                <PhaseTabDot $color="#4ade80" />
+                Α — Στοιχεία
+              </PhaseTab>
+              <PhaseTab
+                type="button"
+                $active={activePhaseTab === 'B'}
+                onClick={() => setActivePhaseTab('B')}
+              >
+                <PhaseTabDot $color={hasKhmdhsFormResults ? '#4ade80' : 'rgba(255,255,255,0.45)'} />
+                Β — ΚΗΜΔΗΣ & Σύμβαση
+              </PhaseTab>
+            </PhaseTabStrip>
+            {canRefreshKhmdhs && (hasKhmdhsFormResults || hasKhmdhsRefreshSeed) && (
+              <KhmdhsRefreshActionButton
+                onClick={handleStartKhmdhsRefresh}
+                loading={refreshLoading}
+                disabled={isLocked}
+                freshness={chainFreshness}
+                title={isLocked
+                  ? (lockedBy ? `Κλειδωμένο από: ${lockedBy}` : 'Το υποέργο είναι κλειδωμένο')
+                  : undefined}
+              />
+            )}
+          </PhaseTabRow>
         </ModalHeader>
 
         <ModalBody $phaseB={activePhaseTab === 'B'}>
@@ -2091,11 +2177,15 @@ function SubprojectDetailModal({
                     <HeroChipLabel>Εντάλματα πληρωμής</HeroChipLabel>
                     <HeroChipValue $strong $color="#059669">
                       {paymentTotals.count}
-                      {paymentTotals.rawTotalGross != null && (
-                        <> · {paymentTotals.rawTotalGross.toLocaleString('el-GR', {
+                      {paymentTotals.displayTotalGross != null && (
+                        <> · {paymentTotals.displayTotalGross.toLocaleString('el-GR', {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
-                        })} €</>
+                        })} €
+                        {paymentTotals.hasUserClassification
+                          && paymentTotals.rawTotalGross !== paymentTotals.countableTotalGross
+                          ? ' (μετά χαρακτηρισμό)' : ''}
+                        </>
                       )}
                     </HeroChipValue>
                   </HeroChip>
@@ -2117,7 +2207,7 @@ function SubprojectDetailModal({
                 variant="slim"
                 graphMode="full"
                 freshness={chainFreshness}
-                showRefreshButton={canRefreshKhmdhs && (hasKhmdhsFormResults || hasKhmdhsRefreshSeed)}
+                showRefreshButton={false}
                 onRefresh={handleStartKhmdhsRefresh}
                 refreshLoading={refreshLoading}
               />
@@ -2191,6 +2281,12 @@ function SubprojectDetailModal({
         seedAdam={refreshDialog?.seedAdam}
         seedLabel={refreshDialog?.seedLabel}
         changeLines={refreshDialog?.changeLines || []}
+      />
+      <KhmdhsContractExpiryPromptDialog
+        isOpen={!!contractExpiryPrompt}
+        prompt={contractExpiryPrompt}
+        onDismiss={() => setContractExpiryPrompt(null)}
+        onAccept={handleContractExpiryAccept}
       />
     </Overlay>
   );

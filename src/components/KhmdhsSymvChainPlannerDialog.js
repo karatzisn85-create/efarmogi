@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import {
   SYMV_CHAIN_ROLE,
@@ -526,7 +526,7 @@ export default function KhmdhsSymvChainPlannerDialog({
   const [plan, setPlan] = useState(null);
   const [error, setError] = useState('');
   const [viewingAdam, setViewingAdam] = useState('');
-  const dialogRef = React.useRef(null);
+  const bodyScrollRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen || !chainRes) return;
@@ -542,11 +542,22 @@ export default function KhmdhsSymvChainPlannerDialog({
   }, [isOpen, chainRes, existingPlan]);
 
   useEffect(() => {
-    const el = dialogRef.current;
+    const el = bodyScrollRef.current;
     if (!el || !isOpen) return undefined;
-    const stopWheelBubble = (e) => e.stopPropagation();
-    el.addEventListener('wheel', stopWheelBubble, { capture: true });
-    return () => el.removeEventListener('wheel', stopWheelBubble, { capture: true });
+
+    const onWheel = (e) => {
+      if (!el.contains(e.target)) return;
+      if (el.scrollHeight <= el.clientHeight + 1) return;
+      const maxScroll = el.scrollHeight - el.clientHeight;
+      const next = Math.min(maxScroll, Math.max(0, el.scrollTop + e.deltaY));
+      if (next === el.scrollTop) return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.scrollTop = next;
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
   }, [isOpen]);
 
   const handleViewDocument = useCallback(async (adam, title = '') => {
@@ -617,7 +628,7 @@ export default function KhmdhsSymvChainPlannerDialog({
       data-khmdhs-symv-planner-modal
       onClick={(e) => e.target === e.currentTarget && handleDismiss()}
     >
-      <Dialog ref={dialogRef} data-khmdhs-symv-planner-modal onClick={(e) => e.stopPropagation()}>
+      <Dialog data-khmdhs-symv-planner-modal onClick={(e) => e.stopPropagation()}>
         <Header>
           <HeaderTop>
             <div>
@@ -630,7 +641,7 @@ export default function KhmdhsSymvChainPlannerDialog({
             <CountPill>{docs.length} εγγραφές</CountPill>
           </HeaderTop>
         </Header>
-        <Body>
+        <Body ref={bodyScrollRef} data-khmdhs-symv-planner-scroll>
           <Intro>
             Για κάθε ΑΔΑΜ επιλέξτε ρόλο. Χρησιμοποιήστε <strong>«Προβολή εγγράφου»</strong> για
             να δείτε το PDF στον browser πριν αποφασίσετε. Για έγγραφα που δεν είναι σύμβαση αλλά

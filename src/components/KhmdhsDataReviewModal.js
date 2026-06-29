@@ -42,6 +42,16 @@ import { openKhmdhsActOnline } from '../utils/openKhmdhsActOnline';
 import { enrichChainKindReviewItem } from '../utils/khmdhsChainKindOptions';
 import { getChainKindFieldProfile, validateChainKindDraft } from '../utils/khmdhsChainKindFields';
 import { prefillSupplementaryModAmount } from '../utils/khmdhsSupplementaryAmountLogic';
+import {
+  PAYMENT_DOCUMENT_ROLE,
+  PAYMENT_DOCUMENT_ROLE_LABELS,
+  buildDefaultPaymentRoleDraft,
+  mergePaymentLabelsFromProject,
+  mergePaymentRolesFromProject,
+  paymentRoleCountsTowardTotal,
+  validatePaymentRoleDraft,
+} from '../utils/khmdhsPaymentDocumentRoles';
+import { formatKhmdhsEuro } from '../utils/khmdhsNoticeFields';
 import KhmdhsSupplementaryDetailsModal from './KhmdhsSupplementaryDetailsModal';
 
 const fadeIn = keyframes`
@@ -352,6 +362,39 @@ const PaymentPreviewRow = styled.div`
     font-weight: 700;
     color: #0f172a;
   }
+`;
+
+const PaymentRoleSelect = styled.select`
+  min-width: 220px;
+  max-width: 100%;
+  padding: 0.38rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  font-size: 0.76rem;
+  font-family: inherit;
+`;
+
+const PaymentLabelInput = styled.input`
+  min-width: 220px;
+  max-width: 100%;
+  padding: 0.38rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  font-size: 0.76rem;
+  font-family: inherit;
+`;
+
+const PaymentClassSummary = styled.div`
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  font-weight: 600;
 `;
 
 const GuideStepsTitle = styled.div`
@@ -1582,6 +1625,211 @@ function ReviewFieldEditor({ inputKind, draft, onChange, placeholder = '', onBlu
   );
 }
 
+function PaymentClassificationCard({
+  item, formData, review, onResolve, stepIndex = null, highlight = false, wizard = false,
+}) {
+  const action = getReviewActionDescriptor(item);
+  const guide = getReviewItemUserGuide(item);
+  const recon = item?.paymentsReconciliation || {};
+  const itemKey = reviewItemKey(item);
+  const steps = normalizeReviewSearchSteps(item, action);
+  const existingRoles = useMemo(
+    () => mergePaymentRolesFromProject(formData, review, item),
+    [formData, review, item]
+  );
+  const existingLabels = useMemo(
+    () => mergePaymentLabelsFromProject(formData, review, item),
+    [formData, review, item]
+  );
+  const paymentSnapshots = useMemo(() => {
+    const map = new Map();
+    (formData?.khmdhsPayments || []).forEach((p) => {
+      const adam = String(p?.adam || p?.snapshot?.referenceNumber || '').trim().toUpperCase();
+      if (adam) map.set(adam, p?.snapshot || null);
+    });
+    return map;
+  }, [formData?.khmdhsPayments]);
+
+  const [roleDraft, setRoleDraft] = useState(() => {
+    const defaults = buildDefaultPaymentRoleDraft(recon.entries, recon.coFinancingPattern);
+    return { ...defaults, ...existingRoles };
+  });
+  const [labelDraft, setLabelDraft] = useState(() => ({ ...existingLabels }));
+
+  useEffect(() => {
+    const defaults = buildDefaultPaymentRoleDraft(recon.entries, recon.coFinancingPattern);
+    setRoleDraft({ ...defaults, ...mergePaymentRolesFromProject(formData, review, item) });
+    setLabelDraft({ ...mergePaymentLabelsFromProject(formData, review, item) });
+  }, [itemKey, review?.generatedAt, formData, item, recon.entries, recon.coFinancingPattern]);
+
+  const activeEntries = (recon.entries || []).filter((e) => e?.active && e?.adam);
+  const countableTotal = activeEntries.reduce((sum, e) => {
+    const adam = String(e.adam || '').trim().toUpperCase();
+    const role = roleDraft[adam];
+    if (!role || !paymentRoleCountsTowardTotal(role)) return sum;
+    return sum + (e.gross || 0);
+  }, 0);
+  const validation = validatePaymentRoleDraft(recon.entries, roleDraft);
+  const payable = recon.contractAmountGross;
+  const exceedsAfterClassify = payable != null && countableTotal > payable + 0.5;
+
+  const handleSave = () => {
+    if (!validation.ok || !onResolve) return;
+    onResolve(item, {
+      value: 'classified',
+      source: KHMDHS_RESOLUTION_SOURCE.USER_CONFIRMED,
+      meta: { paymentRoles: roleDraft, paymentLabels: labelDraft },
+    });
+  };
+
+  return (
+    <ItemRow $status={item.status} data-review-item-key={itemKey} $highlight={highlight} $wizard={wizard}>
+      {stepIndex != null && <ItemStepBadge>Βήμα {stepIndex}</ItemStepBadge>}
+      <ItemTop>
+        <ItemHead>
+          <ItemIcon aria-hidden>{guide.icon || statusIcon(item.status)}</ItemIcon>
+          <ItemTitle>{item.label}</ItemTitle>
+        </ItemHead>
+        <StatusBadge $status={item.status}>
+          {item.status === KHMDHS_REVIEW_STATUS.MISSING ? 'Λείπει' : 'Έλεγχος'}
+        </StatusBadge>
+      </ItemTop>
+
+      <ContextLine>{buildReviewContextLine(item)}</ContextLine>
+      {item.message ? <ItemMessage>{item.message}</ItemMessage> : null}
+
+      {steps.length > 0 && (
+        <GuideStepsBox>
+          <GuideStepsTitle>Τι να ελέγξετε</GuideStepsTitle>
+          <StepList>
+            {steps.map((step) => <li key={step}>{step}</li>)}
+          </StepList>
+        </GuideStepsBox>
+      )}
+
+      <PaymentClassSummary>
+        Ακατέργαστο άθροισμα: {formatKhmdhsEuro(recon.rawTotalGross)}
+        {payable != null && (
+          <> · Μετά τους χαρακτηρισμούς: {formatKhmdhsEuro(countableTotal)} / {formatKhmdhsEuro(payable)}</>
+        )}
+        {exceedsAfterClassify && ' — το ποσό που μετράει ακόμη υπερβαίνει το τελικό πληρωτέο.'}
+      </PaymentClassSummary>
+
+      <PaymentPreviewList>
+        {activeEntries.map((entry, idx) => {
+          const adam = String(entry.adam || '').trim().toUpperCase();
+          const snap = paymentSnapshots.get(adam);
+          const title = snap?.title || '';
+          return (
+            <PaymentPreviewRow key={adam}>
+              <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+                <strong>Έγγραφο {idx + 1}</strong>
+                {' · '}
+                <code>{adam}</code>
+                {entry.payer?.shortLabel ? ` · ${entry.payer.shortLabel}` : ''}
+                {entry.gross != null ? ` · ${formatKhmdhsEuro(entry.gross)}` : ''}
+                {title ? (
+                  <div style={{ marginTop: '0.25rem', color: '#475569', fontSize: '0.72rem' }}>
+                    {title}
+                  </div>
+                ) : null}
+              </div>
+              <PaymentRoleSelect
+                value={roleDraft[adam] || PAYMENT_DOCUMENT_ROLE.PAYMENT_ORDER}
+                onChange={(e) => setRoleDraft((prev) => ({ ...prev, [adam]: e.target.value }))}
+              >
+                {Object.entries(PAYMENT_DOCUMENT_ROLE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </PaymentRoleSelect>
+              <PaymentLabelInput
+                type="text"
+                value={labelDraft[adam] || ''}
+                onChange={(e) => setLabelDraft((prev) => ({ ...prev, [adam]: e.target.value }))}
+                placeholder="Δική σας ονομασία (προαιρετικά)"
+              />
+              <MiniBtn
+                type="button"
+                onClick={async () => {
+                  const res = await openKhmdhsActOnline(adam);
+                  if (res?.success === false && res?.error) window.alert(res.error);
+                }}
+              >
+                Προβολή
+              </MiniBtn>
+            </PaymentPreviewRow>
+          );
+        })}
+      </PaymentPreviewList>
+
+      {!validation.ok && (
+        <ConflictBadge>{validation.error}</ConflictBadge>
+      )}
+
+      <ActionCtaRow>
+        <MiniBtn
+          type="button"
+          $primary
+          onClick={handleSave}
+          disabled={!validation.ok || exceedsAfterClassify}
+        >
+          {action.saveLabel || 'Αποθήκευση χαρακτηρισμών'}
+        </MiniBtn>
+      </ActionCtaRow>
+    </ItemRow>
+  );
+}
+
+function PaymentClassificationResolvedCard({ item, review, formData, onRevoke }) {
+  const key = reviewItemKey(item);
+  const resolution = review?.resolutions?.[key];
+  const roles = mergePaymentRolesFromProject(formData, review, item);
+  const labels = mergePaymentLabelsFromProject(formData, review, item);
+  const entries = (item?.paymentsReconciliation?.entries || []).filter((e) => e?.active && e?.adam);
+
+  if (!resolution) return null;
+
+  return (
+    <ItemRow $status="resolved">
+      <ItemTop>
+        <ItemHead>
+          <ItemIcon aria-hidden>✔️</ItemIcon>
+          <ItemTitle>{item.label}</ItemTitle>
+        </ItemHead>
+        <StatusBadge $status={KHMDHS_REVIEW_STATUS.COMPLETE}>Επιλυμένο</StatusBadge>
+      </ItemTop>
+      <ResolvedMeta>
+        {formatResolutionSourceLabel(resolution.source)}
+        {resolution.resolvedAt ? ` · ${formatResolutionDate(resolution.resolvedAt)}` : ''}
+      </ResolvedMeta>
+      <PaymentPreviewList>
+        {entries.map((entry, idx) => {
+          const adam = String(entry.adam || '').trim().toUpperCase();
+          const role = roles[adam];
+          const custom = labels[adam];
+          const roleLabel = PAYMENT_DOCUMENT_ROLE_LABELS[role] || role || '—';
+          return (
+            <PaymentPreviewRow key={adam}>
+              <span>
+                <strong>Έγγραφο {idx + 1}</strong> · <code>{adam}</code>
+                {entry.gross != null ? ` · ${formatKhmdhsEuro(entry.gross)}` : ''}
+                <div style={{ marginTop: '0.2rem', color: '#475569' }}>
+                  {custom ? `Ονομασία: ${custom}` : roleLabel}
+                </div>
+              </span>
+            </PaymentPreviewRow>
+          );
+        })}
+      </PaymentPreviewList>
+      <ItemActions>
+        <MiniBtn type="button" onClick={() => onRevoke?.(key)}>
+          Αναίρεση επιλογής
+        </MiniBtn>
+      </ItemActions>
+    </ItemRow>
+  );
+}
+
 function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null, highlight = false, wizard = false }) {
   const [draft, setDraft] = useState(() => getInitialEditorValue(item, formData));
   const action = getReviewActionDescriptor(item);
@@ -1622,7 +1870,7 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
     });
   };
 
-  const tryAutoSaveField = () => {
+  const saveFieldOnEnter = () => {
     if (inputKind === 'acknowledge') return;
     const formVal = getFormValueForReviewItem(formData, item);
     if (!canSave) return;
@@ -1683,6 +1931,7 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
                     </span>
                     <MiniBtn
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={async () => {
                         const res = await openKhmdhsActOnline(p.adam);
                         if (res?.success === false && res?.error) window.alert(res.error);
@@ -1696,6 +1945,7 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
             ) : adam ? (
               <MiniBtn
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={async () => {
                   const res = await openKhmdhsActOnline(adam);
                   if (res?.success === false && res?.error) window.alert(res.error);
@@ -1712,26 +1962,26 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
             inputKind={inputKind}
             draft={draft}
             onChange={setDraft}
-            onBlur={tryAutoSaveField}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                tryAutoSaveField();
+                saveFieldOnEnter();
               }
             }}
             placeholder={inputKind === 'amount' ? 'π.χ. 12.358,58' : ''}
           />
           {canApply && (
-            <MiniBtn type="button" onClick={handleApplySuggested}>
+            <MiniBtn type="button" onMouseDown={(e) => e.preventDefault()} onClick={handleApplySuggested}>
               {action.applyLabel || 'Πρόταση'}
             </MiniBtn>
           )}
-          <MiniBtn type="button" $primary onClick={handleSave} disabled={!canSave}>
+          <MiniBtn type="button" $primary onMouseDown={(e) => e.preventDefault()} onClick={handleSave} disabled={!canSave}>
             {action.saveLabel || 'Επιβεβαίωση'}
           </MiniBtn>
           {adam && (
             <MiniBtn
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={async () => {
                 const res = await openKhmdhsActOnline(adam);
                 if (res?.success === false && res?.error) window.alert(res.error);
@@ -1951,11 +2201,27 @@ export default function KhmdhsDataReviewModal({
     return undefined;
   }, [isOpen, filter, focusWizardIndex]);
 
+  const prevPaymentsPendingRef = useRef(false);
+
   useEffect(() => {
     if (!isOpen || filter !== 'action' || unresolved.length === 0) return undefined;
     setWizardIndex((i) => Math.min(i, unresolved.length - 1));
     return undefined;
   }, [isOpen, filter, unresolved.length]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      prevPaymentsPendingRef.current = false;
+      return undefined;
+    }
+    const paymentsPending = unresolved.some((i) => i.fieldId === 'paymentsReconciliation');
+    if (filter === 'action' && prevPaymentsPendingRef.current && !paymentsPending) {
+      const paymentsResolvedByUser = resolvedByUser.some((i) => i.fieldId === 'paymentsReconciliation');
+      if (paymentsResolvedByUser) setFilter('resolved');
+    }
+    prevPaymentsPendingRef.current = paymentsPending;
+    return undefined;
+  }, [isOpen, filter, unresolved, resolvedByUser]);
 
   const renderReviewItem = useCallback((item, { stepIdx = null, highlight = false, wizard = false } = {}) => {
     const key = reviewItemKey(item);
@@ -1973,10 +2239,35 @@ export default function KhmdhsDataReviewModal({
         />
       );
     }
+    if (item.fieldId === 'paymentsReconciliation') {
+      return (
+        <PaymentClassificationCard
+          key={key}
+          item={item}
+          formData={formData}
+          review={review}
+          onResolve={onResolveItem}
+          stepIndex={stepIdx}
+          highlight={highlight}
+          wizard={wizard}
+        />
+      );
+    }
     if (filter === 'complete') {
       return <CompleteReviewCard key={key} item={item} />;
     }
     if (filter === 'resolved') {
+      if (item.fieldId === 'paymentsReconciliation') {
+        return (
+          <PaymentClassificationResolvedCard
+            key={key}
+            item={item}
+            review={review}
+            formData={formData}
+            onRevoke={onRevokeResolution}
+          />
+        );
+      }
       return (
         <ResolvedReviewCard
           key={key}

@@ -15,6 +15,7 @@ import {
 import {
   getKhmdhsSupplementaryStageEntries,
 } from './khmdhsSupplementaryStageEntries';
+import { getLatestContractApeAmount } from './khmdhsApeEntry';
 import { noticeDrivesAssignmentProcedure } from './khmdhsNoticeFields';
 import {
   CHAIN_KIND,
@@ -130,7 +131,7 @@ function buildSingleContractRow(project) {
     label: null,
     date: project.contractDate || effects?.contractDate || '',
     amount: project.contractAmount || effects?.contractAmount || '',
-    apeAmount: project.apeAmount || '',
+    apeAmount: getLatestContractApeAmount(project, 0) || project.apeAmount || '',
     contractorName: contractor.name,
     contractorVat: contractor.vat,
     deadline: buildDeadlineLine(chainHistory, review, deadlineEnd),
@@ -148,7 +149,7 @@ function buildMultiContractRow(project, contract, index) {
     label: `Σύμβαση ${index + 1}`,
     date: contract.date || '',
     amount: contract.amount || '',
-    apeAmount: contract.apeAmount || '',
+    apeAmount: getLatestContractApeAmount(project, index) || contract.apeAmount || '',
     contractorName: contractor.name,
     contractorVat: contractor.vat,
     deadline: buildDeadlineLine(chainHistory, review, project.contractEndDate),

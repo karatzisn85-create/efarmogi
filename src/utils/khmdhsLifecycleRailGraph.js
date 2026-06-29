@@ -9,16 +9,24 @@ import {
 } from './khmdhsLifecycleStages';
 import { collectKhmdhsCommitmentDecisions, getKhmdhsPaymentEntries } from './khmdhsChainExtraFields';
 import {
+  readPaymentDocumentLabelFromPayment,
+} from './khmdhsPaymentDocumentRoles';
+import {
   getKhmdhsSupplementaryStageEntries,
   buildSupplementaryStageTitle,
   isSupplementaryApeEligible,
 } from './khmdhsSupplementaryStageEntries';
 import {
   formatApeAmountDisplay,
+  getLatestContractApeEntry,
+  isLatestContractApeEntry,
+  listContractApeEntries,
   readContractApeFields,
   readSupplementaryApeFields,
   shouldShowApeSubCard,
 } from './khmdhsApeEntry';
+import { getKhmdhsAmountSanityReference } from './projectAmountUtils';
+import { formatDateEl } from './dateFormat';
 
 const APE_META = {
   id: 'APE',
@@ -82,19 +90,18 @@ function buildSymvTitle(entry, idx, total) {
     : 'Σύμβαση';
 }
 
-function buildApeSecondaryNode(project, target, parentKey, parentTitle, stageEntry = null) {
-  if (target.kind === 'supplementary' && stageEntry && !isSupplementaryApeEligible(stageEntry)) {
-    return null;
-  }
+function buildSupplementaryApeSecondaryNode(project, target, parentKey, parentTitle, stageEntry = null) {
+  if (stageEntry && !isSupplementaryApeEligible(stageEntry)) return null;
   if (!shouldShowApeSubCard(project, target, stageEntry)) return null;
 
-  const fields = target.kind === 'supplementary'
-    ? readSupplementaryApeFields(project, target.arrayIndex)
-    : readContractApeFields(project, target.arrayIndex);
-  const apeFmt = formatApeAmountDisplay(fields.apeAmount);
-  const scrollSuffix = target.kind === 'supplementary'
-    ? `supp-${target.arrayIndex}`
-    : `contract-${target.arrayIndex}`;
+  const fields = readSupplementaryApeFields(project, target.arrayIndex);
+  const sanityRef = getKhmdhsAmountSanityReference(project);
+  const apeFmt = formatApeAmountDisplay(
+    fields.apeAmount,
+    fields.khmdhsAmount,
+    sanityRef
+  );
+  const scrollSuffix = `supp-${target.arrayIndex}`;
 
   return makeNode({
     key: `${parentKey}::ape`,
@@ -110,6 +117,49 @@ function buildApeSecondaryNode(project, target, parentKey, parentTitle, stageEnt
     status: 'complete',
     parentKey,
   });
+}
+
+function buildContractApeSecondaryNodes(project, target, parentKey, parentTitle) {
+  const entries = listContractApeEntries(project, target.arrayIndex ?? 0);
+  if (!entries.length) return [];
+
+  const sanityRef = getKhmdhsAmountSanityReference(project);
+  const latestId = getLatestContractApeEntry(project, target.arrayIndex ?? 0)?.id || '';
+
+  return entries.map((apeEntry) => {
+    const fields = readContractApeFields(project, target.arrayIndex ?? 0, apeEntry.id);
+    const apeFmt = formatApeAmountDisplay(fields.apeAmount, fields.khmdhsAmount, sanityRef);
+    const apeTitleDate = fields.documentDate
+      ? formatDateEl(fields.documentDate, '')
+      : '';
+    const label = apeTitleDate
+      ? `ΑΠΕ — ${parentTitle} (${apeTitleDate})`
+      : `ΑΠΕ — ${parentTitle}`;
+    const isLatest = apeEntry.id === latestId;
+
+    return makeNode({
+      key: `${parentKey}::ape-${apeEntry.id}`,
+      stageId: 'APE',
+      tier: 'secondary',
+      label,
+      shortLabel: isLatest ? 'ΑΠΕ ★' : 'ΑΠΕ',
+      icon: '📑',
+      meta: APE_META,
+      adam: fields.diavgeiaAda || fields.sourceAdam || '',
+      badge: apeFmt ? `${apeFmt} €${isLatest ? ' · τρέχον' : ''}` : '',
+      scrollId: `stage-APE-contract-${target.arrayIndex ?? 0}-${apeEntry.id}`,
+      status: 'complete',
+      parentKey,
+    });
+  });
+}
+
+function buildApeSecondaryNodes(project, target, parentKey, parentTitle, stageEntry = null) {
+  if (target.kind === 'contract') {
+    return buildContractApeSecondaryNodes(project, target, parentKey, parentTitle);
+  }
+  const node = buildSupplementaryApeSecondaryNode(project, target, parentKey, parentTitle, stageEntry);
+  return node ? [node] : [];
 }
 
 /**
@@ -158,7 +208,7 @@ export function buildKhmdhsLifecycleRailColumns(project) {
         const adam = String(entry.adam || entry.snapshot?.referenceNumber || '').trim();
         const parentKey = `SYMV-${idx}`;
         const apeTarget = { kind: 'contract', arrayIndex, title };
-        const apeNode = buildApeSecondaryNode(project, apeTarget, parentKey, title);
+        const apeNodes = buildApeSecondaryNodes(project, apeTarget, parentKey, title);
         pushPrimary(makeNode({
           key: parentKey,
           stageId: 'SYMV',
@@ -167,28 +217,32 @@ export function buildKhmdhsLifecycleRailColumns(project) {
           adam,
           scrollId: `stage-SYMV-${idx}`,
           status: nodeStatusFromBase(stage),
-        }), apeNode ? [apeNode] : []);
+        }), apeNodes);
       });
       return;
     }
 
-    if (stage.id === 'SUPP' && stage.has) {
+    if ((stage.id === 'SUPP' || stage.id === 'EXTENSION') && stage.has) {
       const entries = getKhmdhsSupplementaryStageEntries(project);
-      entries.forEach((entry, idx) => {
+      const filtered = stage.id === 'EXTENSION'
+        ? entries.filter((e) => e.isExtension)
+        : entries.filter((e) => !e.isExtension);
+      filtered.forEach((entry, idx) => {
         const title = buildSupplementaryStageTitle(entry);
-        const parentKey = `SUPP-${idx}`;
-        const apeTarget = { kind: 'supplementary', arrayIndex: idx, title };
-        const apeNode = buildApeSecondaryNode(project, apeTarget, parentKey, title, entry);
+        const parentKey = `${stage.id}-${idx}`;
+        const apeTarget = { kind: 'supplementary', arrayIndex: entry.index - 1, title };
+        const apeNodes = buildApeSecondaryNodes(project, apeTarget, parentKey, title, entry);
         pushPrimary(makeNode({
           key: parentKey,
-          stageId: 'SUPP',
+          stageId: stage.id,
           label: title,
           shortLabel: entry.isExtension ? 'Παράτ.' : 'Συμπλ.',
           icon: entry.isExtension ? '⏱️' : '➕',
+          meta: entry.isExtension ? LIFECYCLE_STAGE_META.EXTENSION : LIFECYCLE_STAGE_META.SUPP,
           adam: entry.adam || '',
-          scrollId: `stage-SUPP-${idx}`,
+          scrollId: `stage-SUPP-${entry.index - 1}`,
           status: 'complete',
-        }), apeNode ? [apeNode] : []);
+        }), apeNodes);
       });
       return;
     }
@@ -198,11 +252,16 @@ export function buildKhmdhsLifecycleRailColumns(project) {
       if (payments.length > 1) {
         payments.forEach((p, i) => {
           const adam = String(p.adam || p.snapshot?.referenceNumber || '').trim();
+          const customLabel = readPaymentDocumentLabelFromPayment(p);
+          const nodeLabel = customLabel || `Ένταλμα ${i + 1}`;
+          const nodeShort = customLabel
+            ? (customLabel.length > 14 ? `${customLabel.slice(0, 13)}…` : customLabel)
+            : `Εντ. ${i + 1}`;
           pushPrimary(makeNode({
             key: `PAY-${i}`,
             stageId: 'PAY',
-            label: `Ένταλμα ${i + 1}`,
-            shortLabel: `Εντ. ${i + 1}`,
+            label: nodeLabel,
+            shortLabel: nodeShort,
             adam,
             scrollId: 'stage-PAY',
             status: nodeStatusFromBase(stage),

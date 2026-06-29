@@ -12,11 +12,12 @@ import {
   projectHasKhmdhsNoticeData
 } from './khmdhsNoticeFields';
 import { grossFromCostSnapshot } from './khmdhsVatHelper';
+import { parseAppDate } from './dateFormat';
 
 export function daysUntilDate(isoDate) {
   if (!isoDate) return null;
-  const target = new Date(isoDate);
-  if (Number.isNaN(target.getTime())) return null;
+  const target = parseAppDate(isoDate);
+  if (!target) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   target.setHours(0, 0, 0, 0);

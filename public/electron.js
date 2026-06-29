@@ -2758,14 +2758,7 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
       };
     }
 
-    const parseAmt = (v) => {
-      const n = parseFloat(String(v || '').replace(/\./g, '').replace(',', '.'));
-      return Number.isNaN(n) ? null : n;
-    };
-    let apeAmount = parseAmt(project.apeAmount);
-    if (apeAmount == null && Array.isArray(project.contracts) && project.contracts[0]?.apeAmount) {
-      apeAmount = parseAmt(project.contracts[0].apeAmount);
-    }
+    const apeAmount = refreshSeed.parseStoredApeAmountGross(project);
 
     const chainSvc = require('./khmdhsAdamChainService');
     const chainRes = await chainSvc.resolveKhmdhsAdamChain(seedInfo.adam, { apeAmount });

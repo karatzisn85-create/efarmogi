@@ -92,6 +92,49 @@ function isKhmdhsChainClosedSubproject(project) {
   return project?.projectStatus === KHMDHS_CHAIN_CLOSED_STATUS;
 }
 
+function readStoredApeAmountRaw(project, contractIndex = null) {
+  if (!project) return '';
+  const isMulti = project.implementationForm === 'Πολλές Συμβάσεις';
+
+  const fromSlice = (slice) => {
+    if (!slice || typeof slice !== 'object') return '';
+    const entries = Array.isArray(slice.apeEntries) ? slice.apeEntries : [];
+    if (entries.length) {
+      const sorted = [...entries].sort((a, b) => {
+        const da = String(a?.documentDate || a?.createdAt || '').slice(0, 10);
+        const db = String(b?.documentDate || b?.createdAt || '').slice(0, 10);
+        return da.localeCompare(db);
+      });
+      const latest = sorted[sorted.length - 1];
+      const fromEntry = String(latest?.apeAmount || '').trim();
+      if (fromEntry) return fromEntry;
+      const legacy = String(slice.apeAmount || '').trim();
+      if (legacy && entries.some((e) => (
+        String(e?.apeSourceAdam || '').trim()
+        || String(e?.apeDiavgeiaAda || '').trim()
+        || String(e?.apeFileName || '').trim()
+        || String(e?.comments || '').trim()
+      ))) {
+        return legacy;
+      }
+    }
+    return String(slice.apeAmount || '').trim();
+  };
+
+  if (contractIndex != null && contractIndex >= 0 && isMulti) {
+    return fromSlice(project.contracts?.[contractIndex]);
+  }
+  if (isMulti) return '';
+  return fromSlice(project);
+}
+
+function parseStoredApeAmountGross(project) {
+  const raw = readStoredApeAmountRaw(project);
+  if (!raw) return null;
+  const n = parseFloat(String(raw).replace(/\./g, '').replace(',', '.'));
+  return Number.isNaN(n) ? null : n;
+}
+
 function canUserRefreshKhmdhsOnServer(user, project) {
   if (!user || !project) return false;
   if (isKhmdhsChainClosedSubproject(project)) return false;
@@ -112,4 +155,6 @@ module.exports = {
   getKhmdhsRefreshSeedAdam,
   canUserRefreshKhmdhsOnServer,
   isKhmdhsChainClosedSubproject,
+  readStoredApeAmountRaw,
+  parseStoredApeAmountGross,
 };

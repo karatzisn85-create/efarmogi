@@ -4,6 +4,7 @@ import ProjectForm from './ProjectForm';
 
 import ProjectCard from './ProjectCard';
 import SubprojectDetailModal from './SubprojectDetailModal';
+import { KHMDHS_COMPLETED_STATUS_SUGGESTION } from '../utils/khmdhsContractExpiryPrompt';
 import { uploadSubprojectFiles, uploadSubprojectFolder } from '../utils/uploadSubprojectFiles';
 import AdvancedFilters from './AdvancedFilters';
 import ActiveFiltersBanner from './ActiveFiltersBanner';
@@ -2435,6 +2436,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const userRole = currentUser?.role || 'USER';
   const isSuperAdmin = userRole === 'SUPERADMIN';
   const canManageAll = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
+  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const isEngineer = userRole === 'ENGINEER';
   /** Στα modals εντάξεων / προσκλήσεων / εγκρίσεων ο μηχανικός συμπεριφέρεται όπως viewer */
   const userRoleForWorkflowModals = isEngineer ? 'USER' : userRole;
@@ -2541,8 +2543,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const dashboardScrollRef = useRef(null);
   const contentWrapperRef = useRef(null);
   const savedScrollPosition = useRef(0);
-  /** Scroll πριν ανοίξει η φόρμα υποέργου — δεν ενημερώνεται όσο το modal είναι ανοιχτό */
-  const dashboardScrollBeforeFormRef = useRef(null);
+  /** Scroll πριν ανοίξει modal λεπτομερειών/επεξεργασίας — δεν ενημερώνεται όσο το modal είναι ανοιχτό */
+  const dashboardScrollBeforeModalRef = useRef(null);
+  const dashboardScrollBeforeFormRef = dashboardScrollBeforeModalRef;
   const projectsListRef = useRef(null);
   const shouldRestoreScroll = useRef(false);
   /** Επιστροφή στις σημειώσεις μετά από μετάβαση από chip συσχέτισης */
@@ -2558,9 +2561,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   const captureDashboardScrollForForm = useCallback(() => {
     const y = dashboardScrollRef.current?.scrollTop ?? 0;
-    dashboardScrollBeforeFormRef.current = y;
+    dashboardScrollBeforeModalRef.current = y;
     savedScrollPosition.current = y;
   }, []);
+
+  const openSubprojectDetail = useCallback((project) => {
+    if (!project) return;
+    captureDashboardScrollForForm();
+    setSelectedDetailProject(project);
+  }, [captureDashboardScrollForForm]);
+
+  const isSubprojectDashboardModalOpen = isFormOpen || !!selectedDetailProject;
 
   const restoreDashboardScrollPosition = useCallback((y) => {
     if (y == null) return;
@@ -2580,22 +2591,43 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, []);
 
   useLayoutEffect(() => {
-    if (isFormOpen) return;
-    const y = dashboardScrollBeforeFormRef.current;
-    if (y == null) return;
-    restoreDashboardScrollPosition(y);
-    dashboardScrollBeforeFormRef.current = null;
-  }, [isFormOpen, restoreDashboardScrollPosition]);
+    const el = dashboardScrollRef.current;
+    if (!el) return undefined;
+
+    if (isSubprojectDashboardModalOpen) {
+      if (dashboardScrollBeforeModalRef.current == null) {
+        dashboardScrollBeforeModalRef.current = el.scrollTop;
+        savedScrollPosition.current = el.scrollTop;
+      }
+      el.style.overflow = 'hidden';
+      const y = dashboardScrollBeforeModalRef.current;
+      if (y != null && el.scrollTop !== y) {
+        el.scrollTop = y;
+      }
+      return undefined;
+    }
+
+    el.style.overflow = '';
+    const y = dashboardScrollBeforeModalRef.current;
+    if (y != null) {
+      restoreDashboardScrollPosition(y);
+      dashboardScrollBeforeModalRef.current = null;
+    }
+    return undefined;
+  }, [isSubprojectDashboardModalOpen, restoreDashboardScrollPosition]);
 
   useEffect(() => {
-    if (!isFormOpen) return undefined;
+    if (!isSubprojectDashboardModalOpen) return undefined;
     const dash = dashboardScrollRef.current;
     const blockDashboardScroll = (e) => {
       if (e.target.closest('[data-project-form-modal]')) return;
+      if (e.target.closest('[data-subproject-detail-modal]')) return;
       if (e.target.closest('[data-khmdhs-review-modal]')) return;
       if (e.target.closest('[data-khmdhs-situation-modal]')) return;
       if (e.target.closest('[data-khmdhs-document-registry-modal]')) return;
       if (e.target.closest('[data-khmdhs-branch-picker-modal]')) return;
+      if (e.target.closest('[data-khmdhs-symv-planner-modal]')) return;
+      if (e.target.closest('[data-khmdhs-ape-entry-modal]')) return;
       if (e.target.closest('[data-khmdhs-related-docs-modal]')) return;
       if (e.target.closest('[data-file-manager-modal]')) return;
       e.preventDefault();
@@ -2606,7 +2638,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       dash?.removeEventListener('wheel', blockDashboardScroll);
       dash?.removeEventListener('touchmove', blockDashboardScroll);
     };
-  }, [isFormOpen]);
+  }, [isSubprojectDashboardModalOpen]);
 
   useLayoutEffect(() => {
     const el = mainHeaderRef.current;
@@ -3809,7 +3841,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         }
 
         // Διατήρηση scroll — όχι ανάγνωση από container όσο το modal είναι ανοιχτό (scrollTop ≈ 0)
-        const scrollY = dashboardScrollBeforeFormRef.current ?? savedScrollPosition.current;
+        const scrollY = dashboardScrollBeforeModalRef.current ?? savedScrollPosition.current;
         savedScrollPosition.current = scrollY;
 
         invalidateCache();
@@ -3947,6 +3979,26 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         console.error('Error deleting project:', error);
         showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
       }
+    }
+  };
+
+  const handleContractExpiryAccept = async (project) => {
+    if (!project?.subprojectId) return;
+    try {
+      const updated = {
+        ...project,
+        projectStatus: KHMDHS_COMPLETED_STATUS_SUGGESTION,
+        updatedAt: new Date().toISOString(),
+      };
+      const result = await ipcRenderer.invoke('save-project-data', updated);
+      if (!result?.success) {
+        showToast(result?.error || 'Αποτυχία αποθήκευσης.', 'error');
+        return;
+      }
+      showToast('Η κατάσταση ορίστηκε σε «Ολοκληρωμένο».', 'success');
+      await loadDataWithCache(true);
+    } catch (error) {
+      showToast(error?.message || 'Σφάλμα αποθήκευσης.', 'error');
     }
   };
 
@@ -4774,11 +4826,11 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setIsMeletaiOpen(false);
     const found = projects.find((p) => p.subprojectId === subprojectId);
     if (found) {
-      setSelectedDetailProject(found);
+      openSubprojectDetail(found);
     } else {
       showToast('Δεν έχετε πρόσβαση σε αυτό το υποέργο ή δεν υπάρχει πλέον', 'warning');
     }
-  }, [projects, captureMeletiReturnContext, showToast]);
+  }, [projects, captureMeletiReturnContext, showToast, openSubprojectDetail]);
 
   const captureNoteReturnContext = useCallback(() => {
     if (!isNotesOpen) return;
@@ -4844,7 +4896,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       setQuickSearchText(title || '');
     } else if (type === 'subproject') {
       const found = projects.find(p => p.subprojectId === id);
-      if (found) setSelectedDetailProject(found);
+      if (found) openSubprojectDetail(found);
     } else if (type === 'entaxi') {
       setEntaxisProjectFilter(null);
       setSelectedEntaxiId(id);
@@ -4865,7 +4917,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       setSelectedMeletiId(id);
       setIsMeletaiOpen(true);
     }
-  }, [projects, captureNoteReturnContext]);
+  }, [projects, captureNoteReturnContext, openSubprojectDetail]);
 
   const refreshTaskAccessRef = useRef(null);
   const refreshTaskAccess = useCallback(async () => {
@@ -5321,7 +5373,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               }}
               onViewSubproject={(subprojectId) => {
                 const p = projects.find((row) => row.subprojectId === subprojectId);
-                if (p) setSelectedDetailProject(p);
+                if (p) openSubprojectDetail(p);
               }}
             />
           </Suspense>
@@ -5492,7 +5544,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                                 onOpenSpecificProsklisi={() => handleOpenSpecificProsklisi(project.projectTitle, project.projectId)}
                                 hasMeleti={hasMeletiForSubproject(project.subprojectId)}
                                 onOpenSpecificMeleti={() => handleOpenSpecificMeleti(project.subprojectId)}
-                                onViewDetails={(p) => setSelectedDetailProject(p)}
+                                onViewDetails={openSubprojectDetail}
                                 engineerCatalog={engineerCatalogForCards}
                                 linkedNotesMap={linkedNotesMap}
                                 notes={notes}
@@ -5503,6 +5555,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                                 hasDirectAssignmentViolation={directAssignmentViolationSubprojectIds.has(project.subprojectId)}
                                 onExportReport={handleExportSubprojectReport}
                                 allSubprojects={projects}
+                                onContractExpiryAccept={canManageWorkflow ? handleContractExpiryAccept : undefined}
                               />
                             );
                           })}
@@ -5873,9 +5926,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               restoreNoteReturnContext();
             }
           }}
-          onEdit={(p) => {
+          onEdit={async (p) => {
+            captureDashboardScrollForForm();
+            await handleEditProject(p);
             setSelectedDetailProject(null);
-            handleEditProject(p);
           }}
           onOpenFileManager={() => handleOpenFileManager(selectedDetailProject.projectId, selectedDetailProject.subprojectId)}
           userRole={userRole}
@@ -6506,7 +6560,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             onViewSubproject={(subprojectId) => {
               setIsProcurementCalendarOpen(false);
               const p = projects.find((x) => x.subprojectId === subprojectId);
-              if (p) setSelectedDetailProject(p);
+              if (p) openSubprojectDetail(p);
             }}
           />
         </Suspense>

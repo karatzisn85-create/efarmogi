@@ -139,31 +139,51 @@ export function getKhmdhsPaymentEntries(project) {
     .map((p) => {
       const snapshot = pickKhmdhsPaymentSnapshot(p?.snapshot);
       const org = snapshot?.organization || '';
+      const userDocumentRole = p?.userDocumentRole || '';
       return {
         adam: String(p?.adam || snapshot?.referenceNumber || '').trim(),
         snapshot,
         error: p?.error || '',
+        userDocumentRole,
+        userDocumentLabel: String(p?.userDocumentLabel || '').trim(),
         payer: org ? classifyPaymentPayer(org, { contractingOrg }) : null,
       };
     })
     .filter((p) => p.adam || p.snapshot);
 }
 
+/** Ποσό για συνόψεις UI — μετά χαρακτηρισμό χρησιμοποιεί το ποσό που μετράει. */
+export function getKhmdhsPaymentsDisplayAmountGross(totals) {
+  if (!totals) return null;
+  if (totals.hasUserClassification) return totals.countableTotalGross;
+  if (totals.coFinancingPattern?.estimatedContractorPayment != null) {
+    return totals.estimatedContractorPaymentGross;
+  }
+  return totals.rawTotalGross;
+}
+
 /** Άθροισμα ενταλμάτων (με ΦΠΑ) — ακατέργαστο & εκτιμώμενο προς εργολάβο */
 export function buildKhmdhsPaymentsTotals(project) {
   const recon = reconcileKhmdhsPaymentsFromProject(project);
-  return {
+  const base = {
     count: recon.count,
     withAmount: recon.activeCount,
     totalGross: recon.rawTotalGross,
     rawTotalGross: recon.rawTotalGross,
+    countableTotalGross: recon.countableTotalGross,
     estimatedContractorPaymentGross: recon.estimatedContractorPaymentGross,
     coFinancingPattern: recon.coFinancingPattern,
     rawExceedsContract: recon.rawExceedsContract,
     estimatedExceedsContract: recon.estimatedExceedsContract,
     needsReview: recon.needsReview,
+    needsClassification: recon.needsClassification,
+    hasUserClassification: recon.hasUserClassification,
     hasMultiplePayers: recon.hasMultiplePayers,
     entries: recon.entries,
+  };
+  return {
+    ...base,
+    displayTotalGross: getKhmdhsPaymentsDisplayAmountGross(base),
   };
 }
 
@@ -171,15 +191,35 @@ export function projectHasKhmdhsPaymentData(project) {
   return getKhmdhsPaymentEntries(project).length > 0;
 }
 
-export function buildKhmdhsPaymentDisplayGroups(snapshot, payer = null) {
+export function buildKhmdhsPaymentDisplayGroups(snapshot, payer = null, classification = null) {
   const snap = pickKhmdhsPaymentSnapshot(snapshot);
   if (!snap) return [];
 
   const mkRows = (entries) => entries.filter((r) => r && r.value);
 
+  const role = classification?.role ? String(classification.role).trim() : '';
+  const customLabel = classification?.customLabel ? String(classification.customLabel).trim() : '';
+  const roleLabel = classification?.roleLabel ? String(classification.roleLabel).trim() : '';
+  const countsTowardTotal = classification?.countsTowardTotal;
+
   const identity = mkRows([
     { label: 'Τίτλος', value: snap.title, fullWidth: true },
     { label: 'ΑΔΑΜ εντάλματος', value: snap.referenceNumber, badge: true },
+    ...(customLabel
+      ? [{ label: 'Ονομασία χαρακτηρισμού', value: customLabel, highlight: true, fullWidth: true }]
+      : []),
+    ...(roleLabel
+      ? [{
+        label: customLabel ? 'Τύπος εγγράφου' : 'Χαρακτηρισμός',
+        value: roleLabel,
+        highlight: countsTowardTotal === false,
+      }]
+      : []),
+    ...(countsTowardTotal === false
+      ? [{ label: 'Στο άθροισμα', value: 'Δεν μετράει', highlight: true }]
+      : countsTowardTotal === true
+        ? [{ label: 'Στο άθροισμα', value: 'Μετράει', highlight: true }]
+        : []),
     { label: 'Είδος', value: snap.contractType },
     ...(snap.cancelled ? [{ label: 'Κατάσταση', value: 'Ακυρωμένο', highlight: true }] : []),
   ]);

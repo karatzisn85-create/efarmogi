@@ -4,6 +4,7 @@ import { formatDateEl } from './dateFormat';
 import { formatKhmdhsDateOnly, formatKhmdhsEuro } from './khmdhsNoticeFields';
 import { plainContractAmountSource } from './khmdhsStageLabels';
 import { normalizeAmountForCompare } from './projectFormPhases';
+import { isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
 import {
   grossFromContractRecord,
   grossFromContractBudget,
@@ -32,7 +33,7 @@ export function pickKhmdhsContractSnapshot(snapshot) {
   return snapshot;
 }
 
-export function buildKhmdhsContractDisplayGroups(snapshot, { storedAmount = '' } = {}) {
+export function buildKhmdhsContractDisplayGroups(snapshot, { storedAmount = '', symvChainPlan = null } = {}) {
   const snap = pickKhmdhsContractSnapshot(snapshot);
   if (!snap) return [];
 
@@ -117,11 +118,14 @@ export function buildKhmdhsContractDisplayGroups(snapshot, { storedAmount = '' }
     }] : []),
   ]);
 
+  const nextRef = String(snap.nextRefNo || '').trim();
+  const nextRefSkipped = nextRef && isAdamSkippedInSymvPlan(symvChainPlan, nextRef);
+
   const links = mkRows([
     { label: 'Προηγ. ΑΔΑΜ', value: snap.prevReferenceNo },
-    { label: 'Επόμ. ΑΔΑΜ αλυσίδας', value: snap.nextRefNo },
-    ...(snap.nextExtended ? [{ label: 'Επόμενη πράξη', value: 'Παράταση', highlight: true }] : []),
-    ...(snap.nextModified ? [{ label: 'Επόμενη πράξη', value: 'Συμπληρωματική σύμβαση', highlight: true }] : []),
+    ...(!nextRefSkipped && nextRef ? [{ label: 'Επόμ. ΑΔΑΜ αλυσίδας', value: snap.nextRefNo }] : []),
+    ...(!nextRefSkipped && snap.nextExtended ? [{ label: 'Επόμενη πράξη', value: 'Παράταση', highlight: true }] : []),
+    ...(!nextRefSkipped && snap.nextModified ? [{ label: 'Επόμενη πράξη', value: 'Συμπληρωματική σύμβαση', highlight: true }] : []),
   ]);
 
   return [

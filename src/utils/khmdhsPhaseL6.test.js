@@ -7,13 +7,16 @@ import {
   orgNamesMatch,
 } from './khmdhsPaymentReconciliation';
 import {
+  applyReviewResolution,
+  getUserResolvedReviewItems,
+  isReviewItemResolved,
   reviewItemKey,
-  normalizeKhmdhsAdam,
-  syncKhmdhsCompleteReviewFieldsToForm,
-  refreshAmountDependentReviewItems,
   reconcileReviewState,
+  getUnresolvedReviewItems,
   extractKhmdhsAdamFromItem,
   extractPaymentAdamsFromReviewItem,
+  normalizeKhmdhsAdam,
+  syncKhmdhsCompleteReviewFieldsToForm,
   KHMDHS_REVIEW_STATUS,
 } from './khmdhsDataQualityReport';
 import {
@@ -51,6 +54,83 @@ describe('khmdhs phase L6 — payment reconciliation', () => {
     },
   ];
 
+  test('payment classification resolves review item and moves out of pending', () => {
+    const payments = case25Payments;
+    const report = buildKhmdhsDataQualityReport({
+      primaryRecord: { referenceNumber: '25SYMV017610655' },
+      amountContext: { linkedContractCount: 1 },
+      auction: { snapshot: { organization: contractingOrg, totalCostWithVAT: 12400 } },
+      contract: { adam: '25SYMV017610655', primaryAdam: '25SYMV017610655' },
+      payments,
+      formData: {
+        implementationForm: 'Μια Σύμβαση',
+        contractAmount: '12.400,00',
+        khmdhsPayments: payments,
+      },
+    });
+    const item = report.items.find((i) => i.fieldId === 'paymentsReconciliation');
+    const formData = {
+      implementationForm: 'Μια Σύμβαση',
+      contractAmount: '12.400,00',
+      khmdhsPayments: payments,
+    };
+    const review = { ...report, resolutions: {}, acknowledgedFieldIds: [] };
+    expect(isReviewItemResolved(review, formData, item)).toBe(false);
+
+    const roles = {
+      '25PAY018003274': 'co_financing_reimbursement',
+      '26PAY018328296': 'informative',
+    };
+    const { formData: nextForm, review: nextReview } = applyReviewResolution(formData, review, item, {
+      value: 'classified',
+      meta: {
+        paymentRoles: roles,
+        paymentLabels: { '26PAY018328296': 'Ενημερωτικό έγγραφο Δήμου' },
+      },
+    });
+    const refreshedItem = nextReview.items.find((i) => i.fieldId === 'paymentsReconciliation');
+    expect(isReviewItemResolved(nextReview, nextForm, refreshedItem)).toBe(true);
+    expect(getUnresolvedReviewItems(nextReview, nextForm).filter((i) => i.fieldId === 'paymentsReconciliation')).toHaveLength(0);
+    expect(getUserResolvedReviewItems(nextReview, nextForm).filter((i) => i.fieldId === 'paymentsReconciliation')).toHaveLength(1);
+    expect(nextForm.khmdhsPayments[1].userDocumentLabel).toBe('Ενημερωτικό έγγραφο Δήμου');
+  });
+
+  test('payment_order + informative resolves and appears in user-resolved tab', () => {
+    const payments = case25Payments;
+    const report = buildKhmdhsDataQualityReport({
+      primaryRecord: { referenceNumber: '25SYMV017610655' },
+      amountContext: { linkedContractCount: 1 },
+      auction: { snapshot: { organization: contractingOrg, totalCostWithVAT: 12400 } },
+      contract: { adam: '25SYMV017610655', primaryAdam: '25SYMV017610655' },
+      payments,
+      formData: {
+        implementationForm: 'Μια Σύμβαση',
+        contractAmount: '12.400,00',
+        khmdhsPayments: payments,
+      },
+    });
+    const item = report.items.find((i) => i.fieldId === 'paymentsReconciliation');
+    const formData = {
+      implementationForm: 'Μια Σύμβαση',
+      contractAmount: '12.400,00',
+      khmdhsPayments: payments,
+    };
+    const review = { ...report, resolutions: {}, acknowledgedFieldIds: [] };
+    const { formData: nextForm, review: nextReview } = applyReviewResolution(formData, review, item, {
+      value: 'classified',
+      meta: {
+        paymentRoles: {
+          '25PAY018003274': 'informative',
+          '26PAY018328296': 'payment_order',
+        },
+        paymentLabels: { '25PAY018003274': 'Ενημερωτικό Δήμου' },
+      },
+    });
+    expect(getUnresolvedReviewItems(nextReview, nextForm).filter((i) => i.fieldId === 'paymentsReconciliation')).toHaveLength(0);
+    expect(getUserResolvedReviewItems(nextReview, nextForm).filter((i) => i.fieldId === 'paymentsReconciliation')).toHaveLength(1);
+    expect(nextForm.khmdhsPayments[0].userDocumentLabel).toBe('Ενημερωτικό Δήμου');
+  });
+
   test('classifies regional fund and municipality payers', () => {
     expect(classifyPaymentPayer('ΠΕΡΙΦΕΡΕΙΑΚΟ ΤΑΜΕΙΟ ΑΝΑΠΤΥΞΗΣ ΚΡΗΤΗΣ').type).toBe('regional_fund');
     expect(classifyPaymentPayer('ΔΗΜΟΣ ΑΡΧΑΝΩΝ - ΑΣΤΕΡΟΥΣΙΩΝ', { contractingOrg }).type)
@@ -58,17 +138,15 @@ describe('khmdhs phase L6 — payment reconciliation', () => {
     expect(orgNamesMatch('ΔΗΜΟΣ ΑΡΧΑΝΩΝ-ΑΣΤΕΡΟΥΣΙΩΝ', contractingOrg)).toBe(true);
   });
 
-  test('25SYMV017610655 pattern: raw 24800, estimated 12400, no review required', () => {
+  test('25SYMV017610655 pattern: raw 24800, needs classification until user roles', () => {
     const recon = reconcileKhmdhsPayments(case25Payments, {
       contractAmountGross: 12400,
       contractingOrg,
     });
     expect(recon.rawTotalGross).toBe(24800);
-    expect(recon.estimatedContractorPaymentGross).toBe(12400);
     expect(recon.coFinancingPattern).toBeTruthy();
-    expect(recon.needsReview).toBe(false);
-    expect(recon.rawExceedsContract).toBe(true);
-    expect(recon.estimatedExceedsContract).toBe(false);
+    expect(recon.needsClassification).toBe(true);
+    expect(recon.needsReview).toBe(true);
   });
 
   test('two municipality payments at full contract triggers review', () => {
@@ -87,7 +165,7 @@ describe('khmdhs phase L6 — payment reconciliation', () => {
     expect(recon.needsReview).toBe(true);
   });
 
-  test('DQR item complete for co-financing case', () => {
+  test('DQR item needs review for co-financing case until classified', () => {
     const report = buildKhmdhsDataQualityReport({
       primaryRecord: { referenceNumber: '25SYMV017610655', title: 'Test', contractBudget: 10000 },
       amountContext: { linkedContractCount: 1 },
@@ -100,9 +178,8 @@ describe('khmdhs phase L6 — payment reconciliation', () => {
     });
     const item = report.items.find((i) => i.fieldId === 'paymentsReconciliation');
     expect(item).toBeTruthy();
-    expect(item.status).toBe('complete');
-    expect(item.message).toMatch(/συγχρηματοδότησης/i);
-    expect(item.status).not.toBe('needs_review');
+    expect(item.status).toBe('needs_review');
+    expect(item.message).toMatch(/χαρακτηρίστε/i);
   });
 
   test('DQR item needs review when sum exceeds without pattern', () => {
@@ -159,6 +236,36 @@ describe('khmdhs phase L6 — payment reconciliation', () => {
     expect(refText).not.toMatch(/267\.824,46/);
     expect(updated.status).toBe('complete');
     expect(refreshed.acknowledgedFieldIds || []).not.toContain('paymentsReconciliation::shared');
+  });
+
+  test('διατηρεί επιβεβαίωση ενταλμάτων όταν τα ποσά δεν άλλαξαν', () => {
+    const payments = [
+      { adam: '24PAY016003483', snapshot: { organization: 'ΔΗΜΟΣ', totalCostWithVAT: 200000 } },
+    ];
+    const report = buildKhmdhsDataQualityReport({
+      primaryRecord: { referenceNumber: '22SYMV011799800', contractBudget: 215987.47 },
+      amountContext: { linkedContractCount: 1, contextualVatRate: 0.24 },
+      auction: {
+        adam: '22AWRD011136485',
+        snapshot: { organization: 'ΔΗΜΟΣ', totalCostWithVAT: 267823.47 },
+      },
+      contract: { adam: '22SYMV011799800', primaryAdam: '22SYMV011799800' },
+      payments,
+    });
+    const payItem = report.items.find((i) => i.fieldId === 'paymentsReconciliation');
+    const review = {
+      ...report,
+      acknowledgedFieldIds: ['paymentsReconciliation::shared'],
+      resolutions: { 'paymentsReconciliation::shared': { value: 'confirmed' } },
+    };
+    const form = {
+      implementationForm: 'Μια Σύμβαση',
+      contractAmount: '267.824,46',
+    };
+    const refreshed = reconcileReviewState(review, form);
+    expect(refreshed.acknowledgedFieldIds || []).toContain('paymentsReconciliation::shared');
+    expect(refreshed.resolutions['paymentsReconciliation::shared']?.value).toBe('confirmed');
+    expect(getUnresolvedReviewItems(refreshed, form).filter((i) => i.fieldId === 'paymentsReconciliation')).toHaveLength(0);
   });
 
   test('payments review preview uses PAY ADAM not contract ADAM', () => {

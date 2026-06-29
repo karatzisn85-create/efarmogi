@@ -642,6 +642,8 @@ function pickKhmdhsSnapshot(snapshot) {
     nextModified: snapshot.nextModified === true,
     noticeReferenceNumber: snapshot.noticeReferenceNumber || null,
     auctionRefNo: snapshot.auctionRefNo || null,
+    submissionDate: snapshot.submissionDate || null,
+    lastUpdateDate: snapshot.lastUpdateDate || null,
   };
   const hasData = out.anadoxosName || out.anadoxosVat || out.assigningAuthority
     || out.referenceNumber || out.contractSignedDate || out.contractBudget != null

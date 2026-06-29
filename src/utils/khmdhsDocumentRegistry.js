@@ -16,7 +16,7 @@ import { formatKhmdhsDateOnly } from './khmdhsNoticeFields';
 import { getKhmdhsDisplayEntries, parseGreekAmountString } from './khmdhsFields';
 import { getChainKindChoice, enrichChainHistoryWithReview, CHAIN_KIND_LABEL } from './khmdhsChainActions';
 import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEntries';
-import { getSymvPlanCustomLabel, overlaySymvPlanLabelsOnChainHistory, SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
+import { getSymvPlanCustomLabel, overlaySymvPlanLabelsOnChainHistory, SYMV_CHAIN_ROLE, isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
 
 export const KHMDHS_REGISTRY_STAGE_ORDER = ['REQ', 'COMMIT', 'PROC', 'AWRD', 'SYMV', 'APE', 'PAY', 'RELATED'];
 
@@ -196,6 +196,7 @@ function entryFromContract({ adam, snapshot, fetchedAt, roleLabel, title, amount
 
 function entryFromPayment(block) {
   if (!block?.adam) return null;
+  const customLabel = String(block.userDocumentLabel || block.roleLabel || '').trim();
   // Αποτυχημένη ανάκτηση: δημιουργούμε stub ώστε το ένταλμα να εμφανίζεται στο registry
   if (block.error && !block.snapshot) {
     return buildRegistryEntry({
@@ -203,6 +204,7 @@ function entryFromPayment(block) {
       snapshot: null,
       stage: 'PAY',
       type: 'PAY',
+      roleLabel: customLabel,
       isStub: true,
     });
   }
@@ -216,6 +218,7 @@ function entryFromPayment(block) {
     subtitle: snap?.organization || '',
     amount: snap ? (formatKhmdhsCostSnapshotGross(snap) || '') : '',
     date: snap?.signedDate ? formatKhmdhsDateOnly(snap.signedDate) : '',
+    roleLabel: customLabel,
     fetchedAt: block.fetchedAt,
   });
 }
@@ -308,14 +311,20 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes) {
  *  - ή έχει αυτόματα ανιχνευμένο kind (εκτός "uncertain") — π.χ. modification/extension
  *    Αυτό εξασφαλίζει ότι εγγραφές δεν εξαφανίζονται μετά τον χαρακτηρισμό μίας από αυτές.
  */
-export function shouldIncludeChainHistoryInRegistry(h, review) {
+export function shouldIncludeChainHistoryInRegistry(h, review, project = null) {
   if (!h?.adam || h.cancelled) return false;
+  if (isAdamSkippedInSymvPlan(project, h.adam)) return false;
   if (h.isRoot) return true;
-  // Ρητός χαρακτηρισμός από τον χρήστη
-  if (!!getChainKindChoice(review, h.adam)?.kind) return true;
-  // Αυτόματα ανιχνευμένο kind (effectiveKind από εμπλουτισμένη εγγραφή ή h.kind)
+  const choice = getChainKindChoice(review, h.adam);
+  if (choice?.note === 'Αποκλείστηκε στη κατανομή SYMV') return false;
+  if (!!choice?.kind) return true;
   const kind = h.effectiveKind || h.kind;
   return !!kind && kind !== 'uncertain';
+}
+
+export function filterRegistryCandidatesBySymvPlan(candidates, project) {
+  if (!project?.khmdhsSymvChainPlan?.items?.length) return candidates || [];
+  return (candidates || []).filter((c) => !isAdamSkippedInSymvPlan(project, c.adam));
 }
 
 function buildRegistrySuppAmountDateLookup(project) {
@@ -427,7 +436,7 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
       amount: entry.storedAmount,
     }));
     (entry.chainHistory || []).forEach((h) => {
-      if (!shouldIncludeChainHistoryInRegistry(h, review)) return;
+      if (!shouldIncludeChainHistoryInRegistry(h, review, project)) return;
       const effectiveLabel = resolveChainHistoryRoleLabel(h, review, project);
       const { amount, date } = resolveRegistryContractAmountDate(
         suppLookup,
@@ -465,7 +474,7 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
       project.khmdhsSymvChainPlan
     );
     enrichedFallbackHistory.forEach((h) => {
-      if (!shouldIncludeChainHistoryInRegistry(h, review)) return;
+      if (!shouldIncludeChainHistoryInRegistry(h, review, project)) return;
       const effectiveLabel = resolveChainHistoryRoleLabel(h, review, project);
       const { amount, date } = resolveRegistryContractAmountDate(
         suppLookup,
@@ -486,7 +495,15 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
   }
 
   getKhmdhsPaymentEntries(project).forEach((p) => {
-    pushUnique(map, entryFromPayment(p));
+    const paymentBlock = (project?.khmdhsPayments || []).find(
+      (row) => normalizeAdam(row?.adam || row?.snapshot?.referenceNumber) === normalizeAdam(p.adam)
+    ) || p;
+    pushUnique(map, entryFromPayment({
+      ...paymentBlock,
+      adam: p.adam,
+      snapshot: p.snapshot,
+      userDocumentLabel: paymentBlock?.userDocumentLabel || '',
+    }));
   });
 
   return annotateRegistryLinkLabels([...map.values()]);
@@ -512,6 +529,7 @@ export function publicationDocumentLabel(noticeType, index = 1, total = 1) {
 
 function resolveChainHistoryRoleLabel(h, review, project) {
   const adam = normalizeAdam(h?.adam);
+  if (isAdamSkippedInSymvPlan(project, adam)) return '';
   const custom = getSymvPlanCustomLabel(project?.khmdhsSymvChainPlan, adam);
   if (custom) return custom;
 
@@ -642,7 +660,9 @@ export function annotateRegistryLinkLabels(entries) {
         linkLabel = contractLinkLabel(entry.roleLabel, idx, total);
         break;
       case 'PAY':
-        linkLabel = `Ένταλμα πληρωμής${suffix}`;
+        linkLabel = entry.roleLabel
+          ? entry.roleLabel
+          : `Ένταλμα πληρωμής${suffix}`;
         break;
       case 'RELATED':
         linkLabel = entry.linkLabel || entry.title || `Σχετικό έγγραφο${suffix}`;
@@ -785,9 +805,12 @@ export function buildRegistryModalPayloadAfterReview(project, chainFetchedAt = '
     ? collectKhmdhsRegistryCandidatesFromChainRes(chainRes)
     : [];
   const fromProject = collectKhmdhsRegistryCandidatesFromProject(project);
-  const candidates = fromChain.length
-    ? mergeRegistryCandidateLists(fromChain, fromProject)
-    : fromProject;
+  const candidates = filterRegistryCandidatesBySymvPlan(
+    fromChain.length
+      ? mergeRegistryCandidateLists(fromChain, fromProject)
+      : fromProject,
+    project
+  );
   const existing = project?.khmdhsDocumentRegistry || [];
   return {
     candidates,

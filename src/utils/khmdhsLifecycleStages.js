@@ -75,6 +75,16 @@ export const LIFECYCLE_STAGE_META = {
     bg: '#f5f3ff',
     border: 'rgba(124, 58, 237, 0.35)',
   },
+  EXTENSION: {
+    id: 'EXTENSION',
+    label: 'Παρατάσεις',
+    shortLabel: 'Παράτ.',
+    icon: '⏱️',
+    accent: '#9333ea',
+    accentDark: '#7e22ce',
+    bg: '#faf5ff',
+    border: 'rgba(147, 51, 234, 0.35)',
+  },
   PAY: {
     id: 'PAY',
     label: 'Εντάλματα πληρωμής',
@@ -148,14 +158,29 @@ function getCommitmentStageInfo(project) {
 
 function getSupplementaryStageInfo(project) {
   const entries = getKhmdhsSupplementaryStageEntries(project);
-  if (entries.length === 0) {
+  const supplementaries = entries.filter((e) => !e.isExtension);
+  if (supplementaries.length === 0) {
     return { has: false, adam: '', cancelled: false, extraLabel: null };
   }
   return {
     has: true,
-    adam: entries[0].adam || '',
+    adam: supplementaries[0].adam || '',
     cancelled: false,
-    extraLabel: entries.length > 1 ? `${entries.length}× συμπλ.` : null,
+    extraLabel: supplementaries.length > 1 ? `${supplementaries.length}× συμπλ.` : null,
+  };
+}
+
+function getExtensionStageInfo(project) {
+  const entries = getKhmdhsSupplementaryStageEntries(project);
+  const extensions = entries.filter((e) => e.isExtension);
+  if (extensions.length === 0) {
+    return { has: false, adam: '', cancelled: false, extraLabel: null };
+  }
+  return {
+    has: true,
+    adam: extensions[0].adam || '',
+    cancelled: false,
+    extraLabel: extensions.length > 1 ? `${extensions.length}× παράτ.` : null,
   };
 }
 
@@ -345,6 +370,7 @@ export function buildKhmdhsLifecycleStages(project) {
   // Προαιρετικά στάδια: εμφανίζονται μόνο όταν υπάρχουν δεδομένα, χωρίς να αλλοιώνουν τη βασική ροή
   const commitment = getCommitmentStageInfo(project);
   const supplementaries = getSupplementaryStageInfo(project);
+  const extensions = getExtensionStageInfo(project);
   const payments = getPaymentsStageInfo(project);
 
   const result = [];
@@ -355,6 +381,14 @@ export function buildKhmdhsLifecycleStages(project) {
         ...LIFECYCLE_STAGE_META.COMMIT,
         ...commitment,
         status: commitment.cancelled ? 'cancelled' : 'complete',
+        optional: true,
+      });
+    }
+    if (s.id === 'SYMV' && extensions.has) {
+      result.push({
+        ...LIFECYCLE_STAGE_META.EXTENSION,
+        ...extensions,
+        status: 'complete',
         optional: true,
       });
     }

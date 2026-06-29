@@ -2,8 +2,10 @@
  * Λογική ποσών συμπληρωματικών — αποφυγή λάθος αυτόματης συμπλήρωσης από ΚΗΜΔΗΣ.
  */
 
-import { parseGreekAmountString } from './khmdhsFields';
+import { isMultipleContractsForm, parseGreekAmountString } from './khmdhsFields';
 import { grossFromContractRecord } from './khmdhsVatHelper';
+import { chainKindReviewResolutionKey } from './khmdhsDataQualityReport';
+import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
 
 const MOD_AMOUNT_TYPE = {
   DELTA: 'delta',
@@ -36,6 +38,84 @@ export function normalizeSuspiciousKhmdhsGross(amount, runningTotal) {
     return scaled;
   }
   return n;
+}
+
+function isExtensionSupplementaryRow(row, project) {
+  if (!row) return false;
+  if (row.chainKind === 'extension') return true;
+  const comment = String(row.comments || '').trim();
+  if (comment === 'Παράταση') return true;
+  const adam = String(row.khmdhsAdam || '').trim().toUpperCase();
+  if (!adam) return false;
+  const planItem = (project?.khmdhsSymvChainPlan?.items || []).find(
+    (i) => String(i?.adam || '').trim().toUpperCase() === adam
+  );
+  return planItem?.role === SYMV_CHAIN_ROLE.EXTENSION;
+}
+
+function readSupplementaryAmountType(row, project) {
+  if (row?.amountType) return row.amountType;
+  const adam = String(row?.khmdhsAdam || '').trim().toUpperCase();
+  if (!adam || !project?.khmdhsDataQualityReview?.resolutions) return null;
+  const key = chainKindReviewResolutionKey(adam);
+  return project.khmdhsDataQualityReview.resolutions[key]?.meta?.modAmountType || null;
+}
+
+function sortSupplementaryRows(rows = []) {
+  return [...rows].sort((a, b) => {
+    const da = String(a?.date || '').slice(0, 10) || '9999';
+    const db = String(b?.date || '').slice(0, 10) || '9999';
+    return da.localeCompare(db);
+  });
+}
+
+function resolveSupplementaryContribution(row, project, runningTotal) {
+  const raw = String(row?.amount || '').trim();
+  if (!raw) return 0;
+
+  let amount = normalizeSuspiciousKhmdhsGross(parseGreekAmountString(raw), runningTotal);
+  if (!amount || amount <= 0) return 0;
+
+  const amountType = readSupplementaryAmountType(row, project) || MOD_AMOUNT_TYPE.DELTA;
+  let delta = amount;
+
+  if (amountType === MOD_AMOUNT_TYPE.TOTAL && runningTotal > 0) {
+    delta = amount - runningTotal;
+  } else if (runningTotal > 0 && amount > runningTotal * 1.02) {
+    const asTotalDelta = amount - runningTotal;
+    if (isPlausibleSupplementaryDelta(asTotalDelta, runningTotal)) {
+      delta = asTotalDelta;
+    } else if (!isPlausibleSupplementaryDelta(amount, runningTotal)) {
+      return 0;
+    }
+  }
+
+  if (!isPlausibleSupplementaryDelta(delta, runningTotal)) return 0;
+  return delta;
+}
+
+/**
+ * Τρέχον συνολικό ποσό σύμβασης (αρχική + νόμιμες συμπληρωματικές, όχι παρατάσεις).
+ * Αποφεύγει διπλομέτρηση όταν τα ποσά από ΚΗΜΔΗΣ/SYMV είναι «νέα συνολική αξία».
+ */
+export function computeProjectContractTotal(project) {
+  if (!project) return 0;
+
+  let running = 0;
+  if (isMultipleContractsForm(project.implementationForm)) {
+    (project.contracts || []).forEach((c) => {
+      running += parseGreekAmountString(c?.amount);
+    });
+  } else {
+    running += parseGreekAmountString(project.contractAmount);
+  }
+
+  sortSupplementaryRows(project.supplementaryContracts || []).forEach((row) => {
+    if (isExtensionSupplementaryRow(row, project)) return;
+    running += resolveSupplementaryContribution(row, project, running);
+  });
+
+  return running;
 }
 
 function grossFromChainEntry(h, runningTotal) {

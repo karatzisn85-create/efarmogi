@@ -2,6 +2,7 @@
  * Εφαρμογή αποτελέσματος ανάκτησης αλυσίδας ΚΗΜΔΗΣ σε δεδομένα υποέργου.
  */
 import { isMultipleContractsForm, emptyKhmdhsOnContract, resolveStoredApeAmount } from './khmdhsFields';
+import { syncPreservedContractApeAmount, hasRealStoredContractApe, emptyLegacyApeFields, stripPhantomContractApeFromForm } from './khmdhsApeEntry';
 import { applyParallelContractAmountHints, resolveParallelContractSiblings } from './khmdhsParallelContractApply';
 import { shouldOfferSymvChainPlanner } from './khmdhsSymvChainPlanner';
 import { applySymvChainPlanToForm } from './khmdhsSymvChainApply';
@@ -336,8 +337,7 @@ export function applyAdamChainResult(prev, chainRes, {
       contractDate: '',
       contractEndDate: '',
       contractAmount: '',
-      apeAmount: '',
-      apeComments: '',
+      ...emptyLegacyApeFields(),
       hasSupplementaryContracts: false,
       supplementaryContracts: [],
     };
@@ -396,9 +396,16 @@ export function applyAdamChainResult(prev, chainRes, {
     next = mergeKhmdhsSupplementaryIntoForm(next);
 
     let apeConflict = null;
-    const userApe = resolveStoredApeAmount(workingPrev);
+    const userApe = hasRealStoredContractApe(workingPrev, 0)
+      ? resolveStoredApeAmount(workingPrev)
+      : '';
     const apeRes = applyApeFromChain(userApe, suggestedApe);
     next.apeAmount = apeRes.ape;
+    if (apeRes.ape && hasRealStoredContractApe(workingPrev, 0)) {
+      next = { ...next, ...syncPreservedContractApeAmount(next, 0, apeRes.ape, workingPrev) };
+    } else {
+      next = stripPhantomContractApeFromForm(next, workingPrev);
+    }
     if (apeRes.conflict) {
       apeConflict = { ...apeRes.conflict, contractIndex: null, contractLabel: '' };
     }
@@ -447,13 +454,17 @@ export function applyAdamChainResult(prev, chainRes, {
   if (chainRes.contract) {
     const ff = chainRes.contract.formFields || {};
     const prevRow = contracts[idx];
-    const userApe = resolveStoredApeAmount(workingPrev, idx);
+    const userApe = hasRealStoredContractApe(workingPrev, idx)
+      ? resolveStoredApeAmount(workingPrev, idx)
+      : '';
     const apeRes = applyApeFromChain(userApe, suggestedApe);
     const snapEnd = chainRes.contract.snapshot?.noEndDate
       ? ''
       : String(chainRes.contract.snapshot?.endDate || '').slice(0, 10);
+    const apeClearPatch = hasRealStoredContractApe(workingPrev, idx) ? {} : emptyLegacyApeFields();
     contracts[idx] = {
       ...prevRow,
+      ...apeClearPatch,
       khmdhsAdam: chainRes.contract.adam,
       khmdhsContractSnapshot: chainRes.contract.snapshot,
       khmdhsContractFetchedAt: chainRes.contract.fetchedAt,
@@ -465,6 +476,15 @@ export function applyAdamChainResult(prev, chainRes, {
       khmdhsContractChainHistory: chainRes.contractChainHistory || [],
       khmdhsContractAmendments: chainRes.contractAmendments || [],
     };
+    if (apeRes.ape && hasRealStoredContractApe(workingPrev, idx)) {
+      const syncPatch = syncPreservedContractApeAmount(
+        { ...workingPrev, contracts },
+        idx,
+        apeRes.ape,
+        workingPrev,
+      );
+      if (syncPatch.contracts) contracts = syncPatch.contracts;
+    }
     if (apeRes.conflict) {
       apeConflict = {
         ...apeRes.conflict,

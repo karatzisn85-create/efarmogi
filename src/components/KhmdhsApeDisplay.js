@@ -8,6 +8,7 @@ import {
   readContractApeFields,
   readSupplementaryApeFields,
 } from '../utils/khmdhsApeEntry';
+import { getKhmdhsAmountSanityReference } from '../utils/projectAmountUtils';
 import { buildKhmdhsOpenUrl } from '../utils/khmdhsPortalLinks';
 
 const LinkBtn = styled.button`
@@ -76,8 +77,9 @@ export default function KhmdhsApeDisplay({
 
   const groups = useMemo(() => {
     const out = [];
-    const khmdhsFmt = formatApeAmountDisplay(fields.khmdhsAmount);
-    const apeFmt = formatApeAmountDisplay(fields.apeAmount);
+    const sanityRef = getKhmdhsAmountSanityReference(project);
+    const khmdhsFmt = formatApeAmountDisplay(fields.khmdhsAmount, '', sanityRef);
+    const apeFmt = formatApeAmountDisplay(fields.apeAmount, fields.khmdhsAmount, sanityRef);
     const amountRows = [];
     if (fields.documentDate) {
       amountRows.push({
@@ -133,10 +135,11 @@ export default function KhmdhsApeDisplay({
     }
 
     return out;
-  }, [fields, fileRef]);
+  }, [fields, fileRef, project]);
 
+  const sanityRef = getKhmdhsAmountSanityReference(project);
   const summaryChips = [];
-  const apeFmt = formatApeAmountDisplay(fields.apeAmount);
+  const apeFmt = formatApeAmountDisplay(fields.apeAmount, fields.khmdhsAmount, sanityRef);
   if (apeFmt) {
     summaryChips.push({ label: 'ΑΠΕ', value: `${apeFmt} €`, strong: true, highlight: true });
   }

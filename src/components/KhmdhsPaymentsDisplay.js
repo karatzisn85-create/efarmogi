@@ -9,6 +9,13 @@ import {
 } from '../utils/khmdhsChainExtraFields';
 import { formatKhmdhsEuro } from '../utils/khmdhsNoticeFields';
 import { resolveEffectivePayableAmountGrossForPayments } from '../utils/khmdhsFields';
+import {
+  PAYMENT_DOCUMENT_ROLE_LABELS,
+  paymentDisplayTitle,
+  readPaymentDocumentLabelFromPayment,
+  readPaymentDocumentRoleFromPayment,
+  paymentRoleCountsTowardTotal,
+} from '../utils/khmdhsPaymentDocumentRoles';
 
 const Stack = styled.div`
   display: flex;
@@ -85,9 +92,11 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
   const hasPayableRef = refAmount != null && refAmount > 0;
   const refLabel = 'τελικό πληρωτέο ποσό';
 
-  const compareAmount = totals.coFinancingPattern
-    ? totals.estimatedContractorPaymentGross
-    : totals.rawTotalGross;
+  const compareAmount = totals.hasUserClassification
+    ? totals.countableTotalGross
+    : (totals.coFinancingPattern
+      ? totals.estimatedContractorPaymentGross
+      : totals.rawTotalGross);
 
   let compare = null;
   if (refAmount != null && compareAmount > 0) {
@@ -103,7 +112,22 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
           <TotalLabel>Πλήθος ενταλμάτων</TotalLabel>
           <TotalValue>{totals.count}</TotalValue>
         </TotalChip>
-        {totals.coFinancingPattern ? (
+        {totals.hasUserClassification ? (
+          <>
+            <TotalChip>
+              <TotalLabel>Σύνολο που μετράει (με ΦΠΑ)</TotalLabel>
+              <TotalValue>{formatKhmdhsEuro(totals.countableTotalGross)}</TotalValue>
+            </TotalChip>
+            {Math.abs((totals.rawTotalGross || 0) - (totals.countableTotalGross || 0)) > 0.5 && (
+              <TotalChip>
+                <TotalLabel>Ακατέργαστο (όλα τα έγγραφα)</TotalLabel>
+                <TotalValue style={{ fontSize: '0.82rem', fontWeight: 700, color: '#64748b' }}>
+                  {formatKhmdhsEuro(totals.rawTotalGross)}
+                </TotalValue>
+              </TotalChip>
+            )}
+          </>
+        ) : totals.coFinancingPattern ? (
           <>
             <TotalChip>
               <TotalLabel>Άθροισμα ενταλμάτων (με ΦΠΑ)</TotalLabel>
@@ -120,11 +144,16 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
             <TotalValue>{formatKhmdhsEuro(totals.rawTotalGross)}</TotalValue>
           </TotalChip>
         )}
-        {totals.coFinancingPattern && (
+        {totals.coFinancingPattern && !totals.hasUserClassification && (
           <InfoNote>
             Εντοπίστηκε μοτίβο συγχρηματοδότησης (Δήμος + Περιφερειακό Ταμείο): το άθροισμα των ενταλμάτων
             δεν αντιστοιχεί απαραίτητα σε διπλή πληρωμή εργολάβου — συνήθως το Ταμείο αποζημιώνει τον Δήμο.
           </InfoNote>
+        )}
+        {totals.hasUserClassification && !totals.needsClassification && compare && !compare.over && (
+          <CompareNote>
+            Μετά τους χαρακτηρισμούς σας το ποσό που μετράει συμφωνεί με το {refLabel}.
+          </CompareNote>
         )}
         {compare && (
           <CompareNote $warn={compare.over || totals.needsReview}>
@@ -133,10 +162,14 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
               : `${compare.pct}% του ${refLabel}`}
           </CompareNote>
         )}
-        {totals.needsReview && !totals.coFinancingPattern && (
+        {totals.needsReview && !totals.hasUserClassification && !totals.coFinancingPattern && (
           <CompareNote $warn>
-            Το άθροισμα των ενταλμάτων υπερβαίνει το {refLabel} χωρίς αναγνωρισμένο μοτίβο συγχρηματοδότησης.
-            {' '}Ελέγξτε ποσό σύμβασης, ΑΠΕ (τελικό διαμορφωθέν) και συμπληρωματικές στη φόρμα του υποέργου.
+            Το άθροισμα των εγγράφων υπερβαίνει το {refLabel} — ανοίξτε τον «Έλεγχο δεδομένων ΚΗΜΔΗΣ» για χαρακτηρισμό κάθε εγγράφου.
+          </CompareNote>
+        )}
+        {totals.needsReview && totals.coFinancingPattern && !totals.hasUserClassification && (
+          <CompareNote $warn>
+            Υπάρχουν πολλαπλά έγγραφα με το ίδιο ποσό — επιβεβαιώστε ποιο είναι ένταλμα πληρωμής και ποιο ενημερωτικό ή αποζημίωση συγχρηματοδότησης.
           </CompareNote>
         )}
       </TotalsBar>
@@ -150,9 +183,33 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
             </ErrorRow>
           );
         }
-        const groups = buildKhmdhsPaymentDisplayGroups(entry.snapshot, entry.payer);
+        const role = readPaymentDocumentRoleFromPayment(entry);
+        const customLabel = readPaymentDocumentLabelFromPayment(entry);
+        const typeLabel = PAYMENT_DOCUMENT_ROLE_LABELS[role] || '';
+        const groups = buildKhmdhsPaymentDisplayGroups(entry.snapshot, entry.payer, {
+          role,
+          customLabel,
+          roleLabel: typeLabel,
+          countsTowardTotal: paymentRoleCountsTowardTotal(role),
+        });
         const amount = formatKhmdhsEuro(entry.snapshot.totalCostWithVAT);
         const summaryChips = [];
+        if (entry.userDocumentRole || customLabel) {
+          if (customLabel) {
+            summaryChips.push({
+              label: 'Ονομασία',
+              value: customLabel,
+              warn: !paymentRoleCountsTowardTotal(role),
+            });
+          }
+          if (typeLabel && (customLabel || !paymentRoleCountsTowardTotal(role))) {
+            summaryChips.push({
+              label: customLabel ? 'Τύπος' : 'Χαρακτηρισμός',
+              value: typeLabel,
+              warn: !paymentRoleCountsTowardTotal(role),
+            });
+          }
+        }
         if (entry.payer?.shortLabel) {
           summaryChips.push({ label: 'Φορέας', value: entry.payer.shortLabel, strong: true });
         }
@@ -162,7 +219,7 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
           <KhmdhsPanelDisplay
             key={entry.adam || `pay-${idx}`}
             themeKey="payment"
-            title={`💶 Ένταλμα πληρωμής${entries.length > 1 ? ` ${idx + 1}` : ''}`}
+            title={paymentDisplayTitle(role, idx, entries.length, customLabel)}
             adam={entry.adam || entry.snapshot.referenceNumber}
             cardSubtitle={entry.snapshot.title || ''}
             groups={groups}

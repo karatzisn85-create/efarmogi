@@ -33,8 +33,9 @@ describe('khmdhsLifecycleRailGraph', () => {
     expect(symvCol).toBeTruthy();
     expect(symvCol.secondaries.some((s) => s.stageId === 'APE')).toBe(true);
 
-    const extCol = columns.find((c) => c.primary.label === 'Παράταση' || c.primary.shortLabel === 'Παράτ.');
+    const extCol = columns.find((c) => c.primary.stageId === 'EXTENSION');
     expect(extCol).toBeTruthy();
+    expect(extCol.primary.shortLabel).toBe('Παράτ.');
     expect(extCol.secondaries).toHaveLength(0);
 
     expect(countKhmdhsLifecycleRailNodes(columns)).toBeGreaterThan(columns.length);

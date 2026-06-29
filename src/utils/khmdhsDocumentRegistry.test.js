@@ -8,9 +8,12 @@ import {
   enrichRegistryLinkLabel,
   annotateRegistryLinkLabels,
   shouldIncludeChainHistoryInRegistry,
+  filterRegistryCandidatesBySymvPlan,
   shouldOfferRegistryAfterReview,
 } from './khmdhsDocumentRegistry';
 import { CHAIN_KIND } from './khmdhsChainActions';
+import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
+import { buildKhmdhsContractDisplayGroups } from './khmdhsContractDisplayFields';
 
 describe('khmdhsDocumentRegistry deferred flow', () => {
   const modAdam = '24SYMV015124092';
@@ -76,6 +79,59 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
         { resolutions: { [`chainKindReview::${modAdam}`]: { value: CHAIN_KIND.MODIFICATION } } }
       )
     ).toBe(true);
+  });
+
+  it('excludes SYMV plan SKIP from registry and contract next-act hints', () => {
+    const skippedAdam = '25SYMV017590502';
+    const project = {
+      khmdhsAdam: rootAdam,
+      khmdhsContractSnapshot: { referenceNumber: rootAdam, nextRefNo: skippedAdam, nextModified: true },
+      khmdhsSymvChainPlan: {
+        items: [{ adam: skippedAdam, role: SYMV_CHAIN_ROLE.SKIP }],
+      },
+      khmdhsContractChainHistory: [
+        { adam: rootAdam, isRoot: true, label: 'Αρχική σύμβαση' },
+        { adam: skippedAdam, label: 'Συμπληρωματική σύμβαση', kind: 'modification' },
+      ],
+    };
+    expect(shouldIncludeChainHistoryInRegistry({ adam: skippedAdam }, null, project)).toBe(false);
+    const adams = collectKhmdhsRegistryCandidatesFromProject(project).map((c) => c.adam);
+    expect(adams).not.toContain(skippedAdam);
+
+    const chainRes = {
+      success: true,
+      contract: { adam: rootAdam, snapshot: { referenceNumber: rootAdam } },
+      contractChainHistory: [
+        { adam: skippedAdam, label: 'Συμπληρωματική σύμβαση', kind: 'modification' },
+      ],
+    };
+    const { candidates } = buildRegistryModalPayloadAfterReview(project, '2026-01-01', chainRes);
+    expect(candidates.map((c) => c.adam)).not.toContain(skippedAdam);
+
+    const groups = buildKhmdhsContractDisplayGroups(project.khmdhsContractSnapshot, {
+      symvChainPlan: project.khmdhsSymvChainPlan,
+    });
+    const linkRows = groups.filter((g) => g.id === 'links').flatMap((g) => g.rows || []);
+    expect(linkRows.some((r) => /Επόμενη πράξη/i.test(r.label))).toBe(false);
+    expect(linkRows.some((r) => /Επόμ\. ΑΔΑΜ/i.test(r.label))).toBe(false);
+  });
+
+  it('filterRegistryCandidatesBySymvPlan removes skipped adams', () => {
+    const skipped = '25SYMV017590502';
+    const kept = '25SYMV017590605';
+    const project = {
+      khmdhsSymvChainPlan: {
+        items: [
+          { adam: skipped, role: SYMV_CHAIN_ROLE.SKIP },
+          { adam: kept, role: SYMV_CHAIN_ROLE.EXTENSION },
+        ],
+      },
+    };
+    const filtered = filterRegistryCandidatesBySymvPlan([
+      { adam: skipped, stage: 'SYMV' },
+      { adam: kept, stage: 'SYMV' },
+    ], project);
+    expect(filtered.map((c) => c.adam)).toEqual([kept]);
   });
 
   it('shouldOfferRegistryAfterReview respects dismissed flag', () => {

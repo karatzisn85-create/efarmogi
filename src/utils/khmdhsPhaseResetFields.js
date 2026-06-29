@@ -5,6 +5,10 @@
 import { emptyKhmdhsChainFields } from './khmdhsChainApply';
 import { emptyKhmdhsUserEdits } from './khmdhsFieldOverrides';
 import { emptyKhmdhsOnContract } from './khmdhsFields';
+import { emptyLegacyApeFields } from './khmdhsApeEntry';
+
+/** Κατάσταση μετά από πλήρη επαναφορά αλυσίδας ΚΗΜΔΗΣ — χωρίς υποχρεωτικό ΑΔΑΜ για αποθήκευση. */
+export const KHMDHS_CHAIN_RESET_PROJECT_STATUS = 'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ';
 
 /** Καθαρισμός χειροκίνητων πεδίων σύμβασης/ΑΠΕ σε μία γραμμή contracts[] */
 export function clearContractRowManualFields(row) {
@@ -44,12 +48,19 @@ export function buildFullKhmdhsPhaseBResetFields() {
     contractDate: '',
     contractEndDate: '',
     contractAmount: '',
-    apeAmount: '',
-    apeComments: '',
+    ...emptyLegacyApeFields(),
     projectBudget: '',
     contracts: [],
     hasSupplementaryContracts: false,
     supplementaryContracts: [],
+  };
+}
+
+/** Πλήρης επαναφορά αλυσίδας + κατάσταση «Υπό βραχυπρόθεσμη ωρίμανση» για άμεση αποθήκευση. */
+export function buildKhmdhsChainResetPayload() {
+  return {
+    ...buildFullKhmdhsPhaseBResetFields(),
+    projectStatus: KHMDHS_CHAIN_RESET_PROJECT_STATUS,
   };
 }
 
@@ -97,8 +108,7 @@ export function buildPreContractKhmdhsClearFields() {
     contractDate: '',
     contractEndDate: '',
     contractAmount: '',
-    apeAmount: '',
-    apeComments: '',
+    ...emptyLegacyApeFields(),
     contracts: [],
     hasSupplementaryContracts: false,
     supplementaryContracts: [],

@@ -3,7 +3,7 @@
  */
 
 import { getAllChainHistories } from './khmdhsChainFormAccess';
-import { getChainKindChoice, enrichChainHistoryWithReview, MOD_AMOUNT_TYPE } from './khmdhsChainActions';
+import { getChainKindChoice, enrichChainHistoryWithReview, MOD_AMOUNT_TYPE, CHAIN_KIND } from './khmdhsChainActions';
 import { pickKhmdhsContractSnapshot } from './khmdhsContractDisplayFields';
 import { formatDateEl } from './dateFormat';
 import { parseGreekAmountString } from './khmdhsFields';
@@ -44,6 +44,9 @@ function resolveSuppEntryLabel(row, hist, project, adam) {
   );
   if (planItem?.role === SYMV_CHAIN_ROLE.EXTENSION) return 'Παράταση';
   if (planItem?.role === SYMV_CHAIN_ROLE.SUPPLEMENTARY) return 'Συμπληρωματική σύμβαση';
+  const effectiveKind = hist?.effectiveKind || hist?.kind || hist?.userKind;
+  if (effectiveKind === CHAIN_KIND.EXTENSION) return 'Παράταση';
+  if (effectiveKind === CHAIN_KIND.MODIFICATION) return 'Συμπληρωματική σύμβαση';
   const comments = String(row?.comments || '').trim();
   if (comments === 'Παράταση') return 'Παράταση';
   const histLabel = String(hist?.label || '').trim();

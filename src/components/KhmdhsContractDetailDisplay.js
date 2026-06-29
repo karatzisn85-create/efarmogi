@@ -29,6 +29,7 @@ export default function KhmdhsContractDetailDisplay({
   apeAmount = '',
   khmdhsAmount = '',
   apeFileName = '',
+  symvChainPlan = null,
 }) {
   const snapshot = useMemo(
     () => pickKhmdhsContractSnapshot(entry?.snapshot),
@@ -36,14 +37,14 @@ export default function KhmdhsContractDetailDisplay({
   );
 
   const groups = useMemo(() => {
-    const displayOpts = { storedAmount: entry?.storedAmount || '' };
+    const displayOpts = { storedAmount: entry?.storedAmount || '', symvChainPlan };
     const base = buildKhmdhsContractDisplayGroups(snapshot, displayOpts);
     const chainGroup = buildKhmdhsContractChainHistoryGroup(entry?.chainHistory);
     const amendGroup = chainGroup
       ? null
       : buildKhmdhsAmendmentsDisplayGroup(entry?.amendments);
     return [...base, chainGroup, amendGroup].filter(Boolean);
-  }, [snapshot, entry?.chainHistory, entry?.amendments, entry?.storedAmount]);
+  }, [snapshot, entry?.chainHistory, entry?.amendments, entry?.storedAmount, symvChainPlan]);
 
   const summary = useMemo(
     () => buildKhmdhsContractCardSummary(snapshot, { storedAmount: entry?.storedAmount || '' }),

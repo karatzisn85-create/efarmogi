@@ -3,6 +3,10 @@
 import { containsSearchTerm } from './searchUtils';
 import { enrichChainHistoryWithReview } from './khmdhsChainActions';
 import { overlaySymvPlanLabelsOnChainHistory } from './khmdhsSymvChainPlanner';
+import {
+  getKhmdhsAmountSanityReference,
+  normalizeProjectAmountForStorage,
+} from './projectAmountUtils';
 
 export function emptyKhmdhsOnContract() {
   return {
@@ -34,21 +38,46 @@ export function isMultipleContractsForm(implementationForm) {
   return implementationForm === 'Πολλές Συμβάσεις';
 }
 
-/** ΑΠΕ για ανάκτηση/DQR — χωρίς «διαρροή» από ορφανές γραμμές contracts[] */
+/** ΑΠΕ για ανάκτηση/DQR — από apeEntries ή legacy apeAmount */
 export function resolveStoredApeAmount(form, contractIndex = null) {
   if (!form) return '';
-  if (contractIndex != null && contractIndex >= 0) {
-    return String(form.contracts?.[contractIndex]?.apeAmount || '').trim();
+  if (isMultipleContractsForm(form.implementationForm) && (contractIndex == null || contractIndex < 0)) {
+    return '';
   }
-  if (isMultipleContractsForm(form.implementationForm)) return '';
-  return String(form.apeAmount || '').trim();
+  return readLatestContractApeAmountRaw(form, contractIndex);
 }
 
 export function parseGreekAmountString(val) {
-  if (!val) return 0;
-  const cleaned = String(val).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? 0 : n;
+  if (val == null || val === '') return 0;
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+
+  const cleaned = String(val).trim().replace(/[^\d,.-]/g, '');
+  if (!cleaned) return 0;
+
+  const hasComma = cleaned.includes(',');
+  const hasDot = cleaned.includes('.');
+
+  let normalized;
+  if (hasComma && hasDot) {
+    // Ελληνική μορφή: 1.234.567,89
+    normalized = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (hasComma) {
+    normalized = cleaned.replace(',', '.');
+  } else if (hasDot) {
+    const dotCount = (cleaned.match(/\./g) || []).length;
+    if (dotCount === 1) {
+      const [, frac = ''] = cleaned.split('.');
+      // Μοναδική τελεία με 1–2 δεκαδικά → διεθνής μορφή (π.χ. 236290.21)
+      normalized = frac.length <= 2 ? cleaned : cleaned.replace(/\./g, '');
+    } else {
+      normalized = cleaned.replace(/\./g, '');
+    }
+  } else {
+    normalized = cleaned;
+  }
+
+  const n = parseFloat(normalized);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function readLatestContractApeAmountRaw(formData, contractIndex = null) {
@@ -67,7 +96,23 @@ function readLatestContractApeAmountRaw(formData, contractIndex = null) {
     const db = String(b?.documentDate || b?.createdAt || '').slice(0, 10);
     return da.localeCompare(db);
   });
-  return String(sorted[sorted.length - 1]?.apeAmount || '').trim();
+  const latestAmount = String(sorted[sorted.length - 1]?.apeAmount || '').trim();
+  if (latestAmount) return latestAmount;
+  const legacyAmount = contractIndex != null && isMultipleContractsForm(formData.implementationForm)
+    ? String(formData.contracts?.[contractIndex]?.apeAmount || '').trim()
+    : String(formData.apeAmount || '').trim();
+  if (!legacyAmount) return '';
+  const contractRef = contractIndex != null && isMultipleContractsForm(formData.implementationForm)
+    ? String(formData.contracts?.[contractIndex]?.amount || '').trim()
+    : String(formData.contractAmount || '').trim();
+  if (contractRef && legacyAmount) {
+    const apeN = parseGreekAmountString(legacyAmount);
+    const contractN = parseGreekAmountString(contractRef);
+    if (apeN > 0 && contractN > 0 && Math.abs(apeN - contractN) < 0.01) {
+      return '';
+    }
+  }
+  return legacyAmount;
 }
 
 function parseApeAmountGross(formData, contractIndex = null) {
@@ -185,21 +230,10 @@ export function describeEffectivePayableAmountParts(formData, contractIndex = nu
   };
 }
 
-/** Συνολικό ποσό σύμβασης — χωρίς διπλομέτρηση πεδίων επιπέδου έργου + contracts[] */
+/** Συνολικό ποσό σύμβασης — τρέχον άθροισμα (αρχική + συμπληρωματικές, όχi αθέροισμα πλήρων τιμών ΚΗΜΔΗΣ) */
 export function getTotalContractAmount(project) {
-  if (!project) return 0;
-  let total = 0;
-  if (isMultipleContractsForm(project.implementationForm)) {
-    (project.contracts || []).forEach((c) => {
-      total += parseGreekAmountString(c.amount);
-    });
-  } else {
-    total += parseGreekAmountString(project.contractAmount);
-  }
-  (project.supplementaryContracts || []).forEach((c) => {
-    total += parseGreekAmountString(c.amount);
-  });
-  return total;
+  const { computeProjectContractTotal } = require('./khmdhsSupplementaryAmountLogic');
+  return computeProjectContractTotal(project);
 }
 
 /** Μεταφορά παλιού ενιαίου ΑΔΑΜ στην 1η σύμβαση */
@@ -227,6 +261,13 @@ export function normalizeContractsFromProject(project) {
   return contracts;
 }
 
+function resolveStoredContractAmount(project, rawAmount) {
+  const raw = String(rawAmount || '').trim();
+  if (!raw) return '';
+  const sanityRef = getKhmdhsAmountSanityReference(project);
+  return normalizeProjectAmountForStorage(raw, sanityRef) || raw;
+}
+
 /** Εγγραφές για κάρτα / λεπτομέρεια */
 export function getKhmdhsDisplayEntries(project) {
   if (!project) return [];
@@ -247,7 +288,7 @@ export function getKhmdhsDisplayEntries(project) {
           project.khmdhsSymvChainPlan
         ),
         roleLabel: c?.khmdhsContractRoleLabel || '',
-        storedAmount: String(c?.amount || '').trim(),
+        storedAmount: resolveStoredContractAmount(project, c?.amount),
       }))
       .filter((e) => e.adam || e.snapshot);
   }
@@ -269,7 +310,7 @@ export function getKhmdhsDisplayEntries(project) {
         project.khmdhsSymvChainPlan
       ),
       roleLabel: project.khmdhsContractRoleLabel || '',
-      storedAmount: String(project.contractAmount || '').trim(),
+      storedAmount: resolveStoredContractAmount(project, project.contractAmount),
     }
   ];
 }

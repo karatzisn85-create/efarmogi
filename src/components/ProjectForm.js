@@ -72,6 +72,10 @@ import {
   suggestProjectStatusAfterKhmdhsChain,
 } from '../utils/khmdhsAdamGuidance';
 import {
+  evaluateKhmdhsContractExpiryPrompt,
+  KHMDHS_COMPLETED_STATUS_SUGGESTION,
+} from '../utils/khmdhsContractExpiryPrompt';
+import {
   needsKhmdhsLegacyUpgrade,
   getKhmdhsUpgradeSeedAdam,
   getKhmdhsUpgradeContractIndex,
@@ -100,10 +104,12 @@ import {
 } from '../utils/khmdhsChainFormAccess';
 import KhmdhsApeConflictModal from './KhmdhsApeConflictModal';
 import KhmdhsApeEntryModal from './KhmdhsApeEntryModal';
+import { getKhmdhsAmountSanityReference } from '../utils/projectAmountUtils';
 import KhmdhsSituationModal from './KhmdhsSituationModal';
 import KhmdhsBranchPickerDialog from './KhmdhsBranchPickerDialog';
 import KhmdhsDuplicateAnchorDialog from './KhmdhsDuplicateAnchorDialog';
 import KhmdhsSupplementaryConfirmDialog from './KhmdhsSupplementaryConfirmDialog';
+import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
 import KhmdhsSymvChainPlannerDialog from './KhmdhsSymvChainPlannerDialog';
 import { shouldOfferSymvChainPlanner, symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
 import KhmdhsDocumentRegistryModal from './KhmdhsDocumentRegistryModal';
@@ -121,6 +127,7 @@ import {
   buildBranchCandidatesFromChainRes,
   branchPickerAllowsAllBranches,
   checkKhmdhsDuplicateConflicts,
+  acknowledgeKhmdhsDuplicateConflict,
   checkTitleMismatchWarning,
   inferActRootReqAdam,
   mergeBranchAnchorFields,
@@ -199,7 +206,7 @@ import {
   applyChainCharacterizationToForm,
   emptyKhmdhsChainFields,
 } from '../utils/khmdhsChainApply';
-import { mergeSymvChainPlanIntoDataQualityReview } from '../utils/khmdhsSymvChainApply';
+import { mergeSymvChainPlanIntoDataQualityReview, shouldMergeSymvPlanIntoDataQualityReview } from '../utils/khmdhsSymvChainApply';
 import {
   shouldRouteAdamAsSupplementaryAdd,
   getStoredChainSeedAdam,
@@ -207,6 +214,7 @@ import {
 import { assessSupplementaryCrossAct } from '../utils/khmdhsSupplementaryAssess';
 import {
   buildFullKhmdhsPhaseBResetFields,
+  buildKhmdhsChainResetPayload,
   buildPreContractKhmdhsClearFields,
   clearContractRowManualFields,
   stripOrphanKhmdhsSymvPlan,
@@ -395,9 +403,9 @@ function resolveContractStorageForSave(formData, editingProject) {
 
 
 
-/** Πλήρης επαναφορά Φάσης Β — χωρίς επίδραση στη Φάση Α */
+/** Πλήρης επαναφορά Φάσης Β — χωρίς επίδραση στη Φάση Α (εκτός κατάστασης έργου). */
 function emptyPhaseBFields() {
-  return buildFullKhmdhsPhaseBResetFields();
+  return buildKhmdhsChainResetPayload();
 }
 
 function projectHasPhaseBData(formData) {
@@ -408,6 +416,8 @@ function projectHasPhaseBData(formData) {
   if (formData.contractProcessStartDate) return true;
   if (formData.contractDate || formData.contractEndDate || formData.contractAmount) return true;
   if (formData.apeAmount || formData.apeComments) return true;
+  if ((formData.apeEntries || []).length > 0) return true;
+  if (formData.apeSourceAdam || formData.apeDocumentDate || formData.apeFileName) return true;
   if (formData.projectBudget) return true;
   if ((formData.contracts || []).length > 0) return true;
   if ((formData.supplementaryContracts || []).length > 0) return true;
@@ -2501,6 +2511,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   const [khmdhsRegistryModal, setKhmdhsRegistryModal] = useState(null);
   const [relatedDocsModal, setRelatedDocsModal] = useState(null);
   const [supplementaryConfirm, setSupplementaryConfirm] = useState(null);
+  const [contractExpiryPrompt, setContractExpiryPrompt] = useState(null);
   const [symvChainPlannerState, setSymvChainPlannerState] = useState(null);
   const [apeEntryTarget, setApeEntryTarget] = useState(null);
   const [phaseBResetUnsaved, setPhaseBResetUnsaved] = useState(false);
@@ -2508,12 +2519,41 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   const khmdhsChainFetchGenRef = React.useRef({});
   const khmdhsPendingApplyRef = React.useRef(null);
   const khmdhsPendingDataReviewRef = React.useRef(false);
+  const khmdhsPendingExpiryFormRef = React.useRef(null);
+  const khmdhsPendingExpiryOptionsRef = React.useRef(null);
   const khmdhsDeferRegistryRef = React.useRef(null);
   const khmdhsLastChainResRef = React.useRef(null);
   const khmdhsChainInputRef = React.useRef(null);
   const phaseBResetUnsavedRef = React.useRef(false);
   const handleSaveRef = React.useRef(() => Promise.resolve());
   React.useEffect(() => { phaseBResetUnsavedRef.current = phaseBResetUnsaved; }, [phaseBResetUnsaved]);
+
+  const flushPendingContractExpiryPrompt = useCallback(() => {
+    const pending = khmdhsPendingExpiryFormRef.current;
+    if (!pending) return;
+    khmdhsPendingExpiryFormRef.current = null;
+    const options = khmdhsPendingExpiryOptionsRef.current || {};
+    khmdhsPendingExpiryOptionsRef.current = null;
+    const prompt = evaluateKhmdhsContractExpiryPrompt(pending, options);
+    if (prompt) setContractExpiryPrompt(prompt);
+  }, []);
+
+  const queueContractExpiryPrompt = useCallback((formSnapshot, options = {}) => {
+    if (!formSnapshot) return;
+    khmdhsPendingExpiryFormRef.current = formSnapshot;
+    khmdhsPendingExpiryOptionsRef.current = options;
+    window.setTimeout(() => {
+      if (khmdhsPendingExpiryFormRef.current !== formSnapshot) return;
+      flushPendingContractExpiryPrompt();
+    }, 350);
+  }, [flushPendingContractExpiryPrompt]);
+
+  useEffect(() => {
+    if (!isOpen || dataReviewModalOpen || khmdhsSituationModal) return undefined;
+    if (!khmdhsPendingExpiryFormRef.current) return undefined;
+    const timer = window.setTimeout(() => flushPendingContractExpiryPrompt(), 200);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, dataReviewModalOpen, khmdhsSituationModal, flushPendingContractExpiryPrompt]);
 
   const directAssignmentCompliance = useMemo(() => {
     if (!isOpen) return { applicable: false, violations: [], missingData: false };
@@ -2617,6 +2657,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   useEffect(() => {
     if (!isOpen) {
       wasOpenRef.current = false;
+      setContractExpiryPrompt(null);
+      khmdhsPendingExpiryFormRef.current = null;
       return;
     }
     if (wasOpenRef.current) {
@@ -2712,7 +2754,15 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       }, editingProject.khmdhsDataQualityReview || null)
       );
       const sanitizedLoadedForm = stripOrphanKhmdhsSymvPlan(loadedForm);
-      const withSymvDqr = sanitizedLoadedForm.khmdhsSymvChainPlan?.items?.length && sanitizedLoadedForm.khmdhsDataQualityReview
+      const withSymvDqr = (
+        sanitizedLoadedForm.khmdhsSymvChainPlan?.items?.length
+        && sanitizedLoadedForm.khmdhsDataQualityReview
+        && shouldMergeSymvPlanIntoDataQualityReview(
+          sanitizedLoadedForm.khmdhsDataQualityReview,
+          sanitizedLoadedForm.khmdhsSymvChainPlan,
+          sanitizedLoadedForm
+        )
+      )
         ? {
           ...sanitizedLoadedForm,
           khmdhsDataQualityReview: mergeSymvChainPlanIntoDataQualityReview(
@@ -2724,6 +2774,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         : sanitizedLoadedForm;
       setFormData(withSymvDqr);
       savedFormFingerprintRef.current = buildProjectFormFingerprint(withSymvDqr, { selectedFilesCount: 0 });
+      queueContractExpiryPrompt(withSymvDqr);
       setManualPhaseBaseline(serializePhaseASnapshot(pickPhaseASnapshot({
         ...editingProject,
         aleCodes,
@@ -4336,6 +4387,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         let implementationFormAutoUpdated = null;
         let capturedMergedDQR = null;
         let capturedFormAfterApply = null;
+        let statusBeforeKhmdhsApply = null;
         let situationModalShown = false;
         const resolvedBranch = followAllBranches
           ? null
@@ -4355,6 +4407,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
                 : null
           ));
         setFormData((prev) => {
+          statusBeforeKhmdhsApply = prev.projectStatus;
           const result = applyAdamChainResult(prev, res, {
             seedAdam: seed,
             contractIndex: contractIndex != null ? contractIndex : -1,
@@ -4419,6 +4472,15 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         }
         if (pendingApeConflict) {
           setApeConflictModal(pendingApeConflict);
+        }
+        const pendingReviewCountEarly = getUnresolvedReviewItems(
+          capturedMergedDQR || capturedFormAfterApply?.khmdhsDataQualityReview,
+          capturedFormAfterApply || formDataRef.current
+        ).length;
+        if (!applyWarnings.includes('symvPlannerRequired') && capturedFormAfterApply) {
+          queueContractExpiryPrompt(capturedFormAfterApply, {
+            statusBeforeKhmdhsRefresh: statusBeforeKhmdhsApply,
+          });
         }
         if (!skipSituationModal && !suppressSituationModal && !usedSymvPlan && shouldShowKhmdhsSituationModal(situationReport)) {
           const acknowledgedIds = new Set(formData.khmdhsAcknowledgedSituationIds || []);
@@ -4544,6 +4606,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
               conflict: conflicts[0],
               onConfirm: () => {
                 setDuplicateAnchorModal(null);
+                const conflict = conflicts[0];
+                setFormData((prev) => acknowledgeKhmdhsDuplicateConflict(prev, conflict));
                 runKhmdhsChainFetch({
                   adam: seed,
                   contractIndex,
@@ -4553,6 +4617,10 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
                   suppressBranchPicker: true,
                   skipDuplicateCheck: true,
                   branchAnchor,
+                  userSelectedBranch,
+                  followAllBranches,
+                  preloadedChainRes: res,
+                  symvChainPlan,
                 });
               },
             });
@@ -5070,8 +5138,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   const handleResetPhaseB = useCallback(async () => {
     const ok = await showConfirm({
       title: 'Επαναφορά Φάσης Β',
-      message: 'Θα διαγραφούν όλα τα δεδομένα ανακτήσεων ΚΗΜΔΗΣ, η αλυσίδα, τα στοιχεία σύμβασης, το ΑΠΕ, τα εντάλματα, οι χαρακτηρισμοί, οι χειροκίνητες διορθώσεις, ο κατάλογος εγγράφων και οι σχετικές ρυθμίσεις της Φάσης Β.',
-      detail: 'Η Φάση Α (βασικά στοιχεία υποέργου) δεν επηρεάζεται. Η ενέργεια δεν αναιρείται — χρειάζεται αποθήκευση για να οριστικοποιηθεί.',
+      message: 'Θα διαγραφούν όλα τα δεδομένα ανακτήσεων ΚΗΜΔΗΣ, η αλυσίδα, τα στοιχεία σύμβασης, το ΑΠΕ, τα εντάλματα, οι χαρακτηρισμοί, οι χειροκίνητες διορθώσεις, ο κατάλογος εγγράφων και οι σχετικές ρυθμίσεις της Φάσης Β. Η κατάσταση του υποέργου θα επιστρέψει σε «Υπό βραχυπρόθεσμη ωρίμανση».',
+      detail: 'Η Φάση Α (βασικά στοιχεία υποέργου) δεν επηρεάζεται πέρα από την κατάσταση. Η ενέργεια δεν αναιρείται — χρειάζεται αποθήκευση για να οριστικοποιηθεί.',
       confirmLabel: 'Επαναφορά Φάσης Β',
       cancelLabel: 'Άκυρο',
       danger: true,
@@ -5098,7 +5166,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     setAdamInputDraft({ chain: '', contracts: {} });
     setErrors((prev) => clearPhaseBErrors(prev));
     setPhaseBResetUnsaved(true);
-    showToast('Η Φάση Β επαναφέρθηκε. Αποθηκεύστε για να οριστικοποιηθεί η διαγραφή.', 'info');
+    showToast('Η Φάση Β επαναφέρθηκε και η κατάσταση έγινε «Υπό βραχυπρόθεσμη ωρίμανση». Αποθηκεύστε για να οριστικοποιηθεί.', 'info');
 
     window.setTimeout(() => {
       formScrollRef.current?.scrollTo?.({ top: 0, behavior: 'smooth' });
@@ -5435,7 +5503,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     );
   };
 
-  const handleSave = async ({ skipOverridesCheck = false, skipDuplicateCheck = false } = {}) => {
+  const handleSave = async ({ skipOverridesCheck = false, skipDuplicateCheck = false, duplicateAck = null } = {}) => {
     console.log('=== SAVE ATTEMPT ===');
     console.log('Form data:', formData);
     console.log('Selected files:', selectedFiles);
@@ -5444,7 +5512,10 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     const isPhaseASaveOnly = !manualPhaseSavedOnce || isPhaseADirty(formData, manualPhaseBaseline);
     const includePhaseB = !isPhaseASaveOnly;
     let syncedForm = includePhaseB ? syncKhmdhsCompleteReviewFieldsToForm(formData) : formData;
-    if (syncedForm !== formData) {
+    if (duplicateAck) {
+      syncedForm = acknowledgeKhmdhsDuplicateConflict(syncedForm, duplicateAck);
+    }
+    if (syncedForm !== formData || duplicateAck) {
       setFormData(syncedForm);
     }
 
@@ -5460,11 +5531,12 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     if (!skipDuplicateCheck) {
       const dupConflicts = checkKhmdhsDuplicateConflicts(syncedForm, allProjects);
       if (dupConflicts.length) {
+        const conflict = dupConflicts[0];
         setDuplicateAnchorModal({
-          conflict: dupConflicts[0],
+          conflict,
           onConfirm: () => {
             setDuplicateAnchorModal(null);
-            handleSave({ skipOverridesCheck, skipDuplicateCheck: true });
+            handleSave({ skipOverridesCheck, skipDuplicateCheck: true, duplicateAck: conflict });
           },
         });
         return;
@@ -5927,6 +5999,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       return {
         targetTitle: apeEntryTarget.title,
         khmdhsAmount: fields.khmdhsAmount,
+        amountSanityReference: getKhmdhsAmountSanityReference(formData),
         initialApeAmount: fields.apeAmount,
         initialComments: fields.comments,
         initialFileName: fileRef.fileName,
@@ -5945,6 +6018,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     return {
       targetTitle: apeEntryTarget.title,
       khmdhsAmount: fields.khmdhsAmount,
+      amountSanityReference: getKhmdhsAmountSanityReference(formData),
       initialApeAmount: isNewEntry ? '' : fields.apeAmount,
       initialDocumentDate: isNewEntry ? '' : fields.documentDate,
       initialComments: isNewEntry ? '' : fields.comments,
@@ -6135,6 +6209,25 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     setApeConflictModal(null);
   };
 
+  const handleContractExpiryAccept = () => {
+    setFormData((prev) => ({
+      ...prev,
+      projectStatus: KHMDHS_COMPLETED_STATUS_SUGGESTION,
+    }));
+    setManualPhaseBaseline((baseline) => {
+      if (!baseline) return baseline;
+      try {
+        const snap = JSON.parse(baseline);
+        snap.projectStatus = KHMDHS_COMPLETED_STATUS_SUGGESTION;
+        return JSON.stringify(snap);
+      } catch {
+        return baseline;
+      }
+    });
+    setContractExpiryPrompt(null);
+    showToast('Η κατάσταση ορίστηκε σε «Ολοκληρωμένο».', 'info');
+  };
+
   const findSituationAction = (actionId, situationId) => {
     const situation = khmdhsSituationModal?.report?.situations?.find((s) => s.id === situationId);
     return situation?.actions?.find((a) => a.id === actionId) || null;
@@ -6246,12 +6339,12 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         setSymvChainPlannerState(null);
         setFormData((prev) => ({
           ...prev,
-          ...buildFullKhmdhsPhaseBResetFields(),
-          contracts: (prev.contracts || []).map((c) => clearContractRowManualFields(c)),
+          ...buildKhmdhsChainResetPayload(),
         }));
         setAdamInputDraft({ chain: '', contracts: {} });
+        setErrors((prev) => clearPhaseBErrors(prev));
         setPhaseBResetUnsaved(true);
-        showToast('Τα στοιχεία ΚΗΜΔΗΣ διαγράφηκαν. Αποθηκεύστε για οριστική διαγραφή.', 'info');
+        showToast('Τα στοιχεία ΚΗΜΔΗΣ διαγράφηκαν και η κατάσταση έγινε «Υπό βραχυπρόθεσμη ωρίμανση». Αποθηκεύστε για οριστική διαγραφή.', 'info');
         break;
       case KHMDHS_SITUATION_ACTION.MANUAL_CONTINUE:
         if (khmdhsSituationModal?.deferApply && khmdhsPendingApplyRef.current) {
@@ -7608,6 +7701,12 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         });
       }}
     />
+    <KhmdhsContractExpiryPromptDialog
+      isOpen={!!contractExpiryPrompt}
+      prompt={contractExpiryPrompt}
+      onDismiss={() => setContractExpiryPrompt(null)}
+      onAccept={handleContractExpiryAccept}
+    />
     <KhmdhsDataReviewModal
       isOpen={dataReviewModalOpen}
       review={formData.khmdhsDataQualityReview}
@@ -7632,6 +7731,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       targetTitle={apeEntryModalProps?.targetTitle || ''}
       targetKind={apeEntryTarget?.kind || 'contract'}
       khmdhsAmount={apeEntryModalProps?.khmdhsAmount || ''}
+      amountSanityReference={apeEntryModalProps?.amountSanityReference || 0}
       initialApeAmount={apeEntryModalProps?.initialApeAmount || ''}
       initialComments={apeEntryModalProps?.initialComments || ''}
       initialFileName={apeEntryModalProps?.initialFileName || ''}

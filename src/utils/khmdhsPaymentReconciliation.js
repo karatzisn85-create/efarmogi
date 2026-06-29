@@ -3,6 +3,11 @@
  */
 
 import { resolveEffectivePayableAmountGrossForPayments } from './khmdhsFields';
+import {
+  normalizePaymentDocumentRole,
+  paymentRoleCountsTowardTotal,
+  readPaymentDocumentRoleFromPayment,
+} from './khmdhsPaymentDocumentRoles';
 
 export const PAYER_TYPE = {
   REGIONAL_FUND: 'regional_fund',
@@ -150,11 +155,14 @@ export function reconcileKhmdhsPayments(payments, opts = {}) {
     const gross = paymentGross(snap);
     const org = snap?.organization || '';
     const payer = classifyPaymentPayer(org, { contractingOrg });
+    const userDocumentRole = readPaymentDocumentRoleFromPayment(p);
     return {
       adam: String(p?.adam || snap?.referenceNumber || '').trim(),
       gross,
       org,
       payer,
+      userDocumentRole,
+      countsTowardTotal: paymentRoleCountsTowardTotal(userDocumentRole),
       cancelled: !!snap?.cancelled,
       credit: !!snap?.credit,
       active: isActivePaymentEntry(p),
@@ -165,26 +173,48 @@ export function reconcileKhmdhsPayments(payments, opts = {}) {
   const rawTotalGross = activeEntries.reduce((s, e) => s + e.gross, 0);
   const coFinancingPattern = detectCoFinancingPattern(activeEntries, contractAmountGross);
 
+  const classifiedEntries = activeEntries.filter((e) => e.userDocumentRole);
+  const hasUserClassification = classifiedEntries.length > 0;
+  const countableEntries = activeEntries.filter((e) => {
+    if (!e.userDocumentRole) return true;
+    return paymentRoleCountsTowardTotal(e.userDocumentRole);
+  });
+  const countableTotalGross = countableEntries.reduce((s, e) => s + e.gross, 0);
+
   let estimatedContractorPaymentGross = rawTotalGross;
-  if (coFinancingPattern?.estimatedContractorPayment != null) {
+  if (hasUserClassification) {
+    estimatedContractorPaymentGross = countableTotalGross;
+  } else if (coFinancingPattern?.estimatedContractorPayment != null) {
     estimatedContractorPaymentGross = coFinancingPattern.estimatedContractorPayment;
   }
 
   const tolerance = 0.5;
   const rawExceedsContract = contractAmountGross != null && rawTotalGross > contractAmountGross + tolerance;
+  const countableExceedsContract = contractAmountGross != null
+    && countableTotalGross > contractAmountGross + tolerance;
   const estimatedExceedsContract = contractAmountGross != null
     && estimatedContractorPaymentGross > contractAmountGross + tolerance;
+
+  const needsClassification = rawExceedsContract && (
+    !hasUserClassification
+    || countableExceedsContract
+    || classifiedEntries.length < activeEntries.length
+  );
 
   return {
     entries: allEntries,
     activeCount: activeEntries.length,
     count: allEntries.length,
     rawTotalGross,
+    countableTotalGross,
     estimatedContractorPaymentGross,
     coFinancingPattern,
     rawExceedsContract,
+    countableExceedsContract,
     estimatedExceedsContract,
-    needsReview: rawExceedsContract && !coFinancingPattern,
+    needsReview: needsClassification,
+    needsClassification,
+    hasUserClassification,
     contractAmountGross,
     hasMultiplePayers: new Set(activeEntries.map((e) => e.payer.type)).size > 1,
   };
@@ -299,5 +329,20 @@ export function reconcileKhmdhsPaymentsFromProject(project) {
 
   const contractAmountGross = resolveEffectivePayableAmountGrossForPayments(project);
 
+  return reconcileKhmdhsPayments(payments, { contractAmountGross, contractingOrg });
+}
+
+/** Ζωντανός επανυπολογισμός — μετά από χαρακτηρισμούς στη φόρμα. */
+export function computePaymentsReconciliationFromForm(formData, item = null) {
+  if (!formData) return null;
+  const rawPayments = Array.isArray(formData.khmdhsPayments) ? formData.khmdhsPayments : [];
+  const payments = filterUnrelatedPayments(rawPayments, formData);
+  const contractingOrg = formData?.khmdhsAwardSnapshot?.organization
+    || formData?.khmdhsContractSnapshot?.organization
+    || '';
+  const contractAmountGross = resolveEffectivePayableAmountGrossForPayments(
+    formData,
+    item?.contractIndex ?? null
+  );
   return reconcileKhmdhsPayments(payments, { contractAmountGross, contractingOrg });
 }

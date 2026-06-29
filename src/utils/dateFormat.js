@@ -3,6 +3,19 @@
  * Για date-only ISO (YYYY-MM-DD) χωρίς UTC offset.
  */
 
+/** Κανονικοποίηση σε YYYY-MM-DD (ISO date-only) */
+export function toIsoDateOnly(value) {
+  if (!value) return '';
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = parseAppDate(s);
+  if (!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export function parseAppDate(value) {
   if (value == null || value === '') return null;
   const s = String(value).trim();

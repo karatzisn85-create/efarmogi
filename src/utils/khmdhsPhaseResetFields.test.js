@@ -3,9 +3,11 @@
  */
 import {
   buildFullKhmdhsPhaseBResetFields,
+  buildKhmdhsChainResetPayload,
   buildPreContractKhmdhsClearFields,
   buildKhmdhsDocumentRegistryResetFields,
   clearContractRowManualFields,
+  KHMDHS_CHAIN_RESET_PROJECT_STATUS,
   stripOrphanKhmdhsSymvPlan,
 } from './khmdhsPhaseResetFields';
 
@@ -46,6 +48,13 @@ describe('khmdhsPhaseResetFields', () => {
 
   test('buildKhmdhsDocumentRegistryResetFields clears dismissed flag', () => {
     expect(buildKhmdhsDocumentRegistryResetFields().khmdhsDocumentRegistryDismissed).toBe(false);
+  });
+
+  test('buildKhmdhsChainResetPayload sets maturation status', () => {
+    const payload = buildKhmdhsChainResetPayload();
+    expect(payload.projectStatus).toBe(KHMDHS_CHAIN_RESET_PROJECT_STATUS);
+    expect(payload.khmdhsAdam).toBe('');
+    expect(payload.contracts).toEqual([]);
   });
 
   test('stripOrphanKhmdhsSymvPlan removes plan without chain footprint', () => {

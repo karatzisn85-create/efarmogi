@@ -7,6 +7,14 @@ import { isMultipleContractsForm, parseGreekAmountString } from './khmdhsFields'
 import { normalizeDiavgeiaAda } from './diavgeiaApeFetch';
 import { mergeApeIntoDocumentRegistry, removeApeFromDocumentRegistry } from './khmdhsApeRegistry';
 import { isSupplementaryApeEligible } from './khmdhsSupplementaryStageEntries';
+import { toIsoDateOnly } from './dateFormat';
+import {
+  formatProjectAmountDisplay,
+  getKhmdhsAmountSanityReference,
+  normalizeProjectAmountForStorage,
+  resolveProjectAmountNumeric,
+} from './projectAmountUtils';
+import { normalizeAmountForCompare } from './projectFormPhases';
 
 export function getApeKhmdhsReferenceAmountLabel({ kind, parentTitle } = {}) {
   const title = String(parentTitle || '').trim().toLowerCase();
@@ -21,10 +29,18 @@ export function getApeKhmdhsReferenceAmountLabel({ kind, parentTitle } = {}) {
   return 'Ποσό σύμβασης';
 }
 
-export function formatApeAmountDisplay(value) {
+function parseApeAmountValue(value, contractReference = '', sanityReference = 0) {
+  const ref = resolveProjectAmountNumeric(contractReference, sanityReference)
+    || (typeof sanityReference === 'number' ? sanityReference : parseGreekAmountString(sanityReference));
+  return resolveProjectAmountNumeric(value, ref);
+}
+
+export function formatApeAmountDisplay(value, contractReference = '', sanityReference = 0) {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const n = parseGreekAmountString(raw);
+  const ref = resolveProjectAmountNumeric(contractReference, sanityReference)
+    || (typeof sanityReference === 'number' ? sanityReference : parseGreekAmountString(sanityReference));
+  const n = parseApeAmountValue(raw, contractReference, ref);
   if (!Number.isFinite(n) || n <= 0) return raw;
   return n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -52,28 +68,122 @@ function normalizeApeEntryRow(entry = {}) {
   };
 }
 
-function migrateLegacyContractApeEntries(slice = {}) {
+function contractAmountRefForSlice(form, arrayIndex = 0) {
+  if (!form) return '';
+  if (isMultipleContractsForm(form.implementationForm)) {
+    return String(form.contracts?.[arrayIndex]?.amount || '').trim();
+  }
+  return String(form.contractAmount || '').trim();
+}
+
+function isMeaningfulApeAmount(amount) {
+  const raw = String(amount || '').trim();
+  if (!raw) return false;
+  const n = normalizeAmountForCompare(raw);
+  return n != null && n >= 0.01;
+}
+
+function hasApeSpecificMetadata(slice = {}) {
+  return !!(
+    String(slice.apeSourceAdam || '').trim()
+    || String(slice.apeDiavgeiaAda || '').trim()
+    || String(slice.apeFileName || '').trim()
+    || String(slice.apeComments || '').trim()
+    || (Array.isArray(slice.apeEntries) && slice.apeEntries.some((e) => (
+      String(e?.apeSourceAdam || e?.sourceAdam || '').trim()
+      || String(e?.apeDiavgeiaAda || e?.diavgeiaAda || '').trim()
+      || String(e?.apeFileName || '').trim()
+      || String(e?.comments || '').trim()
+    )))
+  );
+}
+
+function apeAmountDiffersFromContract(apeAmount, contractAmount) {
+  const apeRaw = String(apeAmount || '').trim();
+  if (!apeRaw) return false;
+  const contractRaw = String(contractAmount || '').trim();
+  if (!contractRaw) return true;
+  const apeN = normalizeAmountForCompare(apeRaw);
+  const contractN = normalizeAmountForCompare(contractRaw);
+  if (apeN == null || contractN == null) return apeRaw !== contractRaw;
+  return Math.abs(apeN - contractN) >= 0.01;
+}
+
+/** Υπάρχει πραγματικός καταχωρημένος ΑΠΕ (όχι «φάντασμα» ίδιο με ποσό σύμβασης). */
+export function hasRealStoredContractApe(form, arrayIndex = 0) {
+  if (!form) return false;
+  const slice = getContractApeSlice(form, arrayIndex);
+  if (hasApeSpecificMetadata(slice)) return true;
+  const legacyAmount = String(slice.apeAmount || '').trim();
+  if (!isMeaningfulApeAmount(legacyAmount)) return false;
+  return apeAmountDiffersFromContract(legacyAmount, contractAmountRefForSlice(form, arrayIndex));
+}
+
+export function emptyLegacyApeFields() {
+  return {
+    apeEntries: [],
+    apeAmount: '',
+    apeComments: '',
+    apeSourceAdam: '',
+    apeDiavgeiaAda: '',
+    apeDocumentDate: '',
+    apeFileName: '',
+    apeFileGroupId: '',
+    apeFileGroupTitle: '',
+    apeFileSourcePath: '',
+  };
+}
+
+/** Αφαιρεί ψευδο-ΑΠΕ που ισούται με ποσό σύμβασης χωρίς μεταδεδομένα ΑΠΕ. */
+export function stripPhantomContractApeFromForm(form, referenceForm = form) {
+  if (!form) return form;
+  if (isMultipleContractsForm(form.implementationForm)) {
+    const contracts = (form.contracts || []).map((row, idx) => (
+      hasRealStoredContractApe(referenceForm, idx)
+        ? row
+        : { ...row, ...emptyLegacyApeFields() }
+    ));
+    return { ...form, contracts };
+  }
+  if (hasRealStoredContractApe(referenceForm, 0)) return form;
+  return { ...form, ...emptyLegacyApeFields() };
+}
+
+function migrateLegacyContractApeEntries(slice = {}, contractAmountRef = '') {
   const existing = Array.isArray(slice.apeEntries) ? slice.apeEntries.map(normalizeApeEntryRow) : [];
-  if (existing.length) return existing;
-  const amount = String(slice.apeAmount || '').trim();
-  const hasMeta = amount
+  const legacyAmount = String(slice.apeAmount || '').trim();
+  const realLegacyAmount = isMeaningfulApeAmount(legacyAmount)
+    && (hasApeSpecificMetadata(slice) || apeAmountDiffersFromContract(legacyAmount, contractAmountRef));
+  if (existing.length) {
+    const filled = realLegacyAmount
+      ? existing.map((entry, idx) => {
+        if (String(entry.apeAmount || '').trim()) return entry;
+        if (existing.length === 1 || idx === existing.length - 1) {
+          return normalizeApeEntryRow({ ...entry, apeAmount: legacyAmount });
+        }
+        return entry;
+      })
+      : existing;
+    return filled.filter(hasContractApeEntryData);
+  }
+  const hasMeta = realLegacyAmount
     || String(slice.apeSourceAdam || '').trim()
     || String(slice.apeDiavgeiaAda || '').trim()
     || String(slice.apeFileName || '').trim()
-    || String(slice.apeComments || slice.comments || '').trim();
+    || String(slice.apeComments || '').trim();
   if (!hasMeta) return [];
   return [normalizeApeEntryRow({
     id: uuidv4(),
     documentDate: slice.apeDocumentDate || slice.contractDate || slice.date || '',
-    apeAmount: amount,
-    comments: slice.apeComments || slice.comments || '',
+    apeAmount: realLegacyAmount ? legacyAmount : '',
+    comments: slice.apeComments || '',
     apeSourceAdam: slice.apeSourceAdam || '',
     apeDiavgeiaAda: slice.apeDiavgeiaAda || '',
     apeFileName: slice.apeFileName || '',
     apeFileGroupId: slice.apeFileGroupId || '',
     apeFileGroupTitle: slice.apeFileGroupTitle || '',
     apeFileSourcePath: slice.apeFileSourcePath || '',
-  })];
+  })].filter(hasContractApeEntryData);
 }
 
 function getContractApeSlice(project, arrayIndex = 0) {
@@ -87,7 +197,8 @@ function getContractApeSlice(project, arrayIndex = 0) {
 /** Όλες οι καταχωρήσεις ΑΠΕ σύμβασης — ταξινόμηση κατά ημερομηνία εγγράφου (παλαιότερο → νεότερο). */
 export function listContractApeEntries(project, arrayIndex = 0) {
   const slice = getContractApeSlice(project, arrayIndex);
-  return migrateLegacyContractApeEntries(slice)
+  const contractRef = contractAmountRefForSlice(project, arrayIndex);
+  return migrateLegacyContractApeEntries(slice, contractRef)
     .sort((a, b) => apeEntrySortKey(a).localeCompare(apeEntrySortKey(b)));
 }
 
@@ -98,6 +209,18 @@ export function getLatestContractApeEntry(project, arrayIndex = 0) {
 
 export function getLatestContractApeAmount(project, arrayIndex = 0) {
   return String(getLatestContractApeEntry(project, arrayIndex)?.apeAmount || '').trim();
+}
+
+/** Είναι αυτή η καταχώριση ΑΠΕ η πιο πρόσφατη (κατά ημερομηνία εγγράφου); */
+export function isLatestContractApeEntry(project, arrayIndex, entryId) {
+  if (!entryId) return false;
+  const latest = getLatestContractApeEntry(project, arrayIndex ?? 0);
+  return !!latest && latest.id === entryId;
+}
+
+/** Ποσό ΑΠΕ που ισχύει για υπολογισμούς — μόνο η πιο πρόσφατη καταχώριση. */
+export function getEffectiveContractApeAmount(project, arrayIndex = 0) {
+  return getLatestContractApeAmount(project, arrayIndex);
 }
 
 function fieldsFromApeEntry(entry, khmdhsAmount = '') {
@@ -160,6 +283,26 @@ function writeContractApeEntries(project, arrayIndex, entries) {
   return patch;
 }
 
+function suppRoleLabelComments(value) {
+  const c = String(value || '').trim();
+  return c === 'Παράταση' || c === 'Συμπληρωματική σύμβαση';
+}
+
+function readSupplementaryApeComments(row = {}) {
+  const dedicated = String(row.apeComments || '').trim();
+  if (dedicated) return dedicated;
+  const amount = String(row.apeAmount || '').trim();
+  const hasApeMeta = amount
+    || String(row.apeSourceAdam || '').trim()
+    || String(row.apeDiavgeiaAda || '').trim()
+    || String(row.apeFileName || '').trim()
+    || row.apeRecorded === true;
+  if (!hasApeMeta) return '';
+  const legacy = String(row.comments || '').trim();
+  if (suppRoleLabelComments(legacy)) return '';
+  return legacy;
+}
+
 function findContractApeEntry(project, arrayIndex, entryId) {
   if (!entryId) return null;
   return listContractApeEntries(project, arrayIndex).find((e) => e.id === entryId) || null;
@@ -168,7 +311,7 @@ function findContractApeEntry(project, arrayIndex, entryId) {
 function hasContractApeEntryData(entry) {
   if (!entry) return false;
   return !!(
-    String(entry.apeAmount || '').trim()
+    isMeaningfulApeAmount(entry.apeAmount)
     || String(entry.apeSourceAdam || '').trim()
     || String(entry.apeDiavgeiaAda || '').trim()
     || String(entry.apeFileName || '').trim()
@@ -176,10 +319,12 @@ function hasContractApeEntryData(entry) {
   );
 }
 
-function normalizeAmountInput(value) {
+function normalizeAmountInput(value, contractReference = '', sanityReference = 0) {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const n = parseGreekAmountString(raw);
+  const ref = resolveProjectAmountNumeric(contractReference, sanityReference)
+    || (typeof sanityReference === 'number' ? sanityReference : parseGreekAmountString(sanityReference));
+  const n = parseApeAmountValue(raw, contractReference, ref);
   if (!Number.isFinite(n) || n < 0) return raw;
   return n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -379,9 +524,11 @@ export function readContractApeFields(project, arrayIndex = 0, entryId = null) {
   if (!project) {
     return { khmdhsAmount: '', apeAmount: '', comments: '', sourceAdam: '', diavgeiaAda: '', documentDate: '' };
   }
-  const khmdhsAmount = isMultipleContractsForm(project.implementationForm)
+  const rawKhmdhs = isMultipleContractsForm(project.implementationForm)
     ? String(project.contracts?.[arrayIndex]?.amount || '').trim()
     : String(project.contractAmount || '').trim();
+  const sanityRef = getKhmdhsAmountSanityReference(project);
+  const khmdhsAmount = normalizeProjectAmountForStorage(rawKhmdhs, sanityRef) || rawKhmdhs;
   if (entryId) {
     return fieldsFromApeEntry(findContractApeEntry(project, arrayIndex, entryId), khmdhsAmount);
   }
@@ -404,12 +551,13 @@ export function hasApeEntryData(project, target = {}) {
   }
   const fields = readSupplementaryApeFields(project, arrayIndex);
   const file = readApeFileRef(project, { kind, arrayIndex });
+  const row = project?.supplementaryContracts?.[arrayIndex] || {};
   return !!(
     String(fields.apeAmount || '').trim()
     || String(fields.sourceAdam || '').trim()
     || String(fields.diavgeiaAda || '').trim()
     || String(file.fileName || '').trim()
-    || String(fields.comments || '').trim()
+    || row.apeRecorded === true
   );
 }
 
@@ -427,7 +575,7 @@ export function buildApeCardSummary(project, target = {}) {
   if (target?.kind === 'contract' && target?.entryId) {
     const fields = readContractApeFields(project, target.arrayIndex ?? 0, target.entryId);
     const parts = [];
-    const fmt = formatApeAmountDisplay(fields.apeAmount);
+    const fmt = formatApeAmountDisplay(fields.apeAmount, fields.khmdhsAmount);
     if (fmt) parts.push(`ΑΠΕ: ${fmt} €`);
     const file = readApeFileRef(project, target);
     if (file.fileName) parts.push(`📎 ${file.fileName}`);
@@ -444,16 +592,24 @@ export function buildApeCardSummary(project, target = {}) {
 export function applyContractApeFields(project, arrayIndex, {
   apeAmount, comments, sourceAdam, diavgeiaAda, documentDate, entryId = null,
 }) {
-  const amount = normalizeAmountInput(apeAmount);
+  const khmdhsRef = readContractApeFields(project, arrayIndex).khmdhsAmount;
+  const sanityRef = getKhmdhsAmountSanityReference(project);
+  const amount = normalizeAmountInput(apeAmount, khmdhsRef, sanityRef);
   const note = String(comments || '').trim();
   const adam = String(sourceAdam || '').trim().toUpperCase();
   const ada = normalizeDiavgeiaAda(diavgeiaAda);
   const date = String(documentDate || '').slice(0, 10);
   const now = new Date().toISOString();
-  const entries = listContractApeEntries(project, arrayIndex);
+  const slice = getContractApeSlice(project, arrayIndex);
+  const rawEntries = Array.isArray(slice.apeEntries)
+    ? slice.apeEntries.map(normalizeApeEntryRow)
+    : [];
   let nextEntries;
 
   if (entryId) {
+    const entries = rawEntries.length
+      ? rawEntries
+      : listContractApeEntries(project, arrayIndex);
     nextEntries = entries.map((row) => (
       row.id === entryId
         ? normalizeApeEntryRow({
@@ -468,21 +624,63 @@ export function applyContractApeFields(project, arrayIndex, {
         : row
     ));
   } else {
-    nextEntries = [
-      ...entries,
-      normalizeApeEntryRow({
-        documentDate: date,
-        apeAmount: amount,
-        comments: note,
-        apeSourceAdam: adam,
-        apeDiavgeiaAda: ada,
-        createdAt: now,
-        updatedAt: now,
-      }),
-    ];
+    const newRow = normalizeApeEntryRow({
+      documentDate: date,
+      apeAmount: amount,
+      comments: note,
+      apeSourceAdam: adam,
+      apeDiavgeiaAda: ada,
+      createdAt: now,
+      updatedAt: now,
+    });
+    nextEntries = rawEntries.length ? [...rawEntries, newRow] : [newRow];
   }
 
   return writeContractApeEntries(project, arrayIndex, nextEntries);
+}
+
+/**
+ * Μετά ανάκτηση ΚΗΜΔΗΣ: συγχρονίζει preserved ΑΠΕ στο apeEntries[] (όχι μόνο στο legacy πεδίο).
+ */
+export function syncPreservedContractApeAmount(
+  form,
+  arrayIndex = 0,
+  preservedAmount = '',
+  referenceForm = form,
+) {
+  const amount = String(preservedAmount || '').trim();
+  if (!isMeaningfulApeAmount(amount)) return {};
+  if (!hasRealStoredContractApe(referenceForm || form, arrayIndex)) return {};
+
+  const slice = getContractApeSlice(form, arrayIndex);
+  const refSlice = getContractApeSlice(referenceForm || form, arrayIndex);
+  const rawEntries = Array.isArray(slice.apeEntries) ? slice.apeEntries.map(normalizeApeEntryRow) : [];
+
+  if (!rawEntries.length) {
+    return writeContractApeEntries(form, arrayIndex, [normalizeApeEntryRow({
+      documentDate: refSlice.apeDocumentDate || slice.contractDate || slice.date || form.contractDate || '',
+      apeAmount: amount,
+      comments: refSlice.apeComments || '',
+      apeSourceAdam: refSlice.apeSourceAdam || '',
+      apeDiavgeiaAda: refSlice.apeDiavgeiaAda || '',
+      apeFileName: refSlice.apeFileName || '',
+      apeFileGroupId: refSlice.apeFileGroupId || '',
+      apeFileGroupTitle: refSlice.apeFileGroupTitle || '',
+      apeFileSourcePath: refSlice.apeFileSourcePath || '',
+    })]);
+  }
+
+  const needsFill = rawEntries.some((entry) => !String(entry.apeAmount || '').trim());
+  if (!needsFill) return {};
+
+  const filled = rawEntries.map((entry, idx) => {
+    if (String(entry.apeAmount || '').trim()) return entry;
+    if (rawEntries.length === 1 || idx === rawEntries.length - 1) {
+      return normalizeApeEntryRow({ ...entry, apeAmount: amount });
+    }
+    return entry;
+  });
+  return writeContractApeEntries(form, arrayIndex, filled);
 }
 
 export function clearContractApeFields(project, arrayIndex = 0, entryId = null) {
@@ -499,7 +697,7 @@ export function readSupplementaryApeFields(project, arrayIndex = 0) {
   return {
     khmdhsAmount: String(row.amount || '').trim(),
     apeAmount: String(row.apeAmount || '').trim(),
-    comments: String(row.comments || '').trim(),
+    comments: readSupplementaryApeComments(row),
     sourceAdam: String(row.apeSourceAdam || '').trim(),
     diavgeiaAda: String(row.apeDiavgeiaAda || '').trim(),
   };
@@ -510,7 +708,8 @@ export function hasSupplementaryApe(project, arrayIndex = 0) {
 }
 
 export function applySupplementaryApeFields(project, arrayIndex, { apeAmount, comments, sourceAdam, diavgeiaAda }) {
-  const amount = normalizeAmountInput(apeAmount);
+  const khmdhsRef = readSupplementaryApeFields(project, arrayIndex).khmdhsAmount;
+  const amount = normalizeAmountInput(apeAmount, khmdhsRef);
   const note = String(comments || '').trim();
   const adam = String(sourceAdam || '').trim().toUpperCase();
   const ada = normalizeDiavgeiaAda(diavgeiaAda);
@@ -522,7 +721,7 @@ export function applySupplementaryApeFields(project, arrayIndex, { apeAmount, co
     ...supplementaryContracts[arrayIndex],
     apeAmount: amount,
     apeRecorded: !!amount,
-    comments: note,
+    apeComments: note,
     apeSourceAdam: adam,
     apeDiavgeiaAda: ada,
   };
@@ -536,6 +735,7 @@ export function clearSupplementaryApeFields(project, arrayIndex = 0) {
     ...supplementaryContracts[arrayIndex],
     apeAmount: '',
     apeRecorded: false,
+    apeComments: '',
     apeSourceAdam: '',
     apeDiavgeiaAda: '',
   }, null);
@@ -650,15 +850,15 @@ export function clearApeEntryFromProject(project, target) {
 export function buildApeSummarySuffix(project, { kind, arrayIndex }) {
   const parts = [];
   if (kind === 'contract') {
-    const { apeAmount } = readContractApeFields(project, arrayIndex);
-    const fmt = formatApeAmountDisplay(apeAmount);
+    const { apeAmount, khmdhsAmount } = readContractApeFields(project, arrayIndex);
+    const fmt = formatApeAmountDisplay(apeAmount, khmdhsAmount);
     if (fmt) parts.push(`ΑΠΕ: ${fmt} €`);
     const latest = getLatestContractApeEntry(project, arrayIndex);
     if (latest?.apeFileName) parts.push(`📎 ${latest.apeFileName}`);
     if (latest?.apeDiavgeiaAda) parts.push(`Διαύγεια: ${latest.apeDiavgeiaAda}`);
   } else if (kind === 'supplementary') {
-    const { apeAmount } = readSupplementaryApeFields(project, arrayIndex);
-    const fmt = formatApeAmountDisplay(apeAmount);
+    const { apeAmount, khmdhsAmount } = readSupplementaryApeFields(project, arrayIndex);
+    const fmt = formatApeAmountDisplay(apeAmount, khmdhsAmount);
     if (fmt) parts.push(`ΑΠΕ: ${fmt} €`);
     if (hasApeFile(project, { kind, arrayIndex })) {
       const { fileName } = readApeFileRef(project, { kind, arrayIndex });
@@ -668,4 +868,101 @@ export function buildApeSummarySuffix(project, { kind, arrayIndex }) {
     if (diavgeiaAda) parts.push(`Διαύγεια: ${diavgeiaAda}`);
   }
   return parts.join(' · ');
+}
+
+/** Ημερομηνία εγγράφου (YYYY-MM-DD) από προεπισκόπηση ανάκτησης ΚΗΜΔΗΣ. */
+export function apeDocumentDateFromKhmdhsPreview(preview) {
+  if (!preview) return '';
+  return toIsoDateOnly(preview.signedDate || preview.signedDateDisplay || '');
+}
+
+/** Ημερομηνία εγγράφου (YYYY-MM-DD) από προεπισκόπηση Διαύγειας. */
+export function apeDocumentDateFromDiavgeiaPreview(preview) {
+  if (!preview) return '';
+  return toIsoDateOnly(preview.issueDate || preview.issueDateDisplay || '');
+}
+
+export function formatApeAmountForStorage(value, contractReference = '') {
+  const n = typeof value === 'number' ? value : parseApeAmountValue(value, contractReference);
+  if (!Number.isFinite(n) || n <= 0) {
+    return String(value || '').trim();
+  }
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Ζητά διευκρίνιση όταν το ποσό ΑΠΕ είναι μικρότερο από το ποσό σύμβασης αναφοράς. */
+export function shouldPromptApeAmountInterpretation(enteredAmount, contractReferenceAmount, sanityReference = 0) {
+  const contract = resolveProjectAmountNumeric(contractReferenceAmount, sanityReference);
+  const entered = parseApeAmountValue(
+    enteredAmount,
+    contractReferenceAmount,
+    sanityReference || contract
+  );
+  if (!Number.isFinite(entered) || entered <= 0) return false;
+  if (!Number.isFinite(contract) || contract <= 0.5) return false;
+  return entered + 0.5 < contract;
+}
+
+/**
+ * @param {'total' | 'delta'} interpretation
+ * total — το ποσό είναι το τελικό διαμορφωθέν
+ * delta — το ποσό προστίθεται στο ποσό σύμβασης
+ */
+export function resolveApeTotalFromInterpretation(
+  enteredAmount,
+  contractReferenceAmount,
+  interpretation,
+  sanityReference = 0,
+) {
+  const contract = resolveProjectAmountNumeric(contractReferenceAmount, sanityReference);
+  const entered = parseApeAmountValue(
+    enteredAmount,
+    contractReferenceAmount,
+    sanityReference || contract
+  );
+  if (!Number.isFinite(entered) || entered <= 0) {
+    return formatApeAmountForStorage(enteredAmount, contractReferenceAmount);
+  }
+  if (interpretation === 'delta' && Number.isFinite(contract) && contract > 0) {
+    return formatApeAmountForStorage(Math.round((contract + entered) * 100) / 100, contractReferenceAmount);
+  }
+  return formatApeAmountForStorage(entered, contractReferenceAmount);
+}
+
+export function buildApeEntryModalSnapshot({
+  apeAmount = '',
+  comments = '',
+  documentDate = '',
+  fileName = '',
+  groupTitle = '',
+  sourcePath = '',
+  fileCleared = false,
+  apeAdam = '',
+  diavgeiaAda = '',
+  confirmedSourceAdam = '',
+  confirmedDiavgeiaAda = '',
+  khmdhsFetchPreview = null,
+  diavgeiaFetchPreview = null,
+} = {}) {
+  return JSON.stringify({
+    apeAmount: String(apeAmount || '').trim(),
+    comments: String(comments || '').trim(),
+    documentDate: String(documentDate || '').slice(0, 10),
+    fileName: String(fileName || '').trim(),
+    groupTitle: String(groupTitle || '').trim(),
+    sourcePath: String(sourcePath || '').trim(),
+    fileCleared: !!fileCleared,
+    apeAdam: String(apeAdam || '').trim(),
+    diavgeiaAda: String(diavgeiaAda || '').trim(),
+    confirmedSourceAdam: String(confirmedSourceAdam || '').trim(),
+    confirmedDiavgeiaAda: String(confirmedDiavgeiaAda || '').trim(),
+    hasKhmdhsPreview: !!khmdhsFetchPreview,
+    hasDiavPreview: !!diavgeiaFetchPreview,
+  });
+}
+
+export function isApeEntryModalDirty(current, baseline) {
+  if (!baseline) return false;
+  return buildApeEntryModalSnapshot(current) !== baseline;
 }

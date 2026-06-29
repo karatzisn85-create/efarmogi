@@ -37,4 +37,14 @@ describe('suggestProjectStatusAfterKhmdhsChain', () => {
     };
     expect(suggestProjectStatusAfterKhmdhsChain(PROJECT_STATUS_CONTRACT_PROCESS, chainRes)).toBeNull();
   });
+
+  test('does not change ΟΛΟΚΛΗΡΩΜΕΝΟ when chain has contract', () => {
+    const chainRes = { contract: { adam: '25SYMV001' } };
+    expect(suggestProjectStatusAfterKhmdhsChain('ΟΛΟΚΛΗΡΩΜΕΝΟ', chainRes)).toBeNull();
+  });
+
+  test('does not change ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ when chain has contract', () => {
+    const chainRes = { contract: { adam: '25SYMV001' } };
+    expect(suggestProjectStatusAfterKhmdhsChain('ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ', chainRes)).toBeNull();
+  });
 });

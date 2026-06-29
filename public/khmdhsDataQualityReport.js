@@ -863,7 +863,16 @@ function buildPaymentsReconciliationItem(payments, ctx) {
   let status = STATUS.COMPLETE;
   let displayValue = formatDisplayAmount(recon.estimatedContractorPaymentGross);
 
-  if (recon.coFinancingPattern) {
+  if (recon.needsClassification) {
+    status = STATUS.NEEDS_REVIEW;
+    message = `Το άθροισμα των εγγράφων πληρωμής (${formatDisplayAmount(recon.rawTotalGross)}) υπερβαίνει ${refAmountDesc}. `
+      + 'Χαρακτηρίστε κάθε έγγραφο: ένταλμα πληρωμής, ενημερωτικό, αποζημίωση συγχρηματοδότησης ή εξαίρεση.';
+    if (recon.coFinancingPattern) {
+      message += ' Εντοπίστηκε πιθανό μοτίβο συγχρηματοδότησης (Δήμος + Περιφερειακό Ταμείο).';
+    }
+    message += payableHint;
+    displayValue = formatDisplayAmount(recon.rawTotalGross);
+  } else if (recon.coFinancingPattern) {
     message = `Βρέθηκαν ${recon.activeCount} εντάλματα με ακατέργαστο άθροισμα ${formatDisplayAmount(recon.rawTotalGross)} — υπερβαίνει ${refAmountDesc}. `
       + 'Εντοπίστηκε τυπικό μοτίβο συγχρηματοδότησης: ένταλμα από Περιφερειακό Ταμείο/ΠΕΠΑΚ και ένταλμα από Δήμο/αναθέτουσα αρχή για το ίδιο ποσό. '
       + 'Συνήθως το Ταμείο αποζημιώνει τον Δήμο — η εκτιμώμενη πληρωμή προς εργολάβο είναι μία φορά το ποσό της σύμβασης, όχι το άθροισμα των δύο ενταλμάτων.';

@@ -1,10 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
   buildDefaultApeFileGroupTitle,
   buildDefaultApeFileName,
   formatApeAmountDisplay,
   getApeKhmdhsReferenceAmountLabel,
+  buildApeEntryModalSnapshot,
+  isApeEntryModalDirty,
+  shouldPromptApeAmountInterpretation,
+  resolveApeTotalFromInterpretation,
+  apeDocumentDateFromKhmdhsPreview,
+  apeDocumentDateFromDiavgeiaPreview,
 } from '../utils/khmdhsApeEntry';
 import { buildApeFetchPreview } from '../utils/khmdhsApeFetch';
 import {
@@ -12,6 +18,8 @@ import {
   buildDiavgeiaApeCommentSuffix,
 } from '../utils/diavgeiaApeFetch';
 import { safeFileDialog } from '../utils/safeDialogs';
+import { showConfirm } from '../utils/confirmModal';
+import { formatDateEl } from '../utils/dateFormat';
 
 const fadeIn = keyframes`
   from { opacity: 0; }
@@ -333,10 +341,129 @@ const ConfirmDiavBtn = styled(ConfirmFetchBtn)`
   background: #0d9488;
 `;
 
+const ConfirmedBanner = styled.div`
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  background: ${(p) => (p.$diav ? '#f0fdfa' : '#ecfdf5')};
+  border: 1px solid ${(p) => (p.$diav ? '#5eead4' : '#6ee7b7')};
+`;
+
+const ConfirmedBannerTitle = styled.div`
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: ${(p) => (p.$diav ? '#0f766e' : '#047857')};
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+`;
+
+const ConfirmedBannerMeta = styled.div`
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: ${(p) => (p.$diav ? '#115e59' : '#166534')};
+`;
+
+const ConfirmedAppliedList = styled.ul`
+  margin: 0.15rem 0 0;
+  padding: 0 0 0 1.1rem;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: #15803d;
+`;
+
+const ClearLinkBtn = styled.button`
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  border: none;
+  border-radius: 8px;
+  padding: 0.32rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  background: #fff;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+
+  &:hover {
+    color: #b91c1c;
+    border-color: #fecaca;
+    background: #fef2f2;
+  }
+`;
+
 const ManualEditBtn = styled(Btn)`
   background: #fff;
   color: #334155;
   border: 1px solid #cbd5e1;
+`;
+
+const InterpretOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 13200;
+  padding: 1rem;
+`;
+
+const InterpretCard = styled.div`
+  background: #fff;
+  border-radius: 16px;
+  max-width: 460px;
+  width: 100%;
+  padding: 1.2rem 1.3rem 1.1rem;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.24);
+`;
+
+const InterpretTitle = styled.h4`
+  margin: 0 0 0.55rem;
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #0f172a;
+`;
+
+const InterpretText = styled.p`
+  margin: 0 0 0.85rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #475569;
+`;
+
+const InterpretActions = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+`;
+
+const InterpretBtn = styled.button`
+  border: none;
+  border-radius: 10px;
+  padding: 0.58rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  background: ${(p) => (p.$primary ? 'linear-gradient(135deg, #4f46e5, #6366f1)' : '#f8fafc')};
+  color: ${(p) => (p.$primary ? '#fff' : '#334155')};
+  border: ${(p) => (p.$primary ? 'none' : '1px solid #cbd5e1')};
+
+  &:hover {
+    filter: brightness(0.98);
+  }
+`;
+
+const InterpretHint = styled.div`
+  margin-top: 0.35rem;
+  font-size: 0.74rem;
+  color: #64748b;
+  font-weight: 500;
 `;
 
 /**
@@ -365,6 +492,7 @@ export default function KhmdhsApeEntryModal({
   targetTitle = '',
   targetKind = 'contract',
   khmdhsAmount = '',
+  amountSanityReference = 0,
   initialApeAmount = '',
   initialComments = '',
   initialFileName = '',
@@ -400,7 +528,9 @@ export default function KhmdhsApeEntryModal({
   const [confirmedDiavgeiaPreview, setConfirmedDiavgeiaPreview] = useState(null);
   const [documentDate, setDocumentDate] = useState('');
   const [error, setError] = useState('');
+  const [amountInterpret, setAmountInterpret] = useState(null);
   const bodyScrollRef = useRef(null);
+  const baselineSnapshotRef = useRef('');
 
   useEffect(() => {
     const el = bodyScrollRef.current;
@@ -445,6 +575,22 @@ export default function KhmdhsApeEntryModal({
     setConfirmedDiavgeiaPreview(null);
     setFileCleared(false);
     setError('');
+    setAmountInterpret(null);
+    baselineSnapshotRef.current = buildApeEntryModalSnapshot({
+      apeAmount: initialApeAmount || '',
+      comments: initialComments || '',
+      documentDate: String(initialDocumentDate || '').slice(0, 10),
+      fileName: initialFileName || '',
+      groupTitle: initialGroupTitle || buildDefaultApeFileGroupTitle(targetTitle),
+      sourcePath: initialSourcePath || '',
+      fileCleared: false,
+      apeAdam: initialSourceAdam || '',
+      diavgeiaAda: initialDiavgeiaAda || '',
+      confirmedSourceAdam: initialSourceAdam || '',
+      confirmedDiavgeiaAda: initialDiavgeiaAda || '',
+      khmdhsFetchPreview: null,
+      diavgeiaFetchPreview: null,
+    });
   }, [
     isOpen,
     initialApeAmount,
@@ -458,14 +604,73 @@ export default function KhmdhsApeEntryModal({
     targetTitle,
   ]);
 
+  const handleRequestClose = useCallback(async () => {
+    if (amountInterpret) {
+      setAmountInterpret(null);
+      return;
+    }
+    const dirty = isApeEntryModalDirty(
+      {
+        apeAmount,
+        comments,
+        documentDate,
+        fileName,
+        groupTitle,
+        sourcePath,
+        fileCleared,
+        apeAdam,
+        diavgeiaAda,
+        confirmedSourceAdam,
+        confirmedDiavgeiaAda,
+        khmdhsFetchPreview,
+        diavgeiaFetchPreview,
+      },
+      baselineSnapshotRef.current
+    );
+    if (dirty) {
+      const ok = await showConfirm({
+        title: 'Κλείσιμο χωρίς εφαρμογή',
+        message: 'Υπάρχουν μη αποθηκευμένα στοιχεία στο παράθυρο ΑΠΕ.',
+        detail: 'Θέλετε να κλείσετε χωρίς να εφαρμοστούν οι αλλαγές;',
+        confirmLabel: 'Κλείσιμο',
+        cancelLabel: 'Συνέχεια επεξεργασίας',
+        danger: false,
+        icon: '⚠️',
+      });
+      if (!ok) return;
+    }
+    onCancel?.();
+  }, [
+    amountInterpret,
+    apeAmount,
+    comments,
+    documentDate,
+    fileName,
+    groupTitle,
+    sourcePath,
+    fileCleared,
+    apeAdam,
+    diavgeiaAda,
+    confirmedSourceAdam,
+    confirmedDiavgeiaAda,
+    khmdhsFetchPreview,
+    diavgeiaFetchPreview,
+    onCancel,
+  ]);
+
   useEffect(() => {
     if (!isOpen) return undefined;
     const onKey = (e) => {
-      if (e.key === 'Escape') onCancel?.();
+      if (e.key !== 'Escape') return;
+      if (amountInterpret) {
+        setAmountInterpret(null);
+        return;
+      }
+      handleRequestClose();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [isOpen, onCancel]);
+  }, [isOpen, amountInterpret, handleRequestClose]);
 
   if (!isOpen) return null;
 
@@ -558,21 +763,43 @@ export default function KhmdhsApeEntryModal({
     if (khmdhsFetchPreview.amount) {
       setApeAmount(khmdhsFetchPreview.amount);
     }
+    const fetchedDocDate = apeDocumentDateFromKhmdhsPreview(khmdhsFetchPreview);
+    if (fetchedDocDate) {
+      setDocumentDate(fetchedDocDate);
+    }
     setConfirmedSourceAdam(khmdhsFetchPreview.adam || apeAdam);
     setConfirmedKhmdhsMeta({
       title: khmdhsFetchPreview.title || '',
-      signedDate: khmdhsFetchPreview.signedDate || '',
+      signedDate: fetchedDocDate || khmdhsFetchPreview.signedDate || '',
       signedDateDisplay: khmdhsFetchPreview.signedDateDisplay || '',
       adam: khmdhsFetchPreview.adam || apeAdam,
+      appliedAmount: khmdhsFetchPreview.amount ? khmdhsFetchPreview.amountDisplay || khmdhsFetchPreview.amount : '',
+      appliedDocumentDate: fetchedDocDate
+        ? (khmdhsFetchPreview.signedDateDisplay || formatDateEl(fetchedDocDate, ''))
+        : '',
     });
     setKhmdhsFetchPreview(null);
     setKhmdhsFetchError('');
   };
 
+  const handleClearKhmdhsLink = () => {
+    setConfirmedSourceAdam('');
+    setConfirmedKhmdhsMeta(null);
+  };
+
   const handleConfirmDiavgeiaFetch = () => {
     if (!diavgeiaFetchPreview?.ada) return;
+    const fetchedDocDate = apeDocumentDateFromDiavgeiaPreview(diavgeiaFetchPreview);
+    if (fetchedDocDate) {
+      setDocumentDate(fetchedDocDate);
+    }
     setConfirmedDiavgeiaAda(diavgeiaFetchPreview.ada);
-    setConfirmedDiavgeiaPreview(diavgeiaFetchPreview);
+    setConfirmedDiavgeiaPreview({
+      ...diavgeiaFetchPreview,
+      appliedDocumentDate: fetchedDocDate
+        ? (diavgeiaFetchPreview.issueDateDisplay || formatDateEl(fetchedDocDate, ''))
+        : '',
+    });
     setDiavgeiaFetchPreview(null);
     setDiavgeiaFetchError('');
     const suffix = buildDiavgeiaApeCommentSuffix(diavgeiaFetchPreview);
@@ -585,18 +812,14 @@ export default function KhmdhsApeEntryModal({
     }
   };
 
-  const handleApply = () => {
-    const trimmed = String(apeAmount || '').trim();
-    if (!trimmed) {
-      setError('Συμπληρώστε το ποσό ΑΠΕ (τελικό διαμορφωθέν, με ΦΠΑ).');
-      return;
-    }
+  const handleClearDiavgeiaLink = () => {
+    setConfirmedDiavgeiaAda('');
+    setConfirmedDiavgeiaPreview(null);
+  };
+
+  const submitApply = (finalApeAmount) => {
+    const trimmed = String(finalApeAmount || '').trim();
     const docDate = String(documentDate || '').slice(0, 10);
-    if (targetKind === 'contract' && !docDate) {
-      setError('Συμπληρώστε την ημερομηνία του εγγράφου ΑΠΕ.');
-      return;
-    }
-    setError('');
 
     let filePayload;
     if (fileCleared && (initialFileName || initialSourcePath)) {
@@ -621,10 +844,44 @@ export default function KhmdhsApeEntryModal({
     });
   };
 
+  const handleApply = () => {
+    const trimmed = String(apeAmount || '').trim();
+    if (!trimmed) {
+      setError('Συμπληρώστε το ποσό ΑΠΕ (τελικό διαμορφωθέν, με ΦΠΑ).');
+      return;
+    }
+    const docDate = String(documentDate || '').slice(0, 10);
+    if (targetKind === 'contract' && !docDate) {
+      setError('Συμπληρώστε την ημερομηνία του εγγράφου ΑΠΕ.');
+      return;
+    }
+    setError('');
+
+    if (shouldPromptApeAmountInterpretation(trimmed, khmdhsAmount, amountSanityReference)) {
+      setAmountInterpret({ entered: trimmed });
+      return;
+    }
+
+    submitApply(trimmed);
+  };
+
+  const handleAmountInterpret = (interpretation) => {
+    if (!amountInterpret?.entered) return;
+    const resolved = resolveApeTotalFromInterpretation(
+      amountInterpret.entered,
+      khmdhsAmount,
+      interpretation,
+      amountSanityReference
+    );
+    setAmountInterpret(null);
+    setApeAmount(resolved);
+    submitApply(resolved);
+  };
+
   return (
     <Overlay
       data-khmdhs-ape-entry-modal
-      onClick={(e) => e.target === e.currentTarget && onCancel?.()}
+      onClick={(e) => e.target === e.currentTarget && handleRequestClose()}
     >
       <Card onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <Header>
@@ -718,8 +975,31 @@ export default function KhmdhsApeEntryModal({
                   </Hint>
                 </FetchPreview>
               ) : null}
-              {confirmedSourceAdam ? (
-                <Hint>Πηγή ΚΗΜΔΗΣ: {confirmedSourceAdam}</Hint>
+              {confirmedSourceAdam && confirmedKhmdhsMeta ? (
+                <ConfirmedBanner>
+                  <ConfirmedBannerTitle>✓ Συνδέθηκαν στοιχεία ΚΗΜΔΗΣ</ConfirmedBannerTitle>
+                  <ConfirmedBannerMeta>
+                    {confirmedKhmdhsMeta.adam ? <div><strong>ΑΔΑΜ:</strong> {confirmedKhmdhsMeta.adam}</div> : null}
+                    {confirmedKhmdhsMeta.title ? <div><strong>Τίτλος:</strong> {confirmedKhmdhsMeta.title}</div> : null}
+                  </ConfirmedBannerMeta>
+                  {(confirmedKhmdhsMeta.appliedDocumentDate || confirmedKhmdhsMeta.appliedAmount) ? (
+                    <ConfirmedAppliedList>
+                      {confirmedKhmdhsMeta.appliedDocumentDate ? (
+                        <li>Ημερομηνία εγγράφου: {confirmedKhmdhsMeta.appliedDocumentDate}</li>
+                      ) : null}
+                      {confirmedKhmdhsMeta.appliedAmount ? (
+                        <li>Προτάθηκε ποσό αναφοράς: {confirmedKhmdhsMeta.appliedAmount} €</li>
+                      ) : null}
+                    </ConfirmedAppliedList>
+                  ) : (
+                    <Hint style={{ margin: 0, color: '#166534' }}>
+                      Η σύνδεση θα αποθηκευτεί με το «Εφαρμογή». Συμπληρώστε το ποσό ΑΠΕ αν δεν έχει γίνει ακόμα.
+                    </Hint>
+                  )}
+                  <ClearLinkBtn type="button" onClick={handleClearKhmdhsLink}>
+                    Αφαίρεση σύνδεσης ΚΗΜΔΗΣ
+                  </ClearLinkBtn>
+                </ConfirmedBanner>
               ) : null}
             </>
           ) : null}
@@ -777,12 +1057,34 @@ export default function KhmdhsApeEntryModal({
                   </Hint>
                 </DiavPreview>
               ) : null}
-              {confirmedDiavgeiaAda ? (
-                <Hint>
-                  Πηγή Διαύγειας: {confirmedDiavgeiaAda}
-                  {' — '}
-                  κατά την εφαρμογή, το PDF θα προστεθεί αυτόματα στα αρχεία υποέργου (εκτός αν ανεβάσετε δικό σας αρχείο).
-                </Hint>
+              {confirmedDiavgeiaAda && confirmedDiavgeiaPreview ? (
+                <ConfirmedBanner $diav>
+                  <ConfirmedBannerTitle $diav>✓ Συνδέθηκε πράξη Διαύγειας</ConfirmedBannerTitle>
+                  <ConfirmedBannerMeta $diav>
+                    <div><strong>ΑΔΑ:</strong> {confirmedDiavgeiaPreview.ada}</div>
+                    {confirmedDiavgeiaPreview.protocolNumber ? (
+                      <div><strong>Πρωτόκολλο:</strong> {confirmedDiavgeiaPreview.protocolNumber}</div>
+                    ) : null}
+                    {confirmedDiavgeiaPreview.subject ? (
+                      <div><strong>Θέμα:</strong> {confirmedDiavgeiaPreview.subject}</div>
+                    ) : null}
+                  </ConfirmedBannerMeta>
+                  {confirmedDiavgeiaPreview.appliedDocumentDate ? (
+                    <ConfirmedAppliedList>
+                      <li>Ημερομηνία εγγράφου: {confirmedDiavgeiaPreview.appliedDocumentDate}</li>
+                    </ConfirmedAppliedList>
+                  ) : (
+                    <Hint style={{ margin: 0, color: '#115e59' }}>
+                      Η σύνδεση θα αποθηκευτεί με το «Εφαρμογή».
+                    </Hint>
+                  )}
+                  <Hint style={{ margin: 0, color: '#0f766e' }}>
+                    Κατά την εφαρμογή, το PDF της Διαύγειας θα προστεθεί στα αρχεία (εκτός αν ανεβάσετε δικό σας).
+                  </Hint>
+                  <ClearLinkBtn type="button" onClick={handleClearDiavgeiaLink}>
+                    Αφαίρεση σύνδεσης Διαύγειας
+                  </ClearLinkBtn>
+                </ConfirmedBanner>
               ) : null}
             </>
           ) : null}
@@ -845,7 +1147,7 @@ export default function KhmdhsApeEntryModal({
               Αφαίρεση ΑΠΕ
             </RemoveBtn>
           ) : null}
-          <CancelBtn type="button" onClick={onCancel}>
+          <CancelBtn type="button" onClick={handleRequestClose}>
             Ακύρωση
           </CancelBtn>
           <ApplyBtn type="button" onClick={handleApply}>
@@ -853,6 +1155,39 @@ export default function KhmdhsApeEntryModal({
           </ApplyBtn>
         </Footer>
       </Card>
+      {amountInterpret ? (
+        <InterpretOverlay onClick={(e) => e.stopPropagation()}>
+          <InterpretCard role="dialog" aria-modal="true">
+            <InterpretTitle>Διευκρίνιση ποσού ΑΠΕ</InterpretTitle>
+            <InterpretText>
+              Το ποσό που καταχωρήσατε ({formatApeAmountDisplay(amountInterpret.entered)} €) είναι μικρότερο
+              από το ποσό σύμβασης αναφοράς ({khmdhsFmt} €).
+              Πώς θέλετε να το ερμηνεύσουμε;
+            </InterpretText>
+            <InterpretActions>
+              <InterpretBtn type="button" $primary onClick={() => handleAmountInterpret('total')}>
+                Συνολικό διαμορφωθέν ποσό
+                <InterpretHint>
+                  Θα καταχωρηθεί ως τελικό ΑΠΕ: {formatApeAmountDisplay(amountInterpret.entered)} €
+                </InterpretHint>
+              </InterpretBtn>
+              <InterpretBtn type="button" onClick={() => handleAmountInterpret('delta')}>
+                Διαφορά προς πρόσθεση στη σύμβαση
+                <InterpretHint>
+                  Θα καταχωρηθεί ως τελικό ΑΠΕ:{' '}
+                  {formatApeAmountDisplay(
+                    resolveApeTotalFromInterpretation(amountInterpret.entered, khmdhsAmount, 'delta', amountSanityReference)
+                  )} €
+                  {' '}(σύμβαση + διαφορά)
+                </InterpretHint>
+              </InterpretBtn>
+              <InterpretBtn type="button" onClick={() => setAmountInterpret(null)}>
+                Επιστροφή στην επεξεργασία
+              </InterpretBtn>
+            </InterpretActions>
+          </InterpretCard>
+        </InterpretOverlay>
+      ) : null}
     </Overlay>
   );
 }

@@ -1,7 +1,7 @@
 /** Events για Ημερολόγιο Προθεσμιών (Φάση 3α) */
 
 import { isAbandonedSubproject, PROJECT_STATUS_CONTRACT_PROCESS } from '../data/formOptions';
-import { computeChainCharacterizationEffects } from './khmdhsChainActions';
+import { computeChainCharacterizationEffects, CHAIN_KIND, getChainKindChoice, getEffectiveChainKind } from './khmdhsChainActions';
 import {
   findDirectAssignmentViolations,
   formatViolationSummary
@@ -19,7 +19,7 @@ import {
   buildEngineerVisibilityContext,
   projectVisibleToAssignedEngineer
 } from './supervisorChargeDisplay';
-import { formatDateEl, formatDateTimeEl } from './dateFormat';
+import { formatDateEl, formatDateTimeEl, toIsoDateOnly } from './dateFormat';
 import {
   daysUntilDate,
   projectProcurementPhaseConcluded
@@ -165,6 +165,18 @@ function pushEvent(events, seen, payload) {
 }
 
 /** Ημερομηνία λήξης σύμβασης — project + chain ΚΗΜΔΗΣ + snapshot */
+function collectLastExtensionEndIso(chainHistory, review) {
+  let last = '';
+  (chainHistory || []).forEach((h) => {
+    if (h?.isRoot) return;
+    const kind = getEffectiveChainKind(h, review);
+    if (kind !== CHAIN_KIND.EXTENSION) return;
+    const end = toIsoDateOnly(getChainKindChoice(review, h.adam)?.endDate || h.endDate);
+    if (end && (!last || end > last)) last = end;
+  });
+  return last;
+}
+
 export function resolveContractEndDateIso(project, contract = null) {
   if (!project) return null;
   const review = project.khmdhsDataQualityReview || null;
@@ -176,12 +188,19 @@ export function resolveContractEndDateIso(project, contract = null) {
     : null;
   const snap = contract?.khmdhsContractSnapshot || project.khmdhsContractSnapshot;
   const fromSnap = snap?.noEndDate ? '' : (snap?.endDate || '');
+  const lastExtensionEnd = collectLastExtensionEndIso(chainHistory, review);
   if (contract) {
-    const stored = String(contract.contractEndDate || '').slice(0, 10);
-    const perContract = String(stored || fromSnap || effects?.contractDeadline || '').slice(0, 10);
+    const stored = toIsoDateOnly(contract.contractEndDate);
+    const perContract = stored
+      || toIsoDateOnly(fromSnap)
+      || toIsoDateOnly(effects?.contractDeadline)
+      || lastExtensionEnd;
     return perContract || null;
   }
-  const end = String(project.contractEndDate || effects?.contractDeadline || fromSnap || '').slice(0, 10);
+  const end = toIsoDateOnly(project.contractEndDate)
+    || toIsoDateOnly(effects?.contractDeadline)
+    || toIsoDateOnly(fromSnap)
+    || lastExtensionEnd;
   return end || null;
 }
 

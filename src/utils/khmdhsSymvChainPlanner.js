@@ -3,6 +3,7 @@
  */
 
 import { isSubstantiveContractSymvSnapshot, nonContractSymvReason } from './khmdhsSubstantiveContractSymv';
+import { grossFromContractBudget, grossFromContractRecord } from './khmdhsVatHelper';
 
 export const SYMV_CHAIN_ROLE = {
   SKIP: 'skip',
@@ -24,6 +25,15 @@ export const SYMV_CHAIN_ROLE_LABELS = {
 
 function normalizeAdam(adam) {
   return String(adam || '').trim().toUpperCase().replace(/\*+$/, '').replace(/\s+/g, '');
+}
+
+/** ΑΔΑΜ που ο χρήστης απέκλεισε στη κατανομή SYMV («Δεν καταχωρείται»). */
+export function isAdamSkippedInSymvPlan(planOrProject, adam) {
+  const plan = planOrProject?.khmdhsSymvChainPlan || planOrProject;
+  const norm = normalizeAdam(adam);
+  if (!norm || !plan?.items?.length) return false;
+  const item = plan.items.find((i) => normalizeAdam(i?.adam) === norm);
+  return item?.role === SYMV_CHAIN_ROLE.SKIP;
 }
 
 const RE_EXTENSION = /παράταση|παραταση|διατήρηση\s+προθεσμ|διατηρηση\s+προθεσμ/i;
@@ -76,8 +86,9 @@ export function collectSymvChainDocuments(chainRes) {
         ? Number(hint.gross).toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : '');
     const budget = snapshot?.contractBudget;
-    const amountFromSnap = budget != null && budget !== ''
-      ? Number(budget).toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const grossFromSnap = grossFromContractRecord(snapshot) ?? grossFromContractBudget(budget);
+    const amountFromSnap = grossFromSnap != null
+      ? Number(grossFromSnap).toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : '';
 
     return {

@@ -377,15 +377,29 @@ export function findActRootSiblings(allProjects, actRootReqAdam, excludeSubproje
   });
 }
 
+export function acknowledgeKhmdhsDuplicateConflict(formData, conflict) {
+  const adam = normalizeKhmdhsAdam(conflict?.adam);
+  if (!adam || !formData) return formData;
+  const existing = new Set((formData.khmdhsAcknowledgedDuplicateAdams || []).map(normalizeKhmdhsAdam));
+  existing.add(adam);
+  return {
+    ...formData,
+    khmdhsAcknowledgedDuplicateAdams: [...existing],
+  };
+}
+
 export function checkKhmdhsDuplicateConflicts(formData, allProjects, chainRes = null) {
   const excludeId = formData?.subprojectId || '';
+  const acknowledged = new Set(
+    (formData?.khmdhsAcknowledgedDuplicateAdams || []).map(normalizeKhmdhsAdam)
+  );
   const conflicts = [];
   const symvAdam = normalizeKhmdhsAdam(
     formData?.khmdhsAdam
     || chainRes?.contract?.adam
     || (formData?.khmdhsBranchAnchorType === 'SYMV' ? formData?.khmdhsBranchAnchorAdam : '')
   );
-  if (symvAdam) {
+  if (symvAdam && !acknowledged.has(symvAdam)) {
     const dupSymv = findSubprojectsSharingSymv(allProjects, symvAdam, excludeId);
     if (dupSymv.length) {
       conflicts.push({
@@ -398,7 +412,7 @@ export function checkKhmdhsDuplicateConflicts(formData, allProjects, chainRes = 
   }
 
   const anchor = getSubprojectBranchAnchor(formData);
-  if (anchor.adam && anchor.type === 'SYMV' && anchor.adam !== symvAdam) {
+  if (anchor.adam && anchor.type === 'SYMV' && anchor.adam !== symvAdam && !acknowledged.has(anchor.adam)) {
     const dupAnchor = findSubprojectsSharingBranchAnchor(allProjects, anchor.adam, excludeId);
     if (dupAnchor.length) {
       conflicts.push({

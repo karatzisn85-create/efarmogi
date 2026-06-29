@@ -25,6 +25,9 @@ import {
   applyChainCharacterizationToForm,
 } from './khmdhsChainApply';
 import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
+import { grossFromCostSnapshot } from './khmdhsVatHelper';
+import { normalizeProjectAmountForStorage } from './projectAmountUtils';
+import { stripPhantomContractApeFromForm } from './khmdhsApeEntry';
 
 function normalizeAdam(adam) {
   return String(adam || '').trim().toUpperCase().replace(/\*+$/, '').replace(/\s+/g, '');
@@ -40,6 +43,9 @@ function buildContractRow(adam, planItem, chainRes, { roleLabel = '', chainHisto
   const snap = snapshots[norm] || snapshots[adam] || null;
   const fetchedAt = chainRes.chainMeta?.resolvedAt || new Date().toISOString();
   const snapEnd = snap?.noEndDate ? '' : String(snap?.endDate || '').slice(0, 10);
+  const sanityRef = grossFromCostSnapshot(chainRes?.auction?.snapshot) || 0;
+  const rawAmount = String(planItem?.amount || '').trim();
+  const amount = rawAmount ? normalizeProjectAmountForStorage(rawAmount, sanityRef) : '';
 
   return {
     ...createEmptyContractRow(),
@@ -48,7 +54,7 @@ function buildContractRow(adam, planItem, chainRes, { roleLabel = '', chainHisto
     khmdhsContractFetchedAt: snap ? fetchedAt : '',
     khmdhsContractRoleLabel: roleLabel,
     date: String(planItem?.date || '').slice(0, 10) || (snap ? signedDate(snap) : ''),
-    amount: String(planItem?.amount || '').trim(),
+    amount,
     contractEndDate: snapEnd,
     khmdhsContractChainHistory: chainHistory,
     khmdhsContractAmendments: [],
@@ -293,6 +299,21 @@ function resolveSymvPlanContractReviewItems(review, plan, form) {
   return next;
 }
 
+/** Ήδη ενσωματωμένο σχέδιο SYMV στο DQR — μην ξανατρέχει merge στο άνοιγμα φόρμας. */
+export function shouldMergeSymvPlanIntoDataQualityReview(review, plan, form) {
+  if (!review || !plan?.items?.length) return false;
+  if (String(form?.khmdhsSymvPlanAppliedAt || '').trim()) return false;
+  const activeItems = plan.items.filter((item) => item?.adam && item.role !== SYMV_CHAIN_ROLE.SKIP);
+  if (!activeItems.length) return false;
+  const resolutions = review.resolutions || {};
+  const allResolved = activeItems.every((item) => {
+    const adam = normalizeAdam(item.adam);
+    if (!adam) return true;
+    return !!resolutions[chainKindReviewResolutionKey(adam)];
+  });
+  return !allResolved;
+}
+
 /** Μεταφέρει τις επιλογές κατανομής SYMV στο DQR — χωρίς δεύτερο παράθυρο χαρακτηρισμού. */
 export function mergeSymvChainPlanIntoDataQualityReview(review, plan, form) {
   if (!review || !plan?.items?.length) return review;
@@ -359,6 +380,25 @@ export function mergeSymvChainPlanIntoDataQualityReview(review, plan, form) {
   plan.items.forEach((planItem) => {
     const adam = normalizeAdam(planItem.adam);
     if (!adam) return;
+    if (planItem.role === SYMV_CHAIN_ROLE.SKIP) {
+      const key = chainKindReviewResolutionKey(adam);
+      next = {
+        ...next,
+        resolutions: {
+          ...(next.resolutions || {}),
+          [key]: {
+            value: '',
+            source: KHMDHS_RESOLUTION_SOURCE.USER_CONFIRMED,
+            resolvedAt: new Date().toISOString(),
+            note: 'Αποκλείστηκε στη κατανομή SYMV',
+          },
+        },
+        acknowledgedFieldIds: [
+          ...new Set([...(next.acknowledgedFieldIds || []), key]),
+        ],
+      };
+      return;
+    }
     resolveKindForAdam(adam, planItem);
   });
 
@@ -586,12 +626,14 @@ export function applySymvChainPlanToForm(prev, chainRes, plan, {
 
   const { form: protectedForm, protectedCount } = applyUserEditsAfterKhmdhsFetch(prev, next);
 
-  const implementationFormAutoUpdated = prev.implementationForm !== protectedForm.implementationForm
-    ? protectedForm.implementationForm
+  const cleanedForm = stripPhantomContractApeFromForm(protectedForm, prev);
+
+  const implementationFormAutoUpdated = prev.implementationForm !== cleanedForm.implementationForm
+    ? cleanedForm.implementationForm
     : null;
 
   return {
-    form: protectedForm,
+    form: cleanedForm,
     warnings: sharedWarnings,
     apeConflict: null,
     statusAutoUpdated,

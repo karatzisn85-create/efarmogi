@@ -138,6 +138,23 @@ function detectCoFinancingPattern(activeEntries, contractAmountGross) {
   return null;
 }
 
+function readPaymentDocumentRole(payment) {
+  const role = String(payment?.userDocumentRole || PAYMENT_DOCUMENT_ROLE_PAYMENT).trim();
+  if (role === PAYMENT_DOCUMENT_ROLE_INFORMATIVE
+    || role === PAYMENT_DOCUMENT_ROLE_CO_FINANCING
+    || role === PAYMENT_DOCUMENT_ROLE_EXCLUDED) return role;
+  return PAYMENT_DOCUMENT_ROLE_PAYMENT;
+}
+
+function paymentRoleCountsTowardTotal(role) {
+  return readPaymentDocumentRole({ userDocumentRole: role }) === PAYMENT_DOCUMENT_ROLE_PAYMENT;
+}
+
+const PAYMENT_DOCUMENT_ROLE_PAYMENT = 'payment_order';
+const PAYMENT_DOCUMENT_ROLE_INFORMATIVE = 'informative';
+const PAYMENT_DOCUMENT_ROLE_CO_FINANCING = 'co_financing_reimbursement';
+const PAYMENT_DOCUMENT_ROLE_EXCLUDED = 'excluded';
+
 /**
  * @param {Array<{ adam?: string, snapshot?: object }>} payments
  * @param {{ contractAmountGross?: number|null, contractingOrg?: string, awardOrg?: string }} opts
@@ -153,11 +170,14 @@ function reconcileKhmdhsPayments(payments, opts = {}) {
     const gross = paymentGross(snap);
     const org = snap?.organization || '';
     const payer = classifyPaymentPayer(org, { contractingOrg });
+    const userDocumentRole = readPaymentDocumentRole(p);
     return {
       adam: String(p?.adam || snap?.referenceNumber || '').trim(),
       gross,
       org,
       payer,
+      userDocumentRole,
+      countsTowardTotal: paymentRoleCountsTowardTotal(userDocumentRole),
       cancelled: !!snap?.cancelled,
       credit: !!snap?.credit,
       active: isActivePaymentEntry(p),
@@ -172,26 +192,48 @@ function reconcileKhmdhsPayments(payments, opts = {}) {
   const rawTotalGross = activeEntries.reduce((s, e) => s + e.gross, 0);
   const coFinancingPattern = detectCoFinancingPattern(activeEntries, contractAmountGross);
 
+  const classifiedEntries = activeEntries.filter((e) => e.userDocumentRole);
+  const hasUserClassification = classifiedEntries.length > 0;
+  const countableEntries = activeEntries.filter((e) => {
+    if (!e.userDocumentRole) return true;
+    return paymentRoleCountsTowardTotal(e.userDocumentRole);
+  });
+  const countableTotalGross = countableEntries.reduce((s, e) => s + e.gross, 0);
+
   let estimatedContractorPaymentGross = rawTotalGross;
-  if (coFinancingPattern?.estimatedContractorPayment != null) {
+  if (hasUserClassification) {
+    estimatedContractorPaymentGross = countableTotalGross;
+  } else if (coFinancingPattern?.estimatedContractorPayment != null) {
     estimatedContractorPaymentGross = coFinancingPattern.estimatedContractorPayment;
   }
 
   const tolerance = 0.5;
   const rawExceedsContract = contractAmountGross != null && rawTotalGross > contractAmountGross + tolerance;
+  const countableExceedsContract = contractAmountGross != null
+    && countableTotalGross > contractAmountGross + tolerance;
   const estimatedExceedsContract = contractAmountGross != null
     && estimatedContractorPaymentGross > contractAmountGross + tolerance;
+
+  const needsClassification = rawExceedsContract && (
+    !hasUserClassification
+    || countableExceedsContract
+    || classifiedEntries.length < activeEntries.length
+  );
 
   return {
     entries: allEntries,
     activeCount: activeEntries.length,
     count: allEntries.length,
     rawTotalGross,
+    countableTotalGross,
     estimatedContractorPaymentGross,
     coFinancingPattern,
     rawExceedsContract,
+    countableExceedsContract,
     estimatedExceedsContract,
-    needsReview: rawExceedsContract && !coFinancingPattern,
+    needsReview: needsClassification,
+    needsClassification,
+    hasUserClassification,
     contractAmountGross,
     hasMultiplePayers: new Set(activeEntries.map((e) => e.payer.type)).size > 1,
   };

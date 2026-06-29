@@ -271,6 +271,25 @@ export const STATUSES_WITH_KHMDHS_ADAM = [
   'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ'
 ];
 
+/** Καταστάσεις όπου η ανάκτηση ΚΗΜΔΗΣ δεν αλλάζει ποτέ αυτόματα την κατάσταση υποέργου */
+export const KHMDHS_PROTECTED_PROJECT_STATUSES = [
+  'ΟΛΟΚΛΗΡΩΜΕΝΟ',
+  'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ',
+];
+
+export function isKhmdhsStatusProtectedFromAutoUpdate(status) {
+  return KHMDHS_PROTECTED_PROJECT_STATUSES.includes(status);
+}
+
+/** Κατάσταση «Ολοκληρωμένο» ή μεταγενέστερη (π.χ. αποπληρωμένο) — όχι πρόταση ολοκλήρωσης. */
+export function isProjectStatusAtOrBeyondCompleted(status) {
+  if (!status || status === PROJECT_STATUS_ABANDONED) return false;
+  if (isKhmdhsStatusProtectedFromAutoUpdate(status)) return true;
+  const completedIdx = PROJECT_STATUSES.indexOf('ΟΛΟΚΛΗΡΩΜΕΝΟ');
+  const idx = PROJECT_STATUSES.indexOf(status);
+  return idx >= 0 && completedIdx >= 0 && idx >= completedIdx;
+}
+
 export const STATUSES_WITH_CONTRACT_FIELDS = STATUSES_WITH_KHMDHS_ADAM;
 
 // Ο χαρακτηρισμός ΝΕΟ/ΣΥΝΕΧΙΖΟΜΕΝΟ δεν ισχύει για αυτές τις καταστάσεις

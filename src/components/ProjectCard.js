@@ -20,6 +20,8 @@ import {
   shouldShowProcedureZone,
   formatAleCodes,
 } from '../utils/projectCardDisplay';
+import { evaluateKhmdhsContractExpiryPrompt } from '../utils/khmdhsContractExpiryPrompt';
+import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
 
 const iconProps = { width: 14, height: 14, 'aria-hidden': true };
 
@@ -483,6 +485,41 @@ const AmendmentsLine = styled.div`
   margin-top: 0.35rem;
   padding-top: 0.35rem;
   border-top: 1px dashed rgba(203, 213, 225, 0.7);
+`;
+
+const ContractExpiryBanner = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.65rem;
+  margin: 0.35rem 0 0.15rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #92400e;
+`;
+
+const ContractExpiryBannerText = styled.span`
+  flex: 1 1 12rem;
+`;
+
+const ContractExpiryBannerButton = styled.button`
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 8px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: #f59e0b;
+  color: #fff;
+
+  &:hover {
+    background: #d97706;
+  }
 `;
 
 const ContractRowBlock = styled.div`
@@ -1231,10 +1268,17 @@ function ProjectCard({
   hasDirectAssignmentViolation = false,
   onExportReport,
   allSubprojects = [],
+  onContractExpiryAccept,
 }) {
   const [exportingReport, setExportingReport] = useState(false);
+  const [contractExpiryPrompt, setContractExpiryPrompt] = useState(null);
   const statusColor = getStatusColor(project.projectStatus);
   const isAbandoned = isAbandonedSubproject(project);
+  const canSuggestStatus = userRole !== 'USER' && userRole !== 'ENGINEER';
+  const contractExpiryEval = useMemo(
+    () => (canSuggestStatus ? evaluateKhmdhsContractExpiryPrompt(project) : null),
+    [project, canSuggestStatus]
+  );
 
   const handleCardClick = (e) => {
     if (e.target.closest('button') || e.target.closest('a')) return;
@@ -1507,6 +1551,20 @@ function ProjectCard({
         {showContractZone && contractRows.length > 0 && (
           <CardSection $accent="#4338ca" $tint="rgba(238, 242, 255, 0.2)">
             <SectionHeader>Σύμβαση{contractRows.length > 1 ? ' · Πολλές γραμμές' : ''}</SectionHeader>
+            {contractExpiryEval && (
+              <ContractExpiryBanner onClick={(e) => e.stopPropagation()}>
+                <ContractExpiryBannerText>
+                  Η λήξη της σύμβασης έχει περάσει ({contractExpiryEval.latestEndLabel}).
+                  Προτείνεται κατάσταση «Ολοκληρωμένο».
+                </ContractExpiryBannerText>
+                <ContractExpiryBannerButton
+                  type="button"
+                  onClick={() => setContractExpiryPrompt(contractExpiryEval)}
+                >
+                  Ενημέρωση κατάστασης
+                </ContractExpiryBannerButton>
+              </ContractExpiryBanner>
+            )}
             {contractRows.map((row, idx) => renderContractRow(row, idx))}
           </CardSection>
         )}
@@ -1589,6 +1647,17 @@ function ProjectCard({
 
         <ViewDetailsHint>Κλικ στην κάρτα για λεπτομέρειες</ViewDetailsHint>
       </Card>
+      <KhmdhsContractExpiryPromptDialog
+        isOpen={!!contractExpiryPrompt}
+        prompt={contractExpiryPrompt}
+        onDismiss={() => setContractExpiryPrompt(null)}
+        onAccept={() => {
+          if (typeof onContractExpiryAccept === 'function') {
+            onContractExpiryAccept(project);
+          }
+          setContractExpiryPrompt(null);
+        }}
+      />
     </>
   );
 }

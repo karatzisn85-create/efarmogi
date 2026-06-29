@@ -8,6 +8,10 @@ import {
   resolveEffectivePayableAmountGrossForPayments,
 } from './khmdhsFields';
 import { reconcileKhmdhsPayments } from './khmdhsPaymentReconciliation';
+import {
+  PAYMENT_DOCUMENT_ROLE_LABELS,
+  suggestPaymentDocumentRole,
+} from './khmdhsPaymentDocumentRoles';
 
 const STATUS = {
   COMPLETE: 'complete',
@@ -88,6 +92,7 @@ function buildPayableReferenceDesc(parts, formattedAmount) {
 function paymentsFromStoredRecon(recon) {
   return (recon?.entries || []).map((e) => ({
     adam: e.adam,
+    userDocumentRole: e.userDocumentRole || '',
     snapshot: {
       referenceNumber: e.adam,
       organization: e.org || '',
@@ -133,35 +138,53 @@ function buildPaymentsReconciliationItem(payments, ctx) {
   const paymentRefs = recon.entries.map((e, idx) => {
     const amt = e.gross != null ? formatDisplayAmount(e.gross) : '—';
     const statusNote = !e.active ? (e.cancelled ? ' (ακυρωμένο)' : e.credit ? ' (πιστωτικό)' : '') : '';
+    const roleLabel = e.userDocumentRole
+      ? PAYMENT_DOCUMENT_ROLE_LABELS[e.userDocumentRole] || e.userDocumentRole
+      : PAYMENT_DOCUMENT_ROLE_LABELS[suggestPaymentDocumentRole(e, { coFinancingPattern: recon.coFinancingPattern })];
     return ref(
-      `Ένταλμα ${idx + 1} — ${e.payer.label}`,
-      `${e.adam || '—'} · ${amt}${statusNote}${e.org ? ` · ${e.org}` : ''}`,
+      `Έγγραφο ${idx + 1} — ${e.payer.label}`,
+      `${e.adam || '—'} · ${amt}${statusNote}${e.org ? ` · ${e.org}` : ''} · ${roleLabel}`,
     );
   });
   const skippedUnrelatedRefs = skippedUnrelated.map((e) =>
     ref('⚠️ Εξαιρέθηκε (άσχετη σύμβαση)', `${e.adam} — αναφέρει: ${e.unrelatedContractRef || '?'}`)
   );
 
+  const classifyHint = ' Χαρακτηρίστε κάθε έγγραφο: πραγματικό ένταλμα πληρωμής, ενημερωτικό, αποζημίωση συγχρηματοδότησης ή εξαίρεση.';
   const apeHint = ' Αν το τελικό πληρωτέο ποσό δεν είναι σωστό, ελέγξτε ποσό σύμβασης, ΑΠΕ (τελικό διαμορφωθέν) και συμπληρωματικές στη φόρμα του υποέργου.';
   const refAmountDesc = buildPayableReferenceDesc(payableParts, formatDisplayAmount(contractAmountGross));
 
   let message;
   let status = STATUS.COMPLETE;
-  let displayValue = formatDisplayAmount(recon.estimatedContractorPaymentGross);
+  let displayValue = formatDisplayAmount(
+    recon.hasUserClassification ? recon.countableTotalGross : recon.estimatedContractorPaymentGross
+  );
 
-  if (recon.coFinancingPattern) {
-    message = `Βρέθηκαν ${recon.activeCount} εντάλματα με ακατέργαστο άθροισμα ${formatDisplayAmount(recon.rawTotalGross)} — υπερβαίνει ${refAmountDesc}. `
+  if (recon.needsClassification) {
+    status = STATUS.NEEDS_REVIEW;
+    message = `Το άθροισμα των εγγράφων πληρωμής (${formatDisplayAmount(recon.rawTotalGross)}) υπερβαίνει ${refAmountDesc}.`
+      + classifyHint;
+    if (recon.coFinancingPattern) {
+      message += ' Εντοπίστηκε πιθανό μοτίβο συγχρηματοδότησης (Δήμος + Περιφερειακό Ταμείο) — επιβεβαιώστε ποιο έγγραφο είναι πραγματική πληρωμή και ποιο αποζημίωση ή ενημερωτικό.';
+    } else {
+      message += ' Ελέγξτε αν κάποιο έγγραφο δεν είναι πραγματικό ένταλμα πληρωμής (π.χ. ενημερωτικό).';
+    }
+    message += apeHint;
+    displayValue = formatDisplayAmount(recon.rawTotalGross);
+  } else if (recon.coFinancingPattern && !recon.hasUserClassification) {
+    message = `Βρέθηκαν ${recon.activeCount} έγγραφα με ακατέργαστο άθροισμα ${formatDisplayAmount(recon.rawTotalGross)} — υπερβαίνει ${refAmountDesc}. `
       + 'Εντοπίστηκε τυπικό μοτίβο συγχρηματοδότησης: ένταλμα από Περιφερειακό Ταμείο/ΠΕΠΑΚ και ένταλμα από Δήμο/αναθέτουσα αρχή για το ίδιο ποσό. '
       + 'Συνήθως το Ταμείο αποζημιώνει τον Δήμο — η εκτιμώμενη πληρωμή προς εργολάβο είναι μία φορά το ποσό της σύμβασης, όχι το άθροισμα των δύο ενταλμάτων.';
     if (recon.estimatedExceedsContract) {
       status = STATUS.NEEDS_REVIEW;
       message += ` Ωστόσο, ακόμη και μετά τον έλεγχο, το εκτιμώμενο ποσό υπερβαίνει ${refAmountDesc} — απαιτείται χειροκίνητος έλεγχος.${apeHint}`;
     }
-  } else if (recon.needsReview) {
-    status = STATUS.NEEDS_REVIEW;
-    message = `Το άθροισμα των ενταλμάτων (${formatDisplayAmount(recon.rawTotalGross)}) υπερβαίνει ${refAmountDesc}. `
-      + `Δεν εντοπίστηκε μοτίβο συγχρηματοδότησης (Δήμος + Περιφερειακό Ταμείο). Ελέγξτε αν πρόκειται για διπλή καταχώριση ή πολλαπλές πληρωμές.${apeHint}`;
-    displayValue = formatDisplayAmount(recon.rawTotalGross);
+  } else if (recon.hasUserClassification) {
+    message = `Χαρακτηρίστηκαν ${recon.activeCount} έγγραφα πληρωμής. Μετρούν στο άθροισμα: ${formatDisplayAmount(recon.countableTotalGross)} (ακατέργαστο: ${formatDisplayAmount(recon.rawTotalGross)}).`;
+    if (recon.countableExceedsContract) {
+      status = STATUS.NEEDS_REVIEW;
+      message += ` Το ποσό που μετράει ακόμη υπερβαίνει ${refAmountDesc} — ελέγξτε ξανά τους χαρακτηρισμούς.${apeHint}`;
+    }
   } else if (recon.hasMultiplePayers) {
     message = `Βρέθηκαν ${recon.activeCount} εντάλματα από διαφορετικούς φορείς. Το άθροισμα (${formatDisplayAmount(recon.rawTotalGross)}) δεν υπερβαίνει ${refAmountDesc}.`;
   } else if (recon.activeCount === 1) {
@@ -200,11 +223,12 @@ function buildPaymentsReconciliationItem(payments, ctx) {
     sectionLabel: SECTION_LABELS[SECTION.PAYMENTS],
     references: commonRefs,
     relatedInfo,
-    searchSteps: recon.needsReview || skippedUnrelated.length > 0
+    searchSteps: recon.needsClassification || recon.needsReview || skippedUnrelated.length > 0
       ? [
-          'Ελέγξτε τα τιμολόγια / αποδείξεις πληρωμής στον φάκελο του έργου.',
-          'Συγκρίνετε κάθε ένταλμα στο ΚΗΜΔΗΣ: ποιος φορέας το εξέδωσε και σε ποιον αφορά.',
-          'Σε έργα ΕΣΠΑ/ΠΕΠ, επιβεβαιώστε αν το Περιφερειακό Ταμείο αποζημιώνει τον Δήμο (όχι δεύτερη πληρωμή εργολάβου).',
+          'Ανοίξτε κάθε έγγραφο στο ΚΗΜΔΗΣ (κουμπί Προβολή) και διαβάστε τον τίτλο.',
+          'Χαρακτηρίστε: ένταλμα πληρωμής, ενημερωτικό, αποζημίωση συγχρηματοδότησης ή εξαίρεση.',
+          'Μετρούν μόνο τα «Ένταλμα πληρωμής». Τα ενημερωτικά δεν προστίθενται στο άθροισμα.',
+          'Σε έργα ΕΣΠΑ/ΠΕΠ, το ένταλμα του Περιφερειακού Ταμείου συχνά είναι αποζημίωση Δήμου — όχι δεύτερη πληρωμή εργολάβου.',
           ...(skippedUnrelated.length > 0
             ? ['Για τα εξαιρεθέντα εντάλματα: ελέγξτε αν ανήκουν σε συμπληρωματική σύμβαση αυτού του υποέργου.']
             : []),
@@ -219,13 +243,21 @@ function buildPaymentsReconciliationItem(payments, ctx) {
   });
 }
 
+function paymentsForReconciliationRefresh(existingItem, overrides = {}) {
+  const formData = overrides.formData;
+  if (formData && Array.isArray(formData.khmdhsPayments) && formData.khmdhsPayments.length) {
+    return formData.khmdhsPayments.filter((p) => p?.adam || p?.snapshot);
+  }
+  return paymentsFromStoredRecon(existingItem?.paymentsReconciliation);
+}
+
 /** Επαναϋπολογισμός ειδοποίησης ενταλμάτων με ενημερωμένο συμβατικό ποσό. */
 export function rebuildPaymentsReconciliationItem(existingItem, overrides = {}) {
   if (!existingItem || existingItem.fieldId !== 'paymentsReconciliation') return existingItem;
   const recon = existingItem.paymentsReconciliation;
-  if (!recon?.entries?.length) return existingItem;
+  if (!recon?.entries?.length && !(overrides.formData?.khmdhsPayments || []).length) return existingItem;
 
-  const payments = paymentsFromStoredRecon(recon);
+  const payments = paymentsForReconciliationRefresh(existingItem, overrides);
   const contractingOrg = refValueFromItem(existingItem, /αναθέτουσα/i)
     || recon.entries.find((e) => e.org)?.org
     || '';
@@ -247,8 +279,12 @@ export function rebuildPaymentsReconciliationItem(existingItem, overrides = {}) 
 
   const fresh = buildPaymentsReconciliationItem(payments, ctx);
   if (!fresh) return existingItem;
+  const liveStatus = fresh.paymentsReconciliation?.needsClassification || fresh.paymentsReconciliation?.needsReview
+    ? STATUS.NEEDS_REVIEW
+    : STATUS.COMPLETE;
   return {
     ...fresh,
+    status: liveStatus,
     contractIndex: existingItem.contractIndex ?? null,
     skippedUnrelatedPayments: ctx.skippedUnrelatedPayments,
   };
