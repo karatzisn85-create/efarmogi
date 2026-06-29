@@ -1800,7 +1800,7 @@ function SubprojectDetailModal({
               <BasicColumn>
                 {displayChargePrimary && (
                   <Field>
-                    <FieldLabel>Χρεωμένο σε</FieldLabel>
+                    <FieldLabel>Επιβλέπων</FieldLabel>
                     <FieldValue style={{ fontWeight: 700, color: '#4338ca', whiteSpace: 'pre-wrap' }}>
                       {displayChargePrimary}
                     </FieldValue>
@@ -1808,7 +1808,7 @@ function SubprojectDetailModal({
                 )}
                 {displayChargeParticipants && (
                   <Field>
-                    <FieldLabel>Συμμετέχουν</FieldLabel>
+                    <FieldLabel>Βοηθούν στην επίβλεψη</FieldLabel>
                     <FieldValue style={{ color: '#475569', whiteSpace: 'pre-wrap' }}>
                       {displayChargeParticipants}
                     </FieldValue>

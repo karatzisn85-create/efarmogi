@@ -7,15 +7,15 @@ function findEngineerInCatalog(raw, catalog) {
   const s = String(raw || '').trim();
   if (!s) return null;
   const cat = Array.isArray(catalog) ? catalog : [];
-  const sLower = s.toLowerCase();
-  const bareUsername = sLower.replace(/^user:/i, '');
+  const key = engineerChargeFilterKey(s);
+  if (!key) return null;
   return (
     cat.find((e) => {
       if (!e) return false;
-      const id = String(e.id || '').trim().toLowerCase();
-      if (id && id === sLower) return true;
-      const uname = String(e.username || '').trim().toLowerCase();
-      return uname && (uname === bareUsername || `user:${uname}` === sLower);
+      const idKey = engineerChargeFilterKey(e.id);
+      if (idKey && idKey === key) return true;
+      const userKey = engineerChargeFilterKey(e.username);
+      return userKey && userKey === key;
     }) || null
   );
 }
@@ -82,8 +82,8 @@ export function getProjectChargeDisplay(project, engineerCatalog = []) {
 
   if (outsideMode) {
     return {
-      displayChargePrimary: displayFreeP,
-      displayChargeParticipants: displayFreePart
+      displayChargePrimary: displayFreeP || primaryCatalog,
+      displayChargeParticipants: displayFreePart || auxCatalog
     };
   }
 
@@ -94,10 +94,30 @@ export function getProjectChargeDisplay(project, engineerCatalog = []) {
     };
   }
 
+  if (displayFreeP || displayFreePart) {
+    return {
+      displayChargePrimary: displayFreeP,
+      displayChargeParticipants: displayFreePart
+    };
+  }
+
+  const legacySupervisor = String(project.supervisor || '').trim();
+  if (legacySupervisor) {
+    return {
+      displayChargePrimary: legacySupervisor,
+      displayChargeParticipants: ''
+    };
+  }
+
   return {
-    displayChargePrimary: displayFreeP,
-    displayChargeParticipants: displayFreePart
+    displayChargePrimary: '',
+    displayChargeParticipants: ''
   };
+}
+
+export function hasProjectChargeDisplay(project, engineerCatalog = []) {
+  const { displayChargePrimary, displayChargeParticipants } = getProjectChargeDisplay(project, engineerCatalog);
+  return !!(displayChargePrimary || displayChargeParticipants);
 }
 
 /** Σταθερό κλειδί φίλτρου για μηχανικό καταλόγου */

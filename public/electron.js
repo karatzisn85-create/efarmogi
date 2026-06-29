@@ -1753,12 +1753,10 @@ async function handleSaveProjectData(event, projectData) {
       egkriseisDialthesisPistosis: (existingData.egkriseisDialthesisPistosis && existingData.egkriseisDialthesisPistosis.length > 0)
         ? existingData.egkriseisDialthesisPistosis
         : (projectData.egkriseisDialthesisPistosis || []),
-      // Διατήρηση ανάθεσης επιβλεπόντων (νέο σύστημα) όταν η φόρμα δεν στέλνει το πεδίο
+      // Διατήρηση ανάθεσης επιβλεπόντων — κανονικοποίηση χωρίς αφαίρεση ιστορικών ids (π.χ. ανενεργός μηχανικός)
       supervisorEngineerIds: Array.isArray(projectData.supervisorEngineerIds)
-        ? filterSupervisorEngineerIds(projectData.supervisorEngineerIds)
-        : Array.isArray(existingData.supervisorEngineerIds)
-          ? filterSupervisorEngineerIds(existingData.supervisorEngineerIds)
-          : [],
+        ? normalizeSupervisorEngineerIdList(projectData.supervisorEngineerIds)
+        : normalizeSupervisorEngineerIdList(existingData.supervisorEngineerIds),
       ...require('./khmdhsOpenData').mergeKhmdhsFieldsForSave(projectData, existingData)
     };
 
@@ -1766,12 +1764,12 @@ async function handleSaveProjectData(event, projectData) {
     const chargeEngIds = Array.isArray(dataToSave.supervisorEngineerIds)
       ? dataToSave.supervisorEngineerIds.filter((x) => String(x || '').trim())
       : [];
-    if (chargeFreeText && chargeEngIds.length === 0) {
+    if (chargeEngIds.length > 0) {
+      dataToSave.supervisorChargeOutsideEngineers = false;
+    } else if (chargeFreeText) {
       dataToSave.supervisorChargeOutsideEngineers = true;
       dataToSave.supervisorChargeFreePrimary = chargeFreeText;
       dataToSave.supervisorEngineerIds = [];
-    } else if (chargeEngIds.length > 0) {
-      dataToSave.supervisorChargeOutsideEngineers = false;
     }
 
     stripLegacySupervisorField(dataToSave);
@@ -2120,12 +2118,15 @@ function getAllowedSupervisorEngineerIdSet() {
 
 const { engineerChargeFilterKey, buildEngineerVisibilityContext, projectVisibleToEngineerContext } = require('./chargeFilterUtils');
 
-function filterSupervisorEngineerIds(ids) {
-  const allowed = getAllowedSupervisorEngineerIdSet();
-  const arr = Array.isArray(ids)
+function normalizeSupervisorEngineerIdList(ids) {
+  return Array.isArray(ids)
     ? [...new Set(ids.map((x) => engineerChargeFilterKey(x)).filter(Boolean))]
     : [];
-  return arr.filter((id) => allowed.has(id));
+}
+
+function filterSupervisorEngineerIds(ids) {
+  const allowed = getAllowedSupervisorEngineerIdSet();
+  return normalizeSupervisorEngineerIdList(ids).filter((id) => allowed.has(id));
 }
 
 ipcMain.handle('get-registered-engineers', async () => {

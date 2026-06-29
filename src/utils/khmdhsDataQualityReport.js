@@ -364,10 +364,11 @@ export function refreshAmountDependentReviewItems(review, formData) {
       const resolution = nextReview?.resolutions?.[key];
       const hadPaymentClassification = resolution?.value === 'classified'
         || !!(resolution?.meta?.paymentRoles && Object.keys(resolution.meta.paymentRoles).length);
+      const acknowledgedExceed = resolution?.meta?.acknowledgedPayableExceeds === true;
       const nowClassified = !refreshed.paymentsReconciliation?.needsClassification
         && !refreshed.paymentsReconciliation?.needsReview
         && refreshed.paymentsReconciliation?.hasUserClassification;
-      if (!(hadPaymentClassification && nowClassified)) {
+      if (!(hadPaymentClassification && (nowClassified || acknowledgedExceed))) {
         nextReview = clearStaleItemAcknowledgment(nextReview, item);
       }
     }
@@ -484,7 +485,10 @@ export function isReviewItemResolved(review, formData, item) {
     if (active.length === 0) return !!resolution;
     const allClassified = active.every((e) => roles[String(e.adam || '').trim().toUpperCase()]);
     if (!allClassified) return false;
-    if (liveRecon?.countableExceedsContract) return false;
+    if (liveRecon?.countableExceedsContract) {
+      return !!(resolution?.meta?.acknowledgedPayableExceeds
+        && (resolution?.meta?.paymentRoles || resolution?.value === 'classified'));
+    }
     return !!(resolution?.meta?.paymentRoles || resolution?.value === 'classified');
   }
 
@@ -1251,6 +1255,7 @@ export function applyReviewResolution(formData, review, item, { value, source, r
       ? {
         paymentRoles: meta?.paymentRoles || {},
         paymentLabels: meta?.paymentLabels || {},
+        ...(meta?.acknowledgedPayableExceeds ? { acknowledgedPayableExceeds: true } : {}),
       }
       : meta,
   });

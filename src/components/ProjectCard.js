@@ -275,6 +275,50 @@ const HeaderTopRow = styled.div`
   min-width: 0;
 `;
 
+const ChargeHeaderStrip = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  background: linear-gradient(105deg, rgba(238, 242, 255, 0.95) 0%, rgba(255, 255, 255, 0.88) 100%);
+  border: 1px solid rgba(129, 140, 248, 0.42);
+  box-shadow: 0 1px 5px rgba(99, 102, 241, 0.1);
+`;
+
+const ChargeHeaderLine = styled.div`
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  min-width: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+`;
+
+const ChargeHeaderRole = styled.span`
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6366f1;
+  padding-top: 0.12rem;
+  min-width: 5.5rem;
+`;
+
+const ChargeHeaderName = styled.span`
+  font-weight: 700;
+  color: #312e81;
+  word-break: break-word;
+`;
+
+const ChargeHeaderAux = styled.span`
+  font-weight: 600;
+  color: #475569;
+  word-break: break-word;
+`;
+
 const HeaderMetaTags = styled.div`
   display: flex;
   flex-wrap: wrap;
@@ -841,43 +885,6 @@ const ContractAmountValue = styled(InfoValue)`
   font-size: 1rem;
 `;
 
-const CatalogSupervisorRow = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.55rem 0.65rem;
-  margin: 0.15rem 0 0.45rem;
-  border-radius: 10px;
-  background: linear-gradient(105deg, rgba(238, 242, 255, 0.9) 0%, rgba(255, 255, 255, 0.5) 100%);
-  border: 1px solid rgba(165, 180, 252, 0.45);
-  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.07);
-`;
-
-const CatalogChargeRow = styled.div`
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: 0.5rem;
-  align-items: start;
-`;
-
-const CatalogPrimaryName = styled.div`
-  font-size: 0.9rem;
-  font-weight: 800;
-  color: #312e81;
-  letter-spacing: 0.01em;
-  line-height: 1.35;
-  white-space: pre-wrap;
-  word-break: break-word;
-`;
-
-const CatalogAuxLine = styled.div`
-  font-size: 0.68rem;
-  font-weight: 600;
-  color: #64748b;
-  line-height: 1.4;
-  letter-spacing: 0.02em;
-`;
-
 const ContractInfo = styled.div`
   background: linear-gradient(145deg, rgba(238, 242, 255, 0.55) 0%, rgba(248, 250, 252, 0.95) 100%);
   border-radius: 12px;
@@ -1438,6 +1445,25 @@ function ProjectCard({
             )}
           </HeaderTopRow>
 
+          {(displayChargePrimary || displayChargeParticipants) && (
+            <ChargeHeaderStrip onClick={(e) => e.stopPropagation()}>
+              {displayChargePrimary && (
+                <ChargeHeaderLine>
+                  <span aria-hidden style={{ fontSize: '0.9rem', lineHeight: 1.2 }}>👷</span>
+                  <ChargeHeaderRole>Επιβλέπων</ChargeHeaderRole>
+                  <ChargeHeaderName>{displayChargePrimary}</ChargeHeaderName>
+                </ChargeHeaderLine>
+              )}
+              {displayChargeParticipants && (
+                <ChargeHeaderLine>
+                  <span aria-hidden style={{ fontSize: '0.85rem', lineHeight: 1.2, opacity: 0.85 }}>🤝</span>
+                  <ChargeHeaderRole>Βοηθούν</ChargeHeaderRole>
+                  <ChargeHeaderAux>{displayChargeParticipants}</ChargeHeaderAux>
+                </ChargeHeaderLine>
+              )}
+            </ChargeHeaderStrip>
+          )}
+
           {(portalEnabled && isPublishedToPortal) || (project.misPraxhsName && project.misPraxhsCode) || epLinkedAction || hasDirectAssignmentViolation || actRootSiblings.length > 0 ? (
             <HeaderMetaTags>
               {actRootSiblings.length > 0 && (
@@ -1566,26 +1592,6 @@ function ProjectCard({
               </ContractExpiryBanner>
             )}
             {contractRows.map((row, idx) => renderContractRow(row, idx))}
-          </CardSection>
-        )}
-
-        {(displayChargePrimary || displayChargeParticipants) && (
-          <CardSection $accent="#7c3aed" $tint="rgba(245, 243, 255, 0.4)">
-            <SectionHeader>Χρέωση</SectionHeader>
-            <CatalogSupervisorRow style={{ margin: 0, padding: 0, background: 'transparent', border: 'none', boxShadow: 'none' }}>
-              {displayChargePrimary && (
-                <CatalogChargeRow style={{ gridTemplateColumns: '130px 1fr' }}>
-                  <InfoLabel>ΕΠΙΒΛΕΠΩΝ / ΟΥΣΑ</InfoLabel>
-                  <CatalogPrimaryName>{displayChargePrimary}</CatalogPrimaryName>
-                </CatalogChargeRow>
-              )}
-              {displayChargeParticipants && (
-                <CatalogChargeRow style={{ gridTemplateColumns: '110px 1fr' }}>
-                  <InfoLabel>Συμμετέχουν:</InfoLabel>
-                  <CatalogAuxLine>{displayChargeParticipants}</CatalogAuxLine>
-                </CatalogChargeRow>
-              )}
-            </CatalogSupervisorRow>
           </CardSection>
         )}
 

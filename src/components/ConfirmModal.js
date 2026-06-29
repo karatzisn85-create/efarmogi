@@ -22,7 +22,7 @@ const Overlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 99999;
+  z-index: 200000;
   padding: 1rem;
   animation: ${fadeIn} 0.18s ease;
 `;

@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
 import {
@@ -28,6 +28,7 @@ import {
   normalizeReviewSearchSteps,
   normalizeReviewFieldValue,
 } from '../utils/khmdhsDataQualityReport';
+import { showConfirm } from '../utils/confirmModal';
 import { ASSIGNMENT_PROCEDURES } from '../data/formOptions';
 import {
   CHAIN_KIND,
@@ -1682,6 +1683,31 @@ function PaymentClassificationCard({
     });
   };
 
+  const handleSaveAcknowledgedExceed = async () => {
+    if (!validation.ok || !onResolve || !exceedsAfterClassify) return;
+    const ok = await showConfirm({
+      title: 'Αποθήκευση με διαφορά',
+      message: 'Το άθροισμα των ενταλμάτων που μετρούν υπερβαίνει το τελικό πληρωτέο ποσό.',
+      detail: payable != null
+        ? `Μετά τους χαρακτηρισμούς: ${formatKhmdhsEuro(countableTotal)} έναντι ${formatKhmdhsEuro(payable)}. Θα αποθηκευτούν οι χαρακτηρισμοί σας όπως είναι — η διαφορά θα παραμείνει καταγεγραμμένη.`
+        : 'Θα αποθηκευτούν οι χαρακτηρισμοί σας όπως είναι.',
+      confirmLabel: 'Αποθήκευση έτσι',
+      cancelLabel: 'Άκυρο',
+      danger: false,
+      icon: '⚠️',
+    });
+    if (!ok) return;
+    onResolve(item, {
+      value: 'classified',
+      source: KHMDHS_RESOLUTION_SOURCE.USER_CONFIRMED,
+      meta: {
+        paymentRoles: roleDraft,
+        paymentLabels: labelDraft,
+        acknowledgedPayableExceeds: true,
+      },
+    });
+  };
+
   return (
     <ItemRow $status={item.status} data-review-item-key={itemKey} $highlight={highlight} $wizard={wizard}>
       {stepIndex != null && <ItemStepBadge>Βήμα {stepIndex}</ItemStepBadge>}
@@ -1775,6 +1801,15 @@ function PaymentClassificationCard({
         >
           {action.saveLabel || 'Αποθήκευση χαρακτηρισμών'}
         </MiniBtn>
+        {exceedsAfterClassify && validation.ok && (
+          <MiniBtn
+            type="button"
+            onClick={handleSaveAcknowledgedExceed}
+            title="Αποθηκεύει τους τρέχοντες χαρακτηρισμούς χωρίς να αλλάξετε ποιο έγγραφο μετράει"
+          >
+            Αποθήκευση έτσι όπως είναι
+          </MiniBtn>
+        )}
       </ActionCtaRow>
     </ItemRow>
   );
@@ -1801,6 +1836,9 @@ function PaymentClassificationResolvedCard({ item, review, formData, onRevoke })
       <ResolvedMeta>
         {formatResolutionSourceLabel(resolution.source)}
         {resolution.resolvedAt ? ` · ${formatResolutionDate(resolution.resolvedAt)}` : ''}
+        {resolution?.meta?.acknowledgedPayableExceeds
+          ? ' · Αποθηκεύτηκε με αποδοχή διαφοράς έναντι τελικού πληρωτέου'
+          : ''}
       </ResolvedMeta>
       <PaymentPreviewList>
         {entries.map((entry, idx) => {
