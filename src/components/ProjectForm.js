@@ -2430,6 +2430,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     projectType: '',
     fundingSource: '',
     fundingDetails: '',
+    coFinanced: false,
+    fundingSources: [], // [{ source, details, amount, ownResources }] — μόνο σε συγχρηματοδότηση
     approvedAmount: '',
     projectBudget: '',
     projectStatus: '',
@@ -2715,6 +2717,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         assignmentProcedure: khmdhsDrivesProcedure ? '' : (editingRest.assignmentProcedure || ''),
         aleCodes: aleCodes,
         aleRemainingAmounts: aleRemainingAmounts,
+        coFinanced: editingProject.coFinanced === true,
+        fundingSources: Array.isArray(editingProject.fundingSources) ? editingProject.fundingSources : [],
         contracts: loadContractsFromProject(editingProject),
         fileGroups: editingProject.fileGroups || [],
         supervisorEngineerIds,
@@ -2803,6 +2807,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         projectType: '',
         fundingSource: '',
         fundingDetails: '',
+        coFinanced: false,
+        fundingSources: [],
         approvedAmount: '',
         projectBudget: '',
         projectStatus: '',
@@ -3173,16 +3179,26 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       newErrors.projectType = 'Επιλέξτε είδος';
     }
 
-    if (!formData.fundingSource) {
-      newErrors.fundingSource = 'Επιλέξτε πηγή χρηματοδότησης';
-    }
+    if (formData.coFinanced) {
+      const rows = Array.isArray(formData.fundingSources) ? formData.fundingSources : [];
+      const validRows = rows.filter((r) => r && r.source && r.details && parseCoFinancingAmount(r.amount) > 0);
+      if (validRows.length === 0) {
+        newErrors.fundingSources = 'Προσθέστε τουλάχιστον μία πηγή χρηματοδότησης με πηγή, εξειδίκευση και ποσό';
+      } else if (!validRows.some((r) => !r.ownResources)) {
+        newErrors.fundingSources = 'Απαιτείται τουλάχιστον μία πηγή χρηματοδότησης εκτός ιδίων πόρων';
+      }
+    } else {
+      if (!formData.fundingSource) {
+        newErrors.fundingSource = 'Επιλέξτε πηγή χρηματοδότησης';
+      }
 
-    if (!formData.fundingDetails) {
-      newErrors.fundingDetails = 'Επιλέξτε εξειδίκευση πηγής χρηματοδότησης';
-    }
+      if (!formData.fundingDetails) {
+        newErrors.fundingDetails = 'Επιλέξτε εξειδίκευση πηγής χρηματοδότησης';
+      }
 
-    if (!formData.approvedAmount) {
-      newErrors.approvedAmount = 'Απαιτείται εγκεκριμένο ποσό';
+      if (!formData.approvedAmount) {
+        newErrors.approvedAmount = 'Απαιτείται εγκεκριμένο ποσό';
+      }
     }
 
     if (!formData.projectStatus) {
@@ -3599,6 +3615,111 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       fundingDetails: '' // Reset funding details when source changes
     }));
   };
+
+  // ── Συγχρηματοδότηση: πολλαπλές πηγές χρηματοδότησης ──
+  const isOwnResourcesDetail = (details) => String(details || '').toUpperCase().includes('ΙΔΙΟΙ ΠΟΡΟΙ');
+
+  const parseCoFinancingAmount = (val) => {
+    if (val == null || val === '') return 0;
+    const cleaned = String(val).trim().replace(/[^\d,.-]/g, '');
+    if (!cleaned) return 0;
+    const hasComma = cleaned.includes(',');
+    const hasDot = cleaned.includes('.');
+    let normalized;
+    if (hasComma && hasDot) normalized = cleaned.replace(/\./g, '').replace(',', '.');
+    else if (hasComma) normalized = cleaned.replace(',', '.');
+    else if (hasDot) {
+      const dotCount = (cleaned.match(/\./g) || []).length;
+      if (dotCount === 1) {
+        const [, frac = ''] = cleaned.split('.');
+        normalized = frac.length <= 2 ? cleaned : cleaned.replace(/\./g, '');
+      } else normalized = cleaned.replace(/\./g, '');
+    } else normalized = cleaned;
+    const n = parseFloat(normalized);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const formatCoFinancingTotal = (num) => {
+    if (!Number.isFinite(num) || num === 0) return '';
+    return num.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const handleCoFinancedToggle = (checked) => {
+    setFormData(prev => {
+      if (checked) {
+        const existing = Array.isArray(prev.fundingSources) ? prev.fundingSources : [];
+        const seeded = existing.length > 0 ? existing : [{
+          source: prev.fundingSource || '',
+          details: prev.fundingDetails || '',
+          amount: prev.approvedAmount || '',
+          ownResources: isOwnResourcesDetail(prev.fundingDetails),
+        }];
+        return { ...prev, coFinanced: true, fundingSources: seeded };
+      }
+      return { ...prev, coFinanced: false };
+    });
+  };
+
+  const handleAddFundingSource = () => {
+    setFormData(prev => ({
+      ...prev,
+      fundingSources: [...(prev.fundingSources || []), { source: '', details: '', amount: '', ownResources: false }],
+    }));
+  };
+
+  const handleRemoveFundingSource = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      fundingSources: (prev.fundingSources || []).filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleFundingSourceRowChange = (index, field, value) => {
+    setFormData(prev => {
+      const rows = [...(prev.fundingSources || [])];
+      if (!rows[index]) return prev;
+      const row = { ...rows[index], [field]: value };
+      if (field === 'source') row.details = '';
+      if (field === 'details') row.ownResources = isOwnResourcesDetail(value);
+      rows[index] = row;
+      return { ...prev, fundingSources: rows };
+    });
+  };
+
+  const handleFundingSourceRowAmountBlur = (index) => {
+    setFormData(prev => {
+      const rows = [...(prev.fundingSources || [])];
+      if (!rows[index]) return prev;
+      const formatted = formatAmountOnBlur(String(rows[index].amount || ''));
+      if (formatted === rows[index].amount) return prev;
+      rows[index] = { ...rows[index], amount: formatted };
+      return { ...prev, fundingSources: rows };
+    });
+  };
+
+  // Εγκεκριμένο ποσό = άθροισμα πηγών ΕΚΤΟΣ ιδίων πόρων· καθρέφτισμα 1ης πηγής στα μονά πεδία.
+  useEffect(() => {
+    if (!formData.coFinanced) return;
+    const rows = Array.isArray(formData.fundingSources) ? formData.fundingSources : [];
+    const countable = rows.filter((r) => !r.ownResources);
+    const sum = countable.reduce((s, r) => s + parseCoFinancingAmount(r.amount), 0);
+    const computedApproved = formatCoFinancingTotal(sum);
+    const primary = countable.find((r) => r.source) || rows.find((r) => r.source) || null;
+    const nextSource = primary?.source || '';
+    const nextDetails = primary?.details || '';
+    if (
+      formData.approvedAmount !== computedApproved
+      || formData.fundingSource !== nextSource
+      || formData.fundingDetails !== nextDetails
+    ) {
+      setFormData((prev) => ({
+        ...prev,
+        approvedAmount: computedApproved,
+        fundingSource: nextSource,
+        fundingDetails: nextDetails,
+      }));
+    }
+  }, [formData.coFinanced, formData.fundingSources]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addContract = () => {
     setFormData(prev => ({
@@ -6652,73 +6773,157 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
                 {errors.projectType && <ErrorMessage>{errors.projectType}</ErrorMessage>}
               </FormGroup>
 
-              <FormGroup>
-                <Label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>Βασική Πηγή Χρηματοδότησης *</span>
-                  {canManageFunding && (
-                    <button
-                      type="button"
-                      title="Διαχείριση βασικών πηγών"
-                      onClick={() => { setFundingModalTab('sources'); setFundingModalSource(null); setShowFundingModal(true); }}
-                      style={{ background: 'none', border: '1px solid #c7d2fe', borderRadius: '6px', color: '#6366f1', fontSize: '0.75rem', padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}
-                    >
-                      ⚙ Διαχείριση
-                    </button>
-                  )}
-                </Label>
-                <Select
-                  value={formData.fundingSource}
-                  onChange={(e) => handleFundingSourceChange(e.target.value)}
-                >
-                  <option value="">Επιλέξτε πηγή</option>
-                  {visibleFundingSources.map(src => (
-                    <option key={src.value} value={src.value}>{src.label}</option>
-                  ))}
-                </Select>
-                {errors.fundingSource && <ErrorMessage>{errors.fundingSource}</ErrorMessage>}
+              <FormGroup fullWidth cols={2}>
+                <CheckboxContainer style={{ marginTop: 0, marginBottom: '0.25rem' }}>
+                  <Checkbox
+                    type="checkbox"
+                    id="coFinanced"
+                    checked={!!formData.coFinanced}
+                    onChange={(e) => handleCoFinancedToggle(e.target.checked)}
+                  />
+                  <Label htmlFor="coFinanced" style={{ margin: 0, cursor: 'pointer' }}>
+                    Συγχρηματοδοτούμενο υποέργο (πολλαπλές πηγές χρηματοδότησης)
+                  </Label>
+                </CheckboxContainer>
               </FormGroup>
 
-              <FormGroup>
-                <Label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>Εξειδίκευση Πηγής *</span>
-                  {canManageFunding && formData.fundingSource && (
-                    <button
-                      type="button"
-                      title="Διαχείριση εξειδικεύσεων"
-                      onClick={() => { setFundingModalTab('details'); setFundingModalSource(formData.fundingSource); setShowFundingModal(true); }}
-                      style={{ background: 'none', border: '1px solid #c7d2fe', borderRadius: '6px', color: '#6366f1', fontSize: '0.75rem', padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}
+              {!formData.coFinanced && (
+                <>
+                  <FormGroup>
+                    <Label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>Βασική Πηγή Χρηματοδότησης *</span>
+                      {canManageFunding && (
+                        <button
+                          type="button"
+                          title="Διαχείριση βασικών πηγών"
+                          onClick={() => { setFundingModalTab('sources'); setFundingModalSource(null); setShowFundingModal(true); }}
+                          style={{ background: 'none', border: '1px solid #c7d2fe', borderRadius: '6px', color: '#6366f1', fontSize: '0.75rem', padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          ⚙ Διαχείριση
+                        </button>
+                      )}
+                    </Label>
+                    <Select
+                      value={formData.fundingSource}
+                      onChange={(e) => handleFundingSourceChange(e.target.value)}
                     >
-                      ⚙ Διαχείριση
-                    </button>
-                  )}
-                </Label>
-                <Select
-                  value={formData.fundingDetails}
-                  onChange={(e) => handleInputChange('fundingDetails', e.target.value)}
-                  disabled={!formData.fundingSource}
-                >
-                  <option value="">Επιλέξτε εξειδίκευση</option>
-                  {visibleFundingDetails.map(det => (
-                    <option key={det.value} value={det.value}>{det.label}</option>
-                  ))}
-                </Select>
-                {errors.fundingDetails && <ErrorMessage>{errors.fundingDetails}</ErrorMessage>}
-              </FormGroup>
+                      <option value="">Επιλέξτε πηγή</option>
+                      {visibleFundingSources.map(src => (
+                        <option key={src.value} value={src.value}>{src.label}</option>
+                      ))}
+                    </Select>
+                    {errors.fundingSource && <ErrorMessage>{errors.fundingSource}</ErrorMessage>}
+                  </FormGroup>
 
-              <FormGroup>
-                <Label>Εγκεκριμένο Ποσό *</Label>
-                <Input
-                  type="text"
-                  value={formData.approvedAmount}
-                  onChange={(e) => handleInputChange('approvedAmount', e.target.value)}
-                  onBlur={() => { handleAmountBlur('approvedAmount'); handleFieldBlur('approvedAmount'); }}
-                  placeholder="π.χ. 25.254,25"
-                  $hasError={!!errors.approvedAmount}
-                  $isValid={!errors.approvedAmount && formData.approvedAmount && validateField('approvedAmount', formData.approvedAmount) === null}
-                  $touched={touched.approvedAmount}
-                />
-                {errors.approvedAmount && <ErrorMessage>{errors.approvedAmount}</ErrorMessage>}
-              </FormGroup>
+                  <FormGroup>
+                    <Label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>Εξειδίκευση Πηγής *</span>
+                      {canManageFunding && formData.fundingSource && (
+                        <button
+                          type="button"
+                          title="Διαχείριση εξειδικεύσεων"
+                          onClick={() => { setFundingModalTab('details'); setFundingModalSource(formData.fundingSource); setShowFundingModal(true); }}
+                          style={{ background: 'none', border: '1px solid #c7d2fe', borderRadius: '6px', color: '#6366f1', fontSize: '0.75rem', padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          ⚙ Διαχείριση
+                        </button>
+                      )}
+                    </Label>
+                    <Select
+                      value={formData.fundingDetails}
+                      onChange={(e) => handleInputChange('fundingDetails', e.target.value)}
+                      disabled={!formData.fundingSource}
+                    >
+                      <option value="">Επιλέξτε εξειδίκευση</option>
+                      {visibleFundingDetails.map(det => (
+                        <option key={det.value} value={det.value}>{det.label}</option>
+                      ))}
+                    </Select>
+                    {errors.fundingDetails && <ErrorMessage>{errors.fundingDetails}</ErrorMessage>}
+                  </FormGroup>
+
+                  <FormGroup>
+                    <Label>Εγκεκριμένο Ποσό *</Label>
+                    <Input
+                      type="text"
+                      value={formData.approvedAmount}
+                      onChange={(e) => handleInputChange('approvedAmount', e.target.value)}
+                      onBlur={() => { handleAmountBlur('approvedAmount'); handleFieldBlur('approvedAmount'); }}
+                      placeholder="π.χ. 25.254,25"
+                      $hasError={!!errors.approvedAmount}
+                      $isValid={!errors.approvedAmount && formData.approvedAmount && validateField('approvedAmount', formData.approvedAmount) === null}
+                      $touched={touched.approvedAmount}
+                    />
+                    {errors.approvedAmount && <ErrorMessage>{errors.approvedAmount}</ErrorMessage>}
+                  </FormGroup>
+                </>
+              )}
+
+              {formData.coFinanced && (
+                <FormGroup fullWidth cols={2}>
+                  <Label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Πηγές Χρηματοδότησης *</span>
+                    {canManageFunding && (
+                      <button
+                        type="button"
+                        title="Διαχείριση βασικών πηγών"
+                        onClick={() => { setFundingModalTab('sources'); setFundingModalSource(null); setShowFundingModal(true); }}
+                        style={{ background: 'none', border: '1px solid #c7d2fe', borderRadius: '6px', color: '#6366f1', fontSize: '0.75rem', padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        ⚙ Διαχείριση
+                      </button>
+                    )}
+                  </Label>
+                  <MutedText style={{ marginBottom: '0.6rem' }}>
+                    Όρισε κάθε βασική πηγή με την εξειδίκευση και το ποσό της. Το εγκεκριμένο ποσό προκύπτει αυτόματα από το άθροισμα, εξαιρώντας τις γραμμές «ίδιοι πόροι».
+                  </MutedText>
+                  {(formData.fundingSources || []).length === 0 && (
+                    <MutedText>Δεν έχουν προστεθεί πηγές χρηματοδότησης.</MutedText>
+                  )}
+                  {(formData.fundingSources || []).map((row, index) => (
+                    <div key={index} style={{ border: '1px solid #d1fae5', background: '#fff', borderRadius: '8px', padding: '0.6rem', marginBottom: '0.6rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                        <div>
+                          <Label style={{ fontSize: '0.8rem' }}>Βασική Πηγή</Label>
+                          <Select value={row.source || ''} onChange={(e) => handleFundingSourceRowChange(index, 'source', e.target.value)}>
+                            <option value="">Επιλέξτε πηγή</option>
+                            {visibleFundingSources.map(src => (
+                              <option key={src.value} value={src.value}>{src.label}</option>
+                            ))}
+                          </Select>
+                        </div>
+                        <div>
+                          <Label style={{ fontSize: '0.8rem' }}>Εξειδίκευση</Label>
+                          <Select value={row.details || ''} onChange={(e) => handleFundingSourceRowChange(index, 'details', e.target.value)} disabled={!row.source}>
+                            <option value="">Επιλέξτε εξειδίκευση</option>
+                            {(fundingOptions.details[row.source] || []).filter(d => !d.hidden).map(det => (
+                              <option key={det.value} value={det.value}>{det.label}</option>
+                            ))}
+                          </Select>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.8rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                        <div style={{ flex: '1 1 160px' }}>
+                          <Label style={{ fontSize: '0.8rem' }}>
+                            Ποσό{row.ownResources ? <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', color: '#b45309', fontWeight: 600 }}>(ίδιοι πόροι — εκτός εγκεκριμένου)</span> : null}
+                          </Label>
+                          <Input type="text" value={row.amount || ''} onChange={(e) => handleFundingSourceRowChange(index, 'amount', e.target.value)} onBlur={() => handleFundingSourceRowAmountBlur(index)} placeholder="π.χ. 25.254,25" style={row.ownResources ? { background: '#fef3c7', color: '#92400e' } : {}} />
+                        </div>
+                        <RemoveAleButton type="button" onClick={() => handleRemoveFundingSource(index)} title="Αφαίρεση πηγής">✕</RemoveAleButton>
+                      </div>
+                    </div>
+                  ))}
+                  <AddAleButton type="button" onClick={handleAddFundingSource}>+ Προσθήκη Πηγής Χρηματοδότησης</AddAleButton>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.8rem', paddingTop: '0.7rem', borderTop: '2px solid #059669' }}>
+                    <span style={{ minWidth: '150px', fontSize: '0.9rem', fontWeight: 700, color: '#065f46' }}>Εγκεκριμένο Ποσό:</span>
+                    <Input type="text" value={formData.approvedAmount} disabled placeholder="Αυτόματος υπολογισμός" style={{ flex: 1, background: '#d1fae5', fontWeight: 700, color: '#065f46', cursor: 'not-allowed' }} />
+                  </div>
+                  <MutedText style={{ marginTop: '0.3rem' }}>= άθροισμα ποσών, εξαιρώντας γραμμές με εξειδίκευση «1099. ΙΔΙΟΙ ΠΟΡΟΙ».</MutedText>
+                  {errors.approvedAmount && <ErrorMessage>{errors.approvedAmount}</ErrorMessage>}
+                  {errors.fundingSources && <ErrorMessage>{errors.fundingSources}</ErrorMessage>}
+                </FormGroup>
+              )}
 
               {/* Υπόλοιπα */}
               {formData.aleCodes && formData.aleCodes.length >= 1 ? (

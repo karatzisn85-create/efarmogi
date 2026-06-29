@@ -328,18 +328,20 @@ export function applyAdamChainResult(prev, chainRes, {
   const suggestedApe = chainRes.suggestedApeAmount || '';
 
   if (!multi) {
+    // Διατηρούμε τα χειροκίνητα πεδία από τον χρήστη.
+    // Τα ΚΗΜΔΗΣ πεδία (snapshots κ.λπ.) καθαρίζονται κανονικά για να ξαναφορτωθούν.
+    // Οι χειροκίνητες συμπληρωματικές (χωρίς khmdhsDerived) επιβιώνουν — μόνο οι
+    // παλιές ΚΗΜΔΗΣ-derived καθαρίζονται για να αντικατασταθούν από τα νέα δεδομένα.
     let next = {
       ...workingPrev,
       ...emptyKhmdhsChainFields(),
       khmdhsChainSeedAdam: seedAdam || workingPrev.khmdhsChainSeedAdam,
-      assignmentProcedure: '',
+      // assignmentProcedure και contractProcessStartDate προέρχονται από τη Δημοσίευση (notice).
+      // Αν δεν υπάρχει Δημοσίευση ή το ΚΗΜΔΗΣ δεν τα προσδιορίζει, διατηρούμε τις τιμές του χρήστη.
       contractProcessStartDate: '',
-      contractDate: '',
-      contractEndDate: '',
-      contractAmount: '',
       ...emptyLegacyApeFields(),
       hasSupplementaryContracts: false,
-      supplementaryContracts: [],
+      supplementaryContracts: (workingPrev.supplementaryContracts || []).filter((c) => !c?.khmdhsDerived),
     };
 
     if (chainRes.contract) {
@@ -348,10 +350,18 @@ export function applyAdamChainResult(prev, chainRes, {
       next.khmdhsContractSnapshot = chainRes.contract.snapshot;
       next.khmdhsContractFetchedAt = chainRes.contract.fetchedAt;
       next.khmdhsContractRoleLabel = chainRes.contract.roleLabel || '';
+      // Το ΚΗΜΔΗΣ υπερισχύει ΜΟΝΟ αν επιστρέφει πραγματική τιμή.
+      // Αν δεν επιστρέψει, διατηρείται η χειροκίνητη καταχώριση του χρήστη.
       if (ff.contractDate) next.contractDate = ff.contractDate;
       if (ff.contractEndDate) next.contractEndDate = ff.contractEndDate;
-      if (ff.contractAmount && !ff.contractAmountSuppressed) next.contractAmount = ff.contractAmount;
-      else if (ff.contractAmountSuppressed) next.contractAmount = '';
+      if (ff.contractAmount && !ff.contractAmountSuppressed) {
+        next.contractAmount = ff.contractAmount;
+      } else if (ff.contractAmountSuppressed) {
+        next.contractAmount = '';
+      }
+      // Αν το ΚΗΜΔΗΣ δεν δίνει ούτε ημερομηνία ούτε ποσό, τα πεδία του χρήστη
+      // (workingPrev.contractDate, workingPrev.contractAmount κ.λπ.) παραμένουν
+      // από το ...workingPrev παραπάνω — χωρίς να χρειάζεται επιπλέον κώδικας.
     }
 
     if (chainRes.notice) {
@@ -359,9 +369,12 @@ export function applyAdamChainResult(prev, chainRes, {
       next.khmdhsNoticeSnapshot = chainRes.notice.snapshot;
       next.khmdhsNoticeFetchedAt = chainRes.notice.fetchedAt;
       if (chainRes.notice.mappedAssignmentProcedure) {
+        // ΚΗΜΔΗΣ βρήκε τη διαδικασία — χρησιμοποιούμε την αυτόματη τιμή.
         next.assignmentProcedure = chainRes.notice.mappedAssignmentProcedure;
       } else {
-        next.assignmentProcedure = '';
+        // ΚΗΜΔΗΣ δεν μπόρεσε να προσδιορίσει τη διαδικασία.
+        // Διατηρούμε ό,τι είχε επιλέξει ο χρήστης (αν υπάρχει), χωρίς να το σβήνουμε.
+        next.assignmentProcedure = workingPrev.assignmentProcedure || '';
       }
       if (chainRes.notice.contractProcessStartDate) {
         next.contractProcessStartDate = chainRes.notice.contractProcessStartDate;
@@ -382,14 +395,14 @@ export function applyAdamChainResult(prev, chainRes, {
     next.khmdhsContractChainHistory = chainRes.contractChainHistory || [];
     next.khmdhsContractAmendments = chainRes.contractAmendments || [];
     next.khmdhsAdamChainMeta = chainRes.chainMeta || null;
-    next.khmdhsDataQualityReview = reconcileReviewState(
-      mergeKhmdhsReviewAfterFetch(
-        prev.khmdhsDataQualityReview,
-        chainRes.dataQualityReport,
-        next,
-        { singleContractRefresh: true }
-      ),
-      next
+    // Πρώτο πέρασμα: merge review χωρίς reconcile — το reconcile γίνεται ΜΕΤΑ
+    // το applyUserEditsAfterKhmdhsFetch, ώστε τα protected πεδία (π.χ. assignmentProcedure)
+    // να είναι ήδη επαναφερμένα όταν υπολογίζεται το hasActionRequired.
+    next.khmdhsDataQualityReview = mergeKhmdhsReviewAfterFetch(
+      prev.khmdhsDataQualityReview,
+      chainRes.dataQualityReport,
+      next,
+      { singleContractRefresh: true }
     );
 
     next = applyChainCharacterizationToForm(next, next.khmdhsDataQualityReview);
@@ -423,7 +436,16 @@ export function applyAdamChainResult(prev, chainRes, {
       actRootReqAdam: inferActRootReqAdam(chainRes, seedAdam),
     });
 
+    // Επαναφορά protected πεδίων (π.χ. assignmentProcedure από fieldOverrides)
     const { form: protectedForm, protectedCount } = applyUserEditsAfterKhmdhsFetch(prev, next);
+
+    // Δεύτερο πέρασμα reconcile: τώρα τα πεδία έχουν τις σωστές τιμές —
+    // το hasActionRequired υπολογίζεται με πλήρη εικόνα της φόρμας.
+    protectedForm.khmdhsDataQualityReview = reconcileReviewState(
+      protectedForm.khmdhsDataQualityReview,
+      protectedForm
+    );
+
     return {
       form: protectedForm,
       warnings: [],
@@ -530,31 +552,29 @@ export function applyAdamChainResult(prev, chainRes, {
     supplementaryContracts: (contractIndex != null && contractIndex >= 0)
       ? (prev.supplementaryContracts || [])
       : [],
-    khmdhsDataQualityReview: reconcileReviewState(
-      mergeKhmdhsReviewAfterFetch(
-        prev.khmdhsDataQualityReview,
-        chainRes.dataQualityReport,
-        { ...shared, ...(statusAutoUpdated ? { projectStatus: statusAutoUpdated } : {}), contracts },
-        { contractIndex: idx }
-      ),
-      { ...shared, ...(statusAutoUpdated ? { projectStatus: statusAutoUpdated } : {}), contracts }
+    khmdhsDataQualityReview: mergeKhmdhsReviewAfterFetch(
+      prev.khmdhsDataQualityReview,
+      chainRes.dataQualityReport,
+      { ...shared, ...(statusAutoUpdated ? { projectStatus: statusAutoUpdated } : {}), contracts },
+      { contractIndex: idx }
     ),
     khmdhsChainLastRefreshedAt: new Date().toISOString(),
   };
   let nextForm = applyChainCharacterizationToForm(mergedForm, mergedForm.khmdhsDataQualityReview);
   nextForm = applyParallelContractAmountHints(nextForm, chainRes);
   nextForm = mergeKhmdhsSupplementaryIntoForm(nextForm);
-  nextForm.khmdhsDataQualityReview = reconcileReviewState(
-    nextForm.khmdhsDataQualityReview,
-    nextForm
-  );
   const resolvedAnchor = resolveBranchAnchorFromChain(chainRes, seedAdam, branchAnchor);
   nextForm = mergeBranchAnchorFields(nextForm, {
     anchorAdam: resolvedAnchor.adam,
     anchorType: resolvedAnchor.type,
     actRootReqAdam: inferActRootReqAdam(chainRes, seedAdam),
   });
+  // Επαναφορά protected πεδίων πρώτα, μετά reconcile για σωστό hasActionRequired
   const { form: protectedForm, protectedCount } = applyUserEditsAfterKhmdhsFetch(prev, nextForm);
+  protectedForm.khmdhsDataQualityReview = reconcileReviewState(
+    protectedForm.khmdhsDataQualityReview,
+    protectedForm
+  );
 
   return {
     form: protectedForm,

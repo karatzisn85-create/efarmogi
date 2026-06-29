@@ -13,6 +13,8 @@ export const PHASE_A_FIELD_KEYS = [
   'projectType',
   'fundingSource',
   'fundingDetails',
+  'coFinanced',
+  'fundingSources',
   'approvedAmount',
   'remainingAmount',
   'remainingAmountYear',
@@ -32,7 +34,11 @@ export function pickPhaseASnapshot(formData) {
   PHASE_A_FIELD_KEYS.forEach((key) => {
     const val = formData[key];
     if (Array.isArray(val)) {
-      snap[key] = val.map((x) => (x == null ? '' : String(x)));
+      snap[key] = val.map((x) => {
+        if (x == null) return '';
+        if (typeof x === 'object') return JSON.stringify(x);
+        return String(x);
+      });
     } else if (typeof val === 'boolean') {
       snap[key] = val;
     } else {

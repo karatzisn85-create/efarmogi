@@ -16,6 +16,7 @@ import {
   latestKhmdhsCommitmentAmountGross,
 } from './khmdhsChainExtraFields';
 import { getKhmdhsDisplayEntries } from './khmdhsFields';
+import { computeProjectContractTotal } from './khmdhsSupplementaryAmountLogic';
 import { pickKhmdhsContractSnapshot } from './khmdhsContractDisplayFields';
 import { grossFromCostSnapshot, grossFromContractRecord, grossFromContractBudget } from './khmdhsVatHelper';
 import {
@@ -141,6 +142,12 @@ function awrdAmount(p) {
 }
 
 function symvAmount(p) {
+  // Προτεραιότητα: ό,τι έχει καταχωρίσει ο χρήστης (συμβάσεις + συμπληρωματικές).
+  // Αν ο χρήστης έχει πληκτρολογήσει ποσό, αυτό υπερισχύει έναντι του ΚΗΜΔΗΣ snapshot.
+  const manualTotal = computeProjectContractTotal(p);
+  if (manualTotal > 0) return manualTotal;
+
+  // Fallback: ποσά από ΚΗΜΔΗΣ snapshots όταν δεν υπάρχει χειροκίνητη καταχώριση.
   const entries = getKhmdhsDisplayEntries(p);
   if (!entries.length) return null;
   let total = 0;

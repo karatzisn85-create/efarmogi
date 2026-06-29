@@ -172,8 +172,11 @@ function migrateLegacyContractApeEntries(slice = {}, contractAmountRef = '') {
     || String(slice.apeFileName || '').trim()
     || String(slice.apeComments || '').trim();
   if (!hasMeta) return [];
+  // Σταθερό ID για migration legacy entry — ώστε οι επαναλαμβανόμενες κλήσεις
+  // στο ίδιο slice να επιστρέφουν πάντα το ίδιο ID (αποφυγή UUID mismatch στο display).
+  const legacyMigrationId = 'legacy-ape-0';
   return [normalizeApeEntryRow({
-    id: uuidv4(),
+    id: legacyMigrationId,
     documentDate: slice.apeDocumentDate || slice.contractDate || slice.date || '',
     apeAmount: realLegacyAmount ? legacyAmount : '',
     comments: slice.apeComments || '',
