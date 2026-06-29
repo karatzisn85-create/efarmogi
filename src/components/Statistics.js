@@ -25,6 +25,7 @@ import StatisticsExportModal from './StatisticsExportModal';
 import ExportSuccessModal from './ExportSuccessModal';
 import { useToast } from './ToastProvider';
 import { formatDateEl } from '../utils/dateFormat';
+import { containsSearchTerm } from '../utils/searchUtils';
 import { getProjectAssignmentProcedure } from '../utils/khmdhsNoticeFields';
 import {
   Chart as ChartJS,
@@ -1282,6 +1283,53 @@ const ContractorSelect = styled.select`
   color: #334155;
 `;
 
+const ContractorSearchInput = styled.input`
+  flex: 1;
+  min-width: 240px;
+  padding: 0.55rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: white;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #334155;
+
+  &::placeholder {
+    color: #94a3b8;
+    font-weight: 500;
+  }
+
+  &:focus {
+    outline: none;
+    border-color: rgba(99, 102, 241, 0.55);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  }
+`;
+
+const LeaderboardList = styled.div`
+  max-height: min(68vh, 720px);
+  overflow-y: auto;
+  padding-right: 0.2rem;
+  margin-right: -0.15rem;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.45);
+    border-radius: 99px;
+  }
+`;
+
+const LeaderboardEmptySearch = styled.div`
+  padding: 1.25rem 0.75rem;
+  text-align: center;
+  font-size: 0.78rem;
+  color: #64748b;
+  line-height: 1.5;
+`;
+
 const DetailPanel = styled.div`
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(226, 232, 240, 0.8);
@@ -1672,6 +1720,7 @@ function Statistics({
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedContractorKey, setSelectedContractorKey] = useState('');
+  const [contractorSearchQuery, setContractorSearchQuery] = useState('');
   const [chronoFilterKey, setChronoFilterKey] = useState('all');
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
@@ -2220,6 +2269,31 @@ function Statistics({
   const selectedContractorEnriched = contractorAnalytics.enriched.find(
     (c) => c.key === selectedContractorKey
   ) || null;
+
+  const contractorRankByKey = useMemo(() => {
+    const ranks = {};
+    contractorAnalytics.enriched.forEach((c, idx) => {
+      ranks[c.key] = idx;
+    });
+    return ranks;
+  }, [contractorAnalytics.enriched]);
+
+  const filteredContractorsForList = useMemo(() => {
+    const all = contractorAnalytics.enriched;
+    const q = contractorSearchQuery.trim();
+    if (!q) return all;
+    return all.filter(
+      (c) => containsSearchTerm(c.name, q) || containsSearchTerm(c.vat || '', q)
+    );
+  }, [contractorAnalytics.enriched, contractorSearchQuery]);
+
+  useEffect(() => {
+    if (!contractorSearchQuery.trim() || filteredContractorsForList.length === 0) return;
+    const stillVisible = filteredContractorsForList.some((c) => c.key === selectedContractorKey);
+    if (!stillVisible) {
+      setSelectedContractorKey(filteredContractorsForList[0].key);
+    }
+  }, [contractorSearchQuery, filteredContractorsForList, selectedContractorKey]);
 
   const chartOptions = {
     responsive: true,
@@ -3324,40 +3398,107 @@ function Statistics({
       </ChronoSummaryRow>
 
       {statistics.contractors.length > 0 ? (
-        <ContractorTwoCol>
+        <>
+          <ChronoFilterBar>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', flexShrink: 0 }}>
+              🔍 Αναζήτηση ανάδοχου
+            </span>
+            <ContractorSearchInput
+              type="search"
+              value={contractorSearchQuery}
+              onChange={(e) => setContractorSearchQuery(e.target.value)}
+              placeholder="Επωνυμία ή ΑΦΜ…"
+              aria-label="Αναζήτηση ανάδοχου"
+            />
+            <ContractorSelect
+              value={selectedContractorKey}
+              onChange={(e) => {
+                setSelectedContractorKey(e.target.value);
+                setContractorSearchQuery('');
+              }}
+              aria-label="Επιλογή ανάδοχου από λίστα"
+            >
+              {statistics.contractors.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.name}{c.vat ? ` (ΑΦΜ ${c.vat})` : ''}
+                </option>
+              ))}
+            </ContractorSelect>
+            {contractorSearchQuery.trim() ? (
+              <button
+                type="button"
+                onClick={() => setContractorSearchQuery('')}
+                style={{
+                  padding: '0.45rem 0.75rem',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(148, 163, 184, 0.45)',
+                  background: 'white',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  color: '#64748b',
+                  cursor: 'pointer'
+                }}
+              >
+                Καθαρισμός
+              </button>
+            ) : null}
+          </ChronoFilterBar>
+
+          <ContractorTwoCol>
           <LeaderboardPanel>
-            <LeaderboardTitle>🏆 Κατάταξη ανάδόχων (κατά ποσό)</LeaderboardTitle>
-            {contractorAnalytics.enriched.slice(0, 10).map((c, idx) => {
-              const rankStyle = RANK_STYLES[idx];
-              const rankLabel = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}`;
-              const barColor = contractorAnalytics.colorMap[c.key];
-              return (
-                <LeaderboardItem
-                  key={c.key}
-                  type="button"
-                  $active={selectedContractorKey === c.key}
-                  $delay={idx * 45}
-                  onClick={() => setSelectedContractorKey(c.key)}
-                >
-                  <RankBadge
-                    $medal={!!rankStyle}
-                    $bg={rankStyle?.bg}
-                    $color={rankStyle?.color}
-                  >
-                    {rankLabel}
-                  </RankBadge>
-                  <LeaderboardBody>
-                    <LeaderboardName title={c.name}>{c.name}</LeaderboardName>
-                    <LeaderboardMeta>
-                      {c.count} σύμβ. · {formatCurrency(c.amount)} · {c.sharePercent.toFixed(1)}% μερίδιο
-                    </LeaderboardMeta>
-                    <ShareBarTrack>
-                      <ShareBarFill $pct={c.sharePercent} $color={barColor} />
-                    </ShareBarTrack>
-                  </LeaderboardBody>
-                </LeaderboardItem>
-              );
-            })}
+            <LeaderboardTitle>
+              🏆 Κατάταξη ανάδόχων (κατά ποσό)
+              {' · '}
+              <span style={{ color: '#6366f1' }}>
+                {filteredContractorsForList.length}
+                {contractorSearchQuery.trim()
+                  ? ` / ${contractorAnalytics.enriched.length}`
+                  : ` σύνολο`}
+              </span>
+            </LeaderboardTitle>
+            <LeaderboardList>
+              {filteredContractorsForList.length > 0 ? (
+                filteredContractorsForList.map((c, listIdx) => {
+                  const globalIdx = contractorRankByKey[c.key] ?? listIdx;
+                  const rankStyle = RANK_STYLES[globalIdx];
+                  const rankLabel = globalIdx === 0 ? '🥇' : globalIdx === 1 ? '🥈' : globalIdx === 2 ? '🥉' : `${globalIdx + 1}`;
+                  const barColor = contractorAnalytics.colorMap[c.key];
+                  return (
+                    <LeaderboardItem
+                      key={c.key}
+                      type="button"
+                      $active={selectedContractorKey === c.key}
+                      $delay={Math.min(listIdx, 12) * 45}
+                      onClick={() => setSelectedContractorKey(c.key)}
+                    >
+                      <RankBadge
+                        $medal={!!rankStyle}
+                        $bg={rankStyle?.bg}
+                        $color={rankStyle?.color}
+                      >
+                        {rankLabel}
+                      </RankBadge>
+                      <LeaderboardBody>
+                        <LeaderboardName title={c.name}>{c.name}</LeaderboardName>
+                        <LeaderboardMeta>
+                          {c.vat ? `ΑΦΜ ${c.vat} · ` : ''}
+                          {c.count} σύμβ. · {formatCurrency(c.amount)} · {c.sharePercent.toFixed(1)}% μερίδιο
+                        </LeaderboardMeta>
+                        <ShareBarTrack>
+                          <ShareBarFill $pct={c.sharePercent} $color={barColor} />
+                        </ShareBarTrack>
+                      </LeaderboardBody>
+                    </LeaderboardItem>
+                  );
+                })
+              ) : (
+                <LeaderboardEmptySearch>
+                  Δεν βρέθηκε ανάδοχος για «{contractorSearchQuery.trim()}».
+                  <br />
+                  Δοκιμάστε επωνυμία ή ΑΦΜ.
+                </LeaderboardEmptySearch>
+              )}
+            </LeaderboardList>
           </LeaderboardPanel>
 
           <div>
@@ -3439,6 +3580,7 @@ function Statistics({
             )}
           </div>
         </ContractorTwoCol>
+        </>
       ) : (
         <NoDataMessage>Δεν υπάρχουν ανάδοχοι από ΚΗΜΔΗΣ</NoDataMessage>
       )}

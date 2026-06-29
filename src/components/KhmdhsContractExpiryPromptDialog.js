@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
+import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
 import { buildKhmdhsContractExpiryPromptMessage } from '../utils/khmdhsContractExpiryPrompt';
+
+const SCROLL_LOCK_KEY = 'khmdhs-contract-expiry';
 
 const Overlay = styled.div`
   position: fixed;
@@ -77,9 +81,15 @@ export default function KhmdhsContractExpiryPromptDialog({
   onDismiss,
   onAccept,
 }) {
+  useEffect(() => {
+    if (!isOpen || !prompt) return undefined;
+    lockBodyScroll(SCROLL_LOCK_KEY);
+    return () => unlockBodyScroll(SCROLL_LOCK_KEY);
+  }, [isOpen, prompt]);
+
   if (!isOpen || !prompt) return null;
 
-  return (
+  return createPortal(
     <Overlay onClick={(e) => e.target === e.currentTarget && onDismiss?.()}>
       <Dialog onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <Title>Λήξη σύμβασης — πρόταση κατάστασης</Title>
@@ -90,6 +100,7 @@ export default function KhmdhsContractExpiryPromptDialog({
           <ConfirmBtn type="button" onClick={onAccept}>Ναι, ορισμός ως Ολοκληρωμένο</ConfirmBtn>
         </Actions>
       </Dialog>
-    </Overlay>
+    </Overlay>,
+    document.body
   );
 }

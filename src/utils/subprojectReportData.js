@@ -20,6 +20,13 @@ import {
 } from './procurementDeadlines';
 import { countMeletiFiles } from './meletaiHelpers';
 import {
+  buildChronologicalChainTimeline,
+  buildCompletenessGapsForReport,
+  buildExecutiveSummaryForReport,
+  buildNumberedFileInventory,
+  buildPaymentSummaryForReport,
+} from './subprojectReportEnrichment';
+import {
   pickKhmdhsRequestSnapshot,
   projectHasKhmdhsRequestData,
   buildKhmdhsRequestCardSummary,
@@ -174,7 +181,11 @@ function buildKhmdhsChainForReport(project) {
     chain.pay = {
       count: totals.count,
       totalGross: totals.rawTotalGross,
-      entries: paymentEntries.slice(0, 10).map((e) => ({
+      countableTotalGross: totals.countableTotalGross,
+      estimatedContractorPaymentGross: totals.estimatedContractorPaymentGross,
+      displayTotalGross: totals.displayTotalGross,
+      needsClassification: totals.needsClassification,
+      entries: paymentEntries.map((e) => ({
         adam: e.adam || '',
         title: e.snapshot?.title || '',
         amount: e.snapshot?.totalCostWithVAT != null
@@ -388,12 +399,48 @@ export function buildSubprojectReportPayload({
     }
   }
 
-  const fileInventory = buildFileInventory(files.groups, files.ungrouped);
+  const fileInventory = buildNumberedFileInventory(
+    buildFileInventory(files.groups, files.ungrouped)
+  );
+
+  const basic = buildBasicFields(project, engineerCatalog);
+  const khmdhsChain = buildKhmdhsChainForReport(project);
+  const paymentSummary = buildPaymentSummaryForReport(basic, khmdhsChain);
+  const chronologicalTimeline = buildChronologicalChainTimeline(
+    khmdhsChain,
+    basic.khmdhsNotice,
+    basic
+  );
+  const completenessGaps = buildCompletenessGapsForReport(
+    project,
+    basic,
+    khmdhsChain,
+    fileInventory,
+    linkedEntaxeis
+  );
+  const egkrisiTotal = egkriseisMerged.length + egkrisiLinks.length;
+  const executiveSummary = buildExecutiveSummaryForReport({
+    basic,
+    khmdhsChain,
+    paymentSummary,
+    completenessGaps,
+    chronologicalTimeline,
+    files: fileInventory,
+    entaxeis: linkedEntaxeis,
+    proskliseis: linkedProskliseis,
+    egkrisiTotal,
+    epActions,
+    meta: { isPublishedToPortal, appVersion, subprojectId: project.subprojectId, projectId: project.projectId },
+  });
 
   return {
-    basic: buildBasicFields(project, engineerCatalog),
-    khmdhsChain: buildKhmdhsChainForReport(project),
+    basic,
+    khmdhsChain,
     files: fileInventory,
+    paymentSummary,
+    chronologicalTimeline,
+    completenessGaps,
+    executiveSummary,
     entaxeis: linkedEntaxeis,
     proskliseis: linkedProskliseis,
     egkriseis: egkriseisMerged,
