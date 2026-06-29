@@ -12203,8 +12203,64 @@ ipcMain.handle('save-funding-options', async (_event, payload) => {
 // PDF EXPORT IPC HANDLER
 // ============================================================
 
-ipcMain.handle('save-pdf-file', async (_event, { buffer, defaultName }) => {
+ipcMain.handle('get-user-downloads-path', async () => {
   try {
+    return { success: true, path: app.getPath('downloads') };
+  } catch (e) {
+    return { success: true, path: path.join(require('os').homedir(), 'Downloads') };
+  }
+});
+
+ipcMain.handle('pick-save-folder', async (_event, { defaultPath } = {}) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: defaultPath || app.getPath('downloads'),
+      title: 'Επιλογή φακέλου αποθήκευσης',
+    });
+    if (result.canceled || !result.filePaths?.[0]) {
+      return { canceled: true };
+    }
+    return { success: true, path: result.filePaths[0] };
+  } catch (e) {
+    logger.error('pick-save-folder error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('check-file-exists', async (_event, { filePath } = {}) => {
+  try {
+    if (!filePath || typeof filePath !== 'string') return { exists: false };
+    return { exists: fs.existsSync(filePath) };
+  } catch {
+    return { exists: false };
+  }
+});
+
+ipcMain.handle('write-pdf-file', async (_event, { buffer, filePath } = {}) => {
+  try {
+    if (!filePath || typeof filePath !== 'string') {
+      return { success: false, error: 'Δεν δόθηκε διαδρομή αρχείου' };
+    }
+    const resolved = path.resolve(filePath);
+    if (!resolved.toLowerCase().endsWith('.pdf')) {
+      return { success: false, error: 'Μη έγκυρο αρχείο PDF' };
+    }
+    fs.writeFileSync(resolved, Buffer.from(buffer));
+    return { success: true, path: resolved };
+  } catch (e) {
+    logger.error('write-pdf-file error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-pdf-file', async (_event, { buffer, defaultName, filePath }) => {
+  try {
+    if (filePath) {
+      const resolved = path.resolve(filePath);
+      fs.writeFileSync(resolved, Buffer.from(buffer));
+      return { success: true, path: resolved };
+    }
     const result = await dialog.showSaveDialog(mainWindow, {
       defaultPath: path.join(require('os').homedir(), 'Desktop', defaultName || 'ERGOHUB_Report.pdf'),
       filters: [{ name: 'PDF', extensions: ['pdf'] }],

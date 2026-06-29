@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import styled, { keyframes } from 'styled-components';
 import { useToast } from './ToastProvider';
+import { savePdfWithDialog } from '../utils/savePdfFile';
 
 // ΔΕΝ υπάρχουν static imports από @react-pdf/renderer εδώ.
 // Όλα γίνονται dynamic import() όταν ο χρήστης ανοίγει το modal.
@@ -345,9 +346,11 @@ export default function ReportsModal({ projects = [], entaxeis = [], proskliseis
       const arrayBuffer = await blob.arrayBuffer();
       const defaultName = `ERGOHUB_${TAB_NAMES[activeTab].replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
 
-      const result = await ipcRenderer.invoke('save-pdf-file', {
-        buffer: Array.from(new Uint8Array(arrayBuffer)),
+      const result = await savePdfWithDialog({
+        buffer: arrayBuffer,
         defaultName,
+        title: `Αποθήκευση ${TAB_NAMES[activeTab]}`,
+        subtitle: 'Εξαγωγή PDF από ERGOHUB',
       });
 
       if (result?.canceled) return;

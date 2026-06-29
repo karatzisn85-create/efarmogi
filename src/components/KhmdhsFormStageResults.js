@@ -159,26 +159,80 @@ function buildPaySummary(project) {
 // ── Styled ───────────────────────────────────────────────────────────────────
 
 const ResultsShell = styled.div`
-  margin-top: 0.5rem;
-`;
-
-const CardStack = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+  margin-top: 0.75rem;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(99, 102, 241, 0.14);
+  background: linear-gradient(180deg, #f8faff 0%, #ffffff 38%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 28px rgba(79, 70, 229, 0.08);
 `;
 
 const SectionHeader = styled.div`
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8rem;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.9rem 1.05rem;
+  background: linear-gradient(135deg, #4338ca 0%, #4f46e5 48%, #6366f1 100%);
+  color: #fff;
+`;
+
+const SectionHeaderMain = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+`;
+
+const SectionHeaderIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 1rem;
+  flex-shrink: 0;
+`;
+
+const SectionHeaderText = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+`;
+
+const SectionTitle = styled.span`
+  font-size: 0.92rem;
   font-weight: 800;
-  color: #334155;
-  letter-spacing: 0.01em;
-  margin-bottom: 0.4rem;
-  padding-bottom: 0.35rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  letter-spacing: -0.01em;
+`;
+
+const SectionSubtitle = styled.span`
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+`;
+
+const StageCountBadge = styled.span`
+  flex-shrink: 0;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+`;
+
+const CardStack = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 0.9rem 1rem;
 `;
 
 /**
@@ -203,6 +257,18 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
     [project]
   );
 
+  const stageCount = useMemo(() => {
+    let n = 0;
+    if (projectHasKhmdhsRequestData(project)) n += 1;
+    if (commitDecisions.length > 0) n += 1;
+    if (projectHasKhmdhsNoticeData(project)) n += 1;
+    if (projectHasKhmdhsAwardData(project)) n += 1;
+    n += contractEntries.length;
+    n += supplementaryEntries.length;
+    if (projectHasKhmdhsPaymentData(project)) n += 1;
+    return n;
+  }, [project, commitDecisions, contractEntries, supplementaryEntries]);
+
   if (!hasResults) return null;
 
   let stepCounter = 0;
@@ -211,8 +277,14 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
   return (
     <ResultsShell>
       <SectionHeader>
-        <span>🔗</span>
-        <span>Αποτελέσματα από ΚΗΜΔΗΣ</span>
+        <SectionHeaderMain>
+          <SectionHeaderIcon aria-hidden>🔗</SectionHeaderIcon>
+          <SectionHeaderText>
+            <SectionTitle>Αποτελέσματα από ΚΗΜΔΗΣ</SectionTitle>
+            <SectionSubtitle>Χρονολογική αλυσίδα διαδικασίας</SectionSubtitle>
+          </SectionHeaderText>
+        </SectionHeaderMain>
+        <StageCountBadge>{stageCount} στάδια</StageCountBadge>
       </SectionHeader>
 
       <CardStack>

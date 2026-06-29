@@ -216,3 +216,36 @@ export function buildKhmdhsSupplementaryDisplayGroups(entry) {
   if (notes.length) groups.push({ id: 'notes', title: 'Σημειώσεις', rows: notes });
   return groups;
 }
+
+/** Ενιαία αντιστοίχιση για αναφορές PDF / εξαγωγές — ίδια λογική με την οθόνη σταδίων */
+export function mapSupplementaryEntryForReport(entry) {
+  if (!entry) return null;
+  const isExtension = !!entry.isExtension || entry.label === 'Παράταση';
+  const title = buildSupplementaryStageTitle(entry);
+  const date = entry.signedDateDisplay || entry.date || '';
+  let amount = '';
+  let amountLabel = 'Ποσό';
+  if (isExtension) {
+    amountLabel = 'Αναφορικό ποσό';
+    amount = String(entry.rawAmount || entry.khmdhsAmountDisplay || entry.amount || '').trim();
+  } else {
+    amount = String(entry.amount || entry.rawAmount || entry.khmdhsAmountDisplay || '').trim();
+    if (entry.amountType === MOD_AMOUNT_TYPE.TOTAL && entry.rawAmount && entry.rawAmount !== entry.amount) {
+      amountLabel = 'Νέα συνολική αξία';
+      amount = String(entry.rawAmount).trim();
+    } else if (!entry.amount && entry.rawAmount) {
+      amountLabel = 'Ποσό από έγγραφο';
+      amount = String(entry.rawAmount).trim();
+    }
+  }
+  return {
+    title,
+    isExtension,
+    adam: entry.adam || '',
+    date,
+    amount,
+    amountLabel,
+    contractor: entry.contractor || '',
+    comments: entry.comments || '',
+  };
+}

@@ -1,4 +1,5 @@
 ﻿import { buildSubprojectReportPayload, getLinkedProskliseis } from './subprojectReportData';
+import { savePdfWithDialog } from './savePdfFile';
 import { getEntityLinkedNotes } from '../components/LinkedNoteSticker';
 
 const ipcRenderer = window.electronAPI;
@@ -35,21 +36,6 @@ export async function exportSubprojectReport({
       updatedAt: note?.updatedAt || note?.createdAt || ''
     };
   });
-
-  let files = { groups: [], ungrouped: [] };
-  try {
-    const filesRes = await ipcRenderer.invoke(
-      'get-subproject-files',
-      project.projectId,
-      project.subprojectId
-    );
-    files = {
-      groups: filesRes?.fileGroups || project.fileGroups || [],
-      ungrouped: filesRes?.files || []
-    };
-  } catch {
-    files = { groups: project.fileGroups || [], ungrouped: [] };
-  }
 
   let egkriseisRecords = [];
   try {
@@ -109,7 +95,6 @@ export async function exportSubprojectReport({
     proskliseis: proskliseisWithMods,
     linkedEgkriseis,
     engineerCatalog,
-    files,
     egkriseisRecords,
     epActions,
     linkedNotes,
@@ -129,9 +114,11 @@ export async function exportSubprojectReport({
   const dateStr = new Date().toISOString().slice(0, 10);
   const defaultName = `ERGOHUB_Αναφορά_${sanitizeFilename(project.subprojectTitle)}_${dateStr}.pdf`;
 
-  const result = await ipcRenderer.invoke('save-pdf-file', {
-    buffer: Array.from(new Uint8Array(arrayBuffer)),
-    defaultName
+  const result = await savePdfWithDialog({
+    buffer: arrayBuffer,
+    defaultName,
+    title: 'Αποθήκευση αναφοράς υποέργου',
+    subtitle: project.subprojectTitle || '',
   });
 
   if (result?.canceled) return { canceled: true };

@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const ALLOWED_INVOKE = new Set([
   'add-document-category','add-files-to-group','add-task-assignment-comment','add-task-assignment-files','authenticate',
-  'change-password','check-data-dir-exists',
+  'change-password','check-data-dir-exists','check-file-exists',
   'check-entity-lock','check-folder-has-config','check-for-updates',
   'check-project-lock','clean-entaxi-modification-file','cleanup-duplicate-files',
   'cleanup-old-backups','cleanup-temp-files','clear-all-locks','clear-audit-log',
@@ -35,7 +35,7 @@ const ALLOWED_INVOKE = new Set([
   'khmdhs-fetch-supplementary-contract',
   'get-subfolder-contents','get-subproject-files','get-subproject-id-by-number',
   'get-task-assignment','get-task-assignment-access','get-task-assignment-permissions',
-  'get-update-state','get-users','get-users-list','has-users','import-egkriseis-csv',
+  'get-update-state','get-user-downloads-path','get-users','get-users-list','has-users','import-egkriseis-csv',
   'install-update','link-egkrisi-manual','link-egkrisi-to-subproject',
   'link-subproject-to-subproject','load-all-entaxeis','load-all-projects',
   'load-all-proskliseis','load-all-subprojects','load-document-templates',
@@ -65,7 +65,9 @@ const ALLOWED_INVOKE = new Set([
   'export-portal-data','load-portal-published','save-portal-published',
   'refocus-window',
   'load-funding-options','save-funding-options',
+  'pick-save-folder',
   'save-pdf-file',
+  'write-pdf-file',
   'get-subproject-report-attachments',
   'merge-and-save-pdf',
   'select-excel-file',

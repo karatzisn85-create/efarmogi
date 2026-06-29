@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { useToast } from './ToastProvider';
 import ExportSuccessModal from './ExportSuccessModal';
+import { savePdfWithDialog } from '../utils/savePdfFile';
 
 const ipcRenderer = window.electronAPI;
 
@@ -608,9 +609,11 @@ export default function EpProgramStatsPanel({ currentUser, appConfig }) {
       const arrayBuffer = await blob.arrayBuffer();
       const period = `${stats.program.startYear}-${stats.program.endYear}`;
       const defaultName = `ERGOHUB_Στατιστικά_ΕΠ_${period}.pdf`;
-      const result = await ipcRenderer.invoke('save-pdf-file', {
-        buffer: Array.from(new Uint8Array(arrayBuffer)),
-        defaultName
+      const result = await savePdfWithDialog({
+        buffer: arrayBuffer,
+        defaultName,
+        title: 'Αποθήκευση στατιστικών ΕΠ',
+        subtitle: `Περίοδος ${period}`,
       });
       if (result?.canceled) return;
       if (result?.success) showToast('Η αναφορά PDF αποθηκεύτηκε επιτυχώς!', 'success');

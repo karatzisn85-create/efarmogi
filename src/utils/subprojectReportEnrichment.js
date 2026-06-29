@@ -15,6 +15,17 @@ const CHAIN_STAGE_LABELS = {
   pay: 'Εντάλμα πληρωμής',
 };
 
+const CHAIN_TYPE_SORT_ORDER = {
+  req: 1,
+  commit: 2,
+  proc: 3,
+  awrd: 4,
+  symv: 5,
+  supp: 6,
+  ape: 7,
+  pay: 8,
+};
+
 const KHMDHS_STALE_DAYS = 30;
 
 function parseAmountNumber(raw) {
@@ -192,6 +203,8 @@ function timelineItem({
   cancelled = false,
   fields = [],
   themeKey = 'proc',
+  commitIndex = null,
+  sequence = 0,
 }) {
   const sortTs = parseReportDateLabel(dateLabel)
     ?? parseReportDateLabel(fallbackDate)
@@ -206,13 +219,34 @@ function timelineItem({
     fields: fields.filter((f) => f && f.value),
     themeKey,
     sortTs,
+    commitIndex,
+    sequence,
   };
+}
+
+/** Ταξινόμηση αλυσίδας: πρωτογενές πάντα πρώτο, μετά χρονολογία, μετά τύπος σταδίου. */
+export function compareChainTimelineItems(a, b) {
+  if (a?.type === 'req' && b?.type !== 'req') return -1;
+  if (b?.type === 'req' && a?.type !== 'req') return 1;
+
+  const byDate = (a?.sortTs ?? Number.MAX_SAFE_INTEGER) - (b?.sortTs ?? Number.MAX_SAFE_INTEGER);
+  if (byDate !== 0) return byDate;
+
+  const byType = (CHAIN_TYPE_SORT_ORDER[a?.type] || 99) - (CHAIN_TYPE_SORT_ORDER[b?.type] || 99);
+  if (byType !== 0) return byType;
+
+  if (a?.type === 'commit' && b?.type === 'commit') {
+    return (a.commitIndex ?? 0) - (b.commitIndex ?? 0);
+  }
+
+  return (a?.sequence ?? 0) - (b?.sequence ?? 0);
 }
 
 export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic) {
   const items = [];
   const chain = khmdhsChain || {};
   const commitTotal = chain.commit?.length || 0;
+  let sequence = 0;
 
   if (chain.req) {
     const r = chain.req;
@@ -225,6 +259,7 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
       fallbackDate: r.fetchedAt,
       cancelled: r.cancelled,
       themeKey: 'req',
+      sequence: sequence++,
       fields: [
         { label: 'Π/Υ (με ΦΠΑ)', value: r.amount },
         { label: 'Αναθέτουσα', value: r.organization },
@@ -243,6 +278,8 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
       fallbackDate: d.fetchedAt,
       cancelled: d.cancelled,
       themeKey: 'commit',
+      commitIndex: i,
+      sequence: sequence++,
       fields: [
         { label: 'Ποσό (με ΦΠΑ)', value: d.amount },
         { label: 'Αναθέτουσα', value: d.organization },
@@ -255,10 +292,15 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
     items.push(timelineItem({
       type: 'proc',
       stageName: CHAIN_STAGE_LABELS.proc,
+      title: khmdhsNotice.title || '',
       adam: khmdhsNotice.adam,
-      dateLabel: khmdhsNotice.fetchedAtLabel,
+      dateLabel: khmdhsNotice.documentDateLabel || khmdhsNotice.signedDateLabel || '',
+      fallbackDate: khmdhsNotice.submissionDateLabel || '',
+      cancelled: khmdhsNotice.cancelled,
       themeKey: 'proc',
       fields: [
+        { label: 'Ημ. έκδοσης', value: khmdhsNotice.signedDateLabel },
+        { label: 'Καταχώριση ΚΗΜΔΗΣ', value: khmdhsNotice.submissionDateLabel },
         { label: 'Προθεσμία', value: khmdhsNotice.deadlineLabel },
         { label: 'Τελ. λήψη', value: khmdhsNotice.fetchedAtLabel },
       ],
@@ -312,13 +354,17 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
       }
     });
   } else if (basic?.khmdhsAdam) {
+    const symvEntry = basic.khmdhsEntries?.[0];
+    const symvLabel = String(symvEntry?.roleLabel || '').trim() || CHAIN_STAGE_LABELS.symv;
     items.push(timelineItem({
       type: 'symv',
-      stageName: CHAIN_STAGE_LABELS.symv,
+      stageName: symvLabel,
+      title: symvEntry?.snapshot?.title || '',
       adam: basic.khmdhsAdam,
       dateLabel: basic.contractDate ? String(basic.contractDate).slice(0, 10) : '',
       fallbackDate: basic.khmdhsContractFetchedAt,
       themeKey: 'symv',
+      sequence: sequence++,
       fields: [
         { label: 'Ποσό σύμβασης', value: basic.contractAmount },
         { label: 'Ανάδοχος', value: basic.khmdhsContractSnapshot?.anadoxosName },
@@ -326,15 +372,31 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
     }));
   }
 
-  (basic?.supplementaryContracts || []).forEach((c, i) => {
-    items.push(timelineItem({
-      type: 'supp',
-      stageName: (basic.supplementaryContracts.length > 1
+  const suppForTimeline = (basic?.supplementaryStageEntries?.length
+    ? basic.supplementaryStageEntries
+    : (basic?.supplementaryContracts || []).map((c, i) => ({
+      title: (basic.supplementaryContracts.length > 1
         ? `${CHAIN_STAGE_LABELS.supp} ${i + 1}`
         : CHAIN_STAGE_LABELS.supp),
-      dateLabel: c.date,
-      themeKey: 'symv',
-      fields: [{ label: 'Ποσό', value: c.amount }],
+      date: c.date,
+      amount: c.amount,
+      amountLabel: 'Ποσό',
+      adam: c.khmdhsAdam,
+      isExtension: false,
+    })));
+
+  suppForTimeline.forEach((entry, i) => {
+    items.push(timelineItem({
+      type: 'supp',
+      stageName: entry.title || CHAIN_STAGE_LABELS.supp,
+      adam: entry.adam || '',
+      dateLabel: entry.date,
+      themeKey: entry.isExtension ? 'procedure' : 'symv',
+      sequence: sequence++,
+      fields: [
+        ...(entry.adam ? [{ label: 'ΑΔΑΜ', value: entry.adam }] : []),
+        ...(entry.amount ? [{ label: entry.amountLabel || 'Ποσό', value: entry.amount }] : []),
+      ],
     }));
   });
 
@@ -370,7 +432,7 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
     }));
   }
 
-  return items.sort((a, b) => a.sortTs - b.sortTs || a.stageName.localeCompare(b.stageName, 'el'));
+  return items.sort(compareChainTimelineItems);
 }
 
 export function buildExecutiveSummaryForReport({

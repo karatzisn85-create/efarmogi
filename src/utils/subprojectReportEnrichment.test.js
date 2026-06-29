@@ -87,6 +87,57 @@ describe('buildChronologicalChainTimeline', () => {
     expect(timeline[timeline.length - 1].type).toBe('symv');
   });
 
+  test('πρωτογενές πάντα πρώτο — ίδια ημερομηνία με ανάληψη', () => {
+    const timeline = buildChronologicalChainTimeline(
+      {
+        req: {
+          title: 'Πρωτογενές',
+          adam: '22REQ011931227',
+          signedDate: '30/12/2022',
+          amount: '2.300.000,00',
+        },
+        commit: Array.from({ length: 6 }, (_, i) => ({
+          title: `Ανάληψη ${i + 1}`,
+          adam: `23REQ012149${i}`,
+          signedDate: i === 5 ? '30/12/2022' : `0${i + 1}/01/2023`,
+          amount: '2.300.000,00',
+        })),
+      },
+      null,
+      {}
+    );
+    expect(timeline[0].type).toBe('req');
+    expect(timeline[0].adam).toBe('22REQ011931227');
+    const sameDayCommit = timeline.find((t) => t.type === 'commit' && t.dateLabel === '30/12/2022');
+    expect(sameDayCommit).toBeTruthy();
+    expect(timeline.indexOf(sameDayCommit)).toBeGreaterThan(0);
+  });
+
+  test('πρωτογενές πάντα πρώτο — ακόμα κι αν η ανάληψη έχει νωρίτερα timestamp', () => {
+    const timeline = buildChronologicalChainTimeline(
+      {
+        req: {
+          title: 'Πρωτογενές',
+          adam: '22REQ011931227',
+          signedDate: '',
+          fetchedAt: '31/12/2022 10:00',
+          amount: '2.300.000,00',
+        },
+        commit: [
+          {
+            title: 'Ανάληψη',
+            adam: '22REQ011932182',
+            signedDate: '30/12/2022',
+            amount: '2.300.000,00',
+          },
+        ],
+      },
+      null,
+      {}
+    );
+    expect(timeline[0].type).toBe('req');
+  });
+
   test('πολλαπλές συμβάσεις', () => {
     const timeline = buildChronologicalChainTimeline(
       {},
@@ -102,6 +153,69 @@ describe('buildChronologicalChainTimeline', () => {
     const symv = timeline.filter((t) => t.type === 'symv');
     expect(symv.length).toBe(2);
     expect(timeline.some((t) => t.type === 'ape')).toBe(true);
+  });
+
+  test('παρατάσεις στην αλυσίδα — όχι ως συμπληρωματικές', () => {
+    const timeline = buildChronologicalChainTimeline(
+      {},
+      null,
+      {
+        khmdhsAdam: '23SYMV013398101',
+        contractDate: '2023-09-08',
+        contractAmount: '1.526.007,62',
+        supplementaryStageEntries: [
+          {
+            title: 'Παράταση 1',
+            isExtension: true,
+            adam: '25SYMV016832490',
+            date: '30/09/2025',
+            amount: '1.526.007,62',
+            amountLabel: 'Αναφορικό ποσό',
+          },
+          {
+            title: 'Παράταση 2',
+            isExtension: true,
+            adam: '25SYMV017759521',
+            date: '30/03/2026',
+            amount: '1.526.007,62',
+            amountLabel: 'Αναφορικό ποσό',
+          },
+        ],
+      }
+    );
+    const supp = timeline.filter((t) => t.type === 'supp');
+    expect(supp).toHaveLength(2);
+    expect(supp[0].stageName).toBe('Παράταση 1');
+    expect(supp[1].stageName).toBe('Παράταση 2');
+    expect(supp[0].adam).toBe('25SYMV016832490');
+  });
+
+  test('προκήρυξη: ημερομηνία εγγράφου, όχι ανάκτησης', () => {
+    const timeline = buildChronologicalChainTimeline(
+      {
+        commit: [
+          { title: 'Ανάληψη', adam: '23REQ012275524', signedDate: '10/03/2023', amount: '1.000,00' },
+        ],
+        awrd: { title: 'Ανάθεση', adam: '23AWRD013315691', awardDate: '16/06/2023', amount: '1.000,00' },
+      },
+      {
+        adam: '23PROC012273104',
+        title: 'ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ',
+        documentDateLabel: '10/03/2023',
+        signedDateLabel: '10/03/2023',
+        submissionDateLabel: '10/03/2023 13:44',
+        fetchedAtLabel: '21/06/2026 22:42',
+        deadlineLabel: '',
+      },
+      {}
+    );
+    const proc = timeline.find((t) => t.type === 'proc');
+    expect(proc).toBeTruthy();
+    expect(proc.dateLabel).toBe('10/03/2023');
+    expect(proc.dateLabel).not.toContain('2026');
+    const procIndex = timeline.findIndex((t) => t.type === 'proc');
+    const awrdIndex = timeline.findIndex((t) => t.type === 'awrd');
+    expect(procIndex).toBeLessThan(awrdIndex);
   });
 });
 

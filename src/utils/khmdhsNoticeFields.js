@@ -110,6 +110,25 @@ export function formatKhmdhsDateOnly(value) {
   return formatDateEl(value, '');
 }
 
+/** Ημερομηνία εγγράφου προκήρυξης για χρονολόγιο — όχι ημερομηνία ανάκτησης. */
+export function pickKhmdhsNoticeDocumentDateForTimeline(snapshot) {
+  const snap = pickKhmdhsNoticeSnapshot(snapshot);
+  if (!snap) {
+    return { dateLabel: '', fallbackDate: '', signedDateLabel: '', submissionDateLabel: '' };
+  }
+  const signedDateLabel = formatKhmdhsDateOnly(snap.signedDate);
+  const submissionDateLabel = snap.submissionDate ? formatKhmdhsDateTime(snap.submissionDate) : '';
+  const dateLabel = signedDateLabel
+    || (snap.submissionDate ? formatKhmdhsDateOnly(snap.submissionDate) : '')
+    || submissionDateLabel;
+  return {
+    dateLabel,
+    fallbackDate: snap.submissionDate || snap.signedDate || '',
+    signedDateLabel,
+    submissionDateLabel,
+  };
+}
+
 export function formatKhmdhsEuro(amount) {
   if (amount == null || amount === '') return '';
   const n = Number(amount);

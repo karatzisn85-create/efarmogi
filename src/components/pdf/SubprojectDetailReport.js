@@ -5,26 +5,9 @@ import ReportHeader from './ReportHeader';
 import ReportFooter from './ReportFooter';
 import ReportContinuationHeader from './ReportContinuationHeader';
 
-/** Ονόματα σταδίων αλυσίδας — χωρίς εσωτερικούς κωδικούς (REQ, COMMIT κ.λπ.) */
-const CHAIN_STAGE_NAMES = {
-  req: 'Πρωτογενές αίτημα',
-  commit: 'Απόφαση ανάληψης υποχρέωσης',
-  proc: 'Προκήρυξη / Πρόσκληση',
-  awrd: 'Ανάθεση',
-  symv: 'Σύμβαση',
-  supp: 'Συμπληρωματική σύμβαση',
-  ape: 'ΑΠΕ',
-  pay: 'Εντάλματα πληρωμής',
-};
-
 function formatReportAleCodes(basic) {
   const codes = (basic?.aleCodes || []).filter((c) => c && String(c).trim());
   return codes.length ? codes.join(' · ') : '';
-}
-
-function commitStageName(index, total) {
-  if (total <= 1) return CHAIN_STAGE_NAMES.commit;
-  return `${CHAIN_STAGE_NAMES.commit} (${index + 1}/${total})`;
 }
 
 /** DejaVu δεν υποστηρίζει emoji — αφαίρεση για καθαρή εμφάνιση στο PDF */
@@ -40,6 +23,231 @@ function pdfText(value) {
 
 function countEgkriseis(egkriseis, egkrisiLinks) {
   return (egkriseis?.length || 0) + (egkrisiLinks?.length || 0);
+}
+
+const CHAIN_HORIZ_MAX = 6;
+const CHAIN_COMPACT_THRESHOLD = 10;
+const CHAIN_DENSE_THRESHOLD = 16;
+
+const STAGE_SHORT_LABELS = {
+  req: 'Αίτημα',
+  commit: 'Ανάληψη',
+  proc: 'Πρόκληση',
+  awrd: 'Ανάθεση',
+  symv: 'Σύμβαση',
+  supp: 'Συμπλ.',
+  ape: 'ΑΠΕ',
+  pay: 'Πληρωμές',
+};
+
+function stageTheme(themeKey) {
+  return THEME[themeKey] || THEME.proc;
+}
+
+function chainDisplayMode(stageCount) {
+  if (stageCount <= CHAIN_HORIZ_MAX) return 'featured';
+  if (stageCount <= CHAIN_COMPACT_THRESHOLD) return 'standard';
+  if (stageCount <= CHAIN_DENSE_THRESHOLD) return 'compact';
+  return 'dense';
+}
+
+function stageShortLabel(item) {
+  return STAGE_SHORT_LABELS[item?.type] || String(item?.stageName || 'Στάδιο').split(' ')[0];
+}
+
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function horizNodesPerRow(stageCount) {
+  if (stageCount <= 4) return stageCount;
+  if (stageCount <= 6) return 3;
+  return 4;
+}
+
+function miniMapNodesPerRow(stageCount) {
+  if (stageCount <= 12) return stageCount;
+  if (stageCount <= 20) return 10;
+  return 12;
+}
+
+function truncatePdfText(text, maxLen) {
+  const s = pdfText(text);
+  if (!s || s.length <= maxLen) return s;
+  return `${s.slice(0, maxLen - 1)}…`;
+}
+
+function topStageField(item) {
+  const fields = (item?.fields || []).filter((f) => f && f.value);
+  return fields[0] || null;
+}
+
+function ChainHorizRow({ stages, startIndex }) {
+  return (
+    <View style={D.chainHorizRow} wrap={false}>
+      {stages.map((item, i) => {
+        const theme = stageTheme(item.themeKey);
+        const globalIndex = startIndex + i;
+        const isLastInRow = i === stages.length - 1;
+        return (
+          <React.Fragment key={`${item.type}-${globalIndex}-${item.adam || ''}`}>
+            <View style={D.chainHorizNode}>
+              <View style={[D.chainHorizCircle, { borderColor: theme.color, backgroundColor: theme.light }]}>
+                <Text style={[D.chainHorizCircleNum, { color: theme.color }]}>{globalIndex + 1}</Text>
+              </View>
+              <Text style={[D.chainHorizLabel, { color: theme.color }]} wrap>
+                {stageShortLabel(item)}
+              </Text>
+              {item.dateLabel && item.dateLabel !== '—' ? (
+                <Text style={D.chainHorizDate} wrap>{item.dateLabel}</Text>
+              ) : null}
+            </View>
+            {!isLastInRow ? <View style={[D.chainHorizConnector, { backgroundColor: theme.mid }]} /> : null}
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
+}
+
+function ChainHorizOverview({ stages }) {
+  const perRow = horizNodesPerRow(stages.length);
+  const rows = chunkArray(stages, perRow);
+  return (
+    <View style={D.chainHorizBlock} wrap>
+      {rows.map((row, ri) => (
+        <ChainHorizRow key={`horiz-${ri}`} stages={row} startIndex={ri * perRow} />
+      ))}
+    </View>
+  );
+}
+
+function ChainMiniMap({ stages }) {
+  const perRow = miniMapNodesPerRow(stages.length);
+  const rows = chunkArray(stages, perRow);
+  const dense = stages.length > CHAIN_COMPACT_THRESHOLD;
+  return (
+    <View style={{ marginBottom: 8 }} wrap>
+      {rows.map((row, ri) => (
+        <View key={`mini-${ri}`} style={D.chainMiniMapRow} wrap>
+          {row.map((item, i) => {
+            const theme = stageTheme(item.themeKey);
+            const globalIndex = ri * perRow + i;
+            const isLast = globalIndex === stages.length - 1;
+            return (
+              <React.Fragment key={`${item.type}-${globalIndex}`}>
+                <View style={[
+                  D.chainMiniDot,
+                  dense ? D.chainMiniDotSm : {},
+                  { backgroundColor: item.cancelled ? COLORS.warn : theme.color },
+                ]}>
+                  <Text style={[D.chainMiniDotNum, dense ? { fontSize: 4.5 } : {}]}>{globalIndex + 1}</Text>
+                </View>
+                {!isLast ? (
+                  <View style={[D.chainMiniConnector, dense ? D.chainMiniConnectorSm : {}]} />
+                ) : null}
+              </React.Fragment>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function ChainRailNode({ item, index, isLast, mode }) {
+  const theme = stageTheme(item.themeKey);
+  const compact = mode === 'compact' || mode === 'dense';
+  const field = topStageField(item);
+  const metaParts = [
+    item.dateLabel && item.dateLabel !== '—' ? item.dateLabel : null,
+    item.adam || null,
+  ].filter(Boolean);
+
+  return (
+    <View style={D.chainVertRow} wrap minPresenceAhead={compact ? 18 : 28}>
+      <View style={D.chainVertGutter}>
+        <View style={[
+          D.chainVertDot,
+          compact ? D.chainVertDotSm : {},
+          {
+            borderColor: item.cancelled ? COLORS.warn : theme.color,
+            backgroundColor: item.cancelled ? COLORS.warnBg : theme.light,
+          },
+        ]} />
+        {!isLast ? (
+          <View style={[D.chainVertLine, { backgroundColor: theme.mid }]} />
+        ) : null}
+      </View>
+      <View style={[D.chainVertContent, isLast ? D.chainVertContentLast : {}]}>
+        <Text style={[
+          D.chainVertStage,
+          compact ? D.chainVertStageSm : {},
+          { color: item.cancelled ? COLORS.warn : theme.color },
+        ]} wrap>
+          {index + 1}. {item.stageName}{item.cancelled ? ' [ακυρωμένο]' : ''}
+        </Text>
+        {!compact && item.title ? (
+          <Text style={D.chainVertTitle} wrap>{truncatePdfText(item.title, 140)}</Text>
+        ) : null}
+        {metaParts.length > 0 ? (
+          <Text style={D.chainVertMeta} wrap>{metaParts.join(' · ')}</Text>
+        ) : null}
+        {!compact && field ? (
+          <Text style={D.chainVertField} wrap>
+            {field.label}: {truncatePdfText(field.value, 80)}
+          </Text>
+        ) : null}
+        {compact && field ? (
+          <Text style={D.chainVertField} wrap>{truncatePdfText(field.value, 60)}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function KhmdhsChainRailSection({ timeline }) {
+  const stages = (timeline || []).filter(Boolean);
+  if (!stages.length) return null;
+
+  const mode = chainDisplayMode(stages.length);
+  const showHoriz = mode === 'featured';
+  const showMiniMap = mode === 'dense' || (mode === 'compact' && stages.length > CHAIN_HORIZ_MAX);
+
+  return (
+    <Section title={`Αλυσίδα ΚΗΜΔΗΣ · ${stages.length} κρίκοι`} themeKey="proc">
+      <Text style={D.chainRailIntro} wrap>
+        {mode === 'featured'
+          ? 'Η πορεία της διαδικασίας από το πρώτο έως το τελευταίο στάδιο στο ΚΗΜΔΗΣ.'
+          : mode === 'dense'
+            ? `Συνολικά ${stages.length} στάδια — συνοπτική χάρτηση και αναλυτική λίστα.`
+            : `Χρονολογική αλυσίδα ${stages.length} σταδίων.`}
+      </Text>
+
+      {showHoriz ? <ChainHorizOverview stages={stages} /> : null}
+      {showMiniMap ? <ChainMiniMap stages={stages} /> : null}
+
+      {stages.map((item, i) => (
+        <ChainRailNode
+          key={`${item.type}-${i}-${item.adam || ''}`}
+          item={item}
+          index={i}
+          isLast={i === stages.length - 1}
+          mode={mode}
+        />
+      ))}
+
+      {mode === 'dense' ? (
+        <Text style={D.chainDenseNote} wrap>
+          Για εκτενείς αλυσίδες εμφανίζονται συνοπτικά τα βασικά στοιχεία κάθε κρίκου.
+        </Text>
+      ) : null}
+    </Section>
+  );
 }
 
 // ── Per-section theme palette (color, lightBg, midBorder) ────────────────────
@@ -283,41 +491,10 @@ const D = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 4,
   },
-  paymentPanel: {
-    marginBottom: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 9,
-    borderRadius: 3,
-    backgroundColor: COLORS.greenLight,
-    border: `1px solid ${COLORS.greenMid}`,
-  },
-  paymentPanelTitle: {
-    fontSize: 6.5,
-    fontFamily: 'DejaVu',
-    fontWeight: 'bold',
-    color: COLORS.green,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 5,
-  },
-  progressTrack: {
-    height: 7,
-    backgroundColor: COLORS.hairline,
-    borderRadius: 4,
-    marginTop: 5,
-    marginBottom: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 7,
-    backgroundColor: COLORS.green,
-    borderRadius: 4,
-  },
-  gapItem: {
-    fontSize: 7.5,
-    lineHeight: 1.5,
-    paddingVertical: 2.5,
-    borderBottom: `1px solid ${COLORS.hairline}`,
+  paymentFigures: {
+    marginTop: 6,
+    paddingTop: 6,
+    borderTop: `1px solid ${COLORS.hairline}`,
   },
   timelineCompactRow: {
     flexDirection: 'row',
@@ -348,6 +525,177 @@ const D = StyleSheet.create({
     color: COLORS.dark,
     lineHeight: 1.45,
   },
+
+  // ── KHMDHS chain rail ─────────────────────────────────────────────────────
+  chainRailIntro: {
+    fontSize: 6.5,
+    color: COLORS.muted,
+    lineHeight: 1.45,
+    marginBottom: 8,
+  },
+  chainHorizBlock: {
+    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    backgroundColor: COLORS.rowAlt,
+    border: `1px solid ${COLORS.hairline}`,
+  },
+  chainHorizRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  chainHorizNode: {
+    alignItems: 'center',
+    width: 72,
+    paddingHorizontal: 2,
+  },
+  chainHorizCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 3,
+  },
+  chainHorizCircleNum: {
+    fontSize: 7,
+    fontFamily: 'DejaVu',
+    fontWeight: 'bold',
+    color: COLORS.dark,
+  },
+  chainHorizLabel: {
+    fontSize: 5.5,
+    fontFamily: 'DejaVu',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    lineHeight: 1.35,
+    color: COLORS.dark,
+  },
+  chainHorizDate: {
+    fontSize: 5,
+    color: COLORS.muted,
+    textAlign: 'center',
+    marginTop: 1,
+    lineHeight: 1.3,
+  },
+  chainHorizConnector: {
+    width: 14,
+    height: 2,
+    marginTop: 10,
+    backgroundColor: COLORS.hairline,
+  },
+  chainMiniMapRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 4,
+  },
+  chainMiniDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chainMiniDotSm: {
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+  },
+  chainMiniDotNum: {
+    fontSize: 5.5,
+    fontFamily: 'DejaVu',
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  chainMiniConnector: {
+    width: 8,
+    height: 2,
+    backgroundColor: COLORS.hairline,
+  },
+  chainMiniConnectorSm: {
+    width: 5,
+  },
+  chainVertRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginBottom: 2,
+  },
+  chainVertGutter: {
+    width: 18,
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  chainVertDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    backgroundColor: COLORS.pageBg,
+  },
+  chainVertDotSm: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  chainVertLine: {
+    width: 2,
+    flex: 1,
+    minHeight: 12,
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  chainVertContent: {
+    flex: 1,
+    paddingBottom: 8,
+    borderBottom: `1px solid ${COLORS.hairline}`,
+  },
+  chainVertContentLast: {
+    borderBottom: 'none',
+    paddingBottom: 2,
+  },
+  chainVertStage: {
+    fontSize: 7.5,
+    fontFamily: 'DejaVu',
+    fontWeight: 'bold',
+    lineHeight: 1.4,
+    marginBottom: 2,
+  },
+  chainVertStageSm: {
+    fontSize: 6.5,
+  },
+  chainVertTitle: {
+    fontSize: 7,
+    color: COLORS.dark,
+    lineHeight: 1.45,
+    marginBottom: 2,
+  },
+  chainVertMeta: {
+    fontSize: 6.5,
+    fontFamily: 'DejaVu',
+    color: COLORS.muted,
+    lineHeight: 1.4,
+  },
+  chainVertField: {
+    fontSize: 6.5,
+    color: COLORS.mid,
+    lineHeight: 1.4,
+    marginTop: 1,
+  },
+  chainDenseNote: {
+    fontSize: 6,
+    color: COLORS.muted,
+    fontStyle: 'italic',
+    marginTop: 4,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+
   execBlock: {
     border: `1px solid ${COLORS.accentMid}`,
     borderRadius: 4,
@@ -435,48 +783,6 @@ const D = StyleSheet.create({
 
 function v(val) { return (val == null || val === '') ? '—' : pdfText(String(val)); }
 
-function normalizeChainText(text) {
-  return pdfText(text).replace(/\s+/g, ' ').trim().toUpperCase();
-}
-
-function buildChainContext(khmdhsChain, basic) {
-  const rawTitles = [];
-  const rawOrgs = [];
-  if (khmdhsChain?.req?.title) rawTitles.push(khmdhsChain.req.title);
-  (khmdhsChain?.commit || []).forEach((d) => {
-    if (d.title) rawTitles.push(d.title);
-  });
-  if (khmdhsChain?.awrd?.title) rawTitles.push(khmdhsChain.awrd.title);
-  if (khmdhsChain?.req?.organization) rawOrgs.push(khmdhsChain.req.organization);
-  (khmdhsChain?.commit || []).forEach((d) => {
-    if (d.organization) rawOrgs.push(d.organization);
-  });
-  if (khmdhsChain?.awrd?.organization) rawOrgs.push(khmdhsChain.awrd.organization);
-
-  const uniqueTitles = [...new Set(rawTitles.map(normalizeChainText).filter(Boolean))];
-  const uniqueOrgs = [...new Set(rawOrgs.map(normalizeChainText).filter(Boolean))];
-
-  const contractor = basic?.khmdhsContractSnapshot?.anadoxosName
-    || khmdhsChain?.awrd?.contractor
-    || '';
-  const contractorVat = basic?.khmdhsContractSnapshot?.anadoxosVat
-    || khmdhsChain?.awrd?.contractorVat
-    || '';
-
-  return {
-    commonTitle: uniqueTitles.length === 1 ? rawTitles[0] : '',
-    commonOrganization: uniqueOrgs.length === 1 ? rawOrgs[0] : '',
-    contractor,
-    contractorVat,
-  };
-}
-
-function shouldShowChainOrganization(org, commonOrganization) {
-  if (!org) return false;
-  if (!commonOrganization) return true;
-  return normalizeChainText(org) !== normalizeChainText(commonOrganization);
-}
-
 /** Key-value pair in a 2-column grid */
 function Kv({ label, value, full }) {
   return (
@@ -507,16 +813,6 @@ function MKv({ label, value }) {
   );
 }
 
-/** Key-value inside KHMDHS chain stage */
-function CKv({ label, value }) {
-  return (
-    <View style={D.chainRow} wrap>
-      <Text style={D.chainLabel}>{label}</Text>
-      <Text style={D.chainValue} wrap>{v(value)}</Text>
-    </View>
-  );
-}
-
 /**
  * Generic section with colored header.
  * @param {string} themeKey - key in THEME object
@@ -535,203 +831,35 @@ function Section({ title, themeKey = 'identity', children, extra }) {
   );
 }
 
-/** Mini stat card with colored top border */
-function MiniStat({ value, label, color }) {
-  return (
-    <View style={[D.miniStat, { borderTop: `2px solid ${color || COLORS.accent}` }]}>
-      <Text style={[D.miniStatVal, { color: color || COLORS.dark }]}>{value}</Text>
-      <Text style={D.miniStatLbl}>{label}</Text>
-    </View>
-  );
-}
-
-// ── KHMDHS chain stage component ─────────────────────────────────────────────
-
-function ChainStage({ stageName, title, adam, colour, light, mid, children, cancelled, hideTitle }) {
-  const showTitle = !hideTitle && title && title !== stageName;
-  return (
-    <View style={[D.chainStage, { border: `1px solid ${mid}`, borderLeft: `3px solid ${colour}` }]} wrap>
-      <View style={[D.chainStageHead, { backgroundColor: light }]}>
-        <View style={D.chainStageHeadTop}>
-          <Text style={[D.chainStageName, { color: colour }]}>{stageName}</Text>
-          {adam ? <Text style={[D.chainStageAdam, { color: colour }]} wrap>{adam}</Text> : null}
-        </View>
-        {showTitle ? (
-          <Text style={[D.chainStageTitle, { color: cancelled ? '#b91c1c' : COLORS.dark }]} wrap>
-            {pdfText(title)}{cancelled ? '  [ΑΚΥΡΩΜΕΝΟ]' : ''}
-          </Text>
-        ) : cancelled ? (
-          <Text style={[D.chainStageTitle, { color: '#b91c1c' }]}>[ΑΚΥΡΩΜΕΝΟ]</Text>
-        ) : null}
-      </View>
-      <View style={D.chainStageBody}>{children}</View>
-    </View>
-  );
-}
-
-function themeColors(themeKey) {
-  const t = THEME[themeKey] || THEME.proc;
-  return { color: t.color, light: t.light, mid: t.mid };
-}
-
-function PaymentSummaryPanel({ paymentSummary }) {
+/** Στοιχεία πληρωμών — κείμενο μόνο, χωρίς γραφικά */
+function PaymentFiguresBlock({ paymentSummary }) {
   if (!paymentSummary?.hasContract && !paymentSummary?.hasPayments) return null;
-  const pct = paymentSummary.percentPaid ?? 0;
   return (
-    <View style={D.paymentPanel} wrap>
-      <Text style={D.paymentPanelTitle}>Σύνοψη πληρωμών έναντι σύμβασης</Text>
-      <CKv label="Ποσό σύμβασης" value={paymentSummary.contractAmountLabel} />
-      <CKv label="Πληρωμένο" value={paymentSummary.paidAmountLabel} />
-      <CKv label="Υπόλοιπο" value={paymentSummary.remainingLabel} />
-      <CKv label="Πρόοδος" value={paymentSummary.percentPaidLabel} />
-      {paymentSummary.percentPaid != null ? (
-        <View style={D.progressTrack}>
-          <View style={[D.progressFill, { width: `${Math.max(4, Math.min(100, pct))}%` }]} />
-        </View>
+    <View style={D.paymentFigures} wrap>
+      <Kv label="Ποσό σύμβασης" value={paymentSummary.contractAmountLabel} />
+      <Kv label="Πληρωμένο" value={paymentSummary.paidAmountLabel} />
+      <Kv label="Υπόλοιπο σύμβασης" value={paymentSummary.remainingLabel} />
+      {paymentSummary.paymentCount > 0 ? (
+        <Kv label="Εντάλματα πληρωμής" value={String(paymentSummary.paymentCount)} />
       ) : null}
-      <CKv label="Εντάλματα" value={String(paymentSummary.paymentCount || 0)} />
     </View>
   );
 }
 
-function CompletenessSection({ gaps }) {
-  if (!gaps?.length) return null;
-  return (
-    <Section title={`Δείκτης πληρότητας (${gaps.length})`} themeKey="warn">
-      {gaps.map((g, i) => (
-        <Text
-          key={i}
-          style={[D.gapItem, { color: g.level === 'warn' ? COLORS.warn : COLORS.muted }]}
-          wrap
-        >
-          {g.level === 'warn' ? '[!] ' : '· '}{pdfText(g.text)}
-        </Text>
-      ))}
-    </Section>
-  );
-}
-
-function ChronologicalTimelineSection({ timeline, title, compact = false }) {
-  if (!timeline?.length) return null;
-  return (
-    <Section title={title || `Χρονολογική αλυσίδα ΚΗΜΔΗΣ (${timeline.length})`} themeKey="proc">
-      {timeline.map((item, i) => (
-        <View key={`${item.type}-${i}-${item.adam || ''}`} style={D.timelineCompactRow} wrap>
-          <Text style={D.timelineCompactDate}>{item.dateLabel}</Text>
-          <Text style={D.timelineCompactStage}>{item.stageName}</Text>
-          <Text style={D.timelineCompactBody} wrap>
-            {item.adam ? `${item.adam}` : ''}
-            {item.adam && (item.title || (item.fields || []).length) ? ' · ' : ''}
-            {!compact && item.title ? `${pdfText(item.title)}` : ''}
-            {!compact && item.title && (item.fields || []).length ? ' · ' : ''}
-            {(item.fields || []).map((f) => f.value).filter(Boolean).join(' · ')}
-          </Text>
-        </View>
-      ))}
-    </Section>
-  );
-}
-
-function ExecutiveSummaryPage({ summary, completenessGaps, paymentSummary, appConfig }) {
-  if (!summary) return null;
-  const sc = statusColor(summary.projectStatus);
-  return (
-    <Page size="A4" style={[S.page, { paddingTop: PAGE_MARGIN_TOP + CONTINUATION_HEADER_H }]} wrap>
-      <ReportContinuationHeader exportDate={nowFormatted()} />
-      <View style={{ marginTop: -CONTINUATION_HEADER_H }}>
-        <ReportHeader appConfig={appConfig} reportTitle="ΣΥΝΟΨΗ ΥΠΟΕΡΓΟΥ" />
-      </View>
-      <View style={D.content}>
-        <View style={D.execBlock}>
-          <Text style={D.execSubtitle}>Πράξη: {pdfText(summary.projectTitle)}</Text>
-          <Text style={D.execTitle}>{pdfText(summary.subprojectTitle)}</Text>
-          <View style={D.heroBadgesRow}>
-            {summary.projectStatus ? (
-              <Text style={[D.heroBadge, { backgroundColor: sc.bg, color: sc.text }]}>
-                {pdfText(summary.projectStatus)}
-              </Text>
-            ) : null}
-            {summary.characterization ? (
-              <Text style={[D.heroBadge, { backgroundColor: COLORS.amberLight, color: COLORS.amber }]}>
-                {pdfText(summary.characterization)}
-              </Text>
-            ) : null}
-            {summary.projectType ? (
-              <Text style={[D.heroBadge, { backgroundColor: COLORS.skyLight, color: COLORS.sky }]}>
-                {pdfText(summary.projectType)}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-
-        <Section title="Επισκόπηση" themeKey="identity">
-          <View style={D.kvGrid}>
-            <Kv label="Χρηματοδότηση" value={summary.fundingSource} full />
-            <Kv label="Εγκεκριμένο" value={summary.approvedAmount ? formatAmount(summary.approvedAmount) : ''} />
-            <Kv label="Προϋπολογισμός" value={summary.projectBudget ? formatAmount(summary.projectBudget) : ''} />
-            <Kv label="Σύμβαση" value={summary.contractAmountLabel} />
-            <Kv label="Πληρωμένο" value={summary.paidAmountLabel} />
-            <Kv label="Υπόλοιπο" value={summary.remainingLabel} />
-            <Kv label="Πρόοδος πληρωμών" value={summary.percentPaidLabel} />
-            {summary.contractor ? (
-              <Kv
-                label="Ανάδοχος"
-                value={summary.contractorVat ? `${summary.contractor} (ΑΦΜ ${summary.contractorVat})` : summary.contractor}
-                full
-              />
-            ) : null}
-            {summary.supervisor ? <Kv label="Επιβλέπων" value={summary.supervisor} full /> : null}
-            {summary.assistants ? <Kv label="Βοηθούν στην επίβλεψη" value={summary.assistants} full /> : null}
-            {summary.khmdhsAdam ? <Kv label="ΑΔΑΜ σύμβασης" value={summary.khmdhsAdam} /> : null}
-            {summary.aleCodes ? <Kv label="Α.Λ.Ε." value={summary.aleCodes} full /> : null}
-          </View>
-          {paymentSummary?.percentPaid != null ? (
-            <View style={[D.progressTrack, { marginTop: 6 }]}>
-              <View style={[D.progressFill, { width: `${Math.max(4, Math.min(100, paymentSummary.percentPaid))}%` }]} />
-            </View>
-          ) : null}
-        </Section>
-
-        <PaymentSummaryPanel paymentSummary={paymentSummary} />
-
-        <View style={D.statsRow}>
-          {(summary.counts?.files || 0) > 0 ? (
-            <MiniStat value={summary.counts.files} label="Αρχεία" color={COLORS.slate} />
-          ) : null}
-          {(summary.counts?.entaxeis || 0) > 0 ? (
-            <MiniStat value={summary.counts.entaxeis} label="Εντάξεις" color={COLORS.teal} />
-          ) : null}
-          {(summary.counts?.khmdhsStages || 0) > 0 ? (
-            <MiniStat value={summary.counts.khmdhsStages} label="Στάδια ΚΗΜΔΗΣ" color={COLORS.accent} />
-          ) : null}
-          {(summary.paymentCount || 0) > 0 ? (
-            <MiniStat value={summary.paymentCount} label="Εντάλματα" color={COLORS.green} />
-          ) : null}
-        </View>
-
-        <CompletenessSection gaps={completenessGaps} />
-        <ChronologicalTimelineSection
-          timeline={summary.timelinePreview}
-          title={`Χρονολόγιο ΚΗΜΔΗΣ (πρώτα ${summary.timelinePreview?.length || 0})`}
-          compact
-        />
-      </View>
-      <ReportFooter />
-    </Page>
-  );
-}
-
-// ── Sections ─────────────────────────────────────────────────────────────────
-
-function BasicInfoSection({ basic, isPublishedToPortal }) {
+/** Ενότητα 1 — ταυτότητα, χρηματοδότηση, υπεύθυνοι */
+function OverviewSection({ basic, isPublishedToPortal }) {
   const sc = statusColor(basic.projectStatus);
+  const aleDisplay = formatReportAleCodes(basic);
+  const hasMis = !!(basic.misPraxhsName && basic.misPraxhsCode);
+  const hasRemaining = basic.remainingAmount || (basic.aleRemainingAmounts || []).some(Boolean);
+
   return (
-    <Section title="Ταυτότητα & Κατάσταση Υποέργου" themeKey="identity">
+    <Section title="Στοιχεία Υποέργου" themeKey="identity">
       <View style={D.kvGrid}>
-        <Kv label="Πράξη"               value={basic.projectTitle} full />
-        <Kv label="Μορφή Υλοποίησης"    value={basic.implementationForm} />
-        <Kv label="Είδος"               value={basic.projectType} />
-        <View style={D.kvRow} wrap={false}>
+        <Kv label="Πράξη" value={basic.projectTitle} full />
+        <Kv label="Μορφή" value={basic.implementationForm} />
+        <Kv label="Είδος" value={basic.projectType} />
+        <View style={D.kvRow} wrap>
           <Text style={D.kvLabel}>Κατάσταση</Text>
           <View style={{ flex: 1, justifyContent: 'center' }}>
             {basic.projectStatus ? (
@@ -744,262 +872,121 @@ function BasicInfoSection({ basic, isPublishedToPortal }) {
             ) : <Text style={D.kvValue}>—</Text>}
           </View>
         </View>
-        {basic.characterization ? <Kv label="Χαρακτηρισμός"   value={basic.characterization} /> : null}
-        {basic.displayChargePrimary      ? <Kv label="Επιβλέπων"               value={basic.displayChargePrimary}      full /> : null}
-        {basic.displayChargeParticipants ? <Kv label="Βοηθούν στην επίβλεψη" value={basic.displayChargeParticipants} full /> : null}
-        {basic.createdAt  ? <Kv label="Δημιουργία"      value={formatDate(basic.createdAt)} /> : null}
-        {basic.updatedAt  ? <Kv label="Τελ. Ενημέρωση"  value={formatDate(basic.updatedAt)} /> : null}
-        {isPublishedToPortal ? <Kv label="Πύλη Διαφάνειας" value="Δημοσιευμένο" /> : null}
-      </View>
-    </Section>
-  );
-}
-
-function CodesSection({ basic }) {
-  const aleDisplay = formatReportAleCodes(basic);
-  const hasAle = !!aleDisplay;
-  const hasMis = !!(basic.misPraxhsName && basic.misPraxhsCode);
-  if (!hasAle && !hasMis) return null;
-  return (
-    <Section title="Κωδικοί & Αναφορές" themeKey="codes">
-      <View style={D.kvGrid}>
-        {hasAle ? (
+        {basic.characterization ? <Kv label="Χαρακτηρισμός" value={basic.characterization} /> : null}
+        <Kv label="Χρηματοδότηση" value={basic.fundingSource} full />
+        {basic.fundingDetails ? <Kv label="Εξειδίκευση" value={basic.fundingDetails} full /> : null}
+        <Kv label="Εγκεκριμένο" value={basic.approvedAmount ? formatAmount(basic.approvedAmount) : ''} />
+        <Kv label="Προϋπολογισμός" value={basic.projectBudget ? formatAmount(basic.projectBudget) : ''} />
+        {aleDisplay ? (
           <Kv
             label={basic.aleCodes?.length > 1 ? 'Κωδικοί Α.Λ.Ε.' : 'Κωδικός Α.Λ.Ε.'}
             value={aleDisplay}
             full
           />
         ) : null}
-        {hasMis ? (
-          <Kv label={basic.misPraxhsName} value={basic.misPraxhsCode} full />
+        {hasMis ? <Kv label={basic.misPraxhsName} value={basic.misPraxhsCode} full /> : null}
+        {basic.displayChargePrimary ? <Kv label="Επιβλέπων" value={basic.displayChargePrimary} full /> : null}
+        {basic.displayChargeParticipants ? (
+          <Kv label="Βοηθούν στην επίβλεψη" value={basic.displayChargeParticipants} full />
         ) : null}
-      </View>
-    </Section>
-  );
-}
-
-function FundingSection({ basic }) {
-  return (
-    <Section title="Χρηματοδότηση & Ποσά" themeKey="funding">
-      <View style={D.kvGrid}>
-        <Kv label="Πηγή Χρηματοδότησης"  value={basic.fundingSource} full />
-        {basic.fundingDetails
-          ? <Kv label="Εξειδίκευση"      value={basic.fundingDetails} full />
-          : null}
-        <Kv label="Εγκεκριμένο Ποσό"    value={basic.approvedAmount ? formatAmount(basic.approvedAmount) : ''} />
-        <Kv label="Προϋπολογισμός"       value={basic.projectBudget  ? formatAmount(basic.projectBudget)  : ''} />
-        {basic.totalContractAmount > 0 ? (
-          <Kv label="Σύνολο Συμβάσεων"
-              value={basic.totalContractAmount.toLocaleString('el-GR', { minimumFractionDigits: 2 }) + ' €'}
-              full />
-        ) : null}
-      </View>
-    </Section>
-  );
-}
-
-function AssignmentSection({ basic }) {
-  if (!basic.assignmentProcedure && !basic.contractProcessStartDate) return null;
-  return (
-    <Section title="Διαδικασία Ανάθεσης" themeKey="procedure">
-      <View style={D.kvGrid}>
         {basic.assignmentProcedure ? (
           <Kv
-            label="Διαδικασία"
+            label="Διαδικασία ανάθεσης"
             value={basic.assignmentFromKhmdhs
-              ? `${basic.assignmentProcedure} (από ΚΗΜΔΗΣ · ${basic.khmdhsNotice?.adam || '—'})`
+              ? `${basic.assignmentProcedure} (ΚΗΜΔΗΣ)`
               : basic.assignmentProcedure}
             full
           />
         ) : null}
-        {basic.contractProcessStartDate
-          ? <Kv label="Έναρξη Διαδικασίας" value={formatDate(basic.contractProcessStartDate)} />
-          : null}
+        {hasRemaining ? (
+          <Kv
+            label={`Υπόλοιπα${basic.remainingAmountYear ? ` ${basic.remainingAmountYear}` : ''}`}
+            value={basic.remainingAmount ? formatAmount(basic.remainingAmount) : ''}
+          />
+        ) : null}
+        {isPublishedToPortal ? <Kv label="Πύλη Διαφάνειας" value="Δημοσιευμένο" /> : null}
+        {basic.updatedAt ? <Kv label="Τελευταία ενημέρωση" value={formatDate(basic.updatedAt)} /> : null}
       </View>
     </Section>
   );
 }
 
-function RemainingSection({ basic }) {
-  const hasAny = basic.remainingAmount || (basic.aleRemainingAmounts || []).some(Boolean);
-  if (!hasAny) return null;
-  return (
-    <Section title={`Υπόλοιπα Έτους${basic.remainingAmountYear ? ' ' + basic.remainingAmountYear : ''}`} themeKey="funding">
-      <View style={D.kvGrid}>
-        {basic.aleCodes?.length > 1 && basic.aleRemainingAmounts?.length > 0
-          ? basic.aleCodes.map((code, i) => (
-              <Kv key={code || i} label={code || `Α.Λ.Ε. ${i+1}`}
-                  value={basic.aleRemainingAmounts[i] ? formatAmount(basic.aleRemainingAmounts[i]) : ''} />
-            ))
-          : <Kv label="Ποσό Υπολοίπων" value={basic.remainingAmount ? formatAmount(basic.remainingAmount) : ''} />}
-        {basic.remainingAmount && basic.aleCodes?.length > 1
-          ? <Kv label="Σύνολο" value={formatAmount(basic.remainingAmount)} />
-          : null}
-        {basic.remainingAmountComments
-          ? <Kv label="Σχόλια" value={basic.remainingAmountComments} full />
-          : null}
-      </View>
-    </Section>
-  );
-}
-
-function ContractSection({ basic, skipKhmdhsContractBlock }) {
+/** Ενότητα 2 — σύμβαση, ανάδοχος, πληρωμές */
+function ContractPaymentsSection({ basic, paymentSummary, skipKhmdhsContractBlock }) {
   const hasMain = basic.isMultipleContracts
     ? (basic.contracts || []).length > 0
     : (basic.contractDate || basic.contractAmount || basic.khmdhsAdam);
-  const hasSupp = basic.hasSupplementaryContracts && (basic.supplementaryContracts || []).length > 0;
-  if (!hasMain && !hasSupp) return null;
-  const showKhmdhsBlock = !skipKhmdhsContractBlock && (basic.khmdhsAdam || basic.khmdhsContractSnapshot);
+  const hasSupp = (basic.supplementaryStageEntries || []).length > 0
+    || (basic.hasSupplementaryContracts && (basic.supplementaryContracts || []).length > 0);
+  const hasPayments = paymentSummary?.hasContract || paymentSummary?.hasPayments;
+  if (!hasMain && !hasSupp && !hasPayments) return null;
+
+  const suppEntries = (basic.supplementaryStageEntries || []).length
+    ? basic.supplementaryStageEntries
+    : (basic.supplementaryContracts || []).map((c, i) => ({
+      title: `Συμπληρωματική ${i + 1}`,
+      date: c.date,
+      amount: c.amount,
+      amountLabel: 'Ποσό',
+      adam: c.khmdhsAdam || '',
+      isExtension: false,
+    }));
+
+  const contractor = basic.khmdhsContractSnapshot?.anadoxosName
+    || basic.contracts?.[0]?.khmdhsAnadoxos
+    || '';
+  const contractorVat = basic.khmdhsContractSnapshot?.anadoxosVat
+    || basic.contracts?.[0]?.khmdhsVat
+    || '';
+
   return (
-    <Section title="Στοιχεία Σύμβασης" themeKey="symv">
+    <Section title="Σύμβαση & Εκτέλεση" themeKey="symv">
       {!basic.isMultipleContracts ? (
-        <View wrap>
-          <View style={D.kvGrid}>
-            <Kv label="Ημερομηνία Σύμβασης" value={formatDate(basic.contractDate)} />
-            <Kv label="Ποσό Σύμβασης"       value={basic.contractAmount ? formatAmount(basic.contractAmount) : ''} />
-            {basic.apeAmount   ? <Kv label="ΑΠΕ + Συμπλ." value={formatAmount(basic.apeAmount)} /> : null}
-            {basic.apeComments ? <Kv label="Σχόλια ΑΠΕ"   value={basic.apeComments} full /> : null}
-          </View>
-          {showKhmdhsBlock && (
-            <View style={[D.entityBlock, { borderLeft: `2px solid ${COLORS.roseMid}` }]} wrap>
-              <Text style={D.entityTitle}>ΚΗΜΔΗΣ — Σύμβαση</Text>
-              {basic.khmdhsAdam ? <EKv label="ΑΔΑΜ" value={basic.khmdhsAdam} /> : null}
-              {basic.khmdhsContractSnapshot?.anadoxosName ? <EKv label="Ανάδοχος" value={basic.khmdhsContractSnapshot.anadoxosName} /> : null}
-              {basic.khmdhsContractSnapshot?.anadoxosVat ? <EKv label="ΑΦΜ" value={basic.khmdhsContractSnapshot.anadoxosVat} /> : null}
-              {basic.khmdhsContractSnapshot?.assigningAuthority ? <EKv label="Αναθέτουσα" value={basic.khmdhsContractSnapshot.assigningAuthority} full /> : null}
-              {basic.khmdhsContractFetchedAt ? <EKv label="Τελ. Λήψη" value={formatDate(basic.khmdhsContractFetchedAt)} /> : null}
-            </View>
-          )}
-        </View>
-      ) : (basic.contracts || []).map((c, i) => (
-        <View key={i} style={[D.entityBlock, { borderLeft: `2px solid ${COLORS.roseMid}` }]} wrap>
-          <Text style={D.entityTitle}>Σύμβαση {i + 1}</Text>
-          <EKv label="Ημερομηνία"    value={formatDate(c.date)} />
-          <EKv label="Ποσό"          value={c.amount ? formatAmount(c.amount) : ''} />
-          {c.apeAmount   ? <EKv label="ΑΠΕ + Συμπλ." value={formatAmount(c.apeAmount)} /> : null}
-          {c.comments    ? <EKv label="Σχόλια"        value={c.comments} full /> : null}
-          {c.khmdhsAdam  ? <EKv label="ΑΔΑΜ ΚΗΜΔΗΣ"  value={c.khmdhsAdam} /> : null}
-          {c.khmdhsAnadoxos ? <EKv label="Ανάδοχος"  value={c.khmdhsAnadoxos} /> : null}
-          {c.khmdhsVat   ? <EKv label="ΑΦΜ"          value={c.khmdhsVat} /> : null}
-          {c.khmdhsAuthority ? <EKv label="Αναθέτουσα" value={c.khmdhsAuthority} full /> : null}
-          {c.khmdhsFetchedAt ? <EKv label="Τελ. Λήψη" value={formatDate(c.khmdhsFetchedAt)} /> : null}
-        </View>
-      ))}
-      {(basic.supplementaryContracts || []).map((c, i) => (
-        <View key={`s-${i}`} style={[D.entityBlock, { borderLeft: `2px solid ${COLORS.greenMid}` }]} wrap>
-          <Text style={[D.entityTitle, { color: COLORS.green }]}>Συμπληρωματική Σύμβαση {i + 1}</Text>
-          <EKv label="Ημερομηνία" value={formatDate(c.date)} />
-          <EKv label="Ποσό"       value={c.amount ? formatAmount(c.amount) : ''} />
-          {c.comments ? <EKv label="Σχόλια" value={c.comments} /> : null}
-        </View>
-      ))}
-    </Section>
-  );
-}
-
-/** Αλυσίδα ΚΗΜΔΗΣ — χρονολογική ροή */
-function KhmdhsChainSection({ khmdhsChain, khmdhsNotice, basic, chronologicalTimeline, paymentSummary }) {
-  if (!chronologicalTimeline?.length && !khmdhsChain?.pay) return null;
-
-  const chainCtx = buildChainContext(khmdhsChain, basic);
-  const hideRepeatedTitle = !!chainCtx.commonTitle;
-  const detailStages = (chronologicalTimeline || []).filter((item) => item.type !== 'pay');
-
-  return (
-    <Section title="Αλυσίδα ΚΗΜΔΗΣ" themeKey="proc">
-      {(chainCtx.commonTitle || chainCtx.commonOrganization || chainCtx.contractor) ? (
-        <View style={D.chainSummary} wrap>
-          <Text style={D.chainSummaryTitle}>Σύνοψη αλυσίδας</Text>
-          {chainCtx.commonTitle ? <CKv label="Αντικείμενο" value={chainCtx.commonTitle} /> : null}
-          {chainCtx.commonOrganization ? <CKv label="Αναθέτουσα" value={chainCtx.commonOrganization} /> : null}
-          {chainCtx.contractor ? (
-            <CKv
+        <View style={D.kvGrid} wrap>
+          <Kv label="Ημερομηνία σύμβασης" value={formatDate(basic.contractDate)} />
+          <Kv label="Ποσό σύμβασης" value={basic.contractAmount ? formatAmount(basic.contractAmount) : ''} />
+          {basic.apeAmount ? <Kv label="ΑΠΕ" value={formatAmount(basic.apeAmount)} /> : null}
+          {basic.khmdhsAdam && !skipKhmdhsContractBlock ? <Kv label="ΑΔΑΜ" value={basic.khmdhsAdam} /> : null}
+          {contractor ? (
+            <Kv
               label="Ανάδοχος"
-              value={chainCtx.contractorVat
-                ? `${chainCtx.contractor} (ΑΦΜ ${chainCtx.contractorVat})`
-                : chainCtx.contractor}
+              value={contractorVat ? `${contractor} (ΑΦΜ ${contractorVat})` : contractor}
+              full
             />
           ) : null}
         </View>
-      ) : null}
-
-      <PaymentSummaryPanel paymentSummary={paymentSummary} />
-
-      {detailStages.length > 0 ? (
-        <Text style={[D.groupTitle, { color: COLORS.accent, marginBottom: 6 }]}>
-          {`Χρονολογική ροή (${detailStages.length} στάδια)`}
-        </Text>
-      ) : null}
-
-      {detailStages.map((item, i) => {
-        const tc = themeColors(item.themeKey);
-        const showTitle = item.title && !(hideRepeatedTitle && normalizeChainText(item.title) === normalizeChainText(chainCtx.commonTitle));
-        return (
-          <ChainStage
-            key={`${item.type}-${i}-${item.adam || ''}`}
-            stageName={item.stageName}
-            title={showTitle ? item.title : ''}
-            adam={item.adam}
-            colour={tc.color}
-            light={tc.light}
-            mid={tc.mid}
-            cancelled={item.cancelled}
-          >
-            {item.dateLabel && item.dateLabel !== '—' ? <CKv label="Ημερομηνία" value={item.dateLabel} /> : null}
-            {(item.fields || []).map((f, fi) => (
-              <CKv key={fi} label={f.label} value={f.value} />
-            ))}
-          </ChainStage>
-        );
-      })}
-
-      {khmdhsChain?.pay ? (
-        <ChainStage
-          stageName={CHAIN_STAGE_NAMES.pay}
-          title=""
-          adam={khmdhsChain.pay.count ? `${khmdhsChain.pay.count} εντάλματα` : ''}
-          colour={COLORS.slate}
-          light={COLORS.slateLight}
-          mid={COLORS.slateMid}
-        >
-          <View style={D.payHeader} wrap={false}>
-            <Text style={[D.payHeaderCell, { flex: 2 }]}>ΑΔΑΜ</Text>
-            <Text style={[D.payHeaderCell, { flex: 3 }]}>Τίτλος</Text>
-            <Text style={[D.payHeaderCell, { flex: 1.5 }]}>Ποσό</Text>
-            <Text style={[D.payHeaderCell, { flex: 1.5 }]}>Ημερομηνία</Text>
+      ) : (
+        (basic.contracts || []).map((c, i) => (
+          <View key={i} style={[D.entityBlock, { borderLeft: `2px solid ${COLORS.roseMid}` }]} wrap>
+            <Text style={D.entityTitle}>Σύμβαση {i + 1}</Text>
+            <EKv label="Ημερομηνία" value={formatDate(c.date)} />
+            <EKv label="Ποσό" value={c.amount ? formatAmount(c.amount) : ''} />
+            {c.apeAmount ? <EKv label="ΑΠΕ" value={formatAmount(c.apeAmount)} /> : null}
+            {c.khmdhsAdam ? <EKv label="ΑΔΑΜ" value={c.khmdhsAdam} /> : null}
+            {c.khmdhsAnadoxos ? <EKv label="Ανάδοχος" value={c.khmdhsAnadoxos} /> : null}
           </View>
-          {(khmdhsChain.pay.entries || []).map((e, i) => (
-            <View key={i} style={[D.payRow, i % 2 === 1 ? { backgroundColor: COLORS.rowAlt } : {}]} wrap>
-              <Text style={[D.payCell, { flex: 2, fontFamily: 'DejaVu', fontWeight: e.cancelled ? 'normal' : 'bold', color: e.cancelled ? COLORS.light : COLORS.dark, fontSize: 6.5 }]}>
-                {e.adam || '—'}
-              </Text>
-              <Text style={[D.payCell, { flex: 3, color: e.cancelled ? COLORS.light : COLORS.dark, lineHeight: 1.5 }]} wrap>
-                {pdfText(e.title) || '—'}{e.cancelled ? ' [ακυρωμένο]' : ''}
-              </Text>
-              <Text style={[D.payCell, { flex: 1.5, color: COLORS.green, fontFamily: 'DejaVu', fontWeight: 'bold' }]}>
-                {e.amount || '—'}
-              </Text>
-              <Text style={[D.payCell, { flex: 1.5 }]}>{e.signedDate || '—'}</Text>
-            </View>
-          ))}
-          {khmdhsChain.pay.count > 0 ? (
-            <View style={D.payTotalRow} wrap={false}>
-              <Text style={{ fontSize: 7, color: COLORS.slate, flex: 1, fontFamily: 'DejaVu', fontWeight: 'bold' }}>
-                {`Σύνολο ${khmdhsChain.pay.count} εντάλματα`}
-              </Text>
-              <Text style={{ fontSize: 7, color: COLORS.green, fontFamily: 'DejaVu', fontWeight: 'bold' }}>
-                {khmdhsChain.pay.displayTotalGross != null
-                  ? `${khmdhsChain.pay.displayTotalGross.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
-                  : khmdhsChain.pay.countableTotalGross != null
-                    ? `${khmdhsChain.pay.countableTotalGross.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
-                    : khmdhsChain.pay.totalGross != null
-                      ? `${khmdhsChain.pay.totalGross.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
-                      : '—'}
-              </Text>
-            </View>
+        ))
+      )}
+      {(suppEntries || []).map((entry, i) => (
+        <View
+          key={`s-${entry.adam || i}`}
+          style={[D.entityBlock, {
+            borderLeft: `2px solid ${entry.isExtension ? COLORS.purpleMid : COLORS.greenMid}`,
+          }]}
+          wrap
+        >
+          <Text style={[D.entityTitle, { color: entry.isExtension ? COLORS.purple : COLORS.green }]}>
+            {entry.title || `Συμπληρωματική ${i + 1}`}
+          </Text>
+          {entry.adam ? <EKv label="ΑΔΑΜ" value={entry.adam} /> : null}
+          <EKv label={entry.isExtension ? 'Καταληκτική ημερομηνία' : 'Ημερομηνία'} value={formatDate(entry.date)} />
+          {entry.amount ? (
+            <EKv label={entry.amountLabel || 'Ποσό'} value={formatAmount(entry.amount)} />
           ) : null}
-        </ChainStage>
-      ) : null}
+          {entry.contractor ? <EKv label="Ανάδοχος" value={entry.contractor} /> : null}
+        </View>
+      ))}
+      <PaymentFiguresBlock paymentSummary={paymentSummary} />
     </Section>
   );
 }
@@ -1156,48 +1143,6 @@ function MeletaiSection({ meleti }) {
   );
 }
 
-function fileEntryLabel(entry) {
-  if (entry == null) return '';
-  return typeof entry === 'string' ? entry : (entry.name || '');
-}
-
-function fileEntryIndex(entry, fallback) {
-  if (entry != null && typeof entry === 'object' && entry.index != null) return entry.index;
-  return fallback;
-}
-
-function FilesSection({ files }) {
-  if (!files?.totalCount) return null;
-  return (
-    <Section title={`Αρχεία Υποέργου (${files.totalCount})`} themeKey="files">
-      {(files.groups || []).map((group, gi) => (
-        <View key={gi} style={D.fileGroup} wrap>
-          <Text style={D.fileGroupTitle}>
-            {group.categoryNumber ? `${group.categoryNumber}. ` : ''}Κατηγορία: {group.title}
-          </Text>
-          {(group.files || []).map((f, fi) => (
-            <View key={fi} style={{ flexDirection: 'row', alignItems: 'flex-start' }} wrap>
-              <Text style={D.fileIndex}>{fileEntryIndex(f, fi + 1)}.</Text>
-              <Text style={[D.fileItem, { flex: 1, paddingLeft: 2 }]} wrap>{fileEntryLabel(f)}</Text>
-            </View>
-          ))}
-        </View>
-      ))}
-      {(files.ungrouped || []).length > 0 && (
-        <View style={D.fileGroup} wrap>
-          <Text style={D.fileGroupTitle}>Χωρίς Κατηγορία</Text>
-          {files.ungrouped.map((f, fi) => (
-            <View key={fi} style={{ flexDirection: 'row', alignItems: 'flex-start' }} wrap>
-              <Text style={D.fileIndex}>{fileEntryIndex(f, fi + 1)}.</Text>
-              <Text style={[D.fileItem, { flex: 1, paddingLeft: 2 }]} wrap>{fileEntryLabel(f)}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-    </Section>
-  );
-}
-
 function NotesSection({ linkedNotes, comments, eisigitiki }) {
   if (!linkedNotes?.length && !comments && !eisigitiki) return null;
   return (
@@ -1227,19 +1172,17 @@ function NotesSection({ linkedNotes, comments, eisigitiki }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function SubprojectDetailReport({ data, appConfig, appVersion }) {
+export default function SubprojectDetailReport({ data, appConfig }) {
   const {
-    basic, khmdhsChain, files, entaxeis, proskliseis, egkriseis, egkrisiLinks,
+    basic, entaxeis, proskliseis, egkriseis, egkrisiLinks,
     epActions, linkedNotes, complianceWarnings, meleti, meta,
-    executiveSummary, paymentSummary, chronologicalTimeline, completenessGaps,
+    paymentSummary, chronologicalTimeline,
   } = data;
 
-  const egkrisiTotal = countEgkriseis(egkriseis, egkrisiLinks);
   const sc = statusColor(basic.projectStatus);
-  const hasKhmdhsChainSymv = !!(khmdhsChain && (
-    (!basic.isMultipleContracts && basic.khmdhsAdam)
-    || (basic.isMultipleContracts && (basic.contracts || []).some((c) => c.khmdhsAdam))
-  ));
+  const hideAdamInContractSection = basic.isMultipleContracts
+    ? (basic.contracts || []).some((c) => c.khmdhsAdam)
+    : !!basic.khmdhsAdam;
 
   return (
     <Document
@@ -1247,12 +1190,6 @@ export default function SubprojectDetailReport({ data, appConfig, appVersion }) 
       author="ERGOHUB"
       subject="Αναφορά Υποέργου"
     >
-      <ExecutiveSummaryPage
-        summary={executiveSummary}
-        completenessGaps={completenessGaps}
-        paymentSummary={paymentSummary}
-        appConfig={appConfig}
-      />
       <Page
         size="A4"
         style={[S.page, { paddingTop: PAGE_MARGIN_TOP + CONTINUATION_HEADER_H }]}
@@ -1264,12 +1201,9 @@ export default function SubprojectDetailReport({ data, appConfig, appVersion }) 
         </View>
 
         <View style={D.content}>
-
-          {/* ── Hero ─────────────────────────────────────────────── */}
           <View style={D.hero}>
             <Text style={D.heroLabel}>Πράξη: {pdfText(basic.projectTitle)}</Text>
             <Text style={D.heroTitle}>{pdfText(basic.subprojectTitle)}</Text>
-
             <View style={D.heroBadgesRow}>
               {basic.projectStatus ? (
                 <Text style={[D.heroBadge, { backgroundColor: sc.bg, color: sc.text }]}>
@@ -1281,93 +1215,19 @@ export default function SubprojectDetailReport({ data, appConfig, appVersion }) 
                   {pdfText(basic.projectType)}
                 </Text>
               ) : null}
-              {basic.implementationForm ? (
-                <Text style={[D.heroBadge, { backgroundColor: COLORS.slateLight, color: COLORS.slate }]}>
-                  {pdfText(basic.implementationForm)}
+              {basic.characterization ? (
+                <Text style={[D.heroBadge, { backgroundColor: COLORS.amberLight, color: COLORS.amber }]}>
+                  {pdfText(basic.characterization)}
                 </Text>
               ) : null}
             </View>
-
-            {(basic.projectBudget || basic.approvedAmount || basic.totalContractAmount > 0 || formatReportAleCodes(basic)) && (
-              <View style={D.heroAmountsRow}>
-                {basic.approvedAmount ? (
-                  <View style={D.heroAmountCell}>
-                    <Text style={D.heroAmountLabel}>Εγκεκριμένο ποσό</Text>
-                    <Text style={[D.heroAmountVal, { color: COLORS.green }]}>{formatAmount(basic.approvedAmount)}</Text>
-                  </View>
-                ) : null}
-                {basic.projectBudget ? (
-                  <View style={D.heroAmountCell}>
-                    <Text style={D.heroAmountLabel}>Προϋπολογισμός</Text>
-                    <Text style={D.heroAmountVal}>{formatAmount(basic.projectBudget)}</Text>
-                  </View>
-                ) : null}
-                {basic.totalContractAmount > 0 ? (
-                  <View style={D.heroAmountCell}>
-                    <Text style={D.heroAmountLabel}>Σύνολο συμβάσεων</Text>
-                    <Text style={[D.heroAmountVal, { color: COLORS.accent }]}>
-                      {basic.totalContractAmount.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-                    </Text>
-                  </View>
-                ) : null}
-                {formatReportAleCodes(basic) ? (
-                  <View style={D.heroAmountCell}>
-                    <Text style={D.heroAmountLabel}>
-                      {basic.aleCodes?.length > 1 ? 'Κωδικοί Α.Λ.Ε.' : 'Κωδικός Α.Λ.Ε.'}
-                    </Text>
-                    <Text style={[D.heroAmountVal, { fontSize: 8 }]}>{formatReportAleCodes(basic)}</Text>
-                  </View>
-                ) : null}
-              </View>
-            )}
-
-            {(basic.displayChargePrimary || basic.displayChargeParticipants) && (
-              <View style={{ marginTop: 5 }}>
-                {basic.displayChargePrimary ? (
-                  <Text style={D.heroMeta}>Επιβλέπων: {pdfText(basic.displayChargePrimary)}</Text>
-                ) : null}
-                {basic.displayChargeParticipants ? (
-                  <Text style={[D.heroMeta, { marginTop: basic.displayChargePrimary ? 2 : 0 }]}>
-                    Βοηθούν στην επίβλεψη: {pdfText(basic.displayChargeParticipants)}
-                  </Text>
-                ) : null}
-              </View>
-            )}
-
-            <Text style={D.heroMeta}>
-              ERGOHUB{appVersion ? ` v${appVersion}` : ''}
-              {meta?.subprojectId ? ` · ID: ${meta.subprojectId.slice(0, 8)}...` : ''}
-            </Text>
           </View>
 
-          {/* ── Mini stats ──────────────────────────────────────── */}
-          <View style={D.statsRow}>
-            {(files.totalCount || 0) > 0 && (
-              <MiniStat value={files.totalCount} label="Αρχεία" color={COLORS.slate} />
-            )}
-            {entaxeis.length > 0 && (
-              <MiniStat value={entaxeis.length} label="Εντάξεις" color={COLORS.teal} />
-            )}
-            {proskliseis.length > 0 && (
-              <MiniStat value={proskliseis.length} label="Προσκλήσεις" color={COLORS.sky} />
-            )}
-            {egkrisiTotal > 0 && (
-              <MiniStat value={egkrisiTotal} label="Εγκρίσεις" color={COLORS.amber} />
-            )}
-            {(epActions?.length || 0) > 0 && (
-              <MiniStat value={epActions.length} label="Δράσεις ΕΠ" color={COLORS.accent} />
-            )}
-            {khmdhsChain?.pay?.count > 0 && (
-              <MiniStat value={khmdhsChain.pay.count} label="Εντάλματα" color={COLORS.green} />
-            )}
-          </View>
-
-          {/* ── Compliance warnings ──────────────────────────────── */}
           {(complianceWarnings || []).length > 0 && (
             <View style={[D.section, { borderColor: COLORS.warnBorder }]} wrap>
               <View style={[D.sectionHead, { backgroundColor: COLORS.warnBg, borderBottom: `1px solid ${COLORS.warnBorder}` }]} wrap={false}>
                 <View style={[D.sectionHeadDot, { backgroundColor: COLORS.warn }]} />
-                <Text style={[D.sectionHeadText, { color: COLORS.warn }]}>Προειδοποίηση Συμμόρφωσης</Text>
+                <Text style={[D.sectionHeadText, { color: COLORS.warn }]}>Σημείωση συμμόρφωσης</Text>
               </View>
               <View style={D.sectionBody}>
                 {complianceWarnings.map((w, i) => (
@@ -1379,30 +1239,20 @@ export default function SubprojectDetailReport({ data, appConfig, appVersion }) 
             </View>
           )}
 
-          {/* ── Sections ─────────────────────────────────────────── */}
-          <BasicInfoSection basic={basic} isPublishedToPortal={meta?.isPublishedToPortal} />
-          <CodesSection basic={basic} />
-          <FundingSection basic={basic} />
-          <AssignmentSection basic={basic} />
-          <RemainingSection basic={basic} />
-          <ContractSection basic={basic} skipKhmdhsContractBlock={hasKhmdhsChainSymv} />
-
-          <KhmdhsChainSection
-            khmdhsChain={khmdhsChain}
-            khmdhsNotice={basic.khmdhsNotice}
+          <OverviewSection basic={basic} isPublishedToPortal={meta?.isPublishedToPortal} />
+          <ContractPaymentsSection
             basic={basic}
-            chronologicalTimeline={chronologicalTimeline}
             paymentSummary={paymentSummary}
+            skipKhmdhsContractBlock={hideAdamInContractSection}
           />
+          <KhmdhsChainRailSection timeline={chronologicalTimeline} />
 
           <EntaxeisSection entaxeis={entaxeis} />
           <ProskliseisSection proskliseis={proskliseis} />
           <EgkriseisSection egkriseis={egkriseis} egkrisiLinks={egkrisiLinks} />
           <EpSection epActions={epActions} />
           <MeletaiSection meleti={meleti} />
-          <FilesSection files={files} />
           <NotesSection linkedNotes={linkedNotes} comments={basic.comments} eisigitiki={basic.eisigitikiEkthesi} />
-
         </View>
 
         <ReportFooter />

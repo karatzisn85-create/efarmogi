@@ -11,6 +11,7 @@ import {
   formatKhmdhsDateTime,
   formatKhmdhsDateOnly,
   getProjectAssignmentProcedure,
+  pickKhmdhsNoticeDocumentDateForTimeline,
   pickKhmdhsNoticeSnapshot,
   projectHasKhmdhsNoticeData
 } from './khmdhsNoticeFields';
@@ -21,9 +22,6 @@ import {
 import { countMeletiFiles } from './meletaiHelpers';
 import {
   buildChronologicalChainTimeline,
-  buildCompletenessGapsForReport,
-  buildExecutiveSummaryForReport,
-  buildNumberedFileInventory,
   buildPaymentSummaryForReport,
 } from './subprojectReportEnrichment';
 import {
@@ -43,6 +41,10 @@ import {
   getKhmdhsPaymentEntries,
 } from './khmdhsChainExtraFields';
 import { formatKhmdhsCostSnapshotGross } from './khmdhsVatHelper';
+import {
+  getKhmdhsSupplementaryStageEntries,
+  mapSupplementaryEntryForReport,
+} from './khmdhsSupplementaryStageEntries';
 
 function normalizeText(text) {
   if (!text) return '';
@@ -205,8 +207,14 @@ function buildKhmdhsNoticeBlock(project) {
   if (!projectHasKhmdhsNoticeData(project)) return null;
   const snapshot = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
   const deadlineInfo = getProcurementDeadlineInfo(project);
+  const docDates = pickKhmdhsNoticeDocumentDateForTimeline(snapshot);
   return {
     adam: project.khmdhsNoticeAdam || snapshot?.referenceNumber || '',
+    title: snapshot?.title || '',
+    cancelled: !!snapshot?.cancelled,
+    documentDateLabel: docDates.dateLabel,
+    signedDateLabel: docDates.signedDateLabel,
+    submissionDateLabel: docDates.submissionDateLabel,
     fetchedAt: project.khmdhsNoticeFetchedAt || '',
     fetchedAtLabel: project.khmdhsNoticeFetchedAt ? formatKhmdhsDateTime(project.khmdhsNoticeFetchedAt) : '',
     deadlineLabel: formatDeadlineCountdownLabel(deadlineInfo),
@@ -251,6 +259,9 @@ function buildBasicFields(project, engineerCatalog) {
 
   const contracts = (project.contracts || []).map(mapContractForReport);
   const supplementaryContracts = (project.supplementaryContracts || []).map(mapContractForReport);
+  const supplementaryStageEntries = getKhmdhsSupplementaryStageEntries(project)
+    .map(mapSupplementaryEntryForReport)
+    .filter(Boolean);
 
   return {
     projectTitle: project.projectTitle || '',
@@ -291,6 +302,7 @@ function buildBasicFields(project, engineerCatalog) {
     contracts,
     hasSupplementaryContracts: !!project.hasSupplementaryContracts,
     supplementaryContracts,
+    supplementaryStageEntries,
     totalContractAmount,
     createdAt: project.createdAt || '',
     updatedAt: project.updatedAt || '',
@@ -363,7 +375,6 @@ export function buildSubprojectReportPayload({
   proskliseis = [],
   linkedEgkriseis = {},
   engineerCatalog = [],
-  files = { groups: [], ungrouped: [] },
   egkriseisRecords = [],
   epActions = [],
   linkedNotes = [],
@@ -399,10 +410,6 @@ export function buildSubprojectReportPayload({
     }
   }
 
-  const fileInventory = buildNumberedFileInventory(
-    buildFileInventory(files.groups, files.ungrouped)
-  );
-
   const basic = buildBasicFields(project, engineerCatalog);
   const khmdhsChain = buildKhmdhsChainForReport(project);
   const paymentSummary = buildPaymentSummaryForReport(basic, khmdhsChain);
@@ -411,36 +418,12 @@ export function buildSubprojectReportPayload({
     basic.khmdhsNotice,
     basic
   );
-  const completenessGaps = buildCompletenessGapsForReport(
-    project,
-    basic,
-    khmdhsChain,
-    fileInventory,
-    linkedEntaxeis
-  );
-  const egkrisiTotal = egkriseisMerged.length + egkrisiLinks.length;
-  const executiveSummary = buildExecutiveSummaryForReport({
-    basic,
-    khmdhsChain,
-    paymentSummary,
-    completenessGaps,
-    chronologicalTimeline,
-    files: fileInventory,
-    entaxeis: linkedEntaxeis,
-    proskliseis: linkedProskliseis,
-    egkrisiTotal,
-    epActions,
-    meta: { isPublishedToPortal, appVersion, subprojectId: project.subprojectId, projectId: project.projectId },
-  });
 
   return {
     basic,
     khmdhsChain,
-    files: fileInventory,
     paymentSummary,
     chronologicalTimeline,
-    completenessGaps,
-    executiveSummary,
     entaxeis: linkedEntaxeis,
     proskliseis: linkedProskliseis,
     egkriseis: egkriseisMerged,
