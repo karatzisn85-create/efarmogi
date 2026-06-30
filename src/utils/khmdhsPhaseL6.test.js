@@ -463,4 +463,27 @@ describe('khmdhs phase L6 — payment reconciliation', () => {
     const payable = resolveEffectivePayableAmountGrossForPayments(form);
     expect(payable).toBeCloseTo(297595.77 + 74155.85, 0);
   });
+
+  test('extension (παράταση) is excluded from payable amount for payment percentage', () => {
+    const form = {
+      implementationForm: 'Μια Σύμβαση',
+      contractAmount: '1.191.178,29',
+      apeAmount: '',
+      apeEntries: [
+        { apeAmount: '1.434.672,11', documentDate: '2025-10-07' },
+        { apeAmount: '1.416.302,99', documentDate: '2025-10-27' },
+      ],
+      supplementaryContracts: [{
+        amount: '1.191.178,29',
+        comments: 'Παράταση',
+        khmdhsDerived: true,
+        khmdhsAdam: '25SYMV000000001',
+      }],
+    };
+    const payable = resolveEffectivePayableAmountGrossForPayments(form);
+    expect(payable).toBeCloseTo(1416302.99, 1);
+    const payments = 1416302.98;
+    const pct = Math.round((payments / payable) * 100);
+    expect(pct).toBe(100);
+  });
 });

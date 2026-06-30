@@ -150,7 +150,7 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
             δεν αντιστοιχεί απαραίτητα σε διπλή πληρωμή εργολάβου — συνήθως το Ταμείο αποζημιώνει τον Δήμο.
           </InfoNote>
         )}
-        {totals.hasUserClassification && !totals.needsClassification && compare && !compare.over && (
+        {totals.hasUserClassification && !totals.needsClassification && compare && !compare.over && compare.pct >= 95 && (
           <CompareNote>
             Μετά τους χαρακτηρισμούς σας το ποσό που μετράει συμφωνεί με το {refLabel}.
           </CompareNote>

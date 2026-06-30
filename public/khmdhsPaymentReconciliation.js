@@ -250,8 +250,22 @@ function isMultipleContractsForm(implementationForm) {
   return implementationForm === 'Πολλές Συμβάσεις';
 }
 
+function isExtensionSupplementaryRow(row, formData) {
+  if (!row) return false;
+  if (row.chainKind === 'extension') return true;
+  const comment = String(row.comments || '').trim();
+  if (comment === 'Παράταση') return true;
+  const adam = String(row.khmdhsAdam || '').trim().toUpperCase();
+  if (!adam) return false;
+  const planItem = (formData?.khmdhsSymvChainPlan?.items || []).find(
+    (i) => String(i?.adam || '').trim().toUpperCase() === adam
+  );
+  return planItem?.role === 'extension';
+}
+
 function parseSupplementaryParts(formData) {
-  const suppRows = formData?.supplementaryContracts || [];
+  const suppRows = (formData?.supplementaryContracts || [])
+    .filter((row) => !isExtensionSupplementaryRow(row, formData));
   const manualSuppPart = suppRows
     .filter((row) => !row?.khmdhsDerived)
     .reduce((sum, row) => sum + parseGreekAmountString(row?.amount), 0);

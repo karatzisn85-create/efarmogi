@@ -2,10 +2,9 @@
  * Λογική ποσών συμπληρωματικών — αποφυγή λάθος αυτόματης συμπλήρωσης από ΚΗΜΔΗΣ.
  */
 
-import { isMultipleContractsForm, parseGreekAmountString } from './khmdhsFields';
+import { isMultipleContractsForm, parseGreekAmountString, isExtensionSupplementaryRow } from './khmdhsFields';
 import { grossFromContractRecord } from './khmdhsVatHelper';
 import { chainKindReviewResolutionKey } from './khmdhsDataQualityReport';
-import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
 
 const MOD_AMOUNT_TYPE = {
   DELTA: 'delta',
@@ -38,19 +37,6 @@ export function normalizeSuspiciousKhmdhsGross(amount, runningTotal) {
     return scaled;
   }
   return n;
-}
-
-function isExtensionSupplementaryRow(row, project) {
-  if (!row) return false;
-  if (row.chainKind === 'extension') return true;
-  const comment = String(row.comments || '').trim();
-  if (comment === 'Παράταση') return true;
-  const adam = String(row.khmdhsAdam || '').trim().toUpperCase();
-  if (!adam) return false;
-  const planItem = (project?.khmdhsSymvChainPlan?.items || []).find(
-    (i) => String(i?.adam || '').trim().toUpperCase() === adam
-  );
-  return planItem?.role === SYMV_CHAIN_ROLE.EXTENSION;
 }
 
 function readSupplementaryAmountType(row, project) {
