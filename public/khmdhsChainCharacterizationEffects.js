@@ -175,4 +175,7 @@ function computeChainCharacterizationEffects(chainHistory, review) {
 
 module.exports = {
   computeChainCharacterizationEffects,
+  getChainKindChoice,
+  getEffectiveChainKind,
+  CHAIN_KIND,
 };

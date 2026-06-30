@@ -10,11 +10,32 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
-const { getDropboxAccessToken } = require('./dropbox-token-manager');
+const { getDropboxAccessToken, clearCachedToken } = require('./dropbox-token-manager');
 
 const ROOT_DIR = path.join(__dirname, '..');
 
 let DROPBOX_TOKEN = null;
+
+async function refreshDropboxToken() {
+  clearCachedToken();
+  DROPBOX_TOKEN = await getDropboxAccessToken();
+  return DROPBOX_TOKEN;
+}
+
+async function dropboxFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}), Authorization: `Bearer ${DROPBOX_TOKEN}` };
+  let response = await fetch(url, { ...options, headers });
+  if (response.status === 401) {
+    log('  🔄 Dropbox token expired — refreshing...', 'yellow');
+    await refreshDropboxToken();
+    response = await fetch(url, {
+      ...options,
+      headers: { ...(options.headers || {}), Authorization: `Bearer ${DROPBOX_TOKEN}` },
+    });
+  }
+  return response;
+}
+
 const DROPBOX_FOLDER = '/ergohub';
 const DROPBOX_INSTALLER_FILENAME = 'ERGOHUB-Setup.exe';
 const DROPBOX_VERSION_FILENAME = 'version.json';
@@ -73,10 +94,9 @@ async function uploadToDropbox(localPath, dropboxPath) {
     mute: false
   });
 
-  const response = await fetch('https://content.dropboxapi.com/2/files/upload', {
+  const response = await dropboxFetch('https://content.dropboxapi.com/2/files/upload', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${DROPBOX_TOKEN}`,
       'Content-Type': 'application/octet-stream',
       'Dropbox-API-Arg': escapeUnicode(dropboxApiArg)
     },
@@ -97,10 +117,9 @@ async function uploadLargeFile(fileContent, dropboxPath, fileSize) {
   let offset = 0;
 
   const startChunk = fileContent.slice(0, Math.min(CHUNK_SIZE, fileSize));
-  const startResponse = await fetch('https://content.dropboxapi.com/2/files/upload_session/start', {
+  const startResponse = await dropboxFetch('https://content.dropboxapi.com/2/files/upload_session/start', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${DROPBOX_TOKEN}`,
       'Content-Type': 'application/octet-stream',
       'Dropbox-API-Arg': JSON.stringify({ close: false })
     },
@@ -121,10 +140,9 @@ async function uploadLargeFile(fileContent, dropboxPath, fileSize) {
     const chunk = fileContent.slice(offset, Math.min(offset + CHUNK_SIZE, fileSize));
     const isLastChunk = (offset + chunk.length) >= fileSize;
 
-    const appendResponse = await fetch('https://content.dropboxapi.com/2/files/upload_session/append_v2', {
+    const appendResponse = await dropboxFetch('https://content.dropboxapi.com/2/files/upload_session/append_v2', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${DROPBOX_TOKEN}`,
         'Content-Type': 'application/octet-stream',
         'Dropbox-API-Arg': JSON.stringify({
           cursor: { session_id: sessionId, offset: offset },
@@ -153,10 +171,9 @@ async function uploadLargeFile(fileContent, dropboxPath, fileSize) {
     }
   });
 
-  const finishResponse = await fetch('https://content.dropboxapi.com/2/files/upload_session/finish', {
+  const finishResponse = await dropboxFetch('https://content.dropboxapi.com/2/files/upload_session/finish', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${DROPBOX_TOKEN}`,
       'Content-Type': 'application/octet-stream',
       'Dropbox-API-Arg': escapeUnicode(commitArg)
     },
@@ -173,10 +190,9 @@ async function uploadLargeFile(fileContent, dropboxPath, fileSize) {
 }
 
 async function createShareLink(dropboxPath) {
-  const response = await fetch('https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings', {
+  const response = await dropboxFetch('https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${DROPBOX_TOKEN}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
@@ -203,10 +219,9 @@ async function createShareLink(dropboxPath) {
 }
 
 async function getExistingShareLink(dropboxPath) {
-  const response = await fetch('https://api.dropboxapi.com/2/sharing/list_shared_links', {
+  const response = await dropboxFetch('https://api.dropboxapi.com/2/sharing/list_shared_links', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${DROPBOX_TOKEN}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ path: dropboxPath })
@@ -231,10 +246,9 @@ async function getExistingShareLink(dropboxPath) {
 
 async function ensureDropboxFolder(folderPath) {
   try {
-    const response = await fetch('https://api.dropboxapi.com/2/files/create_folder_v2', {
+    const response = await dropboxFetch('https://api.dropboxapi.com/2/files/create_folder_v2', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${DROPBOX_TOKEN}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ path: folderPath, autorename: false })
@@ -257,10 +271,9 @@ async function ensureDropboxFolder(folderPath) {
 }
 
 async function listDropboxFiles(folderPath) {
-  const response = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
+  const response = await dropboxFetch('https://api.dropboxapi.com/2/files/list_folder', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${DROPBOX_TOKEN}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ path: folderPath })
@@ -328,6 +341,8 @@ async function main() {
     await uploadToDropbox(exePath, `${DROPBOX_FOLDER}/${DROPBOX_INSTALLER_FILENAME}`);
     log(`  ✅ Uploaded as: ${DROPBOX_INSTALLER_FILENAME}`, 'green');
 
+    // Μετά από μεγάλο upload το token μπορεί να έχει λήξει — ανανέωση πριν τα API metadata
+    await refreshDropboxToken();
     const shareLink = await createShareLink(`${DROPBOX_FOLDER}/${DROPBOX_INSTALLER_FILENAME}`);
     log(`  🔗 Link: ${shareLink}`, 'green');
 

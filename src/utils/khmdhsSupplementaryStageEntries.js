@@ -117,7 +117,14 @@ export function getKhmdhsSupplementaryStageEntries(project) {
         ? String(khmdhsAmount)
         : '';
 
-      const date = String(row?.date || choice?.modDate || hist?.contractDate || '').slice(0, 10);
+      const label = resolveSuppEntryLabel(row, hist, project, adam);
+      const isExtensionRow = label === 'Παράταση'
+        || choice?.kind === CHAIN_KIND.EXTENSION
+        || hist?.effectiveKind === CHAIN_KIND.EXTENSION;
+
+      const date = isExtensionRow
+        ? String(choice?.endDate || row?.date || hist?.endDate || '').slice(0, 10)
+        : String(row?.date || choice?.modDate || hist?.contractDate || '').slice(0, 10);
       const amount = String(row?.amount || '').trim();
       const rawAmount = String(choice?.modAmount || khmdhsAmountDisplay || '').trim();
       const amountType = row?.amountType || choice?.modAmountType || null;
@@ -134,7 +141,7 @@ export function getKhmdhsSupplementaryStageEntries(project) {
         khmdhsDerived: !!row?.khmdhsDerived,
         snapshot,
         title: String(snapshot?.title || hist?.title || '').trim(),
-        label: resolveSuppEntryLabel(row, hist, project, adam),
+        label,
         contractor: String(
           snapshot?.contractorName || snapshot?.anadoxosName || snapshot?.contractor || ''
         ).trim(),

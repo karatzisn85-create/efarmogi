@@ -80,4 +80,14 @@ function saveCachedToken(data) {
   }
 }
 
-module.exports = { getDropboxAccessToken };
+function clearCachedToken() {
+  try {
+    if (fs.existsSync(TOKEN_CACHE_FILE)) {
+      fs.unlinkSync(TOKEN_CACHE_FILE);
+    }
+  } catch (e) {
+    console.warn('⚠️  Failed to clear token cache:', e.message);
+  }
+}
+
+module.exports = { getDropboxAccessToken, clearCachedToken };

@@ -5,6 +5,7 @@ const { pickKhmdhsNoticeSnapshot, STATUSES_WITH_KHMDHS_ADAM } = require('./khmdh
 const { daysUntilKhmdhsDate } = require('./khmdhsDateUtils');
 const { projectVisibleToEngineerContext } = require('./chargeFilterUtils');
 const { computeChainCharacterizationEffects } = require('./khmdhsChainCharacterizationEffects');
+const { resolveContractEndDateIso } = require('./khmdhsContractEndDateResolver');
 const calendarCustomEventsService = require('./calendarCustomEventsService');
 
 const CONTRACT_PROCESS_STATUS = 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ';
@@ -135,25 +136,6 @@ function addDurationToIso(isoStart, amount, unit) {
   else if (/έτ|ετ|year/i.test(u)) d.setFullYear(d.getFullYear() + n);
   else d.setDate(d.getDate() + Math.round(n));
   return d.toISOString();
-}
-
-function resolveContractEndDateIso(project, contract = null) {
-  if (!project) return null;
-  const review = project.khmdhsDataQualityReview || null;
-  const chainHistory = contract
-    ? (contract.khmdhsContractChainHistory || [])
-    : (project.khmdhsContractChainHistory || []);
-  const effects = chainHistory.length
-    ? computeChainCharacterizationEffects(chainHistory, review)
-    : null;
-  const snap = contract?.khmdhsContractSnapshot || project.khmdhsContractSnapshot;
-  const fromSnap = snap?.noEndDate ? '' : (snap?.endDate || '');
-  if (contract) {
-    const stored = String(contract.contractEndDate || '').slice(0, 10);
-    const perContract = String(stored || fromSnap || effects?.contractDeadline || '').slice(0, 10);
-    return perContract || null;
-  }
-  return String(project.contractEndDate || effects?.contractDeadline || fromSnap || '').slice(0, 10) || null;
 }
 
 function getKhmdhsDisplayEntries(project) {

@@ -20,6 +20,9 @@ import {
   projectVisibleToAssignedEngineer
 } from './supervisorChargeDisplay';
 import { formatDateEl, formatDateTimeEl, toIsoDateOnly } from './dateFormat';
+import { getAllChainHistories } from './khmdhsChainFormAccess';
+import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEntries';
+import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
 import {
   daysUntilDate,
   projectProcurementPhaseConcluded
@@ -194,18 +197,51 @@ function collectExtensionEndDatesFromSupplementary(project, review) {
   return dates;
 }
 
+/** Όλες οι ημερομηνίες λήξης από παρατάσεις — όλες οι αλυσίδες + συμπληρωματικά + κατανομή SYMV */
+function collectAllExtensionEndIsos(project, contract = null) {
+  if (!project) return [];
+  const review = project.khmdhsDataQualityReview || null;
+  const dates = [];
+
+  const historyBundles = contract
+    ? [{ history: contract.khmdhsContractChainHistory || [] }]
+    : getAllChainHistories(project).map(({ history }) => ({ history }));
+
+  historyBundles.forEach(({ history }) => {
+    (history || []).forEach((h) => {
+      if (h?.isRoot) return;
+      if (getEffectiveChainKind(h, review) !== CHAIN_KIND.EXTENSION) return;
+      const adam = String(h?.adam || '').trim().toUpperCase();
+      const choice = adam ? getChainKindChoice(review, adam) : null;
+      const d = toIsoDateOnly(choice?.endDate || h?.endDate || '');
+      if (d) dates.push(d);
+    });
+  });
+
+  dates.push(...collectExtensionEndDatesFromSupplementary(project, review));
+
+  (project?.khmdhsSymvChainPlan?.items || []).forEach((item) => {
+    if (item?.role !== SYMV_CHAIN_ROLE.EXTENSION) return;
+    const d = toIsoDateOnly(item?.date || '');
+    if (d) dates.push(d);
+  });
+
+  getKhmdhsSupplementaryStageEntries(project)
+    .filter((e) => e.isExtension || e.label === 'Παράταση')
+    .forEach((e) => {
+      const adam = String(e.adam || '').trim().toUpperCase();
+      const choice = adam ? getChainKindChoice(review, adam) : null;
+      const d = toIsoDateOnly(choice?.endDate || e.date || '');
+      if (d) dates.push(d);
+    });
+
+  return [...new Set(dates)];
+}
+
 function pickLatestIsoDate(...values) {
   const normalized = values.map((v) => toIsoDateOnly(v)).filter(Boolean);
   if (!normalized.length) return null;
   return normalized.sort().reverse()[0];
-}
-
-function projectHasExtensionDeadline(chainHistory, review, lastExtensionEnd, supplementaryExtensionEnds) {
-  if (lastExtensionEnd || supplementaryExtensionEnds.length) return true;
-  const effects = chainHistory?.length
-    ? computeChainCharacterizationEffects(chainHistory, review)
-    : null;
-  return (effects?.perAct || []).some((a) => a.effect === 'deadline');
 }
 
 export function resolveContractEndDateIso(project, contract = null) {
@@ -219,28 +255,22 @@ export function resolveContractEndDateIso(project, contract = null) {
     : null;
   const snap = contract?.khmdhsContractSnapshot || project.khmdhsContractSnapshot;
   const fromSnap = snap?.noEndDate ? '' : (snap?.endDate || '');
-  const lastExtensionEnd = collectLastExtensionEndIso(chainHistory, review);
-  const supplementaryExtensionEnds = collectExtensionEndDatesFromSupplementary(project, review);
-  const hasExtensionDeadline = projectHasExtensionDeadline(
-    chainHistory,
-    review,
-    lastExtensionEnd,
-    supplementaryExtensionEnds,
-  );
+  const allExtensionEnds = collectAllExtensionEndIsos(project, contract);
 
   const storedEnd = contract
     ? toIsoDateOnly(contract.contractEndDate)
     : toIsoDateOnly(project.contractEndDate);
 
-  if (hasExtensionDeadline) {
+  if (allExtensionEnds.length > 0) {
     return pickLatestIsoDate(
       storedEnd,
       effects?.contractDeadline,
       fromSnap,
-      lastExtensionEnd,
-      ...supplementaryExtensionEnds,
+      ...allExtensionEnds,
     );
   }
+
+  const lastExtensionEnd = collectLastExtensionEndIso(chainHistory, review);
 
   if (contract) {
     return storedEnd

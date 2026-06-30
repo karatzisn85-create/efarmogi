@@ -196,6 +196,45 @@ describe('procurementCalendarEvents', () => {
     expect(end).toBe('2026-08-14');
   });
 
+  test('resolveContractEndDateIso uses latest of multiple extensions', () => {
+    const end = resolveContractEndDateIso({
+      contractEndDate: '2024-08-14',
+      supplementaryContracts: [
+        {
+          date: '2025-08-14',
+          khmdhsAdam: '25SYMV001',
+          comments: 'Παράταση',
+        },
+        {
+          date: '2026-08-14',
+          khmdhsAdam: '25SYMV002',
+          comments: 'Παράταση',
+        },
+      ],
+      khmdhsContractChainHistory: [
+        { adam: '24SYMV000', isRoot: true, order: 0, endDate: '2024-08-14' },
+        { adam: '25SYMV001', isRoot: false, order: 1, kind: 'extension', endDate: '2025-08-14' },
+        { adam: '25SYMV002', isRoot: false, order: 2, kind: 'extension', endDate: '2025-08-14' },
+      ],
+      khmdhsDataQualityReview: {
+        items: [],
+        resolutions: {
+          'chainKindReview:25SYMV001': {
+            value: 'extension',
+            source: 'user_confirmed',
+            meta: { endDate: '2025-08-14' },
+          },
+          'chainKindReview:25SYMV002': {
+            value: 'extension',
+            source: 'user_confirmed',
+            meta: { endDate: '2025-08-14' },
+          },
+        },
+      },
+    });
+    expect(end).toBe('2026-08-14');
+  });
+
   test('calendarEventRowKey distinguishes multi-contract same day', () => {
     const base = { type: CALENDAR_EVENT_TYPES.CONTRACT_END, subprojectId: 'sub-1', dateKey: '2027-01-15' };
     const k1 = calendarEventRowKey({ ...base, contractIndex: 0, adam: 'ADAM-1' });
