@@ -2548,6 +2548,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const dashboardScrollBeforeFormRef = dashboardScrollBeforeModalRef;
   const projectsListRef = useRef(null);
   const shouldRestoreScroll = useRef(false);
+  /** Αύξηση μετά από αποθήκευση ώστε να τρέξει επαναφορά scroll ακόμα κι αν δεν αλλάξει το πλήθος υποέργων */
+  const [scrollRestoreTick, setScrollRestoreTick] = useState(0);
   /** Επιστροφή στις σημειώσεις μετά από μετάβαση από chip συσχέτισης */
   const noteReturnRef = useRef(null);
   const meletaiReturnRef = useRef(null);
@@ -2610,9 +2612,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     el.style.overflow = '';
     const y = dashboardScrollBeforeModalRef.current;
     if (y != null) {
+      savedScrollPosition.current = y;
+      shouldRestoreScroll.current = true;
       restoreDashboardScrollPosition(y);
-      dashboardScrollBeforeModalRef.current = null;
     }
+    dashboardScrollBeforeModalRef.current = null;
     return undefined;
   }, [isSubprojectDashboardModalOpen, restoreDashboardScrollPosition]);
 
@@ -2814,25 +2818,36 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     needsRefresh: false
   });
 
-  // Επαναφορά scroll position όταν αλλάζουν τα projects (μετά από save)
+  // Επαναφορά scroll μετά από κλείσιμο φόρμας/λεπτομερειών και ανανέωση λίστας (χωρίς skeleton)
   useEffect(() => {
-    if (shouldRestoreScroll.current && dashboardScrollRef.current && filteredProjects.length > 0) {
-      const y = savedScrollPosition.current;
-      const restoreScroll = () => {
-        if (dashboardScrollRef.current) {
-          dashboardScrollRef.current.scrollTop = y;
-          shouldRestoreScroll.current = false;
-        }
-      };
-      restoreDashboardScrollPosition(y);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setTimeout(restoreScroll, 150);
-          setTimeout(restoreScroll, 300);
-        });
-      });
-    }
-  }, [filteredProjects.length, restoreDashboardScrollPosition]);
+    if (!shouldRestoreScroll.current) return undefined;
+    if (isSubprojectDashboardModalOpen || loading) return undefined;
+    if (!dashboardScrollRef.current || filteredProjects.length === 0) return undefined;
+
+    const y = savedScrollPosition.current;
+    const applyRestore = () => restoreDashboardScrollPosition(y);
+
+    applyRestore();
+    const t1 = setTimeout(applyRestore, 100);
+    const t2 = setTimeout(applyRestore, 250);
+    const t3 = setTimeout(() => {
+      applyRestore();
+      shouldRestoreScroll.current = false;
+    }, 450);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [
+    scrollRestoreTick,
+    projects,
+    loading,
+    isSubprojectDashboardModalOpen,
+    filteredProjects.length,
+    restoreDashboardScrollPosition,
+  ]);
 
   useEffect(() => {
     loadDataWithCache();
@@ -3424,7 +3439,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
 
   // 🚀 ΚΕΝΤΡΙΚΗ FUNCTION ΜΕ CACHE - Φορτώνει δεδομένα μόνο αν χρειάζεται - NON-BLOCKING
-  const loadDataWithCache = async (forceRefresh = false) => {
+  const loadDataWithCache = async (forceRefresh = false, options = {}) => {
+    const silent = options.silent === true;
     const myRequestId = ++loadRequestIdRef.current;
     try {
       // Χρήση setTimeout για να μην μπλοκάρει το UI thread
@@ -3433,7 +3449,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       // Bail out if a newer load request has already started
       if (loadRequestIdRef.current !== myRequestId) return;
       
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       console.log('🔄 Loading data with cache...');
       
       // Αν είναι force refresh, καθάρισε το cache ΠΡΙΝ τον έλεγχο
@@ -3465,7 +3483,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         setProskliseis(dataCache.proskliseis || []);
         setCreditApprovals(dataCache.creditApprovals || {});
         setLinkedEgkriseis(dataCache.linkedEgkriseis || {});
-        setLoading(false);
+        if (!silent) {
+          setLoading(false);
+        }
         return;
       }
       
@@ -3572,11 +3592,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         needsRefresh: false
       });
 
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
       
     } catch (error) {
       console.error('Error in loadDataWithCache:', error);
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -3846,8 +3870,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
         invalidateCache();
         shouldRestoreScroll.current = true;
+        setScrollRestoreTick((t) => t + 1);
 
-        await loadDataWithCache(true);
+        // silent: κρατάμε τη λίστα ορατή πίσω από τη φόρμα — το skeleton μηδενίζει το scroll
+        await loadDataWithCache(true, { silent: true });
         await loadEngineerCatalogForCards();
 
         if (shouldKeepFormOpen) {
