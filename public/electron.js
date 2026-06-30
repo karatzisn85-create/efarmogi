@@ -1698,9 +1698,7 @@ async function handleSaveProjectData(event, projectData) {
     const existingFileGroups = existingData.fileGroups || [];
     const newFileGroups = projectData.fileGroups || [];
     
-    console.log('🔄 Merging fileGroups...');
-    console.log('Existing fileGroups:', JSON.stringify(existingFileGroups, null, 2));
-    console.log('New fileGroups from form:', JSON.stringify(newFileGroups, null, 2));
+    logger.debug(`Merging fileGroups: existing=${existingFileGroups.length}, incoming=${newFileGroups.length}`);
     
     if (newFileGroups.length > 0) {
       // Αν έχουμε νέα fileGroups από τη φόρμα, τα συγχωνεύουμε με τα υπάρχοντα
@@ -1740,7 +1738,7 @@ async function handleSaveProjectData(event, projectData) {
       mergedFileGroups = existingFileGroups;
     }
     
-    console.log('✅ Merged fileGroups:', JSON.stringify(mergedFileGroups, null, 2));
+    logger.debug(`Merged fileGroups: result=${mergedFileGroups.length} groups`);
     
     const dataToSave = {
       ...projectData,
@@ -1889,8 +1887,8 @@ async function handleSaveProjectData(event, projectData) {
       entityId: subprojectId,
       entityTitle: `${dataToSave.projectTitle} - ${dataToSave.subprojectTitle}`,
       details: isNewProject ? 'Δημιουργία νέου υποέργου' : 'Ενημέρωση υποέργου',
-      oldValue: isNewProject ? null : existingData,
-      newValue: dataToSave
+      oldValue: isNewProject ? null : stripHeavyFieldsForAudit(existingData),
+      newValue: stripHeavyFieldsForAudit(dataToSave),
     });
     
     return { success: true, projectId: finalProjectId, subprojectId };
@@ -5851,8 +5849,14 @@ ipcMain.handle('get-prosklisi-files', async (event, prosklisiId) => {
     
     // Read attachment files and folders from data.json (not from filesystem)
     const dataPath = path.join(prosklisiDir, 'data.json');
+    let documentRegistry = [];
+    let diavgeiaMeta = null;
+    let diavgeiaAda = '';
     if (fs.existsSync(dataPath)) {
       const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+      documentRegistry = data.documentRegistry || [];
+      diavgeiaMeta = data.diavgeiaMeta || null;
+      diavgeiaAda = data.diavgeiaAda || '';
       
       // Get files from file groups (these are the grouped files)
       if (data.fileGroups && Array.isArray(data.fileGroups)) {
@@ -5950,7 +5954,26 @@ ipcMain.handle('get-prosklisi-files', async (event, prosklisiId) => {
       });
     }
     
-    return { success: true, files: files, folders: folders, fileGroups: fileGroups };
+    let modifications = [];
+    const modificationsPath = path.join(prosklisiDir, 'modifications.json');
+    if (fs.existsSync(modificationsPath)) {
+      try {
+        modifications = JSON.parse(fs.readFileSync(modificationsPath, 'utf8')) || [];
+      } catch (modErr) {
+        console.error('Error loading prosklisi modifications for file manager:', modErr);
+      }
+    }
+
+    return {
+      success: true,
+      files: files,
+      folders: folders,
+      fileGroups: fileGroups,
+      documentRegistry,
+      diavgeiaMeta,
+      diavgeiaAda,
+      modifications,
+    };
   } catch (error) {
     console.error('Error getting prosklisi files:', error);
     return { success: false, error: error.message };
@@ -11290,6 +11313,48 @@ function cleanupOldBackups() {
 
 const { collectAuditChanges } = require('./auditFieldLabels');
 
+/**
+ * Αφαιρεί τα βαρέα ΚΗΜΔΗΣ fields από ένα project object πριν αποθηκευτεί στο audit log.
+ * Τα snapshots, payments, apeEntries κτλ. είναι αυτόματα ανακτημένα — δεν χρειάζεται diff.
+ */
+const AUDIT_STRIP_TOP_FIELDS = new Set([
+  'khmdhsContractSnapshot', 'khmdhsAwardSnapshot', 'khmdhsRequestSnapshot',
+  'khmdhsNoticeSnapshot', 'khmdhsCommitmentSnapshots',
+  'khmdhsPayments', 'khmdhsChainHistory', 'khmdhsAdamChain',
+  'khmdhsAdamChainFetchedAt',
+  'documentRegistry',
+  'apeEntries',
+  'fileGroups', 'subprojectFiles', 'files',
+]);
+const AUDIT_STRIP_CONTRACT_FIELDS = new Set([
+  'khmdhsContractSnapshot', 'apeEntries', 'khmdhsAdamChain',
+]);
+
+function stripHeavyFieldsForAudit(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (AUDIT_STRIP_TOP_FIELDS.has(k)) continue;
+    if (k === 'contracts' && Array.isArray(v)) {
+      out[k] = v.map((c) => {
+        const cc = { ...c };
+        for (const sf of AUDIT_STRIP_CONTRACT_FIELDS) delete cc[sf];
+        return cc;
+      });
+      continue;
+    }
+    if (k === 'supplementaryContracts' && Array.isArray(v)) {
+      out[k] = v.map((c) => {
+        const { snapshot: _s, ...rest } = c || {};
+        return rest;
+      });
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
 function getCurrentAuditUser() {
   if (!loggedInUsername) return { fullName: 'Σύστημα', role: 'SYSTEM', username: '' };
   try {
@@ -11333,30 +11398,33 @@ function logAuditAction(action) {
       entityId: entityId,
       entityTitle: entityTitle || 'N/A',
       details: details || '',
-      oldValue: oldValue || null,
-      newValue: newValue || null,
-      changes: changes
+      changes: changes,
     };
 
-    let auditLog = { logs: [] };
-    if (fs.existsSync(auditLogPath)) {
+    logger.debug(`Audit: ${userFullName} ${type} ${entityType} ${entityId}`);
+
+    // Async — δεν μπλοκάρει τον κύριο handler, δεν χρειάζεται backup rotation για log
+    setImmediate(async () => {
       try {
-        auditLog = JSON.parse(fs.readFileSync(auditLogPath, 'utf8'));
-      } catch (e) {
-        console.error('Error reading audit log:', e);
-        auditLog = { logs: [] };
+        let logs = [];
+        if (fs.existsSync(auditLogPath)) {
+          try {
+            const raw = await fs.promises.readFile(auditLogPath, 'utf8');
+            logs = JSON.parse(raw)?.logs || [];
+          } catch (_) {
+            logs = [];
+          }
+        }
+        logs.unshift(auditEntry);
+        if (logs.length > 10000) logs = logs.slice(0, 10000);
+        const content = JSON.stringify({ logs }, null, 2);
+        const tmp = `${auditLogPath}.tmp-${Date.now()}`;
+        await fs.promises.writeFile(tmp, content, 'utf8');
+        await fs.promises.rename(tmp, auditLogPath);
+      } catch (err) {
+        console.error('Error writing audit log async:', err);
       }
-    }
-
-    auditLog.logs.unshift(auditEntry);
-
-    if (auditLog.logs.length > 10000) {
-      auditLog.logs = auditLog.logs.slice(0, 10000);
-    }
-
-    safeWriteJSON(auditLogPath, auditLog);
-
-    console.log(`📝 Audit log: ${userFullName} ${type} ${entityType} ${entityId}`);
+    });
 
     return true;
   } catch (error) {
@@ -12789,6 +12857,19 @@ const ADAM_VISIBLE_STATUSES = new Set([
   'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ',
 ]);
 
+/**
+ * Συνολικό τρέχον ποσό σύμβασης για μία υποσύνολο/σύμβαση (portal export).
+ * Αθροίζει βασικό + καταγεγραμμένες συμπληρωματικές (εξαιρεί παρατάσεις που δεν έχουν ποσό).
+ */
+function computePortalSingleContractTotal(baseAmountStr, supplementaryContracts) {
+  let running = parseGreekAmount(baseAmountStr) || 0;
+  (Array.isArray(supplementaryContracts) ? supplementaryContracts : []).forEach((row) => {
+    const amt = parseGreekAmount(row?.amount);
+    if (amt && amt > 0) running += amt;
+  });
+  return running > 0 ? running : null;
+}
+
 // Helper: map one subproject to the erga.json ergon entry format
 // fieldMask controls which optional fields are included (id/titlos/katastasi always included)
 // mergeCompleted: if true, "ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ" is normalized to "ΟΛΟΚΛΗΡΩΜΕΝΟ"
@@ -12804,7 +12885,7 @@ function buildErgonEntry(sp, fieldMask = PORTAL_EXPORT_FIELDS_DEFAULT, mergeComp
   if (sp.implementationForm === 'Πολλές Συμβάσεις' && Array.isArray(sp.contracts) && sp.contracts.length > 0) {
     let total = 0;
     for (const c of sp.contracts) {
-      const v = parseGreekAmount(c.amount);
+      const v = computePortalSingleContractTotal(c.amount, sp.supplementaryContracts?.filter(sc => sc?.contractIndex === sp.contracts.indexOf(c)));
       if (v !== null) total += v;
     }
     symvasiPoso = total > 0 ? total : null;
@@ -12822,7 +12903,7 @@ function buildErgonEntry(sp, fieldMask = PORTAL_EXPORT_FIELDS_DEFAULT, mergeComp
       .filter(Boolean);
     adam = adamValues.length > 0 ? adamValues.join(', ') : null;
   } else {
-    symvasiPoso = parseGreekAmount(sp.contractAmount);
+    symvasiPoso = computePortalSingleContractTotal(sp.contractAmount, sp.supplementaryContracts);
     anadochos = sp.khmdhsContractSnapshot?.anadoxosName || null;
     hmEnarksis = sp.contractDate || null;
     adam = (sp.khmdhsAdam || '').trim() || null;

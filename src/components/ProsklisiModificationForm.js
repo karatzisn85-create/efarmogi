@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
+import ProsklisiDiavgeiaSection from './ProsklisiDiavgeiaSection';
 import { safeFileDialog } from '../utils/safeDialogs';
-
-// Styled Components
+import { buildProsklisiDiavgeiaRegistryEntry } from '../utils/prosklisiDiavgeiaRegistry';
+import { useToast } from './ToastProvider';
 const FormOverlay = styled.div`
   position: fixed;
   inset: 0;
@@ -284,6 +285,7 @@ const STATUS_OPTIONS = [
 ];
 
 function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi, isEditMode = false }) {
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     title: '',
     axis: '',
@@ -300,6 +302,9 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [changes, setChanges] = useState({});
+  const [diavgeiaAutoFilled, setDiavgeiaAutoFilled] = useState(() => new Set());
+  const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
+  const [diavgeiaDocument, setDiavgeiaDocument] = useState(null);
 
   useEffect(() => {
     if (originalProsklisi) {
@@ -335,6 +340,9 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
         });
       }
     }
+    setDiavgeiaMeta(isEditMode ? (originalProsklisi?.diavgeiaMeta || null) : null);
+    setDiavgeiaDocument(isEditMode ? (originalProsklisi?.diavgeiaDocument || null) : null);
+    setDiavgeiaAutoFilled(new Set());
     setErrors({});
     setChanges({});
   }, [originalProsklisi, isOpen, isEditMode]);
@@ -382,6 +390,13 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
       ...prev,
       [field]: value
     }));
+
+    setDiavgeiaAutoFilled((prev) => {
+      if (!prev.has(field)) return prev;
+      const next = new Set(prev);
+      next.delete(field);
+      return next;
+    });
     
     // Clear error when user starts typing
     setErrors(prev => {
@@ -394,6 +409,22 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
       return prev;
     });
   }, []);
+
+  const diavgeiaFieldStyle = useCallback((field) => (
+    diavgeiaAutoFilled.has(field)
+      ? { borderColor: '#0d9488', background: '#f0fdfa' }
+      : undefined
+  ), [diavgeiaAutoFilled]);
+
+  const handleDiavgeiaApply = useCallback(({ fields, autoFilledKeys, diavgeiaMeta: meta, preview }) => {
+    setFormData((prev) => ({ ...prev, ...fields }));
+    setDiavgeiaAutoFilled(new Set(autoFilledKeys));
+    setDiavgeiaMeta(meta);
+    setDiavgeiaDocument(
+      buildProsklisiDiavgeiaRegistryEntry(preview || meta, { roleLabel: 'Τροποποίηση' })
+    );
+    showToast('Η πράξη Διαύγειας καταχωρήθηκε — θα ανοίγει από τον browser μετά την αποθήκευση.', 'success');
+  }, [showToast]);
 
   const handleFileSelect = async () => {
     try {
@@ -487,6 +518,11 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
         modificationDescription: formData.modificationDescription,
         modificationPDF: formData.modificationPDF,
         modificationDocumentDate: formData.modificationDocumentDate,
+        diavgeiaAda: diavgeiaMeta?.ada || '',
+        diavgeiaMeta: diavgeiaMeta || null,
+        diavgeiaDocument: diavgeiaMeta?.ada
+          ? (diavgeiaDocument || buildProsklisiDiavgeiaRegistryEntry(diavgeiaMeta, { roleLabel: 'Τροποποίηση' }))
+          : null,
         createdAt: isEditMode ? originalProsklisi.createdAt : new Date().toISOString(),
         updatedAt: isEditMode ? new Date().toISOString() : undefined
       };
@@ -523,6 +559,17 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
           )}
 
           <form onSubmit={handleSubmit}>
+            <ProsklisiDiavgeiaSection
+              mode="modification"
+              initialAda={diavgeiaMeta?.ada || ''}
+              initialConfirmedMeta={diavgeiaMeta}
+              onApply={handleDiavgeiaApply}
+              onClear={() => {
+                setDiavgeiaMeta(null);
+                setDiavgeiaDocument(null);
+                setDiavgeiaAutoFilled(new Set());
+              }}
+            />
             <FormGrid>
               <FormGroup>
                 <Label changed={changes.title}>Τίτλος Πρόσκλησης *</Label>
@@ -532,6 +579,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                   onChange={(e) => handleInputChange('title', e.target.value)}
                   changed={changes.title}
                   placeholder="Εισάγετε τον τίτλο της πρόσκλησης"
+                  style={diavgeiaFieldStyle('title')}
                 />
                 {errors.title && <ErrorMessage>{errors.title}</ErrorMessage>}
               </FormGroup>
@@ -544,6 +592,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                   onChange={(e) => handleInputChange('axis', e.target.value)}
                   changed={changes.axis}
                   placeholder="Εισάγετε τον άξονα"
+                  style={diavgeiaFieldStyle('axis')}
                 />
                 {errors.axis && <ErrorMessage>{errors.axis}</ErrorMessage>}
               </FormGroup>
@@ -556,6 +605,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                   onChange={(e) => handleInputChange('fundingSource', e.target.value)}
                   changed={changes.fundingSource}
                   placeholder="Εισάγετε την πηγή χρηματοδότησης"
+                  style={diavgeiaFieldStyle('fundingSource')}
                 />
                 {errors.fundingSource && <ErrorMessage>{errors.fundingSource}</ErrorMessage>}
               </FormGroup>
@@ -568,6 +618,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                   onChange={(e) => handleInputChange('code', e.target.value)}
                   changed={changes.code}
                   placeholder="Εισάγετε τον κωδικό"
+                  style={diavgeiaFieldStyle('code')}
                 />
                 {errors.code && <ErrorMessage>{errors.code}</ErrorMessage>}
               </FormGroup>
@@ -589,6 +640,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                   type="date"
                   value={formData.modificationDocumentDate}
                   onChange={(e) => handleInputChange('modificationDocumentDate', e.target.value)}
+                  style={diavgeiaFieldStyle('modificationDocumentDate')}
                 />
                 {errors.modificationDocumentDate && <ErrorMessage>{errors.modificationDocumentDate}</ErrorMessage>}
               </FormGroup>
@@ -625,6 +677,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                   value={formData.modificationDescription}
                   onChange={(e) => handleInputChange('modificationDescription', e.target.value)}
                   placeholder="Περιγράψτε αναλυτικά τι τροποποιήθηκε στην πρόσκληση..."
+                  style={diavgeiaFieldStyle('modificationDescription')}
                 />
                 {errors.modificationDescription && <ErrorMessage>{errors.modificationDescription}</ErrorMessage>}
               </ModificationDescriptionGroup>

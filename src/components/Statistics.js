@@ -1872,10 +1872,7 @@ function Statistics({
     const totalFunding = projects.reduce((sum, p) => sum + safeParseAmt(p.approvedAmount), 0);
 
     const totalContracted = projects.reduce((sum, p) => {
-      let amt = safeParseAmt(p.contractAmount);
-      if (p.contracts) p.contracts.forEach(c => { amt += safeParseAmt(c.amount); });
-      if (p.supplementaryContracts) p.supplementaryContracts.forEach(c => { amt += safeParseAmt(c.amount); });
-      return sum + amt;
+      return sum + (getTotalContractAmount(p) || 0);
     }, 0);
 
     const inProgressCount = projects.filter(p =>

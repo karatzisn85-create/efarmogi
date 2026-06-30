@@ -81,9 +81,13 @@ async function fetchDiavgeiaDecisionByAda(adaRaw) {
   const publishDate = isoDateFromMs(d.publishTimestamp);
 
   let organization = '';
+  let organizationSupervisor = '';
   if (d.organizationId) {
     const orgRes = await fetchJson(`${DIAVGEIA_BASE}/organizations/${d.organizationId}.json`);
-    if (orgRes.success) organization = String(orgRes.data?.label || '').trim();
+    if (orgRes.success) {
+      organization = String(orgRes.data?.label || '').trim();
+      organizationSupervisor = String(orgRes.data?.supervisorLabel || '').trim();
+    }
   }
 
   let decisionType = '';
@@ -114,10 +118,14 @@ async function fetchDiavgeiaDecisionByAda(adaRaw) {
       publishDate,
       status: String(d.status || '').trim(),
       organization,
+      organizationSupervisor,
       decisionType,
       unit,
       documentUrl,
       documentType: String(d.extraFieldValues?.documentType || '').trim(),
+      budgetType: String(d.extraFieldValues?.budgettype || '').trim(),
+      budgetKind: String(d.extraFieldValues?.budgetkind || '').trim(),
+      financialYear: d.extraFieldValues?.financialYear ?? null,
       fetchedAt: new Date().toISOString(),
     },
   };

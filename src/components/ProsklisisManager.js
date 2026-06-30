@@ -10,6 +10,11 @@ import { formatDateEl } from '../utils/dateFormat';
 import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import { showConfirm } from '../utils/confirmModal';
+import {
+  getProsklisiDiavgeiaEntry,
+  openProsklisiDiavgeiaDocument,
+  buildProsklisiDiavgeiaRegistryEntry,
+} from '../utils/prosklisiDiavgeiaRegistry';
 
 const ipcRenderer = window.electronAPI;
 
@@ -20,6 +25,14 @@ const truncateText = (text, maxLen = 100) => {
 };
 
 const defaultModsExpanded = () => false;
+
+function getModificationDiavgeiaEntry(mod) {
+  if (mod?.diavgeiaDocument) return mod.diavgeiaDocument;
+  if (mod?.diavgeiaMeta?.ada) {
+    return buildProsklisiDiavgeiaRegistryEntry(mod.diavgeiaMeta, { roleLabel: 'Τροποποίηση' });
+  }
+  return null;
+}
 
 const MENU_WIDTH = 210;
 const MENU_EST_HEIGHT = 168;
@@ -1030,6 +1043,10 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
     });
   }, []);
 
+  const handleOpenDiavgeia = useCallback((entry) => {
+    openProsklisiDiavgeiaDocument(entry, { showToast });
+  }, [showToast]);
+
   const openMenuAt = useCallback((e, { type, prosklisi }) => {
     e.stopPropagation();
     const pos = computeMenuPosition(e.currentTarget);
@@ -1563,6 +1580,19 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                                       💰 {truncateText(prosklisi.fundingSource, 42)}
                                     </MetaChip>
                                   )}
+                                  {(() => {
+                                    const diavgeiaEntry = getProsklisiDiavgeiaEntry(prosklisi);
+                                    if (!diavgeiaEntry) return null;
+                                    return (
+                                      <MetaChip
+                                        title={diavgeiaEntry.title || `Διαύγεια — ${diavgeiaEntry.ada}`}
+                                        style={{ cursor: 'pointer' }}
+                                        onClick={() => handleOpenDiavgeia(diavgeiaEntry)}
+                                      >
+                                        🌐 Διαύγεια · {diavgeiaEntry.ada}
+                                      </MetaChip>
+                                    );
+                                  })()}
                                 </MetaChipsRow>
                               </CompactMain>
 
@@ -1614,6 +1644,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                                   const modDesc = mod.modificationDescription?.trim() || '';
                                   const hasChanges = mod.changes && Object.keys(mod.changes).length > 0;
                                   const hasPDF = !!mod.modificationPDF;
+                                  const diavgeiaModEntry = getModificationDiavgeiaEntry(mod);
                                   const modDate = mod.modificationDocumentDate
                                     ? formatDate(mod.modificationDocumentDate)
                                     : formatDate(mod.createdAt);
@@ -1624,6 +1655,14 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                                         <ModTableHeader>
                                           <ModIndex>#{index + 1}</ModIndex>
                                           <MetaChip>📅 {modDate}</MetaChip>
+                                          {diavgeiaModEntry && (
+                                            <ViewFileBtn
+                                              title={`Προβολή στη Διαύγεια — ${diavgeiaModEntry.ada}`}
+                                              onClick={() => handleOpenDiavgeia(diavgeiaModEntry)}
+                                            >
+                                              🌐
+                                            </ViewFileBtn>
+                                          )}
                                           {hasPDF && (
                                             <ViewFileBtn
                                               title="Προβολή PDF τροποποίησης"

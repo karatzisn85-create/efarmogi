@@ -13,6 +13,10 @@ import {
   KHMDHS_NOTICE_EXPORT_FIELDS,
   getKhmdhsNoticeExportValue
 } from '../utils/khmdhsExportFields';
+import {
+  getProjectContractTotalForExport,
+  getProjectApeAmountForExport,
+} from '../utils/khmdhsExportHelpers';
 import EpProgramStatsPanel from './EpProgramStatsPanel';
 
 const ExportOverlay = styled.div`
@@ -532,13 +536,13 @@ function TechnicalProgramExport({ isOpen, onClose, projects, organizationName = 
       case 'projectBudget': return row.project.projectBudget || '';
       case 'amount': return row.amount || '';
       case 'contractDate': return row.project.contractDate || '';
-      case 'contractAmount': return row.project.contractAmount || '';
+      case 'contractAmount': return getProjectContractTotalForExport(row.project);
       case 'contractProcessStartDate': return row.project.contractProcessStartDate || '';
       case 'assignmentProcedure': return getProjectAssignmentProcedureExport(row.project);
       case 'anadoxosName': return getProjectAnadoxosNamesExport(row.project);
       case 'anadoxosVat': return getProjectAnadoxosVatsExport(row.project);
       case 'khmdhsAdam': return getProjectKhmdhsAdamExport(row.project);
-      case 'apeAmount': return row.project.apeAmount || '';
+      case 'apeAmount': return getProjectApeAmountForExport(row.project);
       case 'apeComments': return row.project.apeComments || '';
       case 'chargeTo':
         return getProjectChargeDisplay(row.project, []).displayChargePrimary;

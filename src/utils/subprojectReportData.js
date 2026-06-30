@@ -4,7 +4,7 @@ import {
   statusShowsAssignmentProcedure
 } from '../data/formOptions';
 import { getProjectChargeDisplay } from './supervisorChargeDisplay';
-import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm, normalizeContractRow } from './khmdhsFields';
+import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm, normalizeContractRow, resolveStoredApeAmount } from './khmdhsFields';
 import { formatViolationSummary } from './directAssignmentCompliance';
 import {
   buildKhmdhsNoticeDisplayGroups,
@@ -294,7 +294,7 @@ function buildBasicFields(project, engineerCatalog) {
     isMultipleContracts: isMultipleContractsForm(project.implementationForm),
     contractDate: project.contractDate || '',
     contractAmount: project.contractAmount || '',
-    apeAmount: project.apeAmount || '',
+    apeAmount: resolveStoredApeAmount(project, null) || project.apeAmount || '',
     apeComments: project.apeComments || '',
     khmdhsAdam: project.khmdhsAdam || '',
     khmdhsContractSnapshot: project.khmdhsContractSnapshot || null,

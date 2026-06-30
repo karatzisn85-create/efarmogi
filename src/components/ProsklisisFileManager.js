@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
 import { safeConfirm } from '../utils/safeDialogs';
 import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
+import KhmdhsDocumentRegistryPanel from './KhmdhsDocumentRegistryPanel';
+import { collectProsklisiRegistryEntries } from '../utils/prosklisiDiavgeiaRegistry';
 
 const ipcRenderer = window.electronAPI;
 
@@ -228,7 +230,18 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     attachments: []
   });
   const [fileGroups, setFileGroups] = useState([]); // Νέα κατάσταση για ομάδες αρχείων
+  const [registrySource, setRegistrySource] = useState({
+    documentRegistry: [],
+    diavgeiaMeta: null,
+    diavgeiaAda: '',
+    modifications: [],
+  });
   const [loading, setLoading] = useState(false);
+
+  const registryEntries = useMemo(
+    () => collectProsklisiRegistryEntries(registrySource),
+    [registrySource]
+  );
 
   useEffect(() => {
     if (isOpen && prosklisiId) {
@@ -251,17 +264,25 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         });
         setFolders(result.folders || { main: [], attachments: [] });
         setFileGroups(fileGroups); // Φόρτωση ομάδων αρχείων
+        setRegistrySource({
+          documentRegistry: result.documentRegistry || [],
+          diavgeiaMeta: result.diavgeiaMeta || null,
+          diavgeiaAda: result.diavgeiaAda || '',
+          modifications: result.modifications || [],
+        });
       } else {
         console.error('Error loading files:', result.error);
         setFiles({ main: [], attachments: [] });
         setFolders({ main: [], attachments: [] });
         setFileGroups([]);
+        setRegistrySource({ documentRegistry: [], diavgeiaMeta: null, diavgeiaAda: '', modifications: [] });
       }
     } catch (error) {
       console.error('Error loading files:', error);
       setFiles({ main: [], attachments: [] });
       setFolders({ main: [], attachments: [] });
       setFileGroups([]);
+      setRegistrySource({ documentRegistry: [], diavgeiaMeta: null, diavgeiaAda: '', modifications: [] });
     } finally {
       setLoading(false);
     }
@@ -743,6 +764,11 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             <LoadingMessage>Φόρτωση αρχείων...</LoadingMessage>
           ) : (
             <>
+              <KhmdhsDocumentRegistryPanel
+                entries={registryEntries}
+                headerTitle="Καταχωρήσεις Διαύγειας"
+              />
+
               {/* Αφαίρεση του "Αρχεία Πρόσκλησης" section */}
 
               {/* Attachments Folder - Εμφανίζεται μόνο αν υπάρχουν μη ομαδοποιημένα αρχεία */}

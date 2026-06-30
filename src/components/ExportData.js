@@ -15,6 +15,15 @@ import {
   getKhmdhsNoticeExportValue,
   isKhmdhsNoticeExportField
 } from '../utils/khmdhsExportFields';
+import {
+  getProjectContractTotalForExport,
+  getProjectApeAmountForExport,
+  getProjectPaymentTotalForExport,
+  getProjectDqrStatusForExport,
+  getProjectRequestAdamForExport,
+  getProjectAwardAdamForExport,
+  getProjectCommitmentAdamsForExport,
+} from '../utils/khmdhsExportHelpers';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -341,8 +350,13 @@ const EXPORT_FIELDS_ORDER = [
   { id: 'khmdhsAdam', label: 'ΑΔΑΜ Σύμβασης (ΚΗΜΔΗΣ)', width: 22 },
   { id: 'contractProcessStartDate', label: 'Ημερομηνία έναρξης διαδικασίας σύναψης Σύμβασης', width: 30 },
   { id: 'contractDate', label: 'Ημερομηνία Υπογραφής Σύμβασης', width: 18 },
-  { id: 'contractAmount', label: 'Ποσό Σύμβασης', width: 16 },
+  { id: 'contractAmount', label: 'Ποσό Σύμβασης (αλυσίδα)', width: 22 },
   { id: 'apeAmount', label: 'ΑΠΕ + Συμπληρωματικές Συμβάσεις', width: 22 },
+  { id: 'khmdhsRequestAdam', label: 'ΑΔΑΜ Αιτήματος (REQ)', width: 22 },
+  { id: 'khmdhsAwardAdam', label: 'ΑΔΑΜ Κατακύρωσης (AWRD)', width: 22 },
+  { id: 'khmdhsCommitmentAdam', label: 'ΑΔΑΜ Ανάληψης Υποχρέωσης', width: 25 },
+  { id: 'khmdhsPaymentTotal', label: 'Σύνολο Πληρωμών (ΚΗΜΔΗΣ)', width: 22 },
+  { id: 'dqrStatus', label: 'Ανοιχτά DQR', width: 18 },
   { id: 'chargeTo', label: 'Χρεωμένο σε', width: 25 },
   { id: 'chargeParticipants', label: 'Συμμετέχουν', width: 30 },
   { id: 'comments', label: 'Σχόλια', width: 40 },
@@ -386,8 +400,9 @@ const EXPORT_FIELDS = {
       { id: 'khmdhsAdam', label: 'ΑΔΑΜ Σύμβασης (ΚΗΜΔΗΣ)', width: 22 },
       { id: 'contractProcessStartDate', label: 'Ημερομηνία έναρξης διαδικασίας σύναψης Σύμβασης', width: 30 },
       { id: 'contractDate', label: 'Ημερομηνία Υπογραφής Σύμβασης', width: 18 },
-      { id: 'contractAmount', label: 'Ποσό Σύμβασης', width: 16 },
+      { id: 'contractAmount', label: 'Ποσό Σύμβασης (αλυσίδα)', width: 22 },
       { id: 'apeAmount', label: 'ΑΠΕ + Συμπληρωματικές Συμβάσεις', width: 22 },
+      { id: 'khmdhsPaymentTotal', label: 'Σύνολο Πληρωμών (ΚΗΜΔΗΣ)', width: 22 },
     ]
   },
   contractor: {
@@ -397,6 +412,10 @@ const EXPORT_FIELDS = {
       { id: 'anadoxosName', label: 'Επωνυμία Αναδόχου (ΚΗΜΔΗΣ)', width: 35 },
       { id: 'anadoxosVat', label: 'ΑΦΜ Αναδόχου (ΚΗΜΔΗΣ)', width: 18 },
       { id: 'khmdhsAdam', label: 'ΑΔΑΜ Σύμβασης (ΚΗΜΔΗΣ)', width: 22 },
+      { id: 'khmdhsRequestAdam', label: 'ΑΔΑΜ Αιτήματος (REQ)', width: 22 },
+      { id: 'khmdhsAwardAdam', label: 'ΑΔΑΜ Κατακύρωσης (AWRD)', width: 22 },
+      { id: 'khmdhsCommitmentAdam', label: 'ΑΔΑΜ Ανάληψης Υποχρέωσης', width: 25 },
+      { id: 'dqrStatus', label: 'Ανοιχτά DQR', width: 18 },
     ]
   },
   additional: {
@@ -649,6 +668,20 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
             value = getProjectKhmdhsAdamExport(project);
           } else if (field.id === 'assignmentProcedure') {
             value = getProjectAssignmentProcedureExport(project);
+          } else if (field.id === 'contractAmount') {
+            value = getProjectContractTotalForExport(project);
+          } else if (field.id === 'apeAmount') {
+            value = getProjectApeAmountForExport(project);
+          } else if (field.id === 'khmdhsPaymentTotal') {
+            value = getProjectPaymentTotalForExport(project);
+          } else if (field.id === 'dqrStatus') {
+            value = getProjectDqrStatusForExport(project);
+          } else if (field.id === 'khmdhsRequestAdam') {
+            value = getProjectRequestAdamForExport(project);
+          } else if (field.id === 'khmdhsAwardAdam') {
+            value = getProjectAwardAdamForExport(project);
+          } else if (field.id === 'khmdhsCommitmentAdam') {
+            value = getProjectCommitmentAdamsForExport(project);
           } else if (isKhmdhsNoticeExportField(field.id)) {
             value = getKhmdhsNoticeExportValue(project, field.id);
           } else {
