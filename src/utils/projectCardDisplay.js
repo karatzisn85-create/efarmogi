@@ -19,10 +19,10 @@ import { getLatestContractApeAmount } from './khmdhsApeEntry';
 import { noticeDrivesAssignmentProcedure } from './khmdhsNoticeFields';
 import {
   CHAIN_KIND,
-  computeChainCharacterizationEffects,
   getChainKindChoice,
   getEffectiveChainKind,
 } from './khmdhsChainActions';
+import { resolveContractEndDateIso } from './procurementCalendarEvents';
 
 function formatDate(value) {
   return formatDateEl(value, '');
@@ -102,9 +102,9 @@ export function buildSupplementaryCardSummary(project) {
   };
 }
 
-function buildDeadlineLine(chainHistory, review, contractEndDate) {
-  const { extensions, lastExtensionEnd } = collectAmendmentStats(chainHistory, review);
-  const endIso = String(contractEndDate || lastExtensionEnd || '').slice(0, 10);
+function buildDeadlineLine(chainHistory, review, resolvedEndIso) {
+  const { extensions } = collectAmendmentStats(chainHistory, review);
+  const endIso = String(resolvedEndIso || '').slice(0, 10);
   if (!endIso) return null;
 
   const formatted = formatDate(endIso);
@@ -120,21 +120,17 @@ function buildSingleContractRow(project) {
   const review = project.khmdhsDataQualityReview || null;
   const chainHistory = project.khmdhsContractChainHistory || [];
   const entry = getKhmdhsDisplayEntries(project)[0];
-  const effects = chainHistory.length
-    ? computeChainCharacterizationEffects(chainHistory, review)
-    : null;
 
-  const deadlineEnd = project.contractEndDate || effects?.contractDeadline || '';
   const contractor = pickContractor(entry?.snapshot || project.khmdhsContractSnapshot);
 
   return {
     label: null,
-    date: project.contractDate || effects?.contractDate || '',
-    amount: project.contractAmount || effects?.contractAmount || '',
+    date: project.contractDate || '',
+    amount: project.contractAmount || '',
     apeAmount: getLatestContractApeAmount(project, 0) || project.apeAmount || '',
     contractorName: contractor.name,
     contractorVat: contractor.vat,
-    deadline: buildDeadlineLine(chainHistory, review, deadlineEnd),
+    deadline: buildDeadlineLine(chainHistory, review, resolveContractEndDateIso(project)),
     amendmentsLine: buildAmendmentsSummaryLine(chainHistory, review),
     supplementarySummary: buildSupplementaryCardSummary(project),
   };
@@ -152,7 +148,11 @@ function buildMultiContractRow(project, contract, index) {
     apeAmount: getLatestContractApeAmount(project, index) || contract.apeAmount || '',
     contractorName: contractor.name,
     contractorVat: contractor.vat,
-    deadline: buildDeadlineLine(chainHistory, review, project.contractEndDate),
+    deadline: buildDeadlineLine(
+      chainHistory,
+      review,
+      resolveContractEndDateIso(project, contract),
+    ),
     amendmentsLine: buildAmendmentsSummaryLine(chainHistory, review),
     supplementarySummary: index === 0
       ? buildSupplementaryCardSummary(project)

@@ -177,6 +177,37 @@ function collectLastExtensionEndIso(chainHistory, review) {
   return last;
 }
 
+function collectExtensionEndDatesFromSupplementary(project, review) {
+  const contracts = Array.isArray(project?.supplementaryContracts)
+    ? project.supplementaryContracts
+    : [];
+  const dates = [];
+  contracts.forEach((row) => {
+    const adam = String(row?.khmdhsAdam || '').trim().toUpperCase();
+    const choice = adam ? getChainKindChoice(review, adam) : null;
+    const isExtension = choice?.kind === CHAIN_KIND.EXTENSION
+      || String(row?.comments || '').trim() === 'Παράταση';
+    if (!isExtension) return;
+    const d = toIsoDateOnly(row?.date || choice?.endDate || '');
+    if (d) dates.push(d);
+  });
+  return dates;
+}
+
+function pickLatestIsoDate(...values) {
+  const normalized = values.map((v) => toIsoDateOnly(v)).filter(Boolean);
+  if (!normalized.length) return null;
+  return normalized.sort().reverse()[0];
+}
+
+function projectHasExtensionDeadline(chainHistory, review, lastExtensionEnd, supplementaryExtensionEnds) {
+  if (lastExtensionEnd || supplementaryExtensionEnds.length) return true;
+  const effects = chainHistory?.length
+    ? computeChainCharacterizationEffects(chainHistory, review)
+    : null;
+  return (effects?.perAct || []).some((a) => a.effect === 'deadline');
+}
+
 export function resolveContractEndDateIso(project, contract = null) {
   if (!project) return null;
   const review = project.khmdhsDataQualityReview || null;
@@ -189,19 +220,40 @@ export function resolveContractEndDateIso(project, contract = null) {
   const snap = contract?.khmdhsContractSnapshot || project.khmdhsContractSnapshot;
   const fromSnap = snap?.noEndDate ? '' : (snap?.endDate || '');
   const lastExtensionEnd = collectLastExtensionEndIso(chainHistory, review);
+  const supplementaryExtensionEnds = collectExtensionEndDatesFromSupplementary(project, review);
+  const hasExtensionDeadline = projectHasExtensionDeadline(
+    chainHistory,
+    review,
+    lastExtensionEnd,
+    supplementaryExtensionEnds,
+  );
+
+  const storedEnd = contract
+    ? toIsoDateOnly(contract.contractEndDate)
+    : toIsoDateOnly(project.contractEndDate);
+
+  if (hasExtensionDeadline) {
+    return pickLatestIsoDate(
+      storedEnd,
+      effects?.contractDeadline,
+      fromSnap,
+      lastExtensionEnd,
+      ...supplementaryExtensionEnds,
+    );
+  }
+
   if (contract) {
-    const stored = toIsoDateOnly(contract.contractEndDate);
-    const perContract = stored
+    return storedEnd
       || toIsoDateOnly(fromSnap)
       || toIsoDateOnly(effects?.contractDeadline)
-      || lastExtensionEnd;
-    return perContract || null;
+      || lastExtensionEnd
+      || null;
   }
-  const end = toIsoDateOnly(project.contractEndDate)
+  return storedEnd
     || toIsoDateOnly(effects?.contractDeadline)
     || toIsoDateOnly(fromSnap)
-    || lastExtensionEnd;
-  return end || null;
+    || lastExtensionEnd
+    || null;
 }
 
 function buildNoticeDeadlineEvents(project, snap, events, seen) {

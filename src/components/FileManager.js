@@ -192,9 +192,14 @@ const CloseBtn = styled.button`
   cursor: pointer;
   transition: background 0.18s, color 0.18s;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: #fee2e2;
     color: ${C.red};
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: wait;
   }
 `;
 
@@ -558,10 +563,68 @@ const ConfirmDeleteBtn = styled.button`
   cursor: pointer;
   transition: background 0.15s, box-shadow 0.15s;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: ${C.redDark};
     box-shadow: 0 3px 10px rgba(239, 68, 68, 0.3);
   }
+
+  &:disabled {
+    opacity: 0.7;
+    cursor: wait;
+  }
+`;
+
+const ProcessingOverlay = styled.div`
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(4px);
+  border-radius: 18px;
+  pointer-events: all;
+`;
+
+const ProcessingCard = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  background: ${C.white};
+  border: 1.5px solid ${C.slate200};
+  border-radius: 16px;
+  padding: 1.5rem 2rem;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+  max-width: 360px;
+  text-align: center;
+`;
+
+const ProcessingSpinner = styled.div`
+  width: 40px;
+  height: 40px;
+  border: 4px solid ${C.slate200};
+  border-top-color: ${C.indigo};
+  border-radius: 50%;
+  animation: fileMgrSpin 0.75s linear infinite;
+
+  @keyframes fileMgrSpin {
+    to { transform: rotate(360deg); }
+  }
+`;
+
+const ProcessingTitle = styled.div`
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: ${C.slate800};
+`;
+
+const ProcessingHint = styled.div`
+  font-size: 0.8rem;
+  color: ${C.slate500};
+  font-weight: 500;
+  line-height: 1.45;
 `;
 
 /* ─── Checkbox style helper ─────────────────────────────────────────────── */
@@ -596,6 +659,7 @@ function FileManager({
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, fileNames: [] });
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deletingCount, setDeletingCount] = useState(0);
 
   useEffect(() => {
     lockBodyScroll('filemanager');
@@ -638,9 +702,10 @@ function FileManager({
 
   const confirmDelete = async () => {
     const { fileNames } = deleteConfirm;
-    setDeleteConfirm({ open: false, fileNames: [] });
-    if (!fileNames?.length) return;
+    if (!fileNames?.length || isDeleting) return;
 
+    setDeleteConfirm({ open: false, fileNames: [] });
+    setDeletingCount(fileNames.length);
     setIsDeleting(true);
     try {
       if (fileNames.length === 1) {
@@ -657,6 +722,7 @@ function FileManager({
       onRefresh();
     } finally {
       setIsDeleting(false);
+      setDeletingCount(0);
     }
   };
 
@@ -727,6 +793,22 @@ function FileManager({
       style={{ paddingTop: `${Math.max(50, window.innerHeight * 0.08)}px` }}
     >
       <FileManagerContainer style={{ position: 'relative' }}>
+
+        {isDeleting && (
+          <ProcessingOverlay>
+            <ProcessingCard>
+              <ProcessingSpinner />
+              <ProcessingTitle>
+                {deletingCount > 1
+                  ? `Διαγραφή ${deletingCount} αρχείων…`
+                  : 'Διαγραφή αρχείου…'}
+              </ProcessingTitle>
+              <ProcessingHint>
+                Παρακαλώ περιμένετε — η διαδικασία μπορεί να διαρκέσει λίγα δευτερόλεπτα
+              </ProcessingHint>
+            </ProcessingCard>
+          </ProcessingOverlay>
+        )}
 
         {/* ── Delete confirmation overlay ─────────────────────────────── */}
         {deleteConfirm.open && (
@@ -803,7 +885,7 @@ function FileManager({
                   </PillBtn>
                 </>
               )}
-              <CloseBtn onClick={onClose} title="Κλείσιμο">✕</CloseBtn>
+              <CloseBtn onClick={onClose} disabled={isDeleting || isUploading} title="Κλείσιμο">✕</CloseBtn>
             </HeaderActions>
           </HeaderRow>
           <HeaderDivider />

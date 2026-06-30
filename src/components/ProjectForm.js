@@ -577,6 +577,7 @@ const FormOverlay = styled.div`
 `;
 
 const FormContainer = styled.div`
+  position: relative;
   background: #ffffff;
   border-radius: 18px;
   width: min(calc(100vw - 6vw), 1420px);
@@ -651,6 +652,11 @@ const FormHeaderClose = styled.button`
 
   &:hover {
     background: rgba(255, 255, 255, 0.28);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: wait;
   }
 `;
 
@@ -825,6 +831,22 @@ const KhmdhsFetchBar = styled.div`
     0%   { left: -40%; }
     100% { left: 100%; }
   }
+`;
+
+const FormProcessingOverlay = styled.div`
+  position: absolute;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(4px);
+  border-radius: 18px;
+  pointer-events: all;
+  animation: khmdhsFadeIn 0.2s ease;
 `;
 
 const KhmdhsFetchOverlay = styled.div`
@@ -1810,6 +1832,13 @@ const SaveButton = styled.button`
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(79, 70, 229, 0.28);
   }
+
+  &:disabled {
+    opacity: 0.65;
+    cursor: wait;
+    transform: none;
+    box-shadow: none;
+  }
 `;
 
 const CancelButton = styled.button`
@@ -1826,6 +1855,11 @@ const CancelButton = styled.button`
   &:hover {
     background: #f8fafc;
     border-color: #94a3b8;
+  }
+
+  &:disabled {
+    opacity: 0.65;
+    cursor: wait;
   }
 `;
 
@@ -2497,6 +2531,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   React.useEffect(() => { formDataRef.current = formData; });
   const [manualPhaseBaseline, setManualPhaseBaseline] = useState(null);
   const [manualPhaseSavedOnce, setManualPhaseSavedOnce] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatusText, setSaveStatusText] = useState('Αποθήκευση υποέργου…');
   const [activePhaseTab, setActivePhaseTab] = useState('A');
   const [apeConflictModal, setApeConflictModal] = useState(null);
   const [preSaveOverridesOpen, setPreSaveOverridesOpen] = useState(false);
@@ -5625,6 +5661,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   };
 
   const handleSave = async ({ skipOverridesCheck = false, skipDuplicateCheck = false, duplicateAck = null } = {}) => {
+    if (isSaving) return;
     console.log('=== SAVE ATTEMPT ===');
     console.log('Form data:', formData);
     console.log('Selected files:', selectedFiles);
@@ -5726,6 +5763,13 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     }
 
     try {
+      setIsSaving(true);
+      setSaveStatusText(
+        isPhaseASaveOnly
+          ? 'Αποθήκευση Φάσης Α…'
+          : 'Αποθήκευση υποέργου…'
+      );
+
       // Normalize τα κείμενα πριν την αποθήκευση
       let outside = Boolean(saveFormData.supervisorChargeOutsideEngineers);
       let supervisorEngineerIds = [];
@@ -5967,6 +6011,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       console.log('Project saved successfully');
     } catch (error) {
       console.error('Error saving project:', error);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -5988,12 +6034,13 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   ), [isNewSubprojectForm]);
 
   const handleRequestClose = useCallback(() => {
+    if (isSaving) return;
     if (!formHasUnsavedChanges()) {
       onClose();
       return;
     }
     setUnsavedCloseModalOpen(true);
-  }, [formHasUnsavedChanges, onClose]);
+  }, [formHasUnsavedChanges, onClose, isSaving]);
 
   const handleUnsavedCloseCancel = useCallback(() => {
     setUnsavedCloseModalOpen(false);
@@ -6576,13 +6623,28 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       onClick={(e) => e.target === e.currentTarget && handleRequestClose()}
     >
       <FormContainer>
+        {isSaving && (
+          <FormProcessingOverlay>
+            <KhmdhsFetchOverlayCard>
+              <FetchSpinner $large />
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#3730a3', marginBottom: '0.25rem' }}>
+                  {saveStatusText}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#6366f1', fontWeight: 500 }}>
+                  Παρακαλώ περιμένετε — η διαδικασία μπορεί να διαρκέσει λίγα δευτερόλεπτα
+                </div>
+              </div>
+            </KhmdhsFetchOverlayCard>
+          </FormProcessingOverlay>
+        )}
         {/* Header */}
         <FormHeader>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
             <FormTitle style={{ margin: 0, fontSize: '1rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
               {(editingProject || formData.subprojectId) ? 'Επεξεργασία υποέργου' : 'Νέο υποέργο'}
             </FormTitle>
-            <FormHeaderClose type="button" onClick={handleRequestClose} aria-label="Κλείσιμο">
+            <FormHeaderClose type="button" onClick={handleRequestClose} disabled={isSaving} aria-label="Κλείσιμο">
               ×
             </FormHeaderClose>
           </div>
@@ -7672,13 +7734,15 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
           </div>
         )}
         <StickyFooter $slim={activePhaseTab === 'B'}>
-          <CancelButton type="button" onClick={handleRequestClose}>
+          <CancelButton type="button" onClick={handleRequestClose} disabled={isSaving}>
             Ακύρωση
           </CancelButton>
-          <SaveButton type="button" onClick={() => handleSave()}>
-            {(manualPhaseSavedOnce && !isPhaseADirty(formData, manualPhaseBaseline))
-              ? 'Αποθήκευση'
-              : 'Αποθήκευση Φάσης Α'}
+          <SaveButton type="button" onClick={() => handleSave()} disabled={isSaving}>
+            {isSaving
+              ? 'Αποθήκευση…'
+              : (manualPhaseSavedOnce && !isPhaseADirty(formData, manualPhaseBaseline))
+                ? 'Αποθήκευση'
+                : 'Αποθήκευση Φάσης Α'}
           </SaveButton>
           {activePhaseTab === 'B' && (
             <FooterFileActions>

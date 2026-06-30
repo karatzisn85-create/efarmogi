@@ -160,6 +160,70 @@ describe('evaluateKhmdhsContractExpiryPrompt', () => {
 
 
 
+  test('όχι πρόταση όταν η καταληκτική παράτασης είναι στο μέλλον', () => {
+
+    const form = {
+
+      projectStatus: PROJECT_STATUS_EXECUTED,
+
+      implementationForm: 'Μια Σύμβαση',
+
+      contractAmount: '100.000,00',
+
+      contractEndDate: daysAgo(30),
+
+      khmdhsAdam: '24SYMV001',
+
+      supplementaryContracts: [
+
+        {
+
+          date: daysAhead(120),
+
+          khmdhsAdam: '25SYMV002',
+
+          comments: 'Παράταση',
+
+        },
+
+      ],
+
+      khmdhsContractChainHistory: [
+
+        { adam: '24SYMV001', isRoot: true, endDate: daysAgo(30) },
+
+        { adam: '25SYMV002', isRoot: false, kind: 'extension', endDate: daysAgo(30) },
+
+      ],
+
+      khmdhsDataQualityReview: {
+
+        items: [],
+
+        resolutions: {
+
+          'chainKindReview:25SYMV002': {
+
+            value: 'extension',
+
+            source: 'user_confirmed',
+
+            meta: { endDate: daysAgo(30) },
+
+          },
+
+        },
+
+      },
+
+    };
+
+    expect(evaluateKhmdhsContractExpiryPrompt(form)).toBeNull();
+
+  });
+
+
+
   test('όχι πρόταση σε ήδη ολοκληρωμένο', () => {
 
     const form = {

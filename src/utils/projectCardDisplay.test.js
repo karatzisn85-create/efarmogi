@@ -79,6 +79,40 @@ describe('projectCardDisplay', () => {
     expect(rows[0].amendmentsLine).toContain('παράταση');
   });
 
+  test('παράταση — η κάρτα δείχνει την καταληκτική παράτασης όχι την αρχική λήξη', () => {
+    const project = {
+      implementationForm: 'Μια Σύμβαση',
+      contractDate: '2024-03-28',
+      contractAmount: '1.191.178,29',
+      contractEndDate: '2025-08-14',
+      supplementaryContracts: [
+        {
+          date: '2026-08-14',
+          khmdhsAdam: '25SYMV017748918',
+          khmdhsDerived: true,
+          comments: 'Παράταση',
+        },
+      ],
+      khmdhsContractChainHistory: [
+        { adam: '24SYMV001', isRoot: true, endDate: '2025-08-14' },
+        { adam: '25SYMV017748918', isRoot: false, kind: 'extension', endDate: '2025-08-14' },
+      ],
+      khmdhsDataQualityReview: {
+        items: [],
+        resolutions: {
+          'chainKindReview:25SYMV017748918': {
+            value: 'extension',
+            source: 'user_confirmed',
+            meta: { endDate: '2025-08-14' },
+          },
+        },
+      },
+    };
+    const rows = buildProjectCardContractRows(project);
+    expect(rows[0].deadline?.label).toContain('Παράταση');
+    expect(rows[0].deadline?.value).toBe('14/08/2026');
+  });
+
   test('multiple supplementaries show total on card row', () => {
     const summary = buildSupplementaryCardSummary({
       supplementaryContracts: [
