@@ -4096,13 +4096,35 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       const result = await ipcRenderer.invoke('delete-file', projectId, subprojectId, fileName);
       if (result.success) {
         await loadProjects();
-        // Ανανέωση των αρχείων στο FileManager αν είναι ανοιχτό για αυτό το έργο
         if (fileManager.isOpen && fileManager.projectId === projectId && fileManager.subprojectId === subprojectId) {
           handleOpenFileManager(projectId, subprojectId);
         }
+      } else {
+        showToast(result.error || 'Σφάλμα κατά τη διαγραφή', 'error');
       }
     } catch (error) {
       console.error('Error deleting file:', error);
+      showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
+    }
+  };
+
+  const handleDeleteFiles = async (projectId, subprojectId, fileNames) => {
+    const names = (Array.isArray(fileNames) ? fileNames : []).filter(Boolean);
+    if (!names.length) return;
+    try {
+      const result = await ipcRenderer.invoke('delete-files', { projectId, subprojectId, fileNames: names });
+      if (result.success) {
+        showToast(`Διαγράφηκαν ${result.deletedCount || names.length} αρχεία.`, 'success');
+        await loadProjects();
+        if (fileManager.isOpen && fileManager.projectId === projectId && fileManager.subprojectId === subprojectId) {
+          handleOpenFileManager(projectId, subprojectId);
+        }
+      } else {
+        showToast(result.error || 'Σφάλμα κατά τη μαζική διαγραφή', 'error');
+      }
+    } catch (error) {
+      console.error('Error deleting files:', error);
+      showToast('Σφάλμα κατά τη μαζική διαγραφή: ' + error.message, 'error');
     }
   };
 
@@ -6056,6 +6078,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           onViewFile={(fileName) => handleViewFile(fileManager.projectId, fileManager.subprojectId, fileName)}
           onDownloadFile={(fileName) => handleDownloadFile(fileManager.projectId, fileManager.subprojectId, fileName)}
           onDeleteFile={(fileName) => handleDeleteFile(fileManager.projectId, fileManager.subprojectId, fileName)}
+          onDeleteFiles={(fileNames) => handleDeleteFiles(fileManager.projectId, fileManager.subprojectId, fileNames)}
           onClose={handleCloseFileManager}
           onRefresh={() => handleOpenFileManager(fileManager.projectId, fileManager.subprojectId)}
           onGroupFiles={handleGroupFiles}

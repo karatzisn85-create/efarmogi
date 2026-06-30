@@ -163,6 +163,19 @@ const MoveBtn = styled(PillBtn)`
   }
 `;
 
+const BulkDeleteBtn = styled(PillBtn)`
+  border-color: ${C.red};
+  background: #fef2f2;
+  color: ${C.red};
+
+  &:hover {
+    background: ${C.red};
+    color: ${C.white};
+    border-color: ${C.red};
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.18);
+  }
+`;
+
 /* X close button */
 const CloseBtn = styled.button`
   width: 32px;
@@ -492,16 +505,23 @@ const ConfirmBody = styled.div`
   margin-bottom: 1.4rem;
 `;
 
-const ConfirmFileName = styled.span`
-  display: inline-block;
-  background: ${C.slate100};
-  color: ${C.slate800};
-  font-weight: 600;
+const ConfirmFileList = styled.ul`
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 140px;
+  overflow-y: auto;
+`;
+
+const ConfirmFileListItem = styled.li`
   font-size: 0.82rem;
-  padding: 0.2rem 0.55rem;
+  font-weight: 600;
+  color: ${C.slate800};
+  background: ${C.slate100};
+  padding: 0.25rem 0.55rem;
   border-radius: 6px;
+  margin-bottom: 0.35rem;
   word-break: break-all;
-  margin-top: 0.3rem;
 `;
 
 const ConfirmActions = styled.div`
@@ -567,13 +587,15 @@ function FileManager({
   onViewFile,
   onDownloadFile,
   onDeleteFile,
+  onDeleteFiles,
   onClose,
   onRefresh,
   onGroupFiles
 }) {
   const { showToast } = useToast();
   const [selectedFiles, setSelectedFiles] = useState(new Set());
-  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, fileName: null });
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, fileNames: [] });
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     lockBodyScroll('filemanager');
@@ -603,17 +625,42 @@ function FileManager({
   const handleDeselectAll = () => setSelectedFiles(new Set());
 
   const requestDeleteFile = (fileName) => {
-    setDeleteConfirm({ open: true, fileName });
+    setDeleteConfirm({ open: true, fileNames: [fileName] });
+  };
+
+  const requestBulkDelete = () => {
+    if (selectedFiles.size === 0) {
+      showToast('Παρακαλώ επιλέξτε τουλάχιστον ένα αρχείο', 'warning');
+      return;
+    }
+    setDeleteConfirm({ open: true, fileNames: Array.from(selectedFiles) });
   };
 
   const confirmDelete = async () => {
-    const { fileName } = deleteConfirm;
-    setDeleteConfirm({ open: false, fileName: null });
-    await onDeleteFile(fileName);
-    onRefresh();
+    const { fileNames } = deleteConfirm;
+    setDeleteConfirm({ open: false, fileNames: [] });
+    if (!fileNames?.length) return;
+
+    setIsDeleting(true);
+    try {
+      if (fileNames.length === 1) {
+        await onDeleteFile(fileNames[0]);
+      } else if (onDeleteFiles) {
+        await onDeleteFiles(fileNames);
+      } else {
+        for (const name of fileNames) {
+          // eslint-disable-next-line no-await-in-loop
+          await onDeleteFile(name);
+        }
+      }
+      setSelectedFiles(new Set());
+      onRefresh();
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  const cancelDelete = () => setDeleteConfirm({ open: false, fileName: null });
+  const cancelDelete = () => setDeleteConfirm({ open: false, fileNames: [] });
 
   const handleMoveToGroup = () => {
     if (selectedFiles.size === 0) {
@@ -687,16 +734,41 @@ function FileManager({
             <ConfirmCard>
               <ConfirmIconRow>
                 <ConfirmIconBadge>🗑</ConfirmIconBadge>
-                <ConfirmTitle>Διαγραφή αρχείου</ConfirmTitle>
+                <ConfirmTitle>
+                  {deleteConfirm.fileNames.length > 1
+                    ? `Μαζική διαγραφή (${deleteConfirm.fileNames.length})`
+                    : 'Διαγραφή αρχείου'}
+                </ConfirmTitle>
               </ConfirmIconRow>
               <ConfirmBody>
-                Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο:
-                <br />
-                <ConfirmFileName>{deleteConfirm.fileName}</ConfirmFileName>
+                {deleteConfirm.fileNames.length > 1 ? (
+                  <>
+                    Είστε σίγουροι ότι θέλετε να διαγράψετε τα επιλεγμένα αρχεία;
+                    <ConfirmFileList>
+                      {deleteConfirm.fileNames.slice(0, 8).map((name) => (
+                        <ConfirmFileListItem key={name}>{name}</ConfirmFileListItem>
+                      ))}
+                      {deleteConfirm.fileNames.length > 8 ? (
+                        <ConfirmFileListItem>
+                          …και άλλα {deleteConfirm.fileNames.length - 8}
+                        </ConfirmFileListItem>
+                      ) : null}
+                    </ConfirmFileList>
+                  </>
+                ) : (
+                  <>
+                    Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο:
+                    <ConfirmFileList>
+                      <ConfirmFileListItem>{deleteConfirm.fileNames[0]}</ConfirmFileListItem>
+                    </ConfirmFileList>
+                  </>
+                )}
               </ConfirmBody>
               <ConfirmActions>
-                <CancelBtn onClick={cancelDelete}>Άκυρο</CancelBtn>
-                <ConfirmDeleteBtn onClick={confirmDelete}>Διαγραφή</ConfirmDeleteBtn>
+                <CancelBtn onClick={cancelDelete} disabled={isDeleting}>Άκυρο</CancelBtn>
+                <ConfirmDeleteBtn onClick={confirmDelete} disabled={isDeleting}>
+                  {isDeleting ? 'Διαγραφή…' : 'Διαγραφή'}
+                </ConfirmDeleteBtn>
               </ConfirmActions>
             </ConfirmCard>
           </ConfirmOverlay>
@@ -711,12 +783,17 @@ function FileManager({
             </TitleGroup>
 
             <HeaderActions>
-              {isAdmin && hasFiles && (
+              {isAdmin && hasPhysicalFiles && (
                 <>
                   {selectedFiles.size > 0 && (
-                    <MoveBtn onClick={handleMoveToGroup}>
-                      📂 Μεταφορά ({selectedFiles.size})
-                    </MoveBtn>
+                    <>
+                      <MoveBtn onClick={handleMoveToGroup}>
+                        📂 Μεταφορά ({selectedFiles.size})
+                      </MoveBtn>
+                      <BulkDeleteBtn onClick={requestBulkDelete} disabled={isDeleting}>
+                        🗑 Διαγραφή ({selectedFiles.size})
+                      </BulkDeleteBtn>
+                    </>
                   )}
                   <PillBtn
                     $active={selectedFiles.size > 0}

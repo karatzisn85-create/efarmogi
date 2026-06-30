@@ -3279,57 +3279,111 @@ ipcMain.handle('get-subproject-files', async (event, projectId, subprojectId) =>
   }
 });
 
+function removeFileFromSubprojectData(data, fileName) {
+  if (!data || !fileName) return;
+  if (data.subprojectFiles && Array.isArray(data.subprojectFiles)) {
+    data.subprojectFiles = data.subprojectFiles.filter((file) => file !== fileName);
+  }
+  if (data.files && Array.isArray(data.files)) {
+    data.files = data.files.filter((file) => file !== fileName);
+  }
+  if (data.fileGroups && Array.isArray(data.fileGroups)) {
+    data.fileGroups = data.fileGroups
+      .map((group) => ({
+        ...group,
+        files: group.files.filter((file) => {
+          const n = typeof file === 'string' ? file : (file?.name || file?.fileName || '');
+          return n !== fileName;
+        }),
+      }))
+      .filter((group) => group.files.length > 0);
+  }
+}
+
 ipcMain.handle('delete-file', async (event, projectId, subprojectId, fileName) => {
   try {
     const filePath = path.join(dataDir, projectId, subprojectId, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ', fileName);
-    
-    // Διαγραφή φυσικού αρχείου
+
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
-    
-    // Ενημέρωση JSON αρχείου
+
     const dataPath = path.join(dataDir, projectId, subprojectId, 'data.json');
     if (fs.existsSync(dataPath)) {
       try {
         const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-        
-       // Αφαίρεση αρχείου από subprojectFiles
-       if (data.subprojectFiles && Array.isArray(data.subprojectFiles)) {
-         data.subprojectFiles = data.subprojectFiles.filter(file => file !== fileName);
-       }
-       
-       // Αφαίρεση αρχείου από files (για συμβατότητα)
-       if (data.files && Array.isArray(data.files)) {
-         data.files = data.files.filter(file => file !== fileName);
-       }
-       
-       // Αφαίρεση αρχείου από fileGroups
-       if (data.fileGroups && Array.isArray(data.fileGroups)) {
-         data.fileGroups = data.fileGroups.map(group => ({
-           ...group,
-           files: group.files.filter(file => file.name !== fileName)
-         })).filter(group => group.files.length > 0); // Αφαίρεση κενών ομάδων
-       }
-        
-        // Αποθήκευση ενημερωμένου JSON
+        removeFileFromSubprojectData(data, fileName);
         safeWriteJSON(dataPath, data);
         console.log(`File ${fileName} removed from JSON data`);
       } catch (jsonError) {
         console.error('Error updating JSON after file deletion:', jsonError);
       }
     }
-    
+
     logAuditAction({
       type: 'delete',
       entityType: 'file',
       entityId: subprojectId,
       entityTitle: fileName,
-      details: 'Διαγραφή αρχείου υποέργου'
+      details: 'Διαγραφή αρχείου υποέργου',
     });
     return { success: true };
   } catch (error) {
     console.error('Error deleting file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-files', async (_event, { projectId, subprojectId, fileNames } = {}) => {
+  try {
+    if (!projectId || !subprojectId) {
+      return { success: false, error: 'Απαιτούνται projectId και subprojectId' };
+    }
+    const names = [...new Set(
+      (Array.isArray(fileNames) ? fileNames : [])
+        .map((f) => String(f || '').trim())
+        .filter(Boolean)
+    )];
+    if (!names.length) {
+      return { success: false, error: 'Δεν επιλέχθηκαν αρχεία' };
+    }
+
+    const filesDir = path.join(dataDir, projectId, subprojectId, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ');
+    const dataPath = path.join(dataDir, projectId, subprojectId, 'data.json');
+
+    names.forEach((fileName) => {
+      const filePath = path.join(filesDir, fileName);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    });
+
+    if (fs.existsSync(dataPath)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+        names.forEach((fileName) => removeFileFromSubprojectData(data, fileName));
+        safeWriteJSON(dataPath, data);
+      } catch (jsonError) {
+        console.error('Error updating JSON after bulk file deletion:', jsonError);
+        return { success: false, error: jsonError.message };
+      }
+    }
+
+    const titlePreview = names.length <= 3
+      ? names.join(', ')
+      : `${names.slice(0, 3).join(', ')} (+${names.length - 3})`;
+
+    logAuditAction({
+      type: 'delete',
+      entityType: 'file',
+      entityId: subprojectId,
+      entityTitle: titlePreview,
+      details: `Μαζική διαγραφή ${names.length} αρχείων υποέργου`,
+    });
+
+    return { success: true, deletedCount: names.length };
+  } catch (error) {
+    console.error('Error deleting files:', error);
     return { success: false, error: error.message };
   }
 });

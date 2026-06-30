@@ -12,7 +12,7 @@ const ALLOWED_INVOKE = new Set([
   'delete-document-template','delete-egkrisi-file','delete-egkrisi-link',
   'delete-egkrisi-pdf-completely','delete-egkrisi-pdf-from-subproject',
   'delete-egkrisi-subproject','delete-entaxi','delete-entaxi-file',
-  'delete-entaxi-modification','delete-file','delete-file-from-folder',
+  'delete-entaxi-modification','delete-file','delete-files','delete-file-from-folder',
   'delete-item-from-folder','delete-item-from-subfolder','delete-prosklisi',
   'delete-prosklisi-file','delete-prosklisi-folder','delete-prosklisi-group',
   'delete-prosklisi-modification','delete-subproject','delete-user',
