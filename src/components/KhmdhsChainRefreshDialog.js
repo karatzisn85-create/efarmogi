@@ -107,7 +107,9 @@ export default function KhmdhsChainRefreshDialog({
           <Sub style={{ marginBottom: '0.65rem', color: '#475569' }}>Αλλαγές που θα εφαρμοστούν:</Sub>
           <List>
             {changeLines.map((line, i) => (
-              <li key={i}>{line}</li>
+              <li key={i} style={line.startsWith('⚠️') ? { color: '#b45309', fontWeight: 700 } : undefined}>
+                {line}
+              </li>
             ))}
           </List>
         </Body>

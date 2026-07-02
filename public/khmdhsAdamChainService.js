@@ -635,10 +635,16 @@ function toFormDate(value) {
   return `${y}-${mo}-${day}`;
 }
 
-/** Ημ. έναρξης διαδικασίας σύμβασης — από διαγωνισμό (PROC), με εναλλακτικές ημερομηνίες */
-function deriveContractProcessStartDate(noticeSnapshot, auctionSnapshot) {
+/** Ημ. έναρξης διαδικασίας σύμβασης — πρώτα από αίτημα (REQ), μετά δημοσίευση/ανάθεση */
+function deriveContractProcessStartDate(noticeSnapshot, auctionSnapshot, requestSnapshot) {
+  if (requestSnapshot) {
+    for (const key of ['signedDate', 'submissionDate', 'createdDate']) {
+      const d = toFormDate(requestSnapshot[key]);
+      if (d) return d;
+    }
+  }
   if (noticeSnapshot) {
-    for (const key of ['signedDate', 'finalSubmissionDate', 'submissionDate', 'lastUpdateDate']) {
+    for (const key of ['signedDate', 'finalSubmissionDate', 'submissionDate']) {
       const d = toFormDate(noticeSnapshot[key]);
       if (d) return d;
     }
@@ -650,6 +656,31 @@ function deriveContractProcessStartDate(noticeSnapshot, auctionSnapshot) {
     }
   }
   return '';
+}
+
+/** Επιλέγει έγκυρη ημ. έναρξης (πριν από υπογραφή σύμβασης) από όλα τα διαθέσιμα στάδια */
+function reconcileProcessStartBeforeContract(processStart, contractSignedIso, snapshots = {}) {
+  const contractIso = toFormDate(contractSignedIso);
+  if (!contractIso) return processStart || '';
+
+  const candidates = [];
+  const pushSnap = (snap, keys) => {
+    if (!snap) return;
+    keys.forEach((key) => {
+      const d = toFormDate(snap[key]);
+      if (d) candidates.push(d);
+    });
+  };
+
+  pushSnap(snapshots.request, ['signedDate', 'submissionDate', 'createdDate']);
+  pushSnap(snapshots.notice, ['signedDate', 'finalSubmissionDate', 'submissionDate']);
+  pushSnap(snapshots.auction, ['awardDate', 'signedDate', 'submissionDate']);
+  const derived = toFormDate(processStart);
+  if (derived) candidates.push(derived);
+
+  const valid = [...new Set(candidates)].filter((d) => d < contractIso).sort();
+  if (valid.length) return valid[0];
+  return derived && derived < contractIso ? derived : '';
 }
 
 function formatAmountEl(amount) {
@@ -2189,7 +2220,21 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
     : null;
 
   const mappedProcedure = notice ? mapNoticeProcedure(notice.snapshot) : '';
-  const noticeProcessStart = deriveContractProcessStartDate(notice?.snapshot, auction?.snapshot);
+  let noticeProcessStart = deriveContractProcessStartDate(
+    notice?.snapshot,
+    auction?.snapshot,
+    request?.snapshot
+  );
+  const contractSignedIso = primaryContractSnap
+    ? toFormDate(primaryContractSnap.contractSignedDate || primaryContractSnap.startDate)
+    : '';
+  if (contractSignedIso) {
+    noticeProcessStart = reconcileProcessStartBeforeContract(noticeProcessStart, contractSignedIso, {
+      request: request?.snapshot,
+      notice: notice?.snapshot,
+      auction: auction?.snapshot,
+    });
+  }
 
   const derivedSupplementaryContracts = deriveSupplementaryContractsFromChainHistory(contractChainHistory);
 
@@ -2377,6 +2422,7 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
     contractChainHistory,
     contractAmendments,
     derivedSupplementaryContracts,
+    contractProcessStartDate: noticeProcessStart || '',
     notice: notice ? {
       adam: notice.adam,
       snapshot: notice.snapshot,
@@ -2445,6 +2491,7 @@ module.exports = {
   resolveKhmdhsSupplementaryContract,
   resolveFullContractChain,
   deriveContractProcessStartDate,
+  reconcileProcessStartBeforeContract,
   parseChainMarker,
   parseChainLists,
 };

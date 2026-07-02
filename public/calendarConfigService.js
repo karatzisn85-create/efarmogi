@@ -11,12 +11,31 @@ const CONFIG_FILE = 'calendar_config.json';
 
 const ALLOWED_ROLES = ['ADMIN', 'ENGINEER', 'USER'];
 
+const NOTIFY_EVENT_TYPES = {
+  DEADLINE: 'deadline',
+  OFFERS_EXPIRY: 'offers_expiry',
+  CONTRACT_END: 'contract_end',
+  COMPLIANCE_12M: 'compliance_12m',
+  CUSTOM: 'custom',
+};
+
+const ALLOWED_NOTIFY_EVENT_TYPES = Object.values(NOTIFY_EVENT_TYPES);
+
+const NOTIFY_EVENT_TYPE_LABELS = {
+  [NOTIFY_EVENT_TYPES.DEADLINE]: 'Καταληκτική υποβολής προσφορών',
+  [NOTIFY_EVENT_TYPES.OFFERS_EXPIRY]: 'Λήξη ισχύος προσφορών',
+  [NOTIFY_EVENT_TYPES.CONTRACT_END]: 'Λήξη σύμβασης',
+  [NOTIFY_EVENT_TYPES.COMPLIANCE_12M]: 'Παράβαση κανόνα 12 μηνών',
+  [NOTIFY_EVENT_TYPES.CUSTOM]: 'Ειδοποίηση ημερολογίου',
+};
+
 function defaultConfig() {
   return {
     enabled: false,
     recipientRoles: ['ADMIN', 'ENGINEER'],
     recipientUsernames: [],
     daysBefore: [7, 3, 1, 0],
+    notifyEventTypes: [...ALLOWED_NOTIFY_EVENT_TYPES],
     urgentRepeat: {
       enabled: true,
       maxCount: 3,
@@ -59,6 +78,22 @@ function normalizeUsernames(list) {
   return out;
 }
 
+function normalizeNotifyEventTypes(types) {
+  const set = new Set();
+  (Array.isArray(types) ? types : []).forEach((t) => {
+    const type = String(t || '').trim().toLowerCase();
+    if (ALLOWED_NOTIFY_EVENT_TYPES.includes(type)) set.add(type);
+  });
+  return set.size ? [...set] : [...ALLOWED_NOTIFY_EVENT_TYPES];
+}
+
+function isNotifyEventTypeEnabled(config, eventType) {
+  const type = String(eventType || '').trim().toLowerCase();
+  if (!type) return false;
+  const enabled = normalizeNotifyEventTypes(config?.notifyEventTypes);
+  return enabled.includes(type);
+}
+
 function normalizeUrgentRepeat(raw) {
   const base = defaultConfig().urgentRepeat;
   const src = raw && typeof raw === 'object' ? raw : {};
@@ -81,6 +116,7 @@ function normalizeConfig(raw) {
     recipientRoles: normalizeRoles(src.recipientRoles || base.recipientRoles),
     recipientUsernames: normalizeUsernames(src.recipientUsernames),
     daysBefore: normalizeDaysBefore(src.daysBefore || base.daysBefore),
+    notifyEventTypes: normalizeNotifyEventTypes(src.notifyEventTypes),
     urgentRepeat: normalizeUrgentRepeat(src.urgentRepeat),
   };
 }
@@ -105,8 +141,13 @@ function saveCalendarConfig(dataDir, config) {
 
 module.exports = {
   ALLOWED_ROLES,
+  ALLOWED_NOTIFY_EVENT_TYPES,
+  NOTIFY_EVENT_TYPES,
+  NOTIFY_EVENT_TYPE_LABELS,
   defaultConfig,
   loadCalendarConfig,
   saveCalendarConfig,
   normalizeConfig,
+  normalizeNotifyEventTypes,
+  isNotifyEventTypeEnabled,
 };

@@ -6,6 +6,7 @@ import { parseKhmdhsAdamType } from './khmdhsAdamGuidance';
 import { projectVisibleToAssignedEngineer } from './supervisorChargeDisplay';
 import { projectHasAnyKhmdhsLifecycleData } from './khmdhsLifecycleStages';
 import { getKhmdhsPaymentEntries } from './khmdhsChainExtraFields';
+import { getUnresolvedReviewItems } from './khmdhsDataQualityReport';
 
 export const KHMDHS_FRESHNESS_YELLOW_DAYS = 30;
 export const KHMDHS_FRESHNESS_YELLOW_MAX = 50;
@@ -195,12 +196,47 @@ function paymentAdams(project) {
   );
 }
 
+/** Όλα τα ΑΔΑΜ ιστορικού αλυσίδας σύμβασης (μονή ή πολλαπλές συμβάσεις) */
+function collectChainHistoryAdams(project) {
+  const set = new Set();
+  (project?.khmdhsContractChainHistory || []).forEach((h) => {
+    const a = sanitizeAdam(h?.adam);
+    if (a) set.add(a);
+  });
+  (project?.contracts || []).forEach((c) => {
+    (c?.khmdhsContractChainHistory || []).forEach((h) => {
+      const a = sanitizeAdam(h?.adam);
+      if (a) set.add(a);
+    });
+  });
+  return set;
+}
+
+/** Πιο πρόσφατη ημ. λήξης (deadline) που εμφανίζεται στη φόρμα — για ανίχνευση νέας παράτασης */
+function latestContractEndDate(project) {
+  const dates = [];
+  if (project?.contractEndDate) dates.push(String(project.contractEndDate).slice(0, 10));
+  (project?.contracts || []).forEach((c) => {
+    if (c?.contractEndDate) dates.push(String(c.contractEndDate).slice(0, 10));
+  });
+  if (!dates.length) return '';
+  return dates.sort().reverse()[0];
+}
+
+function countPendingReviewItems(project) {
+  const review = project?.khmdhsDataQualityReview;
+  if (!review?.items?.length) return 0;
+  return getUnresolvedReviewItems(review, project).length;
+}
+
 /**
- * Σύνοψη αλλαγών μετά merge ανανέωσης.
+ * Σύνοψη αλλαγών μετά merge ανανέωσης — αντικατοπτρίζει ό,τι νέο εντοπίστηκε στο
+ * μεσοδιάστημα (νέα εντάλματα, τροποποιήσεις/παρατάσεις, αλλαγές προθεσμιών κ.λπ.)
+ * χωρίς να πειράζει καταγεγραμμένα/χειροκίνητα στοιχεία.
  */
 export function buildKhmdhsRefreshChangeSummary(before, after, applyResult = {}) {
   const lines = [];
-  const { statusAutoUpdated, protectedCount = 0 } = applyResult;
+  const { statusAutoUpdated, protectedCount = 0, apeConflict = null } = applyResult;
 
   const beforePay = countPayments(before);
   const afterPay = countPayments(after);
@@ -226,6 +262,22 @@ export function buildKhmdhsRefreshChangeSummary(before, after, applyResult = {})
     lines.push(`+${afterCommit - beforeCommit} αποφάσεις ανάληψης υποχρέωσης`);
   }
 
+  const beforeHistory = collectChainHistoryAdams(before);
+  const afterHistory = collectChainHistoryAdams(after);
+  let newHistoryCount = 0;
+  afterHistory.forEach((a) => { if (!beforeHistory.has(a)) newHistoryCount += 1; });
+  if (newHistoryCount > 0) {
+    lines.push(
+      `${newHistoryCount} νέ${newHistoryCount === 1 ? 'α καταχώριση' : 'ες καταχωρίσεις'} στην αλυσίδα (τροποποίηση/παράταση/σύμβαση)`
+    );
+  }
+
+  const beforeEnd = latestContractEndDate(before);
+  const afterEnd = latestContractEndDate(after);
+  if (afterEnd && afterEnd !== beforeEnd) {
+    lines.push(`Ημ. λήξης υλοποίησης: ${afterEnd.split('-').reverse().join('/')} (νέα παράταση ή διόρθωση)`);
+  }
+
   if (statusAutoUpdated && before?.projectStatus !== after?.projectStatus) {
     lines.push(
       `Κατάσταση: ${before?.projectStatus || '—'} → ${after?.projectStatus || '—'} (πρόταση)`
@@ -234,6 +286,23 @@ export function buildKhmdhsRefreshChangeSummary(before, after, applyResult = {})
 
   if (String(before?.contractAmount || '') !== String(after?.contractAmount || '') && after?.contractAmount) {
     lines.push(`Ποσό σύμβασης: ${after.contractAmount} €`);
+  }
+
+  if (!String(before?.assignmentProcedure || '').trim() && String(after?.assignmentProcedure || '').trim()) {
+    lines.push(`Εντοπίστηκε διαδικασία ανάθεσης: ${after.assignmentProcedure}`);
+  }
+
+  if (apeConflict) {
+    lines.push(
+      `⚠️ Το καταχωρημένο ΑΠΕ (${apeConflict.current}) διαφέρει από αυτό που υπολογίζει το ΚΗΜΔΗΣ (${apeConflict.suggested}) — ελέγξτε το στην επεξεργασία.`
+    );
+  }
+
+  const beforePending = countPendingReviewItems(before);
+  const afterPending = countPendingReviewItems(after);
+  if (afterPending > beforePending) {
+    const diff = afterPending - beforePending;
+    lines.push(`⚠️ +${diff} νέ${diff === 1 ? 'ο σημείο' : 'α σημεία'} προς έλεγχο στα δεδομένα ΚΗΜΔΗΣ`);
   }
 
   if (protectedCount > 0) {

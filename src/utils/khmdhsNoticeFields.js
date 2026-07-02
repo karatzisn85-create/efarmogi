@@ -74,13 +74,21 @@ export function resolveKhmdhsNoticeAssignmentProcedure(snapshot) {
   return String(snap.typeOfProcedure || '').trim();
 }
 
-/** Διαδικασία ανάθεσης — ΚΗΜΔΗΣ snapshot ή χειροκίνητο πεδίο (όχι και τα δύο) */
+/** Διαδικασία ανάθεσης — χειροκίνητο πεδίο πρώτα, αλλιώς από snapshot δημοσίευσης */
 export function getProjectAssignmentProcedure(project) {
   if (!project) return '';
+  const manual = String(project.assignmentProcedure || '').trim();
+  if (manual) return manual;
   if (noticeDrivesAssignmentProcedure(project)) {
     return resolveKhmdhsNoticeAssignmentProcedure(project.khmdhsNoticeSnapshot);
   }
-  return String(project.assignmentProcedure || '').trim();
+  return '';
+}
+
+/** Ημ. έναρξης διαδικασίας σύμβασης — από πεδίο υποέργου (αυτόματο ή χειροκίνητο) */
+export function getProjectContractProcessStartDate(project) {
+  if (!project) return '';
+  return String(project.contractProcessStartDate || '').trim();
 }
 
 /** Μία γραμμή διαδικασίας για προβολή — χωρίς διπλό ΚΗΜΔΗΣ + εφαρμογή */

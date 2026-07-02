@@ -16,7 +16,7 @@ import {
   getKhmdhsSupplementaryStageEntries,
 } from './khmdhsSupplementaryStageEntries';
 import { getLatestContractApeAmount } from './khmdhsApeEntry';
-import { noticeDrivesAssignmentProcedure } from './khmdhsNoticeFields';
+import { noticeDrivesAssignmentProcedure, getProjectAssignmentProcedure } from './khmdhsNoticeFields';
 import {
   CHAIN_KIND,
   getChainKindChoice,
@@ -182,8 +182,8 @@ export function buildProjectCardContractRows(project) {
 
 export function shouldShowProcedureZone(project) {
   if (!project) return false;
-  const hasProcedure = !!String(project.assignmentProcedure || '').trim();
-  if (!hasProcedure) return false;
+  const procedure = getProjectAssignmentProcedure(project);
+  if (!procedure) return false;
   return statusShowsAssignmentProcedure(project.projectStatus)
     || noticeDrivesAssignmentProcedure(project);
 }

@@ -16,7 +16,7 @@ import {
   buildKhmdhsRequestCardSummary,
   pickKhmdhsRequestSnapshot,
 } from '../utils/khmdhsRequestFields';
-import { projectHasKhmdhsNoticeData, buildKhmdhsNoticeCardSummary } from '../utils/khmdhsNoticeFields';
+import { projectHasKhmdhsNoticeData, buildKhmdhsNoticeCardSummary, getProjectAssignmentProcedure } from '../utils/khmdhsNoticeFields';
 import {
   projectHasKhmdhsAwardData,
   buildKhmdhsAwardCardSummary,
@@ -96,8 +96,9 @@ function buildCommitSummary(project) {
 
 function buildProcSummary(project) {
   const s = buildKhmdhsNoticeCardSummary(project?.khmdhsNoticeSnapshot);
-  if (!s) return '';
-  const parts = [s.procedure, s.amount].filter(Boolean);
+  const procedure = getProjectAssignmentProcedure(project) || s?.procedure || '';
+  if (!s && !procedure) return '';
+  const parts = [procedure, s?.amount].filter(Boolean);
   return parts.join(' · ');
 }
 

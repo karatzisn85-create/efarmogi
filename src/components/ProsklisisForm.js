@@ -407,16 +407,38 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
   const handleFileSelect = async () => {
     try {
       const result = await safeFileDialog('select-file', 'Επιλογή Αρχείων Πρόσκλησης (PDF, Word)');
+      const pickedFiles = result.files?.length
+        ? result.files
+        : (result.filePath ? [{ filePath: result.filePath, fileName: result.fileName }] : []);
       
-      if (result.success && result.files) {
+      if (result.success && pickedFiles.length > 0) {
         // Όλα τα αρχεία πηγαίνουν στο "Επισυναπτόμενα"
-        const newFiles = result.files.map(file => ({
+        const newFiles = pickedFiles.map(file => ({
           filePath: file.filePath,
           fileName: file.fileName,
           targetFolder: 'attachments' // Πάντα στο Επισυναπτόμενα
         }));
+
+        const appendFiles = () => {
+          setFormData(prev => ({
+            ...prev,
+            prosklisiFiles: [...(prev.prosklisiFiles || []), ...newFiles]
+          }));
+        };
+
+        // Στην επεξεργασία: άμεση προσθήκη (χωρίς κρυφό modal ομαδοποίησης πίσω από τη φόρμα)
+        if (editingProsklisi) {
+          appendFiles();
+          showToast(
+            pickedFiles.length === 1
+              ? `Προστέθηκε το αρχείο «${pickedFiles[0].fileName}». Αποθηκεύστε για οριστική καταχώριση.`
+              : `Προστέθηκαν ${pickedFiles.length} αρχεία. Αποθηκεύστε για οριστική καταχώριση.`,
+            'success'
+          );
+          return;
+        }
         
-        // Απλό modal για επιλογή ομαδοποίησης
+        // Απλό modal για επιλογή ομαδοποίησης (μόνο σε νέα πρόσκληση)
         const groupingChoice = await showSimpleGroupingModal(newFiles.length, formData.fileGroups || []);
         
         if (groupingChoice !== null && groupingChoice !== false) {
@@ -436,18 +458,20 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
               ...prev,
               fileGroups: (prev.fileGroups || []).map(group => 
                 group.id === groupingChoice.groupId
-                  ? { ...group, files: [...group.files, ...newFiles] }
+                  ? { ...group, files: [...(group.files || []), ...newFiles] }
                   : group
               )
             }));
           }
         } else {
-          // Κανονική προσθήκη αρχείων χωρίς ομαδοποίηση
-          setFormData(prev => ({
-            ...prev,
-            prosklisiFiles: [...(prev.prosklisiFiles || []), ...newFiles]
-          }));
+          appendFiles();
         }
+        showToast(
+          pickedFiles.length === 1
+            ? `Προστέθηκε το αρχείο «${pickedFiles[0].fileName}». Αποθηκεύστε για οριστική καταχώριση.`
+            : `Προστέθηκαν ${pickedFiles.length} αρχεία. Αποθηκεύστε για οριστική καταχώριση.`,
+          'success'
+        );
       } else if (result.error) {
         showToast('Σφάλμα επιλογής αρχείου: ' + result.error, 'error');
       }
@@ -471,7 +495,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 10000;
+        z-index: 10150;
       `;
 
       const modalContent = document.createElement('div');
@@ -1072,6 +1096,11 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
 
               <FormGroup>
                 <Label>Αρχεία Πρόσκλησης (PDF, Word)</Label>
+                {editingProsklisi && (
+                  <p style={{ margin: '0 0 0.65rem', fontSize: '0.8rem', color: '#64748b', lineHeight: 1.45 }}>
+                    Τα ήδη αποθηκευμένα αρχεία εμφανίζονται από το μενού «Αρχεία». Εδώ προσθέτετε νέα — πατήστε Αποθήκευση για να καταχωρηθούν.
+                  </p>
+                )}
                 <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                   <FileSelectButton
                     type="button"
@@ -1082,7 +1111,9 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
                   </FileSelectButton>
                 </div>
                 
-                {(formData.prosklisiFiles && formData.prosklisiFiles.length > 0) || (formData.prosklisiFolders && formData.prosklisiFolders.length > 0) ? (
+                {(formData.prosklisiFiles && formData.prosklisiFiles.length > 0)
+                || (formData.fileGroups && formData.fileGroups.some((g) => (g.files || []).length > 0))
+                || (formData.prosklisiFolders && formData.prosklisiFolders.length > 0) ? (
                   <div style={{ marginTop: '1rem' }}>
                     {formData.prosklisiFiles && formData.prosklisiFiles.length > 0 && (
                       <>
@@ -1128,6 +1159,32 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
                         </button>
                       </div>
                     ))}
+                      </>
+                    )}
+
+                    {formData.fileGroups && formData.fileGroups.some((g) => (g.files || []).length > 0) && (
+                      <>
+                        <Label style={{ fontSize: '0.9rem', marginBottom: '0.5rem', marginTop: '0.5rem' }}>Ομάδες Αρχείων:</Label>
+                        {formData.fileGroups.map((group) => (
+                          (group.files || []).length > 0 ? (
+                            <div key={group.id} style={{
+                              padding: '0.65rem',
+                              background: '#eef2ff',
+                              border: '1px solid #c7d2fe',
+                              borderRadius: '8px',
+                              marginBottom: '0.5rem'
+                            }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.35rem', color: '#3730a3' }}>
+                                📁 {group.title}
+                              </div>
+                              {(group.files || []).map((file, fi) => (
+                                <div key={`${group.id}-${fi}`} style={{ fontSize: '0.82rem', color: '#334155', padding: '0.15rem 0' }}>
+                                  {String(file.fileName || '').endsWith('.pdf') ? '📄' : '📝'} {file.fileName}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null
+                        ))}
                       </>
                     )}
                     

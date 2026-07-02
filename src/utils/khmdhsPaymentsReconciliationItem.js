@@ -93,6 +93,7 @@ function paymentsFromStoredRecon(recon) {
   return (recon?.entries || []).map((e) => ({
     adam: e.adam,
     userDocumentRole: e.userDocumentRole || '',
+    ...(e.userActualAmount != null ? { userActualAmount: e.userActualAmount } : {}),
     snapshot: {
       referenceNumber: e.adam,
       organization: e.org || '',
@@ -157,7 +158,9 @@ function buildPaymentsReconciliationItem(payments, ctx) {
   let message;
   let status = STATUS.COMPLETE;
   let displayValue = formatDisplayAmount(
-    recon.hasUserClassification ? recon.countableTotalGross : recon.estimatedContractorPaymentGross
+    recon.hasUserClassification
+      ? recon.countableTotalGross
+      : (recon.hasActualAmounts ? recon.effectiveTotalGross : recon.estimatedContractorPaymentGross)
   );
 
   if (recon.needsClassification) {
@@ -184,6 +187,12 @@ function buildPaymentsReconciliationItem(payments, ctx) {
     if (recon.countableExceedsContract) {
       status = STATUS.NEEDS_REVIEW;
       message += ` Το ποσό που μετράει ακόμη υπερβαίνει ${refAmountDesc} — ελέγξτε ξανά τους χαρακτηρισμούς.${apeHint}`;
+    }
+  } else if (recon.hasActualAmounts) {
+    message = `Ορίστηκαν πραγματικά ποσά για ${recon.activeCount} εντάλματα — πραγματικό σύνολο: ${formatDisplayAmount(recon.effectiveTotalGross)} (δηλωμένο ΚΗΜΔΗΣ: ${formatDisplayAmount(recon.rawTotalGross)}).`;
+    if (recon.countableExceedsContract) {
+      status = STATUS.NEEDS_REVIEW;
+      message += ` Ακόμη και μετά τη διόρθωση, το σύνολο υπερβαίνει ${refAmountDesc} — ελέγξτε τα ποσά.${apeHint}`;
     }
   } else if (recon.hasMultiplePayers) {
     message = `Βρέθηκαν ${recon.activeCount} εντάλματα από διαφορετικούς φορείς. Το άθροισμα (${formatDisplayAmount(recon.rawTotalGross)}) δεν υπερβαίνει ${refAmountDesc}.`;
@@ -228,6 +237,7 @@ function buildPaymentsReconciliationItem(payments, ctx) {
           'Ανοίξτε κάθε έγγραφο στο ΚΗΜΔΗΣ (κουμπί Προβολή) και διαβάστε τον τίτλο.',
           'Χαρακτηρίστε: ένταλμα πληρωμής, ενημερωτικό, αποζημίωση συγχρηματοδότησης ή εξαίρεση.',
           'Μετρούν μόνο τα «Ένταλμα πληρωμής». Τα ενημερωτικά δεν προστίθενται στο άθροισμα.',
+          'Αν δύο εντάλματα αφορούν το ίδιο ποσό (π.χ. ένα για το καθαρό ποσό και ένα για τις κρατήσεις), συμπληρώστε το «Πραγματικό ποσό» για κάθε ένταλμα — η εφαρμογή θα αθροίσει τα πραγματικά αντί για το δηλωμένο ΚΗΜΔΗΣ.',
           'Σε έργα ΕΣΠΑ/ΠΕΠ, το ένταλμα του Περιφερειακού Ταμείου συχνά είναι αποζημίωση Δήμου — όχι δεύτερη πληρωμή εργολάβου.',
           ...(skippedUnrelated.length > 0
             ? ['Για τα εξαιρεθέντα εντάλματα: ελέγξτε αν ανήκουν σε συμπληρωματική σύμβαση αυτού του υποέργου.']

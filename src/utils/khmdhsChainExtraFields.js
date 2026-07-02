@@ -140,12 +140,16 @@ export function getKhmdhsPaymentEntries(project) {
       const snapshot = pickKhmdhsPaymentSnapshot(p?.snapshot);
       const org = snapshot?.organization || '';
       const userDocumentRole = p?.userDocumentRole || '';
+      const rawActual = p?.userActualAmount;
+      const actualNum = rawActual == null || rawActual === '' ? null : Number(rawActual);
+      const userActualAmount = Number.isFinite(actualNum) && actualNum > 0 ? actualNum : null;
       return {
         adam: String(p?.adam || snapshot?.referenceNumber || '').trim(),
         snapshot,
         error: p?.error || '',
         userDocumentRole,
         userDocumentLabel: String(p?.userDocumentLabel || '').trim(),
+        userActualAmount,
         payer: org ? classifyPaymentPayer(org, { contractingOrg }) : null,
       };
     })
@@ -156,6 +160,7 @@ export function getKhmdhsPaymentEntries(project) {
 export function getKhmdhsPaymentsDisplayAmountGross(totals) {
   if (!totals) return null;
   if (totals.hasUserClassification) return totals.countableTotalGross;
+  if (totals.hasActualAmounts) return totals.effectiveTotalGross;
   if (totals.coFinancingPattern?.estimatedContractorPayment != null) {
     return totals.estimatedContractorPaymentGross;
   }
@@ -170,6 +175,7 @@ export function buildKhmdhsPaymentsTotals(project) {
     withAmount: recon.activeCount,
     totalGross: recon.rawTotalGross,
     rawTotalGross: recon.rawTotalGross,
+    effectiveTotalGross: recon.effectiveTotalGross,
     countableTotalGross: recon.countableTotalGross,
     estimatedContractorPaymentGross: recon.estimatedContractorPaymentGross,
     coFinancingPattern: recon.coFinancingPattern,
@@ -178,6 +184,7 @@ export function buildKhmdhsPaymentsTotals(project) {
     needsReview: recon.needsReview,
     needsClassification: recon.needsClassification,
     hasUserClassification: recon.hasUserClassification,
+    hasActualAmounts: recon.hasActualAmounts,
     hasMultiplePayers: recon.hasMultiplePayers,
     entries: recon.entries,
   };

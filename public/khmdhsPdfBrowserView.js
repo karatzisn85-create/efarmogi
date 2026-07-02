@@ -1,4 +1,4 @@
-/** Λήψη PDF ΚΗΜΔΗΣ και προβολή στον προεπιλεγμένο browser (inline, όχι download dialog). */
+const { friendlyKhmdhsTransientHttpError } = require('./khmdhsHttpErrors');
 
 const fs = require('fs');
 const path = require('path');
@@ -49,7 +49,10 @@ function fetchUrlBuffer(url, redirects = 0) {
         }
         if (res.statusCode !== 200) {
           res.resume();
-          reject(new Error(`Το ΚΗΜΔΗΣ επέστρεψε σφάλμα (${res.statusCode})`));
+          const friendly = friendlyKhmdhsTransientHttpError(res.statusCode);
+          reject(new Error(
+            friendly || 'Προσωρινό πρόβλημα κατά την ανάκτηση του εγγράφου από το ΚΗΜΔΗΣ. Δοκιμάστε ξανά σε λίγο.'
+          ));
           return;
         }
         const chunks = [];

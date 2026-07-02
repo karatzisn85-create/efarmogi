@@ -7,6 +7,7 @@ import {
   normalizePaymentDocumentRole,
   paymentRoleCountsTowardTotal,
   readPaymentDocumentRoleFromPayment,
+  readPaymentActualAmountFromPayment,
 } from './khmdhsPaymentDocumentRoles';
 
 export const PAYER_TYPE = {
@@ -156,9 +157,13 @@ export function reconcileKhmdhsPayments(payments, opts = {}) {
     const org = snap?.organization || '';
     const payer = classifyPaymentPayer(org, { contractingOrg });
     const userDocumentRole = readPaymentDocumentRoleFromPayment(p);
+    const userActualAmount = readPaymentActualAmountFromPayment(p);
+    const effectiveAmount = userActualAmount != null ? userActualAmount : gross;
     return {
       adam: String(p?.adam || snap?.referenceNumber || '').trim(),
       gross,
+      userActualAmount,
+      effectiveAmount,
       org,
       payer,
       userDocumentRole,
@@ -171,19 +176,24 @@ export function reconcileKhmdhsPayments(payments, opts = {}) {
 
   const activeEntries = allEntries.filter((e) => e.active && e.gross != null);
   const rawTotalGross = activeEntries.reduce((s, e) => s + e.gross, 0);
+  const effectiveTotalGross = activeEntries.reduce((s, e) => s + (e.effectiveAmount ?? e.gross), 0);
+  const hasActualAmounts = activeEntries.some((e) => e.userActualAmount != null);
   const coFinancingPattern = detectCoFinancingPattern(activeEntries, contractAmountGross);
 
   const classifiedEntries = activeEntries.filter((e) => e.userDocumentRole);
   const hasUserClassification = classifiedEntries.length > 0;
+  const hasUserAdjustment = hasUserClassification || hasActualAmounts;
   const countableEntries = activeEntries.filter((e) => {
     if (!e.userDocumentRole) return true;
     return paymentRoleCountsTowardTotal(e.userDocumentRole);
   });
-  const countableTotalGross = countableEntries.reduce((s, e) => s + e.gross, 0);
+  const countableTotalGross = countableEntries.reduce((s, e) => s + (e.effectiveAmount ?? e.gross), 0);
 
   let estimatedContractorPaymentGross = rawTotalGross;
   if (hasUserClassification) {
     estimatedContractorPaymentGross = countableTotalGross;
+  } else if (hasActualAmounts) {
+    estimatedContractorPaymentGross = effectiveTotalGross;
   } else if (coFinancingPattern?.estimatedContractorPayment != null) {
     estimatedContractorPaymentGross = coFinancingPattern.estimatedContractorPayment;
   }
@@ -196,9 +206,9 @@ export function reconcileKhmdhsPayments(payments, opts = {}) {
     && estimatedContractorPaymentGross > contractAmountGross + tolerance;
 
   const needsClassification = rawExceedsContract && (
-    !hasUserClassification
+    !hasUserAdjustment
     || countableExceedsContract
-    || classifiedEntries.length < activeEntries.length
+    || (hasUserClassification && classifiedEntries.length < activeEntries.length)
   );
 
   return {
@@ -206,6 +216,7 @@ export function reconcileKhmdhsPayments(payments, opts = {}) {
     activeCount: activeEntries.length,
     count: allEntries.length,
     rawTotalGross,
+    effectiveTotalGross,
     countableTotalGross,
     estimatedContractorPaymentGross,
     coFinancingPattern,
@@ -215,6 +226,7 @@ export function reconcileKhmdhsPayments(payments, opts = {}) {
     needsReview: needsClassification,
     needsClassification,
     hasUserClassification,
+    hasActualAmounts,
     contractAmountGross,
     hasMultiplePayers: new Set(activeEntries.map((e) => e.payer.type)).size > 1,
   };

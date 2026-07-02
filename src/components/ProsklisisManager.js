@@ -1036,6 +1036,57 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
   const [menuState, setMenuState] = useState({ open: false, top: 0, left: 0, type: null, prosklisi: null });
   const [textDetailModal, setTextDetailModal] = useState(null);
 
+  const listScrollRef = useRef(null);
+  const savedListScroll = useRef(0);
+  const shouldRestoreListScroll = useRef(false);
+  const [listScrollRestoreTick, setListScrollRestoreTick] = useState(0);
+
+  const captureListScroll = useCallback(() => {
+    if (listScrollRef.current) {
+      savedListScroll.current = listScrollRef.current.scrollTop;
+    }
+  }, []);
+
+  const requestListScrollRestore = useCallback(() => {
+    shouldRestoreListScroll.current = true;
+    setListScrollRestoreTick((t) => t + 1);
+  }, []);
+
+  const nestedModalOpen = isFormOpen
+    || fileManagerOpen.isOpen
+    || isModificationFormOpen
+    || Boolean(textDetailModal);
+
+  useEffect(() => {
+    if (!shouldRestoreListScroll.current || nestedModalOpen) return undefined;
+    const el = listScrollRef.current;
+    if (!el) return undefined;
+    const y = savedListScroll.current;
+    const apply = () => { el.scrollTop = y; };
+    apply();
+    const t1 = setTimeout(apply, 50);
+    const t2 = setTimeout(apply, 200);
+    const t3 = setTimeout(() => {
+      apply();
+      shouldRestoreListScroll.current = false;
+    }, 420);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [nestedModalOpen, listScrollRestoreTick, loading, filteredProskliseis.length]);
+
+  const openTextDetailModal = useCallback((payload) => {
+    captureListScroll();
+    setTextDetailModal(payload);
+  }, [captureListScroll]);
+
+  const closeTextDetailModal = useCallback(() => {
+    setTextDetailModal(null);
+    requestListScrollRestore();
+  }, [requestListScrollRestore]);
+
   const toggleModsExpanded = useCallback((prosklisiId, count) => {
     setModsExpanded((prev) => {
       const isOpen = prev[prosklisiId] !== undefined ? prev[prosklisiId] : defaultModsExpanded(count);
@@ -1239,6 +1290,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       await loadProskliseis();
       setIsFormOpen(false);
       setEditingProsklisi(null);
+      requestListScrollRestore();
     } catch (error) {
       console.error('Error saving prosklisi:', error);
       showToast('Σφάλμα αποθήκευσης πρόσκλησης: ' + error.message, 'error');
@@ -1272,7 +1324,11 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
     try {
       await ipcRenderer.invoke('save-prosklisi-modification', modificationData);
       if (modificationData.changes && Object.keys(modificationData.changes).length > 0) {
+        const baseProsklisi = proskliseis.find(
+          (p) => p.prosklisiId === modificationData.originalProsklisiId
+        ) || {};
         const updatedProsklisiData = {
+          ...baseProsklisi,
           prosklisiId: modificationData.originalProsklisiId,
           title: modificationData.modifiedData.title,
           axis: modificationData.modifiedData.axis,
@@ -1288,6 +1344,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       await loadProskliseis();
       setEditingModification(null);
       setIsModificationFormOpen(false);
+      requestListScrollRestore();
     } catch (error) {
       console.error('Error saving modification:', error);
       showToast('Σφάλμα αποθήκευσης τροποποίησης: ' + error.message, 'error');
@@ -1304,6 +1361,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
   const handleEditProsklisi = async (prosklisi) => {
     closeMenu();
     if (!(await tryAcquireProsklisiLock(prosklisi))) return;
+    captureListScroll();
     setEditingProsklisi(prosklisi);
     setIsFormOpen(true);
   };
@@ -1322,6 +1380,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
   const handleViewFiles = (prosklisiId) => {
     const prosklisi = proskliseis.find(p => p.prosklisiId === prosklisiId);
     if (!prosklisi) { showToast('Δεν βρέθηκε η πρόσκληση', 'error'); return; }
+    captureListScroll();
     setFileManagerOpen({ isOpen: true, prosklisiId, prosklisiTitle: prosklisi.title });
   };
 
@@ -1339,6 +1398,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       return;
     }
     if (!(await tryAcquireProsklisiLock(prosklisi))) return;
+    captureListScroll();
     setEditingModification({ ...modification, prosklisiId, originalProsklisiData: prosklisi });
     setIsModificationFormOpen(true);
   };
@@ -1362,12 +1422,14 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       await loadProskliseis();
       setEditingModification(null);
       setIsModificationFormOpen(false);
+      requestListScrollRestore();
     } catch (error) { showToast('Σφάλμα ενημέρωσης τροποποίησης: ' + error.message, 'error'); }
   };
 
   const handleNewModification = async (prosklisi) => {
     closeMenu();
     if (!(await tryAcquireProsklisiLock(prosklisi))) return;
+    captureListScroll();
     setEditingModification(prosklisi);
     setIsModificationFormOpen(true);
   };
@@ -1442,7 +1504,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
 
           <ActionsBar>
             {canManageWorkflow && (
-              <ToolbarActionButton type="button" primary onClick={() => { setEditingProsklisi(null); setIsFormOpen(true); }}>
+              <ToolbarActionButton type="button" primary onClick={() => { captureListScroll(); setEditingProsklisi(null); setIsFormOpen(true); }}>
                 ➕ Νέα Πρόσκληση
               </ToolbarActionButton>
             )}
@@ -1507,7 +1569,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
           )}
         </ModalTopSection>
 
-        <ModalScrollSection>
+        <ModalScrollSection ref={listScrollRef}>
           {loading ? (
             <LoadingMessage>Φόρτωση προσκλήσεων...</LoadingMessage>
           ) : filteredProskliseis.length === 0 ? (
@@ -1568,7 +1630,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                                     text={prosklisi.axis}
                                     modalTitle="Άξονας / Δράση"
                                     lineClamp={2}
-                                    onOpen={setTextDetailModal}
+                                    onOpen={openTextDetailModal}
                                   />
                                 )}
 
@@ -1679,7 +1741,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                                             modalTitle={`Τροποποίηση #${index + 1} — Περιγραφή`}
                                             singleLine
                                             TextComponent={ModComment}
-                                            onOpen={setTextDetailModal}
+                                            onOpen={openTextDetailModal}
                                           />
                                         )}
                                       </ModTableMain>
@@ -1744,11 +1806,11 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
 
       {/* SeeMoreText detail modal */}
       {textDetailModal && (
-        <TextDetailOverlay onClick={() => setTextDetailModal(null)}>
+        <TextDetailOverlay onClick={closeTextDetailModal}>
           <TextDetailCard onClick={(e) => e.stopPropagation()}>
             <TextDetailTitle>{textDetailModal.title}</TextDetailTitle>
             <TextDetailBody>{textDetailModal.text}</TextDetailBody>
-            <TextDetailClose onClick={() => setTextDetailModal(null)}>Κλείσιμο</TextDetailClose>
+            <TextDetailClose onClick={closeTextDetailModal}>Κλείσιμο</TextDetailClose>
           </TextDetailCard>
         </TextDetailOverlay>
       )}
@@ -1765,6 +1827,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
             setIsFormOpen(false);
             setEditingProsklisi(null);
             await loadProskliseis();
+            requestListScrollRestore();
           }}
           onSave={handleSaveProsklisi}
           onSaveModification={handleSaveModification}
@@ -1775,7 +1838,10 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       {/* File Manager Modal */}
       <ProsklisisFileManager
         isOpen={fileManagerOpen.isOpen}
-        onClose={() => setFileManagerOpen({ isOpen: false, prosklisiId: null, prosklisiTitle: '' })}
+        onClose={() => {
+          setFileManagerOpen({ isOpen: false, prosklisiId: null, prosklisiTitle: '' });
+          requestListScrollRestore();
+        }}
         prosklisiId={fileManagerOpen.prosklisiId}
         prosklisiTitle={fileManagerOpen.prosklisiTitle}
         userRole={userRole}
@@ -1794,6 +1860,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
             setIsModificationFormOpen(false);
             setEditingModification(null);
             await loadProskliseis();
+            requestListScrollRestore();
           }}
           onSave={editingModification.modificationId ? handleSaveModificationEdit : handleSaveModification}
           originalProsklisi={editingModification}

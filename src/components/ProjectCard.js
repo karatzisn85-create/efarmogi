@@ -20,6 +20,7 @@ import {
   shouldShowProcedureZone,
   formatAleCodes,
 } from '../utils/projectCardDisplay';
+import { getProjectAssignmentProcedure } from '../utils/khmdhsNoticeFields';
 import { evaluateKhmdhsContractExpiryPrompt } from '../utils/khmdhsContractExpiryPrompt';
 import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
 
@@ -1570,7 +1571,7 @@ function ProjectCard({
         {showProcedureZone && (
           <CardSection $accent="#6366f1" $tint="rgba(238, 242, 255, 0.35)">
             <SectionHeader>Διαδικασία ανάθεσης</SectionHeader>
-            <MetaValue style={{ color: '#4338ca', fontSize: '0.86rem' }}>{project.assignmentProcedure}</MetaValue>
+            <MetaValue style={{ color: '#4338ca', fontSize: '0.86rem' }}>{getProjectAssignmentProcedure(project)}</MetaValue>
           </CardSection>
         )}
 

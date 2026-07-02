@@ -49,6 +49,8 @@ import {
   buildDefaultPaymentRoleDraft,
   mergePaymentLabelsFromProject,
   mergePaymentRolesFromProject,
+  mergePaymentAmountsFromProject,
+  suggestPaymentActualAmount,
   paymentRoleCountsTowardTotal,
   validatePaymentRoleDraft,
 } from '../utils/khmdhsPaymentDocumentRoles';
@@ -385,6 +387,28 @@ const PaymentLabelInput = styled.input`
   background: #fff;
   font-size: 0.76rem;
   font-family: inherit;
+`;
+
+const PaymentAmountField = styled.label`
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 170px;
+  font-size: 0.66rem;
+  color: #475569;
+  font-weight: 600;
+`;
+
+const PaymentAmountInput = styled.input`
+  width: 100%;
+  padding: 0.38rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid ${(p) => (p.$adjusted ? '#0d9488' : '#cbd5e1')};
+  background: ${(p) => (p.$adjusted ? '#f0fdfa' : '#fff')};
+  font-size: 0.8rem;
+  font-family: inherit;
+  font-weight: 700;
+  color: #0f172a;
 `;
 
 const PaymentClassSummary = styled.div`
@@ -1626,12 +1650,25 @@ function ReviewFieldEditor({ inputKind, draft, onChange, placeholder = '', onBlu
   );
 }
 
+function formatAmountInput(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  return n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function parseAmountInput(str) {
+  if (str == null || String(str).trim() === '') return NaN;
+  const cleaned = String(str).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? n : NaN;
+}
+
 function PaymentClassificationCard({
   item, formData, review, onResolve, stepIndex = null, highlight = false, wizard = false,
 }) {
   const action = getReviewActionDescriptor(item);
   const guide = getReviewItemUserGuide(item);
-  const recon = item?.paymentsReconciliation || {};
+  const recon = useMemo(() => item?.paymentsReconciliation || {}, [item]);
   const itemKey = reviewItemKey(item);
   const steps = normalizeReviewSearchSteps(item, action);
   const existingRoles = useMemo(
@@ -1651,47 +1688,89 @@ function PaymentClassificationCard({
     return map;
   }, [formData?.khmdhsPayments]);
 
+  const existingAmounts = useMemo(
+    () => mergePaymentAmountsFromProject(formData, review, item),
+    [formData, review, item]
+  );
+
+  const buildAmountDraft = useCallback((snapshotsMap, savedAmounts) => {
+    const draft = {};
+    (recon.entries || []).filter((e) => e?.active && e?.adam).forEach((e) => {
+      const adam = String(e.adam || '').trim().toUpperCase();
+      const saved = savedAmounts?.[adam];
+      if (saved != null) {
+        draft[adam] = formatAmountInput(saved);
+        return;
+      }
+      const snap = snapshotsMap.get(adam);
+      const suggestion = suggestPaymentActualAmount(snap?.title || '', e.gross);
+      draft[adam] = (suggestion != null && Math.abs(suggestion - (e.gross || 0)) > 0.5)
+        ? formatAmountInput(suggestion)
+        : '';
+    });
+    return draft;
+  }, [recon.entries]);
+
   const [roleDraft, setRoleDraft] = useState(() => {
     const defaults = buildDefaultPaymentRoleDraft(recon.entries, recon.coFinancingPattern);
     return { ...defaults, ...existingRoles };
   });
   const [labelDraft, setLabelDraft] = useState(() => ({ ...existingLabels }));
+  const [amountDraft, setAmountDraft] = useState(() => buildAmountDraft(paymentSnapshots, existingAmounts));
 
   useEffect(() => {
     const defaults = buildDefaultPaymentRoleDraft(recon.entries, recon.coFinancingPattern);
     setRoleDraft({ ...defaults, ...mergePaymentRolesFromProject(formData, review, item) });
     setLabelDraft({ ...mergePaymentLabelsFromProject(formData, review, item) });
-  }, [itemKey, review?.generatedAt, formData, item, recon.entries, recon.coFinancingPattern]);
+    setAmountDraft(buildAmountDraft(paymentSnapshots, mergePaymentAmountsFromProject(formData, review, item)));
+  }, [itemKey, review?.generatedAt, formData, item, recon.entries, recon.coFinancingPattern, buildAmountDraft, paymentSnapshots]);
 
   const activeEntries = (recon.entries || []).filter((e) => e?.active && e?.adam);
   const countableTotal = activeEntries.reduce((sum, e) => {
     const adam = String(e.adam || '').trim().toUpperCase();
     const role = roleDraft[adam];
     if (!role || !paymentRoleCountsTowardTotal(role)) return sum;
-    return sum + (e.gross || 0);
+    const parsed = parseAmountInput(amountDraft[adam]);
+    const eff = Number.isFinite(parsed) && parsed > 0 ? parsed : (e.gross || 0);
+    return sum + eff;
   }, 0);
   const validation = validatePaymentRoleDraft(recon.entries, roleDraft);
   const payable = recon.contractAmountGross;
   const exceedsAfterClassify = payable != null && countableTotal > payable + 0.5;
+
+  const buildAmountsMeta = () => {
+    const out = {};
+    activeEntries.forEach((e) => {
+      const adam = String(e.adam || '').trim().toUpperCase();
+      const raw = amountDraft[adam];
+      if (raw == null || String(raw).trim() === '') {
+        out[adam] = '';
+        return;
+      }
+      const parsed = parseAmountInput(raw);
+      out[adam] = Number.isFinite(parsed) && parsed > 0 ? parsed : '';
+    });
+    return out;
+  };
 
   const handleSave = () => {
     if (!validation.ok || !onResolve) return;
     onResolve(item, {
       value: 'classified',
       source: KHMDHS_RESOLUTION_SOURCE.USER_CONFIRMED,
-      meta: { paymentRoles: roleDraft, paymentLabels: labelDraft },
+      meta: { paymentRoles: roleDraft, paymentLabels: labelDraft, paymentAmounts: buildAmountsMeta() },
     });
   };
 
   const handleSaveAcknowledgedExceed = async () => {
     if (!validation.ok || !onResolve || !exceedsAfterClassify) return;
     const ok = await showConfirm({
-      title: 'Αποθήκευση με διαφορά',
-      message: 'Το άθροισμα των ενταλμάτων που μετρούν υπερβαίνει το τελικό πληρωτέο ποσό.',
+      title: 'Αποθήκευση με αποδοχή υπέρβασης',
+      message: 'Το άθροισμα των ενταλμάτων υπερβαίνει το τρέχον πληρωτέο ποσό αναφοράς.',
       detail: payable != null
-        ? `Μετά τους χαρακτηρισμούς: ${formatKhmdhsEuro(countableTotal)} έναντι ${formatKhmdhsEuro(payable)}. Θα αποθηκευτούν οι χαρακτηρισμοί σας όπως είναι — η διαφορά θα παραμείνει καταγεγραμμένη.`
+        ? `Σύνολο εκτίμησης: ${formatKhmdhsEuro(countableTotal)} — αναφορά: ${formatKhmdhsEuro(payable)}.\n\nΑυτό μπορεί να οφείλεται σε ΑΠΕ ή συμπληρωματικές συμβάσεις που δεν έχουν καταχωρηθεί ακόμα. Οι χαρακτηρισμοί σας θα αποθηκευτούν και μπορείτε να επανελέγξετε αφού συμπληρώσετε τα υπόλοιπα στοιχεία.`
         : 'Θα αποθηκευτούν οι χαρακτηρισμοί σας όπως είναι.',
-      confirmLabel: 'Αποθήκευση έτσι',
+      confirmLabel: 'Αποθήκευση',
       cancelLabel: 'Άκυρο',
       danger: false,
       icon: '⚠️',
@@ -1703,6 +1782,7 @@ function PaymentClassificationCard({
       meta: {
         paymentRoles: roleDraft,
         paymentLabels: labelDraft,
+        paymentAmounts: buildAmountsMeta(),
         acknowledgedPayableExceeds: true,
       },
     });
@@ -1739,6 +1819,11 @@ function PaymentClassificationCard({
           <> · Μετά τους χαρακτηρισμούς: {formatKhmdhsEuro(countableTotal)} / {formatKhmdhsEuro(payable)}</>
         )}
         {exceedsAfterClassify && ' — το ποσό που μετράει ακόμη υπερβαίνει το τελικό πληρωτέο.'}
+        <div style={{ marginTop: '0.35rem', fontWeight: 600 }}>
+          💡 Αν ένα ένταλμα πληρώνει μόνο μέρος του ποσού (π.χ. το καθαρό στον ανάδοχο ή μόνο τις
+          κρατήσεις), γράψτε το πραγματικό ποσό στο αντίστοιχο πεδίο. Όπου βρέθηκε ποσό μέσα στον τίτλο,
+          έχει προσυμπληρωθεί — ελέγξτε το. Αφήστε το κενό για να μετρήσει το ποσό του ΚΗΜΔΗΣ.
+        </div>
       </PaymentClassSummary>
 
       <PaymentPreviewList>
@@ -1774,6 +1859,21 @@ function PaymentClassificationCard({
                 onChange={(e) => setLabelDraft((prev) => ({ ...prev, [adam]: e.target.value }))}
                 placeholder="Δική σας ονομασία (προαιρετικά)"
               />
+              <PaymentAmountField>
+                Πραγματικό ποσό (με ΦΠΑ)
+                <PaymentAmountInput
+                  type="text"
+                  inputMode="decimal"
+                  $adjusted={(() => {
+                    const parsed = parseAmountInput(amountDraft[adam]);
+                    return Number.isFinite(parsed) && parsed > 0 && Math.abs(parsed - (entry.gross || 0)) > 0.5;
+                  })()}
+                  value={amountDraft[adam] || ''}
+                  onChange={(e) => setAmountDraft((prev) => ({ ...prev, [adam]: e.target.value }))}
+                  placeholder={entry.gross != null ? formatAmountInput(entry.gross) : 'π.χ. 27.836,89'}
+                  title="Αφήστε το κενό για να μετρήσει το ποσό του ΚΗΜΔΗΣ. Συμπληρώστε το όταν το ένταλμα πληρώνει μέρος του ποσού (π.χ. καθαρό ή μόνο κρατήσεις)."
+                />
+              </PaymentAmountField>
               <MiniBtn
                 type="button"
                 onClick={async () => {
@@ -1796,20 +1896,16 @@ function PaymentClassificationCard({
         <MiniBtn
           type="button"
           $primary
-          onClick={handleSave}
-          disabled={!validation.ok || exceedsAfterClassify}
+          onClick={exceedsAfterClassify ? handleSaveAcknowledgedExceed : handleSave}
+          disabled={!validation.ok}
+          title={exceedsAfterClassify
+            ? 'Αποθηκεύει τους χαρακτηρισμούς σας με αποδοχή της διαφοράς — μπορείτε να επανελέγξετε αφού καταχωρήσετε ΑΠΕ ή συμπληρωματικές'
+            : undefined}
         >
-          {action.saveLabel || 'Αποθήκευση χαρακτηρισμών'}
+          {exceedsAfterClassify
+            ? '⚠️ Αποθήκευση — αποδοχή υπέρβασης'
+            : (action.saveLabel || 'Αποθήκευση χαρακτηρισμών')}
         </MiniBtn>
-        {exceedsAfterClassify && validation.ok && (
-          <MiniBtn
-            type="button"
-            onClick={handleSaveAcknowledgedExceed}
-            title="Αποθηκεύει τους τρέχοντες χαρακτηρισμούς χωρίς να αλλάξετε ποιο έγγραφο μετράει"
-          >
-            Αποθήκευση έτσι όπως είναι
-          </MiniBtn>
-        )}
       </ActionCtaRow>
     </ItemRow>
   );
@@ -1820,6 +1916,7 @@ function PaymentClassificationResolvedCard({ item, review, formData, onRevoke })
   const resolution = review?.resolutions?.[key];
   const roles = mergePaymentRolesFromProject(formData, review, item);
   const labels = mergePaymentLabelsFromProject(formData, review, item);
+  const amounts = mergePaymentAmountsFromProject(formData, review, item);
   const entries = (item?.paymentsReconciliation?.entries || []).filter((e) => e?.active && e?.adam);
 
   if (!resolution) return null;
@@ -1845,12 +1942,15 @@ function PaymentClassificationResolvedCard({ item, review, formData, onRevoke })
           const adam = String(entry.adam || '').trim().toUpperCase();
           const role = roles[adam];
           const custom = labels[adam];
+          const actual = amounts[adam];
+          const hasActual = actual != null && Math.abs(actual - (entry.gross || 0)) > 0.5;
           const roleLabel = PAYMENT_DOCUMENT_ROLE_LABELS[role] || role || '—';
           return (
             <PaymentPreviewRow key={adam}>
               <span>
                 <strong>Έγγραφο {idx + 1}</strong> · <code>{adam}</code>
                 {entry.gross != null ? ` · ${formatKhmdhsEuro(entry.gross)}` : ''}
+                {hasActual ? ` · πραγματικό: ${formatKhmdhsEuro(actual)}` : ''}
                 <div style={{ marginTop: '0.2rem', color: '#475569' }}>
                   {custom ? `Ονομασία: ${custom}` : roleLabel}
                 </div>

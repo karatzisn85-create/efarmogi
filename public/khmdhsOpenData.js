@@ -9,6 +9,11 @@ const {
   grossFromCostSnapshot,
   KHMDHS_VAT_RATE,
 } = require('./khmdhsVatHelper');
+const {
+  friendlyKhmdhsInvalidResponseError,
+  friendlyKhmdhsTransientHttpError,
+  resolveKhmdhsHttpError,
+} = require('./khmdhsHttpErrors');
 
 /** Καταστάσεις με υπογεγραμμένη σύμβαση — ο ΑΔΑΜ διατηρείται μεταξύ τους */
 const STATUSES_WITH_KHMDHS_ADAM = [
@@ -82,7 +87,11 @@ function friendlyKhmdhsNoticeError(message, httpStatus) {
   if (httpStatus === 404) {
     return 'Δεν βρέθηκε προκήρυξη/πρόσκληση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ.';
   }
-  return raw || `Σφάλμα επικοινωνίας με το ΚΗΜΔΗΣ (HTTP ${httpStatus}).`;
+  return resolveKhmdhsHttpError(
+    raw,
+    httpStatus,
+    () => `Σφάλμα επικοινωνίας με το ΚΗΜΔΗΣ (HTTP ${httpStatus}).`
+  );
 }
 
 /** Αντιστοίχιση διαδικασίας ΚΗΜΔΗΣ → λίστα εφαρμογής */
@@ -274,7 +283,7 @@ async function fetchKhmdhsNoticeByAdam(adamRaw) {
   try {
     json = JSON.parse(text);
   } catch {
-    return { success: false, error: `Μη έγκυρη απάντηση από τον διακομιστή ΚΗΜΔΗΣ (HTTP ${res.status}).` };
+    return { success: false, error: friendlyKhmdhsInvalidResponseError(res.status) };
   }
   if (!res.ok) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
@@ -365,7 +374,11 @@ function friendlyKhmdhsRequestError(message, httpStatus) {
   if (httpStatus === 404) {
     return 'Δεν βρέθηκε αίτημα (REQ) με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ.';
   }
-  return raw || `Σφάλμα επικοινωνίας με το ΚΗΜΔΗΣ (HTTP ${httpStatus}).`;
+  return resolveKhmdhsHttpError(
+    raw,
+    httpStatus,
+    () => `Σφάλμα επικοινωνίας με το ΚΗΜΔΗΣ (HTTP ${httpStatus}).`
+  );
 }
 
 async function fetchKhmdhsRequestByAdam(adamRaw) {
@@ -397,7 +410,7 @@ async function fetchKhmdhsRequestByAdam(adamRaw) {
   try {
     json = JSON.parse(text);
   } catch {
-    return { success: false, error: `Μη έγκυρη απάντηση από τον διακομιστή ΚΗΜΔΗΣ (HTTP ${res.status}).` };
+    return { success: false, error: friendlyKhmdhsInvalidResponseError(res.status) };
   }
   if (!res.ok) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
@@ -449,7 +462,11 @@ function friendlyKhmdhsError(message, httpStatus) {
   if (httpStatus === 404) {
     return 'Δεν βρέθηκε σύμβαση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ (ανοικτό API).';
   }
-  return raw || `Σφάλμα επικοινωνίας με το ΚΗΜΔΗΣ (HTTP ${httpStatus}).`;
+  return resolveKhmdhsHttpError(
+    raw,
+    httpStatus,
+    () => `Σφάλμα επικοινωνίας με το ΚΗΜΔΗΣ (HTTP ${httpStatus}).`
+  );
 }
 
 /** Πλήρη snapshot σύμβασης από ΚΗΜΔΗΣ */
@@ -596,7 +613,7 @@ async function fetchKhmdhsAuctionByAdam(adamRaw) {
   try {
     json = JSON.parse(text);
   } catch {
-    return { success: false, error: `Μη έγκυρη απάντηση από ΚΗΜΔΗΣ (HTTP ${res.status}).` };
+    return { success: false, error: friendlyKhmdhsInvalidResponseError(res.status) };
   }
   if (!res.ok) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
@@ -855,7 +872,7 @@ async function fetchKhmdhsContractByAdam(adamRaw) {
   try {
     json = JSON.parse(text);
   } catch {
-    return { success: false, error: `Μη έγκυρη απάντηση από τον διακομιστή ΚΗΜΔΗΣ (HTTP ${res.status}).` };
+    return { success: false, error: friendlyKhmdhsInvalidResponseError(res.status) };
   }
   if (!res.ok) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
@@ -955,11 +972,11 @@ async function fetchKhmdhsPaymentByAdam(adamRaw) {
   try {
     json = JSON.parse(text);
   } catch {
-    return { success: false, error: `Μη έγκυρη απάντηση από τον διακομιστή ΚΗΜΔΗΣ (HTTP ${res.status}).` };
+    return { success: false, error: friendlyKhmdhsInvalidResponseError(res.status) };
   }
   if (!res.ok) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
-    return { success: false, error: typeof msg === 'string' ? msg : String(msg) };
+    return { success: false, error: friendlyKhmdhsError(typeof msg === 'string' ? msg : String(msg), res.status) };
   }
   const content = json.content;
   if (!Array.isArray(content) || content.length === 0) {
@@ -999,7 +1016,7 @@ async function fetchKhmdhsAdamChain(adamRaw) {
   clearTimeout(timeoutId);
   const json = await res.json().catch(() => null);
   if (!res.ok) {
-    return { success: false, error: (json && json.message) || `HTTP ${res.status}` };
+    return { success: false, error: friendlyKhmdhsError(json?.message, res.status) };
   }
   if (!json) {
     return { success: false, error: 'Το ΚΗΜΔΗΣ επέστρεψε μη έγκυρη απόκριση στην αλυσίδα ΑΔΑΜ.' };

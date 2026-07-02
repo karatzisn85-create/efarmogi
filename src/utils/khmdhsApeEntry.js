@@ -260,7 +260,6 @@ function legacyApePatchFromEntries(entries) {
     apeEntries: entries,
     apeAmount: latest.apeAmount || '',
     apeComments: latest.comments || '',
-    comments: latest.comments || '',
     apeSourceAdam: latest.apeSourceAdam || '',
     apeDiavgeiaAda: latest.apeDiavgeiaAda || '',
     apeDocumentDate: latest.documentDate || '',
@@ -968,4 +967,32 @@ export function buildApeEntryModalSnapshot({
 export function isApeEntryModalDirty(current, baseline) {
   if (!baseline) return false;
   return buildApeEntryModalSnapshot(current) !== baseline;
+}
+
+/**
+ * Καθαρισμός παλιών δεδομένων όπου τα σχόλια ΑΠΕ είχαν αντιγραφεί λάθος
+ * στα γενικά σχόλια υποέργου/σύμβασης (legacy bug).
+ */
+export function sanitizeLegacyApeCommentsPollution(form) {
+  if (!form) return form;
+  let next = form;
+  const rootApe = String(form.apeComments || '').trim();
+  const rootComments = String(form.comments || '').trim();
+  if (rootApe && rootComments === rootApe) {
+    next = { ...next, comments: '' };
+  }
+  if (isMultipleContractsForm(form.implementationForm) && Array.isArray(form.contracts)) {
+    let changed = false;
+    const contracts = form.contracts.map((row) => {
+      const apeNote = String(row?.apeComments || '').trim();
+      const rowComments = String(row?.comments || '').trim();
+      if (apeNote && rowComments === apeNote) {
+        changed = true;
+        return { ...row, comments: '' };
+      }
+      return row;
+    });
+    if (changed) next = { ...next, contracts };
+  }
+  return next;
 }

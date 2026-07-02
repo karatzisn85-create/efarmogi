@@ -37,6 +37,7 @@ import {
   readContractApeFields,
   readSupplementaryApeFields,
   readApeFileRef,
+  sanitizeLegacyApeCommentsPollution,
 } from '../utils/khmdhsApeEntry';
 import {
   pickKhmdhsNoticeSnapshot,
@@ -59,6 +60,7 @@ import {
   checkProjectDirectAssignmentCompliance,
   formatViolationSummary
 } from '../utils/directAssignmentCompliance';
+import { isAppDateBefore } from '../utils/dateFormat';
 import {
   pickPhaseASnapshot,
   serializePhaseASnapshot,
@@ -2793,7 +2795,9 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         khmdhsAcknowledgedSituationIds: Array.isArray(editingProject.khmdhsAcknowledgedSituationIds) ? editingProject.khmdhsAcknowledgedSituationIds : [],
       }, editingProject.khmdhsDataQualityReview || null)
       );
-      const sanitizedLoadedForm = stripOrphanKhmdhsSymvPlan(loadedForm);
+      const sanitizedLoadedForm = sanitizeLegacyApeCommentsPollution(
+        stripOrphanKhmdhsSymvPlan(loadedForm)
+      );
       const withSymvDqr = (
         sanitizedLoadedForm.khmdhsSymvChainPlan?.items?.length
         && sanitizedLoadedForm.khmdhsDataQualityReview
@@ -2815,7 +2819,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       setFormData(withSymvDqr);
       savedFormFingerprintRef.current = buildProjectFormFingerprint(withSymvDqr, { selectedFilesCount: 0 });
       queueContractExpiryPrompt(withSymvDqr);
-      setManualPhaseBaseline(serializePhaseASnapshot(pickPhaseASnapshot({
+      setManualPhaseBaseline(serializePhaseASnapshot(pickPhaseASnapshot(
+        sanitizeLegacyApeCommentsPollution({
         ...editingProject,
         aleCodes,
         aleRemainingAmounts,
@@ -2824,7 +2829,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         supervisorChargeOutsideEngineers,
         supervisorChargeFreePrimary: supervisorChargeOutsideEngineers ? mergedFree || fp0 : fp0,
         supervisorChargeFreeParticipants: supervisorChargeOutsideEngineers ? '' : fpart0,
-      })));
+        })
+      )));
       setManualPhaseSavedOnce(true);
       setActivePhaseTab('B');
     } else {
@@ -3307,27 +3313,28 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     // Validate contract process start date if status is "ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ"
     // Check if contractProcessStartDate is before contractDate (if contractDate exists)
     // This validation applies to all statuses from "ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ" onwards
-    if (fd.projectStatus && PROJECT_STATUSES.indexOf(fd.projectStatus) >= PROJECT_STATUSES.indexOf('ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ')) {
-      if (fd.contractProcessStartDate) {
-        const processStartDate = new Date(fd.contractProcessStartDate);
-
-        if (fd.implementationForm === 'Μια Σύμβαση' && fd.contractDate) {
-          const contractDate = new Date(fd.contractDate);
-          if (processStartDate >= contractDate) {
-            newErrors.contractProcessStartDate = 'Η ημερομηνία έναρξης διαδικασίας πρέπει να είναι προγενέστερη της ημερομηνίας σύμβασης';
-          }
+    // Όταν το πεδίο είναι κλειδωμένο από ΚΗΜΔΗΣ, ο χρήστης δεν μπορεί να το διορθώσει — δεν μπλοκάρουμε την αποθήκευση.
+    if (
+      fd.projectStatus
+      && PROJECT_STATUSES.indexOf(fd.projectStatus) >= PROJECT_STATUSES.indexOf('ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ')
+      && fd.contractProcessStartDate
+      && !formKhmdhsHidesManualProcessStart(fd)
+    ) {
+      if (fd.implementationForm === 'Μια Σύμβαση' && fd.contractDate) {
+        if (!isAppDateBefore(fd.contractProcessStartDate, fd.contractDate)) {
+          newErrors.contractProcessStartDate = 'Η ημερομηνία έναρξης διαδικασίας πρέπει να είναι προγενέστερη της ημερομηνίας σύμβασης';
         }
+      }
 
-        if (fd.implementationForm === 'Πολλές Συμβάσεις' && fd.contracts && fd.contracts.length > 0) {
-          const invalidContracts = fd.contracts.filter((contract) => {
-            if (contract.date) {
-              return processStartDate >= new Date(contract.date);
-            }
-            return false;
-          });
-          if (invalidContracts.length > 0) {
-            newErrors.contractProcessStartDate = 'Η ημερομηνία έναρξης διαδικασίας πρέπει να είναι προγενέστερη όλων των ημερομηνιών σύμβασης';
+      if (fd.implementationForm === 'Πολλές Συμβάσεις' && fd.contracts && fd.contracts.length > 0) {
+        const invalidContracts = fd.contracts.filter((contract) => {
+          if (contract.date) {
+            return !isAppDateBefore(fd.contractProcessStartDate, contract.date);
           }
+          return false;
+        });
+        if (invalidContracts.length > 0) {
+          newErrors.contractProcessStartDate = 'Η ημερομηνία έναρξης διαδικασίας πρέπει να είναι προγενέστερη όλων των ημερομηνιών σύμβασης';
         }
       }
     }

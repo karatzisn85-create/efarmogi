@@ -94,9 +94,11 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
 
   const compareAmount = totals.hasUserClassification
     ? totals.countableTotalGross
-    : (totals.coFinancingPattern
-      ? totals.estimatedContractorPaymentGross
-      : totals.rawTotalGross);
+    : (totals.hasActualAmounts
+      ? totals.effectiveTotalGross
+      : (totals.coFinancingPattern
+        ? totals.estimatedContractorPaymentGross
+        : totals.rawTotalGross));
 
   let compare = null;
   if (refAmount != null && compareAmount > 0) {
@@ -118,9 +120,16 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
               <TotalLabel>Σύνολο που μετράει (με ΦΠΑ)</TotalLabel>
               <TotalValue>{formatKhmdhsEuro(totals.countableTotalGross)}</TotalValue>
             </TotalChip>
-            {Math.abs((totals.rawTotalGross || 0) - (totals.countableTotalGross || 0)) > 0.5 && (
+          </>
+        ) : totals.hasActualAmounts ? (
+          <>
+            <TotalChip>
+              <TotalLabel>Πραγματικό σύνολο πληρωμών (με ΦΠΑ)</TotalLabel>
+              <TotalValue>{formatKhmdhsEuro(totals.effectiveTotalGross)}</TotalValue>
+            </TotalChip>
+            {Math.abs((totals.rawTotalGross || 0) - (totals.effectiveTotalGross || 0)) > 0.5 && (
               <TotalChip>
-                <TotalLabel>Ακατέργαστο (όλα τα έγγραφα)</TotalLabel>
+                <TotalLabel>Δηλωμένο στο ΚΗΜΔΗΣ (άθροισμα)</TotalLabel>
                 <TotalValue style={{ fontSize: '0.82rem', fontWeight: 700, color: '#64748b' }}>
                   {formatKhmdhsEuro(totals.rawTotalGross)}
                 </TotalValue>
@@ -213,7 +222,24 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
         if (entry.payer?.shortLabel) {
           summaryChips.push({ label: 'Φορέας', value: entry.payer.shortLabel, strong: true });
         }
-        if (amount) summaryChips.push({ label: 'Ποσό (με ΦΠΑ)', value: amount, strong: true, highlight: true });
+        const hasActualOverride = entry.userActualAmount != null
+          && Math.abs(entry.userActualAmount - Number(entry.snapshot.totalCostWithVAT || 0)) > 0.5;
+        if (amount) {
+          summaryChips.push({
+            label: hasActualOverride ? 'Δηλωμένο ΚΗΜΔΗΣ (με ΦΠΑ)' : 'Ποσό (με ΦΠΑ)',
+            value: amount,
+            strong: true,
+            highlight: !hasActualOverride,
+          });
+        }
+        if (hasActualOverride) {
+          summaryChips.push({
+            label: 'Πραγματικό ποσό που πληρώνει',
+            value: formatKhmdhsEuro(entry.userActualAmount),
+            strong: true,
+            highlight: true,
+          });
+        }
         if (entry.snapshot.cancelled) summaryChips.push({ label: 'Κατάσταση', value: 'Ακυρωμένο', warn: true });
         return (
           <KhmdhsPanelDisplay

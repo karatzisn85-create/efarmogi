@@ -27,7 +27,9 @@ import {
   buildApeEntryModalSnapshot,
   apeDocumentDateFromKhmdhsPreview,
   apeDocumentDateFromDiavgeiaPreview,
+  sanitizeLegacyApeCommentsPollution,
 } from './khmdhsApeEntry';
+import { isPhaseADirty, pickPhaseASnapshot, serializePhaseASnapshot } from './projectFormPhases';
 
 describe('khmdhsApeEntry', () => {
   test('applyContractApeFields σε πολλές συμβάσεις', () => {
@@ -43,7 +45,8 @@ describe('khmdhsApeEntry', () => {
       comments: 'δοκιμή',
     });
     expect(patch.contracts[1].apeAmount).toBe('215.500,50');
-    expect(patch.contracts[1].comments).toBe('δοκιμή');
+    expect(patch.contracts[1].apeComments).toBe('δοκιμή');
+    expect(patch.contracts[1].comments).toBe('');
     expect(hasContractApe({ ...project, ...patch }, 1)).toBe(true);
   });
 
@@ -55,7 +58,23 @@ describe('khmdhsApeEntry', () => {
     });
     expect(patch.apeAmount).toBe('52.000,00');
     expect(patch.apeComments).toBe('ΑΠΕ 2025');
+    expect(patch.comments).toBeUndefined();
     expect(readContractApeFields({ ...project, ...patch }, 0).apeAmount).toBe('52.000,00');
+  });
+
+  test('σχόλια ΑΠΕ δεν αντιγράφονται στα γενικά σχόλια υποέργου', () => {
+    const project = {
+      implementationForm: 'Μια Σύμβαση',
+      contractAmount: '50.000,00',
+      comments: 'γενικό σχόλιο υποέργου',
+    };
+    const patch = applyContractApeFields(project, 0, {
+      apeAmount: '52.000,00',
+      comments: 'μόνο για τον ΑΠΕ',
+    });
+    const merged = { ...project, ...patch };
+    expect(merged.apeComments).toBe('μόνο για τον ΑΠΕ');
+    expect(merged.comments).toBe('γενικό σχόλιο υποέργου');
   });
 
   test('formatApeAmountDisplay', () => {
@@ -365,5 +384,55 @@ describe('khmdhsApeEntry', () => {
     };
     expect(hasRealStoredContractApe(project, 0)).toBe(false);
     expect(listContractApeEntries(project, 0)).toHaveLength(0);
+  });
+
+  test('sanitizeLegacyApeCommentsPollution καθαρίζει διπλότυπα σχόλια ΑΠΕ', () => {
+    const cleaned = sanitizeLegacyApeCommentsPollution({
+      implementationForm: 'Μια Σύμβαση',
+      comments: 'σημείωση ΑΠΕ',
+      apeComments: 'σημείωση ΑΠΕ',
+    });
+    expect(cleaned.comments).toBe('');
+    expect(cleaned.apeComments).toBe('σημείωση ΑΠΕ');
+  });
+
+  test('καταχώριση ΑΠΕ δεν σημειώνει τη Φάση Α ως αλλαγμένη', () => {
+    const baseForm = {
+      projectTitle: 'Έργο',
+      subprojectTitle: 'Υποέργο',
+      implementationForm: 'Μια Σύμβαση',
+      kaCode: '',
+      noKaCode: false,
+      eisigitikiEkthesi: '',
+      aleCodes: [],
+      misPraxhsName: '',
+      misPraxhsCode: '',
+      projectType: 'ΥΠΟΔΟΜΕΣ',
+      fundingSource: 'Ίδιοι Πόροι',
+      fundingDetails: '',
+      coFinanced: false,
+      fundingSources: [],
+      approvedAmount: '100.000,00',
+      remainingAmount: '',
+      remainingAmountYear: '2026',
+      remainingAmountComments: '',
+      aleRemainingAmounts: [],
+      comments: '',
+      supervisorEngineerIds: [],
+      supervisorChargeOutsideEngineers: false,
+      supervisorChargeFreePrimary: '',
+      supervisorChargeFreeParticipants: '',
+      projectStatus: 'Σε εξέλιξη',
+      contractAmount: '100.000,00',
+    };
+    const baseline = serializePhaseASnapshot(pickPhaseASnapshot(baseForm));
+    const patch = applyContractApeFields(baseForm, 0, {
+      apeAmount: '110.000,00',
+      comments: 'σχόλιο μόνο για ΑΠΕ',
+    });
+    const merged = { ...baseForm, ...patch };
+    expect(isPhaseADirty(merged, baseline)).toBe(false);
+    expect(merged.comments).toBe('');
+    expect(merged.apeComments).toBe('σχόλιο μόνο για ΑΠΕ');
   });
 });

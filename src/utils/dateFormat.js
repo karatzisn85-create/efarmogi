@@ -44,6 +44,19 @@ export function parseAppDate(value) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Σύγκριση ημερομηνιών χωρίς ώρα/timezone — αρνητικό = a πριν από b */
+export function compareAppDatesOnly(a, b) {
+  const da = parseAppDate(a);
+  const db = parseAppDate(b);
+  if (!da || !db) return null;
+  return da.getTime() - db.getTime();
+}
+
+export function isAppDateBefore(a, b) {
+  const cmp = compareAppDatesOnly(a, b);
+  return cmp != null && cmp < 0;
+}
+
 /** DD/MM/YYYY */
 export function formatDateEl(value, empty = '—') {
   if (value == null || value === '') return empty;

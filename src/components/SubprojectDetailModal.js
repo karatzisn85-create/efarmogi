@@ -9,9 +9,14 @@ import {
 import { formatViolationSummary } from '../utils/directAssignmentCompliance';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
 import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm } from '../utils/khmdhsFields';
-import { noticeDrivesAssignmentProcedure, projectHasKhmdhsNoticeData, getProjectAssignmentProcedure } from '../utils/khmdhsNoticeFields';
+import { noticeDrivesAssignmentProcedure, projectHasKhmdhsNoticeData, getProjectAssignmentProcedure, getProjectContractProcessStartDate } from '../utils/khmdhsNoticeFields';
 import { projectHasKhmdhsDerivedSupplementary } from '../utils/khmdhsChainDerivedFields';
 import { buildKhmdhsPaymentsTotals } from '../utils/khmdhsChainExtraFields';
+import {
+  hasApeEntryData,
+  readContractApeFields,
+  readSupplementaryApeFields,
+} from '../utils/khmdhsApeEntry';
 import { formatDateEl } from '../utils/dateFormat';
 import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
 import KhmdhsRefreshActionButton from './KhmdhsRefreshActionButton';
@@ -27,6 +32,7 @@ import {
   buildKhmdhsRefreshChangeSummary,
 } from '../utils/khmdhsChainRefresh';
 import { applyAdamChainResult } from '../utils/khmdhsChainApply';
+import { symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
 import {
   evaluateKhmdhsContractExpiryPrompt,
   KHMDHS_COMPLETED_STATUS_SUGGESTION,
@@ -1115,7 +1121,28 @@ function SubprojectDetailModal({
         showToast(res?.error || 'Η ανάκτηση από το ΚΗΜΔΗΣ απέτυχε.', 'error');
         return;
       }
-      const applyResult = applyAdamChainResult(project, res.chainRes, { seedAdam: res.seedAdam });
+      // Αν το υποέργο έχει ήδη εγκατεστημένο σχέδιο κατανομής SYMV (πολλαπλές/παράλληλες
+      // συμβάσεις) και η αλυσίδα δεν έχει αλλάξει, το επαναχρησιμοποιούμε ώστε η ανανέωση
+      // να δουλεύει κανονικά χωρίς να ζητά ξανά την ίδια απόφαση από τον χρήστη.
+      const existingSymvPlan = project.khmdhsSymvChainPlan;
+      const reusableSymvPlan = existingSymvPlan?.items?.length
+        && symvPlanMatchesChain(existingSymvPlan, res.chainRes)
+        ? existingSymvPlan
+        : null;
+      const applyResult = applyAdamChainResult(project, res.chainRes, {
+        seedAdam: res.seedAdam,
+        symvChainPlan: reusableSymvPlan,
+      });
+      if (applyResult.warnings?.includes('symvPlannerRequired')) {
+        // Εντοπίστηκε νέα παράλληλη σύμβαση στην αλυσίδα ΚΗΜΔΗΣ — χρειάζεται να οριστεί
+        // η κατανομή τους (SYMV planner), κάτι που γίνεται μόνο μέσα από την επεξεργασία.
+        // Δεν προχωράμε σε «σιωπηλή» ανανέωση χωρίς αυτή την απόφαση του χρήστη.
+        showToast(
+          'Εντοπίστηκε νέα παράλληλη σύμβαση στην αλυσίδα ΚΗΜΔΗΣ που δεν υπήρχε πριν — ανοίξτε την επεξεργασία του υποέργου για να ορίσετε πώς κατανέμονται οι συμβάσεις.',
+          'warning'
+        );
+        return;
+      }
       const mergedProject = {
         ...applyResult.form,
         projectId: project.projectId,
@@ -1411,10 +1438,10 @@ function SubprojectDetailModal({
   const showContractProcessDate = showAssignmentProcedure;
 
   const hasApeOrComments = isMultipleContractsForm(project.implementationForm)
-    ? (project.contracts || []).some(
-      (c) => String(c?.apeAmount || '').trim() || String(c?.comments || '').trim()
-    )
-    : !!(String(project.apeAmount || '').trim() || String(project.apeComments || '').trim());
+    ? (project.contracts || []).some((_, index) => (
+      hasApeEntryData(project, { kind: 'contract', arrayIndex: index })
+    ))
+    : hasApeEntryData(project, { kind: 'contract', arrayIndex: 0 });
 
   const hasSupplementaryContracts = !!(
     project.hasSupplementaryContracts
@@ -1425,15 +1452,11 @@ function SubprojectDetailModal({
   const showManualSupplementary = hasSupplementaryContracts
     && !(hasKhmdhsContractPanels && projectHasKhmdhsDerivedSupplementary(project));
 
-  const manualAssignmentProcedure = !noticeDrivesAssignmentProcedure(project)
-    && showAssignmentProcedure
-    && getProjectAssignmentProcedure(project);
-
-  const khmdhsCoversProcedureStart = hasKhmdhsSection && projectHasKhmdhsNoticeData(project);
+  const manualAssignmentProcedure = showAssignmentProcedure && getProjectAssignmentProcedure(project);
 
   const showManualProcedureBlock = !!(
     manualAssignmentProcedure
-    || (showContractProcessDate && project.contractProcessStartDate && !khmdhsCoversProcedureStart)
+    || (showContractProcessDate && getProjectContractProcessStartDate(project))
   );
 
   const showContractSection = hasKhmdhsContractPanels
@@ -1474,7 +1497,9 @@ function SubprojectDetailModal({
           </FieldGrid>
         )}
         {project.implementationForm !== 'Μια Σύμβαση' && (project.contracts || []).map((contract, index) => {
-          const hasLocal = String(contract?.apeAmount || '').trim() || String(contract?.comments || '').trim();
+          const apeFields = readContractApeFields(project, index);
+          const apeNote = String(contract?.apeComments || apeFields.comments || '').trim();
+          const hasLocal = String(contract?.apeAmount || '').trim() || apeNote;
           if (!hasLocal) return null;
           return (
             <ContractBox key={index}>
@@ -1486,17 +1511,19 @@ function SubprojectDetailModal({
                     <FieldValue><AmountValue>{formatAmount(contract.apeAmount)}</AmountValue></FieldValue>
                   </Field>
                 )}
-                {contract.comments && (
+                {apeNote && (
                   <FieldFull>
-                    <FieldLabel>Σχόλια</FieldLabel>
-                    <FieldValue>{contract.comments}</FieldValue>
+                    <FieldLabel>Σχόλια ΑΠΕ</FieldLabel>
+                    <FieldValue>{apeNote}</FieldValue>
                   </FieldFull>
                 )}
               </FieldGrid>
             </ContractBox>
           );
         })}
-        {showManualSupplementary && project.supplementaryContracts.map((contract, index) => (
+        {showManualSupplementary && project.supplementaryContracts.map((contract, index) => {
+          const suppApe = readSupplementaryApeFields(project, index);
+          return (
           <SupplementaryBox key={index}>
             <ContractBoxTitle style={{ color: '#16a34a' }}>Συμπληρωματική Σύμβαση {index + 1}</ContractBoxTitle>
             <FieldGrid>
@@ -1514,15 +1541,16 @@ function SubprojectDetailModal({
                     : <EmptyValue>—</EmptyValue>}
                 </FieldValue>
               </Field>
-              {contract.comments && (
+              {suppApe.comments && (
                 <FieldFull>
-                  <FieldLabel>Σχόλια</FieldLabel>
-                  <FieldValue>{contract.comments}</FieldValue>
+                  <FieldLabel>Σχόλια ΑΠΕ</FieldLabel>
+                  <FieldValue>{suppApe.comments}</FieldValue>
                 </FieldFull>
               )}
             </FieldGrid>
           </SupplementaryBox>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -1541,11 +1569,11 @@ function SubprojectDetailModal({
                 </FieldValue>
               </Field>
             )}
-            {showContractProcessDate && project.contractProcessStartDate && (
+            {showContractProcessDate && getProjectContractProcessStartDate(project) && (
               <Field>
                 <FieldLabel>Ημερ. Έναρξης Διαδικασίας</FieldLabel>
                 <FieldValue style={{ color: '#4338ca', fontWeight: 700 }}>
-                  {formatDate(project.contractProcessStartDate)}
+                  {formatDate(getProjectContractProcessStartDate(project))}
                 </FieldValue>
               </Field>
             )}
@@ -1584,7 +1612,10 @@ function SubprojectDetailModal({
             </FieldGrid>
           </ContractBox>
         )}
-        {project.implementationForm !== 'Μια Σύμβαση' && (project.contracts || []).map((contract, index) => (
+        {project.implementationForm !== 'Μια Σύμβαση' && (project.contracts || []).map((contract, index) => {
+          const apeFields = readContractApeFields(project, index);
+          const apeNote = String(contract?.apeComments || apeFields.comments || '').trim();
+          return (
           <ContractBox key={index}>
             <ContractBoxTitle>Σύμβαση {index + 1}</ContractBoxTitle>
             <FieldGrid>
@@ -1608,16 +1639,19 @@ function SubprojectDetailModal({
                   <FieldValue><AmountValue>{formatAmount(contract.apeAmount)}</AmountValue></FieldValue>
                 </Field>
               )}
-              {contract.comments && (
+              {apeNote && (
                 <FieldFull>
-                  <FieldLabel>Σχόλια</FieldLabel>
-                  <FieldValue>{contract.comments}</FieldValue>
+                  <FieldLabel>Σχόλια ΑΠΕ</FieldLabel>
+                  <FieldValue>{apeNote}</FieldValue>
                 </FieldFull>
               )}
             </FieldGrid>
           </ContractBox>
-        ))}
-        {showManualSupplementary && project.supplementaryContracts.map((contract, index) => (
+          );
+        })}
+        {showManualSupplementary && project.supplementaryContracts.map((contract, index) => {
+          const suppApe = readSupplementaryApeFields(project, index);
+          return (
           <SupplementaryBox key={index}>
             <ContractBoxTitle style={{ color: '#16a34a' }}>Συμπληρωματική Σύμβαση {index + 1}</ContractBoxTitle>
             <FieldGrid>
@@ -1635,7 +1669,13 @@ function SubprojectDetailModal({
                     : <EmptyValue>—</EmptyValue>}
                 </FieldValue>
               </Field>
-              {contract.comments && (
+              {suppApe.comments && (
+                <FieldFull>
+                  <FieldLabel>Σχόλια ΑΠΕ</FieldLabel>
+                  <FieldValue>{suppApe.comments}</FieldValue>
+                </FieldFull>
+              )}
+              {contract.comments && !suppApe.comments && (
                 <FieldFull>
                   <FieldLabel>Σχόλια</FieldLabel>
                   <FieldValue>{contract.comments}</FieldValue>
@@ -1643,7 +1683,8 @@ function SubprojectDetailModal({
               )}
             </FieldGrid>
           </SupplementaryBox>
-        ))}
+          );
+        })}
         {totalContractAmount > 0 && (
           <TotalBox>
             <span style={{ fontWeight: 800, color: '#2563eb' }}>ΣΥΝΟΛΟ ΣΥΜΒΑΣΕΩΝ</span>
@@ -1814,9 +1855,9 @@ function SubprojectDetailModal({
                     </FieldValue>
                   </Field>
                 )}
-                {noticeDrivesAssignmentProcedure(project) && getProjectAssignmentProcedure(project) && (
+                {getProjectAssignmentProcedure(project) && (
                   <Field>
-                    <FieldLabel>Διαδικασία ανάθεσης (ΚΗΜΔΗΣ)</FieldLabel>
+                    <FieldLabel>Διαδικασία ανάθεσης</FieldLabel>
                     <FieldValue style={{ color: '#047857', fontWeight: 700 }}>
                       {getProjectAssignmentProcedure(project)}
                     </FieldValue>
@@ -2229,11 +2270,11 @@ function SubprojectDetailModal({
                       </FieldValue>
                     </Field>
                   )}
-                  {showContractProcessDate && project.contractProcessStartDate && (
+                  {showContractProcessDate && getProjectContractProcessStartDate(project) && (
                     <Field>
                       <FieldLabel>Ημερ. Έναρξης Διαδικασίας</FieldLabel>
                       <FieldValue style={{ color: '#4338ca', fontWeight: 700 }}>
-                        {formatDate(project.contractProcessStartDate)}
+                        {formatDate(getProjectContractProcessStartDate(project))}
                       </FieldValue>
                     </Field>
                   )}

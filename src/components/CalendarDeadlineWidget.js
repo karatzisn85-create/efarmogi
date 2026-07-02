@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import styled, { keyframes } from 'styled-components';
+import styled, { keyframes, css } from 'styled-components';
 import {
   CALENDAR_EVENT_TYPES,
   buildProcurementCalendarEvents,
@@ -35,6 +35,10 @@ const shimmer = keyframes`
   100% { background-position: -200% center; }
 `;
 
+const urgentShellAnimation = css`
+  animation: ${pulseGlow} 2.8s ease-in-out infinite, ${shimmer} 9s ease-in-out infinite;
+`;
+
 const Shell = styled.section`
   position: relative;
   margin-bottom: 1rem;
@@ -50,7 +54,7 @@ const Shell = styled.section`
   background-size: 220% 220%;
   animation: ${shimmer} 9s ease-in-out infinite;
   box-shadow: 0 14px 44px rgba(15, 118, 110, 0.28);
-  ${(p) => p.$hasUrgent && `animation: ${pulseGlow} 2.8s ease-in-out infinite, ${shimmer} 9s ease-in-out infinite;`}
+  ${(p) => p.$hasUrgent && urgentShellAnimation}
 `;
 
 const Widget = styled.div`

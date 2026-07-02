@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import styled from 'styled-components';
+import {
+  CALENDAR_EVENT_TYPES,
+  CALENDAR_EVENT_LABELS,
+} from '../utils/procurementCalendarEvents';
 
 const ipcRenderer = window.electronAPI;
 
@@ -168,7 +172,17 @@ const StatusMsg = styled.div`
   color: ${(p) => (p.$error ? '#dc2626' : '#059669')};
 `;
 
+const REMINDER_EVENT_TYPES = [
+  CALENDAR_EVENT_TYPES.DEADLINE,
+  CALENDAR_EVENT_TYPES.OFFERS_EXPIRY,
+  CALENDAR_EVENT_TYPES.CONTRACT_END,
+  CALENDAR_EVENT_TYPES.COMPLIANCE_12M,
+  CALENDAR_EVENT_TYPES.CUSTOM,
+];
+
 const DAY_OPTIONS = [
+  { value: 180, label: '6 μήνες πριν' },
+  { value: 90, label: '3 μήνες πριν' },
   { value: 7, label: '7 ημέρες πριν' },
   { value: 3, label: '3 ημέρες πριν' },
   { value: 1, label: '1 ημέρα πριν' },
@@ -188,10 +202,13 @@ export default function CalendarSettings({ onClose, currentUser }) {
   const [roleEngineer, setRoleEngineer] = useState(true);
   const [roleUser, setRoleUser] = useState(false);
   const [selectedUsernames, setSelectedUsernames] = useState([]);
+  const [days180, setDays180] = useState(false);
+  const [days90, setDays90] = useState(false);
   const [days7, setDays7] = useState(true);
   const [days3, setDays3] = useState(true);
   const [days1, setDays1] = useState(true);
   const [days0, setDays0] = useState(true);
+  const [notifyEventTypes, setNotifyEventTypes] = useState([...REMINDER_EVENT_TYPES]);
   const [urgentEnabled, setUrgentEnabled] = useState(true);
   const [urgentMaxCount, setUrgentMaxCount] = useState(3);
   const [urgentIntervalHours, setUrgentIntervalHours] = useState(24);
@@ -225,10 +242,16 @@ export default function CalendarSettings({ onClose, currentUser }) {
       setRoleUser(roles.includes('USER'));
       setSelectedUsernames(Array.isArray(cfg.recipientUsernames) ? cfg.recipientUsernames : []);
       const db = cfg.daysBefore || [7, 3, 1, 0];
+      setDays180(db.includes(180));
+      setDays90(db.includes(90));
       setDays7(db.includes(7));
       setDays3(db.includes(3));
       setDays1(db.includes(1));
       setDays0(db.includes(0));
+      const loadedTypes = Array.isArray(cfg.notifyEventTypes)
+        ? cfg.notifyEventTypes.filter((t) => REMINDER_EVENT_TYPES.includes(t))
+        : [];
+      setNotifyEventTypes(loadedTypes.length ? loadedTypes : [...REMINDER_EVENT_TYPES]);
       const urg = cfg.urgentRepeat || {};
       setUrgentEnabled(urg.enabled !== false);
       setUrgentMaxCount(Number(urg.maxCount) || 3);
@@ -247,6 +270,8 @@ export default function CalendarSettings({ onClose, currentUser }) {
 
   const buildPayload = () => {
     const daysBefore = [];
+    if (days180) daysBefore.push(180);
+    if (days90) daysBefore.push(90);
     if (days7) daysBefore.push(7);
     if (days3) daysBefore.push(3);
     if (days1) daysBefore.push(1);
@@ -255,11 +280,13 @@ export default function CalendarSettings({ onClose, currentUser }) {
     if (roleAdmin) recipientRoles.push('ADMIN');
     if (roleEngineer) recipientRoles.push('ENGINEER');
     if (roleUser) recipientRoles.push('USER');
+    const selectedTypes = notifyEventTypes.filter((t) => REMINDER_EVENT_TYPES.includes(t));
     return {
       enabled,
       recipientRoles: recipientRoles.length ? recipientRoles : ['ADMIN'],
       recipientUsernames: selectedUsernames,
       daysBefore: daysBefore.length ? daysBefore : [7, 3, 1, 0],
+      notifyEventTypes: selectedTypes.length ? selectedTypes : [...REMINDER_EVENT_TYPES],
       urgentRepeat: {
         enabled: urgentEnabled,
         maxCount: Math.max(1, Math.min(14, Number(urgentMaxCount) || 3)),
@@ -320,6 +347,14 @@ export default function CalendarSettings({ onClose, currentUser }) {
     ));
   };
 
+  const toggleNotifyEventType = (eventType) => {
+    setNotifyEventTypes((prev) => (
+      prev.includes(eventType)
+        ? prev.filter((t) => t !== eventType)
+        : [...prev, eventType]
+    ));
+  };
+
   return (
     <Overlay onClick={onClose}>
       <Panel onClick={(e) => e.stopPropagation()}>
@@ -339,7 +374,24 @@ export default function CalendarSettings({ onClose, currentUser }) {
                 <span>Ενεργές αυτόματες υπενθυμίσεις ημερολογίου</span>
               </CheckRow>
               <HelpText>
-                Απαιτείται ρύθμιση SMTP (Σύστημα → Ρυθμίσεις Email). Καλύπτουν καταληκτικές, λήξεις συμβάσεων, ειδοποιήσεις και παραβάσεις 12μ. — με φιλτράρισμα ανά ρόλο όπως στο ημερολόγιο.
+                Απαιτείται ρύθμιση SMTP (Σύστημα → Ρυθμίσεις Email). Επιλέξτε ποιοι τύποι καταγραφών θα στέλνουν email και πόσες ημέρες πριν την προθεσμία — με φιλτράρισμα ανά ρόλο όπως στο ημερολόγιο.
+              </HelpText>
+            </Section>
+
+            <Section>
+              <SectionTitle>Τύποι καταγραφών για email</SectionTitle>
+              {REMINDER_EVENT_TYPES.map((eventType) => (
+                <CheckRow key={eventType}>
+                  <input
+                    type="checkbox"
+                    checked={notifyEventTypes.includes(eventType)}
+                    onChange={() => toggleNotifyEventType(eventType)}
+                  />
+                  <span>{CALENDAR_EVENT_LABELS[eventType]}</span>
+                </CheckRow>
+              ))}
+              <HelpText>
+                Μπορείτε να ενεργοποιήσετε ειδοποιήσεις μόνο για τους τύπους που σας ενδιαφέρουν (π.χ. μόνο λήξεις συμβάσεων).
               </HelpText>
             </Section>
 
@@ -379,6 +431,8 @@ export default function CalendarSettings({ onClose, currentUser }) {
               <SectionTitle>Ημέρες πριν την καταληκτική</SectionTitle>
               {DAY_OPTIONS.map(({ value, label }) => {
                 const stateMap = {
+                  180: [days180, setDays180],
+                  90: [days90, setDays90],
                   7: [days7, setDays7],
                   3: [days3, setDays3],
                   1: [days1, setDays1],

@@ -1216,7 +1216,10 @@ export function applyReviewResolution(formData, review, item, { value, source, r
     const paymentLabels = meta?.paymentLabels && typeof meta.paymentLabels === 'object'
       ? meta.paymentLabels
       : {};
-    nextForm = applyPaymentRolesToProject(formData, paymentRoles, paymentLabels);
+    const paymentAmounts = meta?.paymentAmounts && typeof meta.paymentAmounts === 'object'
+      ? meta.paymentAmounts
+      : {};
+    nextForm = applyPaymentRolesToProject(formData, paymentRoles, paymentLabels, paymentAmounts);
     nextForm = syncPaymentLabelsToDocumentRegistry(nextForm);
     finalValue = 'classified';
   } else if (inputKind !== 'acknowledge' && inputKind !== 'chainKindReview') {
@@ -1255,6 +1258,7 @@ export function applyReviewResolution(formData, review, item, { value, source, r
       ? {
         paymentRoles: meta?.paymentRoles || {},
         paymentLabels: meta?.paymentLabels || {},
+        paymentAmounts: meta?.paymentAmounts || {},
         ...(meta?.acknowledgedPayableExceeds ? { acknowledgedPayableExceeds: true } : {}),
       }
       : meta,

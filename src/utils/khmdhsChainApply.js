@@ -157,14 +157,21 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
       next.khmdhsNoticeSnapshot = chainRes.notice.snapshot;
       next.khmdhsNoticeFetchedAt = chainRes.notice.fetchedAt;
       if (chainRes.notice.mappedAssignmentProcedure) {
+        // ΚΗΜΔΗΣ βρήκε τη διαδικασία — χρησιμοποιούμε την αυτόματη τιμή.
         next.assignmentProcedure = chainRes.notice.mappedAssignmentProcedure;
       } else {
-        next.assignmentProcedure = '';
+        // ΚΗΜΔΗΣ δεν μπόρεσε να προσδιορίσει τη διαδικασία — διατηρούμε ό,τι είχε
+        // καταχωρήσει χειροκίνητα ο χρήστης, χωρίς να το σβήνουμε (bug fix).
+        next.assignmentProcedure = prev.assignmentProcedure || '';
       }
       if (chainRes.notice.contractProcessStartDate) {
         next.contractProcessStartDate = chainRes.notice.contractProcessStartDate;
+      } else if (chainRes.contractProcessStartDate) {
+        next.contractProcessStartDate = chainRes.contractProcessStartDate;
       }
     }
+  } else if (chainRes.contractProcessStartDate) {
+    next.contractProcessStartDate = chainRes.contractProcessStartDate;
   }
 
   if (chainRes.auction?.adam) {
@@ -378,7 +385,11 @@ export function applyAdamChainResult(prev, chainRes, {
       }
       if (chainRes.notice.contractProcessStartDate) {
         next.contractProcessStartDate = chainRes.notice.contractProcessStartDate;
+      } else if (chainRes.contractProcessStartDate) {
+        next.contractProcessStartDate = chainRes.contractProcessStartDate;
       }
+    } else if (chainRes.contractProcessStartDate) {
+      next.contractProcessStartDate = chainRes.contractProcessStartDate;
     }
 
     if (chainRes.auction?.adam) {

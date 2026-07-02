@@ -1,7 +1,7 @@
 /** Παράγωγα πεδία φόρμας από πλήρη αλυσίδα σύμβασης ΚΗΜΔΗΣ */
 
 import { pickKhmdhsContractSnapshot } from './khmdhsContractDisplayFields';
-import { pickKhmdhsNoticeSnapshot, projectHasKhmdhsNoticeData } from './khmdhsNoticeFields';
+import { pickKhmdhsNoticeSnapshot, projectHasKhmdhsNoticeData, noticeDrivesAssignmentProcedure, resolveKhmdhsNoticeAssignmentProcedure } from './khmdhsNoticeFields';
 import { projectHasKhmdhsRequestData } from './khmdhsRequestFields';
 import { projectHasKhmdhsAwardData } from './khmdhsAwardFields';
 import { projectHasKhmdhsData, getKhmdhsDisplayEntries, isMultipleContractsForm } from './khmdhsFields';
@@ -241,6 +241,9 @@ export function formKhmdhsHidesManualAssignmentProcedure(project) {
   if (!project) return false;
   const review = project.khmdhsDataQualityReview;
   if (review?.items?.length) {
+    if (khmdhsFieldRequiresManualInput(review, 'assignmentProcedure', null, null, project)) {
+      return false;
+    }
     return reviewAllowsHideField(review, 'assignmentProcedure');
   }
   return khmdhsCoversAssignmentProcedureDisplay(project);
@@ -251,9 +254,12 @@ export function formKhmdhsHidesManualProcessStart(project) {
   if (!project) return false;
   const review = project.khmdhsDataQualityReview;
   if (review?.items?.length) {
+    if (khmdhsFieldRequiresManualInput(review, 'contractProcessStartDate', null, null, project)) {
+      return false;
+    }
     return reviewAllowsHideField(review, 'contractProcessStartDate');
   }
-  return khmdhsCoversContractProcessStart(project) && !!project.contractProcessStartDate;
+  return khmdhsCoversContractProcessStart(project);
 }
 
 /** Κρύβει προϋπολογισμό αιτήματος μόνο αν βρέθηκε πλήρως */
@@ -306,14 +312,18 @@ export function formChainDisplaysContractPanels(project) {
   return getKhmdhsDisplayEntries(project).length > 0;
 }
 
-/** Ημ. έναρξης διαδικασίας — ήδη στο panel PROC */
+/** Ημ. έναρξης διαδικασίας — αποθηκευμένη τιμή υποέργου */
 export function khmdhsCoversContractProcessStart(project) {
-  return !!pickKhmdhsNoticeSnapshot(project?.khmdhsNoticeSnapshot);
+  return !!String(project?.contractProcessStartDate || '').trim();
 }
 
-/** Διαδικασία ανάθεσης — ήδη στο panel PROC (ή λείπει από ΚΗΜΔΗΣ) */
+/** Διαδικασία ανάθεσης — καλύπτεται όταν υπάρχει τιμή προβολής (χειροκίνητη ή από ΚΗΜΔΗΣ) */
 export function khmdhsCoversAssignmentProcedureDisplay(project) {
-  return khmdhsCoversContractProcessStart(project);
+  if (String(project?.assignmentProcedure || '').trim()) return true;
+  if (noticeDrivesAssignmentProcedure(project)) {
+    return !!resolveKhmdhsNoticeAssignmentProcedure(project.khmdhsNoticeSnapshot);
+  }
+  return false;
 }
 
 export { khmdhsFieldRequiresManualInput };

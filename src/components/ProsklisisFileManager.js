@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
-import { safeConfirm } from '../utils/safeDialogs';
+import { safeConfirm, safeFileDialog } from '../utils/safeDialogs';
 import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
 import KhmdhsDocumentRegistryPanel from './KhmdhsDocumentRegistryPanel';
@@ -218,6 +218,32 @@ const LoadingMessage = styled.div`
   font-size: 1rem;
 `;
 
+const UploadBar = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+`;
+
+const UploadButton = styled.button`
+  border: none;
+  border-radius: 10px;
+  padding: 0.55rem 1rem;
+  background: linear-gradient(135deg, ${C.indigo} 0%, #4f46e5 100%);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+  &:hover { filter: brightness(1.05); }
+  &:disabled { opacity: 0.6; cursor: not-allowed; }
+`;
+
+const UploadFolderButton = styled(UploadButton)`
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  box-shadow: 0 4px 14px rgba(21, 128, 61, 0.35);
+`;
+
 function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, onGroupFiles }) {
   const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
@@ -237,6 +263,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     modifications: [],
   });
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const registryEntries = useMemo(
     () => collectProsklisiRegistryEntries(registrySource),
@@ -285,6 +312,88 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       setRegistrySource({ documentRegistry: [], diavgeiaMeta: null, diavgeiaAda: '', modifications: [] });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUploadFiles = async () => {
+    if (!canManageWorkflow || !prosklisiId) return;
+    try {
+      const result = await safeFileDialog('select-file', 'Προσθήκη Αρχείων Πρόσκλησης (PDF, Word)');
+      const pickedFiles = result.files?.length
+        ? result.files
+        : (result.filePath ? [{ filePath: result.filePath, fileName: result.fileName }] : []);
+      if (!result.success || pickedFiles.length === 0) {
+        if (result.error) showToast('Σφάλμα επιλογής αρχείου: ' + result.error, 'error');
+        return;
+      }
+      setUploading(true);
+      const uploadResult = await ipcRenderer.invoke('upload-prosklisi-files', {
+        prosklisiId,
+        files: pickedFiles,
+        targetFolder: 'attachments',
+      });
+      if (uploadResult?.success) {
+        showToast(
+          uploadResult.addedCount === 1
+            ? 'Το αρχείο προστέθηκε επιτυχώς'
+            : `Προστέθηκαν ${uploadResult.addedCount} αρχεία`,
+          'success'
+        );
+        await loadFiles();
+      } else {
+        showToast('Σφάλμα προσθήκης αρχείων: ' + (uploadResult?.error || 'Άγνωστο'), 'error');
+      }
+    } catch (error) {
+      console.error('Error uploading prosklisi files:', error);
+      showToast('Σφάλμα προσθήκης αρχείων: ' + error.message, 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleUploadFolder = async () => {
+    if (!canManageWorkflow || !prosklisiId) return;
+    try {
+      const pick = await ipcRenderer.invoke('select-folder-files-flat', {
+        title: 'Επιλογή φακέλου για την πρόσκληση',
+      });
+      if (pick?.canceled) return;
+      if (!pick?.success) {
+        if (pick?.error) showToast('Σφάλμα επιλογής φακέλου: ' + pick.error, 'error');
+        return;
+      }
+      const pickedFiles = (pick.files || []).map((f) => ({ filePath: f.filePath, fileName: f.fileName }));
+      if (pickedFiles.length === 0) {
+        showToast('Ο φάκελος δεν περιέχει αρχεία', 'warning');
+        return;
+      }
+
+      setUploading(true);
+      const uploadResult = await ipcRenderer.invoke('upload-prosklisi-files', {
+        prosklisiId,
+        files: pickedFiles,
+        targetFolder: 'attachments',
+      });
+      if (!uploadResult?.success) {
+        showToast('Σφάλμα προσθήκης αρχείων φακέλου: ' + (uploadResult?.error || 'Άγνωστο'), 'error');
+        return;
+      }
+
+      const folderTitle = String(pick.folderName || 'Φάκελος').trim() || 'Φάκελος';
+      const addedNames = uploadResult.added || pickedFiles.map((f) => f.fileName);
+      const groupResult = await ipcRenderer.invoke('create-prosklisi-group', prosklisiId, folderTitle, addedNames);
+      if (!groupResult?.success) {
+        // Τα αρχεία ανέβηκαν κανονικά· η ομαδοποίηση απέτυχε — ενημερώνουμε αλλά δεν μπλοκάρουμε.
+        showToast(`Προστέθηκαν ${addedNames.length} αρχεία, αλλά η ομαδοποίηση απέτυχε: ${groupResult?.error || 'Άγνωστο'}`, 'warning');
+      } else {
+        showToast(`Προστέθηκε ο φάκελος «${folderTitle}» με ${addedNames.length} αρχεία`, 'success');
+      }
+      await loadFiles();
+    } catch (error) {
+      console.error('Error uploading prosklisi folder:', error);
+      showToast('Σφάλμα προσθήκης φακέλου: ' + error.message, 'error');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -764,6 +873,16 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             <LoadingMessage>Φόρτωση αρχείων...</LoadingMessage>
           ) : (
             <>
+              {canManageWorkflow && (
+                <UploadBar>
+                  <UploadButton type="button" onClick={handleUploadFiles} disabled={uploading}>
+                    {uploading ? '⏳ Προσθήκη…' : '📎 Προσθήκη Αρχείων'}
+                  </UploadButton>
+                  <UploadFolderButton type="button" onClick={handleUploadFolder} disabled={uploading}>
+                    {uploading ? '⏳ Προσθήκη…' : '📁 Προσθήκη Φακέλου'}
+                  </UploadFolderButton>
+                </UploadBar>
+              )}
               <KhmdhsDocumentRegistryPanel
                 entries={registryEntries}
                 headerTitle="Καταχωρήσεις Διαύγειας"

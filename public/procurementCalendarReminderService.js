@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { safeWriteJSON } = require('./safeWrite');
-const { loadCalendarConfig } = require('./calendarConfigService');
+const { loadCalendarConfig, isNotifyEventTypeEnabled } = require('./calendarConfigService');
 const {
   loadEmailConfig,
   isConfigured,
@@ -169,6 +169,8 @@ function collectItemsForRecipient(items, recipient, config, log) {
   const visible = calendarEventsBuilder.filterItemsForRecipient(items, recipient);
 
   for (const item of visible) {
+    if (!isNotifyEventTypeEnabled(config, item.eventType)) continue;
+
     if (item.eventType === EVENT_TYPES.COMPLIANCE_12M) {
       const key = `${item.itemKey}:compliance`;
       if (!log.sent[key]) complianceItems.push({ ...item, trigger: 'compliance' });

@@ -5598,11 +5598,18 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
       fs.mkdirSync(attachmentsDir, { recursive: true });
     }
 
+    const dataFilePath = path.join(prosklisiDir, 'data.json');
+    let existingProsklisiData = null;
+    if (fs.existsSync(dataFilePath)) {
+      try { existingProsklisiData = JSON.parse(fs.readFileSync(dataFilePath, 'utf8')); } catch (_e) { /* ignore */ }
+    }
+    const existingOnDisk = existingProsklisiData || {};
+
     // Prepare data to save
     const savedData = { ...prosklisiData };
 
     // Handle file groups FIRST - copy files and save groups data
-    if (prosklisiData.fileGroups && Array.isArray(prosklisiData.fileGroups)) {
+    if (prosklisiData.fileGroups && Array.isArray(prosklisiData.fileGroups) && prosklisiData.fileGroups.length > 0) {
       savedData.fileGroups = [];
       
       for (const group of prosklisiData.fileGroups) {
@@ -5618,7 +5625,8 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
             fs.mkdirSync(groupFolderPath, { recursive: true });
           }
           
-          const groupFiles = [];
+          const existingGroup = (existingOnDisk.fileGroups || []).find((g) => g.id === group.id);
+          const groupFiles = [...(existingGroup?.files || [])];
           
           for (const file of group.files) {
             if (file.filePath) {
@@ -5629,15 +5637,19 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
               if (fs.existsSync(file.filePath)) {
                 console.log('Copying group file from:', file.filePath, 'to:', destPath);
                 fs.copyFileSync(file.filePath, destPath);
-                groupFiles.push({
-                  fileName: originalFileName,
-                  originalName: file.fileName,
-                  filePath: destPath
-                });
+                if (!groupFiles.some((gf) => gf.fileName === originalFileName)) {
+                  groupFiles.push({
+                    fileName: originalFileName,
+                    originalName: file.fileName,
+                    filePath: destPath
+                  });
+                }
                 console.log('Group file copied successfully');
               } else {
                 console.error('Source group file not found:', file.filePath);
               }
+            } else if (file.fileName && !groupFiles.some((gf) => gf.fileName === file.fileName)) {
+              groupFiles.push(file);
             }
           }
           
@@ -5648,11 +5660,20 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
           });
         }
       }
+
+      for (const existingGroup of existingOnDisk.fileGroups || []) {
+        if (!savedData.fileGroups.some((g) => g.id === existingGroup.id)) {
+          savedData.fileGroups.push(existingGroup);
+        }
+      }
+    } else if (existingOnDisk.fileGroups?.length) {
+      savedData.fileGroups = existingOnDisk.fileGroups;
     }
 
     // Handle prosklisi PDF files (multiple files with folder choice) - AFTER file groups
     if (prosklisiData.prosklisiFiles && Array.isArray(prosklisiData.prosklisiFiles)) {
-      savedData.prosklisiFiles = [];
+      const newUploads = prosklisiData.prosklisiFiles.filter((file) => file.filePath);
+      savedData.prosklisiFiles = [...(existingOnDisk.prosklisiFiles || [])];
       
       // Get original names of files that are already in groups
       const groupedOriginalNames = new Set();
@@ -5677,7 +5698,7 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
         });
       }
       
-      for (const file of prosklisiData.prosklisiFiles) {
+      for (const file of newUploads) {
         // Skip files that are already in groups - έλεγχος και των δύο πεδίων
         if (groupedOriginalNames.has(file.fileName) || groupedOriginalNames.has(file.originalName)) {
           console.log('Skipping duplicate file:', file.fileName, 'already in groups');
@@ -5695,24 +5716,29 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
           if (fs.existsSync(file.filePath)) {
             console.log('Copying prosklisi file from:', file.filePath, 'to:', destPath);
             fs.copyFileSync(file.filePath, destPath);
-            savedData.prosklisiFiles.push({
-              fileName: originalFileName,
-              originalName: file.fileName,
-              targetFolder: file.targetFolder
-            });
+            if (!savedData.prosklisiFiles.some((f) => f.fileName === originalFileName)) {
+              savedData.prosklisiFiles.push({
+                fileName: originalFileName,
+                originalName: file.fileName,
+                targetFolder: file.targetFolder
+              });
+            }
             console.log('Prosklisi file copied successfully');
           } else {
             console.error('Source prosklisi file not found:', file.filePath);
           }
         }
       }
+    } else if (existingOnDisk.prosklisiFiles?.length) {
+      savedData.prosklisiFiles = existingOnDisk.prosklisiFiles;
     }
 
     // Handle prosklisi folders
     if (prosklisiData.prosklisiFolders && Array.isArray(prosklisiData.prosklisiFolders)) {
-      savedData.prosklisiFolders = [];
+      const newFolderUploads = prosklisiData.prosklisiFolders.filter((folder) => folder.folderPath);
+      savedData.prosklisiFolders = [...(existingOnDisk.prosklisiFolders || [])];
       
-      for (const folder of prosklisiData.prosklisiFolders) {
+      for (const folder of newFolderUploads) {
         if (folder.folderPath && folder.targetFolder) {
           // Create a safe folder name (max 50 chars, remove special characters)
           const safeOriginalName = folder.folderName
@@ -5755,27 +5781,35 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
             
             copyFolder(folder.folderPath, destPath);
             
-            savedData.prosklisiFolders.push({
-              folderName: folderName,
-              originalName: folder.folderName,
-              targetFolder: folder.targetFolder
-            });
+            if (!savedData.prosklisiFolders.some((f) => f.folderName === folderName)) {
+              savedData.prosklisiFolders.push({
+                folderName: folderName,
+                originalName: folder.folderName,
+                targetFolder: folder.targetFolder
+              });
+            }
             console.log('Prosklisi folder copied successfully');
           } else {
             console.error('Source prosklisi folder not found:', folder.folderPath);
           }
         }
       }
+    } else if (existingOnDisk.prosklisiFolders?.length) {
+      savedData.prosklisiFolders = existingOnDisk.prosklisiFolders;
     }
 
 
-    // Save data to JSON file
-    const dataFilePath = path.join(prosklisiDir, 'data.json');
-    let existingProsklisiData = null;
-    if (fs.existsSync(dataFilePath)) {
-      try { existingProsklisiData = JSON.parse(fs.readFileSync(dataFilePath, 'utf8')); } catch (_e) { /* ignore */ }
-    }
-    safeWriteJSON(dataFilePath, savedData);
+    const finalData = {
+      ...existingOnDisk,
+      ...savedData,
+      createdAt: existingOnDisk.createdAt || savedData.createdAt,
+      fileGroups: savedData.fileGroups ?? existingOnDisk.fileGroups ?? [],
+      prosklisiFiles: savedData.prosklisiFiles ?? existingOnDisk.prosklisiFiles ?? [],
+      prosklisiFolders: savedData.prosklisiFolders ?? existingOnDisk.prosklisiFolders ?? [],
+      documentRegistry: savedData.documentRegistry ?? existingOnDisk.documentRegistry
+    };
+
+    safeWriteJSON(dataFilePath, finalData);
     
     // Also save to prosklisi_data.json for file groups
     const prosklisiDataPath = path.join(prosklisiDir, 'prosklisi_data.json');
@@ -5790,11 +5824,14 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
       }
     }
     
-    // Merge with existing data, keeping existing fileGroups and adding new ones
     const mergedData = {
       ...existingData,
-      ...savedData,
-      fileGroups: savedData.fileGroups || existingData.fileGroups || []
+      ...finalData,
+      fileGroups: finalData.fileGroups?.length
+        ? finalData.fileGroups
+        : (existingData.fileGroups || existingOnDisk.fileGroups || []),
+      prosklisiFiles: finalData.prosklisiFiles,
+      prosklisiFolders: finalData.prosklisiFolders
     };
     
     safeWriteJSON(prosklisiDataPath, mergedData);
@@ -5804,10 +5841,10 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
       type: existingProsklisiData ? 'update' : 'create',
       entityType: 'prosklisi',
       entityId: prosklisiData.prosklisiId,
-      entityTitle: savedData.title || prosklisiData.prosklisiId,
+      entityTitle: finalData.title || prosklisiData.prosklisiId,
       details: existingProsklisiData ? 'Ενημέρωση πρόσκλησης' : 'Δημιουργία νέας πρόσκλησης',
       oldValue: existingProsklisiData,
-      newValue: savedData
+      newValue: finalData
     });
     return { success: true };
   } catch (error) {
@@ -6092,6 +6129,71 @@ ipcMain.handle('delete-prosklisi-group', async (event, prosklisiId, groupId) => 
     return { success: true };
   } catch (error) {
     console.error('Error deleting prosklisi group:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Create prosklisi group — ομαδοποιεί ήδη ανεβασμένα αρχεία (π.χ. μετά από ανέβασμα φακέλου)
+ipcMain.handle('create-prosklisi-group', async (event, prosklisiId, groupTitle, fileNames) => {
+  try {
+    if (!prosklisiId) return { success: false, error: 'Απαιτείται prosklisiId' };
+    if (!Array.isArray(fileNames) || fileNames.length === 0) {
+      return { success: false, error: 'Δεν δόθηκαν αρχεία για ομαδοποίηση' };
+    }
+
+    const prosklisiDir = path.join(proskliseisDir, prosklisiId);
+    const dataPath = path.join(prosklisiDir, 'data.json');
+    if (!fs.existsSync(dataPath)) {
+      return { success: false, error: 'Η πρόσκληση δεν βρέθηκε' };
+    }
+
+    const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+    const prosklisiFiles = Array.isArray(data.prosklisiFiles) ? data.prosklisiFiles : [];
+    const nameSet = new Set(fileNames);
+    const isMatch = (f) => nameSet.has(f.fileName) && f.targetFolder !== 'main';
+    const matchedFiles = prosklisiFiles.filter(isMatch);
+    if (matchedFiles.length === 0) {
+      return { success: false, error: 'Τα αρχεία δεν βρέθηκαν στη λίστα μη ομαδοποιημένων' };
+    }
+
+    data.prosklisiFiles = prosklisiFiles.filter((f) => !isMatch(f));
+    const newGroup = {
+      id: uuidv4(),
+      title: String(groupTitle || 'Φάκελος').trim() || 'Φάκελος',
+      files: matchedFiles,
+    };
+    data.fileGroups = [...(Array.isArray(data.fileGroups) ? data.fileGroups : []), newGroup];
+    data.updatedAt = new Date().toISOString();
+    safeWriteJSON(dataPath, data);
+
+    // Το prosklisi_data.json τροφοδοτεί την ενότητα «Ομαδοποιημένα Αρχεία» — πρέπει να μείνει
+    // συγχρονισμένο, αλλιώς η νέα ομάδα δεν θα εμφανιστεί πουθενά στο modal.
+    const prosklisiDataPath = path.join(prosklisiDir, 'prosklisi_data.json');
+    let existingData = {};
+    if (fs.existsSync(prosklisiDataPath)) {
+      try {
+        existingData = JSON.parse(fs.readFileSync(prosklisiDataPath, 'utf8'));
+      } catch (_e) { /* ignore */ }
+    }
+    safeWriteJSON(prosklisiDataPath, {
+      ...existingData,
+      ...data,
+      prosklisiFiles: data.prosklisiFiles,
+      fileGroups: data.fileGroups,
+      updatedAt: data.updatedAt,
+    });
+
+    logAuditAction({
+      type: 'create',
+      entityType: 'file_group',
+      entityId: newGroup.id,
+      entityTitle: newGroup.title,
+      details: `Δημιουργία ομάδας αρχείων πρόσκλησης με ${matchedFiles.length} αρχεία`
+    });
+
+    return { success: true, groupId: newGroup.id };
+  } catch (error) {
+    console.error('Error creating prosklisi group:', error);
     return { success: false, error: error.message };
   }
 });
@@ -6548,6 +6650,73 @@ ipcMain.handle('download-prosklisi-file', async (event, prosklisiId, fileName, t
 });
 
 // Delete prosklisi file  
+ipcMain.handle('upload-prosklisi-files', async (_event, { prosklisiId, files, targetFolder = 'attachments' }) => {
+  try {
+    if (!prosklisiId) return { success: false, error: 'Απαιτείται prosklisiId' };
+    if (!Array.isArray(files) || files.length === 0) {
+      return { success: false, error: 'Δεν επιλέχθηκαν αρχεία' };
+    }
+
+    const prosklisiDir = path.join(proskliseisDir, prosklisiId);
+    const dataFilePath = path.join(prosklisiDir, 'data.json');
+    if (!fs.existsSync(dataFilePath)) {
+      return { success: false, error: 'Η πρόσκληση δεν βρέθηκε' };
+    }
+
+    const mainFilesDir = path.join(prosklisiDir, 'ΑΡΧΕΙΑ_ΠΡΟΣΚΛΗΣΗΣ');
+    const attachmentsDir = path.join(mainFilesDir, 'Επισυναπτόμενα Αρχεία Υποβολής');
+    if (!fs.existsSync(mainFilesDir)) fs.mkdirSync(mainFilesDir, { recursive: true });
+    if (!fs.existsSync(attachmentsDir)) fs.mkdirSync(attachmentsDir, { recursive: true });
+
+    const targetDir = targetFolder === 'main' ? mainFilesDir : attachmentsDir;
+    const data = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
+    const prosklisiFiles = [...(data.prosklisiFiles || [])];
+    const added = [];
+
+    for (const file of files) {
+      if (!file?.filePath || !fs.existsSync(file.filePath)) continue;
+      const originalFileName = path.basename(file.fileName || file.filePath);
+      if (prosklisiFiles.some((f) => f.fileName === originalFileName)) continue;
+      const destPath = path.join(targetDir, originalFileName);
+      fs.copyFileSync(file.filePath, destPath);
+      prosklisiFiles.push({
+        fileName: originalFileName,
+        originalName: file.fileName,
+        targetFolder: targetFolder === 'main' ? 'main' : 'attachments',
+      });
+      added.push(originalFileName);
+    }
+
+    if (!added.length) {
+      return { success: false, error: 'Δεν προστέθηκαν νέα αρχεία (ίσως υπάρχουν ήδη)' };
+    }
+
+    data.prosklisiFiles = prosklisiFiles;
+    data.updatedAt = new Date().toISOString();
+    safeWriteJSON(dataFilePath, data);
+
+    const prosklisiDataPath = path.join(prosklisiDir, 'prosklisi_data.json');
+    if (fs.existsSync(prosklisiDataPath)) {
+      try {
+        const existingData = JSON.parse(fs.readFileSync(prosklisiDataPath, 'utf8'));
+        safeWriteJSON(prosklisiDataPath, { ...existingData, ...data, prosklisiFiles });
+      } catch (_e) { /* ignore */ }
+    }
+
+    logAuditAction({
+      type: 'update',
+      entityType: 'prosklisi',
+      entityId: prosklisiId,
+      entityTitle: data.title || prosklisiId,
+      details: `Προστέθηκαν ${added.length} αρχεία στην πρόσκληση`,
+    });
+    return { success: true, addedCount: added.length, added };
+  } catch (error) {
+    console.error('Error uploading prosklisi files:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('delete-prosklisi-file', async (event, prosklisiId, fileName, targetFolder) => {
   try {
     const prosklisiDir = path.join(proskliseisDir, prosklisiId);
@@ -6605,6 +6774,20 @@ ipcMain.handle('delete-prosklisi-file', async (event, prosklisiId, fileName, tar
         }
         
         safeWriteJSON(dataPath, data);
+
+        // Συγχρονισμός με prosklisi_data.json (τροφοδοτεί την ενότητα «Ομαδοποιημένα Αρχεία»)
+        const prosklisiDataPath = path.join(prosklisiDir, 'prosklisi_data.json');
+        if (fs.existsSync(prosklisiDataPath)) {
+          try {
+            const existingData = JSON.parse(fs.readFileSync(prosklisiDataPath, 'utf8'));
+            safeWriteJSON(prosklisiDataPath, {
+              ...existingData,
+              prosklisiFiles: data.prosklisiFiles,
+              fileGroups: data.fileGroups,
+              prosklisiFolders: data.prosklisiFolders,
+            });
+          } catch (_e) { /* ignore */ }
+        }
       }
       
       logAuditAction({
