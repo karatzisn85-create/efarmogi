@@ -55,6 +55,26 @@ describe('buildPaymentSummaryForReport', () => {
     expect(s.percentPaid).toBeCloseTo(40);
     expect(s.paymentCount).toBe(2);
   });
+
+  test('προτιμά το displayTotalGross όταν υπάρχει συγχρηματοδότηση/χαρακτηρισμός', () => {
+    // countableTotalGross διπλομετράει συγχρηματοδοτούμενες πληρωμές (Δήμος + Περιφ. Ταμείο)
+    // όταν ο χρήστης δεν έχει ακόμα χαρακτηρίσει τα έγγραφα· το displayTotalGross έχει ήδη
+    // την έξυπνη εκτίμηση και πρέπει να είναι αυτό που εμφανίζεται στην αναφορά.
+    const basic = { totalContractAmount: 50000, contractAmount: '50.000,00' };
+    const khmdhsChain = {
+      pay: {
+        count: 2,
+        totalGross: 100000,
+        countableTotalGross: 100000,
+        estimatedContractorPaymentGross: 50000,
+        displayTotalGross: 50000,
+      },
+    };
+    const s = buildPaymentSummaryForReport(basic, khmdhsChain);
+    expect(s.paidAmount).toBe(50000);
+    expect(s.remainingAmount).toBe(0);
+    expect(s.percentPaid).toBeCloseTo(100);
+  });
 });
 
 describe('buildCompletenessGapsForReport', () => {

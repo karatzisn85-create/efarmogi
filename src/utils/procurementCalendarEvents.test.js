@@ -235,6 +235,49 @@ describe('procurementCalendarEvents', () => {
     expect(end).toBe('2026-08-14');
   });
 
+  test('resolveContractEndDateIso includes manual (χειροκίνητη) contract extension', () => {
+    const end = resolveContractEndDateIso({
+      implementationForm: 'Μια Σύμβαση',
+      contractEndDate: '2025-08-14',
+      contractExtensions: [
+        { id: 'ext-1', newEndDate: '2026-02-28', documentDate: '2025-12-01', comments: 'Απόφαση Δημάρχου' },
+      ],
+    });
+    expect(end).toBe('2026-02-28');
+  });
+
+  test('resolveContractEndDateIso picks the latest date between manual extension and ΚΗΜΔΗΣ extension', () => {
+    const end = resolveContractEndDateIso({
+      contractEndDate: '2024-08-14',
+      contractExtensions: [
+        { id: 'ext-1', newEndDate: '2025-05-01', documentDate: '2025-01-01' },
+      ],
+      khmdhsContractChainHistory: [
+        { adam: '24SYMV000', isRoot: true, order: 0, endDate: '2024-08-14' },
+        { adam: '25SYMV001', isRoot: false, order: 1, kind: 'extension', endDate: '2026-08-14' },
+      ],
+      khmdhsDataQualityReview: {
+        items: [],
+        resolutions: {
+          'chainKindReview:25SYMV001': {
+            value: 'extension',
+            source: 'user_confirmed',
+            meta: { endDate: '2026-08-14' },
+          },
+        },
+      },
+    });
+    expect(end).toBe('2026-08-14');
+  });
+
+  test('resolveContractEndDateIso reads contractExtensions per-contract in Πολλές Συμβάσεις', () => {
+    const end = resolveContractEndDateIso(
+      { implementationForm: 'Πολλές Συμβάσεις', contracts: [] },
+      { contractEndDate: '2025-01-01', contractExtensions: [{ id: 'e1', newEndDate: '2025-11-11' }] }
+    );
+    expect(end).toBe('2025-11-11');
+  });
+
   test('calendarEventRowKey distinguishes multi-contract same day', () => {
     const base = { type: CALENDAR_EVENT_TYPES.CONTRACT_END, subprojectId: 'sub-1', dateKey: '2027-01-15' };
     const k1 = calendarEventRowKey({ ...base, contractIndex: 0, adam: 'ADAM-1' });

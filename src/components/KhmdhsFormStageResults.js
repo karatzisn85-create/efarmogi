@@ -10,6 +10,7 @@ import KhmdhsSupplementaryDisplay from './KhmdhsSupplementaryDisplay';
 import KhmdhsPaymentsDisplay from './KhmdhsPaymentsDisplay';
 import KhmdhsSymvChainTimeline from './KhmdhsSymvChainTimeline';
 import KhmdhsApeDisplay from './KhmdhsApeDisplay';
+import KhmdhsManualExtensionDisplay from './KhmdhsManualExtensionDisplay';
 import { getKhmdhsDisplayEntries } from '../utils/khmdhsFields';
 import {
   projectHasKhmdhsRequestData,
@@ -55,6 +56,7 @@ import {
   shouldShowApeSubCard,
 } from '../utils/khmdhsApeEntry';
 import { formatProjectAmountDisplay, getKhmdhsAmountSanityReference } from '../utils/projectAmountUtils';
+import { listContractExtensionEntries } from '../utils/khmdhsManualContractExtension';
 import KhmdhsApeEntryButton from './KhmdhsApeEntryButton';
 
 export function projectHasKhmdhsFormResults(project) {
@@ -243,9 +245,15 @@ const CardStack = styled.div`
  *   project: object,
  *   canEditApe?: boolean,
  *   onOpenApeEntry?: (target: object) => void,
+ *   onOpenManualExtension?: (target: object) => void,
  * }} props
  */
-export default function KhmdhsFormStageResults({ project, canEditApe = false, onOpenApeEntry }) {
+export default function KhmdhsFormStageResults({
+  project,
+  canEditApe = false,
+  onOpenApeEntry,
+  onOpenManualExtension,
+}) {
   const contractEntries = useMemo(() => getKhmdhsDisplayEntries(project), [project]);
   const supplementaryEntries = useMemo(
     () => getKhmdhsSupplementaryStageEntries(project),
@@ -367,6 +375,9 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
           const label = buildSymvStageTitle(entry, idx, contractEntries.length);
           const apeTarget = { kind: 'contract', arrayIndex, title: label };
           const apeEntries = listContractApeEntries(project, arrayIndex);
+          const extensionEntries = listContractExtensionEntries(project, arrayIndex);
+          const extensionTarget = { arrayIndex, title: label };
+          const openNewExtension = () => onOpenManualExtension?.({ ...extensionTarget, entryId: null });
           const sanityRef = getKhmdhsAmountSanityReference(project);
           const contractRef = entry.storedAmount || '';
           const contractAmtFmt = formatProjectAmountDisplay(contractRef, sanityRef);
@@ -394,14 +405,27 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
                 statusWarn={!!entry.snapshot?.cancelled}
                 summary={summary}
                 scrollId={`stage-SYMV-${idx}`}
-                headerAction={canEditApe && onOpenApeEntry ? (
-                  <KhmdhsApeEntryButton
-                    hasApe={false}
-                    shortLabel="+"
-                    title="Νέος ΑΠΕ"
-                    onClick={openNewApe}
-                  />
-                ) : null}
+                headerAction={(
+                  <>
+                    {canEditApe && onOpenApeEntry ? (
+                      <KhmdhsApeEntryButton
+                        hasApe={false}
+                        shortLabel="+"
+                        title="Νέος ΑΠΕ"
+                        onClick={openNewApe}
+                      />
+                    ) : null}
+                    {canEditApe && onOpenManualExtension ? (
+                      <KhmdhsApeEntryButton
+                        hasApe={false}
+                        variant="amber"
+                        shortLabel="⏱"
+                        title="Νέα παράταση σύμβασης (εκτός ΚΗΜΔΗΣ)"
+                        onClick={openNewExtension}
+                      />
+                    ) : null}
+                  </>
+                )}
               >
                 <KhmdhsContractDetailDisplay
                   entry={entry}
@@ -410,6 +434,8 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
                   apeAmount={hasApeEntries ? '' : ''}
                   khmdhsAmount={entry.storedAmount || ''}
                   apeFileName=""
+                  project={project}
+                  arrayIndex={arrayIndex}
                 />
                 {idx === 0 && project?.khmdhsSymvChainPlan?.items?.length > 0 && (
                   <KhmdhsSymvChainTimeline project={project} />
@@ -458,6 +484,49 @@ export default function KhmdhsFormStageResults({ project, canEditApe = false, on
                     <KhmdhsApeDisplay
                       project={project}
                       target={entryTarget}
+                      parentTitle={label}
+                      variant="detail"
+                    />
+                  </KhmdhsStageCard>
+                );
+              })}
+              {extensionEntries.map((extEntry, extIdx) => {
+                const entryTarget = { ...extensionTarget, entryId: extEntry.id };
+                const extTitleDate = extEntry.documentDate
+                  ? new Date(`${extEntry.documentDate}T12:00:00`).toLocaleDateString('el-GR')
+                  : '';
+                const extCardTitle = extTitleDate
+                  ? `Παράταση — ${label} (${extTitleDate})`
+                  : (extensionEntries.length > 1 ? `Παράταση — ${label} ${extIdx + 1}` : `Παράταση — ${label}`);
+                const newEndDateFmt = extEntry.newEndDate
+                  ? new Date(`${extEntry.newEndDate}T12:00:00`).toLocaleDateString('el-GR')
+                  : '';
+                return (
+                  <KhmdhsStageCard
+                    key={extEntry.id}
+                    nested
+                    stageType="EXT"
+                    icon="⏱"
+                    title={extCardTitle}
+                    adam={extEntry.diavgeiaAda || ''}
+                    statusLabel={newEndDateFmt ? `Νέα λήξη: ${newEndDateFmt}` : 'καταχωρημένο'}
+                    statusOk
+                    summary={extEntry.comments || ''}
+                    scrollId={`stage-EXT-contract-${idx}-${extEntry.id}`}
+                    headerAction={canEditApe && onOpenManualExtension ? (
+                      <KhmdhsApeEntryButton
+                        hasApe
+                        variant="amber"
+                        shortLabel="✎"
+                        title="Επεξεργασία παράτασης"
+                        onClick={() => onOpenManualExtension?.(entryTarget)}
+                      />
+                    ) : null}
+                  >
+                    <KhmdhsManualExtensionDisplay
+                      project={project}
+                      arrayIndex={arrayIndex}
+                      entryId={extEntry.id}
                       parentTitle={label}
                       variant="detail"
                     />

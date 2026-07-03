@@ -97,9 +97,13 @@ export function buildPaymentSummaryForReport(basic, khmdhsChain) {
     ? basic.totalContractAmount
     : parseAmountNumber(basic?.contractAmount);
   const pay = khmdhsChain?.pay || null;
-  const paidAmount = pay?.countableTotalGross != null
-    ? pay.countableTotalGross
-    : (pay?.estimatedContractorPaymentGross != null ? pay.estimatedContractorPaymentGross : pay?.totalGross);
+  // «displayTotalGross»: το ποσό που πράγματι μετράει (μετά χαρακτηρισμό/χειροκίνητη διόρθωση/
+  // εκτίμηση συγχρηματοδότησης) — ίδιο με ό,τι βλέπει ο χρήστης στην κάρτα πληρωμών του υποέργου.
+  const paidAmount = pay?.displayTotalGross != null
+    ? pay.displayTotalGross
+    : (pay?.countableTotalGross != null
+      ? pay.countableTotalGross
+      : (pay?.estimatedContractorPaymentGross != null ? pay.estimatedContractorPaymentGross : pay?.totalGross));
   const paid = paidAmount != null && Number.isFinite(Number(paidAmount)) ? Number(paidAmount) : 0;
   const hasContract = contractAmount > 0;
   const hasPayments = (pay?.count || 0) > 0;
@@ -120,7 +124,7 @@ export function buildPaymentSummaryForReport(basic, khmdhsChain) {
     percentPaid,
     percentPaidLabel: percentPaid != null ? formatPercent(percentPaid) : '—',
     paymentCount: pay?.count || 0,
-    usesCountableTotal: pay?.countableTotalGross != null,
+    usesCountableTotal: pay?.displayTotalGross != null || pay?.countableTotalGross != null,
   };
 }
 

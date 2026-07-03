@@ -9,6 +9,8 @@ import {
 } from '../utils/khmdhsContractDisplayFields';
 import { formatDateEl } from '../utils/dateFormat';
 import { formatApeAmountDisplay } from '../utils/khmdhsApeEntry';
+import { resolveContractEndDateIso } from '../utils/procurementCalendarEvents';
+import { isMultipleContractsForm } from '../utils/khmdhsFields';
 
 function formatFetchedAt(fetchedAt) {
   if (!fetchedAt) return '';
@@ -20,6 +22,8 @@ function formatFetchedAt(fetchedAt) {
  *   entry: { contractIndex?: number|null, adam?: string, snapshot?: object, fetchedAt?: string, amendments?: Array, chainHistory?: Array, roleLabel?: string },
  *   variant?: 'detail'|'card',
  *   defaultExpanded?: boolean,
+ *   project?: object,
+ *   arrayIndex?: number,
  * }} props
  */
 export default function KhmdhsContractDetailDisplay({
@@ -30,6 +34,8 @@ export default function KhmdhsContractDetailDisplay({
   khmdhsAmount = '',
   apeFileName = '',
   symvChainPlan = null,
+  project = null,
+  arrayIndex = 0,
 }) {
   const snapshot = useMemo(
     () => pickKhmdhsContractSnapshot(entry?.snapshot),
@@ -109,6 +115,22 @@ export default function KhmdhsContractDetailDisplay({
       value: String(entry.amendments.length),
       strong: true,
     });
+  }
+
+  if (project) {
+    const contract = isMultipleContractsForm(project.implementationForm)
+      ? (project.contracts?.[arrayIndex] || null)
+      : null;
+    const resolvedEndIso = resolveContractEndDateIso(project, contract);
+    const snapshotEndIso = snapshot?.noEndDate ? '' : (snapshot?.endDate || '');
+    if (resolvedEndIso && resolvedEndIso !== snapshotEndIso) {
+      summaryChips.push({
+        label: 'Ισχύουσα λήξη (με παρατάσεις)',
+        value: formatDateEl(resolvedEndIso, ''),
+        strong: true,
+        highlight: true,
+      });
+    }
   }
 
   return (

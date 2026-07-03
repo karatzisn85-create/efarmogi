@@ -18,7 +18,7 @@ import { getChainKindChoice, enrichChainHistoryWithReview, CHAIN_KIND_LABEL } fr
 import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEntries';
 import { getSymvPlanCustomLabel, overlaySymvPlanLabelsOnChainHistory, SYMV_CHAIN_ROLE, isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
 
-export const KHMDHS_REGISTRY_STAGE_ORDER = ['REQ', 'COMMIT', 'PROC', 'AWRD', 'SYMV', 'APE', 'PAY', 'RELATED'];
+export const KHMDHS_REGISTRY_STAGE_ORDER = ['REQ', 'COMMIT', 'PROC', 'AWRD', 'SYMV', 'EXT', 'APE', 'PAY', 'RELATED'];
 
 export const KHMDHS_REGISTRY_STAGE_META = {
   REQ: { label: 'Αίτημα', shortLabel: 'Αίτημα', color: '#4f46e5', bg: '#eef2ff' },
@@ -26,6 +26,7 @@ export const KHMDHS_REGISTRY_STAGE_META = {
   PROC: { label: 'Δημοσίευση', shortLabel: 'Δημοσίευση', color: '#2563eb', bg: '#eff6ff' },
   AWRD: { label: 'Κατακύρωση', shortLabel: 'Κατακύρωση', color: '#d97706', bg: '#fffbeb' },
   SYMV: { label: 'Σύμβαση', shortLabel: 'Σύμβαση', color: '#059669', bg: '#ecfdf5' },
+  EXT: { label: 'Παράταση', shortLabel: 'Παράταση', color: '#b45309', bg: '#fffbeb' },
   APE: { label: 'ΑΠΕ', shortLabel: 'ΑΠΕ', color: '#0d9488', bg: '#ecfdf5' },
   PAY: { label: 'Ένταλμα πληρωμής', shortLabel: 'Πληρωμή', color: '#0d9488', bg: '#f0fdfa' },
   RELATED: { label: 'Σχετικό έγγραφο', shortLabel: 'Σχετικό', color: '#64748b', bg: '#f1f5f9' },

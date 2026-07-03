@@ -83,6 +83,16 @@ export const STAGE_CARD_THEMES = {
     chipBg:      'rgba(13, 148, 136, 0.12)',
     label:       'rgba(13, 148, 136, 0.9)',
   },
+  EXT: {
+    accent:      '#b45309',
+    accentLight: '#d97706',
+    bg:          '#fffbeb',
+    bgHover:     '#fef3c7',
+    border:      'rgba(180, 83, 9, 0.32)',
+    chip:        '#b45309',
+    chipBg:      'rgba(180, 83, 9, 0.12)',
+    label:       'rgba(180, 83, 9, 0.9)',
+  },
 };
 
 const expandDown = keyframes`

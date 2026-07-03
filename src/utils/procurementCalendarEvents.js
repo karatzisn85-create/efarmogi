@@ -235,6 +235,14 @@ function collectAllExtensionEndIsos(project, contract = null) {
       if (d) dates.push(d);
     });
 
+  const manualExtensions = contract
+    ? (contract.contractExtensions || [])
+    : (project.contractExtensions || []);
+  manualExtensions.forEach((e) => {
+    const d = toIsoDateOnly(e?.newEndDate || '');
+    if (d) dates.push(d);
+  });
+
   return [...new Set(dates)];
 }
 

@@ -2420,7 +2420,7 @@ function Statistics({
         >
           <HealthPillValue $color="#dc2626">{hb.stuck ?? 0}</HealthPillValue>
           <HealthPillLabel>Κολλημένα</HealthPillLabel>
-          <HealthPillSub>χωρίς επόμενο στάδιο</HealthPillSub>
+          <HealthPillSub>κενά στην αλυσίδα ΚΗΜΔΗΣ</HealthPillSub>
         </HealthPill>
         <HealthPill
           type="button"

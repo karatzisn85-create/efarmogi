@@ -140,6 +140,25 @@ export const KHMDHS_PANEL_THEMES = {
     shadow: 'rgba(13, 148, 136, 0.14)',
     shadowCompact: 'rgba(13, 148, 136, 0.09)',
   },
+  ext: {
+    accent: '#b45309',
+    accentDark: '#92400e',
+    bg: 'linear-gradient(145deg, #fffbeb 0%, #fef3c7 28%, #f8fafc 100%)',
+    border: 'rgba(180, 83, 9, 0.38)',
+    headerBg: 'linear-gradient(135deg, rgba(180, 83, 9, 0.16) 0%, rgba(255, 255, 255, 0.55) 100%)',
+    headerBorder: 'rgba(180, 83, 9, 0.24)',
+    groupTitle: '#92400e',
+    badgeBorder: 'rgba(180, 83, 9, 0.38)',
+    badgeColor: '#92400e',
+    btnBorder: 'rgba(180, 83, 9, 0.42)',
+    btnColor: '#92400e',
+    btnHover: '#fffbeb',
+    btnOpen: '#fef3c7',
+    groupBorder: 'rgba(180, 83, 9, 0.22)',
+    chipBorder: 'rgba(180, 83, 9, 0.2)',
+    shadow: 'rgba(180, 83, 9, 0.14)',
+    shadowCompact: 'rgba(180, 83, 9, 0.09)',
+  },
 };
 
 const Panel = styled.div`

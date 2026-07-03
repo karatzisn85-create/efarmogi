@@ -14,7 +14,9 @@ import {
   buildKhmdhsPaymentsTotals,
   projectHasKhmdhsPaymentData,
   latestKhmdhsCommitmentAmountGross,
+  getKhmdhsPaymentEntries,
 } from './khmdhsChainExtraFields';
+import { paymentRoleCountsTowardTotal } from './khmdhsPaymentDocumentRoles';
 import { getKhmdhsDisplayEntries } from './khmdhsFields';
 import { computeProjectContractTotal } from './khmdhsSupplementaryAmountLogic';
 import { pickKhmdhsContractSnapshot } from './khmdhsContractDisplayFields';
@@ -42,6 +44,13 @@ function isoYear(dateStr) {
   return y > 2000 && y < 2100 ? y : null;
 }
 
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const t = Date.parse(String(dateStr));
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / (24 * 60 * 60 * 1000));
+}
+
 function isoMonth(dateStr) {
   if (!dateStr) return null;
   const parts = String(dateStr).slice(0, 7).split('-');
@@ -52,10 +61,25 @@ function isoMonth(dateStr) {
   return null;
 }
 
-function paymentGross(snap) {
-  if (!snap) return null;
-  const v = snap.totalCostWithVAT ?? snap.totalCostWithoutVAT;
-  return v != null ? safeNum(v) : null;
+/**
+ * Εντάλματα που πράγματι μετράνε στα αθροίσματα/γραφήματα:
+ * - χωρίς ματαιωμένα/πιστωτικά,
+ * - χωρίς όσα ο χρήστης έχει χαρακτηρίσει ως μη μετρήσιμα (ενημερωτικό, αποζημίωση
+ *   συγχρηματοδότησης, εξαιρείται),
+ * - με το «πραγματικό ποσό» που έχει καταχωρίσει ο χρήστης όταν υπάρχει, αλλιώς το ποσό ΚΗΜΔΗΣ.
+ * Ευθυγραμμίζει τα portfolio στατιστικά με ό,τι βλέπει ο χρήστης στην κάρτα πληρωμών του υποέργου.
+ */
+function countablePaymentEntries(p) {
+  return getKhmdhsPaymentEntries(p).filter((entry) => {
+    const snap = entry.snapshot;
+    if (!snap || snap.cancelled || snap.credit) return false;
+    return paymentRoleCountsTowardTotal(entry.userDocumentRole);
+  });
+}
+
+function countablePaymentEntryAmount(entry) {
+  if (entry.userActualAmount != null) return entry.userActualAmount;
+  return grossFromCostSnapshot(entry.snapshot);
 }
 
 function parseApprovedAmount(val) {
@@ -101,17 +125,55 @@ function isFullChain(p) {
   return hasREQ(p) && hasPROC(p) && hasAWRD(p) && hasSYMV(p);
 }
 
-/** Όλα τα κενά αλυσίδας για ένα υποέργο (μπορεί να έχει περισσότερα από ένα) */
+/**
+ * Ελάχιστες ημέρες αναμονής πριν ένα ενδιάμεσο κενό αλυσίδας θεωρηθεί «κολλημένο»
+ * (δηλαδή κάτι που χρήζει προσοχής) αντί για απόλυτα φυσιολογική πρόοδο διαδικασίας:
+ * - Δημοσίευση → Ανάθεση: χρόνος αξιολόγησης προσφορών, ενστάσεων, ελέγχου νομιμότητας.
+ * - Ανάθεση → Σύμβαση: στάσιμη περίοδος ενστάσεων + χρόνος υπογραφής.
+ * - Σύμβαση → πρώτο ένταλμα: χρόνος έναρξης/προόδου εργασιών πριν τον πρώτο λογαριασμό.
+ */
+const STUCK_GRACE_DAYS = {
+  proc_no_awrd: 45,
+  awrd_no_symv: 30,
+  symv_no_pay: 60,
+};
+
+/** Όλα τα κενά αλυσίδας για ένα υποέργο (μπορεί να έχει περισσότερα από ένα)
+ *  — μόνο όσα έχουν ξεπεράσει το εύλογο χρονικό περιθώριο του σταδίου τους,
+ *  ώστε να μην χαρακτηρίζεται «κολλημένο» ό,τι απλώς δεν πρόλαβε ακόμα να προχωρήσει.
+ */
 function getAllStuckReasons(p) {
   const reasons = [];
-  if (hasAWRD(p) && !hasSYMV(p)) reasons.push('awrd_no_symv');
+
+  if (hasAWRD(p) && !hasSYMV(p)) {
+    const awrdSnap = pickKhmdhsAwardSnapshot(p?.khmdhsAwardSnapshot);
+    const since = daysSince(awrdSnap?.awardDate || awrdSnap?.signedDate);
+    if (since == null || since >= STUCK_GRACE_DAYS.awrd_no_symv) {
+      reasons.push('awrd_no_symv');
+    }
+  }
+
   if (hasPROC(p) && !hasAWRD(p)) {
     const procSnap = pickKhmdhsNoticeSnapshot(p?.khmdhsNoticeSnapshot);
-    if (procSnap?.cancelled) reasons.push('proc_cancelled');
-    else reasons.push('proc_no_awrd');
+    if (procSnap?.cancelled) {
+      reasons.push('proc_cancelled');
+    } else {
+      const reference = procSnap?.finalSubmissionDate || procSnap?.submissionDate || procSnap?.signedDate;
+      const since = daysSince(reference);
+      if (since == null || since >= STUCK_GRACE_DAYS.proc_no_awrd) {
+        reasons.push('proc_no_awrd');
+      }
+    }
   }
+
   const EXECUTING = 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ';
-  if (hasSYMV(p) && !hasPAY(p) && p.projectStatus === EXECUTING) reasons.push('symv_no_pay');
+  if (hasSYMV(p) && !hasPAY(p) && p.projectStatus === EXECUTING) {
+    const since = daysSince(symvSignedDate(p));
+    if (since == null || since >= STUCK_GRACE_DAYS.symv_no_pay) {
+      reasons.push('symv_no_pay');
+    }
+  }
+
   return reasons;
 }
 
@@ -164,9 +226,14 @@ function symvAmount(p) {
   return found ? total : null;
 }
 
+/**
+ * Ποσό πληρωμών προς χρήση σε συγκρίσεις (% εκτέλεσης κ.λπ.) — το ποσό που «μετράει»
+ * μετά από τυχόν χαρακτηρισμό/χειροκίνητη διόρθωση του χρήστη, όχι το ακατέργαστο άθροισμα
+ * ΚΗΜΔΗΣ (που μπορεί να διπλομετρά συγχρηματοδοτούμενες πληρωμές).
+ */
 function payAmount(p) {
   const totals = buildKhmdhsPaymentsTotals(p);
-  const v = totals.rawTotalGross;
+  const v = totals.displayTotalGross;
   return v != null && v > 0 ? v : null;
 }
 
@@ -200,13 +267,6 @@ function symvSignedDate(p) {
   if (!entries.length) return null;
   const snap = pickKhmdhsContractSnapshot(entries[0]?.snapshot);
   return snap?.contractSignedDate || null;
-}
-
-function payDates(p) {
-  const entries = p.khmdhsPayments || [];
-  return entries
-    .map((pay) => pay?.snapshot?.signedDate || null)
-    .filter(Boolean);
 }
 
 // ─── Drill-down helpers ───────────────────────────────────────────────────────
@@ -377,24 +437,20 @@ export function buildKhmdhsPortfolioStatistics(projects) {
     const symvYear = isoYear(symvSignedDate(p));
     if (symvYear) symvByYear[symvYear] = (symvByYear[symvYear] || 0) + 1;
 
-    // PAY
+    // PAY — «displayTotalGross»: ό,τι πράγματι μετράει μετά χαρακτηρισμό/χειροκίνητη διόρθωση,
+    // ώστε τα portfolio στατιστικά να συμφωνούν με την κάρτα πληρωμών του υποέργου.
     const payTotals = buildKhmdhsPaymentsTotals(p);
-    if (payTotals.rawTotalGross != null && payTotals.rawTotalGross > 0) {
-      payTotal += payTotals.rawTotalGross;
+    if (payTotals.displayTotalGross != null && payTotals.displayTotalGross > 0) {
+      payTotal += payTotals.displayTotalGross;
       payCount++;
-      stageDetails.PAY.total += payTotals.rawTotalGross;
+      stageDetails.PAY.total += payTotals.displayTotalGross;
       stageDetails.PAY.count++;
       stageDetails.PAY.totalEntries += payTotals.count || 0;
     }
-    payDates(p).forEach((d) => {
-      const ym = isoMonth(d);
+    countablePaymentEntries(p).forEach((entry) => {
+      const ym = isoMonth(entry.snapshot?.signedDate);
+      const amt = countablePaymentEntryAmount(entry);
       if (ym) payByMonth[ym] = (payByMonth[ym] || 0) + 1;
-    });
-    (p.khmdhsPayments || []).forEach((pay) => {
-      const snap = pay?.snapshot;
-      if (!snap) return;
-      const ym = isoMonth(snap.signedDate);
-      const amt = paymentGross(snap);
       if (ym && amt != null && amt > 0) {
         payByMonthAmounts[ym] = (payByMonthAmounts[ym] || 0) + amt;
       }

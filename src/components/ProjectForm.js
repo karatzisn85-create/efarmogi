@@ -106,6 +106,13 @@ import {
 } from '../utils/khmdhsChainFormAccess';
 import KhmdhsApeConflictModal from './KhmdhsApeConflictModal';
 import KhmdhsApeEntryModal from './KhmdhsApeEntryModal';
+import KhmdhsManualExtensionModal from './KhmdhsManualExtensionModal';
+import {
+  applyExtensionEntryToProject,
+  clearExtensionEntryFromProject,
+  listContractExtensionEntries,
+  buildDefaultExtensionFileName,
+} from '../utils/khmdhsManualContractExtension';
 import { getKhmdhsAmountSanityReference } from '../utils/projectAmountUtils';
 import KhmdhsSituationModal from './KhmdhsSituationModal';
 import KhmdhsBranchPickerDialog from './KhmdhsBranchPickerDialog';
@@ -2554,6 +2561,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   const [contractExpiryPrompt, setContractExpiryPrompt] = useState(null);
   const [symvChainPlannerState, setSymvChainPlannerState] = useState(null);
   const [apeEntryTarget, setApeEntryTarget] = useState(null);
+  const [manualExtensionTarget, setManualExtensionTarget] = useState(null);
   const [phaseBResetUnsaved, setPhaseBResetUnsaved] = useState(false);
   const stripDropdownRef = React.useRef(null);
   const khmdhsChainFetchGenRef = React.useRef({});
@@ -6206,6 +6214,95 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     };
   }, [apeEntryTarget, formData]);
 
+  const handleOpenManualExtension = useCallback((target) => {
+    if (!canEditKhmdhsApe) return;
+    setManualExtensionTarget(target || null);
+  }, [canEditKhmdhsApe]);
+
+  const handleApplyManualExtension = useCallback(async ({
+    newEndDate,
+    documentDate,
+    comments,
+    file,
+    diavgeiaAda,
+    diavgeiaPreview,
+  }) => {
+    if (!manualExtensionTarget) return;
+
+    let filePayload = file;
+    const targetTitle = manualExtensionTarget.title || '';
+
+    if (filePayload === undefined && diavgeiaAda) {
+      try {
+        const dl = await ipcRenderer.invoke('diavgeia-download-decision-pdf', {
+          ada: diavgeiaAda,
+          documentUrl: diavgeiaPreview?.documentUrl || '',
+          fileName: buildDefaultExtensionFileName(targetTitle, '.pdf'),
+        });
+        if (dl?.success && dl.path) {
+          filePayload = {
+            sourcePath: dl.path,
+            fileName: dl.fileName || buildDefaultExtensionFileName(targetTitle, dl.path),
+            groupTitle: buildDefaultApeFileGroupTitle(targetTitle),
+          };
+        }
+      } catch {
+        /* προαιρετική λήψη — δεν μπλοκάρει την καταχώριση */
+      }
+    }
+
+    setFormData((prev) => applyExtensionEntryToProject(prev, manualExtensionTarget, {
+      newEndDate,
+      documentDate,
+      comments,
+      file: filePayload,
+      diavgeiaAda,
+      diavgeiaPreview,
+    }));
+    setManualExtensionTarget(null);
+    const hasFile = filePayload && filePayload !== null && (filePayload.sourcePath || filePayload.fileName);
+    const removedFile = filePayload === null;
+    let msg = 'Η παράταση εφαρμόστηκε στη φόρμα. Αποθηκεύστε το υποέργο για να οριστικοποιηθεί.';
+    if (hasFile) {
+      msg = removedFile
+        ? msg
+        : 'Η παράταση και το αρχείο προστέθηκαν στη φόρμα. Αποθηκεύστε το υποέργο για να οριστικοποιηθούν.';
+    }
+    if (removedFile) msg = 'Το αρχείο παράτασης αφαιρέθηκε από τη φόρμα. Αποθηκεύστε για οριστικοποίηση.';
+    showToast(msg, 'success');
+  }, [manualExtensionTarget, showToast]);
+
+  const handleRemoveManualExtension = useCallback(() => {
+    if (!manualExtensionTarget) return;
+    setFormData((prev) => ({
+      ...prev,
+      ...clearExtensionEntryFromProject(prev, manualExtensionTarget),
+    }));
+    setManualExtensionTarget(null);
+    showToast('Η παράταση αφαιρέθηκε από τη φόρμα.', 'info');
+  }, [manualExtensionTarget, showToast]);
+
+  const manualExtensionModalProps = useMemo(() => {
+    if (!manualExtensionTarget) return null;
+    const arrayIndex = manualExtensionTarget.arrayIndex ?? 0;
+    const entries = listContractExtensionEntries(formData, arrayIndex);
+    const entry = manualExtensionTarget.entryId
+      ? entries.find((e) => e.id === manualExtensionTarget.entryId)
+      : null;
+    const isNewEntry = !manualExtensionTarget.entryId;
+    return {
+      targetTitle: manualExtensionTarget.title,
+      initialNewEndDate: entry?.newEndDate || '',
+      initialDocumentDate: entry?.documentDate || '',
+      initialComments: entry?.comments || '',
+      initialFileName: entry?.fileName || '',
+      initialGroupTitle: entry?.fileGroupTitle || '',
+      initialSourcePath: entry?.fileSourcePath || '',
+      initialDiavgeiaAda: entry?.diavgeiaAda || '',
+      isNewEntry,
+    };
+  }, [manualExtensionTarget, formData]);
+
   const mergeSupervisorEngineerIds = (primaryId, auxiliaryIds) => {
     const p = String(primaryId || '').trim();
     const aux = Array.isArray(auxiliaryIds) ? auxiliaryIds : [];
@@ -7392,6 +7489,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
                     project={formData}
                     canEditApe={canEditKhmdhsApe}
                     onOpenApeEntry={handleOpenApeEntry}
+                    onOpenManualExtension={handleOpenManualExtension}
                   />
                   <KhmdhsUserEditsPanel
                     formData={formData}
@@ -8022,6 +8120,22 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       onCancel={() => setApeEntryTarget(null)}
       onApply={handleApplyApeEntry}
       onRemove={apeEntryTarget?.entryId ? handleRemoveApeEntry : undefined}
+    />
+    <KhmdhsManualExtensionModal
+      isOpen={!!manualExtensionTarget}
+      targetTitle={manualExtensionModalProps?.targetTitle || ''}
+      initialNewEndDate={manualExtensionModalProps?.initialNewEndDate || ''}
+      initialDocumentDate={manualExtensionModalProps?.initialDocumentDate || ''}
+      initialComments={manualExtensionModalProps?.initialComments || ''}
+      initialFileName={manualExtensionModalProps?.initialFileName || ''}
+      initialGroupTitle={manualExtensionModalProps?.initialGroupTitle || ''}
+      initialSourcePath={manualExtensionModalProps?.initialSourcePath || ''}
+      initialDiavgeiaAda={manualExtensionModalProps?.initialDiavgeiaAda || ''}
+      isNewEntry={!!manualExtensionModalProps?.isNewEntry}
+      onFetchByDiavgeiaAda={handleFetchDiavgeiaByAda}
+      onCancel={() => setManualExtensionTarget(null)}
+      onApply={handleApplyManualExtension}
+      onRemove={manualExtensionTarget?.entryId ? handleRemoveManualExtension : undefined}
     />
     </>
   );
