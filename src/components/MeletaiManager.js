@@ -24,8 +24,16 @@ import {
   MELETI_FOLDER_TYPE_STYLE,
   countMeletiGroupFileEntries,
   isMeletiFolderEntry,
+  parseAssignedToNames,
+  formatAssignedToNames,
 } from '../utils/meletaiHelpers';
+import { normalizeSearchText } from '../utils/searchUtils';
 
+/**
+ * Πολλαπλή επιλογή/καταχώρηση ονομάτων στο «Χρεωμένη σε». Οι επιλογές αποθηκεύονται
+ * σε ένα ενιαίο string χωρισμένο με κόμμα (`formatAssignedToNames`) ώστε να παραμένει
+ * συμβατό με την υπάρχουσα αναζήτηση/εξαγωγές/αναφορές που διαβάζουν το πεδίο ως κείμενο.
+ */
 function AssignedToField({
   id,
   value,
@@ -34,29 +42,104 @@ function AssignedToField({
   disabled,
   InputComponent,
 }) {
-  const listId = `${id}-engineers`;
   const InputEl = InputComponent;
+  const [inputValue, setInputValue] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const wrapRef = useRef(null);
+
+  const names = useMemo(() => parseAssignedToNames(value), [value]);
+
+  useEffect(() => {
+    function handleOutsideClick(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setShowSuggestions(false);
+    }
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const addName = (raw) => {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) return;
+    if (names.some((n) => n.toLowerCase() === trimmed.toLowerCase())) {
+      setInputValue('');
+      return;
+    }
+    onChange(formatAssignedToNames([...names, trimmed]));
+    setInputValue('');
+  };
+
+  const removeName = (name) => {
+    onChange(formatAssignedToNames(names.filter((n) => n !== name)));
+  };
+
+  const suggestions = useMemo(() => {
+    const q = inputValue.trim().toLowerCase();
+    return (engineerFullNames || [])
+      .filter((n) => !names.some((existing) => existing.toLowerCase() === n.toLowerCase()))
+      .filter((n) => !q || n.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [engineerFullNames, names, inputValue]);
+
   return (
-    <>
-      <InputEl
-        id={id}
-        list={listId}
-        value={value || ''}
-        onChange={onChange}
-        disabled={disabled}
-        placeholder="Επιλογή μηχανικού ή χειροκίνητη καταχώρηση"
-      />
-      <datalist id={listId}>
-        {(engineerFullNames || []).map((name) => (
-          <option key={name} value={name} />
-        ))}
-      </datalist>
-      {!disabled && (
-        <div style={{ fontSize: 11, color: '#64748b', marginTop: '0.35rem' }}>
-          Επιλέξτε από τους εγγεγραμμένους μηχανικούς ή πληκτρολογήστε όνομα εκτός συστήματος.
-        </div>
+    <AssignedToWrap ref={wrapRef}>
+      {names.length > 0 && (
+        <AssignedToChips>
+          {names.map((name) => (
+            <AssignedToChip key={name}>
+              {name}
+              {!disabled && (
+                <AssignedToChipRemove
+                  type="button"
+                  onClick={() => removeName(name)}
+                  aria-label={`Αφαίρεση ${name}`}
+                  title="Αφαίρεση"
+                >
+                  ×
+                </AssignedToChipRemove>
+              )}
+            </AssignedToChip>
+          ))}
+        </AssignedToChips>
       )}
-    </>
+      {!disabled ? (
+        <>
+          <InputEl
+            id={id}
+            value={inputValue}
+            onChange={(e) => { setInputValue(e.target.value); setShowSuggestions(true); }}
+            onFocus={() => setShowSuggestions(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                addName(inputValue);
+              } else if (e.key === 'Backspace' && !inputValue && names.length > 0) {
+                removeName(names[names.length - 1]);
+              }
+            }}
+            disabled={disabled}
+            placeholder={names.length ? 'Προσθήκη κι άλλου ονόματος…' : 'Επιλογή μηχανικού ή χειροκίνητη καταχώρηση'}
+          />
+          {showSuggestions && suggestions.length > 0 && (
+            <AssignedToSuggestions>
+              {suggestions.map((name) => (
+                <AssignedToSuggestionItem
+                  key={name}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); addName(name); }}
+                >
+                  {name}
+                </AssignedToSuggestionItem>
+              ))}
+            </AssignedToSuggestions>
+          )}
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: '0.35rem' }}>
+            Μπορείτε να επιλέξετε πάνω από έναν μηχανικό — πατήστε Enter ή κόμμα για προσθήκη ονόματος εκτός συστήματος.
+          </div>
+        </>
+      ) : (
+        names.length === 0 && <AssignedToEmpty>—</AssignedToEmpty>
+      )}
+    </AssignedToWrap>
   );
 }
 
@@ -475,9 +558,11 @@ const HubListWrap = styled.div`
   box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08);
 `;
 
+const HUB_LIST_GRID_COLUMNS = '72px minmax(200px, 2.2fr) minmax(150px, 1.35fr) 52px 92px 40px 130px';
+
 const HubListHead = styled.div`
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) 110px 100px minmax(120px, 1.4fr) 48px 88px 130px;
+  grid-template-columns: ${HUB_LIST_GRID_COLUMNS};
   gap: 0.5rem;
   padding: 0.6rem 0.85rem;
   background: linear-gradient(90deg, ${C.slate800} 0%, ${C.emeraldDark} 100%);
@@ -490,7 +575,7 @@ const HubListHead = styled.div`
 
 const HubListRow = styled.div`
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) 110px 100px minmax(120px, 1.4fr) 48px 88px 130px;
+  grid-template-columns: ${HUB_LIST_GRID_COLUMNS};
   gap: 0.5rem;
   align-items: center;
   padding: 0.7rem 0.85rem;
@@ -533,12 +618,81 @@ const HubListTitle = styled.div`
   white-space: normal;
 `;
 
-const HubListSub = styled.div`
-  font-size: 0.68rem;
+const HubListNumberCell = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 0.1rem;
+`;
+
+const HubListNumberBadge = styled.div`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  padding: 0.26rem 0.4rem;
+  border-radius: 8px;
+  background: linear-gradient(135deg, ${C.slate800} 0%, ${C.slate700} 100%);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+  word-break: break-word;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+`;
+
+const HubListCategoryTag = styled.span`
+  display: inline-block;
+  margin-top: 0.3rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: ${C.slate100};
+  color: ${C.slate600};
+  font-size: 0.6rem;
+  font-weight: 700;
+`;
+
+const AssignedBadgeWrap = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+`;
+
+const AssignedBadgeIcon = styled.span`
+  flex-shrink: 0;
+  font-size: 0.76rem;
+`;
+
+const AssignedBadgeText = styled.span`
+  font-weight: 800;
+  color: #4338ca;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.74rem;
+`;
+
+const AssignedBadgeEmpty = styled.span`
+  font-size: 0.7rem;
+  color: ${C.slate400};
   font-weight: 600;
-  color: ${C.slate500};
-  margin-top: 0.15rem;
-  line-height: 1.3;
+  font-style: italic;
+`;
+
+const HubListLinkIndicator = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  background: ${(p) => (p.$linked ? C.emeraldLight : C.slate100)};
+  color: ${(p) => (p.$linked ? C.emeraldDark : C.slate400)};
 `;
 
 const HubRowActions = styled.div`
@@ -1529,6 +1683,93 @@ const LinkResultItem = styled.button`
   &:hover { background: #f0fdf4; }
 `;
 
+const LinkResultStatusBadge = styled.span`
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: ${(p) => (p.$completed ? '#ccfbf1' : '#f1f5f9')};
+  color: ${(p) => (p.$completed ? '#0f766e' : '#64748b')};
+`;
+
+const COMPLETED_PAID_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
+
+const AssignedToWrap = styled.div`
+  position: relative;
+`;
+
+const AssignedToChips = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+`;
+
+const AssignedToChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  border-radius: 20px;
+  padding: 4px 6px 4px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #065f46;
+`;
+
+const AssignedToChipRemove = styled.button`
+  border: none;
+  background: rgba(6, 95, 70, 0.12);
+  color: #065f46;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  &:hover { background: rgba(6, 95, 70, 0.22); }
+`;
+
+const AssignedToSuggestions = styled.div`
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 20;
+`;
+
+const AssignedToSuggestionItem = styled.button`
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: white;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid #f1f5f9;
+  &:hover { background: #f0fdf4; }
+  &:last-child { border-bottom: none; }
+`;
+
+const AssignedToEmpty = styled.div`
+  font-size: 13px;
+  color: #94a3b8;
+`;
+
 const ActionRow = styled.div`
   display: flex;
   gap: 8px;
@@ -1879,7 +2120,6 @@ function MeletaiManager({
             savedFingerprintRef.current = meletiPersistFingerprint(fresh);
           }
         }
-        void loadSubprojects();
       } catch {
         /* silent poll */
       }
@@ -1889,7 +2129,15 @@ function MeletaiManager({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [loggedInUsername, loadSubprojects]);
+  }, [loggedInUsername]);
+
+  // Η λίστα υποέργων (για σύνδεση μελέτης) σαρώνει ΟΛΟΚΛΗΡΟ το δέντρο έργων της
+  // εφαρμογής — πολύ πιο ακριβή λειτουργία από την ανανέωση των μελετών. Ανανεώνεται
+  // αραιά (όχι κάθε 20″) ώστε η καρτέλα Μελέτες να μην «κολλάει» περιοδικά όσο μένει ανοιχτή.
+  useEffect(() => {
+    const timer = setInterval(() => { void loadSubprojects(); }, 180000);
+    return () => clearInterval(timer);
+  }, [loadSubprojects]);
 
   useEffect(() => {
     lockBodyScroll();
@@ -2057,15 +2305,18 @@ function MeletaiManager({
   }, [userRole, visibleSubprojectIds]);
 
   const newModalLinkSearchResults = useMemo(() => {
-    const q = newModalLinkSearch.trim().toLowerCase();
-    if (!q || q.length < 2 || !newModalDraft) return [];
+    if (!newModalDraft) return [];
+    const qRaw = newModalLinkSearch.trim();
+    if (qRaw.length < 2) return [];
+    const tokens = normalizeSearchText(qRaw).split(' ').filter(Boolean);
+    if (tokens.length === 0) return [];
     return subprojects
       .filter((sp) => {
         if (!isSubprojectLinkable(sp.subprojectId)) return false;
         if (newModalDraft.linkedSubprojectId === sp.subprojectId) return false;
         if (linkedSubprojectIds.has(sp.subprojectId)) return false;
-        const hay = `${sp.projectTitle} ${sp.subprojectTitle}`.toLowerCase();
-        return hay.includes(q);
+        const hay = normalizeSearchText(`${sp.projectTitle} ${sp.subprojectTitle}`);
+        return tokens.every((t) => hay.includes(t));
       })
       .slice(0, 12);
   }, [newModalLinkSearch, subprojects, linkedSubprojectIds, newModalDraft?.linkedSubprojectId, isSubprojectLinkable]);
@@ -2142,15 +2393,17 @@ function MeletaiManager({
   }, [showToast]);
 
   const linkSearchResults = useMemo(() => {
-    const q = linkSearch.trim().toLowerCase();
-    if (!q || q.length < 2) return [];
+    const qRaw = linkSearch.trim();
+    if (qRaw.length < 2) return [];
+    const tokens = normalizeSearchText(qRaw).split(' ').filter(Boolean);
+    if (tokens.length === 0) return [];
     return subprojects
       .filter((sp) => {
         if (!isSubprojectLinkable(sp.subprojectId)) return false;
         if (draft?.linkedSubprojectId === sp.subprojectId) return false;
         if (linkedSubprojectIds.has(sp.subprojectId)) return false;
-        const hay = `${sp.projectTitle} ${sp.subprojectTitle}`.toLowerCase();
-        return hay.includes(q);
+        const hay = normalizeSearchText(`${sp.projectTitle} ${sp.subprojectTitle}`);
+        return tokens.every((t) => hay.includes(t));
       })
       .slice(0, 12);
   }, [linkSearch, subprojects, linkedSubprojectIds, draft?.linkedSubprojectId, isSubprojectLinkable]);
@@ -3356,20 +3609,37 @@ function MeletaiManager({
 
   const renderHubListRow = (m) => {
     const fileCount = countMeletiFiles(m);
-    const linkLine = m.linkedSubprojectTitle
-      ? `${m.linkedProjectTitle ? `${m.linkedProjectTitle} · ` : ''}${m.linkedSubprojectTitle}`
-      : '—';
+    const isLinked = !!m.linkedSubprojectId;
+    const linkTooltip = isLinked
+      ? `Συνδεδεμένη με: ${m.linkedProjectTitle ? `${m.linkedProjectTitle} · ` : ''}${m.linkedSubprojectTitle || ''}`
+      : 'Χωρίς σύνδεση με υποέργο';
+    const assignedNames = parseAssignedToNames(m.assignedTo);
     return (
       <HubListRow key={m.id}>
+        <HubListNumberCell>
+          {m.studyNumber ? <HubListNumberBadge>{m.studyNumber}</HubListNumberBadge> : <span style={{ color: C.slate300 }}>—</span>}
+        </HubListNumberCell>
         <HubListTitleCell type="button" onClick={() => openMeletiFromHub(m.id)}>
-          <HubListTitle>{m.studyNumber ? `${m.studyNumber} · ${m.title || '(Χωρίς τίτλο)'}` : (m.title || '(Χωρίς τίτλο)')}</HubListTitle>
-          {m.category ? <HubListSub>{m.category}</HubListSub> : null}
+          <HubListTitle>{m.title || '(Χωρίς τίτλο)'}</HubListTitle>
+          {m.category ? <HubListCategoryTag>{m.category}</HubListCategoryTag> : null}
         </HubListTitleCell>
-        <HubListCell>{m.category || '—'}</HubListCell>
-        <HubListCell title={m.assignedTo || ''}>{m.assignedTo || '—'}</HubListCell>
-        <HubListCell title={linkLine}>{linkLine}</HubListCell>
+        <AssignedBadgeWrap title={m.assignedTo || ''}>
+          {assignedNames.length > 0 ? (
+            <>
+              <AssignedBadgeIcon>👤</AssignedBadgeIcon>
+              <AssignedBadgeText>
+                {assignedNames.length > 1 ? `${assignedNames[0]} +${assignedNames.length - 1}` : assignedNames[0]}
+              </AssignedBadgeText>
+            </>
+          ) : (
+            <AssignedBadgeEmpty>Χωρίς χρέωση</AssignedBadgeEmpty>
+          )}
+        </AssignedBadgeWrap>
         <HubListCell>{fileCount}</HubListCell>
         <HubListCell>{formatShortDateEl(m.updatedAt || m.createdAt)}</HubListCell>
+        <HubListLinkIndicator $linked={isLinked} title={linkTooltip}>
+          {isLinked ? '🔗' : '○'}
+        </HubListLinkIndicator>
         <HubRowActions>
           <HubRowBtn
             type="button"
@@ -3565,12 +3835,12 @@ function MeletaiManager({
               ) : (
                 <HubListWrap>
                   <HubListHead>
-                    <span>Αριθμός / Τίτλος</span>
-                    <span>Κατηγορία</span>
+                    <span style={{ textAlign: 'center' }}>Αρ.</span>
+                    <span>Μελέτη</span>
                     <span>Χρεωμένη σε</span>
-                    <span>Σύνδεση</span>
                     <span>Αρχ.</span>
                     <span>Ενημέρωση</span>
+                    <span style={{ textAlign: 'center' }}>Σύνδ.</span>
                     <span />
                   </HubListHead>
                   {filteredList.map((m) => renderHubListRow(m))}
@@ -3793,7 +4063,7 @@ function MeletaiManager({
                   <AssignedToField
                     id="meleti-detail-assigned"
                     value={draft.assignedTo || ''}
-                    onChange={(e) => setDraft((d) => ({ ...d, assignedTo: e.target.value }))}
+                    onChange={(nextValue) => setDraft((d) => ({ ...d, assignedTo: nextValue }))}
                     engineerFullNames={engineerFullNames}
                     disabled={isReadOnly}
                     InputComponent={Input}
@@ -3901,6 +4171,11 @@ function MeletaiManager({
                           <LinkResultItem key={sp.subprojectId} type="button" onClick={() => handleLinkSubproject(sp)}>
                             <strong>{sp.subprojectTitle}</strong>
                             <div style={{ fontSize: 11, color: '#64748b' }}>{sp.projectTitle}</div>
+                            {sp.projectStatus && (
+                              <LinkResultStatusBadge $completed={sp.projectStatus === COMPLETED_PAID_STATUS}>
+                                {sp.projectStatus}
+                              </LinkResultStatusBadge>
+                            )}
                           </LinkResultItem>
                         ))}
                       </LinkResults>
@@ -4110,7 +4385,7 @@ function MeletaiManager({
                     <AssignedToField
                       id="new-meleti-assigned"
                       value={newModalDraft.assignedTo || ''}
-                      onChange={(e) => setNewModalDraft((d) => ({ ...d, assignedTo: e.target.value }))}
+                      onChange={(nextValue) => setNewModalDraft((d) => ({ ...d, assignedTo: nextValue }))}
                       engineerFullNames={engineerFullNames}
                       disabled={isReadOnly}
                       InputComponent={ModalFormInput}
@@ -4211,6 +4486,11 @@ function MeletaiManager({
                               <LinkResultItem key={sp.subprojectId} type="button" onClick={() => void handleNewModalLinkSubproject(sp)}>
                                 <strong>{sp.subprojectTitle}</strong>
                                 <div style={{ fontSize: 11, color: '#64748b' }}>{sp.projectTitle}</div>
+                                {sp.projectStatus && (
+                                  <LinkResultStatusBadge $completed={sp.projectStatus === COMPLETED_PAID_STATUS}>
+                                    {sp.projectStatus}
+                                  </LinkResultStatusBadge>
+                                )}
                               </LinkResultItem>
                             ))}
                           </LinkResults>

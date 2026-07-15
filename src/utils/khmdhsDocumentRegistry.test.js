@@ -10,6 +10,11 @@ import {
   shouldIncludeChainHistoryInRegistry,
   filterRegistryCandidatesBySymvPlan,
   shouldOfferRegistryAfterReview,
+  isTenderDocumentTitle,
+  publicationDocumentLabel,
+  pickRegistryDominantTitle,
+  shouldShowRegistryEntryTitle,
+  resyncRegistryEntryTitles,
 } from './khmdhsDocumentRegistry';
 import { CHAIN_KIND } from './khmdhsChainActions';
 import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
@@ -44,6 +49,42 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
     const adams = candidates.map((c) => c.adam);
     expect(adams).toContain(rootAdam);
     expect(adams).not.toContain(modAdam);
+  });
+
+  it('uses fetched notice snapshot for secondary PROC instead of a nameless stub', () => {
+    const secondNoticeAdam = '22PROC010072999';
+    const chainResWithSecondNotice = {
+      ...chainRes,
+      chainMeta: {
+        linkedAdams: { notices: ['22PROC010072052', secondNoticeAdam] },
+        noticeSnapshotsByAdam: {
+          [secondNoticeAdam]: {
+            referenceNumber: secondNoticeAdam,
+            title: 'ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ',
+          },
+        },
+      },
+    };
+    const candidates = collectKhmdhsRegistryCandidatesFromChainRes(chainResWithSecondNotice);
+    const secondEntry = candidates.find((c) => c.adam === secondNoticeAdam);
+    expect(secondEntry).toBeTruthy();
+    expect(secondEntry.isStub).not.toBe(true);
+    expect(secondEntry.title).toBe('ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ');
+  });
+
+  it('falls back to a nameless stub when no fresh snapshot is available for a linked PROC', () => {
+    const secondNoticeAdam = '22PROC010072999';
+    const chainResWithSecondNotice = {
+      ...chainRes,
+      chainMeta: {
+        linkedAdams: { notices: ['22PROC010072052', secondNoticeAdam] },
+        noticeSnapshotsByAdam: {},
+      },
+    };
+    const candidates = collectKhmdhsRegistryCandidatesFromChainRes(chainResWithSecondNotice);
+    const secondEntry = candidates.find((c) => c.adam === secondNoticeAdam);
+    expect(secondEntry).toBeTruthy();
+    expect(secondEntry.isStub).toBe(true);
   });
 
   it('includes chain history only after user characterization', () => {
@@ -203,5 +244,168 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
       amount: '25258.56',
     }]);
     expect(pay.linkLabel).toMatch(/Ένταλμα πληρωμής.*25\.258,56€/);
+  });
+
+  describe('isTenderDocumentTitle — αναγνώριση Τευχών Δημοπράτησης', () => {
+    it('αναγνωρίζει τον τίτλο ανεξαρτήτως τόνων/κεφαλαίων', () => {
+      expect(isTenderDocumentTitle('ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ ΕΡΓΟΥ')).toBe(true);
+      expect(isTenderDocumentTitle('τευχη δημοπρατησης')).toBe(true);
+      expect(isTenderDocumentTitle('Τεύχη Δημοπράτησης')).toBe(true);
+      expect(isTenderDocumentTitle('τεύχος δημοπράτησης')).toBe(true);
+      expect(isTenderDocumentTitle('ΤΕΥΧΗ ΔΙΑΓΩΝΙΣΜΟΥ')).toBe(true);
+    });
+
+    it('δεν αναγνωρίζει άσχετους ή κενούς τίτλους', () => {
+      expect(isTenderDocumentTitle('ΑΞΙΟΠΟΙΗΣΗ ΑΡΔΕΥΤΙΚΟΥ ΝΕΡΟΥ ΤΟΥ ΔΗΜΟΥ')).toBe(false);
+      expect(isTenderDocumentTitle('Διακήρυξη ανοιχτής διαδικασίας')).toBe(false);
+      expect(isTenderDocumentTitle('')).toBe(false);
+      expect(isTenderDocumentTitle(null)).toBe(false);
+    });
+  });
+
+  it('annotateRegistryLinkLabels ξεχωρίζει τα Τεύχη Δημοπράτησης από γενικές δημοσιεύσεις', () => {
+    const [tender, generic] = annotateRegistryLinkLabels([
+      {
+        id: 'n1',
+        adam: '23PROC013450673',
+        stage: 'PROC',
+        type: 'PROC',
+        title: 'ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ ΕΡΓΟΥ',
+        noticeType: 'Διακήρυξη',
+      },
+      {
+        id: 'n2',
+        adam: '23PROC013450674',
+        stage: 'PROC',
+        type: 'PROC',
+        title: 'ΑΞΙΟΠΟΙΗΣΗ ΑΡΔΕΥΤΙΚΟΥ ΝΕΡΟΥ',
+        noticeType: 'Διακήρυξη',
+      },
+    ]);
+    expect(tender.linkLabel).toBe('Τεύχη Δημοπράτησης 1');
+    expect(generic.linkLabel).toBe('Διακήρυξη 2');
+  });
+
+  it('publicationDocumentLabel αναγνωρίζει τα Τεύχη Δημοπράτησης όταν δοθεί ο τίτλος', () => {
+    expect(publicationDocumentLabel('Διακήρυξη', 1, 1, 'ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ')).toBe('Τεύχη Δημοπράτησης');
+    expect(publicationDocumentLabel('Διακήρυξη', 1, 1)).toBe('Διακήρυξη');
+  });
+
+  describe('πραγματικός τίτλος εγγράφου σε κρίκους πέραν του PROC', () => {
+    const dominant = 'ΑΞΙΟΠΟΙΗΣΗ ΑΡΔΕΥΤΙΚΟΥ ΝΕΡΟΥ ΤΟΥ ΔΗΜΟΥ';
+
+    it('pickRegistryDominantTitle εντοπίζει τον επαναλαμβανόμενο τίτλο του υποέργου', () => {
+      const dominantTitle = pickRegistryDominantTitle([
+        { title: dominant },
+        { title: dominant },
+        { title: 'ΤΕΧΝΙΚΗ ΕΚΘΕΣΗ ΓΙΑ ΤΟ ΕΡΓΟ' },
+      ]);
+      expect(dominantTitle).toBe(dominant);
+    });
+
+    it('shouldShowRegistryEntryTitle κρύβει τίτλους ίδιους με τον κυρίαρχο', () => {
+      expect(shouldShowRegistryEntryTitle({ title: dominant }, dominant)).toBe(false);
+      expect(shouldShowRegistryEntryTitle({ title: 'ΤΕΧΝΙΚΗ ΕΚΘΕΣΗ ΓΙΑ ΤΟ ΕΡΓΟ' }, dominant)).toBe(true);
+      expect(shouldShowRegistryEntryTitle({ title: '' }, dominant)).toBe(false);
+    });
+
+    it('annotateRegistryLinkLabels δεν εμφανίζει πλέον υπότιτλο με τον τίτλο του εγγράφου (μόνο η ετικέτα του κρίκου)', () => {
+      // Ο τίτλος που καταχωρεί το ΚΗΜΔΗΣ ανά πράξη (π.χ. σε αποφάσεις ανάληψης υποχρέωσης)
+      // συχνά διαφέρει σε διατύπωση/περικοπή χωρίς να σημαίνει κάτι διαφορετικό, οπότε δεν
+      // εμφανίζεται πλέον σαν υπότιτλος — μόνο η σταθερή ετικέτα του κρίκου.
+      const [req, commit] = annotateRegistryLinkLabels([
+        {
+          id: 'r1',
+          adam: '21REQ009553549',
+          stage: 'REQ',
+          type: 'REQ',
+          title: dominant,
+        },
+        {
+          id: 'c1',
+          adam: '21COMMIT009553549',
+          stage: 'COMMIT',
+          type: 'COMMIT',
+          title: 'ΤΕΧΝΙΚΗ ΕΚΘΕΣΗ ΓΙΑ ΤΟ ΕΡΓΟ',
+        },
+      ]);
+      expect(req.distinctTitle).toBeUndefined();
+      expect(commit.distinctTitle).toBeUndefined();
+    });
+
+    it('annotateRegistryLinkLabels αναγνωρίζει τα Τεύχη Δημοπράτησης μόνο μέσω της ετικέτας', () => {
+      const [tender] = annotateRegistryLinkLabels([{
+        id: 'n1',
+        adam: '23PROC013450673',
+        stage: 'PROC',
+        type: 'PROC',
+        title: 'ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ ΕΡΓΟΥ',
+        noticeType: 'Διακήρυξη',
+      }]);
+      expect(tender.linkLabel).toBe('Τεύχη Δημοπράτησης');
+      expect(tender.distinctTitle).toBeUndefined();
+    });
+  });
+
+  describe('resyncRegistryEntryTitles — ενημέρωση τίτλων ήδη καταγεγραμμένων εγγράφων', () => {
+    it('ενημερώνει τον τίτλο μιας ήδη καταγεγραμμένης δημοσίευσης ώστε να αναγνωριστεί ως Τεύχη Δημοπράτησης', () => {
+      const existing = [{
+        id: 'n1',
+        adam: '23PROC013450673',
+        stage: 'PROC',
+        type: 'PROC',
+        title: 'Παλιός γενικός τίτλος',
+        noticeType: 'Διακήρυξη',
+        linkLabel: 'Διακήρυξη',
+      }];
+      const candidates = [{
+        adam: '23PROC013450673',
+        title: 'ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ ΕΡΓΟΥ',
+        noticeType: 'Διακήρυξη',
+      }];
+      const [updated] = resyncRegistryEntryTitles(existing, candidates);
+      expect(updated.title).toBe('ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ ΕΡΓΟΥ');
+      expect(updated.linkLabel).toBe('Τεύχη Δημοπράτησης');
+    });
+
+    it('δεν αλλάζει τίποτα όταν δεν υπάρχει αντίστοιχος φρέσκος υποψήφιος', () => {
+      const existing = [{ id: 'n1', adam: '23PROC013450673', stage: 'PROC', title: 'Χ' }];
+      expect(resyncRegistryEntryTitles(existing, [])).toBe(existing);
+      expect(resyncRegistryEntryTitles(existing, [{ adam: '99PROC000000000', title: 'Άλλο' }])).toBe(existing);
+    });
+
+    it('μετατρέπει ένα ήδη καταγεγραμμένο «γυμνό» ΑΔΑΜ (χωρίς τίτλο) σε Τεύχη Δημοπράτησης μετά από ανανέωση', () => {
+      const secondNoticeAdam = '22PROC010072999';
+      const existing = [{
+        id: 'n2',
+        adam: secondNoticeAdam,
+        stage: 'PROC',
+        type: 'PROC',
+        title: '',
+        isStub: true,
+        linkLabel: 'Δημοσίευση 2',
+      }];
+      const chainResWithSecondNotice = {
+        ...chainRes,
+        chainMeta: {
+          linkedAdams: { notices: ['22PROC010072052', secondNoticeAdam] },
+          noticeSnapshotsByAdam: {
+            [secondNoticeAdam]: { referenceNumber: secondNoticeAdam, title: 'ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ' },
+          },
+        },
+      };
+      const freshCandidates = collectKhmdhsRegistryCandidatesFromChainRes(chainResWithSecondNotice);
+      const [updated] = resyncRegistryEntryTitles(existing, freshCandidates);
+      expect(updated.title).toBe('ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ');
+      expect(updated.linkLabel).toBe('Τεύχη Δημοπράτησης');
+    });
+
+    it('δεν επηρεάζει καταγραφές χωρίς αντιστοιχία ΑΔΑΜ στους φρέσκους υποψήφιους', () => {
+      const existing = [
+        { id: 'p1', adam: '24PAY016000001', stage: 'PAY', title: 'Ένταλμα' },
+      ];
+      const candidates = [{ adam: '23PROC013450673', title: 'Άσχετο έγγραφο' }];
+      expect(resyncRegistryEntryTitles(existing, candidates)).toEqual(existing);
+    });
   });
 });

@@ -241,8 +241,23 @@ function mergeKhmdhsNoticeFieldsForSave(projectData, existingData) {
     khmdhsNoticeAdam: adam,
     khmdhsNoticeSnapshot: snapshot,
     khmdhsNoticeFetchedAt: fetchedAt,
-    assignmentProcedure: '',
   };
+
+  // ΣΗΜΑΝΤΙΚΟ: εδώ ΔΕΝ μηδενίζουμε πλέον το assignmentProcedure. Ο renderer έχει ήδη
+  // υπολογίσει τη σωστή τιμή πριν την αποθήκευση (χειροκίνητη επιλογή ή αυτόματη από τη
+  // δημοσίευση — βλ. mergeSharedKhmdhsFromChain / applySymvChainPlanToForm). Αν εδώ τη
+  // μηδενίζαμε άνευ όρων, η αποθηκευμένη τιμή γινόταν πάντα κενή σε κάθε αποθήκευση, με
+  // αποτέλεσμα κάθε επόμενη ανανέωση ΚΗΜΔΗΣ να «ανακαλύπτει» ξανά και ξανά την ίδια
+  // διαδικασία ανάθεσης σαν να ήταν καινούρια — bug που επαναλαμβανόταν επ' άπειρον.
+  const incomingProcedure = String(incoming.assignmentProcedure || '').trim();
+  if (incomingProcedure) {
+    out.assignmentProcedure = incomingProcedure;
+  } else {
+    const autoProcedure = snapshot
+      ? (String(snapshot.mappedAssignmentProcedure || '').trim() || mapKhmdhsToAssignmentProcedure(snapshot) || '')
+      : '';
+    out.assignmentProcedure = autoProcedure || String(existing.assignmentProcedure || '').trim();
+  }
 
   const processStart = deriveContractProcessStartDateFromNotice(snapshot);
   if (processStart && !String(incoming.contractProcessStartDate || existing.contractProcessStartDate || '').trim()) {

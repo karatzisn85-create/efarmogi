@@ -1,7 +1,29 @@
 /**
  * @jest-environment node
  */
-import { buildKhmdhsLifecycleStages } from './khmdhsLifecycleStages';
+import { buildKhmdhsLifecycleStages, awardIndicatesNoPriorNotice } from './khmdhsLifecycleStages';
+
+describe('awardIndicatesNoPriorNotice — χωρίς δημοσίευση στο ΚΗΜΔΗΣ', () => {
+  test('αναγνωρίζει διαπραγμάτευση χωρίς προηγούμενη δημοσίευση', () => {
+    expect(awardIndicatesNoPriorNotice({
+      khmdhsAwardSnapshot: {
+        referenceNumber: '21AWRD009397008',
+        procedureType: 'Διαπραγμάτευση χωρίς προηγούμενη δημοσίευση (αρ.32/αρ.269)',
+      },
+    })).toBe(true);
+  });
+
+  test('δεν ισχύει όταν υπάρχει δημοσίευση PROC', () => {
+    expect(awardIndicatesNoPriorNotice({
+      khmdhsNoticeAdam: '21PROC001',
+      khmdhsNoticeSnapshot: { referenceNumber: '21PROC001', title: 'Διακήρυξη' },
+      khmdhsAwardSnapshot: {
+        referenceNumber: '21AWRD001',
+        procedureType: 'Ανοιχτός διαγωνισμός',
+      },
+    })).toBe(false);
+  });
+});
 
 describe('buildKhmdhsLifecycleStages — παρατάσεις vs συμπληρωματικές', () => {
   const baseProject = {
@@ -15,6 +37,23 @@ describe('buildKhmdhsLifecycleStages — παρατάσεις vs συμπληρ�
     khmdhsAdam: '24SYMV001',
     khmdhsContractSnapshot: { referenceNumber: '24SYMV001' },
   };
+
+  test('PROC ως «Χωρ. δημ.» όταν η ανάθεση είναι χωρίς προηγούμενη δημοσίευση', () => {
+    const stages = buildKhmdhsLifecycleStages({
+      implementationForm: 'Πολλές Συμβάσεις',
+      khmdhsRequestAdam: '21REQ008539630',
+      khmdhsRequestSnapshot: { referenceNumber: '21REQ008539630' },
+      khmdhsAwardAdam: '21AWRD009397008',
+      khmdhsAwardSnapshot: {
+        referenceNumber: '21AWRD009397008',
+        procedureType: 'Διαπραγμάτευση χωρίς προηγούμενη δημοσίευση (αρ.32/αρ.269)',
+      },
+      contracts: [{ khmdhsAdam: '21SYMV009397257', khmdhsContractSnapshot: { referenceNumber: '21SYMV009397257' } }],
+    });
+    const proc = stages.find((s) => s.id === 'PROC');
+    expect(proc?.status).toBe('skipped');
+    expect(proc?.extraLabel).toBe('Χωρ. δημ.');
+  });
 
   test('μόνο παρατάσεις — κρίκος Παράτ. όχι Συμπλ.', () => {
     const stages = buildKhmdhsLifecycleStages({

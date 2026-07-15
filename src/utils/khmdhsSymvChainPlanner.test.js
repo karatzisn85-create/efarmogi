@@ -1,3 +1,6 @@
+/**
+ * @jest-environment node
+ */
 import {
   SYMV_CHAIN_ROLE,
   collectSymvChainDocuments,

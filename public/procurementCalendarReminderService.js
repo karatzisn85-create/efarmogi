@@ -24,6 +24,7 @@ const calendarEventsBuilder = require('./calendarEventsBuilder');
 const { EVENT_TYPES } = calendarEventsBuilder;
 
 const REMINDER_LOG_FILE = 'procurement-calendar-reminder-log.json';
+const EMAIL_HISTORY_FILE = 'email-send-history.json';
 
 function getReminderLogPath(dataDir) {
   return path.join(dataDir, 'config', REMINDER_LOG_FILE);
@@ -43,6 +44,30 @@ function saveReminderLog(dataDir, log) {
   const dir = path.join(dataDir, 'config');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   safeWriteJSON(getReminderLogPath(dataDir), log);
+}
+
+function getEmailHistoryPath(dataDir) {
+  return path.join(dataDir, 'config', EMAIL_HISTORY_FILE);
+}
+
+function loadEmailHistory(dataDir) {
+  try {
+    const p = getEmailHistoryPath(dataDir);
+    if (!fs.existsSync(p)) return { entries: [] };
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch { return { entries: [] }; }
+}
+
+function appendEmailHistory(dataDir, entry) {
+  const history = loadEmailHistory(dataDir);
+  history.entries.unshift({
+    ...entry,
+    timestamp: new Date().toISOString(),
+  });
+  if (history.entries.length > 200) history.entries.length = 200;
+  const dir = path.join(dataDir, 'config');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  safeWriteJSON(getEmailHistoryPath(dataDir), history);
 }
 
 function daysUntilDate(isoDate) {
@@ -290,6 +315,14 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
         if (ok) {
           markSentKeys(log, thresholdItems, 'threshold');
           sentCount += 1;
+          appendEmailHistory(dataDir, {
+            category: 'calendar',
+            type: 'threshold',
+            recipientEmail: recipient.email,
+            recipientName: recipient.fullName || recipient.username,
+            itemCount: thresholdItems.length,
+            items: thresholdItems.slice(0, 5).map(i => ({ title: i.subprojectTitle, daysLeft: i.daysLeft })),
+          });
         }
       } catch (err) {
         console.error('[calendar] threshold reminder failed:', err.message);
@@ -312,6 +345,14 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
         if (ok) {
           markSentKeys(log, urgentItems, 'urgent');
           sentCount += 1;
+          appendEmailHistory(dataDir, {
+            category: 'calendar',
+            type: 'urgent',
+            recipientEmail: recipient.email,
+            recipientName: recipient.fullName || recipient.username,
+            itemCount: urgentItems.length,
+            items: urgentItems.slice(0, 5).map(i => ({ title: i.subprojectTitle, daysLeft: i.daysLeft })),
+          });
         }
       } catch (err) {
         console.error('[calendar] urgent reminder failed:', err.message);
@@ -334,6 +375,14 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
         if (ok) {
           markSentKeys(log, complianceItems, 'compliance');
           sentCount += 1;
+          appendEmailHistory(dataDir, {
+            category: 'calendar',
+            type: 'compliance',
+            recipientEmail: recipient.email,
+            recipientName: recipient.fullName || recipient.username,
+            itemCount: complianceItems.length,
+            items: complianceItems.slice(0, 5).map(i => ({ title: i.subprojectTitle })),
+          });
         }
       } catch (err) {
         console.error('[calendar] compliance reminder failed:', err.message);
@@ -414,6 +463,8 @@ module.exports = {
   sendTestProcurementCalendarReminder,
   resolveRecipients,
   loadReminderLog,
+  loadEmailHistory,
+  appendEmailHistory,
   daysUntilDate,
   formatDateEl,
 };

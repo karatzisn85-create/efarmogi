@@ -220,7 +220,9 @@ export function buildContractChainHistoryFromSymvPlan(chainRes, plan) {
       if (da !== db) return da.localeCompare(db);
       if (a.isRoot && !b.isRoot) return -1;
       if (!a.isRoot && b.isRoot) return 1;
-      return String(a.adam || '').localeCompare(String(b.adam || ''));
+      // Ίδια (ή καμία) ημερομηνία — διατηρούμε τη σειρά εμφάνισης στο σχέδιο κατανομής SYMV
+      // αντί για αλφαβητική σύγκριση ΑΔΑΜ, που δεν έχει καμία σχέση με τη χρονολογική σειρά.
+      return 0;
     })
     .map((h, order) => ({ ...h, order }));
 }

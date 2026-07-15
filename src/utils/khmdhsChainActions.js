@@ -247,13 +247,22 @@ export function enrichChainHistoryEntryWithReview(h, review) {
 
   const genericOtherLabel = CHAIN_KIND_LABEL[CHAIN_KIND.OTHER];
   const storedLabel = String(h.label || '').trim();
-  const label = (effectiveKind === CHAIN_KIND.OTHER && storedLabel
+  const canonicalLabel = CHAIN_KIND_LABEL[effectiveKind] || storedLabel || h.label;
+  // Κρατάμε την αποθηκευμένη ετικέτα μόνο όταν είναι πραγματικά συμβατή με τον τρέχοντα
+  // χαρακτηρισμό (π.χ. «Παράταση 2» όταν effectiveKind = extension) ή όταν πρόκειται για
+  // «Άλλο» (όπου η ετικέτα συνήθως είναι ελεύθερο κείμενο). Διαφορετικά, όταν ο χρήστης
+  // άλλαξε τον χαρακτηρισμό μιας πράξης (π.χ. από «Συμπληρωματική» σε «Παράταση»), η παλιά
+  // ετικέτα δεν αντιστοιχεί πια στο είδος και πρέπει να αντικατασταθεί με τη σωστή.
+  const storedLabelIsMeaningful = storedLabel
     && storedLabel !== genericOtherLabel
-    && storedLabel !== 'Ενδιάμεσος κρίκος')
+    && storedLabel !== 'Ενδιάμεσος κρίκος';
+  const storedLabelMatchesKind = storedLabelIsMeaningful
+    && canonicalLabel
+    && storedLabel.startsWith(canonicalLabel);
+  const label = storedLabelIsMeaningful
+    && (effectiveKind === CHAIN_KIND.OTHER || storedLabelMatchesKind)
     ? storedLabel
-    : (storedLabel && storedLabel !== genericOtherLabel
-      ? storedLabel
-      : (CHAIN_KIND_LABEL[effectiveKind] || storedLabel || h.label));
+    : canonicalLabel;
   let kindNote = h.kindNote;
 
   if (effectiveKind === CHAIN_KIND.EXTENSION) {

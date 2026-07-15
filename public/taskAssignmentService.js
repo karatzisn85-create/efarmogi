@@ -212,8 +212,6 @@ function createTaskAssignmentService(deps) {
       title: task.title,
       status: task.status,
       priority: task.priority,
-      dueDate: task.dueDate || '',
-      dueTime: task.dueTime || '',
       assignees: task.assignees || [],
       createdBy: task.createdBy,
       createdAt: task.createdAt,
@@ -478,13 +476,6 @@ function createTaskAssignmentService(deps) {
     const title = String(payload.title != null ? payload.title : base.title || '').trim();
     const description = String(payload.description != null ? payload.description : base.description || '').trim();
     const priority = ['low', 'normal', 'high'].includes(payload.priority) ? payload.priority : base.priority || 'normal';
-    const dueDate = payload.dueDate != null ? String(payload.dueDate).trim() : base.dueDate || '';
-    const dueTime = payload.dueTime != null ? String(payload.dueTime).trim() : base.dueTime || '';
-    let reminderOffsets = payload.reminderOffsets;
-    if (!Array.isArray(reminderOffsets)) {
-      reminderOffsets = Array.isArray(base.reminderOffsets) ? base.reminderOffsets : DEFAULT_REMINDER_OFFSETS;
-    }
-    reminderOffsets = reminderOffsets.map((n) => parseInt(n, 10)).filter((n) => !Number.isNaN(n));
     const assignees = payload.assignees != null
       ? [...new Set((payload.assignees || []).map((x) => String(x || '').trim()).filter(Boolean))]
       : base.assignees || [];
@@ -492,9 +483,6 @@ function createTaskAssignmentService(deps) {
       title,
       description,
       priority,
-      dueDate,
-      dueTime,
-      reminderOffsets,
       assignees
     };
   }
@@ -512,10 +500,6 @@ function createTaskAssignmentService(deps) {
       assignees: norm.assignees,
       status: 'pending',
       priority: norm.priority,
-      dueDate: norm.dueDate,
-      dueTime: norm.dueTime,
-      reminderOffsets: norm.reminderOffsets,
-      reminderSentKeys: [],
       files: [],
       fileBatches: [],
       comments: [],

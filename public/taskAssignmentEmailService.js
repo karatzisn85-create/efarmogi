@@ -6,6 +6,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { safeWriteJSON } = require('./safeWrite');
 
 const CONFIG_DIR = 'config';
 const CONFIG_FILE = 'email-config.json';
@@ -68,7 +69,7 @@ function loadEmailConfig(dataDir) {
 function saveEmailConfig(dataDir, config) {
   const dir = path.join(dataDir, CONFIG_DIR);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(getConfigPath(dataDir), JSON.stringify(config, null, 2), 'utf8');
+  safeWriteJSON(getConfigPath(dataDir), config);
 }
 
 function defaultConfig() {
@@ -251,10 +252,6 @@ async function sendWorkspaceCreatedEmail(task, allUsers, emailConfig) {
     const desc = task.description.trim();
     const excerpt = desc.length > 280 ? `${desc.slice(0, 277)}…` : desc;
     rows.push({ label: 'Περιγραφή', value: `<span style="color:${BRAND.text};">${escapeHtml(excerpt)}</span>` });
-  }
-  if (task.dueDate) {
-    const due = task.dueTime ? `${task.dueDate} · ${task.dueTime}` : task.dueDate;
-    rows.push({ label: 'Προθεσμία', value: escapeHtml(due) });
   }
 
   const html = buildEmailHtml({

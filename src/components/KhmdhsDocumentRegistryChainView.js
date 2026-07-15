@@ -88,6 +88,13 @@ const NodeRow = styled.div`
   }
 `;
 
+const LinkLabelCol = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+`;
+
 const LinkLabel = styled.span`
   font-size: 0.76rem;
   font-weight: 600;
@@ -152,9 +159,11 @@ function KhmdhsDocumentRegistryChainView({
                   aria-label={`Επιλογή ${label}`}
                 />
               ) : null}
-              <LinkLabel title={[label, entry.adam].filter(Boolean).join(' · ')}>
-                {label}
-              </LinkLabel>
+              <LinkLabelCol>
+                <LinkLabel title={[label, entry.adam].filter(Boolean).join(' · ')}>
+                  {label}
+                </LinkLabel>
+              </LinkLabelCol>
               <ViewBtn
                 type="button"
                 onClick={async () => {

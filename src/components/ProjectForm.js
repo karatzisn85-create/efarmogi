@@ -43,10 +43,10 @@ import {
   pickKhmdhsNoticeSnapshot,
   resolveAssignmentProcedureFromNotice,
   resolveKhmdhsNoticeAssignmentProcedure,
-  noticeDrivesAssignmentProcedure,
   formatKhmdhsDateOnly,
 } from '../utils/khmdhsNoticeFields';
 import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
+import { awardIndicatesNoPriorNotice } from '../utils/khmdhsLifecycleStages';
 import KhmdhsFormStageResults, { projectHasKhmdhsFormResults } from './KhmdhsFormStageResults';
 import KhmdhsPendingFab from './KhmdhsPendingFab';
 import KhmdhsInlineField from './KhmdhsInlineField';
@@ -127,6 +127,10 @@ import {
   buildRegistryModalPayloadAfterReview,
   mergeKhmdhsDocumentRegistry,
   shouldOfferRegistryAfterReview,
+  resyncRegistryEntryTitles,
+  collectKhmdhsRegistryCandidatesFromChainRes,
+  collectKhmdhsRegistryCandidatesFromProject,
+  mergeRegistryCandidateLists,
 } from '../utils/khmdhsDocumentRegistry';
 import {
   buildRelatedDocumentEntry,
@@ -509,6 +513,11 @@ function hasResolvedNoticeData(formData) {
   );
 }
 
+/** Όταν η ανάθεση δηλώνει «χωρίς προηγούμενη δημοσίευση», δεν απαιτούμε PROC στο ΚΗΜΔΗΣ. */
+function requiresKhmdhsNoticeResolution(formData) {
+  return !awardIndicatesNoPriorNotice(formData);
+}
+
 function contractRowHasKhmdhsData(contract) {
   return !!(
     sanitizeAdamInput(contract?.khmdhsAdam)
@@ -529,7 +538,8 @@ function findDuplicateContractAdam(contracts, adam, excludeIndex = -1) {
 
 function projectHasResolvedChainData(formData) {
   const multi = isMultipleContractsForm(formData.implementationForm);
-  const hasNotice = hasResolvedNoticeData(formData);
+  const noticeRequired = requiresKhmdhsNoticeResolution(formData);
+  const hasNotice = !noticeRequired || hasResolvedNoticeData(formData);
   const needsContractFields = STATUSES_WITH_CONTRACT_FIELDS.includes(formData.projectStatus);
   const needsProcedure = statusShowsAssignmentProcedure(formData.projectStatus);
   const hasPartialProcedureFetch = !!(
@@ -2752,15 +2762,16 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       const mergedFree = [fp0.trim(), fpart0.trim()].filter(Boolean).join('\n');
 
       const { supervisor: _legacySupervisor, ...editingRest } = editingProject;
-      const khmdhsNoticeSnapshotLoaded = pickKhmdhsNoticeSnapshot(editingProject.khmdhsNoticeSnapshot);
-      const khmdhsDrivesProcedure = noticeDrivesAssignmentProcedure({
-        ...editingProject,
-        khmdhsNoticeSnapshot: khmdhsNoticeSnapshotLoaded,
-      });
       const loadedForm = mergeKhmdhsSupplementaryIntoForm(
         applyChainCharacterizationToForm({
         ...editingRest,
-        assignmentProcedure: khmdhsDrivesProcedure ? '' : (editingRest.assignmentProcedure || ''),
+        // Σημείωση: ΔΕΝ μηδενίζουμε εδώ το assignmentProcedure ακόμη κι όταν το καλύπτει
+        // η δημοσίευση ΚΗΜΔΗΣ — η απόκρυψη του χειροκίνητου πεδίου στη φόρμα γίνεται ήδη
+        // από το formKhmdhsHidesManualAssignmentProcedure. Αν το μηδενίζαμε εδώ, κάθε
+        // αποθήκευση της φόρμας (ακόμη κι άσχετη με τη διαδικασία ανάθεσης) θα έσβηνε
+        // την ήδη καταγεγραμμένη τιμή, κάνοντας κάθε επόμενη ανανέωση ΚΗΜΔΗΣ να τη
+        // βρίσκει «νέα» ξανά και ξανά.
+        assignmentProcedure: editingRest.assignmentProcedure || '',
         aleCodes: aleCodes,
         aleRemainingAmounts: aleRemainingAmounts,
         coFinanced: editingProject.coFinanced === true,
@@ -3305,7 +3316,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       );
     if (needsKhmdhsChain && !projectHasResolvedChainData(fd)) {
       if (isMultipleContractsForm(fd.implementationForm)) {
-        if (!hasResolvedNoticeData(fd)) {
+        if (requiresKhmdhsNoticeResolution(fd) && !hasResolvedNoticeData(fd)) {
           newErrors.khmdhsSharedChain = 'Απαιτείται ανάκτηση ΚΗΜΔΗΣ (τουλάχιστον μία σύμβαση) για κοινά στοιχεία δημοσίευσης';
         }
         (fd.contracts || []).forEach((contract, index) => {
@@ -4594,6 +4605,19 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
           protectedFieldCount = result.protectedCount || 0;
           implementationFormAutoUpdated = result.implementationFormAutoUpdated || null;
           capturedMergedDQR = result.form.khmdhsDataQualityReview || null;
+          // Συγχρονισμός τίτλων ήδη καταγεγραμμένων εγγράφων του μητρώου (Αρχεία Υποέργου)
+          // με τα φρέσκα δεδομένα ΚΗΜΔΗΣ — ώστε παλαιότερες καταγραφές να παίρνουν τη σωστή
+          // ονομασία (π.χ. «Τεύχη Δημοπράτησης») χωρίς να χρειάζεται νέα χειροκίνητη καταγραφή.
+          if (result.form.khmdhsDocumentRegistry?.length) {
+            const freshRegistryCandidates = mergeRegistryCandidateLists(
+              collectKhmdhsRegistryCandidatesFromChainRes(res, result.form.khmdhsDataQualityReview),
+              collectKhmdhsRegistryCandidatesFromProject(result.form)
+            );
+            result.form.khmdhsDocumentRegistry = resyncRegistryEntryTitles(
+              result.form.khmdhsDocumentRegistry,
+              freshRegistryCandidates
+            );
+          }
           capturedFormAfterApply = result.form;
           return result.form;
         });
@@ -5007,7 +5031,11 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       formData.khmdhsNoticeAdam,
       formData.khmdhsNoticeSnapshot,
       formData.khmdhsAdam,
-      formData.khmdhsContractSnapshot
+      formData.khmdhsContractSnapshot,
+      formData.khmdhsAwardSnapshot,
+      formData.assignmentProcedure,
+      formData.projectStatus,
+      formData.khmdhsChainSeedAdam,
     ]
   );
 
@@ -5850,30 +5878,19 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       };
 
       if (editingProject) {
-        // Έλεγχος αν ο τίτλος του έργου άλλαξε κατά την επεξεργασία
         const originalProjectTitle = editingProject.projectTitle;
         const newProjectTitle = formData.projectTitle;
         
         if (originalProjectTitle !== newProjectTitle) {
-          console.log('⚠️ Project title changed during editing:', {
-            original: originalProjectTitle,
-            new: newProjectTitle
-          });
-          
-          // Έλεγχος αν υπάρχει ήδη έργο με τον νέο τίτλο
           const existingProject = await ipcRenderer.invoke('find-project-by-title', newProjectTitle);
           
           if (existingProject && existingProject.projectId !== editingProject.projectId) {
-            // Υπάρχει άλλο έργο με τον νέο τίτλο - δημιουργούμε νέο έργο
-            console.log('🆕 Title conflict detected - creating new project');
-            projectData.projectId = null; // Θα δημιουργηθεί νέο ID
+            projectData.projectId = existingProject.projectId;
+            projectData.moveToExistingProject = true;
           } else {
-            // Δεν υπάρχει σύγκρουση - απλά ενημερώνουμε το υπάρχον έργο
-            console.log('📝 Updating existing project with new title');
             projectData.projectId = editingProject.projectId;
           }
         } else {
-          // Ο τίτλος δεν άλλαξε - κανονική επεξεργασία
           projectData.projectId = editingProject.projectId;
         }
         

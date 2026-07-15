@@ -247,14 +247,29 @@ export function applyUserEditsAfterKhmdhsFetch(prevForm, fetchedForm) {
   }
 
   let protectedCount = 0;
+  let staleOverridesDropped = false;
+  const nextFieldOverrides = { ...edits.fieldOverrides };
   Object.entries(edits.fieldOverrides || {}).forEach(([fieldKey, override]) => {
     if (!override?.value && override?.value !== '') return;
     const incoming = readFormFieldValue(next, fieldKey);
+    // Μια «κενή» προστατευμένη τιμή στο assignmentProcedure δεν αντιπροσωπεύει ποτέ σκόπιμη
+    // επιλογή χρήστη (δεν βγάζει νόημα να «κλειδώσει» κανείς το πεδίο άδειο) — συνήθως είναι
+    // υπόλειμμα παλιού σφάλματος. Αν το ΚΗΜΔΗΣ βρίσκει τώρα πραγματική τιμή, την αφήνουμε να
+    // περάσει αντί να επαναφέρουμε το κενό σε κάθε ανανέωση επ' άπειρον.
+    if (fieldKey === 'assignmentProcedure' && override.value === '' && incoming) {
+      delete nextFieldOverrides[fieldKey];
+      staleOverridesDropped = true;
+      return;
+    }
     if (!valuesEqual(fieldKey, incoming, override.value)) {
       protectedCount += 1;
     }
     next = applyScalarOverrideToForm(next, fieldKey, override.value);
   });
+
+  if (staleOverridesDropped) {
+    next = { ...next, khmdhsUserEdits: { ...edits, fieldOverrides: nextFieldOverrides } };
+  }
 
   return { form: next, protectedCount };
 }

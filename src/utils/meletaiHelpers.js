@@ -21,6 +21,31 @@ export function normalizeStudyApprovalDate(value) {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Το πεδίο «Χρεωμένη σε» παραμένει ενιαίο string (συμβατό με αναζήτηση/εξαγωγές/αναφορές)
+ * αλλά μπορεί να περιέχει πάνω από ένα ονόματα, χωρισμένα με κόμμα.
+ */
+export function parseAssignedToNames(value) {
+  return String(value || '')
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export function formatAssignedToNames(names) {
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(names) ? names : []).forEach((raw) => {
+    const name = String(raw || '').trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(name);
+  });
+  return out.join(', ');
+}
+
 export function countMeletiFiles(meleti) {
   return (meleti?.fileGroups || []).reduce((sum, g) => {
     return sum + (g.files || []).reduce((s, entry) => {

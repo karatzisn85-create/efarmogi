@@ -23,6 +23,15 @@ import KhmdhsRefreshActionButton from './KhmdhsRefreshActionButton';
 import KhmdhsFormStageResults, { projectHasKhmdhsFormResults } from './KhmdhsFormStageResults';
 import KhmdhsChainRefreshDialog from './KhmdhsChainRefreshDialog';
 import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
+import KhmdhsDocumentRegistryModal from './KhmdhsDocumentRegistryModal';
+import {
+  mergeKhmdhsDocumentRegistry,
+  resyncRegistryEntryTitles,
+  collectKhmdhsRegistryCandidatesFromChainRes,
+  collectKhmdhsRegistryCandidatesFromProject,
+  mergeRegistryCandidateLists,
+  registryEntryIsAlreadyRecorded,
+} from '../utils/khmdhsDocumentRegistry';
 import { findActRootSiblings, getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
 import { useToast } from './ToastProvider';
 import {
@@ -1053,6 +1062,7 @@ function SubprojectDetailModal({
 
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [refreshDialog, setRefreshDialog] = useState(null);
+  const [khmdhsRegistryModal, setKhmdhsRegistryModal] = useState(null);
   const [contractExpiryPrompt, setContractExpiryPrompt] = useState(null);
   const contractExpiryCheckedRef = React.useRef(false);
 
@@ -1149,12 +1159,36 @@ function SubprojectDetailModal({
         subprojectId: project.subprojectId,
         updatedAt: new Date().toISOString(),
       };
+      // Αυτόματη ενημέρωση Αρχείων Υποέργου κατά την ανανέωση ΚΗΜΔΗΣ — χωρίς να ζητείται
+      // καμία χειροκίνητη ενέργεια από τον χρήστη:
+      // 1) οι τίτλοι ήδη καταγεγραμμένων εγγράφων ενημερώνονται με τα φρέσκα στοιχεία ΚΗΜΔΗΣ
+      //    (π.χ. παλιά καταχώριση χωρίς όνομα αποκτά τον σωστό τίτλο «Τεύχη Δημοπράτησης»),
+      // 2) νέα έγγραφα που εντοπίζονται στην αλυσίδα καταγράφονται αυτόματα — αφού πρόκειται
+      //    πάντα για ήδη χαρακτηρισμένα/μονοσήμαντα στοιχεία (η αλυσίδα τροποποιήσεων έχει ήδη
+      //    περάσει από τον έλεγχο χαρακτηρισμού), δεν χρειάζεται νέα επιβεβαίωση του χρήστη.
+      const freshRegistryCandidates = mergeRegistryCandidateLists(
+        collectKhmdhsRegistryCandidatesFromChainRes(res.chainRes, mergedProject.khmdhsDataQualityReview),
+        collectKhmdhsRegistryCandidatesFromProject(mergedProject)
+      );
+      if (freshRegistryCandidates.length) {
+        const resyncedRegistry = resyncRegistryEntryTitles(
+          mergedProject.khmdhsDocumentRegistry || [],
+          freshRegistryCandidates
+        );
+        const newRegistryCandidates = freshRegistryCandidates.filter(
+          (c) => !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
+        );
+        mergedProject.khmdhsDocumentRegistry = newRegistryCandidates.length
+          ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newRegistryCandidates, new Date().toISOString())
+          : resyncedRegistry;
+      }
       const changeLines = buildKhmdhsRefreshChangeSummary(project, mergedProject, applyResult);
       setRefreshDialog({
         seedAdam: res.seedAdam,
         seedLabel: res.seedLabel,
         changeLines,
         mergedProject,
+        chainRes: res.chainRes,
       });
       const expiryAfterRefresh = evaluateKhmdhsContractExpiryPrompt(mergedProject, {
         statusBeforeKhmdhsRefresh: project.projectStatus,
@@ -1222,6 +1256,8 @@ function SubprojectDetailModal({
         return;
       }
       showToast('Η αλυσίδα ΚΗΜΔΗΣ ενημερώθηκε επιτυχώς.', 'success');
+      // Τα Αρχεία Υποέργου (μητρώο εγγράφων ΚΗΜΔΗΣ) έχουν ήδη ενημερωθεί/συμπληρωθεί αυτόματα
+      // στο handleStartKhmdhsRefresh — δεν χρειάζεται καμία επιπλέον χειροκίνητη επιβεβαίωση εδώ.
       setRefreshDialog(null);
       if (typeof onRefreshProject === 'function') {
         await onRefreshProject();
@@ -1232,6 +1268,39 @@ function SubprojectDetailModal({
       setRefreshLoading(false);
     }
   }, [refreshDialog, showToast, onRefreshProject]);
+
+  const handleKhmdhsRegistryConfirm = useCallback(async (selectedList, neverAsk) => {
+    const base = khmdhsRegistryModal?.baseProject;
+    setKhmdhsRegistryModal(null);
+    if (!base) return;
+    const updated = {
+      ...base,
+      khmdhsDocumentRegistry: mergeKhmdhsDocumentRegistry(
+        base.khmdhsDocumentRegistry || [],
+        selectedList,
+        khmdhsRegistryModal.chainFetchedAt
+      ),
+      ...(neverAsk ? { khmdhsDocumentRegistryDismissed: true } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      const saveRes = await ipcRenderer.invoke('save-project-data', updated);
+      if (!saveRes?.success) {
+        showToast(saveRes?.error || 'Αποτυχία αποθήκευσης.', 'error');
+        return;
+      }
+      showToast('Τα έγγραφα καταγράφηκαν στα αρχεία υποέργου.', 'success');
+      if (typeof onRefreshProject === 'function') {
+        await onRefreshProject();
+      }
+    } catch (e) {
+      showToast(e?.message || 'Σφάλμα αποθήκευσης.', 'error');
+    }
+  }, [khmdhsRegistryModal, showToast, onRefreshProject]);
+
+  const handleKhmdhsRegistryDismiss = useCallback(() => {
+    setKhmdhsRegistryModal(null);
+  }, []);
 
   const subprojectTitle = project?.subprojectTitle || project?.projectTitle || '';
 
@@ -2328,6 +2397,13 @@ function SubprojectDetailModal({
         prompt={contractExpiryPrompt}
         onDismiss={() => setContractExpiryPrompt(null)}
         onAccept={handleContractExpiryAccept}
+      />
+      <KhmdhsDocumentRegistryModal
+        isOpen={!!khmdhsRegistryModal?.candidates?.length}
+        candidates={khmdhsRegistryModal?.candidates || []}
+        existing={khmdhsRegistryModal?.existing || []}
+        onConfirm={handleKhmdhsRegistryConfirm}
+        onDismiss={handleKhmdhsRegistryDismiss}
       />
     </Overlay>
   );

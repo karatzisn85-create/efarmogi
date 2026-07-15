@@ -68,7 +68,10 @@ const BackupManager = lazy(() => import('./BackupManager'));
 const AuditLogViewer = lazy(() => import('./AuditLogViewer'));
 const UserManagement = lazy(() => import('./UserManagement'));
 const EmailSettingsModal = lazy(() => import('./EmailSettingsModal'));
-const CalendarSettings = lazy(() => import('./CalendarSettings'));
+const NotificationSettingsCenter = lazy(() => import('./NotificationSettingsCenter'));
+const MyNotificationPreferences = lazy(() => import('./MyNotificationPreferences'));
+const EmailSendHistory = lazy(() => import('./EmailSendHistory'));
+const RoleDashboardWidget = lazy(() => import('./RoleDashboardWidget'));
 const MunicipalUnitsManager = lazy(() => import('./MunicipalUnitsManager'));
 const TaskAssignmentManager = lazy(() => import('./TaskAssignmentManager'));
 const EpProgramManager = lazy(() => import('./EpProgramManager'));
@@ -2709,6 +2712,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [isEmailSettingsOpen, setIsEmailSettingsOpen] = useState(false);
   const [isCalendarSettingsOpen, setIsCalendarSettingsOpen] = useState(false);
+  const [isMyNotifPrefsOpen, setIsMyNotifPrefsOpen] = useState(false);
+  const [isEmailHistoryOpen, setIsEmailHistoryOpen] = useState(false);
   const [isMunicipalUnitsOpen, setIsMunicipalUnitsOpen] = useState(false);
   const [isTaskAssignmentsOpen, setIsTaskAssignmentsOpen] = useState(false);
   const [taskAssignmentInitialScreen, setTaskAssignmentInitialScreen] = useState('workspace');
@@ -5372,6 +5377,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <SubTitle>ERGOHUB - Διαχείριση Έργων & Προμηθειών</SubTitle>
         </CenteredTitleContainer>
         <HeaderRight>
+          <LogoutButton onClick={() => setIsMyNotifPrefsOpen(true)} style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', marginRight: 6 }}>
+            🔔 Ειδοποιήσεις
+          </LogoutButton>
           <LogoutButton onClick={onLogout}>
             Αποσύνδεση
           </LogoutButton>
@@ -5425,6 +5433,16 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               }}
             />
           </Suspense>
+
+          {(userRole === 'ENGINEER' || userRole === 'USER') && (
+            <Suspense fallback={null}>
+              <RoleDashboardWidget
+                userRole={userRole}
+                currentUser={currentUser}
+                onOpenTaskAssignments={(taskId) => openTaskAssignmentsFromToast(taskId)}
+              />
+            </Suspense>
+          )}
 
           {/* Banner αρχειοθετημένων έργων */}
           {showArchivedProjects && (
@@ -5916,8 +5934,14 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               </AdminButton>
               {canManageAll && (
                 <AdminButton onClick={() => setIsCalendarSettingsOpen(true)}>
-                  <AdminButtonIcon>📅</AdminButtonIcon>
-                  Ρυθμίσεις Ημερολογίου
+                  <AdminButtonIcon>🔔</AdminButtonIcon>
+                  Κέντρο Ειδοποιήσεων
+                </AdminButton>
+              )}
+              {canManageAll && (
+                <AdminButton onClick={() => setIsEmailHistoryOpen(true)}>
+                  <AdminButtonIcon>📬</AdminButtonIcon>
+                  Ιστορικό Email
                 </AdminButton>
               )}
               {canManageAll && (
@@ -6684,8 +6708,26 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
       {isCalendarSettingsOpen && (
         <Suspense fallback={null}>
-          <CalendarSettings
+          <NotificationSettingsCenter
             onClose={() => setIsCalendarSettingsOpen(false)}
+            currentUser={currentUser}
+          />
+        </Suspense>
+      )}
+
+      {isMyNotifPrefsOpen && (
+        <Suspense fallback={null}>
+          <MyNotificationPreferences
+            onClose={() => setIsMyNotifPrefsOpen(false)}
+            currentUser={currentUser}
+          />
+        </Suspense>
+      )}
+
+      {isEmailHistoryOpen && (
+        <Suspense fallback={null}>
+          <EmailSendHistory
+            onClose={() => setIsEmailHistoryOpen(false)}
             currentUser={currentUser}
           />
         </Suspense>

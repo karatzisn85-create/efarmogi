@@ -57,18 +57,23 @@ export function collectSymvChainDocuments(chainRes) {
   if (!chainRes?.success) return [];
 
   const seen = new Set();
-  const add = (adam) => {
+  // Οι πηγές parallelContracts/contract.adam ήδη αντιπροσωπεύουν επιβεβαιωμένες συμβάσεις
+  // της υπόθεσης (ανεξάρτητα αν το ΑΔΑΜ τους ακολουθεί τυπικά τη μορφή «…SYMV…»), γι' αυτό
+  // καταγράφονται πάντα («force»). Οι υπόλοιπες πηγές είναι πιο γενικές συλλογές συνδέσμων
+  // και κρατάνε το φίλτρο «SYMV» ως ασφαλιστική δικλείδα ώστε να μην μπουν μη-συμβατικά έγγραφα.
+  const add = (adam, { force = false } = {}) => {
     const norm = normalizeAdam(adam);
-    if (!norm || !norm.includes('SYMV')) return;
+    if (!norm) return;
+    if (!force && !norm.includes('SYMV')) return;
     seen.add(norm);
   };
 
-  (chainRes.chainMeta?.linkedAdams?.contracts || []).forEach(add);
+  (chainRes.chainMeta?.linkedAdams?.contracts || []).forEach((a) => add(a));
   (chainRes.contractChainHistory || []).forEach((h) => add(h?.adam));
-  (chainRes.chainMeta?.parallelContractCandidates || []).forEach(add);
-  (chainRes.chainMeta?.parallelContracts || []).forEach(add);
-  Object.keys(chainRes.chainMeta?.contractSnapshotsByAdam || {}).forEach(add);
-  if (chainRes.contract?.adam) add(chainRes.contract.adam);
+  (chainRes.chainMeta?.parallelContractCandidates || []).forEach((a) => add(a));
+  (chainRes.chainMeta?.parallelContracts || []).forEach((a) => add(a, { force: true }));
+  Object.keys(chainRes.chainMeta?.contractSnapshotsByAdam || {}).forEach((a) => add(a));
+  if (chainRes.contract?.adam) add(chainRes.contract.adam, { force: true });
 
   const snapshots = chainRes.chainMeta?.contractSnapshotsByAdam || {};
   const histMap = historyByAdam(chainRes);
@@ -110,7 +115,9 @@ export function collectSymvChainDocuments(chainRes) {
     const da = a.defaultDate || '9999';
     const db = b.defaultDate || '9999';
     if (da !== db) return da.localeCompare(db);
-    return a.adam.localeCompare(b.adam);
+    // Ίδια (ή καμία) ημερομηνία — διατηρούμε τη σειρά εμφάνισης στην αλυσίδα ΚΗΜΔΗΣ
+    // αντί για αλφαβητική σύγκριση ΑΔΑΜ, που δεν έχει καμία σχέση με τη χρονολογική σειρά.
+    return 0;
   });
 }
 

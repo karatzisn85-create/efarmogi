@@ -327,21 +327,21 @@ function buildStudyReportHtml({ meleti, fileInventory, exportedAt, exportedBy, a
   const fileCount = (fileInventory || []).filter((r) => r.fileName && r.fileName !== '—').length;
   const infoHtml = buildInfoGridHtml([
     ['Αριθμός μελέτης', meleti.studyNumber || '—'],
-    ['Κατηγορία', meleti.category || '—'],
     ['Τίτλος', meleti.title || '(Χωρίς τίτλο)'],
+    ['Κατηγορία', meleti.category || '—'],
     ['Χρεωμένη σε', meleti.assignedTo || '—'],
     ['Προυπολογισμός δαπάνης έργου', meleti.projectExpenditureBudget
       ? `${String(meleti.projectExpenditureBudget).replace(/€/gi, '').trim()} €`
       : '—'],
     ['Ημερομηνία θεώρησης', meleti.studyApprovalDate
-      ? formatDateOnlyGreek(meleti.studyApprovalDate)
+      ? formatDateOnly(meleti.studyApprovalDate)
       : '—'],
     ['Συνδεδεμένο υποέργο', meleti.linkedSubprojectTitle
       ? `${meleti.linkedProjectTitle ? `${meleti.linkedProjectTitle} · ` : ''}${meleti.linkedSubprojectTitle}`
       : '—'],
+    ['Σημειώσεις', String(meleti.notes || '').trim() || '—'],
     ['Καταχώρηση', meleti.createdAt ? formatDateOnly(meleti.createdAt) : '—'],
     ['Τελευταία ενημέρωση', meleti.updatedAt ? formatDateOnly(meleti.updatedAt) : '—'],
-    ['Σημειώσεις', String(meleti.notes || '').trim() || '—'],
   ]);
 
   const fileRows = (fileInventory || []).length > 0

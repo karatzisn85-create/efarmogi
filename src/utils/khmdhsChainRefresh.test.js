@@ -1,3 +1,6 @@
+/**
+ * @jest-environment node
+ */
 import { buildKhmdhsRefreshChangeSummary } from './khmdhsChainRefresh';
 
 describe('buildKhmdhsRefreshChangeSummary', () => {
@@ -27,6 +30,25 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
     const after = { contractEndDate: '2025-06-30' };
     const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
     expect(lines.some((l) => l.includes('Ημ. λήξης υλοποίησης'))).toBe(true);
+  });
+
+  test('αναφέρει πόσα έγγραφα καταγράφηκαν αυτόματα στα Αρχεία Υποέργου', () => {
+    const before = { khmdhsDocumentRegistry: [{ adam: '22PROC010072052' }] };
+    const after = {
+      khmdhsDocumentRegistry: [
+        { adam: '22PROC010072052' },
+        { adam: '22PROC010072999' },
+      ],
+    };
+    const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
+    expect(lines.some((l) => /1 νέο έγγραφο καταγράφηκε αυτόματα/.test(l))).toBe(true);
+  });
+
+  test('δεν αναφέρει τίποτα για το μητρώο εγγράφων όταν δεν προστέθηκε τίποτα νέο', () => {
+    const before = { khmdhsDocumentRegistry: [{ adam: '22PROC010072052' }] };
+    const after = { khmdhsDocumentRegistry: [{ adam: '22PROC010072052', title: 'Ενημερωμένος τίτλος' }] };
+    const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
+    expect(lines.some((l) => l.includes('καταγράφηκ'))).toBe(false);
   });
 
   test('αναφέρει τη διαδικασία ανάθεσης όταν βρεθεί για πρώτη φορά', () => {

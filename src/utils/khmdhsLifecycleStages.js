@@ -110,7 +110,7 @@ export const LIFECYCLE_STAGE_META = {
 const STAGE_ORDER = ['REQ', 'PROC', 'AWRD', 'SYMV'];
 
 /** Διαδικασίες όπου δεν υπάρχει (ούτε απαιτείται) ηλεκτρονική προκήρυξη/διακήρυξη στο ΚΗΜΔΗΣ. */
-function awardIndicatesNoPriorNotice(project) {
+export function awardIndicatesNoPriorNotice(project) {
   const awrdSnap = pickKhmdhsAwardSnapshot(project?.khmdhsAwardSnapshot);
   const procedure = String(
     awrdSnap?.procedureType

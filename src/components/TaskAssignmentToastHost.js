@@ -44,8 +44,6 @@ const TOAST_ELIGIBLE_TYPES = new Set([
   'assignment_departed',
   'assignment_withdrawn',
   'archive_left',
-  'due_soon',
-  'overdue'
 ]);
 
 const STARTUP_STAGGER_MS = 420;

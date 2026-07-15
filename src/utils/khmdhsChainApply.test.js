@@ -1,3 +1,6 @@
+/**
+ * @jest-environment node
+ */
 import { mergeSharedKhmdhsFromChain } from './khmdhsChainApply';
 
 describe('mergeSharedKhmdhsFromChain', () => {

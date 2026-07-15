@@ -311,6 +311,17 @@ export function buildKhmdhsRefreshChangeSummary(before, after, applyResult = {})
     );
   }
 
+  const beforeRegistryAdams = new Set(
+    (before?.khmdhsDocumentRegistry || []).map((e) => String(e?.adam || '').toUpperCase())
+  );
+  const newRegistryCount = (after?.khmdhsDocumentRegistry || [])
+    .filter((e) => e?.adam && !beforeRegistryAdams.has(String(e.adam).toUpperCase())).length;
+  if (newRegistryCount > 0) {
+    lines.push(
+      `${newRegistryCount} νέ${newRegistryCount === 1 ? 'ο έγγραφο καταγράφηκε' : 'α έγγραφα καταγράφηκαν'} αυτόματα στα Αρχεία Υποέργου`
+    );
+  }
+
   if (!lines.length) {
     lines.push('Δεν εντοπίστηκαν ουσιώδεις διαφορές — τα δεδομένα φαίνονται ενημερωμένα.');
   }

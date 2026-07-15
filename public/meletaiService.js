@@ -959,12 +959,16 @@ function createMeletaiService({ dataDir }) {
           if (!fs.existsSync(jsonPath)) continue;
           try {
             const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            // Σκόπιμα ΔΕΝ φιλτράρουμε βάσει κατάστασης έργου — η σύνδεση μελέτης πρέπει να
+            // είναι δυνατή και με έργα «ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ» (π.χ. αναδρομική
+            // καταχώριση μελέτης σε ήδη ολοκληρωμένο έργο).
             if (data.subprojectId && data.subprojectTitle && data.projectTitle) {
               list.push({
                 subprojectId: data.subprojectId,
                 subprojectTitle: data.subprojectTitle,
                 projectTitle: data.projectTitle,
                 projectId: data.projectId,
+                projectStatus: data.projectStatus || '',
               });
             }
           } catch { /* skip */ }
@@ -974,15 +978,60 @@ function createMeletaiService({ dataDir }) {
     return list;
   }
 
-  function collectSubprojectIds() {
-    const ids = new Set();
-    for (const sp of listAllSubprojectsBrief()) {
-      if (sp.subprojectId) ids.add(sp.subprojectId);
+  /**
+   * Ελαφρύς έλεγχος αν ένα υποέργο υπάρχει ακόμα στον δίσκο — μόνο `fs.existsSync` ανά
+   * φάκελο έργου (χωρίς JSON.parse σε κάθε υποέργο). Πολύ πιο γρήγορο από το να σαρώνουμε
+   * και να διαβάζουμε ΟΛΟΚΛΗΡΟ το δέντρο έργων (`listAllSubprojectsBrief`) μόνο για να
+   * ελέγξουμε ύπαρξη λίγων συνδεδεμένων υποέργων.
+   */
+  function subprojectStillExists(subprojectId) {
+    const sid = String(subprojectId || '').trim();
+    if (!sid || !dataDir || !fs.existsSync(dataDir)) return false;
+    const projectDirs = fs.readdirSync(dataDir).filter((dir) => !DATA_DIR_SKIP_ROOT_DIRS.has(dir));
+    // Γρήγορο πέρασμα: ο φάκελος υποέργου ονομάζεται κανονικά με το subprojectId του.
+    for (const dir of projectDirs) {
+      const projectPath = path.join(dataDir, dir);
+      try {
+        if (!fs.statSync(projectPath).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      if (fs.existsSync(path.join(projectPath, sid, 'data.json'))) return true;
     }
-    return ids;
+    // Fallback (σπάνιο, legacy): φάκελος υποέργου με διαφορετικό όνομα από το subprojectId.
+    for (const dir of projectDirs) {
+      const projectPath = path.join(dataDir, dir);
+      let subDirs;
+      try {
+        subDirs = fs.readdirSync(projectPath);
+      } catch {
+        continue;
+      }
+      for (const sub of subDirs) {
+        const jsonPath = path.join(projectPath, sub, 'data.json');
+        if (!fs.existsSync(jsonPath)) continue;
+        try {
+          const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+          if (data.subprojectId === sid) return true;
+        } catch { /* skip */ }
+      }
+    }
+    return false;
   }
 
-  function runMeletaiMaintenance() {
+  // Η συντήρηση (μετανάστευση αριθμών μελέτης + έλεγχος ορφανών συνδέσεων) καλείται από
+  // τον renderer σε κάθε φρέσκια φόρτωση δεδομένων του Dashboard (κάθε ~5 λεπτά ή μετά από
+  // αποθήκευση). Δεν χρειάζεται να τρέχει τόσο συχνά — γι' αυτό «κρυώνει» για λίγα λεπτά,
+  // ώστε να μην επαναλαμβάνεται άσκοπα σε σύντομο χρονικό διάστημα.
+  const MAINTENANCE_MIN_INTERVAL_MS = 10 * 60 * 1000;
+  let lastMaintenanceRunAt = 0;
+
+  function runMeletaiMaintenance({ force = false } = {}) {
+    const now = Date.now();
+    if (!force && lastMaintenanceRunAt && (now - lastMaintenanceRunAt) < MAINTENANCE_MIN_INTERVAL_MS) {
+      return { migration: { formatFixed: 0, duplicatesResolved: 0 }, cleared: [], skipped: true };
+    }
+    lastMaintenanceRunAt = now;
     const migration = migrateStudyNumbersAndResolveDuplicates();
     const cleared = reconcileOrphanSubprojectLinks();
     invalidateStudyNumberCache();
@@ -990,11 +1039,17 @@ function createMeletaiService({ dataDir }) {
   }
 
   function reconcileOrphanSubprojectLinks() {
-    const validIds = collectSubprojectIds();
+    const existsCache = new Map();
+    const checkExists = (sid) => {
+      if (existsCache.has(sid)) return existsCache.get(sid);
+      const exists = subprojectStillExists(sid);
+      existsCache.set(sid, exists);
+      return exists;
+    };
     const clearedItems = [];
     for (const meleti of loadAllMeletai()) {
       const sid = meleti.linkedSubprojectId;
-      if (!sid || validIds.has(sid)) continue;
+      if (!sid || checkExists(sid)) continue;
       const previous = { ...meleti };
       const toSave = {
         ...meleti,

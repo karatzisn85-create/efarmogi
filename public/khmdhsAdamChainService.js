@@ -1519,6 +1519,27 @@ function deriveSuggestedApeAmount(contractWalk, contractChainHistory) {
   return formatAmountEl(revisedGross - primaryGross);
 }
 
+/**
+ * Ανακτά (αν χρειάζεται) και τα υπόλοιπα PROC της αλυσίδας πέρα από το επιλεγμένο ως
+ * «κύρια δημοσίευση» — π.χ. τα Τεύχη Δημοπράτησης όταν καταχωρούνται στο ΚΗΜΔΗΣ ως
+ * ξεχωριστή πράξη από τη Διακήρυξη/Πρόσκληση. Χωρίς αυτό, το μητρώο εγγράφων τα έβλεπε
+ * μόνο ως γυμνό ΑΔΑΜ (χωρίς πραγματικό τίτλο) και εμφανίζονταν σαν «Δημοσίευση 2».
+ */
+async function attachOtherNoticeRecords(chosen, noticeMarkers, alreadyFetched) {
+  if (!chosen) return chosen;
+  const known = new Map(alreadyFetched.map((f) => [f.adam, f]));
+  const remaining = (noticeMarkers || [])
+    .map((m) => normalizeNoticeAdam(m?.adam))
+    .filter((a, idx, arr) => a && a !== chosen.adam && !known.has(a) && arr.indexOf(a) === idx)
+    .slice(0, MAX_CANDIDATE_FETCH);
+  for (const a of remaining) {
+    const f = await fetchNoticeIfActive(a);
+    if (f) known.set(f.adam, f);
+  }
+  const otherNoticeRecords = [...known.values()].filter((f) => f.adam !== chosen.adam);
+  return otherNoticeRecords.length ? { ...chosen, otherNoticeRecords } : chosen;
+}
+
 async function resolveNoticeAdam(noticeMarkers, seedAdam, contractRecord, auctionRecord) {
   const hints = [
     contractRecord?.noticeReferenceNumber,
@@ -1527,15 +1548,15 @@ async function resolveNoticeAdam(noticeMarkers, seedAdam, contractRecord, auctio
 
   for (const hint of hints) {
     const fetched = await fetchNoticeIfActive(hint);
-    if (fetched) return fetched;
+    if (fetched) return attachOtherNoticeRecords(fetched, noticeMarkers, [fetched]);
   }
 
   const seed = normalizeNoticeAdam(seedAdam);
   if (seed && adamType(seed) === 'PROC') {
     const fetched = await fetchNoticeIfActive(seed);
-    if (fetched) return fetched;
+    if (fetched) return attachOtherNoticeRecords(fetched, noticeMarkers, [fetched]);
     const cancelledSeed = await fetchNoticeRecord(seed, { allowCancelled: true });
-    if (cancelledSeed) return cancelledSeed;
+    if (cancelledSeed) return attachOtherNoticeRecords(cancelledSeed, noticeMarkers, [cancelledSeed]);
   }
 
   const candidates = noticeMarkers.map((m) => m.adam).slice(0, MAX_CANDIDATE_FETCH);
@@ -1554,10 +1575,10 @@ async function resolveNoticeAdam(noticeMarkers, seedAdam, contractRecord, auctio
   });
 
   const leaves = fetchedList.filter((f) => !amendedBy.has(f.adam));
-  if (leaves.length >= 1) {
-    return leaves.sort((a, b) => String(b.adam).localeCompare(String(a.adam)))[0];
-  }
-  return fetchedList.sort((a, b) => String(b.adam).localeCompare(String(a.adam)))[0];
+  const chosen = leaves.length >= 1
+    ? leaves.sort((a, b) => String(b.adam).localeCompare(String(a.adam)))[0]
+    : fetchedList.sort((a, b) => String(b.adam).localeCompare(String(a.adam)))[0];
+  return attachOtherNoticeRecords(chosen, noticeMarkers, fetchedList);
 }
 
 async function resolveAuctionAdam(auctionMarkers, seedAdam, contractRecord) {
@@ -2277,6 +2298,12 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
     parallelAmountsFullyInferred,
     contractSnapshotsByAdam: buildContractSnapshotsByAdam(actContractRecords),
     actSupplementaryAdams: parallelContractInfo?.actSupplementaryAdams || [],
+    // Στιγμιότυπα των υπόλοιπων δημοσιεύσεων (PROC) της αλυσίδας πέρα από την «κύρια» —
+    // π.χ. Τεύχη Δημοπράτησης καταχωρημένα ξεχωριστά από τη Διακήρυξη/Πρόσκληση, ώστε το
+    // μητρώο εγγράφων να δείχνει τον πραγματικό τους τίτλο αντί για γενική ετικέτα.
+    noticeSnapshotsByAdam: notice?.otherNoticeRecords?.length
+      ? Object.fromEntries(notice.otherNoticeRecords.map((r) => [r.adam, r.snapshot]))
+      : {},
   };
 
   const followUpResult = await findFollowUpCommitmentsWithoutContract(stages);

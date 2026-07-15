@@ -1,3 +1,6 @@
+/**
+ * @jest-environment node
+ */
 import { getProjectChargeDisplay, resolveChargeDisplay } from './supervisorChargeDisplay';
 
 const catalog = [

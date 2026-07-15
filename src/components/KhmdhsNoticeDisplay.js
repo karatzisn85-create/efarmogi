@@ -369,8 +369,8 @@ export default function KhmdhsNoticeDisplay({
   }, [snapshot, procurementConcluded]);
   const summary = useMemo(() => buildKhmdhsNoticeCardSummary(snapshot), [snapshot]);
   const publicationTitle = useMemo(
-    () => publicationDocumentLabel(summary?.noticeType, 1, 1),
-    [summary?.noticeType]
+    () => publicationDocumentLabel(summary?.noticeType, 1, 1, summary?.title),
+    [summary?.noticeType, summary?.title]
   );
 
   const deadlineInfo = useMemo(

@@ -6,8 +6,6 @@ import {
   TASK_STATUS_LABELS,
   TASK_STATUS_COLORS,
   TASK_PRIORITY_LABELS,
-  formatTaskDueDate,
-  isTaskOverdue,
   isTaskWithdrawnByAssigner,
   hasLeftWorkArchive,
   formatAssigneeDisplayNames,
@@ -111,10 +109,6 @@ const Badge = styled.span`
   color: ${(p) => p.$color || '#334155'};
 `;
 
-const DueMeta = styled.span`
-  font-weight: ${(p) => (p.$overdue ? 700 : 500)};
-  color: ${(p) => (p.$overdue ? '#b91c1c' : '#64748b')};
-`;
 
 const MetaMuted = styled.span`
   color: #94a3b8;
@@ -1726,7 +1720,6 @@ function TaskAssignmentWorkspace({
     !isAssigner &&
     task.status === 'completed' &&
     !hasLeftWorkArchive(task, actingUsername);
-  const overdue = isTaskOverdue(task);
   const sc = TASK_STATUS_COLORS[task.status] || {};
 
   const feedItems = useMemo(() => buildUnifiedTimeline(task), [task]);
@@ -2124,13 +2117,6 @@ function TaskAssignmentWorkspace({
                 <Badge $bg="#fef9c3" $color="#854d0e" title="Ο χώρος δεν εμφανίζεται πλέον στους συναδέλφους">
                   Κλειστός · χρειάζεται ενέργεια
                 </Badge>
-              ) : null}
-              {task.dueDate && String(task.dueDate).trim() ? (
-                <>
-                  <MetaMuted>Ολοκλήρωση έως</MetaMuted>
-                  <DueMeta $overdue={overdue}>{formatTaskDueDate(task.dueDate, task.dueTime)}</DueMeta>
-                  {overdue ? <Badge $bg="#fee2e2" $color="#991b1b">Εκπρόθεσμη</Badge> : null}
-                </>
               ) : null}
             </MetaRow>
           </HeadTitleRow>
@@ -2556,13 +2542,10 @@ function TaskAssignmentWorkspace({
                       </OriginHeadRow>
                       {(() => {
                         const showPriority = task.priority && task.priority !== 'normal';
-                        const showDue = !!task.dueDate;
-                        if (!showPriority && !showDue) return null;
+                        if (!showPriority) return null;
                         return (
                           <OriginMeta style={{ marginBottom: item.description ? 10 : 0 }}>
-                            {showPriority && (TASK_PRIORITY_LABELS[task.priority] || task.priority)}
-                            {showPriority && showDue && <span aria-hidden> · </span>}
-                            {showDue && <>Ολοκλήρωση εργασίας έως: {formatTaskDueDate(task.dueDate, task.dueTime)}</>}
+                            {TASK_PRIORITY_LABELS[task.priority] || task.priority}
                           </OriginMeta>
                         );
                       })()}

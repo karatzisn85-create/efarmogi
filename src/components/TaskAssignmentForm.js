@@ -1,7 +1,6 @@
 import React, { useState, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
-import { DEFAULT_REMINDER_OFFSETS } from '../utils/taskAssignmentDisplay';
 import {
   allowDocumentInteractionLock,
   resetDocumentInteractionState,
@@ -277,28 +276,6 @@ const AssigneeCheck = styled.input`
   flex-shrink: 0;
 `;
 
-const ReminderChips = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-`;
-
-const RemChip = styled.label`
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.38rem 0.72rem;
-  border-radius: 999px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  cursor: pointer;
-  border: 1px solid ${(p) => (p.$on ? '#818cf8' : '#e2e8f0')};
-  background: ${(p) => (p.$on ? 'rgba(99, 102, 241, 0.12)' : '#fff')};
-  color: ${(p) => (p.$on ? '#3730a3' : '#64748b')};
-  transition:
-    border-color 0.12s ease,
-    background 0.12s ease;
-`;
 
 const ErrorMsg = styled.div`
   color: #b91c1c;
@@ -318,9 +295,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('normal');
-  const [dueDate, setDueDate] = useState('');
   const [assignees, setAssignees] = useState([]);
-  const [reminderOffsets, setReminderOffsets] = useState([...DEFAULT_REMINDER_OFFSETS]);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -344,20 +319,12 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
       setTitle(editingTask.title || '');
       setDescription(editingTask.description || '');
       setPriority(editingTask.priority || 'normal');
-      setDueDate(editingTask.dueDate || '');
       setAssignees(Array.isArray(editingTask.assignees) ? [...editingTask.assignees] : []);
-      setReminderOffsets(
-        Array.isArray(editingTask.reminderOffsets) && editingTask.reminderOffsets.length
-          ? editingTask.reminderOffsets
-          : [...DEFAULT_REMINDER_OFFSETS]
-      );
     } else {
       setTitle('');
       setDescription('');
       setPriority('normal');
-      setDueDate('');
       setAssignees([]);
-      setReminderOffsets([...DEFAULT_REMINDER_OFFSETS]);
     }
     setPendingFiles([]);
     setError('');
@@ -372,12 +339,6 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
     });
   };
 
-  const toggleReminder = (days) => {
-    setReminderOffsets((prev) => {
-      if (prev.includes(days)) return prev.filter((d) => d !== days);
-      return [...prev, days].sort((a, b) => b - a);
-    });
-  };
 
   const appendPickedUploadFiles = (res) => {
     scheduleDocumentInteractionRecovery({ lockScroll: true });
@@ -440,10 +401,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
       title: title.trim(),
       description: description.trim(),
       priority,
-      dueDate,
-      dueTime: '',
       assignees,
-      reminderOffsets
     };
     try {
       let result;
@@ -557,34 +515,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
                   <option value="high">Υψηλή</option>
                 </Select>
               </div>
-              <div>
-                <Label htmlFor="ta-due">Ολοκλήρωση εργασίας έως</Label>
-                <Input id="ta-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-              </div>
             </Row>
-          </Section>
-
-          <Section>
-            <SectionHead>
-              <SectionTitle>Υπενθυμίσεις</SectionTitle>
-              <SectionHint>ημέρες πριν τη λήξη</SectionHint>
-            </SectionHead>
-            <ReminderChips>
-              {DEFAULT_REMINDER_OFFSETS.map((d) => {
-                const on = reminderOffsets.includes(d);
-                return (
-                  <RemChip key={d} $on={on}>
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => toggleReminder(d)}
-                      style={{ accentColor: '#4f46e5', width: 14, height: 14 }}
-                    />
-                    {d === 0 ? 'Την ημέρα' : `${d} ημ.`}
-                  </RemChip>
-                );
-              })}
-            </ReminderChips>
           </Section>
 
           <Section>

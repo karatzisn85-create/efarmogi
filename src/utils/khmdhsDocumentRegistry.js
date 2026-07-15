@@ -17,6 +17,7 @@ import { getKhmdhsDisplayEntries, parseGreekAmountString } from './khmdhsFields'
 import { getChainKindChoice, enrichChainHistoryWithReview, CHAIN_KIND_LABEL } from './khmdhsChainActions';
 import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEntries';
 import { getSymvPlanCustomLabel, overlaySymvPlanLabelsOnChainHistory, SYMV_CHAIN_ROLE, isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
+import { normalizeSearchText } from './searchUtils';
 
 export const KHMDHS_REGISTRY_STAGE_ORDER = ['REQ', 'COMMIT', 'PROC', 'AWRD', 'SYMV', 'EXT', 'APE', 'PAY', 'RELATED'];
 
@@ -226,6 +227,10 @@ function entryFromPayment(block) {
 
 function addLinkedAdamStubs(chainRes, map) {
   const linked = chainRes?.chainMeta?.linkedAdams || {};
+  // Δημοσιεύσεις (PROC) της αλυσίδας πέρα από την «κύρια» — π.χ. Τεύχη Δημοπράτησης
+  // καταχωρημένα στο ΚΗΜΔΗΣ ως ξεχωριστή πράξη από τη Διακήρυξη/Πρόσκληση. Όταν έχουν
+  // ανακτηθεί πλήρη στοιχεία τους, τα χρησιμοποιούμε για πραγματικό τίτλο αντί για γυμνό ΑΔΑΜ.
+  const noticeSnapshotsByAdam = chainRes?.chainMeta?.noticeSnapshotsByAdam || {};
   const hasContractChainHistory = (chainRes.contractChainHistory || []).length > 0;
   const groups = [
     { key: 'approvedRequests', stage: 'COMMIT', type: 'COMMIT' },
@@ -239,6 +244,14 @@ function addLinkedAdamStubs(chainRes, map) {
     (linked[key] || []).forEach((adamRaw) => {
       const adam = normalizeAdam(adamRaw);
       if (!adam || map.has(adam)) return;
+      if (key === 'notices' && noticeSnapshotsByAdam[adam]) {
+        const entry = entryFromNotice({
+          adam,
+          snapshot: noticeSnapshotsByAdam[adam],
+          fetchedAt: chainRes.chainMeta?.resolvedAt || '',
+        });
+        if (entry) { pushUnique(map, entry); return; }
+      }
       pushUnique(map, buildRegistryEntry({
         adam,
         stage,
@@ -250,7 +263,7 @@ function addLinkedAdamStubs(chainRes, map) {
 }
 
 /** Εξαγωγή υποψηφίων από αποτέλεσμα ανάκτησης αλυσίδας */
-export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes) {
+export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = null) {
   if (!chainRes?.success) return [];
   const map = new Map();
   // Χρησιμοποιούμε το fetchedAt της αλυσίδας αν υπάρχει — πιο ακριβής χρόνος
@@ -277,10 +290,13 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes) {
     }));
   }
 
+  // Ίδιο κριτήριο συμπερίληψης με το collectKhmdhsRegistryCandidatesFromProject — μια
+  // τροποποίηση/παράταση καταγράφεται μόνο αν είναι η κύρια σύμβαση, έχει ρητό χαρακτηρισμό
+  // χρήστη, ή έχει αυτόματα ανιχνευμένο (όχι «uncertain») kind. Έτσι δεν προτείνεται πρόωρα
+  // για καταγραφή μια πράξη που δεν έχει ακόμα χαρακτηριστεί.
   (chainRes.contractChainHistory || []).forEach((h) => {
-    if (!h?.adam || h.cancelled) return;
-    const kind = h.kind;
-    if (!h.isRoot && kind === 'uncertain' && !h.suggestedKind) return;
+    if (!shouldIncludeChainHistoryInRegistry(h, review)) return;
+    const kind = h.effectiveKind || h.kind;
     const rawLabel = h.label || (kind && kind !== 'uncertain' ? (CHAIN_KIND_LABEL[kind] || '') : '');
     const roleLabel = rawLabel.replace(/\s*\(επιλεγμένη\)/i, '').trim();
     if (!roleLabel && !h.isRoot) return;
@@ -293,8 +309,6 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes) {
       roleLabel,
     }));
   });
-
-  // Τροποποιήσεις/παρατάσεις κ.λπ. — συμπληρώνονται και από project μετά χαρακτηρισμό
 
   (chainRes.payments || []).forEach((p) => {
     pushUnique(map, entryFromPayment(p));
@@ -510,7 +524,23 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
   return annotateRegistryLinkLabels([...map.values()]);
 }
 
-function noticeLinkLabel(noticeType, index, total) {
+/**
+ * Ανιχνεύει αν ο τίτλος μιας δημοσίευσης (όπως καταγράφεται στο ΚΗΜΔΗΣ) αντιστοιχεί
+ * στα «Τεύχη Δημοπράτησης» — έγγραφο που συχνά καταχωρείται στο ΚΗΜΔΗΣ με τον δικό του
+ * τίτλο (π.χ. «ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ ΕΡΓΟΥ») αντί για τον τίτλο του έργου, ανεξάρτητα από
+ * τον τύπο δημοσίευσης (Διακήρυξη/Πρόσκληση/Προκήρυξη) που έχει καταγραφεί.
+ * Ανεκτικό σε κεφαλαία/πεζά και τόνους.
+ */
+export function isTenderDocumentTitle(title) {
+  const norm = normalizeSearchText(title);
+  if (!norm) return false;
+  return /τευχ(η|ος)\s+δημοπρατησ/.test(norm) || /τευχ(η|ος)\s+διαγωνισμ/.test(norm);
+}
+
+function noticeLinkLabel(noticeType, index, total, title = '') {
+  if (isTenderDocumentTitle(title)) {
+    return total > 1 ? `Τεύχη Δημοπράτησης ${index}` : 'Τεύχη Δημοπράτησης';
+  }
   const nt = String(noticeType || '').trim();
   let base = '';
   if (/προκήρυξ/i.test(nt)) base = 'Προκήρυξη';
@@ -523,9 +553,9 @@ function noticeLinkLabel(noticeType, index, total) {
   return total > 1 ? `${base} ${index}` : base;
 }
 
-/** Ετικέτα εγγράφου δημοσίευσης για UI (προκήρυξη, πρόσκληση κ.λπ.) */
-export function publicationDocumentLabel(noticeType, index = 1, total = 1) {
-  return noticeLinkLabel(noticeType, index, total);
+/** Ετικέτα εγγράφου δημοσίευσης για UI (προκήρυξη, πρόσκληση, τεύχη δημοπράτησης κ.λπ.) */
+export function publicationDocumentLabel(noticeType, index = 1, total = 1, title = '') {
+  return noticeLinkLabel(noticeType, index, total, title);
 }
 
 function resolveChainHistoryRoleLabel(h, review, project) {
@@ -652,7 +682,9 @@ export function annotateRegistryLinkLabels(entries) {
         linkLabel = `Απόφαση ανάληψης υποχρέωσης${suffix}`;
         break;
       case 'PROC':
-        linkLabel = entry.isStub ? `Δημοσίευση${suffix}` : noticeLinkLabel(entry.noticeType, idx, total);
+        linkLabel = entry.isStub
+          ? `Δημοσίευση${suffix}`
+          : noticeLinkLabel(entry.noticeType, idx, total, entry.title);
         break;
       case 'AWRD':
         linkLabel = total > 1 ? `Απόφαση ανάθεσης${suffix}` : 'Απόφαση ανάθεσης';
@@ -671,7 +703,13 @@ export function annotateRegistryLinkLabels(entries) {
       default:
         linkLabel = entry.stageLabel || 'Έγγραφο';
     }
-    return { ...entry, linkLabel: enrichRegistryLinkLabel(linkLabel, entry) };
+    const enrichedLabel = enrichRegistryLinkLabel(linkLabel, entry);
+    // Σημείωση: δεν εμφανίζουμε πλέον τον «πραγματικό τίτλο» του εγγράφου σαν υπότιτλο κάτω
+    // από την ετικέτα — ο τίτλος που καταχωρεί ο κάθε φορέας στο ΚΗΜΔΗΣ ανά πράξη (π.χ. σε
+    // αποφάσεις ανάληψης υποχρέωσης ή αιτήματα) συχνά διαφέρει σε διατύπωση/περικοπή από
+    // πράξη σε πράξη χωρίς να σημαίνει κάτι διαφορετικό, οπότε προκαλούσε σύγχυση αντί να
+    // βοηθάει. Η ετικέτα του κρίκου (π.χ. «Τεύχη Δημοπράτησης») παραμένει ως έχει.
+    return { ...entry, linkLabel: enrichedLabel };
   });
 }
 
@@ -720,6 +758,40 @@ export function mergeKhmdhsDocumentRegistry(existing, selected, chainFetchedAt =
   });
 
   return annotateRegistryLinkLabels([...byAdam.values()]);
+}
+
+/**
+ * Ενημερώνει τα ήδη καταγεγραμμένα στοιχεία του μητρώου (χωρίς να προσθέτει νέα) με τον πιο
+ * πρόσφατο πραγματικό τίτλο/τύπο δημοσίευσης από τους τρέχοντες υποψήφιους κρίκους — ώστε
+ * παλαιότερες καταγραφές (π.χ. πριν την αναγνώριση «Τεύχη Δημοπράτησης») να αποκτούν τη σωστή
+ * ονομασία μετά από ανανέωση ΚΗΜΔΗΣ, χωρίς να απαιτείται νέα χειροκίνητη καταγραφή.
+ */
+export function resyncRegistryEntryTitles(existing, candidates) {
+  if (!existing?.length || !candidates?.length) return existing || [];
+  const byAdam = new Map();
+  candidates.forEach((c) => {
+    const key = normalizeAdam(c?.adam);
+    if (key && !byAdam.has(key)) byAdam.set(key, c);
+  });
+  let changed = false;
+  const next = existing.map((entry) => {
+    const fresh = byAdam.get(normalizeAdam(entry.adam));
+    if (!fresh) return entry;
+    const patch = {};
+    const freshTitle = String(fresh.title || '').trim();
+    const freshNoticeType = String(fresh.noticeType || '').trim();
+    const freshSubtitle = String(fresh.subtitle || '').trim();
+    if (freshTitle && freshTitle !== entry.title) patch.title = freshTitle;
+    if (freshNoticeType && freshNoticeType !== entry.noticeType) patch.noticeType = freshNoticeType;
+    if (freshSubtitle && freshSubtitle !== entry.subtitle) patch.subtitle = freshSubtitle;
+    // Ένα «γυμνό» ΑΔΑΜ (χωρίς ποτέ ανακτημένα στοιχεία) παύει να είναι stub μόλις βρεθεί
+    // πραγματικός τίτλος του — αλλιώς η ετικέτα του παραμένει γενική («Δημοσίευση Ν»).
+    if (entry.isStub && freshTitle) patch.isStub = false;
+    if (!Object.keys(patch).length) return entry;
+    changed = true;
+    return { ...entry, ...patch };
+  });
+  return changed ? annotateRegistryLinkLabels(next) : existing;
 }
 
 export function formatRegistryPreviewLine(entry) {
@@ -803,7 +875,7 @@ export function mergeRegistryCandidateLists(...lists) {
 
 export function buildRegistryModalPayloadAfterReview(project, chainFetchedAt = '', chainRes = null) {
   const fromChain = chainRes?.success
-    ? collectKhmdhsRegistryCandidatesFromChainRes(chainRes)
+    ? collectKhmdhsRegistryCandidatesFromChainRes(chainRes, project?.khmdhsDataQualityReview)
     : [];
   const fromProject = collectKhmdhsRegistryCandidatesFromProject(project);
   const candidates = filterRegistryCandidatesBySymvPlan(

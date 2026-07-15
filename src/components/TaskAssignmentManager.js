@@ -8,8 +8,6 @@ import {
   TASK_STATUS_LABELS,
   TASK_STATUS_COLORS,
   TASK_PRIORITY_LABELS,
-  formatTaskDueDate,
-  isTaskOverdue,
   isTaskWithdrawnByAssigner,
   formatAssigneeDisplayNames
 } from '../utils/taskAssignmentDisplay';
@@ -967,9 +965,7 @@ function TaskAssignmentManager({
       } else if (t.status === 'completed') {
         return false;
       }
-      if (statusFilter === 'overdue_filter') {
-        if (!isTaskOverdue(t)) return false;
-      } else if (statusFilter && t.status !== statusFilter) {
+      if (statusFilter && t.status !== statusFilter) {
         return false;
       }
       if (search) {
@@ -1155,7 +1151,6 @@ function TaskAssignmentManager({
 
   const renderTaskPreview = (t) => {
     const sc = TASK_STATUS_COLORS[t.status] || {};
-    const overdue = isTaskOverdue(t);
     const assignees = formatAssigneeDisplayNames(t, usersMap);
     const isActive = selectedId === t.id;
     const showWithdrawBadge =
@@ -1170,11 +1165,6 @@ function TaskAssignmentManager({
           </StatusBadge>
           <PriorityPill $priority={t.priority}>{TASK_PRIORITY_LABELS[t.priority] || t.priority}</PriorityPill>
           {showWithdrawBadge ? <WithdrawBadge title="Ο χώρος δεν εμφανίζεται πλέον στους συναδέλφους">Κλειστός · ενέργεια</WithdrawBadge> : null}
-          {t.dueDate && String(t.dueDate).trim() ? (
-            <span style={{ fontWeight: 700, color: overdue ? '#b91c1c' : '#334155' }}>
-              {formatTaskDueDate(t.dueDate, t.dueTime)}
-            </span>
-          ) : null}
         </CardMeta>
         {assignees ? (
           <div
@@ -1314,7 +1304,6 @@ function TaskAssignmentManager({
                             {v}
                           </option>
                         ))}
-                      <option value="overdue_filter">Εκπρόθεσμες</option>
                     </FilterSelectFull>
                   </FilterMegaSection>
                 )}

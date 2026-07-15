@@ -585,6 +585,31 @@ ipcMain.handle('get-users', async () => {
   }));
 });
 
+ipcMain.handle('get-my-notification-preferences', async (_event, { actingUsername } = {}) => {
+  const user = findUserByUsername(actingUsername || loggedInUsername);
+  if (!user) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
+  return { success: true, preferences: user.notificationPreferences || {} };
+});
+
+ipcMain.handle('save-my-notification-preferences', async (_event, { actingUsername, preferences } = {}) => {
+  const username = actingUsername || loggedInUsername;
+  const users = loadUsers();
+  const idx = users.findIndex(u => u.username?.toLowerCase() === String(username || '').toLowerCase());
+  if (idx < 0) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
+  users[idx].notificationPreferences = {
+    calendarEmail: preferences?.calendarEmail !== false,
+    aepoEmail: preferences?.aepoEmail !== false,
+    noteEmail: preferences?.noteEmail !== false,
+    workspaceToasts: preferences?.workspaceToasts !== false,
+    quietHoursEnabled: preferences?.quietHoursEnabled === true,
+    quietHoursStart: String(preferences?.quietHoursStart || '22:00'),
+    quietHoursEnd: String(preferences?.quietHoursEnd || '08:00'),
+  };
+  users[idx].updatedAt = new Date().toISOString();
+  saveUsers(users);
+  return { success: true };
+});
+
 ipcMain.handle('create-user', async (_event, { username, password, role, fullName, email, assignedSupervisors = [], taskAssignment, orimanthiCanEdit, meletaiCanEdit, actingUsername }) => {
   const users = loadUsers();
   if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
@@ -1598,22 +1623,47 @@ async function handleSaveProjectData(event, projectData) {
     
     const subprojectId = projectData.subprojectId || uuidv4();
     
-    // Για υπάρχοντα υποέργα, βρίσκουμε το σωστό projectId από το φάκελο
-    // Αν υπάρχει subprojectId, ψάχνουμε σε όλους τους φακέλους για να βρούμε το σωστό projectId
-    if (!isNewProject && subprojectId && subprojectId !== uuidv4()) {
-      // Ψάχνουμε σε όλους τους φακέλους projects για να βρούμε το subprojectId
+    // Αν ζητείται μετακίνηση υποέργου σε υπάρχον project (αλλαγή τίτλου → ενοποίηση)
+    if (projectData.moveToExistingProject && subprojectId && projectId) {
+      const SKIP_DIRS = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'config',
+        'egkriseis_links', 'subproject_links', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ',
+        'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'ANATHESEIS_ERGASION', 'audit_log.json']);
       const projectDirs = fs.existsSync(dataDir) ? fs.readdirSync(dataDir) : [];
+      let oldProjectDir = null;
       for (const dir of projectDirs) {
-        if (dir === 'entaxeis' || dir === 'ΠΡΟΣΚΛΗΣΕΙΣ' || dir === 'locks' || 
-            dir === 'egkriseis_links' || dir === 'subproject_links' || 
-            dir === 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ' || dir === 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ') {
-          continue;
-        }
+        if (SKIP_DIRS.has(dir) || dir === projectId) continue;
         const potentialSubprojectDir = path.join(dataDir, dir, subprojectId);
         if (fs.existsSync(potentialSubprojectDir) && fs.statSync(potentialSubprojectDir).isDirectory()) {
-          // Βρέθηκε! Το σωστό projectId είναι το όνομα του φακέλου
+          oldProjectDir = dir;
+          break;
+        }
+      }
+      if (oldProjectDir && oldProjectDir !== projectId) {
+        const srcPath = path.join(dataDir, oldProjectDir, subprojectId);
+        const targetProjectDir = path.join(dataDir, projectId);
+        if (!fs.existsSync(targetProjectDir)) fs.mkdirSync(targetProjectDir, { recursive: true });
+        const destPath = path.join(targetProjectDir, subprojectId);
+        fs.renameSync(srcPath, destPath);
+        logger.info(`Moved subproject ${subprojectId} from project ${oldProjectDir} to ${projectId}`);
+        // Αν ο παλιός φάκελος project έμεινε κενός, τον αφαιρούμε
+        const remaining = fs.readdirSync(path.join(dataDir, oldProjectDir));
+        if (remaining.length === 0) {
+          fs.rmdirSync(path.join(dataDir, oldProjectDir));
+          logger.info(`Removed empty project folder ${oldProjectDir}`);
+        }
+        isNewProject = false;
+      }
+    } else if (!isNewProject && subprojectId) {
+      // Για υπάρχοντα υποέργα χωρίς μετακίνηση, βρίσκουμε το σωστό projectId από το φάκελο
+      const SKIP_DIRS = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'config',
+        'egkriseis_links', 'subproject_links', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ',
+        'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'ANATHESEIS_ERGASION', 'audit_log.json']);
+      const projectDirs = fs.existsSync(dataDir) ? fs.readdirSync(dataDir) : [];
+      for (const dir of projectDirs) {
+        if (SKIP_DIRS.has(dir)) continue;
+        const potentialSubprojectDir = path.join(dataDir, dir, subprojectId);
+        if (fs.existsSync(potentialSubprojectDir) && fs.statSync(potentialSubprojectDir).isDirectory()) {
           projectId = dir;
-          console.log(`Found existing subproject: using projectId from folder name: ${projectId}`);
           break;
         }
       }
@@ -2141,21 +2191,7 @@ ipcMain.handle('get-registered-engineers', async () => {
 let taskDueDateJob = null;
 
 function initTaskAssignmentScheduler() {
-  if (taskDueDateJob) {
-    taskDueDateJob.cancel();
-    taskDueDateJob = null;
-  }
-  try {
-    const svc = getTaskAssignmentService();
-    if (svc) svc.runDueDateChecks();
-    taskDueDateJob = schedule.scheduleJob('0 8 * * *', () => {
-      const s = getTaskAssignmentService();
-      if (s) s.runDueDateChecks();
-    });
-    console.log('Task assignment due-date scheduler active (daily 08:00 + startup)');
-  } catch (e) {
-    console.error('Task assignment scheduler error:', e.message);
-  }
+  // Due-date checks disabled — deadlines removed from task assignments
 }
 
 function resolveTaskActingUser(actingUsername) {
@@ -2208,6 +2244,18 @@ ipcMain.handle('load-task-assignments', async (_event, { actingUsername, view, l
   } catch (error) {
     return { success: false, error: error.message, tasks: [] };
   }
+});
+
+ipcMain.handle('get-task-assignments-summary', async (_event, { actingUsername } = {}) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, tasks: [] };
+  try {
+    const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, tasks: [] };
+    const result = svc.loadAssignments({ actingUsername: auth.username, view: 'asAssignee', listScope: 'default' });
+    const tasks = (result.tasks || []).map(t => ({ id: t.id, title: t.title, status: t.status, priority: t.priority }));
+    return { success: true, tasks };
+  } catch { return { success: false, tasks: [] }; }
 });
 
 ipcMain.handle('leave-task-work-archive', async (_event, { actingUsername, taskId }) => {
@@ -2536,11 +2584,13 @@ ipcMain.handle('delete-task-assignment-attachment', async (_event, { actingUsern
 
 /* ── Email Config & Workspace Email Toggle ── */
 
-ipcMain.handle('get-email-config', async () => {
+ipcMain.handle('get-email-config', async (_event, { actingUsername } = {}) => {
   try {
+    if (!isSuperAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στις ρυθμίσεις email' };
+    }
     if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
     const config = loadEmailConfig(dataDir);
-    // Μάσκαρε το appPassword για ασφάλεια (στέλνε μόνο αν υπάρχει)
     return {
       success: true,
       config: {
@@ -2556,8 +2606,11 @@ ipcMain.handle('get-email-config', async () => {
   }
 });
 
-ipcMain.handle('save-email-config', async (_event, { user, appPassword, fromName }) => {
+ipcMain.handle('save-email-config', async (_event, { actingUsername, user, appPassword, fromName }) => {
   try {
+    if (!isSuperAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα αλλαγής ρυθμίσεων email' };
+    }
     if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
     const existing = loadEmailConfig(dataDir);
     let normalizedUser = String(user || '').trim().toLowerCase();
@@ -2582,8 +2635,11 @@ ipcMain.handle('save-email-config', async (_event, { user, appPassword, fromName
   }
 });
 
-ipcMain.handle('test-email-config', async (_event, { toAddress }) => {
+ipcMain.handle('test-email-config', async (_event, { actingUsername, toAddress }) => {
   try {
+    if (!isSuperAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα δοκιμής email' };
+    }
     if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
     const emailConfig = loadEmailConfig(dataDir);
     return await sendTestEmail(toAddress, emailConfig);
@@ -10337,6 +10393,40 @@ ipcMain.handle('check-user-email', async (_event, { username }) => {
   }
 });
 
+// ── Note reminder config ──
+function loadNoteReminderConfig() {
+  try {
+    const p = path.join(dataDir, 'config', 'note_reminder_config.json');
+    if (!fs.existsSync(p)) return { enabled: true };
+    return { enabled: true, ...JSON.parse(fs.readFileSync(p, 'utf8')) };
+  } catch { return { enabled: true }; }
+}
+
+function saveNoteReminderConfig(config) {
+  const dir = path.join(dataDir, 'config');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  safeWriteJSON(path.join(dir, 'note_reminder_config.json'), config);
+}
+
+ipcMain.handle('get-note-reminder-config', async (_event, { actingUsername } = {}) => {
+  if (!isSuperAdminOrAdminUser(actingUsername || loggedInUsername)) {
+    return { success: false, error: 'Δεν έχετε δικαίωμα' };
+  }
+  return { success: true, config: loadNoteReminderConfig() };
+});
+
+ipcMain.handle('save-note-reminder-config', async (_event, { actingUsername, config } = {}) => {
+  if (!isSuperAdminOrAdminUser(actingUsername || loggedInUsername)) {
+    return { success: false, error: 'Δεν έχετε δικαίωμα' };
+  }
+  try {
+    saveNoteReminderConfig({ enabled: config?.enabled !== false });
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 // ── Note reminder scheduler ──
 let noteReminderInterval = null;
 
@@ -10345,6 +10435,8 @@ function startNoteReminderChecker() {
   noteReminderInterval = setInterval(async () => {
     try {
       if (!notesDataPath || !fs.existsSync(notesDataPath)) return;
+      const noteReminderCfg = loadNoteReminderConfig();
+      if (noteReminderCfg.enabled === false) return;
       const data = JSON.parse(fs.readFileSync(notesDataPath, 'utf8'));
       if (!data?.notes || !Array.isArray(data.notes)) return;
 
@@ -14872,6 +14964,18 @@ ipcMain.handle('save-municipal-units-config', async (_event, { units, actingUser
     return { success: true, config: saved };
   } catch (e) {
     logger.error('save-municipal-units-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-email-send-history', async (_event, { actingUsername } = {}) => {
+  try {
+    if (!isSuperAdminOrAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const history = procurementCalendarReminderService.loadEmailHistory(dataDir);
+    return { success: true, entries: history.entries || [] };
+  } catch (e) {
     return { success: false, error: e.message };
   }
 });
