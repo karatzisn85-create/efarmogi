@@ -2789,6 +2789,14 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
       return { success: false, error: 'Λείπει αναγνωριστικό υποέργου' };
     }
 
+    const lockStatus = isEntityLocked('projects', sid);
+    if (lockStatus.locked) {
+      return {
+        success: false,
+        error: `Το υποέργο επεξεργάζεται από ${lockStatus.lockedBy || 'άλλον χρήστη'}. Δοκιμάστε ξανά σε λίγο.`,
+      };
+    }
+
     const project = findSubprojectDataById(sid);
     if (!project) {
       return { success: false, error: 'Δεν βρέθηκε το υποέργο' };
@@ -2809,7 +2817,7 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
     if (!seedInfo.adam) {
       return {
         success: false,
-        error: 'Δεν βρέθηκε ΑΔΑΜ πρωτογενούς αιτήματος ή άλλου σταδίου για ανανέωση. Ανοίξτε την επεξεργασία για πρώτη ανάκτηση.',
+        error: 'Δεν βρέθηκε ΑΔΑΜ αφετηρίας για ανανέωση. Ανοίξτε την επεξεργασία του υποέργου, εισάγετε τον ΑΔΑΜ στη Φάση Β (π.χ. αίτημα ή σύμβαση) και εκτελέστε αρχική ανάκτηση.',
       };
     }
 
@@ -2842,6 +2850,66 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
   }
 });
 
+ipcMain.handle('batch-khmdhs-refresh-eligible', async (_event, { actingUsername } = {}) => {
+  try {
+    const username = String(actingUsername || '').trim();
+    if (!username) return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
+    const user = findUserByUsername(username);
+    if (!user || user.active === false || user.approved === false) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    if (user.role !== 'ADMIN' && user.role !== 'SUPERADMIN') {
+      return { success: false, error: 'Η μαζική ανανέωση επιτρέπεται μόνο σε διαχειριστές.' };
+    }
+
+    const refreshSeed = require('./khmdhsChainRefreshSeed');
+    const eligible = [];
+    const skipped = [];
+
+    if (!dataDir || !fs.existsSync(dataDir)) {
+      return { success: true, eligible, skipped };
+    }
+
+    for (const projectDir of fs.readdirSync(dataDir)) {
+      if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
+      const projectPath = path.join(dataDir, projectDir);
+      if (!fs.statSync(projectPath).isDirectory()) continue;
+      for (const subDir of fs.readdirSync(projectPath)) {
+        const subPath = path.join(projectPath, subDir);
+        if (!fs.statSync(subPath).isDirectory()) continue;
+        const jsonPath = path.join(subPath, 'data.json');
+        if (!fs.existsSync(jsonPath)) continue;
+        let project;
+        try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
+        const sid = project.subprojectId;
+        if (!sid) continue;
+        const label = project.subprojectTitle || sid;
+
+        if (refreshSeed.isKhmdhsChainClosedSubproject(project)) {
+          skipped.push({ id: sid, label, reason: 'Ολοκληρωμένο' });
+          continue;
+        }
+        const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
+        if (!seedInfo.adam) {
+          skipped.push({ id: sid, label, reason: 'Χωρίς ΑΔΑΜ' });
+          continue;
+        }
+        const lockStatus = isEntityLocked('projects', sid);
+        if (lockStatus.locked) {
+          skipped.push({ id: sid, label, reason: 'Κλειδωμένο' });
+          continue;
+        }
+        eligible.push({ id: sid, label, seedAdam: seedInfo.adam });
+      }
+    }
+
+    return { success: true, eligible, skipped };
+  } catch (e) {
+    logger.error('batch-khmdhs-refresh-eligible error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
 ipcMain.handle('khmdhs-fetch-supplementary-contract', async (_event, payload = {}) => {
   try {
     const chainSvc = require('./khmdhsAdamChainService');
@@ -2853,6 +2921,99 @@ ipcMain.handle('khmdhs-fetch-supplementary-contract', async (_event, payload = {
   } catch (error) {
     console.error('khmdhs-fetch-supplementary-contract:', error);
     return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = 7, actingUsername } = {}) => {
+  try {
+    const username = String(actingUsername || '').trim();
+    if (username) {
+      const user = findUserByUsername(username);
+      if (!user || user.active === false) return { success: true, stale: [] };
+      if (user.role !== 'ADMIN' && user.role !== 'SUPERADMIN') return { success: true, stale: [] };
+    }
+    const refreshSeed = require('./khmdhsChainRefreshSeed');
+    const stale = [];
+    if (!dataDir || !fs.existsSync(dataDir)) return { success: true, stale };
+
+    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+    for (const projectDir of fs.readdirSync(dataDir)) {
+      if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
+      const projectPath = path.join(dataDir, projectDir);
+      if (!fs.statSync(projectPath).isDirectory()) continue;
+      for (const subDir of fs.readdirSync(projectPath)) {
+        const subPath = path.join(projectPath, subDir);
+        if (!fs.statSync(subPath).isDirectory()) continue;
+        const jsonPath = path.join(subPath, 'data.json');
+        if (!fs.existsSync(jsonPath)) continue;
+        let project;
+        try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
+        const sid = project.subprojectId;
+        if (!sid) continue;
+        if (refreshSeed.isKhmdhsChainClosedSubproject(project)) continue;
+        const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
+        if (!seedInfo.adam) continue;
+
+        const lastRefresh = project.khmdhsChainLastRefreshedAt;
+        const ts = lastRefresh ? new Date(lastRefresh).getTime() : 0;
+        if (ts < cutoff) {
+          const ageDays = Math.round((Date.now() - (ts || Date.now())) / (24 * 60 * 60 * 1000));
+          stale.push({
+            id: sid,
+            label: project.subprojectTitle || sid,
+            lastRefreshed: lastRefresh || null,
+            ageDays: ts ? ageDays : null,
+          });
+        }
+      }
+    }
+    return { success: true, stale };
+  } catch (e) {
+    logger.error('check-khmdhs-staleness error:', e.message);
+    return { success: true, stale: [] };
+  }
+});
+
+ipcMain.handle('create-khmdhs-refresh-snapshot', async (_event, { subprojectId, actingUsername }) => {
+  try {
+    const username = String(actingUsername || '').trim();
+    if (username) {
+      const user = findUserByUsername(username);
+      if (!user || user.active === false || user.approved === false) {
+        return { success: false, error: 'Δεν έχετε δικαίωμα' };
+      }
+    }
+    const sid = String(subprojectId || '').trim();
+    if (!sid || !dataDir) return { success: false };
+    const skipRoot = DATA_DIR_SKIP_ROOT_DIRS;
+    for (const dir of fs.readdirSync(dataDir)) {
+      if (skipRoot.has(dir)) continue;
+      const projectPath = path.join(dataDir, dir);
+      try { if (!fs.statSync(projectPath).isDirectory()) continue; } catch { continue; }
+      const directPath = path.join(projectPath, sid);
+      if (fs.existsSync(path.join(directPath, 'data.json'))) {
+        const src = path.join(directPath, 'data.json');
+        const dest = path.join(directPath, 'data.json.before-refresh');
+        fs.copyFileSync(src, dest);
+        return { success: true };
+      }
+      for (const sub of fs.readdirSync(projectPath)) {
+        const jsonPath = path.join(projectPath, sub, 'data.json');
+        if (!fs.existsSync(jsonPath)) continue;
+        try {
+          const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+          if (data.subprojectId === sid) {
+            const dest = path.join(projectPath, sub, 'data.json.before-refresh');
+            fs.copyFileSync(jsonPath, dest);
+            return { success: true };
+          }
+        } catch {}
+      }
+    }
+    return { success: false };
+  } catch (e) {
+    logger.error('create-khmdhs-refresh-snapshot error:', e.message);
+    return { success: false };
   }
 });
 

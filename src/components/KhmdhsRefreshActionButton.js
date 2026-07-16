@@ -112,12 +112,23 @@ const HeaderFreshBadge = styled.span`
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 `;
 
+const ProgressLabel = styled.span`
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
 export default function KhmdhsRefreshActionButton({
   onClick,
   loading = false,
   disabled = false,
   freshness = null,
   title,
+  progressMessage = '',
 }) {
   const urgent = freshness?.level === 'yellow' || freshness?.level === 'red';
   const tip = title
@@ -142,7 +153,11 @@ export default function KhmdhsRefreshActionButton({
         <Icon $spinning={loading} aria-hidden>
           {loading ? '⏳' : '↻'}
         </Icon>
-        Ανανέωση ΚΗΜΔΗΣ
+        {loading && progressMessage ? (
+          <ProgressLabel>{progressMessage}</ProgressLabel>
+        ) : (
+          'Ανανέωση ΚΗΜΔΗΣ'
+        )}
       </Btn>
     </BtnWrap>
   );

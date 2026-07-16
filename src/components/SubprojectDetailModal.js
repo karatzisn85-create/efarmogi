@@ -42,6 +42,7 @@ import {
 } from '../utils/khmdhsChainRefresh';
 import { applyAdamChainResult } from '../utils/khmdhsChainApply';
 import { symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
+import KhmdhsSymvChainPlannerDialog from './KhmdhsSymvChainPlannerDialog';
 import {
   evaluateKhmdhsContractExpiryPrompt,
   KHMDHS_COMPLETED_STATUS_SUGGESTION,
@@ -1061,7 +1062,9 @@ function SubprojectDetailModal({
   const requestingUsername = currentUser?.username || '';
 
   const [refreshLoading, setRefreshLoading] = useState(false);
+  const [refreshProgress, setRefreshProgress] = useState('');
   const [refreshDialog, setRefreshDialog] = useState(null);
+  const [symvPlannerState, setSymvPlannerState] = useState(null);
   const [khmdhsRegistryModal, setKhmdhsRegistryModal] = useState(null);
   const [contractExpiryPrompt, setContractExpiryPrompt] = useState(null);
   const contractExpiryCheckedRef = React.useRef(false);
@@ -1122,6 +1125,15 @@ function SubprojectDetailModal({
   const handleStartKhmdhsRefresh = useCallback(async () => {
     if (!canRefreshKhmdhs || refreshLoading || isLocked || !project?.subprojectId) return;
     setRefreshLoading(true);
+    setRefreshProgress('Σύνδεση με ΚΗΜΔΗΣ…');
+    const progressSteps = [
+      { delay: 2500, msg: 'Ανάκτηση αλυσίδας πράξεων…' },
+      { delay: 6000, msg: 'Ανάκτηση εγγράφων & πληρωμών…' },
+      { delay: 12000, msg: 'Επεξεργασία δεδομένων…' },
+    ];
+    const timers = progressSteps.map((s) =>
+      setTimeout(() => setRefreshProgress(s.msg), s.delay)
+    );
     try {
       const res = await ipcRenderer.invoke('preview-subproject-khmdhs-refresh', {
         subprojectId: project.subprojectId,
@@ -1144,13 +1156,14 @@ function SubprojectDetailModal({
         symvChainPlan: reusableSymvPlan,
       });
       if (applyResult.warnings?.includes('symvPlannerRequired')) {
-        // Εντοπίστηκε νέα παράλληλη σύμβαση στην αλυσίδα ΚΗΜΔΗΣ — χρειάζεται να οριστεί
-        // η κατανομή τους (SYMV planner), κάτι που γίνεται μόνο μέσα από την επεξεργασία.
-        // Δεν προχωράμε σε «σιωπηλή» ανανέωση χωρίς αυτή την απόφαση του χρήστη.
-        showToast(
-          'Εντοπίστηκε νέα παράλληλη σύμβαση στην αλυσίδα ΚΗΜΔΗΣ που δεν υπήρχε πριν — ανοίξτε την επεξεργασία του υποέργου για να ορίσετε πώς κατανέμονται οι συμβάσεις.',
-          'warning'
-        );
+        setSymvPlannerState({
+          open: true,
+          chainRes: res.chainRes,
+          seedAdam: res.seedAdam,
+          seedLabel: res.seedLabel,
+          subprojectTitle: project.subprojectTitle || '',
+          existingPlan: project.khmdhsSymvChainPlan || null,
+        });
         return;
       }
       const mergedProject = {
@@ -1199,7 +1212,9 @@ function SubprojectDetailModal({
     } catch (e) {
       showToast(e?.message || 'Σφάλμα κατά την ανανέωση ΚΗΜΔΗΣ.', 'error');
     } finally {
+      timers.forEach(clearTimeout);
       setRefreshLoading(false);
+      setRefreshProgress('');
     }
   }, [
     canRefreshKhmdhs,
@@ -1209,6 +1224,57 @@ function SubprojectDetailModal({
     requestingUsername,
     showToast,
   ]);
+
+  const handleSymvPlannerConfirm = useCallback((plan) => {
+    if (!symvPlannerState?.chainRes || !plan?.items?.length) {
+      setSymvPlannerState(null);
+      return;
+    }
+    const { chainRes, seedAdam } = symvPlannerState;
+    setSymvPlannerState(null);
+    const applyResult = applyAdamChainResult(project, chainRes, {
+      seedAdam,
+      symvChainPlan: plan,
+    });
+    const mergedProject = {
+      ...applyResult.form,
+      projectId: project.projectId,
+      subprojectId: project.subprojectId,
+      khmdhsSymvChainPlan: plan,
+      khmdhsSymvPlanAppliedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const freshRegistryCandidates = mergeRegistryCandidateLists(
+      collectKhmdhsRegistryCandidatesFromChainRes(chainRes, mergedProject.khmdhsDataQualityReview),
+      collectKhmdhsRegistryCandidatesFromProject(mergedProject)
+    );
+    if (freshRegistryCandidates.length) {
+      const resyncedRegistry = resyncRegistryEntryTitles(
+        mergedProject.khmdhsDocumentRegistry || [],
+        freshRegistryCandidates
+      );
+      const newRegistryCandidates = freshRegistryCandidates.filter(
+        (c) => !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
+      );
+      mergedProject.khmdhsDocumentRegistry = newRegistryCandidates.length
+        ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newRegistryCandidates, new Date().toISOString())
+        : resyncedRegistry;
+    }
+    const changeLines = buildKhmdhsRefreshChangeSummary(project, mergedProject, applyResult);
+    setRefreshDialog({
+      seedAdam,
+      seedLabel: symvPlannerState.seedLabel,
+      changeLines,
+      mergedProject,
+      chainRes,
+    });
+    const expiryAfterRefresh = evaluateKhmdhsContractExpiryPrompt(mergedProject, {
+      statusBeforeKhmdhsRefresh: project.projectStatus,
+    });
+    if (expiryAfterRefresh) {
+      window.setTimeout(() => setContractExpiryPrompt(expiryAfterRefresh), 350);
+    }
+  }, [symvPlannerState, project]);
 
   const handleContractExpiryAccept = useCallback(async () => {
     const base = refreshDialog?.mergedProject || project;
@@ -1250,14 +1316,16 @@ function SubprojectDetailModal({
     if (!refreshDialog?.mergedProject) return;
     setRefreshLoading(true);
     try {
+      await ipcRenderer.invoke('create-khmdhs-refresh-snapshot', {
+        subprojectId: refreshDialog.mergedProject.subprojectId,
+        actingUsername: requestingUsername,
+      });
       const saveRes = await ipcRenderer.invoke('save-project-data', refreshDialog.mergedProject);
       if (!saveRes?.success) {
         showToast(saveRes?.error || 'Αποτυχία αποθήκευσης.', 'error');
         return;
       }
       showToast('Η αλυσίδα ΚΗΜΔΗΣ ενημερώθηκε επιτυχώς.', 'success');
-      // Τα Αρχεία Υποέργου (μητρώο εγγράφων ΚΗΜΔΗΣ) έχουν ήδη ενημερωθεί/συμπληρωθεί αυτόματα
-      // στο handleStartKhmdhsRefresh — δεν χρειάζεται καμία επιπλέον χειροκίνητη επιβεβαίωση εδώ.
       setRefreshDialog(null);
       if (typeof onRefreshProject === 'function') {
         await onRefreshProject();
@@ -1831,6 +1899,7 @@ function SubprojectDetailModal({
                 loading={refreshLoading}
                 disabled={isLocked}
                 freshness={chainFreshness}
+                progressMessage={refreshProgress}
                 title={isLocked
                   ? (lockedBy ? `Κλειδωμένο από: ${lockedBy}` : 'Το υποέργο είναι κλειδωμένο')
                   : undefined}
@@ -2404,6 +2473,17 @@ function SubprojectDetailModal({
         existing={khmdhsRegistryModal?.existing || []}
         onConfirm={handleKhmdhsRegistryConfirm}
         onDismiss={handleKhmdhsRegistryDismiss}
+      />
+      <KhmdhsSymvChainPlannerDialog
+        isOpen={!!symvPlannerState?.open}
+        chainRes={symvPlannerState?.chainRes || null}
+        subprojectTitle={symvPlannerState?.subprojectTitle || ''}
+        existingPlan={symvPlannerState?.existingPlan || null}
+        onDismiss={() => {
+          setSymvPlannerState(null);
+          showToast('Η ανανέωση ακυρώθηκε — δεν ορίστηκε κατανομή.', 'info');
+        }}
+        onConfirm={handleSymvPlannerConfirm}
       />
     </Overlay>
   );

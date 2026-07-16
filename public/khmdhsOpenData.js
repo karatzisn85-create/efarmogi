@@ -15,6 +15,36 @@ const {
   resolveKhmdhsHttpError,
 } = require('./khmdhsHttpErrors');
 
+const RETRY_COUNT = 2;
+const RETRY_BASE_DELAY_MS = 1500;
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+
+async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (options?.signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
+    try {
+      const res = await fetch(url, options);
+      if (res.ok || !RETRYABLE_STATUS_CODES.has(res.status) || attempt === maxRetries) {
+        return res;
+      }
+      lastError = new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      lastError = e;
+      if (attempt === maxRetries) throw e;
+    }
+    if (options?.signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
+    const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  throw lastError;
+}
+
 /** Καταστάσεις με υπογεγραμμένη σύμβαση — ο ΑΔΑΜ διατηρείται μεταξύ τους */
 const STATUSES_WITH_KHMDHS_ADAM = [
   'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
@@ -285,7 +315,7 @@ async function fetchKhmdhsNoticeByAdam(adamRaw) {
     };
   }
   const url = `${KHMDHS_BASE}/khmdhs-opendata/notice?page=0`;
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -412,7 +442,7 @@ async function fetchKhmdhsRequestByAdam(adamRaw) {
     };
   }
   const url = `${KHMDHS_BASE}/khmdhs-opendata/request?page=0`;
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -615,7 +645,7 @@ async function fetchKhmdhsAuctionByAdam(adamRaw) {
     return { success: false, error: 'Μη έγκυρος ΑΔΑΜ ανάθεσης (AWRD).' };
   }
   const url = `${KHMDHS_BASE}/khmdhs-opendata/auction?page=0`;
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -874,7 +904,7 @@ async function fetchKhmdhsContractByAdam(adamRaw) {
     };
   }
   const url = `${KHMDHS_BASE}/khmdhs-opendata/contract?page=0`;
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -974,7 +1004,7 @@ async function fetchKhmdhsPaymentByAdam(adamRaw) {
     };
   }
   const url = `${KHMDHS_BASE}/khmdhs-opendata/payment?page=0`;
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -1020,7 +1050,7 @@ async function fetchKhmdhsAdamChain(adamRaw) {
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   let res;
   try {
-    res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' }, signal: controller.signal });
+    res = await fetchWithRetry(url, { method: 'GET', headers: { Accept: 'application/json' }, signal: controller.signal });
   } catch (e) {
     clearTimeout(timeoutId);
     if (e.name === 'AbortError') {

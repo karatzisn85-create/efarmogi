@@ -10,6 +10,7 @@ import AdvancedFilters from './AdvancedFilters';
 import ActiveFiltersBanner from './ActiveFiltersBanner';
 import FileManager from './FileManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
+import { KhmdhsStalenessNotice } from './KhmdhsBatchRefreshWidget';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import {
   enrichProjectsFromLoad,
@@ -72,6 +73,7 @@ const NotificationSettingsCenter = lazy(() => import('./NotificationSettingsCent
 const MyNotificationPreferences = lazy(() => import('./MyNotificationPreferences'));
 const EmailSendHistory = lazy(() => import('./EmailSendHistory'));
 const RoleDashboardWidget = lazy(() => import('./RoleDashboardWidget'));
+const KhmdhsBatchRefreshWidget = lazy(() => import('./KhmdhsBatchRefreshWidget'));
 const MunicipalUnitsManager = lazy(() => import('./MunicipalUnitsManager'));
 const TaskAssignmentManager = lazy(() => import('./TaskAssignmentManager'));
 const EpProgramManager = lazy(() => import('./EpProgramManager'));
@@ -5411,6 +5413,18 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               onOpenFullStatistics={() => setIsStatisticsModalOpen(true)}
             />
           </Suspense>
+
+          <KhmdhsStalenessNotice userRole={userRole} currentUser={currentUser} />
+
+          {(userRole === 'ADMIN' || userRole === 'SUPERADMIN') && (
+            <Suspense fallback={null}>
+              <KhmdhsBatchRefreshWidget
+                userRole={userRole}
+                currentUser={currentUser}
+                onRefreshComplete={() => loadProjects()}
+              />
+            </Suspense>
+          )}
 
           <Suspense fallback={null}>
             <CalendarDeadlineWidget

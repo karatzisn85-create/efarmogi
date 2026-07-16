@@ -1406,7 +1406,7 @@ function buildRequestFormFields(snapshot) {
   return { projectBudget: gross != null ? formatAmountEl(gross) : '' };
 }
 
-const MAX_PAYMENT_FETCH = 15;
+const MAX_PAYMENT_FETCH = 30;
 
 /** Έγκριση δέσμευσης (ΑΠΟΦΑΣΗ ΑΝΑΛΗΨΗΣ ΥΠΟΧΡΕΩΣΗΣ) — εγκεκριμένο αίτημα REQ, διακριτό από το πρωτογενές */
 async function resolveCommitmentDecision(stages, excludeAdam) {
