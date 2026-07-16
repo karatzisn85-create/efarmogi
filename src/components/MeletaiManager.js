@@ -108,6 +108,12 @@ function AssignedToField({
             value={inputValue}
             onChange={(e) => { setInputValue(e.target.value); setShowSuggestions(true); }}
             onFocus={() => setShowSuggestions(true)}
+            onBlur={() => {
+              setTimeout(() => {
+                if (inputValue.trim()) addName(inputValue);
+                setShowSuggestions(false);
+              }, 150);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ',') {
                 e.preventDefault();
@@ -573,6 +579,25 @@ const HubListHead = styled.div`
   color: rgba(255, 255, 255, 0.88);
 `;
 
+const YearGroupHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  background: linear-gradient(90deg, ${C.slate50} 0%, #ecfdf5 100%);
+  border-bottom: 2px solid ${C.emerald}44;
+  border-top: 1px solid ${C.slate200};
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: ${C.emeraldDark};
+  letter-spacing: 0.03em;
+  &::before {
+    content: '📅';
+    font-size: 0.82rem;
+  }
+  &:first-child { border-top: none; }
+`;
+
 const HubListRow = styled.div`
   display: grid;
   grid-template-columns: ${HUB_LIST_GRID_COLUMNS};
@@ -656,9 +681,10 @@ const HubListCategoryTag = styled.span`
 
 const AssignedBadgeWrap = styled.div`
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.3rem;
   min-width: 0;
+  flex-wrap: wrap;
 `;
 
 const AssignedBadgeIcon = styled.span`
@@ -669,10 +695,8 @@ const AssignedBadgeIcon = styled.span`
 const AssignedBadgeText = styled.span`
   font-weight: 800;
   color: #4338ca;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 0.74rem;
+  line-height: 1.4;
 `;
 
 const AssignedBadgeEmpty = styled.span`
@@ -1992,7 +2016,7 @@ function MeletaiManager({
   const [categoryFilter, setCategoryFilter] = useState('');
   const [linkFilter, setLinkFilter] = useState('all');
   const [hubQuickFilter, setHubQuickFilter] = useState('');
-  const [hubSortBy, setHubSortBy] = useState('updated_desc');
+  const [hubSortBy, setHubSortBy] = useState('number');
   const [showHubFiltersPanel, setShowHubFiltersPanel] = useState(false);
   const [showNewMeletiModal, setShowNewMeletiModal] = useState(false);
   const [newModalDraft, setNewModalDraft] = useState(null);
@@ -2277,9 +2301,9 @@ function MeletaiManager({
     withFiles: visibleMeletai.filter((m) => countMeletiFiles(m) > 0).length,
   }), [visibleMeletai]);
 
-  const hubHasSecondaryFilters = Boolean(categoryFilter || linkFilter !== 'all' || hubSortBy !== 'updated_desc');
+  const hubHasSecondaryFilters = Boolean(categoryFilter || linkFilter !== 'all' || hubSortBy !== 'number');
   const hubHasActiveFilters = Boolean(
-    search.trim() || categoryFilter || linkFilter !== 'all' || hubQuickFilter || hubSortBy !== 'updated_desc'
+    search.trim() || categoryFilter || linkFilter !== 'all' || hubQuickFilter || hubSortBy !== 'number'
   );
 
   const clearHubFilters = () => {
@@ -2287,7 +2311,7 @@ function MeletaiManager({
     setCategoryFilter('');
     setLinkFilter('all');
     setHubQuickFilter('');
-    setHubSortBy('updated_desc');
+    setHubSortBy('number');
   };
 
   const applyHubQuickFilter = (value) => {
@@ -3628,7 +3652,7 @@ function MeletaiManager({
             <>
               <AssignedBadgeIcon>👤</AssignedBadgeIcon>
               <AssignedBadgeText>
-                {assignedNames.length > 1 ? `${assignedNames[0]} +${assignedNames.length - 1}` : assignedNames[0]}
+                {assignedNames.join(', ')}
               </AssignedBadgeText>
             </>
           ) : (
@@ -3843,7 +3867,23 @@ function MeletaiManager({
                     <span style={{ textAlign: 'center' }}>Σύνδ.</span>
                     <span />
                   </HubListHead>
-                  {filteredList.map((m) => renderHubListRow(m))}
+                  {hubSortBy === 'number' ? (() => {
+                    const yearGroups = [];
+                    const yearMap = new Map();
+                    for (const m of filteredList) {
+                      const match = String(m.studyNumber || '').match(/\/(\d{4})$/);
+                      const year = match ? parseInt(match[1], 10) : 0;
+                      if (!yearMap.has(year)) { yearMap.set(year, []); yearGroups.push(year); }
+                      yearMap.get(year).push(m);
+                    }
+                    yearGroups.sort((a, b) => b - a);
+                    return yearGroups.map((year) => (
+                      <React.Fragment key={`year-${year}`}>
+                        <YearGroupHeader>{year || 'Χωρίς έτος'}</YearGroupHeader>
+                        {yearMap.get(year).map((m) => renderHubListRow(m))}
+                      </React.Fragment>
+                    ));
+                  })() : filteredList.map((m) => renderHubListRow(m))}
                 </HubListWrap>
               )}
             </HubShell>

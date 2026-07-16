@@ -10,7 +10,7 @@ import AdvancedFilters from './AdvancedFilters';
 import ActiveFiltersBanner from './ActiveFiltersBanner';
 import FileManager from './FileManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
-import { KhmdhsStalenessNotice } from './KhmdhsBatchRefreshWidget';
+import { KhmdhsBatchReportFab, KhmdhsBatchReportModal } from './KhmdhsBatchRefreshWidget';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import {
   enrichProjectsFromLoad,
@@ -2789,12 +2789,69 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, [currentUser?.username]);
   const [isDocumentTemplatesOpen, setIsDocumentTemplatesOpen] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
+  const [batchReportResults, setBatchReportResults] = useState(null);
+  const [batchPendingItems, setBatchPendingItems] = useState([]);
+  const [isBatchReportOpen, setIsBatchReportOpen] = useState(false);
+  const [khmdhsStaleCount, setKhmdhsStaleCount] = useState(0);
+  const [khmdhsOldestDays, setKhmdhsOldestDays] = useState(null);
+  const [khmdhsLastRun, setKhmdhsLastRun] = useState(null);
+  const [khmdhsBatchRunning, setKhmdhsBatchRunning] = useState(false);
   const [notes, setNotes] = useState([]);
   const [notesSearch, setNotesSearch] = useState('');
   const [editingNote, setEditingNote] = useState(null);
   const [noteFileCounts, setNoteFileCounts] = useState({});
   const [selectedNoteId, setSelectedNoteId] = useState(null);
   const [previewFiles, setPreviewFiles] = useState([]);
+
+  const refreshKhmdhsStaleCount = useCallback(async () => {
+    if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return;
+    try {
+      const res = await ipcRenderer.invoke('check-khmdhs-staleness', {
+        maxAgeDays: 7,
+        actingUsername: currentUser?.username,
+      });
+      if (res?.success) {
+        setKhmdhsStaleCount(res.stale?.length || 0);
+        if (res.stale?.length) {
+          const ages = res.stale.map((s) => s.ageDays).filter(Boolean);
+          setKhmdhsOldestDays(ages.length ? Math.max(...ages) : null);
+        } else {
+          setKhmdhsOldestDays(null);
+        }
+      }
+    } catch {}
+  }, [userRole, currentUser]);
+
+  useEffect(() => {
+    refreshKhmdhsStaleCount();
+  }, [refreshKhmdhsStaleCount]);
+
+  const handleBatchResults = useCallback((results) => {
+    setBatchReportResults(results);
+    setBatchPendingItems(results.interventionItems || []);
+    if (results.interventionItems?.length) {
+      setIsBatchReportOpen(true);
+    }
+    setKhmdhsLastRun({
+      date: new Date().toLocaleString('el-GR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+      refreshed: results.refreshed || 0,
+    });
+    refreshKhmdhsStaleCount();
+  }, [refreshKhmdhsStaleCount]);
+
+  const handleBatchSubprojectResolved = useCallback((subprojectId) => {
+    setBatchPendingItems((prev) => {
+      const resolved = prev.find((item) => item.id === subprojectId);
+      const next = prev.filter((item) => item.id !== subprojectId);
+      if (resolved) {
+        setTimeout(() => showToast(`✓ Χαρακτηρισμός ολοκληρώθηκε: ${resolved.label}`, 'success'), 0);
+        if (next.length === 0) {
+          setTimeout(() => showToast('🎉 Όλοι οι εκκρεμείς χαρακτηρισμοί ολοκληρώθηκαν!', 'success'), 1200);
+        }
+      }
+      return next;
+    });
+  }, [showToast]);
 
   // Χάρτης entityId → σημειώσεις — υπολογίζεται από in-memory notes (όχι IPC/δίσκο)
   // ώστε τα stickers ενημερώνονται αμέσως μετά από αποθήκευση σημείωσης.
@@ -5414,14 +5471,17 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             />
           </Suspense>
 
-          <KhmdhsStalenessNotice userRole={userRole} currentUser={currentUser} />
-
           {(userRole === 'ADMIN' || userRole === 'SUPERADMIN') && (
             <Suspense fallback={null}>
               <KhmdhsBatchRefreshWidget
                 userRole={userRole}
                 currentUser={currentUser}
-                onRefreshComplete={() => loadProjects()}
+                onRefreshComplete={() => { loadProjects(); refreshKhmdhsStaleCount(); }}
+                onBatchResults={handleBatchResults}
+                onRunningChange={setKhmdhsBatchRunning}
+                staleCount={khmdhsStaleCount}
+                oldestDays={khmdhsOldestDays}
+                lastRunInfo={khmdhsLastRun}
               />
             </Suspense>
           )}
@@ -6027,7 +6087,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           onTogglePortal={handleTogglePortalSubproject}
           onRefreshProject={async () => {
             await loadDataWithCache(true);
-            // Ενημέρωση του ανοιχτού modal με τα νέα δεδομένα
             const refreshed = await ipcRenderer.invoke('load-all-projects');
             if (refreshed && Array.isArray(refreshed)) {
               const updated = refreshed.find(
@@ -6035,6 +6094,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               );
               if (updated) setSelectedDetailProject(updated);
             }
+            handleBatchSubprojectResolved(selectedDetailProject.subprojectId);
+            refreshKhmdhsStaleCount();
           }}
           onEpLinksChanged={refreshEpSubprojectMap}
           directAssignmentViolations={getViolationsForSubproject(
@@ -6802,6 +6863,23 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           📝
         </NotesFab>
       )}
+
+      <KhmdhsBatchReportFab
+        pendingItems={batchPendingItems}
+        onClick={() => setIsBatchReportOpen(true)}
+        isRunning={khmdhsBatchRunning}
+      />
+
+      <KhmdhsBatchReportModal
+        isOpen={isBatchReportOpen}
+        onClose={() => setIsBatchReportOpen(false)}
+        results={batchReportResults}
+        pendingItems={batchPendingItems}
+        onNavigateToSubproject={(subprojectId) => {
+          const p = projects.find((row) => row.subprojectId === subprojectId);
+          if (p) openSubprojectDetail(p);
+        }}
+      />
 
     </DashboardContainer>
   );

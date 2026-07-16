@@ -192,12 +192,13 @@ function collectItemsForRecipient(items, recipient, config, log) {
     .filter((d) => Number.isFinite(d) && d >= 0);
 
   const visible = calendarEventsBuilder.filterItemsForRecipient(items, recipient);
+  const rcpKey = recipient.username || recipient.email || '';
 
   for (const item of visible) {
     if (!isNotifyEventTypeEnabled(config, item.eventType)) continue;
 
     if (item.eventType === EVENT_TYPES.COMPLIANCE_12M) {
-      const key = `${item.itemKey}:compliance`;
+      const key = `${rcpKey}:${item.itemKey}:compliance`;
       if (!log.sent[key]) complianceItems.push({ ...item, trigger: 'compliance' });
       continue;
     }
@@ -208,7 +209,7 @@ function collectItemsForRecipient(items, recipient, config, log) {
     let addedToThresholdThisRun = false;
     for (const db of daysBefore) {
       if (daysLeft === db) {
-        const key = `${item.itemKey}:d:${db}`;
+        const key = `${rcpKey}:${item.itemKey}:d:${db}`;
         if (!log.sent[key]) {
           thresholdItems.push({ ...item, trigger: 'threshold', daysBefore: db });
           addedToThresholdThisRun = true;
@@ -218,7 +219,7 @@ function collectItemsForRecipient(items, recipient, config, log) {
 
     const urgCfg = config.urgentRepeat || {};
     if (!addedToThresholdThisRun && urgCfg.enabled !== false && daysLeft >= 0 && daysLeft < 7) {
-      const urgKey = `${item.itemKey}:urgent`;
+      const urgKey = `${rcpKey}:${item.itemKey}:urgent`;
       const urg = log.sent[urgKey] && typeof log.sent[urgKey] === 'object'
         ? log.sent[urgKey]
         : { count: 0, lastSent: null };
@@ -233,19 +234,20 @@ function collectItemsForRecipient(items, recipient, config, log) {
   return { thresholdItems, urgentItems, complianceItems };
 }
 
-function markSentKeys(log, items, trigger) {
+function markSentKeys(log, items, trigger, recipient) {
   const now = new Date().toISOString();
+  const rcpKey = (recipient && (recipient.username || recipient.email)) || '';
   for (const item of items) {
     if (trigger === 'threshold') {
-      log.sent[`${item.itemKey}:d:${item.daysBefore}`] = now;
+      log.sent[`${rcpKey}:${item.itemKey}:d:${item.daysBefore}`] = now;
     } else if (trigger === 'urgent') {
-      const urgKey = `${item.itemKey}:urgent`;
+      const urgKey = `${rcpKey}:${item.itemKey}:urgent`;
       const prev = log.sent[urgKey] && typeof log.sent[urgKey] === 'object'
         ? log.sent[urgKey]
         : { count: 0, lastSent: null };
       log.sent[urgKey] = { count: prev.count + 1, lastSent: now };
     } else if (trigger === 'compliance') {
-      log.sent[`${item.itemKey}:compliance`] = now;
+      log.sent[`${rcpKey}:${item.itemKey}:compliance`] = now;
     }
   }
 }
@@ -313,7 +315,7 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
           badgeColor: '#059669',
         });
         if (ok) {
-          markSentKeys(log, thresholdItems, 'threshold');
+          markSentKeys(log, thresholdItems, 'threshold', recipient);
           sentCount += 1;
           appendEmailHistory(dataDir, {
             category: 'calendar',
@@ -343,7 +345,7 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
           badgeColor: '#dc2626',
         });
         if (ok) {
-          markSentKeys(log, urgentItems, 'urgent');
+          markSentKeys(log, urgentItems, 'urgent', recipient);
           sentCount += 1;
           appendEmailHistory(dataDir, {
             category: 'calendar',
@@ -373,7 +375,7 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
           badgeColor: '#b45309',
         });
         if (ok) {
-          markSentKeys(log, complianceItems, 'compliance');
+          markSentKeys(log, complianceItems, 'compliance', recipient);
           sentCount += 1;
           appendEmailHistory(dataDir, {
             category: 'calendar',
