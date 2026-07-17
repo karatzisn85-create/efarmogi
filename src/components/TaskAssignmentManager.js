@@ -1024,6 +1024,15 @@ function TaskAssignmentManager({
     async (taskId) => {
       const res = await ipcRenderer.invoke('get-task-assignment', { actingUsername, taskId });
       if (!res?.success) {
+        // Χωρίς πρόσβαση (π.χ. αποχώρηση): καθαρίζουμε τις ειδοποιήσεις του χώρου
+        // ώστε να μην ξαναεμφανίζονται στην κεντρική οθόνη.
+        try {
+          await ipcRenderer.invoke('mark-task-notifications-read-for-task', { actingUsername, taskId });
+          window.dispatchEvent(new CustomEvent(DISMISS_TASK_EVENT, { detail: { taskId } }));
+          onAccessRefreshRef.current?.();
+        } catch {
+          /* ignore */
+        }
         setListError(
           res?.error ||
             'Δεν ήταν δυνατή η πρόσβαση στον χώρο (π.χ. κλειστός χώρος ή λάθος προβολή στα Φίλτρα).'
@@ -1101,9 +1110,11 @@ function TaskAssignmentManager({
     if (!task?.id) return;
     const res = await ipcRenderer.invoke('leave-task-work-archive', { actingUsername, taskId: task.id });
     if (res?.success) {
+      window.dispatchEvent(new CustomEvent(DISMISS_TASK_EVENT, { detail: { taskId: task.id } }));
       setSelectedId(null);
       setSelectedTask(null);
       loadTasks({ silent: true });
+      loadNotifications();
       onAccessRefreshRef.current?.();
     } else {
       showToast(res?.error || 'Αποτυχία αποχώρησης', 'error');
@@ -1422,9 +1433,14 @@ function TaskAssignmentManager({
                 canEditAsAssigner={canEditSelectedAsAssigner}
                 onUpdated={handleTaskUpdated}
                 onDeparted={() => {
+                  const departedTaskId = selectedTask?.id;
+                  if (departedTaskId) {
+                    window.dispatchEvent(new CustomEvent(DISMISS_TASK_EVENT, { detail: { taskId: departedTaskId } }));
+                  }
                   setSelectedId(null);
                   setSelectedTask(null);
                   loadTasks({ silent: true });
+                  loadNotifications();
                   onAccessRefreshRef.current?.();
                 }}
                 onEdit={

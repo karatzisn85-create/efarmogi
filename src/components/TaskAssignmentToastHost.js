@@ -287,6 +287,8 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
   const [toasts, setToasts] = useState([]);
   const timersRef = useRef(new Map());
   const startupFetchGenRef = useRef(0);
+  /** Ειδοποιήσεις που ήδη εμφανίστηκαν/έκλεισαν σε αυτή τη συνεδρία — δεν ξαναεμφανίζονται από το poll. */
+  const consumedIdsRef = useRef(new Set());
 
   const removeToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -298,6 +300,7 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
   const markOneRead = useCallback(
     async (notificationId) => {
       if (!actingUsername || !notificationId) return;
+      consumedIdsRef.current.add(notificationId);
       try {
         await window.electronAPI.invoke('mark-task-notifications-read', {
           actingUsername,
@@ -317,11 +320,13 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
       if (existing) clearTimeout(existing);
       const h = setTimeout(() => {
         timersRef.current.delete(id);
+        // Αυτόματο κλείσιμο = ο χρήστης την είδε — αλλιώς το poll κάθε 60s την ξαναέφερνε για πάντα.
+        markOneRead(id);
         removeToast(id);
       }, AUTO_DISMISS_MS);
       timersRef.current.set(id, h);
     },
-    [removeToast]
+    [removeToast, markOneRead]
   );
 
   const scheduleAutoDismissRef = useRef(scheduleAutoDismiss);
@@ -338,6 +343,7 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
     setToasts([]);
     timersRef.current.forEach((h) => clearTimeout(h));
     timersRef.current.clear();
+    consumedIdsRef.current = new Set();
   }, [actingUsername]);
 
   /** Μία φόρτωση ανά «γενιά» εισόδου χρήστη: μη αναγνωσμένες ειδοποιήσεις εμφανίζονται κάτω δεξιά. */
@@ -363,7 +369,9 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
         }
         if (cancelled || startupFetchGenRef.current !== gen || !res?.success) return;
         const raw = Array.isArray(res.notifications) ? res.notifications : [];
-        const filtered = raw.filter(isToastableNotification);
+        const filtered = raw
+          .filter(isToastableNotification)
+          .filter((n) => !consumedIdsRef.current.has(n.id));
         filtered.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
         const batch = filtered.slice(0, MAX_STACK);
 
@@ -371,6 +379,7 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
           const delay = idx * STARTUP_STAGGER_MS;
           const tid = setTimeout(() => {
             if (cancelled || startupFetchGenRef.current !== gen) return;
+            if (consumedIdsRef.current.has(n.id)) return;
             setToasts((prev) => {
               if (prev.some((x) => x.id === n.id)) return prev;
               const entry = { ...n, _receivedAt: Date.now(), _fromStartup: true };
@@ -403,14 +412,15 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
           unreadOnly: true
         });
         if (!res?.success) return;
-        const incoming = (Array.isArray(res.notifications) ? res.notifications : []).filter(
-          isToastableNotification
-        );
+        const incoming = (Array.isArray(res.notifications) ? res.notifications : [])
+          .filter(isToastableNotification)
+          .filter((n) => !consumedIdsRef.current.has(n.id));
         if (incoming.length === 0) return;
         setToasts((prev) => {
           let next = prev;
           let added = false;
           incoming.forEach((n) => {
+            if (consumedIdsRef.current.has(n.id)) return;
             if (next.some((x) => x.id === n.id)) return;
             const entry = { ...n, _receivedAt: Date.now(), _fromPoll: true };
             next = [entry, ...next];
@@ -453,6 +463,7 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
         prev
           .filter((t) => t.taskId === tid)
           .forEach((t) => {
+            consumedIdsRef.current.add(t.id);
             const h = timersRef.current.get(t.id);
             if (h) clearTimeout(h);
             timersRef.current.delete(t.id);
@@ -476,6 +487,18 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
   const handleOpen = (t) => {
     removeToast(t.id);
     markOneRead(t.id);
+    // Καθαρίζουμε όλες τις ειδοποιήσεις του χώρου — αν δεν υπάρχει πλέον πρόσβαση
+    // (π.χ. αποχώρηση), το άνοιγμα θα αποτύχει αλλά οι ειδοποιήσεις δεν θα ξαναεμφανιστούν.
+    if (actingUsername && t.taskId && window.electronAPI?.invoke) {
+      consumedIdsRef.current.add(t.id);
+      window.electronAPI.invoke('mark-task-notifications-read-for-task', {
+        actingUsername,
+        taskId: t.taskId,
+      }).then(() => {
+        if (typeof onNotificationConsumed === 'function') onNotificationConsumed();
+      }).catch(() => {});
+      window.dispatchEvent(new CustomEvent(DISMISS_TASK_EVENT, { detail: { taskId: t.taskId } }));
+    }
     if (typeof onOpenTaskAssignment === 'function') onOpenTaskAssignment(t.taskId);
   };
 

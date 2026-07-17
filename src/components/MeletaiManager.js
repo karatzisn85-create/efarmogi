@@ -2253,13 +2253,9 @@ function MeletaiManager({
     [registeredEngineers]
   );
 
-  const visibleMeletai = useMemo(() => {
-    if (userRole !== 'ENGINEER' || !visibleSubprojectIds) return meletai;
-    return meletai.filter((m) => {
-      if (!m.linkedSubprojectId) return true;
-      return visibleSubprojectIds.has(m.linkedSubprojectId);
-    });
-  }, [meletai, userRole, visibleSubprojectIds]);
+  // Όλοι οι ρόλοι βλέπουν το σύνολο των μελετών στο μητρώο.
+  // Ο περιορισμός χρέωσης μηχανικού ισχύει μόνο για πλοήγηση/σύνδεση σε υποέργο.
+  const visibleMeletai = meletai;
 
   const filteredList = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -3846,9 +3842,7 @@ function MeletaiManager({
                 <HubEmpty>
                   <span style={{ fontSize: '2rem' }}>📐</span>
                   {visibleMeletai.length === 0
-                    ? (meletai.length > 0 && userRole === 'ENGINEER'
-                      ? 'Δεν εμφανίζονται μελέτες για τα υποέργα της χρέωσής σας'
-                      : 'Δεν υπάρχουν καταχωρημένες μελέτες')
+                    ? 'Δεν υπάρχουν καταχωρημένες μελέτες'
                     : 'Κανένα αποτέλεσμα με τα τρέχοντα φίλτρα'}
                   {!isReadOnly && visibleMeletai.length === 0 && meletai.length === 0 && (
                     <HeaderPrimaryBtn type="button" onClick={openNewMeletiModal} style={{ marginTop: '0.75rem' }}>

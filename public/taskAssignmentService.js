@@ -1059,6 +1059,14 @@ function createTaskAssignmentService(deps) {
       excludeUsernames: [actingUsername]
     });
 
+    // Ο αποχωρήσας δεν μπορεί πλέον να ανοίξει τον χώρο για να καθαρίσει παλιές ειδοποιήσεις —
+    // τις σημειώνουμε ως διαβασμένες ώστε να μην ξαναεμφανίζονται στην κεντρική οθόνη.
+    try {
+      markNotificationsReadForTask({ actingUsername, taskId });
+    } catch {
+      /* ignore */
+    }
+
     return { success: true, task: updated, leftWorkspace: true };
   }
 
@@ -1112,6 +1120,12 @@ function createTaskAssignmentService(deps) {
       [],
       { excludeUsernames: [actingUsername] }
     );
+
+    try {
+      markNotificationsReadForTask({ actingUsername, taskId });
+    } catch {
+      /* ignore */
+    }
 
     return { success: true, task: updated };
   }
@@ -1383,10 +1397,42 @@ function createTaskAssignmentService(deps) {
     return { success: true, task: updated, deletedCount: removedNames.length };
   }
 
+  /**
+   * Ειδοποίηση που δεν αφορά πλέον ενεργή συμμετοχή του χρήστη (π.χ. αποχώρησε)
+   * θεωρείται παρωχημένη — δεν πρέπει να ξαναεμφανίζεται ως toast.
+   */
+  function isNotificationStillRelevant(n, actingUsername) {
+    const task = readTask(n.taskId);
+    if (!task) return false;
+    const users = loadUsers();
+    if (isSuperAdmin(users, actingUsername) || isAssigner(task, actingUsername)) return true;
+    if (isAssignee(task, actingUsername)) {
+      if (task.status === 'completed' && hasLeftArchive(task, actingUsername)) return false;
+      return true;
+    }
+    return false;
+  }
+
   function loadNotifications({ actingUsername, unreadOnly = false }) {
     const u = String(actingUsername || '').trim().toLowerCase();
     let items = readNotifications().filter((n) => String(n.username || '').toLowerCase() === u);
-    if (unreadOnly) items = items.filter((n) => !n.readAt);
+    if (unreadOnly) {
+      items = items.filter((n) => !n.readAt);
+      // Καθαρισμός ορφανών μη αναγνωσμένων (π.χ. αποχώρηση πριν από την επιδιόρθωση).
+      const staleIds = items
+        .filter((n) => !isNotificationStillRelevant(n, actingUsername))
+        .map((n) => n.id)
+        .filter(Boolean);
+      if (staleIds.length > 0) {
+        try {
+          markNotificationsRead({ actingUsername, notificationIds: staleIds });
+        } catch {
+          /* ignore */
+        }
+        const staleSet = new Set(staleIds);
+        items = items.filter((n) => !staleSet.has(n.id));
+      }
+    }
     return { success: true, notifications: items, unreadCount: items.filter((n) => !n.readAt).length };
   }
 
