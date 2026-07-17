@@ -299,6 +299,7 @@ export function applyAdamChainResult(prev, chainRes, {
       apeConflict: null,
       statusAutoUpdated: null,
       protectedCount: 0,
+      protectedFields: [],
       implementationFormAutoUpdated: null,
     };
   }
@@ -319,6 +320,7 @@ export function applyAdamChainResult(prev, chainRes, {
       apeConflict: null,
       statusAutoUpdated: null,
       protectedCount: 0,
+      protectedFields: [],
       implementationFormAutoUpdated: null,
     };
   }
@@ -448,7 +450,11 @@ export function applyAdamChainResult(prev, chainRes, {
     });
 
     // Επαναφορά protected πεδίων (π.χ. assignmentProcedure από fieldOverrides)
-    const { form: protectedForm, protectedCount } = applyUserEditsAfterKhmdhsFetch(prev, next);
+    const {
+      form: protectedForm,
+      protectedCount,
+      protectedFields = [],
+    } = applyUserEditsAfterKhmdhsFetch(prev, next);
 
     // Δεύτερο πέρασμα reconcile: τώρα τα πεδία έχουν τις σωστές τιμές —
     // το hasActionRequired υπολογίζεται με πλήρη εικόνα της φόρμας.
@@ -463,6 +469,7 @@ export function applyAdamChainResult(prev, chainRes, {
       apeConflict,
       statusAutoUpdated,
       protectedCount,
+      protectedFields,
       implementationFormAutoUpdated,
     };
   }
@@ -477,6 +484,7 @@ export function applyAdamChainResult(prev, chainRes, {
       apeConflict: null,
       statusAutoUpdated: null,
       protectedCount: 0,
+      protectedFields: [],
       implementationFormAutoUpdated: null,
     };
   }
@@ -581,7 +589,11 @@ export function applyAdamChainResult(prev, chainRes, {
     actRootReqAdam: inferActRootReqAdam(chainRes, seedAdam),
   });
   // Επαναφορά protected πεδίων πρώτα, μετά reconcile για σωστό hasActionRequired
-  const { form: protectedForm, protectedCount } = applyUserEditsAfterKhmdhsFetch(prev, nextForm);
+  const {
+    form: protectedForm,
+    protectedCount,
+    protectedFields = [],
+  } = applyUserEditsAfterKhmdhsFetch(prev, nextForm);
   protectedForm.khmdhsDataQualityReview = reconcileReviewState(
     protectedForm.khmdhsDataQualityReview,
     protectedForm
@@ -593,6 +605,7 @@ export function applyAdamChainResult(prev, chainRes, {
     apeConflict,
     statusAutoUpdated,
     protectedCount,
+    protectedFields,
     implementationFormAutoUpdated,
   };
 }

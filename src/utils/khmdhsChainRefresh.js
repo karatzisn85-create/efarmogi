@@ -229,72 +229,165 @@ function countPendingReviewItems(project) {
   return getUnresolvedReviewItems(review, project).length;
 }
 
-/**
- * Σύνοψη αλλαγών μετά merge ανανέωσης — αντικατοπτρίζει ό,τι νέο εντοπίστηκε στο
- * μεσοδιάστημα (νέα εντάλματα, τροποποιήσεις/παρατάσεις, αλλαγές προθεσμιών κ.λπ.)
- * χωρίς να πειράζει καταγεγραμμένα/χειροκίνητα στοιχεία.
- */
-export function buildKhmdhsRefreshChangeSummary(before, after, applyResult = {}) {
-  const lines = [];
-  const { statusAutoUpdated, protectedCount = 0, apeConflict = null } = applyResult;
+function formatDateElShort(iso) {
+  const s = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s || '—';
+  const [y, m, d] = s.split('-');
+  return `${d}/${m}/${y}`;
+}
 
-  const beforePay = countPayments(before);
-  const afterPay = countPayments(after);
-  if (afterPay > beforePay) {
-    lines.push(`+${afterPay - beforePay} νέα εντάλματα πληρωμής`);
-  } else if (afterPay < beforePay) {
-    lines.push(`${beforePay - afterPay} εντάλματα πληρωμής αφαιρέθηκαν/ενημερώθηκαν`);
-  }
+function displayOrDash(value) {
+  const s = String(value ?? '').trim();
+  return s || '—';
+}
+
+function findChainHistoryEntry(project, adam) {
+  const target = sanitizeAdam(adam);
+  const pools = [
+    ...(project?.khmdhsContractChainHistory || []),
+    ...((project?.contracts || []).flatMap((c) => c?.khmdhsContractChainHistory || [])),
+  ];
+  return pools.find((h) => sanitizeAdam(h?.adam) === target) || null;
+}
+
+function describeHistoryEntry(entry, adam) {
+  const type = String(entry?.type || entry?.kind || entry?.documentType || '').trim();
+  const title = String(entry?.title || entry?.subject || '').trim();
+  const typeLabel = type
+    ? type
+    : (adam.includes('SYMV') ? 'σύμβαση'
+      : adam.includes('MOD') ? 'τροποποίηση'
+        : adam.includes('EXT') || adam.includes('PAR') ? 'παράταση'
+          : 'έγγραφο αλυσίδας');
+  if (title) return `${adam} (${typeLabel}: ${title})`;
+  return `${adam} (${typeLabel})`;
+}
+
+export const KHMDHS_REFRESH_REPORT_NO_CHANGES =
+  'Δεν εντοπίστηκαν ουσιώδεις διαφορές — τα δεδομένα φαίνονται ενημερωμένα.';
+
+/**
+ * Αναλυτική αναφορά αλλαγών ανανέωσης ΚΗΜΔΗΣ.
+ * @returns {{
+ *   lines: string[],
+ *   category: 'applied' | 'attention' | 'unchanged',
+ *   appliedLines: string[],
+ *   attentionLines: string[],
+ * }}
+ * category:
+ * - applied: εφαρμόστηκαν πραγματικές αλλαγές δεδομένων από το ΚΗΜΔΗΣ
+ * - attention: δεν προστέθηκαν νέα δεδομένα· διατηρήθηκαν χειροκίνητες τιμές ή υπάρχει σημείο προς έλεγχο
+ * - unchanged: τίποτα ουσιαστικό δεν άλλαξε
+ */
+export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}) {
+  const appliedLines = [];
+  const attentionLines = [];
+  const {
+    statusAutoUpdated,
+    protectedCount = 0,
+    protectedFields = [],
+    apeConflict = null,
+  } = applyResult;
 
   const beforePaySet = paymentAdams(before);
-  const afterPaySet = paymentAdams(after);
-  let newPayCount = 0;
-  afterPaySet.forEach((a) => { if (!beforePaySet.has(a)) newPayCount += 1; });
-  if (newPayCount > 0 && afterPay <= beforePay) {
-    lines.push(`${newPayCount} νέα/διαφορετικά εντάλματα πληρωμής`);
+  const afterPayEntries = getKhmdhsPaymentEntries(after);
+  const newPayAdams = [];
+  afterPayEntries.forEach((p) => {
+    const a = sanitizeAdam(p?.adam);
+    if (a && !beforePaySet.has(a)) newPayAdams.push(a);
+  });
+  if (newPayAdams.length) {
+    newPayAdams.forEach((adam) => {
+      appliedLines.push(`Νέο ένταλμα πληρωμής: ${adam}`);
+    });
+  } else {
+    const beforePay = countPayments(before);
+    const afterPay = countPayments(after);
+    if (afterPay < beforePay) {
+      appliedLines.push(
+        `Εντάλματα πληρωμής: από ${beforePay} → ${afterPay} (αφαιρέθηκαν ή αντικαταστάθηκαν εγγραφές)`
+      );
+    }
   }
 
-  const beforeCommit = (before?.khmdhsCommitmentDecisions || []).length
-    || (before?.khmdhsCommitmentAdam ? 1 : 0);
-  const afterCommit = (after?.khmdhsCommitmentDecisions || []).length
-    || (after?.khmdhsCommitmentAdam ? 1 : 0);
-  if (afterCommit > beforeCommit) {
-    lines.push(`+${afterCommit - beforeCommit} αποφάσεις ανάληψης υποχρέωσης`);
-  }
+  const beforeCommitAdams = new Set(
+    [
+      ...(before?.khmdhsCommitmentDecisions || []).map((d) => sanitizeAdam(d?.adam)),
+      sanitizeAdam(before?.khmdhsCommitmentAdam),
+    ].filter(Boolean)
+  );
+  const afterCommitList = [
+    ...(after?.khmdhsCommitmentDecisions || []),
+    ...(after?.khmdhsCommitmentAdam && !(after?.khmdhsCommitmentDecisions || []).length
+      ? [{ adam: after.khmdhsCommitmentAdam }]
+      : []),
+  ];
+  afterCommitList.forEach((d) => {
+    const a = sanitizeAdam(d?.adam);
+    if (a && !beforeCommitAdams.has(a)) {
+      appliedLines.push(`Νέα απόφαση ανάληψης υποχρέωσης: ${a}`);
+    }
+  });
 
   const beforeHistory = collectChainHistoryAdams(before);
   const afterHistory = collectChainHistoryAdams(after);
-  let newHistoryCount = 0;
-  afterHistory.forEach((a) => { if (!beforeHistory.has(a)) newHistoryCount += 1; });
-  if (newHistoryCount > 0) {
-    lines.push(
-      `${newHistoryCount} νέ${newHistoryCount === 1 ? 'α καταχώριση' : 'ες καταχωρίσεις'} στην αλυσίδα (τροποποίηση/παράταση/σύμβαση)`
-    );
-  }
+  afterHistory.forEach((adam) => {
+    if (beforeHistory.has(adam)) return;
+    const entry = findChainHistoryEntry(after, adam);
+    appliedLines.push(`Νέα καταχώριση στην αλυσίδα: ${describeHistoryEntry(entry, adam)}`);
+  });
 
   const beforeEnd = latestContractEndDate(before);
   const afterEnd = latestContractEndDate(after);
   if (afterEnd && afterEnd !== beforeEnd) {
-    lines.push(`Ημ. λήξης υλοποίησης: ${afterEnd.split('-').reverse().join('/')} (νέα παράταση ή διόρθωση)`);
-  }
-
-  if (statusAutoUpdated && before?.projectStatus !== after?.projectStatus) {
-    lines.push(
-      `Κατάσταση: ${before?.projectStatus || '—'} → ${after?.projectStatus || '—'} (πρόταση)`
+    appliedLines.push(
+      `Ημ. λήξης υλοποίησης: ${formatDateElShort(beforeEnd)} → ${formatDateElShort(afterEnd)}`
     );
   }
 
-  if (String(before?.contractAmount || '') !== String(after?.contractAmount || '') && after?.contractAmount) {
-    lines.push(`Ποσό σύμβασης: ${after.contractAmount} €`);
+  if (statusAutoUpdated && before?.projectStatus !== after?.projectStatus) {
+    appliedLines.push(
+      `Κατάσταση έργου: ${displayOrDash(before?.projectStatus)} → ${displayOrDash(after?.projectStatus)}`
+      + ' (αυτόματη ενημέρωση επειδή βρέθηκε σύμβαση στο ΚΗΜΔΗΣ)'
+    );
   }
 
-  if (!String(before?.assignmentProcedure || '').trim() && String(after?.assignmentProcedure || '').trim()) {
-    lines.push(`Εντοπίστηκε διαδικασία ανάθεσης: ${after.assignmentProcedure}`);
+  const beforeAmount = String(before?.contractAmount || '').trim();
+  const afterAmount = String(after?.contractAmount || '').trim();
+  if (afterAmount && beforeAmount !== afterAmount) {
+    appliedLines.push(
+      `Ποσό σύμβασης: ${displayOrDash(beforeAmount)} → ${afterAmount} €`
+    );
   }
+
+  const beforeProc = String(before?.assignmentProcedure || '').trim();
+  const afterProc = String(after?.assignmentProcedure || '').trim();
+  if (!beforeProc && afterProc) {
+    appliedLines.push(`Διαδικασία ανάθεσης: — → ${afterProc}`);
+  } else if (beforeProc && afterProc && beforeProc !== afterProc) {
+    appliedLines.push(`Διαδικασία ανάθεσης: ${beforeProc} → ${afterProc}`);
+  }
+
+  const beforeRegistryByAdam = new Map(
+    (before?.khmdhsDocumentRegistry || [])
+      .filter((e) => e?.adam)
+      .map((e) => [String(e.adam).toUpperCase(), e])
+  );
+  (after?.khmdhsDocumentRegistry || []).forEach((entry) => {
+    const adam = String(entry?.adam || '').toUpperCase();
+    if (!adam || beforeRegistryByAdam.has(adam)) return;
+    const title = String(entry?.title || entry?.documentTitle || '').trim();
+    appliedLines.push(
+      title
+        ? `Νέο έγγραφο στα Αρχεία Υποέργου: ${adam} — ${title}`
+        : `Νέο έγγραφο στα Αρχεία Υποέργου: ${adam}`
+    );
+  });
 
   if (apeConflict) {
-    lines.push(
-      `⚠️ Το καταχωρημένο ΑΠΕ (${apeConflict.current}) διαφέρει από αυτό που υπολογίζει το ΚΗΜΔΗΣ (${apeConflict.suggested}) — ελέγξτε το στην επεξεργασία.`
+    attentionLines.push(
+      `⚠️ ΑΠΕ: η καταχωρημένη τιμή παραμένει «${apeConflict.current}», ενώ το ΚΗΜΔΗΣ δείχνει «${apeConflict.suggested}».`
+      + ' Δεν άλλαξε αυτόματα — ελέγξτε το στην επεξεργασία αν χρειάζεται.'
     );
   }
 
@@ -302,29 +395,52 @@ export function buildKhmdhsRefreshChangeSummary(before, after, applyResult = {})
   const afterPending = countPendingReviewItems(after);
   if (afterPending > beforePending) {
     const diff = afterPending - beforePending;
-    lines.push(`⚠️ +${diff} νέ${diff === 1 ? 'ο σημείο' : 'α σημεία'} προς έλεγχο στα δεδομένα ΚΗΜΔΗΣ`);
-  }
-
-  if (protectedCount > 0) {
-    lines.push(
-      `${protectedCount} πεδί${protectedCount === 1 ? 'ο' : 'α'} δεν άλλαξ${protectedCount === 1 ? 'ε' : 'αν'} (χειροκίνητη διόρθωση)`
+    attentionLines.push(
+      `⚠️ Προστέθηκαν ${diff} νέ${diff === 1 ? 'ο σημείο' : 'α σημεία'} προς έλεγχο στα δεδομένα ΚΗΜΔΗΣ`
+      + ' (ανοίξτε την επεξεργασία του υποέργου για λεπτομέρειες).'
     );
   }
 
-  const beforeRegistryAdams = new Set(
-    (before?.khmdhsDocumentRegistry || []).map((e) => String(e?.adam || '').toUpperCase())
-  );
-  const newRegistryCount = (after?.khmdhsDocumentRegistry || [])
-    .filter((e) => e?.adam && !beforeRegistryAdams.has(String(e.adam).toUpperCase())).length;
-  if (newRegistryCount > 0) {
-    lines.push(
-      `${newRegistryCount} νέ${newRegistryCount === 1 ? 'ο έγγραφο καταγράφηκε' : 'α έγγραφα καταγράφηκαν'} αυτόματα στα Αρχεία Υποέργου`
+  const fields = Array.isArray(protectedFields) && protectedFields.length
+    ? protectedFields
+    : [];
+  if (fields.length) {
+    fields.forEach((f) => {
+      attentionLines.push(
+        `ℹ️ Διατηρήθηκε η χειροκίνητη τιμή στο πεδίο «${f.label || f.fieldKey}»:`
+        + ` παρέμεινε «${displayOrDash(f.keptValue)}» αντί για «${displayOrDash(f.khmdhsValue)}» που έδειξε το ΚΗΜΔΗΣ.`
+        + ' Δεν απαιτείται ενέργεια — η εφαρμογή σεβάστηκε την προηγούμενη διόρθωσή σας.'
+      );
+    });
+  } else if (protectedCount > 0) {
+    attentionLines.push(
+      `ℹ️ Διατηρήθηκαν ${protectedCount} χειροκίνητ${protectedCount === 1 ? 'η τιμή' : 'ες τιμές'}`
+      + ' που είχατε ορίσει προηγουμένως (το ΚΗΜΔΗΣ έδειξε διαφορετική τιμή, αλλά δεν αντικαταστάθηκε).'
+      + ' Δεν απαιτείται ενέργεια.'
     );
   }
 
+  const lines = [...appliedLines, ...attentionLines];
   if (!lines.length) {
-    lines.push('Δεν εντοπίστηκαν ουσιώδεις διαφορές — τα δεδομένα φαίνονται ενημερωμένα.');
+    lines.push(KHMDHS_REFRESH_REPORT_NO_CHANGES);
   }
 
-  return lines;
+  let category = 'unchanged';
+  if (appliedLines.length) category = 'applied';
+  else if (attentionLines.length) category = 'attention';
+
+  return {
+    lines,
+    category,
+    appliedLines,
+    attentionLines,
+  };
+}
+
+/**
+ * Σύνοψη αλλαγών μετά merge ανανέωσης (πίνακας γραμμών για UI).
+ * Για κατηγοριοποίηση χρησιμοποιήστε `buildKhmdhsRefreshChangeReport`.
+ */
+export function buildKhmdhsRefreshChangeSummary(before, after, applyResult = {}) {
+  return buildKhmdhsRefreshChangeReport(before, after, applyResult).lines;
 }

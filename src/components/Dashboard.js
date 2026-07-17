@@ -2826,18 +2826,67 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     refreshKhmdhsStaleCount();
   }, [refreshKhmdhsStaleCount]);
 
+  useEffect(() => {
+    if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await ipcRenderer.invoke('get-khmdhs-batch-report', {
+          actingUsername: currentUser?.username,
+        });
+        if (cancelled || !res?.success || !res.state) return;
+        const state = res.state;
+        if (state.results) setBatchReportResults(state.results);
+        const pending = Array.isArray(state.pendingItems) ? state.pendingItems : [];
+        setBatchPendingItems(pending);
+        if (state.lastRun) setKhmdhsLastRun(state.lastRun);
+        // Αν υπάρχουν εκκρεμότητες μετά το άνοιγμα, θυμίζουμε με το πλωτό κουμπί (όχι auto-open).
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [userRole, currentUser?.username]);
+
+  const persistKhmdhsBatchReport = useCallback(async (payload) => {
+    if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return;
+    try {
+      await ipcRenderer.invoke('save-khmdhs-batch-report', {
+        actingUsername: currentUser?.username,
+        state: payload,
+      });
+    } catch { /* ignore */ }
+  }, [userRole, currentUser?.username]);
+
+  const clearPersistedKhmdhsBatchReport = useCallback(async () => {
+    if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return;
+    try {
+      await ipcRenderer.invoke('clear-khmdhs-batch-report', {
+        actingUsername: currentUser?.username,
+      });
+    } catch { /* ignore */ }
+  }, [userRole, currentUser?.username]);
+
   const handleBatchResults = useCallback((results) => {
-    setBatchReportResults(results);
-    setBatchPendingItems(results.interventionItems || []);
-    if (results.interventionItems?.length) {
-      setIsBatchReportOpen(true);
-    }
-    setKhmdhsLastRun({
+    const pending = results.interventionItems || [];
+    const lastRun = {
       date: new Date().toLocaleString('el-GR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
       refreshed: results.refreshed || 0,
-    });
+    };
+    setBatchReportResults(results);
+    setBatchPendingItems(pending);
+    setIsBatchReportOpen(true);
+    setKhmdhsLastRun(lastRun);
+    if (pending.length > 0) {
+      void persistKhmdhsBatchReport({
+        results,
+        pendingItems: pending,
+        lastRun,
+      });
+    } else {
+      // Χωρίς εκκρεμότητες δεν κρατάμε αναφορά μετά το κλείσιμο της εφαρμογής.
+      void clearPersistedKhmdhsBatchReport();
+    }
     refreshKhmdhsStaleCount();
-  }, [refreshKhmdhsStaleCount]);
+  }, [refreshKhmdhsStaleCount, persistKhmdhsBatchReport, clearPersistedKhmdhsBatchReport]);
 
   const handleBatchSubprojectResolved = useCallback((subprojectId) => {
     setBatchPendingItems((prev) => {
@@ -2847,11 +2896,26 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         setTimeout(() => showToast(`✓ Χαρακτηρισμός ολοκληρώθηκε: ${resolved.label}`, 'success'), 0);
         if (next.length === 0) {
           setTimeout(() => showToast('🎉 Όλοι οι εκκρεμείς χαρακτηρισμοί ολοκληρώθηκαν!', 'success'), 1200);
+          setBatchReportResults(null);
+          setIsBatchReportOpen(false);
+          void clearPersistedKhmdhsBatchReport();
+        } else {
+          setBatchReportResults((prevResults) => {
+            const updated = prevResults
+              ? { ...prevResults, interventionItems: next, needsIntervention: next.length }
+              : prevResults;
+            void persistKhmdhsBatchReport({
+              results: updated,
+              pendingItems: next,
+              lastRun: khmdhsLastRun,
+            });
+            return updated;
+          });
         }
       }
       return next;
     });
-  }, [showToast]);
+  }, [showToast, clearPersistedKhmdhsBatchReport, persistKhmdhsBatchReport, khmdhsLastRun]);
 
   // Χάρτης entityId → σημειώσεις — υπολογίζεται από in-memory notes (όχι IPC/δίσκο)
   // ώστε τα stickers ενημερώνονται αμέσως μετά από αποθήκευση σημείωσης.
@@ -5479,9 +5543,11 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 onRefreshComplete={() => { loadProjects(); refreshKhmdhsStaleCount(); }}
                 onBatchResults={handleBatchResults}
                 onRunningChange={setKhmdhsBatchRunning}
+                onOpenReport={() => setIsBatchReportOpen(true)}
                 staleCount={khmdhsStaleCount}
                 oldestDays={khmdhsOldestDays}
                 lastRunInfo={khmdhsLastRun}
+                hasReport={!!batchReportResults}
               />
             </Suspense>
           )}
@@ -6868,6 +6934,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         pendingItems={batchPendingItems}
         onClick={() => setIsBatchReportOpen(true)}
         isRunning={khmdhsBatchRunning}
+        hasReport={!!batchReportResults}
       />
 
       <KhmdhsBatchReportModal

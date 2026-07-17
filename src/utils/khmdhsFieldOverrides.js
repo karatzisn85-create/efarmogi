@@ -247,6 +247,7 @@ export function applyUserEditsAfterKhmdhsFetch(prevForm, fetchedForm) {
   }
 
   let protectedCount = 0;
+  const protectedFields = [];
   let staleOverridesDropped = false;
   const nextFieldOverrides = { ...edits.fieldOverrides };
   Object.entries(edits.fieldOverrides || {}).forEach(([fieldKey, override]) => {
@@ -263,6 +264,16 @@ export function applyUserEditsAfterKhmdhsFetch(prevForm, fetchedForm) {
     }
     if (!valuesEqual(fieldKey, incoming, override.value)) {
       protectedCount += 1;
+      const rowParsed = parseContractRowFieldKey(fieldKey);
+      const label = override.label
+        || KHMDHS_OVERRIDE_FIELD_LABELS[fieldKey]
+        || (rowParsed ? (KHMDHS_CONTRACT_ROW_FIELD_LABELS[rowParsed.field] || fieldKey) : fieldKey);
+      protectedFields.push({
+        fieldKey,
+        label,
+        keptValue: String(override.value ?? ''),
+        khmdhsValue: String(incoming ?? ''),
+      });
     }
     next = applyScalarOverrideToForm(next, fieldKey, override.value);
   });
@@ -271,7 +282,7 @@ export function applyUserEditsAfterKhmdhsFetch(prevForm, fetchedForm) {
     next = { ...next, khmdhsUserEdits: { ...edits, fieldOverrides: nextFieldOverrides } };
   }
 
-  return { form: next, protectedCount };
+  return { form: next, protectedCount, protectedFields };
 }
 
 function readFormFieldValue(form, fieldKey) {

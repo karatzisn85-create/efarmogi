@@ -2899,7 +2899,18 @@ ipcMain.handle('batch-khmdhs-refresh-eligible', async (_event, { actingUsername 
           skipped.push({ id: sid, label, reason: 'Κλειδωμένο' });
           continue;
         }
-        eligible.push({ id: sid, label, seedAdam: seedInfo.adam });
+        const lastRefresh = project.khmdhsChainLastRefreshedAt || null;
+        const ts = lastRefresh ? new Date(lastRefresh).getTime() : 0;
+        const ageDays = ts
+          ? Math.round((Date.now() - ts) / (24 * 60 * 60 * 1000))
+          : null;
+        eligible.push({
+          id: sid,
+          label,
+          seedAdam: seedInfo.adam,
+          lastRefreshed: lastRefresh,
+          ageDays,
+        });
       }
     }
 
@@ -2971,6 +2982,75 @@ ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = 7, acting
   } catch (e) {
     logger.error('check-khmdhs-staleness error:', e.message);
     return { success: true, stale: [] };
+  }
+});
+
+const KHMDHS_BATCH_REPORT_FILE = 'khmdhs-batch-report.json';
+
+function getKhmdhsBatchReportPath() {
+  return path.join(dataDir || '', 'config', KHMDHS_BATCH_REPORT_FILE);
+}
+
+function requireKhmdhsBatchReportAccess(actingUsername) {
+  const username = String(actingUsername || '').trim();
+  if (!username) return { ok: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
+  const user = findUserByUsername(username);
+  if (!user || user.active === false || user.approved === false) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα' };
+  }
+  if (user.role !== 'ADMIN' && user.role !== 'SUPERADMIN') {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα' };
+  }
+  return { ok: true, username };
+}
+
+ipcMain.handle('get-khmdhs-batch-report', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireKhmdhsBatchReportAccess(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const filePath = getKhmdhsBatchReportPath();
+    if (!dataDir || !fs.existsSync(filePath)) {
+      return { success: true, state: null };
+    }
+    const state = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return { success: true, state: state && typeof state === 'object' ? state : null };
+  } catch (e) {
+    logger.error('get-khmdhs-batch-report error:', e.message);
+    return { success: true, state: null };
+  }
+});
+
+ipcMain.handle('save-khmdhs-batch-report', async (_event, { actingUsername, state } = {}) => {
+  try {
+    const auth = requireKhmdhsBatchReportAccess(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!dataDir) return { success: false, error: 'Δεν έχει οριστεί φάκελος δεδομένων' };
+    const configDir = path.join(dataDir, 'config');
+    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+    const toSave = {
+      ...(state && typeof state === 'object' ? state : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    safeWriteJSON(getKhmdhsBatchReportPath(), toSave);
+    return { success: true, state: toSave };
+  } catch (e) {
+    logger.error('save-khmdhs-batch-report error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('clear-khmdhs-batch-report', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireKhmdhsBatchReportAccess(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const filePath = getKhmdhsBatchReportPath();
+    if (filePath && fs.existsSync(filePath)) {
+      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    }
+    return { success: true };
+  } catch (e) {
+    logger.error('clear-khmdhs-batch-report error:', e.message);
+    return { success: false, error: e.message || String(e) };
   }
 });
 

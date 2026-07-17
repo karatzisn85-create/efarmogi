@@ -626,7 +626,11 @@ export function applySymvChainPlanToForm(prev, chainRes, plan, {
     actRootReqAdam: inferActRootReqAdam(chainRes, seedAdam),
   });
 
-  const { form: protectedForm, protectedCount } = applyUserEditsAfterKhmdhsFetch(prev, next);
+  const {
+    form: protectedForm,
+    protectedCount,
+    protectedFields = [],
+  } = applyUserEditsAfterKhmdhsFetch(prev, next);
 
   const cleanedForm = stripPhantomContractApeFromForm(protectedForm, prev);
 
@@ -640,6 +644,7 @@ export function applySymvChainPlanToForm(prev, chainRes, plan, {
     apeConflict: null,
     statusAutoUpdated,
     protectedCount,
+    protectedFields,
     implementationFormAutoUpdated,
   };
 }
