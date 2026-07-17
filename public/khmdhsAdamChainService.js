@@ -1646,6 +1646,15 @@ function buildContractFormFields(record, primaryAdam) {
 }
 
 
+function throwIfKhmdhsAborted(signal) {
+  if (signal?.aborted) {
+    const err = new Error('Η διαδικασία ακυρώθηκε.');
+    err.name = 'AbortError';
+    err.aborted = true;
+    throw err;
+  }
+}
+
 async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   const seedAdam = String(seedAdamRaw || '').trim().toUpperCase().replace(/\*+$/, '');
   const seedNorm = normalizeAdam(seedAdam) || normalizeNoticeAdam(seedAdam);
@@ -1653,11 +1662,19 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
     return { success: false, error: 'Μη έγκυρος ΑΔΑΜ.' };
   }
 
+  const abortSignal = opts.signal || null;
+  throwIfKhmdhsAborted(abortSignal);
+
   const seedType = adamType(seedNorm);
   const warnings = [];
   let skippedCancelled = [];
 
-  let chainRes = await fetchKhmdhsAdamChain(seedNorm);
+  try {
+  let chainRes = await fetchKhmdhsAdamChain(seedNorm, { signal: abortSignal });
+  if (chainRes?.aborted) {
+    return { success: false, error: chainRes.error || 'Η διαδικασία ακυρώθηκε.', aborted: true };
+  }
+  throwIfKhmdhsAborted(abortSignal);
   let stages;
   let symvRebuiltFromPrimary = false;
   let symvPrimaryReqAdam = null;
@@ -1718,6 +1735,7 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   };
 
   const enrich1 = await enrichChainStagesFromRelatedAdams(stages, seedNorm);
+  throwIfKhmdhsAborted(abortSignal);
   stages = enrich1.stages;
   skippedCancelled.push(...enrich1.skippedCancelled);
   if (enrich1.enriched && (
@@ -1731,6 +1749,7 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
 
   if (seedType === 'SYMV') {
     const symvRebuild = await rebuildStagesFromPrimaryRequestForSymvSeed(stages, seedNorm);
+    throwIfKhmdhsAborted(abortSignal);
     if (symvRebuild.rebuilt) {
       stages = symvRebuild.stages;
       skippedCancelled.push(...(symvRebuild.skippedCancelled || []));
@@ -1760,6 +1779,7 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
     contractSelectedAdam = seedNorm;
   }
 
+  throwIfKhmdhsAborted(abortSignal);
   let contractRes = await resolveContractWalkFromStages(
     stages, seedType, seedNorm, contractSelectedAdam
   );
@@ -1967,6 +1987,7 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
     if (parsed.length > 0) earliestContractDate = new Date(Math.min(...parsed.map((d) => d.getTime())));
   }
 
+  throwIfKhmdhsAborted(abortSignal);
   const payments = await resolvePayments(stages, knownContractAdams, knownRequestAdams, earliestContractDate);
   const skippedUnrelatedPayments = payments._skippedUnrelated || [];
   const payFetchTruncated = !!payments._payFetchTruncated;
@@ -2511,6 +2532,18 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
       ],
     },
   };
+  } catch (e) {
+    if (e?.name === 'AbortError' || e?.aborted) {
+      return { success: false, error: 'Η διαδικασία ακυρώθηκε.', aborted: true };
+    }
+    if (e?.name === 'TimeoutError') {
+      return {
+        success: false,
+        error: 'Η επικοινωνία με το ΚΗΜΔΗΣ διήρκεσε πάρα πολύ και διακόπηκε. Δοκιμάστε ξανά αργότερα.',
+      };
+    }
+    throw e;
+  }
 }
 
 module.exports = {

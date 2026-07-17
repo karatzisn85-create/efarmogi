@@ -18,29 +18,83 @@ const {
 const RETRY_COUNT = 2;
 const RETRY_BASE_DELAY_MS = 1500;
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+/** Ανώτατος χρόνος αναμονής ανά μεμονωμένο αίτημα προς το ΚΗΜΔΗΣ. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 
-async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT } = {}) {
+function createAbortError() {
+  const err = new Error('The operation was aborted.');
+  err.name = 'AbortError';
+  return err;
+}
+
+function createTimeoutError() {
+  const err = new Error('Το αίτημα προς το ΚΗΜΔΗΣ διήρκεσε πάρα πολύ.');
+  err.name = 'TimeoutError';
+  return err;
+}
+
+function sleepWithAbort(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(createAbortError());
+    };
+    const t = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Εκτελεί fetch με:
+ *  - ανώτατο χρονικό όριο ανά προσπάθεια (αποφυγή «κολλήματος» σε αργό/χαμένο δίκτυο),
+ *  - επαναπροσπάθειες σε προσωρινά σφάλματα (429/5xx) και σε λήξη χρόνου,
+ *  - υποστήριξη εξωτερικής ακύρωσης (signal) από τον χρήστη.
+ * Διακρίνει την ακύρωση του χρήστη (AbortError) από τη λήξη χρόνου (TimeoutError).
+ */
+async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = {}) {
+  const externalSignal = options?.signal;
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (options?.signal?.aborted) {
-      throw new DOMException('The operation was aborted.', 'AbortError');
-    }
+    if (externalSignal?.aborted) throw createAbortError();
+
+    const controller = new AbortController();
+    const onExternalAbort = () => { try { controller.abort(); } catch { /* ignore */ } };
+    if (externalSignal) externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      const res = await fetch(url, options);
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
       if (res.ok || !RETRYABLE_STATUS_CODES.has(res.status) || attempt === maxRetries) {
         return res;
       }
       lastError = new Error(`HTTP ${res.status}`);
     } catch (e) {
-      if (e.name === 'AbortError') throw e;
-      lastError = e;
-      if (attempt === maxRetries) throw e;
+      clearTimeout(timeoutId);
+      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
+      if (e.name === 'AbortError') {
+        // Ακύρωση από τον χρήστη → διαδίδεται αμέσως.
+        if (externalSignal?.aborted) throw createAbortError();
+        // Διαφορετικά πρόκειται για λήξη χρόνου → θεωρείται προσωρινό σφάλμα (retry).
+        lastError = createTimeoutError();
+        if (attempt === maxRetries) throw lastError;
+      } else {
+        lastError = e;
+        if (attempt === maxRetries) throw e;
+      }
     }
-    if (options?.signal?.aborted) {
-      throw new DOMException('The operation was aborted.', 'AbortError');
-    }
+
+    if (externalSignal?.aborted) throw createAbortError();
     const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
-    await new Promise((r) => setTimeout(r, delay));
+    await sleepWithAbort(delay, externalSignal);
   }
   throw lastError;
 }
@@ -1040,25 +1094,35 @@ async function fetchKhmdhsPaymentByAdam(adamRaw) {
 }
 
 /** Συνδεδεμένες πράξεις (αλυσίδα ΑΔΑΜ) — GET, χωρίς σώμα */
-async function fetchKhmdhsAdamChain(adamRaw) {
+async function fetchKhmdhsAdamChain(adamRaw, opts = {}) {
   const adam = normalizeAdam(String(adamRaw || '').trim());
   if (!adam) {
     return { success: false, error: 'Μη έγκυρος ΑΔΑΜ για αλυσίδα.' };
   }
+  const externalSignal = opts?.signal;
+  if (externalSignal?.aborted) {
+    return { success: false, error: 'Η διαδικασία ακυρώθηκε.', aborted: true };
+  }
   const url = `${KHMDHS_BASE}/khmdhs-opendata/adamChain/${encodeURIComponent(adam)}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
   let res;
   try {
-    res = await fetchWithRetry(url, { method: 'GET', headers: { Accept: 'application/json' }, signal: controller.signal });
+    res = await fetchWithRetry(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: externalSignal,
+    });
   } catch (e) {
-    clearTimeout(timeoutId);
     if (e.name === 'AbortError') {
-      return { success: false, error: 'Η ανάκτηση της αλυσίδας ΑΔΑΜ διήρκεσε πάρα πολύ. Δοκιμάστε αργότερα.' };
+      return { success: false, aborted: true, error: 'Η διαδικασία ακυρώθηκε.' };
+    }
+    if (e.name === 'TimeoutError') {
+      return {
+        success: false,
+        error: 'Η ανάκτηση της αλυσίδας ΑΔΑΜ διήρκεσε πάρα πολύ. Δοκιμάστε αργότερα.',
+      };
     }
     return { success: false, error: e.message || 'Σφάλμα σύνδεσης με ΚΗΜΔΗΣ.' };
   }
-  clearTimeout(timeoutId);
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     return { success: false, error: friendlyKhmdhsError(json?.message, res.status) };

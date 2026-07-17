@@ -2871,9 +2871,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       date: new Date().toLocaleString('el-GR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
       refreshed: results.refreshed || 0,
     };
+    const hasMeaningfulOutcome =
+      (results.refreshed || 0) > 0 ||
+      (results.needsIntervention || 0) > 0 ||
+      (results.failed || 0) > 0;
     setBatchReportResults(results);
     setBatchPendingItems(pending);
-    setIsBatchReportOpen(true);
+    // Ανοίγουμε αυτόματα την αναφορά μόνο όταν πράγματι έγινε κάτι — όχι σε κενή/ακυρωμένη
+    // εκτέλεση ή όταν όλα απλώς παραλείφθηκαν.
+    if (hasMeaningfulOutcome) {
+      setIsBatchReportOpen(true);
+    }
     setKhmdhsLastRun(lastRun);
     if (pending.length > 0) {
       void persistKhmdhsBatchReport({

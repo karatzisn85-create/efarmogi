@@ -129,7 +129,11 @@ const CancelBtn = styled.button`
   font-size: 0.65rem;
   font-weight: 600;
   cursor: pointer;
-  &:hover { background: #fef2f2; }
+  &:hover:not(:disabled) { background: #fef2f2; }
+  &:disabled {
+    opacity: 0.7;
+    cursor: wait;
+  }
 `;
 
 const ProgressBar = styled.div`
@@ -1019,6 +1023,7 @@ export default function KhmdhsBatchRefreshWidget({
   const [eligiblePreview, setEligiblePreview] = useState(null);
   const [batchScope, setBatchScope] = useState('stale'); // 'stale' | 'all'
   const cancelRef = useRef(false);
+  const [cancelRequested, setCancelRequested] = useState(false);
   const logRef = useRef(null);
 
   const canUse = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
@@ -1066,6 +1071,7 @@ export default function KhmdhsBatchRefreshWidget({
     setRunning(true);
     setLogEntries([]);
     cancelRef.current = false;
+    setCancelRequested(false);
     setProgress({ current: 0, total: 0, label: 'Εντοπισμός υποέργων…' });
 
     try {
@@ -1147,11 +1153,41 @@ export default function KhmdhsBatchRefreshWidget({
         const item = eligible[i];
         setProgress({ current: i + 1, total, label: `${i + 1} / ${total} — ${item.label}` });
 
+        // Κλείδωμα του υποέργου για ΟΛΗ τη διάρκεια ανάγνωσης→αποθήκευσης, ώστε να μην
+        // «πατηθούν» αλλαγές που κάνει ταυτόχρονα άλλος χρήστης σε άλλον υπολογιστή.
+        let lockAcquired = false;
         try {
+          let lockRes = null;
+          try {
+            lockRes = await ipcRenderer.invoke('create-entity-lock', 'projects', item.id, currentUser?.username || '');
+          } catch {
+            lockRes = { success: false };
+          }
+          if (!lockRes?.success) {
+            failed++;
+            detailItems.push({
+              status: 'failed',
+              id: item.id,
+              label: item.label,
+              error: lockRes?.lockedBy
+                ? `Το υποέργο επεξεργάζεται από ${lockRes.lockedBy}`
+                : 'Το υποέργο είναι κλειδωμένο',
+              phase: 'lock',
+            });
+            addLog('🔒', `${item.label} — Κλειδωμένο`);
+            continue;
+          }
+          lockAcquired = true;
+
           const res = await ipcRenderer.invoke('preview-subproject-khmdhs-refresh', {
             subprojectId: item.id,
             actingUsername: currentUser?.username,
+            batchMode: true,
           });
+          if (res?.aborted || cancelRef.current) {
+            addLog('⛔', 'Η διαδικασία ακυρώθηκε');
+            break;
+          }
           if (!res?.success) {
             failed++;
             detailItems.push({
@@ -1214,19 +1250,6 @@ export default function KhmdhsBatchRefreshWidget({
               : resyncedRegistry;
           }
 
-          const lockCheck = await ipcRenderer.invoke('check-entity-lock', 'projects', item.id);
-          if (lockCheck?.locked) {
-            failed++;
-            detailItems.push({
-              status: 'failed',
-              id: item.id,
-              label: item.label,
-              error: `Το υποέργο επεξεργάζεται από ${lockCheck.lockedBy || 'άλλον χρήστη'}`,
-              phase: 'lock',
-            });
-            addLog('🔒', `${item.label} — Κλειδωμένο`);
-            continue;
-          }
           await ipcRenderer.invoke('create-khmdhs-refresh-snapshot', {
             subprojectId: item.id,
             actingUsername: currentUser?.username,
@@ -1277,6 +1300,12 @@ export default function KhmdhsBatchRefreshWidget({
             phase: 'exception',
           });
           addLog('❌', `${item.label} — Εξαίρεση`);
+        } finally {
+          if (lockAcquired) {
+            try {
+              await ipcRenderer.invoke('remove-entity-lock', 'projects', item.id);
+            } catch { /* ignore */ }
+          }
         }
 
         await new Promise((r) => setTimeout(r, 300));
@@ -1299,12 +1328,21 @@ export default function KhmdhsBatchRefreshWidget({
         onRefreshComplete();
       }
 
-      showToast(
-        `Μαζική ανανέωση ολοκληρώθηκε: ${refreshed} ενημερώθηκαν` +
-        (needsIntervention ? `, ${needsIntervention} χρειάζονται χαρακτηρισμό` : '') +
-        (failed ? `, ${failed} απέτυχαν` : ''),
-        needsIntervention ? 'warning' : 'success'
-      );
+      if (cancelRef.current) {
+        showToast(
+          `Η μαζική ανανέωση ακυρώθηκε. Ολοκληρώθηκαν ${refreshed} από ${total}` +
+          (needsIntervention ? `, ${needsIntervention} χρειάζονται χαρακτηρισμό` : '') +
+          (failed ? `, ${failed} απέτυχαν` : ''),
+          'info'
+        );
+      } else {
+        showToast(
+          `Μαζική ανανέωση ολοκληρώθηκε: ${refreshed} ενημερώθηκαν` +
+          (needsIntervention ? `, ${needsIntervention} χρειάζονται χαρακτηρισμό` : '') +
+          (failed ? `, ${failed} απέτυχαν` : ''),
+          needsIntervention ? 'warning' : 'success'
+        );
+      }
     } catch (e) {
       showToast(e?.message || 'Σφάλμα μαζικής ανανέωσης', 'error');
       if (typeof onBatchResults === 'function') {
@@ -1324,9 +1362,22 @@ export default function KhmdhsBatchRefreshWidget({
         });
       }
     } finally {
+      setCancelRequested(false);
       setRunning(false);
     }
   }, [batchScope, currentUser, showToast, onRefreshComplete, onBatchResults, addLog]);
+
+  const handleCancelBatch = useCallback(() => {
+    if (cancelRequested) return;
+    cancelRef.current = true;
+    setCancelRequested(true);
+    addLog('⛔', 'Ακύρωση σε εξέλιξη… διακοπή σύνδεσης με ΚΗΜΔΗΣ');
+    if (ipcRenderer?.invoke) {
+      ipcRenderer.invoke('cancel-khmdhs-batch-refresh', {
+        actingUsername: currentUser?.username,
+      }).catch(() => {});
+    }
+  }, [cancelRequested, currentUser, addLog]);
 
   if (!canUse) return null;
 
@@ -1347,7 +1398,13 @@ export default function KhmdhsBatchRefreshWidget({
             <Btn onClick={handleConfirmStart}>Εκτέλεση</Btn>
           )}
           {running && (
-            <CancelBtn onClick={() => { cancelRef.current = true; }}>Ακύρωση</CancelBtn>
+            <CancelBtn
+              type="button"
+              onClick={handleCancelBatch}
+              disabled={cancelRequested}
+            >
+              {cancelRequested ? 'Ακύρωση…' : 'Ακύρωση'}
+            </CancelBtn>
           )}
         </Header>
 

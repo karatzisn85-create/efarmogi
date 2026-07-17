@@ -32,6 +32,7 @@ const ALLOWED_INVOKE = new Set([
   'diavgeia-download-decision-pdf',
   'khmdhs-resolve-adam-chain',
   'preview-subproject-khmdhs-refresh',
+  'cancel-khmdhs-batch-refresh',
   'batch-khmdhs-refresh-eligible',
   'check-khmdhs-staleness',
   'get-khmdhs-batch-report',

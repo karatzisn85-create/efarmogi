@@ -2773,7 +2773,35 @@ ipcMain.handle('khmdhs-resolve-adam-chain', async (_event, { adam, apeAmount }) 
   }
 });
 
-ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectId, actingUsername } = {}) => {
+/** Ακύρωση in-flight μαζικής ανανέωσης ΚΗΜΔΗΣ (διακόπτει το τρέχον δίκτυο). */
+let khmdhsBatchRefreshAbortController = null;
+
+ipcMain.handle('cancel-khmdhs-batch-refresh', async (_event, { actingUsername } = {}) => {
+  try {
+    const username = String(actingUsername || '').trim();
+    if (!username) {
+      return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
+    }
+    const user = findUserByUsername(username);
+    if (!user || user.active === false || user.approved === false) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    if (khmdhsBatchRefreshAbortController) {
+      try {
+        khmdhsBatchRefreshAbortController.abort();
+      } catch {
+        /* ignore */
+      }
+    }
+    return { success: true };
+  } catch (e) {
+    logger.error('cancel-khmdhs-batch-refresh error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectId, actingUsername, batchMode } = {}) => {
+  let localAbort = null;
   try {
     const username = String(actingUsername || '').trim();
     if (!username) {
@@ -2789,11 +2817,13 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
       return { success: false, error: 'Λείπει αναγνωριστικό υποέργου' };
     }
 
+    // Επιτρέπεται αν το υποέργο δεν είναι κλειδωμένο ή αν το κλείδωμα ανήκει στον ίδιο
+    // χρήστη (η μαζική ανανέωση κρατά κλείδωμα σε όλη τη διάρκεια ανάγνωσης→αποθήκευσης).
     const lockStatus = isEntityLocked('projects', sid);
-    if (lockStatus.locked) {
+    if (lockStatus.locked && lockStatus.lockedBy && lockStatus.lockedBy !== username) {
       return {
         success: false,
-        error: `Το υποέργο επεξεργάζεται από ${lockStatus.lockedBy || 'άλλον χρήστη'}. Δοκιμάστε ξανά σε λίγο.`,
+        error: `Το υποέργο επεξεργάζεται από ${lockStatus.lockedBy}. Δοκιμάστε ξανά σε λίγο.`,
       };
     }
 
@@ -2823,12 +2853,21 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
 
     const apeAmount = refreshSeed.parseStoredApeAmountGross(project);
 
+    if (batchMode) {
+      localAbort = new AbortController();
+      khmdhsBatchRefreshAbortController = localAbort;
+    }
+
     const chainSvc = require('./khmdhsAdamChainService');
-    const chainRes = await chainSvc.resolveKhmdhsAdamChain(seedInfo.adam, { apeAmount });
+    const chainRes = await chainSvc.resolveKhmdhsAdamChain(seedInfo.adam, {
+      apeAmount,
+      signal: localAbort?.signal,
+    });
 
     if (!chainRes?.success) {
       return {
         success: false,
+        aborted: !!chainRes?.aborted,
         error: chainRes?.error || 'Η ανάκτηση από το ΚΗΜΔΗΣ απέτυχε.',
         seedAdam: seedInfo.adam,
         seedSource: seedInfo.source,
@@ -2845,8 +2884,15 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
       projectSnapshot: project,
     };
   } catch (e) {
+    if (e?.name === 'AbortError' || e?.aborted) {
+      return { success: false, aborted: true, error: 'Η διαδικασία ακυρώθηκε.' };
+    }
     logger.error('preview-subproject-khmdhs-refresh error:', e.message);
     return { success: false, error: e.message || String(e) };
+  } finally {
+    if (localAbort && khmdhsBatchRefreshAbortController === localAbort) {
+      khmdhsBatchRefreshAbortController = null;
+    }
   }
 });
 
@@ -2870,48 +2916,60 @@ ipcMain.handle('batch-khmdhs-refresh-eligible', async (_event, { actingUsername 
       return { success: true, eligible, skipped };
     }
 
-    for (const projectDir of fs.readdirSync(dataDir)) {
-      if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
-      const projectPath = path.join(dataDir, projectDir);
-      if (!fs.statSync(projectPath).isDirectory()) continue;
-      for (const subDir of fs.readdirSync(projectPath)) {
-        const subPath = path.join(projectPath, subDir);
-        if (!fs.statSync(subPath).isDirectory()) continue;
-        const jsonPath = path.join(subPath, 'data.json');
-        if (!fs.existsSync(jsonPath)) continue;
-        let project;
-        try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
-        const sid = project.subprojectId;
-        if (!sid) continue;
-        const label = project.subprojectTitle || sid;
+    let projectDirs = [];
+    try { projectDirs = fs.readdirSync(dataDir); } catch { projectDirs = []; }
+    for (const projectDir of projectDirs) {
+      try {
+        if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
+        const projectPath = path.join(dataDir, projectDir);
+        let pStat;
+        try { pStat = fs.statSync(projectPath); } catch { continue; }
+        if (!pStat.isDirectory()) continue;
+        let subDirs = [];
+        try { subDirs = fs.readdirSync(projectPath); } catch { continue; }
+        for (const subDir of subDirs) {
+          try {
+            const subPath = path.join(projectPath, subDir);
+            let sStat;
+            try { sStat = fs.statSync(subPath); } catch { continue; }
+            if (!sStat.isDirectory()) continue;
+            const jsonPath = path.join(subPath, 'data.json');
+            if (!fs.existsSync(jsonPath)) continue;
+            let project;
+            try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
+            const sid = project.subprojectId;
+            if (!sid) continue;
+            const label = project.subprojectTitle || sid;
 
-        if (refreshSeed.isKhmdhsChainClosedSubproject(project)) {
-          skipped.push({ id: sid, label, reason: 'Ολοκληρωμένο' });
-          continue;
+            if (refreshSeed.isKhmdhsChainClosedSubproject(project)) {
+              skipped.push({ id: sid, label, reason: 'Ολοκληρωμένο' });
+              continue;
+            }
+            const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
+            if (!seedInfo.adam) {
+              skipped.push({ id: sid, label, reason: 'Χωρίς ΑΔΑΜ' });
+              continue;
+            }
+            const lockStatus = isEntityLocked('projects', sid);
+            if (lockStatus.locked) {
+              skipped.push({ id: sid, label, reason: 'Κλειδωμένο' });
+              continue;
+            }
+            const lastRefresh = project.khmdhsChainLastRefreshedAt || null;
+            const ts = lastRefresh ? new Date(lastRefresh).getTime() : 0;
+            const ageDays = ts
+              ? Math.round((Date.now() - ts) / (24 * 60 * 60 * 1000))
+              : null;
+            eligible.push({
+              id: sid,
+              label,
+              seedAdam: seedInfo.adam,
+              lastRefreshed: lastRefresh,
+              ageDays,
+            });
+          } catch { /* προσπερνάμε προβληματικό υποέργο */ }
         }
-        const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
-        if (!seedInfo.adam) {
-          skipped.push({ id: sid, label, reason: 'Χωρίς ΑΔΑΜ' });
-          continue;
-        }
-        const lockStatus = isEntityLocked('projects', sid);
-        if (lockStatus.locked) {
-          skipped.push({ id: sid, label, reason: 'Κλειδωμένο' });
-          continue;
-        }
-        const lastRefresh = project.khmdhsChainLastRefreshedAt || null;
-        const ts = lastRefresh ? new Date(lastRefresh).getTime() : 0;
-        const ageDays = ts
-          ? Math.round((Date.now() - ts) / (24 * 60 * 60 * 1000))
-          : null;
-        eligible.push({
-          id: sid,
-          label,
-          seedAdam: seedInfo.adam,
-          lastRefreshed: lastRefresh,
-          ageDays,
-        });
-      }
+      } catch { /* προσπερνάμε προβληματικό φάκελο έργου */ }
     }
 
     return { success: true, eligible, skipped };
@@ -2948,35 +3006,47 @@ ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = 7, acting
     if (!dataDir || !fs.existsSync(dataDir)) return { success: true, stale };
 
     const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
-    for (const projectDir of fs.readdirSync(dataDir)) {
-      if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
-      const projectPath = path.join(dataDir, projectDir);
-      if (!fs.statSync(projectPath).isDirectory()) continue;
-      for (const subDir of fs.readdirSync(projectPath)) {
-        const subPath = path.join(projectPath, subDir);
-        if (!fs.statSync(subPath).isDirectory()) continue;
-        const jsonPath = path.join(subPath, 'data.json');
-        if (!fs.existsSync(jsonPath)) continue;
-        let project;
-        try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
-        const sid = project.subprojectId;
-        if (!sid) continue;
-        if (refreshSeed.isKhmdhsChainClosedSubproject(project)) continue;
-        const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
-        if (!seedInfo.adam) continue;
+    let projectDirs = [];
+    try { projectDirs = fs.readdirSync(dataDir); } catch { projectDirs = []; }
+    for (const projectDir of projectDirs) {
+      try {
+        if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
+        const projectPath = path.join(dataDir, projectDir);
+        let pStat;
+        try { pStat = fs.statSync(projectPath); } catch { continue; }
+        if (!pStat.isDirectory()) continue;
+        let subDirs = [];
+        try { subDirs = fs.readdirSync(projectPath); } catch { continue; }
+        for (const subDir of subDirs) {
+          try {
+            const subPath = path.join(projectPath, subDir);
+            let sStat;
+            try { sStat = fs.statSync(subPath); } catch { continue; }
+            if (!sStat.isDirectory()) continue;
+            const jsonPath = path.join(subPath, 'data.json');
+            if (!fs.existsSync(jsonPath)) continue;
+            let project;
+            try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
+            const sid = project.subprojectId;
+            if (!sid) continue;
+            if (refreshSeed.isKhmdhsChainClosedSubproject(project)) continue;
+            const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
+            if (!seedInfo.adam) continue;
 
-        const lastRefresh = project.khmdhsChainLastRefreshedAt;
-        const ts = lastRefresh ? new Date(lastRefresh).getTime() : 0;
-        if (ts < cutoff) {
-          const ageDays = Math.round((Date.now() - (ts || Date.now())) / (24 * 60 * 60 * 1000));
-          stale.push({
-            id: sid,
-            label: project.subprojectTitle || sid,
-            lastRefreshed: lastRefresh || null,
-            ageDays: ts ? ageDays : null,
-          });
+            const lastRefresh = project.khmdhsChainLastRefreshedAt;
+            const ts = lastRefresh ? new Date(lastRefresh).getTime() : 0;
+            if (ts < cutoff) {
+              const ageDays = Math.round((Date.now() - (ts || Date.now())) / (24 * 60 * 60 * 1000));
+              stale.push({
+                id: sid,
+                label: project.subprojectTitle || sid,
+                lastRefreshed: lastRefresh || null,
+                ageDays: ts ? ageDays : null,
+              });
+            }
+          } catch { /* προσπερνάμε προβληματικό υποέργο */ }
         }
-      }
+      } catch { /* προσπερνάμε προβληματικό φάκελο έργου */ }
     }
     return { success: true, stale };
   } catch (e) {
@@ -3066,29 +3136,35 @@ ipcMain.handle('create-khmdhs-refresh-snapshot', async (_event, { subprojectId, 
     const sid = String(subprojectId || '').trim();
     if (!sid || !dataDir) return { success: false };
     const skipRoot = DATA_DIR_SKIP_ROOT_DIRS;
-    for (const dir of fs.readdirSync(dataDir)) {
-      if (skipRoot.has(dir)) continue;
-      const projectPath = path.join(dataDir, dir);
-      try { if (!fs.statSync(projectPath).isDirectory()) continue; } catch { continue; }
-      const directPath = path.join(projectPath, sid);
-      if (fs.existsSync(path.join(directPath, 'data.json'))) {
-        const src = path.join(directPath, 'data.json');
-        const dest = path.join(directPath, 'data.json.before-refresh');
-        fs.copyFileSync(src, dest);
-        return { success: true };
-      }
-      for (const sub of fs.readdirSync(projectPath)) {
-        const jsonPath = path.join(projectPath, sub, 'data.json');
-        if (!fs.existsSync(jsonPath)) continue;
-        try {
-          const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-          if (data.subprojectId === sid) {
-            const dest = path.join(projectPath, sub, 'data.json.before-refresh');
-            fs.copyFileSync(jsonPath, dest);
-            return { success: true };
-          }
-        } catch {}
-      }
+    let rootDirs = [];
+    try { rootDirs = fs.readdirSync(dataDir); } catch { rootDirs = []; }
+    for (const dir of rootDirs) {
+      try {
+        if (skipRoot.has(dir)) continue;
+        const projectPath = path.join(dataDir, dir);
+        try { if (!fs.statSync(projectPath).isDirectory()) continue; } catch { continue; }
+        const directPath = path.join(projectPath, sid);
+        if (fs.existsSync(path.join(directPath, 'data.json'))) {
+          const src = path.join(directPath, 'data.json');
+          const dest = path.join(directPath, 'data.json.before-refresh');
+          fs.copyFileSync(src, dest);
+          return { success: true };
+        }
+        let subDirs = [];
+        try { subDirs = fs.readdirSync(projectPath); } catch { continue; }
+        for (const sub of subDirs) {
+          try {
+            const jsonPath = path.join(projectPath, sub, 'data.json');
+            if (!fs.existsSync(jsonPath)) continue;
+            const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            if (data.subprojectId === sid) {
+              const dest = path.join(projectPath, sub, 'data.json.before-refresh');
+              fs.copyFileSync(jsonPath, dest);
+              return { success: true };
+            }
+          } catch { /* προσπερνάμε προβληματικό υποέργο */ }
+        }
+      } catch { /* προσπερνάμε προβληματικό φάκελο έργου */ }
     }
     return { success: false };
   } catch (e) {
