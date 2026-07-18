@@ -376,6 +376,14 @@ ipcMain.handle('save-app-config', async (_event, newConfig) => {
     dataDir = newConfig.dataDir;
     setActiveDataDir(newConfig.dataDir);
     ensureSubDirs();
+    // Ανανέωση μονοπατιών που εξαρτώνται από τον φάκελο δεδομένων
+    locksDir = path.join(dataDir, 'locks');
+    backupSettingsPath = path.join(dataDir, 'backup_settings.json');
+    auditLogPath = path.join(dataDir, 'audit_log.json');
+    backupDir = resolveBackupDir();
+    if (auditLogPath && !fs.existsSync(auditLogPath)) {
+      try { safeWriteJSON(auditLogPath, { logs: [] }); } catch (_e) { /* non-critical */ }
+    }
   }
 
   saveConfig(newConfig);
@@ -961,6 +969,7 @@ app.on('window-all-closed', () => {
     
     // Καθαρισμός lock files κατά το κλείσιμο της εφαρμογής
     try {
+      if (!dataDir) return;
       const myHostname = os.hostname();
       // Old-style locks
       if (fs.existsSync(dataDir)) {
@@ -1061,10 +1070,14 @@ function removeLegacyRegisteredEngineersFile() {
 removeLegacyRegisteredEngineersFile();
 
 
-const locksDir = dataDir ? path.join(dataDir, 'locks') : null;
+let locksDir = dataDir ? path.join(dataDir, 'locks') : null;
 
 // Εκκίνηση file watcher για locks
 function startLockWatcher(mainWindow) {
+  if (!locksDir) {
+    console.log('Lock watcher skipped — δεν έχει οριστεί ακόμη φάκελος δεδομένων.');
+    return;
+  }
   if (lockWatcher) {
     try {
     lockWatcher.close();
@@ -11419,17 +11432,70 @@ ipcMain.handle('open-document-template', async (event, docId, forEditing = false
 // ============================================================
 
 // Backup directory and settings
-const backupDir = dataDir ? path.join(dataDir, 'backups') : null;
-const backupSettingsPath = dataDir ? path.join(dataDir, 'backup_settings.json') : null;
-const backupMetadataPath = backupDir ? path.join(backupDir, 'metadata.json') : null;
-const auditLogPath = dataDir ? path.join(dataDir, 'audit_log.json') : null;
+// Η θέση αποθήκευσης των αντιγράφων ασφαλείας μπορεί να οριστεί εκτός του φακέλου
+// δεδομένων και είναι ορατή ΜΟΝΟ στον SUPERADMIN. Αποθηκεύεται τοπικά σε
+// backup_location.json (δεν εξάγεται ποτέ σε αντίγραφο ασφαλείας).
+function getBackupLocationConfigPath() {
+  return dataDir ? path.join(dataDir, 'backup_location.json') : null;
+}
+function getDefaultBackupDir() {
+  return dataDir ? path.join(dataDir, 'backups') : null;
+}
+let backupSettingsPath = dataDir ? path.join(dataDir, 'backup_settings.json') : null;
+let auditLogPath = dataDir ? path.join(dataDir, 'audit_log.json') : null;
+
+// Ονόματα πρώτου επιπέδου που ΔΕΝ μπαίνουν ποτέ σε αντίγραφο ασφαλείας
+const BACKUP_EXCLUDE_ENTRIES = new Set([
+  'backups',
+  'locks',
+  'app-config.json',
+  'data-dir.json',
+  'backup_settings.json',
+  'backup_location.json',
+]);
+
+function readBackupLocationSetting() {
+  try {
+    const cfgPath = getBackupLocationConfigPath();
+    if (cfgPath && fs.existsSync(cfgPath)) {
+      const raw = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      if (raw && typeof raw.location === 'string' && raw.location.trim()) {
+        return raw.location.trim();
+      }
+    }
+  } catch (e) {
+    console.warn('Could not read backup_location.json:', e.message);
+  }
+  return null;
+}
+
+function resolveBackupDir() {
+  if (!dataDir) return null;
+  const custom = readBackupLocationSetting();
+  if (custom) {
+    try {
+      const target = path.join(custom, 'ERGOHUB_BACKUPS');
+      if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true });
+      return target;
+    } catch (e) {
+      console.error('Custom backup location not usable, falling back to default:', e.message);
+    }
+  }
+  return getDefaultBackupDir();
+}
+
+let backupDir = resolveBackupDir();
+
+function getBackupMetadataPath() {
+  return backupDir ? path.join(backupDir, 'metadata.json') : null;
+}
 
 if (backupDir && !fs.existsSync(backupDir)) {
   fs.mkdirSync(backupDir, { recursive: true });
 }
 
-// Initialize audit log if it doesn't exist
-if (!fs.existsSync(auditLogPath)) {
+// Initialize audit log if it doesn't exist (μόνο όταν υπάρχει ήδη φάκελος δεδομένων)
+if (auditLogPath && !fs.existsSync(auditLogPath)) {
   safeWriteJSON(auditLogPath, { logs: [] });
 }
 
@@ -11467,7 +11533,7 @@ function loadBackupSettings() {
     console.log('⚠️ AUTOMATIC BACKUPS ARE DISABLED - Manual backups only');
     
     // Optionally delete old settings file to prevent confusion
-    if (fs.existsSync(backupSettingsPath)) {
+    if (backupSettingsPath && fs.existsSync(backupSettingsPath)) {
       try {
         fs.unlinkSync(backupSettingsPath);
         console.log('✅ Deleted old backup_settings.json (automatic backups disabled)');
@@ -11501,6 +11567,7 @@ function saveBackupSettings(settings) {
       if (settings.monthly) settings.monthly.enabled = false;
     }
     
+    if (!backupSettingsPath) return false;
     safeWriteJSON(backupSettingsPath, settings);
     return true;
   } catch (error) {
@@ -11512,8 +11579,9 @@ function saveBackupSettings(settings) {
 // Load backup metadata
 function loadBackupMetadata() {
   try {
-    if (fs.existsSync(backupMetadataPath)) {
-      return JSON.parse(fs.readFileSync(backupMetadataPath, 'utf8'));
+    const mp = getBackupMetadataPath();
+    if (mp && fs.existsSync(mp)) {
+      return JSON.parse(fs.readFileSync(mp, 'utf8'));
     }
   } catch (error) {
     console.error('Error loading backup metadata:', error);
@@ -11524,7 +11592,9 @@ function loadBackupMetadata() {
 // Save backup metadata
 function saveBackupMetadata(metadata) {
   try {
-    safeWriteJSON(backupMetadataPath, metadata);
+    const mp = getBackupMetadataPath();
+    if (!mp) return false;
+    safeWriteJSON(mp, metadata);
     return true;
   } catch (error) {
     console.error('Error saving backup metadata:', error);
@@ -11532,120 +11602,259 @@ function saveBackupMetadata(metadata) {
   }
 }
 
-// Get files to backup (with filtering)
-async function getFilesToBackup(options = {}) {
-  const files = [];
-  const {
-    includeProjects = true,
-    includeProskliseis = true,
-    includeEntaxeis = true,
-    includeEgkriseis = true,
-    includeMeletai = true,
-  } = options;
-  
-  try {
-    // Projects
-    if (includeProjects) {
-      const projectDirs = fs.readdirSync(dataDir);
-      for (const projectDir of projectDirs) {
-        const projectPath = path.join(dataDir, projectDir);
-        if (fs.statSync(projectPath).isDirectory() && !projectDir.startsWith('.') && projectDir !== 'backups' && projectDir !== 'locks') {
-          // Skip backup and locks directories
-          if (projectDir === 'backups' || projectDir === 'locks' || projectDir === 'temp_uploads') continue;
-          
-          // Check if it's a project UUID folder
-          if (projectDir.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
-            files.push({
-              type: 'project',
-              path: projectPath,
-              relativePath: projectDir
-            });
-          }
-        }
-      }
-    }
-    
-    // Proskliseis
-    if (includeProskliseis) {
-      const proskliseisDir = path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ');
-      if (fs.existsSync(proskliseisDir)) {
-        files.push({
-          type: 'proskliseis',
-          path: proskliseisDir,
-          relativePath: 'ΠΡΟΣΚΛΗΣΕΙΣ'
-        });
-      }
-    }
-    
-    // Entaxeis
-    if (includeEntaxeis) {
-      const entaxeisDir = path.join(dataDir, 'entaxeis');
-      if (fs.existsSync(entaxeisDir)) {
-        files.push({
-          type: 'entaxeis',
-          path: entaxeisDir,
-          relativePath: 'entaxeis'
-        });
-      }
-    }
-    
-    // Egkriseis
-    if (includeEgkriseis) {
-      const egkriseisDir = path.join(dataDir, 'EGKRISEIS_DIATHESIS_PISTOSIS');
-      if (fs.existsSync(egkriseisDir)) {
-        files.push({
-          type: 'egkriseis',
-          path: egkriseisDir,
-          relativePath: 'EGKRISEIS_DIATHESIS_PISTOSIS'
-        });
-      }
-    }
+// ── Mutex / lock ώστε να τρέχει ΜΟΝΟ ΕΝΑ backup ή restore κάθε φορά ──
+let backupOperationInProgress = false;
+let backupAbortRequested = false;
+const BACKUP_LOCK_STALE_MS = 30 * 60 * 1000; // 30 λεπτά
 
-    // Meletai (Μητρώο Μελετών)
-    if (includeMeletai) {
-      const meletaiDir = path.join(dataDir, 'ΜΕΛΕΤΕΣ');
-      if (fs.existsSync(meletaiDir)) {
-        files.push({
-          type: 'meletai',
-          path: meletaiDir,
-          relativePath: 'ΜΕΛΕΤΕΣ',
-        });
+function getBackupLockPath() {
+  return backupDir ? path.join(backupDir, '.backup.lock') : null;
+}
+
+function acquireBackupLock(info = {}) {
+  if (backupOperationInProgress) {
+    return { ok: false, error: 'Βρίσκεται ήδη σε εξέλιξη μια εργασία αντιγράφου ασφαλείας.' };
+  }
+  const lockPath = getBackupLockPath();
+  try {
+    if (lockPath && fs.existsSync(lockPath)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        const age = Date.now() - new Date(raw.timestamp || 0).getTime();
+        if (age < BACKUP_LOCK_STALE_MS) {
+          return {
+            ok: false,
+            error: 'Βρίσκεται ήδη σε εξέλιξη μια εργασία αντιγράφου ασφαλείας από άλλον χρήστη.',
+          };
+        }
+      } catch (_e) { /* stale/corrupt lock — θα αντικατασταθεί */ }
+    }
+    backupOperationInProgress = true;
+    backupAbortRequested = false;
+    if (lockPath) {
+      try {
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        fs.writeFileSync(lockPath, JSON.stringify({ timestamp: new Date().toISOString(), ...info }), 'utf8');
+      } catch (_e) { /* το in-process flag αρκεί */ }
+    }
+    return { ok: true };
+  } catch (e) {
+    backupOperationInProgress = true;
+    backupAbortRequested = false;
+    return { ok: true };
+  }
+}
+
+function releaseBackupLock() {
+  backupOperationInProgress = false;
+  backupAbortRequested = false;
+  const lockPath = getBackupLockPath();
+  try {
+    if (lockPath && fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+  } catch (_e) { /* ignore */ }
+}
+
+function requestBackupAbort() {
+  backupAbortRequested = true;
+}
+
+function throwIfBackupAborted() {
+  if (backupAbortRequested) {
+    const err = new Error('Η δημιουργία αντιγράφου ακυρώθηκε από τον χρήστη.');
+    err.code = 'BACKUP_ABORTED';
+    throw err;
+  }
+}
+
+// SHA-256 με stream (όχι φόρτωση ολόκληρου του zip στη μνήμη)
+function sha256FileStreaming(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => {
+      if (backupAbortRequested) {
+        stream.destroy();
+        const err = new Error('Η δημιουργία αντιγράφου ακυρώθηκε από τον χρήστη.');
+        err.code = 'BACKUP_ABORTED';
+        reject(err);
+        return;
       }
-      const meletaiConfigPath = path.join(dataDir, 'config', 'meletai-config.json');
-      if (fs.existsSync(meletaiConfigPath)) {
-        files.push({
-          type: 'meletai_config',
-          path: meletaiConfigPath,
-          relativePath: path.join('config', 'meletai-config.json'),
-        });
-      }
+      hash.update(chunk);
+    });
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
+// Επιστρέφει το πιο πρόσφατο επιτυχημένο πραγματικό αντίγραφο (όχι safety)
+function getLastRealBackup(metadata) {
+  const list = (metadata && metadata.backups) || [];
+  const real = list.filter(b => b && b.status === 'success' && b.type !== 'safety');
+  if (real.length === 0) return null;
+  return real.reduce((newest, b) =>
+    (new Date(b.timestamp) > new Date(newest.timestamp) ? b : newest)
+  );
+}
+
+const PROJECT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Πλήρες αντίγραφο: περιλαμβάνει ΟΛΟΚΛΗΡΟ τον φάκελο δεδομένων (χρήστες, έργα,
+// εντάξεις, προσκλήσεις, εγκρίσεις, μελέτες, αναθέσεις εργασιών, σημειώσεις,
+// ρυθμίσεις, καταγραφές κ.λπ.) εκτός από προσωρινά/συστημικά αρχεία.
+async function getFilesToBackup() {
+  const files = [];
+  try {
+    const entries = fs.readdirSync(dataDir);
+    for (const entry of entries) {
+      if (BACKUP_EXCLUDE_ENTRIES.has(entry)) continue;
+      if (entry.startsWith('.')) continue;
+      if (entry.startsWith('temp_')) continue;
+      if (entry.endsWith('.lock') || entry.endsWith('.tmp')) continue;
+      if (/\.tmp-\d+$/.test(entry)) continue;
+      if (/\.bak\d*$/.test(entry)) continue;
+
+      const full = path.join(dataDir, entry);
+      // Παράλειψη της ενεργής θέσης αντιγράφων αν βρίσκεται εντός του φακέλου δεδομένων
+      if (backupDir && path.resolve(full) === path.resolve(backupDir)) continue;
+
+      let stat;
+      try { stat = fs.statSync(full); } catch (_e) { continue; }
+
+      files.push({
+        type: stat.isDirectory() ? 'dir' : 'file',
+        path: full,
+        relativePath: entry,
+      });
     }
   } catch (error) {
     console.error('Error getting files to backup:', error);
   }
-  
+
   return files;
 }
 
+// Υπολογίζει το συνολικό πλήθος αρχείων και bytes ώστε να δείχνουμε πραγματική πρόοδο
+// (με yield ώστε να μην «παγώνει» η εφαρμογή σε μεγάλα δέντρα αρχείων)
+async function computeBackupTotals(filesToBackup, onProgress = null) {
+  let files = 0;
+  let bytes = 0;
+  let walked = 0;
+  const walk = async (p) => {
+    throwIfBackupAborted();
+    let st;
+    try { st = fs.statSync(p); } catch (_e) { return; }
+    if (st.isDirectory()) {
+      let entries = [];
+      try { entries = fs.readdirSync(p); } catch (_e) { return; }
+      for (const e of entries) await walk(path.join(p, e));
+    } else {
+      files++;
+      bytes += st.size;
+      walked++;
+      if (walked % 40 === 0) {
+        if (onProgress) {
+          onProgress({
+            phase: 'scanning',
+            entries: files,
+            total: files,
+            bytes,
+            totalBytes: bytes
+          });
+        }
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    }
+  };
+  try {
+    for (const f of filesToBackup) {
+      throwIfBackupAborted();
+      await walk(f.path);
+    }
+  } catch (e) {
+    if (e && e.code === 'BACKUP_ABORTED') throw e;
+  }
+  return { files, bytes };
+}
+
+// Μετρά τα περιεχόμενα του αντιγράφου για εμφάνιση στο ιστορικό
+function countBackupContents(filesToBackup) {
+  const contents = { projects: 0, proskliseis: 0, entaxeis: 0, egkriseis: 0, meletai: 0, tasks: 0, users: 0 };
+  try {
+    for (const f of filesToBackup) {
+      const name = f.relativePath;
+      if (f.type === 'dir' && PROJECT_UUID_RE.test(name)) contents.projects++;
+      else if (name === 'ΠΡΟΣΚΛΗΣΕΙΣ') contents.proskliseis = 1;
+      else if (name === 'entaxeis') contents.entaxeis = 1;
+      else if (name === 'EGKRISEIS_DIATHESIS_PISTOSIS') contents.egkriseis = 1;
+      else if (name === 'ΜΕΛΕΤΕΣ') contents.meletai = 1;
+      else if (name === 'ANATHESEIS_ERGASION') contents.tasks = 1;
+      else if (name === 'users.json') contents.users = 1;
+    }
+  } catch (_e) { /* ignore */ }
+  return contents;
+}
+
+// Ελληνικές ετικέτες τύπου αντιγράφου
+const BACKUP_TYPE_LABELS_EL = {
+  full: 'Πλήρες',
+  manual: 'Χειροκίνητο',
+  safety: 'Ασφαλείας',
+};
+
+// Καθαρίζει ένα όνομα ώστε να είναι έγκυρο για όνομα αρχείου (Windows)
+function sanitizeForFileName(name) {
+  return String(name || '')
+    .replace(/[\\/:*?"<>|]/g, '')   // μη επιτρεπτοί χαρακτήρες
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, '_')            // κενά → underscore
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+}
+
+// Χτίζει ελληνικό, περιγραφικό όνομα αρχείου με ημερομηνία/ώρα και δημιουργό
+function buildBackupFileName(type, createdBy, date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const dd = pad(date.getDate());
+  const mm = pad(date.getMonth() + 1);
+  const yyyy = date.getFullYear();
+  const hh = pad(date.getHours());
+  const mi = pad(date.getMinutes());
+  const ss = pad(date.getSeconds());
+  const typeLabel = BACKUP_TYPE_LABELS_EL[type] || 'Αντίγραφο';
+  const author = sanitizeForFileName((createdBy && createdBy.fullName) || (createdBy && createdBy.username) || 'Άγνωστος');
+  return `Αντίγραφο_${dd}-${mm}-${yyyy}_${hh}-${mi}-${ss}_${typeLabel}_${author}.zip`;
+}
+
 // Create backup (non-blocking, background execution)
+// Το αντίγραφο είναι ΠΑΝΤΑ πλήρες — περιλαμβάνει ολόκληρο τον φάκελο δεδομένων.
 async function createBackup(options = {}) {
   const {
-    type = 'full', // full, incremental, daily, weekly, monthly
-    includeProjects = true,
-    includeProskliseis = true,
-    includeEntaxeis = true,
-    includeEgkriseis = true,
-    includeMeletai = true,
-    background = true,
+    type = 'full', // full | manual | safety
     notifyUser = false,
-    onProgress = null
+    onProgress = null,
+    actingUser = null, // { username, fullName, role }
+    manageLock = false, // αν true, αποκτά/απελευθερώνει το backup lock εδώ
   } = options;
-  
+
+  let lockAcquiredHere = false;
+  if (manageLock) {
+    const lock = acquireBackupLock({ operation: 'backup', by: actingUser?.fullName || '' });
+    if (!lock.ok) {
+      return { success: false, error: lock.error };
+    }
+    lockAcquiredHere = true;
+  }
+
   const backupId = uuidv4();
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-  const backupFileName = `backup_${timestamp}_${type}.zip`;
+
+  const createdBy = actingUser
+    ? { username: actingUser.username || '', fullName: actingUser.fullName || '', role: actingUser.role || '' }
+    : (() => { const u = getCurrentAuditUser(); return { username: u.username, fullName: u.fullName, role: u.role }; })();
+
+  const backupFileName = buildBackupFileName(type, createdBy, new Date());
   const backupPath = path.join(backupDir, backupFileName);
-  
+
   const backupInfo = {
     backupId,
     timestamp: new Date().toISOString(),
@@ -11654,6 +11863,7 @@ async function createBackup(options = {}) {
     path: backupPath,
     status: 'in_progress',
     size: 0,
+    createdBy,
     contents: {
       projects: 0,
       proskliseis: 0,
@@ -11666,33 +11876,31 @@ async function createBackup(options = {}) {
   
   try {
     console.log(`🔄 Starting backup: ${backupFileName}`);
-    
-    // Get files to backup
-    const filesToBackup = await getFilesToBackup({
-      includeProjects,
-      includeProskliseis,
-      includeEntaxeis,
-      includeEgkriseis,
-      includeMeletai,
-    });
-    
-    // Count contents
-    if (includeProjects) {
-      backupInfo.contents.projects = filesToBackup.filter(f => f.type === 'project').length;
+    if (backupDir && !fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+    throwIfBackupAborted();
+
+    // Πλήρες αντίγραφο ολόκληρου του φακέλου δεδομένων
+    if (onProgress) {
+      onProgress({ phase: 'scanning', entries: 0, total: 0, bytes: 0, totalBytes: 0 });
     }
-    if (includeProskliseis) {
-      backupInfo.contents.proskliseis = filesToBackup.filter(f => f.type === 'proskliseis').length > 0 ? 1 : 0;
+    const filesToBackup = await getFilesToBackup();
+    throwIfBackupAborted();
+    backupInfo.contents = countBackupContents(filesToBackup);
+
+    // Υπολογισμός συνόλων ώστε ο χρήστης να βλέπει πραγματική πρόοδο (ποσοστό/MB)
+    const totals = await computeBackupTotals(filesToBackup, onProgress);
+    throwIfBackupAborted();
+    if (onProgress) {
+      onProgress({
+        phase: 'archiving',
+        entries: 0,
+        total: totals.files,
+        bytes: 0,
+        totalBytes: totals.bytes
+      });
     }
-    if (includeEntaxeis) {
-      backupInfo.contents.entaxeis = filesToBackup.filter(f => f.type === 'entaxeis').length > 0 ? 1 : 0;
-    }
-    if (includeEgkriseis) {
-      backupInfo.contents.egkriseis = filesToBackup.filter(f => f.type === 'egkriseis').length > 0 ? 1 : 0;
-    }
-    if (includeMeletai) {
-      backupInfo.contents.meletai = filesToBackup.filter(f => f.type === 'meletai').length > 0 ? 1 : 0;
-    }
-    
+
     // Create ZIP archive
     const output = fs.createWriteStream(backupPath);
     const archive = archiver('zip', {
@@ -11701,99 +11909,182 @@ async function createBackup(options = {}) {
     
     // Handle archive events
     archive.on('error', (err) => {
+      // Το abort() του archiver εκπέμπει error — το αγνοούμε αν ακυρώσαμε
+      if (backupAbortRequested || (err && err.code === 'ABORTED')) return;
       throw err;
     });
     
+    let lastProgressAt = 0;
     archive.on('progress', (progress) => {
-      if (onProgress) {
-        onProgress({
-          entries: progress.entries.processed,
-          total: progress.entries.total,
-          bytes: progress.fs.processedBytes
-        });
-      }
+      if (!onProgress || backupAbortRequested) return;
+      // Throttle σε ~150ms για να μη πλημμυρίζει το IPC, αλλά να δείχνει ζωντανή κίνηση
+      const now = Date.now();
+      const done = progress.entries.processed >= progress.entries.total && progress.entries.total > 0;
+      if (now - lastProgressAt < 150 && !done) return;
+      lastProgressAt = now;
+      onProgress({
+        phase: 'archiving',
+        entries: progress.entries.processed,
+        total: totals.files || progress.entries.total,
+        bytes: progress.fs.processedBytes,
+        totalBytes: totals.bytes
+      });
     });
     
     archive.pipe(output);
+
+    const abortArchiveStreams = () => {
+      try { archive.abort(); } catch (_e) { /* ignore */ }
+      try { output.destroy(); } catch (_e) { /* ignore */ }
+    };
     
     // Add files to archive
-    for (const file of filesToBackup) {
-      // Skip lock files and temp files
-      if (file.path.includes('.lock') || file.path.includes('temp_')) continue;
-      
-      if (fs.existsSync(file.path)) {
-        const stat = fs.statSync(file.path);
-        if (stat.isDirectory()) {
-          archive.directory(file.path, file.relativePath);
-        } else {
-          archive.file(file.path, { name: file.relativePath });
+    try {
+      for (let i = 0; i < filesToBackup.length; i++) {
+        throwIfBackupAborted();
+        const file = filesToBackup[i];
+        // Skip lock files and temp files
+        if (file.path.includes('.lock') || file.path.includes('temp_')) continue;
+        
+        if (fs.existsSync(file.path)) {
+          const stat = fs.statSync(file.path);
+          if (stat.isDirectory()) {
+            archive.directory(file.path, file.relativePath);
+          } else {
+            archive.file(file.path, { name: file.relativePath });
+          }
+        }
+        
+        // Yield to event loop every 10 files (non-blocking)
+        if (i % 10 === 0) {
+          await new Promise(resolve => setImmediate(resolve));
         }
       }
+
+      throwIfBackupAborted();
       
-      // Yield to event loop every 10 files (non-blocking)
-      if (filesToBackup.indexOf(file) % 10 === 0) {
-        await new Promise(resolve => setImmediate(resolve));
+      // Finalize archive
+      await archive.finalize();
+      throwIfBackupAborted();
+    } catch (loopErr) {
+      if (loopErr && (loopErr.code === 'BACKUP_ABORTED' || backupAbortRequested)) {
+        abortArchiveStreams();
       }
+      throw loopErr;
     }
-    
-    // Finalize archive
-    await archive.finalize();
     
     // Wait for file to be written
     await new Promise((resolve, reject) => {
-      output.on('close', () => {
-        const stats = fs.statSync(backupPath);
-        backupInfo.size = stats.size;
-        backupInfo.status = 'success';
-        resolve();
-      });
+      const onClose = () => {
+        try {
+          throwIfBackupAborted();
+          const stats = fs.statSync(backupPath);
+          backupInfo.size = stats.size;
+          backupInfo.status = 'success';
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      };
+      output.on('close', onClose);
       output.on('error', reject);
+      // Αν ζητήθηκε ακύρωση ενώ γράφει το αρχείο
+      const abortPoll = setInterval(() => {
+        if (backupAbortRequested) {
+          clearInterval(abortPoll);
+          try { archive.abort(); } catch (_e) { /* ignore */ }
+          try { output.destroy(); } catch (_e) { /* ignore */ }
+          reject(Object.assign(new Error('Η δημιουργία αντιγράφου ακυρώθηκε από τον χρήστη.'), { code: 'BACKUP_ABORTED' }));
+        }
+      }, 400);
+      output.once('close', () => clearInterval(abortPoll));
+      output.once('error', () => clearInterval(abortPoll));
     });
     
-    // Calculate checksum
-    const fileBuffer = fs.readFileSync(backupPath);
-    const hashSum = crypto.createHash('sha256');
-    hashSum.update(fileBuffer);
-    backupInfo.checksum = hashSum.digest('hex');
+    // Calculate checksum (streaming — δεν φορτώνει όλο το zip στη μνήμη)
+    if (onProgress) {
+      onProgress({
+        phase: 'finalizing',
+        bytes: backupInfo.size,
+        totalBytes: backupInfo.size
+      });
+    }
+    throwIfBackupAborted();
+    backupInfo.checksum = await sha256FileStreaming(backupPath);
     
-    // Update metadata
+    // Update metadata — αφαίρεσε τυχόν προηγούμενη εγγραφή με το ίδιο όνομα (άμυνα κατά διπλότυπων)
     const metadata = loadBackupMetadata();
+    metadata.backups = (metadata.backups || []).filter(b => b && b.fileName !== backupFileName);
     metadata.backups.unshift(backupInfo);
     saveBackupMetadata(metadata);
     
     console.log(`✅ Backup completed: ${backupFileName} (${(backupInfo.size / 1024 / 1024).toFixed(2)} MB)`);
-    
-    // Notify user if requested
+
+    // Καταγραφή στο μητρώο ενεργειών (ποιος το έκανε) — όχι για τα safety
+    if (type !== 'safety') {
+      try {
+        logAuditAction({
+          type: 'create',
+          entityType: 'backup',
+          entityId: backupId,
+          entityTitle: 'Αντίγραφο ασφαλείας',
+          details: `Δημιουργήθηκε πλήρες αντίγραφο ασφαλείας (${(backupInfo.size / 1024 / 1024).toFixed(1)} MB)`,
+          userFullName: createdBy.fullName || undefined,
+          userRole: createdBy.role || undefined,
+        });
+      } catch (_e) { /* non-critical */ }
+    }
+
+    // Ειδοποίηση στον χρήστη που το εκκίνησε
     if (notifyUser && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('backup-completed', {
         success: true,
         backupId,
-        message: 'Το backup ολοκληρώθηκε επιτυχώς'
+        backupInfo,
+        message: 'Το αντίγραφο ασφαλείας ολοκληρώθηκε επιτυχώς'
       });
     }
-    
+
     return { success: true, backupInfo };
     
   } catch (error) {
-    console.error('❌ Backup failed:', error);
-    backupInfo.status = 'failed';
-    backupInfo.error = error.message;
-    
-    // Update metadata
-    const metadata = loadBackupMetadata();
-    metadata.backups.unshift(backupInfo);
-    saveBackupMetadata(metadata);
+    const aborted = backupAbortRequested || (error && error.code === 'BACKUP_ABORTED');
+    console.error(aborted ? '⏹ Backup aborted by user' : '❌ Backup failed:', error);
+    backupInfo.status = aborted ? 'cancelled' : 'failed';
+    backupInfo.error = aborted ? 'Ακυρώθηκε από τον χρήστη' : (error && error.message);
+
+    // Καθαρισμός ημιτελούς αρχείου
+    try {
+      if (backupPath && fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
+    } catch (_e) { /* ignore */ }
+
+    // Μην κρατάμε ακυρωμένα στο ιστορικό ως κανονικά αντίγραφα
+    if (!aborted) {
+      const metadata = loadBackupMetadata();
+      metadata.backups.unshift(backupInfo);
+      saveBackupMetadata(metadata);
+    }
     
     // Notify user if requested
     if (notifyUser && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('backup-completed', {
         success: false,
+        aborted: !!aborted,
         backupId,
-        message: `Σφάλμα κατά το backup: ${error.message}`
+        message: aborted
+          ? 'Η δημιουργία αντιγράφου ακυρώθηκε.'
+          : `Σφάλμα κατά το αντίγραφο ασφαλείας: ${error.message}`
       });
     }
     
-    return { success: false, error: error.message, backupInfo };
+    return {
+      success: false,
+      aborted: !!aborted,
+      error: aborted ? 'Ακυρώθηκε από τον χρήστη' : (error && error.message),
+      backupInfo
+    };
+  } finally {
+    if (lockAcquiredHere) releaseBackupLock();
   }
 }
 
@@ -11844,7 +12135,7 @@ function initializeBackupScheduler() {
     }
     
     // Delete backup settings file to prevent any automatic backups
-    if (fs.existsSync(backupSettingsPath)) {
+    if (backupSettingsPath && fs.existsSync(backupSettingsPath)) {
       try {
         fs.unlinkSync(backupSettingsPath);
         console.log('✅ Deleted backup_settings.json - automatic backups prevented');
@@ -11882,52 +12173,47 @@ function initializeBackupScheduler() {
   }
 }
 
-// Cleanup old backups based on retention policy
+// Πολιτική διατήρησης βασισμένη σε πλήθος (προβλέψιμη):
+//  - Κρατάμε τα πιο πρόσφατα KEEP_REAL πλήρη/χειροκίνητα αντίγραφα.
+//  - Κρατάμε τα πιο πρόσφατα KEEP_SAFETY αντίγραφα ασφαλείας πριν από επαναφορά.
+const BACKUP_KEEP_REAL = 15;
+const BACKUP_KEEP_SAFETY = 3;
+
 function cleanupOldBackups() {
   try {
-    const settings = loadBackupSettings();
     const metadata = loadBackupMetadata();
-    const now = new Date();
     let deletedCount = 0;
-    
+
+    const all = [...(metadata.backups || [])].sort(
+      (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+    );
+
+    let realCount = 0;
+    let safetyCount = 0;
     const backupsToKeep = [];
     const backupsToDelete = [];
-    
-    for (const backup of metadata.backups) {
-      const backupDate = new Date(backup.timestamp);
-      const ageDays = (now - backupDate) / (1000 * 60 * 60 * 24);
-      
-      let shouldKeep = false;
-      
-      if (backup.type === 'daily' && ageDays <= settings.retention.daily) {
-        shouldKeep = true;
-      } else if (backup.type === 'weekly' && ageDays <= (settings.retention.weekly * 7)) {
-        shouldKeep = true;
-      } else if (backup.type === 'monthly' && ageDays <= (settings.retention.monthly * 30)) {
-        shouldKeep = true;
-      } else if (backup.type === 'full' || backup.type === 'manual') {
-        // Keep full and manual backups for 30 days (1 month)
-        if (ageDays <= 30) {
-          shouldKeep = true;
-        }
-      } else if (backup.type === 'safety') {
-        // Keep safety backups for 7 days only
-        if (ageDays <= 7) {
-          shouldKeep = true;
-        }
+
+    for (const backup of all) {
+      const isSafety = backup.type === 'safety';
+      const limit = isSafety ? BACKUP_KEEP_SAFETY : BACKUP_KEEP_REAL;
+      const current = isSafety ? ++safetyCount : ++realCount;
+
+      // Αποτυχημένα αντίγραφα χωρίς αρχείο: αφαιρούνται από το μητρώο
+      const fileMissing = !backup.path || !fs.existsSync(backup.path);
+      if (backup.status !== 'success' && fileMissing) {
+        continue; // ούτε κρατάμε ούτε προσπαθούμε διαγραφή αρχείου
       }
-      
-      if (shouldKeep) {
+
+      if (current <= limit) {
         backupsToKeep.push(backup);
       } else {
         backupsToDelete.push(backup);
       }
     }
-    
-    // Delete old backups
+
     for (const backup of backupsToDelete) {
       try {
-        if (fs.existsSync(backup.path)) {
+        if (backup.path && fs.existsSync(backup.path)) {
           fs.unlinkSync(backup.path);
           deletedCount++;
           console.log(`🗑️ Deleted old backup: ${backup.fileName}`);
@@ -11936,15 +12222,14 @@ function cleanupOldBackups() {
         console.error(`❌ Error deleting backup ${backup.fileName}:`, error);
       }
     }
-    
-    // Update metadata
+
     metadata.backups = backupsToKeep;
     saveBackupMetadata(metadata);
-    
+
     if (deletedCount > 0) {
       console.log(`✅ Cleanup completed: Deleted ${deletedCount} old backups`);
     }
-    
+
     return deletedCount;
   } catch (error) {
     console.error('❌ Error cleaning up old backups:', error);
@@ -12108,15 +12393,48 @@ ipcMain.handle('save-backup-settings', async (event, settings) => {
   }
 });
 
+// Αφαιρεί διπλότυπες εγγραφές με το ίδιο όνομα αρχείου, κρατώντας την πληρέστερη
+// (μεγαλύτερο μέγεθος / με checksum). Καθαρίζει «φαντάσματα» από ημιτελή αρχεία.
+function dedupeBackupsByFileName(metadata) {
+  if (!metadata || !Array.isArray(metadata.backups)) return metadata;
+  const best = new Map();
+  for (const b of metadata.backups) {
+    if (!b || !b.fileName) continue;
+    const prev = best.get(b.fileName);
+    if (!prev) { best.set(b.fileName, b); continue; }
+    const bScore = (b.size || 0) + (b.checksum ? 1 : 0);
+    const pScore = (prev.size || 0) + (prev.checksum ? 1 : 0);
+    if (bScore > pScore) best.set(b.fileName, b);
+  }
+  // Διατήρηση αρχικής σειράς (πιο πρόσφατα πρώτα)
+  const seen = new Set();
+  const deduped = [];
+  for (const b of metadata.backups) {
+    if (!b || !b.fileName) { deduped.push(b); continue; }
+    if (seen.has(b.fileName)) continue;
+    seen.add(b.fileName);
+    deduped.push(best.get(b.fileName));
+  }
+  metadata.backups = deduped;
+  return metadata;
+}
+
 // Scan backup directory for backup files and sync with metadata
 function syncBackupMetadata() {
   try {
     const metadata = loadBackupMetadata();
+
+    // Όσο τρέχει backup/restore, το αρχείο γράφεται ακόμη στον δίσκο.
+    // ΜΗΝ το καταχωρείς — αλλιώς δημιουργούνται διπλές/φαντάσματα εγγραφές.
+    if (backupOperationInProgress) {
+      return dedupeBackupsByFileName(metadata);
+    }
+
     const existingBackupIds = new Set((metadata.backups || []).map(b => b.backupId));
     const existingFileNames = new Set((metadata.backups || []).map(b => b.fileName));
     
     if (!fs.existsSync(backupDir)) {
-      return metadata;
+      return dedupeBackupsByFileName(metadata);
     }
     
     const files = fs.readdirSync(backupDir);
@@ -12142,8 +12460,17 @@ function syncBackupMetadata() {
       const match = file.match(/^backup_(.+?)_(.+?)\.zip$/);
       let backupType = 'manual';
       let timestamp = stats.mtime.toISOString();
-      
-      if (match) {
+      let discoveredAuthor = '';
+
+      // Νέο ελληνικό format: Αντίγραφο_dd-mm-yyyy_HH-MI-SS_Τύπος_Δημιουργός.zip
+      const greekMatch = file.match(/^Αντίγραφο_(\d{2})-(\d{2})-(\d{4})_(\d{2})-(\d{2})-(\d{2})_([^_]+)_(.+)\.zip$/);
+      if (greekMatch) {
+        const [, gdd, gmm, gyyyy, ghh, gmi, gss, gtype, gauthor] = greekMatch;
+        timestamp = new Date(`${gyyyy}-${gmm}-${gdd}T${ghh}:${gmi}:${gss}`).toISOString();
+        const labelToType = { 'Πλήρες': 'full', 'Χειροκίνητο': 'manual', 'Ασφαλείας': 'safety' };
+        backupType = labelToType[gtype] || 'manual';
+        discoveredAuthor = (gauthor || '').replace(/_/g, ' ').trim();
+      } else if (match) {
         // Convert timestamp from 2025-12-02T12-10-50 to ISO format
         const timestampStr = match[1];
         // Replace last dash with colon for time (12-10-50 -> 12:10:50)
@@ -12162,17 +12489,18 @@ function syncBackupMetadata() {
         backupType = match[2];
       }
       
-      // Calculate checksum
+      // Υπολογισμός checksum μόνο για αρχεία < ~1.9GB (όριο readFileSync).
+      // Για μεγαλύτερα, ο έλεγχος γίνεται με streaming κατά το «Έλεγχος».
       let checksum = null;
       try {
-        const fileBuffer = fs.readFileSync(filePath);
-        const hashSum = crypto.createHash('sha256');
-        hashSum.update(fileBuffer);
-        checksum = hashSum.digest('hex');
+        if (stats.size < 1.9 * 1024 * 1024 * 1024) {
+          const fileBuffer = fs.readFileSync(filePath);
+          checksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+        }
       } catch (e) {
-        console.error('Error calculating checksum for', file, e);
+        console.error('Error calculating checksum for', file, e.message);
       }
-      
+
       const backupInfo = {
         backupId: uuidv4(),
         timestamp: timestamp,
@@ -12182,6 +12510,7 @@ function syncBackupMetadata() {
         status: 'success',
         size: stats.size,
         checksum: checksum,
+        createdBy: { username: '', fullName: discoveredAuthor || '', role: '' },
         contents: {
           projects: 0,
           proskliseis: 0,
@@ -12197,7 +12526,12 @@ function syncBackupMetadata() {
       console.log(`✅ Found and added backup to metadata: ${file}`);
     }
     
-    if (foundNew) {
+    // Καθαρισμός τυχόν διπλότυπων (π.χ. από παλαιότερα ημιτελή αρχεία)
+    const before = (metadata.backups || []).length;
+    dedupeBackupsByFileName(metadata);
+    const removed = before - (metadata.backups || []).length;
+
+    if (foundNew || removed > 0) {
       saveBackupMetadata(metadata);
       console.log('✅ Backup metadata synced');
     }
@@ -12214,8 +12548,10 @@ ipcMain.handle('get-backup-list', async () => {
   try {
     // Sync metadata with actual backup files first
     const metadata = syncBackupMetadata();
-    // Auto cleanup old backups when loading the list
-    cleanupOldBackups();
+    // Αυτόματος καθαρισμός παλαιών — ΟΧΙ όσο τρέχει backup/restore
+    if (!backupOperationInProgress) {
+      cleanupOldBackups();
+    }
     return metadata.backups || [];
   } catch (error) {
     console.error('Error getting backup list:', error);
@@ -12235,17 +12571,27 @@ ipcMain.handle('get-backup-info', async (event, backupId) => {
   }
 });
 
-// Create manual backup
+// Επιστρέφει το αντικείμενο χρήστη (από δίσκο) για καταγραφή «ποιος το έκανε»
+function resolveBackupActingUser(actingUsername) {
+  const name = actingUsername || loggedInUsername;
+  const u = findUserByUsername(name);
+  if (!u) return null;
+  return { username: u.username, fullName: u.fullName || u.username, role: u.role || 'USER' };
+}
+
+// Create manual backup — επιτρέπεται σε ADMIN και SUPERADMIN. Πάντα πλήρες.
 ipcMain.handle('create-backup', async (event, options = {}) => {
   try {
+    const actingUsername = options.actingUsername;
+    if (!isSuperAdminOrAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα δημιουργίας αντιγράφου ασφαλείας.' };
+    }
+    const actingUser = resolveBackupActingUser(actingUsername);
     const result = await createBackup({
-      type: options.type || 'manual',
-      includeProjects: options.includeProjects !== false,
-      includeProskliseis: options.includeProskliseis !== false,
-      includeEntaxeis: options.includeEntaxeis !== false,
-      includeEgkriseis: options.includeEgkriseis !== false,
-      background: true,
+      type: 'manual',
       notifyUser: true,
+      manageLock: true,
+      actingUser,
       onProgress: (progress) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('backup-progress', progress);
@@ -12259,9 +12605,35 @@ ipcMain.handle('create-backup', async (event, options = {}) => {
   }
 });
 
-// Delete backup
-ipcMain.handle('delete-backup', async (event, backupId) => {
+// Ακύρωση αντιγράφου που τρέχει — ξεκλειδώνει και το UI ακόμη κι αν η διαδικασία καθυστερεί
+ipcMain.handle('cancel-backup', async (event, opts = {}) => {
   try {
+    const actingUsername = (opts && opts.actingUsername) || loggedInUsername;
+    if (!isSuperAdminOrAdminUser(actingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα ακύρωσης αντιγράφου ασφαλείας.' };
+    }
+    requestBackupAbort();
+    // Αν η διαδικασία έχει «κολλήσει» (π.χ. αργή εγγραφή σε δικτυακό/OneDrive φάκελο),
+    // απελευθερώνουμε το κλείδωμα μετά από λίγο ώστε να μην μείνει μόνιμα κλειδωμένο.
+    setTimeout(() => {
+      if (backupAbortRequested && backupOperationInProgress) {
+        console.warn('⏹ Force-releasing backup lock after cancel timeout');
+        releaseBackupLock();
+      }
+    }, 4000);
+    return { success: true, wasInProgress: backupOperationInProgress };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Delete backup — μόνο SUPERADMIN (μη αναστρέψιμη ενέργεια)
+ipcMain.handle('delete-backup', async (event, backupId, opts = {}) => {
+  try {
+    const actingUsername = (opts && opts.actingUsername) || null;
+    if (!isSuperAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Μόνο ο Υπερδιαχειριστής μπορεί να διαγράψει αντίγραφα ασφαλείας.' };
+    }
     const metadata = loadBackupMetadata();
     const backup = metadata.backups.find(b => b.backupId === backupId);
     
@@ -12277,7 +12649,20 @@ ipcMain.handle('delete-backup', async (event, backupId) => {
     // Remove from metadata
     metadata.backups = metadata.backups.filter(b => b.backupId !== backupId);
     saveBackupMetadata(metadata);
-    
+
+    try {
+      const actor = resolveBackupActingUser(actingUsername);
+      logAuditAction({
+        type: 'delete',
+        entityType: 'backup',
+        entityId: backupId,
+        entityTitle: 'Αντίγραφο ασφαλείας',
+        details: 'Διαγραφή αντιγράφου ασφαλείας',
+        userFullName: actor?.fullName,
+        userRole: actor?.role,
+      });
+    } catch (_e) { /* non-critical */ }
+
     return { success: true };
   } catch (error) {
     console.error('Error deleting backup:', error);
@@ -12295,11 +12680,8 @@ ipcMain.handle('verify-backup', async (event, backupId) => {
       return { success: false, error: 'Backup file not found' };
     }
     
-    // Calculate checksum
-    const fileBuffer = fs.readFileSync(backup.path);
-    const hashSum = crypto.createHash('sha256');
-    hashSum.update(fileBuffer);
-    const currentChecksum = hashSum.digest('hex');
+    // Calculate checksum (streaming — υποστηρίζει και αρχεία >2GB)
+    const currentChecksum = await sha256FileStreaming(backup.path);
     
     const isValid = backup.checksum === currentChecksum;
     
@@ -12324,6 +12706,124 @@ ipcMain.handle('cleanup-old-backups', async () => {
     console.error('Error cleaning up old backups:', error);
     return { success: false, error: error.message };
   }
+});
+
+// Κατάσταση αντιγράφων ασφαλείας + λογική υπενθύμισης 10 ημερών (ADMIN + SUPERADMIN)
+// ΔΕΝ εκθέτει ποτέ τη διαδρομή αποθήκευσης.
+const BACKUP_REMINDER_DAYS = 10;
+ipcMain.handle('get-backup-status', async (_event, { actingUsername } = {}) => {
+  try {
+    if (!isSuperAdminOrAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const metadata = syncBackupMetadata();
+    const last = getLastRealBackup(metadata);
+    const lastAt = last ? last.timestamp : null;
+    const daysSince = lastAt ? (Date.now() - new Date(lastAt).getTime()) / 86400000 : null;
+    const reminderDue = daysSince === null || daysSince >= BACKUP_REMINDER_DAYS;
+    return {
+      success: true,
+      hasBackup: !!last,
+      lastBackupAt: lastAt,
+      lastBackupId: last ? last.backupId : null,
+      lastBackupBy: last && last.createdBy ? (last.createdBy.fullName || null) : null,
+      daysSince: daysSince === null ? null : Math.floor(daysSince),
+      reminderDue,
+      reminderThresholdDays: BACKUP_REMINDER_DAYS,
+      inProgress: backupOperationInProgress,
+    };
+  } catch (error) {
+    console.error('Error getting backup status:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Θέση αποθήκευσης αντιγράφων — ΟΡΑΤΗ ΜΟΝΟ ΣΤΟΝ SUPERADMIN
+ipcMain.handle('get-backup-location', async (_event, { actingUsername } = {}) => {
+  try {
+    if (!isSuperAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const custom = readBackupLocationSetting();
+    return {
+      success: true,
+      location: custom,             // η βασική διαδρομή που επέλεξε ο χρήστης (ή null)
+      effectiveDir: backupDir,      // ο πραγματικός φάκελος αποθήκευσης
+      isDefault: !custom,
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Ορισμός θέσης αποθήκευσης — SUPERADMIN, ή κατά την αρχική ρύθμιση (πριν υπάρξουν χρήστες)
+ipcMain.handle('save-backup-location', async (_event, { actingUsername, location } = {}) => {
+  try {
+    const noUsersYet = loadUsers().length === 0;
+    if (!noUsersYet && !isSuperAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα αλλαγής της θέσης αποθήκευσης' };
+    }
+    const cfgPath = getBackupLocationConfigPath();
+    if (!cfgPath) {
+      return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    }
+
+    const loc = String(location || '').trim();
+    if (loc) {
+      const resolved = path.resolve(loc);
+      if (!fs.existsSync(resolved)) {
+        return { success: false, error: 'Η διαδρομή δεν υπάρχει' };
+      }
+      let stat;
+      try { stat = fs.statSync(resolved); } catch (_e) { stat = null; }
+      if (!stat || !stat.isDirectory()) {
+        return { success: false, error: 'Η διαδρομή δεν είναι φάκελος' };
+      }
+      // Έλεγχος δικαιώματος εγγραφής
+      try {
+        fs.accessSync(resolved, fs.constants.W_OK);
+      } catch (_e) {
+        return { success: false, error: 'Δεν υπάρχει δικαίωμα εγγραφής στη διαδρομή' };
+      }
+      safeWriteJSON(cfgPath, { location: resolved, updatedAt: new Date().toISOString() });
+    } else {
+      // Επαναφορά στην προεπιλογή
+      try { if (fs.existsSync(cfgPath)) fs.unlinkSync(cfgPath); } catch (_e) { /* ignore */ }
+    }
+
+    backupDir = resolveBackupDir();
+    if (backupDir && !fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+    if (!noUsersYet) {
+      try {
+        const actor = resolveBackupActingUser(actingUsername);
+        logAuditAction({
+          type: 'update',
+          entityType: 'backup_location',
+          entityId: 'system',
+          entityTitle: 'Θέση αποθήκευσης αντιγράφων',
+          details: 'Άλλαξε η θέση αποθήκευσης των αντιγράφων ασφαλείας',
+          userFullName: actor?.fullName,
+          userRole: actor?.role,
+        });
+      } catch (_e) { /* non-critical */ }
+    }
+
+    return { success: true, effectiveDir: backupDir, isDefault: !loc };
+  } catch (error) {
+    console.error('Error saving backup location:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Επιλογή φακέλου αποθήκευσης αντιγράφων (native dialog)
+ipcMain.handle('select-backup-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Επιλέξτε φάκελο αποθήκευσης αντιγράφων ασφαλείας',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
 });
 
 // Extract ZIP file
@@ -12378,9 +12878,6 @@ function extractZip(zipPath, extractTo) {
 // Create safety backup before restore
 async function createSafetyBackup() {
   try {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    const safetyBackupPath = path.join(backupDir, `safety_backup_${timestamp}.zip`);
-    
     console.log('🛡️ Creating safety backup before restore...');
     const result = await createBackup({
       type: 'safety',
@@ -12425,15 +12922,19 @@ async function restoreBackup(backupId, options = {}) {
     
     console.log(`🔄 Starting restore from backup: ${backup.fileName}`);
     console.log(`   Type: ${type}`);
-    
-    // Step 1: Create safety backup
+
+    // Βήμα 1: Υποχρεωτικό αντίγραφο ασφαλείας πριν την επαναφορά.
+    // Αν αποτύχει, ΔΕΝ προχωράμε — προστατεύουμε τα τρέχοντα δεδομένα.
     let safetyBackup = null;
     try {
       safetyBackup = await createSafetyBackup();
       console.log(`✅ Safety backup created: ${safetyBackup.fileName}`);
     } catch (error) {
-      console.error('⚠️ Warning: Could not create safety backup:', error);
-      // Continue anyway, but warn user
+      console.error('❌ Could not create safety backup — aborting restore:', error);
+      return {
+        success: false,
+        error: 'Δεν ήταν δυνατή η δημιουργία αντιγράφου ασφαλείας πριν την επαναφορά. Η επαναφορά ακυρώθηκε για την προστασία των δεδομένων σας.',
+      };
     }
     
     // Step 2: Create temporary extraction directory
@@ -12451,67 +12952,47 @@ async function restoreBackup(backupId, options = {}) {
       
       // Step 4: Perform restore based on type
       if (type === 'full') {
-        // Full restore: Replace everything
+        // Full restore: αντικατάσταση όλων των δεδομένων
         console.log('🔄 Performing full restore...');
-        
-        // Backup current data (if safety backup failed)
-        if (!safetyBackup) {
-          // Try one more time
-          try {
-            safetyBackup = await createSafetyBackup();
-          } catch (e) {
-            console.error('❌ Could not create safety backup, proceeding anyway');
-          }
-        }
-        
-        // Copy extracted files to data directory
+
         const extractedDataDir = path.join(tempExtractDir, 'dedomena_ergon');
-        if (fs.existsSync(extractedDataDir)) {
-          // Copy all contents
-          const entries = fs.readdirSync(extractedDataDir);
-          for (const entry of entries) {
-            const sourcePath = path.join(extractedDataDir, entry);
-            const destPath = path.join(dataDir, entry);
-            
-            // Skip backups and locks directories
-            if (entry === 'backups' || entry === 'locks') continue;
-            
-            if (fs.statSync(sourcePath).isDirectory()) {
-              if (fs.existsSync(destPath)) {
-                fs.rmSync(destPath, { recursive: true, force: true });
-              }
-              fse.copySync(sourcePath, destPath);
-            } else {
-              if (fs.existsSync(destPath)) {
-                fs.unlinkSync(destPath);
-              }
-              fs.copyFileSync(sourcePath, destPath);
-            }
+        const sourceDir = fs.existsSync(extractedDataDir) ? extractedDataDir : tempExtractDir;
+
+        // 4α. Καθαρίζουμε τα τρέχοντα δεδομένα (εκτός συστημικών/προσωρινών),
+        //     ώστε το αποτέλεσμα να είναι πιστό αντίγραφο του backup.
+        try {
+          const currentEntries = fs.readdirSync(dataDir);
+          for (const entry of currentEntries) {
+            if (BACKUP_EXCLUDE_ENTRIES.has(entry)) continue;
+            if (entry.startsWith('.')) continue;
+            if (entry.startsWith('temp_')) continue; // περιλαμβάνει το temp_restore_*
+            const p = path.join(dataDir, entry);
+            if (backupDir && path.resolve(p) === path.resolve(backupDir)) continue;
+            try {
+              const st = fs.statSync(p);
+              if (st.isDirectory()) fs.rmSync(p, { recursive: true, force: true });
+              else fs.unlinkSync(p);
+            } catch (_e) { /* συνεχίζουμε */ }
           }
-        } else {
-          // Backup might be in root of extract
-          const entries = fs.readdirSync(tempExtractDir);
-          for (const entry of entries) {
-            const sourcePath = path.join(tempExtractDir, entry);
-            const destPath = path.join(dataDir, entry);
-            
-            // Skip backups and locks
-            if (entry === 'backups' || entry === 'locks') continue;
-            
-            if (fs.statSync(sourcePath).isDirectory()) {
-              if (fs.existsSync(destPath)) {
-                fs.rmSync(destPath, { recursive: true, force: true });
-              }
-              fse.copySync(sourcePath, destPath);
-            } else {
-              if (fs.existsSync(destPath)) {
-                fs.unlinkSync(destPath);
-              }
-              fs.copyFileSync(sourcePath, destPath);
-            }
+        } catch (e) {
+          console.error('Error clearing current data before full restore:', e);
+        }
+
+        // 4β. Αντιγραφή όλων των στοιχείων από το backup
+        const entries = fs.readdirSync(sourceDir);
+        for (const entry of entries) {
+          if (entry === 'backups' || entry === 'locks') continue;
+          const sourcePath = path.join(sourceDir, entry);
+          const destPath = path.join(dataDir, entry);
+          if (fs.statSync(sourcePath).isDirectory()) {
+            if (fs.existsSync(destPath)) fs.rmSync(destPath, { recursive: true, force: true });
+            fse.copySync(sourcePath, destPath);
+          } else {
+            if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+            fs.copyFileSync(sourcePath, destPath);
           }
         }
-        
+
         console.log('✅ Full restore completed');
         
       } else if (type === 'selective') {
@@ -12712,14 +13193,28 @@ async function restoreBackup(backupId, options = {}) {
       fs.rmSync(tempExtractDir, { recursive: true, force: true });
       
       // Step 6: Update restore metadata
+      const restoreActor = options.actingUser || (() => { const u = getCurrentAuditUser(); return { username: u.username, fullName: u.fullName, role: u.role }; })();
       const restoreInfo = {
         restoreId: uuidv4(),
         backupId: backupId,
         timestamp: new Date().toISOString(),
         type: type,
         safetyBackupId: safetyBackup ? safetyBackup.backupId : null,
+        restoredBy: restoreActor,
         success: true
       };
+
+      try {
+        logAuditAction({
+          type: 'restore',
+          entityType: 'backup',
+          entityId: backupId,
+          entityTitle: 'Επαναφορά αντιγράφου ασφαλείας',
+          details: `Επαναφορά δεδομένων από αντίγραφο (${backup.fileName})`,
+          userFullName: restoreActor?.fullName,
+          userRole: restoreActor?.role,
+        });
+      } catch (_e) { /* non-critical */ }
       
       // Save restore history (optional)
       const restoreHistoryPath = path.join(backupDir, 'restore_history.json');
@@ -12765,14 +13260,25 @@ async function restoreBackup(backupId, options = {}) {
   }
 }
 
-// Restore backup IPC handler
+// Restore backup IPC handler — ΜΟΝΟ SUPERADMIN
 ipcMain.handle('restore-backup', async (event, backupId, options = {}) => {
+  const actingUsername = (options && options.actingUsername) || null;
+  if (!isSuperAdminUser(actingUsername || loggedInUsername)) {
+    return { success: false, error: 'Μόνο ο Υπερδιαχειριστής μπορεί να κάνει επαναφορά δεδομένων.' };
+  }
+  const lock = acquireBackupLock({ operation: 'restore' });
+  if (!lock.ok) {
+    return { success: false, error: lock.error };
+  }
   try {
-    const result = await restoreBackup(backupId, options);
+    const actingUser = resolveBackupActingUser(actingUsername);
+    const result = await restoreBackup(backupId, { ...options, actingUser });
     return result;
   } catch (error) {
     console.error('Error in restore-backup handler:', error);
     return { success: false, error: error.message };
+  } finally {
+    releaseBackupLock();
   }
 });
 

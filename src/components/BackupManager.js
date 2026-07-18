@@ -1,10 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import styled from 'styled-components';
+import React, { useState, useEffect, useRef } from 'react';
+import styled, { keyframes } from 'styled-components';
 import { showConfirm } from '../utils/confirmModal';
 import { useToast } from './ToastProvider';
 import { formatDateTimeEl } from '../utils/dateFormat';
 
 const ipcRenderer = window.electronAPI;
+
+const BACKUP_TYPE_LABELS = {
+  full: 'Πλήρες',
+  manual: 'Χειροκίνητο',
+  safety: 'Ασφαλείας',
+};
+
+const fmtBytes = (n) => {
+  if (!n && n !== 0) return '—';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+};
+
+const fmtTime = (sec) => {
+  const s = Math.max(0, Math.floor(sec));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}′ ${r}″` : `${r}″`;
+};
 
 const ModalOverlay = styled.div`
   position: fixed;
@@ -265,11 +286,54 @@ const ProgressFill = styled.div`
   transition: width 0.3s ease;
 `;
 
+const indeterminateSlide = keyframes`
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+`;
+
+// Κινούμενη μπάρα για όταν δεν ξέρουμε ακόμα το σύνολο (δείχνει ότι «ζει» η διαδικασία)
+const IndeterminateFill = styled.div`
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, rgba(16,185,129,0.15) 0%, #10b981 50%, rgba(16,185,129,0.15) 100%);
+    animation: ${indeterminateSlide} 1.1s ease-in-out infinite;
+  }
+`;
+
 const ProgressText = styled.div`
   text-align: center;
   color: #6c757d;
   font-size: 0.9rem;
   margin-top: 0.5rem;
+`;
+
+const ProgressMeta = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-top: 0.35rem;
+`;
+
+const StalledWarning = styled.div`
+  text-align: center;
+  font-size: 0.85rem;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.6rem;
 `;
 
 // Restore Wizard Section
@@ -436,21 +500,33 @@ const SecondaryButton = styled.button`
   }
 `;
 
-function BackupManager({ isOpen, onClose }) {
+function BackupManager({ isOpen, onClose, currentUser }) {
   const { showToast } = useToast();
+  const actingUsername = currentUser?.username;
+  const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
   const [view, setView] = useState('main'); // 'main', 'create', 'history', 'restore'
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isBackupInProgress, setIsBackupInProgress] = useState(false);
   const [backupProgress, setBackupProgress] = useState(null);
-  
-  // Create backup options
-  const [backupOptions, setBackupOptions] = useState({
-    includeProjects: true,
-    includeProskliseis: true,
-    includeEntaxeis: true,
-    includeEgkriseis: true
-  });
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [stalled, setStalled] = useState(false);
+  const startRef = useRef(0);
+  const lastProgressRef = useRef(0);
+  const cancelledRef = useRef(false);
+
+  const resetBackupUiState = () => {
+    setIsBackupInProgress(false);
+    setBackupProgress(null);
+    setStalled(false);
+    setElapsedSec(0);
+  };
+
+  // Κατάσταση αντιγράφων (τελευταίο, υπενθύμιση)
+  const [status, setStatus] = useState(null);
+  // Θέση αποθήκευσης — ορατή μόνο στον SUPERADMIN
+  const [location, setLocation] = useState(null);
+  const [savingLocation, setSavingLocation] = useState(false);
   
   // Restore wizard state
   const [restoreStep, setRestoreStep] = useState(1); // 1: Select backup, 2: Choose type, 3: Select items, 4: Preview, 5: Confirm
@@ -465,6 +541,8 @@ function BackupManager({ isOpen, onClose }) {
   useEffect(() => {
     if (isOpen) {
       loadBackups();
+      loadStatus();
+      if (isSuperAdmin) loadLocation();
     }
   }, [isOpen]);
   
@@ -472,19 +550,27 @@ function BackupManager({ isOpen, onClose }) {
   useEffect(() => {
     if (!isOpen) return;
     
-    const progressListener = (event, progress) => {
+    const progressListener = (progress) => {
+      if (cancelledRef.current || !progress) return;
+      lastProgressRef.current = Date.now();
+      setStalled(false);
       setBackupProgress(progress);
     };
     
-    const completionListener = (event, result) => {
-      setIsBackupInProgress(false);
-      setBackupProgress(null);
-      if (result.success) {
+    const completionListener = (result) => {
+      if (cancelledRef.current) {
+        resetBackupUiState();
+        return;
+      }
+      resetBackupUiState();
+      if (result && result.success) {
         showToast(`Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}`, 'success');
         loadBackups(); // Reload list
         setView('history'); // Show history
+      } else if (result && result.aborted) {
+        showToast('Η δημιουργία αντιγράφου ακυρώθηκε.', 'info');
       } else {
-        showToast(`Σφάλμα κατά το backup: ${result.message || 'Άγνωστο σφάλμα'}`, 'error');
+        showToast(`Σφάλμα κατά το backup: ${(result && result.message) || 'Άγνωστο σφάλμα'}`, 'error');
       }
     };
     
@@ -496,6 +582,20 @@ function BackupManager({ isOpen, onClose }) {
       unsubCompleted();
     };
   }, [isOpen]);
+
+  // Χρονόμετρο + ανίχνευση «κολλήματος» όσο τρέχει το backup
+  useEffect(() => {
+    if (!isBackupInProgress) return;
+    const tick = setInterval(() => {
+      const now = Date.now();
+      setElapsedSec(Math.max(0, Math.round((now - startRef.current) / 1000)));
+      // Αν δεν έχει έρθει ενημέρωση προόδου για >25s, θεωρούμε πιθανή καθυστέρηση
+      if (lastProgressRef.current && now - lastProgressRef.current > 25000) {
+        setStalled(true);
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [isBackupInProgress]);
   
   const loadBackups = async () => {
     try {
@@ -505,7 +605,86 @@ function BackupManager({ isOpen, onClose }) {
       console.error('Error loading backups:', error);
     }
   };
+
+  const loadStatus = async () => {
+    try {
+      const res = await ipcRenderer.invoke('get-backup-status', { actingUsername });
+      if (res && res.success !== false) setStatus(res);
+    } catch (error) {
+      console.error('Error loading backup status:', error);
+    }
+  };
+
+  const loadLocation = async () => {
+    try {
+      const res = await ipcRenderer.invoke('get-backup-location', { actingUsername });
+      if (res && res.success) setLocation(res);
+    } catch (error) {
+      console.error('Error loading backup location:', error);
+    }
+  };
+
+  const handleChangeLocation = async () => {
+    try {
+      const selected = await ipcRenderer.invoke('select-backup-folder');
+      if (!selected) return;
+      setSavingLocation(true);
+      const res = await ipcRenderer.invoke('save-backup-location', { actingUsername, location: selected });
+      if (res && res.success) {
+        showToast('Η θέση αποθήκευσης αντιγράφων ενημερώθηκε.', 'success');
+        await loadLocation();
+        await loadBackups();
+      } else {
+        showToast(`Σφάλμα: ${res?.error || 'Άγνωστο σφάλμα'}`, 'error');
+      }
+    } catch (error) {
+      showToast(`Σφάλμα: ${error.message}`, 'error');
+    } finally {
+      setSavingLocation(false);
+    }
+  };
+
+  const handleResetLocation = async () => {
+    try {
+      setSavingLocation(true);
+      const res = await ipcRenderer.invoke('save-backup-location', { actingUsername, location: '' });
+      if (res && res.success) {
+        showToast('Επαναφορά στην προεπιλεγμένη θέση αποθήκευσης.', 'success');
+        await loadLocation();
+        await loadBackups();
+      } else {
+        showToast(`Σφάλμα: ${res?.error || 'Άγνωστο σφάλμα'}`, 'error');
+      }
+    } catch (error) {
+      showToast(`Σφάλμα: ${error.message}`, 'error');
+    } finally {
+      setSavingLocation(false);
+    }
+  };
   
+  const handleCancelBackup = async ({ closeAfter = false } = {}) => {
+    cancelledRef.current = true;
+    resetBackupUiState();
+    try {
+      await ipcRenderer.invoke('cancel-backup', { actingUsername });
+    } catch (_e) { /* ακόμα κι αν αποτύχει το IPC, το UI ξεκλειδώνει */ }
+    showToast('Η δημιουργία αντιγράφου ακυρώθηκε.', 'info');
+    if (closeAfter) {
+      onClose();
+    } else {
+      setView('main');
+    }
+  };
+
+  const handleCloseModal = async () => {
+    if (restoreInProgress) return;
+    if (isBackupInProgress) {
+      await handleCancelBackup({ closeAfter: true });
+      return;
+    }
+    onClose();
+  };
+
   const handleCreateBackup = async () => {
     if (isBackupInProgress) {
       showToast('Το backup είναι ήδη σε εξέλιξη...', 'info');
@@ -513,30 +692,46 @@ function BackupManager({ isOpen, onClose }) {
     }
     
     try {
+      cancelledRef.current = false;
       setIsBackupInProgress(true);
       setBackupProgress({ entries: 0, total: 0, bytes: 0 });
+      startRef.current = Date.now();
+      lastProgressRef.current = Date.now();
+      setElapsedSec(0);
+      setStalled(false);
       
       const result = await ipcRenderer.invoke('create-backup', {
         type: 'manual',
-        ...backupOptions
+        actingUsername
       });
+
+      // Αν ο χρήστης ακύρωσε ενδιάμεσα, μην ξανακλειδώσεις το παράθυρο
+      if (cancelledRef.current) {
+        resetBackupUiState();
+        return;
+      }
       
       if (result.success) {
-        setIsBackupInProgress(false);
-        setBackupProgress(null);
+        resetBackupUiState();
         showToast(`Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}`, 'success');
         loadBackups();
         setView('history');
+      } else if (result.aborted) {
+        resetBackupUiState();
+        showToast('Η δημιουργία αντιγράφου ακυρώθηκε.', 'info');
+        setView('main');
       } else {
-        setIsBackupInProgress(false);
-        setBackupProgress(null);
+        resetBackupUiState();
         showToast(`Σφάλμα κατά το backup: ${result.error || 'Άγνωστο σφάλμα'}`, 'error');
       }
     } catch (error) {
       console.error('Error creating backup:', error);
-      setIsBackupInProgress(false);
-      setBackupProgress(null);
-      showToast(`Σφάλμα κατά το backup: ${error.message}`, 'error');
+      if (!cancelledRef.current) {
+        resetBackupUiState();
+        showToast(`Σφάλμα κατά το backup: ${error.message}`, 'error');
+      } else {
+        resetBackupUiState();
+      }
     }
   };
   
@@ -546,7 +741,7 @@ function BackupManager({ isOpen, onClose }) {
     }
     
     try {
-      const result = await ipcRenderer.invoke('delete-backup', backupId);
+      const result = await ipcRenderer.invoke('delete-backup', backupId, { actingUsername });
       if (result.success) {
         loadBackups();
         showToast('Το backup διαγράφηκε επιτυχώς', 'success');
@@ -632,7 +827,8 @@ function BackupManager({ isOpen, onClose }) {
       
       const result = await ipcRenderer.invoke('restore-backup', selectedBackup.backupId, {
         type: restoreType,
-        items: selectedItems
+        items: selectedItems,
+        actingUsername
       });
       
       if (result.success) {
@@ -669,8 +865,12 @@ function BackupManager({ isOpen, onClose }) {
       <ModalContainer>
         <ModalHeader>
           <ModalTitle>💾 Διαχείριση Backups</ModalTitle>
-          <CloseButton onClick={onClose} disabled={isBackupInProgress || restoreInProgress}>
-            {isBackupInProgress || restoreInProgress ? '⏳ Εκτελείται...' : '✕ Κλείσιμο'}
+          <CloseButton onClick={handleCloseModal} disabled={restoreInProgress}>
+            {restoreInProgress
+              ? '⏳ Εκτελείται...'
+              : isBackupInProgress
+                ? '⏹ Ακύρωση & Κλείσιμο'
+                : '✕ Κλείσιμο'}
           </CloseButton>
         </ModalHeader>
         
@@ -678,6 +878,34 @@ function BackupManager({ isOpen, onClose }) {
           {/* Main View */}
           {view === 'main' && (
             <>
+              {status && (
+                <div style={{
+                  padding: '1rem 1.25rem',
+                  borderRadius: 12,
+                  border: `1.5px solid ${status.reminderDue ? '#fdba74' : '#86efac'}`,
+                  background: status.reminderDue ? '#fff7ed' : '#f0fdf4',
+                  color: status.reminderDue ? '#9a3412' : '#166534',
+                  fontSize: '0.95rem',
+                  lineHeight: 1.5,
+                }}>
+                  {status.hasBackup ? (
+                    <>
+                      <strong>Τελευταίο αντίγραφο ασφαλείας:</strong>{' '}
+                      {formatDate(status.lastBackupAt)}
+                      {status.lastBackupBy ? ` — από ${status.lastBackupBy}` : ''}
+                      {typeof status.daysSince === 'number' ? ` (πριν ${status.daysSince} ημέρες)` : ''}
+                      {status.reminderDue && (
+                        <div style={{ marginTop: 6, fontWeight: 700 }}>
+                          ⚠️ Συνιστάται η δημιουργία νέου αντιγράφου ασφαλείας.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <strong>⚠️ Δεν έχει δημιουργηθεί ποτέ αντίγραφο ασφαλείας.</strong>
+                  )}
+                </div>
+              )}
+
               <ActionButtons>
                 <ActionButton
                   primary
@@ -685,7 +913,7 @@ function BackupManager({ isOpen, onClose }) {
                   disabled={isBackupInProgress}
                 >
                   <ActionIcon>💾</ActionIcon>
-                  <ActionLabel>Δημιουργία<br/>Νέου Backup</ActionLabel>
+                  <ActionLabel>Δημιουργία<br/>Νέου Αντιγράφου</ActionLabel>
                 </ActionButton>
                 
                 <ActionButton
@@ -695,85 +923,123 @@ function BackupManager({ isOpen, onClose }) {
                   }}
                 >
                   <ActionIcon>📋</ActionIcon>
-                  <ActionLabel>Διαχείριση<br/>Backups</ActionLabel>
+                  <ActionLabel>Ιστορικό<br/>Αντιγράφων</ActionLabel>
                 </ActionButton>
               </ActionButtons>
+
+              {/* Θέση αποθήκευσης — ΟΡΑΤΗ ΜΟΝΟ ΣΤΟΝ ΥΠΕΡΔΙΑΧΕΙΡΙΣΤΗ */}
+              {isSuperAdmin && location && (
+                <div style={{
+                  padding: '1rem 1.25rem',
+                  borderRadius: 12,
+                  border: '1.5px solid #e2e8f0',
+                  background: '#f8fafc',
+                }}>
+                  <div style={{ fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                    📁 Θέση αποθήκευσης αντιγράφων
+                  </div>
+                  <div style={{
+                    fontFamily: 'Consolas, monospace',
+                    fontSize: '0.85rem',
+                    color: '#475569',
+                    wordBreak: 'break-all',
+                    marginBottom: 4,
+                  }}>
+                    {location.effectiveDir || '—'}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: 10 }}>
+                    {location.isDefault
+                      ? 'Προεπιλεγμένη θέση (εντός του φακέλου δεδομένων).'
+                      : 'Προσαρμοσμένη θέση αποθήκευσης.'}
+                    {' '}Η διαδρομή είναι ορατή μόνο σε εσάς.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <SmallButton onClick={handleChangeLocation} disabled={savingLocation}>
+                      Αλλαγή θέσης…
+                    </SmallButton>
+                    {!location.isDefault && (
+                      <SmallButton danger onClick={handleResetLocation} disabled={savingLocation}>
+                        Επαναφορά προεπιλογής
+                      </SmallButton>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
           
           {/* Create Backup View */}
           {view === 'create' && (
             <CreateBackupSection show={true}>
-              <SectionTitle>Δημιουργία Νέου Backup</SectionTitle>
-              
+              <SectionTitle>Δημιουργία Πλήρους Αντιγράφου Ασφαλείας</SectionTitle>
+
               <BackupOptions>
-                <OptionGroup>
-                  <CheckboxLabel>
-                    <Checkbox
-                      type="checkbox"
-                      checked={backupOptions.includeProjects}
-                      onChange={(e) => setBackupOptions({ ...backupOptions, includeProjects: e.target.checked })}
-                    />
-                    Έργα
-                  </CheckboxLabel>
-                </OptionGroup>
-                
-                <OptionGroup>
-                  <CheckboxLabel>
-                    <Checkbox
-                      type="checkbox"
-                      checked={backupOptions.includeProskliseis}
-                      onChange={(e) => setBackupOptions({ ...backupOptions, includeProskliseis: e.target.checked })}
-                    />
-                    Προσκλήσεις
-                  </CheckboxLabel>
-                </OptionGroup>
-                
-                <OptionGroup>
-                  <CheckboxLabel>
-                    <Checkbox
-                      type="checkbox"
-                      checked={backupOptions.includeEntaxeis}
-                      onChange={(e) => setBackupOptions({ ...backupOptions, includeEntaxeis: e.target.checked })}
-                    />
-                    Εντάξεις
-                  </CheckboxLabel>
-                </OptionGroup>
-                
-                <OptionGroup>
-                  <CheckboxLabel>
-                    <Checkbox
-                      type="checkbox"
-                      checked={backupOptions.includeEgkriseis}
-                      onChange={(e) => setBackupOptions({ ...backupOptions, includeEgkriseis: e.target.checked })}
-                    />
-                    Εγκρίσεις
-                  </CheckboxLabel>
-                </OptionGroup>
+                <div style={{ fontSize: '0.95rem', color: '#333', lineHeight: 1.6 }}>
+                  Θα δημιουργηθεί ένα <strong>πλήρες αντίγραφο</strong> όλων των δεδομένων της εφαρμογής:
+                  έργα, εντάξεις, προσκλήσεις, εγκρίσεις, μελέτες, αναθέσεις εργασιών, σημειώσεις,
+                  χρήστες και ρυθμίσεις.
+                </div>
               </BackupOptions>
-              
-              {isBackupInProgress && (
-                <>
-                  <ProgressBar>
-                    <ProgressFill progress={backupProgress ? (backupProgress.entries / backupProgress.total) * 100 : 0} />
-                  </ProgressBar>
-                  <ProgressText>
-                    {backupProgress 
-                      ? `Πρόοδος: ${backupProgress.entries} / ${backupProgress.total} αρχεία (${Math.round((backupProgress.entries / backupProgress.total) * 100)}%)`
-                      : 'Αρχικοποίηση...'}
-                  </ProgressText>
-                </>
-              )}
+
+              {isBackupInProgress && (() => {
+                const p = backupProgress || {};
+                const hasBytes = p.totalBytes > 0;
+                const bytePct = hasBytes ? Math.min(100, (p.bytes / p.totalBytes) * 100) : 0;
+                const isFinalizing = p.phase === 'finalizing';
+                const isScanning = p.phase === 'scanning' || (!hasBytes && !p.bytes);
+                // Δείχνουμε πραγματικό ποσοστό όταν ξέρουμε το σύνολο· αλλιώς κινούμενη μπάρα
+                const showDeterminate = hasBytes && !isFinalizing;
+                let label;
+                if (isFinalizing) label = 'Οριστικοποίηση & έλεγχος ακεραιότητας…';
+                else if (isScanning) label = 'Ανάλυση δεδομένων…';
+                else label = 'Συμπίεση δεδομένων…';
+                return (
+                  <>
+                    <ProgressBar>
+                      {showDeterminate
+                        ? <ProgressFill progress={bytePct} />
+                        : <IndeterminateFill />}
+                    </ProgressBar>
+                    <ProgressText>
+                      {label}
+                      {showDeterminate ? ` ${Math.round(bytePct)}%` : ''}
+                    </ProgressText>
+                    <ProgressMeta>
+                      <span>
+                        {p.bytes ? fmtBytes(p.bytes) : '0 B'}
+                        {hasBytes ? ` / ${fmtBytes(p.totalBytes)}` : ''}
+                        {p.total ? ` • ${p.entries || 0}/${p.total} αρχεία` : ''}
+                      </span>
+                      <span>⏱ {fmtTime(elapsedSec)}</span>
+                    </ProgressMeta>
+                    {stalled && (
+                      <StalledWarning>
+                        Η διαδικασία καθυστερεί περισσότερο από το αναμενόμενο. Πιθανόν
+                        γίνεται συμπίεση μεγάλων αρχείων — παρακαλώ περιμένετε λίγο ακόμη
+                        χωρίς να κλείσετε το παράθυρο.
+                      </StalledWarning>
+                    )}
+                  </>
+                );
+              })()}
               
               <ButtonGroup>
-                <SecondaryButton onClick={() => setView('main')}>
-                  Ακύρωση
+                <SecondaryButton
+                  onClick={() => {
+                    if (isBackupInProgress) {
+                      handleCancelBackup({ closeAfter: false });
+                    } else {
+                      setView('main');
+                    }
+                  }}
+                >
+                  {isBackupInProgress ? 'Ακύρωση διαδικασίας' : 'Πίσω'}
                 </SecondaryButton>
                 <PrimaryButton
                   onClick={handleCreateBackup}
-                  disabled={isBackupInProgress || (!backupOptions.includeProjects && !backupOptions.includeProskliseis && !backupOptions.includeEntaxeis && !backupOptions.includeEgkriseis)}
+                  disabled={isBackupInProgress}
                 >
-                  {isBackupInProgress ? 'Σε εξέλιξη...' : 'Δημιουργία Backup'}
+                  {isBackupInProgress ? 'Σε εξέλιξη...' : 'Δημιουργία Αντιγράφου'}
                 </PrimaryButton>
               </ButtonGroup>
             </CreateBackupSection>
@@ -802,7 +1068,8 @@ function BackupManager({ isOpen, onClose }) {
                         <BackupDetails>
                           <span>📅 {formatDate(backup.timestamp)}</span>
                           <span>📦 {formatSize(backup.size || 0)}</span>
-                          <span>🏷️ {backup.type}</span>
+                          <span>🏷️ {BACKUP_TYPE_LABELS[backup.type] || backup.type}</span>
+                          <span>👤 {backup.createdBy?.fullName || backup.createdBy?.username || 'Άγνωστος'}</span>
                           <StatusBadge status={backup.status}>
                             {backup.status === 'success' ? '✅ Επιτυχές' : 
                              backup.status === 'failed' ? '❌ Αποτυχημένο' : 
@@ -813,17 +1080,21 @@ function BackupManager({ isOpen, onClose }) {
                       <BackupActions>
                         {backup.status === 'success' && (
                           <>
-                            <SmallButton success onClick={() => handleStartRestore(backup)}>
-                              🔄 Restore
-                            </SmallButton>
+                            {isSuperAdmin && (
+                              <SmallButton success onClick={() => handleStartRestore(backup)}>
+                                🔄 Επαναφορά
+                              </SmallButton>
+                            )}
                             <SmallButton onClick={() => handleVerifyBackup(backup.backupId)} disabled={loading}>
-                              ✓ Verify
+                              ✓ Έλεγχος
                             </SmallButton>
                           </>
                         )}
-                        <SmallButton danger onClick={() => handleDeleteBackup(backup.backupId)}>
-                          🗑️ Delete
-                        </SmallButton>
+                        {isSuperAdmin && (
+                          <SmallButton danger onClick={() => handleDeleteBackup(backup.backupId)}>
+                            🗑️ Διαγραφή
+                          </SmallButton>
+                        )}
                       </BackupActions>
                     </BackupItem>
                   ))}

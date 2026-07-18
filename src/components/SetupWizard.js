@@ -27,16 +27,48 @@ const Overlay = styled.div`
   align-items: center;
   z-index: 10000;
   padding: 24px 16px;
+  box-sizing: border-box;
+  overflow: hidden;
 `;
 
 const Card = styled.div`
   background: #ffffff;
   border-radius: 20px;
-  padding: 48px 52px;
+  padding: 40px 44px;
   max-width: 640px;
   width: 100%;
+  max-height: calc(100vh - 48px);
   box-shadow: 0 32px 80px rgba(0, 0, 0, 0.45);
   animation: ${floatIn} 0.4s ease-out;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+`;
+
+// Κυλιόμενο σώμα — κρατάει την κάρτα εντός οθόνης χωρίς να κόβει περιεχόμενο
+const CardScroll = styled.div`
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  margin-right: -4px;
+  -webkit-overflow-scrolling: touch;
+
+  /* Διακριτική μπάρα κύλισης */
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 8px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
 `;
 
 // ─── Welcome Screen ───────────────────────────────────────────────────────────
@@ -350,6 +382,12 @@ const ButtonRow = styled.div`
   gap: 10px;
   margin-top: 28px;
   justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: linear-gradient(to top, #ffffff 65%, rgba(255, 255, 255, 0));
+  padding-top: 18px;
+  padding-bottom: 2px;
 `;
 
 const Btn = styled.button`
@@ -404,6 +442,14 @@ const SetupWizard = ({ onComplete }) => {
   const [adminPassConfirm, setAdminPassConfirm] = useState('');
   const [saving, setSaving]                     = useState(false);
   const [finishError, setFinishError]           = useState('');
+
+  // Θέση αποθήκευσης αντιγράφων ασφαλείας (προαιρετική — μόνο κατά τη νέα εγκατάσταση)
+  const [backupLocation, setBackupLocation]     = useState('');
+
+  const handleBrowseBackup = async () => {
+    const selected = await ipcRenderer.invoke('select-backup-folder');
+    if (selected) setBackupLocation(selected);
+  };
 
   // Εφαρμόζει org config (από app-config ή org-config.json του dataDir)
   const applyOrgConfig = (cfg) => {
@@ -494,6 +540,16 @@ const SetupWizard = ({ onComplete }) => {
           setSaving(false);
           return;
         }
+
+        // 2β. Προαιρετική θέση αποθήκευσης αντιγράφων ασφαλείας (γνωστή μόνο στον Υπερδιαχειριστή)
+        if (backupLocation.trim()) {
+          try {
+            await ipcRenderer.invoke('save-backup-location', {
+              actingUsername: adminUser.trim(),
+              location: backupLocation.trim(),
+            });
+          } catch (_e) { /* μη κρίσιμο για την ολοκλήρωση */ }
+        }
       }
 
       // 3. Ολοκλήρωση ρύθμισης → relaunch
@@ -524,6 +580,7 @@ const SetupWizard = ({ onComplete }) => {
   return (
     <Overlay>
       <Card>
+        <CardScroll>
 
         {/* ══════════════════════════════════════════════════════
             STEP 0 — WELCOME
@@ -848,6 +905,39 @@ const SetupWizard = ({ onComplete }) => {
                   )}
                 </FieldGroup>
 
+                <EmailInfoCard style={{ background: '#f0fdf4', borderColor: '#86efac', color: '#166534' }}>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>🛡️</span>
+                  <div>
+                    <strong style={{ display: 'block', marginBottom: 4, color: '#166534' }}>Θέση αποθήκευσης αντιγράφων ασφαλείας (προαιρετικό)</strong>
+                    Μπορείτε να ορίσετε έναν ξεχωριστό φάκελο (π.χ. σε εξωτερικό ή δικτυακό δίσκο)
+                    για την αποθήκευση των αντιγράφων ασφαλείας. Η διαδρομή θα είναι ορατή μόνο σε εσάς.
+                    Αν δεν επιλέξετε, θα χρησιμοποιηθεί ο προεπιλεγμένος φάκελος δεδομένων.
+                  </div>
+                </EmailInfoCard>
+                <FieldGroup>
+                  {backupLocation ? (
+                    <PathDisplay $ok>
+                      <span style={{ fontSize: 18 }}>📁</span>
+                      <div style={{ wordBreak: 'break-all' }}>{backupLocation}</div>
+                    </PathDisplay>
+                  ) : (
+                    <PathDisplay>
+                      <span style={{ fontSize: 18 }}>💾</span>
+                      <div>Προεπιλεγμένη θέση (εντός του φακέλου δεδομένων).</div>
+                    </PathDisplay>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <SecondaryBtn type="button" onClick={handleBrowseBackup}>
+                      {backupLocation ? 'Αλλαγή φακέλου…' : 'Επιλογή φακέλου…'}
+                    </SecondaryBtn>
+                    {backupLocation && (
+                      <SecondaryBtn type="button" onClick={() => setBackupLocation('')}>
+                        Προεπιλογή
+                      </SecondaryBtn>
+                    )}
+                  </div>
+                </FieldGroup>
+
                 {finishError && <ErrorText style={{ marginBottom: 12 }}>{finishError}</ErrorText>}
 
                 <ButtonRow>
@@ -861,6 +951,7 @@ const SetupWizard = ({ onComplete }) => {
           </>
         )}
 
+        </CardScroll>
       </Card>
     </Overlay>
   );

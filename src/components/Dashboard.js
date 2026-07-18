@@ -1168,6 +1168,53 @@ const AdminButtonIcon = styled.span`
   justify-content: center;
 `;
 
+const ReminderDot = styled.span`
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 rgba(239, 68, 68, 0.6);
+  animation: backupPulse 1.8s ease-in-out infinite;
+  @keyframes backupPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+    50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  }
+`;
+
+const BackupReminderBanner = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fff7ed, #ffedd5);
+  border: 1px solid #fdba74;
+  box-shadow: 0 4px 16px rgba(234, 88, 12, 0.12);
+  color: #9a3412;
+  font-size: 14px;
+  line-height: 1.5;
+
+  strong { font-size: 15px; }
+`;
+
+const BackupReminderBtn = styled.button`
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 9px 18px;
+  border-radius: 9px;
+  border: none;
+  background: linear-gradient(135deg, #ea580c, #f97316);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  &:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(234, 88, 12, 0.35); }
+`;
+
 const CalendarNavButton = styled.button`
   width: 100%;
   margin-bottom: 10px;
@@ -2722,6 +2769,40 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [taskAssignmentsFocusTaskId, setTaskAssignmentsFocusTaskId] = useState(null);
   const [taskAccess, setTaskAccess] = useState({ showModule: false, unreadCount: 0, canAssign: false });
   const [engineerCatalogForCards, setEngineerCatalogForCards] = useState([]);
+  const [backupReminderDue, setBackupReminderDue] = useState(false);
+  const [backupDaysSince, setBackupDaysSince] = useState(null);
+  const [backupHasAny, setBackupHasAny] = useState(true);
+
+  const refreshBackupStatus = useCallback(async () => {
+    if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return;
+    try {
+      const res = await ipcRenderer.invoke('get-backup-status', { actingUsername: currentUser?.username });
+      if (!res || res.success === false) return;
+      setBackupReminderDue(!!res.reminderDue);
+      setBackupDaysSince(res.daysSince);
+      setBackupHasAny(!!res.hasBackup);
+
+      // Ειδοποίηση όταν κάποιος άλλος δημιούργησε αντίγραφο ασφαλείας
+      if (res.lastBackupId) {
+        try {
+          const seenKey = 'ergohub_last_seen_backup_id';
+          const seen = localStorage.getItem(seenKey);
+          const myName = currentUser?.fullName || currentUser?.username || '';
+          if (seen && seen !== res.lastBackupId && res.lastBackupBy && res.lastBackupBy !== myName) {
+            showToast(`Δημιουργήθηκε νέο αντίγραφο ασφαλείας από: ${res.lastBackupBy}`, 'info');
+          }
+          localStorage.setItem(seenKey, res.lastBackupId);
+        } catch (_e) { /* localStorage μη διαθέσιμο */ }
+      }
+    } catch (_e) { /* σιωπηλά */ }
+  }, [userRole, currentUser?.username, currentUser?.fullName, showToast]);
+
+  useEffect(() => {
+    if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return undefined;
+    refreshBackupStatus();
+    const id = setInterval(refreshBackupStatus, 15 * 60 * 1000); // κάθε 15 λεπτά
+    return () => clearInterval(id);
+  }, [userRole, refreshBackupStatus]);
 
   const visibleProjects = useMemo(() => {
     if (!isEngineer) return projects;
@@ -5522,6 +5603,23 @@ const handleDeleteProject = async (projectId, subprojectId) => {
 
       <ContentWrapper ref={contentWrapperRef} $headerOffset={mainHeaderOffsetPx}>
         <ContentArea>
+          {canManageAll && backupReminderDue && (
+            <BackupReminderBanner>
+              <span style={{ fontSize: 26, flexShrink: 0 }}>🛡️</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong style={{ display: 'block', marginBottom: 3 }}>
+                  {backupHasAny ? 'Ώρα για νέο αντίγραφο ασφαλείας' : 'Δεν έχει δημιουργηθεί ποτέ αντίγραφο ασφαλείας'}
+                </strong>
+                {backupHasAny
+                  ? `Έχουν περάσει ${backupDaysSince ?? '—'} ημέρες από το τελευταίο αντίγραφο ασφαλείας. Δημιουργήστε ένα νέο για την προστασία των δεδομένων.`
+                  : 'Δημιουργήστε ένα πλήρες αντίγραφο ασφαλείας για την προστασία των δεδομένων σας.'}
+              </div>
+              <BackupReminderBtn onClick={() => setIsBackupManagerOpen(true)}>
+                Δημιουργία τώρα
+              </BackupReminderBtn>
+            </BackupReminderBanner>
+          )}
+
           {/* Active Filters Banner */}
           <ActiveFiltersBanner
             activeFilterCount={activeFilterCount}
@@ -6081,6 +6179,13 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 Ιστορικό Ενεργειών
               </AdminButton>
               {canManageAll && (
+                <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
+                  <AdminButtonIcon>💾</AdminButtonIcon>
+                  Αντίγραφα Ασφαλείας
+                  {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
+                </AdminButton>
+              )}
+              {canManageAll && (
                 <AdminButton onClick={() => setIsCalendarSettingsOpen(true)}>
                   <AdminButtonIcon>🔔</AdminButtonIcon>
                   Κέντρο Ειδοποιήσεων
@@ -6113,10 +6218,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               <CategoryHeaderChevron $open={expandedCategories.system}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.system}>
-              <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
-                <AdminButtonIcon>💾</AdminButtonIcon>
-                Backup Δεδομένων
-              </AdminButton>
               <AdminButton onClick={() => setIsUserManagementOpen(true)}>
                 <AdminButtonIcon>👥</AdminButtonIcon>
                 Διαχείριση Χρηστών
@@ -6744,7 +6845,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
           <BackupManager
             isOpen={isBackupManagerOpen}
-            onClose={() => setIsBackupManagerOpen(false)}
+            onClose={() => { setIsBackupManagerOpen(false); refreshBackupStatus(); }}
+            currentUser={currentUser}
           />
         </Suspense>
       )}
