@@ -4698,7 +4698,13 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             return true;
           });
           const filteredReport = { ...situationReport, situations: filteredSituations };
-          if (shouldShowKhmdhsSituationModal(filteredReport)) {
+          // Καθαρή περίπτωση: αν οι εναπομείνασες ειδοποιήσεις είναι αμιγώς ενημερωτικές
+          // (καμία σφάλματος/προειδοποίησης και καμία που να απαιτεί απόφαση), δεν ανοίγουμε
+          // παράθυρο — ο χρήστης βλέπει μόνο το μήνυμα επιτυχίας.
+          const filteredHasActionable = filteredSituations.some(
+            (sit) => sit.severity === 'error' || sit.severity === 'warning' || sit.requiresDecision
+          );
+          if (filteredHasActionable && shouldShowKhmdhsSituationModal(filteredReport)) {
             situationModalShown = true;
             setKhmdhsSituationModal({
               report: filteredReport,
@@ -4749,8 +4755,9 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
           setAdamInputDraft((prev) => ({ ...prev, chain: '' }));
         }
         const warn = res.warnings?.length ? ` (${res.warnings[0]})` : '';
-        const blocksSuccessToast = skipSuccessToast
-          || (!usedSymvPlan && shouldShowKhmdhsSituationModal(situationReport));
+        // Το μήνυμα επιτυχίας μπλοκάρεται μόνο όταν όντως εμφανίστηκε παράθυρο κατάστασης —
+        // ώστε στην καθαρή περίπτωση (χωρίς παράθυρο) ο χρήστης να παίρνει πάντα επιβεβαίωση.
+        const blocksSuccessToast = skipSuccessToast || (!usedSymvPlan && situationModalShown);
         if (!blocksSuccessToast && !usedSymvPlan) {
           showToast(`Ανακτήθηκαν από ΚΗΜΔΗΣ: ${res.summary || 'στοιχεία αλυσίδας'}${warn}`, 'success');
         }
