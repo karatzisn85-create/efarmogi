@@ -4,6 +4,7 @@
  *   false = χωρίς ομαδοποίηση (συνέχεια ανεβάσματος)
  *   null = πλήρης ακύρωση (Esc, Ακύρωση, κλικ έξω)
  */
+import { safeAlert } from './safeDialogs';
 
 export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) {
   return new Promise((resolve) => {
@@ -253,7 +254,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
       if (title) {
         cleanup({ action: 'new', title });
       } else {
-        window.alert('Παρακαλώ εισάγετε τίτλο ομάδας');
+        safeAlert('Παρακαλώ εισάγετε τίτλο ομάδας');
       }
     });
 
@@ -264,7 +265,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
       if (selectedGroupId) {
         cleanup({ action: 'existing', groupId: selectedGroupId });
       } else {
-        window.alert('Παρακαλώ επιλέξτε ομάδα');
+        safeAlert('Παρακαλώ επιλέξτε ομάδα');
       }
     });
 

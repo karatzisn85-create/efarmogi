@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
+import { safeAlert } from '../utils/safeDialogs';
 import { CHAIN_KIND, MOD_AMOUNT_TYPE, computeRunningTotalBeforeChainAdam } from '../utils/khmdhsChainActions';
 import { getChainKindFieldProfile, validateChainKindDraft } from '../utils/khmdhsChainKindFields';
 import { prefillSupplementaryModAmount } from '../utils/khmdhsSupplementaryAmountLogic';
@@ -248,7 +249,7 @@ export default function KhmdhsSupplementaryDetailsModal({
                   style={{ marginTop: '0.35rem', padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
                   onClick={async () => {
                     const res = await openKhmdhsActOnline(adam);
-                    if (res?.success === false && res?.error) window.alert(res.error);
+                    if (res?.success === false && res?.error) safeAlert(res.error);
                   }}
                 >
                   Προβολή στο ΚΗΜΔΗΣ

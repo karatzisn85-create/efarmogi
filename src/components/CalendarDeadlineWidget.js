@@ -9,6 +9,7 @@ import {
   mergeCalendarEventLists,
 } from '../utils/customCalendarEvents';
 import { buildAepoCalendarEvents } from '../utils/aepoCalendarEvents';
+import { buildProsklisiCalendarEvents } from '../utils/prosklisiCalendarEvents';
 import {
   buildCalendarDeadlineAlerts,
   formatCalendarDaysLabel,
@@ -330,6 +331,8 @@ function typeVisual(type) {
       return { icon: '⚠', bg: 'rgba(251, 146, 60, 0.22)' };
     case CALENDAR_EVENT_TYPES.AEPO_RENEWAL:
       return { icon: '🌿', bg: 'rgba(99, 102, 241, 0.25)' };
+    case CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE:
+      return { icon: '📢', bg: 'rgba(14, 165, 233, 0.22)' };
     default:
       return { icon: '📅', bg: 'rgba(255, 255, 255, 0.12)' };
   }
@@ -338,10 +341,12 @@ function typeVisual(type) {
 /** Συμπαγές ραντάρ — λίστα αναδιπλούμενη, όλοι οι τύποι προθεσμιών. */
 export default function CalendarDeadlineWidget({
   projects = [],
+  proskliseis = [],
   userRole = 'USER',
   currentUser = null,
   engineerCatalog = [],
   onViewSubproject,
+  onOpenProsklisi,
   onOpenCalendar,
   onOpenOrimanthi,
   includeAepo = false,
@@ -402,8 +407,9 @@ export default function CalendarDeadlineWidget({
     });
     const custom = buildCustomCalendarEvents(customEventsRaw);
     const aepo = buildAepoCalendarEvents(aepoAlertsRaw);
-    return mergeCalendarEventLists(procurement, custom, aepo);
-  }, [projects, userRole, currentUser, engineerCatalog, customEventsRaw, aepoAlertsRaw]);
+    const prosklisiEv = buildProsklisiCalendarEvents(proskliseis);
+    return mergeCalendarEventLists(procurement, custom, aepo, prosklisiEv);
+  }, [projects, proskliseis, userRole, currentUser, engineerCatalog, customEventsRaw, aepoAlertsRaw]);
 
   const { alerts, totalCount } = useMemo(
     () => buildCalendarDeadlineAlerts(allEvents, { maxDays, limit: 0 }),
@@ -431,6 +437,10 @@ export default function CalendarDeadlineWidget({
   const handleClick = (row) => {
     if (row.orimanthiProposalId && onOpenOrimanthi) {
       onOpenOrimanthi({ proposalId: row.orimanthiProposalId });
+      return;
+    }
+    if (row.prosklisiId && onOpenProsklisi) {
+      onOpenProsklisi(row.prosklisiId);
       return;
     }
     if (row.customEventId && onOpenCalendar) {

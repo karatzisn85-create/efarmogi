@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
+import { safeAlert } from '../utils/safeDialogs';
 import {
   KHMDHS_REVIEW_STATUS,
   KHMDHS_RESOLUTION_SOURCE,
@@ -1592,7 +1593,7 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
             type="button"
             onClick={async () => {
               const res = await openKhmdhsActOnline(adam);
-              if (res?.success === false && res?.error) window.alert(res.error);
+              if (res?.success === false && res?.error) safeAlert(res.error);
             }}
           >
             Προβολή online
@@ -1878,7 +1879,7 @@ function PaymentClassificationCard({
                 type="button"
                 onClick={async () => {
                   const res = await openKhmdhsActOnline(adam);
-                  if (res?.success === false && res?.error) window.alert(res.error);
+                  if (res?.success === false && res?.error) safeAlert(res.error);
                 }}
               >
                 Προβολή
@@ -2072,7 +2073,7 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={async () => {
                         const res = await openKhmdhsActOnline(p.adam);
-                        if (res?.success === false && res?.error) window.alert(res.error);
+                        if (res?.success === false && res?.error) safeAlert(res.error);
                       }}
                     >
                       Προβολή στο ΚΗΜΔΗΣ
@@ -2086,7 +2087,7 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={async () => {
                   const res = await openKhmdhsActOnline(adam);
-                  if (res?.success === false && res?.error) window.alert(res.error);
+                  if (res?.success === false && res?.error) safeAlert(res.error);
                 }}
               >
                 Προβολή στο ΚΗΜΔΗΣ
@@ -2122,7 +2123,7 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
               onMouseDown={(e) => e.preventDefault()}
               onClick={async () => {
                 const res = await openKhmdhsActOnline(adam);
-                if (res?.success === false && res?.error) window.alert(res.error);
+                if (res?.success === false && res?.error) safeAlert(res.error);
               }}
             >
               Προβολή online

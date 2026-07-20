@@ -351,25 +351,25 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
   useEffect(() => {
     if (originalProsklisi && formData) {
       const newChanges = {};
-      
-      // Μόνο τα πεδία της πρόσκλησης, όχι τα modification fields
       const prosklisiFields = ['title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status'];
-      
-      prosklisiFields.forEach(key => {
-        // Για νέα τροποποίηση: συγκρίνουμε με τα αρχικά δεδομένα της πρόσκλησης
-        // Για επεξεργασία τροποποίησης: συγκρίνουμε με τα αρχικά δεδομένα της πρόσκλησης (όχι της τροποποίησης)
+      const previousChanges = isEditMode && originalProsklisi.changes && typeof originalProsklisi.changes === 'object'
+        ? originalProsklisi.changes
+        : {};
+
+      prosklisiFields.forEach((key) => {
         let originalValue;
-        
         if (isEditMode) {
-          // Σε edit mode, το originalProsklisi περιέχει τα δεδομένα της τροποποίησης
-          // Πρέπει να πάρουμε τα αρχικά δεδομένα της πρόσκλησης
-          // Αυτό θα πρέπει να περαστεί ως ξεχωριστό prop
-          originalValue = originalProsklisi.originalProsklisiData?.[key] || '';
+          // Βάση = τιμή ΠΡΙΝ από αυτή την τροποποίηση (όχι η τρέχουσα πρόσκληση,
+          // που μπορεί να έχει ήδη την νέα λήξη και να «σβήσει» την αλλαγή).
+          if (previousChanges[key] && previousChanges[key].original !== undefined) {
+            originalValue = previousChanges[key].original || '';
+          } else {
+            originalValue = originalProsklisi.originalProsklisiData?.[key] || '';
+          }
         } else {
-          // Σε create mode, το originalProsklisi περιέχει τα αρχικά δεδομένα της πρόσκλησης
           originalValue = originalProsklisi[key] || '';
         }
-        
+
         if (originalValue !== formData[key]) {
           newChanges[key] = {
             original: originalValue,
@@ -377,7 +377,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
           };
         }
       });
-      
+
       setChanges(newChanges);
     }
   }, [formData, originalProsklisi, isEditMode]);

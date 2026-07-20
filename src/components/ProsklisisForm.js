@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
-import ProsklisiModificationForm from './ProsklisiModificationForm';
 import ProsklisiDiavgeiaSection from './ProsklisiDiavgeiaSection';
 import { safeFileDialog } from '../utils/safeDialogs';
 import { buildProsklisiDiavgeiaRegistryEntry } from '../utils/prosklisiDiavgeiaRegistry';
@@ -38,7 +37,7 @@ const FormContainer = styled.div`
 `;
 
 const FormHeader = styled.div`
-  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: white;
   padding: 2rem;
   border-radius: 15px 15px 0 0;
@@ -206,24 +205,6 @@ const CancelButton = styled.button`
   }
 `;
 
-const ModificationButton = styled.button`
-  padding: 1rem 2rem;
-  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-
-  &:hover {
-    background: linear-gradient(135deg, #f57c00 0%, #ef6c00 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3);
-  }
-`;
-
 const ErrorMessage = styled.div`
   color: #dc3545;
   font-size: 0.875rem;
@@ -239,7 +220,7 @@ const STATUS_OPTIONS = [
 
 
 
-function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingProsklisi = null }) {
+function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     title: '',
@@ -256,7 +237,6 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
 
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
-  const [isModificationFormOpen, setIsModificationFormOpen] = useState(false);
   const [projects, setProjects] = useState([]);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
@@ -842,22 +822,9 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
     }
   };
 
-  const handleModificationSave = async (modificationData) => {
-    try {
-      if (onSaveModification) {
-        await onSaveModification(modificationData);
-      }
-      setIsModificationFormOpen(false);
-    } catch (error) {
-      console.error('Error saving modification:', error);
-    }
-  };
-
   if (!isOpen) return null;
 
-  return (
-    <>
-    {createPortal(
+  return createPortal(
     <FormOverlay onClick={async (e) => {
       if (e.target === e.currentTarget) {
         // Ξεκλείδωμα της πρόσκλησης πριν το κλείσιμο
@@ -870,8 +837,13 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
       <FormContainer>
         <FormHeader>
           <FormTitle>
-            {editingProsklisi ? '✏️ Επεξεργασία Πρόσκλησης' : '✨ Νέα Πρόσκληση'}
+            {editingProsklisi ? 'Επεξεργασία στοιχείων πρόσκλησης' : 'Νέα πρόσκληση'}
           </FormTitle>
+          {editingProsklisi && (
+            <div style={{ marginTop: '0.55rem', fontSize: '0.88rem', opacity: 0.92, fontWeight: 500 }}>
+              Για επίσημη τροποποίηση με έγγραφο και ιστορικό, χρησιμοποιήστε «Επίσημη τροποποίηση» από το μενού της κάρτας.
+            </div>
+          )}
         </FormHeader>
 
         <FormContent>
@@ -1258,16 +1230,8 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
             </FormGrid>
 
             <ButtonGroup>
-              {editingProsklisi && (
-                <ModificationButton 
-                  type="button" 
-                  onClick={() => setIsModificationFormOpen(true)}
-                >
-                  ⚡ Τροποποίηση
-                </ModificationButton>
-              )}
               <SaveButton type="submit" disabled={saving}>
-                {saving ? '⏳ Αποθήκευση...' : '💾 Αποθήκευση'}
+                {saving ? 'Αποθήκευση...' : 'Αποθήκευση'}
               </SaveButton>
               <CancelButton type="button" onClick={async () => {
                 // Ξεκλείδωμα της πρόσκλησης πριν το κλείσιμο
@@ -1276,7 +1240,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
                 }
                 onClose();
               }}>
-                ✖ Ακύρωση
+                Ακύρωση
               </CancelButton>
             </ButtonGroup>
           </form>
@@ -1284,14 +1248,6 @@ function ProsklisisForm({ isOpen, onClose, onSave, onSaveModification, editingPr
       </FormContainer>
     </FormOverlay>,
     document.body
-    )}
-      <ProsklisiModificationForm
-        isOpen={isModificationFormOpen}
-        onClose={() => setIsModificationFormOpen(false)}
-        onSave={handleModificationSave}
-        originalProsklisi={editingProsklisi}
-      />
-    </>
   );
 }
 

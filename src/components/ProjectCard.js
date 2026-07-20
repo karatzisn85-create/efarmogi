@@ -1631,7 +1631,7 @@ function ProjectCard({
               ΕΝΤΑΞΗ
             </ToolbarButton>
           )}
-          {hasProsklisi && (
+          {hasProsklisi && !linkedProsklisi && (
             <ToolbarButton type="button" onClick={() => onOpenSpecificProsklisi && onOpenSpecificProsklisi()}>
               <IconMegaphone />
               ΠΡΟΣΚΛΗΣΗ

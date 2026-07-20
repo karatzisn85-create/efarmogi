@@ -228,6 +228,9 @@ const EXPORT_FIELDS_ORDER = [
   { id: 'deadline', label: 'Ημερομηνία Λήξης', width: 16 },
   { id: 'budgetRange', label: 'Εύρος Προϋπολογισμού', width: 20 },
   { id: 'status', label: 'Κατάσταση', width: 18 },
+  { id: 'diavgeiaAda', label: 'ΑΔΑ Διαύγειας', width: 18 },
+  { id: 'linkedProjectsLabel', label: 'Συσχετισμένα Έργα', width: 40 },
+  { id: 'relatedEntaxeisCount', label: 'Σχετικές Εντάξεις', width: 16 },
   { id: 'createdAt', label: 'Ημερομηνία Δημιουργίας', width: 18 },
   { id: 'updatedAt', label: 'Τελευταία Ενημέρωση', width: 18 },
   { id: 'modificationsCount', label: 'Αριθμός Τροποποιήσεων', width: 20 }
@@ -236,24 +239,27 @@ const EXPORT_FIELDS_ORDER = [
 // Διαθέσιμα πεδία για εξαγωγή (για το UI)
 const EXPORT_FIELDS = {
   basic: {
-    title: '📋 Βασικά Στοιχεία',
+    title: 'Βασικά Στοιχεία',
     fields: [
       { id: 'rowNumber', label: 'Α/Α', width: 8 },
       { id: 'title', label: 'Τίτλος Πρόσκλησης', width: 40 },
       { id: 'axis', label: 'Άξονας/Δράση', width: 30 },
       { id: 'code', label: 'Κωδικός & Α/Α ΟΠΣ', width: 20 },
-      { id: 'status', label: 'Κατάσταση', width: 18 }
+      { id: 'status', label: 'Κατάσταση', width: 18 },
+      { id: 'diavgeiaAda', label: 'ΑΔΑ Διαύγειας', width: 18 }
     ]
   },
   funding: {
-    title: '💰 Χρηματοδότηση',
+    title: 'Χρηματοδότηση & Συσχετίσεις',
     fields: [
       { id: 'fundingSource', label: 'Πηγή Χρηματοδότησης', width: 40 },
-      { id: 'budgetRange', label: 'Εύρος Προϋπολογισμού', width: 20 }
+      { id: 'budgetRange', label: 'Εύρος Προϋπολογισμού', width: 20 },
+      { id: 'linkedProjectsLabel', label: 'Συσχετισμένα Έργα', width: 40 },
+      { id: 'relatedEntaxeisCount', label: 'Σχετικές Εντάξεις', width: 16 }
     ]
   },
   dates: {
-    title: '📅 Ημερομηνίες',
+    title: 'Ημερομηνίες',
     fields: [
       { id: 'deadline', label: 'Ημερομηνία Λήξης', width: 16 },
       { id: 'createdAt', label: 'Ημερομηνία Δημιουργίας', width: 18 },
@@ -261,7 +267,7 @@ const EXPORT_FIELDS = {
     ]
   },
   modifications: {
-    title: '⚡ Τροποποιήσεις',
+    title: 'Τροποποιήσεις',
     fields: [
       { id: 'modificationsCount', label: 'Αριθμός Τροποποιήσεων', width: 20 }
     ]
@@ -271,7 +277,8 @@ const EXPORT_FIELDS = {
 function ProsklisisExportDialog({ isOpen, onClose, proskliseis, totalProskliseis, organizationName = '' }) {
   const { showToast } = useToast();
   const [selectedFields, setSelectedFields] = useState([
-    'rowNumber', 'title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status'
+    'rowNumber', 'title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status',
+    'diavgeiaAda', 'linkedProjectsLabel', 'modificationsCount'
   ]);
 
   const handleFieldChange = (fieldId, checked) => {
@@ -408,8 +415,24 @@ function ProsklisisExportDialog({ isOpen, onClose, proskliseis, totalProskliseis
           } else if (field.id === 'deadline' || field.id === 'createdAt' || field.id === 'updatedAt') {
             value = formatDate(prosklisi[field.id]);
           } else if (field.id === 'modificationsCount') {
-            // Υπολογισμός αριθμού τροποποιήσεων (αν υπάρχει)
-            value = prosklisi.modifications ? prosklisi.modifications.length : 0;
+            value = Number.isFinite(prosklisi.modificationsCount)
+              ? prosklisi.modificationsCount
+              : (Array.isArray(prosklisi.modifications) ? prosklisi.modifications.length : 0);
+          } else if (field.id === 'diavgeiaAda') {
+            value = prosklisi.diavgeiaAda || prosklisi.diavgeiaMeta?.ada || '';
+          } else if (field.id === 'linkedProjectsLabel') {
+            if (prosklisi.linkedProjectsLabel) {
+              value = prosklisi.linkedProjectsLabel;
+            } else if (Array.isArray(prosklisi.linkedProjects)) {
+              value = prosklisi.linkedProjects
+                .map((lp) => (typeof lp === 'string' ? lp : (lp?.title || lp?.projectTitle || '')))
+                .filter(Boolean)
+                .join(' · ');
+            } else {
+              value = '';
+            }
+          } else if (field.id === 'relatedEntaxeisCount') {
+            value = Number.isFinite(prosklisi.relatedEntaxeisCount) ? prosklisi.relatedEntaxeisCount : 0;
           } else {
             value = prosklisi[field.id] || '';
           }

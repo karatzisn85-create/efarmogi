@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { lockBodyScroll, unlockBodyScroll } from '../utils/bodyScrollLock';
-import { safeConfirm } from '../utils/safeDialogs';
+import { safeConfirm, safeAlert } from '../utils/safeDialogs';
 import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
 import styled from 'styled-components';
@@ -12,6 +12,13 @@ import EntaxisExportDialog from './EntaxisExportDialog';
 import EntaxisFileViewer from './EntaxisFileViewer';
 import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
+import {
+  formatEntaxiAmount,
+  formatEntaxiAmountDelta,
+  getEntaxiCurrentTotal,
+  getModificationAmountFlowEntry
+} from '../utils/entaxiAmountUtils';
+import { parseGreekAmountString } from '../utils/khmdhsFields';
 
 const ipcRenderer = window.electronAPI;
 const path = require('path-browserify');
@@ -103,14 +110,14 @@ const Header = styled.div`
 `;
 
 const Title = styled.h2`
-  color: #1e293b;
-  font-size: 1.2rem;
-  font-weight: 700;
+  color: #0f172a;
+  font-size: 1.15rem;
+  font-weight: 800;
   margin: 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.01em;
   line-height: 1.2;
 
   &::before {
@@ -126,14 +133,13 @@ const Title = styled.h2`
 const CloseButton = styled.button`
   background: #ffffff;
   color: #475569;
-  border: 1px solid #cbd5e1;
-  padding: 0.4rem 0.75rem;
-  border-radius: 7px;
-  font-size: 0.68rem;
-  font-weight: 600;
+  border: 1.5px solid #d1d5db;
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 650;
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.01em;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 
   &:hover {
@@ -324,13 +330,13 @@ const CheckboxContainer = styled.div`
 `;
 
 const ExportButton = styled.button`
-  padding: 0.45rem 0.85rem;
+  padding: 0.5rem 0.95rem;
   background: #15803d;
   color: #ffffff;
   border: 1px solid #166534;
-  border-radius: 7px;
-  font-size: 0.72rem;
-  font-weight: 600;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   display: flex;
@@ -350,24 +356,24 @@ const ExportButton = styled.button`
 `;
 
 const ToolbarToggleButton = styled.button`
-  padding: 0.45rem 0.85rem;
-  background: ${(p) => (p.$active ? '#fef2f2' : '#ffffff')};
-  color: ${(p) => (p.$active ? '#991b1b' : '#1e293b')};
-  border: 1px solid ${(p) => (p.$active ? '#fecaca' : '#cbd5e1')};
-  border-radius: 7px;
-  font-size: 0.68rem;
-  font-weight: 600;
+  padding: 0.5rem 0.95rem;
+  background: ${(p) => (p.$active ? '#eef2ff' : '#ffffff')};
+  color: ${(p) => (p.$active ? '#3730a3' : '#1e293b')};
+  border: 1px solid ${(p) => (p.$active ? '#c7d2fe' : '#cbd5e1')};
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  text-transform: none;
+  letter-spacing: 0.01em;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   display: flex;
   align-items: center;
   gap: 0.35rem;
 
   &:hover {
-    background: ${(p) => (p.$active ? '#fee2e2' : '#f8fafc')};
-    border-color: ${(p) => (p.$active ? '#f87171' : '#94a3b8')};
+    background: ${(p) => (p.$active ? '#e0e7ff' : '#f8fafc')};
+    border-color: ${(p) => (p.$active ? '#a5b4fc' : '#94a3b8')};
   }
 
   &:focus-visible {
@@ -438,14 +444,16 @@ const SearchStats = styled.div`
 `;
 
 const ActionButton = styled.button`
-  padding: 0.45rem 0.85rem;
-  border-radius: 7px;
-  font-size: 0.72rem;
-  font-weight: 600;
+  padding: 0.5rem 0.95rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  text-transform: none;
+  letter-spacing: 0.01em;
   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+
+  text-transform: none;
 
   ${(props) =>
     props.primary
@@ -525,19 +533,100 @@ const EntaxisList = styled.div`
 `;
 
 const EntaxisItem = styled.div`
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(226, 232, 240, 0.85);
+  background: ${(p) => (p.$highlighted
+    ? 'linear-gradient(135deg, rgba(238, 242, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%)'
+    : 'rgba(255, 255, 255, 0.96)')};
+  border: 1.5px solid ${(p) => (p.$highlighted ? 'rgba(99, 102, 241, 0.65)' : 'rgba(226, 232, 240, 0.85)')};
+  border-left: 4px solid ${(p) => (p.$highlighted ? '#4f46e5' : 'transparent')};
   border-radius: 12px;
   margin-bottom: 0.65rem;
   overflow: visible;
   position: relative;
   opacity: ${(props) => (props.isLocked ? 0.72 : 1)};
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: ${(p) => (p.$highlighted
+    ? '0 0 0 2px rgba(99, 102, 241, 0.2), 0 6px 20px rgba(79, 70, 229, 0.14)'
+    : '0 1px 3px rgba(15, 23, 42, 0.05)')};
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 
   &:hover {
-    border-color: rgba(165, 180, 252, 0.55);
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
+    border-color: ${(p) => (p.$highlighted ? 'rgba(99, 102, 241, 0.75)' : 'rgba(165, 180, 252, 0.55)')};
+    box-shadow: ${(p) => (p.$highlighted
+      ? '0 0 0 2px rgba(99, 102, 241, 0.25), 0 8px 24px rgba(79, 70, 229, 0.18)'
+      : '0 4px 12px rgba(99, 102, 241, 0.08)')};
+  }
+`;
+
+const FocusBanner = styled.div`
+  margin: 0 0 0.55rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+`;
+
+const FocusBannerClear = styled.button`
+  margin-left: auto;
+  border: 1px solid #93c5fd;
+  background: #fff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  &:hover { background: #dbeafe; }
+`;
+
+const AmountBlock = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+  min-width: 7.5rem;
+`;
+
+const AmountCurrentLabel = styled.div`
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+`;
+
+const AmountDelta = styled.div`
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: ${(p) => (p.$negative ? '#b91c1c' : '#15803d')};
+`;
+
+const AmountInitial = styled.div`
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #94a3b8;
+`;
+
+const DetailsToggle = styled.button`
+  align-self: flex-start;
+  margin-top: 0.1rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.68rem;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  &:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
   }
 `;
 
@@ -718,8 +807,8 @@ const CompactAside = styled.div`
 `;
 
 const CumulativeAmount = styled.div`
-  font-size: 0.95rem;
-  font-weight: 700;
+  font-size: 1.05rem;
+  font-weight: 800;
   color: #15803d;
   white-space: nowrap;
   letter-spacing: 0.01em;
@@ -1320,14 +1409,14 @@ window.fixAllEntaxeis = async () => {
       console.log(`  ${result.success ? '✅' : '❌'} ${result.message || result.error}`);
     }
     
-    alert('Όλες οι εντάξεις διορθώθηκαν! Κάντε F5 για refresh.');
+    safeAlert('Όλες οι εντάξεις διορθώθηκαν! Ανανεώστε τη λίστα εντάξεων για να δείτε τις αλλαγές.');
   } catch (error) {
     console.error('Error:', error);
-    alert('Σφάλμα: ' + error.message);
+    safeAlert('Σφάλμα: ' + error.message);
   }
 };
 
-function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '' }) {
+function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, onClearFocus = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '' }) {
   const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [entaxeis, setEntaxeis] = useState([]);
@@ -1360,8 +1449,10 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   const [quickSearchTerm, setQuickSearchTerm] = useState('');
 
   const [expandedMods, setExpandedMods] = useState({});
+  const [expandedDetails, setExpandedDetails] = useState({});
   const [menuContext, setMenuContext] = useState(null);
   const [textDetailModal, setTextDetailModal] = useState(null);
+  const focusScrollKeyRef = useRef(null);
 
   useEffect(() => {
     if (!menuContext) return undefined;
@@ -1447,7 +1538,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
   useEffect(() => {
     applyFilters();
-  }, [entaxeis, searchFilters, projectFilter, quickSearchTerm, selectedEntaxiId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [entaxeis, searchFilters, projectFilter, quickSearchTerm, selectedEntaxiId, prosklisiIdFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (entaxeis.length > 0) {
@@ -1573,6 +1664,10 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       return;
     }
 
+    if (prosklisiIdFilter) {
+      filtered = filtered.filter((entaxi) => entaxi.prosklisiId === prosklisiIdFilter);
+    }
+
     // Project filter (if provided)
     if (projectFilter) {
       filtered = filtered.filter(entaxi => 
@@ -1607,21 +1702,19 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       );
     }
 
-    // Amount filters
+    // Φίλτρα ποσού με βάση το τρέχον σύνολο (μετά τις τροποποιήσεις)
     if (searchFilters.minAmount) {
-      const minAmount = parseFloat(searchFilters.minAmount.replace(/[^\d.,]/g, '').replace(',', '.'));
-      filtered = filtered.filter(entaxi => {
-        const amount = parseFloat(entaxi.initialAmount?.replace(/[^\d.,]/g, '').replace(',', '.') || 0);
-        return amount >= minAmount;
-      });
+      const minAmount = parseGreekAmountString(searchFilters.minAmount);
+      if (Number.isFinite(minAmount)) {
+        filtered = filtered.filter((entaxi) => getEntaxiCurrentTotal(entaxi) >= minAmount);
+      }
     }
 
     if (searchFilters.maxAmount) {
-      const maxAmount = parseFloat(searchFilters.maxAmount.replace(/[^\d.,]/g, '').replace(',', '.'));
-      filtered = filtered.filter(entaxi => {
-        const amount = parseFloat(entaxi.initialAmount?.replace(/[^\d.,]/g, '').replace(',', '.') || 0);
-        return amount <= maxAmount;
-      });
+      const maxAmount = parseGreekAmountString(searchFilters.maxAmount);
+      if (Number.isFinite(maxAmount)) {
+        filtered = filtered.filter((entaxi) => getEntaxiCurrentTotal(entaxi) <= maxAmount);
+      }
     }
 
     // Date filters
@@ -1846,7 +1939,8 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       entaxiId: parentEntaxi.entaxiId,
       subject: parentEntaxi.subject,
       fundingAuthority: parentEntaxi.fundingAuthority,
-      initialAmount: parentEntaxi.initialAmount
+      initialAmount: parentEntaxi.initialAmount,
+      modifications: parentEntaxi.modifications || []
     });
     setIsModificationFormOpen(true);
   };
@@ -1887,11 +1981,6 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     }
   };
 
-  const formatAmount = (amount) => {
-    if (!amount) return '0,00';
-    return amount.toString().replace(/\./g, ',');
-  };
-
   const formatDate = (dateString) => formatDateEl(dateString, '-');
 
   const getProsklisiTitle = (prosklisiId) => {
@@ -1899,26 +1988,44 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     return prosklisi ? prosklisi.title : 'Άγνωστη πρόσκληση';
   };
 
-  const calculateCumulativeAmount = (entaxi) => {
-    let total = parseFloat((entaxi.initialAmount || '0').replace(/\./g, '').replace(',', '.')) || 0;
+  const hasFocusContext = Boolean(selectedEntaxiId || projectFilter || prosklisiIdFilter);
 
-    if (entaxi.modifications && Array.isArray(entaxi.modifications)) {
-      entaxi.modifications.forEach((mod) => {
-        const rawAmount = (mod.amount || '0').replace(/[^\d,.+-]/g, '').replace(/\./g, '').replace(',', '.');
-        const modAmount = parseFloat(rawAmount) || 0;
-
-        // Αν η τροποποίηση είναι απόλυτου ποσού (mod.changeAmount true) αντικαθιστούμε το σύνολο
-        // Διαφορετικά, θεωρούμε ότι είναι μεταβολή (delta) και το προσθέτουμε στο σύνολο
-        if (mod.changeAmount) {
-          total = modAmount;
-        } else {
-          total += modAmount;
-        }
-      });
+  const focusBannerText = (() => {
+    if (selectedEntaxiId) {
+      const focused = entaxeis.find((e) => e.entaxiId === selectedEntaxiId);
+      const subject = focused?.subject ? truncateText(focused.subject, 72) : 'συγκεκριμένη ένταξη';
+      return `Εμφάνιση εστιασμένης ένταξης: ${subject}`;
     }
+    if (prosklisiIdFilter) {
+      return `Εμφάνιση εντάξεων της πρόσκλησης: ${truncateText(getProsklisiTitle(prosklisiIdFilter), 72)}`;
+    }
+    if (projectFilter) {
+      return `Εμφάνιση εντάξεων του έργου: ${truncateText(projectFilter, 72)}`;
+    }
+    return '';
+  })();
 
-    return total.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const handleClearFocus = () => {
+    if (typeof onClearFocus === 'function') {
+      onClearFocus();
+      return;
+    }
+    clearFilters();
   };
+
+  useEffect(() => {
+    if (!isOpen) {
+      focusScrollKeyRef.current = null;
+      return;
+    }
+    if (!selectedEntaxiId || loading) return;
+    const key = `id:${selectedEntaxiId}`;
+    if (focusScrollKeyRef.current === key) return;
+    const el = document.querySelector(`[data-entaxi-id="${selectedEntaxiId}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    focusScrollKeyRef.current = key;
+  }, [isOpen, selectedEntaxiId, loading, filteredEntaxeis]);
 
   // Group filtered entaxeis by project
   const groupedEntaxeis = filteredEntaxeis.reduce((groups, entaxi) => {
@@ -1951,15 +2058,15 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                 setIsFormOpen(true);
               }}
             >
-              ➕ Νέα Ένταξη
+              Νέα Ένταξη
             </ActionButton>
           )}
           <ExportButton type="button" onClick={() => setIsExportDialogOpen(true)}>
-            📊 Εξαγωγή σε Excel
+            Εξαγωγή σε Excel
           </ExportButton>
           <QuickSearchInput
             type="text"
-            placeholder="🔍 Γρήγορη αναζήτηση τίτλου ένταξης..."
+            placeholder="Γρήγορη αναζήτηση τίτλου ένταξης..."
             value={quickSearchTerm}
             onChange={(e) => setQuickSearchTerm(e.target.value)}
           />
@@ -1968,9 +2075,18 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
             $active={showAdvancedSearch}
             onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
           >
-            🔍 {showAdvancedSearch ? 'ΑΠΟΚΡΥΨΗ ΦΙΛΤΡΩΝ' : 'ΣΥΝΘΕΤΗ ΑΝΑΖΗΤΗΣΗ'}
+            {showAdvancedSearch ? 'Απόκρυψη φίλτρων' : 'Προηγμένα φίλτρα'}
           </ToolbarToggleButton>
         </ActionsBar>
+
+        {hasFocusContext && focusBannerText && (
+          <FocusBanner>
+            <span>{focusBannerText}</span>
+            <FocusBannerClear type="button" onClick={handleClearFocus}>
+              Εμφάνιση όλων
+            </FocusBannerClear>
+          </FocusBanner>
+        )}
 
         {/* Στατιστικά - Εμφανίζονται πάντα */}
         <SearchStats>
@@ -2036,13 +2152,13 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
             <SearchRow>
               <SearchInput
                 type="text"
-                placeholder="Ελάχιστο ποσό (€)..."
+                placeholder="Ελάχιστο τρέχον ποσό (€)..."
                 value={searchFilters.minAmount}
                 onChange={(e) => handleSearchChange('minAmount', e.target.value)}
               />
               <SearchInput
                 type="text"
-                placeholder="Μέγιστο ποσό (€)..."
+                placeholder="Μέγιστο τρέχον ποσό (€)..."
                 value={searchFilters.maxAmount}
                 onChange={(e) => handleSearchChange('maxAmount', e.target.value)}
               />
@@ -2053,10 +2169,10 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                 onChange={(e) => handleSearchChange('dateFrom', e.target.value)}
               />
               <SearchButton type="button" onClick={() => applyFilters()}>
-                🔍 Αναζήτηση
+                Αναζήτηση
               </SearchButton>
               <ClearButton type="button" onClick={clearFilters}>
-                🗑️ Καθαρισμός
+                Καθαρισμός
               </ClearButton>
             </SearchRow>
 
@@ -2112,11 +2228,21 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                   {projectEntaxeis.map((entaxi) => {
                     const modCount = entaxi.modifications?.length || 0;
                     const modsOpen = modCount > 0 && isModsExpanded(entaxi.entaxiId, modCount);
+                    const detailsOpen = !!expandedDetails[entaxi.entaxiId];
                     const entaxiLinkedNotes = getEntityLinkedNotes(linkedNotesMap, entaxi.entaxiId);
+                    const isHighlighted = selectedEntaxiId === entaxi.entaxiId;
+                    const currentTotal = getEntaxiCurrentTotal(entaxi);
+                    const initialTotal = parseGreekAmountString(entaxi.initialAmount);
+                    const amountDelta = currentTotal - initialTotal;
+                    const hasSecondaryDetails = Boolean(
+                      (entaxi.comments && entaxi.comments.trim() !== '') || entaxi.prosklisiId
+                    );
                     return (
                     <EntaxisItem
                       key={entaxi.entaxiId}
+                      data-entaxi-id={entaxi.entaxiId}
                       isLocked={entaxisLocks[entaxi.entaxiId]}
+                      $highlighted={isHighlighted}
                     >
                       <CardTopRightCluster>
                         <LockIndicator isLocked={entaxisLocks[entaxi.entaxiId]}>
@@ -2135,8 +2261,8 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                         <CompactMain>
                           <CompactTitleRow>
                             <TypeDot $main />
-                            <CompactLabel>Αρχική Ένταξη</CompactLabel>
-                            <MetaChip title="Ημερομηνία έγγραφου">📅 {formatDate(entaxi.documentDate)}</MetaChip>
+                            <CompactLabel>Ένταξη</CompactLabel>
+                            <MetaChip title="Ημερομηνία έγγραφου">{formatDate(entaxi.documentDate)}</MetaChip>
                           </CompactTitleRow>
 
                           <SeeMoreText
@@ -2149,15 +2275,24 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                           <MetaChipsRow>
                             {entaxi.fundingAuthority && (
                               <MetaChip $accent title={entaxi.fundingAuthority}>
-                                🏛️ {truncateText(entaxi.fundingAuthority, 42)}
+                                {truncateText(entaxi.fundingAuthority, 42)}
                               </MetaChip>
                             )}
-                            <MetaChip title="Ποσό ένταξης">
-                              💰 {formatAmount(entaxi.initialAmount)} €
-                            </MetaChip>
                           </MetaChipsRow>
 
-                          {entaxi.comments && entaxi.comments.trim() !== '' && (
+                          {hasSecondaryDetails && (
+                            <DetailsToggle
+                              type="button"
+                              onClick={() => setExpandedDetails((prev) => ({
+                                ...prev,
+                                [entaxi.entaxiId]: !prev[entaxi.entaxiId]
+                              }))}
+                            >
+                              {detailsOpen ? 'Λιγότερα στοιχεία' : 'Περισσότερα στοιχεία'}
+                            </DetailsToggle>
+                          )}
+
+                          {detailsOpen && entaxi.comments && entaxi.comments.trim() !== '' && (
                             <CommentsCallout style={{ marginTop: '0.25rem', padding: '0.45rem 0.6rem' }}>
                               <CommentsCalloutLabel>Σχόλια:</CommentsCalloutLabel>
                               <CommentsCalloutInner>
@@ -2172,7 +2307,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                             </CommentsCallout>
                           )}
 
-                          {entaxi.prosklisiId && (
+                          {detailsOpen && entaxi.prosklisiId && (
                             <EntaxisDetails style={{ marginTop: '0.15rem', fontSize: '0.75rem' }}>
                               Πρόσκληση:
                               <ProsklisiLinkText
@@ -2199,12 +2334,23 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                         </CompactMain>
 
                         <CompactAside>
-                          <CumulativeAmount title="Διαμορφωθέν ποσό">
-                            {calculateCumulativeAmount(entaxi)} €
-                          </CumulativeAmount>
+                          <AmountBlock>
+                            <AmountCurrentLabel>Τρέχον σύνολο</AmountCurrentLabel>
+                            <CumulativeAmount title="Τρέχον σύνολο μετά τις τροποποιήσεις">
+                              {formatEntaxiAmount(currentTotal)} €
+                            </CumulativeAmount>
+                            {Math.abs(amountDelta) > 0.001 && (
+                              <AmountDelta $negative={amountDelta < 0} title="Μεταβολή από το αρχικό">
+                                {formatEntaxiAmountDelta(amountDelta)} €
+                              </AmountDelta>
+                            )}
+                            <AmountInitial title="Αρχικό ποσό ένταξης">
+                              Αρχικό: {formatEntaxiAmount(initialTotal)} €
+                            </AmountInitial>
+                          </AmountBlock>
                           <CompactActions onClick={(e) => e.stopPropagation()}>
                             <IconBtn type="button" $filesPrimary onClick={() => handleOpenFileViewer(entaxi)} title="Προβολή αρχείων">
-                              📁 Αρχεία
+                              Αρχεία
                             </IconBtn>
                             {canManageWorkflow && (
                               <MenuWrap>
@@ -2253,7 +2399,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                           </ModTableHead>
                           {entaxi.modifications.map((mod, index) => {
                             const modComment = mod.comments?.trim() || '';
-                            const amountStr = mod.amount || '0';
+                            const amountFlow = getModificationAmountFlowEntry(entaxi, index);
                             const hasModPdf = !!resolveEntaxiFileName(mod.modificationPDF);
                             const hasApprovalPdf = !!resolveEntaxiFileName(mod.approvalPDF);
                             const hasAnyFile = hasModPdf || hasApprovalPdf;
@@ -2294,13 +2440,23 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                                 <ModTableMain>
                                   <ModIndex>{index + 1}</ModIndex>
                                   <span>{formatDate(mod.date)}</span>
-                                  <EntaxisAmount
-                                    positive={String(amountStr).includes('+')}
-                                    negative={String(amountStr).includes('-')}
-                                    style={{ fontSize: '0.78rem' }}
-                                  >
-                                    {formatAmount(amountStr)} €
-                                  </EntaxisAmount>
+                                  {amountFlow.kind === 'absolute' ? (
+                                    <EntaxisAmount
+                                      positive={amountFlow.delta > 0}
+                                      negative={amountFlow.delta < 0}
+                                      style={{ fontSize: '0.78rem', lineHeight: 1.25 }}
+                                      title={`Μεταβολή: ${formatEntaxiAmountDelta(amountFlow.delta)} €`}
+                                    >
+                                      {formatEntaxiAmount(amountFlow.newTotal)} €
+                                      <div style={{ fontSize: '0.68rem', fontWeight: 500, opacity: 0.85 }}>
+                                        ({formatEntaxiAmountDelta(amountFlow.delta)} €)
+                                      </div>
+                                    </EntaxisAmount>
+                                  ) : (
+                                    <span style={{ color: '#94a3b8', fontSize: '0.78rem' }} title="Χωρίς αλλαγή ποσού">
+                                      —
+                                    </span>
+                                  )}
                                   {modComment ? (
                                     <SeeMoreText
                                       text={modComment}

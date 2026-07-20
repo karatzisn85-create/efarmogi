@@ -289,9 +289,9 @@ const TaskPermSection = styled.div`
 `;
 
 const ROLE_LABELS = {
-  SUPERADMIN: 'Superadmin',
-  ADMIN: 'admin',
-  USER: 'viewer',
+  SUPERADMIN: 'Υπερδιαχειριστής',
+  ADMIN: 'Διαχειριστής',
+  USER: 'Χρήστης',
   ENGINEER: 'Μηχανικός'
 };
 
@@ -924,8 +924,8 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                     }));
                   }}
                 >
-                  <option value="USER">viewer</option>
-                  <option value="ADMIN">admin</option>
+                  <option value="USER">Χρήστης</option>
+                  <option value="ADMIN">Διαχειριστής</option>
                   <option value="ENGINEER">Μηχανικός</option>
                 </Select>
               </FieldGroup>

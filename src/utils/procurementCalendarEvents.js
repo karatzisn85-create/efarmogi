@@ -35,6 +35,7 @@ export const CALENDAR_EVENT_TYPES = {
   COMPLIANCE_12M: 'compliance_12m',
   CUSTOM: 'custom',
   AEPO_RENEWAL: 'aepo_renewal',
+  PROSKLISI_DEADLINE: 'prosklisi_deadline',
 };
 
 export const CALENDAR_EVENT_LABELS = {
@@ -44,6 +45,7 @@ export const CALENDAR_EVENT_LABELS = {
   [CALENDAR_EVENT_TYPES.COMPLIANCE_12M]: 'Παράβαση κανόνα 12 μηνών',
   [CALENDAR_EVENT_TYPES.CUSTOM]: 'Ειδοποίηση ημερολογίου',
   [CALENDAR_EVENT_TYPES.AEPO_RENEWAL]: 'Ανανέωση ΑΕΠΟ',
+  [CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE]: 'Λήξη υποβολής πρόσκλησης',
 };
 
 export const PROCUREMENT_DEADLINE_EVENT_TYPES = [
@@ -57,6 +59,7 @@ export const ALL_CALENDAR_EVENT_TYPES = [
   CALENDAR_EVENT_TYPES.COMPLIANCE_12M,
   CALENDAR_EVENT_TYPES.CUSTOM,
   CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
+  CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
 ];
 
 function parseIsoDate(iso) {
@@ -89,6 +92,9 @@ export function calendarEventRowKey(ev, prefix = '') {
   }
   if (ev?.orimanthiProposalId) {
     return `${prefix}${ev.type}-${ev.orimanthiProposalId}-${ev.dateKey}`;
+  }
+  if (ev?.prosklisiId) {
+    return `${prefix}${ev.type}-${ev.prosklisiId}-${ev.dateKey}`;
   }
   const contractPart = ev?.contractIndex != null
     ? `-c${ev.contractIndex}`
@@ -479,6 +485,9 @@ export function filterCalendarEventsByType(events, filterKey) {
   if (filterKey === 'aepo') {
     return events.filter((e) => e.type === CALENDAR_EVENT_TYPES.AEPO_RENEWAL);
   }
+  if (filterKey === 'proskliseis') {
+    return events.filter((e) => e.type === CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE);
+  }
   return events;
 }
 
@@ -486,19 +495,27 @@ export function filterCalendarEventsByType(events, filterKey) {
 const EVENT_TYPE_RANK = {
   [CALENDAR_EVENT_TYPES.COMPLIANCE_12M]: 0,
   [CALENDAR_EVENT_TYPES.CUSTOM]: 1,
-  [CALENDAR_EVENT_TYPES.DEADLINE]: 2,
-  [CALENDAR_EVENT_TYPES.OFFERS_EXPIRY]: 3,
-  [CALENDAR_EVENT_TYPES.CONTRACT_END]: 4,
-  [CALENDAR_EVENT_TYPES.AEPO_RENEWAL]: 5,
+  [CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE]: 2,
+  [CALENDAR_EVENT_TYPES.DEADLINE]: 3,
+  [CALENDAR_EVENT_TYPES.OFFERS_EXPIRY]: 4,
+  [CALENDAR_EVENT_TYPES.CONTRACT_END]: 5,
+  [CALENDAR_EVENT_TYPES.AEPO_RENEWAL]: 6,
 };
 
 export function dedupeEventsForMonthDay(events) {
   const byBucket = new Map();
 
   events.forEach((ev) => {
-    const bucketKey = ev.type === CALENDAR_EVENT_TYPES.CUSTOM
-      ? `custom|${ev.customEventId}|${ev.dateKey}`
-      : `${ev.subprojectId}|${ev.dateKey}`;
+    let bucketKey;
+    if (ev.type === CALENDAR_EVENT_TYPES.CUSTOM) {
+      bucketKey = `custom|${ev.customEventId}|${ev.dateKey}`;
+    } else if (ev.type === CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE || ev.prosklisiId) {
+      bucketKey = `prosklisi|${ev.prosklisiId}|${ev.dateKey}`;
+    } else if (ev.type === CALENDAR_EVENT_TYPES.AEPO_RENEWAL || ev.orimanthiProposalId) {
+      bucketKey = `aepo|${ev.orimanthiProposalId}|${ev.dateKey}`;
+    } else {
+      bucketKey = `${ev.subprojectId}|${ev.dateKey}`;
+    }
     const existing = byBucket.get(bucketKey);
     if (!existing) {
       byBucket.set(bucketKey, ev);
@@ -526,6 +543,7 @@ const PAST_DEADLINE_EVENT_TYPES = [
   CALENDAR_EVENT_TYPES.CONTRACT_END,
   CALENDAR_EVENT_TYPES.CUSTOM,
   CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
+  CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
 ];
 
 export function eventsWithinDays(events, maxDays, { includePastDeadlines = true } = {}) {

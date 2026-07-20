@@ -1206,7 +1206,7 @@ function TaskAssignmentManager({
         <Top $compact={focusMode}>
           <Header $compact={focusMode}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <Title $compact={focusMode}>{isWorkArchive ? 'ΑΠΟΘΗΚΗ ΕΡΓΑΣΙΩΝ' : 'Χώρος Εργασίας'}</Title>
+              <Title $compact={focusMode}>{isWorkArchive ? 'Αποθήκη Εργασιών' : 'Χώρος Εργασίας'}</Title>
               <ScreenSubtitleRow>
                 <ScreenSubtitle $compact={focusMode}>
                   {isWorkArchive
@@ -1248,7 +1248,7 @@ function TaskAssignmentManager({
                     setFilterMenuOpen(false);
                   }}
                 >
-                  ΑΠΟΘΗΚΗ ΕΡΓΑΣΙΩΝ
+                  Αποθήκη Εργασιών
                 </TabBtn>
               )}
               <TabBtn

@@ -1423,7 +1423,7 @@ function SubprojectDetailModal({
         requestingUsername
       });
       if (res?.success === false) {
-        alert(res.error || 'Σφάλμα σύνδεσης');
+        showToast(res.error || 'Σφάλμα σύνδεσης', 'error');
         return;
       }
       setShowEpPicker(false);
@@ -1431,7 +1431,7 @@ function SubprojectDetailModal({
       if (typeof onEpLinksChanged === 'function') onEpLinksChanged();
       if (typeof onRefreshProject === 'function') await onRefreshProject();
     } catch (e) {
-      alert(e.message || 'Σφάλμα σύνδεσης');
+      showToast(e.message || 'Σφάλμα σύνδεσης', 'error');
     } finally {
       setEpLinkLoading(false);
     }
@@ -1448,14 +1448,14 @@ function SubprojectDetailModal({
         requestingUsername
       });
       if (res?.success === false) {
-        alert(res.error || 'Σφάλμα αποσύνδεσης');
+        showToast(res.error || 'Σφάλμα αποσύνδεσης', 'error');
         return;
       }
       await loadEpLinks();
       if (typeof onEpLinksChanged === 'function') onEpLinksChanged();
       if (typeof onRefreshProject === 'function') await onRefreshProject();
     } catch (e) {
-      alert(e.message || 'Σφάλμα αποσύνδεσης');
+      showToast(e.message || 'Σφάλμα αποσύνδεσης', 'error');
     } finally {
       setEpLinkLoading(false);
     }

@@ -3,6 +3,12 @@ import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import { safeFileDialog } from '../utils/safeDialogs';
+import {
+  formatEntaxiAmount,
+  formatEntaxiAmountDelta,
+  getEntaxiCurrentTotal
+} from '../utils/entaxiAmountUtils';
+import { parseGreekAmountString } from '../utils/khmdhsFields';
 
 const FormOverlay = styled.div`
   position: fixed;
@@ -374,61 +380,33 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
     return sign + result;
   };
 
-  const calculateCurrentAmount = () => {
-    if (!entaxi) return '0,00';
-    
-    // Σε edit mode, το entaxi είναι η τροποποίηση, όχι η αρχική ένταξη
+  /** Βάση για υπολογισμό: τρέχον σύνολο ΠΡΙΝ από τη νέα/τρέχουσα τροποποίηση. */
+  const getBaselineTotal = () => {
+    if (!entaxi) return 0;
     if (isEditMode) {
-      // Για edit mode, χρησιμοποιούμε το cumulativeAmount της τροποποίησης
-      return entaxi.cumulativeAmount || '0,00';
+      return getEntaxiCurrentTotal(
+        {
+          initialAmount: entaxi.initialAmount,
+          modifications: entaxi.modifications || []
+        },
+        { beforeModificationId: entaxi.modificationId }
+      );
     }
-    
-    let total = parseFloat((entaxi.initialAmount || '0').replace(/\./g, '').replace(',', '.')) || 0;
-    
-    if (entaxi.modifications) {
-      entaxi.modifications.forEach(mod => {
-        const modAmount = parseFloat((mod.amount || '0').replace(/[^\d,.+-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
-        total += modAmount;
-      });
-    }
-    
-    return total.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return getEntaxiCurrentTotal(entaxi);
   };
+
+  const calculateCurrentAmount = () => formatEntaxiAmount(getBaselineTotal());
 
   const calculateNewAmount = () => {
     if (!formData.amount || !entaxi) return null;
 
-    // Σε edit mode, χρησιμοποιούμε το cumulativeAmount της τροποποίησης
-    let currentWithMods;
-    if (isEditMode) {
-      currentWithMods = parseFloat((entaxi.cumulativeAmount || '0').replace(/\./g, '').replace(',', '.')) || 0;
-    } else {
-      const currentTotal = parseFloat((entaxi.initialAmount || '0').replace(/\./g, '').replace(',', '.')) || 0;
-      currentWithMods = currentTotal;
-      
-      if (entaxi.modifications) {
-        entaxi.modifications.forEach(mod => {
-          const modAmount = parseFloat((mod.amount || '0').replace(/[^\d,.+-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
-          currentWithMods += modAmount;
-        });
-      }
-    }
-
-    if (formData.amountType === 'delta') {
-      const deltaAmount = parseFloat(formData.amount.replace(/[^\d,.+-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
-      const newTotal = currentWithMods + deltaAmount;
-      return {
-        newTotal: newTotal.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-        delta: deltaAmount
-      };
-    } else {
-      const absoluteAmount = parseFloat(formData.amount.replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
-      const delta = absoluteAmount - currentWithMods;
-      return {
-        newTotal: absoluteAmount.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-        delta: delta
-      };
-    }
+    const currentWithMods = getBaselineTotal();
+    const absoluteAmount = parseGreekAmountString(formData.amount);
+    const delta = absoluteAmount - currentWithMods;
+    return {
+      newTotal: formatEntaxiAmount(absoluteAmount),
+      delta
+    };
   };
 
   const handleInputChange = useCallback((field, value) => {
@@ -541,28 +519,29 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
     setLoading(true);
 
     try {
+      const baselineTotal = getBaselineTotal();
+      const absoluteNewTotal = formData.changeAmount && formData.amount
+        ? parseGreekAmountString(formData.amount)
+        : baselineTotal;
+      const storedAmount = formData.changeAmount && formData.amount
+        ? formatEntaxiAmount(absoluteNewTotal)
+        : '';
+
       let modificationData = {
         modificationId: isEditMode ? entaxi.modificationId : uuidv4(),
         entaxiId: isEditMode ? entaxi.entaxiId : entaxi.entaxiId,
         date: formData.date,
         changeAmount: formData.changeAmount,
-        amount: formData.changeAmount ? formData.amount : '',
+        // Απόλυτο νέο σύνολο ένταξης (όχι delta προς πρόσθεση)
+        amount: storedAmount,
         comments: formData.comments,
         // File data is already in the correct format from handleFileSelect
         modificationPDF: formData.modificationPDF || null,
         approvalPDF: formData.approvalPDF || null,
         createdAt: isEditMode ? entaxi.createdAt : new Date().toISOString(),
-        updatedAt: isEditMode ? new Date().toISOString() : undefined
+        updatedAt: isEditMode ? new Date().toISOString() : undefined,
+        cumulativeAmount: formatEntaxiAmount(absoluteNewTotal)
       };
-
-      // Υπολογισμός cumulative amount μόνο αν αλλάζει το ποσό
-      if (formData.changeAmount && formData.amount) {
-        const calculation = calculateNewAmount();
-        modificationData.cumulativeAmount = calculation.newTotal;
-      } else {
-        // Αν δεν αλλάζει το ποσό, χρησιμοποιούμε το τρέχον σύνολο
-        modificationData.cumulativeAmount = calculateCurrentAmount();
-      }
 
       await onSave(modificationData);
     } catch (error) {
@@ -592,7 +571,7 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
             <div><strong>Αρχικό Ποσό:</strong> {entaxi.initialAmount} €</div>
           </InfoDetails>
           <CurrentAmount>
-            Τρέχον Σύνολο: {calculateCurrentAmount()} €
+            {isEditMode ? 'Σύνολο πριν από αυτή την τροποποίηση' : 'Τρέχον σύνολο ένταξης'}: {calculateCurrentAmount()} €
           </CurrentAmount>
         </EntaxiInfo>
 
@@ -639,7 +618,7 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
                       Νέο Σύνολο: {newAmountCalc.newTotal} €
                       <br />
                       <small>
-                        Μεταβολή: {newAmountCalc.delta >= 0 ? '+' : ''}{newAmountCalc.delta.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                        Μεταβολή: {formatEntaxiAmountDelta(newAmountCalc.delta)} €
                       </small>
                     </PreviewAmount>
                   )}

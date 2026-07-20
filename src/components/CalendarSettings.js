@@ -21,8 +21,8 @@ const Panel = styled.div`
   background: white;
   border-radius: 12px;
   padding: 28px 32px;
-  width: 560px;
-  max-width: 95vw;
+  width: 640px;
+  max-width: 96vw;
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
@@ -125,12 +125,34 @@ const HelpText = styled.p`
 `;
 
 const UserList = styled.div`
-  max-height: 140px;
+  max-height: 120px;
   overflow-y: auto;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 8px 10px;
   background: #f8fafc;
+`;
+
+const TypeCard = styled.div`
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: ${(p) => (p.$enabled ? '#f8fafc' : '#fafafa')};
+  opacity: ${(p) => (p.$enabled ? 1 : 0.72)};
+`;
+
+const TypeCardBody = styled.div`
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+`;
+
+const TypeCardRoles = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 10px;
 `;
 
 const BtnRow = styled.div`
@@ -178,7 +200,61 @@ const REMINDER_EVENT_TYPES = [
   CALENDAR_EVENT_TYPES.CONTRACT_END,
   CALENDAR_EVENT_TYPES.COMPLIANCE_12M,
   CALENDAR_EVENT_TYPES.CUSTOM,
+  CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
 ];
+
+function makeDefaultTypeSetting() {
+  return {
+    enabled: true,
+    recipientRoles: ['ADMIN', 'ENGINEER'],
+    recipientUsernames: [],
+  };
+}
+
+function buildDefaultEventTypeSettings() {
+  const out = {};
+  REMINDER_EVENT_TYPES.forEach((type) => {
+    out[type] = makeDefaultTypeSetting();
+  });
+  return out;
+}
+
+function loadEventTypeSettingsFromConfig(cfg = {}) {
+  const legacyRoles = Array.isArray(cfg.recipientRoles) && cfg.recipientRoles.length
+    ? cfg.recipientRoles
+    : ['ADMIN', 'ENGINEER'];
+  const legacyUsers = Array.isArray(cfg.recipientUsernames) ? cfg.recipientUsernames : [];
+  const legacyEnabled = Array.isArray(cfg.notifyEventTypes)
+    ? cfg.notifyEventTypes.filter((t) => REMINDER_EVENT_TYPES.includes(t))
+    : [...REMINDER_EVENT_TYPES];
+  const enabledSet = new Set(legacyEnabled.length ? legacyEnabled : REMINDER_EVENT_TYPES);
+  const src = cfg.eventTypeSettings && typeof cfg.eventTypeSettings === 'object'
+    ? cfg.eventTypeSettings
+    : null;
+  const out = {};
+  REMINDER_EVENT_TYPES.forEach((type) => {
+    const row = src?.[type];
+    if (row && typeof row === 'object') {
+      const roles = Array.isArray(row.recipientRoles)
+        ? row.recipientRoles.filter((r) => ['ADMIN', 'ENGINEER', 'USER'].includes(r))
+        : [];
+      out[type] = {
+        enabled: row.enabled !== false,
+        recipientRoles: roles.length ? roles : (Array.isArray(row.recipientUsernames) && row.recipientUsernames.length ? [] : ['ADMIN']),
+        recipientUsernames: Array.isArray(row.recipientUsernames)
+          ? row.recipientUsernames.map((u) => String(u).toLowerCase())
+          : [],
+      };
+    } else {
+      out[type] = {
+        enabled: enabledSet.has(type),
+        recipientRoles: [...legacyRoles],
+        recipientUsernames: [...legacyUsers],
+      };
+    }
+  });
+  return out;
+}
 
 const DAY_OPTIONS = [
   { value: 180, label: '6 μήνες πριν' },
@@ -198,17 +274,13 @@ export default function CalendarSettings({ onClose, currentUser }) {
   const [users, setUsers] = useState([]);
 
   const [enabled, setEnabled] = useState(false);
-  const [roleAdmin, setRoleAdmin] = useState(true);
-  const [roleEngineer, setRoleEngineer] = useState(true);
-  const [roleUser, setRoleUser] = useState(false);
-  const [selectedUsernames, setSelectedUsernames] = useState([]);
+  const [eventTypeSettings, setEventTypeSettings] = useState(buildDefaultEventTypeSettings);
   const [days180, setDays180] = useState(false);
   const [days90, setDays90] = useState(false);
   const [days7, setDays7] = useState(true);
   const [days3, setDays3] = useState(true);
   const [days1, setDays1] = useState(true);
   const [days0, setDays0] = useState(true);
-  const [notifyEventTypes, setNotifyEventTypes] = useState([...REMINDER_EVENT_TYPES]);
   const [urgentEnabled, setUrgentEnabled] = useState(true);
   const [urgentMaxCount, setUrgentMaxCount] = useState(3);
   const [urgentIntervalHours, setUrgentIntervalHours] = useState(24);
@@ -236,11 +308,7 @@ export default function CalendarSettings({ onClose, currentUser }) {
       }
       const cfg = cfgRes.config || {};
       setEnabled(cfg.enabled === true);
-      const roles = cfg.recipientRoles || ['ADMIN', 'ENGINEER'];
-      setRoleAdmin(roles.includes('ADMIN'));
-      setRoleEngineer(roles.includes('ENGINEER'));
-      setRoleUser(roles.includes('USER'));
-      setSelectedUsernames(Array.isArray(cfg.recipientUsernames) ? cfg.recipientUsernames : []);
+      setEventTypeSettings(loadEventTypeSettingsFromConfig(cfg));
       const db = cfg.daysBefore || [7, 3, 1, 0];
       setDays180(db.includes(180));
       setDays90(db.includes(90));
@@ -248,10 +316,6 @@ export default function CalendarSettings({ onClose, currentUser }) {
       setDays3(db.includes(3));
       setDays1(db.includes(1));
       setDays0(db.includes(0));
-      const loadedTypes = Array.isArray(cfg.notifyEventTypes)
-        ? cfg.notifyEventTypes.filter((t) => REMINDER_EVENT_TYPES.includes(t))
-        : [];
-      setNotifyEventTypes(loadedTypes.length ? loadedTypes : [...REMINDER_EVENT_TYPES]);
       const urg = cfg.urgentRepeat || {};
       setUrgentEnabled(urg.enabled !== false);
       setUrgentMaxCount(Number(urg.maxCount) || 3);
@@ -276,17 +340,20 @@ export default function CalendarSettings({ onClose, currentUser }) {
     if (days3) daysBefore.push(3);
     if (days1) daysBefore.push(1);
     if (days0) daysBefore.push(0);
-    const recipientRoles = [];
-    if (roleAdmin) recipientRoles.push('ADMIN');
-    if (roleEngineer) recipientRoles.push('ENGINEER');
-    if (roleUser) recipientRoles.push('USER');
-    const selectedTypes = notifyEventTypes.filter((t) => REMINDER_EVENT_TYPES.includes(t));
+    const payloadSettings = {};
+    REMINDER_EVENT_TYPES.forEach((type) => {
+      const row = eventTypeSettings[type] || makeDefaultTypeSetting();
+      const roles = Array.isArray(row.recipientRoles) ? row.recipientRoles : [];
+      payloadSettings[type] = {
+        enabled: row.enabled === true,
+        recipientRoles: roles.length ? roles : (Array.isArray(row.recipientUsernames) && row.recipientUsernames.length ? [] : ['ADMIN']),
+        recipientUsernames: Array.isArray(row.recipientUsernames) ? row.recipientUsernames : [],
+      };
+    });
     return {
       enabled,
-      recipientRoles: recipientRoles.length ? recipientRoles : ['ADMIN'],
-      recipientUsernames: selectedUsernames,
       daysBefore: daysBefore.length ? daysBefore : [7, 3, 1, 0],
-      notifyEventTypes: selectedTypes.length ? selectedTypes : [...REMINDER_EVENT_TYPES],
+      eventTypeSettings: payloadSettings,
       urgentRepeat: {
         enabled: urgentEnabled,
         maxCount: Math.max(1, Math.min(14, Number(urgentMaxCount) || 3)),
@@ -340,19 +407,47 @@ export default function CalendarSettings({ onClose, currentUser }) {
     }
   };
 
-  const toggleUsername = (username) => {
-    const u = String(username || '').trim().toLowerCase();
-    setSelectedUsernames((prev) => (
-      prev.includes(u) ? prev.filter((x) => x !== u) : [...prev, u]
-    ));
+  const updateTypeSetting = (eventType, patch) => {
+    setEventTypeSettings((prev) => ({
+      ...prev,
+      [eventType]: {
+        ...(prev[eventType] || makeDefaultTypeSetting()),
+        ...patch,
+      },
+    }));
   };
 
-  const toggleNotifyEventType = (eventType) => {
-    setNotifyEventTypes((prev) => (
-      prev.includes(eventType)
-        ? prev.filter((t) => t !== eventType)
-        : [...prev, eventType]
-    ));
+  const toggleTypeRole = (eventType, role) => {
+    setEventTypeSettings((prev) => {
+      const row = prev[eventType] || makeDefaultTypeSetting();
+      const roles = new Set(row.recipientRoles || []);
+      if (roles.has(role)) roles.delete(role);
+      else roles.add(role);
+      return {
+        ...prev,
+        [eventType]: {
+          ...row,
+          recipientRoles: [...roles],
+        },
+      };
+    });
+  };
+
+  const toggleTypeUsername = (eventType, username) => {
+    const u = String(username || '').trim().toLowerCase();
+    if (!u) return;
+    setEventTypeSettings((prev) => {
+      const row = prev[eventType] || makeDefaultTypeSetting();
+      const list = Array.isArray(row.recipientUsernames) ? row.recipientUsernames : [];
+      const next = list.includes(u) ? list.filter((x) => x !== u) : [...list, u];
+      return {
+        ...prev,
+        [eventType]: {
+          ...row,
+          recipientUsernames: next,
+        },
+      };
+    });
   };
 
   return (
@@ -374,57 +469,75 @@ export default function CalendarSettings({ onClose, currentUser }) {
                 <span>Ενεργές αυτόματες υπενθυμίσεις ημερολογίου</span>
               </CheckRow>
               <HelpText>
-                Απαιτείται ρύθμιση SMTP (Σύστημα → Ρυθμίσεις Email). Επιλέξτε ποιοι τύποι καταγραφών θα στέλνουν email και πόσες ημέρες πριν την προθεσμία — με φιλτράρισμα ανά ρόλο όπως στο ημερολόγιο.
+                Απαιτείται ρύθμιση SMTP (Σύστημα → Ρυθμίσεις Email). Για κάθε τύπο
+                προθεσμίας ορίζετε ξεχωριστά αν θα στέλνονται email και σε ποιους.
               </HelpText>
             </Section>
 
             <Section>
-              <SectionTitle>Τύποι καταγραφών για email</SectionTitle>
-              {REMINDER_EVENT_TYPES.map((eventType) => (
-                <CheckRow key={eventType}>
-                  <input
-                    type="checkbox"
-                    checked={notifyEventTypes.includes(eventType)}
-                    onChange={() => toggleNotifyEventType(eventType)}
-                  />
-                  <span>{CALENDAR_EVENT_LABELS[eventType]}</span>
-                </CheckRow>
-              ))}
-              <HelpText>
-                Μπορείτε να ενεργοποιήσετε ειδοποιήσεις μόνο για τους τύπους που σας ενδιαφέρουν (π.χ. μόνο λήξεις συμβάσεων).
-              </HelpText>
-            </Section>
-
-            <Section>
-              <SectionTitle>Παραλήπτες</SectionTitle>
-              <CheckRow>
-                <input type="checkbox" checked={roleAdmin} onChange={(e) => setRoleAdmin(e.target.checked)} />
-                <span>ADMIN / SUPERADMIN (email από προφίλ χρήστη)</span>
-              </CheckRow>
-              <CheckRow>
-                <input type="checkbox" checked={roleEngineer} onChange={(e) => setRoleEngineer(e.target.checked)} />
-                <span>ENGINEER — μόνο για υποέργα που τους αφορούν (χρέωση)</span>
-              </CheckRow>
-              <CheckRow>
-                <input type="checkbox" checked={roleUser} onChange={(e) => setRoleUser(e.target.checked)} />
-                <span>USER — όλες οι προθεσμίες (όπως στην οθόνη)</span>
-              </CheckRow>
-              <FieldGroup>
-                <Label>Επιπλέον συγκεκριμένοι χρήστες (προαιρετικά)</Label>
-                <UserList>
-                  {users.length === 0 && <HelpText>Δεν βρέθηκαν ενεργοί χρήστες με email.</HelpText>}
-                  {users.map((u) => (
-                    <CheckRow key={u.username}>
+              <SectionTitle>Τύποι γεγονότων &amp; παραλήπτες</SectionTitle>
+              {REMINDER_EVENT_TYPES.map((eventType) => {
+                const row = eventTypeSettings[eventType] || makeDefaultTypeSetting();
+                const roles = row.recipientRoles || [];
+                return (
+                  <TypeCard key={eventType} $enabled={row.enabled === true}>
+                    <CheckRow>
                       <input
                         type="checkbox"
-                        checked={selectedUsernames.includes(String(u.username).toLowerCase())}
-                        onChange={() => toggleUsername(u.username)}
+                        checked={row.enabled === true}
+                        onChange={(e) => updateTypeSetting(eventType, { enabled: e.target.checked })}
                       />
-                      <span>{u.fullName || u.username} ({u.role}) — {u.email}</span>
+                      <span style={{ fontWeight: 700 }}>{CALENDAR_EVENT_LABELS[eventType]}</span>
                     </CheckRow>
-                  ))}
-                </UserList>
-              </FieldGroup>
+                    {row.enabled === true && (
+                      <TypeCardBody>
+                        <TypeCardRoles>
+                          <CheckRow>
+                            <input
+                              type="checkbox"
+                              checked={roles.includes('ADMIN')}
+                              onChange={() => toggleTypeRole(eventType, 'ADMIN')}
+                            />
+                            <span>Διαχειριστές</span>
+                          </CheckRow>
+                          <CheckRow>
+                            <input
+                              type="checkbox"
+                              checked={roles.includes('ENGINEER')}
+                              onChange={() => toggleTypeRole(eventType, 'ENGINEER')}
+                            />
+                            <span>Μηχανικοί</span>
+                          </CheckRow>
+                          <CheckRow>
+                            <input
+                              type="checkbox"
+                              checked={roles.includes('USER')}
+                              onChange={() => toggleTypeRole(eventType, 'USER')}
+                            />
+                            <span>Χρήστες</span>
+                          </CheckRow>
+                        </TypeCardRoles>
+                        <FieldGroup style={{ marginBottom: 0 }}>
+                          <Label>Επιπλέον συγκεκριμένοι χρήστες</Label>
+                          <UserList>
+                            {users.length === 0 && <HelpText>Δεν βρέθηκαν ενεργοί χρήστες με email.</HelpText>}
+                            {users.map((u) => (
+                              <CheckRow key={`${eventType}-${u.username}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={(row.recipientUsernames || []).includes(String(u.username).toLowerCase())}
+                                  onChange={() => toggleTypeUsername(eventType, u.username)}
+                                />
+                                <span>{u.fullName || u.username} ({u.role})</span>
+                              </CheckRow>
+                            ))}
+                          </UserList>
+                        </FieldGroup>
+                      </TypeCardBody>
+                    )}
+                  </TypeCard>
+                );
+              })}
             </Section>
 
             <Section>

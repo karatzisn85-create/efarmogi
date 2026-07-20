@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { useToast } from './ToastProvider';
@@ -15,6 +15,15 @@ import {
   openProsklisiDiavgeiaDocument,
   buildProsklisiDiavgeiaRegistryEntry,
 } from '../utils/prosklisiDiavgeiaRegistry';
+import {
+  compareProskliseisByDeadline,
+  getEffectiveProsklisiDeadline,
+  getProsklisiDeadlineChipMeta,
+  getProsklisiViewTab,
+  isProsklisiDeadlineExpiringSoon,
+  partitionProskliseisByViewTab,
+  PROSKLISI_VIEW_TABS,
+} from '../utils/prosklisiDeadlineUtils';
 
 const ipcRenderer = window.electronAPI;
 
@@ -375,10 +384,87 @@ const GroupCards = styled.div`
 
 /* ── Compact Card ── */
 
+const ViewTabBar = styled.div`
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.65rem 0 0.35rem;
+  padding: 0.2rem;
+  background: #f1f5f9;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+`;
+
+const ViewTabBtn = styled.button`
+  flex: 1;
+  min-width: 140px;
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: ${(p) => (p.$active ? 700 : 560)};
+  cursor: pointer;
+  color: ${(p) => (p.$active ? p.$activeColor || '#1e293b' : '#64748b')};
+  background: ${(p) => (p.$active ? '#ffffff' : 'transparent')};
+  box-shadow: ${(p) => (p.$active ? '0 1px 3px rgba(15, 23, 42, 0.1)' : 'none')};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  transition: background 0.15s ease, color 0.15s ease;
+  &:hover {
+    color: ${(p) => p.$activeColor || '#1e293b'};
+    background: ${(p) => (p.$active ? '#ffffff' : 'rgba(255,255,255,0.55)')};
+  }
+`;
+
+const TabCount = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  background: ${(p) => (p.$active ? p.$bg || '#e2e8f0' : '#e2e8f0')};
+  color: ${(p) => (p.$active ? p.$fg || '#334155' : '#64748b')};
+`;
+
+const CrossTabHint = styled.div`
+  margin: 0.35rem 0 0.15rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  font-size: 0.78rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+`;
+
+const CrossTabLink = styled.button`
+  border: 1px solid #93c5fd;
+  background: #fff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+  &:hover { background: #dbeafe; }
+`;
+
 const ProsklisisItem = styled.div`
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%);
-  border: 1.5px solid rgba(203, 213, 225, 0.7);
+  background: ${(p) => (p.$muted
+    ? 'linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.92) 100%)'
+    : 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%)')};
+  border: 1.5px solid ${(p) => (p.$muted ? 'rgba(203, 213, 225, 0.9)' : 'rgba(203, 213, 225, 0.7)')};
   border-left: 4px solid ${(p) => {
+    if (p.$muted) return '#94a3b8';
     switch (p.$status) {
       case 'Υπό Ωρίμανση': return '#f59e0b';
       case 'Υπό Υποβολή': return '#3b82f6';
@@ -391,7 +477,8 @@ const ProsklisisItem = styled.div`
   margin-bottom: 0;
   overflow: visible;
   position: relative;
-  opacity: ${(p) => (p.$isLocked ? 0.72 : 1)};
+  opacity: ${(p) => (p.$isLocked ? 0.72 : (p.$muted ? 0.88 : 1))};
+  filter: ${(p) => (p.$muted ? 'saturate(0.78)' : 'none')};
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
   transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s ease;
   &:hover {
@@ -502,12 +589,39 @@ const MetaChip = styled.span`
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  ${(p) => p.$clickable && `cursor: pointer; &:hover { filter: brightness(0.97); }`}
   ${(p) => p.$accent && `
     background: linear-gradient(105deg, rgba(238, 242, 255, 0.95) 0%, rgba(255, 255, 255, 0.6) 100%);
     border-color: rgba(165, 180, 252, 0.45);
     color: #312e81;
   `}
   ${(p) => p.$green && `background: #f0fdf4; border-color: #86efac; color: #15803d;`}
+  ${(p) => p.$urgency === 'expired' && `
+    background: #fef2f2; border-color: #fecaca; color: #b91c1c;
+  `}
+  ${(p) => p.$urgency === 'urgent' && `
+    background: #fff7ed; border-color: #fdba74; color: #c2410c;
+  `}
+  ${(p) => p.$urgency === 'soon' && `
+    background: #fffbeb; border-color: #fcd34d; color: #a16207;
+  `}
+  ${(p) => p.$urgency === 'ok' && `
+    background: #f0fdf4; border-color: #86efac; color: #15803d;
+  `}
+`;
+
+const LinkedRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+`;
+
+const LinkedHint = styled.span`
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #64748b;
 `;
 
 const StatusChip = styled.span`
@@ -1010,7 +1124,19 @@ function SeeMoreText({ text, modalTitle, lineClamp = 2, singleLine = false, Text
 
 /* ────────── Main Component ────────── */
 
-function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedProsklisiId = null, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '' }) {
+function ProsklisisManager({
+  isOpen,
+  onClose,
+  userRole,
+  currentUser,
+  projectFilter = null,
+  selectedProsklisiId = null,
+  linkedNotesMap = {},
+  notes = [],
+  onOpenNoteFromEntity,
+  organizationName = '',
+  onOpenRelatedEntaxi = null
+}) {
   const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [proskliseis, setProskliseis] = useState([]);
@@ -1025,12 +1151,18 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
   const [isModificationFormOpen, setIsModificationFormOpen] = useState(false);
   const [prosklisiLocks, setProsklisiLocks] = useState({});
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [relatedEntaxeisByProsklisi, setRelatedEntaxeisByProsklisi] = useState({});
 
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState({
     axis: '', fundingSource: '', status: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: ''
   });
   const [quickSearchStatus, setQuickSearchStatus] = useState('');
+  const [showExpiringSoonOnly, setShowExpiringSoonOnly] = useState(false);
+  const [showUnlinkedOnly, setShowUnlinkedOnly] = useState(false);
+  const [sortByDeadline, setSortByDeadline] = useState(false);
+  const [viewTab, setViewTab] = useState(PROSKLISI_VIEW_TABS.ACTIVE);
+  const focusTabAppliedRef = useRef(null);
 
   const [modsExpanded, setModsExpanded] = useState({});
   const [menuState, setMenuState] = useState({ open: false, top: 0, left: 0, type: null, prosklisi: null });
@@ -1137,7 +1269,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
 
   useEffect(() => {
     filterProskliseis();
-  }, [proskliseis, searchTerm, projectFilter, quickSearchStatus, advancedFilters, selectedProsklisiId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [proskliseis, prosklisiModifications, searchTerm, projectFilter, quickSearchStatus, advancedFilters, selectedProsklisiId, showExpiringSoonOnly, showUnlinkedOnly, sortByDeadline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (proskliseis.length > 0) loadProsklisiLocks();
@@ -1190,11 +1322,29 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
     return () => { isActive = false; if (timeoutId) clearTimeout(timeoutId); if (intervalId) clearInterval(intervalId); };
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const loadRelatedEntaxeis = async () => {
+    try {
+      const entaxeis = await ipcRenderer.invoke('load-all-entaxeis');
+      const map = {};
+      (entaxeis || []).forEach((entaxi) => {
+        const pid = entaxi?.prosklisiId;
+        if (!pid) return;
+        if (!map[pid]) map[pid] = [];
+        map[pid].push(entaxi);
+      });
+      setRelatedEntaxeisByProsklisi(map);
+    } catch (error) {
+      console.error('Error loading related entaxeis for proskliseis:', error);
+      setRelatedEntaxeisByProsklisi({});
+    }
+  };
+
   const loadProskliseis = async () => {
     setLoading(true);
     try {
       const data = await ipcRenderer.invoke('load-all-proskliseis');
       setProskliseis(data || []);
+      loadRelatedEntaxeis();
       const modifications = {};
       for (const prosklisi of data || []) {
         try {
@@ -1232,11 +1382,21 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
     let filtered = [...proskliseis];
     if (projectFilter) filtered = filtered.filter(p => p.title === projectFilter);
     if (searchTerm.trim()) {
-      filtered = filtered.filter(p =>
-        containsSearchTerm(p.title, searchTerm) || containsSearchTerm(p.axis, searchTerm) ||
-        containsSearchTerm(p.fundingSource, searchTerm) || containsSearchTerm(p.code, searchTerm) ||
-        containsSearchTerm(p.status, searchTerm)
-      );
+      filtered = filtered.filter((p) => {
+        const linkedTitles = (p.linkedProjects || [])
+          .map((lp) => (typeof lp === 'string' ? lp : (lp?.title || lp?.projectTitle || '')))
+          .join(' ');
+        const diavgeiaAda = getProsklisiDiavgeiaEntry(p)?.ada || '';
+        return (
+          containsSearchTerm(p.title, searchTerm) ||
+          containsSearchTerm(p.axis, searchTerm) ||
+          containsSearchTerm(p.fundingSource, searchTerm) ||
+          containsSearchTerm(p.code, searchTerm) ||
+          containsSearchTerm(p.status, searchTerm) ||
+          containsSearchTerm(linkedTitles, searchTerm) ||
+          containsSearchTerm(diavgeiaAda, searchTerm)
+        );
+      });
     }
     if (quickSearchStatus) filtered = filtered.filter(p => p.status === quickSearchStatus);
     if (advancedFilters.axis) filtered = filtered.filter(p => containsSearchTerm(p.axis, advancedFilters.axis));
@@ -1276,9 +1436,23 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       return a.getTime() - b.getTime();
     };
 
-    if (advancedFilters.dateFrom) filtered = filtered.filter(p => { if (!p.deadline) return false; const c = compareDatesOnly(p.deadline, advancedFilters.dateFrom); return c !== null && c >= 0; });
-    if (advancedFilters.dateTo) filtered = filtered.filter(p => { if (!p.deadline) return false; const c = compareDatesOnly(p.deadline, advancedFilters.dateTo); return c !== null && c <= 0; });
+    const deadlineOf = (p) => getEffectiveProsklisiDeadline(p, prosklisiModifications[p.prosklisiId] || []);
+
+    if (advancedFilters.dateFrom) filtered = filtered.filter(p => { const dl = deadlineOf(p); if (!dl) return false; const c = compareDatesOnly(dl, advancedFilters.dateFrom); return c !== null && c >= 0; });
+    if (advancedFilters.dateTo) filtered = filtered.filter(p => { const dl = deadlineOf(p); if (!dl) return false; const c = compareDatesOnly(dl, advancedFilters.dateTo); return c !== null && c <= 0; });
     if (selectedProsklisiId) filtered = filtered.filter(p => p.prosklisiId === selectedProsklisiId);
+    if (showExpiringSoonOnly) {
+      filtered = filtered.filter((p) => isProsklisiDeadlineExpiringSoon(deadlineOf(p), 30));
+    }
+    if (showUnlinkedOnly) {
+      filtered = filtered.filter((p) => !Array.isArray(p.linkedProjects) || p.linkedProjects.length === 0);
+    }
+    if (sortByDeadline || showExpiringSoonOnly) {
+      filtered = [...filtered].sort((a, b) => compareProskliseisByDeadline(
+        { deadline: deadlineOf(a) },
+        { deadline: deadlineOf(b) }
+      ));
+    }
     setFilteredProskliseis(filtered);
   };
 
@@ -1320,27 +1494,43 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
     return true;
   };
 
+  const syncProsklisiFieldsFromModification = async (modificationData) => {
+    if (!modificationData?.originalProsklisiId) return;
+    if (!modificationData.changes || Object.keys(modificationData.changes).length === 0) return;
+    const baseProsklisi = proskliseis.find(
+      (p) => p.prosklisiId === modificationData.originalProsklisiId
+    ) || {};
+    const updatedProsklisiData = {
+      ...baseProsklisi,
+      prosklisiId: modificationData.originalProsklisiId,
+      title: modificationData.modifiedData?.title ?? baseProsklisi.title,
+      axis: modificationData.modifiedData?.axis ?? baseProsklisi.axis,
+      fundingSource: modificationData.modifiedData?.fundingSource ?? baseProsklisi.fundingSource,
+      code: modificationData.modifiedData?.code ?? baseProsklisi.code,
+      deadline: modificationData.modifiedData?.deadline ?? baseProsklisi.deadline,
+      budgetRange: modificationData.modifiedData?.budgetRange ?? baseProsklisi.budgetRange,
+      status: modificationData.modifiedData?.status ?? baseProsklisi.status,
+      updatedAt: new Date().toISOString()
+    };
+    await ipcRenderer.invoke('save-prosklisi', updatedProsklisiData);
+  };
+
+  const syncProsklisiDeadlineFromMods = async (prosklisiId, modifications) => {
+    const baseProsklisi = proskliseis.find((p) => p.prosklisiId === prosklisiId);
+    if (!baseProsklisi) return;
+    const effective = getEffectiveProsklisiDeadline(baseProsklisi, modifications || []);
+    if (String(effective || '') === String(baseProsklisi.deadline || '')) return;
+    await ipcRenderer.invoke('save-prosklisi', {
+      ...baseProsklisi,
+      deadline: effective,
+      updatedAt: new Date().toISOString()
+    });
+  };
+
   const handleSaveModification = async (modificationData) => {
     try {
       await ipcRenderer.invoke('save-prosklisi-modification', modificationData);
-      if (modificationData.changes && Object.keys(modificationData.changes).length > 0) {
-        const baseProsklisi = proskliseis.find(
-          (p) => p.prosklisiId === modificationData.originalProsklisiId
-        ) || {};
-        const updatedProsklisiData = {
-          ...baseProsklisi,
-          prosklisiId: modificationData.originalProsklisiId,
-          title: modificationData.modifiedData.title,
-          axis: modificationData.modifiedData.axis,
-          fundingSource: modificationData.modifiedData.fundingSource,
-          code: modificationData.modifiedData.code,
-          deadline: modificationData.modifiedData.deadline,
-          budgetRange: modificationData.modifiedData.budgetRange,
-          status: modificationData.modifiedData.status,
-          updatedAt: new Date().toISOString()
-        };
-        await ipcRenderer.invoke('save-prosklisi', updatedProsklisiData);
-      }
+      await syncProsklisiFieldsFromModification(modificationData);
       await loadProskliseis();
       setEditingModification(null);
       setIsModificationFormOpen(false);
@@ -1406,7 +1596,33 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
   const handleDeleteModification = async (prosklisiId, modificationId) => {
     if (await showConfirm({ title: 'Διαγραφή Τροποποίησης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την τροποποίηση;', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
+        const allMods = prosklisiModifications[prosklisiId] || [];
+        const deleted = allMods.find((m) => m.modificationId === modificationId);
+        const remaining = allMods.filter((m) => m.modificationId !== modificationId);
         await ipcRenderer.invoke('delete-prosklisi-modification', prosklisiId, modificationId);
+        const baseProsklisi = proskliseis.find((p) => p.prosklisiId === prosklisiId);
+        if (baseProsklisi) {
+          let baseline = baseProsklisi;
+          // Αν διαγράφεται η μόνη τροποποίηση που άλλαξε λήξη, επαναφέρουμε το «πριν»
+          const remainingDeadlineChanges = remaining.some((m) => {
+            const cur = m?.changes?.deadline?.current;
+            return cur != null && String(cur).trim() !== '' && String(cur).trim() !== '-';
+          });
+          if (deleted?.changes?.deadline && !remainingDeadlineChanges) {
+            baseline = {
+              ...baseProsklisi,
+              deadline: deleted.changes.deadline.original ?? baseProsklisi.deadline,
+            };
+          }
+          const effective = getEffectiveProsklisiDeadline(baseline, remaining);
+          if (String(effective || '') !== String(baseProsklisi.deadline || '')) {
+            await ipcRenderer.invoke('save-prosklisi', {
+              ...baseProsklisi,
+              deadline: effective,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        }
         await loadProskliseis();
       } catch (error) { showToast('Σφάλμα διαγραφής τροποποίησης: ' + error.message, 'error'); }
     }
@@ -1415,6 +1631,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
   const handleSaveModificationEdit = async (modificationData) => {
     try {
       await ipcRenderer.invoke('update-prosklisi-modification', modificationData);
+      await syncProsklisiFieldsFromModification(modificationData);
       if (editingModification && editingModification.prosklisiId) {
         await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingModification.prosklisiId);
         setProsklisiLocks(prev => ({ ...prev, [editingModification.prosklisiId]: false }));
@@ -1448,40 +1665,135 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
   const handleClearFilters = () => {
     setSearchTerm('');
     setQuickSearchStatus('');
+    setShowExpiringSoonOnly(false);
+    setShowUnlinkedOnly(false);
+    setSortByDeadline(false);
     setAdvancedFilters({ axis: '', fundingSource: '', status: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: '' });
     setShowAdvancedFilters(false);
   };
 
+  const hasLinkedProjects = (prosklisi) =>
+    Array.isArray(prosklisi?.linkedProjects) && prosklisi.linkedProjects.length > 0;
+
+  const getLinkedProjectLabels = (prosklisi) => {
+    if (!hasLinkedProjects(prosklisi)) return [];
+    return prosklisi.linkedProjects
+      .map((p) => (typeof p === 'string' ? p : (p?.title || p?.projectTitle || '')))
+      .filter(Boolean);
+  };
+
+  const handleOpenRelatedEntaxi = (entaxiOrFilter) => {
+    if (!entaxiOrFilter) return;
+    if (typeof onOpenRelatedEntaxi === 'function') {
+      onOpenRelatedEntaxi(entaxiOrFilter);
+      return;
+    }
+    showToast('Δεν είναι δυνατή η μετάβαση στις εντάξεις από εδώ.', 'info');
+  };
+
   const handleClose = () => { handleClearFilters(); onClose(); };
 
-  const groupProskliseisByStatus = () => {
-    const groups = { 'Υπό Υποβολή': [], 'Υπό Ωρίμανση': [], 'Ολοκληρωμένες Προσκλήσεις': [], 'Άλλες': [] };
-    filteredProskliseis.forEach(p => {
+  const tabPartition = useMemo(
+    () => partitionProskliseisByViewTab(filteredProskliseis, prosklisiModifications),
+    [filteredProskliseis, prosklisiModifications]
+  );
+
+  const VIEW_TAB_META = {
+    [PROSKLISI_VIEW_TABS.ACTIVE]: {
+      label: 'Ενεργές',
+      icon: '🟢',
+      activeColor: '#166534',
+      countBg: '#dcfce7',
+      countFg: '#166534',
+      empty: 'Δεν υπάρχουν ενεργές προσκλήσεις με τα τρέχοντα φίλτρα.',
+    },
+    [PROSKLISI_VIEW_TABS.EXPIRED]: {
+      label: 'Ληγμένες',
+      icon: '⏰',
+      activeColor: '#9a3412',
+      countBg: '#ffedd5',
+      countFg: '#9a3412',
+      empty: 'Δεν υπάρχουν ληγμένες ανοιχτές προσκλήσεις με τα τρέχοντα φίλτρα.',
+    },
+    [PROSKLISI_VIEW_TABS.SUBMITTED]: {
+      label: 'Υποβληθείσες',
+      icon: '✅',
+      activeColor: '#1e40af',
+      countBg: '#dbeafe',
+      countFg: '#1e40af',
+      empty: 'Δεν υπάρχουν υποβληθείσες προσκλήσεις με τα τρέχοντα φίλτρα.',
+    },
+  };
+
+  const groupListForCurrentTab = () => {
+    const list = tabPartition[viewTab] || [];
+    if (viewTab === PROSKLISI_VIEW_TABS.SUBMITTED) {
+      return list.length ? [['Υποβληθείσες', list]] : [];
+    }
+    const groups = { 'Υπό Υποβολή': [], 'Υπό Ωρίμανση': [], 'Άλλες': [] };
+    list.forEach((p) => {
       if (p.status === 'Υπό Υποβολή') groups['Υπό Υποβολή'].push(p);
       else if (p.status === 'Υπό Ωρίμανση') groups['Υπό Ωρίμανση'].push(p);
-      else if (p.status === 'Υποβληθέν ΤΔΠ') groups['Ολοκληρωμένες Προσκλήσεις'].push(p);
       else groups['Άλλες'].push(p);
     });
-    return Object.entries(groups).filter(([, list]) => list.length > 0);
+    if (sortByDeadline || showExpiringSoonOnly) {
+      Object.keys(groups).forEach((key) => {
+        groups[key] = [...groups[key]].sort((a, b) => compareProskliseisByDeadline(
+          { deadline: getEffectiveProsklisiDeadline(a, prosklisiModifications[a.prosklisiId] || []) },
+          { deadline: getEffectiveProsklisiDeadline(b, prosklisiModifications[b.prosklisiId] || []) }
+        ));
+      });
+    }
+    return Object.entries(groups).filter(([, rows]) => rows.length > 0);
   };
 
   const getGroupStyle = (name) => {
     switch (name) {
       case 'Υπό Υποβολή': return { color: '#0d47a1', barColor: '#2196f3', icon: '📤' };
-      case 'Υπό Ωρίμανση': return { color: '#424242', barColor: '#9e9e9e', icon: '⏳' };
-      case 'Ολοκληρωμένες Προσκλήσεις': return { color: '#283593', barColor: '#7986cb', icon: '✅' };
+      case 'Υπό Ωρίμανση': return { color: '#92400e', barColor: '#f59e0b', icon: '⏳' };
+      case 'Υποβληθείσες': return { color: '#283593', barColor: '#7986cb', icon: '✅' };
       default: return { color: '#424242', barColor: '#9e9e9e', icon: '📋' };
     }
   };
+
+  // Άνοιγμα συγκεκριμένης πρόσκλησης (από κάρτα υποέργου κ.λπ.) → σωστό tab, μία φορά ανά εστίαση
+  useEffect(() => {
+    if (!isOpen) {
+      focusTabAppliedRef.current = null;
+      return;
+    }
+    const focusKey = selectedProsklisiId
+      ? `id:${selectedProsklisiId}`
+      : (projectFilter ? `title:${projectFilter}` : '');
+    if (!focusKey || !proskliseis.length) return;
+    if (focusTabAppliedRef.current === focusKey) return;
+
+    let target = null;
+    if (selectedProsklisiId) {
+      target = proskliseis.find((x) => x.prosklisiId === selectedProsklisiId);
+    } else if (projectFilter) {
+      target = proskliseis.find((x) => x.title === projectFilter);
+    }
+    if (!target) return;
+
+    const tab = getProsklisiViewTab(target, prosklisiModifications[target.prosklisiId] || []);
+    setViewTab(tab);
+    focusTabAppliedRef.current = focusKey;
+  }, [isOpen, selectedProsklisiId, projectFilter, proskliseis, prosklisiModifications]);
 
   const handleAdvancedFilterChange = (field, value) => setAdvancedFilters(prev => ({ ...prev, [field]: value }));
 
   const getActiveFiltersCount = () => {
     let n = 0;
     if (searchTerm.trim()) n++; if (quickSearchStatus) n++;
+    if (showExpiringSoonOnly) n++;
+    if (showUnlinkedOnly) n++;
+    if (sortByDeadline) n++;
     Object.values(advancedFilters).forEach(v => { if (typeof v === 'string' && v.trim()) n++; });
     return n;
   };
+
+  const hasAnyActiveFilters = getActiveFiltersCount() > 0;
 
   const getStatistics = () => ({
     total: proskliseis.length,
@@ -1505,25 +1817,54 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
           <ActionsBar>
             {canManageWorkflow && (
               <ToolbarActionButton type="button" primary onClick={() => { captureListScroll(); setEditingProsklisi(null); setIsFormOpen(true); }}>
-                ➕ Νέα Πρόσκληση
+                Νέα Πρόσκληση
               </ToolbarActionButton>
             )}
             <PanelExportButton type="button" onClick={() => setIsExportDialogOpen(true)}>
-              📊 Εξαγωγή σε Excel
+              Εξαγωγή σε Excel
             </PanelExportButton>
             <ToolbarQuickInput
               type="text"
-              placeholder="Αναζήτηση (τίτλος, άξονας, πηγή, κωδικός)..."
+              placeholder="Αναζήτηση σε όλα τα tabs (τίτλος, άξονας, πηγή, κωδικός, έργο)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
             <ToolbarFilterSelect value={quickSearchStatus} onChange={(e) => setQuickSearchStatus(e.target.value)}>
-              <option value="">Όλες οι Καταστάσεις</option>
+              <option value="">Όλες οι καταστάσεις</option>
               {getUniqueStatuses().map(s => <option key={s} value={s}>{s}</option>)}
             </ToolbarFilterSelect>
-            <ToolbarToggleButton type="button" $active={showAdvancedFilters} onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}>
-              🔍 {showAdvancedFilters ? 'Απόκρυψη φίλτρων' : 'Προηγμένα φίλτρα'}
+            <ToolbarToggleButton
+              type="button"
+              $active={showExpiringSoonOnly}
+              onClick={() => setShowExpiringSoonOnly((v) => !v)}
+              title="Ληγμένες ή με λήξη εντός 30 ημερών"
+            >
+              Λήγουν σύντομα
             </ToolbarToggleButton>
+            <ToolbarToggleButton
+              type="button"
+              $active={showUnlinkedOnly}
+              onClick={() => setShowUnlinkedOnly((v) => !v)}
+              title="Προσκλήσεις χωρίς συσχέτιση με έργο"
+            >
+              Χωρίς έργο
+            </ToolbarToggleButton>
+            <ToolbarToggleButton
+              type="button"
+              $active={sortByDeadline}
+              onClick={() => setSortByDeadline((v) => !v)}
+              title="Ταξινόμηση ανά ημερομηνία λήξης"
+            >
+              Κατά λήξη
+            </ToolbarToggleButton>
+            <ToolbarToggleButton type="button" $active={showAdvancedFilters} onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}>
+              {showAdvancedFilters ? 'Απόκρυψη φίλτρων' : 'Προηγμένα φίλτρα'}
+            </ToolbarToggleButton>
+            {hasAnyActiveFilters && (
+              <ToolbarClearButton type="button" onClick={handleClearFilters}>
+                Καθαρισμός
+              </ToolbarClearButton>
+            )}
           </ActionsBar>
 
           <SearchStats>
@@ -1532,19 +1873,55 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                 const stats = getStatistics();
                 return (
                   <>
-                    <div className="stat-item"><span className="stat-icon">📋</span><span className="stat-label">Σύνολο:</span><span className="stat-number">{stats.total}</span></div>
-                    <div className="stat-item"><span className="stat-icon">👁</span><span className="stat-label">Εμφανιζόμενα:</span><span className="stat-number">{stats.filtered}</span></div>
-                    <div className="stat-item"><span className="stat-icon">⚡</span><span className="stat-label">Με τροποποιήσεις:</span><span className="stat-number">{stats.withModifications}</span></div>
+                    <div className="stat-item"><span className="stat-label">Σύνολο:</span><span className="stat-number">{stats.total}</span></div>
+                    <div className="stat-item"><span className="stat-label">Εμφανιζόμενα:</span><span className="stat-number">{stats.filtered}</span></div>
+                    <div className="stat-item"><span className="stat-label">Με τροποποιήσεις:</span><span className="stat-number">{stats.withModifications}</span></div>
                   </>
                 );
               })()}
             </div>
             <div>
-              {getActiveFiltersCount() > 0 && (
-                <div className="filters-badge"><span className="filter-icon">🔧</span><span>Φίλτρα: {getActiveFiltersCount()}</span></div>
+              {hasAnyActiveFilters && (
+                <div className="filters-badge"><span>Ενεργά φίλτρα: {getActiveFiltersCount()}</span></div>
               )}
             </div>
           </SearchStats>
+
+          <ViewTabBar role="tablist" aria-label="Κατηγορίες προσκλήσεων">
+            {[PROSKLISI_VIEW_TABS.ACTIVE, PROSKLISI_VIEW_TABS.EXPIRED, PROSKLISI_VIEW_TABS.SUBMITTED].map((tabId) => {
+              const meta = VIEW_TAB_META[tabId];
+              const count = (tabPartition[tabId] || []).length;
+              const active = viewTab === tabId;
+              return (
+                <ViewTabBtn
+                  key={tabId}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  $active={active}
+                  $activeColor={meta.activeColor}
+                  onClick={() => setViewTab(tabId)}
+                >
+                  <span>{meta.icon}</span>
+                  <span>{meta.label}</span>
+                  <TabCount $active={active} $bg={meta.countBg} $fg={meta.countFg}>{count}</TabCount>
+                </ViewTabBtn>
+              );
+            })}
+          </ViewTabBar>
+
+          {(tabPartition[viewTab] || []).length === 0 && filteredProskliseis.length > 0 && (
+            <CrossTabHint>
+              <span>Η πρόσκληση βρίσκεται σε άλλο tab:</span>
+              {[PROSKLISI_VIEW_TABS.ACTIVE, PROSKLISI_VIEW_TABS.EXPIRED, PROSKLISI_VIEW_TABS.SUBMITTED]
+                .filter((tabId) => tabId !== viewTab && (tabPartition[tabId] || []).length > 0)
+                .map((tabId) => (
+                  <CrossTabLink key={tabId} type="button" onClick={() => setViewTab(tabId)}>
+                    {VIEW_TAB_META[tabId].label} ({tabPartition[tabId].length})
+                  </CrossTabLink>
+                ))}
+            </CrossTabHint>
+          )}
 
           {showAdvancedFilters && (
             <SearchBar>
@@ -1552,7 +1929,7 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                 <AdvSearchInput type="text" placeholder="Άξονας / Δράση..." value={advancedFilters.axis} onChange={(e) => handleAdvancedFilterChange('axis', e.target.value)} />
                 <AdvSearchInput type="text" placeholder="Πηγή χρηματοδότησης..." value={advancedFilters.fundingSource} onChange={(e) => handleAdvancedFilterChange('fundingSource', e.target.value)} />
                 <AdvFilterSelect value={advancedFilters.status} onChange={(e) => handleAdvancedFilterChange('status', e.target.value)}>
-                  <option value="">Όλες (προηγμένο φίλτρο κατάστασης)</option>
+                  <option value="">Κατάσταση (επιπλέον φίλτρο)</option>
                   {getUniqueStatuses().map(s => <option key={s} value={s}>{s}</option>)}
                 </AdvFilterSelect>
               </SearchRow>
@@ -1561,9 +1938,6 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                 <AdvSearchInput type="text" placeholder="Μέγιστος προϋπολογισμός (€)..." value={advancedFilters.maxBudget} onChange={(e) => handleAdvancedFilterChange('maxBudget', e.target.value)} />
                 <AdvDateInput type="date" value={advancedFilters.dateFrom} onChange={(e) => handleAdvancedFilterChange('dateFrom', e.target.value)} title="Από ημερομηνία λήξης υποβολής" />
                 <AdvDateInput type="date" value={advancedFilters.dateTo} onChange={(e) => handleAdvancedFilterChange('dateTo', e.target.value)} title="Έως ημερομηνία λήξης υποβολής" />
-              </SearchRow>
-              <SearchRow>
-                <ToolbarClearButton type="button" onClick={handleClearFilters}>🗑️ Καθαρισμός φίλτρων</ToolbarClearButton>
               </SearchRow>
             </SearchBar>
           )}
@@ -1574,19 +1948,38 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
             <LoadingMessage>Φόρτωση προσκλήσεων...</LoadingMessage>
           ) : filteredProskliseis.length === 0 ? (
             <NoDataMessage>
-              {searchTerm ? 'Δεν βρέθηκαν προσκλήσεις που να ταιριάζουν στην αναζήτηση.' : 'Δεν υπάρχουν προσκλήσεις.'}
-              {canManageWorkflow && !searchTerm && (
-                <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>Πατήστε «Νέα Πρόσκληση» για να προσθέσετε.</div>
+              {hasAnyActiveFilters
+                ? 'Δεν βρέθηκαν προσκλήσεις με τα τρέχοντα φίλτρα.'
+                : 'Δεν υπάρχουν ακόμη προσκλήσεις.'}
+              {hasAnyActiveFilters ? (
+                <div style={{ marginTop: '1rem' }}>
+                  <ToolbarClearButton type="button" onClick={handleClearFilters}>Καθαρισμός φίλτρων</ToolbarClearButton>
+                </div>
+              ) : (
+                canManageWorkflow && (
+                  <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>Πατήστε «Νέα Πρόσκληση» για να προσθέσετε.</div>
+                )
+              )}
+            </NoDataMessage>
+          ) : (tabPartition[viewTab] || []).length === 0 ? (
+            <NoDataMessage>
+              {VIEW_TAB_META[viewTab]?.empty || 'Δεν υπάρχουν προσκλήσεις σε αυτό το tab.'}
+              {hasAnyActiveFilters && (
+                <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: '#64748b' }}>
+                  Η αναζήτηση ισχύει και για τα τρία tabs — δοκιμάστε τα παραπάνω κουμπιά μετάβασης.
+                </div>
               )}
             </NoDataMessage>
           ) : (
             <ProsklisisList>
-              {groupProskliseisByStatus().map(([groupName, groupProskliseis]) => {
+              {groupListForCurrentTab().map(([groupName, groupProskliseis]) => {
                 const gs = getGroupStyle(groupName);
+                const isExpiredTab = viewTab === PROSKLISI_VIEW_TABS.EXPIRED;
                 return (
-                  <ProjectGroup key={groupName}>
-                    <ProjectGroupTitle $color={gs.color} $barColor={gs.barColor}>
-                      {gs.icon} {groupName} ({groupProskliseis.length})
+                  <ProjectGroup key={`${viewTab}-${groupName}`}>
+                    <ProjectGroupTitle $color={isExpiredTab ? '#9a3412' : gs.color} $barColor={isExpiredTab ? '#fb923c' : gs.barColor}>
+                      {isExpiredTab ? '⏰' : gs.icon} {groupName} ({groupProskliseis.length})
+                      {isExpiredTab ? ' — ληγμένη προθεσμία' : ''}
                     </ProjectGroupTitle>
                     <GroupCards>
                       {groupProskliseis.map((prosklisi) => {
@@ -1597,13 +1990,24 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                           ? modsExpanded[prosklisi.prosklisiId]
                           : defaultModsExpanded(modCount);
                         const prosklisiLinkedNotes = getEntityLinkedNotes(linkedNotesMap, prosklisi.prosklisiId);
+                        const effectiveDeadline = getEffectiveProsklisiDeadline(prosklisi, mods);
+                        const deadlineChip = getProsklisiDeadlineChipMeta(effectiveDeadline, formatDate);
+                        const linkedLabels = getLinkedProjectLabels(prosklisi);
+                        const relatedEntaxeis = relatedEntaxeisByProsklisi[prosklisi.prosklisiId] || [];
 
                         return (
-                          <ProsklisisItem key={prosklisi.prosklisiId} $isLocked={isLocked} $status={prosklisi.status}>
+                          <ProsklisisItem
+                            key={prosklisi.prosklisiId}
+                            $isLocked={isLocked}
+                            $status={prosklisi.status}
+                            $muted={isExpiredTab}
+                          >
                             <CardTopRightCluster>
-                              <LockIndicator $isLocked={isLocked}>
-                                {isLocked ? '🔒' : '🔓'}
-                              </LockIndicator>
+                              {isLocked && (
+                                <LockIndicator $isLocked title="Υπό επεξεργασία από άλλον χρήστη">
+                                  🔒
+                                </LockIndicator>
+                              )}
                               {prosklisiLinkedNotes.length > 0 && (
                                 <LinkedNoteSticker
                                   links={prosklisiLinkedNotes}
@@ -1617,8 +2021,10 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                               <CompactMain>
                                 <CompactTitleRow>
                                   <CompactLabel>{prosklisi.title}</CompactLabel>
-                                  {prosklisi.deadline && prosklisi.deadline !== '-' && (
-                                    <MetaChip title="Λήξη Υποβολής">📅 {formatDate(prosklisi.deadline)}</MetaChip>
+                                  {deadlineChip && (
+                                    <MetaChip $urgency={deadlineChip.urgency} title={deadlineChip.title}>
+                                      {deadlineChip.label}
+                                    </MetaChip>
                                   )}
                                   {prosklisi.status && (
                                     <StatusChip $status={prosklisi.status}>{prosklisi.status}</StatusChip>
@@ -1635,11 +2041,11 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                                 )}
 
                                 <MetaChipsRow>
-                                  {prosklisi.code && <MetaChip title="Κωδικός">🔢 {prosklisi.code}</MetaChip>}
-                                  {prosklisi.budgetRange && <MetaChip title="Εύρος Π/Υ">💵 {prosklisi.budgetRange}</MetaChip>}
+                                  {prosklisi.code && <MetaChip title="Κωδικός">{prosklisi.code}</MetaChip>}
+                                  {prosklisi.budgetRange && <MetaChip title="Εύρος Π/Υ">{prosklisi.budgetRange}</MetaChip>}
                                   {prosklisi.fundingSource && (
                                     <MetaChip $accent title={prosklisi.fundingSource}>
-                                      💰 {truncateText(prosklisi.fundingSource, 42)}
+                                      {truncateText(prosklisi.fundingSource, 42)}
                                     </MetaChip>
                                   )}
                                   {(() => {
@@ -1647,21 +2053,66 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
                                     if (!diavgeiaEntry) return null;
                                     return (
                                       <MetaChip
+                                        $clickable
                                         title={diavgeiaEntry.title || `Διαύγεια — ${diavgeiaEntry.ada}`}
-                                        style={{ cursor: 'pointer' }}
                                         onClick={() => handleOpenDiavgeia(diavgeiaEntry)}
                                       >
-                                        🌐 Διαύγεια · {diavgeiaEntry.ada}
+                                        Διαύγεια · {diavgeiaEntry.ada}
                                       </MetaChip>
                                     );
                                   })()}
                                 </MetaChipsRow>
+
+                                <LinkedRow>
+                                  <LinkedHint>Έργα:</LinkedHint>
+                                  {linkedLabels.length > 0 ? (
+                                    linkedLabels.slice(0, 3).map((label) => (
+                                      <MetaChip key={label} $green title={label}>
+                                        {truncateText(label, 36)}
+                                      </MetaChip>
+                                    ))
+                                  ) : (
+                                    <MetaChip title="Δεν έχει συσχετιστεί με έργο">Χωρίς σύνδεση</MetaChip>
+                                  )}
+                                  {linkedLabels.length > 3 && (
+                                    <MetaChip title={linkedLabels.slice(3).join(', ')}>
+                                      +{linkedLabels.length - 3}
+                                    </MetaChip>
+                                  )}
+                                </LinkedRow>
+
+                                {relatedEntaxeis.length > 0 && (
+                                  <LinkedRow>
+                                    <LinkedHint>Εντάξεις:</LinkedHint>
+                                    {relatedEntaxeis.slice(0, 3).map((entaxi) => (
+                                      <MetaChip
+                                        key={entaxi.entaxiId}
+                                        $accent
+                                        $clickable
+                                        title={entaxi.subject || entaxi.projectTitle || 'Ένταξη'}
+                                        onClick={() => handleOpenRelatedEntaxi(entaxi)}
+                                      >
+                                        {truncateText(entaxi.subject || entaxi.projectTitle || 'Ένταξη', 40)}
+                                      </MetaChip>
+                                    ))}
+                                    {relatedEntaxeis.length > 3 && (
+                                      <MetaChip
+                                        $clickable
+                                        $accent
+                                        title="Προβολή όλων των σχετικών εντάξεων"
+                                        onClick={() => handleOpenRelatedEntaxi({ prosklisiId: prosklisi.prosklisiId })}
+                                      >
+                                        +{relatedEntaxeis.length - 3} · όλες
+                                      </MetaChip>
+                                    )}
+                                  </LinkedRow>
+                                )}
                               </CompactMain>
 
                               <CompactAside>
                                 <CompactActions>
                                   <IconBtn $filesPrimary type="button" onClick={() => handleViewFiles(prosklisi.prosklisiId)}>
-                                    📁 Αρχεία
+                                    Αρχεία
                                   </IconBtn>
                                   {canManageWorkflow && (
                                     <MenuWrap>
@@ -1797,9 +2248,15 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
           style={{ top: menuState.top, left: menuState.left }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <MenuItem type="button" onClick={() => handleNewModification(menuState.prosklisi)}>📝 Νέα Τροποποίηση</MenuItem>
-          <MenuItem type="button" onClick={() => handleEditProsklisi(menuState.prosklisi)}>✏️ Επεξεργασία Πρόσκλησης</MenuItem>
-          <MenuItem type="button" $danger onClick={() => handleDeleteProsklisi(menuState.prosklisi.prosklisiId)}>🗑️ Διαγραφή Πρόσκλησης</MenuItem>
+          <MenuItem type="button" onClick={() => handleEditProsklisi(menuState.prosklisi)}>
+            Επεξεργασία στοιχείων
+          </MenuItem>
+          <MenuItem type="button" onClick={() => handleNewModification(menuState.prosklisi)} title="Επίσημη τροποποίηση με έγγραφο και ιστορικό">
+            Επίσημη τροποποίηση
+          </MenuItem>
+          <MenuItem type="button" $danger onClick={() => handleDeleteProsklisi(menuState.prosklisi.prosklisiId)}>
+            Διαγραφή πρόσκλησης
+          </MenuItem>
         </MenuDropdown>,
         document.body
       )}
@@ -1830,7 +2287,6 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
             requestListScrollRestore();
           }}
           onSave={handleSaveProsklisi}
-          onSaveModification={handleSaveModification}
           editingProsklisi={editingProsklisi}
         />
       )}
@@ -1872,7 +2328,13 @@ function ProsklisisManager({ isOpen, onClose, userRole, currentUser, projectFilt
       <ProsklisisExportDialog
         isOpen={isExportDialogOpen}
         onClose={() => setIsExportDialogOpen(false)}
-        proskliseis={filteredProskliseis}
+        proskliseis={filteredProskliseis.map((p) => ({
+          ...p,
+          modificationsCount: (prosklisiModifications[p.prosklisiId] || []).length,
+          diavgeiaAda: getProsklisiDiavgeiaEntry(p)?.ada || '',
+          linkedProjectsLabel: getLinkedProjectLabels(p).join(' · '),
+          relatedEntaxeisCount: (relatedEntaxeisByProsklisi[p.prosklisiId] || []).length
+        }))}
         totalProskliseis={proskliseis.length}
         organizationName={organizationName}
       />

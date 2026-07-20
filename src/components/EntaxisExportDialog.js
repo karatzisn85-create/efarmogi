@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import styled from 'styled-components';
 import { useToast } from './ToastProvider';
 import { formatDateEl } from '../utils/dateFormat';
+import { formatEntaxiAmount, getEntaxiCurrentTotal } from '../utils/entaxiAmountUtils';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -401,21 +402,7 @@ function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis, organiz
     return `${formattedInteger},${formattedDecimal} €`;
   };
 
-  const calculateCumulativeAmount = (entaxi) => {
-    let total = parseGreekAmount(entaxi.initialAmount);
-    
-    if (entaxi.modifications) {
-      entaxi.modifications.forEach(mod => {
-        // Μόνο αν η τροποποίηση αλλάζει το ποσό
-        if (mod.changeAmount && mod.amount) {
-          const modAmount = parseGreekAmount(mod.amount);
-          total = modAmount; // Αντικαθιστά το αρχικό ποσό
-        }
-      });
-    }
-    
-    return formatGreekAmount(total);
-  };
+  const calculateCumulativeAmount = (entaxi) => formatEntaxiAmount(getEntaxiCurrentTotal(entaxi));
 
 
   const exportToExcel = () => {

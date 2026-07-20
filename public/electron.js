@@ -5918,44 +5918,38 @@ ipcMain.handle('fix-entaxi-file-objects', async (event, entaxiId) => {
 // Proskliseis IPC Handlers
 const proskliseisDir = dataDir ? path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ') : null;
 
-// Load all proskliseis
-ipcMain.handle('load-all-proskliseis', async () => {
+async function loadAllProskliseis() {
   try {
-    console.log('Loading proskliseis from:', proskliseisDir);
-    
-    if (!fs.existsSync(proskliseisDir)) {
-      console.log('Proskliseis directory does not exist, creating it');
-      fs.mkdirSync(proskliseisDir, { recursive: true });
+    const { applyEffectiveDeadlineToProsklisi } = require('./prosklisiDeadlineHelper');
+    const dir = dataDir ? path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ') : proskliseisDir;
+    if (!dir) return [];
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
       return [];
     }
-
     const proskliseis = [];
-    const prosklisiDirs = fs.readdirSync(proskliseisDir);
-    
-    console.log('Found prosklisi directories:', prosklisiDirs);
-
+    const prosklisiDirs = fs.readdirSync(dir);
     for (const prosklisiDir of prosklisiDirs) {
-      const prosklisiPath = path.join(proskliseisDir, prosklisiDir);
-      const dataFilePath = path.join(prosklisiPath, 'data.json');
-      
-      if (fs.existsSync(dataFilePath)) {
-        try {
-          const data = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
-          // console.log('Loaded prosklisi:', data.title || 'Unknown');
-          proskliseis.push(data);
-        } catch (parseError) {
-          console.error('Error parsing prosklisi data:', parseError);
-        }
+      const folderPath = path.join(dir, prosklisiDir);
+      const dataFilePath = path.join(folderPath, 'data.json');
+      if (!fs.existsSync(dataFilePath)) continue;
+      try {
+        const raw = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
+        // Ισχύουσα λήξη από τροποποιήσεις — και εγγραφή στο δίσκο αν διαφέρει
+        proskliseis.push(applyEffectiveDeadlineToProsklisi(raw, folderPath, { persist: true }));
+      } catch (parseError) {
+        console.error('Error parsing prosklisi data:', parseError);
       }
     }
-
-    // console.log('Loaded', proskliseis.length, 'proskliseis total');
     return proskliseis;
   } catch (error) {
     console.error('Error loading proskliseis:', error);
     return [];
   }
-});
+}
+
+// Load all proskliseis
+ipcMain.handle('load-all-proskliseis', async () => loadAllProskliseis());
 
 // Save prosklisi
 ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
@@ -10862,6 +10856,7 @@ function startProcurementCalendarReminderChecker() {
         dataDir,
         loadUsers,
         loadAllProjects,
+        loadAllProskliseis,
       }).catch((e) => logger.error('Procurement calendar reminder check failed', e));
     } catch (e) {
       logger.error('Procurement calendar reminder init failed', e);
@@ -15934,6 +15929,7 @@ ipcMain.handle('send-test-procurement-calendar-reminder', async (_event, { actin
       dataDir,
       loadUsers,
       loadAllProjects,
+      loadAllProskliseis,
       toEmail,
     });
   } catch (e) {

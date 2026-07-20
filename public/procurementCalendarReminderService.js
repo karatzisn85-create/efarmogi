@@ -4,7 +4,13 @@
 const fs = require('fs');
 const path = require('path');
 const { safeWriteJSON } = require('./safeWrite');
-const { loadCalendarConfig, isNotifyEventTypeEnabled } = require('./calendarConfigService');
+const {
+  loadCalendarConfig,
+  isNotifyEventTypeEnabled,
+  getEventTypeSetting,
+  userMatchesEventTypeRecipients,
+  ALLOWED_NOTIFY_EVENT_TYPES,
+} = require('./calendarConfigService');
 const {
   loadEmailConfig,
   isConfigured,
@@ -78,19 +84,9 @@ function formatDateEl(iso) {
   return formatKhmdhsDateTimeEl(iso);
 }
 
-function roleMatchesRecipientRoles(role, recipientRoles) {
-  const r = String(role || '').trim().toUpperCase();
-  const roles = new Set((recipientRoles || []).map((x) => String(x || '').trim().toUpperCase()));
-  if (r === 'SUPERADMIN') return roles.has('ADMIN');
-  return roles.has(r);
-}
-
 function resolveRecipients(config, users) {
   const cfg = config || {};
   const byUsername = new Map();
-  const explicit = new Set(
-    (cfg.recipientUsernames || []).map((u) => String(u || '').trim().toLowerCase()).filter(Boolean)
-  );
 
   for (const user of users || []) {
     if (!user?.active || !user.approved) continue;
@@ -99,9 +95,13 @@ function resolveRecipients(config, users) {
     const username = String(user.username || '').trim().toLowerCase();
     if (!username) continue;
 
-    const explicitPick = explicit.has(username);
-    const rolePick = roleMatchesRecipientRoles(user.role, cfg.recipientRoles);
-    if (!explicitPick && !rolePick) continue;
+    // Ένταξη αν ο χρήστης ανήκει στους παραλήπτες τουλάχιστον ενός ενεργού τύπου
+    const matchesAnyType = ALLOWED_NOTIFY_EVENT_TYPES.some((eventType) => {
+      if (!isNotifyEventTypeEnabled(cfg, eventType)) return false;
+      const typeSetting = getEventTypeSetting(cfg, eventType);
+      return userMatchesEventTypeRecipients(user, typeSetting);
+    });
+    if (!matchesAnyType) continue;
 
     byUsername.set(username, {
       username,
@@ -196,6 +196,8 @@ function collectItemsForRecipient(items, recipient, config, log) {
 
   for (const item of visible) {
     if (!isNotifyEventTypeEnabled(config, item.eventType)) continue;
+    const typeSetting = getEventTypeSetting(config, item.eventType);
+    if (!userMatchesEventTypeRecipients(recipient, typeSetting)) continue;
 
     if (item.eventType === EVENT_TYPES.COMPLIANCE_12M) {
       const key = `${rcpKey}:${item.itemKey}:compliance`;
@@ -271,7 +273,7 @@ async function sendBatchEmail({ transporter, emailConfig, appName, recipient, it
   return true;
 }
 
-async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, loadAllProjects }) {
+async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, loadAllProjects, loadAllProskliseis }) {
   const config = loadCalendarConfig(dataDir);
   if (config.enabled !== true) return { checked: true, sent: 0, skipped: 'disabled' };
 
@@ -283,7 +285,8 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
   if (!recipients.length) return { checked: true, sent: 0, skipped: 'no_recipients' };
 
   const projects = await loadAllProjects();
-  const allItems = calendarEventsBuilder.collectAllCalendarReminderItems({ dataDir, projects });
+  const proskliseis = typeof loadAllProskliseis === 'function' ? (await loadAllProskliseis()) : [];
+  const allItems = calendarEventsBuilder.collectAllCalendarReminderItems({ dataDir, projects, proskliseis });
   if (!allItems.length) return { checked: true, sent: 0, skipped: 'no_deadlines' };
 
   const log = loadReminderLog(dataDir);
@@ -396,7 +399,7 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
   return { checked: true, sent: sentCount };
 }
 
-async function sendTestProcurementCalendarReminder({ dataDir, loadUsers, loadAllProjects, toEmail }) {
+async function sendTestProcurementCalendarReminder({ dataDir, loadUsers, loadAllProjects, loadAllProskliseis, toEmail }) {
   const emailConfig = loadEmailConfig(dataDir);
   if (!isConfigured(emailConfig)) return { success: false, error: 'Το email δεν έχει ρυθμιστεί' };
 
@@ -404,7 +407,8 @@ async function sendTestProcurementCalendarReminder({ dataDir, loadUsers, loadAll
   if (!target.includes('@')) return { success: false, error: 'Μη έγκυρη διεύθυνση email' };
 
   const projects = await loadAllProjects();
-  const allItems = calendarEventsBuilder.collectAllCalendarReminderItems({ dataDir, projects });
+  const proskliseis = typeof loadAllProskliseis === 'function' ? (await loadAllProskliseis()) : [];
+  const allItems = calendarEventsBuilder.collectAllCalendarReminderItems({ dataDir, projects, proskliseis });
   const upcoming = allItems
     .filter((d) => d.daysLeft != null && d.daysLeft >= 0)
     .sort((a, b) => a.daysLeft - b.daysLeft);

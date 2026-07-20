@@ -20,6 +20,7 @@ import {
   canManageCustomEvent,
 } from '../utils/customCalendarEvents';
 import { buildAepoCalendarEvents } from '../utils/aepoCalendarEvents';
+import { buildProsklisiCalendarEvents } from '../utils/prosklisiCalendarEvents';
 import { CALENDAR_TIME_WINDOWS, getCalendarWindowLabel } from '../utils/calendarAlerts';
 import { exportCalendarEventsToExcel } from '../utils/calendarExport';
 
@@ -318,6 +319,7 @@ const TYPE_FILTER_LABELS = {
   custom: 'Ειδοποιήσεις',
   compliance: 'Παράβαση 12μ.',
   aepo: 'ΑΕΠΟ',
+  proskliseis: 'Προσκλήσεις',
 };
 
 const CheckLabel = styled.label`
@@ -348,10 +350,12 @@ export default function ProcurementCalendar({
   isOpen,
   onClose,
   projects = [],
+  proskliseis = [],
   userRole = 'USER',
   currentUser = null,
   engineerCatalog = [],
   onViewSubproject,
+  onOpenProsklisi,
   onCalendarDataChanged,
   initialCustomEventId = null,
   includeAepo = false,
@@ -435,13 +439,19 @@ export default function ProcurementCalendar({
     [customEventsRaw]
   );
 
+  const prosklisiEvents = useMemo(
+    () => buildProsklisiCalendarEvents(proskliseis),
+    [proskliseis]
+  );
+
   const allEvents = useMemo(
     () => mergeCalendarEventLists(
       procurementEvents,
       customEvents,
-      buildAepoCalendarEvents(aepoAlertsRaw)
+      buildAepoCalendarEvents(aepoAlertsRaw),
+      prosklisiEvents
     ),
-    [procurementEvents, customEvents, aepoAlertsRaw]
+    [procurementEvents, customEvents, aepoAlertsRaw, prosklisiEvents]
   );
 
   const filteredEvents = useMemo(
@@ -541,6 +551,10 @@ export default function ProcurementCalendar({
       setViewingCustomEvent(raw);
       return;
     }
+    if (ev.prosklisiId) {
+      onOpenProsklisi?.(ev.prosklisiId);
+      return;
+    }
     if (ev.subprojectId) onViewSubproject?.(ev.subprojectId);
   };
 
@@ -601,6 +615,9 @@ export default function ProcurementCalendar({
           </TabBtn>
           <TabBtn type="button" $active={typeFilter === 'compliance'} onClick={() => setTypeFilter('compliance')}>
             Παράβαση 12μ.
+          </TabBtn>
+          <TabBtn type="button" $active={typeFilter === 'proskliseis'} onClick={() => setTypeFilter('proskliseis')}>
+            Προσκλήσεις
           </TabBtn>
           {includeAepo && (
             <TabBtn type="button" $active={typeFilter === 'aepo'} onClick={() => setTypeFilter('aepo')}>

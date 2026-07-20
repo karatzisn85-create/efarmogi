@@ -20,6 +20,7 @@ const EVENT_TYPES = {
   CONTRACT_END: 'contract_end',
   COMPLIANCE_12M: 'compliance_12m',
   CUSTOM: 'custom',
+  PROSKLISI_DEADLINE: 'prosklisi_deadline',
 };
 
 const EVENT_LABELS = {
@@ -28,7 +29,25 @@ const EVENT_LABELS = {
   [EVENT_TYPES.CONTRACT_END]: 'Λήξη σύμβασης',
   [EVENT_TYPES.COMPLIANCE_12M]: 'Παράβαση κανόνα 12 μηνών',
   [EVENT_TYPES.CUSTOM]: 'Ειδοποίηση ημερολογίου',
+  [EVENT_TYPES.PROSKLISI_DEADLINE]: 'Λήξη υποβολής πρόσκλησης',
 };
+
+function parseProsklisiDeadlineToIso(dateString) {
+  if (!dateString || dateString === '-') return '';
+  const raw = String(dateString).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(raw)) {
+    const sep = raw.includes('/') ? '/' : '-';
+    const [dd, mm, yyyy] = raw.split(sep);
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 function parseGreekAmount(val) {
   if (!val) return 0;
@@ -272,6 +291,7 @@ function makeItem({
   eventType,
   subprojectId = '',
   customEventId = '',
+  prosklisiId = '',
   project = null,
   customEvent = null,
   subprojectTitle,
@@ -287,6 +307,7 @@ function makeItem({
     eventType,
     subprojectId,
     customEventId,
+    prosklisiId,
     project,
     customEvent,
     subprojectTitle: subprojectTitle || '(Χωρίς τίτλο)',
@@ -296,6 +317,39 @@ function makeItem({
     deadlineIso,
     daysLeft,
   };
+}
+
+function collectProsklisiItems(proskliseis) {
+  const items = [];
+  const seen = new Set();
+  for (const prosklisi of proskliseis || []) {
+    const prosklisiId = prosklisi?.prosklisiId;
+    if (!prosklisiId) continue;
+    const deadlineIso = parseProsklisiDeadlineToIso(prosklisi.deadline);
+    if (!deadlineIso) continue;
+    const linked = Array.isArray(prosklisi.linkedProjects)
+      ? prosklisi.linkedProjects
+        .map((lp) => (typeof lp === 'string' ? lp : (lp?.title || lp?.projectTitle || '')))
+        .filter(Boolean)
+      : [];
+    // itemKey includes date so a changed deadline can re-trigger thresholds
+    const itemKey = `${EVENT_TYPES.PROSKLISI_DEADLINE}:${prosklisiId}:${deadlineIso}`;
+    if (seen.has(itemKey)) continue;
+    seen.add(itemKey);
+    const row = makeItem({
+      itemKey,
+      eventType: EVENT_TYPES.PROSKLISI_DEADLINE,
+      prosklisiId,
+      subprojectId: '',
+      subprojectTitle: prosklisi.title || '(Χωρίς τίτλο)',
+      projectTitle: linked[0] || '',
+      adam: '',
+      label: EVENT_LABELS[EVENT_TYPES.PROSKLISI_DEADLINE],
+      deadlineIso,
+    });
+    if (row) items.push(row);
+  }
+  return items;
 }
 
 function collectProcurementItems(projects) {
@@ -417,10 +471,11 @@ function collectCustomItems(dataDir) {
   })).filter(Boolean);
 }
 
-function collectAllCalendarReminderItems({ dataDir, projects }) {
+function collectAllCalendarReminderItems({ dataDir, projects, proskliseis }) {
   const procurement = collectProcurementItems(projects);
   const custom = collectCustomItems(dataDir);
-  const merged = [...procurement, ...custom];
+  const prosklisiItems = collectProsklisiItems(proskliseis);
+  const merged = [...procurement, ...custom, ...prosklisiItems];
   merged.sort(
     (a, b) => (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999)
       || (a.subprojectTitle || '').localeCompare(b.subprojectTitle || '', 'el', { sensitivity: 'base' })
@@ -440,6 +495,11 @@ function itemVisibleToRecipient(item, recipient) {
     );
   }
 
+  // Προσκλήσεις: ορατές σε όσους έχουν επιλεγεί ως παραλήπτες (ρόλος/χρήστης στο κέντρο ειδοποιήσεων)
+  if (item.eventType === EVENT_TYPES.PROSKLISI_DEADLINE) {
+    return role === 'ADMIN' || role === 'SUPERADMIN' || role === 'USER' || role === 'ENGINEER';
+  }
+
   if (role === 'ADMIN' || role === 'SUPERADMIN' || role === 'USER') return true;
   if (role === 'ENGINEER') {
     return item.project && projectVisibleToEngineerContext(item.project, recipient.engineerContext);
@@ -456,6 +516,7 @@ module.exports = {
   EVENT_LABELS,
   collectAllCalendarReminderItems,
   collectProcurementItems,
+  collectProsklisiItems,
   filterItemsForRecipient,
   itemVisibleToRecipient,
 };

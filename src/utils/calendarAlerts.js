@@ -41,8 +41,10 @@ function mapEventToAlertRow(ev) {
     adam: ev.adam || '',
     description: ev.description || ev.complianceSummary || '',
     orimanthiProposalId: ev.orimanthiProposalId || '',
+    prosklisiId: ev.prosklisiId || '',
     isCustom: !!ev.isCustom || ev.type === CALENDAR_EVENT_TYPES.CUSTOM,
     isOrimanthiAepo: !!ev.isOrimanthiAepo || ev.type === CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
+    isProsklisiDeadline: !!ev.isProsklisiDeadline || ev.type === CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
   };
 }
 

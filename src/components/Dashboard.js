@@ -390,10 +390,10 @@ const VersionText = styled.div`
 `;
 
 const getRoleLabel = (role) => {
-  if (role === 'SUPERADMIN') return 'Superadmin';
-  if (role === 'ADMIN') return 'admin';
+  if (role === 'SUPERADMIN') return 'Υπερδιαχειριστής';
+  if (role === 'ADMIN') return 'Διαχειριστής';
   if (role === 'ENGINEER') return 'Μηχανικός';
-  return 'viewer';
+  return 'Χρήστης';
 };
 
 const ContentArea = styled.div`
@@ -863,53 +863,6 @@ const ArchiveBannerClose = styled.button`
   }
 `;
 
-// Κουμπί αρχείου στη sidebar με ειδικό στυλ
-const ArchiveButton = styled.button`
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.1) 100%);
-  color: ${props => props.$active ? '#34d399' : '#a7f3d0'};
-  border: 1px solid ${props => props.$active ? 'rgba(52, 211, 153, 0.55)' : 'rgba(16, 185, 129, 0.2)'};
-  padding: 10px 12px;
-  border-radius: 9px;
-  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  text-align: left;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  min-height: 40px;
-  width: 100%;
-  line-height: 1.25;
-  position: relative;
-  box-shadow: ${props => props.$active ? '0 0 0 1px rgba(52, 211, 153, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06)' : 'none'};
-
-  &::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: ${props => props.$active ? '3px' : '0'};
-    background: linear-gradient(180deg, #34d399, #10b981);
-    border-radius: 0 2px 2px 0;
-    transition: width 0.25s ease;
-  }
-
-  &:hover {
-    transform: translateX(3px);
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(5, 150, 105, 0.18) 100%);
-    border-color: rgba(52, 211, 153, 0.5);
-    color: #34d399;
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
-
-    &::before {
-      width: 3px;
-    }
-  }
-`;
-
 // Modern σταθερή sidebar αριστερά με ομαδοποιημένα κουμπιά
 const AdminSidebar = styled.div`
   position: fixed;
@@ -1089,6 +1042,144 @@ const CategoryBody = styled.div`
               opacity 0.25s ease,
               margin-top 0.25s ease,
               border-color 0.3s ease;
+`;
+
+/* Μόνιμα εμφανή κουμπιά — κοινή δομή (εικονίδιο + κείμενο), διακριτά χρώματα */
+const SidebarPinnedStack = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+`;
+
+const PinnedNavButton = styled.button`
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-align: left;
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  transition: all 0.22s ease;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid ${(p) => {
+    if (p.$tone === 'create') return 'rgba(124, 58, 237, 0.5)';
+    if (p.$tone === 'archive') return p.$active ? '#34d399' : 'rgba(16, 185, 129, 0.4)';
+    return 'rgba(59, 130, 246, 0.45)'; /* filters */
+  }};
+  background: ${(p) => {
+    if (p.$tone === 'create') {
+      return 'linear-gradient(135deg, rgba(124, 58, 237, 0.42) 0%, rgba(79, 70, 229, 0.22) 100%)';
+    }
+    if (p.$tone === 'archive') {
+      return p.$active
+        ? 'linear-gradient(135deg, #059669 0%, #10b981 55%, #34d399 100%)'
+        : 'linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.1) 100%)';
+    }
+    return 'linear-gradient(135deg, rgba(59, 130, 246, 0.28) 0%, rgba(37, 99, 235, 0.14) 100%)';
+  }};
+  color: ${(p) => {
+    if (p.$tone === 'create') return '#f5f3ff';
+    if (p.$tone === 'archive') return p.$active ? '#ffffff' : '#d1fae5';
+    return '#eff6ff';
+  }};
+  box-shadow: ${(p) => {
+    if (p.$tone === 'create') return '0 4px 16px rgba(124, 58, 237, 0.28), inset 0 1px 0 rgba(255,255,255,0.12)';
+    if (p.$tone === 'archive') {
+      return p.$active
+        ? '0 0 0 2px rgba(52, 211, 153, 0.55), 0 6px 22px rgba(16, 185, 129, 0.55), inset 0 1px 0 rgba(255,255,255,0.25)'
+        : '0 4px 14px rgba(16, 185, 129, 0.16), inset 0 1px 0 rgba(255,255,255,0.08)';
+    }
+    return '0 4px 14px rgba(59, 130, 246, 0.2), inset 0 1px 0 rgba(255,255,255,0.1)';
+  }};
+
+  /* Αριστερή γραμμή — εμφανής όταν είναι ενεργό το αρχείο */
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: ${(p) => (p.$tone === 'archive' && p.$active ? '4px' : '0')};
+    background: #ecfdf5;
+    border-radius: 0 2px 2px 0;
+    transition: width 0.2s ease;
+  }
+
+  &:hover {
+    transform: translateX(3px);
+    border-color: ${(p) => {
+      if (p.$tone === 'create') return 'rgba(167, 139, 250, 0.75)';
+      if (p.$tone === 'archive') return p.$active ? '#6ee7b7' : 'rgba(52, 211, 153, 0.8)';
+      return 'rgba(96, 165, 250, 0.75)';
+    }};
+    background: ${(p) => {
+      if (p.$tone === 'create') {
+        return 'linear-gradient(135deg, rgba(124, 58, 237, 0.55) 0%, rgba(79, 70, 229, 0.32) 100%)';
+      }
+      if (p.$tone === 'archive') {
+        return p.$active
+          ? 'linear-gradient(135deg, #047857 0%, #059669 50%, #10b981 100%)'
+          : 'linear-gradient(135deg, rgba(16, 185, 129, 0.4) 0%, rgba(5, 150, 105, 0.22) 100%)';
+      }
+      return 'linear-gradient(135deg, rgba(59, 130, 246, 0.4) 0%, rgba(37, 99, 235, 0.22) 100%)';
+    }};
+    color: #ffffff;
+  }
+
+  &:active {
+    transform: translateX(1px);
+  }
+`;
+
+const PinnedNavIcon = styled.span`
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  background: ${(p) => {
+    if (p.$tone === 'create') return 'linear-gradient(135deg, #7c3aed, #4f46e5)';
+    if (p.$tone === 'archive') {
+      return p.$active
+        ? 'linear-gradient(135deg, #ecfdf5, #a7f3d0)'
+        : 'linear-gradient(135deg, #10b981, #059669)';
+    }
+    return 'linear-gradient(135deg, #3b82f6, #2563eb)';
+  }};
+  color: ${(p) => (p.$tone === 'archive' && p.$active ? '#047857' : 'inherit')};
+  box-shadow: ${(p) => (p.$tone === 'archive' && p.$active
+    ? '0 0 0 2px rgba(255,255,255,0.55), 0 2px 8px rgba(0,0,0,0.2)'
+    : '0 2px 8px rgba(0, 0, 0, 0.25)')};
+`;
+
+const PinnedNavLabel = styled.span`
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+`;
+
+const PinnedActiveBadge = styled.span`
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.95);
+  color: #047857;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
 `;
 
 const AdminButton = styled.button`
@@ -2074,7 +2165,7 @@ const VISIBILITY_OPTIONS = [
   { key: 'users', label: '👤 Ορατή σε χρήστες', desc: 'Επιλέξτε χρήστες' }
 ];
 const ROLE_OPTIONS = [
-  { key: 'SUPERADMIN', label: 'Superadmin' },
+  { key: 'SUPERADMIN', label: 'Υπερδιαχειριστής' },
   { key: 'ADMIN', label: 'Διαχειριστής' },
   { key: 'ENGINEER', label: 'Μηχανικός' },
   { key: 'USER', label: 'Χρήστης' }
@@ -2518,7 +2609,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   // Sidebar accordion state - ποιες κατηγορίες είναι ανοιχτές
   // Ξεκινά πάντα "κλειστό" σε κάθε άνοιγμα της εφαρμογής (χωρίς απομνημόνευση)
   const [expandedCategories, setExpandedCategories] = useState({
-    projects: false,
     management: false,
     assignments: false,
     exports: false,
@@ -2821,6 +2911,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isEntaxisOpen, setIsEntaxisOpen] = useState(false);
   const [entaxisProjectFilter, setEntaxisProjectFilter] = useState(null);
   const [selectedEntaxiId, setSelectedEntaxiId] = useState(null);
+  const [entaxisProsklisiIdFilter, setEntaxisProsklisiIdFilter] = useState(null);
   const [isProsklisisOpen, setIsProsklisisOpen] = useState(false);
   const [prosklisiProjectFilter, setProsklisiProjectFilter] = useState(null);
   const [selectedProsklisiId, setSelectedProsklisiId] = useState(null);
@@ -4488,11 +4579,27 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   };
 
   const handleOpenLinkedProsklisi = (prosklisiId) => {
-    // Set the selected prosklisi ID για φιλτράρισμα
     setSelectedProsklisiId(prosklisiId);
-    // Open the ProsklisisManager
+    setProsklisiProjectFilter(null);
     setIsProsklisisOpen(true);
   };
+
+  const handleOpenEntaxiFromProsklisi = useCallback((entaxiOrId) => {
+    const entaxiId = typeof entaxiOrId === 'string' ? entaxiOrId : entaxiOrId?.entaxiId;
+    const prosklisiId = typeof entaxiOrId === 'object' ? entaxiOrId?.prosklisiId : null;
+    setIsProsklisisOpen(false);
+    setProsklisiProjectFilter(null);
+    setSelectedProsklisiId(null);
+    setEntaxisProjectFilter(null);
+    if (entaxiId) {
+      setSelectedEntaxiId(entaxiId);
+      setEntaxisProsklisiIdFilter(null);
+    } else if (prosklisiId) {
+      setSelectedEntaxiId(null);
+      setEntaxisProsklisiIdFilter(prosklisiId);
+    }
+    setIsEntaxisOpen(true);
+  }, []);
 
   const handleCloseFileManager = () => {
     setFileManager({
@@ -5350,8 +5457,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
   const handleOpenSpecificProsklisi = (projectTitle, projectId) => {
     const prosklisi = getProsklisiForProject(projectTitle, projectId);
     if (prosklisi) {
-      // Ανοίγουμε το ProsklisisManager με φίλτρο για τη συγκεκριμένη πρόσκληση
-      setProsklisiProjectFilter(prosklisi.title);
+      // Ίδια ροή με το linked κουμπί: φίλτρο με ID ώστε να βρεθεί και το σωστό tab
+      setSelectedProsklisiId(prosklisi.prosklisiId);
+      setProsklisiProjectFilter(null);
       setIsProsklisisOpen(true);
     }
   };
@@ -5661,6 +5769,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <Suspense fallback={null}>
             <CalendarDeadlineWidget
               projects={visibleProjects}
+              proskliseis={proskliseis}
               userRole={userRole}
               currentUser={currentUser}
               engineerCatalog={engineerCatalogForCards}
@@ -5669,6 +5778,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               limit={8}
               refreshKey={calendarRefreshKey}
               onOpenOrimanthi={() => setIsOrimanthiOpen(true)}
+              onOpenProsklisi={(prosklisiId) => handleOpenLinkedProsklisi(prosklisiId)}
               onOpenCalendar={(opts) => {
                 if (opts?.customEventId) setCalendarFocusCustomEventId(opts.customEventId);
                 setIsProcurementCalendarOpen(true);
@@ -5934,7 +6044,14 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           </SidebarBrandText>
         </SidebarBrand>
 
-        {/* Quick Search - πάντα προσβάσιμη στην κορυφή */}
+        <SidebarPinnedStack>
+          <PinnedNavButton type="button" $tone="filters" onClick={() => setIsFiltersOpen(true)}>
+            <PinnedNavIcon $tone="filters">🔍</PinnedNavIcon>
+            Αναζήτηση &amp; Φίλτρα
+          </PinnedNavButton>
+        </SidebarPinnedStack>
+
+        {/* Quick Search */}
         <QuickSearchContainer>
           <QuickSearchGrid>
             <SearchInputContainer>
@@ -5999,56 +6116,44 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           Στατιστικά & Αναφορές
         </StatsNavButton>
 
-        {/* Κατηγορία: ΕΡΓΑ */}
-        <CategorySection $accentColor="#4f46e5" $accentGrad="linear-gradient(135deg, #4f46e5, #7c3aed)">
-          <CategoryHeader $open={expandedCategories.projects} onClick={() => toggleCategory('projects')}>
-            <CategoryHeaderLeft>
-              <CategoryHeaderIcon $accent="linear-gradient(135deg, #4f46e5, #7c3aed)">📁</CategoryHeaderIcon>
-              <CategoryHeaderTitle>Έργα</CategoryHeaderTitle>
-            </CategoryHeaderLeft>
-            <CategoryHeaderChevron $open={expandedCategories.projects}>▶</CategoryHeaderChevron>
-          </CategoryHeader>
-          <CategoryBody $open={expandedCategories.projects}>
-            {canManageAll && (
-              <AdminButton primary onClick={() => {
+        <SidebarPinnedStack>
+          {canManageAll && (
+            <PinnedNavButton
+              type="button"
+              $tone="create"
+              onClick={() => {
                 captureDashboardScrollForForm();
                 setEditingProject(null);
                 loadEngineerCatalogForCards();
                 setIsFormOpen(true);
-              }}>
-                <AdminButtonIcon>➕</AdminButtonIcon>
-                Νέο Υποέργο
-              </AdminButton>
-            )}
-            <AdminButton onClick={() => setIsFiltersOpen(true)}>
-              <AdminButtonIcon>🔍</AdminButtonIcon>
-              Αναζήτηση & Φίλτρα
-            </AdminButton>
-            <ArchiveButton
-              $active={showArchivedProjects}
-              onClick={() => {
-                setShowArchivedProjects(prev => !prev);
-                if (dashboardScrollRef.current) {
-                  dashboardScrollRef.current.scrollTop = 0;
-                }
               }}
             >
-              <AdminButtonIcon>🗄️</AdminButtonIcon>
-              Ολοκληρωμένα &amp; Αποπληρωμένα
-            </ArchiveButton>
-            {canManageAll && (
-              <AdminButton onClick={() => {
-                if (dashboardScrollRef.current) {
-                  savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
-                }
-                setIsEpProgramOpen(true);
-              }}>
-                <AdminButtonIcon>🗺️</AdminButtonIcon>
-                Επιχειρησιακό Πρόγραμμα
-              </AdminButton>
-            )}
-          </CategoryBody>
-        </CategorySection>
+              <PinnedNavIcon $tone="create">➕</PinnedNavIcon>
+              Νέο Υποέργο
+            </PinnedNavButton>
+          )}
+          <PinnedNavButton
+            type="button"
+            $tone="archive"
+            $active={showArchivedProjects}
+            aria-pressed={showArchivedProjects}
+            title={showArchivedProjects
+              ? 'Ενεργό: εμφανίζονται τα ολοκληρωμένα & αποπληρωμένα — κλικ για επιστροφή'
+              : 'Εμφάνιση ολοκληρωμένων & αποπληρωμένων υποέργων'}
+            onClick={() => {
+              setShowArchivedProjects((prev) => !prev);
+              if (dashboardScrollRef.current) {
+                dashboardScrollRef.current.scrollTop = 0;
+              }
+            }}
+          >
+            <PinnedNavIcon $tone="archive" $active={showArchivedProjects}>
+              {showArchivedProjects ? '✓' : '🗄️'}
+            </PinnedNavIcon>
+            <PinnedNavLabel>Ολοκληρωμένα &amp; Αποπληρωμένα</PinnedNavLabel>
+            {showArchivedProjects && <PinnedActiveBadge>Ενεργό</PinnedActiveBadge>}
+          </PinnedNavButton>
+        </SidebarPinnedStack>
 
         {/* Κατηγορία: ΔΙΑΔΙΚΑΣΙΕΣ ΕΡΓΩΝ */}
           <CategorySection $accentColor="#0891b2" $accentGrad="linear-gradient(135deg, #0891b2, #06b6d4)">
@@ -6096,6 +6201,17 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 <AdminButtonIcon>📐</AdminButtonIcon>
                 Μητρώο Μελετών
               </AdminButton>
+              {canManageAll && (
+                <AdminButton onClick={() => {
+                  if (dashboardScrollRef.current) {
+                    savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
+                  }
+                  setIsEpProgramOpen(true);
+                }}>
+                  <AdminButtonIcon>🗺️</AdminButtonIcon>
+                  Επιχειρησιακό Πρόγραμμα
+                </AdminButton>
+              )}
             </CategoryBody>
           </CategorySection>
 
@@ -6118,7 +6234,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               </AdminButton>
               <AdminButton onClick={openWorkArchive}>
                 <AdminButtonIcon>📦</AdminButtonIcon>
-                ΑΠΟΘΗΚΗ ΕΡΓΑΣΙΩΝ
+                Αποθήκη Εργασιών
               </AdminButton>
             </CategoryBody>
           </CategorySection>
@@ -6463,11 +6579,18 @@ const handleDeleteProject = async (projectId, subprojectId) => {
       <EntaxisManager
         isOpen={isEntaxisOpen}
         selectedEntaxiId={selectedEntaxiId}
+        prosklisiIdFilter={entaxisProsklisiIdFilter}
+        onClearFocus={() => {
+          setSelectedEntaxiId(null);
+          setEntaxisProjectFilter(null);
+          setEntaxisProsklisiIdFilter(null);
+        }}
         onClose={async () => {
           await ipcRenderer.invoke('clear-all-locks');
           setIsEntaxisOpen(false);
           setEntaxisProjectFilter(null);
           setSelectedEntaxiId(null);
+          setEntaxisProsklisiIdFilter(null);
           await loadProjects();
           setTimeout(() => {
             if (dashboardScrollRef.current) {
@@ -6586,6 +6709,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
         notes={notes}
         onOpenNoteFromEntity={handleOpenNoteFromEntity}
         organizationName={appConfig?.organizationFullName || ''}
+        onOpenRelatedEntaxi={handleOpenEntaxiFromProsklisi}
       />
       </Suspense>
       ) : null}
@@ -6873,6 +6997,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             }}
             onCalendarDataChanged={() => setCalendarRefreshKey((k) => k + 1)}
             projects={projects}
+            proskliseis={proskliseis}
             userRole={userRole}
             currentUser={currentUser}
             engineerCatalog={engineerCatalogForCards}
@@ -6880,6 +7005,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             onOpenOrimanthi={() => {
               setIsProcurementCalendarOpen(false);
               setIsOrimanthiOpen(true);
+            }}
+            onOpenProsklisi={(prosklisiId) => {
+              setIsProcurementCalendarOpen(false);
+              handleOpenLinkedProsklisi(prosklisiId);
             }}
             onViewSubproject={(subprojectId) => {
               setIsProcurementCalendarOpen(false);

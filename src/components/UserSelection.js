@@ -410,11 +410,11 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
             <Label style={{ marginBottom: 8 }}>Ρόλος</Label>
             <RoleSelector>
               <RoleOption selected={regRole === 'USER'} onClick={() => setRegRole('USER')}>
-                <RoleTitle>viewer</RoleTitle>
+                <RoleTitle>Χρήστης</RoleTitle>
                 <RoleDesc>Μόνο προβολή</RoleDesc>
               </RoleOption>
               <RoleOption selected={regRole === 'ADMIN'} onClick={() => setRegRole('ADMIN')}>
-                <RoleTitle>admin</RoleTitle>
+                <RoleTitle>Διαχειριστής</RoleTitle>
                 <RoleDesc>Πλήρης διαχείριση</RoleDesc>
               </RoleOption>
             </RoleSelector>
