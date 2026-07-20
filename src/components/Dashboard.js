@@ -6256,12 +6256,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                   Τεχνικό Πρόγραμμα
                 </AdminButton>
               )}
-              {!isEngineer && (
-                <AdminButton onClick={() => setIsInvestExportOpen(true)}>
-                  <AdminButtonIcon>📊</AdminButtonIcon>
-                  Εκτελεστέα Έργα
-                </AdminButton>
-              )}
+              {/* Εκτελεστέα Έργα: κρυμμένο από το μενού — ο μηχανισμός παραμένει στον κώδικα αν χρειαστεί */}
               {(canManageAll || isEngineer) && (
                 <AdminButton onClick={() => setIsPortalHubOpen(true)}>
                   <AdminButtonIcon>🌐</AdminButtonIcon>
@@ -6295,13 +6290,6 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 Ιστορικό Ενεργειών
               </AdminButton>
               {canManageAll && (
-                <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
-                  <AdminButtonIcon>💾</AdminButtonIcon>
-                  Αντίγραφα Ασφαλείας
-                  {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
-                </AdminButton>
-              )}
-              {canManageAll && (
                 <AdminButton onClick={() => setIsCalendarSettingsOpen(true)}>
                   <AdminButtonIcon>🔔</AdminButtonIcon>
                   Κέντρο Ειδοποιήσεων
@@ -6323,8 +6311,8 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           </CategorySection>
         )}
 
-        {/* Κατηγορία: ΣΥΣΤΗΜΑ - μόνο για SUPERADMIN */}
-        {isSuperAdmin && (
+        {/* Κατηγορία: ΣΥΣΤΗΜΑ — αντίγραφα ασφαλείας για ADMIN/SUPERADMIN, λοιπά μόνο SUPERADMIN */}
+        {canManageAll && (
           <CategorySection $accentColor="#be185d" $accentGrad="linear-gradient(135deg, #be185d, #ec4899)">
             <CategoryHeader $open={expandedCategories.system} onClick={() => toggleCategory('system')}>
               <CategoryHeaderLeft>
@@ -6334,18 +6322,27 @@ const handleDeleteProject = async (projectId, subprojectId) => {
               <CategoryHeaderChevron $open={expandedCategories.system}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.system}>
-              <AdminButton onClick={() => setIsUserManagementOpen(true)}>
-                <AdminButtonIcon>👥</AdminButtonIcon>
-                Διαχείριση Χρηστών
+              <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
+                <AdminButtonIcon>💾</AdminButtonIcon>
+                Αντίγραφα Ασφαλείας
+                {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
               </AdminButton>
-              <AdminButton onClick={() => setIsEmailSettingsOpen(true)}>
-                <AdminButtonIcon>✉</AdminButtonIcon>
-                Ρυθμίσεις Email
-              </AdminButton>
-              <AdminButton onClick={() => setIsMunicipalUnitsOpen(true)}>
-                <AdminButtonIcon>🏘</AdminButtonIcon>
-                Δημοτικές Ενότητες
-              </AdminButton>
+              {isSuperAdmin && (
+                <>
+                  <AdminButton onClick={() => setIsUserManagementOpen(true)}>
+                    <AdminButtonIcon>👥</AdminButtonIcon>
+                    Διαχείριση Χρηστών
+                  </AdminButton>
+                  <AdminButton onClick={() => setIsEmailSettingsOpen(true)}>
+                    <AdminButtonIcon>✉</AdminButtonIcon>
+                    Ρυθμίσεις Email
+                  </AdminButton>
+                  <AdminButton onClick={() => setIsMunicipalUnitsOpen(true)}>
+                    <AdminButtonIcon>🏘</AdminButtonIcon>
+                    Δημοτικές Ενότητες
+                  </AdminButton>
+                </>
+              )}
             </CategoryBody>
           </CategorySection>
         )}
@@ -6511,6 +6508,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
             totalProjects={excludeAbandonedSubprojects(projects).length}
             organizationName={appConfig?.organizationFullName || ''}
             appVersion={appVersion}
+            engineerCatalog={engineerCatalogForCards}
           />
         </Suspense>
       ) : null}

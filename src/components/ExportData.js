@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { getCharacterization } from '../data/formOptions';
 import { useToast } from './ToastProvider';
@@ -17,316 +17,455 @@ import {
 } from '../utils/khmdhsExportFields';
 import {
   getProjectContractTotalForExport,
-  getProjectApeAmountForExport,
+  getProjectPayableAmountForExport,
+  getProjectContractDatesRawForExport,
   getProjectPaymentTotalForExport,
   getProjectDqrStatusForExport,
   getProjectRequestAdamForExport,
   getProjectAwardAdamForExport,
   getProjectCommitmentAdamsForExport,
 } from '../utils/khmdhsExportHelpers';
+import { isMultipleContractsForm } from '../utils/khmdhsFields';
+
+/* ─── Layout ─── */
 
 const ExportOverlay = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.8);
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
   z-index: 9999;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 5vh;
+  padding: 3vh 1rem 2rem;
   overflow-y: auto;
-  animation: slideIn 0.3s ease;
-
-  @keyframes slideIn {
-    from {
-      opacity: 0;
-      backdrop-filter: blur(0px);
-    }
-    to {
-      opacity: 1;
-      backdrop-filter: blur(5px);
-    }
-  }
 `;
 
 const ExportContainer = styled.div`
-  background: white;
-  border-radius: 20px;
-  padding: 3rem;
-  max-width: 800px;
-  width: 95%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  border: 2px solid #dee2e6;
-  margin-bottom: 2rem;
+  background: #fff;
+  border-radius: 18px;
+  width: min(920px, 100%);
+  max-height: min(92vh, 980px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 28px 72px rgba(15, 23, 42, 0.28);
+  overflow: hidden;
 `;
 
-const Header = styled.div`
+const Hero = styled.div`
+  flex-shrink: 0;
+  padding: 1.35rem 1.5rem 1.15rem;
+  background: linear-gradient(135deg, #312e81 0%, #4f46e5 55%, #6366f1 100%);
+  color: #fff;
+`;
+
+const HeroTop = styled.div`
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2.5rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 3px solid #e9ecef;
+  align-items: flex-start;
+  gap: 1rem;
 `;
 
-const Title = styled.h2`
-  color: #333;
-  font-size: 1.8rem;
-  font-weight: 600;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
+const HeroEyebrow = styled.div`
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  margin-bottom: 0.25rem;
+`;
 
-  &::before {
-    content: "📊";
-    font-size: 1.5rem;
-  }
+const HeroTitle = styled.h2`
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+`;
+
+const HeroSubtitle = styled.p`
+  margin: 0.4rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  opacity: 0.9;
+  max-width: 36rem;
 `;
 
 const CloseButton = styled.button`
-  background: #dc3545;
-  color: white;
+  flex-shrink: 0;
   border: none;
-  padding: 0.8rem 1.5rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 500;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 10px;
+  font-size: 1.15rem;
+  line-height: 1;
   cursor: pointer;
-  text-transform: uppercase;
-  transition: all 0.3s ease;
+  transition: background 0.15s ease;
 
   &:hover {
-    background: #c82333;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+    background: rgba(255, 255, 255, 0.28);
   }
 `;
 
-const WarningBanner = styled.div`
-  background: linear-gradient(135deg, #ff9a56 0%, #ff6b6b 100%);
-  color: white;
-  padding: 1.2rem 1.5rem;
-  border-radius: 12px;
-  margin-bottom: 2rem;
+const StatsRow = styled.div`
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
-  animation: slideIn 0.4s ease;
-
-  @keyframes slideIn {
-    from {
-      transform: translateY(-10px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
-  }
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 1rem;
 `;
 
-const WarningIcon = styled.div`
-  font-size: 2rem;
-  line-height: 1;
-`;
-
-const WarningContent = styled.div`
-  flex: 1;
-`;
-
-const WarningTitle = styled.div`
-  font-weight: 700;
-  font-size: 1.1rem;
-  margin-bottom: 0.3rem;
-  letter-spacing: 0.3px;
-`;
-
-const WarningText = styled.div`
-  font-size: 0.95rem;
-  opacity: 0.95;
-  line-height: 1.4;
-`;
-
-const InfoBanner = styled.div`
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 1.2rem 1.5rem;
-  border-radius: 12px;
-  margin-bottom: 2rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-`;
-
-const InfoIcon = styled.div`
-  font-size: 2rem;
-  line-height: 1;
-`;
-
-const InfoContent = styled.div`
-  flex: 1;
-  font-size: 0.95rem;
-  line-height: 1.4;
-`;
-
-const FieldsSection = styled.div`
-  margin-bottom: 2rem;
-`;
-
-const SectionTitle = styled.h3`
-  color: #495057;
-  font-size: 1.2rem;
+const StatChip = styled.div`
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  padding: 0.28rem 0.75rem;
+  font-size: 0.74rem;
   font-weight: 600;
-  margin: 0 0 1rem 0;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
+
+  strong {
+    font-weight: 800;
+  }
+`;
+
+const FilterBanner = styled.div`
+  margin-top: 0.85rem;
+  background: ${(p) => (p.$warn ? 'rgba(251, 191, 36, 0.22)' : 'rgba(255, 255, 255, 0.12)')};
+  border: 1px solid ${(p) => (p.$warn ? 'rgba(251, 191, 36, 0.45)' : 'rgba(255, 255, 255, 0.2)')};
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+`;
+
+const Toolbar = styled.div`
+  flex-shrink: 0;
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+`;
+
+const SearchInput = styled.input`
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.86rem;
+  font-family: inherit;
+  background: #fff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:focus {
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+
+  &::placeholder {
+    color: #94a3b8;
+  }
+`;
+
+const PresetRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+`;
+
+const PresetLabel = styled.span`
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.15rem;
+`;
+
+const PresetBtn = styled.button`
+  border: 1px solid ${(p) => (p.$active ? '#a5b4fc' : '#cbd5e1')};
+  background: ${(p) => (p.$active ? '#eef2ff' : '#fff')};
+  color: ${(p) => (p.$active ? '#3730a3' : '#334155')};
+  border-radius: 999px;
+  padding: 0.32rem 0.75rem;
+  font-size: 0.74rem;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+
+  &:hover {
+    background: ${(p) => (p.$active ? '#e0e7ff' : '#f1f5f9')};
+    border-color: ${(p) => (p.$active ? '#818cf8' : '#94a3b8')};
+  }
+`;
+
+const Body = styled.div`
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.85rem 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 0.55rem;
+`;
+
+const GroupCard = styled.section`
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  flex: 0 0 auto;
+`;
+
+const GroupHeader = styled.button`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border: none;
+  background: ${(p) => (p.$open ? '#f8fafc' : '#fff')};
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: #f8fafc;
+  }
+`;
+
+const GroupHeaderLeft = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+`;
+
+const GroupTitle = styled.div`
+  font-size: 0.92rem;
+  font-weight: 750;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+`;
+
+const GroupHint = styled.div`
+  font-size: 0.74rem;
+  color: #64748b;
+  line-height: 1.35;
+`;
+
+const GroupMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+`;
+
+const CountBadge = styled.span`
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: ${(p) => (p.$all ? '#047857' : '#4338ca')};
+  background: ${(p) => (p.$all ? '#ecfdf5' : '#eef2ff')};
+  border: 1px solid ${(p) => (p.$all ? '#a7f3d0' : '#c7d2fe')};
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  white-space: nowrap;
+`;
+
+const Chevron = styled.span`
+  color: #94a3b8;
+  font-size: 0.7rem;
+  transition: transform 0.15s ease;
+  transform: rotate(${(p) => (p.$open ? '90deg' : '0deg')});
+`;
+
+const GroupBody = styled.div`
+  padding: 0.65rem 0.85rem 0.75rem;
+  border-top: 1px solid #f1f5f9;
+`;
+
+const SubGroup = styled.div`
+  & + & {
+    margin-top: 0.65rem;
+    padding-top: 0.55rem;
+    border-top: 1px dashed #e2e8f0;
+  }
+`;
+
+const SubGroupTitle = styled.div`
+  font-size: 0.68rem;
+  font-weight: 750;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.4rem;
+  padding-left: 0.1rem;
 `;
 
 const FieldsGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  background: #f8f9fa;
-  padding: 1.5rem;
-  border-radius: 12px;
-  border: 1px solid #dee2e6;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem 0.55rem;
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const FieldItem = styled.label`
   display: flex;
-  align-items: center;
-  gap: 0.8rem;
+  align-items: flex-start;
+  gap: 0.5rem;
   cursor: pointer;
-  padding: 0.8rem;
+  padding: 0.42rem 0.5rem;
   border-radius: 8px;
-  transition: background 0.2s ease;
-  font-size: 0.9rem;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  min-width: 0;
 
   &:hover {
-    background: rgba(102, 126, 234, 0.1);
+    background: #f8fafc;
+    border-color: #e2e8f0;
   }
-`;
 
-const Checkbox = styled.input`
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: #667eea;
-`;
-
-const FieldLabel = styled.span`
-  color: #495057;
-  font-weight: 500;
-  cursor: pointer;
-`;
-
-// Removed unused styled components
-
-const StatsBox = styled.div`
-  background: linear-gradient(135deg, #e8f5e8 0%, #f1f8e9 100%);
-  border: 1px solid #c8e6c9;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-`;
-
-const StatItem = styled.div`
-  text-align: center;
-`;
-
-const StatNumber = styled.div`
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #2e7d32;
-`;
-
-const StatLabel = styled.div`
-  font-size: 0.8rem;
-  color: #388e3c;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-`;
-
-const ActionsBar = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 2rem;
-  border-top: 2px solid #e9ecef;
-  margin-top: 1rem;
-`;
-
-const ActionButton = styled.button`
-  padding: 0.8rem 2rem;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  text-transform: uppercase;
-  transition: all 0.3s ease;
-
-  ${props => props.primary ? `
-    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-    color: white;
-    
-    &:hover {
-      background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
-    }
-
-    &:disabled {
-      background: #cccccc;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-    }
-  ` : `
-    background: #6c757d;
-    color: white;
-    
-    &:hover {
-      background: #545b62;
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
-    }
+  ${(p) => p.$checked && `
+    background: #eef2ff;
+    border-color: #c7d2fe;
   `}
 `;
 
-const SelectAllButton = styled.button`
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 0.6rem 1.2rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 500;
+const Checkbox = styled.input`
+  width: 16px;
+  height: 16px;
+  margin-top: 0.1rem;
   cursor: pointer;
-  text-transform: uppercase;
-  transition: all 0.3s ease;
+  accent-color: #4f46e5;
+  flex-shrink: 0;
+`;
+
+const FieldLabel = styled.span`
+  color: #1e293b;
+  font-weight: 550;
+  word-break: break-word;
+`;
+
+const GroupActions = styled.div`
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed #e2e8f0;
+`;
+
+const TinyBtn = styled.button`
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  border-radius: 7px;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.7rem;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
 
   &:hover {
-    background: linear-gradient(135deg, #5a67d8 0%, #667eea 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    background: #f1f5f9;
+    border-color: #94a3b8;
   }
 `;
 
-// Σειρά στηλών σύμφωνα με τις προδιαγραφές
+const EmptySearch = styled.div`
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: #64748b;
+  font-size: 0.88rem;
+`;
+
+const Footer = styled.div`
+  flex-shrink: 0;
+  padding: 0.85rem 1.5rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+`;
+
+const FooterLeft = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+`;
+
+const FooterBtn = styled.button`
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  border-radius: 9px;
+  padding: 0.5rem 0.95rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
+const ExportBtn = styled.button`
+  border: none;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #fff;
+  border-radius: 9px;
+  padding: 0.55rem 1.25rem;
+  font-size: 0.82rem;
+  font-weight: 750;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.28);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+`;
+
+/* ─── Field catalog (Excel column order — αμετάβλητη λογική εξαγωγής) ─── */
+
 const EXPORT_FIELDS_ORDER = [
   { id: 'rowNumber', label: 'Α/Α', width: 8 },
   { id: 'kaCode', label: 'Κωδικός ΚΑ', width: 14 },
@@ -351,7 +490,7 @@ const EXPORT_FIELDS_ORDER = [
   { id: 'contractProcessStartDate', label: 'Ημερομηνία έναρξης διαδικασίας σύναψης Σύμβασης', width: 30 },
   { id: 'contractDate', label: 'Ημερομηνία Υπογραφής Σύμβασης', width: 18 },
   { id: 'contractAmount', label: 'Ποσό Σύμβασης (αλυσίδα)', width: 22 },
-  { id: 'apeAmount', label: 'ΑΠΕ + Συμπληρωματικές Συμβάσεις', width: 22 },
+  { id: 'apeAmount', label: 'Τελικό πληρωτέο (ΑΠΕ/σύμβαση + συμπληρωματικές)', width: 28 },
   { id: 'khmdhsRequestAdam', label: 'ΑΔΑΜ Αιτήματος (REQ)', width: 22 },
   { id: 'khmdhsAwardAdam', label: 'ΑΔΑΜ Κατακύρωσης (AWRD)', width: 22 },
   { id: 'khmdhsCommitmentAdam', label: 'ΑΔΑΜ Ανάληψης Υποχρέωσης', width: 25 },
@@ -365,75 +504,232 @@ const EXPORT_FIELDS_ORDER = [
   ...KHMDHS_NOTICE_EXPORT_FIELDS
 ];
 
-// Διαθέσιμα πεδία για εξαγωγή (για το UI)
-const EXPORT_FIELDS = {
-  basic: {
-    title: '📋 Βασικά Στοιχεία',
+/** Συντομότερες ετικέτες για την οθόνη (οι επικεφαλίδες Excel μένουν πλήρεις) */
+const NOTICE_UI_LABELS = {
+  khmdhsNoticeAdam: 'ΑΔΑΜ προκήρυξης / πρόσκλησης',
+  khmdhsNoticeTitle: 'Τίτλος δημοσίευσης',
+  khmdhsNoticeType: 'Τύπος δημοσίευσης',
+  khmdhsNoticeContractType: 'Είδος σύμβασης',
+  khmdhsNoticeProcedureKhmdhs: 'Διαδικασία (από ΚΗΜΔΗΣ)',
+  khmdhsNoticeProcedureApp: 'Διαδικασία (από εφαρμογή)',
+  khmdhsNoticeLegalContext: 'Νομικό πλαίσιο',
+  khmdhsNoticeConductingProceedings: 'Τρόπος διεξαγωγής',
+  khmdhsNoticeDigitalPlatform: 'Πλατφόρμα',
+  khmdhsNoticeCriteriaCode: 'Κριτήριο ανάθεσης',
+  khmdhsNoticeOrganization: 'Αναθέτουσα αρχή',
+  khmdhsNoticeUnitsOperator: 'Οργανική μονάδα',
+  khmdhsNoticeSigner: 'Αποφαινόμενο όργανο',
+  khmdhsNoticeSignedDate: 'Ημ. έκδοσης / πρωτοκόλλου',
+  khmdhsNoticeFinalSubmissionDate: 'Καταληκτική υποβολής',
+  khmdhsNoticeSubmissionDate: 'Ημ. καταχώρισης',
+  khmdhsNoticeDeadlineDaysLeft: 'Ημέρες έως καταληκτική',
+  khmdhsNoticeCancelled: 'Ματαιωμένη',
+  khmdhsNoticeCancellationDate: 'Ημ. ματαίωσης',
+  khmdhsNoticeCancellationReason: 'Λόγος ματαίωσης',
+  khmdhsNoticeEstimatedAmountNoVat: 'Εκτιμ. αξία χωρίς ΦΠΑ',
+  khmdhsNoticeEstimatedAmountWithVat: 'Εκτιμ. αξία με ΦΠΑ',
+  khmdhsNoticeContractDuration: 'Διάρκεια σύμβασης',
+  khmdhsNoticeOffersValidTime: 'Ισχύς προσφορών',
+  khmdhsNoticeBiddingWebsite: 'Ιστότοπος υποβολής',
+  khmdhsNoticeSystemicNumber: 'Αρ. ηλεκτρ. δημοσίευσης',
+  khmdhsNoticeApprovedRequestAdam: 'Συνδ. αίτημα ΑΔΑΜ',
+  khmdhsNoticeAuctionRefNos: 'Συνδ. αναθέσεις ΑΔΑΜ',
+  khmdhsNoticeCpvs: 'CPV',
+  khmdhsNoticeFundingSummary: 'Χρηματοδότηση (δημοσίευσης)',
+  khmdhsNoticeFetchedAt: 'Ημ. ανάκτησης δεδομένων',
+  khmdhsContractVarianceAmount: 'Διαφορά σύμβαση − εκτιμ.',
+  khmdhsContractVariancePct: 'Απόκλιση % σύμβαση vs εκτιμ.',
+};
+
+const noticeField = (id) => {
+  const src = KHMDHS_NOTICE_EXPORT_FIELDS.find((f) => f.id === id);
+  return {
+    id,
+    label: NOTICE_UI_LABELS[id] || src?.label || id,
+    width: src?.width || 22,
+  };
+};
+
+/**
+ * Ομάδες επιλογής — κάθε πεδίο εμφανίζεται ΜΙΑ φορά.
+ * (Παλιά: ανάδοχος / ΑΔΑΜ / διαδικασία επαναλαμβάνονταν σε «Κατάσταση» και «Ανάδοχος».)
+ */
+const EXPORT_FIELD_GROUPS = [
+  {
+    id: 'basic',
+    title: 'Βασικά στοιχεία',
+    hint: 'Κωδικοί, τίτλοι και είδος υποέργου',
     fields: [
       { id: 'rowNumber', label: 'Α/Α', width: 8 },
       { id: 'kaCode', label: 'Κωδικός ΚΑ', width: 14 },
       { id: 'aleCode', label: 'Κωδ. Α.Λ.Ε.', width: 16 },
-      { id: 'projectTitle', label: 'Τίτλος Έργου / Τίτλος Πράξης', width: 40 },
-      { id: 'subprojectTitle', label: 'Τίτλος Υποέργου', width: 40 },
-      { id: 'projectType', label: 'Είδος Υποέργου', width: 25 },
-      { id: 'misPraxhs', label: 'Όνομα & Κωδικός Πράξης', width: 30, linkedFields: ['misPraxhsName', 'misPraxhsCode'] },
-    ]
+      { id: 'projectTitle', label: 'Τίτλος έργου / πράξης', width: 40 },
+      { id: 'subprojectTitle', label: 'Τίτλος υποέργου', width: 40 },
+      { id: 'projectType', label: 'Είδος υποέργου', width: 25 },
+      { id: 'misPraxhs', label: 'Όνομα & κωδικός πράξης', width: 30, linkedFields: ['misPraxhsName', 'misPraxhsCode'] },
+    ],
   },
-  financial: {
-    title: '💰 Οικονομικά Στοιχεία',
+  {
+    id: 'financial',
+    title: 'Οικονομικά & χρηματοδότηση',
+    hint: 'Ποσά προϋπολογισμού, υπόλοιπα και πηγές',
     fields: [
-      { id: 'approvedAmount', label: 'Εγκεκριμένο Ποσό', width: 16 },
+      { id: 'approvedAmount', label: 'Εγκεκριμένο ποσό', width: 16 },
       { id: 'projectBudget', label: 'Προϋπολογισμός', width: 16 },
-      { id: 'remainingAmount', label: 'Υπόλοιπα για το Έτος', width: 18 },
-      { id: 'remainingAmountYear', label: 'Έτος Υπολοίπων', width: 12 },
-      { id: 'fundingSource', label: 'Βασική Πηγή Χρηματοδότησης', width: 25 },
-      { id: 'fundingDetails', label: 'Εξειδίκευση Πηγής Χρηματοδότησης', width: 35 },
-    ]
+      { id: 'remainingAmount', label: 'Υπόλοιπα για το έτος', width: 18 },
+      { id: 'remainingAmountYear', label: 'Έτος υπολοίπων', width: 12 },
+      { id: 'remainingAmountComments', label: 'Σχόλια υπολοίπων', width: 25 },
+      { id: 'fundingSource', label: 'Βασική πηγή χρηματοδότησης', width: 25 },
+      { id: 'fundingDetails', label: 'Εξειδίκευση πηγής', width: 35 },
+    ],
   },
-  status: {
-    title: '📊 Κατάσταση & Πρόοδος',
+  {
+    id: 'contract',
+    title: 'Κατάσταση & σύμβαση',
+    hint: 'Πρόοδος υποέργου και ποσά / ημερομηνίες σύμβασης',
     fields: [
-      { id: 'projectStatus', label: 'Κατάσταση Υποέργου', width: 25 },
-      { id: 'assignmentProcedure', label: 'Διαδικασία Ανάθεσης', width: 40 },
-      { id: 'anadoxosName', label: 'Επωνυμία Αναδόχου (ΚΗΜΔΗΣ)', width: 35 },
-      { id: 'anadoxosVat', label: 'ΑΦΜ Αναδόχου (ΚΗΜΔΗΣ)', width: 18 },
-      { id: 'khmdhsAdam', label: 'ΑΔΑΜ Σύμβασης (ΚΗΜΔΗΣ)', width: 22 },
-      { id: 'contractProcessStartDate', label: 'Ημερομηνία έναρξης διαδικασίας σύναψης Σύμβασης', width: 30 },
-      { id: 'contractDate', label: 'Ημερομηνία Υπογραφής Σύμβασης', width: 18 },
-      { id: 'contractAmount', label: 'Ποσό Σύμβασης (αλυσίδα)', width: 22 },
-      { id: 'apeAmount', label: 'ΑΠΕ + Συμπληρωματικές Συμβάσεις', width: 22 },
-      { id: 'khmdhsPaymentTotal', label: 'Σύνολο Πληρωμών (ΚΗΜΔΗΣ)', width: 22 },
-    ]
+      { id: 'projectStatus', label: 'Κατάσταση υποέργου', width: 25 },
+      { id: 'contractProcessStartDate', label: 'Έναρξη διαδικασίας σύναψης', width: 30 },
+      { id: 'contractDate', label: 'Ημ. υπογραφής σύμβασης', width: 18 },
+      { id: 'contractAmount', label: 'Ποσό σύμβασης (αλυσίδα)', width: 22 },
+      { id: 'apeAmount', label: 'Τελικό πληρωτέο (ΑΠΕ + συμπληρωματικές)', width: 28 },
+    ],
   },
-  contractor: {
-    title: '🏢 Ανάδοχος & Ανάθεση',
+  {
+    id: 'khmdhs',
+    title: 'Ανάδοχος & αλυσίδα ΚΗΜΔΗΣ',
+    hint: 'Διαδικασία ανάθεσης, ανάδοχος, ΑΔΑΜ και πληρωμές',
     fields: [
-      { id: 'assignmentProcedure', label: 'Διαδικασία Ανάθεσης', width: 40 },
-      { id: 'anadoxosName', label: 'Επωνυμία Αναδόχου (ΚΗΜΔΗΣ)', width: 35 },
-      { id: 'anadoxosVat', label: 'ΑΦΜ Αναδόχου (ΚΗΜΔΗΣ)', width: 18 },
-      { id: 'khmdhsAdam', label: 'ΑΔΑΜ Σύμβασης (ΚΗΜΔΗΣ)', width: 22 },
-      { id: 'khmdhsRequestAdam', label: 'ΑΔΑΜ Αιτήματος (REQ)', width: 22 },
-      { id: 'khmdhsAwardAdam', label: 'ΑΔΑΜ Κατακύρωσης (AWRD)', width: 22 },
-      { id: 'khmdhsCommitmentAdam', label: 'ΑΔΑΜ Ανάληψης Υποχρέωσης', width: 25 },
+      { id: 'assignmentProcedure', label: 'Διαδικασία ανάθεσης', width: 40 },
+      { id: 'anadoxosName', label: 'Επωνυμία αναδόχου', width: 35 },
+      { id: 'anadoxosVat', label: 'ΑΦΜ αναδόχου', width: 18 },
+      { id: 'khmdhsAdam', label: 'ΑΔΑΜ σύμβασης (SYMV)', width: 22 },
+      { id: 'khmdhsRequestAdam', label: 'ΑΔΑΜ αιτήματος (REQ)', width: 22 },
+      { id: 'khmdhsAwardAdam', label: 'ΑΔΑΜ κατακύρωσης (AWRD)', width: 22 },
+      { id: 'khmdhsCommitmentAdam', label: 'ΑΔΑΜ ανάληψης υποχρέωσης', width: 25 },
+      { id: 'khmdhsPaymentTotal', label: 'Σύνολο πληρωμών', width: 22 },
       { id: 'dqrStatus', label: 'Ανοιχτά DQR', width: 18 },
-    ]
+    ],
   },
-  additional: {
-    title: '📝 Επιπλέον Στοιχεία',
+  {
+    id: 'notes',
+    title: 'Χρέωση & σχόλια',
+    hint: 'Υπεύθυνοι, σχόλια και χαρακτηρισμός',
     fields: [
       { id: 'chargeTo', label: 'Χρεωμένο σε', width: 25 },
       { id: 'chargeParticipants', label: 'Συμμετέχουν', width: 30 },
-      { id: 'remainingAmountComments', label: 'Σχόλια Υπολοίπων', width: 25 },
       { id: 'comments', label: 'Σχόλια', width: 40 },
       { id: 'eisigitikiEkthesi', label: 'Αναφορά από πρόγραμμα Οικονομικής', width: 60 },
-      { id: 'characterization', label: 'Χαρακτηρισμός (ΝΕΟ/ΣΥΝΕΧΙΖΟΜΕΝΟ)', width: 30 },
-    ]
+      { id: 'characterization', label: 'Χαρακτηρισμός (ΝΕΟ / ΣΥΝΕΧΙΖΟΜΕΝΟ)', width: 30 },
+    ],
   },
-  procurement: {
-    title: '📢 Δημοσίευση (ΚΗΜΔΗΣ)',
-    fields: KHMDHS_NOTICE_EXPORT_FIELDS.map((f) => ({ ...f }))
-  }
-};
+  {
+    id: 'notice',
+    title: 'Δημοσίευση ΚΗΜΔΗΣ',
+    hint: 'Στοιχεία προκήρυξης / πρόσκλησης από το ΚΗΜΔΗΣ',
+    subgroups: [
+      {
+        title: 'Ταυτότητα',
+        fields: [
+          noticeField('khmdhsNoticeAdam'),
+          noticeField('khmdhsNoticeTitle'),
+          noticeField('khmdhsNoticeType'),
+          noticeField('khmdhsNoticeContractType'),
+          noticeField('khmdhsNoticeSystemicNumber'),
+        ],
+      },
+      {
+        title: 'Διαδικασία & φορείς',
+        fields: [
+          noticeField('khmdhsNoticeProcedureKhmdhs'),
+          noticeField('khmdhsNoticeProcedureApp'),
+          noticeField('khmdhsNoticeLegalContext'),
+          noticeField('khmdhsNoticeConductingProceedings'),
+          noticeField('khmdhsNoticeDigitalPlatform'),
+          noticeField('khmdhsNoticeCriteriaCode'),
+          noticeField('khmdhsNoticeOrganization'),
+          noticeField('khmdhsNoticeUnitsOperator'),
+          noticeField('khmdhsNoticeSigner'),
+        ],
+      },
+      {
+        title: 'Ημερομηνίες & προθεσμίες',
+        fields: [
+          noticeField('khmdhsNoticeSignedDate'),
+          noticeField('khmdhsNoticeFinalSubmissionDate'),
+          noticeField('khmdhsNoticeSubmissionDate'),
+          noticeField('khmdhsNoticeDeadlineDaysLeft'),
+          noticeField('khmdhsNoticeCancelled'),
+          noticeField('khmdhsNoticeCancellationDate'),
+          noticeField('khmdhsNoticeCancellationReason'),
+        ],
+      },
+      {
+        title: 'Ποσά & διάρκεια',
+        fields: [
+          noticeField('khmdhsNoticeEstimatedAmountNoVat'),
+          noticeField('khmdhsNoticeEstimatedAmountWithVat'),
+          noticeField('khmdhsNoticeContractDuration'),
+          noticeField('khmdhsNoticeOffersValidTime'),
+          noticeField('khmdhsContractVarianceAmount'),
+          noticeField('khmdhsContractVariancePct'),
+        ],
+      },
+      {
+        title: 'Σύνδεσμοι & λοιπά',
+        fields: [
+          noticeField('khmdhsNoticeBiddingWebsite'),
+          noticeField('khmdhsNoticeApprovedRequestAdam'),
+          noticeField('khmdhsNoticeAuctionRefNos'),
+          noticeField('khmdhsNoticeCpvs'),
+          noticeField('khmdhsNoticeFundingSummary'),
+          noticeField('khmdhsNoticeFetchedAt'),
+        ],
+      },
+    ],
+  },
+];
+
+const DEFAULT_SELECTED = [
+  'rowNumber', 'kaCode', 'aleCode', 'projectTitle', 'subprojectTitle',
+  'projectType', 'fundingSource', 'fundingDetails', 'projectStatus',
+];
+
+const PRESETS = [
+  {
+    id: 'basic',
+    label: 'Βασικό',
+    fields: DEFAULT_SELECTED,
+  },
+  {
+    id: 'financial',
+    label: 'Οικονομικά',
+    fields: [
+      ...DEFAULT_SELECTED,
+      'approvedAmount', 'projectBudget', 'remainingAmount', 'remainingAmountYear',
+      'remainingAmountComments', 'contractAmount', 'apeAmount', 'khmdhsPaymentTotal',
+    ],
+  },
+  {
+    id: 'contract',
+    label: 'Σύμβαση & ανάδοχος',
+    fields: [
+      ...DEFAULT_SELECTED,
+      'assignmentProcedure', 'anadoxosName', 'anadoxosVat', 'khmdhsAdam',
+      'contractProcessStartDate', 'contractDate', 'contractAmount', 'apeAmount',
+      'khmdhsRequestAdam', 'khmdhsAwardAdam', 'khmdhsCommitmentAdam',
+      'khmdhsPaymentTotal', 'chargeTo',
+    ],
+  },
+  {
+    id: 'notice',
+    label: 'Δημοσίευση ΚΗΜΔΗΣ',
+    fields: [
+      'rowNumber', 'subprojectTitle', 'projectStatus',
+      ...KHMDHS_NOTICE_EXPORT_FIELDS.map((f) => f.id),
+    ],
+  },
+];
 
 const APP_NAME = 'ERGOHUB';
 
@@ -445,68 +741,160 @@ function xmlEsc(value) {
     .replace(/"/g, '&quot;');
 }
 
-function ExportData({ isOpen, onClose, projects, totalProjects, organizationName = '', appVersion = '' }) {
+function getGroupFields(group) {
+  if (group.subgroups) {
+    return group.subgroups.flatMap((sg) => sg.fields);
+  }
+  return group.fields || [];
+}
+
+function expandFieldIds(fields) {
+  const ids = [];
+  fields.forEach((field) => {
+    if (field.linkedFields?.length) {
+      field.linkedFields.forEach((lid) => {
+        if (!ids.includes(lid)) ids.push(lid);
+      });
+    } else if (!ids.includes(field.id)) {
+      ids.push(field.id);
+    }
+  });
+  return ids;
+}
+
+function findFieldDef(fieldId) {
+  for (const group of EXPORT_FIELD_GROUPS) {
+    const found = getGroupFields(group).find((f) => f.id === fieldId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function isFieldChecked(field, selectedFields) {
+  if (field.linkedFields?.length) {
+    return field.linkedFields.every((id) => selectedFields.includes(id));
+  }
+  return selectedFields.includes(field.id);
+}
+
+function fieldMatchesSearch(field, query) {
+  if (!query) return true;
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return String(field.label || '').toLowerCase().includes(q)
+    || String(field.id || '').toLowerCase().includes(q);
+}
+
+function ExportData({
+  isOpen,
+  onClose,
+  projects,
+  totalProjects,
+  organizationName = '',
+  appVersion = '',
+  engineerCatalog = [],
+}) {
   const { showToast } = useToast();
-  const [selectedFields, setSelectedFields] = useState([
-    'rowNumber', 'kaCode', 'aleCode', 'projectTitle', 'subprojectTitle', 'projectType', 'fundingSource', 'fundingDetails', 'projectStatus'
-  ]);
+  const [selectedFields, setSelectedFields] = useState(DEFAULT_SELECTED);
+  const [search, setSearch] = useState('');
+  const [openGroups, setOpenGroups] = useState(() => ({
+    basic: true,
+    financial: false,
+    contract: false,
+    khmdhs: false,
+    notes: false,
+    notice: false,
+  }));
+  const [activePreset, setActivePreset] = useState('basic');
+
+  const filteredGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return EXPORT_FIELD_GROUPS.map((group) => {
+      if (group.subgroups) {
+        const subgroups = group.subgroups
+          .map((sg) => ({
+            ...sg,
+            fields: sg.fields.filter((f) => fieldMatchesSearch(f, q)),
+          }))
+          .filter((sg) => sg.fields.length > 0);
+        return { ...group, subgroups, fields: subgroups.flatMap((sg) => sg.fields) };
+      }
+      return {
+        ...group,
+        fields: (group.fields || []).filter((f) => fieldMatchesSearch(f, q)),
+      };
+    }).filter((g) => getGroupFields(g).length > 0);
+  }, [search]);
+
+  const allSelectableIds = useMemo(
+    () => expandFieldIds(EXPORT_FIELD_GROUPS.flatMap(getGroupFields)),
+    []
+  );
+
+  const selectableCount = useMemo(() => {
+    // Μετράμε «κλικ» (συμπεριλαμβανομένου του misPraxhs ως ένα)
+    return EXPORT_FIELD_GROUPS.reduce((n, g) => n + getGroupFields(g).length, 0);
+  }, []);
 
   const handleFieldChange = (fieldId, checked) => {
-    // Βρες το field definition για να δεις αν έχει linkedFields
-    let fieldDef = null;
-    for (const section of Object.values(EXPORT_FIELDS)) {
-      const found = section.fields.find(f => f.id === fieldId);
-      if (found) {
-        fieldDef = found;
-        break;
-      }
-    }
+    const fieldDef = findFieldDef(fieldId);
 
     if (checked) {
-      setSelectedFields(prev => {
-        const newFields = [...prev, fieldId];
-        // Αν το field έχει linkedFields, προσθέστε και αυτά
-        if (fieldDef && fieldDef.linkedFields) {
-          fieldDef.linkedFields.forEach(linkedFieldId => {
-            if (!newFields.includes(linkedFieldId)) {
-              newFields.push(linkedFieldId);
-            }
+      setSelectedFields((prev) => {
+        const next = [...prev];
+        if (fieldDef?.linkedFields?.length) {
+          fieldDef.linkedFields.forEach((lid) => {
+            if (!next.includes(lid)) next.push(lid);
           });
+        } else if (!next.includes(fieldId)) {
+          next.push(fieldId);
         }
-        return newFields;
+        return next;
       });
     } else {
-      setSelectedFields(prev => {
-        const filtered = prev.filter(id => id !== fieldId);
-        // Αν το field έχει linkedFields, αφαίρεσε και αυτά
-        if (fieldDef && fieldDef.linkedFields) {
-          return filtered.filter(id => !fieldDef.linkedFields.includes(id));
+      setSelectedFields((prev) => {
+        if (fieldDef?.linkedFields?.length) {
+          return prev.filter((id) => !fieldDef.linkedFields.includes(id));
         }
-        return filtered;
+        return prev.filter((id) => id !== fieldId);
       });
     }
+    setActivePreset(null);
+  };
+
+  const selectGroupFields = (group, select) => {
+    const ids = expandFieldIds(getGroupFields(group));
+    setSelectedFields((prev) => {
+      if (select) return [...new Set([...prev, ...ids])];
+      return prev.filter((id) => !ids.includes(id));
+    });
+    setActivePreset(null);
   };
 
   const handleSelectAll = () => {
-    const allFields = [];
-    Object.values(EXPORT_FIELDS).forEach(section => {
-      section.fields.forEach(field => {
-        allFields.push(field.id);
-        // Αν το field έχει linkedFields, προσθέστε και αυτά
-        if (field.linkedFields) {
-          field.linkedFields.forEach(linkedFieldId => {
-            if (!allFields.includes(linkedFieldId)) {
-              allFields.push(linkedFieldId);
-            }
-          });
-        }
-      });
-    });
-    setSelectedFields(allFields);
+    setSelectedFields([...allSelectableIds]);
+    setActivePreset('all');
   };
 
   const handleDeselectAll = () => {
     setSelectedFields([]);
+    setActivePreset(null);
+  };
+
+  const applyPreset = (preset) => {
+    setSelectedFields([...new Set(preset.fields)]);
+    setActivePreset(preset.id);
+    if (preset.id === 'notice') {
+      setOpenGroups((prev) => ({ ...prev, notice: true, basic: true }));
+    } else if (preset.id === 'contract') {
+      setOpenGroups((prev) => ({ ...prev, contract: true, khmdhs: true }));
+    } else if (preset.id === 'financial') {
+      setOpenGroups((prev) => ({ ...prev, financial: true, contract: true }));
+    }
+  };
+
+  const toggleGroupOpen = (groupId) => {
+    setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
   };
 
   const exportToExcel = () => {
@@ -516,12 +904,10 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
     }
 
     try {
-      // Φιλτράρισμα και διάταξη πεδίων σύμφωνα με τη σειρά
-      const fieldsInOrder = EXPORT_FIELDS_ORDER.filter(field => 
+      const fieldsInOrder = EXPORT_FIELDS_ORDER.filter((field) =>
         selectedFields.includes(field.id)
       );
-      
-      // Λήψη ημερομηνίας και ώρας εξαγωγής
+
       const now = new Date();
       const day = now.getDate().toString().padStart(2, '0');
       const month = (now.getMonth() + 1).toString().padStart(2, '0');
@@ -539,7 +925,6 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
         : `Δημιουργήθηκε με ${APP_NAME}${versionSuffix}`;
       const mergeAcross = Math.max(0, fieldsInOrder.length - 1);
 
-      // Δημιουργία Excel Spreadsheet XML με πλήρη μορφοποίηση
       let htmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -615,8 +1000,7 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
     <Table>
 `;
 
-      // Column definitions
-      fieldsInOrder.forEach(field => {
+      fieldsInOrder.forEach((field) => {
         htmlContent += `      <Column ss:Width="${field.width * 8}"/>\n`;
       });
 
@@ -627,28 +1011,25 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
       </Row>\n`;
 
       htmlContent += `      <Row>\n`;
-      
-      // Headers
-      fieldsInOrder.forEach(field => {
+
+      fieldsInOrder.forEach((field) => {
         htmlContent += `        <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">${xmlEsc(field.label)}</Data></Cell>\n`;
       });
-      
+
       htmlContent += `      </Row>\n`;
-      
-      // Δεδομένα με XML formatting
+
       projects.forEach((project, index) => {
         const styleID = index % 2 === 0 ? 'EvenRow' : 'OddRow';
         htmlContent += `      <Row>\n`;
-        
-        fieldsInOrder.forEach(field => {
+
+        fieldsInOrder.forEach((field) => {
           let value = '';
-          
+
           if (field.id === 'rowNumber') {
             value = index + 1;
           } else if (field.id === 'aleCode') {
-            // Ειδική μορφοποίηση για aleCodes - join με bullet
             if (project.aleCodes && Array.isArray(project.aleCodes) && project.aleCodes.length > 0) {
-              value = project.aleCodes.filter(c => c && c.trim()).join(' • ');
+              value = project.aleCodes.filter((c) => c && c.trim()).join(' • ');
             } else if (project.aleCode) {
               value = project.aleCode;
             } else {
@@ -657,9 +1038,9 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
           } else if (field.id === 'characterization') {
             value = getCharacterization(project) || '';
           } else if (field.id === 'chargeTo') {
-            value = getProjectChargeDisplay(project, []).displayChargePrimary;
+            value = getProjectChargeDisplay(project, engineerCatalog).displayChargePrimary;
           } else if (field.id === 'chargeParticipants') {
-            value = getProjectChargeDisplay(project, []).displayChargeParticipants;
+            value = getProjectChargeDisplay(project, engineerCatalog).displayChargeParticipants;
           } else if (field.id === 'anadoxosName') {
             value = getProjectAnadoxosNamesExport(project);
           } else if (field.id === 'anadoxosVat') {
@@ -671,7 +1052,8 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
           } else if (field.id === 'contractAmount') {
             value = getProjectContractTotalForExport(project);
           } else if (field.id === 'apeAmount') {
-            value = getProjectApeAmountForExport(project);
+            // Στήλη «ΑΠΕ + συμπληρωματικές» = τελικό πληρωτέο (όπως στην εφαρμογή)
+            value = getProjectPayableAmountForExport(project);
           } else if (field.id === 'khmdhsPaymentTotal') {
             value = getProjectPaymentTotalForExport(project);
           } else if (field.id === 'dqrStatus') {
@@ -682,23 +1064,30 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
             value = getProjectAwardAdamForExport(project);
           } else if (field.id === 'khmdhsCommitmentAdam') {
             value = getProjectCommitmentAdamsForExport(project);
+          } else if (field.id === 'contractDate') {
+            const raw = getProjectContractDatesRawForExport(project);
+            if (isMultipleContractsForm(project.implementationForm)) {
+              value = raw
+                .split(' • ')
+                .map((d) => formatDateEl(d, ''))
+                .filter(Boolean)
+                .join(' • ');
+            } else {
+              value = raw ? formatDateEl(raw, '') : '';
+            }
           } else if (isKhmdhsNoticeExportField(field.id)) {
             value = getKhmdhsNoticeExportValue(project, field.id);
           } else {
             value = project[field.id] || '';
-            
-            // Μορφοποίηση ειδικών πεδίων
-            if ((field.id === 'contractDate' || field.id === 'contractProcessStartDate') && value) {
+            if (field.id === 'contractProcessStartDate' && value) {
               value = formatDateEl(value, '');
             }
           }
-          
-          // Escape XML characters
+
           value = String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-          
           htmlContent += `        <Cell ss:StyleID="${styleID}"><Data ss:Type="String">${value}</Data></Cell>\n`;
         });
-        
+
         htmlContent += `      </Row>\n`;
       });
 
@@ -723,14 +1112,11 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
 </Workbook>
       `;
 
-      // Δημιουργία αρχείου Excel από XML
-      const blob = new Blob([htmlContent], { 
-        type: 'application/vnd.ms-excel' 
+      const blob = new Blob([htmlContent], {
+        type: 'application/vnd.ms-excel'
       });
-      
+
       const fileName = `${APP_NAME}_Εξαγωγή_Έργων_${day}-${month}-${year}.xls`;
-      
-      // Δημιουργία download link
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.href = url;
@@ -740,7 +1126,6 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      // Κλείσιμο modal μετά την επιτυχή εξαγωγή
       onClose();
     } catch (error) {
       console.error('Error exporting data:', error);
@@ -750,113 +1135,173 @@ function ExportData({ isOpen, onClose, projects, totalProjects, organizationName
 
   if (!isOpen) return null;
 
+  const filtersActive = projects.length < totalProjects;
+  const selectedColumnCount = selectedFields.length;
+
   return (
     <ExportOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <ExportContainer>
-        <Header>
-          <Title>Εξαγωγή Δεδομένων</Title>
-          <CloseButton onClick={onClose}>Κλείσιμο</CloseButton>
-        </Header>
+      <ExportContainer onClick={(e) => e.stopPropagation()}>
+        <Hero>
+          <HeroTop>
+            <div>
+              <HeroEyebrow>Εξαγωγές</HeroEyebrow>
+              <HeroTitle>Εξαγωγή δεδομένων</HeroTitle>
+              <HeroSubtitle>
+                Επιλέξτε στήλες για το Excel. Τα πεδία εμφανίζονται μία φορά, ομαδοποιημένα με σαφή νόημα.
+              </HeroSubtitle>
+            </div>
+            <CloseButton type="button" onClick={onClose} aria-label="Κλείσιμο">×</CloseButton>
+          </HeroTop>
 
-        {/* Warning Banner when filters are active */}
-        {projects.length < totalProjects && (
-          <WarningBanner>
-            <WarningIcon>⚠️</WarningIcon>
-            <WarningContent>
-              <WarningTitle>Ενεργά Φίλτρα</WarningTitle>
-              <WarningText>
-                Θα εξαχθούν μόνο {projects.length} από τα {totalProjects} συνολικά υποέργα. 
-                Εάν θέλετε να εξάγετε όλα τα υποέργα, καθαρίστε τα φίλτρα πρώτα.
-              </WarningText>
-            </WarningContent>
-          </WarningBanner>
-        )}
+          <StatsRow>
+            <StatChip><strong>{totalProjects}</strong> συνολικά</StatChip>
+            <StatChip><strong>{projects.length}</strong> προς εξαγωγή</StatChip>
+            <StatChip><strong>{selectedColumnCount}</strong> στήλες επιλεγμένες</StatChip>
+            <StatChip><strong>{selectableCount}</strong> διαθέσιμα πεδία</StatChip>
+          </StatsRow>
 
-        {/* Info Banner when no filters */}
-        {projects.length === totalProjects && (
-          <InfoBanner>
-            <InfoIcon>ℹ️</InfoIcon>
-            <InfoContent>
-              Θα εξαχθούν όλα τα {totalProjects} υποέργα. Επιλέξτε τα πεδία που θέλετε να συμπεριληφθούν στο αρχείο Excel.
-            </InfoContent>
-          </InfoBanner>
-        )}
+          {filtersActive ? (
+            <FilterBanner $warn>
+              Ενεργά φίλτρα: θα εξαχθούν {projects.length} από {totalProjects} υποέργα.
+              Καθαρίστε τα φίλτρα αν θέλετε όλα.
+            </FilterBanner>
+          ) : (
+            <FilterBanner>
+              Θα εξαχθούν όλα τα {totalProjects} υποέργα με τις στήλες που επιλέγετε παρακάτω.
+            </FilterBanner>
+          )}
+        </Hero>
 
-        <StatsBox>
-          <StatItem>
-            <StatNumber>{totalProjects}</StatNumber>
-            <StatLabel>Συνολικά Έργα</StatLabel>
-          </StatItem>
-          <StatItem>
-            <StatNumber>{projects.length}</StatNumber>
-            <StatLabel>Προς Εξαγωγή</StatLabel>
-          </StatItem>
-          <StatItem>
-            <StatNumber>{selectedFields.length}</StatNumber>
-            <StatLabel>Επιλεγμένα Πεδία</StatLabel>
-          </StatItem>
-        </StatsBox>
-
-        {Object.values(EXPORT_FIELDS).map(section => (
-          <FieldsSection key={section.title}>
-            <SectionTitle>
-              {section.title}
-              <SelectAllButton 
-                onClick={() => {
-                  const sectionFields = section.fields.map(f => f.id);
-                  const allSelected = sectionFields.every(id => selectedFields.includes(id));
-                  if (allSelected) {
-                    setSelectedFields(prev => prev.filter(id => !sectionFields.includes(id)));
-                  } else {
-                    setSelectedFields(prev => [...new Set([...prev, ...sectionFields])]);
-                  }
-                }}
+        <Toolbar>
+          <SearchInput
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Αναζήτηση πεδίου… π.χ. ΑΔΑΜ, ανάδοχος, προϋπολογισμός"
+          />
+          <PresetRow>
+            <PresetLabel>Πακέτα</PresetLabel>
+            {PRESETS.map((p) => (
+              <PresetBtn
+                key={p.id}
+                type="button"
+                $active={activePreset === p.id}
+                onClick={() => applyPreset(p)}
               >
-                {section.fields.every(f => selectedFields.includes(f.id)) ? 'Αποεπιλογή' : 'Επιλογή Όλων'}
-              </SelectAllButton>
-            </SectionTitle>
-            <FieldsGrid>
-              {section.fields.map(field => {
-                // Για fields με linkedFields, ελέγξε αν είναι επιλεγμένα και τα linkedFields
-                let isChecked = false;
-                if (field.linkedFields) {
-                  isChecked = field.linkedFields.every(linkedFieldId => selectedFields.includes(linkedFieldId));
-                } else {
-                  isChecked = selectedFields.includes(field.id);
-                }
-                
-                return (
-                  <FieldItem key={field.id}>
-                    <Checkbox
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={(e) => handleFieldChange(field.id, e.target.checked)}
-                    />
-                    <FieldLabel>{field.label}</FieldLabel>
-                  </FieldItem>
-                );
-              })}
-            </FieldsGrid>
-          </FieldsSection>
-        ))}
+                {p.label}
+              </PresetBtn>
+            ))}
+            <PresetBtn
+              type="button"
+              $active={activePreset === 'all'}
+              onClick={handleSelectAll}
+            >
+              Όλα
+            </PresetBtn>
+          </PresetRow>
+        </Toolbar>
 
-        <ActionsBar>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <ActionButton onClick={handleSelectAll}>
-              Επιλογή Όλων
-            </ActionButton>
-            <ActionButton onClick={handleDeselectAll}>
-              Αποεπιλογή Όλων
-            </ActionButton>
-          </div>
-          <ActionButton 
-            primary 
+        <Body>
+          {filteredGroups.length === 0 ? (
+            <EmptySearch>Δεν βρέθηκαν πεδία για «{search}».</EmptySearch>
+          ) : (
+            filteredGroups.map((group) => {
+              const groupFields = getGroupFields(group);
+              const groupIds = expandFieldIds(groupFields);
+              const selectedInGroup = groupIds.filter((id) => selectedFields.includes(id)).length;
+              const allSelected = groupIds.length > 0 && groupIds.every((id) => selectedFields.includes(id));
+              const isOpen = search.trim() ? true : !!openGroups[group.id];
+
+              return (
+                <GroupCard key={group.id}>
+                  <GroupHeader
+                    type="button"
+                    $open={isOpen}
+                    onClick={() => !search.trim() && toggleGroupOpen(group.id)}
+                  >
+                    <GroupHeaderLeft>
+                      <GroupTitle>{group.title}</GroupTitle>
+                      <GroupHint>{group.hint}</GroupHint>
+                    </GroupHeaderLeft>
+                    <GroupMeta>
+                      <CountBadge $all={allSelected}>
+                        {selectedInGroup}/{groupIds.length}
+                      </CountBadge>
+                      {!search.trim() && <Chevron $open={isOpen}>▶</Chevron>}
+                    </GroupMeta>
+                  </GroupHeader>
+
+                  {isOpen && (
+                    <GroupBody>
+                      {group.subgroups ? (
+                        group.subgroups.map((sg) => (
+                          <SubGroup key={sg.title}>
+                            <SubGroupTitle>{sg.title}</SubGroupTitle>
+                            <FieldsGrid>
+                              {sg.fields.map((field) => {
+                                const checked = isFieldChecked(field, selectedFields);
+                                return (
+                                  <FieldItem key={field.id} $checked={checked}>
+                                    <Checkbox
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(e) => handleFieldChange(field.id, e.target.checked)}
+                                    />
+                                    <FieldLabel>{field.label}</FieldLabel>
+                                  </FieldItem>
+                                );
+                              })}
+                            </FieldsGrid>
+                          </SubGroup>
+                        ))
+                      ) : (
+                        <FieldsGrid>
+                          {group.fields.map((field) => {
+                            const checked = isFieldChecked(field, selectedFields);
+                            return (
+                              <FieldItem key={field.id} $checked={checked}>
+                                <Checkbox
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => handleFieldChange(field.id, e.target.checked)}
+                                />
+                                <FieldLabel>{field.label}</FieldLabel>
+                              </FieldItem>
+                            );
+                          })}
+                        </FieldsGrid>
+                      )}
+
+                      <GroupActions>
+                        <TinyBtn type="button" onClick={() => selectGroupFields(group, true)}>
+                          Όλη η ομάδα
+                        </TinyBtn>
+                        <TinyBtn type="button" onClick={() => selectGroupFields(group, false)}>
+                          Καμία στην ομάδα
+                        </TinyBtn>
+                      </GroupActions>
+                    </GroupBody>
+                  )}
+                </GroupCard>
+              );
+            })
+          )}
+        </Body>
+
+        <Footer>
+          <FooterLeft>
+            <FooterBtn type="button" onClick={handleSelectAll}>Επιλογή όλων</FooterBtn>
+            <FooterBtn type="button" onClick={handleDeselectAll}>Καθαρισμός</FooterBtn>
+            <FooterBtn type="button" onClick={onClose}>Κλείσιμο</FooterBtn>
+          </FooterLeft>
+          <ExportBtn
+            type="button"
             onClick={exportToExcel}
             disabled={selectedFields.length === 0}
           >
-            📊 Εξαγωγή σε Excel
-          </ActionButton>
-        </ActionsBar>
+            Εξαγωγή σε Excel ({selectedColumnCount})
+          </ExportBtn>
+        </Footer>
       </ExportContainer>
     </ExportOverlay>
   );

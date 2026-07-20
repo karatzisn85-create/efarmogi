@@ -47,8 +47,8 @@ export const KHMDHS_NOTICE_EXPORT_FIELDS = [
   { id: 'khmdhsNoticeCpvs', label: 'CPV (ΚΗΜΔΗΣ)', width: 30 },
   { id: 'khmdhsNoticeFundingSummary', label: 'Χρηματοδότηση (ΚΗΜΔΗΣ)', width: 35 },
   { id: 'khmdhsNoticeFetchedAt', label: 'Ημ. Ανάκτησης Δεδομένων (ΚΗΜΔΗΣ)', width: 26 },
-  { id: 'khmdhsContractVarianceAmount', label: 'Διαφορά (Εκτιμ. με ΦΠΑ − Σύμβαση)', width: 30 },
-  { id: 'khmdhsContractVariancePct', label: 'Απόκλιση % (Εκτιμ. με ΦΠΑ vs Σύμβαση)', width: 30 }
+  { id: 'khmdhsContractVarianceAmount', label: 'Διαφορά (Σύμβαση − Εκτιμ. με ΦΠΑ)', width: 30 },
+  { id: 'khmdhsContractVariancePct', label: 'Απόκλιση % (Σύμβαση vs Εκτιμ. με ΦΠΑ)', width: 30 }
 ];
 
 export const KHMDHS_NOTICE_FIELD_IDS = new Set(KHMDHS_NOTICE_EXPORT_FIELDS.map((f) => f.id));

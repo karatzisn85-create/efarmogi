@@ -3,9 +3,15 @@
  * Χρησιμοποιεί πάντα την ίδια λογική που βλέπει η κάρτα/φόρμα του υποέργου.
  */
 
-import { getTotalContractAmount, parseGreekAmountString, isMultipleContractsForm } from './khmdhsFields';
-import { resolveStoredApeAmount } from './khmdhsFields';
+import {
+  getTotalContractAmount,
+  parseGreekAmountString,
+  isMultipleContractsForm,
+  resolveEffectivePayableAmountGrossForPayments,
+} from './khmdhsFields';
+import { getLatestContractApeAmount } from './khmdhsApeEntry';
 import { reconcileKhmdhsPaymentsFromProject } from './khmdhsPaymentReconciliation';
+import { getUnresolvedReviewItems } from './khmdhsDataQualityReport';
 
 /** Αριθμός → ελληνική μορφή «1.234.567,89» — κενό αν 0 */
 export function formatAmountForExport(n) {
@@ -23,9 +29,9 @@ export function getProjectContractTotalForExport(project) {
 }
 
 /**
- * Τελευταίο καταγεγραμμένο ποσό ΑΠΕ.
+ * Τελευταίο καταγεγραμμένο ποσό ΑΠΕ (μόνο ΑΠΕ — όχι συμπληρωματικές).
  * — Για πολλές συμβάσεις: άθροισμα τελευταίου ΑΠΕ ανά σύμβαση.
- * — Για μονή σύμβαση: τελευταίο apeEntry ή legacy apeAmount.
+ * — Για μονή σύμβαση: τελευταίο apeEntry (με migration legacy).
  */
 export function getProjectApeAmountForExport(project) {
   if (!project) return '';
@@ -34,14 +40,40 @@ export function getProjectApeAmountForExport(project) {
     const contracts = Array.isArray(project.contracts) ? project.contracts : [];
     let total = 0;
     contracts.forEach((_, idx) => {
-      const raw = resolveStoredApeAmount(project, idx);
+      const raw = getLatestContractApeAmount(project, idx);
       if (raw) total += parseGreekAmountString(raw);
     });
     return total > 0 ? formatAmountForExport(total) : '';
   }
 
-  const raw = resolveStoredApeAmount(project, null);
+  const raw = getLatestContractApeAmount(project, 0);
   return raw ? formatAmountForExport(parseGreekAmountString(raw)) : '';
+}
+
+/**
+ * Τελικό πληρωτέο όπως στην εφαρμογή:
+ * ΑΠΕ (αν υπάρχει) αλλιώς ποσό σύμβασης, συν συμπληρωματικές (όχι παρατάσεις).
+ * Χρησιμοποιείται στην «Εξαγωγή Δεδομένων» για τη στήλη ΑΠΕ + συμπληρωματικές.
+ */
+export function getProjectPayableAmountForExport(project) {
+  if (!project) return '';
+  const n = resolveEffectivePayableAmountGrossForPayments(project);
+  return formatAmountForExport(n);
+}
+
+/**
+ * Ημερομηνίες υπογραφής σύμβασης — για πολλές συμβάσεις όλες οι ημερομηνίες γραμμών.
+ * Επιστρέφει ακατέργαστες τιμές (ISO/ό,τι είναι αποθηκευμένο), διαχωρισμένες με « • ».
+ */
+export function getProjectContractDatesRawForExport(project) {
+  if (!project) return '';
+  if (isMultipleContractsForm(project.implementationForm)) {
+    return (project.contracts || [])
+      .map((c) => String(c?.date || '').trim())
+      .filter(Boolean)
+      .join(' • ');
+  }
+  return String(project.contractDate || '').trim();
 }
 
 /**
@@ -62,16 +94,16 @@ export function getProjectPaymentTotalForExport(project) {
 
 /**
  * Ανοιχτά θέματα ποιότητας δεδομένων (DQR).
- * Επιστρέφει: 'Ναι' αν υπάρχουν ανοιχτά θέματα, 'Όχι' αν τα έχει δει/επιλύσει, '' αν δεν εφαρμόζεται.
+ * Επιστρέφει: πλήθος ανοιχτών / «Επιλύθηκε» / κενό αν δεν εφαρμόζεται.
  */
 export function getProjectDqrStatusForExport(project) {
   const dqr = project?.khmdhsDataQualityReview;
   if (!dqr) return '';
   const items = Array.isArray(dqr.items) ? dqr.items : [];
   if (!items.length) return '';
-  const open = items.filter((it) => it?.status === 'open' || it?.actionRequired === true);
-  if (!open.length) return 'Επιλύθηκε';
-  return `${open.length} ανοιχτά`;
+  const unresolved = getUnresolvedReviewItems(dqr, project);
+  if (!unresolved.length) return 'Επιλύθηκε';
+  return `${unresolved.length} ανοιχτά`;
 }
 
 /** ΑΔΑΜ Αιτήματος (REQ) */
