@@ -467,11 +467,12 @@ function pickKhmdhsRequestSnapshot(snapshot) {
 
 function friendlyKhmdhsRequestError(message, httpStatus) {
   const raw = String(message || '').trim();
-  if (/no requests found|no request found/i.test(raw)) {
-    return 'Δεν βρέθηκε αίτημα (REQ) με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ.';
+  // Το API αιτημάτων συχνά επιστρέφει «No notices found» ακόμα και για REQ.
+  if (/no requests found|no request found|no notices found/i.test(raw) || /δε βρέθηκε|δεν βρέθηκε/i.test(raw)) {
+    return 'Δεν βρέθηκε αίτημα (REQ) με αυτόν τον ΑΔΑΜ στο ανοικτό API του ΚΗΜΔΗΣ. Ελέγξτε τον κωδικό ή δοκιμάστε αργότερα (η ανάρτηση στην πύλη δεν εμφανίζεται πάντα άμεσα στο API).';
   }
   if (httpStatus === 404) {
-    return 'Δεν βρέθηκε αίτημα (REQ) με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ.';
+    return 'Δεν βρέθηκε αίτημα (REQ) με αυτόν τον ΑΔΑΜ στο ανοικτό API του ΚΗΜΔΗΣ. Ελέγξτε τον κωδικό ή δοκιμάστε αργότερα (η ανάρτηση στην πύλη δεν εμφανίζεται πάντα άμεσα στο API).';
   }
   return resolveKhmdhsHttpError(
     raw,
@@ -560,6 +561,33 @@ function friendlyKhmdhsError(message, httpStatus) {
   }
   if (httpStatus === 404) {
     return 'Δεν βρέθηκε σύμβαση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ (ανοικτό API).';
+  }
+  return resolveKhmdhsHttpError(
+    raw,
+    httpStatus,
+    () => `Σφάλμα επικοινωνίας με το ΚΗΜΔΗΣ (HTTP ${httpStatus}).`
+  );
+}
+
+/** Μηνύματα για αποτυχία αλυσίδας ΑΔΑΜ (ισχύει για REQ/PROC/AWRD/SYMV/PAY — όχι μόνο συμβάσεις). */
+function friendlyKhmdhsChainError(message, httpStatus, adam) {
+  const raw = String(message || '').trim();
+  const adamLabel = String(adam || '').trim().toUpperCase();
+  const typeMatch = /^(\d{2})([A-Z]{3,4})(\d{9})$/.exec(adamLabel);
+  const type = typeMatch ? typeMatch[2] : '';
+  const typeHint = ({
+    REQ: 'πρωτογενές / εγκεκριμένο αίτημα',
+    PROC: 'δημοσίευση',
+    AWRD: 'ανάθεση',
+    SYMV: 'σύμβαση',
+    PAY: 'πληρωμή',
+  })[type] || 'πράξη';
+
+  if (httpStatus === 404 || /δε βρέθηκε|δεν βρέθηκε|not found|no auctions found|no notices found/i.test(raw)) {
+    return (
+      `Ο ΑΔΑΜ ${adamLabel || ''} (${typeHint}) δεν βρέθηκε στο ανοικτό API του ΚΗΜΔΗΣ. `
+      + 'Ελέγξτε τον κωδικό· αν μόλις αναρτήθηκε στην πύλη, δοκιμάστε ξανά αργότερα.'
+    ).replace(/\s+/g, ' ').trim();
   }
   return resolveKhmdhsHttpError(
     raw,
@@ -1125,7 +1153,7 @@ async function fetchKhmdhsAdamChain(adamRaw, opts = {}) {
   }
   const json = await res.json().catch(() => null);
   if (!res.ok) {
-    return { success: false, error: friendlyKhmdhsError(json?.message, res.status) };
+    return { success: false, error: friendlyKhmdhsChainError(json?.message, res.status, adam) };
   }
   if (!json) {
     return { success: false, error: 'Το ΚΗΜΔΗΣ επέστρεψε μη έγκυρη απόκριση στην αλυσίδα ΑΔΑΜ.' };
@@ -1161,4 +1189,5 @@ module.exports = {
   resolveKhmdhsContractAmount,
   applyContractAmountResolution,
   buildKhmdhsAmountContext,
+  friendlyKhmdhsChainError,
 };

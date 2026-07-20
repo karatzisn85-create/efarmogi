@@ -1720,6 +1720,27 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
       } else {
         return { success: false, error: chainRes.error || 'Αποτυχία ανάκτησης αλυσίδας ΑΔΑΜ. Το ένταλμα πληρωμής δεν βρέθηκε.' };
       }
+    } else if (seedType === 'REQ') {
+      // Fallback: άμεση ανάκτηση αιτήματος όταν η αλυσίδα δεν επιστρέφει τίποτα
+      const directReq = await fetchKhmdhsRequestByAdam(seedNorm);
+      if (directReq?.success && directReq.snapshot) {
+        warnings.push(
+          'Δεν βρέθηκε πλήρης ηλεκτρονική αλυσίδα ΑΔΑΜ — ανακτήθηκε μόνο το πρωτογενές αίτημα.'
+        );
+        stages = {
+          requests: [{ adam: seedNorm, modified: false, cancelled: !!directReq.snapshot.cancelled }],
+          approvedRequests: [],
+          notices: [],
+          auctions: [],
+          contracts: [],
+          payments: [],
+        };
+      } else {
+        return {
+          success: false,
+          error: directReq?.error || chainRes.error || 'Αποτυχία ανάκτησης αλυσίδας ΑΔΑΜ.',
+        };
+      }
     } else {
       return { success: false, error: chainRes.error || 'Αποτυχία ανάκτησης αλυσίδας ΑΔΑΜ.' };
     }

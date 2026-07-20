@@ -457,20 +457,19 @@ const CompactAttachmentBubble = styled.div`
   min-width: 0;
   max-width: min(520px, 100%);
   box-sizing: border-box;
-  padding: 0.45rem 0.6rem;
-  border-radius: 10px;
-  border: 1px solid #bfdbfe;
-  background: #f8fafc;
+  padding: 0.5rem 0.7rem;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 `;
 
 const CompactAttachmentLabel = styled.div`
   font-weight: 700;
-  font-size: 0.68rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #2563eb;
-  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+  color: #64748b;
+  margin-bottom: 0.3rem;
 `;
 
 const CompactFileList = styled.div`
@@ -758,66 +757,109 @@ const Bubble = styled.div`
   box-sizing: border-box;
   background: ${(p) => {
     if (p.$variant === 'mine') return 'linear-gradient(145deg, #6366f1 0%, #4f46e5 55%, #4338ca 100%)';
-    if (p.$variant === 'assigner') return '#fffbeb';
-    if (p.$variant === 'assignee') return '#eff6ff';
-    return '#f1f5f9';
+    if (p.$variant === 'assigner') return '#fffdf7';
+    if (p.$variant === 'assignee') return '#f8fafc';
+    return '#f8fafc';
   }};
   color: ${(p) => (p.$variant === 'mine' ? '#fff' : '#1e293b')};
   border: 1px solid
     ${(p) => {
       if (p.$variant === 'mine') return 'rgba(255,255,255,0.12)';
-      if (p.$variant === 'assigner') return '#fcd34d';
-      if (p.$variant === 'assignee') return '#93c5fd';
+      if (p.$variant === 'assigner') return '#fde68a';
+      if (p.$variant === 'assignee') return '#e2e8f0';
       return '#e2e8f0';
     }};
-  border-radius: ${(p) => (p.$mine ? '12px 12px 4px 12px' : '12px 12px 12px 4px')};
-  padding: 0.62rem 0.82rem;
+  border-radius: ${(p) => (p.$mine ? '14px 14px 5px 14px' : '14px 14px 14px 5px')};
+  padding: 0.55rem 0.8rem 0.6rem;
   box-shadow: ${(p) =>
     p.$variant === 'mine'
-      ? '0 4px 18px rgba(79, 70, 229, 0.28)'
-      : '0 2px 10px rgba(15, 23, 42, 0.06)'};
+      ? '0 3px 14px rgba(79, 70, 229, 0.22)'
+      : '0 1px 4px rgba(15, 23, 42, 0.05)'};
 `;
 
 const BubbleAuthorBar = styled.div`
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0.55rem;
-  margin-bottom: 0.45rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.28rem;
+  margin-bottom: ${(p) => (p.$compact ? '0.28rem' : '0.4rem')};
   max-width: 100%;
 `;
 
+const BubbleAuthorMain = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+`;
+
 const BubbleAuthorName = styled.span`
-  font-size: 0.98rem;
-  font-weight: 800;
-  color: ${(p) => (p.$mine ? '#fff' : '#0f172a')};
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: ${(p) => (p.$mine ? 'rgba(255,255,255,0.92)' : '#64748b')};
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const MetaMoreBtn = styled.button`
+  flex-shrink: 0;
+  margin-left: auto;
+  border: none;
+  background: ${(p) => (p.$mine ? 'rgba(255,255,255,0.16)' : '#f1f5f9')};
+  color: ${(p) => (p.$mine ? 'rgba(255,255,255,0.95)' : '#64748b')};
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1.3;
+  transition: background 0.12s ease, color 0.12s ease;
+
+  &:hover {
+    background: ${(p) => (p.$mine ? 'rgba(255,255,255,0.26)' : '#e2e8f0')};
+    color: ${(p) => (p.$mine ? '#fff' : '#334155')};
+  }
+`;
+
+const BubbleMetaDetails = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.45rem;
+  padding: 0.28rem 0.4rem;
+  border-radius: 8px;
+  background: ${(p) => (p.$mine ? 'rgba(255,255,255,0.12)' : '#f8fafc')};
+  border: 1px solid ${(p) => (p.$mine ? 'rgba(255,255,255,0.16)' : '#eef2f7')};
 `;
 
 const BubbleAuthorUser = styled.span`
-  font-size: 0.84rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  color: ${(p) => (p.$mine ? 'rgba(224,231,255,0.95)' : '#475569')};
+  color: ${(p) => (p.$mine ? 'rgba(224,231,255,0.95)' : '#64748b')};
 `;
 
 const BubbleRoleTag = styled.span`
-  font-size: 0.72rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.2rem 0.55rem;
-  border-radius: 6px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
   background: ${(p) => p.$bg};
   color: ${(p) => p.$color};
 `;
 
 const BubbleTime = styled.time`
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  color: ${(p) => (p.$mine ? 'rgba(224,231,255,0.9)' : '#64748b')};
+  color: ${(p) => (p.$mine ? 'rgba(224,231,255,0.9)' : '#94a3b8')};
 `;
 
 const BubbleText = styled.div`
-  font-size: 0.98rem;
+  font-size: 0.96rem;
   white-space: pre-wrap;
   line-height: 1.55;
   word-break: break-word;
@@ -1321,10 +1363,79 @@ function chatBubbleVariant(authorUsername, actingUsername, task) {
 }
 
 function roleTagForVariant(variant) {
-  if (variant === 'mine') return null;
-  if (variant === 'assigner') return { label: 'Δημιουργός', bg: '#fef3c7', color: '#92400e' };
-  if (variant === 'assignee') return { label: 'Συνάδελφος', bg: '#dbeafe', color: '#1e40af' };
-  return { label: 'Συμμετέχων', bg: '#f1f5f9', color: '#475569' };
+  if (variant === 'mine') return { label: 'Εγώ', bg: 'rgba(255,255,255,0.22)', color: '#fff', bgLight: '#e0e7ff', colorLight: '#3730a3' };
+  if (variant === 'assigner') return { label: 'Δημιουργός', bg: '#fef3c7', color: '#92400e', bgLight: '#fef3c7', colorLight: '#92400e' };
+  if (variant === 'assignee') return { label: 'Συνάδελφος', bg: '#dbeafe', color: '#1e40af', bgLight: '#dbeafe', colorLight: '#1e40af' };
+  return { label: 'Συμμετέχων', bg: '#f1f5f9', color: '#475569', bgLight: '#f1f5f9', colorLight: '#475569' };
+}
+
+function formatChatTimestamp(at) {
+  if (!at) return '—';
+  try {
+    return new Date(at).toLocaleString('el-GR', { dateStyle: 'short', timeStyle: 'short' });
+  } catch {
+    return '—';
+  }
+}
+
+/** Ελαφρύ header μηνύματος: όνομα + κουμπί για λεπτομέρειες (χρήστης, ρόλος, ώρα). */
+function ChatBubbleMeta({
+  displayName,
+  username,
+  at,
+  mine,
+  roleTag,
+  hideName = false,
+  /** Ανοιχτό φόντο (π.χ. αρχεία) — πάντα σκούρα κείμενα */
+  lightSurface = false
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const inverted = mine && !lightSurface;
+  const roleBg = inverted
+    ? (roleTag?.bg || 'rgba(255,255,255,0.22)')
+    : (roleTag?.bgLight || roleTag?.bg || '#e0e7ff');
+  const roleColor = inverted
+    ? (roleTag?.color || '#fff')
+    : (roleTag?.colorLight || roleTag?.color || '#3730a3');
+
+  return (
+    <BubbleAuthorBar $compact={!detailsOpen}>
+      <BubbleAuthorMain>
+        {!hideName ? (
+          <BubbleAuthorName $mine={inverted} title={displayName}>
+            {mine ? 'Εσείς' : displayName}
+          </BubbleAuthorName>
+        ) : (
+          <span aria-hidden style={{ flex: 1 }} />
+        )}
+        <MetaMoreBtn
+          type="button"
+          $mine={inverted}
+          aria-expanded={detailsOpen}
+          title={detailsOpen ? 'Απόκρυψη λεπτομερειών' : 'Περισσότερες πληροφορίες'}
+          onClick={(e) => {
+            e.stopPropagation();
+            setDetailsOpen((v) => !v);
+          }}
+        >
+          {detailsOpen ? 'Λιγότερα' : 'Περισσότερα'}
+        </MetaMoreBtn>
+      </BubbleAuthorMain>
+      {detailsOpen ? (
+        <BubbleMetaDetails $mine={inverted}>
+          {username ? <BubbleAuthorUser $mine={inverted}>@{username}</BubbleAuthorUser> : null}
+          {roleTag ? (
+            <BubbleRoleTag $bg={roleBg} $color={roleColor}>
+              {roleTag.label}
+            </BubbleRoleTag>
+          ) : null}
+          <BubbleTime $mine={inverted} dateTime={at}>
+            {formatChatTimestamp(at)}
+          </BubbleTime>
+        </BubbleMetaDetails>
+      ) : null}
+    </BubbleAuthorBar>
+  );
 }
 
 /** Χρονολογική ροή: έναρξη χώρου → αρχεία & σχόλια. */
@@ -1578,23 +1689,14 @@ function AttachmentTimelineEntry({
           {initials}
         </AvatarCircle>
         <CompactAttachmentBubble>
-          <BubbleAuthorBar>
-            <BubbleAuthorName $mine={false}>{displayName}</BubbleAuthorName>
-            <BubbleAuthorUser $mine={false}>({item.author})</BubbleAuthorUser>
-            {mine ? (
-              <BubbleRoleTag $bg="#e0e7ff" $color="#3730a3">
-                Εγώ
-              </BubbleRoleTag>
-            ) : null}
-            {!mine && roleTag ? (
-              <BubbleRoleTag $bg={roleTag.bg} $color={roleTag.color}>
-                {roleTag.label}
-              </BubbleRoleTag>
-            ) : null}
-            <BubbleTime $mine={false} dateTime={item.at}>
-              {new Date(item.at).toLocaleString('el-GR', { dateStyle: 'short', timeStyle: 'short' })}
-            </BubbleTime>
-          </BubbleAuthorBar>
+          <ChatBubbleMeta
+            displayName={displayName}
+            username={item.author}
+            at={item.at}
+            mine={mine}
+            roleTag={roleTag}
+            lightSurface
+          />
           {body}
         </CompactAttachmentBubble>
       </MessageBundle>
@@ -2532,12 +2634,8 @@ function TaskAssignmentWorkspace({
                     <OriginCard aria-label="Έναρξη χώρου">
                       <OriginHeadRow>
                         <OriginBadge>Έναρξη χώρου</OriginBadge>
-                        <OriginMeta>
+                        <OriginMeta title={formatChatTimestamp(item.at)}>
                           <strong>{authorDisplayName(item.author, usersMap)}</strong>
-                          <span aria-hidden> · </span>
-                          <time dateTime={item.at}>
-                            {new Date(item.at).toLocaleString('el-GR', { dateStyle: 'short', timeStyle: 'short' })}
-                          </time>
                         </OriginMeta>
                       </OriginHeadRow>
                       {(() => {
@@ -2590,23 +2688,13 @@ function TaskAssignmentWorkspace({
                             </AvatarCircle>
                             <BubbleStack $mine={mine}>
                               <Bubble $mine={mine} $variant={variant}>
-                                <BubbleAuthorBar>
-                                  <BubbleAuthorName $mine={mine}>{displayName}</BubbleAuthorName>
-                                  <BubbleAuthorUser $mine={mine}>({item.author})</BubbleAuthorUser>
-                                  {mine ? (
-                                    <BubbleRoleTag $bg="rgba(255,255,255,0.22)" $color="#fff">
-                                      Εγώ
-                                    </BubbleRoleTag>
-                                  ) : null}
-                                  {!mine && roleTag ? (
-                                    <BubbleRoleTag $bg={roleTag.bg} $color={roleTag.color}>
-                                      {roleTag.label}
-                                    </BubbleRoleTag>
-                                  ) : null}
-                                  <BubbleTime $mine={mine} dateTime={item.at}>
-                                    {new Date(item.at).toLocaleString('el-GR', { dateStyle: 'short', timeStyle: 'short' })}
-                                  </BubbleTime>
-                                </BubbleAuthorBar>
+                                <ChatBubbleMeta
+                                  displayName={displayName}
+                                  username={item.author}
+                                  at={item.at}
+                                  mine={mine}
+                                  roleTag={roleTag}
+                                />
                                 <BubbleText>{item.text}</BubbleText>
                               </Bubble>
                             </BubbleStack>
@@ -2618,11 +2706,8 @@ function TaskAssignmentWorkspace({
 
                   {item.type === 'system' ? (
                     <SystemEventWrap>
-                      <SystemEventCard>
+                      <SystemEventCard title={formatChatTimestamp(item.at)}>
                         <strong>{authorDisplayName(item.author, usersMap)}</strong> — {item.text}
-                        <time dateTime={item.at}>
-                          {new Date(item.at).toLocaleString('el-GR', { dateStyle: 'short', timeStyle: 'short' })}
-                        </time>
                       </SystemEventCard>
                     </SystemEventWrap>
                   ) : null}
