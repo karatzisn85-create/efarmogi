@@ -2582,6 +2582,9 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   const khmdhsDeferRegistryRef = React.useRef(null);
   const khmdhsLastChainResRef = React.useRef(null);
   const khmdhsChainInputRef = React.useRef(null);
+  // Δείχνει πάντα αν υπάρχει ανοιχτό κάποιο παράθυρο της ροής ΚΗΜΔΗΣ — ώστε η προτροπή
+  // λήξης σύμβασης να μην εμφανίζεται από πάνω τους, αλλά να περιμένει να κλείσουν όλα.
+  const khmdhsBlockingModalRef = React.useRef(false);
   const phaseBResetUnsavedRef = React.useRef(false);
   const handleSaveRef = React.useRef(() => Promise.resolve());
   React.useEffect(() => { phaseBResetUnsavedRef.current = phaseBResetUnsaved; }, [phaseBResetUnsaved]);
@@ -2589,6 +2592,9 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   const flushPendingContractExpiryPrompt = useCallback(() => {
     const pending = khmdhsPendingExpiryFormRef.current;
     if (!pending) return;
+    // Αν υπάρχει άλλο ανοιχτό παράθυρο ΚΗΜΔΗΣ, κρατάμε την εκκρεμότητα και δεν την εμφανίζουμε
+    // τώρα — θα ξαναδοκιμάσει μόλις κλείσουν όλα (μέσω του παρακάτω effect).
+    if (khmdhsBlockingModalRef.current) return;
     khmdhsPendingExpiryFormRef.current = null;
     const options = khmdhsPendingExpiryOptionsRef.current || {};
     khmdhsPendingExpiryOptionsRef.current = null;
@@ -2606,12 +2612,21 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     }, 350);
   }, [flushPendingContractExpiryPrompt]);
 
+  // Όλα τα παράθυρα της ροής ΚΗΜΔΗΣ που πρέπει να κλείσουν πριν εμφανιστεί η προτροπή λήξης
+  const khmdhsFlowModalOpen = !!(
+    dataReviewModalOpen || khmdhsSituationModal || branchPickerState
+    || symvChainPlannerState || apeConflictModal || duplicateAnchorModal
+    || khmdhsRegistryModal || relatedDocsModal || supplementaryConfirm
+    || apeEntryTarget || manualExtensionTarget || statusCleanupModal
+  );
+  khmdhsBlockingModalRef.current = khmdhsFlowModalOpen;
+
   useEffect(() => {
-    if (!isOpen || dataReviewModalOpen || khmdhsSituationModal) return undefined;
+    if (!isOpen || khmdhsFlowModalOpen) return undefined;
     if (!khmdhsPendingExpiryFormRef.current) return undefined;
     const timer = window.setTimeout(() => flushPendingContractExpiryPrompt(), 200);
     return () => window.clearTimeout(timer);
-  }, [isOpen, dataReviewModalOpen, khmdhsSituationModal, flushPendingContractExpiryPrompt]);
+  }, [isOpen, khmdhsFlowModalOpen, flushPendingContractExpiryPrompt]);
 
   const directAssignmentCompliance = useMemo(() => {
     if (!isOpen) return { applicable: false, violations: [], missingData: false };
