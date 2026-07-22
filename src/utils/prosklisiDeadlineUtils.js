@@ -105,10 +105,10 @@ export function getProsklisiDeadlineDaysLeft(deadline, now = new Date()) {
   return Math.round((d.getTime() - today.getTime()) / 86400000);
 }
 
-export function getProsklisiDeadlineChipMeta(deadline, formatDateFn) {
-  const urgency = getProsklisiDeadlineUrgency(deadline);
+export function getProsklisiDeadlineChipMeta(deadline, formatDateFn, now = new Date()) {
+  const urgency = getProsklisiDeadlineUrgency(deadline, now);
   if (urgency === 'none') return null;
-  const days = getProsklisiDeadlineDaysLeft(deadline);
+  const days = getProsklisiDeadlineDaysLeft(deadline, now);
   const dateLabel = typeof formatDateFn === 'function' ? formatDateFn(deadline) : String(deadline);
   let label = `Λήξη: ${dateLabel}`;
   let title = 'Ημερομηνία λήξης υποβολής';
@@ -135,8 +135,8 @@ export function compareProskliseisByDeadline(a, b) {
   return da.getTime() - db.getTime();
 }
 
-export function isProsklisiDeadlineExpiringSoon(deadline, withinDays = 30) {
-  const urgency = getProsklisiDeadlineUrgency(deadline);
+export function isProsklisiDeadlineExpiringSoon(deadline, withinDays = 30, now = new Date()) {
+  const urgency = getProsklisiDeadlineUrgency(deadline, now);
   if (urgency === 'expired' || urgency === 'urgent' || urgency === 'soon') {
     if (withinDays <= 7) return urgency === 'expired' || urgency === 'urgent';
     return true;

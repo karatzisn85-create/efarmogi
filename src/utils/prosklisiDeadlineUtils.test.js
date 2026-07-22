@@ -32,10 +32,10 @@ describe('prosklisiDeadlineUtils', () => {
 
   test('chip meta labels', () => {
     const fmt = (d) => d;
-    expect(getProsklisiDeadlineChipMeta('2026-07-10', fmt).label).toMatch(/Έληξε/);
-    expect(getProsklisiDeadlineChipMeta('2026-07-20', fmt).label).toMatch(/σήμερα/);
-    expect(isProsklisiDeadlineExpiringSoon('2026-07-25', 30)).toBe(true);
-    expect(isProsklisiDeadlineExpiringSoon('2026-12-01', 30)).toBe(false);
+    expect(getProsklisiDeadlineChipMeta('2026-07-10', fmt, now).label).toMatch(/Έληξε/);
+    expect(getProsklisiDeadlineChipMeta('2026-07-20', fmt, now).label).toMatch(/σήμερα/);
+    expect(isProsklisiDeadlineExpiringSoon('2026-07-25', 30, now)).toBe(true);
+    expect(isProsklisiDeadlineExpiringSoon('2026-12-01', 30, now)).toBe(false);
   });
 
   test('sort by deadline ascending, missing last', () => {

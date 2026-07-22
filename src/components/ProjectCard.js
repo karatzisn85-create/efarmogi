@@ -9,7 +9,7 @@ import {
 } from '../data/formOptions';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
 import { getKhmdhsChainFreshness } from '../utils/khmdhsChainRefresh';
-import { findActRootSiblings, getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
+import { getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
 import { formatDateEl } from '../utils/dateFormat';
 import KhmdhsFreshnessBadge from './KhmdhsFreshnessBadge';
 import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
@@ -1247,7 +1247,6 @@ function ProjectCard({
   project,
   userRole,
   onEdit,
-  onDelete,
   onViewFile,
   onDownloadFile,
   onDeleteFile,
@@ -1275,7 +1274,7 @@ function ProjectCard({
   epLinkedAction = null,
   hasDirectAssignmentViolation = false,
   onExportReport,
-  allSubprojects = [],
+  actRootSiblingsIndex = null,
   onContractExpiryAccept,
 }) {
   const [exportingReport, setExportingReport] = useState(false);
@@ -1335,9 +1334,10 @@ function ProjectCard({
 
   const actRootSiblings = useMemo(() => {
     const root = getSubprojectActRootReq(project);
-    if (!root) return [];
-    return findActRootSiblings(allSubprojects, root, project.subprojectId);
-  }, [project, allSubprojects]);
+    if (!root || !actRootSiblingsIndex) return [];
+    const bucket = actRootSiblingsIndex.get(root) || [];
+    return bucket.filter((p) => p.subprojectId !== project.subprojectId);
+  }, [project, actRootSiblingsIndex]);
 
   const renderContractRow = (row, key) => (
     <ContractRowBlock key={key}>
@@ -1610,7 +1610,7 @@ function ProjectCard({
             <ToolbarButton
               type="button"
               $tone={hasLinkedEgkrisi ? 'success' : undefined}
-              onClick={() => onOpenEgkriseis && onOpenEgkriseis(project.projectTitle, project.subprojectTitle)}
+              onClick={() => onOpenEgkriseis && onOpenEgkriseis(project.projectTitle, project.subprojectTitle, project.subprojectId)}
             >
               <IconCredit />
               ΕΓΚΡΙΣΗ ΔΙΑΘ. ΠΙΣΤΩΣΗΣ
@@ -1626,19 +1626,19 @@ function ProjectCard({
             </ToolbarButton>
           )}
           {hasEntaxi && (
-            <ToolbarButton type="button" onClick={() => onOpenSpecificEntaxi && onOpenSpecificEntaxi()}>
+            <ToolbarButton type="button" onClick={() => onOpenSpecificEntaxi && onOpenSpecificEntaxi(project.subprojectId)}>
               <IconDocument />
               ΕΝΤΑΞΗ
             </ToolbarButton>
           )}
           {hasProsklisi && !linkedProsklisi && (
-            <ToolbarButton type="button" onClick={() => onOpenSpecificProsklisi && onOpenSpecificProsklisi()}>
+            <ToolbarButton type="button" onClick={() => onOpenSpecificProsklisi && onOpenSpecificProsklisi(project.projectTitle, project.projectId)}>
               <IconMegaphone />
               ΠΡΟΣΚΛΗΣΗ
             </ToolbarButton>
           )}
           {hasMeleti && (
-            <ToolbarButton type="button" onClick={() => onOpenSpecificMeleti && onOpenSpecificMeleti()}>
+            <ToolbarButton type="button" onClick={() => onOpenSpecificMeleti && onOpenSpecificMeleti(project.subprojectId)}>
               📐
               ΜΕΛΕΤΗ
             </ToolbarButton>

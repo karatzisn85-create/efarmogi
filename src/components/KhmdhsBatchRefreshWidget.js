@@ -271,6 +271,7 @@ const ScopeHint = styled.div`
 const ConfirmActions = styled.div`
   display: flex;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 0.7rem;
 `;
 
@@ -300,7 +301,22 @@ const ConfirmProceed = styled.button`
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
+const ConfirmRefresh = styled.button`
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  &:hover:not(:disabled) { background: #ccfbf1; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+`;
+
 const STALE_BATCH_DAYS = 7;
+/** Αν ο διάλογος μείνει ανοιχτός περισσότερο, ξανασαρώνουμε πριν την εκτέλεση (#4). */
+const ELIGIBLE_PREVIEW_MAX_AGE_MS = 2 * 60 * 1000;
 
 function isEligibleStale(item, maxAgeDays = STALE_BATCH_DAYS) {
   if (!item) return false;
@@ -1026,6 +1042,9 @@ export default function KhmdhsBatchRefreshWidget({
   const [logEntries, setLogEntries] = useState([]);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [eligiblePreview, setEligiblePreview] = useState(null);
+  const [eligibleLoading, setEligibleLoading] = useState(false);
+  const eligibleSkippedRef = useRef([]);
+  const eligiblePreviewAtRef = useRef(0);
   const [batchScope, setBatchScope] = useState('stale'); // 'stale' | 'all'
   const cancelRef = useRef(false);
   const [cancelRequested, setCancelRequested] = useState(false);
@@ -1051,24 +1070,49 @@ export default function KhmdhsBatchRefreshWidget({
     }, 50);
   }, []);
 
-  const handleConfirmStart = useCallback(async () => {
-    setConfirmOpen(true);
-    setEligiblePreview(null);
-    setBatchScope('stale');
+  const fetchEligiblePreview = useCallback(async ({ resetScope = false } = {}) => {
+    setEligibleLoading(true);
     try {
       const eligRes = await ipcRenderer.invoke('batch-khmdhs-refresh-eligible', {
         actingUsername: currentUser?.username,
       });
       if (eligRes?.success) {
         const list = eligRes.eligible || [];
+        eligibleSkippedRef.current = eligRes.skipped || [];
+        eligiblePreviewAtRef.current = Date.now();
         setEligiblePreview(list);
-        const staleN = list.filter((item) => isEligibleStale(item)).length;
-        setBatchScope(staleN > 0 ? 'stale' : 'all');
+        if (resetScope) {
+          const staleN = list.filter((item) => isEligibleStale(item)).length;
+          setBatchScope(staleN > 0 ? 'stale' : 'all');
+        }
+        return { success: true, eligible: list, skipped: eligRes.skipped || [] };
       }
-    } catch {
       setEligiblePreview(null);
+      eligibleSkippedRef.current = [];
+      eligiblePreviewAtRef.current = 0;
+      return { success: false, error: eligRes?.error || 'Σφάλμα εντοπισμού' };
+    } catch (err) {
+      setEligiblePreview(null);
+      eligibleSkippedRef.current = [];
+      eligiblePreviewAtRef.current = 0;
+      return { success: false, error: err?.message || 'Σφάλμα εντοπισμού' };
+    } finally {
+      setEligibleLoading(false);
     }
   }, [currentUser]);
+
+  const handleConfirmStart = useCallback(async () => {
+    setConfirmOpen(true);
+    setEligiblePreview(null);
+    eligibleSkippedRef.current = [];
+    eligiblePreviewAtRef.current = 0;
+    setBatchScope('stale');
+    await fetchEligiblePreview({ resetScope: true });
+  }, [fetchEligiblePreview]);
+
+  const handleRefreshEligiblePreview = useCallback(async () => {
+    await fetchEligiblePreview({ resetScope: false });
+  }, [fetchEligiblePreview]);
 
   const handleBatchRefresh = useCallback(async () => {
     const scope = batchScope;
@@ -1080,16 +1124,31 @@ export default function KhmdhsBatchRefreshWidget({
     setProgress({ current: 0, total: 0, label: 'Εντοπισμός υποέργων…' });
 
     try {
-      const eligRes = await ipcRenderer.invoke('batch-khmdhs-refresh-eligible', {
-        actingUsername: currentUser?.username,
-      });
-      if (!eligRes?.success) {
-        showToast(eligRes?.error || 'Σφάλμα', 'error');
-        setRunning(false);
-        return;
+      // Επαναχρησιμοποίηση preview αν είναι φρέσκο (< 2 λεπτά)· αλλιώς ξανασάρωση (#4)
+      const previewAgeMs = eligiblePreviewAtRef.current
+        ? Date.now() - eligiblePreviewAtRef.current
+        : Infinity;
+      const previewIsFresh = Array.isArray(eligiblePreview)
+        && eligiblePreviewAtRef.current > 0
+        && previewAgeMs <= ELIGIBLE_PREVIEW_MAX_AGE_MS;
+
+      let allEligible = previewIsFresh ? eligiblePreview : null;
+      let skipped = previewIsFresh ? eligibleSkippedRef.current : null;
+      if (!allEligible) {
+        const eligRes = await ipcRenderer.invoke('batch-khmdhs-refresh-eligible', {
+          actingUsername: currentUser?.username,
+        });
+        if (!eligRes?.success) {
+          showToast(eligRes?.error || 'Σφάλμα', 'error');
+          setRunning(false);
+          return;
+        }
+        allEligible = eligRes.eligible || [];
+        skipped = eligRes.skipped || [];
+        eligibleSkippedRef.current = skipped;
+        eligiblePreviewAtRef.current = Date.now();
       }
 
-      const { eligible: allEligible, skipped } = eligRes;
       const skippedItems = (skipped || []).map((s) => ({
         status: 'skipped',
         id: s.id,
@@ -1370,7 +1429,7 @@ export default function KhmdhsBatchRefreshWidget({
       setCancelRequested(false);
       setRunning(false);
     }
-  }, [batchScope, currentUser, showToast, onRefreshComplete, onBatchResults, addLog]);
+  }, [batchScope, currentUser, showToast, onRefreshComplete, onBatchResults, addLog, eligiblePreview]);
 
   const handleCancelBatch = useCallback(() => {
     if (cancelRequested) return;
@@ -1446,9 +1505,11 @@ export default function KhmdhsBatchRefreshWidget({
           <ConfirmBox onClick={(e) => e.stopPropagation()}>
             <ConfirmTitle>🔄 Εκκίνηση μαζικής ανανέωσης ΚΗΜΔΗΣ</ConfirmTitle>
             <ConfirmDesc>
-              {eligiblePreview != null
-                ? `Βρέθηκαν ${allPreviewCount} επιλέξιμα υποέργα. Επιλέξτε ποια θα ανανεωθούν.`
-                : 'Γίνεται εντοπισμός υποέργων…'}
+              {eligibleLoading && eligiblePreview == null
+                ? 'Γίνεται εντοπισμός υποέργων…'
+                : eligiblePreview != null
+                  ? `Βρέθηκαν ${allPreviewCount} επιλέξιμα υποέργα. Επιλέξτε ποια θα ανανεωθούν.`
+                  : 'Δεν ήταν δυνατός ο εντοπισμός. Δοκιμάστε «Ανανέωση λίστας».'}
             </ConfirmDesc>
 
             {eligiblePreview != null && (
@@ -1459,6 +1520,7 @@ export default function KhmdhsBatchRefreshWidget({
                     name="khmdhs-batch-scope"
                     checked={batchScope === 'stale'}
                     onChange={() => setBatchScope('stale')}
+                    disabled={eligibleLoading}
                   />
                   <ScopeText>
                     <ScopeLabel>Μόνο τα παλαιά ({stalePreviewCount})</ScopeLabel>
@@ -1474,6 +1536,7 @@ export default function KhmdhsBatchRefreshWidget({
                     name="khmdhs-batch-scope"
                     checked={batchScope === 'all'}
                     onChange={() => setBatchScope('all')}
+                    disabled={eligibleLoading}
                   />
                   <ScopeText>
                     <ScopeLabel>Όλα τα επιλέξιμα ({allPreviewCount})</ScopeLabel>
@@ -1487,15 +1550,23 @@ export default function KhmdhsBatchRefreshWidget({
 
             <ConfirmDesc style={{ marginBottom: '1.1rem', fontSize: '0.68rem' }}>
               Τα υποέργα που χρειάζονται χαρακτηρισμό εγγράφων δεν θα πειραχτούν — θα εμφανιστούν σε λίστα.
+              Αν μείνει ανοιχτό το παράθυρο πάνω από 2 λεπτά, η λίστα ανανεώνεται αυτόματα πριν την εκκίνηση.
             </ConfirmDesc>
 
             <ConfirmActions>
-              <ConfirmCancel onClick={() => setConfirmOpen(false)}>Ακύρωση</ConfirmCancel>
+              <ConfirmCancel type="button" onClick={() => setConfirmOpen(false)}>Ακύρωση</ConfirmCancel>
+              <ConfirmRefresh
+                type="button"
+                onClick={handleRefreshEligiblePreview}
+                disabled={eligibleLoading}
+              >
+                {eligibleLoading ? 'Ανανέωση…' : 'Ανανέωση λίστας'}
+              </ConfirmRefresh>
               <ConfirmProceed
                 onClick={handleBatchRefresh}
-                disabled={eligiblePreview == null || !selectedCount}
+                disabled={eligibleLoading || eligiblePreview == null || !selectedCount}
               >
-                {eligiblePreview == null
+                {eligibleLoading && eligiblePreview == null
                   ? 'Εντοπισμός…'
                   : `Εκκίνηση (${selectedCount || 0} υποέργα)`}
               </ConfirmProceed>

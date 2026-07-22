@@ -1414,6 +1414,21 @@ ipcMain.handle('check-project-lock', async (event, projectId) => {
   return isProjectLocked(projectId);
 });
 
+// Bulk έλεγχος κλειδωμάτων — αντικαθιστά N σειριακά/παράλληλα IPC με ένα (Φάση 1 βελτίωσης απόδοσης)
+ipcMain.handle('check-projects-locks-bulk', async (_event, projectIds) => {
+  const ids = Array.isArray(projectIds) ? [...new Set(projectIds.filter(Boolean))] : [];
+  const result = {};
+  for (const projectId of ids) {
+    try {
+      const lockStatus = isProjectLocked(projectId);
+      result[projectId] = { locked: !!lockStatus.locked, lockedBy: lockStatus.lockedBy || '' };
+    } catch {
+      result[projectId] = { locked: false, lockedBy: '' };
+    }
+  }
+  return { success: true, locks: result };
+});
+
 ipcMain.handle('unlock-project', async (event, projectId) => {
   return removeProjectLock(projectId);
 });
@@ -1955,7 +1970,9 @@ async function handleSaveProjectData(event, projectData) {
       newValue: stripHeavyFieldsForAudit(dataToSave),
     });
     
-    return { success: true, projectId: finalProjectId, subprojectId };
+    // Επιστρέφουμε και το πλήρες, κανονικοποιημένο αντικείμενο ώστε ο renderer να μπορεί
+    // να ενημερώσει τοπικά τη λίστα χωρίς πλήρη επαναφόρτωση (Φάση 1 βελτίωσης απόδοσης)
+    return { success: true, projectId: finalProjectId, subprojectId, project: dataToSave };
   } catch (error) {
     console.error('Error saving project data:', error);
     return { success: false, error: error.message };
@@ -2265,6 +2282,9 @@ function readSiblingProjectTitleForHarmonize(projectDirPath, currentSubprojectId
   return null;
 }
 
+// Dedupe για επαναλαμβανόμενα προειδοποιητικά logs στο loadAllProjects (hot path — τρέχει σε κάθε reload)
+const loggedSubprojectIdMismatches = new Set();
+
 // Internal function to load all projects
 const loadAllProjects = async () => {
   try {
@@ -2325,7 +2345,12 @@ const loadAllProjects = async () => {
             // CRITICAL: Ensure subprojectId matches the folder name (subprojectDir)
             // This is essential for opening files correctly, especially for projects with multiple contracts
             if (data.subprojectId !== subprojectDir) {
-              console.log(`⚠️ SubprojectId mismatch detected: data.json has "${data.subprojectId}" but folder is "${subprojectDir}". Using folder name.`);
+              // Το πεδίο δεν διορθώνεται μόνιμο στον δίσκο, οπότε θα ξαναεμφανιζόταν σε κάθε reload —
+              // καταγράφουμε μία φορά ανά εκτέλεση της εφαρμογής για να αποφύγουμε θόρυβο σε hot path.
+              if (!loggedSubprojectIdMismatches.has(subprojectDir)) {
+                loggedSubprojectIdMismatches.add(subprojectDir);
+                console.log(`⚠️ SubprojectId mismatch detected: data.json has "${data.subprojectId}" but folder is "${subprojectDir}". Using folder name.`);
+              }
               data.subprojectId = subprojectDir;
             }
             
@@ -4459,7 +4484,6 @@ ipcMain.handle('load-all-entaxeis', async () => {
   try {
     const entaxeis = [];
     
-    console.log('Loading entaxeis from:', entaxisDir);
     
     // Helper function για async exists check
     const pathExists = async (filePath) => {
@@ -4479,7 +4503,6 @@ ipcMain.handle('load-all-entaxeis', async () => {
     
     // Read directories - ASYNC
     const entaxiDirs = await fs.promises.readdir(entaxisDir);
-    console.log('Found entaxi directories:', entaxiDirs);
     
     // Process all directories in parallel - ASYNC
     const entaxiPromises = entaxiDirs.map(async (entaxiDir) => {

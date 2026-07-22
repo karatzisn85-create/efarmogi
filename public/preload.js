@@ -4,7 +4,7 @@ const ALLOWED_INVOKE = new Set([
   'add-document-category','add-files-to-group','add-task-assignment-comment','add-task-assignment-files','authenticate',
   'change-password','check-data-dir-exists','check-file-exists',
   'check-entity-lock','check-folder-has-config','check-for-updates',
-  'check-project-lock','clean-entaxi-modification-file','cleanup-duplicate-files',
+  'check-project-lock','check-projects-locks-bulk','clean-entaxi-modification-file','cleanup-duplicate-files',
   'cleanup-old-backups','cleanup-temp-files','clear-all-locks','clear-audit-log',
   'copy-document-template','copy-file','create-backup','cancel-backup','create-credit-approval',
   'create-entity-lock','create-file-group','create-manual-egkrisi-link','create-prosklisi-group',

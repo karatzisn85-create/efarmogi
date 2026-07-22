@@ -5,6 +5,7 @@ import ProjectForm from './ProjectForm';
 import ProjectCard from './ProjectCard';
 import SubprojectDetailModal from './SubprojectDetailModal';
 import { KHMDHS_COMPLETED_STATUS_SUGGESTION } from '../utils/khmdhsContractExpiryPrompt';
+import { getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
 import { uploadSubprojectFiles, uploadSubprojectFolder } from '../utils/uploadSubprojectFiles';
 import AdvancedFilters from './AdvancedFilters';
 import ActiveFiltersBanner from './ActiveFiltersBanner';
@@ -2575,6 +2576,20 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
   );
 });
 
+// Module-level (όχι μέσα στο component) ώστε να είναι σταθερή αναφορά — χρήσιμη ως
+// dependency σε useMemo/useCallback χωρίς να προκαλεί αχρείαστο recompute σε κάθε render.
+function normalizeText(text) {
+  if (!text) return '';
+  return text
+    .replace(/\\n/g, ' ')   // Replace literal \n with space (from JSON)
+    .replace(/\n/g, ' ')    // Replace actual newlines with space
+    .replace(/\r/g, ' ')    // Replace carriage returns
+    .replace(/\t/g, ' ')    // Replace tabs
+    .replace(/\s+/g, ' ')   // Replace multiple spaces with single space
+    .trim()                 // Remove leading/trailing spaces
+    .toLowerCase();         // Case insensitive
+}
+
 function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCurrentUser }) {
   const { showToast } = useToast();
   const userRole = currentUser?.role || 'USER';
@@ -4022,106 +4037,63 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   };
 
 
-  // Helper function to normalize text for comparison
-  const normalizeText = (text) => {
-    if (!text) return '';
-    return text
-      .replace(/\\n/g, ' ')   // Replace literal \n with space (from JSON)
-      .replace(/\n/g, ' ')    // Replace actual newlines with space
-      .replace(/\r/g, ' ')    // Replace carriage returns
-      .replace(/\t/g, ' ')    // Replace tabs
-      .replace(/\s+/g, ' ')   // Replace multiple spaces with single space
-      .trim()                 // Remove leading/trailing spaces
-      .toLowerCase();         // Case insensitive
-  };
+  // Ευρετήρια (memoized) για O(1) αναζήτηση ανά κάρτα αντί για O(N) σάρωση σε κάθε
+  // render — Φάση 1 βελτίωσης απόδοσης. Η λογική/αποτελέσματα είναι ταυτόσημα με πριν.
+  const linkedEgkriseisIndex = useMemo(() => {
+    const bySubprojectId = new Set();
+    const byNormalizedAutoLinkedTitle = new Set();
+    Object.values(linkedEgkriseis || {}).forEach((link) => {
+      if (!link) return;
+      if (link.subprojectId) bySubprojectId.add(link.subprojectId);
+      if (link.autoLinked) byNormalizedAutoLinkedTitle.add(normalizeText(link.subprojectTitle || ''));
+    });
+    return { bySubprojectId, byNormalizedAutoLinkedTitle };
+  }, [linkedEgkriseis]);
+
+  const creditApprovalNormalizedTitles = useMemo(() => {
+    const set = new Set();
+    Object.entries(creditApprovals || {}).forEach(([approvalKey, approvalValue]) => {
+      if (!approvalValue) return;
+      const keyParts = approvalKey.split('-');
+      if (keyParts.length < 2) return;
+      const approvalSubprojectTitle = keyParts.slice(1).join('-');
+      set.add(normalizeText(approvalSubprojectTitle));
+    });
+    return set;
+  }, [creditApprovals]);
 
   // Function to check if a subproject has credit approval
   const hasCreditApproval = (projectTitle, subprojectTitle, subprojectId) => {
     if (!subprojectTitle) return false;
-    
-    // ΠΡΩΤΑ: Ελέγχουμε αν υπάρχει χειροκίνητη συσχέτιση (linkedEgkriseis)
-    if (subprojectId && linkedEgkriseis) {
-      const hasManualLink = Object.values(linkedEgkriseis).some(link => 
-        link && link.subprojectId === subprojectId
-      );
-      if (hasManualLink) {
-        return true;
-      }
+
+    // ΠΡΩΤΑ: χειροκίνητη συσχέτιση (linkedEgkriseis)
+    if (subprojectId && linkedEgkriseisIndex.bySubprojectId.has(subprojectId)) {
+      return true;
     }
-    
-    // ΔΕΥΤΕΡΑ: Ελέγχουμε τις ΑΥΤΟΜΑΤΕΣ συσχετίσεις από linkedEgkriseis (νέα λογική)
-    if (subprojectTitle && linkedEgkriseis) {
-      const normalizedSubprojectTitle = normalizeText(subprojectTitle);
-      
-      const hasAutoLink = Object.values(linkedEgkriseis).some(link => {
-        if (!link || !link.autoLinked) return false;
-        
-        const normalizedLinkTitle = normalizeText(link.subprojectTitle || '');
-        return normalizedSubprojectTitle === normalizedLinkTitle;
-      });
-      
-      if (hasAutoLink) {
-        return true;
-      }
-    }
-    
-    // ΤΡΙΤΑ: Ελέγχουμε τις συσχετίσεις από creditApprovals (παλιά λογική για συμβατότητα)
+
+    // ΔΕΥΤΕΡΑ: αυτόματες συσχετίσεις από linkedEgkriseis
     const normalizedSubprojectTitle = normalizeText(subprojectTitle);
-    
-    // Πρώτα ψάχνουμε με το παλιό κλειδί (συμβατότητα)
+    if (linkedEgkriseisIndex.byNormalizedAutoLinkedTitle.has(normalizedSubprojectTitle)) {
+      return true;
+    }
+
+    // ΤΡΙΤΑ: συσχετίσεις από creditApprovals (παλιά λογική για συμβατότητα)
     const oldKey = `${projectTitle}-${subprojectTitle}`;
     if (creditApprovals[oldKey]) {
       return true;
     }
-    
-    // Στη συνέχεια ψάχνουμε με fuzzy matching
-    for (const [approvalKey, approvalValue] of Object.entries(creditApprovals)) {
-      if (!approvalValue) continue;
-      
-      // Extract το τμήμα μετά το τελευταίο "-" (που είναι ο τίτλος υποέργου)
-      const keyParts = approvalKey.split('-');
-      if (keyParts.length < 2) continue;
-      
-      const approvalSubprojectTitle = keyParts.slice(1).join('-'); // Πάρε όλα μετά το πρώτο "-"
-      const normalizedApprovalTitle = normalizeText(approvalSubprojectTitle);
-      
-      if (normalizedSubprojectTitle === normalizedApprovalTitle) {
-        return true;
-      }
+    if (creditApprovalNormalizedTitles.has(normalizedSubprojectTitle)) {
+      return true;
     }
-    
+
     return false;
   };
 
   // Function to check if a subproject has linked egkrisi
-  const hasLinkedEgkrisi = (subprojectId, subprojectTitle) => {
-    if (!subprojectId || !linkedEgkriseis) {
-      return false;
-    }
-    
-    
-    // Ελέγχουμε αν κάποια έγκριση είναι συσχετισμένη με αυτό το υποέργο
-    // Ελέγχουμε ΤΟΥΣ ΔΥΟ: subprojectId (UUID) ΚΑΙ subprojectTitle για ακριβή ταίριασμα
-    // Αυτό αποφεύγει λάθος links που έχουν σωστό subprojectId αλλά λάθος τίτλο
-    const hasLink = Object.values(linkedEgkriseis).some(link => {
-      if (!link) return false;
-      
-      // ΠΡΩΤΑ: Ελέγχουμε το subprojectId (UUID) - πρέπει να ταιριάζει
-      if (link.subprojectId !== subprojectId) {
-        return false;
-      }
-      
-      // ΔΕΥΤΕΡΟ: Ελέγχουμε και τον τίτλο - αλλά με πιο ευέλικτο τρόπο
-      // Το subprojectId είναι το πιο σημαντικό - αν ταιριάζει, το link είναι έγκυρο
-      // Ο τίτλος μπορεί να έχει μικρές διαφορές (π.χ. case, whitespace) αλλά το subprojectId είναι μοναδικό
-      // Αν το subprojectId ταιριάζει, το link είναι έγκυρο
-      // Το subprojectId (UUID) είναι το πιο σημαντικό - είναι μοναδικό και αξιόπιστο
-      // Ο τίτλος μπορεί να έχει μικρές διαφορές (π.χ. case, whitespace, punctuation)
-      // αλλά το subprojectId είναι πάντα σωστό
-      return true; // Το subprojectId ταιριάζει, οπότε το link είναι έγκυρο
-    });
-    
-    return hasLink;
+  // (Το subprojectId (UUID) είναι το πιο σημαντικό/αξιόπιστο για το ταίριασμα — ο τίτλος αγνοείται.)
+  const hasLinkedEgkrisi = (subprojectId) => {
+    if (!subprojectId) return false;
+    return linkedEgkriseisIndex.bySubprojectId.has(subprojectId);
   };
 
   // 🔗 ΧΕΙΡΟΚΙΝΗΤΗ ΣΥΣΧΕΤΙΣΗ ΕΓΚΡΙΣΗΣ
@@ -4135,16 +4107,30 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     }
   };
 
+  const loadProskliseis = async () => {
+    try {
+      const loadedProskliseis = await ipcRenderer.invoke('load-all-proskliseis');
+      setProskliseis(loadedProskliseis || []);
+    } catch (error) {
+      console.error('Error loading proskliseis:', error);
+    }
+  };
+
+
+  // Ευρετήριο prosklisi ανά συνδεδεμένο υποέργο — O(1) αναζήτηση ανά κάρτα
+  const prosklisiByLinkedSubprojectId = useMemo(() => {
+    const map = new Map();
+    (proskliseis || []).forEach((prosklisi) => {
+      if (prosklisi.linkedSubprojectId && !map.has(prosklisi.linkedSubprojectId)) {
+        map.set(prosklisi.linkedSubprojectId, prosklisi);
+      }
+    });
+    return map;
+  }, [proskliseis]);
 
   // Helper function to find linked prosklisi for a subproject
-  const findLinkedProsklisi = (subprojectId, projectTitle) => {
-    // Find prosklisi that matches the subproject ID
-    const matchingProsklisi = proskliseis.find(prosklisi => {
-      // Check if prosklisi is linked to this specific subproject
-      return prosklisi.linkedSubprojectId === subprojectId;
-    });
-    
-    return matchingProsklisi || null;
+  const findLinkedProsklisi = (subprojectId) => {
+    return prosklisiByLinkedSubprojectId.get(subprojectId) || null;
   };
 
   const handleSaveProject = async (projectData) => {
@@ -4162,9 +4148,21 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       const result = await ipcRenderer.invoke('save-project-data', dataForSave);
       
       if (result.success) {
-        // Save files if any
+        // Save files if any — το save-files ενημερώνει και το data.json στον δίσκο·
+        // κρατάμε τα ονόματα για συγχώνευση στην τοπική λίστα (#5).
+        let savedFileNames = [];
+        let filesSaveFailed = false;
         if (files && files.length > 0) {
-          await ipcRenderer.invoke('save-files', files, result.projectId, result.subprojectId);
+          try {
+            const filesResult = await ipcRenderer.invoke('save-files', files, result.projectId, result.subprojectId);
+            if (filesResult?.success && Array.isArray(filesResult.files)) {
+              savedFileNames = filesResult.files;
+            } else {
+              filesSaveFailed = true;
+            }
+          } catch {
+            filesSaveFailed = true;
+          }
         }
 
         const shouldKeepFormOpen = keepFormOpen === true;
@@ -4182,13 +4180,63 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         shouldRestoreScroll.current = true;
         setScrollRestoreTick((t) => t + 1);
 
-        // silent: κρατάμε τη λίστα ορατή πίσω από τη φόρμα — το skeleton μηδενίζει το scroll
-        await loadDataWithCache(true, { silent: true });
+        // Ο τίτλος έργου/υποέργου αλλάζει και «αδελφά» υποέργα (ίδιο έργο) ή μετακινεί
+        // το υποέργο σε άλλο έργο — σε αυτές τις περιπτώσεις χρειάζεται πλήρης επαναφόρτωση.
+        const affectsOtherProjects = !!dataForSave.moveToExistingProject
+          || (!!editingProject && editingProject.projectTitle !== dataForSave.projectTitle);
+
+        if (result.project && !affectsOtherProjects) {
+          // Τοπική ενημέρωση μόνο της συγκεκριμένης εγγραφής αντί για πλήρη επαναφόρτωση
+          // όλων των έργων (Φάση 1 βελτίωσης απόδοσης).
+          setProjects((prev) => {
+            const idx = prev.findIndex((p) => p.subprojectId === result.subprojectId);
+            const prevEntry = idx >= 0 ? prev[idx] : null;
+            const baseFiles = Array.isArray(result.project.files)
+              ? result.project.files
+              : (Array.isArray(prevEntry?.files) ? prevEntry.files : []);
+            const mergedFiles = savedFileNames.length
+              ? [...new Set([...baseFiles, ...savedFileNames])]
+              : baseFiles;
+            const merged = {
+              ...(prevEntry || { hasEgkrisiLink: false, hasProsklisiLink: false, hasEntaxiLink: false }),
+              ...result.project,
+              files: mergedFiles,
+              isLocked: shouldKeepFormOpen ? !!(prevEntry && prevEntry.isLocked) : false,
+              lockedBy: shouldKeepFormOpen ? (prevEntry && prevEntry.lockedBy) || '' : '',
+            };
+            const next = idx >= 0
+              ? prev.map((p, i) => (i === idx ? merged : p))
+              : [...prev, merged];
+            return sortProjectsForDisplay(next);
+          });
+          // Τίτλος υποέργου / συνδέσεις μελετών· εγκρίσεις μπορεί να έχουν παλιό τίτλο στο state
+          void refreshMeletaiSubprojectMap();
+          void loadLinkedEgkriseis();
+        } else {
+          // silent: κρατάμε τη λίστα ορατή πίσω από τη φόρμα — το skeleton μηδενίζει το scroll
+          await loadDataWithCache(true, { silent: true });
+        }
         await loadEngineerCatalogForCards();
 
+        // Εύρημα Γ: τα δεδομένα σώθηκαν, αλλά η αντιγραφή αρχείων απέτυχε
+        if (filesSaveFailed) {
+          showToast(
+            'Τα δεδομένα του υποέργου αποθηκεύτηκαν, αλλά κάποια αρχεία δεν αντιγράφηκαν. Δοκιμάστε ξανά από τα Αρχεία Υποέργου.',
+            'warning'
+          );
+        }
+
         if (shouldKeepFormOpen) {
+          const canonical = result.project
+            ? {
+                ...result.project,
+                files: savedFileNames.length
+                  ? [...new Set([...(result.project.files || []), ...savedFileNames])]
+                  : (result.project.files || []),
+              }
+            : dataForSave;
           setEditingProject({
-            ...dataForSave,
+            ...canonical,
             projectId: result.projectId,
             subprojectId: result.subprojectId,
           });
@@ -4196,12 +4244,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             success: true,
             projectId: result.projectId,
             subprojectId: result.subprojectId,
+            filesSaveFailed,
           };
         }
 
         setIsFormOpen(false);
         setEditingProject(null);
-        return { success: true, projectId: result.projectId, subprojectId: result.subprojectId };
+        return { success: true, projectId: result.projectId, subprojectId: result.subprojectId, filesSaveFailed };
       } else {
         console.error('Error saving project:', result.error);
         showToast('Σφάλμα αποθήκευσης: ' + result.error, 'error');
@@ -4285,39 +4334,74 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, [showToast]);
 
   const activeFilterCount = useMemo(() => countActiveFilters(advancedFilters), [advancedFilters, countActiveFilters]);
-const handleDeleteProject = async (projectId, subprojectId) => {
+
+  // Κοινή διαδρομή διαγραφής υποέργου (κάρτα + φόρμα) — τοπική αφαίρεση, χωρίς άδειασμα λίστας (#1, #6)
+  const applyLocalSubprojectRemoval = async (subprojectId) => {
+    setProjects((prev) => prev.filter((p) => p.subprojectId !== subprojectId));
+    invalidateCache();
+    // Εγκρίσεις / εντάξεις / προσκλήσεις / μελέτες: ξαναφόρτωση ώστε να μην μείνουν
+    // αναφορές στο διαγραμμένο υποέργο στη μνήμη (εύρημα Β).
+    await Promise.all([
+      loadLinkedEgkriseis(),
+      loadEntaxeis(),
+      loadProskliseis(),
+    ]);
+    void refreshMeletaiSubprojectMap();
+    refreshKhmdhsStaleCount();
+  };
+
+  /**
+   * @param {string} projectId
+   * @param {string} subprojectId
+   * @param {{ unlockProjectId?: string, closeForm?: boolean }} [options]
+   */
+  const handleDeleteProject = async (projectId, subprojectId, options = {}) => {
     console.log('Attempting to delete subproject:', { projectId, subprojectId });
-    
-    // Έλεγχος αν τα IDs είναι έγκυρα
+
     if (!projectId || !subprojectId) {
       console.error('Invalid IDs for deletion:', { projectId, subprojectId });
       showToast('Σφάλμα: Μη έγκυρα δεδομένα για διαγραφή', 'error');
-      return;
+      return { success: false };
     }
-    
-    if (await showConfirm({ title: 'Διαγραφή Υποέργου', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το υποέργο;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
-      try {
-        const result = await ipcRenderer.invoke('delete-subproject', projectId, subprojectId);
-        
-        if (result.success) {
-          // Force reload projects and clear any cached data
-          setProjects([]);
-          setFilteredProjects([]);
-          await loadProjects();
-          // Also reload linked egkriseis to update the UI
-          await loadLinkedEgkriseis();
-          // Ο μετρητής «χρειάζονται ανανέωση» σαρώνει τον δίσκο — πρέπει να ξαναϋπολογιστεί
-          // αλλιώς μένει παλιά ένδειξη μετά τη διαγραφή.
-          refreshKhmdhsStaleCount();
-          showToast('Το υποέργο διαγράφηκε επιτυχώς!', 'success');
-        } else {
-          console.error('Deletion failed:', result.error);
-          showToast('Σφάλμα κατά τη διαγραφή: ' + result.error, 'error');
+
+    if (!(await showConfirm({
+      title: 'Διαγραφή Υποέργου',
+      message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το υποέργο;',
+      detail: 'Η ενέργεια είναι μη αναστρέψιμη.',
+      confirmLabel: 'Διαγραφή',
+      icon: '🗑',
+    }))) {
+      return { success: false, cancelled: true };
+    }
+
+    try {
+      if (options.unlockProjectId) {
+        try {
+          await ipcRenderer.invoke('unlock-project', options.unlockProjectId);
+        } catch (unlockErr) {
+          console.error('Error unlocking before delete:', unlockErr);
         }
-      } catch (error) {
-        console.error('Error deleting project:', error);
-        showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
       }
+
+      const result = await ipcRenderer.invoke('delete-subproject', projectId, subprojectId);
+
+      if (result.success) {
+        if (options.closeForm) {
+          setIsFormOpen(false);
+          setEditingProject(null);
+        }
+        await applyLocalSubprojectRemoval(subprojectId);
+        showToast('Το υποέργο διαγράφηκε επιτυχώς!', 'success');
+        return { success: true };
+      }
+
+      console.error('Deletion failed:', result.error);
+      showToast('Σφάλμα κατά τη διαγραφή: ' + result.error, 'error');
+      return { success: false, error: result.error };
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
+      return { success: false, error: error.message };
     }
   };
 
@@ -5396,19 +5480,22 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     setIsEntaxisOpen(true);
   };
 
+  // Ευρετήριο εντάξεων ανά υποέργο — O(1) αναζήτηση ανά κάρτα αντί για O(N) σάρωση
+  const entaxiBySubprojectId = useMemo(() => {
+    const map = new Map();
+    (entaxeis || []).forEach((entaxi) => {
+      (entaxi.subprojectIds || []).forEach((id) => {
+        if (!map.has(id)) map.set(id, entaxi);
+      });
+    });
+    return map;
+  }, [entaxeis]);
+
   // Check if there's an entaxi for a specific subproject
-  const hasEntaxiForSubproject = (subprojectId) => {
-    return entaxeis.some(entaxi => 
-      entaxi.subprojectIds && entaxi.subprojectIds.includes(subprojectId)
-    );
-  };
+  const hasEntaxiForSubproject = (subprojectId) => entaxiBySubprojectId.has(subprojectId);
 
   // Get the entaxi for a specific subproject
-  const getEntaxiForSubproject = (subprojectId) => {
-    return entaxeis.find(entaxi => 
-      entaxi.subprojectIds && entaxi.subprojectIds.includes(subprojectId)
-    );
-  };
+  const getEntaxiForSubproject = (subprojectId) => entaxiBySubprojectId.get(subprojectId) || null;
 
   // Handle opening specific entaxi
   const handleOpenSpecificEntaxi = (subprojectId) => {
@@ -5430,18 +5517,27 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     }
   };
 
+  // Ευρετήριο prosklisi (τίτλοι + IDs) — O(1) έλεγχος ύπαρξης ανά κάρτα αντί για O(N) σάρωση.
+  // Η ένωση όλων των «ταιριασμάτων» είναι ισοδύναμη με το αρχικό .some() ανά prosklisi.
+  const prosklisiExistenceIndex = useMemo(() => {
+    const byNormTitle = new Set();
+    const byProjectId = new Set();
+    (proskliseis || []).forEach((prosklisi) => {
+      if (prosklisi.title) byNormTitle.add(normalizeText(prosklisi.title));
+      if (Array.isArray(prosklisi.linkedProjects)) {
+        prosklisi.linkedProjects.forEach((linkedProject) => {
+          if (linkedProject.id) byProjectId.add(linkedProject.id);
+          if (linkedProject.title) byNormTitle.add(normalizeText(linkedProject.title));
+        });
+      }
+    });
+    return { byNormTitle, byProjectId };
+  }, [proskliseis]);
+
   // Check if there's a prosklisi for a specific project title or linked projects
   const hasProsklisiForProject = (projectTitle, projectId) => {
     const normTitle = normalizeText(projectTitle);
-    return proskliseis.some(prosklisi => {
-      if (normalizeText(prosklisi.title) === normTitle) return true;
-      if (prosklisi.linkedProjects && Array.isArray(prosklisi.linkedProjects)) {
-        return prosklisi.linkedProjects.some(linkedProject =>
-          linkedProject.id === projectId || normalizeText(linkedProject.title) === normTitle
-        );
-      }
-      return false;
-    });
+    return prosklisiExistenceIndex.byNormTitle.has(normTitle) || prosklisiExistenceIndex.byProjectId.has(projectId);
   };
 
   // Get the prosklisi for a specific project title or linked projects
@@ -5567,6 +5663,19 @@ const handleDeleteProject = async (projectId, subprojectId) => {
     () => getViolationSubprojectIds(directAssignmentViolations),
     [directAssignmentViolations]
   );
+
+  // Ευρετήριο «αδελφών» υποέργων ανά ρίζα ΚΗΜΔΗΣ αιτήματος — υπολογίζεται μία φορά
+  // (όχι ανά κάρτα) ώστε να αποφευχθεί O(N²) σάρωση σε μεγάλα χαρτοφυλάκια (Φάση 1).
+  const actRootSiblingsIndex = useMemo(() => {
+    const map = new Map();
+    (projects || []).forEach((p) => {
+      const root = getSubprojectActRootReq(p);
+      if (!root) return;
+      if (!map.has(root)) map.set(root, []);
+      map.get(root).push(p);
+    });
+    return map;
+  }, [projects]);
 
   const handleExportSubprojectReport = useCallback(async (project) => {
     try {
@@ -5945,7 +6054,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                         {subprojects
                           .sort((a, b) => a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' }))
                           .map(project => {
-                            const linkedProsklisi = findLinkedProsklisi(project.subprojectId, project.projectTitle);
+                            const linkedProsklisi = findLinkedProsklisi(project.subprojectId);
                             const isLocked = project.isLocked || false;
                             return (
                               <ProjectCard
@@ -5953,24 +6062,23 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                                 project={project}
                                 userRole={userRole}
                                 onEdit={handleEditProject}
-                                onDelete={canManageAll ? handleDeleteProject : undefined}
                                 onViewFile={handleViewFile}
                                 onDownloadFile={handleDownloadFile}
                                 onDeleteFile={handleDeleteFile}
                                 onOpenFileManager={handleOpenFileManager}
                                 onOpenEntaxis={handleOpenEntaxis}
-                                onOpenEgkriseis={() => handleOpenEgkriseis(project.projectTitle, project.subprojectTitle, project.subprojectId)}
+                                onOpenEgkriseis={handleOpenEgkriseis}
                                 hasCreditApproval={hasCreditApproval(project.projectTitle, project.subprojectTitle, project.subprojectId)}
-                                hasLinkedEgkrisi={hasLinkedEgkrisi(project.subprojectId, project.subprojectTitle)}
+                                hasLinkedEgkrisi={hasLinkedEgkrisi(project.subprojectId)}
                                 linkedProsklisi={linkedProsklisi}
                                 onOpenLinkedProsklisi={handleOpenLinkedProsklisi}
                                 isLocked={isLocked}
                                 hasEntaxi={hasEntaxiForSubproject(project.subprojectId)}
-                                onOpenSpecificEntaxi={() => handleOpenSpecificEntaxi(project.subprojectId)}
+                                onOpenSpecificEntaxi={handleOpenSpecificEntaxi}
                                 hasProsklisi={hasProsklisiForProject(project.projectTitle, project.projectId)}
-                                onOpenSpecificProsklisi={() => handleOpenSpecificProsklisi(project.projectTitle, project.projectId)}
+                                onOpenSpecificProsklisi={handleOpenSpecificProsklisi}
                                 hasMeleti={hasMeletiForSubproject(project.subprojectId)}
-                                onOpenSpecificMeleti={() => handleOpenSpecificMeleti(project.subprojectId)}
+                                onOpenSpecificMeleti={handleOpenSpecificMeleti}
                                 onViewDetails={openSubprojectDetail}
                                 engineerCatalog={engineerCatalogForCards}
                                 linkedNotesMap={linkedNotesMap}
@@ -5981,7 +6089,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                                 epLinkedAction={epSubprojectMap[project.subprojectId] || null}
                                 hasDirectAssignmentViolation={directAssignmentViolationSubprojectIds.has(project.subprojectId)}
                                 onExportReport={handleExportSubprojectReport}
-                                allSubprojects={projects}
+                                actRootSiblingsIndex={actRootSiblingsIndex}
                                 onContractExpiryAccept={canManageWorkflow ? handleContractExpiryAccept : undefined}
                               />
                             );
@@ -6429,35 +6537,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           setEditingProject(null);
         }}
         onSave={handleSaveProject}
-        onDelete={canManageAll ? async (projectId, subprojectId) => {
-          if (!projectId || !subprojectId) {
-            showToast('Σφάλμα: Μη έγκυρα δεδομένα για διαγραφή', 'error');
-            return;
-          }
-          if (await showConfirm({ title: 'Διαγραφή Υποέργου', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το υποέργο;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
-            try {
-              // Ξεκλείδωμα πριν τη διαγραφή
-              if (editingProject && editingProject.projectId) {
-                await ipcRenderer.invoke('unlock-project', editingProject.projectId);
-              }
-              const result = await ipcRenderer.invoke('delete-subproject', projectId, subprojectId);
-              if (result.success) {
-                setIsFormOpen(false);
-                setEditingProject(null);
-                setProjects([]);
-                setFilteredProjects([]);
-                await loadProjects();
-                await loadLinkedEgkriseis();
-                refreshKhmdhsStaleCount();
-                showToast('Το υποέργο διαγράφηκε επιτυχώς!', 'success');
-              } else {
-                showToast('Σφάλμα κατά τη διαγραφή: ' + result.error, 'error');
-              }
-            } catch (error) {
-              showToast('Σφάλμα κατά τη διαγραφή: ' + error.message, 'error');
-            }
-          }
-        } : undefined}
+        onDelete={canManageAll ? (projectId, subprojectId) => handleDeleteProject(projectId, subprojectId, {
+          unlockProjectId: editingProject?.projectId,
+          closeForm: true,
+        }) : undefined}
         editingProject={editingProject}
         userRole={userRole}
         allProjects={projects}

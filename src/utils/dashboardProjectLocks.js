@@ -21,6 +21,21 @@ export async function fetchProjectLockMap(ipcRenderer, projects) {
   const uniqueIds = getUniqueProjectIds(projects);
   if (!uniqueIds.length) return new Map();
 
+  // Ένα bulk IPC αντί για N παράλληλα (Φάση 1 βελτίωσης απόδοσης)
+  try {
+    const bulkResult = await ipcRenderer.invoke('check-projects-locks-bulk', uniqueIds);
+    if (bulkResult && bulkResult.success && bulkResult.locks) {
+      return new Map(
+        Object.entries(bulkResult.locks).map(([projectId, lockStatus]) => [
+          projectId,
+          { isLocked: !!lockStatus.locked, lockedBy: lockStatus.lockedBy || '' }
+        ])
+      );
+    }
+  } catch {
+    // fallback στην παλιά μέθοδο αν το bulk channel δεν είναι διαθέσιμο
+  }
+
   const pairs = await Promise.all(
     uniqueIds.map(async (projectId) => {
       try {
