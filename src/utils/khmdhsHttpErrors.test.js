@@ -2,6 +2,8 @@
  * @jest-environment node
  */
 const {
+  friendlyKhmdhsAdamNotFoundError,
+  summarizeKhmdhsFetchFailure,
   friendlyKhmdhsTransientHttpError,
   friendlyKhmdhsInvalidResponseError,
   resolveKhmdhsHttpError,
@@ -25,5 +27,20 @@ describe('khmdhsHttpErrors', () => {
 
   test('resolveKhmdhsHttpError prefers transient over raw HTTP code', () => {
     expect(resolveKhmdhsHttpError('HTTP 429', 429)).toMatch(/πολλά αιτήματα/i);
+  });
+
+  test('ADAM not found explains portal delay and next steps', () => {
+    const msg = friendlyKhmdhsAdamNotFoundError({ adam: '26REQ019495415', kind: 'request' });
+    expect(msg).toMatch(/26REQ019495415/);
+    expect(msg).toMatch(/αίτημα/i);
+    expect(msg).toMatch(/ανοικτά δεδομένα/i);
+    expect(msg).toMatch(/μόλις αναρτήθηκε/i);
+    expect(msg).toMatch(/δοκιμάστε ξανά αργότερα/i);
+    expect(msg).toMatch(/δεν χρειάζεται να διαγράψετε/i);
+  });
+
+  test('summarizeKhmdhsFetchFailure shortens not-found for report header', () => {
+    const full = friendlyKhmdhsAdamNotFoundError({ adam: '26REQ019495415' });
+    expect(summarizeKhmdhsFetchFailure(full)).toMatch(/δεν είναι ακόμα διαθέσιμος/i);
   });
 });

@@ -15,6 +15,7 @@ import {
   registryEntryIsAlreadyRecorded,
   mergeKhmdhsDocumentRegistry,
 } from '../utils/khmdhsDocumentRegistry';
+import { summarizeKhmdhsFetchFailure } from '../utils/khmdhsFetchFailureSummary';
 
 const ipcRenderer = window.electronAPI;
 
@@ -947,7 +948,11 @@ export function KhmdhsBatchReportModal({
                   border="#fca5a5"
                   bg="#fef2f2"
                   icon="❌"
-                  meta={item.phase === 'lock' ? 'Κλειδωμένο από άλλον χρήστη' : 'Δεν ολοκληρώθηκε η ανανέωση'}
+                  meta={
+                    item.phase === 'lock'
+                      ? 'Κλειδωμένο από άλλον χρήστη'
+                      : summarizeKhmdhsFetchFailure(item.error || item.reason)
+                  }
                   onNavigate={goTo}
                 />
               ))}

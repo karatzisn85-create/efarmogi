@@ -75,6 +75,7 @@ const EmailSendHistory = lazy(() => import('./EmailSendHistory'));
 const RoleDashboardWidget = lazy(() => import('./RoleDashboardWidget'));
 const KhmdhsBatchRefreshWidget = lazy(() => import('./KhmdhsBatchRefreshWidget'));
 const MunicipalUnitsManager = lazy(() => import('./MunicipalUnitsManager'));
+const SubprojectExcelImportModal = lazy(() => import('./SubprojectExcelImportModal'));
 const TaskAssignmentManager = lazy(() => import('./TaskAssignmentManager'));
 const EpProgramManager = lazy(() => import('./EpProgramManager'));
 const OrimanthiManager = lazy(() => import('./OrimanthiManager'));
@@ -2854,6 +2855,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isMyNotifPrefsOpen, setIsMyNotifPrefsOpen] = useState(false);
   const [isEmailHistoryOpen, setIsEmailHistoryOpen] = useState(false);
   const [isMunicipalUnitsOpen, setIsMunicipalUnitsOpen] = useState(false);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isTaskAssignmentsOpen, setIsTaskAssignmentsOpen] = useState(false);
   const [taskAssignmentInitialScreen, setTaskAssignmentInitialScreen] = useState('workspace');
   const [taskAssignmentsFocusTaskId, setTaskAssignmentsFocusTaskId] = useState(null);
@@ -4304,6 +4306,9 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           await loadProjects();
           // Also reload linked egkriseis to update the UI
           await loadLinkedEgkriseis();
+          // Ο μετρητής «χρειάζονται ανανέωση» σαρώνει τον δίσκο — πρέπει να ξαναϋπολογιστεί
+          // αλλιώς μένει παλιά ένδειξη μετά τη διαγραφή.
+          refreshKhmdhsStaleCount();
           showToast('Το υποέργο διαγράφηκε επιτυχώς!', 'success');
         } else {
           console.error('Deletion failed:', result.error);
@@ -6341,6 +6346,10 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                     <AdminButtonIcon>🏘</AdminButtonIcon>
                     Δημοτικές Ενότητες
                   </AdminButton>
+                  <AdminButton onClick={() => setIsExcelImportOpen(true)}>
+                    <AdminButtonIcon>📥</AdminButtonIcon>
+                    Μαζική Εισαγωγή από Excel
+                  </AdminButton>
                 </>
               )}
             </CategoryBody>
@@ -6439,6 +6448,7 @@ const handleDeleteProject = async (projectId, subprojectId) => {
                 setFilteredProjects([]);
                 await loadProjects();
                 await loadLinkedEgkriseis();
+                refreshKhmdhsStaleCount();
                 showToast('Το υποέργο διαγράφηκε επιτυχώς!', 'success');
               } else {
                 showToast('Σφάλμα κατά τη διαγραφή: ' + result.error, 'error');
@@ -7116,6 +7126,26 @@ const handleDeleteProject = async (projectId, subprojectId) => {
           <MunicipalUnitsManager
             onClose={() => setIsMunicipalUnitsOpen(false)}
             currentUser={currentUser}
+          />
+        </Suspense>
+      )}
+
+      {isExcelImportOpen && isSuperAdmin && (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
+          <SubprojectExcelImportModal
+            onClose={() => setIsExcelImportOpen(false)}
+            currentUser={currentUser}
+            onImported={async (importResult) => {
+              await loadDataWithCache(true);
+              // Μετά από πλήρη διαγραφή+εισαγωγή, η παλιά αναφορά ΚΗΜΔΗΣ αναφέρεται σε διαγραμμένα
+              if (importResult?.wipeExisting) {
+                setBatchReportResults(null);
+                setBatchPendingItems([]);
+                setKhmdhsLastRun(null);
+                await clearPersistedKhmdhsBatchReport();
+              }
+              refreshKhmdhsStaleCount();
+            }}
           />
         </Suspense>
       )}

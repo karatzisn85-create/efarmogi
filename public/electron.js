@@ -28,6 +28,7 @@ const {
   sendWorkspaceActivityEmail,
   sendTestEmail
 } = require('./taskAssignmentEmailService');
+const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -1964,6 +1965,259 @@ async function handleSaveProjectData(event, projectData) {
 ipcMain.handle('save-project-data', handleSaveProjectData);
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Μαζική εισαγωγή έργων/υποέργων από Excel (ΜΟΝΟ SUPERADMIN)
+//  Χρησιμοποιεί το αυτόνομο module public/subprojectExcelImport.js
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Χάρτης υπαρχόντων υποέργων ανά κλειδί (τίτλος έργου|||τίτλος υποέργου) → {projectId, subprojectId}. */
+async function buildExistingSubprojectKeyMap() {
+  const importer = require('./subprojectExcelImport');
+  const existing = await loadAllProjects();
+  const map = new Map();
+  for (const p of existing) {
+    const key = `${importer.normalizeTitleKey(p.projectTitle)}|||${importer.normalizeTitleKey(p.subprojectTitle)}`;
+    if (!map.has(key)) {
+      map.set(key, { projectId: p.projectId, subprojectId: p.subprojectId });
+    }
+  }
+  return map;
+}
+
+/** Ανάγνωση + έλεγχος αρχείου Excel· επιστρέφει δομημένη αναφορά προεπισκόπησης. */
+async function buildSubprojectImportReport(filePath) {
+  const importer = require('./subprojectExcelImport');
+  const buffer = fs.readFileSync(filePath);
+  const parsed = await importer.parseImportWorkbookBuffer(buffer);
+  const fundingEnums = getLiveFundingEnumsForImport();
+  const validation = importer.validateAllRows(parsed.rows, { fundingEnums });
+
+  const existingKeyMap = await buildExistingSubprojectKeyMap();
+  const existingDuplicates = validation.validRows
+    .filter((vr) => existingKeyMap.has(vr.dupKey))
+    .map((vr) => ({
+      excelRow: vr.excelRow,
+      projectTitle: vr.project.projectTitle,
+      subprojectTitle: vr.project.subprojectTitle,
+    }));
+
+  return {
+    versionOk: parsed.versionOk,
+    parseErrors: parsed.parseErrors || [],
+    totalRows: validation.count,
+    validCount: validation.validRows.length,
+    errorRows: validation.errors,
+    existingCount: existingKeyMap.size,
+    existingDuplicates,
+    validation,
+    existingKeyMap,
+  };
+}
+
+ipcMain.handle('export-subprojects-import-template', async () => {
+  try {
+    if (!isSuperAdminUser(loggedInUsername)) {
+      return { success: false, error: 'Μόνο ο υπερδιαχειριστής μπορεί να δημιουργήσει το πρότυπο εισαγωγής.' };
+    }
+    const ExcelJS = require('exceljs');
+    const importer = require('./subprojectExcelImport');
+    const fundingEnums = getLiveFundingEnumsForImport();
+    const wb = importer.buildTemplateWorkbook(ExcelJS, { fundingEnums });
+    const stamp = new Date().toISOString().slice(0, 10);
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Αποθήκευση προτύπου αρχικής εισαγωγής',
+      defaultPath: `ERGOHUB_Εισαγωγη_Εργων_${stamp}.xlsx`,
+      filters: [{ name: 'Αρχεία Excel', extensions: ['xlsx'] }],
+    });
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true };
+    }
+    await wb.xlsx.writeFile(result.filePath);
+    logAuditAction({
+      type: 'export',
+      entityType: 'subproject',
+      entityId: 'bulk-import-template',
+      entityTitle: 'Πρότυπο μαζικής εισαγωγής',
+      details: 'Δημιουργία προτύπου Excel για αρχική εισαγωγή έργων & υποέργων',
+    });
+    return { success: true, filePath: result.filePath };
+  } catch (e) {
+    logger.error('export-subprojects-import-template failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('select-subprojects-import-xlsx', async () => {
+  try {
+    if (!isSuperAdminUser(loggedInUsername)) {
+      return { success: false, error: 'Μόνο ο υπερδιαχειριστής μπορεί να εισάγει έργα από Excel.' };
+    }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Επιλογή συμπληρωμένου αρχείου Excel',
+      properties: ['openFile'],
+      filters: [{ name: 'Αρχεία Excel', extensions: ['xlsx'] }],
+    });
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+    return { success: true, filePath: result.filePaths[0], fileName: path.basename(result.filePaths[0]) };
+  } catch (e) {
+    logger.error('select-subprojects-import-xlsx failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('preview-subprojects-excel-import', async (_event, { filePath } = {}) => {
+  try {
+    if (!isSuperAdminUser(loggedInUsername)) {
+      return { success: false, error: 'Μόνο ο υπερδιαχειριστής μπορεί να εισάγει έργα από Excel.' };
+    }
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { success: false, error: 'Δεν βρέθηκε το επιλεγμένο αρχείο.' };
+    }
+    const report = await buildSubprojectImportReport(filePath);
+    return {
+      success: true,
+      fileName: path.basename(filePath),
+      versionOk: report.versionOk,
+      parseErrors: report.parseErrors,
+      totalRows: report.totalRows,
+      validCount: report.validCount,
+      errorRows: report.errorRows,
+      existingCount: report.existingCount,
+      existingDuplicates: report.existingDuplicates,
+    };
+  } catch (e) {
+    logger.error('preview-subprojects-excel-import failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) => {
+  try {
+    if (!isSuperAdminUser(loggedInUsername)) {
+      return { success: false, error: 'Μόνο ο υπερδιαχειριστής μπορεί να εισάγει έργα από Excel.' };
+    }
+    const { filePath, wipeExisting = false, duplicatePolicy = 'skip' } = payload;
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { success: false, error: 'Δεν βρέθηκε το επιλεγμένο αρχείο.' };
+    }
+    if (!['skip', 'update', 'create'].includes(duplicatePolicy)) {
+      return { success: false, error: 'Μη έγκυρη πολιτική διπλοτύπων.' };
+    }
+
+    // Επαναϋπολογισμός από τον δίσκο (δεν εμπιστευόμαστε δεδομένα από τον renderer)
+    const report = await buildSubprojectImportReport(filePath);
+
+    if (report.parseErrors.length > 0) {
+      return { success: false, error: 'Το αρχείο δεν διαβάστηκε σωστά.', report: { parseErrors: report.parseErrors } };
+    }
+    if (report.errorRows.length > 0) {
+      return {
+        success: false,
+        error: 'Υπάρχουν γραμμές με λάθη. Διορθώστε το αρχείο και ξαναδοκιμάστε.',
+        report: { errorRows: report.errorRows },
+      };
+    }
+    if (report.validCount === 0) {
+      return { success: false, error: 'Δεν βρέθηκαν έγκυρες γραμμές προς εισαγωγή.' };
+    }
+
+    // Πλήρης διαγραφή υπαρχόντων (προαιρετικά)
+    let deletedProjects = 0;
+    if (wipeExisting) {
+      // Σαρώνει όλους τους φακέλους έργων στον δίσκο (όχι μόνο όσα περνούν το
+      // φίλτρο τίτλων του loadAllProjects) ώστε να μην μείνουν ορφανά data.json
+      // που μετά μετρούν ως «χρειάζονται ανανέωση ΚΗΜΔΗΣ».
+      let rootDirs = [];
+      try { rootDirs = fs.readdirSync(dataDir); } catch { rootDirs = []; }
+      for (const dirName of rootDirs) {
+        if (DATA_DIR_SKIP_ROOT_DIRS.has(dirName)) continue;
+        const dir = path.join(dataDir, dirName);
+        try {
+          if (!fs.statSync(dir).isDirectory()) continue;
+          // Διαγράφουμε μόνο φακέλους που μοιάζουν με έργο (έχουν υποφάκελο με data.json)
+          let looksLikeProject = false;
+          try {
+            for (const sub of fs.readdirSync(dir)) {
+              if (fs.existsSync(path.join(dir, sub, 'data.json'))) {
+                looksLikeProject = true;
+                break;
+              }
+            }
+          } catch { /* ignore */ }
+          if (!looksLikeProject) continue;
+          fs.rmSync(dir, { recursive: true, force: true });
+          deletedProjects += 1;
+        } catch (delErr) {
+          logger.error('commit-subprojects-excel-import: delete failed for ' + dirName, delErr);
+        }
+      }
+      // Καθαρισμός παλιάς αναφοράς μαζικής ανανέωσης (αναφέρεται σε διαγραμμένα υποέργα)
+      try {
+        const reportPath = path.join(dataDir, 'config', 'khmdhs-batch-report.json');
+        if (fs.existsSync(reportPath)) fs.unlinkSync(reportPath);
+      } catch { /* ignore */ }
+      logAuditAction({
+        type: 'delete',
+        entityType: 'subproject',
+        entityId: 'bulk-import-wipe',
+        entityTitle: 'Πλήρης διαγραφή πριν την εισαγωγή',
+        details: `Διαγράφηκαν ${deletedProjects} έργα πριν τη μαζική εισαγωγή`,
+      });
+    }
+
+    // Χάρτης διπλοτύπων (ξαναφτιάχνεται μετά από πιθανή διαγραφή)
+    const existingKeyMap = wipeExisting ? new Map() : await buildExistingSubprojectKeyMap();
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    const failed = [];
+
+    for (const vr of report.validation.validRows) {
+      const isDuplicate = existingKeyMap.has(vr.dupKey);
+      if (isDuplicate && duplicatePolicy === 'skip') {
+        skipped += 1;
+        continue;
+      }
+      const projectData = { ...vr.project };
+      let isUpdate = false;
+      if (isDuplicate && duplicatePolicy === 'update') {
+        const target = existingKeyMap.get(vr.dupKey);
+        projectData.projectId = target.projectId;
+        projectData.subprojectId = target.subprojectId;
+        isUpdate = true;
+      }
+      // 'create' ή νέο: χωρίς ids → δημιουργία & αυτόματη ομαδοποίηση ανά τίτλο έργου
+      try {
+        const res = await handleSaveProjectData(null, projectData);
+        if (res && res.success) {
+          if (isUpdate) updated += 1; else created += 1;
+        } else {
+          failed.push({ excelRow: vr.excelRow, error: (res && res.error) || 'άγνωστο σφάλμα' });
+        }
+      } catch (rowErr) {
+        failed.push({ excelRow: vr.excelRow, error: rowErr.message });
+      }
+    }
+
+    logAuditAction({
+      type: 'create',
+      entityType: 'subproject',
+      entityId: 'bulk-import',
+      entityTitle: 'Μαζική εισαγωγή από Excel',
+      details: `Εισαγωγή από Excel — νέα: ${created}, ενημερώσεις: ${updated}, παραλείψεις: ${skipped}, αποτυχίες: ${failed.length}${wipeExisting ? `, διαγραφή: ${deletedProjects}` : ''}`,
+    });
+
+    return { success: true, created, updated, skipped, failed, deletedProjects, wipeExisting };
+  } catch (e) {
+    logger.error('commit-subprojects-excel-import failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+
 /**
  * Κανονικοποίηση τίτλου έργου για σύγκριση (ίδια λογική παντού: φόρμα, find-by-title, αποθήκευση).
  * Συμπτύσσει whitespace ώστε «ίδιος» τίτλος να μην δημιουργεί διπλό φάκελο έργου.
@@ -2021,7 +2275,8 @@ const loadAllProjects = async () => {
     }
 
     const projectDirs = fs.readdirSync(dataDir);
-    const skipRoot = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'egkriseis_links', 'subproject_links', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ']);
+    // Πλήρης λίστα: αναθέσεις, μελέτες, config κ.λπ. — όχι μόνο εντάξεις/προσκλήσεις
+    const skipRoot = DATA_DIR_SKIP_ROOT_DIRS;
 
     let scanned = 0;
     let skipped = 0;
@@ -2047,6 +2302,13 @@ const loadAllProjects = async () => {
 
             const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
             normalizeProjectTypeField(data);
+
+            // Χωρίς τίτλους δεν είναι έγκυρο υποέργο — χωρίς θόρυβο στο τερματικό
+            const pTitle = data.projectTitle == null ? '' : String(data.projectTitle).trim();
+            const sTitle = data.subprojectTitle == null ? '' : String(data.subprojectTitle).trim();
+            if (!pTitle || !sTitle || pTitle === 'undefined' || sTitle === 'undefined') {
+              continue;
+            }
 
             // Add lock information to project data
             data.isLocked = lockStatus.locked;
@@ -2085,20 +2347,6 @@ const loadAllProjects = async () => {
                 data.remainingAmount = sortedEntries[0].amount || '';
                 data.remainingAmountYear = sortedEntries[0].year || '';
               }
-            }
-
-            // Skip projects with undefined or empty titles
-            if (!data.projectTitle || !data.subprojectTitle ||
-                data.projectTitle === 'undefined' || data.subprojectTitle === 'undefined' ||
-                data.projectTitle.trim() === '' || data.subprojectTitle.trim() === '') {
-              // Keep this log to diagnose problematic entries but continue
-              console.log('Skipping project with undefined/empty title:', {
-                projectId: data.projectId,
-                subprojectId: data.subprojectId,
-                projectTitle: data.projectTitle,
-                subprojectTitle: data.subprojectTitle
-              });
-              continue;
             }
 
             projects.push(data);
@@ -2952,7 +3200,12 @@ ipcMain.handle('batch-khmdhs-refresh-eligible', async (_event, { actingUsername 
             try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
             const sid = project.subprojectId;
             if (!sid) continue;
-            const label = project.subprojectTitle || sid;
+            // Ίδιο φίλτρο με loadAllProjects: χωρίς τίτλους δεν εμφανίζονται στο Dashboard
+            // και δεν πρέπει να μετράνε ως επιλέξιμα για μαζική ανανέωση.
+            const pTitle = String(project.projectTitle || '').trim();
+            const sTitle = String(project.subprojectTitle || '').trim();
+            if (!pTitle || !sTitle || pTitle === 'undefined' || sTitle === 'undefined') continue;
+            const label = sTitle || sid;
 
             if (refreshSeed.isKhmdhsChainClosedSubproject(project)) {
               skipped.push({ id: sid, label, reason: 'Ολοκληρωμένο' });
@@ -3042,6 +3295,11 @@ ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = 7, acting
             try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
             const sid = project.subprojectId;
             if (!sid) continue;
+            // Ίδιο φίλτρο με loadAllProjects — ορφανά/κενά records δεν εμφανίζονται στη λίστα
+            // αλλά παλιά μετρούσαν εδώ και έδειχναν «χρειάζονται ανανέωση» χωρίς έργο στην οθόνη.
+            const pTitle = String(project.projectTitle || '').trim();
+            const sTitle = String(project.subprojectTitle || '').trim();
+            if (!pTitle || !sTitle || pTitle === 'undefined' || sTitle === 'undefined') continue;
             if (refreshSeed.isKhmdhsChainClosedSubproject(project)) continue;
             const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
             if (!seedInfo.adam) continue;
@@ -3052,7 +3310,7 @@ ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = 7, acting
               const ageDays = Math.round((Date.now() - (ts || Date.now())) / (24 * 60 * 60 * 1000));
               stale.push({
                 id: sid,
-                label: project.subprojectTitle || sid,
+                label: sTitle || sid,
                 lastRefreshed: lastRefresh || null,
                 ageDays: ts ? ageDays : null,
               });
@@ -10460,7 +10718,7 @@ ipcMain.handle('get-notes-linked-entities', async () => {
 ipcMain.handle('get-all-entity-names', async () => {
   try {
     const entities = [];
-    const skipRoot = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'egkriseis_links', 'subproject_links', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'ΣΗΜΕΙΩΣΕΙΣ', 'ANATHESEIS_ERGASION', 'ΥΠΟΔΕΙΓΜΑΤΑ_ΕΓΓΡΑΦΩΝ', 'ΜΕΛΕΤΕΣ', 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'config']);
+    const skipRoot = DATA_DIR_SKIP_ROOT_DIRS;
     const seenProjects = new Set();
 
     if (fs.existsSync(dataDir)) {
@@ -13314,8 +13572,6 @@ ipcMain.handle('refocus-window', (_event) => {
 // FUNDING OPTIONS IPC HANDLERS
 // ============================================================
 
-const fundingOptionsPath = path.join(dataDir, 'funding_options.json');
-
 // Built-in defaults — αντιγραφή από formOptions.js (δεν γίνεται require του renderer bundle)
 const BUILT_IN_FUNDING_SOURCES = [
   'ΠΡΟΓΡΑΜΜΑ ΑΝΤΩΝΗΣ ΤΡΙΤΣΗΣ',
@@ -13339,9 +13595,14 @@ const BUILT_IN_FUNDING_DETAILS = {
   'ΛΟΙΠΑ ΠΡΟΓΡΑΜΜΑΤΑ ή ΠΟΡΟΙ': ['1001. Πράσινο Ταμείο','1002. Ταμείο Αλληλεγγύης (Υπουργείου Μετανάστευσης και Ασύλου)','1003. Ίδρυση νέων τμημάτων βρεφικής, παιδικής και βρεφονηπιακής φροντίδας','1004. ΗΛΕΚΤΡΑ: Πρόγραμμα Ενεργειακής Αναβάθμισης Δημόσιων Κτιρίων (Υπουργείου Περιβάλλοντος και Ενέργειας)','1005. θα καλυφθεί από ΚΑΠ για επενδύσεις (πρώην ΣΑΤΑ)','1006. Παραμένει κενό προς μελλοντική χρήση','1007. Εκπόνηση Τοπικών Πολεοδομικών Σχεδίων (ΤΠΣ) (Υπουργείου Περιβάλλοντος και Ενέργειας)','1099. ΙΔΙΟΙ ΠΟΡΟΙ'],
 };
 
+function getFundingOptionsPath() {
+  return dataDir ? path.join(dataDir, 'funding_options.json') : null;
+}
+
 function loadFundingOptionsFromDisk() {
   try {
-    if (fs.existsSync(fundingOptionsPath)) {
+    const fundingOptionsPath = getFundingOptionsPath();
+    if (fundingOptionsPath && fs.existsSync(fundingOptionsPath)) {
       return JSON.parse(fs.readFileSync(fundingOptionsPath, 'utf8'));
     }
   } catch (e) {
@@ -13384,6 +13645,21 @@ function mergeFundingOptions(local) {
   return { sources, details };
 }
 
+/** Ορατές πηγές/εξειδικεύσεις όπως στην κάρτα υποέργου — για πρότυπο Excel & validation εισαγωγής. */
+function getLiveFundingEnumsForImport() {
+  const local = loadFundingOptionsFromDisk();
+  const merged = mergeFundingOptions(local);
+  const visibleSources = (merged.sources || []).filter((s) => !s.hidden);
+  const FUNDING_SOURCES = visibleSources.map((s) => s.value);
+  const FUNDING_DETAILS = {};
+  for (const src of visibleSources) {
+    FUNDING_DETAILS[src.value] = (merged.details[src.value] || [])
+      .filter((d) => !d.hidden)
+      .map((d) => d.value);
+  }
+  return { FUNDING_SOURCES, FUNDING_DETAILS };
+}
+
 ipcMain.handle('load-funding-options', async () => {
   try {
     const local = loadFundingOptionsFromDisk();
@@ -13406,6 +13682,10 @@ ipcMain.handle('save-funding-options', async (_event, payload) => {
       detailOverrides: payload.detailOverrides || {},
       customDetails: payload.customDetails || {},
     };
+    const fundingOptionsPath = getFundingOptionsPath();
+    if (!fundingOptionsPath) {
+      return { success: false, error: 'Δεν έχει οριστεί φάκελος δεδομένων' };
+    }
     safeWriteJSON(fundingOptionsPath, toSave);
     return { success: true };
   } catch (e) {
@@ -16168,7 +16448,7 @@ const meletaiConfigService = require('./meletaiConfigService');
 const meletaiExportHandler = require('./meletaiExportHandler');
 const khmdhsPortfolioExportHandler = require('./khmdhsPortfolioExportHandler');
 const statisticsExportHandler = require('./statisticsExportHandler');
-const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
+// createMeletaiService + DATA_DIR_SKIP_ROOT_DIRS: require στην κορυφή του αρχείου
 
 let meletaiService = null;
 
@@ -16253,14 +16533,8 @@ function meletaiFreeChargeFilterKey(text) {
 function findSubprojectDataById(subprojectId) {
   const sid = String(subprojectId || '').trim();
   if (!sid || !dataDir || !fs.existsSync(dataDir)) return null;
-  const skipRoot = new Set([
-    'entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'egkriseis_links', 'subproject_links',
-    'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ',
-    'ΣΗΜΕΙΩΣΕΙΣ', 'ANATHESEIS_ERGASION', 'ΥΠΟΔΕΙΓΜΑΤΑ_ΕΓΓΡΑΦΩΝ',
-    'ΜΕΛΕΤΕΣ', 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'config', 'backups',
-  ]);
   for (const dir of fs.readdirSync(dataDir)) {
-    if (skipRoot.has(dir)) continue;
+    if (DATA_DIR_SKIP_ROOT_DIRS.has(dir)) continue;
     const projectPath = path.join(dataDir, dir);
     try {
       if (!fs.statSync(projectPath).isDirectory()) continue;

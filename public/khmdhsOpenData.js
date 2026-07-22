@@ -10,6 +10,7 @@ const {
   KHMDHS_VAT_RATE,
 } = require('./khmdhsVatHelper');
 const {
+  friendlyKhmdhsAdamNotFoundError,
   friendlyKhmdhsInvalidResponseError,
   friendlyKhmdhsTransientHttpError,
   resolveKhmdhsHttpError,
@@ -163,13 +164,10 @@ function buildNoticeSearchBody(referenceNumber) {
   };
 }
 
-function friendlyKhmdhsNoticeError(message, httpStatus) {
+function friendlyKhmdhsNoticeError(message, httpStatus, adam) {
   const raw = String(message || '').trim();
-  if (/no auctions found/i.test(raw)) {
-    return 'Δεν βρέθηκε προκήρυξη/πρόσκληση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ. Ελέγξτε τον κωδικό (μορφή ##PROC#########).';
-  }
-  if (httpStatus === 404) {
-    return 'Δεν βρέθηκε προκήρυξη/πρόσκληση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ.';
+  if (httpStatus === 404 || /no auctions found|no notices found|δε βρέθηκε|δεν βρέθηκε/i.test(raw)) {
+    return friendlyKhmdhsAdamNotFoundError({ adam, kind: 'notice' });
   }
   return resolveKhmdhsHttpError(
     raw,
@@ -388,15 +386,14 @@ async function fetchKhmdhsNoticeByAdam(adamRaw) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
     return {
       success: false,
-      error: friendlyKhmdhsNoticeError(typeof msg === 'string' ? msg : String(msg), res.status)
+      error: friendlyKhmdhsNoticeError(typeof msg === 'string' ? msg : String(msg), res.status, adam),
     };
   }
   const content = json.content;
   if (!Array.isArray(content) || content.length === 0) {
     return {
       success: false,
-      error:
-        'Δεν βρέθηκε προκήρυξη/πρόσκληση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ. Ελέγξτε τον κωδικό ή δοκιμάστε αργότερα.'
+      error: friendlyKhmdhsAdamNotFoundError({ adam, kind: 'notice' }),
     };
   }
   const upper = adam.toUpperCase();
@@ -465,14 +462,15 @@ function pickKhmdhsRequestSnapshot(snapshot) {
   return mapped;
 }
 
-function friendlyKhmdhsRequestError(message, httpStatus) {
+function friendlyKhmdhsRequestError(message, httpStatus, adam) {
   const raw = String(message || '').trim();
   // Το API αιτημάτων συχνά επιστρέφει «No notices found» ακόμα και για REQ.
-  if (/no requests found|no request found|no notices found/i.test(raw) || /δε βρέθηκε|δεν βρέθηκε/i.test(raw)) {
-    return 'Δεν βρέθηκε αίτημα (REQ) με αυτόν τον ΑΔΑΜ στο ανοικτό API του ΚΗΜΔΗΣ. Ελέγξτε τον κωδικό ή δοκιμάστε αργότερα (η ανάρτηση στην πύλη δεν εμφανίζεται πάντα άμεσα στο API).';
-  }
-  if (httpStatus === 404) {
-    return 'Δεν βρέθηκε αίτημα (REQ) με αυτόν τον ΑΔΑΜ στο ανοικτό API του ΚΗΜΔΗΣ. Ελέγξτε τον κωδικό ή δοκιμάστε αργότερα (η ανάρτηση στην πύλη δεν εμφανίζεται πάντα άμεσα στο API).';
+  if (
+    httpStatus === 404
+    || /no requests found|no request found|no notices found/i.test(raw)
+    || /δε βρέθηκε|δεν βρέθηκε/i.test(raw)
+  ) {
+    return friendlyKhmdhsAdamNotFoundError({ adam, kind: 'request' });
   }
   return resolveKhmdhsHttpError(
     raw,
@@ -516,14 +514,14 @@ async function fetchKhmdhsRequestByAdam(adamRaw) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
     return {
       success: false,
-      error: friendlyKhmdhsRequestError(typeof msg === 'string' ? msg : String(msg), res.status),
+      error: friendlyKhmdhsRequestError(typeof msg === 'string' ? msg : String(msg), res.status, adam),
     };
   }
   const content = json.content;
   if (!Array.isArray(content) || content.length === 0) {
     return {
       success: false,
-      error: 'Δεν βρέθηκε αίτημα (REQ) με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ.',
+      error: friendlyKhmdhsAdamNotFoundError({ adam, kind: 'request' }),
     };
   }
   const upper = adam.toUpperCase();
@@ -554,13 +552,10 @@ function buildContractSearchBody(referenceNumber) {
   };
 }
 
-function friendlyKhmdhsError(message, httpStatus) {
+function friendlyKhmdhsError(message, httpStatus, adam, kind = 'contract') {
   const raw = String(message || '').trim();
-  if (/no auctions found/i.test(raw)) {
-    return 'Δεν βρέθηκε σύμβαση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ (ανοικτό API). Ελέγξτε τον κωδικό ή δοκιμάστε αργότερα.';
-  }
-  if (httpStatus === 404) {
-    return 'Δεν βρέθηκε σύμβαση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ (ανοικτό API).';
+  if (httpStatus === 404 || /no auctions found|no notices found|δε βρέθηκε|δεν βρέθηκε|not found/i.test(raw)) {
+    return friendlyKhmdhsAdamNotFoundError({ adam, kind });
   }
   return resolveKhmdhsHttpError(
     raw,
@@ -572,22 +567,8 @@ function friendlyKhmdhsError(message, httpStatus) {
 /** Μηνύματα για αποτυχία αλυσίδας ΑΔΑΜ (ισχύει για REQ/PROC/AWRD/SYMV/PAY — όχι μόνο συμβάσεις). */
 function friendlyKhmdhsChainError(message, httpStatus, adam) {
   const raw = String(message || '').trim();
-  const adamLabel = String(adam || '').trim().toUpperCase();
-  const typeMatch = /^(\d{2})([A-Z]{3,4})(\d{9})$/.exec(adamLabel);
-  const type = typeMatch ? typeMatch[2] : '';
-  const typeHint = ({
-    REQ: 'πρωτογενές / εγκεκριμένο αίτημα',
-    PROC: 'δημοσίευση',
-    AWRD: 'ανάθεση',
-    SYMV: 'σύμβαση',
-    PAY: 'πληρωμή',
-  })[type] || 'πράξη';
-
   if (httpStatus === 404 || /δε βρέθηκε|δεν βρέθηκε|not found|no auctions found|no notices found/i.test(raw)) {
-    return (
-      `Ο ΑΔΑΜ ${adamLabel || ''} (${typeHint}) δεν βρέθηκε στο ανοικτό API του ΚΗΜΔΗΣ. `
-      + 'Ελέγξτε τον κωδικό· αν μόλις αναρτήθηκε στην πύλη, δοκιμάστε ξανά αργότερα.'
-    ).replace(/\s+/g, ' ').trim();
+    return friendlyKhmdhsAdamNotFoundError({ adam, kind: 'chain' });
   }
   return resolveKhmdhsHttpError(
     raw,
@@ -744,11 +725,14 @@ async function fetchKhmdhsAuctionByAdam(adamRaw) {
   }
   if (!res.ok) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
-    return { success: false, error: friendlyKhmdhsError(typeof msg === 'string' ? msg : String(msg), res.status) };
+    return {
+      success: false,
+      error: friendlyKhmdhsError(typeof msg === 'string' ? msg : String(msg), res.status, adam, 'award'),
+    };
   }
   const content = json.content;
   if (!Array.isArray(content) || content.length === 0) {
-    return { success: false, error: 'Δεν βρέθηκε ανάθεση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ.' };
+    return { success: false, error: friendlyKhmdhsAdamNotFoundError({ adam, kind: 'award' }) };
   }
   const upper = adam.toUpperCase();
   const row = content.find((x) => String(x.referenceNumber || '').toUpperCase() === upper);
@@ -1005,14 +989,14 @@ async function fetchKhmdhsContractByAdam(adamRaw) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
     return {
       success: false,
-      error: friendlyKhmdhsError(typeof msg === 'string' ? msg : String(msg), res.status)
+      error: friendlyKhmdhsError(typeof msg === 'string' ? msg : String(msg), res.status, adam, 'contract'),
     };
   }
   const content = json.content;
   if (!Array.isArray(content) || content.length === 0) {
     return {
       success: false,
-      error: 'Δεν βρέθηκε σύμβαση με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ (ανοικτό API). Ελέγξτε τον κωδικό ή δοκιμάστε αργότερα.'
+      error: friendlyKhmdhsAdamNotFoundError({ adam, kind: 'contract' }),
     };
   }
   const upper = adam.toUpperCase();
@@ -1103,11 +1087,14 @@ async function fetchKhmdhsPaymentByAdam(adamRaw) {
   }
   if (!res.ok) {
     const msg = json.message || (json.errors && JSON.stringify(json.errors)) || `HTTP ${res.status}`;
-    return { success: false, error: friendlyKhmdhsError(typeof msg === 'string' ? msg : String(msg), res.status) };
+    return {
+      success: false,
+      error: friendlyKhmdhsError(typeof msg === 'string' ? msg : String(msg), res.status, adam, 'payment'),
+    };
   }
   const content = json.content;
   if (!Array.isArray(content) || content.length === 0) {
-    return { success: false, error: 'Δεν βρέθηκε ένταλμα πληρωμής (PAY) με αυτόν τον ΑΔΑΜ στο ΚΗΜΔΗΣ.' };
+    return { success: false, error: friendlyKhmdhsAdamNotFoundError({ adam, kind: 'payment' }) };
   }
   const upper = adam.toUpperCase();
   const row = content.find((x) => String(x.referenceNumber || '').toUpperCase() === upper);
