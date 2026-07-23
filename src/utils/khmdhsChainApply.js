@@ -24,6 +24,11 @@ import {
   mergeBranchAnchorFields,
   resolveBranchAnchorFromChain,
 } from './khmdhsBranchAnchor';
+import { mergeKhmdhsPaymentsFromChain } from './khmdhsPaymentsMerge';
+import {
+  mergeKhmdhsCommitmentsFromChain,
+  pickPrimaryCommitmentDecision,
+} from './khmdhsCommitmentsMerge';
 
 function sanitizeAdamInput(value) {
   return String(value || '')
@@ -64,7 +69,11 @@ function mergeRequestFromChain(next, chainRes, { protect = false } = {}) {
   return next;
 }
 
-function mergeCommitmentAndPaymentsFromChain(next, chainRes, { protect = false } = {}) {
+function mergeCommitmentAndPaymentsFromChain(next, chainRes, {
+  protect = false,
+  prevPayments,
+  prevCommitmentDecisions,
+} = {}) {
   const fromChain = Array.isArray(chainRes?.commitmentDecisions)
     ? chainRes.commitmentDecisions.filter((d) => d && (d.adam || d.snapshot))
     : [];
@@ -76,34 +85,48 @@ function mergeCommitmentAndPaymentsFromChain(next, chainRes, { protect = false }
   // Αν protect=true (auto-fetch παράλληλης σύμβασης), δεν αντικαθιστούμε δεσμεύσεις/πληρωμές
   // που ήδη γράφτηκαν — ελέγχουμε μόνο τον πίνακα (όχι μόνο το adam) ώστε ένα μερικό
   // αποτέλεσμα να μπορεί να αναβαθμιστεί σε πλήρη λίστα.
-  const skipCommitments = protect && next.khmdhsCommitmentDecisions?.length > 0;
-  const skipPayments = protect && next.khmdhsPayments?.length > 0;
+  const baselineCommitments = Array.isArray(prevCommitmentDecisions)
+    ? prevCommitmentDecisions
+    : next.khmdhsCommitmentDecisions;
+  const baselinePayments = Array.isArray(prevPayments)
+    ? prevPayments
+    : next.khmdhsPayments;
+  const skipCommitments = protect && baselineCommitments?.length > 0;
+  const skipPayments = protect && baselinePayments?.length > 0;
 
   if (!skipCommitments) {
-    if (allDecisions.length > 0) {
-      next.khmdhsCommitmentDecisions = allDecisions;
-      // Επιλογή κύριας απόφασης: χρονολογικά πρώτη (signedDate ή submissionDate), fallback στη σειρά API
-      const sorted = [...allDecisions].sort((a, b) => {
-        const da = a?.snapshot?.signedDate || a?.snapshot?.submissionDate || '';
-        const db = b?.snapshot?.signedDate || b?.snapshot?.submissionDate || '';
-        if (da && db) return da < db ? -1 : da > db ? 1 : 0;
-        if (da) return -1;
-        if (db) return 1;
-        return 0;
-      });
-      const primary = sorted[0];
-      next.khmdhsCommitmentAdam = primary.adam || '';
-      next.khmdhsCommitmentSnapshot = primary.snapshot || null;
-      next.khmdhsCommitmentFetchedAt = primary.fetchedAt || '';
-    } else if (chainRes?.commitmentDecision?.adam) {
-      next.khmdhsCommitmentAdam = chainRes.commitmentDecision.adam;
-      next.khmdhsCommitmentSnapshot = chainRes.commitmentDecision.snapshot;
-      next.khmdhsCommitmentFetchedAt = chainRes.commitmentDecision.fetchedAt;
+    const incomingCommitments = allDecisions.length > 0
+      ? allDecisions
+      : (chainRes?.commitmentDecision?.adam
+        ? [chainRes.commitmentDecision]
+        : []);
+
+    // Συγχώνευση όπως στα εντάλματα: stubs χωρίς snapshot δεν αντικαθιστούν καλές αποφάσεις
+    // και δεν προστίθενται ως «νέες» όταν αποτυγχάνουν οι λεπτομέρειες.
+    const hasBaseline = Array.isArray(baselineCommitments) && baselineCommitments.length > 0;
+    if (incomingCommitments.length > 0 || hasBaseline) {
+      const merged = mergeKhmdhsCommitmentsFromChain(
+        baselineCommitments,
+        incomingCommitments
+      );
+      if (merged.length > 0 || incomingCommitments.length > 0) {
+        next.khmdhsCommitmentDecisions = merged;
+        const primary = pickPrimaryCommitmentDecision(merged);
+        if (primary) {
+          next.khmdhsCommitmentAdam = primary.adam || '';
+          next.khmdhsCommitmentSnapshot = primary.snapshot || null;
+          next.khmdhsCommitmentFetchedAt = primary.fetchedAt || '';
+        }
+      }
     }
   }
 
   if (!skipPayments && Array.isArray(chainRes?.payments)) {
-    next.khmdhsPayments = chainRes.payments;
+    next.khmdhsPayments = mergeKhmdhsPaymentsFromChain(
+      baselinePayments,
+      chainRes.payments,
+      { skippedUnrelated: chainRes.skippedUnrelatedPayments || [] }
+    );
   }
   return next;
 }
@@ -353,7 +376,18 @@ export function applyAdamChainResult(prev, chainRes, {
       supplementaryContracts: (workingPrev.supplementaryContracts || []).filter((c) => !c?.khmdhsDerived),
     };
 
-    if (chainRes.contract) {
+    // Φάση Β: όταν η ανάκτηση είναι μερική, δεν αδειάζουμε στάδια που είχαμε ήδη σωστά.
+    // prevHadStage = είχε αποθηκευμένα στοιχεία πριν την ανάκτηση (ΑΔΑΜ ή snapshot).
+    const prevHadStage = {
+      contract: !!(workingPrev.khmdhsContractSnapshot || sanitizeAdamInput(workingPrev.khmdhsAdam)),
+      notice: !!(workingPrev.khmdhsNoticeSnapshot || sanitizeAdamInput(workingPrev.khmdhsNoticeAdam)),
+      award: !!(workingPrev.khmdhsAwardSnapshot || sanitizeAdamInput(workingPrev.khmdhsAwardAdam)),
+      request: !!(workingPrev.khmdhsRequestSnapshot || sanitizeAdamInput(workingPrev.khmdhsRequestAdam)),
+    };
+    const preservedStages = [];
+    let noticeConflict = false;
+
+    if (chainRes.contract && chainRes.contract.snapshot) {
       const ff = chainRes.contract.formFields || {};
       next.khmdhsAdam = chainRes.contract.adam;
       next.khmdhsContractSnapshot = chainRes.contract.snapshot;
@@ -371,43 +405,99 @@ export function applyAdamChainResult(prev, chainRes, {
       // Αν το ΚΗΜΔΗΣ δεν δίνει ούτε ημερομηνία ούτε ποσό, τα πεδία του χρήστη
       // (workingPrev.contractDate, workingPrev.contractAmount κ.λπ.) παραμένουν
       // από το ...workingPrev παραπάνω — χωρίς να χρειάζεται επιπλέον κώδικας.
+    } else if (prevHadStage.contract) {
+      // Η σύμβαση δεν ήρθε (ή ήρθε χωρίς στοιχεία) — διατηρούμε την προηγούμενη.
+      next.khmdhsAdam = workingPrev.khmdhsAdam || '';
+      next.khmdhsContractSnapshot = workingPrev.khmdhsContractSnapshot || null;
+      next.khmdhsContractFetchedAt = workingPrev.khmdhsContractFetchedAt || '';
+      next.khmdhsContractRoleLabel = workingPrev.khmdhsContractRoleLabel || '';
+      preservedStages.push('contract');
     }
 
-    if (chainRes.notice) {
-      next.khmdhsNoticeAdam = chainRes.notice.adam;
-      next.khmdhsNoticeSnapshot = chainRes.notice.snapshot;
-      next.khmdhsNoticeFetchedAt = chainRes.notice.fetchedAt;
-      if (chainRes.notice.mappedAssignmentProcedure) {
-        // ΚΗΜΔΗΣ βρήκε τη διαδικασία — χρησιμοποιούμε την αυτόματη τιμή.
-        next.assignmentProcedure = chainRes.notice.mappedAssignmentProcedure;
+    if (chainRes.notice && chainRes.notice.snapshot) {
+      const incoming = sanitizeAdamInput(chainRes.notice.adam);
+      const existing = sanitizeAdamInput(workingPrev.khmdhsNoticeAdam);
+      if (existing && incoming && existing !== incoming) {
+        // Ίδια πολιτική με το μονοπάτι πολλαπλών συμβάσεων: κράτα την παλιά δημοσίευση.
+        noticeConflict = true;
+        next.khmdhsNoticeAdam = workingPrev.khmdhsNoticeAdam || '';
+        next.khmdhsNoticeSnapshot = workingPrev.khmdhsNoticeSnapshot || null;
+        next.khmdhsNoticeFetchedAt = workingPrev.khmdhsNoticeFetchedAt || '';
+        if (workingPrev.khmdhsNoticeSnapshot?.mappedAssignmentProcedure) {
+          next.assignmentProcedure = workingPrev.khmdhsNoticeSnapshot.mappedAssignmentProcedure;
+        } else {
+          next.assignmentProcedure = workingPrev.assignmentProcedure || '';
+        }
+        next.contractProcessStartDate = workingPrev.contractProcessStartDate || '';
       } else {
-        // ΚΗΜΔΗΣ δεν μπόρεσε να προσδιορίσει τη διαδικασία.
-        // Διατηρούμε ό,τι είχε επιλέξει ο χρήστης (αν υπάρχει), χωρίς να το σβήνουμε.
-        next.assignmentProcedure = workingPrev.assignmentProcedure || '';
+        next.khmdhsNoticeAdam = chainRes.notice.adam;
+        next.khmdhsNoticeSnapshot = chainRes.notice.snapshot;
+        next.khmdhsNoticeFetchedAt = chainRes.notice.fetchedAt;
+        if (chainRes.notice.mappedAssignmentProcedure) {
+          // ΚΗΜΔΗΣ βρήκε τη διαδικασία — χρησιμοποιούμε την αυτόματη τιμή.
+          next.assignmentProcedure = chainRes.notice.mappedAssignmentProcedure;
+        } else {
+          // ΚΗΜΔΗΣ δεν μπόρεσε να προσδιορίσει τη διαδικασία.
+          // Διατηρούμε ό,τι είχε επιλέξει ο χρήστης (αν υπάρχει), χωρίς να το σβήνουμε.
+          next.assignmentProcedure = workingPrev.assignmentProcedure || '';
+        }
+        if (chainRes.notice.contractProcessStartDate) {
+          next.contractProcessStartDate = chainRes.notice.contractProcessStartDate;
+        } else if (chainRes.contractProcessStartDate) {
+          next.contractProcessStartDate = chainRes.contractProcessStartDate;
+        }
       }
-      if (chainRes.notice.contractProcessStartDate) {
-        next.contractProcessStartDate = chainRes.notice.contractProcessStartDate;
-      } else if (chainRes.contractProcessStartDate) {
-        next.contractProcessStartDate = chainRes.contractProcessStartDate;
-      }
+    } else if (prevHadStage.notice) {
+      // Η δημοσίευση δεν ήρθε — διατηρούμε την προηγούμενη.
+      next.khmdhsNoticeAdam = workingPrev.khmdhsNoticeAdam || '';
+      next.khmdhsNoticeSnapshot = workingPrev.khmdhsNoticeSnapshot || null;
+      next.khmdhsNoticeFetchedAt = workingPrev.khmdhsNoticeFetchedAt || '';
+      next.assignmentProcedure = workingPrev.assignmentProcedure || '';
+      next.contractProcessStartDate = workingPrev.contractProcessStartDate || '';
+      preservedStages.push('notice');
     } else if (chainRes.contractProcessStartDate) {
       next.contractProcessStartDate = chainRes.contractProcessStartDate;
     }
 
-    if (chainRes.auction?.adam) {
+    if (chainRes.auction?.adam && chainRes.auction?.snapshot) {
       next.khmdhsAwardAdam = chainRes.auction.adam;
       next.khmdhsAwardSnapshot = chainRes.auction.snapshot;
       if (chainRes.auction.fetchedAt) {
         next.khmdhsAwardFetchedAt = chainRes.auction.fetchedAt;
       }
+    } else if (prevHadStage.award) {
+      // Η ανάθεση/κατακύρωση δεν ήρθε — διατηρούμε την προηγούμενη.
+      next.khmdhsAwardAdam = workingPrev.khmdhsAwardAdam || '';
+      next.khmdhsAwardSnapshot = workingPrev.khmdhsAwardSnapshot || null;
+      next.khmdhsAwardFetchedAt = workingPrev.khmdhsAwardFetchedAt || '';
+      preservedStages.push('award');
     }
 
-    mergeRequestFromChain(next, chainRes);
-    mergeCommitmentAndPaymentsFromChain(next, chainRes);
+    if (chainRes.request && chainRes.request.snapshot) {
+      mergeRequestFromChain(next, chainRes);
+    } else if (prevHadStage.request) {
+      // Το πρωτογενές αίτημα δεν ήρθε — διατηρούμε το προηγούμενο.
+      next.khmdhsRequestAdam = workingPrev.khmdhsRequestAdam || '';
+      next.khmdhsRequestSnapshot = workingPrev.khmdhsRequestSnapshot || null;
+      next.khmdhsRequestFetchedAt = workingPrev.khmdhsRequestFetchedAt || '';
+      preservedStages.push('request');
+    }
+    // emptyKhmdhsChainFields() μηδενίζει τις πληρωμές — περνάμε τα προηγούμενα ώστε
+    // προσωρινή/μερική ανάκτηση να μην τα σβήσει.
+    mergeCommitmentAndPaymentsFromChain(next, chainRes, {
+      prevPayments: workingPrev.khmdhsPayments,
+      prevCommitmentDecisions: workingPrev.khmdhsCommitmentDecisions,
+    });
 
-    next.khmdhsContractChainHistory = chainRes.contractChainHistory || [];
-    next.khmdhsContractAmendments = chainRes.contractAmendments || [];
-    next.khmdhsAdamChainMeta = chainRes.chainMeta || null;
+    // Όταν η σύμβαση διατηρήθηκε (δεν ήρθε), κρατάμε και το ιστορικό/τροποποιήσεις της.
+    if (preservedStages.includes('contract')) {
+      next.khmdhsContractChainHistory = workingPrev.khmdhsContractChainHistory || [];
+      next.khmdhsContractAmendments = workingPrev.khmdhsContractAmendments || [];
+    } else {
+      next.khmdhsContractChainHistory = chainRes.contractChainHistory || [];
+      next.khmdhsContractAmendments = chainRes.contractAmendments || [];
+    }
+    next.khmdhsAdamChainMeta = chainRes.chainMeta || workingPrev.khmdhsAdamChainMeta || null;
     // Πρώτο πέρασμα: merge review χωρίς reconcile — το reconcile γίνεται ΜΕΤΑ
     // το applyUserEditsAfterKhmdhsFetch, ώστε τα protected πεδία (π.χ. assignmentProcedure)
     // να είναι ήδη επαναφερμένα όταν υπολογίζεται το hasActionRequired.
@@ -465,7 +555,10 @@ export function applyAdamChainResult(prev, chainRes, {
 
     return {
       form: protectedForm,
-      warnings: [],
+      warnings: [
+        ...preservedStages.map((s) => `stagePreserved:${s}`),
+        ...(noticeConflict ? ['noticeConflict'] : []),
+      ],
       apeConflict,
       statusAutoUpdated,
       protectedCount,
@@ -492,7 +585,7 @@ export function applyAdamChainResult(prev, chainRes, {
   const rowWarnings = [];
   let apeConflict = null;
 
-  if (chainRes.contract) {
+  if (chainRes.contract?.snapshot) {
     const ff = chainRes.contract.formFields || {};
     const prevRow = contracts[idx];
     const userApe = hasRealStoredContractApe(workingPrev, idx)
@@ -533,6 +626,22 @@ export function applyAdamChainResult(prev, chainRes, {
         contractLabel: `Σύμβαση ${idx + 1}`,
       };
     }
+  } else if (chainRes.contract && !chainRes.contract.snapshot) {
+    // Μερική ανάκτηση σε «Πολλές Συμβάσεις»: ήρθε ΑΔΑΜ χωρίς στοιχεία.
+    // Δεν αντικαθιστούμε καλή υπάρχουσα γραμμή με null (ίδια φιλοσοφία με Φάση Β στη μία σύμβαση).
+    const prevRow = contracts[idx] || {};
+    const hadRow = !!(prevRow.khmdhsContractSnapshot || sanitizeAdamInput(prevRow.khmdhsAdam));
+    if (hadRow) {
+      contracts[idx] = { ...prevRow };
+      rowWarnings.push('stagePreserved:contract');
+    } else {
+      // Κενή γραμμή: καταγράφουμε μόνο τον ΑΔΑΜ/ετικέτα — χωρίς ψεύτικο snapshot.
+      contracts[idx] = {
+        ...prevRow,
+        khmdhsAdam: chainRes.contract.adam || prevRow.khmdhsAdam || '',
+        khmdhsContractRoleLabel: chainRes.contract.roleLabel || prevRow.khmdhsContractRoleLabel || '',
+      };
+    }
   } else {
     const parallelSiblings = resolveParallelContractSiblings(chainRes);
     const rowHasContract = parallelSiblings.length > 1
@@ -553,7 +662,8 @@ export function applyAdamChainResult(prev, chainRes, {
   }
 
   const { next: shared, warnings: sharedWarnings } = mergeSharedKhmdhsFromChain(workingPrev, chainRes, { protect: suppressSituationModal });
-  const statusAutoUpdated = chainRes.contract
+  // statusAutoUpdated μόνο όταν ήρθε πραγματική σύμβαση με στοιχεία
+  const statusAutoUpdated = chainRes.contract?.snapshot
     ? suggestProjectStatusAfterKhmdhsChain(prev.projectStatus, chainRes)
     : null;
 

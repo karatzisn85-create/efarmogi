@@ -14,6 +14,7 @@ import {
   resyncRegistryEntryTitles,
   registryEntryIsAlreadyRecorded,
   mergeKhmdhsDocumentRegistry,
+  filterRegistryCandidatesBySymvPlan,
 } from '../utils/khmdhsDocumentRegistry';
 import { summarizeKhmdhsFetchFailure } from '../utils/khmdhsFetchFailureSummary';
 
@@ -828,7 +829,7 @@ export function KhmdhsBatchReportModal({
                 <> · χωρίς ουσιώδεις διαφορές: <strong>{unchangedItems.length}</strong></>
               )}
               {attentionItems.length > 0 && (
-                <> · ενημέρωση χωρίς νέες αλλαγές (χειροκίνητες τιμές): <strong>{attentionItems.length}</strong></>
+                <> · χρειάζονται προσοχή: <strong>{attentionItems.length}</strong></>
               )}
             </StatText>
           </StatCard>
@@ -886,7 +887,7 @@ export function KhmdhsBatchReportModal({
             <>
               <SectionHeader $color="#92400e" onClick={() => toggleSection('attention')}>
                 <SectionChevron $open={openSections.attention}>▶</SectionChevron>
-                ℹ️ Ελέγχθηκαν — διατηρήθηκαν χειροκίνητες τιμές ({attentionItems.length})
+                ℹ️ Ελέγχθηκαν — χρειάζονται προσοχή ({attentionItems.length})
               </SectionHeader>
               {openSections.attention && attentionItems.map((item) => (
                 <ReportItemCard
@@ -897,7 +898,7 @@ export function KhmdhsBatchReportModal({
                   border="#fde68a"
                   bg="#fffbeb"
                   icon="ℹ️"
-                  meta="Δεν προστέθηκαν νέα δεδομένα από το ΚΗΜΔΗΣ — σεβάστηκαν χειροκίνητες τιμές που είχατε ορίσει. Δεν απαιτείται ενέργεια."
+                  meta="Ελέγχθηκε — υπάρχουν σημεία προς προσοχή (π.χ. διατηρήθηκαν υπάρχοντα δεδομένα ή χειροκίνητες τιμές). Ανοίξτε για λεπτομέρειες."
                   onNavigate={goTo}
                 />
               ))}
@@ -1297,9 +1298,12 @@ export default function KhmdhsBatchRefreshWidget({
             updatedAt: new Date().toISOString(),
           };
 
-          const freshCandidates = mergeRegistryCandidateLists(
-            collectKhmdhsRegistryCandidatesFromChainRes(res.chainRes, mergedProject.khmdhsDataQualityReview),
-            collectKhmdhsRegistryCandidatesFromProject(mergedProject)
+          const freshCandidates = filterRegistryCandidatesBySymvPlan(
+            mergeRegistryCandidateLists(
+              collectKhmdhsRegistryCandidatesFromChainRes(res.chainRes, mergedProject.khmdhsDataQualityReview, mergedProject),
+              collectKhmdhsRegistryCandidatesFromProject(mergedProject)
+            ),
+            mergedProject
           );
           if (freshCandidates.length) {
             const resyncedRegistry = resyncRegistryEntryTitles(
@@ -1307,7 +1311,7 @@ export default function KhmdhsBatchRefreshWidget({
               freshCandidates
             );
             const newCandidates = freshCandidates.filter(
-              (c) => !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
+              (c) => !c.isStub && !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
             );
             mergedProject.khmdhsDocumentRegistry = newCandidates.length
               ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newCandidates, new Date().toISOString())
@@ -1321,7 +1325,9 @@ export default function KhmdhsBatchRefreshWidget({
           const saveRes = await ipcRenderer.invoke('save-project-data', mergedProject);
           if (saveRes?.success) {
             refreshed++;
-            const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult);
+            const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
+              chainWarnings: res.chainRes?.warnings || [],
+            });
             detailItems.push({
               status: 'refreshed',
               id: item.id,
@@ -1340,7 +1346,7 @@ export default function KhmdhsBatchRefreshWidget({
             const logText = report.category === 'applied'
               ? `${item.label} — Ενημερώθηκε (${report.appliedLines.length} αλλαγές)`
               : report.category === 'attention'
-                ? `${item.label} — Διατηρήθηκαν χειροκίνητες τιμές`
+                ? `${item.label} — Ελέγχθηκε — χρειάζεται προσοχή`
                 : `${item.label} — Χωρίς ουσιώδεις διαφορές`;
             addLog(logIcon, logText);
           } else {

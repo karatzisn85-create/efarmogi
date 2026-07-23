@@ -152,8 +152,8 @@ describe('buildKhmdhsPortfolioStatistics', () => {
     expect(stats.stuckIds).not.toContain('sp-4');
   });
 
-  it('does not flag a recently signed contract without payments yet as stuck', () => {
-    const recently = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  it('does not treat contract without payments as needing attention (even when old)', () => {
+    const longAgo = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const project = {
       subprojectId: 'sp-5',
       projectTitle: 'Έργο Ε',
@@ -163,12 +163,42 @@ describe('buildKhmdhsPortfolioStatistics', () => {
       khmdhsContractSnapshot: {
         referenceNumber: '25SYMV000000002',
         contractBudget: 50000,
-        contractSignedDate: recently,
+        contractSignedDate: longAgo,
       },
     };
     const stats = buildKhmdhsPortfolioStatistics([project]);
-    expect(stats.gaps.symv_no_pay.map((g) => g.subprojectId)).not.toContain('sp-5');
+    expect(stats.gaps.symv_no_pay).toBeUndefined();
     expect(stats.stuckIds).not.toContain('sp-5');
+    expect(stats.awaitingFirstPaymentIds).toContain('sp-5');
+    expect(stats.healthBar.awaitingFirstPayment).toBe(1);
+  });
+
+  it('does not flag award/notice delays when reference date is missing', () => {
+    const awardOnly = {
+      subprojectId: 'sp-no-date-awrd',
+      projectTitle: 'Έργο',
+      subprojectTitle: 'Χωρίς ημερομηνία ανάθεσης',
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      khmdhsAwardAdam: '25AWRD000000099',
+      khmdhsAwardSnapshot: {
+        referenceNumber: '25AWRD000000099',
+      },
+    };
+    const noticeOnly = {
+      subprojectId: 'sp-no-date-proc',
+      projectTitle: 'Έργο',
+      subprojectTitle: 'Χωρίς ημερομηνία δημοσίευσης',
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      khmdhsNoticeAdam: '25PROC000000099',
+      khmdhsNoticeSnapshot: {
+        referenceNumber: '25PROC000000099',
+      },
+    };
+    const stats = buildKhmdhsPortfolioStatistics([awardOnly, noticeOnly]);
+    expect(stats.stuckIds).not.toContain('sp-no-date-awrd');
+    expect(stats.stuckIds).not.toContain('sp-no-date-proc');
+    expect(stats.gaps.awrd_no_symv.map((g) => g.subprojectId)).not.toContain('sp-no-date-awrd');
+    expect(stats.gaps.proc_no_awrd.map((g) => g.subprojectId)).not.toContain('sp-no-date-proc');
   });
 
   it('portfolio payment total respects manual actual amount corrections', () => {

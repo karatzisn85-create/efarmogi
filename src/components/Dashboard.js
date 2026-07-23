@@ -15,7 +15,8 @@ import { KhmdhsBatchReportFab, KhmdhsBatchReportModal } from './KhmdhsBatchRefre
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import {
   enrichProjectsFromLoad,
-  refreshProjectsLockStatus,
+  fetchProjectLockMap,
+  applyLockMapToProjects,
   sortProjectsForDisplay
 } from '../utils/dashboardProjectLocks';
 import { containsSearchTerm } from '../utils/searchUtils';
@@ -3183,15 +3184,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       console.log('Locks changed event received, refreshing lock status...');
       setProjects((currentProjects) => {
         if (currentProjects.length === 0) return currentProjects;
-        refreshProjectsLockStatus(ipcRenderer, currentProjects)
-          .then((updated) => {
-            const hasChanges = updated.some((p) => {
-              const prev = currentProjects.find((x) => x.subprojectId === p.subprojectId);
-              return prev && (prev.isLocked !== p.isLocked || (prev.lockedBy || '') !== (p.lockedBy || ''));
+        // Merge στο latest state — ποτέ αντικατάσταση με παλιό snapshot (θα επανέφερε διαγραμμένα).
+        fetchProjectLockMap(ipcRenderer, currentProjects)
+          .then((lockMap) => {
+            setProjects((latest) => {
+              const updated = applyLockMapToProjects(latest, lockMap);
+              const hasChanges = updated.some((p, i) => {
+                const prev = latest[i];
+                return !prev || prev.isLocked !== p.isLocked || (prev.lockedBy || '') !== (p.lockedBy || '');
+              });
+              return hasChanges ? sortProjectsForDisplay(updated) : latest;
             });
-            if (hasChanges) {
-              setProjects(sortProjectsForDisplay(updated));
-            }
           })
           .catch((error) => {
             console.error('Error updating lock status:', error);
@@ -3352,8 +3355,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, []);
 
   // Memoized applyFilters with advanced filtering and sorting
+  const applyFiltersGenerationRef = useRef(0);
   const applyFilters = useCallback((filters) => {
+    const generation = ++applyFiltersGenerationRef.current;
     const performFiltering = () => {
+      // Αγνόησε ξεπερασμένα timeouts — αλλιώς παλιά λίστα μπορεί να επαναφέρει διαγραμμένο υποέργο.
+      if (generation !== applyFiltersGenerationRef.current) return;
       let filtered = [...visibleProjects];
 
       // Quick Search - text search in all fields
@@ -3728,16 +3735,20 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         if (currentLoading) return currentLoading;
         setProjects((currentProjects) => {
           if (currentProjects.length === 0) return currentProjects;
-          refreshProjectsLockStatus(ipcRenderer, currentProjects)
-            .then((updated) => {
+          // Merge στο latest state — ποτέ αντικατάσταση με παλιό snapshot (θα επανέφερε διαγραμμένα).
+          fetchProjectLockMap(ipcRenderer, currentProjects)
+            .then((lockMap) => {
               if (!isActive) return;
-              const hasChanges = updated.some((p) => {
-                const prev = currentProjects.find((x) => x.subprojectId === p.subprojectId);
-                return prev && (prev.isLocked !== p.isLocked || (prev.lockedBy || '') !== (p.lockedBy || ''));
+              setProjects((latest) => {
+                const updated = applyLockMapToProjects(latest, lockMap);
+                const hasChanges = updated.some((p, i) => {
+                  const prev = latest[i];
+                  return !prev || prev.subprojectId !== p.subprojectId
+                    || prev.isLocked !== p.isLocked
+                    || (prev.lockedBy || '') !== (p.lockedBy || '');
+                });
+                return hasChanges ? sortProjectsForDisplay(updated) : latest;
               });
-              if (hasChanges) {
-                setProjects(sortProjectsForDisplay(updated));
-              }
             })
             .catch((error) => {
               console.error('Error checking lock status:', error);
@@ -4337,7 +4348,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   // Κοινή διαδρομή διαγραφής υποέργου (κάρτα + φόρμα) — τοπική αφαίρεση, χωρίς άδειασμα λίστας (#1, #6)
   const applyLocalSubprojectRemoval = async (subprojectId) => {
-    setProjects((prev) => prev.filter((p) => p.subprojectId !== subprojectId));
+    const keep = (p) => p.subprojectId !== subprojectId;
+    // Ακυρώνει τυχόν pending applyFilters που θα ξαναέβαζαν το διαγραμμένο στη λίστα
+    applyFiltersGenerationRef.current += 1;
+    setProjects((prev) => prev.filter(keep));
+    setFilteredProjects((prev) => prev.filter(keep));
+    // Ενημέρωση cache ώστε τυχόν επόμενο load με cache να μην επαναφέρει το διαγραμμένο
+    setDataCache((prev) => ({
+      ...prev,
+      projects: Array.isArray(prev.projects) ? prev.projects.filter(keep) : prev.projects,
+      needsRefresh: true,
+    }));
     invalidateCache();
     // Εγκρίσεις / εντάξεις / προσκλήσεις / μελέτες: ξαναφόρτωση ώστε να μην μείνουν
     // αναφορές στο διαγραμμένο υποέργο στη μνήμη (εύρημα Β).

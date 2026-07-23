@@ -1696,10 +1696,9 @@ function formatPercentInt(pct, { signed = false } = {}) {
 }
 
 const GAP_LABELS = {
-  awrd_no_symv:   { label: 'Ανάθεση χωρίς Σύμβαση', color: '#dc2626', bg: '#fef2f2', icon: '⚠️' },
-  proc_no_awrd:   { label: 'Δημοσίευση χωρίς Ανάθεση', color: '#ea580c', bg: '#fff7ed', icon: '⏳' },
+  awrd_no_symv:   { label: 'Ανάθεση χωρίς Σύμβαση', color: '#ea580c', bg: '#fff7ed', icon: '⚠️' },
+  proc_no_awrd:   { label: 'Δημοσίευση χωρίς Ανάθεση', color: '#d97706', bg: '#fffbeb', icon: '⏳' },
   proc_cancelled: { label: 'Ματαιωμένη Δημοσίευση', color: '#64748b', bg: '#f8fafc', icon: '🚫' },
-  symv_no_pay:    { label: 'Σύμβαση χωρίς Εντάλματα (εκτελούμενο)', color: '#d97706', bg: '#fffbeb', icon: '💸' },
 };
 
 function formatDateElGR(dateStr) {
@@ -2385,6 +2384,7 @@ function Statistics({
     const hb = portfolioStats.healthBar || {};
     const total = portfolioStats.total;
     const payPct = hb.payVsSymvPct;
+    const awaitingPay = hb.awaitingFirstPayment ?? portfolioStats.awaitingFirstPaymentIds?.length ?? 0;
     return (
       <PortfolioHealthBar>
         <HealthPill
@@ -2392,12 +2392,13 @@ function Statistics({
           $bg="#ecfdf5"
           $border="rgba(16,185,129,0.25)"
           onClick={() => applyPortfolioDrill('fullChain')}
-          title="Κλικ για φιλτράρισμα λίστας υποέργων"
+          title="Έως σύμβαση (τα εντάλματα μετράνε ξεχωριστά). Κλικ για φιλτράρισμα."
         >
           <HealthPillValue $color="#059669">{hb.fullChain ?? 0}</HealthPillValue>
           <HealthPillLabel>Πλήρης αλυσίδα</HealthPillLabel>
           <HealthPillSub>
-            {total > 0 ? `${Math.round((hb.fullChain / total) * 100)}%` : '—'} επί συνόλου
+            έως σύμβαση
+            {total > 0 ? ` · ${Math.round((hb.fullChain / total) * 100)}%` : ''}
           </HealthPillSub>
         </HealthPill>
         <HealthPill
@@ -2405,29 +2406,29 @@ function Statistics({
           $bg="#fffbeb"
           $border="rgba(245,158,11,0.25)"
           onClick={() => applyPortfolioDrill('inProgress')}
-          title="Κλικ για φιλτράρισμα λίστας υποέργων"
+          title="Ενδιάμεσα στάδια, εντός φυσιολογικού χρόνου. Κλικ για φιλτράρισμα."
         >
           <HealthPillValue $color="#d97706">{hb.inProgress ?? 0}</HealthPillValue>
           <HealthPillLabel>Σε εξέλιξη</HealthPillLabel>
-          <HealthPillSub>μερική αλυσίδα ΚΗΜΔΗΣ</HealthPillSub>
+          <HealthPillSub>ενδιάμεσα στάδια, εντός χρόνου</HealthPillSub>
         </HealthPill>
         <HealthPill
           type="button"
-          $bg="#fef2f2"
-          $border="rgba(220,38,38,0.2)"
+          $bg="#fff7ed"
+          $border="rgba(234,88,12,0.28)"
           onClick={() => applyPortfolioDrill('stuck')}
-          title="Κλικ για φιλτράρισμα λίστας υποέργων"
+          title="Καθυστερήσεις μεταξύ σταδίων (δημοσίευση→ανάθεση ή ανάθεση→σύμβαση) μετά το εύλογο περιθώριο. Δεν σημαίνει «χαλασμένο» έργο. Κλικ για φιλτράρισμα."
         >
-          <HealthPillValue $color="#dc2626">{hb.stuck ?? 0}</HealthPillValue>
-          <HealthPillLabel>Κολλημένα</HealthPillLabel>
-          <HealthPillSub>κενά στην αλυσίδα ΚΗΜΔΗΣ</HealthPillSub>
+          <HealthPillValue $color="#ea580c">{hb.stuck ?? 0}</HealthPillValue>
+          <HealthPillLabel>Χρειάζονται προσοχή</HealthPillLabel>
+          <HealthPillSub>καθυστερήσεις μεταξύ σταδίων</HealthPillSub>
         </HealthPill>
         <HealthPill
           type="button"
           $bg="#ecfeff"
           $border="rgba(6,182,212,0.22)"
           onClick={() => applyPortfolioDrill('withSymv')}
-          title="Κλικ για φιλτράρισμα λίστας υποέργων"
+          title="Ποσοστό ποσού πληρωμών προς ποσό συμβάσεων. Κλικ για υποέργα με σύμβαση."
         >
           <HealthPillValue $color="#0891b2">
             {payPct != null ? `${payPct}%` : '—'}
@@ -2436,9 +2437,22 @@ function Statistics({
           <HealthPillSub>
             {hb.payTotal > 0
               ? `${formatCurrencyShort(hb.payTotal)} / ${formatCurrencyShort(hb.symvTotal)}`
-              : 'χωρίς εντάλματα'}
+              : 'χωρίς εντάλματα ακόμα'}
           </HealthPillSub>
         </HealthPill>
+        {awaitingPay > 0 && (
+          <HealthPill
+            type="button"
+            $bg="#f0f9ff"
+            $border="rgba(14,165,233,0.22)"
+            onClick={() => applyPortfolioDrill('awaitingFirstPayment')}
+            title="Έχουν σύμβαση αλλά δεν έχουν ακόμα εντάλματα πληρωμής — συχνά φυσιολογικό. Κλικ για φιλτράρισμα."
+          >
+            <HealthPillValue $color="#0284c7">{awaitingPay}</HealthPillValue>
+            <HealthPillLabel>Χωρίς εντάλματα ακόμα</HealthPillLabel>
+            <HealthPillSub>με σύμβαση, χωρίς PAY</HealthPillSub>
+          </HealthPill>
+        )}
       </PortfolioHealthBar>
     );
   };
@@ -2485,7 +2499,10 @@ function Statistics({
           {/* Left: Funnel */}
           <ChainFunnelCard>
             <ChainSectionTitle>Κύκλος ζωής — Funnel σταδίων</ChainSectionTitle>
-            <ChainFunnelNote>Αριθμός υποέργων που έχουν φτάσει σε κάθε στάδιο ΚΗΜΔΗΣ</ChainFunnelNote>
+            <ChainFunnelNote>
+              Αριθμός υποέργων σε κάθε στάδιο. Η μείωση προς τα εντάλματα είναι συχνά φυσιολογική
+              (χρόνος μέχρι τον πρώτο λογαριασμό) — όχι απαραίτητα πρόβλημα.
+            </ChainFunnelNote>
             {STAGE_FUNNEL_ORDER.map((id) => {
               const meta = LIFECYCLE_STAGE_META[id] || {};
               const ids = ps.funnel[id] || [];
@@ -2557,7 +2574,7 @@ function Statistics({
         {/* ── Gaps table ───────────────────────────────────────── */}
         {Object.values(ps.gaps).some((a) => a.length > 0) && (
           <ChainGapSection>
-            <ChainSectionTitle>⚠️ Κενά αλυσίδας — υποέργα που χρειάζονται ενέργεια</ChainSectionTitle>
+            <ChainSectionTitle>Καθυστερήσεις μεταξύ σταδίων — χρειάζονται προσοχή</ChainSectionTitle>
             <GapGrid>
               {Object.entries(GAP_LABELS).map(([key, meta]) => {
                 const items = ps.gaps[key] || [];

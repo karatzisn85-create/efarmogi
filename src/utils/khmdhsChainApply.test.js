@@ -1,9 +1,87 @@
 /**
  * @jest-environment node
  */
-import { mergeSharedKhmdhsFromChain } from './khmdhsChainApply';
+import { applyAdamChainResult, mergeSharedKhmdhsFromChain } from './khmdhsChainApply';
+import { buildKhmdhsRefreshChangeReport } from './khmdhsChainRefresh';
+
+describe('applyAdamChainResult payments merge', () => {
+  test('μετά ανανέωση δεν χάνει ένταλμα που έλειπε από το νέο fetch', () => {
+    const prev = {
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: 'Έργο',
+      khmdhsPayments: [
+        {
+          adam: '26PAY000000001',
+          snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+        },
+        {
+          adam: '26PAY000000002',
+          snapshot: null,
+          error: 'πολλά αιτήματα',
+        },
+      ],
+    };
+    const chainRes = {
+      success: true,
+      payments: [
+        {
+          adam: '26PAY000000001',
+          snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+          fetchedAt: '2026-07-01T00:00:00.000Z',
+        },
+      ],
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+    };
+
+    const { form } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+
+    expect(form.khmdhsPayments).toHaveLength(2);
+    expect(form.khmdhsPayments.map((p) => p.adam).sort()).toEqual([
+      '26PAY000000001',
+      '26PAY000000002',
+    ]);
+  });
+});
 
 describe('mergeSharedKhmdhsFromChain', () => {
+  test('διατηρεί υπάρχον ένταλμα όταν το νέο fetch επιστρέφει λιγότερα', () => {
+    const prev = {
+      khmdhsPayments: [
+        {
+          adam: '26PAY000000001',
+          snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+        },
+        {
+          adam: '26PAY000000002',
+          snapshot: null,
+          error: 'πολλά αιτήματα',
+        },
+      ],
+    };
+    const chainRes = {
+      payments: [
+        {
+          adam: '26PAY000000001',
+          snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+          fetchedAt: '2026-07-01T00:00:00.000Z',
+        },
+      ],
+    };
+
+    const { next } = mergeSharedKhmdhsFromChain(prev, chainRes);
+
+    expect(next.khmdhsPayments).toHaveLength(2);
+    expect(next.khmdhsPayments.map((p) => p.adam).sort()).toEqual([
+      '26PAY000000001',
+      '26PAY000000002',
+    ]);
+  });
+
   test('διατηρεί τη χειροκίνητη διαδικασία ανάθεσης όταν το ΚΗΜΔΗΣ δεν την προσδιορίζει', () => {
     const prev = {
       khmdhsNoticeAdam: '',
@@ -39,5 +117,260 @@ describe('mergeSharedKhmdhsFromChain', () => {
     const { next } = mergeSharedKhmdhsFromChain(prev, chainRes);
 
     expect(next.assignmentProcedure).toBe('Ανοικτός διαγωνισμός');
+  });
+});
+
+describe('applyAdamChainResult — Φάση Β: διατήρηση σταδίων σε μερική ανάκτηση', () => {
+  const basePrev = {
+    projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+    implementationForm: 'Έργο',
+    khmdhsAdam: '25SYMV000000001',
+    khmdhsContractSnapshot: { referenceNumber: '25SYMV000000001' },
+    khmdhsContractFetchedAt: '2026-01-01T00:00:00.000Z',
+    khmdhsNoticeAdam: '24PROC012345678',
+    khmdhsNoticeSnapshot: { referenceNumber: '24PROC012345678' },
+    khmdhsAwardAdam: '24AWRD011111111',
+    khmdhsAwardSnapshot: { referenceNumber: '24AWRD011111111' },
+    khmdhsRequestAdam: '24REQ022222222',
+    khmdhsRequestSnapshot: { referenceNumber: '24REQ022222222' },
+  };
+
+  test('όταν λείπει η δημοσίευση από την ανάκτηση, διατηρείται η προηγούμενη', () => {
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      // notice/auction/request λείπουν (μερική ανάκτηση)
+    };
+    const { form, warnings } = applyAdamChainResult(basePrev, chainRes, { seedAdam: '25SYMV000000001' });
+    expect(form.khmdhsNoticeAdam).toBe('24PROC012345678');
+    expect(form.khmdhsNoticeSnapshot).toEqual({ referenceNumber: '24PROC012345678' });
+    expect(form.khmdhsAwardAdam).toBe('24AWRD011111111');
+    expect(form.khmdhsRequestAdam).toBe('24REQ022222222');
+    expect(warnings).toEqual(expect.arrayContaining([
+      'stagePreserved:notice',
+      'stagePreserved:award',
+      'stagePreserved:request',
+    ]));
+  });
+
+  test('όταν λείπει η σύμβαση, διατηρείται η προηγούμενη σύμβαση και το ιστορικό της', () => {
+    const prev = {
+      ...basePrev,
+      khmdhsContractChainHistory: [{ adam: '25SYMV000000001', isRoot: true }],
+      khmdhsContractAmendments: [{ adam: '25SYMV000000001' }],
+    };
+    const chainRes = {
+      success: true,
+      // contract λείπει
+      notice: {
+        adam: '24PROC012345678',
+        snapshot: { referenceNumber: '24PROC012345678' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+      },
+    };
+    const { form, warnings } = applyAdamChainResult(prev, chainRes, { seedAdam: '24PROC012345678' });
+    expect(form.khmdhsAdam).toBe('25SYMV000000001');
+    expect(form.khmdhsContractSnapshot).toEqual({ referenceNumber: '25SYMV000000001' });
+    // Το ιστορικό διατηρείται (μπορεί να εμπλουτιστεί με effectiveKind/label — δεν χάνεται).
+    expect(form.khmdhsContractChainHistory).toHaveLength(1);
+    expect(form.khmdhsContractChainHistory[0].adam).toBe('25SYMV000000001');
+    expect(form.khmdhsContractChainHistory[0].isRoot).toBe(true);
+    expect(warnings).toContain('stagePreserved:contract');
+  });
+
+  test('όταν έρθει πλήρες στάδιο, αντικαθιστά κανονικά (χωρίς preserve warning)', () => {
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      notice: {
+        adam: '24PROC012345678',
+        snapshot: { referenceNumber: '24PROC012345678' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+      },
+      auction: {
+        adam: '24AWRD011111111',
+        snapshot: { referenceNumber: '24AWRD011111111' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+      },
+      request: {
+        adam: '24REQ022222222',
+        snapshot: { referenceNumber: '24REQ022222222' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+      },
+    };
+    const { warnings } = applyAdamChainResult(basePrev, chainRes, { seedAdam: '25SYMV000000001' });
+    expect(warnings.filter((w) => String(w).startsWith('stagePreserved:'))).toHaveLength(0);
+  });
+
+  test('πρώτη ανάκτηση (χωρίς προηγούμενα) δεν παράγει preserve warnings', () => {
+    const prev = { projectStatus: '', implementationForm: 'Έργο' };
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+    };
+    const { warnings } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+    expect(warnings.filter((w) => String(w).startsWith('stagePreserved:'))).toHaveLength(0);
+  });
+
+  test('διαφορετική δημοσίευση με στοιχεία → noticeConflict, διατηρείται η παλιά', () => {
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      notice: {
+        adam: '24PROC999999999',
+        snapshot: { referenceNumber: '24PROC999999999', mappedAssignmentProcedure: 'Άλλη διαδικασία' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        mappedAssignmentProcedure: 'Άλλη διαδικασία',
+      },
+    };
+    const { form, warnings } = applyAdamChainResult(basePrev, chainRes, { seedAdam: '25SYMV000000001' });
+    expect(warnings).toContain('noticeConflict');
+    expect(form.khmdhsNoticeAdam).toBe('24PROC012345678');
+    expect(form.khmdhsNoticeSnapshot).toEqual({ referenceNumber: '24PROC012345678' });
+  });
+});
+
+describe('applyAdamChainResult — πολλαπλές συμβάσεις: προστασία γραμμής χωρίς snapshot (#1)', () => {
+  const row1 = {
+    khmdhsAdam: '25SYMV000000001',
+    khmdhsContractSnapshot: { referenceNumber: '25SYMV000000001', title: 'Σύμβαση Α' },
+    khmdhsContractFetchedAt: '2026-01-01T00:00:00.000Z',
+    khmdhsContractRoleLabel: 'Αρχική σύμβαση',
+    amount: '100.000,00',
+    date: '2025-01-15',
+    contractEndDate: '2026-01-15',
+    khmdhsContractChainHistory: [{ adam: '25SYMV000000001', isRoot: true }],
+    khmdhsContractAmendments: [{ adam: '25SYMV000000001' }],
+  };
+  const row2 = {
+    khmdhsAdam: '25SYMV000000002',
+    khmdhsContractSnapshot: { referenceNumber: '25SYMV000000002', title: 'Σύμβαση Β' },
+    amount: '50.000,00',
+    date: '2025-06-01',
+    khmdhsContractChainHistory: [{ adam: '25SYMV000000002', isRoot: true }],
+  };
+
+  const baseMulti = {
+    projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+    implementationForm: 'Πολλές Συμβάσεις',
+    contracts: [row1, row2],
+  };
+
+  test('σύμβαση χωρίς στοιχεία δεν μηδενίζει υπάρχουσα γραμμή', () => {
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: null,
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: { contractAmount: '999.999,00', contractDate: '2099-01-01' },
+      },
+    };
+    const { form, warnings, statusAutoUpdated } = applyAdamChainResult(baseMulti, chainRes, {
+      seedAdam: '25SYMV000000001',
+      contractIndex: 0,
+    });
+    expect(form.contracts[0].khmdhsContractSnapshot).toEqual(row1.khmdhsContractSnapshot);
+    expect(form.contracts[0].amount).toBe('100.000,00');
+    expect(form.contracts[0].date).toBe('2025-01-15');
+    expect(form.contracts[0].contractEndDate).toBe('2026-01-15');
+    expect(form.contracts[0].khmdhsContractRoleLabel).toBe('Αρχική σύμβαση');
+    // Το ιστορικό διατηρείται (μπορεί να εμπλουτιστεί με effectiveKind/label — δεν χάνεται).
+    expect(form.contracts[0].khmdhsContractChainHistory).toHaveLength(1);
+    expect(form.contracts[0].khmdhsContractChainHistory[0].adam).toBe('25SYMV000000001');
+    expect(form.contracts[0].khmdhsContractChainHistory[0].isRoot).toBe(true);
+    expect(form.contracts[0].khmdhsContractAmendments).toEqual(row1.khmdhsContractAmendments);
+    expect(warnings).toContain('stagePreserved:contract');
+    // Χωρίς πραγματικά στοιχεία δεν αλλάζει αυτόματα η κατάσταση έργου
+    expect(statusAutoUpdated).toBeFalsy();
+  });
+
+  test('η δεύτερη γραμμή δεν αγγίζεται όταν ανανεώνεται η πρώτη χωρίς snapshot', () => {
+    const chainRes = {
+      success: true,
+      contract: { adam: '25SYMV000000001', snapshot: null, formFields: {} },
+    };
+    const { form } = applyAdamChainResult(baseMulti, chainRes, {
+      seedAdam: '25SYMV000000001',
+      contractIndex: 0,
+    });
+    expect(form.contracts[1]).toMatchObject({
+      khmdhsAdam: '25SYMV000000002',
+      amount: '50.000,00',
+      date: '2025-06-01',
+    });
+    expect(form.contracts[1].khmdhsContractSnapshot).toEqual(row2.khmdhsContractSnapshot);
+  });
+
+  test('πλήρες snapshot ενημερώνει κανονικά τη γραμμή (χωρίς stagePreserved)', () => {
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001', title: 'Σύμβαση Α ενημερωμένη' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: { contractAmount: '120.000,00', contractDate: '2025-02-01' },
+        roleLabel: 'Αρχική σύμβαση',
+      },
+    };
+    const { form, warnings } = applyAdamChainResult(baseMulti, chainRes, {
+      seedAdam: '25SYMV000000001',
+      contractIndex: 0,
+    });
+    expect(form.contracts[0].khmdhsContractSnapshot.title).toBe('Σύμβαση Α ενημερωμένη');
+    expect(form.contracts[0].amount).toBe('120.000,00');
+    expect(form.contracts[0].date).toBe('2025-02-01');
+    expect(warnings).not.toContain('stagePreserved:contract');
+  });
+
+  test('κενή γραμμή: καταγράφεται μόνο ΑΔΑΜ, χωρίς ψεύτικο snapshot', () => {
+    const prev = {
+      ...baseMulti,
+      contracts: [{ date: '', amount: '', apeAmount: '', comments: '' }],
+    };
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000099',
+        snapshot: null,
+        roleLabel: 'Υποψήφια',
+        formFields: {},
+      },
+    };
+    const { form, warnings } = applyAdamChainResult(prev, chainRes, {
+      seedAdam: '25SYMV000000099',
+      contractIndex: 0,
+    });
+    expect(form.contracts[0].khmdhsAdam).toBe('25SYMV000000099');
+    expect(form.contracts[0].khmdhsContractSnapshot == null).toBe(true);
+    expect(warnings).not.toContain('stagePreserved:contract');
+  });
+
+  test('αναφορά: stagePreserved:contract εμφανίζεται ως προσοχή', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, {
+      warnings: ['stagePreserved:contract'],
+    });
+    expect(report.category).toBe('attention');
+    expect(report.attentionLines.some((l) => l.includes('σύμβαση') && l.includes('διατηρήθηκε'))).toBe(true);
   });
 });

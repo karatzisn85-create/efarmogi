@@ -126,21 +126,20 @@ function isFullChain(p) {
 }
 
 /**
- * Ελάχιστες ημέρες αναμονής πριν ένα ενδιάμεσο κενό αλυσίδας θεωρηθεί «κολλημένο»
- * (δηλαδή κάτι που χρήζει προσοχής) αντί για απόλυτα φυσιολογική πρόοδο διαδικασίας:
+ * Ελάχιστες ημέρες αναμονής πριν ένα ενδιάμεσο κενό αλυσίδας θεωρηθεί
+ * ότι «χρειάζεται προσοχή» (καθυστέρηση μεταξύ σταδίων), όχι φυσιολογική πρόοδος:
  * - Δημοσίευση → Ανάθεση: χρόνος αξιολόγησης προσφορών, ενστάσεων, ελέγχου νομιμότητας.
  * - Ανάθεση → Σύμβαση: στάσιμη περίοδος ενστάσεων + χρόνος υπογραφής.
- * - Σύμβαση → πρώτο ένταλμα: χρόνος έναρξης/προόδου εργασιών πριν τον πρώτο λογαριασμό.
+ * Η αναμονή πρώτου εντάλματος μετά τη σύμβαση δεν μπαίνει εδώ — είναι συχνά φυσιολογική.
  */
 const STUCK_GRACE_DAYS = {
   proc_no_awrd: 45,
   awrd_no_symv: 30,
-  symv_no_pay: 60,
 };
 
-/** Όλα τα κενά αλυσίδας για ένα υποέργο (μπορεί να έχει περισσότερα από ένα)
- *  — μόνο όσα έχουν ξεπεράσει το εύλογο χρονικό περιθώριο του σταδίου τους,
- *  ώστε να μην χαρακτηρίζεται «κολλημένο» ό,τι απλώς δεν πρόλαβε ακόμα να προχωρήσει.
+/**
+ * Κενά αλυσίδας που χρήζουν προσοχής (μπορεί περισσότερα από ένα).
+ * Χωρίς ημερομηνία αναφοράς → δεν flag-άρουμε (δεν ξέρουμε αν υπάρχει πραγματική καθυστέρηση).
  */
 function getAllStuckReasons(p) {
   const reasons = [];
@@ -148,7 +147,7 @@ function getAllStuckReasons(p) {
   if (hasAWRD(p) && !hasSYMV(p)) {
     const awrdSnap = pickKhmdhsAwardSnapshot(p?.khmdhsAwardSnapshot);
     const since = daysSince(awrdSnap?.awardDate || awrdSnap?.signedDate);
-    if (since == null || since >= STUCK_GRACE_DAYS.awrd_no_symv) {
+    if (since != null && since >= STUCK_GRACE_DAYS.awrd_no_symv) {
       reasons.push('awrd_no_symv');
     }
   }
@@ -160,17 +159,9 @@ function getAllStuckReasons(p) {
     } else {
       const reference = procSnap?.finalSubmissionDate || procSnap?.submissionDate || procSnap?.signedDate;
       const since = daysSince(reference);
-      if (since == null || since >= STUCK_GRACE_DAYS.proc_no_awrd) {
+      if (since != null && since >= STUCK_GRACE_DAYS.proc_no_awrd) {
         reasons.push('proc_no_awrd');
       }
-    }
-  }
-
-  const EXECUTING = 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ';
-  if (hasSYMV(p) && !hasPAY(p) && p.projectStatus === EXECUTING) {
-    const since = daysSince(symvSignedDate(p));
-    if (since == null || since >= STUCK_GRACE_DAYS.symv_no_pay) {
-      reasons.push('symv_no_pay');
     }
   }
 
@@ -241,7 +232,6 @@ const GAP_ATTENTION_LABELS = {
   awrd_no_symv: 'Ανάθεση χωρίς Σύμβαση',
   proc_no_awrd: 'Δημοσίευση χωρίς Ανάθεση',
   proc_cancelled: 'Ματαιωμένη Δημοσίευση',
-  symv_no_pay: 'Σύμβαση χωρίς Εντάλματα',
 };
 
 function hasCancelledStage(p) {
@@ -272,9 +262,10 @@ function symvSignedDate(p) {
 // ─── Drill-down helpers ───────────────────────────────────────────────────────
 
 export const PORTFOLIO_DRILL_LABELS = {
-  fullChain: 'Πλήρης αλυσίδα ΚΗΜΔΗΣ',
-  inProgress: 'Σε εξέλιξη (μερική αλυσίδα)',
-  stuck: 'Κολλημένα',
+  fullChain: 'Πλήρης αλυσίδα ΚΗΜΔΗΣ (έως σύμβαση)',
+  inProgress: 'Σε εξέλιξη (ενδιάμεσα στάδια, εντός χρόνου)',
+  stuck: 'Χρειάζονται προσοχή',
+  awaitingFirstPayment: 'Χωρίς εντάλματα ακόμα',
   withKhmdhs: 'Με δεδομένα ΚΗΜΔΗΣ',
   withRelated: 'Με σχετικά έγγραφα ΚΗΜΔΗΣ',
   freshnessOld: 'Παλιά ανακτήση ΚΗΜΔΗΣ',
@@ -305,6 +296,8 @@ export function resolvePortfolioDrillIds(stats, key, extra = {}) {
       return stats.inProgressIds || [];
     case 'stuck':
       return stats.stuckIds || [];
+    case 'awaitingFirstPayment':
+      return stats.awaitingFirstPaymentIds || [];
     case 'withKhmdhs':
       return stats.withKhmdhsIds || stats.funnel?.any || [];
     case 'withRelated':
@@ -354,12 +347,11 @@ export function buildKhmdhsPortfolioStatistics(projects) {
     ? Math.round((list.reduce((s, p) => s + chainDepth(p), 0) / list.length) * 10) / 10
     : 0;
 
-  // ── Gap analysis ──────────────────────────────────────────────────────────
+  // ── Gap analysis (καθυστερήσεις σταδίων — όχι αναμονή πρώτου εντάλματος) ──
   const gaps = {
     awrd_no_symv:   [],
     proc_no_awrd:   [],
     proc_cancelled: [],
-    symv_no_pay:    [],
   };
   list.forEach((p) => {
     getAllStuckReasons(p).forEach((reason) => {
@@ -372,6 +364,11 @@ export function buildKhmdhsPortfolioStatistics(projects) {
       }
     });
   });
+
+  // Σύμβαση χωρίς εντάλματα ακόμα — ήπια πληροφορία, όχι «πρόβλημα»
+  const awaitingFirstPaymentIds = list
+    .filter((p) => hasSYMV(p) && !hasPAY(p))
+    .map((p) => p.subprojectId);
 
   // ── Financial pipeline (totals) ────────────────────────────────────────────
   let approvedTotal = 0;
@@ -615,6 +612,7 @@ export function buildKhmdhsPortfolioStatistics(projects) {
     fullChain: fullChainIds.length,
     inProgress: inProgressIds.length,
     stuck: stuckIds.length,
+    awaitingFirstPayment: awaitingFirstPaymentIds.length,
     khmdhsCoverage: khmdhsCount,
     relatedDocs: funnel.RELATED.length,
     payVsSymvPct,
@@ -633,9 +631,10 @@ export function buildKhmdhsPortfolioStatistics(projects) {
     fullChainIds,
     inProgressIds,
     stuckIds,
+    awaitingFirstPaymentIds,
     avgDepth,
 
-    // Gaps (stuck projects)
+    // Gaps (attention — delays between stages)
     gaps,
 
     // Financial pipeline

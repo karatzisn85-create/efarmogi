@@ -20,7 +20,6 @@ const GAP_TYPE_LABELS = {
   awrd_no_symv: 'Ανάθεση χωρίς Σύμβαση',
   proc_no_awrd: 'Δημοσίευση χωρίς Ανάθεση',
   proc_cancelled: 'Ματαιωμένη Δημοσίευση',
-  symv_no_pay: 'Σύμβαση χωρίς Εντάλματα Πληρωμής',
 };
 
 const STAGE_LABELS = {
@@ -238,9 +237,10 @@ function buildChainHtml(s) {
   }).join('');
   return `
     ${kvTable([
-      ['Πλήρης αλυσίδα', String(hb.fullChain ?? 0)],
+      ['Πλήρης αλυσίδα (έως σύμβαση)', String(hb.fullChain ?? 0)],
       ['Σε εξέλιξη', String(hb.inProgress ?? 0)],
-      ['Κολλημένα', String(hb.stuck ?? 0)],
+      ['Χρειάζονται προσοχή', String(hb.stuck ?? 0)],
+      ['Χωρίς εντάλματα ακόμα', String(hb.awaitingFirstPayment ?? 0)],
       ['Πληρωμές / Σύμβαση', hb.payVsSymvPct != null ? formatPctInt(hb.payVsSymvPct) : '—'],
     ])}
     <h2>Αγωγός σταδίων ΚΗΜΔΗΣ</h2>

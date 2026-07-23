@@ -31,6 +31,7 @@ import {
   collectKhmdhsRegistryCandidatesFromProject,
   mergeRegistryCandidateLists,
   registryEntryIsAlreadyRecorded,
+  filterRegistryCandidatesBySymvPlan,
 } from '../utils/khmdhsDocumentRegistry';
 import { findActRootSiblings, getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
 import { useToast } from './ToastProvider';
@@ -1179,9 +1180,12 @@ function SubprojectDetailModal({
       // 2) νέα έγγραφα που εντοπίζονται στην αλυσίδα καταγράφονται αυτόματα — αφού πρόκειται
       //    πάντα για ήδη χαρακτηρισμένα/μονοσήμαντα στοιχεία (η αλυσίδα τροποποιήσεων έχει ήδη
       //    περάσει από τον έλεγχο χαρακτηρισμού), δεν χρειάζεται νέα επιβεβαίωση του χρήστη.
-      const freshRegistryCandidates = mergeRegistryCandidateLists(
-        collectKhmdhsRegistryCandidatesFromChainRes(res.chainRes, mergedProject.khmdhsDataQualityReview),
-        collectKhmdhsRegistryCandidatesFromProject(mergedProject)
+      const freshRegistryCandidates = filterRegistryCandidatesBySymvPlan(
+        mergeRegistryCandidateLists(
+          collectKhmdhsRegistryCandidatesFromChainRes(res.chainRes, mergedProject.khmdhsDataQualityReview, mergedProject),
+          collectKhmdhsRegistryCandidatesFromProject(mergedProject)
+        ),
+        mergedProject
       );
       if (freshRegistryCandidates.length) {
         const resyncedRegistry = resyncRegistryEntryTitles(
@@ -1189,13 +1193,15 @@ function SubprojectDetailModal({
           freshRegistryCandidates
         );
         const newRegistryCandidates = freshRegistryCandidates.filter(
-          (c) => !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
+          (c) => !c.isStub && !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
         );
         mergedProject.khmdhsDocumentRegistry = newRegistryCandidates.length
           ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newRegistryCandidates, new Date().toISOString())
           : resyncedRegistry;
       }
-      const changeLines = buildKhmdhsRefreshChangeSummary(project, mergedProject, applyResult);
+      const changeLines = buildKhmdhsRefreshChangeSummary(project, mergedProject, applyResult, {
+        chainWarnings: res.chainRes?.warnings || [],
+      });
       setRefreshDialog({
         seedAdam: res.seedAdam,
         seedLabel: res.seedLabel,
@@ -1244,9 +1250,12 @@ function SubprojectDetailModal({
       khmdhsSymvPlanAppliedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    const freshRegistryCandidates = mergeRegistryCandidateLists(
-      collectKhmdhsRegistryCandidatesFromChainRes(chainRes, mergedProject.khmdhsDataQualityReview),
-      collectKhmdhsRegistryCandidatesFromProject(mergedProject)
+    const freshRegistryCandidates = filterRegistryCandidatesBySymvPlan(
+      mergeRegistryCandidateLists(
+        collectKhmdhsRegistryCandidatesFromChainRes(chainRes, mergedProject.khmdhsDataQualityReview, mergedProject),
+        collectKhmdhsRegistryCandidatesFromProject(mergedProject)
+      ),
+      mergedProject
     );
     if (freshRegistryCandidates.length) {
       const resyncedRegistry = resyncRegistryEntryTitles(
@@ -1254,13 +1263,15 @@ function SubprojectDetailModal({
         freshRegistryCandidates
       );
       const newRegistryCandidates = freshRegistryCandidates.filter(
-        (c) => !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
+        (c) => !c.isStub && !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
       );
       mergedProject.khmdhsDocumentRegistry = newRegistryCandidates.length
         ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newRegistryCandidates, new Date().toISOString())
         : resyncedRegistry;
     }
-    const changeLines = buildKhmdhsRefreshChangeSummary(project, mergedProject, applyResult);
+    const changeLines = buildKhmdhsRefreshChangeSummary(project, mergedProject, applyResult, {
+      chainWarnings: chainRes?.warnings || [],
+    });
     setRefreshDialog({
       seedAdam,
       seedLabel: symvPlannerState.seedLabel,

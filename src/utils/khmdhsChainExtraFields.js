@@ -15,6 +15,10 @@ import {
   pickKhmdhsRequestSnapshot,
   buildKhmdhsRequestDisplayGroups,
 } from './khmdhsRequestFields';
+import {
+  khmdhsDocumentTimestamp,
+  sortKhmdhsDocumentsByDateAsc,
+} from './khmdhsDocumentChronology';
 
 /* ── Έγκριση δέσμευσης (ΑΠΟΦΑΣΗ ΑΝΑΛΗΨΗΣ ΥΠΟΧΡΕΩΣΗΣ) ── */
 
@@ -48,7 +52,7 @@ export function collectKhmdhsCommitmentDecisions(project) {
     });
   });
 
-  if (merged.length > 0) return merged;
+  if (merged.length > 0) return sortKhmdhsDocumentsByDateAsc(merged);
 
   const adam = String(project?.khmdhsCommitmentAdam || '').trim();
   const snap = pickKhmdhsCommitmentSnapshot(project?.khmdhsCommitmentSnapshot);
@@ -66,17 +70,9 @@ export function projectHasKhmdhsCommitmentData(project) {
   return collectKhmdhsCommitmentDecisions(project).length > 0;
 }
 
-function commitmentDecisionTimestamp(decision) {
-  const snap = decision?.snapshot;
-  const signed = snap?.signedDate ? Date.parse(snap.signedDate) : NaN;
-  if (Number.isFinite(signed)) return signed;
-  const fetched = decision?.fetchedAt ? Date.parse(decision.fetchedAt) : NaN;
-  if (Number.isFinite(fetched)) return fetched;
-  return 0;
-}
-
 /**
  * Η πιο πρόσφατη Απόφαση Ανάληψης Υποχρέωσης (ετήσια — όχι άθροισμα ετών).
+ * Δεν παίρνουμε απλά το τελευταίο της ascending λίστας: χωρίς ημερομηνία πάει στο τέλος.
  * @returns {{ adam: string, snapshot: object|null, fetchedAt?: string }|null}
  */
 export function pickLatestKhmdhsCommitmentDecision(project) {
@@ -84,7 +80,7 @@ export function pickLatestKhmdhsCommitmentDecision(project) {
   if (!decisions.length) return null;
   if (decisions.length === 1) return decisions[0];
   return [...decisions].sort(
-    (a, b) => commitmentDecisionTimestamp(b) - commitmentDecisionTimestamp(a)
+    (a, b) => (khmdhsDocumentTimestamp(b) ?? 0) - (khmdhsDocumentTimestamp(a) ?? 0)
   )[0];
 }
 
@@ -135,7 +131,7 @@ export function getKhmdhsPaymentEntries(project) {
   const contractingOrg = project?.khmdhsAwardSnapshot?.organization
     || project?.khmdhsContractSnapshot?.organization
     || '';
-  return list
+  const entries = list
     .map((p) => {
       const snapshot = pickKhmdhsPaymentSnapshot(p?.snapshot);
       const org = snapshot?.organization || '';
@@ -154,6 +150,7 @@ export function getKhmdhsPaymentEntries(project) {
       };
     })
     .filter((p) => p.adam || p.snapshot);
+  return sortKhmdhsDocumentsByDateAsc(entries);
 }
 
 /** Ποσό για συνόψεις UI — μετά χαρακτηρισμό χρησιμοποιεί το ποσό που μετράει. */

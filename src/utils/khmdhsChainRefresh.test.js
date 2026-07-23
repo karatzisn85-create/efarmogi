@@ -16,10 +16,55 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
   });
 
   test('αναφέρει νέα εντάλματα πληρωμής με ΑΔΑΜ', () => {
-    const before = { khmdhsPayments: [{ adam: 'PAY1' }] };
-    const after = { khmdhsPayments: [{ adam: 'PAY1' }, { adam: 'PAY2' }] };
+    const before = {
+      khmdhsPayments: [{
+        adam: '26PAY000000001',
+        snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+      }],
+    };
+    const after = {
+      khmdhsPayments: [
+        {
+          adam: '26PAY000000001',
+          snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+        },
+        {
+          adam: '26PAY000000002',
+          snapshot: { referenceNumber: '26PAY000000002', totalCostWithVAT: 2000 },
+        },
+      ],
+    };
     const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
-    expect(lines.some((l) => l.includes('Νέο ένταλμα πληρωμής') && l.includes('PAY2'))).toBe(true);
+    expect(lines.some((l) => l.includes('Νέο ένταλμα πληρωμής') && l.includes('26PAY000000002'))).toBe(true);
+  });
+
+  test('νέο ένταλμα χωρίς λεπτομέρειες → προσοχή, όχι καθαρή επιτυχία', () => {
+    // Άμυνα αναφοράς: αν για οποιοδήποτε λόγο μείνει stub χωρίς snapshot, δεν μετρά ως «νέο».
+    const before = {
+      khmdhsPayments: [{
+        adam: '26PAY000000001',
+        snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+      }],
+    };
+    const after = {
+      khmdhsPayments: [
+        {
+          adam: '26PAY000000001',
+          snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+        },
+        {
+          adam: '26PAY000000002',
+          snapshot: null,
+          error: 'πολλά αιτήματα',
+        },
+      ],
+    };
+    const report = buildKhmdhsRefreshChangeReport(before, after, {});
+    expect(report.category).toBe('attention');
+    expect(report.appliedLines.some((l) => l.includes('Νέο ένταλμα'))).toBe(false);
+    expect(report.attentionLines.some((l) => (
+      l.includes('26PAY000000002') && l.includes('χωρίς λεπτομέρειες')
+    ))).toBe(true);
   });
 
   test('αναφέρει νέες καταχωρίσεις στο ιστορικό αλυσίδας με ΑΔΑΜ', () => {
@@ -67,6 +112,89 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
     expect(lines.some((l) => l.includes('Αρχεία Υποέργου'))).toBe(false);
   });
 
+  test('γυμνό έγγραφο (isStub) δεν αναφέρεται ως «Νέο έγγραφο»', () => {
+    const before = { khmdhsDocumentRegistry: [{ adam: '22PROC010072052' }] };
+    const after = {
+      khmdhsDocumentRegistry: [
+        { adam: '22PROC010072052' },
+        { adam: '22PROC010072999', isStub: true },
+      ],
+    };
+    const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
+    expect(lines.some((l) => l.includes('22PROC010072999'))).toBe(false);
+  });
+
+  test('σύγκρουση δημοσίευσης (noticeConflict) εμφανίζεται ως προσοχή', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, { warnings: ['noticeConflict'] });
+    expect(report.category).toBe('attention');
+    expect(report.attentionLines.some((l) => l.includes('διαφορετική δημοσίευση'))).toBe(true);
+  });
+
+  test('νέα απόφαση ανάληψης χωρίς λεπτομέρειες → προσοχή, όχι καθαρή επιτυχία', () => {
+    const before = {
+      khmdhsCommitmentDecisions: [{
+        adam: '25REQ016195275',
+        snapshot: { referenceNumber: '25REQ016195275', signedDate: '2025-03-01' },
+      }],
+    };
+    const after = {
+      khmdhsCommitmentDecisions: [
+        {
+          adam: '25REQ016195275',
+          snapshot: { referenceNumber: '25REQ016195275', signedDate: '2025-03-01' },
+        },
+        {
+          adam: '25REQ016195999',
+          snapshot: null,
+          error: 'πολλά αιτήματα',
+        },
+      ],
+    };
+    const report = buildKhmdhsRefreshChangeReport(before, after, {});
+    expect(report.category).toBe('attention');
+    expect(report.appliedLines.some((l) => l.includes('Νέα απόφαση'))).toBe(false);
+    expect(report.attentionLines.some((l) => (
+      l.includes('25REQ016195999') && l.includes('χωρίς λεπτομέρειες')
+    ))).toBe(true);
+  });
+
+  test('noContractInChain εμφανίζεται ως προσοχή', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, { warnings: ['noContractInChain'] });
+    expect(report.category).toBe('attention');
+    expect(report.attentionLines.some((l) => l.includes('όχι σύμβαση') || l.includes('SYMV'))).toBe(true);
+  });
+
+  test('διατήρηση σταδίου (stagePreserved) εμφανίζεται ως προσοχή', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, {
+      warnings: ['stagePreserved:notice', 'stagePreserved:contract'],
+    });
+    expect(report.category).toBe('attention');
+    expect(report.attentionLines.some((l) => l.includes('δημοσίευση') && l.includes('διατηρήθηκε'))).toBe(true);
+    expect(report.attentionLines.some((l) => l.includes('σύμβαση') && l.includes('διατηρήθηκε'))).toBe(true);
+  });
+
+  test('προειδοποιήσεις ανάκτησης με πρόβλημα εμφανίζονται στην αναφορά', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, {}, {
+      chainWarnings: [
+        'Δεν ανακτήθηκαν λεπτομέρειες για 1 ένταλμα/τα (26PAY000000002)',
+        'Σύνοψη αλυσίδας: 3 πράξεις',
+      ],
+    });
+    expect(report.category).toBe('attention');
+    expect(report.attentionLines.some((l) => l.includes('Δεν ανακτήθηκαν λεπτομέρειες'))).toBe(true);
+    expect(report.attentionLines.some((l) => l.includes('Σύνοψη αλυσίδας'))).toBe(false);
+  });
+
+  test('παράλειψη ακυρωμένων πράξεων δεν μετράει ως «χρειάζονται προσοχή»', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, {}, {
+      chainWarnings: [
+        'Παραλείφθηκαν 2 ακυρωμένες/ματαιωμένες πράξεις (/**/).',
+      ],
+    });
+    expect(report.category).toBe('unchanged');
+    expect(report.attentionLines.some((l) => l.includes('ακυρωμένες'))).toBe(false);
+  });
+
   test('αναφέρει τη διαδικασία ανάθεσης όταν βρεθεί για πρώτη φορά', () => {
     const before = { assignmentProcedure: '' };
     const after = { assignmentProcedure: 'Ανοικτός διαγωνισμός' };
@@ -102,8 +230,12 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
   });
 
   test('δεν αθροίζει σαν "νέα" ίδια εντάλματα ήδη γνωστά από πριν', () => {
-    const before = { khmdhsPayments: [{ adam: 'PAY1' }, { adam: 'PAY2' }] };
-    const after = { khmdhsPayments: [{ adam: 'PAY1' }, { adam: 'PAY2' }] };
+    const pay = (adam) => ({
+      adam,
+      snapshot: { referenceNumber: adam, totalCostWithVAT: 1000 },
+    });
+    const before = { khmdhsPayments: [pay('26PAY000000001'), pay('26PAY000000002')] };
+    const after = { khmdhsPayments: [pay('26PAY000000001'), pay('26PAY000000002')] };
     const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
     expect(lines.some((l) => l.includes('ένταλμα'))).toBe(false);
   });

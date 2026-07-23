@@ -72,6 +72,24 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
     expect(secondEntry.title).toBe('ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ');
   });
 
+  it('δεν καταχωρεί REQ/PROC/AWRD χωρίς snapshot από το κύριο αποτέλεσμα αλυσίδας', () => {
+    const bare = {
+      success: true,
+      request: { adam: '23REQ000000001' }, // χωρίς snapshot
+      notice: { adam: '23PROC000000001' },
+      auction: { adam: '23AWRD000000001' },
+      contract: {
+        adam: rootAdam,
+        snapshot: { referenceNumber: rootAdam, title: 'Σύμβαση' },
+      },
+    };
+    const adams = collectKhmdhsRegistryCandidatesFromChainRes(bare).map((c) => c.adam);
+    expect(adams).toContain(rootAdam);
+    expect(adams).not.toContain('23REQ000000001');
+    expect(adams).not.toContain('23PROC000000001');
+    expect(adams).not.toContain('23AWRD000000001');
+  });
+
   it('falls back to a nameless stub when no fresh snapshot is available for a linked PROC', () => {
     const secondNoticeAdam = '22PROC010072999';
     const chainResWithSecondNotice = {
@@ -155,6 +173,25 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
     const linkRows = groups.filter((g) => g.id === 'links').flatMap((g) => g.rows || []);
     expect(linkRows.some((r) => /Επόμενη πράξη/i.test(r.label))).toBe(false);
     expect(linkRows.some((r) => /Επόμ\. ΑΔΑΜ/i.test(r.label))).toBe(false);
+  });
+
+  it('collectKhmdhsRegistryCandidatesFromChainRes excludes SKIP SYMV όταν δοθεί project', () => {
+    const skippedAdam = '25SYMV017590502';
+    const project = {
+      khmdhsSymvChainPlan: { items: [{ adam: skippedAdam, role: SYMV_CHAIN_ROLE.SKIP }] },
+    };
+    const chainRes = {
+      success: true,
+      contract: { adam: rootAdam, snapshot: { referenceNumber: rootAdam } },
+      contractChainHistory: [
+        { adam: skippedAdam, label: 'Συμπληρωματική σύμβαση', kind: 'modification' },
+      ],
+    };
+    const withProject = collectKhmdhsRegistryCandidatesFromChainRes(chainRes, null, project).map((c) => c.adam);
+    expect(withProject).not.toContain(skippedAdam);
+    // Χωρίς project (παλιά συμπεριφορά) η ίδια πράξη θα περνούσε.
+    const withoutProject = collectKhmdhsRegistryCandidatesFromChainRes(chainRes, null).map((c) => c.adam);
+    expect(withoutProject).toContain(skippedAdam);
   });
 
   it('filterRegistryCandidatesBySymvPlan removes skipped adams', () => {

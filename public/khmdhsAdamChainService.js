@@ -1105,17 +1105,27 @@ function isOrphanSymvChainSeed(chainMeta, seedType, request, notice, auction) {
  */
 async function findFollowUpCommitmentsWithoutContract(stages) {
   const budgetCommitments = [];
+  const commitFetchFailures = [];
   const seen = new Set();
   for (const m of (stages.approvedRequests || [])) {
     if (!m.adam || seen.has(m.adam)) continue;
     seen.add(m.adam);
     const res = await fetchKhmdhsRequestByAdam(m.adam);
-    budgetCommitments.push({
-      adam: m.adam,
-      snapshot: (res.success && res.snapshot) ? res.snapshot : null,
-      fetchedAt: new Date().toISOString(),
-    });
+    if (res.success && res.snapshot) {
+      budgetCommitments.push({
+        adam: m.adam,
+        snapshot: res.snapshot,
+        fetchedAt: new Date().toISOString(),
+      });
+    } else {
+      // Χωρίς λεπτομέρειες δεν προσθέτουμε stub — ίδια λογική με τα εντάλματα.
+      commitFetchFailures.push({
+        adam: m.adam,
+        error: res.error || 'Δεν ανακτήθηκαν στοιχεία.',
+      });
+    }
   }
+  budgetCommitments._commitFetchFailures = commitFetchFailures;
   return { followUps: [], budgetCommitments };
 }
 
@@ -1483,7 +1493,13 @@ async function resolvePayments(
         fetchedAt: new Date().toISOString(),
       });
     } else {
-      out.push({ adam: m.adam, snapshot: null, error: res.error || 'Δεν ανακτήθηκαν στοιχεία.' });
+      // Χωρίς λεπτομέρειες δεν μπορούμε να ελέγξουμε αν το ένταλμα ανήκει στη σύμβαση
+      // του υποέργου — δεν το προσθέτουμε ως «νέο» (αλλιώς μπαίνουν άσχετα PAY σε stubs).
+      out._payFetchFailures = out._payFetchFailures || [];
+      out._payFetchFailures.push({
+        adam: m.adam,
+        error: res.error || 'Δεν ανακτήθηκαν στοιχεία.',
+      });
     }
   }
   out._payFetchTruncated = payFetchTruncated;
@@ -2011,9 +2027,11 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   throwIfKhmdhsAborted(abortSignal);
   const payments = await resolvePayments(stages, knownContractAdams, knownRequestAdams, earliestContractDate);
   const skippedUnrelatedPayments = payments._skippedUnrelated || [];
+  const payFetchFailures = payments._payFetchFailures || [];
   const payFetchTruncated = !!payments._payFetchTruncated;
   const totalPaymentsInChain = payments._totalPaymentsInChain || 0;
   delete payments._skippedUnrelated;
+  delete payments._payFetchFailures;
   delete payments._payFetchTruncated;
   delete payments._totalPaymentsInChain;
 
@@ -2150,6 +2168,15 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   if (payFetchTruncated) {
     warnings.push(
       `Στην αλυσίδα εντοπίστηκαν ${totalPaymentsInChain} εντάλματα πληρωμής — ανακτήθηκαν μόνο τα ${MAX_PAYMENT_FETCH}. Ελέγξτε χειροκίνητα στο ΚΗΜΔΗΣ για πλήρη εικόνα.`
+    );
+  }
+
+  if (payFetchFailures.length) {
+    const sample = payFetchFailures.slice(0, 3).map((f) => f.adam).join(', ');
+    const more = payFetchFailures.length > 3 ? ` (+${payFetchFailures.length - 3})` : '';
+    warnings.push(
+      `Δεν ανακτήθηκαν λεπτομέρειες για ${payFetchFailures.length} ένταλμα/τα (${sample}${more})`
+      + ' — δεν καταχωρήθηκαν στο υποέργο μέχρι να επιβεβαιωθεί ότι ανήκουν σε αυτή τη σύμβαση. Δοκιμάστε ξανά σε λίγο.'
     );
   }
 
@@ -2351,7 +2378,18 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   const followUpResult = await findFollowUpCommitmentsWithoutContract(stages);
   const followUpCommitmentsWithoutContract = followUpResult.followUps;
   const allBudgetCommitments = followUpResult.budgetCommitments; // [{adam, snapshot, fetchedAt}]
+  const commitFetchFailures = allBudgetCommitments._commitFetchFailures || [];
+  delete allBudgetCommitments._commitFetchFailures;
   const budgetCommitmentAdamSet = new Set(allBudgetCommitments.map((b) => b.adam));
+
+  if (commitFetchFailures.length) {
+    const sample = commitFetchFailures.slice(0, 3).map((f) => f.adam).join(', ');
+    const more = commitFetchFailures.length > 3 ? ` (+${commitFetchFailures.length - 3})` : '';
+    warnings.push(
+      `Δεν ανακτήθηκαν λεπτομέρειες για ${commitFetchFailures.length} απόφαση/εις ανάληψης υποχρέωσης (${sample}${more})`
+      + ' — οι υπάρχουσες αποφάσεις διατηρούνται. Δοκιμάστε ξανά σε λίγο.'
+    );
+  }
 
   // Αποθήκευση πλήρων δεδομένων για όλες τις Αποφάσεις Ανάληψης Υποχρέωσης στο chainMeta
   chainMeta.linkedAdams.budgetCommitments = [...budgetCommitmentAdamSet];

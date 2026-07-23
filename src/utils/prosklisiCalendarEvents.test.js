@@ -1,3 +1,6 @@
+/**
+ * @jest-environment node
+ */
 import { CALENDAR_EVENT_TYPES } from './procurementCalendarEvents';
 import {
   buildProsklisiCalendarEvents,

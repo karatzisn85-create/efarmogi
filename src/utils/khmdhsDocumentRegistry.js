@@ -18,6 +18,7 @@ import { getChainKindChoice, enrichChainHistoryWithReview, CHAIN_KIND_LABEL } fr
 import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEntries';
 import { getSymvPlanCustomLabel, overlaySymvPlanLabelsOnChainHistory, SYMV_CHAIN_ROLE, isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
 import { normalizeSearchText } from './searchUtils';
+import { compareKhmdhsDocumentsByDateAsc } from './khmdhsDocumentChronology';
 
 export const KHMDHS_REGISTRY_STAGE_ORDER = ['REQ', 'COMMIT', 'PROC', 'AWRD', 'SYMV', 'EXT', 'APE', 'PAY', 'RELATED'];
 
@@ -109,7 +110,8 @@ function pushUnique(map, entry) {
 }
 
 function entryFromRequest(block, fetchedAt) {
-  if (!block?.snapshot && !block?.adam) return null;
+  // Χωρίς λεπτομέρειες δεν καταχωρούμε stub — ίδια λογική με COMMIT/PAY.
+  if (!block?.snapshot || !block?.adam) return null;
   const summary = buildKhmdhsRequestCardSummary(block.snapshot);
   return buildRegistryEntry({
     adam: block.adam || summary?.adam,
@@ -125,7 +127,8 @@ function entryFromRequest(block, fetchedAt) {
 }
 
 function entryFromCommitment(block) {
-  if (!block?.snapshot && !block?.adam) return null;
+  // Χωρίς λεπτομέρειες δεν καταχωρούμε stub στα Αρχεία — ίδια λογική με τα εντάλματα.
+  if (!block?.snapshot || !block?.adam) return null;
   const summary = buildKhmdhsCommitmentCardSummary(block.snapshot);
   return buildRegistryEntry({
     adam: block.adam || summary?.adam,
@@ -141,7 +144,9 @@ function entryFromCommitment(block) {
 }
 
 function entryFromNotice(block) {
-  if (!block?.snapshot && !block?.adam) return null;
+  // Χωρίς λεπτομέρειες δεν καταχωρούμε stub — ίδια λογική με COMMIT/PAY.
+  // (Τα isStub από linkedAdams περνούν από άλλο μονοπάτι και φιλτράρονται στο auto-merge.)
+  if (!block?.snapshot || !block?.adam) return null;
   const summary = buildKhmdhsNoticeCardSummary(block.snapshot);
   return buildRegistryEntry({
     adam: block.adam || summary?.adam,
@@ -157,7 +162,8 @@ function entryFromNotice(block) {
 }
 
 function entryFromAward(block) {
-  if (!block?.snapshot && !block?.adam) return null;
+  // Χωρίς λεπτομέρειες δεν καταχωρούμε stub — ίδια λογική με COMMIT/PAY.
+  if (!block?.snapshot || !block?.adam) return null;
   const summary = buildKhmdhsAwardCardSummary(block.snapshot);
   const contractors = Array.isArray(block.snapshot?.contractors) && block.snapshot.contractors.length
     ? block.snapshot.contractors.map((c) => c.name).filter(Boolean).join(' · ')
@@ -177,6 +183,8 @@ function entryFromAward(block) {
 
 function entryFromContract({ adam, snapshot, fetchedAt, roleLabel, title, amount, date, cancelled }) {
   if (isCancelled(snapshot, cancelled)) return null;
+  // Χωρίς στοιχεία (ούτε snapshot ούτε τίτλο) δεν καταχωρούμε γυμνό ΑΔΑΜ.
+  if (!snapshot && !String(title || '').trim()) return null;
   const summary = buildKhmdhsContractCardSummary(snapshot, {
     storedAmount: amount != null && String(amount).trim() ? String(amount).trim() : '',
   });
@@ -199,17 +207,9 @@ function entryFromContract({ adam, snapshot, fetchedAt, roleLabel, title, amount
 function entryFromPayment(block) {
   if (!block?.adam) return null;
   const customLabel = String(block.userDocumentLabel || block.roleLabel || '').trim();
-  // Αποτυχημένη ανάκτηση: δημιουργούμε stub ώστε το ένταλμα να εμφανίζεται στο registry
-  if (block.error && !block.snapshot) {
-    return buildRegistryEntry({
-      adam: block.adam,
-      snapshot: null,
-      stage: 'PAY',
-      type: 'PAY',
-      roleLabel: customLabel,
-      isStub: true,
-    });
-  }
+  // Χωρίς λεπτομέρειες δεν καταχωρούμε stub στα Αρχεία — αλλιώς άσχετα PAY
+  // εμφανίζονται ως «νέα έγγραφα» πριν ελεγχθεί η σχετικότητα με τη σύμβαση.
+  if (!block.snapshot) return null;
   const snap = block.snapshot;
   return buildRegistryEntry({
     adam: block.adam || snap?.referenceNumber,
@@ -263,7 +263,7 @@ function addLinkedAdamStubs(chainRes, map) {
 }
 
 /** Εξαγωγή υποψηφίων από αποτέλεσμα ανάκτησης αλυσίδας */
-export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = null) {
+export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = null, project = null) {
   if (!chainRes?.success) return [];
   const map = new Map();
   // Χρησιμοποιούμε το fetchedAt της αλυσίδας αν υπάρχει — πιο ακριβής χρόνος
@@ -295,7 +295,7 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = n
   // χρήστη, ή έχει αυτόματα ανιχνευμένο (όχι «uncertain») kind. Έτσι δεν προτείνεται πρόωρα
   // για καταγραφή μια πράξη που δεν έχει ακόμα χαρακτηριστεί.
   (chainRes.contractChainHistory || []).forEach((h) => {
-    if (!shouldIncludeChainHistoryInRegistry(h, review)) return;
+    if (!shouldIncludeChainHistoryInRegistry(h, review, project)) return;
     const kind = h.effectiveKind || h.kind;
     const rawLabel = h.label || (kind && kind !== 'uncertain' ? (CHAIN_KIND_LABEL[kind] || '') : '');
     const roleLabel = rawLabel.replace(/\s*\(επιλεγμένη\)/i, '').trim();
@@ -303,7 +303,9 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = n
     pushUnique(map, entryFromContract({
       adam: h.adam,
       snapshot: h.snapshot,
-      title: h.title,
+      // Τίτλος από snapshot ή από χαρακτηρισμό (label) — χωρίς κανένα από τα δύο
+      // το entryFromContract απορρίπτει γυμνό ΑΔΑΜ.
+      title: h.title || roleLabel,
       amount: h.contractAmount,
       date: h.contractDate,
       roleLabel,
@@ -462,7 +464,7 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
       pushUnique(map, entryFromContract({
         adam: h.adam,
         snapshot: h.snapshot,
-        title: h.title,
+        title: h.title || effectiveLabel,
         amount,
         date,
         roleLabel: effectiveLabel,
@@ -500,7 +502,7 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
       pushUnique(map, entryFromContract({
         adam: h.adam,
         snapshot: h.snapshot,
-        title: h.title,
+        title: h.title || effectiveLabel,
         amount,
         date,
         roleLabel: effectiveLabel,
@@ -718,7 +720,7 @@ export function sortRegistryEntries(entries) {
     const sa = KHMDHS_REGISTRY_STAGE_ORDER.indexOf(a.stage);
     const sb = KHMDHS_REGISTRY_STAGE_ORDER.indexOf(b.stage);
     if (sa !== sb) return (sa < 0 ? 99 : sa) - (sb < 0 ? 99 : sb);
-    return String(a.adam).localeCompare(String(b.adam), 'el');
+    return compareKhmdhsDocumentsByDateAsc(a, b);
   });
 }
 
@@ -875,7 +877,7 @@ export function mergeRegistryCandidateLists(...lists) {
 
 export function buildRegistryModalPayloadAfterReview(project, chainFetchedAt = '', chainRes = null) {
   const fromChain = chainRes?.success
-    ? collectKhmdhsRegistryCandidatesFromChainRes(chainRes, project?.khmdhsDataQualityReview)
+    ? collectKhmdhsRegistryCandidatesFromChainRes(chainRes, project?.khmdhsDataQualityReview, project)
     : [];
   const fromProject = collectKhmdhsRegistryCandidatesFromProject(project);
   const candidates = filterRegistryCandidatesBySymvPlan(

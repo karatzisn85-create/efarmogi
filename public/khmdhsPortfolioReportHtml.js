@@ -16,14 +16,12 @@ const GAP_SECTION_LABELS = {
   awrd_no_symv: 'Ανάθεση χωρίς Σύμβαση',
   proc_no_awrd: 'Δημοσίευση χωρίς Ανάθεση',
   proc_cancelled: 'Ματαιωμένη Δημοσίευση',
-  symv_no_pay: 'Σύμβαση χωρίς Εντάλματα (εκτελούμενα)',
 };
 
 const GAP_GUIDANCE = {
   awrd_no_symv: 'Ανακτήστε ή καταχωρήστε τη σύμβαση (SYMV) από ΚΗΜΔΗΣ.',
   proc_no_awrd: 'Ελέγξτε αν η δημοσίευση ολοκληρώθηκε και ανακτήστε την ανάθεση (AWRD).',
   proc_cancelled: 'Επιβεβαιώστε την κατάσταση υποέργου — η δημοσίευση ματαιώθηκε στο ΚΗΜΔΗΣ.',
-  symv_no_pay: 'Για εκτελούμενα υποέργα, ανακτήστε εντάλματα πληρωμής (PAY) από την αλυσίδα.',
 };
 
 function escapeHtml(text) {
@@ -361,7 +359,7 @@ function buildGapGroupsHtml(stats) {
   keys.forEach((key) => {
     const items = gaps[key] || [];
     if (!items.length) return;
-    const headClass = key === 'proc_cancelled' ? 'slate' : key === 'symv_no_pay' ? 'amber' : '';
+    const headClass = key === 'proc_cancelled' ? 'slate' : '';
     html += `<div class="gap-group">
       <div class="gap-group-head ${headClass}">${escapeHtml(GAP_SECTION_LABELS[key])} (${items.length})</div>
       <div class="gap-hint">${escapeHtml(GAP_GUIDANCE[key] || '')}</div>
@@ -435,7 +433,8 @@ function buildPortfolioReportHtml(opts = {}) {
       <div class="kpi-grid">
         <div class="kpi-card"><div class="kpi-value">${stats.total || 0}</div><div class="kpi-label">Υποέργα</div></div>
         <div class="kpi-card"><div class="kpi-value">${hb.fullChain || 0}</div><div class="kpi-label">Πλήρης αλυσίδα</div></div>
-        <div class="kpi-card"><div class="kpi-value">${hb.stuck || 0}</div><div class="kpi-label">Κολλημένα</div></div>
+        <div class="kpi-card"><div class="kpi-value">${hb.stuck || 0}</div><div class="kpi-label">Χρειάζονται προσοχή</div></div>
+        <div class="kpi-card"><div class="kpi-value">${hb.awaitingFirstPayment || 0}</div><div class="kpi-label">Χωρίς εντάλματα ακόμα</div></div>
         <div class="kpi-card"><div class="kpi-value">${stats.reliabilityScore ?? '—'}</div><div class="kpi-label">Σκορ ποιότητας</div></div>
       </div>
     </div>
@@ -505,7 +504,7 @@ function buildGapReportHtml(opts = {}) {
     title: 'Κενά Αλυσίδας ΚΗΜΔΗΣ',
     headerTitle: 'Αναφορά Κενών Αλυσίδας ΚΗΜΔΗΣ',
     headerSub: `${escapeHtml(meta.org)} · ${escapeHtml(meta.filterNote)}`,
-    statPills: [`Κολλημένα: ${stuckTotal}`, `Προσοχή: ${(stats.attentionList || []).length}`],
+    statPills: [`Χρειάζονται προσοχή: ${stuckTotal}`, `Λίστα προσοχής: ${(stats.attentionList || []).length}`],
     bodyHtml: body,
     footerLeft: `Εξαγωγή: ${meta.now} · ${meta.exportedBy}`,
     footerRight: `${APP_NAME} v${meta.appVersion}`,

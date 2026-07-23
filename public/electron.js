@@ -2337,8 +2337,10 @@ const loadAllProjects = async () => {
               data.lockMessage = 'Ανοιχτό από άλλον χρήστη';
             }
 
-            // Ensure projectId is set
-            if (!data.projectId) {
+            // Ensure projectId / subprojectId match the actual folder names on disk.
+            // Αν το JSON έχει παλιό/λάθος projectId, η διαγραφή και άλλα IPC που εμπιστεύονται
+            // το πεδίο ψάχνουν σε λάθος φάκελο και «επιτυγχάνουν» χωρίς να σβήσουν τίποτα.
+            if (data.projectId !== projectDir) {
               data.projectId = projectDir;
             }
             
@@ -3604,11 +3606,74 @@ ipcMain.handle('write-debug-log', async (event, debugInfo) => {
   }
 });
 
+/**
+ * Εντοπισμός πραγματικού φακέλου υποέργου στον δίσκο.
+ * Δεν εμπιστευόμαστε τυφλά το projectId από τον renderer — μπορεί να διαφέρει από το όνομα φακέλου.
+ * @returns {{ projectDirName: string, subprojectDir: string } | null}
+ */
+function resolveSubprojectDirOnDisk(projectId, subprojectId) {
+  const sid = String(subprojectId || '').trim();
+  if (!sid || !dataDir || !fs.existsSync(dataDir)) return null;
+
+  const tryPath = (projectDirName) => {
+    const subDir = path.join(dataDir, projectDirName, sid);
+    try {
+      if (fs.existsSync(subDir) && fs.statSync(subDir).isDirectory()) {
+        return { projectDirName, subprojectDir: subDir };
+      }
+    } catch { /* ignore */ }
+    return null;
+  };
+
+  // 1) Προτιμούμε το δηλωθέν projectId αν υπάρχει ο φάκελος
+  if (projectId) {
+    const hit = tryPath(String(projectId).trim());
+    if (hit) return hit;
+  }
+
+  // 2) Σάρωση όλων των φακέλων έργου — ίδια λογική με την αποθήκευση
+  for (const dir of fs.readdirSync(dataDir)) {
+    if (DATA_DIR_SKIP_ROOT_DIRS.has(dir)) continue;
+    const projectPath = path.join(dataDir, dir);
+    try {
+      if (!fs.statSync(projectPath).isDirectory()) continue;
+    } catch { continue; }
+
+    const byFolder = tryPath(dir);
+    if (byFolder) return byFolder;
+
+    // 3) Fallback: φάκελος με διαφορετικό όνομα αλλά data.json.subprojectId = sid
+    try {
+      for (const sub of fs.readdirSync(projectPath)) {
+        const subPath = path.join(projectPath, sub);
+        const jsonPath = path.join(subPath, 'data.json');
+        if (!fs.existsSync(jsonPath)) continue;
+        try {
+          const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+          if (String(data.subprojectId || '').trim() === sid) {
+            return { projectDirName: dir, subprojectDir: subPath };
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* skip */ }
+  }
+  return null;
+}
+
 ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
   try {
     console.log(`Deleting subproject: ${projectId}/${subprojectId}`);
-    
-    const subprojectDir = path.join(dataDir, projectId, subprojectId);
+
+    const resolved = resolveSubprojectDirOnDisk(projectId, subprojectId);
+    if (!resolved) {
+      console.error('Subproject directory not found for delete:', { projectId, subprojectId });
+      return {
+        success: false,
+        error: 'Ο φάκελος του υποέργου δεν βρέθηκε στον δίσκο. Ανανεώστε τη λίστα και δοκιμάστε ξανά.',
+      };
+    }
+
+    const { projectDirName, subprojectDir } = resolved;
     const jsonPath = path.join(subprojectDir, 'data.json');
     
     // Load subproject data before deletion for audit log
@@ -3622,13 +3687,15 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
     }
     
     // Διαγραφή του φακέλου του υποέργου
+    console.log('Deleting subproject directory:', subprojectDir);
+    fs.rmSync(subprojectDir, { recursive: true, force: true });
     if (fs.existsSync(subprojectDir)) {
-      console.log('Deleting subproject directory:', subprojectDir);
-      fs.rmSync(subprojectDir, { recursive: true, force: true });
-      console.log('Subproject directory deleted successfully');
-    } else {
-      console.log('Subproject directory not found:', subprojectDir);
+      return {
+        success: false,
+        error: 'Ο φάκελος δεν διαγράφηκε (ίσως είναι ανοιχτός σε άλλη εφαρμογή). Κλείστε σχετικά παράθυρα και δοκιμάστε ξανά.',
+      };
     }
+    console.log('Subproject directory deleted successfully');
     
     // Διαγραφή συσχετισμένων εγκρίσεων
     try {
@@ -3728,8 +3795,8 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
       console.error('Error unlinking meletai from subproject:', err);
     }
     
-    // Έλεγχος αν το έργο είναι άδειο
-    const projectDir = path.join(dataDir, projectId);
+    // Έλεγχος αν το έργο είναι άδειο — χρησιμοποιούμε τον πραγματικό φάκελο που βρήκαμε
+    const projectDir = path.join(dataDir, projectDirName);
     if (fs.existsSync(projectDir)) {
       const remainingSubprojects = fs.readdirSync(projectDir);
       if (remainingSubprojects.length === 0) {
