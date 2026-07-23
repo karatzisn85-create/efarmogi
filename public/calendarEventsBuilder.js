@@ -145,14 +145,36 @@ function toDateKey(isoOrDate) {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * ΚΗΜΔΗΣ μονάδες: "1" ημέρες, "2" εβδομάδες, "3" μήνες, "4" έτη.
+ * Άγνωστη μονάδα → null (όχι εικασία σε ημέρες).
+ */
+function resolveDurationUnitKind(unit) {
+  let raw = unit;
+  if (raw && typeof raw === 'object') {
+    raw = raw.value != null && String(raw.value).trim() !== ''
+      ? raw.value
+      : raw.key;
+  }
+  const u = String(raw || '').trim().toLowerCase();
+  if (!u) return null;
+  if (u === '1' || /ημέρ|ημερ|day/i.test(u)) return 'days';
+  if (u === '2' || /εβδομ|week/i.test(u)) return 'weeks';
+  if (u === '3' || /μήν|μην|month/i.test(u)) return 'months';
+  if (u === '4' || /έτ|ετ|year/i.test(u)) return 'years';
+  return null;
+}
+
 function addDurationToIso(isoStart, amount, unit) {
   const n = Number(amount);
   const start = isoStart ? new Date(isoStart) : null;
   if (!start || Number.isNaN(start.getTime()) || Number.isNaN(n) || n <= 0) return null;
+  const kind = resolveDurationUnitKind(unit);
+  if (!kind) return null;
   const d = new Date(start);
-  const u = String(unit || '').toLowerCase();
-  if (/μήν|μην|month/i.test(u)) d.setMonth(d.getMonth() + n);
-  else if (/έτ|ετ|year/i.test(u)) d.setFullYear(d.getFullYear() + n);
+  if (kind === 'months') d.setMonth(d.getMonth() + n);
+  else if (kind === 'years') d.setFullYear(d.getFullYear() + n);
+  else if (kind === 'weeks') d.setDate(d.getDate() + Math.round(n * 7));
   else d.setDate(d.getDate() + Math.round(n));
   return d.toISOString();
 }

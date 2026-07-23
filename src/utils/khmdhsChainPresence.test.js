@@ -40,6 +40,30 @@ describe('khmdhsChainPresence', () => {
   test('does not route REQ as supplementary', () => {
     expect(shouldRouteAdamAsSupplementaryAdd(savedForm, '21REQ009553549')).toBe(false);
   });
+
+  test('partial chain without primary contract: SYMV is NOT supplementary (stitch path)', () => {
+    const partial = {
+      implementationForm: 'Μια Σύμβαση',
+      khmdhsChainSeedAdam: '23REQ013047002',
+      khmdhsRequestAdam: '23REQ013047002',
+      khmdhsRequestSnapshot: { referenceNumber: '23REQ013047002' },
+      khmdhsNoticeAdam: '23PROC013362098',
+      khmdhsNoticeSnapshot: { referenceNumber: '23PROC013362098' },
+      khmdhsAdam: '',
+      khmdhsContractSnapshot: null,
+    };
+    expect(formHasStoredKhmdhsChain(partial)).toBe(true);
+    expect(shouldRouteAdamAsSupplementaryAdd(partial, '24SYMV014193944')).toBe(false);
+  });
+
+  test('partial chain with only request: SYMV is NOT supplementary', () => {
+    const onlyReq = {
+      implementationForm: 'Μια Σύμβαση',
+      khmdhsRequestAdam: '23REQ013047002',
+      khmdhsRequestSnapshot: { referenceNumber: '23REQ013047002' },
+    };
+    expect(shouldRouteAdamAsSupplementaryAdd(onlyReq, '24SYMV014193944')).toBe(false);
+  });
 });
 
 describe('khmdhsSupplementaryAssess', () => {

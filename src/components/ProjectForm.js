@@ -219,6 +219,22 @@ import {
   applyChainCharacterizationToForm,
   emptyKhmdhsChainFields,
 } from '../utils/khmdhsChainApply';
+import {
+  shouldOfferStitchPromptA,
+  getKnownStitchSeedAdams,
+  buildConfirmedStitchPlanFromStitch,
+  detectStagesCoveredByForm,
+  shouldOfferStitchPromptB,
+} from '../utils/khmdhsChainStitchPlan';
+import KhmdhsChainStitchPromptADialog from './KhmdhsChainStitchPromptADialog';
+import KhmdhsChainStitchPromptBDialog from './KhmdhsChainStitchPromptBDialog';
+import KhmdhsPendingTasksModal from './KhmdhsPendingTasksModal';
+import {
+  buildPostApplyQueue,
+  getFollowUpQueue,
+  removeTaskFromQueue,
+  POST_APPLY_TASK,
+} from '../utils/khmdhsPostApplyQueue';
 import { mergeSymvChainPlanIntoDataQualityReview, shouldMergeSymvPlanIntoDataQualityReview } from '../utils/khmdhsSymvChainApply';
 import {
   shouldRouteAdamAsSupplementaryAdd,
@@ -2568,7 +2584,13 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   const [khmdhsRegistryModal, setKhmdhsRegistryModal] = useState(null);
   const [relatedDocsModal, setRelatedDocsModal] = useState(null);
   const [supplementaryConfirm, setSupplementaryConfirm] = useState(null);
+  const [stitchPromptA, setStitchPromptA] = useState(null);
+  const [stitchPromptB, setStitchPromptB] = useState(null);
   const [contractExpiryPrompt, setContractExpiryPrompt] = useState(null);
+  /** Ενιαία ουρά εκκρεμοτήτων μετά εφαρμογή ΚΗΜΔΗΣ (Βήμα 1) */
+  const [postApplyQueue, setPostApplyQueue] = useState(null);
+  const [pendingTasksOpen, setPendingTasksOpen] = useState(false);
+  const [completedPendingTaskIds, setCompletedPendingTaskIds] = useState([]);
   const [symvChainPlannerState, setSymvChainPlannerState] = useState(null);
   const [apeEntryTarget, setApeEntryTarget] = useState(null);
   const [manualExtensionTarget, setManualExtensionTarget] = useState(null);
@@ -2577,6 +2599,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
   const khmdhsChainFetchGenRef = React.useRef({});
   const khmdhsPendingApplyRef = React.useRef(null);
   const khmdhsPendingDataReviewRef = React.useRef(false);
+  const khmdhsPendingStitchPromptBRef = React.useRef(null);
   const khmdhsPendingExpiryFormRef = React.useRef(null);
   const khmdhsPendingExpiryOptionsRef = React.useRef(null);
   const khmdhsDeferRegistryRef = React.useRef(null);
@@ -2618,6 +2641,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     || symvChainPlannerState || apeConflictModal || duplicateAnchorModal
     || khmdhsRegistryModal || relatedDocsModal || supplementaryConfirm
     || apeEntryTarget || manualExtensionTarget || statusCleanupModal
+    || stitchPromptA || stitchPromptB || pendingTasksOpen
   );
   khmdhsBlockingModalRef.current = khmdhsFlowModalOpen;
 
@@ -2713,6 +2737,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     if (e.target.closest('[data-khmdhs-symv-planner-modal]')) return;
     if (e.target.closest('[data-khmdhs-ape-entry-modal]')) return;
     if (e.target.closest('[data-khmdhs-related-docs-modal]')) return;
+    if (e.target.closest('[data-khmdhs-pending-tasks-modal]')) return;
     if (e.target.closest('[data-file-manager-modal]')) return;
     if (formScrollRef.current?.contains(e.target)) return;
     e.preventDefault();
@@ -2732,6 +2757,9 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       wasOpenRef.current = false;
       setContractExpiryPrompt(null);
       khmdhsPendingExpiryFormRef.current = null;
+      setPostApplyQueue(null);
+      setPendingTasksOpen(false);
+      setCompletedPendingTaskIds([]);
       return;
     }
     if (wasOpenRef.current) {
@@ -4441,6 +4469,9 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     userSelectedBranch = false,
     preloadedChainRes = null,
     symvChainPlan = null,
+    skipStitchPromptA = false,
+    stitchApplyMode = 'replace',
+    clearKhmdhsBeforeApply = false,
   } = {}) => {
     const seed = sanitizeAdamInput(adam);
     if (!seed) return;
@@ -4586,7 +4617,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         let capturedMergedDQR = null;
         let capturedFormAfterApply = null;
         let statusBeforeKhmdhsApply = null;
-        let situationModalShown = false;
+        let capturedStitchFilled = [];
+        let capturedStitchUpdated = [];
         const resolvedBranch = followAllBranches
           ? null
           : (branchAnchor || (
@@ -4604,38 +4636,98 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
                 )
                 : null
           ));
-        setFormData((prev) => {
-          statusBeforeKhmdhsApply = prev.projectStatus;
-          const result = applyAdamChainResult(prev, res, {
-            seedAdam: seed,
-            contractIndex: contractIndex != null ? contractIndex : -1,
-            branchAnchor: resolvedBranch,
-            suppressSituationModal,
-            userSelectedBranch: effectiveUserSelectedBranch,
-            symvChainPlan: usedSymvPlan ? symvChainPlan : null,
-          });
-          applyWarnings = result.warnings || [];
-          pendingApeConflict = result.apeConflict || null;
-          statusAutoUpdated = result.statusAutoUpdated || null;
-          protectedFieldCount = result.protectedCount || 0;
-          implementationFormAutoUpdated = result.implementationFormAutoUpdated || null;
-          capturedMergedDQR = result.form.khmdhsDataQualityReview || null;
-          // Συγχρονισμός τίτλων ήδη καταγεγραμμένων εγγράφων του μητρώου (Αρχεία Υποέργου)
-          // με τα φρέσκα δεδομένα ΚΗΜΔΗΣ — ώστε παλαιότερες καταγραφές να παίρνουν τη σωστή
-          // ονομασία (π.χ. «Τεύχη Δημοπράτησης») χωρίς να χρειάζεται νέα χειροκίνητη καταγραφή.
-          if (result.form.khmdhsDocumentRegistry?.length) {
-            const freshRegistryCandidates = mergeRegistryCandidateLists(
-              collectKhmdhsRegistryCandidatesFromChainRes(res, result.form.khmdhsDataQualityReview),
-              collectKhmdhsRegistryCandidatesFromProject(result.form)
-            );
-            result.form.khmdhsDocumentRegistry = resyncRegistryEntryTitles(
-              result.form.khmdhsDocumentRegistry,
-              freshRegistryCandidates
-            );
-          }
-          capturedFormAfterApply = result.form;
-          return result.form;
+
+        // Εφαρμογή ΕΚΤΟΣ setFormData — ώστε stitchFilled / Ερώτηση Β να μην εξαρτώνται
+        // από το αν ο updater του React τρέχει συγχρόνως.
+        const livePrev = formDataRef.current || fetchFormData;
+        statusBeforeKhmdhsApply = livePrev.projectStatus;
+        const basePrev = clearKhmdhsBeforeApply
+          ? { ...livePrev, ...buildFullKhmdhsPhaseBResetFields() }
+          : livePrev;
+        const applyResult = applyAdamChainResult(basePrev, res, {
+          seedAdam: seed,
+          contractIndex: contractIndex != null ? contractIndex : -1,
+          branchAnchor: resolvedBranch,
+          suppressSituationModal,
+          userSelectedBranch: effectiveUserSelectedBranch,
+          symvChainPlan: usedSymvPlan ? symvChainPlan : null,
+          applyMode: stitchApplyMode === 'stitch' ? 'stitch' : 'replace',
         });
+        applyWarnings = applyResult.warnings || [];
+        capturedStitchFilled = applyResult.stitchFilledStages || [];
+        capturedStitchUpdated = applyResult.stitchUpdatedStages || [];
+        pendingApeConflict = applyResult.apeConflict || null;
+        statusAutoUpdated = applyResult.statusAutoUpdated || null;
+        protectedFieldCount = applyResult.protectedCount || 0;
+        implementationFormAutoUpdated = applyResult.implementationFormAutoUpdated || null;
+        let formAfter = applyResult.form;
+        if (formAfter.khmdhsDocumentRegistry?.length) {
+          const freshRegistryCandidates = mergeRegistryCandidateLists(
+            collectKhmdhsRegistryCandidatesFromChainRes(res, formAfter.khmdhsDataQualityReview),
+            collectKhmdhsRegistryCandidatesFromProject(formAfter)
+          );
+          formAfter = {
+            ...formAfter,
+            khmdhsDocumentRegistry: resyncRegistryEntryTitles(
+              formAfter.khmdhsDocumentRegistry,
+              freshRegistryCandidates
+            ),
+          };
+        }
+        capturedMergedDQR = formAfter.khmdhsDataQualityReview || null;
+        capturedFormAfterApply = formAfter;
+        setFormData(formAfter);
+        formDataRef.current = formAfter;
+
+        // Ερώτηση Β: προγραμματισμός αμέσως μετά την εφαρμογή (εμφάνιση μετά τον έλεγχο).
+        if (shouldOfferStitchPromptB({
+          stitchApplyMode,
+          stitchFilledStages: capturedStitchFilled,
+          prevForm: basePrev,
+          nextForm: formAfter,
+        })) {
+          const prevSeedForPlan = getKnownStitchSeedAdams(basePrev)[0]
+            || sanitizeAdamInput(basePrev.khmdhsChainSeedAdam)
+            || sanitizeAdamInput(basePrev.khmdhsRequestAdam)
+            || '';
+          const gainedStages = [];
+          if (!(sanitizeAdamInput(basePrev.khmdhsAdam) || basePrev.khmdhsContractSnapshot)
+            && (sanitizeAdamInput(formAfter.khmdhsAdam) || formAfter.khmdhsContractSnapshot)) {
+            gainedStages.push('SYMV');
+          }
+          if (!(Array.isArray(basePrev.khmdhsPayments) && basePrev.khmdhsPayments.length)
+            && (Array.isArray(formAfter.khmdhsPayments) && formAfter.khmdhsPayments.length)) {
+            gainedStages.push('PAY');
+          }
+          const newCovers = [...new Set([
+            ...(capturedStitchFilled || []),
+            ...(capturedStitchUpdated || []),
+            ...gainedStages,
+          ])];
+          const previewPlan = buildConfirmedStitchPlanFromStitch({
+            existingPlan: basePrev.khmdhsChainStitchPlan || null,
+            prevSeedAdam: prevSeedForPlan,
+            prevForm: basePrev,
+            prevCoversStages: detectStagesCoveredByForm(basePrev),
+            newSeedAdam: seed,
+            newSeedType: parseKhmdhsAdamType(seed),
+            newCoversStages: newCovers.length ? newCovers : detectStagesCoveredByForm(formAfter),
+          });
+          if (previewPlan && Array.isArray(previewPlan.segments) && previewPlan.segments.length >= 2) {
+            khmdhsPendingStitchPromptBRef.current = {
+              prevSeedAdam: prevSeedForPlan,
+              prevFormSnapshot: {
+                khmdhsChainStitchPlan: basePrev.khmdhsChainStitchPlan || null,
+                coveredStages: detectStagesCoveredByForm(basePrev),
+              },
+              newSeedAdam: seed,
+              newSeedType: parseKhmdhsAdamType(seed),
+              newCoversStages: newCovers.length ? newCovers : ['SYMV'],
+              segments: previewPlan.segments,
+            };
+          }
+        }
+
         if (usedSymvPlan) {
           showToast(
             'Η κατανομή SYMV εφαρμόστηκε. Ελέγξτε τα αποτελέσματα και αποθηκεύστε το υποέργο.',
@@ -4665,6 +4757,19 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             'warning'
           );
         }
+        const stitchConflicts = (applyWarnings || []).filter((w) => String(w).startsWith('stitchConflict:'));
+        if (stitchConflicts.length > 0) {
+          showToast(
+            'Κάποιοι κρίκοι δεν αντικαταστάθηκαν γιατί υπήρχε ήδη διαφορετικός ΑΔΑΜ στο ίδιο στάδιο. Ελέγξτε την αλυσίδα.',
+            'warning'
+          );
+        }
+        if (stitchApplyMode === 'stitch') {
+          showToast(
+            'Η ανάκτηση συγχωνεύτηκε με τα υπάρχοντα δεδομένα ΚΗΜΔΗΣ (συμπλήρωση κενών).',
+            'info'
+          );
+        }
         if (statusAutoUpdated) {
           setManualPhaseBaseline((baseline) => {
             if (!baseline) return baseline;
@@ -4681,63 +4786,41 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             'info'
           );
         }
-        if (pendingApeConflict) {
-          setApeConflictModal(pendingApeConflict);
-        }
-        const pendingReviewCountEarly = getUnresolvedReviewItems(
-          capturedMergedDQR || capturedFormAfterApply?.khmdhsDataQualityReview,
-          capturedFormAfterApply || formDataRef.current
-        ).length;
-        if (!applyWarnings.includes('symvPlannerRequired') && capturedFormAfterApply) {
-          queueContractExpiryPrompt(capturedFormAfterApply, {
-            statusBeforeKhmdhsRefresh: statusBeforeKhmdhsApply,
-          });
-        }
-        if (!skipSituationModal && !suppressSituationModal && !usedSymvPlan && shouldShowKhmdhsSituationModal(situationReport)) {
-          const acknowledgedIds = new Set(formData.khmdhsAcknowledgedSituationIds || []);
-          // Ελέγχω αν το merged DQR (με τις παλιές επιλύσεις) έχει εκκρεμή items
-          const dqrItems = capturedMergedDQR?.items || [];
-          const dqrResolutions = capturedMergedDQR?.resolutions || {};
-          const dqrAcknowledged = new Set(capturedMergedDQR?.acknowledgedFieldIds || []);
-          const hasUnresolvedDQR = dqrItems.some((item) => {
-            if (item.status !== 'needs_review') return false;
-            const key = `${item.fieldId}::${item.contractIndex != null ? item.contractIndex : 'shared'}`;
-            return !dqrResolutions[key] && !dqrAcknowledged.has(key);
-          });
-          const filteredSituations = (situationReport?.situations || []).filter((sit) => {
-            if (sit.severity === 'error') return true;
-            if (acknowledgedIds.has(sit.id)) return false;
-            if (usedSymvPlan && sit.id === KHMDHS_SITUATION_ID_PARALLEL_CONTRACTS) return false;
-            // Αν το DQR είναι πλήρως επιλυμένο, αποκρύπτω ειδοποιήσεις που αφορούν ελλιπή πεδία
-            if (!hasUnresolvedDQR && (sit.id === 'incomplete_fields' || sit.id === 'contract_amount_fallback')) return false;
-            return true;
-          });
-          const filteredReport = { ...situationReport, situations: filteredSituations };
-          // Καθαρή περίπτωση: αν οι εναπομείνασες ειδοποιήσεις είναι αμιγώς ενημερωτικές
-          // (καμία σφάλματος/προειδοποίησης και καμία που να απαιτεί απόφαση), δεν ανοίγουμε
-          // παράθυρο — ο χρήστης βλέπει μόνο το μήνυμα επιτυχίας.
-          const filteredHasActionable = filteredSituations.some(
-            (sit) => sit.severity === 'error' || sit.severity === 'warning' || sit.requiresDecision
-          );
-          if (filteredHasActionable && shouldShowKhmdhsSituationModal(filteredReport)) {
-            situationModalShown = true;
-            setKhmdhsSituationModal({
-              report: filteredReport,
-              contractIndex: contractIndex != null ? contractIndex : null,
-              suggestedRetryAdam: null,
-            });
-          }
-        }
+        // Βήμα 1α/1β: ένα μονοπάτι εκκρεμοτήτων — όχι στοίβα παραθύρων.
         const reviewFormSnapshot = capturedFormAfterApply || formDataRef.current;
-        const pendingReviewCount = getUnresolvedReviewItems(
-          capturedMergedDQR || reviewFormSnapshot?.khmdhsDataQualityReview,
-          reviewFormSnapshot
-        ).length;
-        if (pendingReviewCount > 0 && !suppressSituationModal) {
-          if (situationModalShown) {
-            khmdhsPendingDataReviewRef.current = true;
-          } else {
+        const stitchPayloadForQueue = khmdhsPendingStitchPromptBRef.current;
+        const chainFetchedAt = new Date().toISOString();
+        const registryDefer = (!suppressSituationModal && !skipSituationModal)
+          ? { chainFetchedAt, chainRes: res }
+          : null;
+        if (registryDefer) {
+          khmdhsDeferRegistryRef.current = registryDefer;
+        }
+        const postQueue = buildPostApplyQueue({
+          formAfter: reviewFormSnapshot,
+          dqr: capturedMergedDQR,
+          situationReport: (!skipSituationModal && !suppressSituationModal && !usedSymvPlan)
+            ? situationReport
+            : null,
+          acknowledgedIds: formData.khmdhsAcknowledgedSituationIds || [],
+          usedSymvPlan,
+          stitchApplyMode,
+          stitchPromptBPayload: stitchPayloadForQueue,
+          apeConflict: pendingApeConflict,
+          registryDefer,
+          statusBeforeKhmdhsApply,
+          skipExpiry: applyWarnings.includes('symvPlannerRequired') || !!suppressSituationModal,
+        });
+        khmdhsPendingStitchPromptBRef.current = null;
+        khmdhsPendingDataReviewRef.current = false;
+        setPostApplyQueue(postQueue);
+        setCompletedPendingTaskIds([]);
+        setPendingTasksOpen(false);
+        if (!suppressSituationModal && !skipSituationModal) {
+          if (postQueue.needsDataReviewFirst) {
             setDataReviewModalOpen(true);
+          } else if (postQueue.hasFollowUpTasks) {
+            setPendingTasksOpen(true);
           }
         }
         if (applyWarnings.includes('noticeConflict')) {
@@ -4770,9 +4853,9 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
           setAdamInputDraft((prev) => ({ ...prev, chain: '' }));
         }
         const warn = res.warnings?.length ? ` (${res.warnings[0]})` : '';
-        // Το μήνυμα επιτυχίας μπλοκάρεται μόνο όταν όντως εμφανίστηκε παράθυρο κατάστασης —
-        // ώστε στην καθαρή περίπτωση (χωρίς παράθυρο) ο χρήστης να παίρνει πάντα επιβεβαίωση.
-        const blocksSuccessToast = skipSuccessToast || (!usedSymvPlan && situationModalShown);
+        // Μήνυμα επιτυχίας: όχι όταν ανοίγει έλεγχος/εκκρεμότητες (θα δει το παράθυρο).
+        const blocksSuccessToast = skipSuccessToast
+          || (!usedSymvPlan && (postQueue.needsDataReviewFirst || postQueue.hasFollowUpTasks));
         if (!blocksSuccessToast && !usedSymvPlan) {
           showToast(`Ανακτήθηκαν από ΚΗΜΔΗΣ: ${res.summary || 'στοιχεία αλυσίδας'}${warn}`, 'success');
         }
@@ -4784,32 +4867,6 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         }
         if (afterLegacyUpgrade) {
           showToast('Αποθηκεύστε το υποέργο για να οριστικοποιηθεί η αναβάθμιση.', 'info');
-        }
-        if (!suppressSituationModal) {
-          const chainFetchedAt = new Date().toISOString();
-          khmdhsDeferRegistryRef.current = { chainFetchedAt, chainRes: res };
-          const needsDataReview = getUnresolvedReviewItems(
-            capturedMergedDQR || reviewFormSnapshot?.khmdhsDataQualityReview,
-            reviewFormSnapshot
-          ).length > 0;
-          if (!needsDataReview && !situationModalShown) {
-            window.setTimeout(() => {
-              const project = formDataRef.current;
-              const chainResForRegistry = khmdhsLastChainResRef.current;
-              if (!shouldOfferRegistryAfterReview(project, {
-                dismissed: project?.khmdhsDocumentRegistryDismissed,
-                chainFetchedAt,
-                chainRes: chainResForRegistry,
-              })) {
-                khmdhsDeferRegistryRef.current = null;
-                return;
-              }
-              setKhmdhsRegistryModal(
-                buildRegistryModalPayloadAfterReview(project, chainFetchedAt, chainResForRegistry)
-              );
-              khmdhsDeferRegistryRef.current = null;
-            }, 0);
-          }
         }
         };
 
@@ -4844,6 +4901,36 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             });
             return;
           }
+        }
+
+        if (
+          !skipStitchPromptA
+          && !afterLegacyUpgrade
+          && !symvChainPlan
+          && contractIndex == null
+          && shouldOfferStitchPromptA(fetchFormData, seed, { isMultipleContracts: fetchMulti })
+        ) {
+          setKhmdhsChainFetchTarget(null);
+          const knownSeeds = getKnownStitchSeedAdams(fetchFormData);
+          setStitchPromptA({
+            newSeedAdam: seed,
+            previousSeedAdam: knownSeeds[0] || fetchFormData.khmdhsChainSeedAdam || '',
+            replay: {
+              adam: seed,
+              contractIndex,
+              afterLegacyUpgrade,
+              suppressSituationModal,
+              forceChainFetch,
+              suppressBranchPicker: true,
+              skipDuplicateCheck: true,
+              followAllBranches,
+              branchAnchor,
+              userSelectedBranch: effectiveUserSelectedBranch,
+              preloadedChainRes: res,
+              symvChainPlan,
+            },
+          });
+          return;
         }
 
         if (
@@ -5149,14 +5236,54 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     setKhmdhsRegistryModal(payload);
   }, []);
 
+  /** Μετά έλεγχο/κατάσταση: Ερώτηση Β συρραφής πριν το μητρώο εγγράφων. */
+  const flushPendingStitchPromptBOrContinue = useCallback(() => {
+    if (khmdhsPendingStitchPromptBRef.current) {
+      const payload = khmdhsPendingStitchPromptBRef.current;
+      khmdhsPendingStitchPromptBRef.current = null;
+      setStitchPromptB(payload);
+      return;
+    }
+    window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
+  }, [tryOpenKhmdhsRegistryModal]);
+
+  const pendingTasksOpenRef = React.useRef(false);
+  React.useEffect(() => { pendingTasksOpenRef.current = pendingTasksOpen; }, [pendingTasksOpen]);
+
+  const markPendingTaskComplete = useCallback((taskId) => {
+    setCompletedPendingTaskIds((prev) => (
+      prev.includes(taskId) ? prev : [...prev, taskId]
+    ));
+    setPostApplyQueue((prev) => (prev ? removeTaskFromQueue(prev, taskId) : prev));
+  }, []);
+
+  const openFollowUpPendingTasks = useCallback((queueOverride = null) => {
+    const applyFollowUp = (prev) => {
+      const base = queueOverride || prev;
+      const follow = getFollowUpQueue(base);
+      if (follow.tasks.length > 0) {
+        window.setTimeout(() => setPendingTasksOpen(true), 0);
+        return follow;
+      }
+      setPendingTasksOpen(false);
+      return follow;
+    };
+    if (queueOverride) {
+      setPostApplyQueue(applyFollowUp(queueOverride));
+      return;
+    }
+    setPostApplyQueue((prev) => applyFollowUp(prev));
+  }, []);
+
   const openPendingKhmdhsReviewOrRegistry = useCallback(() => {
     if (khmdhsPendingDataReviewRef.current) {
       khmdhsPendingDataReviewRef.current = false;
       setDataReviewModalOpen(true);
       return;
     }
-    window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
-  }, [tryOpenKhmdhsRegistryModal]);
+    if (pendingTasksOpenRef.current) return;
+    openFollowUpPendingTasks();
+  }, [openFollowUpPendingTasks]);
 
   const openKhmdhsDataReview = useCallback((itemKey = null) => {
     const safeKey = typeof itemKey === 'string' && itemKey.trim() ? itemKey.trim() : null;
@@ -5168,8 +5295,20 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     setDataReviewModalOpen(false);
     setReviewFocusItemKey(null);
     showToast('Ο έλεγχος στοιχείων ΚΗΜΔΗΣ ολοκληρώθηκε.', 'success');
-    window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
-  }, [showToast, tryOpenKhmdhsRegistryModal]);
+    setCompletedPendingTaskIds((prev) => (
+      prev.includes(POST_APPLY_TASK.DATA_REVIEW) ? prev : [...prev, POST_APPLY_TASK.DATA_REVIEW]
+    ));
+    setPostApplyQueue((prev) => {
+      const without = removeTaskFromQueue(prev, POST_APPLY_TASK.DATA_REVIEW);
+      const follow = getFollowUpQueue(without);
+      if (follow.tasks.length > 0) {
+        window.setTimeout(() => setPendingTasksOpen(true), 0);
+      } else {
+        setPendingTasksOpen(false);
+      }
+      return follow;
+    });
+  }, [showToast]);
 
   const handleDataReviewDismiss = useCallback(() => {
     setDataReviewModalOpen(false);
@@ -5182,10 +5321,21 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         'Η καταγραφή εγγράφων θα προτείνεται αφού ολοκληρώσετε τους χαρακτηρισμούς.',
         'info'
       );
-    } else {
-      window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
     }
-  }, [showToast, tryOpenKhmdhsRegistryModal]);
+    setCompletedPendingTaskIds((prev) => (
+      prev.includes(POST_APPLY_TASK.DATA_REVIEW) ? prev : [...prev, POST_APPLY_TASK.DATA_REVIEW]
+    ));
+    setPostApplyQueue((prev) => {
+      const without = removeTaskFromQueue(prev, POST_APPLY_TASK.DATA_REVIEW);
+      const follow = getFollowUpQueue(without);
+      if (follow.tasks.length > 0) {
+        window.setTimeout(() => setPendingTasksOpen(true), 0);
+      } else {
+        setPendingTasksOpen(false);
+      }
+      return follow;
+    });
+  }, [showToast]);
 
   const handleReviewResolveItem = useCallback((item, opts) => {
     setFormData((prev) => {
@@ -5373,12 +5523,18 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     setStripDropdown(null);
     setDataReviewModalOpen(false);
     setKhmdhsSituationModal(null);
+    setStitchPromptA(null);
+    setStitchPromptB(null);
     setApeConflictModal(null);
+    setPostApplyQueue(null);
+    setPendingTasksOpen(false);
+    setCompletedPendingTaskIds([]);
     setKhmdhsHighlightField(null);
     setPreSaveOverridesOpen(false);
     khmdhsPendingApplyRef.current = null;
     khmdhsDeferRegistryRef.current = null;
     khmdhsPendingDataReviewRef.current = false;
+    khmdhsPendingStitchPromptBRef.current = null;
     setSymvChainPlannerState(null);
 
     setFormData((prev) => ({
@@ -5552,7 +5708,9 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             </DropdownTitle>
             <DropdownHint>
               {hasChain
-                ? 'Δώστε REQ, PROC, AWRD ή SYMV. Αν υπάρχει ήδη αλυσίδα και δώσετε νέο SYMV, προστίθεται ως συμπληρωματική — η κύρια σύμβαση δεν αντικαθίσταται.'
+                ? (formData.khmdhsAdam || formData.khmdhsContractSnapshot
+                  ? 'Δώστε REQ, PROC, AWRD ή SYMV. Αν δώσετε νέο SYMV ενώ υπάρχει ήδη κύρια σύμβαση, προστίθεται ως συμπληρωματική — η κύρια δεν αντικαθίσταται.'
+                  : 'Δώστε νέο ΑΔΑΜ (π.χ. της σύμβασης) για να συμπληρωθεί η αλυσίδα. Η εφαρμογή θα σας ρωτήσει αν θέλετε να διατηρηθούν τα υπάρχοντα στοιχεία.')
                 : (isMulti
                   ? 'Δώστε οποιονδήποτε ΑΔΑΜ (REQ, PROC, AWRD ή SYMV) — η εφαρμογή εντοπίζει αυτόματα όλες τις συμβάσεις της πράξης.'
                   : (guidance?.chainPanelHint || 'Δώστε τον κωδικό ΑΔΑΜ του πρωτογενούς αιτήματος, δημοσίευσης, ανάθεσης ή σύμβασης.'))}
@@ -6589,6 +6747,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         khmdhsPendingApplyRef.current = null;
         khmdhsDeferRegistryRef.current = null;
         khmdhsPendingDataReviewRef.current = false;
+        khmdhsPendingStitchPromptBRef.current = null;
+        setStitchPromptB(null);
         const suggested = sanitizeAdamInput(actionMeta?.suggestedAdam || '');
         if (suggested) {
           setKhmdhsSituationModal(null);
@@ -6611,6 +6771,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       }
       case KHMDHS_SITUATION_ACTION.TRY_SYMV: {
         khmdhsPendingApplyRef.current = null;
+        khmdhsPendingStitchPromptBRef.current = null;
+        setStitchPromptB(null);
         const trySuggestedAdam = sanitizeAdamInput(actionMeta?.suggestedAdam || '');
         if (trySuggestedAdam) {
           setKhmdhsSituationModal(null);
@@ -6633,12 +6795,16 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         break;
       }
       case KHMDHS_SITUATION_ACTION.TRY_PRIMARY_SEED:
+        khmdhsPendingStitchPromptBRef.current = null;
+        setStitchPromptB(null);
         setKhmdhsSituationModal(null);
         setAdamInputDraft((prev) => ({ ...prev, chain: '' }));
         focusKhmdhsAdamInput(contractIndex, '');
         showToast('Δώστε ΑΔΑΜ πρωτογενούς αιτήματος ή αρχικής σύμβασης για ολόκληρη την αλυσίδα.', 'info');
         return;
       case KHMDHS_SITUATION_ACTION.ADD_SUPPLEMENTARY_ADAM:
+        khmdhsPendingStitchPromptBRef.current = null;
+        setStitchPromptB(null);
         setKhmdhsSituationModal(null);
         focusKhmdhsSupplementaryInput(actionMeta?.suggestedAdam || '');
         showToast('Δώστε τον ΑΔΑΜ της συμπληρωματικής σύμβασης και πατήστε «Προσθήκη συμπληρωματικής».', 'info');
@@ -6647,7 +6813,12 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         khmdhsPendingApplyRef.current = null;
         khmdhsDeferRegistryRef.current = null;
         khmdhsPendingDataReviewRef.current = false;
+        khmdhsPendingStitchPromptBRef.current = null;
+        setStitchPromptB(null);
         setSymvChainPlannerState(null);
+        setPostApplyQueue(null);
+        setPendingTasksOpen(false);
+        setCompletedPendingTaskIds([]);
         setFormData((prev) => ({
           ...prev,
           ...buildKhmdhsChainResetPayload(),
@@ -6691,7 +6862,11 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       default:
         break;
     }
-    openPendingKhmdhsReviewOrRegistry();
+    if (pendingTasksOpenRef.current) {
+      markPendingTaskComplete(POST_APPLY_TASK.SITUATION);
+    } else {
+      openPendingKhmdhsReviewOrRegistry();
+    }
     setKhmdhsSituationModal(null);
   };
 
@@ -6708,6 +6883,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       if (!discard) return;
       khmdhsDeferRegistryRef.current = null;
       khmdhsPendingDataReviewRef.current = false;
+      khmdhsPendingStitchPromptBRef.current = null;
+      setStitchPromptB(null);
     } else {
       openPendingKhmdhsReviewOrRegistry();
     }
@@ -6727,10 +6904,34 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       ...(neverAsk ? { khmdhsDocumentRegistryDismissed: true } : {}),
     }));
     setKhmdhsRegistryModal(null);
+    setCompletedPendingTaskIds((prev) => (
+      prev.includes(POST_APPLY_TASK.REGISTRY) ? prev : [...prev, POST_APPLY_TASK.REGISTRY]
+    ));
+    setPostApplyQueue((prev) => {
+      const next = removeTaskFromQueue(prev, POST_APPLY_TASK.REGISTRY);
+      if (next.tasks.length > 0) {
+        window.setTimeout(() => setPendingTasksOpen(true), 0);
+      }
+      return next;
+    });
     showToast(
       `Καταγράφηκαν ${selected.length} έγγραφ${selected.length === 1 ? 'ο' : 'α'} ΚΗΜΔΗΣ. Αποθηκεύστε το υποέργο.`,
       'success'
     );
+  };
+
+  const handleKhmdhsRegistryDismiss = () => {
+    setKhmdhsRegistryModal(null);
+    setCompletedPendingTaskIds((prev) => (
+      prev.includes(POST_APPLY_TASK.REGISTRY) ? prev : [...prev, POST_APPLY_TASK.REGISTRY]
+    ));
+    setPostApplyQueue((prev) => {
+      const next = removeTaskFromQueue(prev, POST_APPLY_TASK.REGISTRY);
+      if (next.tasks.length > 0) {
+        window.setTimeout(() => setPendingTasksOpen(true), 0);
+      }
+      return next;
+    });
   };
 
   const handleRelatedDocsConfirm = (picked) => {
@@ -7985,7 +8186,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       candidates={khmdhsRegistryModal?.candidates || []}
       existing={khmdhsRegistryModal?.existing || formData.khmdhsDocumentRegistry || []}
       onConfirm={handleKhmdhsRegistryConfirm}
-      onDismiss={() => setKhmdhsRegistryModal(null)}
+      onDismiss={handleKhmdhsRegistryDismiss}
     />
     <KhmdhsSymvChainPlannerDialog
       isOpen={!!symvChainPlannerState?.open}
@@ -8114,11 +8315,176 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         });
       }}
     />
+    <KhmdhsChainStitchPromptADialog
+      isOpen={!!stitchPromptA}
+      newSeedAdam={stitchPromptA?.newSeedAdam || ''}
+      previousSeedAdam={stitchPromptA?.previousSeedAdam || ''}
+      onCancel={() => setStitchPromptA(null)}
+      onKeepAndUpdate={() => {
+        const payload = stitchPromptA;
+        setStitchPromptA(null);
+        if (!payload?.replay) return;
+        runKhmdhsChainFetch({
+          ...payload.replay,
+          skipStitchPromptA: true,
+          stitchApplyMode: 'stitch',
+          clearKhmdhsBeforeApply: false,
+        });
+      }}
+      onStartFresh={() => {
+        const payload = stitchPromptA;
+        setStitchPromptA(null);
+        if (!payload?.replay) return;
+        runKhmdhsChainFetch({
+          ...payload.replay,
+          skipStitchPromptA: true,
+          stitchApplyMode: 'replace',
+          clearKhmdhsBeforeApply: true,
+        });
+      }}
+    />
+    <KhmdhsChainStitchPromptBDialog
+      isOpen={!!stitchPromptB}
+      segments={stitchPromptB?.segments || []}
+      onConfirm={() => {
+        const payload = stitchPromptB;
+        setStitchPromptB(null);
+        if (!payload) {
+          window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
+          return;
+        }
+        setFormData((prev) => {
+          const plan = buildConfirmedStitchPlanFromStitch({
+            existingPlan: payload.prevFormSnapshot?.khmdhsChainStitchPlan || null,
+            prevSeedAdam: payload.prevSeedAdam,
+            prevCoversStages: payload.prevFormSnapshot?.coveredStages || [],
+            newSeedAdam: payload.newSeedAdam,
+            newSeedType: payload.newSeedType,
+            newCoversStages: payload.newCoversStages,
+          });
+          if (!plan) return prev;
+          const next = { ...prev, khmdhsChainStitchPlan: plan };
+          formDataRef.current = next;
+          return next;
+        });
+        showToast(
+          'Καταχωρήθηκε στη φόρμα ως τεχνητή αλυσίδα. Αποθηκεύστε το υποέργο για να οριστικοποιηθεί στις επόμενες ανανεώσεις.',
+          'warning'
+        );
+        window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
+      }}
+      onDecline={() => {
+        setStitchPromptB(null);
+        window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
+      }}
+    />
     <KhmdhsContractExpiryPromptDialog
       isOpen={!!contractExpiryPrompt}
       prompt={contractExpiryPrompt}
       onDismiss={() => setContractExpiryPrompt(null)}
       onAccept={handleContractExpiryAccept}
+    />
+    <KhmdhsPendingTasksModal
+      isOpen={pendingTasksOpen}
+      tasks={postApplyQueue?.tasks || []}
+      completedIds={completedPendingTaskIds}
+      onClose={() => setPendingTasksOpen(false)}
+      onOpenDataReview={() => {
+        setPendingTasksOpen(false);
+        setDataReviewModalOpen(true);
+      }}
+      onSituationAction={(actionId, situationId, action) => {
+        const task = (postApplyQueue?.tasks || []).find((t) => t.type === POST_APPLY_TASK.SITUATION);
+        if (task?.report) {
+          setKhmdhsSituationModal({
+            report: task.report,
+            contractIndex: null,
+            suggestedRetryAdam: null,
+          });
+        }
+        window.setTimeout(() => {
+          handleKhmdhsSituationAction(actionId, situationId, action);
+        }, 0);
+      }}
+      onStitchConfirm={(task) => {
+        const payload = task?.payload;
+        if (payload) {
+          setFormData((prev) => {
+            const plan = buildConfirmedStitchPlanFromStitch({
+              existingPlan: payload.prevFormSnapshot?.khmdhsChainStitchPlan || null,
+              prevSeedAdam: payload.prevSeedAdam,
+              prevCoversStages: payload.prevFormSnapshot?.coveredStages || [],
+              newSeedAdam: payload.newSeedAdam,
+              newSeedType: payload.newSeedType,
+              newCoversStages: payload.newCoversStages,
+            });
+            if (!plan) return prev;
+            const next = { ...prev, khmdhsChainStitchPlan: plan };
+            formDataRef.current = next;
+            return next;
+          });
+          showToast(
+            'Καταχωρήθηκε στη φόρμα ως τεχνητή αλυσίδα. Αποθηκεύστε το υποέργο για να οριστικοποιηθεί στις επόμενες ανανεώσεις.',
+            'warning'
+          );
+        }
+        markPendingTaskComplete(POST_APPLY_TASK.STITCH_B);
+      }}
+      onStitchDecline={() => {
+        markPendingTaskComplete(POST_APPLY_TASK.STITCH_B);
+      }}
+      onOpenRegistry={(task) => {
+        const defer = task?.defer || khmdhsDeferRegistryRef.current;
+        if (!defer) {
+          markPendingTaskComplete(POST_APPLY_TASK.REGISTRY);
+          return;
+        }
+        setPendingTasksOpen(false);
+        const project = formDataRef.current;
+        setKhmdhsRegistryModal(
+          buildRegistryModalPayloadAfterReview(
+            project,
+            defer.chainFetchedAt,
+            defer.chainRes || khmdhsLastChainResRef.current
+          )
+        );
+        khmdhsDeferRegistryRef.current = null;
+      }}
+      onSkipRegistry={() => {
+        khmdhsDeferRegistryRef.current = null;
+        markPendingTaskComplete(POST_APPLY_TASK.REGISTRY);
+      }}
+      onApeAccept={(task) => {
+        const conflict = task?.payload;
+        if (conflict) {
+          const { suggested, contractIndex } = conflict;
+          setFormData((prev) => {
+            if (contractIndex != null && contractIndex >= 0) {
+              const contracts = [...(prev.contracts || [])];
+              if (contracts[contractIndex]) {
+                contracts[contractIndex] = { ...contracts[contractIndex], apeAmount: suggested };
+              }
+              return { ...prev, contracts };
+            }
+            return { ...prev, apeAmount: suggested };
+          });
+        }
+        setApeConflictModal(null);
+        markPendingTaskComplete(POST_APPLY_TASK.APE);
+      }}
+      onApeKeep={() => {
+        setApeConflictModal(null);
+        markPendingTaskComplete(POST_APPLY_TASK.APE);
+      }}
+      onExpiryAccept={() => {
+        handleContractExpiryAccept();
+        markPendingTaskComplete(POST_APPLY_TASK.EXPIRY);
+      }}
+      onExpiryDismiss={() => {
+        setContractExpiryPrompt(null);
+        markPendingTaskComplete(POST_APPLY_TASK.EXPIRY);
+      }}
+      onDismissTask={(taskId) => markPendingTaskComplete(taskId)}
     />
     <KhmdhsDataReviewModal
       isOpen={dataReviewModalOpen}

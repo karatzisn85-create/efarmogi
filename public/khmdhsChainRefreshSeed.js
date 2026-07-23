@@ -86,6 +86,49 @@ function getKhmdhsRefreshSeedAdam(project) {
   return { adam: '', source: 'none', label: '' };
 }
 
+function isConfirmedStitchPlan(plan) {
+  if (!plan || plan.status !== 'confirmed' || !Array.isArray(plan.segments)) return false;
+  const withSeed = plan.segments.filter((s) => sanitizeAdam(s?.seedAdam));
+  return withSeed.length >= 2;
+}
+
+/** Οι σπόροι του επιβεβαιωμένου σχεδίου τεχνητής αλυσίδας (με σειρά, μοναδικοί). */
+function getConfirmedStitchSeedAdams(project) {
+  const plan = project?.khmdhsChainStitchPlan;
+  if (!isConfirmedStitchPlan(plan)) return [];
+  const seen = new Set();
+  const out = [];
+  plan.segments.forEach((s) => {
+    const a = sanitizeAdam(s?.seedAdam);
+    if (!a || seen.has(a)) return;
+    seen.add(a);
+    out.push(a);
+  });
+  return out;
+}
+
+/**
+ * Λίστα σπόρων ανανέωσης. Αν υπάρχει επιβεβαιωμένο σχέδιο τεχνητής αλυσίδας,
+ * επιστρέφει όλους τους σπόρους του σχεδίου· αλλιώς τον έναν σπόρο (μονή άγκυρα).
+ * @returns {{ adams: string[], usesStitchPlan: boolean, primary: {adam,source,label} }}
+ */
+function getKhmdhsRefreshSeedAdams(project) {
+  const planSeeds = getConfirmedStitchSeedAdams(project);
+  if (planSeeds.length >= 2) {
+    return {
+      adams: planSeeds,
+      usesStitchPlan: true,
+      primary: { adam: planSeeds[0], source: 'stitch', label: 'τεχνητή αλυσίδα (πολλοί ΑΔΑΜ)' },
+    };
+  }
+  const single = getKhmdhsRefreshSeedAdam(project);
+  return {
+    adams: single.adam ? [single.adam] : [],
+    usesStitchPlan: false,
+    primary: single,
+  };
+}
+
 const KHMDHS_CHAIN_CLOSED_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
 
 function isKhmdhsChainClosedSubproject(project) {
@@ -153,6 +196,9 @@ function canUserRefreshKhmdhsOnServer(user, project) {
 
 module.exports = {
   getKhmdhsRefreshSeedAdam,
+  getKhmdhsRefreshSeedAdams,
+  getConfirmedStitchSeedAdams,
+  isConfirmedStitchPlan,
   canUserRefreshKhmdhsOnServer,
   isKhmdhsChainClosedSubproject,
   readStoredApeAmountRaw,

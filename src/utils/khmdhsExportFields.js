@@ -6,6 +6,7 @@ import { grossFromCostSnapshot, formatKhmdhsCostSnapshotGross } from './khmdhsVa
 import {
   formatKhmdhsDateOnly,
   formatKhmdhsDateTime,
+  formatKhmdhsDurationLabel,
   formatKhmdhsEuro,
   pickKhmdhsNoticeSnapshot,
   projectHasKhmdhsNoticeData,
@@ -63,9 +64,7 @@ function str(val) {
 }
 
 function durationLabel(value, unit) {
-  if (value == null || value === '') return '';
-  const u = unit ? ` ${unit}` : '';
-  return `${value}${u}`;
+  return formatKhmdhsDurationLabel(value, unit);
 }
 
 /** Εκτιμώμενη αξία με ΦΠΑ 24% */

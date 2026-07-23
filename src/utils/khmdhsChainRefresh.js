@@ -7,6 +7,10 @@ import { projectVisibleToAssignedEngineer } from './supervisorChargeDisplay';
 import { projectHasAnyKhmdhsLifecycleData } from './khmdhsLifecycleStages';
 import { getKhmdhsPaymentEntries } from './khmdhsChainExtraFields';
 import { getUnresolvedReviewItems } from './khmdhsDataQualityReport';
+import {
+  getConfirmedKhmdhsStitchPlan,
+  getConfirmedStitchSeedAdams,
+} from './khmdhsChainStitchPlan';
 
 export const KHMDHS_FRESHNESS_YELLOW_DAYS = 30;
 export const KHMDHS_FRESHNESS_YELLOW_MAX = 50;
@@ -94,6 +98,36 @@ export function getKhmdhsRefreshSeedAdam(project) {
   }
 
   return { adam: '', source: 'none', label: '' };
+}
+
+/**
+ * Έχει το υποέργο επιβεβαιωμένο σχέδιο τεχνητής (συρραμμένης) αλυσίδας;
+ */
+export function hasConfirmedKhmdhsStitchPlan(project) {
+  return !!getConfirmedKhmdhsStitchPlan(project);
+}
+
+/**
+ * ΑΔΑΜ εκκίνησης ανανέωσης — λίστα με σειρά.
+ * Αν υπάρχει επιβεβαιωμένο σχέδιο συρραφής, ακολουθεί τους σπόρους του σχεδίου
+ * (αγνοεί τη μονή άγκυρα). Αλλιώς ένας σπόρος (όπως σήμερα).
+ * @returns {{ adams: string[], usesStitchPlan: boolean, primary: {adam,source,label} }}
+ */
+export function getKhmdhsRefreshSeedAdams(project) {
+  const planSeeds = getConfirmedStitchSeedAdams(project);
+  if (planSeeds.length >= 2) {
+    return {
+      adams: planSeeds,
+      usesStitchPlan: true,
+      primary: { adam: planSeeds[0], source: 'stitch', label: 'τεχνητή αλυσίδα (πολλοί ΑΔΑΜ)' },
+    };
+  }
+  const single = getKhmdhsRefreshSeedAdam(project);
+  return {
+    adams: single.adam ? [single.adam] : [],
+    usesStitchPlan: false,
+    primary: single,
+  };
 }
 
 /** Συλλογή όλων των ημερομηνιών ανάκτησης αλυσίδας */

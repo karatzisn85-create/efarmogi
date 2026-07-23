@@ -3131,7 +3131,8 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
       return { success: false, error: 'Δεν έχετε δικαίωμα ανανέωσης ΚΗΜΔΗΣ για αυτό το υποέργο' };
     }
 
-    const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
+    const seedPlan = refreshSeed.getKhmdhsRefreshSeedAdams(project);
+    const seedInfo = seedPlan.primary;
     if (!seedInfo.adam) {
       return {
         success: false,
@@ -3147,6 +3148,54 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
     }
 
     const chainSvc = require('./khmdhsAdamChainService');
+
+    // Τεχνητή (συρραμμένη) αλυσίδα: ανακτούμε διαδοχικά ΟΛΟΥΣ τους σπόρους του σχεδίου
+    // ώστε να ξαναχτιστεί όλη η αλυσίδα (ο renderer τα συγχωνεύει με stitch, χωρίς σβήσιμο).
+    if (seedPlan.usesStitchPlan && seedPlan.adams.length >= 2) {
+      const stitchResults = [];
+      for (const seedAdam of seedPlan.adams) {
+        // eslint-disable-next-line no-await-in-loop
+        const r = await chainSvc.resolveKhmdhsAdamChain(seedAdam, {
+          apeAmount,
+          signal: localAbort?.signal,
+        });
+        if (r?.aborted) {
+          return { success: false, aborted: true, error: 'Η διαδικασία ακυρώθηκε.' };
+        }
+        stitchResults.push({ seedAdam, chainRes: r || null, success: !!r?.success });
+      }
+      const failedAdams = stitchResults
+        .filter((s) => !s.success)
+        .map((s) => s.seedAdam)
+        .filter(Boolean);
+      // Fail-closed: μερική επιτυχία δεν επιτρέπεται — αλλιώς αποθηκεύεται μισή αλυσίδα.
+      if (failedAdams.length) {
+        return {
+          success: false,
+          partialStitchFailure: true,
+          failedAdams,
+          stitchResults,
+          error: failedAdams.length === 1
+            ? `Η τεχνητή αλυσίδα δεν ανανεώθηκε πλήρως — απέτυχε ο κωδικός ${failedAdams[0]}. Δεν εφαρμόστηκαν αλλαγές.`
+            : `Η τεχνητή αλυσίδα δεν ανανεώθηκε πλήρως — απέτυχαν οι κωδικοί ${failedAdams.join(', ')}. Δεν εφαρμόστηκαν αλλαγές.`,
+          seedAdam: seedInfo.adam,
+          seedSource: seedInfo.source,
+          seedLabel: seedInfo.label,
+        };
+      }
+      const primary = stitchResults[0];
+      return {
+        success: true,
+        chainRes: primary.chainRes,
+        seedAdam: seedInfo.adam,
+        seedSource: seedInfo.source,
+        seedLabel: seedInfo.label,
+        usesStitchPlan: true,
+        stitchResults,
+        projectSnapshot: project,
+      };
+    }
+
     const chainRes = await chainSvc.resolveKhmdhsAdamChain(seedInfo.adam, {
       apeAmount,
       signal: localAbort?.signal,
@@ -3169,6 +3218,7 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
       seedAdam: seedInfo.adam,
       seedSource: seedInfo.source,
       seedLabel: seedInfo.label,
+      usesStitchPlan: false,
       projectSnapshot: project,
     };
   } catch (e) {

@@ -123,6 +123,34 @@ function keyValueText(field) {
   return '';
 }
 
+/**
+ * Μονάδα μέτρησης διάρκειας/ισχύος από raw ΚΗΜΔΗΣ ή ήδη mapped snapshot.
+ * Raw: { key: "3", value: "Μήνες" } ή "3" · Mapped: "Μήνες" / "3".
+ */
+function unitOfMeasureText(rawField, mappedField) {
+  const fromRaw = keyValueText(rawField);
+  if (fromRaw) return fromRaw;
+  if (rawField && typeof rawField === 'object' && rawField.key != null) {
+    const k = String(rawField.key).trim();
+    if (k) return k;
+  }
+  const fromMapped = keyValueText(mappedField);
+  if (fromMapped) return fromMapped;
+  return '';
+}
+
+/** ΚΗΜΔΗΣ: 1 ημέρες, 2 εβδομάδες, 3 μήνες, 4 έτη → ελληνική ετικέτα */
+function humanizeUnitOfMeasure(rawField, mappedField) {
+  const text = unitOfMeasureText(rawField, mappedField);
+  if (!text) return '';
+  const u = String(text).trim().toLowerCase();
+  if (u === '1' || /ημέρ|ημερ|day/i.test(u)) return 'Ημέρες';
+  if (u === '2' || /εβδομ|week/i.test(u)) return 'Εβδομάδες';
+  if (u === '3' || /μήν|μην|month/i.test(u)) return 'Μήνες';
+  if (u === '4' || /έτ|ετ|year/i.test(u)) return 'Έτη';
+  return String(text).trim();
+}
+
 function isoDateOnly(value) {
   if (value == null || value === '') return '';
   if (typeof value === 'object' && value.value != null) {
@@ -257,9 +285,15 @@ function mapNoticeRecord(row) {
     totalCostWithoutVAT: row.totalCostWithoutVAT != null ? row.totalCostWithoutVAT : null,
     totalCostWithVAT: row.totalCostWithVAT != null ? row.totalCostWithVAT : null,
     contractDuration: row.contractDuration != null ? row.contractDuration : null,
-    contractDurationUnit: keyValueText(row.contractDurationUnitOfMeasure) || null,
+    contractDurationUnit: humanizeUnitOfMeasure(
+      row.contractDurationUnitOfMeasure,
+      row.contractDurationUnit
+    ) || null,
     offersValidTime: row.offersValidTime != null ? row.offersValidTime : null,
-    offersValidTimeUnit: keyValueText(row.offersValidTimeUnitOfMeasure) || null,
+    offersValidTimeUnit: humanizeUnitOfMeasure(
+      row.offersValidTimeUnitOfMeasure,
+      row.offersValidTimeUnit
+    ) || null,
     biddingWebsite: row.biddingWebsite || null,
     systemicNumber: row.systemicNumbers?.[0]?.systemicNumber || null,
     approvedRequestAdam: row.approvedRequests?.[0]?.code || null,
@@ -595,7 +629,10 @@ function mapContractRecord(c) {
     noEndDate: c.noEndDate === true,
     contractBudget: c.contractBudget != null ? c.contractBudget : null,
     contractDuration: c.contractDuration != null ? c.contractDuration : null,
-    contractDurationUnit: keyValueText(c.contractDurationUnitOfMeasure) || null,
+    contractDurationUnit: humanizeUnitOfMeasure(
+      c.contractDurationUnitOfMeasure,
+      c.contractDurationUnit
+    ) || null,
     cancelled: !!c.cancelled,
     cancellationDate: c.cancellationDate || null,
     cancellationReason: c.cancellationReason || null,
@@ -646,7 +683,10 @@ function mapAuctionRecord(row) {
   const primary = contractors[0] || {};
   const noticeRef = row.noticeRefNo != null ? row.noticeRefNo : row.noticeReferenceNumber;
   const durationVal = row.contractDuration != null ? String(row.contractDuration).trim() : '';
-  const durationUnit = keyValueText(row.contractDurationUnitOfMeasure);
+  const durationUnit = humanizeUnitOfMeasure(
+    row.contractDurationUnitOfMeasure,
+    row.contractDurationUnit
+  );
 
   return {
     referenceNumber: row.referenceNumber || null,

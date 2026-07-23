@@ -66,6 +66,52 @@ describe('procurementCalendarEvents', () => {
     expect(types).toContain(CALENDAR_EVENT_TYPES.OFFERS_EXPIRY);
   });
 
+  test('offers expiry uses months from ΚΗΜΔΗΣ unit (not days)', () => {
+    const project = {
+      ...activeNoticeProject,
+      khmdhsNoticeSnapshot: {
+        ...activeNoticeProject.khmdhsNoticeSnapshot,
+        finalSubmissionDate: '2026-08-07T14:00:00',
+        offersValidTime: 12,
+        offersValidTimeUnit: 'Μήνες',
+      },
+    };
+    const events = buildProcurementCalendarEvents([project], { userRole: 'ADMIN' });
+    const expiry = events.find((e) => e.type === CALENDAR_EVENT_TYPES.OFFERS_EXPIRY);
+    expect(expiry).toBeTruthy();
+    expect(expiry.dateKey).toBe('2027-08-07');
+  });
+
+  test('offers expiry understands ΚΗΜΔΗΣ numeric unit code 3 = months', () => {
+    const project = {
+      ...activeNoticeProject,
+      khmdhsNoticeSnapshot: {
+        ...activeNoticeProject.khmdhsNoticeSnapshot,
+        finalSubmissionDate: '2026-08-07T14:00:00',
+        offersValidTime: 12,
+        offersValidTimeUnit: '3',
+      },
+    };
+    const events = buildProcurementCalendarEvents([project], { userRole: 'ADMIN' });
+    const expiry = events.find((e) => e.type === CALENDAR_EVENT_TYPES.OFFERS_EXPIRY);
+    expect(expiry?.dateKey).toBe('2027-08-07');
+  });
+
+  test('skips offers expiry when unit is missing (no day-guess)', () => {
+    const project = {
+      ...activeNoticeProject,
+      khmdhsNoticeSnapshot: {
+        ...activeNoticeProject.khmdhsNoticeSnapshot,
+        finalSubmissionDate: '2026-08-07T14:00:00',
+        offersValidTime: 12,
+        offersValidTimeUnit: null,
+      },
+    };
+    const events = buildProcurementCalendarEvents([project], { userRole: 'ADMIN' });
+    expect(events.some((e) => e.type === CALENDAR_EVENT_TYPES.DEADLINE)).toBe(true);
+    expect(events.some((e) => e.type === CALENDAR_EVENT_TYPES.OFFERS_EXPIRY)).toBe(false);
+  });
+
   test('builds contract end date for signed projects', () => {
     const events = buildProcurementCalendarEvents([signedProject], { userRole: 'ADMIN' });
     expect(events.some((e) => e.type === CALENDAR_EVENT_TYPES.CONTRACT_END)).toBe(true);

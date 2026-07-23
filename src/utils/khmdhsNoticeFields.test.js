@@ -5,8 +5,22 @@ import {
   getProjectAssignmentProcedure,
   getProjectContractProcessStartDate,
   noticeDrivesAssignmentProcedure,
+  formatKhmdhsDurationLabel,
+  humanizeKhmdhsDurationUnit,
 } from './khmdhsNoticeFields';
 import { shouldShowProcedureZone } from './projectCardDisplay';
+
+describe('formatKhmdhsDurationLabel', () => {
+  test('εμφανίζει Μήνες από κείμενο ή κωδικό ΚΗΜΔΗΣ', () => {
+    expect(formatKhmdhsDurationLabel(12, 'Μήνες')).toBe('12 Μήνες');
+    expect(formatKhmdhsDurationLabel(12, '3')).toBe('12 Μήνες');
+    expect(humanizeKhmdhsDurationUnit('3')).toBe('Μήνες');
+  });
+
+  test('χωρίς μονάδα επιστρέφει μόνο τον αριθμό', () => {
+    expect(formatKhmdhsDurationLabel(12, null)).toBe('12');
+  });
+});
 
 describe('getProjectAssignmentProcedure', () => {
   test('προτιμά χειροκίνητη τιμή ακόμη κι όταν υπάρχει δημοσίευση ΚΗΜΔΗΣ', () => {

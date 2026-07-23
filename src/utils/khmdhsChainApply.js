@@ -29,6 +29,7 @@ import {
   mergeKhmdhsCommitmentsFromChain,
   pickPrimaryCommitmentDecision,
 } from './khmdhsCommitmentsMerge';
+import { detectStagesCoveredByChainRes } from './khmdhsChainStitchPlan';
 
 function sanitizeAdamInput(value) {
   return String(value || '')
@@ -307,6 +308,356 @@ export function applyChainCharacterizationToForm(form, review, { fullRecompute =
   }, review);
 }
 
+function unionAdamLists(...lists) {
+  const seen = new Set();
+  const out = [];
+  lists.flat().forEach((v) => {
+    const a = sanitizeAdamInput(v);
+    if (!a || seen.has(a)) return;
+    seen.add(a);
+    out.push(a);
+  });
+  return out;
+}
+
+/** Συγχώνευση meta μετά από stitch — δεν πετάει linked Adams του προηγούμενου τμήματος. */
+export function mergeKhmdhsChainMetaForStitch(prevMeta, incomingMeta, formAfter) {
+  const prev = prevMeta && typeof prevMeta === 'object' ? prevMeta : {};
+  const inc = incomingMeta && typeof incomingMeta === 'object' ? incomingMeta : {};
+  const prevLinked = prev.linkedAdams || {};
+  const incLinked = inc.linkedAdams || {};
+  const linkedAdams = {
+    requests: unionAdamLists(prevLinked.requests, incLinked.requests, formAfter?.khmdhsRequestAdam),
+    approvedRequests: unionAdamLists(prevLinked.approvedRequests, incLinked.approvedRequests),
+    budgetCommitments: unionAdamLists(
+      prevLinked.budgetCommitments,
+      incLinked.budgetCommitments,
+      formAfter?.khmdhsCommitmentAdam,
+      ...(Array.isArray(formAfter?.khmdhsCommitmentDecisions)
+        ? formAfter.khmdhsCommitmentDecisions.map((d) => d?.adam)
+        : [])
+    ),
+    notices: unionAdamLists(prevLinked.notices, incLinked.notices, formAfter?.khmdhsNoticeAdam),
+    auctions: unionAdamLists(prevLinked.auctions, incLinked.auctions, formAfter?.khmdhsAwardAdam),
+    contracts: unionAdamLists(prevLinked.contracts, incLinked.contracts, formAfter?.khmdhsAdam),
+    payments: unionAdamLists(
+      prevLinked.payments,
+      incLinked.payments,
+      ...(Array.isArray(formAfter?.khmdhsPayments)
+        ? formAfter.khmdhsPayments.map((p) => p?.adam)
+        : [])
+    ),
+  };
+  const allBudgetCommitments = [];
+  const seenCommit = new Set();
+  [
+    ...(Array.isArray(prev.allBudgetCommitments) ? prev.allBudgetCommitments : []),
+    ...(Array.isArray(inc.allBudgetCommitments) ? inc.allBudgetCommitments : []),
+  ].forEach((d) => {
+    const a = sanitizeAdamInput(d?.adam || d?.snapshot?.referenceNumber);
+    if (!a || seenCommit.has(a)) return;
+    seenCommit.add(a);
+    allBudgetCommitments.push(d);
+  });
+
+  const hasUpstream = !!(
+    linkedAdams.requests.length
+    || linkedAdams.notices.length
+    || linkedAdams.auctions.length
+    || sanitizeAdamInput(formAfter?.khmdhsRequestAdam)
+    || sanitizeAdamInput(formAfter?.khmdhsNoticeAdam)
+    || sanitizeAdamInput(formAfter?.khmdhsAwardAdam)
+  );
+
+  return {
+    ...prev,
+    ...inc,
+    seedAdam: inc.seedAdam || prev.seedAdam || '',
+    seedType: inc.seedType || prev.seedType || '',
+    resolvedAt: inc.resolvedAt || prev.resolvedAt || '',
+    linkedAdams,
+    allBudgetCommitments,
+    stageCounts: {
+      requests: linkedAdams.requests.length,
+      approvedRequests: linkedAdams.approvedRequests.length,
+      notices: linkedAdams.notices.length,
+      auctions: linkedAdams.auctions.length,
+      contracts: linkedAdams.contracts.length,
+      payments: linkedAdams.payments.length,
+    },
+    isOrphanSymvSeed: hasUpstream ? false : !!(inc.isOrphanSymvSeed || prev.isOrphanSymvSeed),
+    highlightAdams: {
+      REQ: sanitizeAdamInput(formAfter?.khmdhsRequestAdam) || prev.highlightAdams?.REQ || inc.highlightAdams?.REQ || null,
+      PROC: sanitizeAdamInput(formAfter?.khmdhsNoticeAdam) || prev.highlightAdams?.PROC || inc.highlightAdams?.PROC || null,
+      AWRD: sanitizeAdamInput(formAfter?.khmdhsAwardAdam) || prev.highlightAdams?.AWRD || inc.highlightAdams?.AWRD || null,
+      SYMV: sanitizeAdamInput(formAfter?.khmdhsAdam) || prev.highlightAdams?.SYMV || inc.highlightAdams?.SYMV || null,
+    },
+    stitchMerged: true,
+  };
+}
+
+/**
+ * Συρραφή χωρίς wipe: συμπληρώνει κενά, ενημερώνει ίδιο ΑΔΑΜ, δεν αντικαθιστά διαφορετικό ΑΔΑΜ.
+ * Μόνο για «Μια Σύμβαση».
+ */
+export function applyAdamChainResultStitch(prev, chainRes, {
+  seedAdam = '',
+  branchAnchor = null,
+  suppressSituationModal = false,
+  userSelectedBranch = false,
+} = {}) {
+  if (!chainRes?.success) {
+    return {
+      form: prev,
+      warnings: [],
+      apeConflict: null,
+      statusAutoUpdated: null,
+      protectedCount: 0,
+      protectedFields: [],
+      implementationFormAutoUpdated: null,
+      stitchFilledStages: [],
+      stitchUpdatedStages: [],
+      stitchConflictStages: [],
+      stitchCoveredStages: [],
+    };
+  }
+
+  if (isMultipleContractsForm(prev?.implementationForm)) {
+    // Phase 1: δεν υποστηρίζεται — πέφτουμε στο κανονικό apply.
+    return applyAdamChainResult(prev, chainRes, {
+      seedAdam,
+      contractIndex: -1,
+      branchAnchor,
+      suppressSituationModal,
+      userSelectedBranch,
+      applyMode: 'replace',
+    });
+  }
+
+  const prepared = prepareFormForInferredImplementationForm(prev, chainRes, {
+    contractIndex: -1,
+    userSelectedBranch,
+  });
+  const workingPrev = prepared.form;
+  const implementationFormAutoUpdated = prepared.inferredForm;
+  const suggestedApe = chainRes.suggestedApeAmount || '';
+
+  let next = { ...workingPrev };
+  const filledStages = [];
+  const updatedStages = [];
+  const conflictStages = [];
+  const warnings = [];
+
+  const stitchScalarStage = ({
+    stageId,
+    existingAdam,
+    existingSnap,
+    existingFetched,
+    incoming,
+    applyIncoming,
+  }) => {
+    if (!incoming?.snapshot || !sanitizeAdamInput(incoming.adam)) return;
+    const ex = sanitizeAdamInput(existingAdam);
+    const inc = sanitizeAdamInput(incoming.adam);
+    if (!ex) {
+      applyIncoming(incoming);
+      filledStages.push(stageId);
+      return;
+    }
+    if (ex === inc) {
+      applyIncoming(incoming);
+      updatedStages.push(stageId);
+      return;
+    }
+    conflictStages.push(stageId);
+    warnings.push(`stitchConflict:${stageId.toLowerCase()}`);
+  };
+
+  stitchScalarStage({
+    stageId: 'REQ',
+    existingAdam: workingPrev.khmdhsRequestAdam,
+    existingSnap: workingPrev.khmdhsRequestSnapshot,
+    existingFetched: workingPrev.khmdhsRequestFetchedAt,
+    incoming: chainRes.request,
+    applyIncoming: (block) => {
+      next.khmdhsRequestAdam = block.adam;
+      next.khmdhsRequestSnapshot = block.snapshot;
+      next.khmdhsRequestFetchedAt = block.fetchedAt || '';
+      if (block.projectBudget && !next.projectBudget) {
+        next.projectBudget = block.projectBudget;
+      }
+    },
+  });
+
+  stitchScalarStage({
+    stageId: 'PROC',
+    existingAdam: workingPrev.khmdhsNoticeAdam,
+    existingSnap: workingPrev.khmdhsNoticeSnapshot,
+    existingFetched: workingPrev.khmdhsNoticeFetchedAt,
+    incoming: chainRes.notice,
+    applyIncoming: (block) => {
+      next.khmdhsNoticeAdam = block.adam;
+      next.khmdhsNoticeSnapshot = block.snapshot;
+      next.khmdhsNoticeFetchedAt = block.fetchedAt || '';
+      if (block.mappedAssignmentProcedure) {
+        next.assignmentProcedure = block.mappedAssignmentProcedure;
+      }
+      if (block.contractProcessStartDate) {
+        next.contractProcessStartDate = block.contractProcessStartDate;
+      } else if (chainRes.contractProcessStartDate && !next.contractProcessStartDate) {
+        next.contractProcessStartDate = chainRes.contractProcessStartDate;
+      }
+    },
+  });
+
+  stitchScalarStage({
+    stageId: 'AWRD',
+    existingAdam: workingPrev.khmdhsAwardAdam,
+    existingSnap: workingPrev.khmdhsAwardSnapshot,
+    existingFetched: workingPrev.khmdhsAwardFetchedAt,
+    incoming: chainRes.auction,
+    applyIncoming: (block) => {
+      next.khmdhsAwardAdam = block.adam;
+      next.khmdhsAwardSnapshot = block.snapshot;
+      next.khmdhsAwardFetchedAt = block.fetchedAt || '';
+    },
+  });
+
+  stitchScalarStage({
+    stageId: 'SYMV',
+    existingAdam: workingPrev.khmdhsAdam,
+    existingSnap: workingPrev.khmdhsContractSnapshot,
+    existingFetched: workingPrev.khmdhsContractFetchedAt,
+    incoming: chainRes.contract,
+    applyIncoming: (block) => {
+      const ff = block.formFields || {};
+      next.khmdhsAdam = block.adam;
+      next.khmdhsContractSnapshot = block.snapshot;
+      next.khmdhsContractFetchedAt = block.fetchedAt || '';
+      next.khmdhsContractRoleLabel = block.roleLabel || next.khmdhsContractRoleLabel || '';
+      if (ff.contractDate) next.contractDate = ff.contractDate;
+      if (ff.contractEndDate) next.contractEndDate = ff.contractEndDate;
+      if (ff.contractAmount && !ff.contractAmountSuppressed) {
+        next.contractAmount = ff.contractAmount;
+      } else if (ff.contractAmountSuppressed) {
+        next.contractAmount = '';
+      }
+      // Ιστορικό: ενημέρωση όταν εφαρμόζουμε/ενημερώνουμε σύμβαση από αυτό το fetch
+      if (Array.isArray(chainRes.contractChainHistory) && chainRes.contractChainHistory.length) {
+        next.khmdhsContractChainHistory = chainRes.contractChainHistory;
+      }
+      if (Array.isArray(chainRes.contractAmendments) && chainRes.contractAmendments.length) {
+        next.khmdhsContractAmendments = chainRes.contractAmendments;
+      }
+    },
+  });
+
+  // Αναλήψεις / εντάλματα: πάντα merge κατά ΑΔΑΜ (ποτέ wipe)
+  const commitBefore = Array.isArray(workingPrev.khmdhsCommitmentDecisions)
+    ? workingPrev.khmdhsCommitmentDecisions.length
+    : 0;
+  const payBefore = Array.isArray(workingPrev.khmdhsPayments)
+    ? workingPrev.khmdhsPayments.length
+    : 0;
+  mergeCommitmentAndPaymentsFromChain(next, chainRes, {
+    prevPayments: workingPrev.khmdhsPayments,
+    prevCommitmentDecisions: workingPrev.khmdhsCommitmentDecisions,
+  });
+  const commitAfter = Array.isArray(next.khmdhsCommitmentDecisions)
+    ? next.khmdhsCommitmentDecisions.length
+    : 0;
+  const payAfter = Array.isArray(next.khmdhsPayments) ? next.khmdhsPayments.length : 0;
+  if (commitAfter > commitBefore) filledStages.push('COMMIT');
+  else if (commitAfter > 0 && commitBefore > 0) {
+    const covered = detectStagesCoveredByChainRes(chainRes);
+    if (covered.includes('COMMIT')) updatedStages.push('COMMIT');
+  }
+  if (payAfter > payBefore) filledStages.push('PAY');
+  else if (payAfter > 0 && payBefore > 0) {
+    const covered = detectStagesCoveredByChainRes(chainRes);
+    if (covered.includes('PAY')) updatedStages.push('PAY');
+  }
+
+  next.khmdhsChainSeedAdam = seedAdam || workingPrev.khmdhsChainSeedAdam || '';
+  next.khmdhsAdamChainMeta = mergeKhmdhsChainMetaForStitch(
+    workingPrev.khmdhsAdamChainMeta,
+    chainRes.chainMeta,
+    next
+  );
+
+  next.khmdhsDataQualityReview = mergeKhmdhsReviewAfterFetch(
+    prev.khmdhsDataQualityReview,
+    chainRes.dataQualityReport,
+    next,
+    { singleContractRefresh: true }
+  );
+
+  next = applyChainCharacterizationToForm(next, next.khmdhsDataQualityReview);
+  next = mergeKhmdhsSupplementaryIntoForm(next);
+
+  let apeConflict = null;
+  const userApe = hasRealStoredContractApe(workingPrev, 0)
+    ? resolveStoredApeAmount(workingPrev)
+    : '';
+  const apeRes = applyApeFromChain(userApe, suggestedApe);
+  next.apeAmount = apeRes.ape;
+  if (apeRes.ape && hasRealStoredContractApe(workingPrev, 0)) {
+    next = { ...next, ...syncPreservedContractApeAmount(next, 0, apeRes.ape, workingPrev) };
+  } else {
+    next = stripPhantomContractApeFromForm(next, workingPrev);
+  }
+  if (apeRes.conflict) {
+    apeConflict = { ...apeRes.conflict, contractIndex: null, contractLabel: '' };
+  }
+
+  const statusAutoUpdated = suggestProjectStatusAfterKhmdhsChain(prev.projectStatus, chainRes);
+  if (statusAutoUpdated) {
+    next.projectStatus = statusAutoUpdated;
+  }
+
+  next.khmdhsChainLastRefreshedAt = new Date().toISOString();
+  const resolvedAnchor = resolveBranchAnchorFromChain(chainRes, seedAdam, branchAnchor);
+  next = mergeBranchAnchorFields(next, {
+    anchorAdam: resolvedAnchor.adam,
+    anchorType: resolvedAnchor.type,
+    actRootReqAdam: inferActRootReqAdam(chainRes, seedAdam)
+      || workingPrev.khmdhsActRootReqAdam
+      || '',
+  });
+
+  // Κρίσιμο: το σχέδιο συρραφής ΔΕΝ σβήνεται σε stitch (μόνο σε πλήρη καθαρισμό)
+  if (workingPrev.khmdhsChainStitchPlan) {
+    next.khmdhsChainStitchPlan = workingPrev.khmdhsChainStitchPlan;
+  }
+
+  const {
+    form: protectedForm,
+    protectedCount,
+    protectedFields = [],
+  } = applyUserEditsAfterKhmdhsFetch(prev, next);
+
+  protectedForm.khmdhsDataQualityReview = reconcileReviewState(
+    protectedForm.khmdhsDataQualityReview,
+    protectedForm
+  );
+
+  const stitchCoveredStages = detectStagesCoveredByChainRes(chainRes);
+
+  return {
+    form: protectedForm,
+    warnings,
+    apeConflict,
+    statusAutoUpdated,
+    protectedCount,
+    protectedFields,
+    implementationFormAutoUpdated,
+    stitchFilledStages: [...new Set(filledStages)],
+    stitchUpdatedStages: [...new Set(updatedStages)],
+    stitchConflictStages: [...new Set(conflictStages)],
+    stitchCoveredStages,
+  };
+}
+
 export function applyAdamChainResult(prev, chainRes, {
   seedAdam = '',
   contractIndex = -1,
@@ -314,6 +665,7 @@ export function applyAdamChainResult(prev, chainRes, {
   suppressSituationModal = false,
   userSelectedBranch = false,
   symvChainPlan = null,
+  applyMode = 'replace',
 } = {}) {
   if (!chainRes?.success) {
     return {
@@ -325,6 +677,15 @@ export function applyAdamChainResult(prev, chainRes, {
       protectedFields: [],
       implementationFormAutoUpdated: null,
     };
+  }
+
+  if (applyMode === 'stitch' && (contractIndex == null || contractIndex < 0) && !symvChainPlan?.items?.length) {
+    return applyAdamChainResultStitch(prev, chainRes, {
+      seedAdam,
+      branchAnchor,
+      suppressSituationModal,
+      userSelectedBranch,
+    });
   }
 
   if (symvChainPlan?.items?.length) {

@@ -1628,29 +1628,6 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
   );
 }
 
-function ReviewFieldEditor({ inputKind, draft, onChange, placeholder = '', onBlur, onKeyDown }) {
-  if (inputKind === 'assignmentProcedure') {
-    return (
-      <KindSelect value={draft} onChange={(e) => onChange(e.target.value)} onBlur={onBlur}>
-        <option value="">— Επιλέξτε διαδικασία —</option>
-        {ASSIGNMENT_PROCEDURES.map((procedure) => (
-          <option key={procedure} value={procedure}>{procedure}</option>
-        ))}
-      </KindSelect>
-    );
-  }
-  return (
-    <EditorInput
-      type={inputKind === 'date' ? 'date' : 'text'}
-      value={draft}
-      onChange={(e) => onChange(e.target.value)}
-      onBlur={onBlur}
-      onKeyDown={onKeyDown}
-      placeholder={placeholder}
-    />
-  );
-}
-
 function formatAmountInput(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '';
@@ -1662,6 +1639,80 @@ function parseAmountInput(str) {
   const cleaned = String(str).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.');
   const n = parseFloat(cleaned);
   return Number.isFinite(n) ? n : NaN;
+}
+
+/**
+ * Ελαφριά κάθαρση καθώς πληκτρολογεί: τελεία = χιλιάδες, κόμμα = δεκαδικά.
+ * Δεν μετατρέπει τελείες σε κόμμα και δεν σβήνει χειροκίνητες τελείες.
+ */
+function formatAmountAsTyped(raw) {
+  let s = String(raw || '').replace(/[^\d.,]/g, '');
+  if (!s) return '';
+
+  // Το πολύ ένα κόμμα· μετά από αυτό μόνο ψηφία (έως 2).
+  const commaAt = s.indexOf(',');
+  if (commaAt >= 0) {
+    const intPart = s.slice(0, commaAt).replace(/[^\d.]/g, '').replace(/\.{2,}/g, '.');
+    const decPart = s.slice(commaAt + 1).replace(/[^\d]/g, '').slice(0, 2);
+    const intClean = intPart.replace(/^\./, '');
+    if (s.endsWith(',') && decPart === '') return `${intClean},`;
+    return decPart.length ? `${intClean},${decPart}` : intClean;
+  }
+
+  return s.replace(/\.{2,}/g, '.').replace(/^\./, '');
+}
+
+/** Πλήρης μορφή el-GR όταν φεύγει η εστίαση από το πεδίο. */
+function formatAmountOnBlur(raw) {
+  const n = parseAmountInput(raw);
+  if (!Number.isFinite(n)) return String(raw || '').trim();
+  return formatAmountInput(n);
+}
+
+function handleAmountKeyDown(e, draft, onChange, onKeyDown) {
+  // ΜΟΝΟ το δεκαδικό του αριθμητικού πληκτρολογίου → κόμμα.
+  // Η κανονική τελεία μένει τελεία (διαχωριστικό χιλιάδων).
+  if (e.code === 'NumpadDecimal' || e.key === 'Decimal') {
+    e.preventDefault();
+    const start = e.target.selectionStart ?? String(draft || '').length;
+    const end = e.target.selectionEnd ?? start;
+    const raw = String(draft || '');
+    onChange(formatAmountAsTyped(`${raw.slice(0, start)},${raw.slice(end)}`));
+    return;
+  }
+  onKeyDown?.(e);
+}
+
+function ReviewFieldEditor({ inputKind, draft, onChange, placeholder = '', onBlur, onKeyDown }) {
+  if (inputKind === 'assignmentProcedure') {
+    return (
+      <KindSelect value={draft} onChange={(e) => onChange(e.target.value)} onBlur={onBlur}>
+        <option value="">— Επιλέξτε διαδικασία —</option>
+        {ASSIGNMENT_PROCEDURES.map((procedure) => (
+          <option key={procedure} value={procedure}>{procedure}</option>
+        ))}
+      </KindSelect>
+    );
+  }
+  const isAmount = inputKind === 'amount';
+  return (
+    <EditorInput
+      type={inputKind === 'date' ? 'date' : 'text'}
+      inputMode={isAmount ? 'decimal' : undefined}
+      value={draft}
+      onChange={(e) => onChange(isAmount ? formatAmountAsTyped(e.target.value) : e.target.value)}
+      onBlur={isAmount
+        ? (e) => {
+          onChange(formatAmountOnBlur(e.target.value));
+          onBlur?.(e);
+        }
+        : onBlur}
+      onKeyDown={isAmount
+        ? (e) => handleAmountKeyDown(e, draft, onChange, onKeyDown)
+        : onKeyDown}
+      placeholder={placeholder}
+    />
+  );
 }
 
 function PaymentClassificationCard({
@@ -1870,7 +1921,15 @@ function PaymentClassificationCard({
                     return Number.isFinite(parsed) && parsed > 0 && Math.abs(parsed - (entry.gross || 0)) > 0.5;
                   })()}
                   value={amountDraft[adam] || ''}
-                  onChange={(e) => setAmountDraft((prev) => ({ ...prev, [adam]: e.target.value }))}
+                  onChange={(e) => setAmountDraft((prev) => ({
+                    ...prev,
+                    [adam]: formatAmountAsTyped(e.target.value),
+                  }))}
+                  onKeyDown={(e) => handleAmountKeyDown(
+                    e,
+                    amountDraft[adam] || '',
+                    (next) => setAmountDraft((prev) => ({ ...prev, [adam]: next })),
+                  )}
                   placeholder={entry.gross != null ? formatAmountInput(entry.gross) : 'π.χ. 27.836,89'}
                   title="Αφήστε το κενό για να μετρήσει το ποσό του ΚΗΜΔΗΣ. Συμπληρώστε το όταν το ένταλμα πληρώνει μέρος του ποσού (π.χ. καθαρό ή μόνο κρατήσεις)."
                 />

@@ -1,7 +1,7 @@
 /** ΚΗΜΔΗΣ — σύμβαση (SYMV) & τροποποιήσεις αλυσίδας */
 
 import { formatDateEl } from './dateFormat';
-import { formatKhmdhsDateOnly, formatKhmdhsEuro } from './khmdhsNoticeFields';
+import { formatKhmdhsDateOnly, formatKhmdhsDurationLabel, formatKhmdhsEuro } from './khmdhsNoticeFields';
 import { plainContractAmountSource } from './khmdhsStageLabels';
 import { normalizeAmountForCompare } from './projectFormPhases';
 import { isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
@@ -114,7 +114,7 @@ export function buildKhmdhsContractDisplayGroups(snapshot, { storedAmount = '', 
       : []),
     ...(snap.contractDuration != null && snap.contractDuration !== '' ? [{
       label: 'Διάρκεια σύμβασης',
-      value: `${snap.contractDuration}${snap.contractDurationUnit ? ` ${snap.contractDurationUnit}` : ''}`,
+      value: formatKhmdhsDurationLabel(snap.contractDuration, snap.contractDurationUnit),
     }] : []),
   ]);
 

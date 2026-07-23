@@ -19,6 +19,31 @@ export function pickKhmdhsNoticeSnapshot(snapshot) {
   return snapshot;
 }
 
+/** ΚΗΜΔΗΣ μονάδες (κωδικός ή κείμενο) → ελληνική ετικέτα */
+export function humanizeKhmdhsDurationUnit(unit) {
+  if (unit == null || unit === '') return '';
+  let raw = unit;
+  if (typeof raw === 'object') {
+    raw = raw.value != null && String(raw.value).trim() !== ''
+      ? raw.value
+      : raw.key;
+  }
+  const u = String(raw || '').trim().toLowerCase();
+  if (!u) return '';
+  if (u === '1' || /ημέρ|ημερ|day/i.test(u)) return 'Ημέρες';
+  if (u === '2' || /εβδομ|week/i.test(u)) return 'Εβδομάδες';
+  if (u === '3' || /μήν|μην|month/i.test(u)) return 'Μήνες';
+  if (u === '4' || /έτ|ετ|year/i.test(u)) return 'Έτη';
+  return String(raw).trim();
+}
+
+/** π.χ. 12 + Μήνες / "3" → «12 Μήνες» */
+export function formatKhmdhsDurationLabel(value, unit) {
+  if (value == null || value === '') return '';
+  const unitLabel = humanizeKhmdhsDurationUnit(unit);
+  return unitLabel ? `${value} ${unitLabel}` : String(value);
+}
+
 export function projectHasKhmdhsNoticeData(project) {
   const adam = String(project?.khmdhsNoticeAdam || '').trim();
   const snap = pickKhmdhsNoticeSnapshot(project?.khmdhsNoticeSnapshot);
@@ -183,12 +208,10 @@ export function buildKhmdhsNoticeDisplayRows(snapshot) {
   push('Εκτιμώμενη αξία (χωρίς ΦΠΑ)', formatKhmdhsEuro(snap.totalCostWithoutVAT));
 
   if (snap.contractDuration != null && snap.contractDuration !== '') {
-    const unit = snap.contractDurationUnit ? ` ${snap.contractDurationUnit}` : '';
-    push('Διάρκεια σύμβασης', `${snap.contractDuration}${unit}`);
+    push('Διάρκεια σύμβασης', formatKhmdhsDurationLabel(snap.contractDuration, snap.contractDurationUnit));
   }
   if (snap.offersValidTime != null && snap.offersValidTime !== '') {
-    const unit = snap.offersValidTimeUnit ? ` ${snap.offersValidTimeUnit}` : '';
-    push('Ισχύς προσφορών', `${snap.offersValidTime}${unit}`);
+    push('Ισχύς προσφορών', formatKhmdhsDurationLabel(snap.offersValidTime, snap.offersValidTimeUnit));
   }
 
   push('Ιστότοπος υποβολής', snap.biddingWebsite);
@@ -249,11 +272,11 @@ export function buildKhmdhsNoticeDisplayGroups(snapshot) {
     { label: 'Εκτιμώμενη αξία (χωρίς ΦΠΑ)', value: formatKhmdhsEuro(snap.totalCostWithoutVAT) },
     ...(snap.contractDuration != null && snap.contractDuration !== '' ? [{
       label: 'Διάρκεια σύμβασης',
-      value: `${snap.contractDuration}${snap.contractDurationUnit ? ` ${snap.contractDurationUnit}` : ''}`
+      value: formatKhmdhsDurationLabel(snap.contractDuration, snap.contractDurationUnit)
     }] : []),
     ...(snap.offersValidTime != null && snap.offersValidTime !== '' ? [{
       label: 'Ισχύς προσφορών',
-      value: `${snap.offersValidTime}${snap.offersValidTimeUnit ? ` ${snap.offersValidTimeUnit}` : ''}`
+      value: formatKhmdhsDurationLabel(snap.offersValidTime, snap.offersValidTimeUnit)
     }] : [])
   ]);
 

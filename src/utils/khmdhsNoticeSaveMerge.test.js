@@ -56,4 +56,28 @@ describe('mergeKhmdhsFieldsForSave — assignmentProcedure κατά την απ�
     const merged = mergeKhmdhsFieldsForSave(projectData, existingData);
     expect(merged.assignmentProcedure).toBe('ΑΠΕΥΘΕΙΑΣ ΑΝΑΘΕΣΗ');
   });
+
+  test('κατά την αποθήκευση δεν χάνει τη μονάδα ισχύος προσφορών από ήδη mapped snapshot', () => {
+    const existingData = {
+      projectStatus: 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
+      implementationForm: 'Μια Σύμβαση',
+    };
+    const projectData = {
+      ...existingData,
+      khmdhsNoticeAdam: '26PROC019490561',
+      khmdhsNoticeFetchedAt: '2026-07-22T10:00:00.000Z',
+      khmdhsNoticeSnapshot: {
+        referenceNumber: '26PROC019490561',
+        title: 'Επισκευές γεωτρήσεων ύδρευσης.',
+        offersValidTime: 12,
+        offersValidTimeUnit: 'Μήνες',
+        contractDuration: 1,
+        contractDurationUnit: 'Μήνες',
+      },
+    };
+    const merged = mergeKhmdhsFieldsForSave(projectData, existingData);
+    expect(merged.khmdhsNoticeSnapshot.offersValidTime).toBe(12);
+    expect(merged.khmdhsNoticeSnapshot.offersValidTimeUnit).toBe('Μήνες');
+    expect(merged.khmdhsNoticeSnapshot.contractDurationUnit).toBe('Μήνες');
+  });
 });

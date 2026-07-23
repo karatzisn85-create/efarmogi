@@ -42,6 +42,7 @@ import {
   buildKhmdhsRefreshChangeSummary,
 } from '../utils/khmdhsChainRefresh';
 import { applyAdamChainResult } from '../utils/khmdhsChainApply';
+import { getConfirmedKhmdhsStitchPlan, evaluateStitchRefreshCompleteness } from '../utils/khmdhsChainStitchPlan';
 import { symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
 import KhmdhsSymvChainPlannerDialog from './KhmdhsSymvChainPlannerDialog';
 import {
@@ -1112,6 +1113,36 @@ function SubprojectDetailModal({
     [project]
   );
 
+  const confirmedStitchPlan = useMemo(
+    () => getConfirmedKhmdhsStitchPlan(project),
+    [project]
+  );
+
+  const handleCancelStitchPlan = useCallback(async () => {
+    if (!project?.subprojectId || isLocked) return;
+    const ok = window.confirm(
+      'Να καταργηθεί η καταχώριση τεχνητής αλυσίδας; Τα δεδομένα παραμένουν, αλλά οι επόμενες '
+      + 'ανανεώσεις θα χρησιμοποιούν έναν μόνο κωδικό ΚΗΜΔΗΣ.'
+    );
+    if (!ok) return;
+    try {
+      const updated = {
+        ...project,
+        khmdhsChainStitchPlan: null,
+        updatedAt: new Date().toISOString(),
+      };
+      const saveRes = await ipcRenderer.invoke('save-project-data', updated);
+      if (!saveRes?.success) {
+        showToast(saveRes?.error || 'Δεν αποθηκεύτηκε η αλλαγή.', 'error');
+        return;
+      }
+      showToast('Η τεχνητή αλυσίδα καταργήθηκε.', 'success');
+      if (typeof onRefreshProject === 'function') await onRefreshProject();
+    } catch (e) {
+      showToast(e?.message || 'Σφάλμα κατά την κατάργηση.', 'error');
+    }
+  }, [project, isLocked, showToast, onRefreshProject]);
+
   const canRefreshKhmdhs = useMemo(
     () => canUserRefreshKhmdhsChain({
       userRole,
@@ -1144,6 +1175,11 @@ function SubprojectDetailModal({
         showToast(res?.error || 'Η ανάκτηση από το ΚΗΜΔΗΣ απέτυχε.', 'error');
         return;
       }
+      const stitchCompleteness = evaluateStitchRefreshCompleteness(res);
+      if (!stitchCompleteness.ok) {
+        showToast(stitchCompleteness.message, 'error');
+        return;
+      }
       // Αν το υποέργο έχει ήδη εγκατεστημένο σχέδιο κατανομής SYMV (πολλαπλές/παράλληλες
       // συμβάσεις) και η αλυσίδα δεν έχει αλλάξει, το επαναχρησιμοποιούμε ώστε η ανανέωση
       // να δουλεύει κανονικά χωρίς να ζητά ξανά την ίδια απόφαση από τον χρήστη.
@@ -1152,10 +1188,32 @@ function SubprojectDetailModal({
         && symvPlanMatchesChain(existingSymvPlan, res.chainRes)
         ? existingSymvPlan
         : null;
-      const applyResult = applyAdamChainResult(project, res.chainRes, {
-        seedAdam: res.seedAdam,
-        symvChainPlan: reusableSymvPlan,
-      });
+      // Τεχνητή αλυσίδα: συγχώνευση διαδοχικά όλων των σπόρων (stitch, χωρίς σβήσιμο).
+      const registryChainResList = [];
+      let applyResult;
+      if (res.usesStitchPlan && Array.isArray(res.stitchResults) && res.stitchResults.length) {
+        let running = project;
+        let lastApply = null;
+        res.stitchResults.forEach((item) => {
+          if (!item?.success || !item.chainRes) return;
+          lastApply = applyAdamChainResult(running, item.chainRes, {
+            seedAdam: item.seedAdam,
+            applyMode: 'stitch',
+          });
+          running = lastApply.form;
+          registryChainResList.push(item.chainRes);
+        });
+        applyResult = lastApply || applyAdamChainResult(project, res.chainRes, {
+          seedAdam: res.seedAdam,
+          symvChainPlan: reusableSymvPlan,
+        });
+      } else {
+        applyResult = applyAdamChainResult(project, res.chainRes, {
+          seedAdam: res.seedAdam,
+          symvChainPlan: reusableSymvPlan,
+        });
+        registryChainResList.push(res.chainRes);
+      }
       if (applyResult.warnings?.includes('symvPlannerRequired')) {
         setSymvPlannerState({
           open: true,
@@ -1180,9 +1238,16 @@ function SubprojectDetailModal({
       // 2) νέα έγγραφα που εντοπίζονται στην αλυσίδα καταγράφονται αυτόματα — αφού πρόκειται
       //    πάντα για ήδη χαρακτηρισμένα/μονοσήμαντα στοιχεία (η αλυσίδα τροποποιήσεων έχει ήδη
       //    περάσει από τον έλεγχο χαρακτηρισμού), δεν χρειάζεται νέα επιβεβαίωση του χρήστη.
+      let chainRegistryCandidates = [];
+      (registryChainResList.length ? registryChainResList : [res.chainRes]).forEach((cr) => {
+        chainRegistryCandidates = mergeRegistryCandidateLists(
+          chainRegistryCandidates,
+          collectKhmdhsRegistryCandidatesFromChainRes(cr, mergedProject.khmdhsDataQualityReview, mergedProject)
+        );
+      });
       const freshRegistryCandidates = filterRegistryCandidatesBySymvPlan(
         mergeRegistryCandidateLists(
-          collectKhmdhsRegistryCandidatesFromChainRes(res.chainRes, mergedProject.khmdhsDataQualityReview, mergedProject),
+          chainRegistryCandidates,
           collectKhmdhsRegistryCandidatesFromProject(mergedProject)
         ),
         mergedProject
@@ -1200,7 +1265,8 @@ function SubprojectDetailModal({
           : resyncedRegistry;
       }
       const changeLines = buildKhmdhsRefreshChangeSummary(project, mergedProject, applyResult, {
-        chainWarnings: res.chainRes?.warnings || [],
+        chainWarnings: (registryChainResList.length ? registryChainResList : [res.chainRes])
+          .flatMap((cr) => cr?.warnings || []),
       });
       setRefreshDialog({
         seedAdam: res.seedAdam,
@@ -2405,6 +2471,45 @@ function SubprojectDetailModal({
                 <FreshnessHint $level={chainFreshness.level}>
                   {chainFreshness.label}
                 </FreshnessHint>
+              ) : null}
+              {confirmedStitchPlan ? (
+                <div style={{
+                  marginTop: '0.4rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  flexWrap: 'wrap',
+                  fontSize: '0.72rem',
+                  color: '#3730a3',
+                  background: '#eef2ff',
+                  border: '1px solid #c7d2fe',
+                  borderRadius: '8px',
+                  padding: '0.4rem 0.6rem',
+                }}
+                >
+                  <span>
+                    🧩 Τεχνητή αλυσίδα από {(confirmedStitchPlan.segments || []).length} κωδικούς ΚΗΜΔΗΣ —
+                    οι ανανεώσεις χρησιμοποιούν όλους τους κωδικούς.
+                  </span>
+                  {canRefreshKhmdhs && !isLocked ? (
+                    <button
+                      type="button"
+                      onClick={handleCancelStitchPlan}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#4338ca',
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        fontSize: '0.72rem',
+                        fontFamily: 'inherit',
+                        padding: 0,
+                      }}
+                    >
+                      Κατάργηση
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </LifecycleRailWrap>
 

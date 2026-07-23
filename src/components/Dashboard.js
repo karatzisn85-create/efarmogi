@@ -50,6 +50,16 @@ import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractio
 import { formatDateEl } from '../utils/dateFormat';
 import { showConfirm } from '../utils/confirmModal';
 import { exportSubprojectReport } from '../utils/subprojectReportExport';
+import PostSetupChecklistBanner from './PostSetupChecklistBanner';
+import {
+  buildPostSetupItems,
+  isPortalConfigured,
+  countIncompletePostSetupItems,
+  shouldShowPostSetupChecklist,
+  dismissPostSetupChecklist,
+  clearPostSetupChecklistDismiss,
+  POST_SETUP_ITEM,
+} from '../utils/postSetupChecklist';
 
 const Statistics = lazy(() => import('./Statistics'));
 const StatisticsModal = lazy(() => import('./StatisticsModal'));
@@ -2880,6 +2890,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [backupReminderDue, setBackupReminderDue] = useState(false);
   const [backupDaysSince, setBackupDaysSince] = useState(null);
   const [backupHasAny, setBackupHasAny] = useState(true);
+  const [postSetupEmailOk, setPostSetupEmailOk] = useState(null);
+  const [postSetupDismissTick, setPostSetupDismissTick] = useState(0);
+  const [postSetupForceShow, setPostSetupForceShow] = useState(false);
+  const [postSetupPortalUid, setPostSetupPortalUid] = useState(
+    () => String(appConfig?.portalDimosUid || '')
+  );
 
   const refreshBackupStatus = useCallback(async () => {
     if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return;
@@ -2905,12 +2921,68 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     } catch (_e) { /* σιωπηλά */ }
   }, [userRole, currentUser?.username, currentUser?.fullName, showToast]);
 
+  const refreshPostSetupEmailStatus = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    try {
+      const res = await ipcRenderer.invoke('get-email-config', { actingUsername: currentUser?.username });
+      const ok = !!(res?.success && res.config?.gmail?.user && res.config?.gmail?.appPasswordSet);
+      setPostSetupEmailOk(ok);
+    } catch (_e) {
+      setPostSetupEmailOk(false);
+    }
+  }, [isSuperAdmin, currentUser?.username]);
+
   useEffect(() => {
     if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return undefined;
     refreshBackupStatus();
     const id = setInterval(refreshBackupStatus, 15 * 60 * 1000); // κάθε 15 λεπτά
     return () => clearInterval(id);
   }, [userRole, refreshBackupStatus]);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return undefined;
+    refreshPostSetupEmailStatus();
+    return undefined;
+  }, [isSuperAdmin, refreshPostSetupEmailStatus]);
+
+  const postSetupItems = useMemo(() => buildPostSetupItems({
+    emailConfigured: !!postSetupEmailOk,
+    hasBackup: !!backupHasAny,
+    portalConfigured: isPortalConfigured({
+      portalEnabled,
+      portalDimosUid: postSetupPortalUid,
+    }),
+  }), [postSetupEmailOk, backupHasAny, portalEnabled, postSetupPortalUid]);
+
+  const showPostSetupChecklist = useMemo(() => {
+    // postSetupDismissTick: επαναϋπολογισμός μετά από dismiss / επαναφορά
+    void postSetupDismissTick;
+    if (userRole === 'SUPERADMIN' && postSetupForceShow) return true;
+    return shouldShowPostSetupChecklist({
+      userRole,
+      items: postSetupItems,
+    });
+  }, [userRole, postSetupItems, postSetupDismissTick, postSetupForceShow]);
+
+  const postSetupBannerAnchorRef = useRef(null);
+
+  const reopenPostSetupChecklist = useCallback(() => {
+    clearPostSetupChecklistDismiss();
+    setPostSetupForceShow(true);
+    setPostSetupDismissTick((n) => n + 1);
+    refreshPostSetupEmailStatus();
+    refreshBackupStatus();
+    requestAnimationFrame(() => {
+      try {
+        postSetupBannerAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (_e) { /* ignore */ }
+    });
+  }, [refreshPostSetupEmailStatus, refreshBackupStatus]);
+
+  const postSetupIncompleteCount = useMemo(
+    () => countIncompletePostSetupItems(postSetupItems),
+    [postSetupItems]
+  );
 
   const visibleProjects = useMemo(() => {
     if (!isEngineer) return projects;
@@ -5846,6 +5918,23 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
       <ContentWrapper ref={contentWrapperRef} $headerOffset={mainHeaderOffsetPx}>
         <ContentArea>
+          <div ref={postSetupBannerAnchorRef} />
+          {showPostSetupChecklist && (
+            <PostSetupChecklistBanner
+              items={postSetupItems}
+              incompleteCount={postSetupIncompleteCount}
+              onDismiss={() => {
+                dismissPostSetupChecklist();
+                setPostSetupForceShow(false);
+                setPostSetupDismissTick((n) => n + 1);
+              }}
+              onAction={(itemId) => {
+                if (itemId === POST_SETUP_ITEM.EMAIL) setIsEmailSettingsOpen(true);
+                else if (itemId === POST_SETUP_ITEM.BACKUP) setIsBackupManagerOpen(true);
+                else if (itemId === POST_SETUP_ITEM.PORTAL) setIsPortalHubOpen(true);
+              }}
+            />
+          )}
           {canManageAll && backupReminderDue && (
             <BackupReminderBanner>
               <span style={{ fontSize: 26, flexShrink: 0 }}>🛡️</span>
@@ -6439,6 +6528,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
                   <AdminButtonIcon>📄</AdminButtonIcon>
                   Υποδείγματα Εγγράφων
+                </AdminButton>
+              )}
+              {isSuperAdmin && (
+                <AdminButton
+                  onClick={reopenPostSetupChecklist}
+                  title="Επαναφέρει την κάρτα ολοκλήρωσης εγκατάστασης (Email, αντίγραφα, πύλη)"
+                >
+                  <AdminButtonIcon>🧰</AdminButtonIcon>
+                  Εργαλεία προγραμματιστή
                 </AdminButton>
               )}
             </CategoryBody>
@@ -7081,7 +7179,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
           <BackupManager
             isOpen={isBackupManagerOpen}
-            onClose={() => { setIsBackupManagerOpen(false); refreshBackupStatus(); }}
+            onClose={() => {
+              setIsBackupManagerOpen(false);
+              refreshBackupStatus();
+            }}
             currentUser={currentUser}
           />
         </Suspense>
@@ -7192,7 +7293,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       {isEmailSettingsOpen && (
         <Suspense fallback={null}>
           <EmailSettingsModal
-            onClose={() => setIsEmailSettingsOpen(false)}
+            onClose={() => {
+              setIsEmailSettingsOpen(false);
+              refreshPostSetupEmailStatus();
+            }}
             currentUser={currentUser}
           />
         </Suspense>
@@ -7262,6 +7366,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             appConfig={{ ...appConfig, portalEnabled, portalDimosUid: appConfig.portalDimosUid, portalExportFields: appConfig.portalExportFields, portalMergeCompleted: appConfig.portalMergeCompleted }}
             onConfigSaved={({ portalEnabled: enabled, portalDimosUid: uid, portalPublicUrl: purl, portalExportFields: fields, portalMergeCompleted: merge }) => {
               setPortalEnabled(enabled);
+              setPostSetupPortalUid(String(uid || ''));
               appConfig.portalEnabled = enabled;
               appConfig.portalDimosUid = uid;
               if (purl !== undefined) appConfig.portalPublicUrl = purl;
@@ -7283,13 +7388,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             isSuperAdmin={isSuperAdmin}
             onConfigSaved={({ portalEnabled: enabled, portalDimosUid: uid, portalPublicUrl: purl, portalExportFields: fields, portalMergeCompleted: merge }) => {
               setPortalEnabled(enabled);
+              setPostSetupPortalUid(String(uid || ''));
               appConfig.portalEnabled = enabled;
               appConfig.portalDimosUid = uid;
               if (purl !== undefined) appConfig.portalPublicUrl = purl;
               if (fields) appConfig.portalExportFields = fields;
               appConfig.portalMergeCompleted = !!merge;
             }}
-            onDimosUidSaved={(uid) => { appConfig.portalDimosUid = uid; }}
+            onDimosUidSaved={(uid) => {
+              appConfig.portalDimosUid = uid;
+              setPostSetupPortalUid(String(uid || ''));
+            }}
           />
         </Suspense>
       )}

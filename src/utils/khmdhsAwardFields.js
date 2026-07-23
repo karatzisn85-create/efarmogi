@@ -1,6 +1,6 @@
 /** ΚΗΜΔΗΣ — ανάθεση (AWRD) */
 
-import { formatKhmdhsDateOnly, formatKhmdhsDateTime, formatKhmdhsEuro } from './khmdhsNoticeFields';
+import { formatKhmdhsDateOnly, formatKhmdhsDateTime, formatKhmdhsDurationLabel, formatKhmdhsEuro } from './khmdhsNoticeFields';
 import { formatKhmdhsCostSnapshotGross, applyKhmdhsVat24 } from './khmdhsVatHelper';
 
 export function pickKhmdhsAwardSnapshot(snapshot) {
@@ -131,7 +131,7 @@ export function buildKhmdhsAwardDisplayGroups(snapshot) {
     { label: 'ΑΔΑ ανάληψης υποχρέωσης', value: snap.commitmentNo, badge: true },
     ...(snap.contractDuration ? [{
       label: 'Διάρκεια σύμβασης',
-      value: `${snap.contractDuration}${snap.contractDurationUnit ? ` ${snap.contractDurationUnit}` : ''}`,
+      value: formatKhmdhsDurationLabel(snap.contractDuration, snap.contractDurationUnit),
     }] : []),
   ]);
 

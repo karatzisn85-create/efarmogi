@@ -17,6 +17,7 @@ import {
   filterRegistryCandidatesBySymvPlan,
 } from '../utils/khmdhsDocumentRegistry';
 import { summarizeKhmdhsFetchFailure } from '../utils/khmdhsFetchFailureSummary';
+import { evaluateStitchRefreshCompleteness } from '../utils/khmdhsChainStitchPlan';
 
 const ipcRenderer = window.electronAPI;
 
@@ -1266,16 +1267,53 @@ export default function KhmdhsBatchRefreshWidget({
             continue;
           }
 
+          const stitchCompleteness = evaluateStitchRefreshCompleteness(res);
+          if (!stitchCompleteness.ok) {
+            failed++;
+            detailItems.push({
+              status: 'failed',
+              id: item.id,
+              label: item.label,
+              error: stitchCompleteness.message,
+              phase: 'preview',
+              failedAdams: stitchCompleteness.failedAdams,
+            });
+            addLog('❌', `${item.label} — Μερική αποτυχία τεχνητής αλυσίδας`);
+            continue;
+          }
+
           const project = res.projectSnapshot;
           const existingPlan = project?.khmdhsSymvChainPlan;
           const reusablePlan = existingPlan?.items?.length
             && symvPlanMatchesChain(existingPlan, res.chainRes)
             ? existingPlan : null;
 
-          const applyResult = applyAdamChainResult(project, res.chainRes, {
-            seedAdam: res.seedAdam,
-            symvChainPlan: reusablePlan,
-          });
+          // Τεχνητή αλυσίδα: συγχώνευση διαδοχικά όλων των σπόρων (stitch, χωρίς σβήσιμο).
+          const registryChainResList = [];
+          let applyResult;
+          if (res.usesStitchPlan && Array.isArray(res.stitchResults) && res.stitchResults.length) {
+            let running = project;
+            let lastApply = null;
+            res.stitchResults.forEach((seg) => {
+              if (!seg?.success || !seg.chainRes) return;
+              lastApply = applyAdamChainResult(running, seg.chainRes, {
+                seedAdam: seg.seedAdam,
+                applyMode: 'stitch',
+              });
+              running = lastApply.form;
+              registryChainResList.push(seg.chainRes);
+            });
+            applyResult = lastApply || applyAdamChainResult(project, res.chainRes, {
+              seedAdam: res.seedAdam,
+              symvChainPlan: reusablePlan,
+            });
+          } else {
+            applyResult = applyAdamChainResult(project, res.chainRes, {
+              seedAdam: res.seedAdam,
+              symvChainPlan: reusablePlan,
+            });
+            registryChainResList.push(res.chainRes);
+          }
 
           if (applyResult.warnings?.includes('symvPlannerRequired')) {
             needsIntervention++;
@@ -1298,9 +1336,16 @@ export default function KhmdhsBatchRefreshWidget({
             updatedAt: new Date().toISOString(),
           };
 
+          let chainRegistryCandidates = [];
+          (registryChainResList.length ? registryChainResList : [res.chainRes]).forEach((cr) => {
+            chainRegistryCandidates = mergeRegistryCandidateLists(
+              chainRegistryCandidates,
+              collectKhmdhsRegistryCandidatesFromChainRes(cr, mergedProject.khmdhsDataQualityReview, mergedProject)
+            );
+          });
           const freshCandidates = filterRegistryCandidatesBySymvPlan(
             mergeRegistryCandidateLists(
-              collectKhmdhsRegistryCandidatesFromChainRes(res.chainRes, mergedProject.khmdhsDataQualityReview, mergedProject),
+              chainRegistryCandidates,
               collectKhmdhsRegistryCandidatesFromProject(mergedProject)
             ),
             mergedProject
@@ -1326,7 +1371,8 @@ export default function KhmdhsBatchRefreshWidget({
           if (saveRes?.success) {
             refreshed++;
             const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
-              chainWarnings: res.chainRes?.warnings || [],
+              chainWarnings: (registryChainResList.length ? registryChainResList : [res.chainRes])
+                .flatMap((cr) => cr?.warnings || []),
             });
             detailItems.push({
               status: 'refreshed',

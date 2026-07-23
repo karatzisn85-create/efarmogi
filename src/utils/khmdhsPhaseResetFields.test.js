@@ -81,5 +81,6 @@ describe('khmdhsPhaseResetFields', () => {
     expect(fields.supplementaryContracts).toEqual([]);
     expect(fields.khmdhsUserEdits.fieldOverrides).toEqual({});
     expect(fields.khmdhsSymvChainPlan).toBeNull();
+    expect(fields.khmdhsChainStitchPlan).toBeNull();
   });
 });

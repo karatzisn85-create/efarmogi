@@ -50,6 +50,11 @@ export function formHasStoredKhmdhsChain(form) {
 
 /**
  * Νέος SYMV στο ενιαίο πεδίο ανάκτησης → προσθήκη συμπληρωματικής, όχι αντικατάσταση αλυσίδας.
+ *
+ * Μόνο όταν υπάρχει ήδη ΚΥΡΙΑ σύμβαση. Αν η αλυσίδα είναι μερική (π.χ. μόνο
+ * αίτημα/δημοσίευση, χωρίς SYMV), ο νέος SYMV πρέπει να περάσει από κανονική
+ * ανάκτηση / συρραφή ώστε να συμπληρώσει το κενό στάδιο σύμβασης — όχι από
+ * τη ροή «συμπληρωματική» (που δεν επιτρέπει επιλογή «κύρια σύμβαση»).
  */
 export function shouldRouteAdamAsSupplementaryAdd(form, adam, { contractIndex = null } = {}) {
   const seed = normalizeAdam(adam);
@@ -66,6 +71,12 @@ export function shouldRouteAdamAsSupplementaryAdd(form, adam, { contractIndex = 
   }
 
   if (!multi && contractIndex == null) {
+    // Χωρίς κύρια σύμβαση ακόμα → όχι συμπληρωματική· πιθανή συρραφή / συμπλήρωση σταδίου.
+    const hasPrimaryContract = !!(
+      normalizeAdam(form?.khmdhsAdam)
+      || form?.khmdhsContractSnapshot
+    );
+    if (!hasPrimaryContract) return false;
     return !collectAllChainAdams(form).includes(seed);
   }
 
