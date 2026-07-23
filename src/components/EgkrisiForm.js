@@ -2,142 +2,57 @@ import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import { useToast } from './ToastProvider';
+import {
+  FormOverlay,
+  FormContainer as ChromeFormContainer,
+  FormHero,
+  HeroText,
+  HeroEyebrow,
+  FormTitle,
+  CloseButton,
+  FormBody,
+  FormGroup,
+  Label,
+  Input,
+  Select,
+  TextArea,
+  ErrorMessage,
+  ButtonContainer,
+  Button,
+} from './modernFormChrome';
 
 const ipcRenderer = window.electronAPI;
 
-const Container = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 2000;
-`;
-
-const FormContent = styled.div`
-  background: white;
-  width: 90%;
-  max-width: 800px;
+const FormShell = styled(ChromeFormContainer)`
+  max-width: min(800px, calc(100vw - 2rem));
   max-height: 90vh;
-  border-radius: 12px;
-  padding: 30px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+`;
+
+const ScrollBody = styled(FormBody)`
   overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-`;
-
-const Header = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-  padding-bottom: 20px;
-  border-bottom: 2px solid #e0e0e0;
-`;
-
-const Title = styled.h2`
-  color: #2c3e50;
-  font-size: 24px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-`;
-
-const CloseButton = styled.button`
-  background: #e74c3c;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.3s ease;
-
-  &:hover {
-    background: #c0392b;
-  }
+  flex: 1;
 `;
 
 const Form = styled.form`
   display: flex;
   flex-direction: column;
-  gap: 20px;
-`;
-
-const FormGroup = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`;
-
-const Label = styled.label`
-  font-weight: bold;
-  color: #34495e;
-  font-size: 14px;
-`;
-
-const Input = styled.input`
-  padding: 12px 16px;
-  border: 2px solid #e0e0e0;
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.3s ease;
-
-  &:focus {
-    outline: none;
-    border-color: #3498db;
-  }
-
-  &[type="date"] {
-    cursor: pointer;
-  }
-`;
-
-const Select = styled.select`
-  padding: 12px 16px;
-  border: 2px solid #e0e0e0;
-  border-radius: 6px;
-  font-size: 14px;
-  background: white;
-  cursor: pointer;
-  transition: border-color 0.3s ease;
-
-  &:focus {
-    outline: none;
-    border-color: #3498db;
-  }
-`;
-
-const TextArea = styled.textarea`
-  padding: 12px 16px;
-  border: 2px solid #e0e0e0;
-  border-radius: 6px;
-  font-size: 14px;
-  resize: vertical;
-  min-height: 100px;
-  font-family: inherit;
-  transition: border-color 0.3s ease;
-
-  &:focus {
-    outline: none;
-    border-color: #3498db;
-  }
+  gap: 1rem;
 `;
 
 const FileInputGroup = styled.div`
-  padding: 20px;
-  border: 2px dashed #3498db;
-  border-radius: 8px;
-  background: #ecf0f1;
+  padding: 1.1rem;
+  border: 1.5px dashed #a5b4fc;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(238, 242, 255, 0.65) 0%, #ffffff 100%);
   text-align: center;
-  transition: all 0.3s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
 
   &:hover {
-    background: #d5dbdb;
-    border-color: #2980b9;
+    background: #eef2ff;
+    border-color: #818cf8;
   }
 `;
 
@@ -147,102 +62,54 @@ const FileInput = styled.input`
 
 const FileInputLabel = styled.label`
   cursor: pointer;
-  color: #3498db;
-  font-weight: bold;
-  font-size: 16px;
+  color: #3730a3;
+  font-weight: 700;
+  font-size: 0.95rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-
-  span {
-    font-size: 40px;
-  }
-
-  &:hover {
-    color: #2980b9;
-  }
+  gap: 0.5rem;
 `;
 
 const SelectedFile = styled.div`
-  margin-top: 10px;
-  padding: 10px;
-  background: #2ecc71;
-  color: white;
-  border-radius: 6px;
-  font-size: 14px;
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  background: #eef2ff;
+  color: #312e81;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 const RemoveFileButton = styled.button`
-  background: none;
-  border: none;
-  color: white;
-  font-size: 18px;
+  background: #fff;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 0.8rem;
+  font-weight: 700;
   cursor: pointer;
-  padding: 0 5px;
+  padding: 0.2rem 0.5rem;
+  border-radius: 8px;
 
   &:hover {
-    color: #e74c3c;
+    background: #fef2f2;
   }
 `;
 
 const ProjectSubprojectGroup = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
-`;
+  gap: 1rem 1.15rem;
 
-const ButtonGroup = styled.div`
-  display: flex;
-  gap: 15px;
-  justify-content: flex-end;
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 2px solid #e0e0e0;
-`;
-
-const Button = styled.button`
-  padding: 12px 24px;
-  border: none;
-  border-radius: 6px;
-  font-size: 16px;
-  font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s ease;
-
-  ${props => props.primary && `
-    background: #2ecc71;
-    color: white;
-
-    &:hover {
-      background: #27ae60;
-      transform: translateY(-2px);
-    }
-
-    &:disabled {
-      background: #95a5a6;
-      cursor: not-allowed;
-      transform: none;
-    }
-  `}
-
-  ${props => props.secondary && `
-    background: #ecf0f1;
-    color: #34495e;
-
-    &:hover {
-      background: #bdc3c7;
-    }
-  `}
-`;
-
-const ErrorMessage = styled.div`
-  color: #e74c3c;
-  font-size: 14px;
-  margin-top: 5px;
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 function EgkrisiForm({ projects, selectedProject, onClose }) {
@@ -428,15 +295,17 @@ function EgkrisiForm({ projects, selectedProject, onClose }) {
   };
 
   return (
-    <Container onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <FormContent>
-        <Header>
-          <Title>
-            📋 Νέα Έγκριση Διάθεσης Πίστωσης
-          </Title>
-          <CloseButton onClick={onClose}>✕</CloseButton>
-        </Header>
+    <FormOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <FormShell>
+        <FormHero>
+          <HeroText>
+            <HeroEyebrow>Εγκρίσεις</HeroEyebrow>
+            <FormTitle>Νέα έγκριση διάθεσης πίστωσης</FormTitle>
+          </HeroText>
+          <CloseButton type="button" onClick={onClose}>Κλείσιμο</CloseButton>
+        </FormHero>
 
+        <ScrollBody>
         <Form onSubmit={handleSubmit}>
           <ProjectSubprojectGroup>
             <FormGroup>
@@ -523,12 +392,11 @@ function EgkrisiForm({ projects, selectedProject, onClose }) {
                 onChange={handleFileSelect}
               />
               <FileInputLabel htmlFor="egkrisiFile">
-                <span>📄</span>
                 {selectedFile ? (
                   <SelectedFile>
                     {selectedFile.name}
                     <RemoveFileButton type="button" onClick={removeFile}>
-                      ✕
+                      Αφαίρεση
                     </RemoveFileButton>
                   </SelectedFile>
                 ) : (
@@ -539,17 +407,18 @@ function EgkrisiForm({ projects, selectedProject, onClose }) {
             {errors.file && <ErrorMessage>{errors.file}</ErrorMessage>}
           </FormGroup>
 
-          <ButtonGroup>
-            <Button secondary type="button" onClick={onClose}>
+          <ButtonContainer>
+            <Button type="button" onClick={onClose}>
               Ακύρωση
             </Button>
             <Button primary type="submit" disabled={submitting}>
-              {submitting ? 'Αποθήκευση...' : 'Αποθήκευση Έγκρισης'}
+              {submitting ? 'Αποθήκευση...' : 'Αποθήκευση έγκρισης'}
             </Button>
-          </ButtonGroup>
+          </ButtonContainer>
         </Form>
-      </FormContent>
-    </Container>
+        </ScrollBody>
+      </FormShell>
+    </FormOverlay>
   );
 }
 

@@ -9,100 +9,135 @@ const ipcRenderer = window.electronAPI;
 
 const FormOverlay = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  inset: 0;
+  background: linear-gradient(
+    145deg,
+    rgba(15, 23, 42, 0.78) 0%,
+    rgba(49, 46, 129, 0.55) 45%,
+    rgba(15, 23, 42, 0.72) 100%
+  );
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 10000;
-  backdrop-filter: blur(5px);
+  backdrop-filter: blur(4px);
+  padding: 1rem;
+  box-sizing: border-box;
 `;
 
 const FormContainer = styled.div`
-  background: white;
-  border-radius: 20px;
+  background: #ffffff;
+  border-radius: 18px;
   width: 95vw;
   height: 90vh;
   max-width: 1200px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 4px 6px rgba(15, 23, 42, 0.06),
+    0 24px 48px rgba(30, 27, 75, 0.28);
+  border: 1px solid #e2e8f0;
   overflow: hidden;
 `;
 
 const FormHeader = styled.div`
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 42%, #4338ca 100%);
   color: white;
-  padding: 1.5rem 2rem;
+  padding: 1.25rem 1.65rem;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 1rem;
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 70% at 85% 0%, rgba(255, 255, 255, 0.22), transparent 55%);
+    pointer-events: none;
+  }
 `;
 
 const FormTitle = styled.h2`
   margin: 0;
-  font-size: 1.8rem;
-  font-weight: 600;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  position: relative;
+  z-index: 1;
 `;
 
 const CloseButton = styled.button`
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.28);
   color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  border-radius: 10px;
   cursor: pointer;
-  font-size: 1rem;
-  transition: background 0.3s ease;
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-family: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.24);
+    border-color: rgba(255, 255, 255, 0.4);
   }
 `;
 
 const FormContent = styled.div`
   flex: 1;
-  padding: 2rem;
+  padding: 1.35rem 1.65rem 1.65rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.25rem;
+  background: linear-gradient(180deg, #fafbff 0%, #ffffff 28%);
 `;
 
 const Section = styled.div`
-  background: #f8f9fa;
-  border-radius: 15px;
-  padding: 1.5rem;
-  border: 2px solid #e9ecef;
+  background: #fff;
+  border-radius: 14px;
+  padding: 1.15rem 1.25rem;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 `;
 
 const SectionTitle = styled.h3`
-  margin: 0 0 1rem 0;
-  color: #2c3e50;
-  font-size: 1.2rem;
-  font-weight: 600;
+  margin: 0 0 0.9rem 0;
+  color: #312e81;
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid #eef2ff;
 `;
 
 const FormGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
+  gap: 1rem 1.15rem;
+  margin-bottom: 1rem;
 
   @media (max-width: 768px) {
     grid-template-columns: 1fr;
   }
 `;
 
-const FormGroup = styled.div`
+const FormGroup = styled.div.withConfig({
+  shouldForwardProp: (prop) => prop !== 'fullWidth',
+})`
   display: flex;
   flex-direction: column;
+  gap: 0.38rem;
   grid-column: ${props => props.fullWidth ? 'span 2' : 'span 1'};
 
   @media (max-width: 768px) {
@@ -111,62 +146,74 @@ const FormGroup = styled.div`
 `;
 
 const Label = styled.label`
-  font-weight: 500;
-  color: #333;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
+  font-weight: 700;
+  color: #475569;
+  font-size: 0.82rem;
 `;
 
 const Input = styled.input`
-  padding: 0.8rem;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 1rem;
+  padding: 0.62rem 0.88rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  font-size: 0.96rem;
+  font-family: inherit;
+  min-height: 46px;
   outline: none;
-  transition: border-color 0.3s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  background: #fff;
+  color: #0f172a;
 
   &:focus {
-    border-color: #667eea;
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
   }
 `;
 
 const Select = styled.select`
-  padding: 0.8rem;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 1rem;
+  padding: 0.62rem 0.88rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  font-size: 0.96rem;
+  font-family: inherit;
+  min-height: 46px;
   outline: none;
-  transition: border-color 0.3s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   background: white;
+  color: #334155;
+  cursor: pointer;
 
   &:focus {
-    border-color: #667eea;
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
   }
 `;
 
 const SearchResults = styled.div`
   position: absolute;
-  top: 100%;
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
   background: white;
-  border: 2px solid #e0e0e0;
-  border-top: none;
-  border-radius: 0 0 8px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
   max-height: 200px;
   overflow-y: auto;
   z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  padding: 0.25rem;
 `;
 
 const SearchResultItem = styled.div`
-  padding: 0.8rem;
+  padding: 0.65rem 0.75rem;
   cursor: pointer;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background 0.2s ease;
+  border-radius: 8px;
+  transition: background 0.12s ease;
+  color: #334155;
+  font-size: 0.9rem;
 
   &:hover {
-    background: #f8f9fa;
+    background: #eef2ff;
+    color: #312e81;
   }
 
   &:last-child {
@@ -175,16 +222,17 @@ const SearchResultItem = styled.div`
 `;
 
 const NewProjectOption = styled.div`
-  padding: 0.8rem;
+  padding: 0.65rem 0.75rem;
   cursor: pointer;
-  background: #e3f2fd;
-  border-bottom: 1px solid #f0f0f0;
-  font-weight: 500;
-  color: #1976d2;
-  transition: background 0.2s ease;
+  background: #eef2ff;
+  border-radius: 8px;
+  font-weight: 700;
+  color: #3730a3;
+  margin-bottom: 0.2rem;
+  transition: background 0.12s ease;
 
   &:hover {
-    background: #bbdefb;
+    background: #e0e7ff;
   }
 `;
 
@@ -199,22 +247,23 @@ const SubprojectItem = styled.div`
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1rem;
+  padding: 0.9rem 1rem;
   background: white;
-  border: 2px solid #e9ecef;
-  border-radius: 10px;
-  transition: all 0.3s ease;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
   &:hover {
-    border-color: #667eea;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-color: #a5b4fc;
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.1);
   }
 `;
 
 const Checkbox = styled.input`
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   cursor: pointer;
+  accent-color: #4f46e5;
 `;
 
 const SubprojectInfo = styled.div`
@@ -232,17 +281,17 @@ const SubprojectTitle = styled.div`
 
 const SubprojectNumberInput = styled.input`
   font-size: 0.9rem;
-  color: #495057;
+  color: #334155;
   padding: 0.4rem 0.6rem;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
   width: 150px;
-  transition: all 0.2s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   
   &:focus {
     outline: none;
-    border-color: #80bdff;
-    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
   }
 `;
 
@@ -274,59 +323,60 @@ const NewSubprojectForm = styled.div`
   flex-direction: column;
   gap: 1rem;
   padding: 1rem;
-  background: #e3f2fd;
-  border-radius: 10px;
-  border: 2px dashed #2196f3;
+  background: linear-gradient(180deg, rgba(238, 242, 255, 0.65) 0%, #ffffff 100%);
+  border-radius: 12px;
+  border: 1.5px dashed #a5b4fc;
 `;
 
 const AddSubprojectButton = styled.button`
-  background: #28a745;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
   color: white;
   border: none;
-  padding: 0.8rem 1.5rem;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 500;
+  padding: 0.7rem 1.25rem;
+  border-radius: 11px;
+  font-size: 0.93rem;
+  font-weight: 700;
+  font-family: inherit;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: box-shadow 0.15s ease;
   align-self: flex-start;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
 
   &:hover {
-    background: #218838;
-    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.4);
   }
 `;
 
 const FileUploadArea = styled.div`
-  border: 3px dashed #667eea;
-  border-radius: 15px;
-  padding: 2rem;
+  border: 1.5px dashed #a5b4fc;
+  border-radius: 12px;
+  padding: 1.5rem;
   text-align: center;
-  background: #f8f9fa;
-  transition: all 0.3s ease;
+  background: linear-gradient(180deg, rgba(238, 242, 255, 0.65) 0%, #ffffff 100%);
+  transition: border-color 0.15s ease, background 0.15s ease;
   cursor: pointer;
 
   &:hover {
-    border-color: #5a67d8;
-    background: #e3f2fd;
+    border-color: #818cf8;
+    background: #eef2ff;
   }
 
   &.drag-over {
-    border-color: #28a745;
-    background: #d4edda;
+    border-color: #4f46e5;
+    background: #e0e7ff;
   }
 `;
 
 const FileUploadText = styled.div`
-  font-size: 1.1rem;
-  color: #667eea;
+  font-size: 1rem;
+  color: #3730a3;
   margin-bottom: 0.5rem;
-  font-weight: 500;
+  font-weight: 700;
 `;
 
 const FileUploadSubtext = styled.div`
-  font-size: 0.9rem;
-  color: #6c757d;
+  font-size: 0.86rem;
+  color: #64748b;
 `;
 
 const FileList = styled.div`
@@ -368,64 +418,70 @@ const RemoveFileButton = styled.button`
 
 const ButtonContainer = styled.div`
   display: flex;
-  gap: 1rem;
+  gap: 0.65rem;
   justify-content: flex-end;
-  margin-top: 2rem;
-  padding-top: 2rem;
-  border-top: 2px solid #e9ecef;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid #e2e8f0;
 `;
 
 const SaveButton = styled.button`
-  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
   color: white;
   border: none;
-  padding: 1rem 2rem;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  font-weight: 500;
+  padding: 0.58rem 1.35rem;
+  border-radius: 11px;
+  font-size: 0.93rem;
+  font-weight: 700;
+  font-family: inherit;
+  min-height: 46px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: box-shadow 0.15s ease;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
 
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(40, 167, 69, 0.3);
+  &:hover:not(:disabled) {
+    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.42);
   }
 
   &:disabled {
-    background: #6c757d;
+    opacity: 0.55;
     cursor: not-allowed;
-    transform: none;
     box-shadow: none;
   }
 `;
 
 const CancelButton = styled.button`
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 1rem 2rem;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  font-weight: 500;
+  background: #fff;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  padding: 0.58rem 1.35rem;
+  border-radius: 11px;
+  font-size: 0.93rem;
+  font-weight: 700;
+  font-family: inherit;
+  min-height: 46px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background: #5a6268;
-    transform: translateY(-2px);
+    background: #f8fafc;
+    border-color: #cbd5e1;
   }
 `;
 
 const ErrorMessage = styled.div`
-  color: #dc3545;
-  font-size: 0.9rem;
-  margin-top: 0.5rem;
+  color: #b91c1c;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-top: 0.15rem;
 `;
 
 const SuccessMessage = styled.div`
-  color: #28a745;
-  font-size: 0.9rem;
-  margin-top: 0.5rem;
+  color: #047857;
+  font-size: 0.86rem;
+  font-weight: 600;
+  margin-top: 0.35rem;
 `;
 
 function EgkriseisForm({ isOpen, onClose, onSave }) {
@@ -1056,8 +1112,8 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
     <FormOverlay onClick={(e) => e.target === e.currentTarget && handleClose()}>
       <FormContainer>
         <FormHeader>
-          <FormTitle>ΕΠΕΞΕΡΓΑΣΙΑ/ΔΗΜΙΟΥΡΓΙΑ ΕΓΚΡΙΣΗΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ</FormTitle>
-          <CloseButton onClick={handleClose}>✕</CloseButton>
+          <FormTitle>Έγκριση διάθεσης πίστωσης</FormTitle>
+          <CloseButton type="button" onClick={handleClose}>Κλείσιμο</CloseButton>
         </FormHeader>
 
         <FormContent>
@@ -1509,10 +1565,10 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
 
           {/* Buttons */}
           <ButtonContainer>
-            <CancelButton onClick={handleClose}>
+            <CancelButton type="button" onClick={handleClose}>
               Ακύρωση
             </CancelButton>
-            <SaveButton onClick={handleSave} disabled={loading}>
+            <SaveButton type="button" onClick={handleSave} disabled={loading}>
               {loading ? 'Αποθήκευση...' : 'Αποθήκευση'}
             </SaveButton>
           </ButtonContainer>

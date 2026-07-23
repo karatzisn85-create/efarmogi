@@ -6,209 +6,40 @@ import ProsklisiDiavgeiaSection from './ProsklisiDiavgeiaSection';
 import { safeFileDialog } from '../utils/safeDialogs';
 import { buildProsklisiDiavgeiaRegistryEntry } from '../utils/prosklisiDiavgeiaRegistry';
 import { useToast } from './ToastProvider';
+import {
+  FormOverlay,
+  FormContainer as ChromeFormContainer,
+  FormHero,
+  HeroText,
+  HeroEyebrow,
+  FormTitle,
+  HeroSubtitle,
+  CloseButton,
+  FormBody,
+  FormGrid as ChromeFormGrid,
+  FormGroup,
+  Label,
+  Input,
+  TextArea,
+  Select,
+  FileSelectButton,
+  ErrorMessage,
+  ButtonContainer,
+  Button,
+} from './modernFormChrome';
 
 const ipcRenderer = window.electronAPI;
 
-// Styled Components
-const FormOverlay = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(4px);
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  z-index: 10001;
-  padding: 1.25rem 1rem 2rem;
-  overflow-y: auto;
-  box-sizing: border-box;
+const FormContainer = styled(ChromeFormContainer)`
+  max-width: min(1400px, calc(100vw - 2rem));
+  overflow: visible;
 `;
 
-const FormContainer = styled.div`
-  background: white;
-  border-radius: 16px;
-  max-width: 1400px;
-  width: 100%;
-  margin: auto 0;
-  flex-shrink: 0;
-  overflow-y: visible;
-  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
-  border: 1px solid #e2e8f0;
-`;
-
-const FormHeader = styled.div`
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  color: white;
-  padding: 2rem;
-  border-radius: 15px 15px 0 0;
-  text-align: center;
-`;
-
-const FormTitle = styled.h2`
-  margin: 0;
-  font-size: 1.6rem;
-  font-weight: 600;
-`;
-
-const FormContent = styled.div`
-  padding: 2rem;
-`;
-
-const FormGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
-`;
-
-const FormGroup = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-`;
-
-const Label = styled.label`
-  font-weight: 500;
-  color: #333;
-  font-size: 0.95rem;
-`;
-
-const Input = styled.input`
-  padding: 1rem;
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  min-height: 50px;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-
-  &:focus {
-    outline: none;
-    border-color: #28a745;
-    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.25);
+const FormGrid = styled(ChromeFormGrid)`
+  margin-bottom: 1.25rem;
+  @media (min-width: 900px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-`;
-
-const TextArea = styled.textarea`
-  padding: 0.8rem;
-  border: 1px solid #dee2e6;
-  border-radius: 6px;
-  font-size: 1rem;
-  min-height: 120px;
-  resize: vertical;
-  font-family: inherit;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-
-  &:focus {
-    outline: none;
-    border-color: #007bff;
-    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-  }
-`;
-
-const Select = styled.select`
-  padding: 0.8rem;
-  border: 1px solid #dee2e6;
-  border-radius: 6px;
-  font-size: 1rem;
-  background: white;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-
-  &:focus {
-    outline: none;
-    border-color: #007bff;
-    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-  }
-`;
-
-const FileSelectButton = styled.button`
-  padding: 0.8rem 1.2rem;
-  border: 2px dashed #dee2e6;
-  border-radius: 6px;
-  background: #f8f9fa;
-  color: #6c757d;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  text-align: center;
-  min-height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-
-  &:hover {
-    border-color: #007bff;
-    background: #e3f2fd;
-    color: #007bff;
-  }
-
-  &:focus {
-    outline: none;
-    border-color: #007bff;
-    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-  }
-`;
-
-
-const ButtonGroup = styled.div`
-  display: flex;
-  gap: 1rem;
-  justify-content: center;
-  padding-top: 2rem;
-  border-top: 1px solid #e9ecef;
-`;
-
-const SaveButton = styled.button`
-  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-  color: white;
-  border: none;
-  padding: 1rem 2rem;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-  }
-`;
-
-const CancelButton = styled.button`
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 1rem 2rem;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-
-  &:hover {
-    background: #5a6268;
-    transform: translateY(-2px);
-  }
-`;
-
-const ErrorMessage = styled.div`
-  color: #dc3545;
-  font-size: 0.875rem;
-  margin-top: 0.25rem;
 `;
 
 // Constants
@@ -835,18 +666,32 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
       }
     }}>
       <FormContainer>
-        <FormHeader>
-          <FormTitle>
-            {editingProsklisi ? 'Επεξεργασία στοιχείων πρόσκλησης' : 'Νέα πρόσκληση'}
-          </FormTitle>
-          {editingProsklisi && (
-            <div style={{ marginTop: '0.55rem', fontSize: '0.88rem', opacity: 0.92, fontWeight: 500 }}>
-              Για επίσημη τροποποίηση με έγγραφο και ιστορικό, χρησιμοποιήστε «Επίσημη τροποποίηση» από το μενού της κάρτας.
-            </div>
-          )}
-        </FormHeader>
+        <FormHero>
+          <HeroText>
+            <HeroEyebrow>Προσκλήσεις</HeroEyebrow>
+            <FormTitle>
+              {editingProsklisi ? 'Επεξεργασία στοιχείων πρόσκλησης' : 'Νέα πρόσκληση'}
+            </FormTitle>
+            {editingProsklisi && (
+              <HeroSubtitle>
+                Για επίσημη τροποποίηση με έγγραφο και ιστορικό, χρησιμοποιήστε «Επίσημη τροποποίηση» από το μενού της κάρτας.
+              </HeroSubtitle>
+            )}
+          </HeroText>
+          <CloseButton
+            type="button"
+            onClick={async () => {
+              if (editingProsklisi && editingProsklisi.prosklisiId) {
+                await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
+              }
+              onClose();
+            }}
+          >
+            Κλείσιμο
+          </CloseButton>
+        </FormHero>
 
-        <FormContent>
+        <FormBody>
           <form onSubmit={handleSubmit}>
             <ProsklisiDiavgeiaSection
               mode="new"
@@ -1229,22 +1074,24 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
               </FormGroup>
             </FormGrid>
 
-            <ButtonGroup>
-              <SaveButton type="submit" disabled={saving}>
-                {saving ? 'Αποθήκευση...' : 'Αποθήκευση'}
-              </SaveButton>
-              <CancelButton type="button" onClick={async () => {
-                // Ξεκλείδωμα της πρόσκλησης πριν το κλείσιμο
-                if (editingProsklisi && editingProsklisi.prosklisiId) {
-                  await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
-                }
-                onClose();
-              }}>
+            <ButtonContainer>
+              <Button
+                type="button"
+                onClick={async () => {
+                  if (editingProsklisi && editingProsklisi.prosklisiId) {
+                    await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
+                  }
+                  onClose();
+                }}
+              >
                 Ακύρωση
-              </CancelButton>
-            </ButtonGroup>
+              </Button>
+              <Button type="submit" primary disabled={saving}>
+                {saving ? 'Αποθήκευση...' : 'Αποθήκευση'}
+              </Button>
+            </ButtonContainer>
           </form>
-        </FormContent>
+        </FormBody>
       </FormContainer>
     </FormOverlay>,
     document.body

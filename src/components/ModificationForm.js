@@ -9,277 +9,118 @@ import {
   getEntaxiCurrentTotal
 } from '../utils/entaxiAmountUtils';
 import { parseGreekAmountString } from '../utils/khmdhsFields';
+import {
+  FormOverlay as ChromeFormOverlay,
+  FormContainer as ChromeFormContainer,
+  FormHero,
+  HeroText,
+  HeroEyebrow,
+  FormTitle,
+  CloseButton,
+  FormBody,
+  FormGrid as ChromeFormGrid,
+  FormGroup,
+  Label,
+  Input,
+  TextArea,
+  FileSelectButton,
+  ErrorMessage,
+  ButtonContainer,
+  Button,
+} from './modernFormChrome';
 
-const FormOverlay = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(4px);
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
+const FormOverlay = styled(ChromeFormOverlay)`
   z-index: 10002;
-  padding: 1.25rem 1rem 2rem;
-  overflow-y: auto;
-  box-sizing: border-box;
 `;
 
-const FormContainer = styled.div`
-  background: white;
-  border-radius: 16px;
-  padding: 1.75rem 2rem 2rem;
-  max-width: 720px;
-  width: 100%;
-  margin: auto 0;
-  flex-shrink: 0;
-  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
-  border: 1px solid #e2e8f0;
+const FormContainer = styled(ChromeFormContainer)`
+  max-width: min(720px, calc(100vw - 2rem));
 `;
 
-const FormHeader = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-  padding-bottom: 1rem;
-  border-bottom: 2px solid #e9ecef;
-`;
-
-const FormTitle = styled.h2`
-  color: #333;
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  &::before {
-    content: "⚡";
-    font-size: 1.3rem;
-  }
-`;
-
-const CloseButton = styled.button`
-  background: #dc3545;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: background 0.3s ease;
-
-  &:hover {
-    background: #c82333;
-  }
+const FormGrid = styled(ChromeFormGrid)`
+  grid-template-columns: minmax(0, 1fr);
+  margin-bottom: 0.5rem;
 `;
 
 const EntaxiInfo = styled.div`
-  background: #e3f2fd;
-  border: 1px solid #bbdefb;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 2rem;
+  background: linear-gradient(180deg, #eef2ff 0%, #ffffff 100%);
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1.25rem;
 `;
 
 const InfoTitle = styled.div`
-  font-weight: 600;
-  color: #1976d2;
+  font-weight: 800;
+  color: #312e81;
   margin-bottom: 0.5rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  &::before {
-    content: "📋";
-    font-size: 1rem;
-  }
+  font-size: 0.88rem;
+  letter-spacing: 0.02em;
 `;
 
 const InfoDetails = styled.div`
   font-size: 0.9rem;
-  color: #333;
-  line-height: 1.4;
+  color: #334155;
+  line-height: 1.45;
 `;
 
 const CurrentAmount = styled.div`
-  background: #e8f5e8;
-  border: 1px solid #c8e6c9;
-  border-radius: 6px;
-  padding: 0.8rem;
-  margin: 1rem 0;
-  text-align: center;
-  font-weight: 600;
-  color: #2e7d32;
-`;
-
-const FormGrid = styled.div`
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1.5rem;
-  margin-bottom: 2rem;
-`;
-
-const FormGroup = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-
-  ${props => props.fullWidth && `
-    grid-column: 1 / -1;
-  `}
-`;
-
-const Label = styled.label`
-  font-weight: 600;
-  color: #333;
-  font-size: 0.9rem;
-`;
-
-const Input = styled.input`
-  padding: 0.8rem;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 1rem;
-  outline: none;
-  transition: border-color 0.3s ease;
-
-  &:focus {
-    border-color: #2196F3;
-  }
-
-  &:disabled {
-    background-color: #f5f5f5;
-    cursor: not-allowed;
-  }
-`;
-
-const TextArea = styled.textarea`
-  padding: 0.8rem;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 1rem;
-  outline: none;
-  transition: border-color 0.3s ease;
-  resize: vertical;
-  min-height: 80px;
-  font-family: inherit;
-
-  &:focus {
-    border-color: #2196F3;
-  }
-`;
-
-
-const FileSelectButton = styled.button`
-  width: 100%;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
   padding: 0.75rem;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
-
-  &:hover {
-    background: #0056b3;
-  }
-`;
-
-
-
-
-
-const ErrorMessage = styled.div`
-  color: #dc3545;
-  font-size: 0.8rem;
-  margin-top: 0.25rem;
-`;
-
-const ButtonContainer = styled.div`
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-  padding-top: 2rem;
-  border-top: 2px solid #e9ecef;
-`;
-
-const Button = styled.button`
-  padding: 0.8rem 2rem;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  text-transform: uppercase;
-  transition: all 0.3s ease;
-
-  ${props => props.primary ? `
-    background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
-    color: white;
-    
-    &:hover {
-      background: linear-gradient(135deg, #f57c00 0%, #ef6c00 100%);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3);
-    }
-  ` : `
-    background: #6c757d;
-    color: white;
-    
-    &:hover {
-      background: #545b62;
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
-    }
-  `}
-
-  &:disabled {
-    background: #6c757d;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-  }
-`;
-
-const PreviewAmount = styled.div`
-  background: ${props => props.positive ? '#e8f5e8' : props.negative ? '#ffebee' : '#f5f5f5'};
-  border: 1px solid ${props => props.positive ? '#c8e6c9' : props.negative ? '#ffcdd2' : '#ddd'};
-  border-radius: 6px;
-  padding: 0.8rem;
-  margin-top: 1rem;
+  margin: 0.85rem 0 0;
   text-align: center;
-  font-weight: 600;
-  color: ${props => props.positive ? '#2e7d32' : props.negative ? '#c62828' : '#666'};
+  font-weight: 700;
+  color: #047857;
+  font-size: 0.92rem;
+`;
+
+const PreviewAmount = styled.div.withConfig({
+  shouldForwardProp: (prop) => prop !== 'positive' && prop !== 'negative',
+})`
+  background: ${(props) => (props.positive ? '#ecfdf5' : props.negative ? '#fef2f2' : '#f8fafc')};
+  border: 1px solid ${(props) => (props.positive ? '#a7f3d0' : props.negative ? '#fecaca' : '#e2e8f0')};
+  border-radius: 10px;
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+  text-align: center;
+  font-weight: 700;
+  color: ${(props) => (props.positive ? '#047857' : props.negative ? '#b91c1c' : '#64748b')};
 `;
 
 const CheckboxContainer = styled.div`
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
 `;
 
 const Checkbox = styled.input`
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   cursor: pointer;
-  accent-color: #2196F3;
+  accent-color: #4f46e5;
 `;
 
 const CheckboxLabel = styled.label`
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: #334155;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.92rem;
 `;
 
 const AmountContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+`;
+
+const SelectedFileNote = styled.div`
+  margin-top: 0.45rem;
+  color: #3730a3;
+  font-size: 0.86rem;
+  font-weight: 600;
 `;
 
 function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false }) {
@@ -558,13 +399,19 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
   return createPortal(
     <FormOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <FormContainer>
-        <FormHeader>
-          <FormTitle>{isEditMode ? 'Επεξεργασία Τροποποίησης Ένταξης' : 'Νέα Τροποποίηση Ένταξης'}</FormTitle>
-          <CloseButton onClick={onClose}>✕</CloseButton>
-        </FormHeader>
+        <FormHero>
+          <HeroText>
+            <HeroEyebrow>Εντάξεις</HeroEyebrow>
+            <FormTitle>
+              {isEditMode ? 'Επεξεργασία τροποποίησης ένταξης' : 'Νέα τροποποίηση ένταξης'}
+            </FormTitle>
+          </HeroText>
+          <CloseButton type="button" onClick={onClose}>Κλείσιμο</CloseButton>
+        </FormHero>
 
+        <FormBody>
         <EntaxiInfo>
-          <InfoTitle>Στοιχεία Ένταξης</InfoTitle>
+          <InfoTitle>Στοιχεία ένταξης</InfoTitle>
           <InfoDetails>
             <div><strong>Θέμα:</strong> {entaxi.subject}</div>
             <div><strong>Φορέας:</strong> {entaxi.fundingAuthority}</div>
@@ -644,12 +491,10 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
                 type="button"
                 onClick={() => handleFileSelect('modificationPDF', 'Επιλογή Αρχείου Τροποποίησης (PDF, Word)')}
               >
-                📁 Επιλογή Αρχείου
+                Επιλογή αρχείου
               </FileSelectButton>
               {formData.modificationPDF && (
-                <div style={{ marginTop: '0.5rem', color: '#28a745', fontSize: '0.9rem' }}>
-                  📄 {formData.modificationPDF.fileName}
-                </div>
+                <SelectedFileNote>{formData.modificationPDF.fileName}</SelectedFileNote>
               )}
               {errors.modificationPDF && <ErrorMessage>{errors.modificationPDF}</ErrorMessage>}
             </FormGroup>
@@ -660,12 +505,10 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
                 type="button"
                 onClick={() => handleFileSelect('approvalPDF', 'Επιλογή Αρχείου Αποδοχής (PDF, Word)')}
               >
-                📁 Επιλογή Αρχείου
+                Επιλογή αρχείου
               </FileSelectButton>
               {formData.approvalPDF && (
-                <div style={{ marginTop: '0.5rem', color: '#28a745', fontSize: '0.9rem' }}>
-                  📄 {formData.approvalPDF.fileName}
-                </div>
+                <SelectedFileNote>{formData.approvalPDF.fileName}</SelectedFileNote>
               )}
             </FormGroup>
           </FormGrid>
@@ -675,10 +518,11 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
               Ακύρωση
             </Button>
             <Button type="submit" primary disabled={loading}>
-              {loading ? 'Αποθήκευση...' : 'Αποθήκευση Τροποποίησης'}
+              {loading ? 'Αποθήκευση...' : 'Αποθήκευση τροποποίησης'}
             </Button>
           </ButtonContainer>
         </form>
+        </FormBody>
       </FormContainer>
     </FormOverlay>,
     document.body

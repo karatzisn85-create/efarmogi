@@ -6,275 +6,98 @@ import ProsklisiDiavgeiaSection from './ProsklisiDiavgeiaSection';
 import { safeFileDialog } from '../utils/safeDialogs';
 import { buildProsklisiDiavgeiaRegistryEntry } from '../utils/prosklisiDiavgeiaRegistry';
 import { useToast } from './ToastProvider';
-const FormOverlay = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(4px);
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
+import {
+  FormOverlay as ChromeFormOverlay,
+  FormContainer as ChromeFormContainer,
+  FormHero,
+  HeroText,
+  HeroEyebrow,
+  FormTitle,
+  HeroSubtitle,
+  CloseButton,
+  FormBody,
+  FormGrid as ChromeFormGrid,
+  FormGroup,
+  ChangedLabel as Label,
+  ChangedInput as Input,
+  ChangedTextArea as TextArea,
+  ChangedSelect as Select,
+  FileSelectButton,
+  ErrorMessage,
+  ButtonContainer,
+  Button,
+} from './modernFormChrome';
+
+const FormOverlay = styled(ChromeFormOverlay)`
   z-index: 10003;
-  padding: 1.25rem 1rem 2rem;
-  overflow-y: auto;
-  box-sizing: border-box;
 `;
 
-const FormContainer = styled.div`
-  background: white;
-  border-radius: 16px;
-  max-width: 1400px;
-  width: 100%;
-  margin: auto 0;
-  flex-shrink: 0;
-  overflow-y: visible;
-  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
-  border: 1px solid #e2e8f0;
+const FormContainer = styled(ChromeFormContainer)`
+  max-width: min(1400px, calc(100vw - 2rem));
+  overflow: visible;
 `;
 
-const FormHeader = styled.div`
-  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
-  color: white;
-  padding: 2rem;
-  border-radius: 15px 15px 0 0;
-  text-align: center;
-`;
-
-const FormTitle = styled.h2`
-  margin: 0;
-  font-size: 1.6rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-
-  &::before {
-    content: "⚡";
-    font-size: 1.3rem;
-  }
-`;
-
-const FormContent = styled.div`
-  padding: 2rem;
-`;
-
-const FormGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
-`;
-
-const FormGroup = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-`;
-
-const Label = styled.label`
-  font-weight: 500;
-  color: #333;
-  font-size: 0.95rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  ${props => props.changed && `
-    color: #ff9800;
-    font-weight: 600;
-    
-    &::after {
-      content: "●";
-      color: #ff9800;
-      font-size: 0.8rem;
-    }
-  `}
-`;
-
-const Input = styled.input`
-  padding: 1rem;
-  border: 2px solid ${props => props.changed ? '#ff9800' : '#e9ecef'};
-  border-radius: 8px;
-  font-size: 1.1rem;
-  min-height: 50px;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-
-  &:focus {
-    outline: none;
-    border-color: ${props => props.changed ? '#ff9800' : '#28a745'};
-    box-shadow: 0 0 0 2px ${props => props.changed ? 'rgba(255, 152, 0, 0.25)' : 'rgba(40, 167, 69, 0.25)'};
-  }
-`;
-
-const TextArea = styled.textarea`
-  padding: 0.8rem;
-  border: 2px solid ${props => props.changed ? '#ff9800' : '#dee2e6'};
-  border-radius: 6px;
-  font-size: 1rem;
-  min-height: 120px;
-  resize: vertical;
-  font-family: inherit;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-
-  &:focus {
-    outline: none;
-    border-color: ${props => props.changed ? '#ff9800' : '#28a745'};
-    box-shadow: 0 0 0 2px ${props => props.changed ? 'rgba(255, 152, 0, 0.25)' : 'rgba(40, 167, 69, 0.25)'};
-  }
-`;
-
-const Select = styled.select`
-  padding: 1rem;
-  border: 2px solid ${props => props.changed ? '#ff9800' : '#e9ecef'};
-  border-radius: 8px;
-  font-size: 1.1rem;
-  min-height: 50px;
-  background: white;
-  cursor: pointer;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-
-  &:focus {
-    outline: none;
-    border-color: ${props => props.changed ? '#ff9800' : '#28a745'};
-    box-shadow: 0 0 0 2px ${props => props.changed ? 'rgba(255, 152, 0, 0.25)' : 'rgba(40, 167, 69, 0.25)'};
-  }
+const FormGrid = styled(ChromeFormGrid)`
+  margin-bottom: 0.5rem;
 `;
 
 const ModificationDescriptionGroup = styled.div`
   grid-column: 1 / -1;
-  margin-bottom: 2rem;
+  margin-bottom: 0.75rem;
 `;
 
 const ModificationDescription = styled(TextArea)`
-  min-height: 150px;
-  background: #fff3e0;
-  border: 2px solid #ff9800;
-  
+  min-height: 140px;
+  background: #fffbeb;
+  border-color: #fcd34d;
+
   &::placeholder {
-    color: #ff9800;
+    color: #b45309;
     font-weight: 500;
   }
-`;
 
-const ButtonContainer = styled.div`
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-  padding-top: 2rem;
-  border-top: 2px solid #e9ecef;
-`;
-
-const Button = styled.button`
-  padding: 1rem 2rem;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  text-transform: uppercase;
-  transition: all 0.3s ease;
-
-  ${props => props.primary ? `
-    background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
-    color: white;
-    
-    &:hover {
-      background: linear-gradient(135deg, #f57c00 0%, #ef6c00 100%);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3);
-    }
-  ` : `
-    background: #6c757d;
-    color: white;
-    
-    &:hover {
-      background: #545b62;
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
-    }
-  `}
-
-  &:disabled {
-    background: #6c757d;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
+  &:focus {
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
   }
-`;
-
-const ErrorMessage = styled.div`
-  color: #dc3545;
-  font-size: 0.875rem;
-  margin-top: 0.25rem;
 `;
 
 const ChangesSummary = styled.div`
-  background: #fff3e0;
-  border: 1px solid #ff9800;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 12px;
+  padding: 0.95rem 1.05rem;
+  margin-bottom: 1.1rem;
 `;
 
 const ChangesTitle = styled.h4`
-  color: #ff9800;
+  color: #b45309;
   margin: 0 0 0.5rem 0;
-  font-size: 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  &::before {
-    content: "📝";
-    font-size: 1rem;
-  }
+  font-size: 0.9rem;
+  font-weight: 800;
 `;
 
 const ChangeItem = styled.div`
-  color: #e65100;
-  font-size: 0.9rem;
+  color: #92400e;
+  font-size: 0.86rem;
   margin: 0.25rem 0;
-  padding: 0.25rem 0.5rem;
-  background: rgba(255, 152, 0, 0.1);
-  border-radius: 4px;
-`;
-
-const FileSelectButton = styled.button`
-  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
-  color: white;
-  border: none;
-  padding: 0.8rem 1.5rem;
+  padding: 0.35rem 0.55rem;
+  background: rgba(245, 158, 11, 0.12);
   border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-
-  &:hover {
-    background: linear-gradient(135deg, #f57c00 0%, #ef6c00 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
-  }
 `;
 
 const SelectedFile = styled.div`
-  background: #e8f5e8;
-  border: 1px solid #c8e6c9;
-  border-radius: 6px;
-  padding: 0.8rem;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
   margin-top: 0.5rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.9rem;
-  color: #2e7d32;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #3730a3;
 `;
 
 // Constants
@@ -542,14 +365,21 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
   return createPortal(
     <FormOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <FormContainer>
-        <FormHeader>
-          <FormTitle>Τροποποίηση Πρόσκλησης</FormTitle>
-        </FormHeader>
+        <FormHero>
+          <HeroText>
+            <HeroEyebrow>Προσκλήσεις</HeroEyebrow>
+            <FormTitle>Τροποποίηση πρόσκλησης</FormTitle>
+            <HeroSubtitle>
+              Τα πεδία που αλλάζουν σημειώνονται με πορτοκαλί ένδειξη.
+            </HeroSubtitle>
+          </HeroText>
+          <CloseButton type="button" onClick={onClose}>Κλείσιμο</CloseButton>
+        </FormHero>
 
-        <FormContent>
+        <FormBody>
           {hasChanges && (
             <ChangesSummary>
-              <ChangesTitle>Αλλαγές που εντοπίστηκαν:</ChangesTitle>
+              <ChangesTitle>Αλλαγές που εντοπίστηκαν</ChangesTitle>
               {Object.entries(changes).map(([field, change]) => (
                 <ChangeItem key={field}>
                 <strong>{getFieldLabel(field)}:</strong> "{change.original}" → "{change.current}"
@@ -572,12 +402,12 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
             />
             <FormGrid>
               <FormGroup>
-                <Label changed={changes.title}>Τίτλος Πρόσκλησης *</Label>
+                <Label changed={!!changes.title}>Τίτλος Πρόσκλησης *</Label>
                 <Input
                   type="text"
                   value={formData.title}
                   onChange={(e) => handleInputChange('title', e.target.value)}
-                  changed={changes.title}
+                  changed={!!changes.title}
                   placeholder="Εισάγετε τον τίτλο της πρόσκλησης"
                   style={diavgeiaFieldStyle('title')}
                 />
@@ -585,12 +415,12 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
               </FormGroup>
 
               <FormGroup>
-                <Label changed={changes.axis}>Άξονας *</Label>
+                <Label changed={!!changes.axis}>Άξονας *</Label>
                 <Input
                   type="text"
                   value={formData.axis}
                   onChange={(e) => handleInputChange('axis', e.target.value)}
-                  changed={changes.axis}
+                  changed={!!changes.axis}
                   placeholder="Εισάγετε τον άξονα"
                   style={diavgeiaFieldStyle('axis')}
                 />
@@ -598,12 +428,12 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
               </FormGroup>
 
               <FormGroup>
-                <Label changed={changes.fundingSource}>Πηγή Χρηματοδότησης *</Label>
+                <Label changed={!!changes.fundingSource}>Πηγή Χρηματοδότησης *</Label>
                 <Input
                   type="text"
                   value={formData.fundingSource}
                   onChange={(e) => handleInputChange('fundingSource', e.target.value)}
-                  changed={changes.fundingSource}
+                  changed={!!changes.fundingSource}
                   placeholder="Εισάγετε την πηγή χρηματοδότησης"
                   style={diavgeiaFieldStyle('fundingSource')}
                 />
@@ -611,12 +441,12 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
               </FormGroup>
 
               <FormGroup>
-                <Label changed={changes.code}>Κωδικός *</Label>
+                <Label changed={!!changes.code}>Κωδικός *</Label>
                 <Input
                   type="text"
                   value={formData.code}
                   onChange={(e) => handleInputChange('code', e.target.value)}
-                  changed={changes.code}
+                  changed={!!changes.code}
                   placeholder="Εισάγετε τον κωδικό"
                   style={diavgeiaFieldStyle('code')}
                 />
@@ -624,12 +454,12 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
               </FormGroup>
 
               <FormGroup>
-                <Label changed={changes.deadline}>Ημερομηνία Λήξης *</Label>
+                <Label changed={!!changes.deadline}>Ημερομηνία Λήξης *</Label>
                 <Input
                   type="date"
                   value={formData.deadline}
                   onChange={(e) => handleInputChange('deadline', e.target.value)}
-                  changed={changes.deadline}
+                  changed={!!changes.deadline}
                 />
                 {errors.deadline && <ErrorMessage>{errors.deadline}</ErrorMessage>}
               </FormGroup>
@@ -646,23 +476,23 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
               </FormGroup>
 
               <FormGroup>
-                <Label changed={changes.budgetRange}>Έύρος Προϋπολογισμού *</Label>
+                <Label changed={!!changes.budgetRange}>Έύρος Προϋπολογισμού *</Label>
                 <Input
                   type="text"
                   value={formData.budgetRange}
                   onChange={(e) => handleInputChange('budgetRange', e.target.value)}
-                  changed={changes.budgetRange}
+                  changed={!!changes.budgetRange}
                   placeholder="π.χ. 50.000 - 100.000 €"
                 />
                 {errors.budgetRange && <ErrorMessage>{errors.budgetRange}</ErrorMessage>}
               </FormGroup>
 
               <FormGroup>
-                <Label changed={changes.status}>Κατάσταση *</Label>
+                <Label changed={!!changes.status}>Κατάσταση *</Label>
                 <Select
                   value={formData.status}
                   onChange={(e) => handleInputChange('status', e.target.value)}
-                  changed={changes.status}
+                  changed={!!changes.status}
                 >
                   {STATUS_OPTIONS.map(option => (
                     <option key={option} value={option}>{option}</option>
@@ -688,11 +518,10 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                   type="button"
                   onClick={handleFileSelect}
                 >
-                  📁 Επιλογή Αρχείου
+                  Επιλογή αρχείου
                 </FileSelectButton>
                 {formData.modificationPDF && (
                   <SelectedFile>
-                    <span>📄</span>
                     <span>{formData.modificationPDF.fileName}</span>
                   </SelectedFile>
                 )}
@@ -704,16 +533,16 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
               <Button type="button" onClick={onClose}>
                 Ακύρωση
               </Button>
-              <Button 
-                type="submit" 
-                primary 
+              <Button
+                type="submit"
+                primary
                 disabled={saving}
               >
-                {saving ? 'Αποθήκευση...' : '💾 Αποθήκευση Τροποποίησης'}
+                {saving ? 'Αποθήκευση...' : 'Αποθήκευση τροποποίησης'}
               </Button>
             </ButtonContainer>
           </form>
-        </FormContent>
+        </FormBody>
       </FormContainer>
     </FormOverlay>,
     document.body
