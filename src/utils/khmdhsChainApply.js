@@ -29,7 +29,11 @@ import {
   mergeKhmdhsCommitmentsFromChain,
   pickPrimaryCommitmentDecision,
 } from './khmdhsCommitmentsMerge';
-import { detectStagesCoveredByChainRes } from './khmdhsChainStitchPlan';
+import {
+  detectStagesCoveredByChainRes,
+  filterChainResByStitchCovers,
+  getStitchPlanSegmentForSeed,
+} from './khmdhsChainStitchPlan';
 
 function sanitizeAdamInput(value) {
   return String(value || '')
@@ -427,8 +431,10 @@ export function applyAdamChainResultStitch(prev, chainRes, {
   branchAnchor = null,
   suppressSituationModal = false,
   userSelectedBranch = false,
+  stitchCoversStages = null,
 } = {}) {
-  if (!chainRes?.success) {
+  const filteredChainRes = filterChainResByStitchCovers(chainRes, stitchCoversStages);
+  if (!filteredChainRes?.success) {
     return {
       form: prev,
       warnings: [],
@@ -445,13 +451,16 @@ export function applyAdamChainResultStitch(prev, chainRes, {
   }
 
   if (isMultipleContractsForm(prev?.implementationForm)) {
-    return applyAdamChainResultStitchMulti(prev, chainRes, {
+    return applyAdamChainResultStitchMulti(prev, filteredChainRes, {
       seedAdam,
       branchAnchor,
       suppressSituationModal,
       userSelectedBranch,
+      stitchCoversStages,
     });
   }
+
+  chainRes = filteredChainRes;
 
   const prepared = prepareFormForInferredImplementationForm(prev, chainRes, {
     contractIndex: -1,
@@ -677,18 +686,28 @@ export function applyAdamChainResultStitch(prev, chainRes, {
   };
 }
 
+/** Γραμμή με χειροκίνητα ή ΚΗΜΔΗΣ στοιχεία — δεν θεωρείται «κενή» για συρραφή SYMV. */
+function contractRowLooksOccupied(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (sanitizeAdamInput(row.khmdhsAdam) || row.khmdhsContractSnapshot) return true;
+  if (String(row.amount || '').trim() || String(row.date || '').trim()) return true;
+  if (String(row.apeAmount || '').trim() || String(row.comments || '').trim()) return true;
+  if (Array.isArray(row.khmdhsContractChainHistory) && row.khmdhsContractChainHistory.length) {
+    return true;
+  }
+  return false;
+}
+
 /**
- * Δρομολόγηση SYMV σε γραμμή πολλών συμβάσεων: ίδιο ΑΔΑΜ → ενημέρωση· κενή γραμμή → γέμισμα·
- * αλλιώς καμία αντικατάσταση διαφορετικού ΑΔΑΜ.
+ * Δρομολόγηση SYMV σε γραμμή πολλών συμβάσεων: ίδιο ΑΔΑΜ → ενημέρωση· πραγματικά κενή γραμμή → γέμισμα·
+ * αλλιώς καμία αντικατάσταση διαφορετικού ΑΔΑΜ / χειροκίνητης γραμμής.
  */
 function resolveStitchMultiSymvRowIndex(contracts, incomingAdam) {
   const adam = sanitizeAdamInput(incomingAdam);
   if (!adam) return { idx: -1, mode: 'none' };
   const matchIdx = contracts.findIndex((c) => sanitizeAdamInput(c?.khmdhsAdam) === adam);
   if (matchIdx >= 0) return { idx: matchIdx, mode: 'match' };
-  const emptyIdx = contracts.findIndex((c) => (
-    !sanitizeAdamInput(c?.khmdhsAdam) && !c?.khmdhsContractSnapshot
-  ));
+  const emptyIdx = contracts.findIndex((c) => !contractRowLooksOccupied(c));
   if (emptyIdx >= 0) return { idx: emptyIdx, mode: 'empty' };
   return { idx: -1, mode: 'none' };
 }
@@ -702,7 +721,9 @@ export function applyAdamChainResultStitchMulti(prev, chainRes, {
   branchAnchor = null,
   suppressSituationModal = false,
   userSelectedBranch = false,
+  stitchCoversStages = null,
 } = {}) {
+  chainRes = filterChainResByStitchCovers(chainRes, stitchCoversStages);
   if (!chainRes?.success) {
     return {
       form: prev,
@@ -878,10 +899,11 @@ export function applyAdamChainResultStitchMulti(prev, chainRes, {
   const payBefore = Array.isArray(workingPrev.khmdhsPayments)
     ? workingPrev.khmdhsPayments.length
     : 0;
+  // Συρραφή: πάντα merge αναλήψεων/ενταλμάτων — ποτέ skip λόγω suppressSituationModal.
   mergeCommitmentAndPaymentsFromChain(next, chainRes, {
     prevPayments: workingPrev.khmdhsPayments,
     prevCommitmentDecisions: workingPrev.khmdhsCommitmentDecisions,
-    protect: suppressSituationModal,
+    protect: false,
   });
   const commitAfter = Array.isArray(next.khmdhsCommitmentDecisions)
     ? next.khmdhsCommitmentDecisions.length
@@ -963,6 +985,58 @@ export function applyAdamChainResultStitchMulti(prev, chainRes, {
   };
 }
 
+/**
+ * Διαδοχική εφαρμογή σπόρων τεχνητής αλυσίδας (κάρτα / μαζική ανανέωση).
+ * Φιλτράρει στάδια ανά τμήμα σχεδίου και συγχωνεύει προειδοποιήσεις όλων των σπόρων.
+ * Χωρίς stitchResults → μία εφαρμογή με applyMode stitch (ασφαλές για πολλές συμβάσεις).
+ */
+export function applyStitchRefreshResults(project, stitchResults, {
+  fallbackChainRes = null,
+  fallbackSeedAdam = '',
+  symvChainPlan = null,
+} = {}) {
+  const plan = project?.khmdhsChainStitchPlan;
+  let running = project;
+  let lastApply = null;
+  const allWarnings = [];
+  const filled = [];
+  const updated = [];
+  const conflicts = [];
+
+  (Array.isArray(stitchResults) ? stitchResults : []).forEach((item) => {
+    if (!item?.success || !item.chainRes) return;
+    const seg = getStitchPlanSegmentForSeed(plan, item.seedAdam);
+    lastApply = applyAdamChainResult(running, item.chainRes, {
+      seedAdam: item.seedAdam,
+      applyMode: 'stitch',
+      stitchCoversStages: Array.isArray(seg?.coversStages) && seg.coversStages.length
+        ? seg.coversStages
+        : null,
+    });
+    running = lastApply.form;
+    if (Array.isArray(lastApply.warnings)) allWarnings.push(...lastApply.warnings);
+    if (Array.isArray(lastApply.stitchFilledStages)) filled.push(...lastApply.stitchFilledStages);
+    if (Array.isArray(lastApply.stitchUpdatedStages)) updated.push(...lastApply.stitchUpdatedStages);
+    if (Array.isArray(lastApply.stitchConflictStages)) conflicts.push(...lastApply.stitchConflictStages);
+  });
+
+  if (!lastApply) {
+    return applyAdamChainResult(project, fallbackChainRes, {
+      seedAdam: fallbackSeedAdam,
+      symvChainPlan,
+      applyMode: 'stitch',
+    });
+  }
+
+  return {
+    ...lastApply,
+    warnings: [...new Set(allWarnings)],
+    stitchFilledStages: [...new Set(filled)],
+    stitchUpdatedStages: [...new Set(updated)],
+    stitchConflictStages: [...new Set(conflicts)],
+  };
+}
+
 export function applyAdamChainResult(prev, chainRes, {
   seedAdam = '',
   contractIndex = -1,
@@ -971,6 +1045,7 @@ export function applyAdamChainResult(prev, chainRes, {
   userSelectedBranch = false,
   symvChainPlan = null,
   applyMode = 'replace',
+  stitchCoversStages = null,
 } = {}) {
   if (!chainRes?.success) {
     return {
@@ -990,6 +1065,7 @@ export function applyAdamChainResult(prev, chainRes, {
       branchAnchor,
       suppressSituationModal,
       userSelectedBranch,
+      stitchCoversStages,
     });
   }
 

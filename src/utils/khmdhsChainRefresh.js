@@ -544,7 +544,13 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
 
   // #12 — Σύγκρουση δημοσίευσης: το ΚΗΜΔΗΣ επέστρεψε διαφορετική διακήρυξη/πρόσκληση από
   // την ήδη καταγεγραμμένη και κρατήθηκε η προηγούμενη. Χωρίς μήνυμα η αλλαγή ήταν αόρατη.
-  if (Array.isArray(applyWarnings) && applyWarnings.includes('noticeConflict')) {
+  if (
+    Array.isArray(applyWarnings)
+    && (
+      applyWarnings.includes('noticeConflict')
+      || applyWarnings.includes('stitchConflict:proc')
+    )
+  ) {
     attentionLines.push(
       '⚠️ Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση (διακήρυξη/πρόσκληση) από την ήδη'
       + ' καταγεγραμμένη — διατηρήθηκε η προηγούμενη. Ελέγξτε στην επεξεργασία αν χρειάζεται αλλαγή.'

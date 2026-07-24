@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import { useToast } from './ToastProvider';
-import { applyAdamChainResult } from '../utils/khmdhsChainApply';
+import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhsChainApply';
 import { symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
 import {
   buildKhmdhsRefreshChangeReport,
@@ -1595,29 +1595,23 @@ export default function KhmdhsBatchRefreshWidget({
             && symvPlanMatchesChain(existingPlan, res.chainRes)
             ? existingPlan : null;
 
-          // Τεχνητή αλυσίδα: συγχώνευση διαδοχικά όλων των σπόρων (stitch, χωρίς σβήσιμο).
+          // Τεχνητή αλυσίδα / ανανέωση σε επίπεδο υποέργου: πάντα stitch (όχι replace στη γραμμή 0).
           const registryChainResList = [];
           let applyResult;
           if (res.usesStitchPlan && Array.isArray(res.stitchResults) && res.stitchResults.length) {
-            let running = project;
-            let lastApply = null;
-            res.stitchResults.forEach((seg) => {
-              if (!seg?.success || !seg.chainRes) return;
-              lastApply = applyAdamChainResult(running, seg.chainRes, {
-                seedAdam: seg.seedAdam,
-                applyMode: 'stitch',
-              });
-              running = lastApply.form;
-              registryChainResList.push(seg.chainRes);
-            });
-            applyResult = lastApply || applyAdamChainResult(project, res.chainRes, {
-              seedAdam: res.seedAdam,
+            applyResult = applyStitchRefreshResults(project, res.stitchResults, {
+              fallbackChainRes: res.chainRes,
+              fallbackSeedAdam: res.seedAdam,
               symvChainPlan: reusablePlan,
+            });
+            res.stitchResults.forEach((seg) => {
+              if (seg?.success && seg.chainRes) registryChainResList.push(seg.chainRes);
             });
           } else {
             applyResult = applyAdamChainResult(project, res.chainRes, {
               seedAdam: res.seedAdam,
               symvChainPlan: reusablePlan,
+              applyMode: 'stitch',
             });
             registryChainResList.push(res.chainRes);
           }

@@ -95,7 +95,8 @@ function isConfirmedStitchPlan(plan) {
 function stitchPlanConflictsWithImplementationForm(plan, implementationForm) {
   if (!isConfirmedStitchPlan(plan)) return false;
   const stored = String(plan.implementationFormAtConfirm || '').trim();
-  if (!stored) return false;
+  // Παλιά σχέδια χωρίς αποθηκευμένη μορφή: δεν εφαρμόζουμε σιωπηλά.
+  if (!stored) return true;
   const wasMulti = stored === 'Πολλές Συμβάσεις';
   const isMulti = String(implementationForm || '').trim() === 'Πολλές Συμβάσεις';
   return wasMulti !== isMulti;

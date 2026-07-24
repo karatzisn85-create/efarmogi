@@ -123,6 +123,21 @@ export function getKnownStitchSeedAdams(form) {
     out.push(a);
   };
   push(form?.khmdhsChainSeedAdam);
+  push(form?.khmdhsRequestAdam);
+  push(form?.khmdhsRequestSnapshot?.referenceNumber);
+  push(form?.khmdhsNoticeAdam);
+  push(form?.khmdhsNoticeSnapshot?.referenceNumber);
+  push(form?.khmdhsAwardAdam);
+  push(form?.khmdhsAwardSnapshot?.referenceNumber);
+  push(form?.khmdhsAdam);
+  push(form?.khmdhsContractSnapshot?.referenceNumber);
+  push(form?.khmdhsBranchAnchorAdam);
+  if (Array.isArray(form?.contracts)) {
+    form.contracts.forEach((c) => {
+      push(c?.khmdhsAdam);
+      push(c?.khmdhsContractSnapshot?.referenceNumber);
+    });
+  }
   const segments = form?.khmdhsChainStitchPlan?.segments;
   if (Array.isArray(segments)) {
     segments.forEach((s) => push(s?.seedAdam));
@@ -160,10 +175,83 @@ export function isConfirmedKhmdhsStitchPlan(plan) {
 export function stitchPlanConflictsWithImplementationForm(plan, implementationForm) {
   if (!isConfirmedKhmdhsStitchPlan(plan)) return false;
   const stored = String(plan.implementationFormAtConfirm || '').trim();
-  if (!stored) return false;
+  // Παλιά σχέδια χωρίς αποθηκευμένη μορφή: δεν εφαρμόζουμε σιωπηλά — απαιτείται επαναβεβαίωση.
+  if (!stored) return true;
   const wasMulti = stored === 'Πολλές Συμβάσεις';
   const isMulti = String(implementationForm || '').trim() === 'Πολλές Συμβάσεις';
   return wasMulti !== isMulti;
+}
+
+/** Τμήμα σχεδίου για συγκεκριμένο σπόρο (ή null). */
+export function getStitchPlanSegmentForSeed(plan, seedAdam) {
+  const adam = sanitizeAdam(seedAdam);
+  if (!adam || !Array.isArray(plan?.segments)) return null;
+  return plan.segments.find((s) => sanitizeAdam(s?.seedAdam) === adam) || null;
+}
+
+/**
+ * Περιορίζει το chainRes στα στάδια που καλύπτει ένα τμήμα τεχνητής αλυσίδας.
+ * Χωρίς coversStages → επιστρέφει το chainRes ως έχει (συμβατότητα παλιών σχεδίων).
+ */
+export function filterChainResByStitchCovers(chainRes, coversStages) {
+  if (!chainRes || !Array.isArray(coversStages) || !coversStages.length) return chainRes;
+  const allow = new Set(coversStages.filter((s) => KHMDHS_STITCH_STAGE_IDS.includes(s)));
+  if (!allow.size) return chainRes;
+  const next = { ...chainRes };
+  if (!allow.has('REQ')) {
+    next.request = undefined;
+  }
+  if (!allow.has('PROC')) {
+    next.notice = undefined;
+  }
+  if (!allow.has('AWRD')) {
+    next.auction = undefined;
+  }
+  if (!allow.has('SYMV')) {
+    next.contract = undefined;
+    next.contractChainHistory = undefined;
+    next.contractAmendments = undefined;
+    next.formFields = undefined;
+  }
+  if (!allow.has('COMMIT')) {
+    next.commitmentDecisions = [];
+    next.commitmentDecision = undefined;
+    if (next.chainMeta && typeof next.chainMeta === 'object') {
+      next.chainMeta = {
+        ...next.chainMeta,
+        allBudgetCommitments: [],
+      };
+    }
+  }
+  if (!allow.has('PAY')) {
+    next.payments = undefined;
+    next.skippedUnrelatedPayments = undefined;
+  }
+  return next;
+}
+
+/** ΑΔΑΜ σύμβασης που μόλις προστέθηκε/ενημερώθηκε από συρραφή (για ετικέτα σχεδίου). */
+export function pickStitchedContractAdam(prevForm, nextForm, seedAdam = '') {
+  const seed = sanitizeAdam(seedAdam);
+  if (seed && /^[0-9]{2}SYMV/i.test(seed)) return seed;
+  const prevAdams = new Set(
+    (Array.isArray(prevForm?.contracts) ? prevForm.contracts : [])
+      .map((c) => sanitizeAdam(c?.khmdhsAdam))
+      .filter(Boolean)
+  );
+  if (sanitizeAdam(prevForm?.khmdhsAdam)) prevAdams.add(sanitizeAdam(prevForm.khmdhsAdam));
+  const nextRows = Array.isArray(nextForm?.contracts) ? nextForm.contracts : [];
+  const newly = nextRows
+    .map((c) => sanitizeAdam(c?.khmdhsAdam))
+    .filter((a) => a && !prevAdams.has(a));
+  if (newly.length) return newly[newly.length - 1];
+  if (seed) {
+    const match = nextRows.find((c) => sanitizeAdam(c?.khmdhsAdam) === seed);
+    if (match) return seed;
+  }
+  const nextTop = sanitizeAdam(nextForm?.khmdhsAdam);
+  if (nextTop && !prevAdams.has(nextTop)) return nextTop;
+  return newly[0] || seed || sanitizeAdam(nextRows.find((c) => sanitizeAdam(c?.khmdhsAdam))?.khmdhsAdam) || '';
 }
 
 export function getConfirmedKhmdhsStitchPlan(form) {
@@ -317,7 +405,12 @@ export function buildConfirmedStitchPlanFromStitch({
     contractAdam: newMeta.contractAdam,
   });
 
-  const impl = String(implementationForm || prevForm?.implementationForm || plan.implementationFormAtConfirm || '').trim();
+  const impl = String(
+    implementationForm
+    || prevForm?.implementationForm
+    || plan.implementationFormAtConfirm
+    || 'Μια Σύμβαση'
+  ).trim();
 
   return {
     ...plan,
@@ -325,7 +418,7 @@ export function buildConfirmedStitchPlanFromStitch({
     status: 'confirmed',
     confirmedAt: stamp,
     confirmedBy: String(confirmedBy || plan.confirmedBy || ''),
-    ...(impl ? { implementationFormAtConfirm: impl } : {}),
+    implementationFormAtConfirm: impl,
   };
 }
 

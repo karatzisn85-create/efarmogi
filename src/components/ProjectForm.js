@@ -225,6 +225,8 @@ import {
   buildConfirmedStitchPlanFromStitch,
   detectStagesCoveredByForm,
   shouldOfferStitchPromptB,
+  pickStitchedContractAdam,
+  isConfirmedKhmdhsStitchPlan,
 } from '../utils/khmdhsChainStitchPlan';
 import KhmdhsChainStitchPromptADialog from './KhmdhsChainStitchPromptADialog';
 import KhmdhsChainStitchPromptBDialog from './KhmdhsChainStitchPromptBDialog';
@@ -3506,6 +3508,8 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       cancelKhmdhsFetch();
       setFormData((prev) => {
         const next = { ...prev, implementationForm: value };
+        const prevWasMulti = isMultipleContractsForm(prev.implementationForm);
+        const nextIsMulti = value === 'Πολλές Συμβάσεις';
 
         if (value === 'Πολλές Συμβάσεις') {
           const migrated = migrateKhmdhsSingleToMultiForm(prev);
@@ -3533,6 +3537,14 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
           const migrated = migrateKhmdhsMultiToSingleForm(prev);
           Object.assign(next, migrated);
           next.implementationForm = value;
+        }
+
+        // Αλλαγή μία ↔ πολλές: η τεχνητή αλυσίδα δεν ισχύει πλέον — καθαρισμός στην αποθήκευση φόρμας.
+        if (
+          isConfirmedKhmdhsStitchPlan(prev.khmdhsChainStitchPlan)
+          && prevWasMulti !== nextIsMulti
+        ) {
+          next.khmdhsChainStitchPlan = null;
         }
 
         return next;
@@ -4725,9 +4737,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             newSeedAdam: seed,
             newSeedType: parseKhmdhsAdamType(seed),
             newCoversStages: newCovers.length ? newCovers : detectStagesCoveredByForm(formAfter),
-            newContractAdam: (formAfter.contracts || [])
-              .map((c) => sanitizeAdamInput(c?.khmdhsAdam))
-              .find(Boolean) || sanitizeAdamInput(formAfter.khmdhsAdam) || '',
+            newContractAdam: pickStitchedContractAdam(basePrev, formAfter, seed),
             implementationForm: formAfter.implementationForm || basePrev.implementationForm || '',
           });
           if (previewPlan && Array.isArray(previewPlan.segments) && previewPlan.segments.length >= 2) {
@@ -4740,9 +4750,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
               newSeedAdam: seed,
               newSeedType: parseKhmdhsAdamType(seed),
               newCoversStages: newCovers.length ? newCovers : ['SYMV'],
-              newContractAdam: (formAfter.contracts || [])
-                .map((c) => sanitizeAdamInput(c?.khmdhsAdam))
-                .find(Boolean) || sanitizeAdamInput(formAfter.khmdhsAdam) || '',
+              newContractAdam: pickStitchedContractAdam(basePrev, formAfter, seed),
               implementationForm: formAfter.implementationForm || basePrev.implementationForm || '',
               segments: previewPlan.segments,
             };

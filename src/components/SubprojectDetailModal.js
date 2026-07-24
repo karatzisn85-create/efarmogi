@@ -41,7 +41,7 @@ import {
   canUserRefreshKhmdhsChain,
   buildKhmdhsRefreshChangeSummary,
 } from '../utils/khmdhsChainRefresh';
-import { applyAdamChainResult } from '../utils/khmdhsChainApply';
+import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhsChainApply';
 import { getConfirmedKhmdhsStitchPlan, evaluateStitchRefreshCompleteness } from '../utils/khmdhsChainStitchPlan';
 import { symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
 import KhmdhsSymvChainPlannerDialog from './KhmdhsSymvChainPlannerDialog';
@@ -1194,29 +1194,23 @@ function SubprojectDetailModal({
         && symvPlanMatchesChain(existingSymvPlan, res.chainRes)
         ? existingSymvPlan
         : null;
-      // Τεχνητή αλυσίδα: συγχώνευση διαδοχικά όλων των σπόρων (stitch, χωρίς σβήσιμο).
+      // Τεχνητή αλυσίδα / ανανέωση σε επίπεδο υποέργου: πάντα stitch (όχι replace στη γραμμή 0).
       const registryChainResList = [];
       let applyResult;
       if (res.usesStitchPlan && Array.isArray(res.stitchResults) && res.stitchResults.length) {
-        let running = project;
-        let lastApply = null;
-        res.stitchResults.forEach((item) => {
-          if (!item?.success || !item.chainRes) return;
-          lastApply = applyAdamChainResult(running, item.chainRes, {
-            seedAdam: item.seedAdam,
-            applyMode: 'stitch',
-          });
-          running = lastApply.form;
-          registryChainResList.push(item.chainRes);
-        });
-        applyResult = lastApply || applyAdamChainResult(project, res.chainRes, {
-          seedAdam: res.seedAdam,
+        applyResult = applyStitchRefreshResults(project, res.stitchResults, {
+          fallbackChainRes: res.chainRes,
+          fallbackSeedAdam: res.seedAdam,
           symvChainPlan: reusableSymvPlan,
+        });
+        res.stitchResults.forEach((item) => {
+          if (item?.success && item.chainRes) registryChainResList.push(item.chainRes);
         });
       } else {
         applyResult = applyAdamChainResult(project, res.chainRes, {
           seedAdam: res.seedAdam,
           symvChainPlan: reusableSymvPlan,
+          applyMode: 'stitch',
         });
         registryChainResList.push(res.chainRes);
       }

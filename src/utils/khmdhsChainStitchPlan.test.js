@@ -16,15 +16,20 @@ import {
   evaluateStitchRefreshCompleteness,
   formatStitchSegmentScopeLabel,
   stitchPlanConflictsWithImplementationForm,
+  filterChainResByStitchCovers,
+  pickStitchedContractAdam,
+  getKnownStitchSeedAdams,
 } from './khmdhsChainStitchPlan';
 import {
   getKhmdhsRefreshSeedAdams,
   hasConfirmedKhmdhsStitchPlan,
+  buildKhmdhsRefreshChangeReport,
 } from './khmdhsChainRefresh';
 import {
   applyAdamChainResult,
   applyAdamChainResultStitch,
   applyAdamChainResultStitchMulti,
+  applyStitchRefreshResults,
   emptyKhmdhsChainFields,
 } from './khmdhsChainApply';
 import { buildFullKhmdhsPhaseBResetFields } from './khmdhsPhaseResetFields';
@@ -155,10 +160,11 @@ describe('khmdhsChainStitchPlan helpers', () => {
     };
     expect(stitchPlanConflictsWithImplementationForm(plan, 'Πολλές Συμβάσεις')).toBe(true);
     expect(stitchPlanConflictsWithImplementationForm(plan, 'Μια Σύμβαση')).toBe(false);
+    // Παλιά σχέδια χωρίς μορφή → conflict (να μην εφαρμοστούν σιωπηλά)
     expect(stitchPlanConflictsWithImplementationForm({
       ...plan,
       implementationFormAtConfirm: '',
-    }, 'Πολλές Συμβάσεις')).toBe(false);
+    }, 'Πολλές Συμβάσεις')).toBe(true);
   });
 
   test('getKhmdhsRefreshSeedAdams αγνοεί σχέδιο σε mismatch μορφής', () => {
@@ -253,12 +259,14 @@ describe('getKhmdhsRefreshSeedAdams', () => {
       version: 1,
       status: 'confirmed',
       confirmedAt: '2026-07-23T10:00:00.000Z',
+      implementationFormAtConfirm: 'Μια Σύμβαση',
       segments: [
         { seedAdam: '23REQ013047002', coversStages: ['REQ', 'PROC'], fetchedAt: '' },
         { seedAdam: '24SYMV014193944', coversStages: ['SYMV', 'PAY'], fetchedAt: '' },
       ],
     };
     const project = {
+      implementationForm: 'Μια Σύμβαση',
       khmdhsBranchAnchorAdam: '24SYMV014193944',
       khmdhsRequestAdam: '23REQ013047002',
       khmdhsChainStitchPlan: plan,
@@ -569,5 +577,146 @@ describe('applyAdamChainResultStitchMulti — πολλές συμβάσεις', 
     expect(form.contracts[1].khmdhsAdam).toBe('25SYMV000000002');
     expect(form.khmdhsNoticeAdam).toBe('24PROC012345678');
     expect(stitchFilledStages).toContain('SYMV');
+  });
+
+  test('χειροκίνητη γραμμή με ποσό δεν θεωρείται κενή για SYMV', () => {
+    const prev = {
+      ...multiPrev,
+      contracts: [
+        { date: '2025-01-01', amount: '10.000,00', apeAmount: '', comments: 'χειροκίνητα' },
+        multiPrev.contracts[1],
+      ],
+    };
+    const { form, warnings, stitchConflictStages } = applyAdamChainResultStitchMulti(prev, {
+      success: true,
+      contract: {
+        adam: '25SYMV000000099',
+        snapshot: { referenceNumber: '25SYMV000000099', title: 'Νέα' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: { contractAmount: '1,00' },
+      },
+    }, { seedAdam: '25SYMV000000099' });
+    expect(form.contracts[0].amount).toBe('10.000,00');
+    expect(form.contracts[0].khmdhsAdam || '').toBe('');
+    expect(stitchConflictStages).toContain('SYMV');
+    expect(warnings).toContain('stitchConflict:symv');
+  });
+});
+
+describe('stitch hardenings — γνωστοί ΑΔΑΜ, covers filter, refresh helper', () => {
+  test('shouldOfferStitchPromptA false όταν ο ΑΔΑΜ υπάρχει ήδη ως δημοσίευση', () => {
+    const form = {
+      khmdhsChainSeedAdam: '23REQ013047002',
+      khmdhsNoticeAdam: '24PROC012345678',
+      khmdhsNoticeSnapshot: { referenceNumber: '24PROC012345678' },
+    };
+    expect(getKnownStitchSeedAdams(form)).toEqual(expect.arrayContaining([
+      '23REQ013047002',
+      '24PROC012345678',
+    ]));
+    expect(shouldOfferStitchPromptA(form, '24PROC012345678')).toBe(false);
+  });
+
+  test('filterChainResByStitchCovers αφαιρεί SYMV από κοινό τμήμα', () => {
+    const filtered = filterChainResByStitchCovers({
+      success: true,
+      notice: { adam: '24PROC1', snapshot: { referenceNumber: '24PROC1' } },
+      contract: { adam: '25SYMV1', snapshot: { referenceNumber: '25SYMV1' } },
+      payments: [{ adam: '26PAY1' }],
+    }, ['REQ', 'PROC']);
+    expect(filtered.notice?.adam).toBe('24PROC1');
+    expect(filtered.contract).toBeUndefined();
+    expect(filtered.payments).toBeUndefined();
+  });
+
+  test('pickStitchedContractAdam προτιμά νέο ΑΔΑΜ γραμμής / SYMV seed', () => {
+    const prev = { contracts: [{ khmdhsAdam: '25SYMV000000002' }] };
+    const next = {
+      contracts: [
+        { khmdhsAdam: '25SYMV000000001' },
+        { khmdhsAdam: '25SYMV000000002' },
+      ],
+    };
+    expect(pickStitchedContractAdam(prev, next, '25SYMV000000001')).toBe('25SYMV000000001');
+  });
+
+  test('applyStitchRefreshResults: κοινός σπόρος με SYMV στο chain δεν γεμίζει γραμμή', () => {
+    const project = {
+      implementationForm: 'Πολλές Συμβάσεις',
+      khmdhsNoticeAdam: '24PROC012345678',
+      khmdhsNoticeSnapshot: { referenceNumber: '24PROC012345678' },
+      contracts: [
+        { date: '', amount: '' },
+        {
+          khmdhsAdam: '25SYMV000000002',
+          khmdhsContractSnapshot: { referenceNumber: '25SYMV000000002' },
+          amount: '50.000,00',
+        },
+      ],
+      khmdhsChainStitchPlan: {
+        status: 'confirmed',
+        implementationFormAtConfirm: 'Πολλές Συμβάσεις',
+        segments: [
+          { seedAdam: '24PROC012345678', coversStages: ['PROC'], scope: 'shared' },
+          { seedAdam: '25SYMV000000001', coversStages: ['SYMV'], scope: 'contract', contractAdam: '25SYMV000000001' },
+        ],
+      },
+    };
+    const { form, warnings } = applyStitchRefreshResults(project, [
+      {
+        success: true,
+        seedAdam: '24PROC012345678',
+        chainRes: {
+          success: true,
+          notice: {
+            adam: '24PROC012345678',
+            snapshot: { referenceNumber: '24PROC012345678', title: 'Ενημ.' },
+            fetchedAt: '2026-07-01T00:00:00.000Z',
+          },
+          // Απρόσμενα SYMV στο κοινό fetch — πρέπει να φιλτραριστεί από covers
+          contract: {
+            adam: '25SYMV000000099',
+            snapshot: { referenceNumber: '25SYMV000000099' },
+            formFields: { contractAmount: '9,00' },
+          },
+        },
+      },
+      {
+        success: true,
+        seedAdam: '25SYMV000000001',
+        chainRes: {
+          success: true,
+          contract: {
+            adam: '25SYMV000000001',
+            snapshot: { referenceNumber: '25SYMV000000001', title: 'Σύμβαση Α' },
+            formFields: { contractAmount: '100.000,00', contractDate: '2025-01-15' },
+          },
+        },
+      },
+    ]);
+    expect(form.contracts[0].khmdhsAdam).toBe('25SYMV000000001');
+    expect(form.contracts[0].amount).toBe('100.000,00');
+    expect(form.contracts[1].khmdhsAdam).toBe('25SYMV000000002');
+    expect(form.khmdhsNoticeSnapshot.title).toBe('Ενημ.');
+    expect(warnings).not.toContain('stitchConflict:symv');
+  });
+
+  test('αναφορά: stitchConflict:proc εμφανίζεται ως προσοχή', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, {
+      warnings: ['stitchConflict:proc'],
+    });
+    expect(report.category).toBe('attention');
+    expect(report.attentionLines.some((l) => l.includes('δημοσίευση'))).toBe(true);
+  });
+
+  test('buildConfirmed πάντα γράφει implementationFormAtConfirm', () => {
+    const plan = buildConfirmedStitchPlanFromStitch({
+      prevSeedAdam: '23REQ013047002',
+      prevCoversStages: ['REQ'],
+      newSeedAdam: '24SYMV014193944',
+      newCoversStages: ['SYMV'],
+      implementationForm: 'Πολλές Συμβάσεις',
+    });
+    expect(plan.implementationFormAtConfirm).toBe('Πολλές Συμβάσεις');
   });
 });
