@@ -166,7 +166,11 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
   const warnings = [];
   const next = { ...prev };
 
-  if (chainRes.notice) {
+  const prevHadNotice = !!(prev.khmdhsNoticeSnapshot || sanitizeAdamInput(prev.khmdhsNoticeAdam));
+  const prevHadAward = !!(prev.khmdhsAwardSnapshot || sanitizeAdamInput(prev.khmdhsAwardAdam));
+  const prevHadRequest = !!(prev.khmdhsRequestSnapshot || sanitizeAdamInput(prev.khmdhsRequestAdam));
+
+  if (chainRes.notice && chainRes.notice.snapshot) {
     const incoming = sanitizeAdamInput(chainRes.notice.adam);
     const existing = sanitizeAdamInput(prev.khmdhsNoticeAdam);
     if (existing && incoming && existing !== incoming) {
@@ -194,11 +198,17 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
         next.contractProcessStartDate = chainRes.contractProcessStartDate;
       }
     }
+  } else if (chainRes.notice && !chainRes.notice.snapshot) {
+    // Μερική ανάκτηση: ADAM χωρίς στοιχεία — δεν γράφουμε γυμνό stub πάνω σε καλά δεδομένα.
+    if (prevHadNotice) {
+      warnings.push('stagePreserved:notice');
+    }
+    // Αν δεν υπήρχε τίποτα πριν, απλώς αγνοούμε το stub (next μένει όπως το prev).
   } else if (chainRes.contractProcessStartDate) {
     next.contractProcessStartDate = chainRes.contractProcessStartDate;
   }
 
-  if (chainRes.auction?.adam) {
+  if (chainRes.auction?.adam && chainRes.auction?.snapshot) {
     const incomingA = sanitizeAdamInput(chainRes.auction.adam);
     const existingA = sanitizeAdamInput(prev.khmdhsAwardAdam);
     if (!existingA || existingA === incomingA) {
@@ -207,6 +217,10 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
       if (chainRes.auction.fetchedAt) {
         next.khmdhsAwardFetchedAt = chainRes.auction.fetchedAt;
       }
+    }
+  } else if (chainRes.auction && !chainRes.auction.snapshot) {
+    if (prevHadAward) {
+      warnings.push('stagePreserved:award');
     }
   }
 
@@ -217,7 +231,15 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
     }
   }
 
-  mergeRequestFromChain(next, chainRes, { protect });
+  if (chainRes.request && chainRes.request.snapshot) {
+    mergeRequestFromChain(next, chainRes, { protect });
+  } else if (chainRes.request && !chainRes.request.snapshot) {
+    // Μερική ανάκτηση REQ χωρίς snapshot — διατήρηση υπάρχοντος, χωρίς γυμνό stub.
+    if (prevHadRequest) {
+      warnings.push('stagePreserved:request');
+    }
+  }
+
   mergeCommitmentAndPaymentsFromChain(next, chainRes, { protect });
 
   return { next, warnings };

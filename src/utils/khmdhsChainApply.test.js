@@ -374,3 +374,160 @@ describe('applyAdamChainResult — πολλαπλές συμβάσεις: προ
     expect(report.attentionLines.some((l) => l.includes('σύμβαση') && l.includes('διατηρήθηκε'))).toBe(true);
   });
 });
+
+describe('applyAdamChainResult — πολλαπλές συμβάσεις: κοινά στάδια χωρίς snapshot', () => {
+  const row1 = {
+    khmdhsAdam: '25SYMV000000001',
+    khmdhsContractSnapshot: { referenceNumber: '25SYMV000000001', title: 'Σύμβαση Α' },
+    amount: '100.000,00',
+    date: '2025-01-15',
+  };
+  const row2 = {
+    khmdhsAdam: '25SYMV000000002',
+    khmdhsContractSnapshot: { referenceNumber: '25SYMV000000002', title: 'Σύμβαση Β' },
+    amount: '50.000,00',
+    date: '2025-06-01',
+  };
+  const baseMultiShared = {
+    projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+    implementationForm: 'Πολλές Συμβάσεις',
+    contracts: [row1, row2],
+    khmdhsNoticeAdam: '24PROC012345678',
+    khmdhsNoticeSnapshot: { referenceNumber: '24PROC012345678', title: 'Διακήρυξη' },
+    khmdhsNoticeFetchedAt: '2026-01-01T00:00:00.000Z',
+    assignmentProcedure: 'Ανοικτός διαγωνισμός',
+    khmdhsAwardAdam: '24AWRD011111111',
+    khmdhsAwardSnapshot: { referenceNumber: '24AWRD011111111', title: 'Ανάθεση' },
+    khmdhsAwardFetchedAt: '2026-01-01T00:00:00.000Z',
+    khmdhsRequestAdam: '24REQ022222222',
+    khmdhsRequestSnapshot: { referenceNumber: '24REQ022222222', title: 'Αίτημα' },
+    khmdhsRequestFetchedAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  test('μερική ανάκτηση (ADAM χωρίς snapshot) διατηρεί δημοσίευση/ανάθεση/αίτημα + warnings', () => {
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001', title: 'Σύμβαση Α' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      notice: { adam: '24PROC012345678', snapshot: null, error: 'πολλά αιτήματα' },
+      auction: { adam: '24AWRD011111111', snapshot: null, error: 'πολλά αιτήματα' },
+      request: { adam: '24REQ022222222', snapshot: null, error: 'πολλά αιτήματα' },
+    };
+    const { form, warnings } = applyAdamChainResult(baseMultiShared, chainRes, {
+      seedAdam: '25SYMV000000001',
+      contractIndex: 0,
+    });
+    expect(form.khmdhsNoticeAdam).toBe('24PROC012345678');
+    expect(form.khmdhsNoticeSnapshot).toEqual(baseMultiShared.khmdhsNoticeSnapshot);
+    expect(form.assignmentProcedure).toBe('Ανοικτός διαγωνισμός');
+    expect(form.khmdhsAwardAdam).toBe('24AWRD011111111');
+    expect(form.khmdhsAwardSnapshot).toEqual(baseMultiShared.khmdhsAwardSnapshot);
+    expect(form.khmdhsRequestAdam).toBe('24REQ022222222');
+    expect(form.khmdhsRequestSnapshot).toEqual(baseMultiShared.khmdhsRequestSnapshot);
+    expect(warnings).toEqual(expect.arrayContaining([
+      'stagePreserved:notice',
+      'stagePreserved:award',
+      'stagePreserved:request',
+    ]));
+  });
+
+  test('πλήρες snapshot ενημερώνει κοινά στάδια χωρίς stagePreserved', () => {
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001', title: 'Σύμβαση Α' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      notice: {
+        adam: '24PROC012345678',
+        snapshot: { referenceNumber: '24PROC012345678', title: 'Διακήρυξη νέα' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        mappedAssignmentProcedure: 'Ανοικτός διαγωνισμός',
+      },
+      auction: {
+        adam: '24AWRD011111111',
+        snapshot: { referenceNumber: '24AWRD011111111', title: 'Ανάθεση νέα' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+      },
+      request: {
+        adam: '24REQ022222222',
+        snapshot: { referenceNumber: '24REQ022222222', title: 'Αίτημα νέο' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+      },
+    };
+    const { form, warnings } = applyAdamChainResult(baseMultiShared, chainRes, {
+      seedAdam: '25SYMV000000001',
+      contractIndex: 0,
+    });
+    expect(form.khmdhsNoticeSnapshot.title).toBe('Διακήρυξη νέα');
+    expect(form.khmdhsAwardSnapshot.title).toBe('Ανάθεση νέα');
+    expect(form.khmdhsRequestSnapshot.title).toBe('Αίτημα νέο');
+    expect(warnings.filter((w) => String(w).startsWith('stagePreserved:'))).toHaveLength(0);
+  });
+
+  test('αναφορά: stagePreserved notice/award/request εμφανίζονται ως προσοχή', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, {
+      warnings: ['stagePreserved:notice', 'stagePreserved:award', 'stagePreserved:request'],
+    });
+    expect(report.category).toBe('attention');
+    expect(report.attentionLines.some((l) => l.includes('δημοσίευση') && l.includes('διατηρήθηκε'))).toBe(true);
+    expect(report.attentionLines.some((l) => l.includes('ανάθεσης') && l.includes('διατηρήθηκε'))).toBe(true);
+    expect(report.attentionLines.some((l) => l.includes('αίτημα') && l.includes('διατηρήθηκε'))).toBe(true);
+  });
+});
+
+describe('applyAdamChainResult commitments merge', () => {
+  test('μετά ανανέωση δεν χάνει απόφαση ανάληψης που έλειπε από το νέο fetch', () => {
+    const prev = {
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: 'Έργο',
+      khmdhsCommitmentDecisions: [
+        {
+          adam: '25REQ016195275',
+          snapshot: { referenceNumber: '25REQ016195275', title: 'Απόφαση 1', signedDate: '2025-03-01' },
+        },
+        {
+          adam: '25REQ016195999',
+          snapshot: null,
+          error: 'πολλά αιτήματα',
+        },
+      ],
+      khmdhsCommitmentAdam: '25REQ016195275',
+      khmdhsCommitmentSnapshot: {
+        referenceNumber: '25REQ016195275',
+        title: 'Απόφαση 1',
+        signedDate: '2025-03-01',
+      },
+    };
+    const chainRes = {
+      success: true,
+      commitmentDecisions: [
+        {
+          adam: '25REQ016195275',
+          snapshot: { referenceNumber: '25REQ016195275', title: 'Απόφαση 1', signedDate: '2025-03-01' },
+          fetchedAt: '2026-07-01T00:00:00.000Z',
+        },
+      ],
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+    };
+
+    const { form } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+
+    expect(form.khmdhsCommitmentDecisions).toHaveLength(2);
+    expect(form.khmdhsCommitmentDecisions.map((d) => d.adam).sort()).toEqual([
+      '25REQ016195275',
+      '25REQ016195999',
+    ]);
+  });
+});
