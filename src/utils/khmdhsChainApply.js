@@ -420,7 +420,7 @@ export function mergeKhmdhsChainMetaForStitch(prevMeta, incomingMeta, formAfter)
 
 /**
  * Συρραφή χωρίς wipe: συμπληρώνει κενά, ενημερώνει ίδιο ΑΔΑΜ, δεν αντικαθιστά διαφορετικό ΑΔΑΜ.
- * Μόνο για «Μια Σύμβαση».
+ * Για «Πολλές Συμβάσεις» δρομολογεί στο applyAdamChainResultStitchMulti.
  */
 export function applyAdamChainResultStitch(prev, chainRes, {
   seedAdam = '',
@@ -445,14 +445,11 @@ export function applyAdamChainResultStitch(prev, chainRes, {
   }
 
   if (isMultipleContractsForm(prev?.implementationForm)) {
-    // Phase 1: δεν υποστηρίζεται — πέφτουμε στο κανονικό apply.
-    return applyAdamChainResult(prev, chainRes, {
+    return applyAdamChainResultStitchMulti(prev, chainRes, {
       seedAdam,
-      contractIndex: -1,
       branchAnchor,
       suppressSituationModal,
       userSelectedBranch,
-      applyMode: 'replace',
     });
   }
 
@@ -677,6 +674,292 @@ export function applyAdamChainResultStitch(prev, chainRes, {
     stitchUpdatedStages: [...new Set(updatedStages)],
     stitchConflictStages: [...new Set(conflictStages)],
     stitchCoveredStages,
+  };
+}
+
+/**
+ * Δρομολόγηση SYMV σε γραμμή πολλών συμβάσεων: ίδιο ΑΔΑΜ → ενημέρωση· κενή γραμμή → γέμισμα·
+ * αλλιώς καμία αντικατάσταση διαφορετικού ΑΔΑΜ.
+ */
+function resolveStitchMultiSymvRowIndex(contracts, incomingAdam) {
+  const adam = sanitizeAdamInput(incomingAdam);
+  if (!adam) return { idx: -1, mode: 'none' };
+  const matchIdx = contracts.findIndex((c) => sanitizeAdamInput(c?.khmdhsAdam) === adam);
+  if (matchIdx >= 0) return { idx: matchIdx, mode: 'match' };
+  const emptyIdx = contracts.findIndex((c) => (
+    !sanitizeAdamInput(c?.khmdhsAdam) && !c?.khmdhsContractSnapshot
+  ));
+  if (emptyIdx >= 0) return { idx: emptyIdx, mode: 'empty' };
+  return { idx: -1, mode: 'none' };
+}
+
+/**
+ * Συρραφή για «Πολλές Συμβάσεις»: κοινά στάδια στο υποέργο + SYMV μόνο στη στοχευμένη γραμμή.
+ * Ποτέ wipe άλλων γραμμών / κοινών σταδίων.
+ */
+export function applyAdamChainResultStitchMulti(prev, chainRes, {
+  seedAdam = '',
+  branchAnchor = null,
+  suppressSituationModal = false,
+  userSelectedBranch = false,
+} = {}) {
+  if (!chainRes?.success) {
+    return {
+      form: prev,
+      warnings: [],
+      apeConflict: null,
+      statusAutoUpdated: null,
+      protectedCount: 0,
+      protectedFields: [],
+      implementationFormAutoUpdated: null,
+      stitchFilledStages: [],
+      stitchUpdatedStages: [],
+      stitchConflictStages: [],
+      stitchCoveredStages: [],
+    };
+  }
+
+  const prepared = prepareFormForInferredImplementationForm(prev, chainRes, {
+    contractIndex: -1,
+    userSelectedBranch,
+  });
+  const workingPrev = prepared.form;
+  const implementationFormAutoUpdated = prepared.inferredForm;
+  const suggestedApe = chainRes.suggestedApeAmount || '';
+
+  let next = { ...workingPrev };
+  let contracts = [...(workingPrev.contracts || [])];
+  if (contracts.length === 0) contracts = [createEmptyContractRow()];
+
+  const filledStages = [];
+  const updatedStages = [];
+  const conflictStages = [];
+  const warnings = [];
+  let apeConflict = null;
+  let appliedSymvSnapshot = false;
+
+  const stitchScalarStage = ({
+    stageId,
+    existingAdam,
+    incoming,
+    applyIncoming,
+  }) => {
+    if (!incoming?.snapshot || !sanitizeAdamInput(incoming.adam)) return;
+    const ex = sanitizeAdamInput(existingAdam);
+    const inc = sanitizeAdamInput(incoming.adam);
+    if (!ex) {
+      applyIncoming(incoming);
+      filledStages.push(stageId);
+      return;
+    }
+    if (ex === inc) {
+      applyIncoming(incoming);
+      updatedStages.push(stageId);
+      return;
+    }
+    conflictStages.push(stageId);
+    warnings.push(`stitchConflict:${stageId.toLowerCase()}`);
+  };
+
+  stitchScalarStage({
+    stageId: 'REQ',
+    existingAdam: workingPrev.khmdhsRequestAdam,
+    incoming: chainRes.request,
+    applyIncoming: (block) => {
+      next.khmdhsRequestAdam = block.adam;
+      next.khmdhsRequestSnapshot = block.snapshot;
+      next.khmdhsRequestFetchedAt = block.fetchedAt || '';
+      if (block.projectBudget && !next.projectBudget) {
+        next.projectBudget = block.projectBudget;
+      }
+    },
+  });
+
+  stitchScalarStage({
+    stageId: 'PROC',
+    existingAdam: workingPrev.khmdhsNoticeAdam,
+    incoming: chainRes.notice,
+    applyIncoming: (block) => {
+      next.khmdhsNoticeAdam = block.adam;
+      next.khmdhsNoticeSnapshot = block.snapshot;
+      next.khmdhsNoticeFetchedAt = block.fetchedAt || '';
+      if (block.mappedAssignmentProcedure) {
+        next.assignmentProcedure = block.mappedAssignmentProcedure;
+      }
+      if (block.contractProcessStartDate) {
+        next.contractProcessStartDate = block.contractProcessStartDate;
+      } else if (chainRes.contractProcessStartDate && !next.contractProcessStartDate) {
+        next.contractProcessStartDate = chainRes.contractProcessStartDate;
+      }
+    },
+  });
+
+  stitchScalarStage({
+    stageId: 'AWRD',
+    existingAdam: workingPrev.khmdhsAwardAdam,
+    incoming: chainRes.auction,
+    applyIncoming: (block) => {
+      next.khmdhsAwardAdam = block.adam;
+      next.khmdhsAwardSnapshot = block.snapshot;
+      next.khmdhsAwardFetchedAt = block.fetchedAt || '';
+    },
+  });
+
+  if (chainRes.contract?.snapshot && sanitizeAdamInput(chainRes.contract.adam)) {
+    const { idx, mode } = resolveStitchMultiSymvRowIndex(contracts, chainRes.contract.adam);
+    if (idx < 0 || mode === 'none') {
+      conflictStages.push('SYMV');
+      warnings.push('stitchConflict:symv');
+    } else {
+      const prevRow = contracts[idx] || createEmptyContractRow();
+      const ff = chainRes.contract.formFields || {};
+      const userApe = hasRealStoredContractApe(workingPrev, idx)
+        ? resolveStoredApeAmount(workingPrev, idx)
+        : '';
+      const apeRes = applyApeFromChain(userApe, suggestedApe);
+      const snapEnd = chainRes.contract.snapshot?.noEndDate
+        ? ''
+        : String(chainRes.contract.snapshot?.endDate || '').slice(0, 10);
+      const apeClearPatch = hasRealStoredContractApe(workingPrev, idx) ? {} : emptyLegacyApeFields();
+      contracts[idx] = {
+        ...prevRow,
+        ...apeClearPatch,
+        khmdhsAdam: chainRes.contract.adam,
+        khmdhsContractSnapshot: chainRes.contract.snapshot,
+        khmdhsContractFetchedAt: chainRes.contract.fetchedAt,
+        khmdhsContractRoleLabel: chainRes.contract.roleLabel || prevRow.khmdhsContractRoleLabel || '',
+        date: ff.contractDate || prevRow.date || '',
+        amount: ff.contractAmountSuppressed ? '' : (ff.contractAmount || prevRow.amount || ''),
+        contractEndDate: ff.contractEndDate || snapEnd || prevRow.contractEndDate || '',
+        apeAmount: apeRes.ape,
+        khmdhsContractChainHistory: Array.isArray(chainRes.contractChainHistory)
+          && chainRes.contractChainHistory.length
+          ? chainRes.contractChainHistory
+          : (prevRow.khmdhsContractChainHistory || []),
+        khmdhsContractAmendments: Array.isArray(chainRes.contractAmendments)
+          && chainRes.contractAmendments.length
+          ? chainRes.contractAmendments
+          : (prevRow.khmdhsContractAmendments || []),
+      };
+      if (apeRes.ape && hasRealStoredContractApe(workingPrev, idx)) {
+        const syncPatch = syncPreservedContractApeAmount(
+          { ...workingPrev, contracts },
+          idx,
+          apeRes.ape,
+          workingPrev,
+        );
+        if (syncPatch.contracts) contracts = syncPatch.contracts;
+      }
+      if (apeRes.conflict) {
+        apeConflict = {
+          ...apeRes.conflict,
+          contractIndex: idx,
+          contractLabel: `Σύμβαση ${idx + 1}`,
+        };
+      }
+      appliedSymvSnapshot = true;
+      if (mode === 'empty' || !sanitizeAdamInput(prevRow.khmdhsAdam)) {
+        filledStages.push('SYMV');
+      } else {
+        updatedStages.push('SYMV');
+      }
+    }
+  }
+
+  next.contracts = contracts;
+  // Σε πολλές συμβάσεις το top-level SYMV ιστορικό δεν είναι η πηγή αλήθειας.
+  next.khmdhsContractAmendments = [];
+  next.khmdhsContractChainHistory = [];
+  next.khmdhsContractRoleLabel = '';
+
+  const commitBefore = Array.isArray(workingPrev.khmdhsCommitmentDecisions)
+    ? workingPrev.khmdhsCommitmentDecisions.length
+    : 0;
+  const payBefore = Array.isArray(workingPrev.khmdhsPayments)
+    ? workingPrev.khmdhsPayments.length
+    : 0;
+  mergeCommitmentAndPaymentsFromChain(next, chainRes, {
+    prevPayments: workingPrev.khmdhsPayments,
+    prevCommitmentDecisions: workingPrev.khmdhsCommitmentDecisions,
+    protect: suppressSituationModal,
+  });
+  const commitAfter = Array.isArray(next.khmdhsCommitmentDecisions)
+    ? next.khmdhsCommitmentDecisions.length
+    : 0;
+  const payAfter = Array.isArray(next.khmdhsPayments) ? next.khmdhsPayments.length : 0;
+  if (commitAfter > commitBefore) filledStages.push('COMMIT');
+  else if (commitAfter > 0 && commitBefore > 0) {
+    const covered = detectStagesCoveredByChainRes(chainRes);
+    if (covered.includes('COMMIT')) updatedStages.push('COMMIT');
+  }
+  if (payAfter > payBefore) filledStages.push('PAY');
+  else if (payAfter > 0 && payBefore > 0) {
+    const covered = detectStagesCoveredByChainRes(chainRes);
+    if (covered.includes('PAY')) updatedStages.push('PAY');
+  }
+
+  next.khmdhsChainSeedAdam = seedAdam || workingPrev.khmdhsChainSeedAdam || '';
+  next.khmdhsAdamChainMeta = mergeKhmdhsChainMetaForStitch(
+    workingPrev.khmdhsAdamChainMeta,
+    chainRes.chainMeta,
+    next
+  );
+
+  next.khmdhsDataQualityReview = mergeKhmdhsReviewAfterFetch(
+    prev.khmdhsDataQualityReview,
+    chainRes.dataQualityReport,
+    next,
+    { contractIndex: null }
+  );
+
+  next = applyChainCharacterizationToForm(next, next.khmdhsDataQualityReview);
+  next = applyParallelContractAmountHints(next, chainRes);
+  next = mergeKhmdhsSupplementaryIntoForm(next);
+
+  const statusAutoUpdated = appliedSymvSnapshot
+    ? suggestProjectStatusAfterKhmdhsChain(prev.projectStatus, chainRes)
+    : null;
+  if (statusAutoUpdated) {
+    next.projectStatus = statusAutoUpdated;
+  }
+
+  next.khmdhsChainLastRefreshedAt = new Date().toISOString();
+  const resolvedAnchor = resolveBranchAnchorFromChain(chainRes, seedAdam, branchAnchor);
+  next = mergeBranchAnchorFields(next, {
+    anchorAdam: resolvedAnchor.adam,
+    anchorType: resolvedAnchor.type,
+    actRootReqAdam: inferActRootReqAdam(chainRes, seedAdam)
+      || workingPrev.khmdhsActRootReqAdam
+      || '',
+  });
+
+  if (workingPrev.khmdhsChainStitchPlan) {
+    next.khmdhsChainStitchPlan = workingPrev.khmdhsChainStitchPlan;
+  }
+
+  const {
+    form: protectedForm,
+    protectedCount,
+    protectedFields = [],
+  } = applyUserEditsAfterKhmdhsFetch(prev, next);
+
+  protectedForm.khmdhsDataQualityReview = reconcileReviewState(
+    protectedForm.khmdhsDataQualityReview,
+    protectedForm
+  );
+
+  return {
+    form: protectedForm,
+    warnings,
+    apeConflict,
+    statusAutoUpdated,
+    protectedCount,
+    protectedFields,
+    implementationFormAutoUpdated,
+    stitchFilledStages: [...new Set(filledStages)],
+    stitchUpdatedStages: [...new Set(updatedStages)],
+    stitchConflictStages: [...new Set(conflictStages)],
+    stitchCoveredStages: detectStagesCoveredByChainRes(chainRes),
   };
 }
 

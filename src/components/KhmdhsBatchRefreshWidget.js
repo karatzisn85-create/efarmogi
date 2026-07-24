@@ -1567,6 +1567,13 @@ export default function KhmdhsBatchRefreshWidget({
             continue;
           }
 
+          if (res.stitchPlanFormMismatch) {
+            addLog(
+              '⚠️',
+              `${item.label} — Η τεχνητή αλυσίδα αγνοήθηκε (άλλαξε μορφή υλοποίησης)· ανανέωση με έναν κωδικό`
+            );
+          }
+
           const stitchCompleteness = evaluateStitchRefreshCompleteness(res);
           if (!stitchCompleteness.ok) {
             failed++;
@@ -1634,6 +1641,7 @@ export default function KhmdhsBatchRefreshWidget({
             projectId: project.projectId,
             subprojectId: project.subprojectId,
             updatedAt: new Date().toISOString(),
+            ...(res.stitchPlanFormMismatch ? { khmdhsChainStitchPlan: null } : {}),
           };
 
           let chainRegistryCandidates = [];

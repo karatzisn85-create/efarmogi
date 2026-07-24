@@ -92,6 +92,15 @@ function isConfirmedStitchPlan(plan) {
   return withSeed.length >= 2;
 }
 
+function stitchPlanConflictsWithImplementationForm(plan, implementationForm) {
+  if (!isConfirmedStitchPlan(plan)) return false;
+  const stored = String(plan.implementationFormAtConfirm || '').trim();
+  if (!stored) return false;
+  const wasMulti = stored === 'Πολλές Συμβάσεις';
+  const isMulti = String(implementationForm || '').trim() === 'Πολλές Συμβάσεις';
+  return wasMulti !== isMulti;
+}
+
 /** Οι σπόροι του επιβεβαιωμένου σχεδίου τεχνητής αλυσίδας (με σειρά, μοναδικοί). */
 function getConfirmedStitchSeedAdams(project) {
   const plan = project?.khmdhsChainStitchPlan;
@@ -110,15 +119,22 @@ function getConfirmedStitchSeedAdams(project) {
 /**
  * Λίστα σπόρων ανανέωσης. Αν υπάρχει επιβεβαιωμένο σχέδιο τεχνητής αλυσίδας,
  * επιστρέφει όλους τους σπόρους του σχεδίου· αλλιώς τον έναν σπόρο (μονή άγκυρα).
- * @returns {{ adams: string[], usesStitchPlan: boolean, primary: {adam,source,label} }}
+ * Αν άλλαξε η μορφή υλοποίησης (μία ↔ πολλές) από την επιβεβαίωση, αγνοεί το σχέδιο.
+ * @returns {{ adams: string[], usesStitchPlan: boolean, primary: {adam,source,label}, stitchPlanFormMismatch?: boolean }}
  */
 function getKhmdhsRefreshSeedAdams(project) {
-  const planSeeds = getConfirmedStitchSeedAdams(project);
+  const plan = project?.khmdhsChainStitchPlan;
+  const planConflict = stitchPlanConflictsWithImplementationForm(
+    plan,
+    project?.implementationForm
+  );
+  const planSeeds = planConflict ? [] : getConfirmedStitchSeedAdams(project);
   if (planSeeds.length >= 2) {
     return {
       adams: planSeeds,
       usesStitchPlan: true,
       primary: { adam: planSeeds[0], source: 'stitch', label: 'τεχνητή αλυσίδα (πολλοί ΑΔΑΜ)' },
+      stitchPlanFormMismatch: false,
     };
   }
   const single = getKhmdhsRefreshSeedAdam(project);
@@ -126,6 +142,7 @@ function getKhmdhsRefreshSeedAdams(project) {
     adams: single.adam ? [single.adam] : [],
     usesStitchPlan: false,
     primary: single,
+    stitchPlanFormMismatch: planConflict,
   };
 }
 

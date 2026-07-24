@@ -1655,9 +1655,7 @@ async function handleSaveProjectData(event, projectData) {
     
     // Αν ζητείται μετακίνηση υποέργου σε υπάρχον project (αλλαγή τίτλου → ενοποίηση)
     if (projectData.moveToExistingProject && subprojectId && projectId) {
-      const SKIP_DIRS = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'config',
-        'egkriseis_links', 'subproject_links', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ',
-        'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'ANATHESEIS_ERGASION', 'audit_log.json']);
+      const SKIP_DIRS = DATA_DIR_SKIP_ROOT_DIRS;
       const projectDirs = fs.existsSync(dataDir) ? fs.readdirSync(dataDir) : [];
       let oldProjectDir = null;
       for (const dir of projectDirs) {
@@ -1685,9 +1683,7 @@ async function handleSaveProjectData(event, projectData) {
       }
     } else if (!isNewProject && subprojectId) {
       // Για υπάρχοντα υποέργα χωρίς μετακίνηση, βρίσκουμε το σωστό projectId από το φάκελο
-      const SKIP_DIRS = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'config',
-        'egkriseis_links', 'subproject_links', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ',
-        'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'ANATHESEIS_ERGASION', 'audit_log.json']);
+      const SKIP_DIRS = DATA_DIR_SKIP_ROOT_DIRS;
       const projectDirs = fs.existsSync(dataDir) ? fs.readdirSync(dataDir) : [];
       for (const dir of projectDirs) {
         if (SKIP_DIRS.has(dir)) continue;
@@ -3257,6 +3253,7 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
         seedSource: seedInfo.source,
         seedLabel: seedInfo.label,
         usesStitchPlan: true,
+        stitchPlanFormMismatch: false,
         stitchResults,
         projectSnapshot: project,
       };
@@ -3285,7 +3282,10 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
       seedSource: seedInfo.source,
       seedLabel: seedInfo.label,
       usesStitchPlan: false,
-      projectSnapshot: project,
+      stitchPlanFormMismatch: !!seedPlan.stitchPlanFormMismatch,
+      projectSnapshot: seedPlan.stitchPlanFormMismatch
+        ? { ...project, khmdhsChainStitchPlan: null }
+        : project,
     };
   } catch (e) {
     if (e?.name === 'AbortError' || e?.aborted) {
@@ -14245,10 +14245,8 @@ ipcMain.handle('fix-audit-log-projectids', async (event) => {
       }
       
       const projectDirs = fs.readdirSync(dataDir);
-      const skipDirs = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'egkriseis_links', 'subproject_links', 
-                                 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 
-                                 'backups', 'audit_log.json']);
-      
+      const skipDirs = DATA_DIR_SKIP_ROOT_DIRS;
+
       for (const dir of projectDirs) {
         if (skipDirs.has(dir)) continue;
         

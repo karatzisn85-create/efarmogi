@@ -1175,6 +1175,12 @@ function SubprojectDetailModal({
         showToast(res?.error || 'Η ανάκτηση από το ΚΗΜΔΗΣ απέτυχε.', 'error');
         return;
       }
+      if (res.stitchPlanFormMismatch) {
+        showToast(
+          'Η τεχνητή αλυσίδα ακυρώθηκε γιατί άλλαξε η μορφή υλοποίησης (μία / πολλές συμβάσεις). Η ανανέωση συνεχίζει με έναν κωδικό.',
+          'warning'
+        );
+      }
       const stitchCompleteness = evaluateStitchRefreshCompleteness(res);
       if (!stitchCompleteness.ok) {
         showToast(stitchCompleteness.message, 'error');
@@ -1230,6 +1236,7 @@ function SubprojectDetailModal({
         projectId: project.projectId,
         subprojectId: project.subprojectId,
         updatedAt: new Date().toISOString(),
+        ...(res.stitchPlanFormMismatch ? { khmdhsChainStitchPlan: null } : {}),
       };
       // Αυτόματη ενημέρωση Αρχείων Υποέργου κατά την ανανέωση ΚΗΜΔΗΣ — χωρίς να ζητείται
       // καμία χειροκίνητη ενέργεια από τον χρήστη:

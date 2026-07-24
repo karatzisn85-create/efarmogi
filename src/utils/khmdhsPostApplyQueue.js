@@ -10,6 +10,7 @@ import {
 } from './khmdhsSituationActions';
 import { shouldOfferRegistryAfterReview } from './khmdhsDocumentRegistry';
 import { evaluateKhmdhsContractExpiryPrompt } from './khmdhsContractExpiryPrompt';
+import { formatStitchSegmentScopeLabel } from './khmdhsChainStitchPlan';
 
 export const POST_APPLY_TASK = {
   DATA_REVIEW: 'data_review',
@@ -143,6 +144,7 @@ export function buildPostApplyQueue({
         segments: stitchPromptBPayload.segments.map((seg) => ({
           adam: seg.seedAdam,
           stages: seg.coversStages || [],
+          scopeLabel: formatStitchSegmentScopeLabel(seg),
         })),
       },
     });

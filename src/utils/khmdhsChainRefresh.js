@@ -10,6 +10,7 @@ import { getUnresolvedReviewItems } from './khmdhsDataQualityReport';
 import {
   getConfirmedKhmdhsStitchPlan,
   getConfirmedStitchSeedAdams,
+  stitchPlanConflictsWithImplementationForm,
 } from './khmdhsChainStitchPlan';
 
 export const KHMDHS_FRESHNESS_YELLOW_DAYS = 30;
@@ -114,12 +115,18 @@ export function hasConfirmedKhmdhsStitchPlan(project) {
  * @returns {{ adams: string[], usesStitchPlan: boolean, primary: {adam,source,label} }}
  */
 export function getKhmdhsRefreshSeedAdams(project) {
-  const planSeeds = getConfirmedStitchSeedAdams(project);
+  const plan = project?.khmdhsChainStitchPlan;
+  const planConflict = stitchPlanConflictsWithImplementationForm(
+    plan,
+    project?.implementationForm
+  );
+  const planSeeds = planConflict ? [] : getConfirmedStitchSeedAdams(project);
   if (planSeeds.length >= 2) {
     return {
       adams: planSeeds,
       usesStitchPlan: true,
       primary: { adam: planSeeds[0], source: 'stitch', label: 'τεχνητή αλυσίδα (πολλοί ΑΔΑΜ)' },
+      stitchPlanFormMismatch: false,
     };
   }
   const single = getKhmdhsRefreshSeedAdam(project);
@@ -127,6 +134,7 @@ export function getKhmdhsRefreshSeedAdams(project) {
     adams: single.adam ? [single.adam] : [],
     usesStitchPlan: false,
     primary: single,
+    stitchPlanFormMismatch: planConflict,
   };
 }
 

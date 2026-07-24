@@ -4,6 +4,7 @@ const XLSX = require('xlsx-js-style');
 const { exec } = require('child_process');
 const util = require('util');
 const execAsync = util.promisify(exec);
+const { DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
 
 /**
  * Μετατρέπει ποσό από string (π.χ. "20.000,00") σε number
@@ -100,10 +101,8 @@ function loadAllProjects(dataDir) {
   }
   
   const projectDirs = fs.readdirSync(dataDir);
-  const skipDirs = new Set(['entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'locks', 'egkriseis_links', 'subproject_links', 
-                             'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 
-                             'backups', 'audit_log.json']);
-  
+  const skipDirs = DATA_DIR_SKIP_ROOT_DIRS;
+
   for (const projectDir of projectDirs) {
     if (skipDirs.has(projectDir)) continue;
     

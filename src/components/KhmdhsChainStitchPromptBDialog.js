@@ -1,5 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
+import { formatStitchSegmentScopeLabel } from '../utils/khmdhsChainStitchPlan';
 
 const Overlay = styled.div`
   position: fixed;
@@ -134,7 +135,8 @@ export default function KhmdhsChainStitchPromptBDialog({
         <SeedList>
           {segments.map((s, i) => (
             <SeedRow key={`${s.seedAdam}-${i}`}>
-              Τμήμα {i + 1}: <SeedAdam>{s.seedAdam}</SeedAdam>{' '}
+              Τμήμα {i + 1} ({formatStitchSegmentScopeLabel(s)}):{' '}
+              <SeedAdam>{s.seedAdam}</SeedAdam>{' '}
               <StagesText>— {stagesLabel(s.coversStages)}</StagesText>
             </SeedRow>
           ))}

@@ -1,6 +1,6 @@
 /**
  * Σχέδιο χειροκίνητης συρραφής αλυσίδας ΚΗΜΔΗΣ (multi-seed).
- * Phase 1: helpers + detection. Confirmed plan για μελλοντικές ανανεώσεις σε επόμενη φάση.
+ * Υποστηρίζει «Μια Σύμβαση» και «Πολλές Συμβάσεις» (κοινά στάδια + SYMV ανά γραμμή).
  */
 
 export const KHMDHS_STITCH_PLAN_VERSION = 1;
@@ -27,6 +27,15 @@ export function normalizeStitchAdam(value) {
   return sanitizeAdam(value);
 }
 
+function formHasContractRowKhmdhs(form) {
+  if (!Array.isArray(form?.contracts)) return false;
+  return form.contracts.some((c) => !!(
+    sanitizeAdam(c?.khmdhsAdam)
+    || c?.khmdhsContractSnapshot
+    || (Array.isArray(c?.khmdhsContractChainHistory) && c.khmdhsContractChainHistory.length > 0)
+  ));
+}
+
 /** Υπάρχουν ήδη ουσιαστικά δεδομένα ΚΗΜΔΗΣ στο υποέργο; */
 export function projectHasSubstantialKhmdhsData(form) {
   if (!form || typeof form !== 'object') return false;
@@ -38,6 +47,7 @@ export function projectHasSubstantialKhmdhsData(form) {
   if (sanitizeAdam(form.khmdhsNoticeAdam) || form.khmdhsNoticeSnapshot) return true;
   if (sanitizeAdam(form.khmdhsAwardAdam) || form.khmdhsAwardSnapshot) return true;
   if (sanitizeAdam(form.khmdhsAdam) || form.khmdhsContractSnapshot) return true;
+  if (formHasContractRowKhmdhs(form)) return true;
   if (Array.isArray(form.khmdhsPayments) && form.khmdhsPayments.length > 0) return true;
   if (Array.isArray(form.khmdhsContractChainHistory) && form.khmdhsContractChainHistory.length > 0) {
     return true;
@@ -59,9 +69,27 @@ export function detectStagesCoveredByForm(form) {
   }
   if (sanitizeAdam(form.khmdhsNoticeAdam) || form.khmdhsNoticeSnapshot) covered.push('PROC');
   if (sanitizeAdam(form.khmdhsAwardAdam) || form.khmdhsAwardSnapshot) covered.push('AWRD');
-  if (sanitizeAdam(form.khmdhsAdam) || form.khmdhsContractSnapshot) covered.push('SYMV');
+  if (
+    sanitizeAdam(form.khmdhsAdam)
+    || form.khmdhsContractSnapshot
+    || formHasContractRowKhmdhs(form)
+  ) {
+    covered.push('SYMV');
+  }
   if (Array.isArray(form.khmdhsPayments) && form.khmdhsPayments.length > 0) covered.push('PAY');
   return covered;
+}
+
+/** Ετικέτα τμήματος σχεδίου: κοινά στάδια ή γραμμή σύμβασης. */
+export function formatStitchSegmentScopeLabel(segment) {
+  const covers = Array.isArray(segment?.coversStages) ? segment.coversStages : [];
+  const scope = segment?.scope
+    || (covers.includes('SYMV') ? 'contract' : 'shared');
+  const adam = sanitizeAdam(segment?.contractAdam);
+  if (scope === 'contract') {
+    return adam ? `Σύμβαση (${adam})` : 'Σύμβαση';
+  }
+  return 'Κοινά';
 }
 
 /** Στάδια που πραγματικά ήρθαν από ένα chainRes (με snapshot όπου απαιτείται). */
@@ -104,10 +132,9 @@ export function getKnownStitchSeedAdams(form) {
 
 /**
  * Ερώτηση Α: υπάρχει ήδη αλυσίδα ΚΑΙ ο νέος ΑΔΑΜ διαφέρει από γνωστούς σπόρους.
- * Μόνο «Μια Σύμβαση» (όχι πολλαπλές).
+ * Ισχύει και για «Μια Σύμβαση» και για «Πολλές Συμβάσεις» (σε επίπεδο υποέργου).
  */
-export function shouldOfferStitchPromptA(form, newSeedAdam, { isMultipleContracts = false } = {}) {
-  if (isMultipleContracts) return false;
+export function shouldOfferStitchPromptA(form, newSeedAdam, { isMultipleContracts: _isMultipleContracts = false } = {}) {
   if (!projectHasSubstantialKhmdhsData(form)) return false;
   const seed = sanitizeAdam(newSeedAdam);
   if (!seed) return false;
@@ -124,6 +151,19 @@ export function isConfirmedKhmdhsStitchPlan(plan) {
     && plan.segments.length >= 2
     && plan.segments.filter((s) => sanitizeAdam(s?.seedAdam)).length >= 2
   );
+}
+
+/**
+ * Επιβεβαιωμένο σχέδιο που δημιουργήθηκε σε άλλη μορφή υλοποίησης (μία ↔ πολλές)
+ * — δεν εφαρμόζεται σιωπηλά· πρέπει να ακυρωθεί / ξαναστηθεί.
+ */
+export function stitchPlanConflictsWithImplementationForm(plan, implementationForm) {
+  if (!isConfirmedKhmdhsStitchPlan(plan)) return false;
+  const stored = String(plan.implementationFormAtConfirm || '').trim();
+  if (!stored) return false;
+  const wasMulti = stored === 'Πολλές Συμβάσεις';
+  const isMulti = String(implementationForm || '').trim() === 'Πολλές Συμβάσεις';
+  return wasMulti !== isMulti;
 }
 
 export function getConfirmedKhmdhsStitchPlan(form) {
@@ -186,16 +226,29 @@ export function shouldOfferStitchPromptB({
   if (stitchApplyMode !== 'stitch') return false;
   if (Array.isArray(stitchFilledStages) && stitchFilledStages.length > 0) return true;
   const prevHadContract = !!(
-    sanitizeAdam(prevForm?.khmdhsAdam) || prevForm?.khmdhsContractSnapshot
+    sanitizeAdam(prevForm?.khmdhsAdam)
+    || prevForm?.khmdhsContractSnapshot
+    || formHasContractRowKhmdhs(prevForm)
   );
   const nextHasContract = !!(
-    sanitizeAdam(nextForm?.khmdhsAdam) || nextForm?.khmdhsContractSnapshot
+    sanitizeAdam(nextForm?.khmdhsAdam)
+    || nextForm?.khmdhsContractSnapshot
+    || formHasContractRowKhmdhs(nextForm)
   );
   if (!prevHadContract && nextHasContract) return true;
   const prevPays = Array.isArray(prevForm?.khmdhsPayments) ? prevForm.khmdhsPayments.length : 0;
   const nextPays = Array.isArray(nextForm?.khmdhsPayments) ? nextForm.khmdhsPayments.length : 0;
   if (prevPays === 0 && nextPays > 0) return true;
   return false;
+}
+
+function inferSegmentScopeMeta(coversStages, contractAdam = '') {
+  const covers = (coversStages || []).filter((s) => KHMDHS_STITCH_STAGE_IDS.includes(s));
+  const adam = sanitizeAdam(contractAdam);
+  if (covers.includes('SYMV')) {
+    return { scope: 'contract', contractAdam: adam || null };
+  }
+  return { scope: 'shared', contractAdam: null };
 }
 
 export function buildConfirmedStitchPlanFromStitch({
@@ -206,6 +259,9 @@ export function buildConfirmedStitchPlanFromStitch({
   newSeedAdam = '',
   newSeedType = '',
   newCoversStages = [],
+  newContractAdam = '',
+  prevContractAdam = '',
+  implementationForm = '',
   confirmedBy = '',
   now = '',
 } = {}) {
@@ -220,6 +276,14 @@ export function buildConfirmedStitchPlanFromStitch({
     .filter((s) => KHMDHS_STITCH_STAGE_IDS.includes(s));
   const newCovers = (newCoversStages || []).filter((s) => KHMDHS_STITCH_STAGE_IDS.includes(s));
 
+  const resolvedPrevContractAdam = sanitizeAdam(prevContractAdam)
+    || (prevCovers.includes('SYMV')
+      ? (sanitizeAdam(prevForm?.contracts?.find((c) => sanitizeAdam(c?.khmdhsAdam))?.khmdhsAdam)
+        || sanitizeAdam(prevForm?.khmdhsAdam))
+      : '');
+  const resolvedNewContractAdam = sanitizeAdam(newContractAdam)
+    || (newCovers.includes('SYMV') ? sanitizeAdam(newSeed) : '');
+
   let plan = existingPlan && typeof existingPlan === 'object'
     ? { ...existingPlan }
     : {
@@ -233,19 +297,27 @@ export function buildConfirmedStitchPlanFromStitch({
     };
 
   if (prevSeed && prevSeed !== newSeed && prevCovers.length) {
+    const prevMeta = inferSegmentScopeMeta(prevCovers, resolvedPrevContractAdam);
     plan = upsertStitchPlanSegment(plan, {
       seedAdam: prevSeed,
       seedType: '',
       coversStages: prevCovers,
       fetchedAt: stamp,
+      scope: prevMeta.scope,
+      contractAdam: prevMeta.contractAdam,
     });
   }
+  const newMeta = inferSegmentScopeMeta(newCovers, resolvedNewContractAdam);
   plan = upsertStitchPlanSegment(plan, {
     seedAdam: newSeed,
     seedType: newSeedType,
     coversStages: newCovers,
     fetchedAt: stamp,
+    scope: newMeta.scope,
+    contractAdam: newMeta.contractAdam,
   });
+
+  const impl = String(implementationForm || prevForm?.implementationForm || plan.implementationFormAtConfirm || '').trim();
 
   return {
     ...plan,
@@ -253,6 +325,7 @@ export function buildConfirmedStitchPlanFromStitch({
     status: 'confirmed',
     confirmedAt: stamp,
     confirmedBy: String(confirmedBy || plan.confirmedBy || ''),
+    ...(impl ? { implementationFormAtConfirm: impl } : {}),
   };
 }
 
@@ -269,15 +342,25 @@ export function upsertStitchPlanSegment(existingPlan, {
   seedType = '',
   coversStages = [],
   fetchedAt = '',
+  scope = '',
+  contractAdam = null,
 } = {}) {
   const adam = sanitizeAdam(seedAdam);
   if (!adam) return existingPlan || null;
   const now = fetchedAt || new Date().toISOString();
+  const covers = (coversStages || []).filter((s) => KHMDHS_STITCH_STAGE_IDS.includes(s));
+  const inferred = inferSegmentScopeMeta(covers, contractAdam);
+  const resolvedScope = scope === 'contract' || scope === 'shared' ? scope : inferred.scope;
+  const resolvedContractAdam = resolvedScope === 'contract'
+    ? (sanitizeAdam(contractAdam) || inferred.contractAdam || null)
+    : null;
   const segment = {
     seedAdam: adam,
     seedType: String(seedType || '').trim(),
-    coversStages: (coversStages || []).filter((s) => KHMDHS_STITCH_STAGE_IDS.includes(s)),
+    coversStages: covers,
     fetchedAt: now,
+    scope: resolvedScope,
+    contractAdam: resolvedContractAdam,
   };
   const base = existingPlan && typeof existingPlan === 'object'
     ? { ...existingPlan }
@@ -299,6 +382,10 @@ export function upsertStitchPlanSegment(existingPlan, {
       coversStages: segment.coversStages.length
         ? segment.coversStages
         : (segments[idx].coversStages || []),
+      scope: segment.scope || segments[idx].scope || 'shared',
+      contractAdam: segment.scope === 'contract'
+        ? (segment.contractAdam || segments[idx].contractAdam || null)
+        : null,
     };
   } else {
     segments.push(segment);

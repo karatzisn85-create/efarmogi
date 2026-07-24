@@ -4691,8 +4691,21 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             || sanitizeAdamInput(basePrev.khmdhsRequestAdam)
             || '';
           const gainedStages = [];
-          if (!(sanitizeAdamInput(basePrev.khmdhsAdam) || basePrev.khmdhsContractSnapshot)
-            && (sanitizeAdamInput(formAfter.khmdhsAdam) || formAfter.khmdhsContractSnapshot)) {
+          const prevHadSymv = !!(
+            sanitizeAdamInput(basePrev.khmdhsAdam)
+            || basePrev.khmdhsContractSnapshot
+            || (Array.isArray(basePrev.contracts) && basePrev.contracts.some((c) => (
+              sanitizeAdamInput(c?.khmdhsAdam) || c?.khmdhsContractSnapshot
+            )))
+          );
+          const nextHasSymv = !!(
+            sanitizeAdamInput(formAfter.khmdhsAdam)
+            || formAfter.khmdhsContractSnapshot
+            || (Array.isArray(formAfter.contracts) && formAfter.contracts.some((c) => (
+              sanitizeAdamInput(c?.khmdhsAdam) || c?.khmdhsContractSnapshot
+            )))
+          );
+          if (!prevHadSymv && nextHasSymv) {
             gainedStages.push('SYMV');
           }
           if (!(Array.isArray(basePrev.khmdhsPayments) && basePrev.khmdhsPayments.length)
@@ -4712,6 +4725,10 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             newSeedAdam: seed,
             newSeedType: parseKhmdhsAdamType(seed),
             newCoversStages: newCovers.length ? newCovers : detectStagesCoveredByForm(formAfter),
+            newContractAdam: (formAfter.contracts || [])
+              .map((c) => sanitizeAdamInput(c?.khmdhsAdam))
+              .find(Boolean) || sanitizeAdamInput(formAfter.khmdhsAdam) || '',
+            implementationForm: formAfter.implementationForm || basePrev.implementationForm || '',
           });
           if (previewPlan && Array.isArray(previewPlan.segments) && previewPlan.segments.length >= 2) {
             khmdhsPendingStitchPromptBRef.current = {
@@ -4723,6 +4740,10 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
               newSeedAdam: seed,
               newSeedType: parseKhmdhsAdamType(seed),
               newCoversStages: newCovers.length ? newCovers : ['SYMV'],
+              newContractAdam: (formAfter.contracts || [])
+                .map((c) => sanitizeAdamInput(c?.khmdhsAdam))
+                .find(Boolean) || sanitizeAdamInput(formAfter.khmdhsAdam) || '',
+              implementationForm: formAfter.implementationForm || basePrev.implementationForm || '',
               segments: previewPlan.segments,
             };
           }
@@ -8361,6 +8382,13 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             newSeedAdam: payload.newSeedAdam,
             newSeedType: payload.newSeedType,
             newCoversStages: payload.newCoversStages,
+            newContractAdam: payload.newContractAdam
+              || (prev.contracts || [])
+                .map((c) => sanitizeAdamInput(c?.khmdhsAdam))
+                .find(Boolean)
+              || sanitizeAdamInput(prev.khmdhsAdam)
+              || '',
+            implementationForm: payload.implementationForm || prev.implementationForm || '',
           });
           if (!plan) return prev;
           const next = { ...prev, khmdhsChainStitchPlan: plan };
@@ -8417,6 +8445,13 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
               newSeedAdam: payload.newSeedAdam,
               newSeedType: payload.newSeedType,
               newCoversStages: payload.newCoversStages,
+              newContractAdam: payload.newContractAdam
+                || (prev.contracts || [])
+                  .map((c) => sanitizeAdamInput(c?.khmdhsAdam))
+                  .find(Boolean)
+                || sanitizeAdamInput(prev.khmdhsAdam)
+                || '',
+              implementationForm: payload.implementationForm || prev.implementationForm || '',
             });
             if (!plan) return prev;
             const next = { ...prev, khmdhsChainStitchPlan: plan };

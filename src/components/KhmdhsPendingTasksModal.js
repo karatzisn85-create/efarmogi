@@ -196,7 +196,10 @@ function formatMore(task) {
   if (!task?.more) return '';
   if (task.type === POST_APPLY_TASK.STITCH_B) {
     return (task.more.segments || [])
-      .map((s, i) => `Σπόρος ${i + 1}: ${s.adam}${s.stages?.length ? ` (${s.stages.join(', ')})` : ''}`)
+      .map((s, i) => {
+        const scope = s.scopeLabel ? `${s.scopeLabel}: ` : '';
+        return `Σπόρος ${i + 1}: ${scope}${s.adam}${s.stages?.length ? ` (${s.stages.join(', ')})` : ''}`;
+      })
       .join('\n');
   }
   if (task.type === POST_APPLY_TASK.SITUATION) {

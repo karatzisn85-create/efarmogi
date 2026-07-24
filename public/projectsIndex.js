@@ -134,6 +134,11 @@ function loadProjectsViaIndex(dataDir, {
     if (!entry?.relPath || !entry.projectId || !entry.subprojectId) {
       return null;
     }
+    // Αγνόησε ρίζες συστήματος (αναθέσεις, μελέτες κ.λπ.) πριν διαβάσουμε data.json
+    // — αποφεύγει θόρυβο mismatch από παλιές εγγραφές ευρετηρίου.
+    const projectDir = entry.projectId;
+    if (skipRoot && skipRoot.has(projectDir)) continue;
+
     const relNorm = String(entry.relPath).split('/').join(path.sep);
     const jsonPath = path.join(dataDir, relNorm);
     if (!fs.existsSync(jsonPath)) {
@@ -154,9 +159,6 @@ function loadProjectsViaIndex(dataDir, {
       if (!pTitle || !sTitle || pTitle === 'undefined' || sTitle === 'undefined') {
         continue;
       }
-
-      const projectDir = entry.projectId;
-      if (skipRoot && skipRoot.has(projectDir)) continue;
 
       const lockStatus = typeof isProjectLocked === 'function'
         ? isProjectLocked(projectDir)
