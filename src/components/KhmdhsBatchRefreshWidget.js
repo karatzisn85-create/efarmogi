@@ -45,26 +45,41 @@ const fabPulseCalm = keyframes`
   50% { transform: translateY(-3px); box-shadow: 0 8px 26px rgba(245, 158, 11, 0.5); }
 `;
 
-const fabPulseUrgent = keyframes`
-  0%, 100% { transform: translateY(0) scale(1); box-shadow: 0 6px 24px rgba(220, 38, 38, 0.5); }
-  50% { transform: translateY(-5px) scale(1.05); box-shadow: 0 12px 36px rgba(220, 38, 38, 0.7); }
-`;
-
 const spin = keyframes`
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 `;
 
 /* ═══════════════════════════════════════════
-   INLINE WIDGET (Dashboard)
+   INLINE WIDGET (Dashboard) — teal signature
    ═══════════════════════════════════════════ */
+const shimmer = keyframes`
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+`;
+
 const Container = styled.div`
-  animation: ${fadeIn} 0.3s ease;
-  background: linear-gradient(135deg, #f0fdfa 0%, #ecfdf5 100%);
+  animation: ${fadeIn} 0.35s ease;
+  position: relative;
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(20, 184, 166, 0.10) 0%, transparent 45%),
+    linear-gradient(135deg, #ffffff 0%, #f0fdfa 100%);
   border: 1px solid #99f6e4;
-  border-radius: 14px;
-  padding: 1rem 1.3rem;
+  border-radius: 16px;
+  padding: 1.05rem 1.25rem 1.1rem;
   margin-bottom: 1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 30px rgba(13, 148, 136, 0.06);
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(180deg, #0d9488, #14b8a6 55%, #2dd4bf);
+  }
 `;
 
 const Header = styled.div`
@@ -75,62 +90,103 @@ const Header = styled.div`
   flex-wrap: wrap;
 `;
 
+const HeaderLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+`;
+
+const IconChip = styled.div`
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  color: #fff;
+  background: linear-gradient(135deg, #0d9488, #14b8a6 60%, #2dd4bf);
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.32);
+`;
+
+const TitleGroup = styled.div`
+  min-width: 0;
+`;
+
 const Title = styled.h4`
   margin: 0;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: #134e4a;
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #0f766e;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
 `;
 
+const Subtitle = styled.div`
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 500;
+`;
+
 const StaleBadge = styled.span`
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 3px 9px;
+  gap: 0.3rem;
+  padding: 3px 10px;
   border-radius: 999px;
-  font-size: 0.6rem;
+  font-size: 0.66rem;
   font-weight: 700;
-  background: #fef3c7;
-  color: #92400e;
+  background: #fffbeb;
+  color: #b45309;
   border: 1px solid #fde68a;
 `;
 
 const MetaLine = styled.div`
-  margin-top: 0.5rem;
-  font-size: 0.62rem;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed #cbfbef;
+  font-size: 0.7rem;
   color: #64748b;
   display: flex;
+  align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
 `;
 
 const Btn = styled.button`
-  padding: 0.45rem 1rem;
-  border-radius: 8px;
+  flex-shrink: 0;
+  padding: 0.55rem 1.35rem;
+  border-radius: 11px;
   border: none;
   background: linear-gradient(135deg, #0d9488, #14b8a6);
   color: #fff;
-  font-size: 0.72rem;
+  font-size: 0.82rem;
   font-weight: 700;
+  font-family: inherit;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.3);
-  transition: all 0.2s;
-  &:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(13, 148, 136, 0.4); }
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.32);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  &:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(13, 148, 136, 0.42); }
+  &:active:not(:disabled) { transform: translateY(0); }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
 const CancelBtn = styled.button`
-  padding: 0.35rem 0.8rem;
-  border-radius: 6px;
-  border: 1px solid #fca5a5;
+  flex-shrink: 0;
+  padding: 0.45rem 1rem;
+  border-radius: 10px;
+  border: 1px solid #fecaca;
   background: #fff;
   color: #dc2626;
-  font-size: 0.65rem;
-  font-weight: 600;
+  font-size: 0.74rem;
+  font-weight: 700;
+  font-family: inherit;
   cursor: pointer;
   &:hover:not(:disabled) { background: #fef2f2; }
   &:disabled {
@@ -139,42 +195,94 @@ const CancelBtn = styled.button`
   }
 `;
 
+const RunPanel = styled.div`
+  margin-top: 0.9rem;
+`;
+
+const ProgressHead = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+`;
+
+const ProgressPct = styled.span`
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f766e;
+  font-variant-numeric: tabular-nums;
+`;
+
+const ProgressCount = styled.span`
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+`;
+
 const ProgressBar = styled.div`
-  margin-top: 0.7rem;
   background: #ccfbf1;
-  border-radius: 8px;
-  height: 8px;
+  border-radius: 999px;
+  height: 10px;
   overflow: hidden;
   box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);
 `;
 
 const ProgressFill = styled.div`
   height: 100%;
-  background: linear-gradient(90deg, #14b8a6, #06b6d4, #22d3ee);
+  background: linear-gradient(90deg, #0d9488, #14b8a6, #2dd4bf, #14b8a6);
   background-size: 200% 100%;
-  border-radius: 8px;
+  animation: ${shimmer} 2.2s linear infinite;
+  border-radius: 999px;
   transition: width 0.4s ease;
   width: ${(p) => p.$pct}%;
 `;
 
 const StatusText = styled.p`
-  margin: 0.4rem 0 0;
+  margin: 0.5rem 0 0;
+  font-size: 0.74rem;
+  color: #334155;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const LogToggle = styled.button`
+  margin-top: 0.55rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #0f766e;
   font-size: 0.68rem;
-  color: #475569;
-  font-weight: 500;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  &:hover { color: #0d9488; }
+`;
+
+const LogChevron = styled.span`
+  display: inline-block;
+  transition: transform 0.2s;
+  font-size: 0.6rem;
+  ${(p) => p.$open && 'transform: rotate(90deg);'}
 `;
 
 const LogBox = styled.div`
-  margin-top: 0.5rem;
-  max-height: 80px;
+  margin-top: 0.4rem;
+  max-height: 96px;
   overflow-y: auto;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #f8fafc;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.62rem;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.66rem;
   color: #475569;
-  line-height: 1.6;
+  line-height: 1.65;
   scroll-behavior: smooth;
 `;
 
@@ -342,16 +450,16 @@ const ReportFab = styled.button`
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: linear-gradient(135deg, #d97706 0%, #f59e0b 60%, #fbbf24 100%);
+  background: ${(p) => p.$pending
+    ? 'linear-gradient(135deg, #d97706 0%, #f59e0b 60%, #fbbf24 100%)'
+    : 'linear-gradient(135deg, #0f766e 0%, #14b8a6 60%, #2dd4bf 100%)'};
   color: #fff;
   font-size: 1.3rem;
   cursor: pointer;
+  box-shadow: 0 6px 20px ${(p) => p.$pending ? 'rgba(245, 158, 11, 0.4)' : 'rgba(13, 148, 136, 0.4)'};
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 
-  ${(p) => p.$urgent
-    ? css`animation: ${fabPulseUrgent} 2s ease-in-out infinite;`
-    : css`animation: ${fabPulseCalm} 3s ease-in-out infinite;`
-  }
+  ${(p) => p.$pending && css`animation: ${fabPulseCalm} 3.2s ease-in-out infinite;`}
 
   ${(p) => p.$spinning && css`
     background: linear-gradient(135deg, #0d9488 0%, #14b8a6 60%, #2dd4bf 100%);
@@ -360,7 +468,7 @@ const ReportFab = styled.button`
 
   &:hover {
     transform: translateY(-3px) scale(1.08);
-    box-shadow: 0 10px 36px rgba(217, 119, 6, 0.55);
+    box-shadow: 0 10px 36px ${(p) => p.$pending ? 'rgba(217, 119, 6, 0.5)' : 'rgba(13, 148, 136, 0.5)'};
     animation: none;
   }
   &:active {
@@ -477,28 +585,6 @@ const ModalBody = styled.div`
   padding: 1.2rem 1.5rem;
   overflow-y: auto;
   flex: 1;
-`;
-
-const StatCard = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 0.8rem;
-  border-radius: 10px;
-  margin-bottom: 0.5rem;
-  background: ${(p) => p.$bg || '#f8fafc'};
-  border: 1px solid ${(p) => p.$border || '#e2e8f0'};
-`;
-
-const StatIcon = styled.span`
-  font-size: 1rem;
-  animation: ${checkBounce} 0.4s ease;
-`;
-
-const StatText = styled.span`
-  font-size: 0.76rem;
-  color: ${(p) => p.$color || '#334155'};
-  font-weight: 600;
 `;
 
 const SectionHeader = styled.button`
@@ -683,6 +769,124 @@ const OpenSubBtn = styled.button`
   &:hover { color: #0f766e; }
 `;
 
+/* ── Summary-first hero ── */
+const ReportHero = styled.div`
+  position: relative;
+  border-radius: 16px;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  color: #fff;
+  background: ${(p) => p.$tone === 'attention'
+    ? 'linear-gradient(135deg, #b45309 0%, #d97706 55%, #f59e0b 100%)'
+    : p.$tone === 'error'
+      ? 'linear-gradient(135deg, #9f1239 0%, #be123c 55%, #e11d48 100%)'
+      : 'linear-gradient(135deg, #0f766e 0%, #0d9488 55%, #14b8a6 100%)'};
+  box-shadow: 0 10px 30px ${(p) => p.$tone === 'attention'
+    ? 'rgba(217, 119, 6, 0.28)'
+    : p.$tone === 'error'
+      ? 'rgba(190, 18, 60, 0.28)'
+      : 'rgba(13, 148, 136, 0.28)'};
+`;
+
+const HeroGlow = styled.div`
+  position: absolute;
+  top: -40%;
+  right: -10%;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,0.22) 0%, transparent 70%);
+  pointer-events: none;
+`;
+
+const HeroTop = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  position: relative;
+`;
+
+const HeroEmoji = styled.span`
+  font-size: 1.5rem;
+  animation: ${checkBounce} 0.5s ease;
+`;
+
+const HeroVerdict = styled.div`
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+`;
+
+const HeroSub = styled.div`
+  position: relative;
+  margin-top: 0.35rem;
+  font-size: 0.74rem;
+  font-weight: 500;
+  opacity: 0.92;
+  line-height: 1.5;
+`;
+
+const StatChipRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+`;
+
+const StatChip = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: ${(p) => p.$bg || '#f8fafc'};
+  color: ${(p) => p.$color || '#334155'};
+  border: 1px solid ${(p) => p.$border || '#e2e8f0'};
+
+  strong { font-weight: 800; font-variant-numeric: tabular-nums; }
+`;
+
+const RetryBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.2rem 0 0.9rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+`;
+
+const RetryText = styled.div`
+  font-size: 0.72rem;
+  color: #0f766e;
+  font-weight: 600;
+  line-height: 1.4;
+`;
+
+const RetryButton = styled.button`
+  flex-shrink: 0;
+  padding: 0.5rem 1.1rem;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #0d9488, #14b8a6);
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(13, 148, 136, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  &:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 5px 16px rgba(13, 148, 136, 0.4); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+`;
+
 /* ═══════════════════════════════════════════
    EXPORTED: Floating Button
    ═══════════════════════════════════════════ */
@@ -690,7 +894,6 @@ export function KhmdhsBatchReportFab({ pendingItems, onClick, isRunning, hasRepo
   if (!pendingItems?.length && !isRunning && !hasReport) return null;
 
   const count = pendingItems?.length || 0;
-  const urgent = count > 5;
   const tooltipText = isRunning
     ? 'Μαζική ανανέωση σε εξέλιξη…'
     : count > 0
@@ -700,7 +903,7 @@ export function KhmdhsBatchReportFab({ pendingItems, onClick, isRunning, hasRepo
   return (
     <ReportFab
       onClick={onClick}
-      $urgent={urgent && !isRunning}
+      $pending={count > 0 && !isRunning}
       $spinning={isRunning}
       title=""
     >
@@ -772,12 +975,14 @@ export function KhmdhsBatchReportModal({
   results,
   pendingItems,
   onNavigateToSubproject,
+  onRetry,
 }) {
   const [openSections, setOpenSections] = useState({
     refreshed: true,
     attention: true,
     unchanged: false,
     failed: true,
+    later: true,
     intervened: true,
     skipped: false,
   });
@@ -789,7 +994,9 @@ export function KhmdhsBatchReportModal({
   const refreshedItems = items.filter((i) => i.status === 'refreshed' && i.category === 'applied');
   const attentionItems = items.filter((i) => i.status === 'refreshed' && i.category === 'attention');
   const unchangedItems = items.filter((i) => i.status === 'refreshed' && (i.category === 'unchanged' || (!i.category && !i.hasSubstantiveChanges)));
-  const failedItems = items.filter((i) => i.status === 'failed');
+  // Τα κλειδωμένα δεν είναι «αποτυχία» — απλώς τα δούλευε κάποιος τη στιγμή εκείνη.
+  const failedItems = items.filter((i) => i.status === 'failed' && i.phase !== 'lock');
+  const laterItems = items.filter((i) => i.status === 'failed' && i.phase === 'lock');
   const skippedItems = items.filter((i) => i.status === 'skipped');
   const intervenedFromItems = items.filter((i) => i.status === 'intervened');
   const interventionList = pendingItems?.length
@@ -798,6 +1005,35 @@ export function KhmdhsBatchReportModal({
 
   const allResolved = (!pendingItems || pendingItems.length === 0)
     && (results.needsIntervention > 0 || intervenedFromItems.length > 0);
+
+  // Υποψήφια για «Επανάληψη»: πραγματικές αποτυχίες + κλειδωμένα (ό,τι δεν ολοκληρώθηκε).
+  const retryCandidates = [...failedItems, ...laterItems]
+    .filter((i) => i.id)
+    .map((i) => ({ id: i.id, label: i.label }));
+
+  // Ιεραρχία ευρημάτων: πρώτο ό,τι θέλει ενέργεια, μετά ό,τι πήγε καλά.
+  const okCount = refreshedItems.length + unchangedItems.length;
+  const needsActionCount = interventionList.length + failedItems.length;
+  const heroTone = failedItems.length > 0
+    ? 'error'
+    : needsActionCount > 0
+      ? 'attention'
+      : 'ok';
+  const heroEmoji = heroTone === 'error' ? '⚠️' : heroTone === 'attention' ? '📝' : '🎉';
+  const heroVerdict = heroTone === 'error'
+    ? 'Ολοκληρώθηκε — χρειάζεται μια ματιά'
+    : heroTone === 'attention'
+      ? 'Σχεδόν έτοιμο — μένουν λίγες ενέργειες'
+      : 'Όλα ενημερωμένα!';
+  const heroParts = [];
+  if (refreshedItems.length) heroParts.push(`${refreshedItems.length} ενημερώθηκαν`);
+  if (attentionItems.length) heroParts.push(`${attentionItems.length} θέλουν προσοχή`);
+  if (unchangedItems.length) heroParts.push(`${unchangedItems.length} χωρίς αλλαγές`);
+  if (interventionList.length) heroParts.push(`${interventionList.length} για χαρακτηρισμό`);
+  if (failedItems.length) heroParts.push(`${failedItems.length} απέτυχαν`);
+  if (laterItems.length) heroParts.push(`${laterItems.length} για αργότερα`);
+  if (skippedItems.length) heroParts.push(`${skippedItems.length} εκτός`);
+  const heroSub = heroParts.length ? heroParts.join(' · ') : 'Δεν καταγράφηκαν ευρήματα.';
 
   const toggleSection = (key) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -814,6 +1050,12 @@ export function KhmdhsBatchReportModal({
     }
   };
 
+  const handleRetry = () => {
+    if (typeof onRetry === 'function' && retryCandidates.length) {
+      onRetry(retryCandidates);
+    }
+  };
+
   return (
     <ModalOverlay onClick={onClose}>
       <ModalBox onClick={(e) => e.stopPropagation()}>
@@ -822,44 +1064,62 @@ export function KhmdhsBatchReportModal({
           <ModalCloseBtn onClick={onClose}>✕</ModalCloseBtn>
         </ModalHeader>
         <ModalBody>
-          <StatCard $bg="#ecfdf5" $border="#6ee7b7">
-            <StatIcon>✅</StatIcon>
-            <StatText $color="#065f46">
-              Ενημερώθηκαν με αλλαγές: <strong>{refreshedItems.length}</strong>
-              {unchangedItems.length > 0 && (
-                <> · χωρίς ουσιώδεις διαφορές: <strong>{unchangedItems.length}</strong></>
-              )}
-              {attentionItems.length > 0 && (
-                <> · χρειάζονται προσοχή: <strong>{attentionItems.length}</strong></>
-              )}
-            </StatText>
-          </StatCard>
+          <ReportHero $tone={heroTone}>
+            <HeroGlow />
+            <HeroTop>
+              <HeroEmoji>{heroEmoji}</HeroEmoji>
+              <HeroVerdict>{heroVerdict}</HeroVerdict>
+            </HeroTop>
+            <HeroSub>{heroSub}</HeroSub>
+          </ReportHero>
 
-          {(results.failed > 0 || failedItems.length > 0) && (
-            <StatCard $bg="#fef2f2" $border="#fca5a5">
-              <StatIcon>❌</StatIcon>
-              <StatText $color="#991b1b">
-                Αποτυχία: <strong>{results.failed || failedItems.length}</strong> υποέργα
-              </StatText>
-            </StatCard>
-          )}
+          <StatChipRow>
+            {okCount > 0 && (
+              <StatChip $bg="#ecfdf5" $color="#065f46" $border="#6ee7b7">
+                ✅ Ενημερωμένα <strong>{okCount}</strong>
+              </StatChip>
+            )}
+            {attentionItems.length > 0 && (
+              <StatChip $bg="#fffbeb" $color="#92400e" $border="#fde68a">
+                ℹ️ Προσοχή <strong>{attentionItems.length}</strong>
+              </StatChip>
+            )}
+            {interventionList.length > 0 && (
+              <StatChip $bg="#fffbeb" $color="#b45309" $border="#fde68a">
+                ⚠️ Χαρακτηρισμός <strong>{interventionList.length}</strong>
+              </StatChip>
+            )}
+            {failedItems.length > 0 && (
+              <StatChip $bg="#fef2f2" $color="#991b1b" $border="#fecaca">
+                ❌ Απέτυχαν <strong>{failedItems.length}</strong>
+              </StatChip>
+            )}
+            {laterItems.length > 0 && (
+              <StatChip $bg="#f1f5f9" $color="#475569" $border="#cbd5e1">
+                🔒 Αργότερα <strong>{laterItems.length}</strong>
+              </StatChip>
+            )}
+            {skippedItems.length > 0 && (
+              <StatChip $bg="#f8fafc" $color="#64748b" $border="#e2e8f0">
+                ⏭️ Εκτός <strong>{skippedItems.length}</strong>
+              </StatChip>
+            )}
+          </StatChipRow>
 
-          {interventionList.length > 0 && (
-            <StatCard $bg="#fffbeb" $border="#fde68a">
-              <StatIcon>⚠️</StatIcon>
-              <StatText $color="#92400e">
-                Χρειάζονται χαρακτηρισμό: <strong>{interventionList.length}</strong>
-              </StatText>
-            </StatCard>
-          )}
-
-          {(results.skipped > 0 || skippedItems.length > 0) && (
-            <StatCard $bg="#f8fafc" $border="#e2e8f0">
-              <StatIcon>⏭️</StatIcon>
-              <StatText $color="#475569">
-                Παραλείφθηκαν: <strong>{results.skipped || skippedItems.length}</strong>
-              </StatText>
-            </StatCard>
+          {typeof onRetry === 'function' && retryCandidates.length > 0 && (
+            <RetryBar>
+              <RetryText>
+                {failedItems.length > 0 && laterItems.length > 0
+                  ? `${failedItems.length} απέτυχαν και ${laterItems.length} έμειναν κλειδωμένα.`
+                  : failedItems.length > 0
+                    ? `${failedItems.length} υποέργα δεν ολοκληρώθηκαν.`
+                    : `${laterItems.length} υποέργα ήταν κλειδωμένα τη στιγμή εκείνη.`}
+                {' '}Θέλετε να ξαναπροσπαθήσουμε μόνο αυτά;
+              </RetryText>
+              <RetryButton type="button" onClick={handleRetry}>
+                🔁 Επανάληψη ({retryCandidates.length})
+              </RetryButton>
+            </RetryBar>
           )}
 
           {refreshedItems.length > 0 && (
@@ -966,14 +1226,39 @@ export function KhmdhsBatchReportModal({
                   border="#fca5a5"
                   bg="#fef2f2"
                   icon="❌"
-                  meta={
-                    item.phase === 'lock'
-                      ? 'Κλειδωμένο από άλλον χρήστη'
-                      : summarizeKhmdhsFetchFailure(item.error || item.reason)
-                  }
+                  meta={summarizeKhmdhsFetchFailure(item.error || item.reason)}
                   onNavigate={goTo}
                 />
               ))}
+            </>
+          )}
+
+          {laterItems.length > 0 && (
+            <>
+              <SectionHeader $color="#475569" onClick={() => toggleSection('later')}>
+                <SectionChevron $open={openSections.later}>▶</SectionChevron>
+                🔒 Για αργότερα — ήταν σε χρήση ({laterItems.length})
+              </SectionHeader>
+              {openSections.later && (
+                <>
+                  <SkippedList style={{ marginBottom: '0.4rem' }}>
+                    Τα υποέργα αυτά τα επεξεργαζόταν κάποιος τη στιγμή της ανανέωσης, γι' αυτό τα αφήσαμε ανέγγιχτα. Ξαναδοκιμάστε τα αργότερα.
+                  </SkippedList>
+                  {laterItems.map((item) => (
+                    <ReportItemCard
+                      key={`later-${item.id}`}
+                      item={item}
+                      open={!!openItems[`later-${item.id}`]}
+                      onToggle={() => toggleItem(`later-${item.id}`)}
+                      border="#cbd5e1"
+                      bg="#f1f5f9"
+                      icon="🔒"
+                      meta={item.error || 'Ήταν κλειδωμένο από άλλον χρήστη'}
+                      onNavigate={goTo}
+                    />
+                  ))}
+                </>
+              )}
             </>
           )}
 
@@ -1012,7 +1297,7 @@ export function KhmdhsBatchReportModal({
           )}
 
           {!refreshedItems.length && !attentionItems.length && !unchangedItems.length
-            && !failedItems.length && !interventionList.length && !skippedItems.length && (
+            && !failedItems.length && !laterItems.length && !interventionList.length && !skippedItems.length && (
             <SkippedList>
               Δεν καταγράφηκαν λεπτομέρειες για αυτή την εκτέλεση.
             </SkippedList>
@@ -1037,6 +1322,7 @@ export default function KhmdhsBatchRefreshWidget({
   oldestDays = null,
   lastRunInfo = null,
   hasReport = false,
+  retrySignal = null,
 }) {
   const { showToast } = useToast();
   const [running, setRunning] = useState(false);
@@ -1050,6 +1336,7 @@ export default function KhmdhsBatchRefreshWidget({
   const [batchScope, setBatchScope] = useState('stale'); // 'stale' | 'all'
   const cancelRef = useRef(false);
   const [cancelRequested, setCancelRequested] = useState(false);
+  const [showLog, setShowLog] = useState(false);
   const logRef = useRef(null);
 
   const canUse = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
@@ -1116,62 +1403,75 @@ export default function KhmdhsBatchRefreshWidget({
     await fetchEligiblePreview({ resetScope: false });
   }, [fetchEligiblePreview]);
 
-  const handleBatchRefresh = useCallback(async () => {
+  const handleBatchRefresh = useCallback(async (opts = {}) => {
+    // Λίστα συγκεκριμένων υποέργων για «Επανάληψη» (failed/κλειδωμένα) — παρακάμπτει
+    // τον εντοπισμό επιλεξιμότητας και το φιλτράρισμα εμβέλειας.
+    const retryItems = Array.isArray(opts.retryItems) ? opts.retryItems : null;
     const scope = batchScope;
     setConfirmOpen(false);
     setRunning(true);
     setLogEntries([]);
+    setShowLog(false);
     cancelRef.current = false;
     setCancelRequested(false);
     setProgress({ current: 0, total: 0, label: 'Εντοπισμός υποέργων…' });
 
     try {
-      // Επαναχρησιμοποίηση preview αν είναι φρέσκο (< 2 λεπτά)· αλλιώς ξανασάρωση (#4)
-      const previewAgeMs = eligiblePreviewAtRef.current
-        ? Date.now() - eligiblePreviewAtRef.current
-        : Infinity;
-      const previewIsFresh = Array.isArray(eligiblePreview)
-        && eligiblePreviewAtRef.current > 0
-        && previewAgeMs <= ELIGIBLE_PREVIEW_MAX_AGE_MS;
+      let eligible;
+      const skippedItems = [];
 
-      let allEligible = previewIsFresh ? eligiblePreview : null;
-      let skipped = previewIsFresh ? eligibleSkippedRef.current : null;
-      if (!allEligible) {
-        const eligRes = await ipcRenderer.invoke('batch-khmdhs-refresh-eligible', {
-          actingUsername: currentUser?.username,
-        });
-        if (!eligRes?.success) {
-          showToast(eligRes?.error || 'Σφάλμα', 'error');
-          setRunning(false);
-          return;
+      if (retryItems) {
+        eligible = retryItems
+          .filter((it) => it && it.id)
+          .map((it) => ({ id: it.id, label: it.label || it.id }));
+      } else {
+        // Επαναχρησιμοποίηση preview αν είναι φρέσκο (< 2 λεπτά)· αλλιώς ξανασάρωση (#4)
+        const previewAgeMs = eligiblePreviewAtRef.current
+          ? Date.now() - eligiblePreviewAtRef.current
+          : Infinity;
+        const previewIsFresh = Array.isArray(eligiblePreview)
+          && eligiblePreviewAtRef.current > 0
+          && previewAgeMs <= ELIGIBLE_PREVIEW_MAX_AGE_MS;
+
+        let allEligible = previewIsFresh ? eligiblePreview : null;
+        let skipped = previewIsFresh ? eligibleSkippedRef.current : null;
+        if (!allEligible) {
+          const eligRes = await ipcRenderer.invoke('batch-khmdhs-refresh-eligible', {
+            actingUsername: currentUser?.username,
+          });
+          if (!eligRes?.success) {
+            showToast(eligRes?.error || 'Σφάλμα', 'error');
+            setRunning(false);
+            return;
+          }
+          allEligible = eligRes.eligible || [];
+          skipped = eligRes.skipped || [];
+          eligibleSkippedRef.current = skipped;
+          eligiblePreviewAtRef.current = Date.now();
         }
-        allEligible = eligRes.eligible || [];
-        skipped = eligRes.skipped || [];
-        eligibleSkippedRef.current = skipped;
-        eligiblePreviewAtRef.current = Date.now();
-      }
 
-      const skippedItems = (skipped || []).map((s) => ({
-        status: 'skipped',
-        id: s.id,
-        label: s.label,
-        reason: s.reason || 'Παραλείφθηκε',
-      }));
+        skippedItems.push(...(skipped || []).map((s) => ({
+          status: 'skipped',
+          id: s.id,
+          label: s.label,
+          reason: s.reason || 'Παραλείφθηκε',
+        })));
 
-      let eligible = allEligible || [];
-      if (scope === 'stale') {
-        const freshSkipped = eligible
-          .filter((item) => !isEligibleStale(item))
-          .map((item) => ({
-            status: 'skipped',
-            id: item.id,
-            label: item.label,
-            reason: item.ageDays != null
-              ? `Πρόσφατα ανανεωμένο (${item.ageDays} ημ.) — εκτός επιλογής`
-              : 'Πρόσφατα ανανεωμένο — εκτός επιλογής',
-          }));
-        skippedItems.push(...freshSkipped);
-        eligible = eligible.filter((item) => isEligibleStale(item));
+        eligible = allEligible || [];
+        if (scope === 'stale') {
+          const freshSkipped = eligible
+            .filter((item) => !isEligibleStale(item))
+            .map((item) => ({
+              status: 'skipped',
+              id: item.id,
+              label: item.label,
+              reason: item.ageDays != null
+                ? `Πρόσφατα ανανεωμένο (${item.ageDays} ημ.) — εκτός επιλογής`
+                : 'Πρόσφατα ανανεωμένο — εκτός επιλογής',
+            }));
+          skippedItems.push(...freshSkipped);
+          eligible = eligible.filter((item) => isEligibleStale(item));
+        }
       }
 
       const total = eligible.length;
@@ -1444,19 +1744,24 @@ export default function KhmdhsBatchRefreshWidget({
         onRefreshComplete();
       }
 
+      const lockedCount = detailItems.filter((d) => d.status === 'failed' && d.phase === 'lock').length;
+      const realFailed = Math.max(0, failed - lockedCount);
+
       if (cancelRef.current) {
         showToast(
           `Η μαζική ανανέωση ακυρώθηκε. Ολοκληρώθηκαν ${refreshed} από ${total}` +
           (needsIntervention ? `, ${needsIntervention} χρειάζονται χαρακτηρισμό` : '') +
-          (failed ? `, ${failed} απέτυχαν` : ''),
+          (realFailed ? `, ${realFailed} απέτυχαν` : '') +
+          (lockedCount ? `, ${lockedCount} για αργότερα` : ''),
           'info'
         );
       } else {
         showToast(
           `Μαζική ανανέωση ολοκληρώθηκε: ${refreshed} ενημερώθηκαν` +
           (needsIntervention ? `, ${needsIntervention} χρειάζονται χαρακτηρισμό` : '') +
-          (failed ? `, ${failed} απέτυχαν` : ''),
-          needsIntervention ? 'warning' : 'success'
+          (realFailed ? `, ${realFailed} απέτυχαν` : '') +
+          (lockedCount ? `, ${lockedCount} για αργότερα (ήταν σε χρήση)` : ''),
+          (needsIntervention || realFailed) ? 'warning' : 'success'
         );
       }
     } catch (e) {
@@ -1495,21 +1800,43 @@ export default function KhmdhsBatchRefreshWidget({
     }
   }, [cancelRequested, currentUser, addLog]);
 
+  const lastRetryTokenRef = useRef(null);
+  useEffect(() => {
+    if (!retrySignal || !retrySignal.token) return;
+    if (lastRetryTokenRef.current === retrySignal.token) return;
+    lastRetryTokenRef.current = retrySignal.token;
+    const items = Array.isArray(retrySignal.items) ? retrySignal.items : [];
+    if (!items.length || running) return;
+    void handleBatchRefresh({ retryItems: items });
+  }, [retrySignal, running, handleBatchRefresh]);
+
   if (!canUse) return null;
 
   return (
     <>
       <Container>
         <Header>
-          <Title>
-            🔄 Μαζική ανανέωση ΚΗΜΔΗΣ
-            {staleCount > 0 && (
-              <StaleBadge>
-                🟡 {staleCount} χρειάζονται ανανέωση
-                {oldestDays ? ` · παλαιότερο ${oldestDays} ημ.` : ''}
-              </StaleBadge>
-            )}
-          </Title>
+          <HeaderLeft>
+            <IconChip>{running ? <FabSpinner>⟳</FabSpinner> : '🔄'}</IconChip>
+            <TitleGroup>
+              <Title>
+                Μαζική ανανέωση ΚΗΜΔΗΣ
+                {!running && staleCount > 0 && (
+                  <StaleBadge>
+                    🟡 {staleCount} για ανανέωση
+                    {oldestDays ? ` · έως ${oldestDays} ημ.` : ''}
+                  </StaleBadge>
+                )}
+              </Title>
+              <Subtitle>
+                {running
+                  ? 'Ανανέωση σε εξέλιξη — ενημερώνουμε τα υποέργα από το ΚΗΜΔΗΣ…'
+                  : staleCount > 0
+                    ? 'Ελέγχει το ΚΗΜΔΗΣ και ενημερώνει αυτόματα τα υποέργα σας.'
+                    : 'Όλα ενημερωμένα — τρέξτε έλεγχο όποτε θέλετε.'}
+              </Subtitle>
+            </TitleGroup>
+          </HeaderLeft>
           {!running && (
             <Btn onClick={handleConfirmStart}>Εκτέλεση</Btn>
           )}
@@ -1526,7 +1853,7 @@ export default function KhmdhsBatchRefreshWidget({
 
         {lastRunInfo && !running && (
           <MetaLine>
-            <span>Τελευταία: {lastRunInfo.date} — {lastRunInfo.refreshed} ενημερώθηκαν</span>
+            <span>🕓 Τελευταία εκτέλεση: {lastRunInfo.date} — {lastRunInfo.refreshed} ενημερώθηκαν</span>
             {hasReport && typeof onOpenReport === 'function' && (
               <ReportLinkBtn type="button" onClick={onOpenReport}>
                 📋 Δείτε αναφορά
@@ -1536,19 +1863,35 @@ export default function KhmdhsBatchRefreshWidget({
         )}
 
         {running && (
-          <>
+          <RunPanel>
+            <ProgressHead>
+              <ProgressPct>
+                {progress.total ? Math.round((progress.current / progress.total) * 100) : 0}%
+              </ProgressPct>
+              {progress.total > 0 && (
+                <ProgressCount>{progress.current} / {progress.total} υποέργα</ProgressCount>
+              )}
+            </ProgressHead>
             <ProgressBar>
               <ProgressFill $pct={progress.total ? Math.round((progress.current / progress.total) * 100) : 0} />
             </ProgressBar>
             <StatusText>{progress.label}</StatusText>
             {logEntries.length > 0 && (
-              <LogBox ref={logRef}>
-                {logEntries.slice(-6).map((entry) => (
-                  <LogEntry key={entry.ts}>{entry.icon} {entry.text}</LogEntry>
-                ))}
-              </LogBox>
+              <>
+                <LogToggle type="button" onClick={() => setShowLog((v) => !v)}>
+                  <LogChevron $open={showLog}>▶</LogChevron>
+                  {showLog ? 'Απόκρυψη λεπτομερειών' : 'Προβολή λεπτομερειών ροής'}
+                </LogToggle>
+                {showLog && (
+                  <LogBox ref={logRef}>
+                    {logEntries.slice(-8).map((entry) => (
+                      <LogEntry key={entry.ts}>{entry.icon} {entry.text}</LogEntry>
+                    ))}
+                  </LogBox>
+                )}
+              </>
             )}
-          </>
+          </RunPanel>
         )}
       </Container>
 

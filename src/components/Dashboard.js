@@ -3058,6 +3058,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [khmdhsOldestDays, setKhmdhsOldestDays] = useState(null);
   const [khmdhsLastRun, setKhmdhsLastRun] = useState(null);
   const [khmdhsBatchRunning, setKhmdhsBatchRunning] = useState(false);
+  const [khmdhsRetrySignal, setKhmdhsRetrySignal] = useState(null);
   const [notes, setNotes] = useState([]);
   const [notesSearch, setNotesSearch] = useState('');
   const [editingNote, setEditingNote] = useState(null);
@@ -5986,6 +5987,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 oldestDays={khmdhsOldestDays}
                 lastRunInfo={khmdhsLastRun}
                 hasReport={!!batchReportResults}
+                retrySignal={khmdhsRetrySignal}
               />
             </Suspense>
           )}
@@ -7425,6 +7427,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         onNavigateToSubproject={(subprojectId) => {
           const p = projects.find((row) => row.subprojectId === subprojectId);
           if (p) openSubprojectDetail(p);
+        }}
+        onRetry={(retryItems) => {
+          if (!Array.isArray(retryItems) || !retryItems.length) return;
+          setIsBatchReportOpen(false);
+          setKhmdhsRetrySignal({ items: retryItems, token: Date.now() });
         }}
       />
 
