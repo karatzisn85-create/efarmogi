@@ -29,6 +29,7 @@ const {
   sendTestEmail
 } = require('./taskAssignmentEmailService');
 const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
+const projectsIndex = require('./projectsIndex');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -1972,6 +1973,15 @@ async function handleSaveProjectData(event, projectData) {
     
     // Επιστρέφουμε και το πλήρες, κανονικοποιημένο αντικείμενο ώστε ο renderer να μπορεί
     // να ενημερώσει τοπικά τη λίστα χωρίς πλήρη επαναφόρτωση (Φάση 1 βελτίωσης απόδοσης)
+    try {
+      projectsIndex.upsertProjectsIndexEntry(dataDir, {
+        ...dataToSave,
+        projectId: finalProjectId,
+        subprojectId,
+      });
+    } catch (idxErr) {
+      console.error('projectsIndex upsert after save failed:', idxErr?.message || idxErr);
+    }
     return { success: true, projectId: finalProjectId, subprojectId, project: dataToSave };
   } catch (error) {
     console.error('Error saving project data:', error);
@@ -2143,6 +2153,7 @@ ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) =
     // Πλήρης διαγραφή υπαρχόντων (προαιρετικά)
     let deletedProjects = 0;
     if (wipeExisting) {
+      try { projectsIndex.invalidateProjectsIndex(dataDir); } catch { /* ignore */ }
       // Σαρώνει όλους τους φακέλους έργων στον δίσκο (όχι μόνο όσα περνούν το
       // φίλτρο τίτλων του loadAllProjects) ώστε να μην μείνουν ορφανά data.json
       // που μετά μετρούν ως «χρειάζονται ανανέωση ΚΗΜΔΗΣ».
@@ -2227,6 +2238,14 @@ ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) =
       details: `Εισαγωγή από Excel — νέα: ${created}, ενημερώσεις: ${updated}, παραλείψεις: ${skipped}, αποτυχίες: ${failed.length}${wipeExisting ? `, διαγραφή: ${deletedProjects}` : ''}`,
     });
 
+    // Ξαναχτίσιμο ευρετηρίου μετά τη μαζική εισαγωγή
+    try {
+      projectsIndex.invalidateProjectsIndex(dataDir);
+      await loadAllProjects();
+    } catch (idxErr) {
+      logger.error('commit-subprojects-excel-import: index rebuild failed', idxErr);
+    }
+
     return { success: true, created, updated, skipped, failed, deletedProjects, wipeExisting };
   } catch (e) {
     logger.error('commit-subprojects-excel-import failed', e);
@@ -2292,6 +2311,24 @@ const loadAllProjects = async () => {
     if (!fs.existsSync(dataDir)) {
       console.log('loadAllProjects: dataDir does not exist:', dataDir);
       return projects;
+    }
+
+    const t0 = Date.now();
+
+    // Γρήγορη διαδρομή μέσω ευρετηρίου (Φάση 2) — αν αποτύχει, πλήρης σάρωση
+    const indexed = projectsIndex.loadProjectsViaIndex(dataDir, {
+      skipRoot: DATA_DIR_SKIP_ROOT_DIRS,
+      normalizeProjectTypeField,
+      isProjectLocked,
+      loggedSubprojectIdMismatches,
+    });
+    if (Array.isArray(indexed)) {
+      console.log('loadAllProjects: summary', {
+        via: 'index',
+        returned: indexed.length,
+        ms: Date.now() - t0,
+      });
+      return indexed;
     }
 
     const projectDirs = fs.readdirSync(dataDir);
@@ -2390,7 +2427,21 @@ const loadAllProjects = async () => {
       }
     }
 
-    console.log('loadAllProjects: summary', { scannedProjects: scanned, skippedRoot: skipped, errors: errored, returned: projects.length });
+    // Ξαναχτίσιμο ευρετηρίου μετά από πλήρη σάρωση (ασφαλές, μη κρίσιμο αν αποτύχει)
+    try {
+      projectsIndex.rebuildProjectsIndex(dataDir, projects);
+    } catch (idxErr) {
+      console.error('loadAllProjects: index rebuild failed', idxErr?.message || idxErr);
+    }
+
+    console.log('loadAllProjects: summary', {
+      via: 'scan',
+      scannedProjects: scanned,
+      skippedRoot: skipped,
+      errors: errored,
+      returned: projects.length,
+      ms: Date.now() - t0,
+    });
     return projects;
   } catch (error) {
     console.error('Error loading projects:', error);
@@ -2401,6 +2452,21 @@ const loadAllProjects = async () => {
 // IPC Handler για λήψη όλων των έργων
 ipcMain.handle('load-all-projects', async () => {
   return await loadAllProjects();
+});
+
+// Επαναδημιουργία ευρετηρίου υποέργων (SUPERADMIN) — Φάση 2
+ipcMain.handle('rebuild-projects-index', async (_event, { actingUsername } = {}) => {
+  try {
+    if (!isSuperAdminUser(actingUsername || loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    projectsIndex.invalidateProjectsIndex(dataDir);
+    const projects = await loadAllProjects();
+    return { success: true, count: projects.length };
+  } catch (error) {
+    console.error('rebuild-projects-index failed:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // IPC Handler: επιλογές φίλτρου «Χρεωμένο σε» (νέο σύστημα χρέωσης)
@@ -3867,6 +3933,12 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
         oldValue: deletedData,
         newValue: null
       });
+    }
+
+    try {
+      projectsIndex.removeProjectsIndexEntry(dataDir, subprojectId);
+    } catch (idxErr) {
+      console.error('projectsIndex remove after delete failed:', idxErr?.message || idxErr);
     }
     
     return { success: true };
@@ -16673,6 +16745,18 @@ function meletaiFreeChargeFilterKey(text) {
 function findSubprojectDataById(subprojectId) {
   const sid = String(subprojectId || '').trim();
   if (!sid || !dataDir || !fs.existsSync(dataDir)) return null;
+
+  // Γρήγορη διαδρομή μέσω ευρετηρίου
+  try {
+    const indexedPath = projectsIndex.findIndexedSubprojectPath(dataDir, sid);
+    if (indexedPath) {
+      try {
+        const data = JSON.parse(fs.readFileSync(indexedPath, 'utf8'));
+        if (!data.subprojectId || data.subprojectId === sid) return data;
+      } catch { /* fallback to scan */ }
+    }
+  } catch { /* fallback */ }
+
   for (const dir of fs.readdirSync(dataDir)) {
     if (DATA_DIR_SKIP_ROOT_DIRS.has(dir)) continue;
     const projectPath = path.join(dataDir, dir);

@@ -57,6 +57,7 @@ const ALLOWED_INVOKE = new Set([
   'save-modification','save-note-groups','save-notes','save-project-data',
   'export-subprojects-import-template','select-subprojects-import-xlsx',
   'preview-subprojects-excel-import','commit-subprojects-excel-import',
+  'rebuild-projects-index',
   'save-prosklisi',  'save-prosklisi-modification','scan-egkriseis-folder',
   'upload-prosklisi-files',
   'select-data-folder','select-file','select-folder','select-folder-files-flat','select-multiple-files','set-dashboard-session-active',

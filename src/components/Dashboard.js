@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, lazy, useDeferredValue } from 'react';
 import styled, { keyframes } from 'styled-components';
 import ProjectForm from './ProjectForm';
 
@@ -455,6 +455,8 @@ const ProjectsTitle = styled.h2`
 
 
 const ProjectGroup = styled.div`
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
   margin-bottom: 2.5rem;
   border: 1.5px solid rgba(165, 180, 252, 0.45);
   border-radius: 18px;
@@ -2695,6 +2697,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isStatisticsModalOpen, setIsStatisticsModalOpen] = useState(false);
   const [portfolioDrillFilter, setPortfolioDrillFilter] = useState(null);
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
+  // Φάση 1β/3: στατιστικά μετά το πρώτο paint · virtualization ομάδων
+  const [summaryStatsReady, setSummaryStatsReady] = useState(false);
+  const [visibleGroupWindow, setVisibleGroupWindow] = useState({ start: 0, end: 40 });
 
   const toggleGroupCollapse = useCallback((projectId) => {
     setCollapsedGroups(prev => {
@@ -3252,6 +3257,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     loadDataWithCache();
     loadLinkedEgkriseis();
 
+    // Φάση 1β: τα συνοπτικά στατιστικά μετά το πρώτο paint — όχι στο κρίσιμο μονοπάτι ανοίγματος
+    let idleId = null;
+    let timeoutId = null;
+    const enableStats = () => setSummaryStatsReady(true);
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(enableStats, { timeout: 1200 });
+    } else {
+      timeoutId = setTimeout(enableStats, 400);
+    }
+
     // Listener για file watcher events - χρήση functional update για fresh state
     const handleLocksChanged = () => {
       console.log('Locks changed event received, refreshing lock status...');
@@ -3281,6 +3296,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
     return () => {
       unsubscribe();
+      if (idleId != null && typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId != null) clearTimeout(timeoutId);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3357,6 +3376,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   // Debounce για quickSearchText - αποφυγή συνεχών κλήσεων applyFilters
   const debounceTimeoutRef = useRef(null);
   const [debouncedQuickSearchText, setDebouncedQuickSearchText] = useState('');
+  const deferredQuickSearchText = useDeferredValue(debouncedQuickSearchText);
   const quickSearchInputRef = useRef(null);
 
   useEffect(() => {
@@ -3437,18 +3457,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       let filtered = [...visibleProjects];
 
       // Quick Search - text search in all fields
-      if (debouncedQuickSearchText) {
+      if (deferredQuickSearchText) {
         filtered = filtered.filter(p => {
           const aleCodesMatch = (p.aleCodes && Array.isArray(p.aleCodes) && 
-            p.aleCodes.some(code => containsSearchTerm(code, debouncedQuickSearchText))) ||
-            containsSearchTerm(p.aleCode, debouncedQuickSearchText);
+            p.aleCodes.some(code => containsSearchTerm(code, deferredQuickSearchText))) ||
+            containsSearchTerm(p.aleCode, deferredQuickSearchText);
           
-          return containsSearchTerm(p.projectTitle, debouncedQuickSearchText) ||
-            containsSearchTerm(p.subprojectTitle, debouncedQuickSearchText) ||
-            containsSearchTerm(p.kaCode, debouncedQuickSearchText) ||
+          return containsSearchTerm(p.projectTitle, deferredQuickSearchText) ||
+            containsSearchTerm(p.subprojectTitle, deferredQuickSearchText) ||
+            containsSearchTerm(p.kaCode, deferredQuickSearchText) ||
             aleCodesMatch ||
-            containsSearchTerm(getProjectChargeSearchText(p, engineerCatalogForCards), debouncedQuickSearchText) ||
-            containsSearchTerm(getProjectKhmdhsSearchText(p), debouncedQuickSearchText);
+            containsSearchTerm(getProjectChargeSearchText(p, engineerCatalogForCards), deferredQuickSearchText) ||
+            containsSearchTerm(getProjectKhmdhsSearchText(p), deferredQuickSearchText);
         });
       }
 
@@ -3775,7 +3795,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     };
 
     setTimeout(performFiltering, 0);
-  }, [visibleProjects, debouncedQuickSearchText, quickSearchStatus, quickSearchType, showArchivedProjects, engineerCatalogForCards]);
+  }, [visibleProjects, deferredQuickSearchText, quickSearchStatus, quickSearchType, showArchivedProjects, engineerCatalogForCards]);
 
   // Apply filters when dependencies change
   const applyFiltersTimeoutRef = useRef(null);
@@ -3793,7 +3813,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         clearTimeout(applyFiltersTimeoutRef.current);
       }
     };
-  }, [debouncedQuickSearchText, quickSearchStatus, quickSearchType, advancedFilters, applyFilters, showArchivedProjects]);
+  }, [deferredQuickSearchText, quickSearchStatus, quickSearchType, advancedFilters, applyFilters, showArchivedProjects]);
 
   // Realtime lock monitoring - αθόρυβος έλεγχος με βελτιστοποίηση
   useEffect(() => {
@@ -3899,6 +3919,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       }
       
       console.log('🔄 Cache miss or expired - loading fresh data...');
+      const loadStartedAt = (typeof performance !== 'undefined' && performance.now)
+        ? performance.now()
+        : Date.now();
       
       // Batch processing για lock checks - μειώνει το blocking
       const [
@@ -3914,6 +3937,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         ipcRenderer.invoke('load-egkriseis-data'),
         ipcRenderer.invoke('load-egkrisi-links')
       ]);
+
+      const loadElapsedMs = Math.round(
+        ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - loadStartedAt
+      );
+      console.log(`⏱️ loadDataWithCache IPC bundle: ${loadElapsedMs}ms · projects=${(loadedProjects || []).length}`);
       
       refreshEpSubprojectMap();
       refreshMeletaiSubprojectMap();
@@ -4513,7 +4541,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         return;
       }
       showToast('Η κατάσταση ορίστηκε σε «Ολοκληρωμένο».', 'success');
-      await loadDataWithCache(true);
+      // Τοπική ενημέρωση — χωρίς πλήρη επαναφόρτωση (Φάση 1β)
+      if (result.project) {
+        setProjects((prev) => sortProjectsForDisplay(
+          prev.map((p) => (p.subprojectId === result.subprojectId
+            ? { ...p, ...result.project, isLocked: p.isLocked, lockedBy: p.lockedBy }
+            : p))
+        ));
+        invalidateCache();
+      } else {
+        await loadDataWithCache(true, { silent: true });
+      }
     } catch (error) {
       showToast(error?.message || 'Σφάλμα αποθήκευσης.', 'error');
     }
@@ -4539,7 +4577,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         
         if (clearStaleResult) {
           await ipcRenderer.invoke('clear-all-locks');
-          await loadProjects();
+          // Ανανέωση μόνο κλειδωμάτων — όχι πλήρης επαναφόρτωση όλων των έργων (Φάση 1β)
+          try {
+            const lockMap = await fetchProjectLockMap(ipcRenderer, projects);
+            setProjects((prev) => applyLockMapToProjects(prev, lockMap));
+          } catch { /* ignore */ }
           const newLockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
           if (newLockStatus.locked) {
             const whoStill = newLockStatus.lockedBy ? `«${newLockStatus.lockedBy}»` : 'άλλον διαχειριστή';
@@ -5746,6 +5788,53 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     }, {});
   }, [filteredProjects, portfolioDrillFilter]);
 
+  const sortedGroupedEntries = useMemo(() => (
+    Object.entries(groupedProjects)
+      .sort(([, subsA], [, subsB]) => {
+        const titleA = pickDisplayProjectTitleForGroup(subsA);
+        const titleB = pickDisplayProjectTitleForGroup(subsB);
+        return titleA.localeCompare(titleB, 'el', { sensitivity: 'base' });
+      })
+  ), [groupedProjects]);
+
+  // Φάση 3: παράθυρο ορατών ομάδων (virtualization χωρίς νέα dependency)
+  useEffect(() => {
+    const GROUP_ESTIMATE_PX = 320;
+    const OVERSCAN = 4;
+    const el = dashboardScrollRef.current;
+    if (!el) {
+      setVisibleGroupWindow({ start: 0, end: Math.min(40, sortedGroupedEntries.length) });
+      return undefined;
+    }
+
+    const updateWindow = () => {
+      const total = sortedGroupedEntries.length;
+      if (total <= 24) {
+        setVisibleGroupWindow({ start: 0, end: total });
+        return;
+      }
+      const scrollTop = el.scrollTop || 0;
+      const viewH = el.clientHeight || 800;
+      const listOffset = projectsListRef.current
+        ? Math.max(0, projectsListRef.current.offsetTop - el.offsetTop)
+        : 0;
+      const relative = Math.max(0, scrollTop - listOffset);
+      const start = Math.max(0, Math.floor(relative / GROUP_ESTIMATE_PX) - OVERSCAN);
+      const end = Math.min(total, Math.ceil((relative + viewH) / GROUP_ESTIMATE_PX) + OVERSCAN);
+      setVisibleGroupWindow((prev) => (
+        prev.start === start && prev.end === end ? prev : { start, end }
+      ));
+    };
+
+    updateWindow();
+    el.addEventListener('scroll', updateWindow, { passive: true });
+    window.addEventListener('resize', updateWindow);
+    return () => {
+      el.removeEventListener('scroll', updateWindow);
+      window.removeEventListener('resize', updateWindow);
+    };
+  }, [sortedGroupedEntries]);
+
   // Τα έργα που περνάνε στα στατιστικά — εξαιρούνται τα αρχειοθετημένα
   // εκτός αν ο χρήστης τα έχει επιλέξει ρητά
   const directAssignmentViolations = useMemo(
@@ -5961,18 +6050,22 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           />
 
           {/* Statistics — εξαιρούνται τα αρχειοθετημένα εκτός αν επιλεγούν */}
-          <Suspense fallback={<LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>}>
-            <Statistics
-              variant="summary"
-              projects={statisticsProjects}
-              directAssignmentViolations={statisticsDirectAssignmentViolations}
-              loggedInUsername={currentUser?.username || ''}
-              onPortfolioDrillDown={handlePortfolioDrillDown}
-              statisticsFilterNote={statisticsFilterNote}
-              statisticsScopeNote={statisticsScopeNote}
-              onOpenFullStatistics={() => setIsStatisticsModalOpen(true)}
-            />
-          </Suspense>
+          {summaryStatsReady ? (
+            <Suspense fallback={<LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>}>
+              <Statistics
+                variant="summary"
+                projects={statisticsProjects}
+                directAssignmentViolations={statisticsDirectAssignmentViolations}
+                loggedInUsername={currentUser?.username || ''}
+                onPortfolioDrillDown={handlePortfolioDrillDown}
+                statisticsFilterNote={statisticsFilterNote}
+                statisticsScopeNote={statisticsScopeNote}
+                onOpenFullStatistics={() => setIsStatisticsModalOpen(true)}
+              />
+            </Suspense>
+          ) : (
+            <LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>
+          )}
 
           {(userRole === 'ADMIN' || userRole === 'SUPERADMIN') && (
             <Suspense fallback={null}>
@@ -6089,13 +6182,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 );
               })()
             ) : (
-              Object.entries(groupedProjects)
-                .sort(([, subsA], [, subsB]) => {
-                  const titleA = pickDisplayProjectTitleForGroup(subsA);
-                  const titleB = pickDisplayProjectTitleForGroup(subsB);
-                  return titleA.localeCompare(titleB, 'el', { sensitivity: 'base' });
-                })
-                .map(([projectId, subprojects]) => {
+              <>
+                {visibleGroupWindow.start > 0 && (
+                  <div style={{ height: visibleGroupWindow.start * 320 }} aria-hidden="true" />
+                )}
+                {sortedGroupedEntries
+                  .slice(visibleGroupWindow.start, visibleGroupWindow.end)
+                  .map(([projectId, subprojects]) => {
                   const projectTitle = pickDisplayProjectTitleForGroup(subprojects);
                   // Calculate total entaxi amount for all subprojects in this project
                   // IMPORTANT: Use unique entaxis to avoid counting the same entaxi multiple times
@@ -6211,7 +6304,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                     )}
                   </ProjectGroup>
                   );
-                })
+                })}
+                {visibleGroupWindow.end < sortedGroupedEntries.length && (
+                  <div
+                    style={{ height: (sortedGroupedEntries.length - visibleGroupWindow.end) * 320 }}
+                    aria-hidden="true"
+                  />
+                )}
+              </>
             )}
           </ProjectsContainer>
 
@@ -6539,6 +6639,29 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 >
                   <AdminButtonIcon>🧰</AdminButtonIcon>
                   Εργαλεία προγραμματιστή
+                </AdminButton>
+              )}
+              {isSuperAdmin && (
+                <AdminButton
+                  onClick={async () => {
+                    try {
+                      const res = await ipcRenderer.invoke('rebuild-projects-index', {
+                        actingUsername: currentUser?.username,
+                      });
+                      if (res?.success) {
+                        showToast(`Το ευρετήριο ανανεώθηκε (${res.count || 0} υποέργα).`, 'success');
+                        await loadDataWithCache(true, { silent: true });
+                      } else {
+                        showToast(res?.error || 'Αποτυχία ανανέωσης ευρετηρίου.', 'error');
+                      }
+                    } catch (err) {
+                      showToast(err?.message || 'Αποτυχία ανανέωσης ευρετηρίου.', 'error');
+                    }
+                  }}
+                  title="Ξαναχτίζει το ευρετήριο υποέργων για πιο γρήγορο άνοιγμα"
+                >
+                  <AdminButtonIcon>📇</AdminButtonIcon>
+                  Επαναδημιουργία ευρετηρίου
                 </AdminButton>
               )}
             </CategoryBody>

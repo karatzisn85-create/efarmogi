@@ -1749,13 +1749,13 @@ function Statistics({
   );
 
   const procurementStats = useMemo(
-    () => buildProcurementStatistics(projects),
-    [projects]
+    () => (variant === 'summary' ? { activeCount: 0, totalEstimatedValue: 0, withNoticeCount: 0, cancelledCount: 0, avgDaysSignedToDeadline: null, procedureDistribution: {}, noticeTypeDistribution: {}, activeEstimatedByProcedure: {} } : buildProcurementStatistics(projects)),
+    [projects, variant]
   );
 
   const portfolioStats = useMemo(
-    () => buildKhmdhsPortfolioStatistics(projects),
-    [projects]
+    () => (variant === 'summary' ? { total: 0, healthBar: {}, awaitingFirstPaymentIds: [] } : buildKhmdhsPortfolioStatistics(projects)),
+    [projects, variant]
   );
 
   const applyPortfolioDrill = (key, extra = {}) => {
@@ -1913,6 +1913,24 @@ function Statistics({
       return acc;
     }, {});
 
+    // Σύνοψη dashboard: χωρίς βαριές υπολογισμούς αναδόχων / διαδικασιών ανάθεσης
+    if (variant === 'summary') {
+      return {
+        totalProjects, totalFunding, totalContracted,
+        inProgressCount, completedCount,
+        projectTypes, fundingSources, fundingDetails, projectStatuses,
+        assignmentProcedures: {}, assignmentWithProcedure: 0, assignmentWithoutProcedure: 0,
+        contractors: [],
+        uniqueContractors: 0,
+        projectsWithKhmdhs: 0,
+        contractsTimelineByYear: {},
+        contractorAmountByYear: {},
+        totalContractorAmount: 0,
+        totalContractorContracts: 0,
+        uniqueProjects
+      };
+    }
+
     const assignmentProcedures = {};
     ASSIGNMENT_PROCEDURES.forEach((proc) => {
       assignmentProcedures[proc] = { count: 0, amount: 0 };
@@ -1958,7 +1976,7 @@ function Statistics({
       totalContractorContracts,
       uniqueProjects
     };
-  }, [projects]);
+  }, [projects, variant]);
 
   useEffect(() => {
     if (!statistics.contractors.length) {
