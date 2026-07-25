@@ -720,10 +720,10 @@ const DetailCardBody = styled.div`
 `;
 
 const ChangeLine = styled.div`
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   color: #334155;
   line-height: 1.55;
-  padding: 0.15rem 0;
+  padding: 0.22rem 0;
   &::before {
     content: '•';
     color: #0d9488;
@@ -737,12 +737,81 @@ const ChangeLineMuted = styled(ChangeLine)`
   &::before { color: #94a3b8; }
 `;
 
+const ChangeLineWarn = styled(ChangeLine)`
+  color: #92400e;
+  font-weight: 600;
+  &::before { content: '⚠'; color: #d97706; }
+`;
+
+const ChangeGroupLabel = styled.div`
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #0f766e;
+  margin: 0.45rem 0 0.2rem;
+  letter-spacing: 0.01em;
+`;
+
+const RegistryBlock = styled.div`
+  margin-top: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+`;
+
+const RegistryToggle = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+`;
+
+const RegistryList = styled.ul`
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.68rem;
+  color: #475569;
+  line-height: 1.5;
+`;
+
 const ErrorLine = styled.div`
   font-size: 0.66rem;
   color: #991b1b;
   line-height: 1.45;
   padding: 0.35rem 0 0;
 `;
+
+const BATCH_REGISTRY_PREFIX = 'Νέο έγγραφο στα Αρχεία Υποέργου:';
+
+function splitBatchChangeLines(changeLines) {
+  const other = [];
+  const registry = [];
+  (changeLines || []).forEach((line) => {
+    if (String(line || '').startsWith(BATCH_REGISTRY_PREFIX)) {
+      registry.push(String(line).slice(BATCH_REGISTRY_PREFIX.length).trim());
+    } else {
+      other.push(line);
+    }
+  });
+  return { other, registry };
+}
+
+function summarizeAppliedChanges(appliedLines = []) {
+  const n = appliedLines.length;
+  if (!n) return 'Χωρίς καταγεγραμμένες προσθήκες';
+  const preview = appliedLines.slice(0, 2).join(' · ');
+  const more = n > 2 ? ` · (+${n - 2} ακόμη)` : '';
+  return `${n} προσθήκ${n === 1 ? 'η/αλλαγή' : 'ες/αλλαγές'}: ${preview}${more}`;
+}
 
 const ReportLinkBtn = styled.button`
   padding: 0.3rem 0.7rem;
@@ -923,10 +992,33 @@ function ReportItemCard({
   icon,
   meta,
   onNavigate,
+  defaultShowAllRegistry = false,
 }) {
-  const lines = item.changeLines || [];
+  const [showAllRegistry, setShowAllRegistry] = useState(defaultShowAllRegistry);
+  const appliedLines = item.appliedLines
+    || (item.category === 'applied' ? (item.changeLines || []) : []);
+  const attentionLines = item.attentionLines
+    || (item.category === 'attention' ? (item.changeLines || []) : []);
+  const allLines = item.changeLines || [...appliedLines, ...attentionLines];
   const isUnchanged = item.category === 'unchanged'
-    || (lines.length === 1 && lines[0] === KHMDHS_REFRESH_REPORT_NO_CHANGES);
+    || (allLines.length === 1 && allLines[0] === KHMDHS_REFRESH_REPORT_NO_CHANGES);
+
+  const appliedSplit = splitBatchChangeLines(
+    item.appliedLines?.length
+      ? item.appliedLines
+      : (item.category === 'applied' ? allLines.filter((l) => !String(l).startsWith('⚠️') && !String(l).startsWith('ℹ️')) : [])
+  );
+  const attentionOnly = item.attentionLines?.length
+    ? item.attentionLines
+    : (item.category === 'attention'
+      ? allLines
+      : allLines.filter((l) => String(l).startsWith('⚠️') || String(l).startsWith('ℹ️')));
+
+  const registryPreviewLimit = 8;
+  const registryVisible = showAllRegistry
+    ? appliedSplit.registry
+    : appliedSplit.registry.slice(0, registryPreviewLimit);
+  const hasMoreRegistry = appliedSplit.registry.length > registryPreviewLimit;
 
   return (
     <DetailCard $border={border} $bg={bg}>
@@ -944,11 +1036,57 @@ function ReportItemCard({
           {item.reason && !item.error && (
             <DetailCardMeta style={{ marginBottom: 4 }}>{item.reason}</DetailCardMeta>
           )}
-          {lines.map((line) => (
-            isUnchanged
-              ? <ChangeLineMuted key={line}>{line}</ChangeLineMuted>
-              : <ChangeLine key={line}>{line}</ChangeLine>
+
+          {isUnchanged && allLines.map((line, idx) => (
+            <ChangeLineMuted key={`u-${idx}`}>{line}</ChangeLineMuted>
           ))}
+
+          {!isUnchanged && (appliedSplit.other.length > 0 || appliedSplit.registry.length > 0) && (
+            <>
+              <ChangeGroupLabel>Τι προστέθηκε ή άλλαξε</ChangeGroupLabel>
+              {appliedSplit.other.map((line, idx) => (
+                <ChangeLine key={`a-${idx}`}>{line}</ChangeLine>
+              ))}
+              {appliedSplit.registry.length > 0 && (
+                <RegistryBlock>
+                  <RegistryToggle
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (hasMoreRegistry) setShowAllRegistry((v) => !v);
+                    }}
+                    style={{ cursor: hasMoreRegistry ? 'pointer' : 'default' }}
+                  >
+                    <span>
+                      📁 {appliedSplit.registry.length} νέ
+                      {appliedSplit.registry.length === 1 ? 'ο έγγραφο' : 'α έγγραφα'} στα Αρχεία Υποέργου
+                    </span>
+                    {hasMoreRegistry && <span>{showAllRegistry ? '▲' : '▼'}</span>}
+                  </RegistryToggle>
+                  <RegistryList>
+                    {registryVisible.map((line, i) => (
+                      <li key={`r-${i}`}>{line}</li>
+                    ))}
+                    {!showAllRegistry && hasMoreRegistry && (
+                      <li style={{ listStyle: 'none', marginLeft: '-1rem', color: '#64748b', fontWeight: 600 }}>
+                        …και άλλα {appliedSplit.registry.length - registryPreviewLimit}. Κλικ για πλήρη λίστα.
+                      </li>
+                    )}
+                  </RegistryList>
+                </RegistryBlock>
+              )}
+            </>
+          )}
+
+          {!isUnchanged && attentionOnly.length > 0 && (
+            <>
+              <ChangeGroupLabel style={{ color: '#92400e' }}>Σημεία προς προσοχή</ChangeGroupLabel>
+              {attentionOnly.map((line, idx) => (
+                <ChangeLineWarn key={`w-${idx}`}>{line}</ChangeLineWarn>
+              ))}
+            </>
+          )}
+
           {typeof onNavigate === 'function' && item.id && (
             <OpenSubBtn
               type="button"
@@ -1039,8 +1177,15 @@ export function KhmdhsBatchReportModal({
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const toggleItem = (id) => {
-    setOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
+  const isItemOpen = (id, defaultOpen = false) => (
+    openItems[id] !== undefined ? !!openItems[id] : defaultOpen
+  );
+
+  const toggleItem = (id, defaultOpen = false) => {
+    setOpenItems((prev) => {
+      const currentlyOpen = prev[id] !== undefined ? !!prev[id] : defaultOpen;
+      return { ...prev, [id]: !currentlyOpen };
+    });
   };
 
   const goTo = (id) => {
@@ -1126,19 +1271,20 @@ export function KhmdhsBatchReportModal({
             <>
               <SectionHeader $color="#065f46" onClick={() => toggleSection('refreshed')}>
                 <SectionChevron $open={openSections.refreshed}>▶</SectionChevron>
-                ✅ Ενημερώθηκαν με αλλαγές ({refreshedItems.length})
+                ✅ Ενημερώθηκαν με αλλαγές ({refreshedItems.length}) — πλήρης λίστα προσθηκών
               </SectionHeader>
               {openSections.refreshed && refreshedItems.map((item) => (
                 <ReportItemCard
                   key={item.id}
                   item={item}
-                  open={!!openItems[item.id]}
-                  onToggle={() => toggleItem(item.id)}
+                  open={isItemOpen(item.id, true)}
+                  onToggle={() => toggleItem(item.id, true)}
                   border="#6ee7b7"
                   bg="#f0fdf4"
                   icon="✅"
-                  meta={`${item.changeLines?.length || 0} ενέργει${(item.changeLines?.length || 0) === 1 ? 'α' : 'ες'} — κλικ για λεπτομέρειες`}
+                  meta={summarizeAppliedChanges(item.appliedLines?.length ? item.appliedLines : item.changeLines)}
                   onNavigate={goTo}
+                  defaultShowAllRegistry
                 />
               ))}
             </>
@@ -1154,12 +1300,12 @@ export function KhmdhsBatchReportModal({
                 <ReportItemCard
                   key={item.id}
                   item={item}
-                  open={openItems[item.id] !== false}
-                  onToggle={() => toggleItem(item.id)}
+                  open={isItemOpen(item.id, true)}
+                  onToggle={() => toggleItem(item.id, true)}
                   border="#fde68a"
                   bg="#fffbeb"
                   icon="ℹ️"
-                  meta="Ελέγχθηκε — υπάρχουν σημεία προς προσοχή (π.χ. διατηρήθηκαν υπάρχοντα δεδομένα ή χειροκίνητες τιμές). Ανοίξτε για λεπτομέρειες."
+                  meta="Ελέγχθηκε — υπάρχουν σημεία προς προσοχή (π.χ. διατηρήθηκαν υπάρχοντα δεδομένα ή χειροκίνητες τιμές)."
                   onNavigate={goTo}
                 />
               ))}
@@ -1682,6 +1828,8 @@ export default function KhmdhsBatchRefreshWidget({
               label: item.label,
               seedAdam: res.seedAdam,
               changeLines: report.lines,
+              appliedLines: report.appliedLines,
+              attentionLines: report.attentionLines,
               category: report.category,
               hasSubstantiveChanges: report.category === 'applied',
               meta: {
@@ -1692,7 +1840,7 @@ export default function KhmdhsBatchRefreshWidget({
             });
             const logIcon = report.category === 'applied' ? '✅' : report.category === 'attention' ? 'ℹ️' : '➖';
             const logText = report.category === 'applied'
-              ? `${item.label} — Ενημερώθηκε (${report.appliedLines.length} αλλαγές)`
+              ? `${item.label} — ${summarizeAppliedChanges(report.appliedLines)}`
               : report.category === 'attention'
                 ? `${item.label} — Ελέγχθηκε — χρειάζεται προσοχή`
                 : `${item.label} — Χωρίς ουσιώδεις διαφορές`;

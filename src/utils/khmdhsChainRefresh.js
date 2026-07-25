@@ -7,6 +7,8 @@ import { projectVisibleToAssignedEngineer } from './supervisorChargeDisplay';
 import { projectHasAnyKhmdhsLifecycleData } from './khmdhsLifecycleStages';
 import { getKhmdhsPaymentEntries } from './khmdhsChainExtraFields';
 import { getUnresolvedReviewItems } from './khmdhsDataQualityReport';
+import { formatKhmdhsDateOnly, formatKhmdhsEuro } from './khmdhsNoticeFields';
+import { formatKhmdhsCostSnapshotGross } from './khmdhsVatHelper';
 import {
   getConfirmedKhmdhsStitchPlan,
   getConfirmedStitchSeedAdams,
@@ -305,6 +307,64 @@ function describeHistoryEntry(entry, adam) {
   return `${adam} (${typeLabel})`;
 }
 
+function truncateReportText(value, max = 90) {
+  const s = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  if (s.length <= max) return s;
+  return `${s.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function snapshotAmountLabel(snapshot) {
+  return formatKhmdhsCostSnapshotGross(snapshot)
+    || formatKhmdhsEuro(snapshot?.totalCostWithVAT)
+    || formatKhmdhsEuro(snapshot?.totalCostWithoutVAT)
+    || '';
+}
+
+function snapshotDateLabel(snapshot) {
+  return formatKhmdhsDateOnly(
+    snapshot?.publishDate
+    || snapshot?.awardDate
+    || snapshot?.dateSigned
+    || snapshot?.protocolDate
+    || snapshot?.signedDate
+  ) || '';
+}
+
+/** Πλήρης περιγραφή νέου εντάλματος / απόφασης για την αναφορά ανανέωσης. */
+function describeDocumentAddition(kindLabel, adam, snapshot) {
+  const parts = [`${kindLabel}: ${adam}`];
+  const amount = snapshotAmountLabel(snapshot);
+  if (amount) parts.push(amount);
+  const date = snapshotDateLabel(snapshot);
+  if (date) parts.push(`ημ. ${date}`);
+  const title = truncateReportText(snapshot?.title || snapshot?.subject || '');
+  if (title) parts.push(title);
+  return parts.join(' — ');
+}
+
+function collectContractRowAdams(project) {
+  const set = new Set();
+  const main = sanitizeAdam(project?.khmdhsAdam);
+  if (main) set.add(main);
+  (Array.isArray(project?.contracts) ? project.contracts : []).forEach((c) => {
+    const a = sanitizeAdam(c?.khmdhsAdam);
+    if (a) set.add(a);
+  });
+  return set;
+}
+
+function describeContractRowAddition(row, adam) {
+  const parts = [`Νέα σύμβαση: ${adam}`];
+  const amount = String(row?.contractAmount || '').trim();
+  if (amount) parts.push(`${amount} €`);
+  const date = formatDateElShort(row?.contractDate);
+  if (date && date !== '—') parts.push(`ημ. ${date}`);
+  const contractor = truncateReportText(row?.contractor || row?.contractorName || '');
+  if (contractor) parts.push(contractor);
+  return parts.join(' — ');
+}
+
 export const KHMDHS_REFRESH_REPORT_NO_CHANGES =
   'Δεν εντοπίστηκαν ουσιώδεις διαφορές — τα δεδομένα φαίνονται ενημερωμένα.';
 
@@ -367,11 +427,13 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
   afterPayEntries.forEach((p) => {
     const a = sanitizeAdam(p?.adam);
     if (!a || beforePaySet.has(a)) return;
-    if (p.snapshot) newPayWithDetails.push(a);
+    if (p.snapshot) newPayWithDetails.push(p);
     else newPayWithoutDetails.push(a);
   });
-  newPayWithDetails.forEach((adam) => {
-    appliedLines.push(`Νέο ένταλμα πληρωμής: ${adam}`);
+  newPayWithDetails.forEach((entry) => {
+    appliedLines.push(
+      describeDocumentAddition('Νέο ένταλμα πληρωμής', sanitizeAdam(entry?.adam), entry?.snapshot)
+    );
   });
   newPayWithoutDetails.forEach((adam) => {
     attentionLines.push(
@@ -415,11 +477,17 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
   afterCommitList.forEach((d) => {
     const a = sanitizeAdam(d?.adam);
     if (!a || beforeCommitAdams.has(a)) return;
-    if (d.snapshot) newCommitWithDetails.push(a);
+    if (d.snapshot) newCommitWithDetails.push(d);
     else newCommitWithoutDetails.push(a);
   });
-  newCommitWithDetails.forEach((adam) => {
-    appliedLines.push(`Νέα απόφαση ανάληψης υποχρέωσης: ${adam}`);
+  newCommitWithDetails.forEach((entry) => {
+    appliedLines.push(
+      describeDocumentAddition(
+        'Νέα απόφαση ανάληψης υποχρέωσης',
+        sanitizeAdam(entry?.adam),
+        entry?.snapshot
+      )
+    );
   });
   newCommitWithoutDetails.forEach((adam) => {
     attentionLines.push(
@@ -448,10 +516,30 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     }
   }
 
+  // Νέες γραμμές σύμβασης (πολλές συμβάσεις) ή πρώτη κύρια σύμβαση — πριν το ιστορικό,
+  // ώστε η ίδια SYMV να μην εμφανιστεί δύο φορές.
+  const beforeContractAdams = collectContractRowAdams(before);
+  const newlyAddedContractAdams = new Set();
+  const afterMainAdam = sanitizeAdam(after?.khmdhsAdam);
+  if (afterMainAdam && !beforeContractAdams.has(afterMainAdam)) {
+    appliedLines.push(describeContractRowAddition({
+      contractAmount: after?.contractAmount,
+      contractDate: after?.contractDate,
+      contractor: after?.contractor || after?.contractorName,
+    }, afterMainAdam));
+    newlyAddedContractAdams.add(afterMainAdam);
+  }
+  (Array.isArray(after?.contracts) ? after.contracts : []).forEach((row) => {
+    const adam = sanitizeAdam(row?.khmdhsAdam);
+    if (!adam || beforeContractAdams.has(adam) || newlyAddedContractAdams.has(adam)) return;
+    appliedLines.push(describeContractRowAddition(row, adam));
+    newlyAddedContractAdams.add(adam);
+  });
+
   const beforeHistory = collectChainHistoryAdams(before);
   const afterHistory = collectChainHistoryAdams(after);
   afterHistory.forEach((adam) => {
-    if (beforeHistory.has(adam)) return;
+    if (beforeHistory.has(adam) || newlyAddedContractAdams.has(adam)) return;
     const entry = findChainHistoryEntry(after, adam);
     appliedLines.push(`Νέα καταχώριση στην αλυσίδα: ${describeHistoryEntry(entry, adam)}`);
   });

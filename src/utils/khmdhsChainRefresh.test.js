@@ -30,12 +30,44 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
         },
         {
           adam: '26PAY000000002',
-          snapshot: { referenceNumber: '26PAY000000002', totalCostWithVAT: 2000 },
+          snapshot: {
+            referenceNumber: '26PAY000000002',
+            totalCostWithVAT: 2000,
+            title: 'Ένταλμα προκαταβολής',
+            publishDate: '2026-03-15',
+          },
         },
       ],
     };
     const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
-    expect(lines.some((l) => l.includes('Νέο ένταλμα πληρωμής') && l.includes('26PAY000000002'))).toBe(true);
+    const payLine = lines.find((l) => l.includes('Νέο ένταλμα πληρωμής') && l.includes('26PAY000000002'));
+    expect(payLine).toBeTruthy();
+    expect(payLine).toMatch(/2\.000,00/);
+    expect(payLine).toMatch(/Ένταλμα προκαταβολής/);
+  });
+
+  test('αναφέρει νέα γραμμή σύμβασης με ποσό', () => {
+    const before = {
+      implementationForm: 'Πολλές Συμβάσεις',
+      contracts: [{ khmdhsAdam: '24SYMV000000001', contractAmount: '10.000,00' }],
+    };
+    const after = {
+      implementationForm: 'Πολλές Συμβάσεις',
+      contracts: [
+        { khmdhsAdam: '24SYMV000000001', contractAmount: '10.000,00' },
+        {
+          khmdhsAdam: '25SYMV000000099',
+          contractAmount: '45.000,00',
+          contractDate: '2026-02-01',
+          contractor: 'ΕΡΓΟΛΑΒΟΣ ΑΕ',
+        },
+      ],
+    };
+    const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
+    const line = lines.find((l) => l.includes('Νέα σύμβαση') && l.includes('25SYMV000000099'));
+    expect(line).toBeTruthy();
+    expect(line).toMatch(/45\.000,00/);
+    expect(line).toMatch(/ΕΡΓΟΛΑΒΟΣ ΑΕ/);
   });
 
   test('νέο ένταλμα χωρίς λεπτομέρειες → προσοχή, όχι καθαρή επιτυχία', () => {
