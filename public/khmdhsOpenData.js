@@ -628,6 +628,9 @@ function mapContractRecord(c) {
     endDate: c.endDate || null,
     noEndDate: c.noEndDate === true,
     contractBudget: c.contractBudget != null ? c.contractBudget : null,
+    // Συνολική αξία της σύμβασης — συμπληρωματική πηγή ποσού όταν λείπει το contractBudget
+    totalCostWithoutVAT: c.totalCostWithoutVAT != null ? c.totalCostWithoutVAT : null,
+    totalCostWithVAT: c.totalCostWithVAT != null ? c.totalCostWithVAT : null,
     contractDuration: c.contractDuration != null ? c.contractDuration : null,
     contractDurationUnit: humanizeUnitOfMeasure(
       c.contractDurationUnitOfMeasure,
@@ -799,6 +802,8 @@ function pickKhmdhsSnapshot(snapshot) {
     endDate: snapshot.endDate || null,
     noEndDate: snapshot.noEndDate === true,
     contractBudget: snapshot.contractBudget != null ? snapshot.contractBudget : null,
+    totalCostWithoutVAT: snapshot.totalCostWithoutVAT != null ? snapshot.totalCostWithoutVAT : null,
+    totalCostWithVAT: snapshot.totalCostWithVAT != null ? snapshot.totalCostWithVAT : null,
     resolvedContractAmount: snapshot.resolvedContractAmount != null ? snapshot.resolvedContractAmount : null,
     contractAmountSource: snapshot.contractAmountSource || null,
     contractDuration: snapshot.contractDuration != null ? snapshot.contractDuration : null,
@@ -852,6 +857,9 @@ function buildKhmdhsAmountContext({
   };
 }
 
+/** Ένδειξη προέλευσης όταν το ποσό προκύπτει από τη συνολική αξία της σύμβασης στο ΚΗΜΔΗΣ */
+const CONTRACT_TOTAL_AMOUNT_SOURCE = 'Σύμβαση (ΚΗΜΔΗΣ — συνολική αξία)';
+
 /** Ποσό σύμβασης — SYMV ή fallback AWRD/PROC (όχι κοινό ποσό ανάθεσης σε παράλληλες συμβάσεις) */
 function resolveKhmdhsContractAmount(contractSnapshot, {
   auctionSnapshot,
@@ -863,12 +871,18 @@ function resolveKhmdhsContractAmount(contractSnapshot, {
   contextualVatRate = null,
 } = {}) {
   const vatRate = contextualVatRate != null ? contextualVatRate : KHMDHS_VAT_RATE;
+  // Συνολική αξία της ίδιας της σύμβασης, όπως τη δηλώνει το ΚΗΜΔΗΣ. Αφορά μόνο αυτήν
+  // (σε παράλληλες συμβάσεις τα επιμέρους ποσά αθροίζουν στο ποσό ανάθεσης), οπότε είναι
+  // ασφαλής συμπληρωματική πηγή όταν λείπει ή δεν είναι αξιόπιστο το ποσό σύμβασης.
+  const ownTotalGross = grossFromCostSnapshot(contractSnapshot);
   const budget = contractSnapshot?.contractBudget;
   if (budget != null && budget !== '' && Number.isFinite(Number(budget))) {
     // Για παράλληλες συμβάσεις: το contractBudget στο ΚΗΜΔΗΣ συχνά περιέχει
     // το συνολικό ποσό ανάθεσης αντί του ποσού της μεμονωμένης σύμβασης.
-    // Αγνοούμε εντελώς — ο χρήστης συμπληρώνει πάντα χειροκίνητα.
     if (parallelCase || Number(linkedContractCount) > 1) {
+      if (ownTotalGross != null) {
+        return { amount: ownTotalGross, source: CONTRACT_TOTAL_AMOUNT_SOURCE };
+      }
       return { amount: null, source: '', multipleContracts: true, suspiciousBudget: true };
     }
     return {
@@ -878,6 +892,9 @@ function resolveKhmdhsContractAmount(contractSnapshot, {
   }
   if (allowAwardFallback === false) {
     return { amount: null, source: '' };
+  }
+  if (ownTotalGross != null) {
+    return { amount: ownTotalGross, source: CONTRACT_TOTAL_AMOUNT_SOURCE };
   }
   if (parallelCase || blockSharedAwardFallback || Number(linkedContractCount) > 1) {
     return { amount: null, source: '', multipleContracts: true };

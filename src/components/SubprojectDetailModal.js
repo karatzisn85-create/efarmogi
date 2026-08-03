@@ -39,8 +39,14 @@ import {
   getKhmdhsChainFreshness,
   getKhmdhsRefreshSeedAdam,
   canUserRefreshKhmdhsChain,
-  buildKhmdhsRefreshChangeSummary,
+  buildKhmdhsRefreshChangeReport,
 } from '../utils/khmdhsChainRefresh';
+import { getUnresolvedReviewItems } from '../utils/khmdhsDataQualityReport';
+import {
+  buildKhmdhsRefreshFindings,
+  buildKhmdhsFindingAction,
+  KHMDHS_FINDING_ACTION,
+} from '../utils/khmdhsRefreshFindings';
 import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhsChainApply';
 import { getConfirmedKhmdhsStitchPlan, evaluateStitchRefreshCompleteness } from '../utils/khmdhsChainStitchPlan';
 import { symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
@@ -55,6 +61,38 @@ import {
 } from '../utils/epActionSearch';
 
 const ipcRenderer = window.electronAPI;
+
+/** Ευρήματα ανανέωσης που μένουν μέσα στο υποέργο (ίδια μορφή με τη μαζική ανανέωση). */
+function buildRefreshFindingsForProject({ report, applyResult, mergedProject, seedAdam, by }) {
+  const actions = [];
+  if (applyResult?.apeConflict) {
+    actions.push(buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.APE_CONFLICT, {
+      detail: applyResult.apeConflict.contractLabel
+        ? `Γραμμή: ${applyResult.apeConflict.contractLabel}.`
+        : '',
+    }));
+  }
+  const unresolved = getUnresolvedReviewItems(
+    mergedProject?.khmdhsDataQualityReview,
+    mergedProject
+  ).length;
+  if (unresolved > 0) {
+    actions.push(buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.DATA_REVIEW, {
+      detail: unresolved === 1
+        ? '1 πεδίο χρειάζεται συμπλήρωση ή επιβεβαίωση.'
+        : `${unresolved} πεδία χρειάζονται συμπλήρωση ή επιβεβαίωση.`,
+    }));
+  }
+  return buildKhmdhsRefreshFindings({
+    outcome: report.category,
+    source: 'single',
+    by,
+    seedAdam,
+    appliedLines: report.appliedLines,
+    attentionLines: report.attentionLines,
+    actions,
+  });
+}
 
 function formatEpBudget(val) {
   if (!val || val === 0) return null;
@@ -449,6 +487,24 @@ const FreshnessHint = styled.p`
   font-size: 0.72rem;
   color: ${(p) => (p.$level === 'red' ? '#b91c1c' : '#b45309')};
   line-height: 1.4;
+`;
+
+/** Διακριτική επαναφορά στην εικόνα που είχε το υποέργο πριν την τελευταία ανανέωση. */
+const RestoreSnapshotBtn = styled.button`
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover:not(:disabled) { background: #f1f5f9; border-color: #94a3b8; color: #1e293b; }
+  &:disabled { opacity: 0.6; cursor: default; }
 `;
 
 const DetailSectionHeader = styled.div`
@@ -1154,6 +1210,72 @@ function SubprojectDetailModal({
     [userRole, currentUser, project, engineerVisibilityContext, engineerCatalog]
   );
 
+  // Κρατάμε το υποέργο πιασμένο από την ανάκτηση μέχρι την αποθήκευση ή την ακύρωση,
+  // ώστε να μη γράψει ταυτόχρονα άλλος χρήστης (ή η μαζική ανανέωση) πάνω στα ίδια δεδομένα.
+  const khmdhsRefreshLockRef = React.useRef('');
+
+  const releaseKhmdhsRefreshLock = useCallback(async () => {
+    const sid = khmdhsRefreshLockRef.current;
+    if (!sid) return;
+    khmdhsRefreshLockRef.current = '';
+    try {
+      await ipcRenderer.invoke('release-khmdhs-refresh-lock', {
+        subprojectId: sid,
+        actingUsername: requestingUsername,
+      });
+    } catch { /* το κλείδωμα λήγει μόνο του */ }
+  }, [requestingUsername]);
+
+  useEffect(() => () => { void releaseKhmdhsRefreshLock(); }, [releaseKhmdhsRefreshLock]);
+
+  // Αντίγραφο πριν την τελευταία ανανέωση — δίνει τη δυνατότητα επαναφοράς αν κάτι δεν άρεσε.
+  const canRestoreSnapshot = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
+  const [snapshotInfo, setSnapshotInfo] = useState(null);
+  const [restoring, setRestoring] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!canRestoreSnapshot || !project?.subprojectId || refreshLoading) return undefined;
+    ipcRenderer.invoke('get-khmdhs-refresh-snapshot-info', {
+      subprojectId: project.subprojectId,
+      actingUsername: requestingUsername,
+    })
+      .then((res) => { if (!cancelled) setSnapshotInfo(res?.exists ? res : null); })
+      .catch(() => { if (!cancelled) setSnapshotInfo(null); });
+    return () => { cancelled = true; };
+  }, [canRestoreSnapshot, project?.subprojectId, requestingUsername, refreshLoading]);
+
+  const handleRestoreSnapshot = useCallback(async () => {
+    if (!snapshotInfo?.exists || restoring) return;
+    const takenAt = snapshotInfo.takenAt ? new Date(snapshotInfo.takenAt).toLocaleString('el-GR') : '';
+    const ok = window.confirm(
+      'Να επαναφερθεί το υποέργο στην εικόνα που είχε πριν την τελευταία ανανέωση ΚΗΜΔΗΣ'
+      + (takenAt ? ` (${takenAt});` : ';')
+      + '\n\nΠροσοχή: επανέρχονται ΟΛΑ τα στοιχεία του υποέργου σε εκείνη τη στιγμή — '
+      + 'χάνονται και όσες αλλαγές έγιναν χειροκίνητα μετά την ανανέωση.'
+      + '\nΗ ενέργεια καταγράφεται στο ιστορικό.'
+    );
+    if (!ok) return;
+    setRestoring(true);
+    try {
+      const res = await ipcRenderer.invoke('restore-khmdhs-refresh-snapshot', {
+        subprojectId: project.subprojectId,
+        actingUsername: requestingUsername,
+      });
+      if (!res?.success) {
+        showToast(res?.error || 'Η επαναφορά δεν ολοκληρώθηκε.', 'error');
+        return;
+      }
+      setSnapshotInfo(null);
+      showToast('Το υποέργο επανήλθε στην προηγούμενη κατάσταση.', 'success');
+      if (typeof onRefreshProject === 'function') await onRefreshProject();
+    } catch (e) {
+      showToast(e?.message || 'Σφάλμα κατά την επαναφορά.', 'error');
+    } finally {
+      setRestoring(false);
+    }
+  }, [snapshotInfo, restoring, project?.subprojectId, requestingUsername, showToast, onRefreshProject]);
+
   const handleStartKhmdhsRefresh = useCallback(async () => {
     if (!canRefreshKhmdhs || refreshLoading || isLocked || !project?.subprojectId) return;
     setRefreshLoading(true);
@@ -1166,7 +1288,24 @@ function SubprojectDetailModal({
     const timers = progressSteps.map((s) =>
       setTimeout(() => setRefreshProgress(s.msg), s.delay)
     );
+    // Όσο μένει ανοιχτός ο διάλογος αλλαγών ή ο χαρακτηρισμός, το κλείδωμα παραμένει.
+    let keepLock = false;
     try {
+      const lockRes = await ipcRenderer.invoke('acquire-khmdhs-refresh-lock', {
+        subprojectId: project.subprojectId,
+        actingUsername: requestingUsername,
+      });
+      if (!lockRes?.success) {
+        showToast(
+          lockRes?.lockedBy
+            ? `Το υποέργο το επεξεργάζεται αυτή τη στιγμή ο/η ${lockRes.lockedBy}. Δοκιμάστε ξανά σε λίγο.`
+            : (lockRes?.error || 'Το υποέργο είναι πιασμένο αυτή τη στιγμή.'),
+          'warning'
+        );
+        return;
+      }
+      khmdhsRefreshLockRef.current = project.subprojectId;
+
       const res = await ipcRenderer.invoke('preview-subproject-khmdhs-refresh', {
         subprojectId: project.subprojectId,
         actingUsername: requestingUsername,
@@ -1223,6 +1362,7 @@ function SubprojectDetailModal({
           subprojectTitle: project.subprojectTitle || '',
           existingPlan: project.khmdhsSymvChainPlan || null,
         });
+        keepLock = true;
         return;
       }
       const mergedProject = {
@@ -1230,6 +1370,8 @@ function SubprojectDetailModal({
         projectId: project.projectId,
         subprojectId: project.subprojectId,
         updatedAt: new Date().toISOString(),
+        // Η έκδοση πάνω στην οποία δουλέψαμε — φρένο αν αλλάξει στο μεταξύ από αλλού.
+        __expectedUpdatedAt: project.updatedAt,
         ...(res.stitchPlanFormMismatch ? { khmdhsChainStitchPlan: null } : {}),
       };
       // Αυτόματη ενημέρωση Αρχείων Υποέργου κατά την ανανέωση ΚΗΜΔΗΣ — χωρίς να ζητείται
@@ -1265,17 +1407,26 @@ function SubprojectDetailModal({
           ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newRegistryCandidates, new Date().toISOString())
           : resyncedRegistry;
       }
-      const changeLines = buildKhmdhsRefreshChangeSummary(project, mergedProject, applyResult, {
+      const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
         chainWarnings: (registryChainResList.length ? registryChainResList : [res.chainRes])
           .flatMap((cr) => cr?.warnings || []),
+      });
+      // Η αναφορά μένει και μέσα στο υποέργο, ώστε να ξαναβρεθεί μετά το κλείσιμο του διαλόγου.
+      mergedProject.khmdhsLastRefreshFindings = buildRefreshFindingsForProject({
+        report,
+        applyResult,
+        mergedProject,
+        seedAdam: res.seedAdam,
+        by: requestingUsername,
       });
       setRefreshDialog({
         seedAdam: res.seedAdam,
         seedLabel: res.seedLabel,
-        changeLines,
+        changeLines: report.lines,
         mergedProject,
         chainRes: res.chainRes,
       });
+      keepLock = true;
       const expiryAfterRefresh = evaluateKhmdhsContractExpiryPrompt(mergedProject, {
         statusBeforeKhmdhsRefresh: project.projectStatus,
       });
@@ -1288,6 +1439,7 @@ function SubprojectDetailModal({
       timers.forEach(clearTimeout);
       setRefreshLoading(false);
       setRefreshProgress('');
+      if (!keepLock) await releaseKhmdhsRefreshLock();
     }
   }, [
     canRefreshKhmdhs,
@@ -1296,11 +1448,13 @@ function SubprojectDetailModal({
     project,
     requestingUsername,
     showToast,
+    releaseKhmdhsRefreshLock,
   ]);
 
   const handleSymvPlannerConfirm = useCallback((plan) => {
     if (!symvPlannerState?.chainRes || !plan?.items?.length) {
       setSymvPlannerState(null);
+      void releaseKhmdhsRefreshLock();
       return;
     }
     const { chainRes, seedAdam } = symvPlannerState;
@@ -1316,6 +1470,7 @@ function SubprojectDetailModal({
       khmdhsSymvChainPlan: plan,
       khmdhsSymvPlanAppliedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      __expectedUpdatedAt: project.updatedAt,
     };
     const freshRegistryCandidates = filterRegistryCandidatesBySymvPlan(
       mergeRegistryCandidateLists(
@@ -1336,13 +1491,20 @@ function SubprojectDetailModal({
         ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newRegistryCandidates, new Date().toISOString())
         : resyncedRegistry;
     }
-    const changeLines = buildKhmdhsRefreshChangeSummary(project, mergedProject, applyResult, {
+    const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
       chainWarnings: chainRes?.warnings || [],
+    });
+    mergedProject.khmdhsLastRefreshFindings = buildRefreshFindingsForProject({
+      report,
+      applyResult,
+      mergedProject,
+      seedAdam,
+      by: requestingUsername,
     });
     setRefreshDialog({
       seedAdam,
       seedLabel: symvPlannerState.seedLabel,
-      changeLines,
+      changeLines: report.lines,
       mergedProject,
       chainRes,
     });
@@ -1352,7 +1514,7 @@ function SubprojectDetailModal({
     if (expiryAfterRefresh) {
       window.setTimeout(() => setContractExpiryPrompt(expiryAfterRefresh), 350);
     }
-  }, [symvPlannerState, project]);
+  }, [symvPlannerState, project, requestingUsername, releaseKhmdhsRefreshLock]);
 
   const handleContractExpiryAccept = useCallback(async () => {
     const base = refreshDialog?.mergedProject || project;
@@ -1401,6 +1563,12 @@ function SubprojectDetailModal({
       const saveRes = await ipcRenderer.invoke('save-project-data', refreshDialog.mergedProject);
       if (!saveRes?.success) {
         showToast(saveRes?.error || 'Αποτυχία αποθήκευσης.', 'error');
+        // Αν το υποέργο άλλαξε στο μεταξύ, η ίδια αποθήκευση δεν πρόκειται να πετύχει ποτέ:
+        // κλείνουμε τον διάλογο και φέρνουμε την τρέχουσα εικόνα για νέα ανανέωση.
+        if (saveRes?.conflict) {
+          setRefreshDialog(null);
+          if (typeof onRefreshProject === 'function') await onRefreshProject();
+        }
         return;
       }
       showToast('Η αλυσίδα ΚΗΜΔΗΣ ενημερώθηκε επιτυχώς.', 'success');
@@ -1412,8 +1580,9 @@ function SubprojectDetailModal({
       showToast(e?.message || 'Σφάλμα αποθήκευσης.', 'error');
     } finally {
       setRefreshLoading(false);
+      await releaseKhmdhsRefreshLock();
     }
-  }, [refreshDialog, showToast, onRefreshProject]);
+  }, [refreshDialog, showToast, onRefreshProject, requestingUsername, releaseKhmdhsRefreshLock]);
 
   const handleKhmdhsRegistryConfirm = useCallback(async (selectedList, neverAsk) => {
     const base = khmdhsRegistryModal?.baseProject;
@@ -2473,6 +2642,21 @@ function SubprojectDetailModal({
                   {chainFreshness.label}
                 </FreshnessHint>
               ) : null}
+              {snapshotInfo?.exists && !isLocked ? (
+                <RestoreSnapshotBtn
+                  type="button"
+                  onClick={handleRestoreSnapshot}
+                  disabled={restoring || refreshLoading}
+                  title="Αναιρεί ό,τι έφερε η τελευταία ανανέωση ΚΗΜΔΗΣ"
+                >
+                  {restoring
+                    ? 'Γίνεται επαναφορά…'
+                    : `↩ Επαναφορά στην κατάσταση πριν την ανανέωση${
+                      snapshotInfo.takenAt
+                        ? ` (${new Date(snapshotInfo.takenAt).toLocaleDateString('el-GR')})`
+                        : ''}`}
+                </RestoreSnapshotBtn>
+              ) : null}
               {confirmedStitchPlan ? (
                 <div style={{
                   marginTop: '0.4rem',
@@ -2571,7 +2755,11 @@ function SubprojectDetailModal({
       </Modal>
       <KhmdhsChainRefreshDialog
         isOpen={!!refreshDialog}
-        onClose={() => { if (!refreshLoading) setRefreshDialog(null); }}
+        onClose={() => {
+          if (refreshLoading) return;
+          setRefreshDialog(null);
+          void releaseKhmdhsRefreshLock();
+        }}
         onConfirm={handleConfirmKhmdhsRefresh}
         saving={refreshLoading}
         seedAdam={refreshDialog?.seedAdam}
@@ -2598,6 +2786,7 @@ function SubprojectDetailModal({
         existingPlan={symvPlannerState?.existingPlan || null}
         onDismiss={() => {
           setSymvPlannerState(null);
+          void releaseKhmdhsRefreshLock();
           showToast('Η ανανέωση ακυρώθηκε — δεν ορίστηκε κατανομή.', 'info');
         }}
         onConfirm={handleSymvPlannerConfirm}

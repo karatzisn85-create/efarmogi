@@ -153,6 +153,59 @@ function isKhmdhsChainClosedSubproject(project) {
   return project?.projectStatus === KHMDHS_CHAIN_CLOSED_STATUS;
 }
 
+/**
+ * Ηλικία δεδομένων ΚΗΜΔΗΣ σε ημέρες — ίδιος ορισμός με το badge φρεσκάδας στην κάρτα
+ * (`getKhmdhsChainFreshness`): μετρά το ΠΑΛΑΙΟΤΕΡΟ κομμάτι της αλυσίδας, όχι μόνο την
+ * τελευταία ανανέωση. Έτσι «παλαιό» σημαίνει το ίδιο πράγμα σε όλη την εφαρμογή.
+ *
+ * Κατώφλι: ίδιο με το κίτρινο badge (KHMDHS_FRESHNESS_YELLOW_DAYS στον renderer).
+ */
+const KHMDHS_STALE_DAYS = 30;
+
+function collectKhmdhsFetchedAtTimestamps(project) {
+  if (!project) return [];
+  const stamps = [];
+  const push = (iso) => {
+    if (!iso) return;
+    const t = Date.parse(String(iso));
+    if (!Number.isNaN(t)) stamps.push(t);
+  };
+
+  push(project.khmdhsRequestFetchedAt);
+  push(project.khmdhsNoticeFetchedAt);
+  push(project.khmdhsAwardFetchedAt);
+  push(project.khmdhsContractFetchedAt);
+  push(project.khmdhsCommitmentFetchedAt);
+  push(project.khmdhsChainLastRefreshedAt);
+
+  (project.khmdhsCommitmentDecisions || []).forEach((d) => push(d && d.fetchedAt));
+  (project.khmdhsPayments || []).forEach((p) => push(p && p.fetchedAt));
+  (project.contracts || []).forEach((c) => push(c && c.khmdhsContractFetchedAt));
+
+  return stamps;
+}
+
+/**
+ * @returns {{ ageDays: number|null, lastRefreshed: string|null }}
+ * `ageDays === null` σημαίνει «δεν έχει ανακτηθεί ποτέ» — θεωρείται πάντα παλαιό.
+ */
+function getKhmdhsRefreshAge(project) {
+  const stamps = collectKhmdhsFetchedAtTimestamps(project);
+  if (!stamps.length) return { ageDays: null, lastRefreshed: null };
+  const oldest = Math.min(...stamps);
+  const newest = Math.max(...stamps);
+  return {
+    ageDays: Math.floor((Date.now() - oldest) / (24 * 60 * 60 * 1000)),
+    lastRefreshed: new Date(newest).toISOString(),
+  };
+}
+
+function isKhmdhsRefreshStale(project, maxAgeDays = KHMDHS_STALE_DAYS) {
+  const { ageDays } = getKhmdhsRefreshAge(project);
+  if (ageDays == null) return true;
+  return ageDays >= maxAgeDays;
+}
+
 function readStoredApeAmountRaw(project, contractIndex = null) {
   if (!project) return '';
   const isMulti = project.implementationForm === 'Πολλές Συμβάσεις';
@@ -213,6 +266,10 @@ function canUserRefreshKhmdhsOnServer(user, project) {
 }
 
 module.exports = {
+  KHMDHS_STALE_DAYS,
+  collectKhmdhsFetchedAtTimestamps,
+  getKhmdhsRefreshAge,
+  isKhmdhsRefreshStale,
   getKhmdhsRefreshSeedAdam,
   getKhmdhsRefreshSeedAdams,
   getConfirmedStitchSeedAdams,

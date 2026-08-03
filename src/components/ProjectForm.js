@@ -49,6 +49,8 @@ import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
 import { awardIndicatesNoPriorNotice } from '../utils/khmdhsLifecycleStages';
 import KhmdhsFormStageResults, { projectHasKhmdhsFormResults } from './KhmdhsFormStageResults';
 import KhmdhsPendingFab from './KhmdhsPendingFab';
+import KhmdhsRefreshFindingsPanel from './KhmdhsRefreshFindingsPanel';
+import { acknowledgeKhmdhsRefreshFindings } from '../utils/khmdhsRefreshFindings';
 import KhmdhsInlineField from './KhmdhsInlineField';
 import KhmdhsRemovableChainEntries from './KhmdhsRemovableChainEntries';
 import KhmdhsUserEditsPanel from './KhmdhsUserEditsPanel';
@@ -2463,7 +2465,7 @@ const KhmdhsLockedPanel = styled.div`
  * Ξαναϋπολογίζει συμπληρωματικές, και (μόνο όταν ορθή επανάληψη διορθώνει) ποσό/ημ/νία.
  */
 
-function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null, userRole = 'USER', allProjects = [] }) {
+function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null, userRole = 'USER', currentUser = null, allProjects = [] }) {
   const { showToast } = useToast();
   const canManageFunding = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
 
@@ -2855,6 +2857,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         khmdhsCommitmentDecisions: Array.isArray(editingProject.khmdhsCommitmentDecisions) ? editingProject.khmdhsCommitmentDecisions : [],
         khmdhsPayments: Array.isArray(editingProject.khmdhsPayments) ? editingProject.khmdhsPayments : [],
         khmdhsDataQualityReview: editingProject.khmdhsDataQualityReview || null,
+        khmdhsLastRefreshFindings: editingProject.khmdhsLastRefreshFindings || null,
         khmdhsUserEdits: ensureKhmdhsUserEdits(editingProject),
         khmdhsAcknowledgedSituationIds: Array.isArray(editingProject.khmdhsAcknowledgedSituationIds) ? editingProject.khmdhsAcknowledgedSituationIds : [],
       }, editingProject.khmdhsDataQualityReview || null)
@@ -5366,6 +5369,30 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
     });
   }, [showToast]);
 
+  /**
+   * «Τα είδα» στην αναφορά τελευταίας ανανέωσης. Γράφεται αμέσως στο υποέργο, ώστε να
+   * μη χρειάζεται αποθήκευση της φόρμας για να πάψει να ζητά την προσοχή του χρήστη.
+   */
+  const handleAcknowledgeRefreshFindings = useCallback(() => {
+    const username = currentUser?.username || '';
+    setFormData((prev) => {
+      if (!prev.khmdhsLastRefreshFindings) return prev;
+      const acknowledged = acknowledgeKhmdhsRefreshFindings(
+        prev.khmdhsLastRefreshFindings,
+        { by: username }
+      );
+      const subprojectId = prev.subprojectId || editingProject?.subprojectId;
+      if (subprojectId && username) {
+        ipcRenderer.invoke('save-khmdhs-refresh-findings', {
+          subprojectId,
+          actingUsername: username,
+          findings: acknowledged,
+        }).catch(() => { /* θα αποθηκευτεί με τη φόρμα */ });
+      }
+      return { ...prev, khmdhsLastRefreshFindings: acknowledged };
+    });
+  }, [currentUser?.username, editingProject?.subprojectId]);
+
   const handleReviewResolveItem = useCallback((item, opts) => {
     setFormData((prev) => {
       const result = applyReviewResolution(prev, prev.khmdhsDataQualityReview, item, opts);
@@ -7601,6 +7628,11 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
               review={formData.khmdhsDataQualityReview}
               formData={formData}
               onOpenReview={openKhmdhsDataReview}
+            />
+            <KhmdhsRefreshFindingsPanel
+              findings={formData.khmdhsLastRefreshFindings}
+              onOpenReview={openKhmdhsDataReview}
+              onAcknowledge={handleAcknowledgeRefreshFindings}
             />
             {renderKhmdhsLegacyUpgradeBanner()}
             {!phaseBEditable && (

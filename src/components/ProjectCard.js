@@ -9,6 +9,7 @@ import {
 } from '../data/formOptions';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
 import { getKhmdhsChainFreshness } from '../utils/khmdhsChainRefresh';
+import { getKhmdhsSubprojectAttention } from '../utils/khmdhsRefreshFindings';
 import { getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
 import { formatDateEl } from '../utils/dateFormat';
 import KhmdhsFreshnessBadge from './KhmdhsFreshnessBadge';
@@ -340,6 +341,49 @@ const MetaTag = styled.span`
   background: ${(p) => p.$bg || '#f8fafc'};
   border: 1px solid ${(p) => p.$border || '#e2e8f0'};
   white-space: nowrap;
+`;
+
+const attentionGlow = keyframes`
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(234, 88, 12, 0); }
+`;
+
+/** Διακριτικό σήμα ότι το υποέργο περιμένει ενέργεια μέσα στην επεξεργασία του. */
+const AttentionTag = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  color: #fff;
+  border: 1px solid ${(p) => (p.$blocking ? '#c2410c' : '#d97706')};
+  background: ${(p) => (p.$blocking
+    ? 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)'
+    : 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)')};
+  animation: ${attentionGlow} 2.6s ease-in-out infinite;
+  transition: transform 0.15s ease;
+
+  &:hover { transform: translateY(-1px); animation: none; }
+  &:active { transform: translateY(0); }
+`;
+
+const AttentionCount = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  font-size: 0.58rem;
+  font-weight: 900;
 `;
 
 const StatusPill = styled.span`
@@ -1286,6 +1330,12 @@ function ProjectCard({
     () => (canSuggestStatus ? evaluateKhmdhsContractExpiryPrompt(project) : null),
     [project, canSuggestStatus]
   );
+  // Εκκρεμότητες ΚΗΜΔΗΣ (έλεγχος στοιχείων + ευρήματα τελευταίας ανανέωσης) — ό,τι περιμένει
+  // τον χρήστη μέσα στην επεξεργασία του υποέργου, ώστε να φαίνεται ήδη από την κάρτα.
+  const khmdhsAttention = useMemo(
+    () => (userRole === 'USER' ? null : getKhmdhsSubprojectAttention(project)),
+    [project, userRole]
+  );
 
   const handleCardClick = (e) => {
     if (e.target.closest('button') || e.target.closest('a')) return;
@@ -1465,8 +1515,23 @@ function ProjectCard({
             </ChargeHeaderStrip>
           )}
 
-          {(portalEnabled && isPublishedToPortal) || (project.misPraxhsName && project.misPraxhsCode) || epLinkedAction || hasDirectAssignmentViolation || actRootSiblings.length > 0 ? (
+          {(portalEnabled && isPublishedToPortal) || (project.misPraxhsName && project.misPraxhsCode) || epLinkedAction || hasDirectAssignmentViolation || actRootSiblings.length > 0 || khmdhsAttention?.total > 0 ? (
             <HeaderMetaTags>
+              {khmdhsAttention?.total > 0 && (
+                <AttentionTag
+                  type="button"
+                  $blocking={khmdhsAttention.level === 'blocking'}
+                  title={`Ανοίξτε την επεξεργασία του υποέργου:\n• ${khmdhsAttention.reasons.join('\n• ')}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (typeof onEdit === 'function') onEdit(project);
+                  }}
+                >
+                  <span aria-hidden>📌</span>
+                  Θέλει τη ματιά σας
+                  <AttentionCount>{khmdhsAttention.total}</AttentionCount>
+                </AttentionTag>
+              )}
               {actRootSiblings.length > 0 && (
                 <MetaTag
                   $color="#5b21b6"

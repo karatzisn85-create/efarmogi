@@ -7,12 +7,18 @@
 const fs = require('fs');
 const path = require('path');
 const { safeWriteJSON } = require('./safeWrite');
+const { withServiceLock } = require('./fileLock');
 
 const INDEX_FILE_NAME = 'projects_index.json';
+const INDEX_LOCK_FILE_NAME = 'projects_index.lock';
 const INDEX_VERSION = 1;
 
 function getProjectsIndexPath(dataDir) {
   return path.join(dataDir, INDEX_FILE_NAME);
+}
+
+function getProjectsIndexLockPath(dataDir) {
+  return path.join(dataDir, INDEX_LOCK_FILE_NAME);
 }
 
 function createEmptyIndex() {
@@ -81,29 +87,63 @@ function rebuildProjectsIndex(dataDir, projects) {
   const entries = (projects || [])
     .filter((p) => p && p.projectId && p.subprojectId)
     .map((p) => entryFromDisk(dataDir, p.projectId, p.subprojectId, p));
-  return writeProjectsIndex(dataDir, { entries });
+  return withServiceLock(
+    getProjectsIndexLockPath(dataDir),
+    () => writeProjectsIndex(dataDir, { entries })
+  );
+}
+
+/**
+ * Ενημέρωση του ευρετηρίου με προστασία από ταυτόχρονη εγγραφή.
+ *
+ * Το ευρετήριο είναι ένα ενιαίο αρχείο που ξαναγράφεται ολόκληρο: αν δύο υπολογιστές το
+ * διαβάσουν και το γράψουν την ίδια στιγμή, ο ένας σβήνει την εγγραφή του άλλου και το
+ * υποέργο «εξαφανίζεται» από τις λίστες. Γι' αυτό το διάβασμα και το γράψιμο γίνονται μέσα
+ * σε κλείδωμα, και μετά την εγγραφή επιβεβαιώνουμε το αποτέλεσμα — αν χάθηκε, ξαναγράφουμε.
+ *
+ * @param {(index: object) => object|null} mutate επιστρέφει το νέο ευρετήριο ή null αν δεν χρειάζεται εγγραφή
+ * @param {(saved: object|null) => boolean} verify επιβεβαιώνει ότι η αλλαγή έμεινε στον δίσκο
+ */
+function updateProjectsIndexSafely(dataDir, mutate, verify) {
+  return withServiceLock(getProjectsIndexLockPath(dataDir), () => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const index = readProjectsIndex(dataDir);
+      const next = mutate(index);
+      if (next === null) return true;
+      if (!writeProjectsIndex(dataDir, next)) return false;
+      if (verify(readProjectsIndex(dataDir))) return true;
+    }
+    console.warn('projectsIndex: η ενημέρωση δεν επιβεβαιώθηκε — το ευρετήριο θα ξαναχτιστεί');
+    invalidateProjectsIndex(dataDir);
+    return false;
+  });
 }
 
 function upsertProjectsIndexEntry(dataDir, projectData) {
   if (!dataDir || !projectData?.projectId || !projectData?.subprojectId) return false;
-  const index = readProjectsIndex(dataDir) || createEmptyIndex();
   const entry = entryFromDisk(dataDir, projectData.projectId, projectData.subprojectId, projectData);
   const sid = entry.subprojectId;
-  const next = index.entries.filter((e) => e.subprojectId !== sid);
-  next.push(entry);
-  index.entries = next;
-  return writeProjectsIndex(dataDir, index);
+  return updateProjectsIndexSafely(
+    dataDir,
+    // Χωρίς υπάρχον ευρετήριο δεν φτιάχνουμε καινούργιο με μία μόνο εγγραφή: θα έκρυβε
+    // όλα τα υπόλοιπα υποέργα. Ξαναχτίζεται ολόκληρο στην επόμενη πλήρη φόρτωση.
+    (index) => (index
+      ? { ...index, entries: [...index.entries.filter((e) => e.subprojectId !== sid), entry] }
+      : null),
+    (saved) => !!saved && saved.entries.some((e) => e.subprojectId === sid)
+  );
 }
 
 function removeProjectsIndexEntry(dataDir, subprojectId) {
   if (!dataDir || !subprojectId) return false;
-  const index = readProjectsIndex(dataDir);
-  if (!index) return false;
   const sid = String(subprojectId);
-  const before = index.entries.length;
-  index.entries = index.entries.filter((e) => e.subprojectId !== sid);
-  if (index.entries.length === before) return true;
-  return writeProjectsIndex(dataDir, index);
+  return updateProjectsIndexSafely(
+    dataDir,
+    (index) => (index && index.entries.some((e) => e.subprojectId === sid)
+      ? { ...index, entries: index.entries.filter((e) => e.subprojectId !== sid) }
+      : null),
+    (saved) => !saved || !saved.entries.some((e) => e.subprojectId === sid)
+  );
 }
 
 function invalidateProjectsIndex(dataDir) {
@@ -113,6 +153,43 @@ function invalidateProjectsIndex(dataDir) {
     if (fs.existsSync(indexPath)) fs.unlinkSync(indexPath);
   } catch (err) {
     console.error('invalidateProjectsIndex failed:', err?.message || err);
+  }
+}
+
+/**
+ * Λείπει ολόκληρο έργο από το ευρετήριο ενώ υπάρχει στον δίσκο;
+ *
+ * Δίχτυ ασφαλείας: ένα ελλιπές ευρετήριο θα «εξαφάνιζε» υποέργα από όλες τις οθόνες χωρίς
+ * κανένα άλλο σημάδι. Ο έλεγχος είναι φθηνός — διαβάζει τον φάκελο έργου μόνο όταν αυτός
+ * λείπει εντελώς από το ευρετήριο, που κανονικά δεν συμβαίνει ποτέ.
+ */
+function indexIsMissingProjects(dataDir, index, skipRoot) {
+  try {
+    const indexedProjects = new Set(index.entries.map((e) => e.projectId));
+    for (const dir of fs.readdirSync(dataDir)) {
+      if (skipRoot && skipRoot.has(dir)) continue;
+      if (indexedProjects.has(dir)) continue;
+      const projectPath = path.join(dataDir, dir);
+      try {
+        if (!fs.statSync(projectPath).isDirectory()) continue;
+        // Μετράμε μόνο υποέργα που θα έμπαιναν όντως στο ευρετήριο· αλλιώς ένα χαλασμένο
+        // αρχείο θα επέβαλλε πλήρη σάρωση σε κάθε φόρτωση για πάντα.
+        const hasIndexableSubproject = fs.readdirSync(projectPath).some((sub) => {
+          const jsonPath = path.join(projectPath, sub, 'data.json');
+          if (!fs.existsSync(jsonPath)) return false;
+          try {
+            const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            return !!(String(data?.projectTitle || '').trim() && String(data?.subprojectTitle || '').trim());
+          } catch {
+            return false;
+          }
+        });
+        if (hasIndexableSubproject) return true;
+      } catch { /* προσπερνάμε προβληματικό φάκελο */ }
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -128,6 +205,7 @@ function loadProjectsViaIndex(dataDir, {
 }) {
   const index = readProjectsIndex(dataDir);
   if (!index || !index.entries.length) return null;
+  if (indexIsMissingProjects(dataDir, index, skipRoot)) return null;
 
   const projects = [];
   for (const entry of index.entries) {
@@ -219,8 +297,10 @@ function findIndexedSubprojectPath(dataDir, subprojectId) {
 
 module.exports = {
   INDEX_FILE_NAME,
+  INDEX_LOCK_FILE_NAME,
   INDEX_VERSION,
   getProjectsIndexPath,
+  getProjectsIndexLockPath,
   readProjectsIndex,
   writeProjectsIndex,
   rebuildProjectsIndex,

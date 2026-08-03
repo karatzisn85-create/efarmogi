@@ -5,6 +5,7 @@ import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhs
 import { symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
 import {
   buildKhmdhsRefreshChangeReport,
+  KHMDHS_FRESHNESS_YELLOW_DAYS,
   KHMDHS_REFRESH_REPORT_NO_CHANGES,
 } from '../utils/khmdhsChainRefresh';
 import {
@@ -18,6 +19,13 @@ import {
 } from '../utils/khmdhsDocumentRegistry';
 import { summarizeKhmdhsFetchFailure } from '../utils/khmdhsFetchFailureSummary';
 import { evaluateStitchRefreshCompleteness } from '../utils/khmdhsChainStitchPlan';
+import { getUnresolvedReviewItems } from '../utils/khmdhsDataQualityReport';
+import {
+  buildKhmdhsRefreshFindings,
+  buildKhmdhsFindingAction,
+  KHMDHS_FINDING_ACTION,
+  KHMDHS_FINDING_OUTCOME,
+} from '../utils/khmdhsRefreshFindings';
 
 const ipcRenderer = window.electronAPI;
 
@@ -424,7 +432,11 @@ const ConfirmRefresh = styled.button`
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
-const STALE_BATCH_DAYS = 7;
+/**
+ * «Παλαιό» = ό,τι δείχνει και το κίτρινο badge φρεσκάδας στην κάρτα, ώστε ο αριθμός
+ * «Ν για ανανέωση» να αντιστοιχεί σε αυτό που βλέπει ο χρήστης στη λίστα υποέργων.
+ */
+const STALE_BATCH_DAYS = KHMDHS_FRESHNESS_YELLOW_DAYS;
 /** Αν ο διάλογος μείνει ανοιχτός περισσότερο, ξανασαρώνουμε πριν την εκτέλεση (#4). */
 const ELIGIBLE_PREVIEW_MAX_AGE_MS = 2 * 60 * 1000;
 
@@ -587,6 +599,40 @@ const ModalBody = styled.div`
   flex: 1;
 `;
 
+const ModalFooter = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1.5rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+`;
+
+const FooterHint = styled.div`
+  flex: 1;
+  min-width: 180px;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  color: #64748b;
+`;
+
+const DismissBtn = styled.button`
+  flex-shrink: 0;
+  padding: 0.45rem 1rem;
+  border-radius: 9px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  &:hover:not(:disabled) { background: #f1f5f9; }
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
+`;
+
 const SectionHeader = styled.button`
   display: flex;
   align-items: center;
@@ -741,6 +787,23 @@ const ChangeLineWarn = styled(ChangeLine)`
   color: #92400e;
   font-weight: 600;
   &::before { content: '⚠'; color: #d97706; }
+`;
+
+const ActionLine = styled.div`
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: #7c2d12;
+
+  strong { display: block; font-weight: 800; }
+  span:last-child { font-weight: 500; color: #9a3412; }
 `;
 
 const ChangeGroupLabel = styled.div`
@@ -1087,6 +1150,23 @@ function ReportItemCard({
             </>
           )}
 
+          {item.actions?.length > 0 && (
+            <>
+              <ChangeGroupLabel style={{ color: '#9a3412' }}>
+                Σας περιμένουν μέσα στο υποέργο
+              </ChangeGroupLabel>
+              {item.actions.map((action) => (
+                <ActionLine key={action.id}>
+                  <span aria-hidden>{action.icon}</span>
+                  <div>
+                    <strong>{action.title}</strong>
+                    {action.detail && <span>{action.detail}</span>}
+                  </div>
+                </ActionLine>
+              ))}
+            </>
+          )}
+
           {typeof onNavigate === 'function' && item.id && (
             <OpenSubBtn
               type="button"
@@ -1114,6 +1194,7 @@ export function KhmdhsBatchReportModal({
   pendingItems,
   onNavigateToSubproject,
   onRetry,
+  onDismiss,
 }) {
   const [openSections, setOpenSections] = useState({
     refreshed: true,
@@ -1132,10 +1213,11 @@ export function KhmdhsBatchReportModal({
   const refreshedItems = items.filter((i) => i.status === 'refreshed' && i.category === 'applied');
   const attentionItems = items.filter((i) => i.status === 'refreshed' && i.category === 'attention');
   const unchangedItems = items.filter((i) => i.status === 'refreshed' && (i.category === 'unchanged' || (!i.category && !i.hasSubstantiveChanges)));
-  // Τα κλειδωμένα δεν είναι «αποτυχία» — απλώς τα δούλευε κάποιος τη στιγμή εκείνη.
-  const failedItems = items.filter((i) => i.status === 'failed' && i.phase !== 'lock');
-  const laterItems = items.filter((i) => i.status === 'failed' && i.phase === 'lock');
-  const skippedItems = items.filter((i) => i.status === 'skipped');
+  // Τα πιασμένα δεν είναι «αποτυχία» — απλώς τα δούλευε κάποιος τη στιγμή εκείνη.
+  // Ούτε όσα δεν προλάβαμε λόγω ακύρωσης· και τα δύο ξαναδοκιμάζονται με την «Επανάληψη».
+  const failedItems = items.filter((i) => i.status === 'failed');
+  const laterItems = items.filter((i) => i.busy || i.notProcessed);
+  const skippedItems = items.filter((i) => i.status === 'skipped' && !i.busy && !i.notProcessed);
   const intervenedFromItems = items.filter((i) => i.status === 'intervened');
   const interventionList = pendingItems?.length
     ? pendingItems
@@ -1150,8 +1232,11 @@ export function KhmdhsBatchReportModal({
     .map((i) => ({ id: i.id, label: i.label }));
 
   // Ιεραρχία ευρημάτων: πρώτο ό,τι θέλει ενέργεια, μετά ό,τι πήγε καλά.
+  // Τα «με ενέργειες» ενημερώθηκαν κανονικά, αλλά περιμένουν κάτι από τον χρήστη
+  // μέσα στην επεξεργασία του υποέργου (έλεγχος στοιχείων, ΑΠΕ κ.λπ.).
+  const actionItems = items.filter((i) => i.status === 'refreshed' && (i.actions?.length || 0) > 0);
   const okCount = refreshedItems.length + unchangedItems.length;
-  const needsActionCount = interventionList.length + failedItems.length;
+  const needsActionCount = interventionList.length + failedItems.length + actionItems.length;
   const heroTone = failedItems.length > 0
     ? 'error'
     : needsActionCount > 0
@@ -1167,6 +1252,7 @@ export function KhmdhsBatchReportModal({
   if (refreshedItems.length) heroParts.push(`${refreshedItems.length} ενημερώθηκαν`);
   if (attentionItems.length) heroParts.push(`${attentionItems.length} θέλουν προσοχή`);
   if (unchangedItems.length) heroParts.push(`${unchangedItems.length} χωρίς αλλαγές`);
+  if (actionItems.length) heroParts.push(`${actionItems.length} ζητούν ενέργεια στο υποέργο`);
   if (interventionList.length) heroParts.push(`${interventionList.length} για χαρακτηρισμό`);
   if (failedItems.length) heroParts.push(`${failedItems.length} απέτυχαν`);
   if (laterItems.length) heroParts.push(`${laterItems.length} για αργότερα`);
@@ -1229,6 +1315,11 @@ export function KhmdhsBatchReportModal({
                 ℹ️ Προσοχή <strong>{attentionItems.length}</strong>
               </StatChip>
             )}
+            {actionItems.length > 0 && (
+              <StatChip $bg="#fff7ed" $color="#9a3412" $border="#fed7aa">
+                👉 Ζητούν ενέργεια <strong>{actionItems.length}</strong>
+              </StatChip>
+            )}
             {interventionList.length > 0 && (
               <StatChip $bg="#fffbeb" $color="#b45309" $border="#fde68a">
                 ⚠️ Χαρακτηρισμός <strong>{interventionList.length}</strong>
@@ -1255,10 +1346,10 @@ export function KhmdhsBatchReportModal({
             <RetryBar>
               <RetryText>
                 {failedItems.length > 0 && laterItems.length > 0
-                  ? `${failedItems.length} απέτυχαν και ${laterItems.length} έμειναν κλειδωμένα.`
+                  ? `${failedItems.length} απέτυχαν και ${laterItems.length} έμειναν για αργότερα.`
                   : failedItems.length > 0
                     ? `${failedItems.length} υποέργα δεν ολοκληρώθηκαν.`
-                    : `${laterItems.length} υποέργα ήταν κλειδωμένα τη στιγμή εκείνη.`}
+                    : `${laterItems.length} υποέργα δεν προλάβαμε να τα δούμε.`}
                 {' '}Θέλετε να ξαναπροσπαθήσουμε μόνο αυτά;
               </RetryText>
               <RetryButton type="button" onClick={handleRetry}>
@@ -1383,12 +1474,13 @@ export function KhmdhsBatchReportModal({
             <>
               <SectionHeader $color="#475569" onClick={() => toggleSection('later')}>
                 <SectionChevron $open={openSections.later}>▶</SectionChevron>
-                🔒 Για αργότερα — ήταν σε χρήση ({laterItems.length})
+                🔒 Για αργότερα ({laterItems.length})
               </SectionHeader>
               {openSections.later && (
                 <>
                   <SkippedList style={{ marginBottom: '0.4rem' }}>
-                    Τα υποέργα αυτά τα επεξεργαζόταν κάποιος τη στιγμή της ανανέωσης, γι' αυτό τα αφήσαμε ανέγγιχτα. Ξαναδοκιμάστε τα αργότερα.
+                    Τα υποέργα αυτά έμειναν ανέγγιχτα — είτε τα δούλευε κάποιος εκείνη τη στιγμή,
+                    είτε δεν προλάβαμε να φτάσουμε σε αυτά. Ξαναδοκιμάστε τα με την «Επανάληψη».
                   </SkippedList>
                   {laterItems.map((item) => (
                     <ReportItemCard
@@ -1399,7 +1491,7 @@ export function KhmdhsBatchReportModal({
                       border="#cbd5e1"
                       bg="#f1f5f9"
                       icon="🔒"
-                      meta={item.error || 'Ήταν κλειδωμένο από άλλον χρήστη'}
+                      meta={item.reason || item.error || 'Έμεινε για αργότερα'}
                       onNavigate={goTo}
                     />
                   ))}
@@ -1449,6 +1541,26 @@ export function KhmdhsBatchReportModal({
             </SkippedList>
           )}
         </ModalBody>
+
+        {typeof onDismiss === 'function' && (
+          <ModalFooter>
+            <FooterHint>
+              {interventionList.length > 0
+                ? 'Η αναφορά παραμένει διαθέσιμη όσο υπάρχουν εκκρεμείς χαρακτηρισμοί.'
+                : 'Τα ευρήματα κάθε υποέργου παραμένουν και μέσα στην επεξεργασία του, μέχρι να τα κλείσετε εκεί.'}
+            </FooterHint>
+            <DismissBtn
+              type="button"
+              onClick={onDismiss}
+              disabled={interventionList.length > 0}
+              title={interventionList.length > 0
+                ? 'Ολοκληρώστε πρώτα τους εκκρεμείς χαρακτηρισμούς'
+                : 'Απόκρυψη της αναφοράς αυτής της εκτέλεσης'}
+            >
+              Τα είδα — απόκρυψη αναφοράς
+            </DismissBtn>
+          </ModalFooter>
+        )}
       </ModalBox>
     </ModalOverlay>
   );
@@ -1549,18 +1661,83 @@ export default function KhmdhsBatchRefreshWidget({
     await fetchEligiblePreview({ resetScope: false });
   }, [fetchEligiblePreview]);
 
+  // Όσο ο διάλογος είναι ανοιχτός κρατάμε τη λίστα ζωντανή, ώστε ο αριθμός στο κουμπί
+  // εκκίνησης να μη διαφέρει από αυτόν που θα τρέξει τελικά (π.χ. κλειδώματα που άλλαξαν).
+  useEffect(() => {
+    if (!confirmOpen) return undefined;
+    const id = setInterval(() => {
+      void fetchEligiblePreview({ resetScope: false });
+    }, ELIGIBLE_PREVIEW_MAX_AGE_MS);
+    return () => clearInterval(id);
+  }, [confirmOpen, fetchEligiblePreview]);
+
+  // Τρέχει ήδη μαζική ανανέωση αλλού; Καλύτερα να το δει ο χρήστης πριν πατήσει «Έναρξη».
+  const [otherRun, setOtherRun] = useState(null);
+  useEffect(() => {
+    if (!confirmOpen) return undefined;
+    let cancelled = false;
+    const check = () => {
+      ipcRenderer.invoke('check-khmdhs-batch-run', { actingUsername: currentUser?.username })
+        .then((res) => { if (!cancelled) setOtherRun(res?.running ? res : null); })
+        .catch(() => { /* ignore */ });
+    };
+    check();
+    const id = setInterval(check, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [confirmOpen, currentUser?.username]);
+
+  /** Γράφει τα ευρήματα μέσα στο υποέργο, όταν δεν γίνεται κανονική αποθήκευση δεδομένων. */
+  const persistItemFindings = useCallback(async (subprojectId, findings) => {
+    try {
+      await ipcRenderer.invoke('save-khmdhs-refresh-findings', {
+        subprojectId,
+        actingUsername: currentUser?.username,
+        findings,
+      });
+    } catch { /* τα ευρήματα παραμένουν στην αναφορά εκτέλεσης */ }
+  }, [currentUser]);
+
   const handleBatchRefresh = useCallback(async (opts = {}) => {
     // Λίστα συγκεκριμένων υποέργων για «Επανάληψη» (failed/κλειδωμένα) — παρακάμπτει
     // τον εντοπισμό επιλεξιμότητας και το φιλτράρισμα εμβέλειας.
     const retryItems = Array.isArray(opts.retryItems) ? opts.retryItems : null;
     const scope = batchScope;
+    const runId = `batch-${Date.now()}`;
+    const runStartedAt = new Date().toISOString();
     setConfirmOpen(false);
+
+    // Μία μαζική ανανέωση τη φορά σε όλο τον δήμο: δύο ταυτόχρονες θα «τσακώνονταν» για τα
+    // ίδια υποέργα και θα έδιναν δύο μισές αναφορές.
+    let runMarked = false;
+    try {
+      const startRes = await ipcRenderer.invoke('start-khmdhs-batch-run', {
+        actingUsername: currentUser?.username,
+      });
+      if (!startRes?.success) {
+        showToast(
+          startRes?.running
+            ? `Εκτελείται ήδη μαζική ανανέωση από ${startRes.by}. Περιμένετε να ολοκληρωθεί.`
+            : (startRes?.error || 'Δεν ήταν δυνατή η εκκίνηση της μαζικής ανανέωσης.'),
+          'warning'
+        );
+        return;
+      }
+      runMarked = true;
+    } catch { /* χωρίς σήμανση συνεχίζουμε — δεν μπλοκάρουμε τη δουλειά */ }
+
     setRunning(true);
     setLogEntries([]);
     setShowLog(false);
     cancelRef.current = false;
     setCancelRequested(false);
     setProgress({ current: 0, total: 0, label: 'Εντοπισμός υποέργων…' });
+
+    const heartbeat = window.setInterval(() => {
+      ipcRenderer.invoke('start-khmdhs-batch-run', {
+        actingUsername: currentUser?.username,
+        heartbeat: true,
+      }).catch(() => { /* ignore */ });
+    }, 20000);
 
     try {
       let eligible;
@@ -1671,22 +1848,27 @@ export default function KhmdhsBatchRefreshWidget({
         try {
           let lockRes = null;
           try {
-            lockRes = await ipcRenderer.invoke('create-entity-lock', 'projects', item.id, currentUser?.username || '');
+            lockRes = await ipcRenderer.invoke('acquire-khmdhs-refresh-lock', {
+              subprojectId: item.id,
+              actingUsername: currentUser?.username,
+            });
           } catch {
             lockRes = { success: false };
           }
           if (!lockRes?.success) {
-            failed++;
-            detailItems.push({
-              status: 'failed',
+            // Δεν είναι αποτυχία: το υποέργο είναι απλώς πιασμένο αυτή τη στιγμή.
+            const busyEntry = {
+              status: 'skipped',
+              busy: true,
               id: item.id,
               label: item.label,
-              error: lockRes?.lockedBy
-                ? `Το υποέργο επεξεργάζεται από ${lockRes.lockedBy}`
-                : 'Το υποέργο είναι κλειδωμένο',
-              phase: 'lock',
-            });
-            addLog('🔒', `${item.label} — Κλειδωμένο`);
+              reason: lockRes?.lockedBy
+                ? `Το επεξεργάζεται ο/η ${lockRes.lockedBy} — δοκιμάστε ξανά αργότερα`
+                : 'Είναι ανοιχτό αυτή τη στιγμή — δοκιμάστε ξανά αργότερα',
+            };
+            skippedItems.push(busyEntry);
+            detailItems.push(busyEntry);
+            addLog('🔒', `${item.label} — Ανοιχτό από άλλον χρήστη`);
             continue;
           }
           lockAcquired = true;
@@ -1701,15 +1883,26 @@ export default function KhmdhsBatchRefreshWidget({
             break;
           }
           if (!res?.success) {
+            const failError = res?.error || 'Αποτυχία ανάκτησης από ΚΗΜΔΗΣ';
             failed++;
             detailItems.push({
               status: 'failed',
               id: item.id,
               label: item.label,
-              error: res?.error || 'Αποτυχία ανάκτησης από ΚΗΜΔΗΣ',
+              error: failError,
               phase: 'preview',
             });
-            addLog('❌', `${item.label} — ${res?.error || 'Αποτυχία'}`);
+            await persistItemFindings(item.id, buildKhmdhsRefreshFindings({
+              outcome: KHMDHS_FINDING_OUTCOME.FAILED,
+              runId,
+              at: runStartedAt,
+              by: currentUser?.username,
+              error: failError,
+              actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.RETRY_FETCH, {
+                detail: `${summarizeKhmdhsFetchFailure(failError)} Δεν αποθηκεύτηκε καμία αλλαγή.`,
+              })],
+            }));
+            addLog('❌', `${item.label} — ${failError}`);
             continue;
           }
 
@@ -1731,6 +1924,16 @@ export default function KhmdhsBatchRefreshWidget({
               phase: 'preview',
               failedAdams: stitchCompleteness.failedAdams,
             });
+            await persistItemFindings(item.id, buildKhmdhsRefreshFindings({
+              outcome: KHMDHS_FINDING_OUTCOME.FAILED,
+              runId,
+              at: runStartedAt,
+              by: currentUser?.username,
+              error: stitchCompleteness.message,
+              actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.RETRY_FETCH, {
+                detail: stitchCompleteness.message,
+              })],
+            }));
             addLog('❌', `${item.label} — Μερική αποτυχία τεχνητής αλυσίδας`);
             continue;
           }
@@ -1772,6 +1975,14 @@ export default function KhmdhsBatchRefreshWidget({
               seedAdam: res.seedAdam,
               reason: 'Χρειάζεται χαρακτηρισμός πολλαπλών εγγράφων συμβάσεων',
             });
+            await persistItemFindings(item.id, buildKhmdhsRefreshFindings({
+              outcome: KHMDHS_FINDING_OUTCOME.INTERVENED,
+              runId,
+              at: runStartedAt,
+              by: currentUser?.username,
+              seedAdam: res.seedAdam,
+              actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.CHARACTERIZE_SYMV)],
+            }));
             addLog('⚠️', `${item.label} — Χρειάζεται χαρακτηρισμό`);
             continue;
           }
@@ -1811,17 +2022,57 @@ export default function KhmdhsBatchRefreshWidget({
               : resyncedRegistry;
           }
 
+          const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
+            chainWarnings: (registryChainResList.length ? registryChainResList : [res.chainRes])
+              .flatMap((cr) => cr?.warnings || []),
+          });
+
+          // Τα βήματα που στη μεμονωμένη ανάκτηση ανοίγουν παράθυρο (έλεγχος στοιχείων, ΑΠΕ)
+          // δεν μπορούν να εμφανιστούν μαζικά — καταγράφονται μέσα στο υποέργο ως ευρήματα.
+          const findingActions = [];
+          if (applyResult.apeConflict) {
+            findingActions.push(buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.APE_CONFLICT, {
+              detail: applyResult.apeConflict.contractLabel
+                ? `Γραμμή: ${applyResult.apeConflict.contractLabel}. Κρατήστε την τρέχουσα τιμή ή δεχτείτε την πρόταση ΚΗΜΔΗΣ.`
+                : '',
+            }));
+          }
+          const unresolvedReviewCount = getUnresolvedReviewItems(
+            mergedProject.khmdhsDataQualityReview,
+            mergedProject
+          ).length;
+          if (unresolvedReviewCount > 0) {
+            findingActions.push(buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.DATA_REVIEW, {
+              detail: unresolvedReviewCount === 1
+                ? '1 πεδίο χρειάζεται συμπλήρωση ή επιβεβαίωση μετά την ανανέωση.'
+                : `${unresolvedReviewCount} πεδία χρειάζονται συμπλήρωση ή επιβεβαίωση μετά την ανανέωση.`,
+            }));
+          }
+
+          const projectToSave = {
+            ...mergedProject,
+            // Η έκδοση του υποέργου πάνω στην οποία δουλέψαμε — αν άλλαξε στο μεταξύ,
+            // η αποθήκευση σταματά αντί να πατήσει τη δουλειά άλλου χρήστη.
+            __expectedUpdatedAt: project?.updatedAt,
+            khmdhsLastRefreshFindings: buildKhmdhsRefreshFindings({
+              outcome: report.category,
+              runId,
+              at: runStartedAt,
+              by: currentUser?.username,
+              seedAdam: res.seedAdam,
+              appliedLines: report.appliedLines,
+              attentionLines: report.attentionLines,
+              actions: findingActions,
+            }),
+          };
+
           await ipcRenderer.invoke('create-khmdhs-refresh-snapshot', {
             subprojectId: item.id,
             actingUsername: currentUser?.username,
           });
-          const saveRes = await ipcRenderer.invoke('save-project-data', mergedProject);
+          const saveRes = await ipcRenderer.invoke('save-project-data', projectToSave);
           if (saveRes?.success) {
             refreshed++;
-            const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
-              chainWarnings: (registryChainResList.length ? registryChainResList : [res.chainRes])
-                .flatMap((cr) => cr?.warnings || []),
-            });
             detailItems.push({
               status: 'refreshed',
               id: item.id,
@@ -1832,11 +2083,7 @@ export default function KhmdhsBatchRefreshWidget({
               attentionLines: report.attentionLines,
               category: report.category,
               hasSubstantiveChanges: report.category === 'applied',
-              meta: {
-                statusAutoUpdated: applyResult.statusAutoUpdated || null,
-                protectedCount: applyResult.protectedCount || 0,
-                apeConflict: applyResult.apeConflict || null,
-              },
+              actions: findingActions,
             });
             const logIcon = report.category === 'applied' ? '✅' : report.category === 'attention' ? 'ℹ️' : '➖';
             const logText = report.category === 'applied'
@@ -1869,12 +2116,31 @@ export default function KhmdhsBatchRefreshWidget({
         } finally {
           if (lockAcquired) {
             try {
-              await ipcRenderer.invoke('remove-entity-lock', 'projects', item.id);
+              await ipcRenderer.invoke('release-khmdhs-refresh-lock', {
+                subprojectId: item.id,
+                actingUsername: currentUser?.username,
+              });
             } catch { /* ignore */ }
           }
         }
 
         await new Promise((r) => setTimeout(r, 300));
+      }
+
+      // Ό,τι δεν προλάβαμε (ακύρωση ή διακοπή) μένει για συνέχιση με την «Επανάληψη»,
+      // ώστε να μη χρειάζεται να ξανατρέξει ο χρήστης όλη τη λίστα από την αρχή.
+      const touchedIds = new Set(detailItems.map((d) => d.id).filter(Boolean));
+      for (const item of eligible) {
+        if (!item?.id || touchedIds.has(item.id)) continue;
+        const pendingEntry = {
+          status: 'skipped',
+          notProcessed: true,
+          id: item.id,
+          label: item.label,
+          reason: 'Δεν προλάβαμε να το δούμε — η εκτέλεση σταμάτησε νωρίτερα',
+        };
+        skippedItems.push(pendingEntry);
+        detailItems.push(pendingEntry);
       }
 
       const batchResults = {
@@ -1884,25 +2150,31 @@ export default function KhmdhsBatchRefreshWidget({
         skipped: skippedItems.length,
         interventionItems,
         items: detailItems,
+        // Η επανάληψη ενημερώνει μόνο τα υποέργα που ξανατρέξαμε — δεν αντικαθιστά την αναφορά.
+        isRetry: !!retryItems,
       };
 
       if (typeof onBatchResults === 'function') {
         onBatchResults(batchResults);
       }
 
-      if (refreshed > 0 && typeof onRefreshComplete === 'function') {
+      // Πάντα επαναφόρτωση: ακόμη και χωρίς επιτυχή ανανέωση έχουν γραφτεί ευρήματα
+      // στα υποέργα (αποτυχίες, εκκρεμείς χαρακτηρισμοί) που πρέπει να φανούν στις κάρτες.
+      if (typeof onRefreshComplete === 'function') {
         onRefreshComplete();
       }
 
-      const lockedCount = detailItems.filter((d) => d.status === 'failed' && d.phase === 'lock').length;
-      const realFailed = Math.max(0, failed - lockedCount);
+      const lockedCount = detailItems.filter((d) => d.busy).length;
+      const pendingCount = detailItems.filter((d) => d.notProcessed).length;
+      const realFailed = failed;
 
       if (cancelRef.current) {
         showToast(
           `Η μαζική ανανέωση ακυρώθηκε. Ολοκληρώθηκαν ${refreshed} από ${total}` +
           (needsIntervention ? `, ${needsIntervention} χρειάζονται χαρακτηρισμό` : '') +
           (realFailed ? `, ${realFailed} απέτυχαν` : '') +
-          (lockedCount ? `, ${lockedCount} για αργότερα` : ''),
+          (lockedCount ? `, ${lockedCount} ήταν σε χρήση` : '') +
+          (pendingCount ? `, ${pendingCount} μένουν για συνέχεια` : ''),
           'info'
         );
       } else {
@@ -1933,10 +2205,19 @@ export default function KhmdhsBatchRefreshWidget({
         });
       }
     } finally {
+      window.clearInterval(heartbeat);
+      if (runMarked) {
+        ipcRenderer.invoke('end-khmdhs-batch-run', {
+          actingUsername: currentUser?.username,
+        }).catch(() => { /* η σήμανση λήγει μόνη της χωρίς σφυγμό */ });
+      }
       setCancelRequested(false);
       setRunning(false);
     }
-  }, [batchScope, currentUser, showToast, onRefreshComplete, onBatchResults, addLog, eligiblePreview]);
+  }, [
+    batchScope, currentUser, showToast, onRefreshComplete, onBatchResults,
+    addLog, eligiblePreview, persistItemFindings,
+  ]);
 
   const handleCancelBatch = useCallback(() => {
     if (cancelRequested) return;
@@ -2057,6 +2338,13 @@ export default function KhmdhsBatchRefreshWidget({
                   : 'Δεν ήταν δυνατός ο εντοπισμός. Δοκιμάστε «Ανανέωση λίστας».'}
             </ConfirmDesc>
 
+            {otherRun?.running && !otherRun.mine && (
+              <ConfirmDesc style={{ color: '#b45309', fontWeight: 700 }}>
+                ⏳ Αυτή τη στιγμή εκτελείται μαζική ανανέωση από {otherRun.by}.
+                Περιμένετε να ολοκληρωθεί για να μην «τσακωθούν» οι δύο εκτελέσεις.
+              </ConfirmDesc>
+            )}
+
             {eligiblePreview != null && (
               <ScopeOptions>
                 <ScopeOption $active={batchScope === 'stale'}>
@@ -2094,8 +2382,9 @@ export default function KhmdhsBatchRefreshWidget({
             )}
 
             <ConfirmDesc style={{ marginBottom: '1.1rem', fontSize: '0.68rem' }}>
-              Τα υποέργα που χρειάζονται χαρακτηρισμό εγγράφων δεν θα πειραχτούν — θα εμφανιστούν σε λίστα.
-              Αν μείνει ανοιχτό το παράθυρο πάνω από 2 λεπτά, η λίστα ανανεώνεται αυτόματα πριν την εκκίνηση.
+              Τα υποέργα που χρειάζονται χαρακτηρισμό εγγράφων δεν θα πειραχτούν — θα εμφανιστούν σε λίστα
+              και θα σημανθούν μέσα στο υποέργο. Όσο το παράθυρο μένει ανοιχτό, η λίστα ανανεώνεται
+              αυτόματα κάθε 2 λεπτά.
             </ConfirmDesc>
 
             <ConfirmActions>
@@ -2108,7 +2397,7 @@ export default function KhmdhsBatchRefreshWidget({
                 {eligibleLoading ? 'Ανανέωση…' : 'Ανανέωση λίστας'}
               </ConfirmRefresh>
               <ConfirmProceed
-                onClick={handleBatchRefresh}
+                onClick={() => handleBatchRefresh()}
                 disabled={eligibleLoading || eligiblePreview == null || !selectedCount}
               >
                 {eligibleLoading && eligiblePreview == null

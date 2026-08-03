@@ -475,6 +475,14 @@ async function resolveMainContractEntryForSymvSeed(stages, seedNorm, recordsByAd
   };
 
   const siblingRoots = parallelInfo?.siblingRoots || [];
+
+  // Ο σπόρος είναι ο ίδιος ανεξάρτητη ρίζα — π.χ. μία από δύο παράλληλες συμβάσεις της ίδιας
+  // ανάθεσης (δύο τμήματα, δύο ανάδοχοι), χωρίς ηλεκτρονικό δεσμό μεταξύ τους. Χωρίς αυτόν τον
+  // έλεγχο η σύμβαση που ζήτησε ο χρήστης «κρεμιόταν» στην αδελφή της ως τροποποίηση/παράταση.
+  const seedIsIndependentRoot = !seedIsSupplementary
+    && siblingRoots.some((a) => normalizeAdam(a) === seed);
+  if (seedIsIndependentRoot) return seed;
+
   const mainFromSiblings = siblingRoots.find(
     (a) => normalizeAdam(a) !== seed && !isSuppAdam(a)
   );
@@ -2609,6 +2617,7 @@ module.exports = {
   resolveKhmdhsAdamChain,
   resolveKhmdhsSupplementaryContract,
   resolveFullContractChain,
+  resolveMainContractEntryForSymvSeed,
   deriveContractProcessStartDate,
   reconcileProcessStartBeforeContract,
   parseChainMarker,

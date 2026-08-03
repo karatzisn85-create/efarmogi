@@ -60,7 +60,13 @@ function parseDateMs(value) {
 function hasFiniteAmount(record) {
   if (!record) return false;
   const budget = record.contractBudget;
-  return budget != null && budget !== '' && Number.isFinite(Number(budget));
+  if (budget != null && budget !== '' && Number.isFinite(Number(budget))) return true;
+  // Πολλές συμβάσεις στο ΚΗΜΔΗΣ έχουν κενό contractBudget αλλά συμπληρωμένη
+  // συνολική αξία (totalCost*) — π.χ. παράλληλες συμβάσεις τμημάτων.
+  const withVat = record.totalCostWithVAT;
+  if (withVat != null && withVat !== '' && Number.isFinite(Number(withVat))) return true;
+  const withoutVat = record.totalCostWithoutVAT;
+  return withoutVat != null && withoutVat !== '' && Number.isFinite(Number(withoutVat));
 }
 
 function normalizeTitleText(value) {

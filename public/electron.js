@@ -30,6 +30,7 @@ const {
 } = require('./taskAssignmentEmailService');
 const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
 const projectsIndex = require('./projectsIndex');
+const concurrencyGuards = require('./concurrencyGuards');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -312,6 +313,8 @@ function createWindow() {
     startLockWatcher(mainWindow);
     // Καθαρισμός παλιών temp files κατά την εκκίνηση
     cleanupOldTempFiles();
+    // Καθαρισμός αντιγράφων πριν την ανανέωση που δεν χρειάζονται πια
+    try { cleanupOldKhmdhsSnapshots(); } catch { /* ignore */ }
   });
 
   // Error handlers for the window
@@ -971,7 +974,9 @@ app.on('window-all-closed', () => {
     
     // Καθαρισμός lock files κατά το κλείσιμο της εφαρμογής
     try {
-      if (!dataDir) return;
+      // Χωρίς φάκελο δεδομένων δεν υπάρχει τίποτα να καθαριστεί — αλλά η εφαρμογή
+      // πρέπει να κλείσει κανονικά, αλλιώς μένει ζωντανή στο παρασκήνιο.
+      if (!dataDir) { app.quit(); return; }
       const myHostname = os.hostname();
       // Old-style locks
       if (fs.existsSync(dataDir)) {
@@ -1004,6 +1009,15 @@ app.on('window-all-closed', () => {
           }
         }
       }
+      // Σήμανση μαζικής ανανέωσης αυτού του υπολογιστή: αλλιώς οι υπόλοιποι θα περίμεναν
+      // άσκοπα μέχρι να λήξει ο σφυγμός.
+      try {
+        const runPath = path.join(dataDir, 'config', KHMDHS_BATCH_RUN_FILE);
+        if (fs.existsSync(runPath)) {
+          const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+          if (!runState?.host || runState.host === myHostname) fs.unlinkSync(runPath);
+        }
+      } catch { /* λήγει μόνη της χωρίς σφυγμό */ }
     } catch (error) {
       console.error('[lock] Error cleaning up lock files:', error);
     }
@@ -1407,7 +1421,20 @@ ipcMain.handle('check-entity-lock', async (event, entityType, entityId) => {
 });
 
 // Backward compatibility για project locks
-ipcMain.handle('create-project-lock', async (event, projectId, username) => {
+// Το subprojectId είναι προαιρετικό: όταν δίνεται, δεν ανοίγουμε για επεξεργασία υποέργο
+// που κρατά εκείνη τη στιγμή μια ανανέωση ΚΗΜΔΗΣ (κλειδώνει ανά υποέργο, όχι ανά έργο).
+ipcMain.handle('create-project-lock', async (event, projectId, username, subprojectId) => {
+  const sid = String(subprojectId || '').trim();
+  if (sid) {
+    const busy = isEntityLocked('projects', sid);
+    if (busy.locked && busy.lockedBy && busy.lockedBy !== String(username || '').trim()) {
+      return {
+        success: false,
+        error: `Ανοιχτό από: ${busy.lockedBy}`,
+        lockedBy: busy.lockedBy,
+      };
+    }
+  }
   return createProjectLock(projectId, username);
 });
 
@@ -1624,6 +1651,31 @@ function findFileInDirectoryTree(dir, fileName) {
 // IPC Handlers για διαχείριση αρχείων
 async function handleSaveProjectData(event, projectData) {
   try {
+    // Προαιρετικός έλεγχος «άλλαξε στο μεταξύ;»: ο καλών δηλώνει σε ποια έκδοση του υποέργου
+    // βασίστηκε. Γίνεται ΠΡΙΝ από οποιαδήποτε αλλαγή στον δίσκο, ώστε να μη μείνει τίποτα μισό.
+    const expectedUpdatedAt = projectData.__expectedUpdatedAt;
+    delete projectData.__expectedUpdatedAt;
+    if (expectedUpdatedAt && projectData.subprojectId) {
+      let currentUpdatedAt = '';
+      try {
+        const currentPath = findSubprojectDataJsonPath(projectData.subprojectId);
+        if (currentPath) {
+          currentUpdatedAt = JSON.parse(fs.readFileSync(currentPath, 'utf8'))?.updatedAt || '';
+        }
+      } catch { /* αν δεν διαβάζεται, δεν μπλοκάρουμε την αποθήκευση */ }
+      const versionCheck = concurrencyGuards.detectSaveConflict(expectedUpdatedAt, currentUpdatedAt);
+      if (versionCheck.conflict) {
+        logger.info(`save-project-data: conflict for ${projectData.subprojectId}`
+          + ` (expected ${expectedUpdatedAt}, found ${versionCheck.updatedAt})`);
+        return {
+          success: false,
+          conflict: true,
+          updatedAt: versionCheck.updatedAt,
+          error: 'Το υποέργο άλλαξε από άλλον χρήστη όσο ήταν ανοιχτό. Ανοίξτε το ξανά για να δείτε την πιο πρόσφατη εικόνα και επαναλάβετε.',
+        };
+      }
+    }
+
     let projectId = projectData.projectId;
     let isNewProject = !projectData.projectId;
     
@@ -1736,7 +1788,7 @@ async function handleSaveProjectData(event, projectData) {
         console.error('Error reading existing data:', error);
       }
     }
-    
+
     // Δημιουργία φακέλων
     if (!fs.existsSync(projectDir)) {
       fs.mkdirSync(projectDir, { recursive: true });
@@ -2177,10 +2229,13 @@ ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) =
           logger.error('commit-subprojects-excel-import: delete failed for ' + dirName, delErr);
         }
       }
-      // Καθαρισμός παλιάς αναφοράς μαζικής ανανέωσης (αναφέρεται σε διαγραμμένα υποέργα)
+      // Καθαρισμός παλιών αναφορών μαζικής ανανέωσης (αναφέρονται σε διαγραμμένα υποέργα)
       try {
-        const reportPath = path.join(dataDir, 'config', 'khmdhs-batch-report.json');
-        if (fs.existsSync(reportPath)) fs.unlinkSync(reportPath);
+        const configDir = path.join(dataDir, 'config');
+        for (const name of (fs.existsSync(configDir) ? fs.readdirSync(configDir) : [])) {
+          if (!name.startsWith('khmdhs-batch-report') || !name.endsWith('.json')) continue;
+          try { fs.unlinkSync(path.join(configDir, name)); } catch { /* ignore */ }
+        }
       } catch { /* ignore */ }
       logAuditAction({
         type: 'delete',
@@ -3162,6 +3217,31 @@ ipcMain.handle('cancel-khmdhs-batch-refresh', async (_event, { actingUsername } 
   }
 });
 
+/**
+ * Είναι το υποέργο πιασμένο από άλλον χρήστη;
+ *
+ * Υπάρχουν δύο κλειδαριές για το ίδιο πράγμα: η επεξεργασία από το UI κλειδώνει ολόκληρο
+ * το έργο (φάκελος γονέας), ενώ η ανανέωση ΚΗΜΔΗΣ κλειδώνει το μεμονωμένο υποέργο.
+ * Ελέγχουμε και τις δύο, αλλιώς οι δύο διαδρομές γράφουν ταυτόχρονα και η μία σβήνει την άλλη.
+ */
+function getKhmdhsSubprojectBusyStatus(subprojectId, username) {
+  const sid = String(subprojectId || '').trim();
+  if (!sid) return { locked: false };
+  const keys = [sid];
+  try {
+    const jsonPath = findSubprojectDataJsonPath(sid);
+    if (jsonPath) {
+      const parentId = path.basename(path.dirname(path.dirname(jsonPath)));
+      if (parentId && parentId !== sid) keys.push(parentId);
+    }
+  } catch { /* αν δεν βρεθεί ο γονέας, ελέγχουμε τουλάχιστον το υποέργο */ }
+  return concurrencyGuards.resolveBusyStatus(
+    keys,
+    username,
+    (key) => isEntityLocked('projects', key)
+  );
+}
+
 ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectId, actingUsername, batchMode } = {}) => {
   let localAbort = null;
   try {
@@ -3181,8 +3261,8 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
 
     // Επιτρέπεται αν το υποέργο δεν είναι κλειδωμένο ή αν το κλείδωμα ανήκει στον ίδιο
     // χρήστη (η μαζική ανανέωση κρατά κλείδωμα σε όλη τη διάρκεια ανάγνωσης→αποθήκευσης).
-    const lockStatus = isEntityLocked('projects', sid);
-    if (lockStatus.locked && lockStatus.lockedBy && lockStatus.lockedBy !== username) {
+    const lockStatus = getKhmdhsSubprojectBusyStatus(sid, username);
+    if (lockStatus.locked) {
       return {
         success: false,
         error: `Το υποέργο επεξεργάζεται από ${lockStatus.lockedBy}. Δοκιμάστε ξανά σε λίγο.`,
@@ -3312,6 +3392,53 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
   }
 });
 
+/**
+ * Πιάνει το υποέργο για όλη τη διάρκεια ανάγνωσης→αποθήκευσης μιας ανανέωσης ΚΗΜΔΗΣ,
+ * αφού πρώτα βεβαιωθεί ότι δεν το κρατά ήδη κάποιος άλλος (ούτε μέσω του έργου του).
+ */
+ipcMain.handle('acquire-khmdhs-refresh-lock', async (_event, { subprojectId, actingUsername } = {}) => {
+  try {
+    const username = String(actingUsername || '').trim();
+    if (!username) return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
+    const user = findUserByUsername(username);
+    if (!user || user.active === false || user.approved === false) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const sid = String(subprojectId || '').trim();
+    if (!sid) return { success: false, error: 'Λείπει αναγνωριστικό υποέργου' };
+
+    const busy = getKhmdhsSubprojectBusyStatus(sid, username);
+    if (busy.locked) {
+      return {
+        success: false,
+        error: `Το υποέργο επεξεργάζεται από ${busy.lockedBy}`,
+        lockedBy: busy.lockedBy,
+      };
+    }
+    return createEntityLock('projects', sid, username);
+  } catch (e) {
+    logger.error('acquire-khmdhs-refresh-lock error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+/** Ελευθερώνει το κλείδωμα ανανέωσης — μόνο αν ανήκει στον ίδιο χρήστη. */
+ipcMain.handle('release-khmdhs-refresh-lock', async (_event, { subprojectId, actingUsername } = {}) => {
+  try {
+    const sid = String(subprojectId || '').trim();
+    const username = String(actingUsername || '').trim();
+    if (!sid) return { success: false };
+    const status = isEntityLocked('projects', sid);
+    if (status.locked && status.lockedBy && username && status.lockedBy !== username) {
+      return { success: false, error: 'Το κλείδωμα ανήκει σε άλλον χρήστη' };
+    }
+    return removeEntityLock('projects', sid);
+  } catch (e) {
+    logger.error('release-khmdhs-refresh-lock error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
 ipcMain.handle('batch-khmdhs-refresh-eligible', async (_event, { actingUsername } = {}) => {
   try {
     const username = String(actingUsername || '').trim();
@@ -3376,16 +3503,13 @@ ipcMain.handle('batch-khmdhs-refresh-eligible', async (_event, { actingUsername 
               skipped.push({ id: sid, label, reason: 'Κλειδωμένο' });
               continue;
             }
-            const lastRefresh = project.khmdhsChainLastRefreshedAt || null;
-            const ts = lastRefresh ? new Date(lastRefresh).getTime() : 0;
-            const ageDays = ts
-              ? Math.round((Date.now() - ts) / (24 * 60 * 60 * 1000))
-              : null;
+            // Ίδιος ορισμός ηλικίας με το badge φρεσκάδας της κάρτας (παλαιότερο fetchedAt)
+            const { ageDays, lastRefreshed } = refreshSeed.getKhmdhsRefreshAge(project);
             eligible.push({
               id: sid,
               label,
               seedAdam: seedInfo.adam,
-              lastRefreshed: lastRefresh,
+              lastRefreshed,
               ageDays,
             });
           } catch { /* προσπερνάμε προβληματικό υποέργο */ }
@@ -3414,7 +3538,7 @@ ipcMain.handle('khmdhs-fetch-supplementary-contract', async (_event, payload = {
   }
 });
 
-ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = 7, actingUsername } = {}) => {
+ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = null, actingUsername } = {}) => {
   try {
     const username = String(actingUsername || '').trim();
     if (username) {
@@ -3426,7 +3550,9 @@ ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = 7, acting
     const stale = [];
     if (!dataDir || !fs.existsSync(dataDir)) return { success: true, stale };
 
-    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+    const staleAfterDays = Number.isFinite(Number(maxAgeDays)) && Number(maxAgeDays) > 0
+      ? Number(maxAgeDays)
+      : refreshSeed.KHMDHS_STALE_DAYS;
     let projectDirs = [];
     try { projectDirs = fs.readdirSync(dataDir); } catch { projectDirs = []; }
     for (const projectDir of projectDirs) {
@@ -3459,15 +3585,13 @@ ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = 7, acting
             const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
             if (!seedInfo.adam) continue;
 
-            const lastRefresh = project.khmdhsChainLastRefreshedAt;
-            const ts = lastRefresh ? new Date(lastRefresh).getTime() : 0;
-            if (ts < cutoff) {
-              const ageDays = Math.round((Date.now() - (ts || Date.now())) / (24 * 60 * 60 * 1000));
+            const { ageDays, lastRefreshed } = refreshSeed.getKhmdhsRefreshAge(project);
+            if (ageDays == null || ageDays >= staleAfterDays) {
               stale.push({
                 id: sid,
                 label: sTitle || sid,
-                lastRefreshed: lastRefresh || null,
-                ageDays: ts ? ageDays : null,
+                lastRefreshed,
+                ageDays,
               });
             }
           } catch { /* προσπερνάμε προβληματικό υποέργο */ }
@@ -3483,7 +3607,25 @@ ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = 7, acting
 
 const KHMDHS_BATCH_REPORT_FILE = 'khmdhs-batch-report.json';
 
-function getKhmdhsBatchReportPath() {
+/** Ασφαλές όνομα αρχείου από username (χωρίς διαδρομές/ειδικούς χαρακτήρες). */
+function sanitizeUserFileKey(username) {
+  const raw = String(username || '').trim().toLowerCase();
+  const safe = raw.replace(/[^a-z0-9._-]/g, '_').slice(0, 40);
+  if (safe && safe === raw) return safe;
+  const hash = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 8);
+  return `${safe || 'user'}-${hash}`;
+}
+
+/**
+ * Η αναφορά μαζικής ανανέωσης κρατιέται ανά χρήστη: σε δήμο με πολλούς διαχειριστές, η
+ * εκτέλεση του ενός δεν σβήνει τα ευρήματα του άλλου ούτε μπορεί να τα απορρίψει.
+ */
+function getKhmdhsBatchReportPath(username) {
+  const key = sanitizeUserFileKey(username);
+  return path.join(dataDir || '', 'config', `khmdhs-batch-report.${key}.json`);
+}
+
+function getLegacyKhmdhsBatchReportPath() {
   return path.join(dataDir || '', 'config', KHMDHS_BATCH_REPORT_FILE);
 }
 
@@ -3504,9 +3646,21 @@ ipcMain.handle('get-khmdhs-batch-report', async (_event, { actingUsername } = {}
   try {
     const auth = requireKhmdhsBatchReportAccess(actingUsername);
     if (!auth.ok) return { success: false, error: auth.error };
-    const filePath = getKhmdhsBatchReportPath();
-    if (!dataDir || !fs.existsSync(filePath)) {
-      return { success: true, state: null };
+    if (!dataDir) return { success: true, state: null };
+    const filePath = getKhmdhsBatchReportPath(auth.username);
+
+    // Μετάβαση από την παλιά κοινή αναφορά: την παραλαμβάνει ο πρώτος που θα τη ζητήσει.
+    if (!fs.existsSync(filePath)) {
+      const legacyPath = getLegacyKhmdhsBatchReportPath();
+      if (fs.existsSync(legacyPath)) {
+        try {
+          fs.renameSync(legacyPath, filePath);
+        } catch {
+          return { success: true, state: null };
+        }
+      } else {
+        return { success: true, state: null };
+      }
     }
     const state = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     return { success: true, state: state && typeof state === 'object' ? state : null };
@@ -3525,9 +3679,10 @@ ipcMain.handle('save-khmdhs-batch-report', async (_event, { actingUsername, stat
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     const toSave = {
       ...(state && typeof state === 'object' ? state : {}),
+      runBy: auth.username,
       updatedAt: new Date().toISOString(),
     };
-    safeWriteJSON(getKhmdhsBatchReportPath(), toSave);
+    safeWriteJSON(getKhmdhsBatchReportPath(auth.username), toSave);
     return { success: true, state: toSave };
   } catch (e) {
     logger.error('save-khmdhs-batch-report error:', e.message);
@@ -3539,7 +3694,8 @@ ipcMain.handle('clear-khmdhs-batch-report', async (_event, { actingUsername } = 
   try {
     const auth = requireKhmdhsBatchReportAccess(actingUsername);
     if (!auth.ok) return { success: false, error: auth.error };
-    const filePath = getKhmdhsBatchReportPath();
+    // Σβήνει μόνο τη δική του αναφορά — ποτέ κάποιου άλλου διαχειριστή.
+    const filePath = getKhmdhsBatchReportPath(auth.username);
     if (filePath && fs.existsSync(filePath)) {
       try { fs.unlinkSync(filePath); } catch { /* ignore */ }
     }
@@ -3550,6 +3706,161 @@ ipcMain.handle('clear-khmdhs-batch-report', async (_event, { actingUsername } = 
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Σήμανση εκτέλεσης μαζικής ανανέωσης — μία τη φορά σε όλο τον δήμο
+// ─────────────────────────────────────────────────────────────────────────────
+
+const KHMDHS_BATCH_RUN_FILE = 'khmdhs-batch-run.json';
+/** Χωρίς σφυγμό για τόση ώρα, η εκτέλεση θεωρείται εγκαταλελειμμένη (κλείσιμο/κόλλημα). */
+const KHMDHS_BATCH_RUN_STALE_MS = 2 * 60 * 1000;
+
+function getKhmdhsBatchRunPath() {
+  return path.join(dataDir || '', 'config', KHMDHS_BATCH_RUN_FILE);
+}
+
+/** Η ενεργή εκτέλεση, ή null αν δεν υπάρχει/έχει εγκαταλειφθεί. */
+function readActiveKhmdhsBatchRun() {
+  try {
+    const filePath = getKhmdhsBatchRunPath();
+    if (!dataDir || !fs.existsSync(filePath)) return null;
+    const state = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!state?.username) return null;
+    const beat = new Date(state.heartbeatAt || state.startedAt || 0).getTime();
+    if (!beat || (Date.now() - beat) > KHMDHS_BATCH_RUN_STALE_MS) return null;
+    return state;
+  } catch {
+    return null;
+  }
+}
+
+ipcMain.handle('check-khmdhs-batch-run', async (_event, { actingUsername } = {}) => {
+  const active = readActiveKhmdhsBatchRun();
+  if (!active) return { success: true, running: false };
+  const me = String(actingUsername || '').trim();
+  return {
+    success: true,
+    running: true,
+    mine: active.username === me,
+    by: active.fullName || active.username,
+    startedAt: active.startedAt || '',
+    progress: active.progress || null,
+  };
+});
+
+/** Πιάνει (ή ανανεώνει με σφυγμό) τη σήμανση εκτέλεσης. */
+ipcMain.handle('start-khmdhs-batch-run', async (_event, { actingUsername, heartbeat, progress } = {}) => {
+  try {
+    const auth = requireKhmdhsBatchReportAccess(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!dataDir) return { success: false, error: 'Δεν έχει οριστεί φάκελος δεδομένων' };
+
+    const active = readActiveKhmdhsBatchRun();
+    if (active && active.username !== auth.username) {
+      return {
+        success: false,
+        running: true,
+        by: active.fullName || active.username,
+        startedAt: active.startedAt || '',
+        error: `Μαζική ανανέωση εκτελείται ήδη από ${active.fullName || active.username}.`,
+      };
+    }
+
+    const user = findUserByUsername(auth.username);
+    const configDir = path.join(dataDir, 'config');
+    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+    safeWriteJSON(getKhmdhsBatchRunPath(), {
+      username: auth.username,
+      fullName: user?.fullName || '',
+      host: os.hostname(),
+      startedAt: (heartbeat && active?.startedAt) || new Date().toISOString(),
+      heartbeatAt: new Date().toISOString(),
+      progress: progress || null,
+    });
+    return { success: true };
+  } catch (e) {
+    logger.error('start-khmdhs-batch-run error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+/** Ελευθερώνει τη σήμανση — μόνο ο ίδιος ο χρήστης που την κρατά. */
+ipcMain.handle('end-khmdhs-batch-run', async (_event, { actingUsername } = {}) => {
+  try {
+    const me = String(actingUsername || '').trim();
+    const filePath = getKhmdhsBatchRunPath();
+    if (!dataDir || !fs.existsSync(filePath)) return { success: true };
+    const active = readActiveKhmdhsBatchRun();
+    if (active && active.username !== me) {
+      return { success: false, error: 'Η εκτέλεση ανήκει σε άλλον χρήστη' };
+    }
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    return { success: true };
+  } catch (e) {
+    logger.error('end-khmdhs-batch-run error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+/** Διαδρομή του data.json ενός υποέργου (άμεσος φάκελος ή σάρωση ανά έργο). */
+function findSubprojectDataJsonPath(subprojectId) {
+  const sid = String(subprojectId || '').trim();
+  if (!sid || !dataDir) return '';
+  // Πρώτα από το ευρετήριο — αλλιώς κάθε αναζήτηση σαρώνει όλο τον κοινό φάκελο.
+  let hadIndex = false;
+  try {
+    const indexed = projectsIndex.findIndexedSubprojectPath(dataDir, sid);
+    if (indexed) return indexed;
+    // Μόνο όταν αποτύχει το ευρετήριο μας ενδιαφέρει αν υπήρχε — η μαζική ανανέωση καλεί
+    // αυτή τη συνάρτηση εκατοντάδες φορές και δεν θέλουμε διπλό διάβασμα κάθε φορά.
+    hadIndex = !!projectsIndex.readProjectsIndex(dataDir);
+  } catch { /* πέφτουμε στην πλήρη σάρωση */ }
+
+  // Αν το υποέργο υπάρχει στον δίσκο αλλά έλειπε από το ευρετήριο, συμπληρώνουμε την εγγραφή
+  // που λείπει. Δεν σβήνουμε ολόκληρο το ευρετήριο: θα ανάγκαζε κάθε επόμενη αναζήτηση σε
+  // πλήρη σάρωση του κοινού φακέλου μέχρι την επόμενη φόρτωση.
+  const healIndexIfStale = (found) => {
+    if (!found || !hadIndex) return found;
+    try {
+      const data = JSON.parse(fs.readFileSync(found, 'utf8'));
+      if (data?.projectTitle && data?.subprojectTitle) {
+        projectsIndex.upsertProjectsIndexEntry(dataDir, {
+          ...data,
+          projectId: path.basename(path.dirname(path.dirname(found))),
+          subprojectId: path.basename(path.dirname(found)),
+        });
+      }
+    } catch { /* το ευρετήριο θα ξαναχτιστεί στην επόμενη πλήρη φόρτωση */ }
+    return found;
+  };
+
+  let rootDirs = [];
+  try { rootDirs = fs.readdirSync(dataDir); } catch { rootDirs = []; }
+  for (const dir of rootDirs) {
+    try {
+      if (DATA_DIR_SKIP_ROOT_DIRS.has(dir)) continue;
+      const projectPath = path.join(dataDir, dir);
+      try { if (!fs.statSync(projectPath).isDirectory()) continue; } catch { continue; }
+      const directJson = path.join(projectPath, sid, 'data.json');
+      if (fs.existsSync(directJson)) return healIndexIfStale(directJson);
+      let subDirs = [];
+      try { subDirs = fs.readdirSync(projectPath); } catch { continue; }
+      for (const sub of subDirs) {
+        try {
+          const jsonPath = path.join(projectPath, sub, 'data.json');
+          if (!fs.existsSync(jsonPath)) continue;
+          const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+          if (data.subprojectId === sid) return healIndexIfStale(jsonPath);
+        } catch { /* προσπερνάμε προβληματικό υποέργο */ }
+      }
+    } catch { /* προσπερνάμε προβληματικό φάκελο έργου */ }
+  }
+  return '';
+}
+
+const KHMDHS_SNAPSHOT_SUFFIX = '.before-refresh';
+/** Πόσο κρατάμε τα αντίγραφα πριν την ανανέωση προτού καθαριστούν. */
+const KHMDHS_SNAPSHOT_KEEP_DAYS = 30;
+
 ipcMain.handle('create-khmdhs-refresh-snapshot', async (_event, { subprojectId, actingUsername }) => {
   try {
     const username = String(actingUsername || '').trim();
@@ -3559,43 +3870,172 @@ ipcMain.handle('create-khmdhs-refresh-snapshot', async (_event, { subprojectId, 
         return { success: false, error: 'Δεν έχετε δικαίωμα' };
       }
     }
-    const sid = String(subprojectId || '').trim();
-    if (!sid || !dataDir) return { success: false };
-    const skipRoot = DATA_DIR_SKIP_ROOT_DIRS;
-    let rootDirs = [];
-    try { rootDirs = fs.readdirSync(dataDir); } catch { rootDirs = []; }
-    for (const dir of rootDirs) {
-      try {
-        if (skipRoot.has(dir)) continue;
-        const projectPath = path.join(dataDir, dir);
-        try { if (!fs.statSync(projectPath).isDirectory()) continue; } catch { continue; }
-        const directPath = path.join(projectPath, sid);
-        if (fs.existsSync(path.join(directPath, 'data.json'))) {
-          const src = path.join(directPath, 'data.json');
-          const dest = path.join(directPath, 'data.json.before-refresh');
-          fs.copyFileSync(src, dest);
-          return { success: true };
-        }
-        let subDirs = [];
-        try { subDirs = fs.readdirSync(projectPath); } catch { continue; }
-        for (const sub of subDirs) {
-          try {
-            const jsonPath = path.join(projectPath, sub, 'data.json');
-            if (!fs.existsSync(jsonPath)) continue;
-            const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-            if (data.subprojectId === sid) {
-              const dest = path.join(projectPath, sub, 'data.json.before-refresh');
-              fs.copyFileSync(jsonPath, dest);
-              return { success: true };
-            }
-          } catch { /* προσπερνάμε προβληματικό υποέργο */ }
-        }
-      } catch { /* προσπερνάμε προβληματικό φάκελο έργου */ }
-    }
-    return { success: false };
+    const jsonPath = findSubprojectDataJsonPath(subprojectId);
+    if (!jsonPath) return { success: false };
+    fs.copyFileSync(jsonPath, `${jsonPath}${KHMDHS_SNAPSHOT_SUFFIX}`);
+    return { success: true };
   } catch (e) {
     logger.error('create-khmdhs-refresh-snapshot error:', e.message);
     return { success: false };
+  }
+});
+
+/** Πληροφορίες για το αντίγραφο ασφαλείας πριν την τελευταία ανανέωση. */
+ipcMain.handle('get-khmdhs-refresh-snapshot-info', async (_event, { subprojectId, actingUsername } = {}) => {
+  try {
+    const username = String(actingUsername || '').trim();
+    if (!username) return { success: true, exists: false };
+    const user = findUserByUsername(username);
+    if (!user || user.active === false || user.approved === false) {
+      return { success: true, exists: false };
+    }
+    const jsonPath = findSubprojectDataJsonPath(subprojectId);
+    if (!jsonPath) return { success: true, exists: false };
+    const snapshotPath = `${jsonPath}${KHMDHS_SNAPSHOT_SUFFIX}`;
+    if (!fs.existsSync(snapshotPath)) return { success: true, exists: false };
+    const st = fs.statSync(snapshotPath);
+    return { success: true, exists: true, takenAt: new Date(st.mtimeMs).toISOString() };
+  } catch (e) {
+    logger.error('get-khmdhs-refresh-snapshot-info error:', e.message);
+    return { success: true, exists: false };
+  }
+});
+
+/**
+ * Επαναφέρει το υποέργο στην κατάσταση που είχε πριν την τελευταία ανανέωση ΚΗΜΔΗΣ.
+ * Το αντίγραφο κρατιέται αυτόματα σε κάθε ανανέωση· εδώ αποκτά νόημα για τον χρήστη.
+ */
+ipcMain.handle('restore-khmdhs-refresh-snapshot', async (_event, { subprojectId, actingUsername } = {}) => {
+  try {
+    const username = String(actingUsername || '').trim();
+    if (!username) return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
+    const user = findUserByUsername(username);
+    if (!user || user.active === false || user.approved === false) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    if (user.role !== 'ADMIN' && user.role !== 'SUPERADMIN') {
+      return { success: false, error: 'Η επαναφορά επιτρέπεται μόνο σε διαχειριστές' };
+    }
+
+    const sid = String(subprojectId || '').trim();
+    const busy = getKhmdhsSubprojectBusyStatus(sid, username);
+    if (busy.locked) {
+      return { success: false, error: `Το υποέργο το επεξεργάζεται ο/η ${busy.lockedBy}. Δοκιμάστε ξανά σε λίγο.` };
+    }
+
+    const jsonPath = findSubprojectDataJsonPath(sid);
+    if (!jsonPath) return { success: false, error: 'Δεν βρέθηκε το υποέργο' };
+    const snapshotPath = `${jsonPath}${KHMDHS_SNAPSHOT_SUFFIX}`;
+    if (!fs.existsSync(snapshotPath)) {
+      return { success: false, error: 'Δεν υπάρχει αποθηκευμένη προηγούμενη κατάσταση' };
+    }
+
+    let snapshot;
+    try {
+      snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+    } catch {
+      return { success: false, error: 'Το αντίγραφο δεν είναι αναγνώσιμο' };
+    }
+    if (!snapshot || snapshot.subprojectId !== sid) {
+      return { success: false, error: 'Το αντίγραφο δεν αντιστοιχεί σε αυτό το υποέργο' };
+    }
+
+    // Κρατάμε το υποέργο για όση ώρα γράφουμε, όπως κάνει και η ανανέωση.
+    const lockRes = createEntityLock('projects', sid, username);
+    if (!lockRes?.success) {
+      return { success: false, error: lockRes?.error || 'Το υποέργο είναι πιασμένο αυτή τη στιγμή' };
+    }
+    try {
+      snapshot.updatedAt = new Date().toISOString();
+      delete snapshot.khmdhsLastRefreshFindings;
+      safeWriteJSON(jsonPath, snapshot);
+      try { projectsIndex.upsertProjectsIndexEntry(dataDir, snapshot); } catch { /* ignore */ }
+      // Το αντίγραφο καταναλώνεται: δεν επαναφέρουμε δεύτερη φορά την ίδια κατάσταση.
+      try { fs.unlinkSync(snapshotPath); } catch { /* ignore */ }
+    } finally {
+      if (!lockRes.alreadyHeld) removeEntityLock('projects', sid);
+    }
+
+    logAuditAction({
+      type: 'update',
+      entityType: 'subproject',
+      entityId: sid,
+      entityTitle: snapshot.subprojectTitle || '',
+      userFullName: user.fullName || username,
+      userRole: user.role,
+      details: 'Επαναφορά στην κατάσταση πριν την τελευταία ανανέωση ΚΗΜΔΗΣ',
+    });
+    return { success: true };
+  } catch (e) {
+    logger.error('restore-khmdhs-refresh-snapshot error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+/** Καθαρισμός παλιών αντιγράφων πριν την ανανέωση — δεν χρειάζονται για πάντα. */
+function cleanupOldKhmdhsSnapshots() {
+  try {
+    if (!dataDir || !fs.existsSync(dataDir)) return { removed: 0 };
+    const cutoff = Date.now() - KHMDHS_SNAPSHOT_KEEP_DAYS * 24 * 60 * 60 * 1000;
+    let removed = 0;
+    for (const projectDir of fs.readdirSync(dataDir)) {
+      if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
+      const projectPath = path.join(dataDir, projectDir);
+      try {
+        if (!fs.statSync(projectPath).isDirectory()) continue;
+        for (const subDir of fs.readdirSync(projectPath)) {
+          const snapshotPath = path.join(projectPath, subDir, `data.json${KHMDHS_SNAPSHOT_SUFFIX}`);
+          try {
+            if (!fs.existsSync(snapshotPath)) continue;
+            if (fs.statSync(snapshotPath).mtimeMs >= cutoff) continue;
+            fs.unlinkSync(snapshotPath);
+            removed++;
+          } catch { /* προσπερνάμε προβληματικό αντίγραφο */ }
+        }
+      } catch { /* προσπερνάμε προβληματικό φάκελο */ }
+    }
+    if (removed) logger.info(`cleanupOldKhmdhsSnapshots: removed ${removed}`);
+    return { removed };
+  } catch (e) {
+    logger.error('cleanupOldKhmdhsSnapshots error:', e.message);
+    return { removed: 0 };
+  }
+}
+
+/**
+ * Γράφει ΜΟΝΟ το πεδίο ευρημάτων τελευταίας ανανέωσης στο υποέργο.
+ * Χρησιμοποιείται όταν η μαζική ανανέωση δεν αποθηκεύει δεδομένα (αποτυχία, εκκρεμής
+ * χαρακτηρισμός) αλλά πρέπει να μείνει ίχνος μέσα στο υποέργο για τον χρήστη.
+ */
+ipcMain.handle('save-khmdhs-refresh-findings', async (_event, { subprojectId, actingUsername, findings } = {}) => {
+  try {
+    const username = String(actingUsername || '').trim();
+    if (!username) return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
+    const user = findUserByUsername(username);
+    if (!user || user.active === false || user.approved === false) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const jsonPath = findSubprojectDataJsonPath(subprojectId);
+    if (!jsonPath) return { success: false, error: 'Δεν βρέθηκε το υποέργο' };
+
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    } catch {
+      return { success: false, error: 'Δεν ήταν δυνατή η ανάγνωση του υποέργου' };
+    }
+    if (findings && typeof findings === 'object') {
+      data.khmdhsLastRefreshFindings = findings;
+    } else {
+      delete data.khmdhsLastRefreshFindings;
+    }
+    safeWriteJSON(jsonPath, data);
+    // Ενημέρωση ευρετηρίου (αλλιώς το αλλαγμένο mtime επιβάλλει πλήρη σάρωση στο επόμενο load)
+    try { projectsIndex.upsertProjectsIndexEntry(dataDir, data); } catch { /* ignore */ }
+    return { success: true };
+  } catch (e) {
+    logger.error('save-khmdhs-refresh-findings error:', e.message);
+    return { success: false, error: e.message || String(e) };
   }
 });
 
