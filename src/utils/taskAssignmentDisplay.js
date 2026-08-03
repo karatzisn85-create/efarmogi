@@ -66,12 +66,6 @@ export function getArchiveReadonlyMessage(task, actingUsername, canEditAsAssigne
   return `${ARCHIVE_READONLY_ERROR} Για επανενεργοποίηση, ο αναθέτης πρέπει πρώτα να αλλάξει την κατάσταση του χώρου.`;
 }
 
-export const TASK_PRIORITY_LABELS = {
-  low: 'Χαμηλή',
-  normal: 'Κανονική',
-  high: 'Υψηλή'
-};
-
 export const DEFAULT_REMINDER_OFFSETS = [7, 3, 1, 0];
 
 export function formatTaskDueDate(dueDate, dueTime) {

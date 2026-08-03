@@ -6,6 +6,7 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { safeWriteJSON } = require('./safeWrite');
 const { withServiceLock } = require('./fileLock');
+const { loadEmailConfig, isConfigured } = require('./taskAssignmentEmailService');
 
 const TASKS_ROOT = 'ANATHESEIS_ERGASION';
 const FILES_SUBDIR = 'ARXEIA';
@@ -475,7 +476,8 @@ function createTaskAssignmentService(deps) {
     const base = existing || {};
     const title = String(payload.title != null ? payload.title : base.title || '').trim();
     const description = String(payload.description != null ? payload.description : base.description || '').trim();
-    const priority = ['low', 'normal', 'high'].includes(payload.priority) ? payload.priority : base.priority || 'normal';
+    // Η προτεραιότητα δεν είναι πλέον επιλογή UI — σταθερή τιμή για συμβατότητα παλιών δεδομένων.
+    const priority = 'normal';
     const assignees = payload.assignees != null
       ? [...new Set((payload.assignees || []).map((x) => String(x || '').trim()).filter(Boolean))]
       : base.assignees || [];
@@ -487,9 +489,18 @@ function createTaskAssignmentService(deps) {
     };
   }
 
+  function systemEmailIsConfigured() {
+    try {
+      return isConfigured(loadEmailConfig(dataDir));
+    } catch (_e) {
+      return false;
+    }
+  }
+
   function buildNewTask(createdBy, payload) {
     const norm = normalizeTaskPayload(payload);
     const now = new Date().toISOString();
+    const wantEmail = payload?.emailNotifications === true && systemEmailIsConfigured();
     return {
       id: uuidv4(),
       title: norm.title,
@@ -508,7 +519,7 @@ function createTaskAssignmentService(deps) {
       completedBy: null,
       departedAssignees: [],
       leftArchiveBy: [],
-      emailNotifications: false,
+      emailNotifications: wantEmail,
       lastEmailSentAt: null
     };
   }
@@ -745,7 +756,11 @@ function createTaskAssignmentService(deps) {
     const assignCheck = canUserAssignTo(users, actingUsername, norm.assignees);
     if (!assignCheck.ok) return { success: false, error: assignCheck.error };
 
-    const task = buildNewTask(actingUsername, { ...norm, assignees: assignCheck.assignees });
+    const task = buildNewTask(actingUsername, {
+      ...norm,
+      assignees: assignCheck.assignees,
+      emailNotifications: payload?.emailNotifications === true,
+    });
     try {
       if (Array.isArray(newFiles) && newFiles.length > 0) {
         const batchId = uuidv4();
@@ -1653,6 +1668,12 @@ function createTaskAssignmentService(deps) {
     if (!task) return { success: false, error: 'Ο χώρος δεν βρέθηκε' };
     if (!isAssigner(task, actingUsername) && !isSuperAdmin(users, actingUsername)) {
       return { success: false, error: 'Μόνο ο δημιουργός μπορεί να αλλάξει τις ειδοποιήσεις email' };
+    }
+    if (enabled && !systemEmailIsConfigured()) {
+      return {
+        success: false,
+        error: 'Δεν είναι ρυθμισμένο το email συστήματος — οι ειδοποιήσεις δεν μπορούν να ενεργοποιηθούν'
+      };
     }
     const updated = { ...task, emailNotifications: !!enabled };
     try {

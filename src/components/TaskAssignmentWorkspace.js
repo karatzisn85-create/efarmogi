@@ -5,7 +5,6 @@ import emojiData from '@emoji-mart/data';
 import {
   TASK_STATUS_LABELS,
   TASK_STATUS_COLORS,
-  TASK_PRIORITY_LABELS,
   isTaskWithdrawnByAssigner,
   hasLeftWorkArchive,
   formatAssigneeDisplayNames,
@@ -109,79 +108,81 @@ const Badge = styled.span`
   color: ${(p) => p.$color || '#334155'};
 `;
 
-
-const MetaMuted = styled.span`
-  color: #94a3b8;
-  font-weight: 600;
-  font-size: 0.76rem;
+/** Κατάσταση δίπλα στον τίτλο — ίδια εμφάνιση με badge, αλλά επιλέξιμη. */
+const StatusBadgeSelect = styled.select`
+  display: inline-flex;
+  align-items: center;
+  max-width: 11.5rem;
+  padding: 0.22rem 1.35rem 0.22rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: inherit;
+  line-height: 1.25;
+  background-color: ${(p) => p.$bg || '#e2e8f0'};
+  color: ${(p) => p.$color || '#334155'};
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23334155' stroke-width='2.4'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.4rem center;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  &:hover:not(:disabled) {
+    filter: brightness(0.98);
+  }
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
 `;
 
-const ActionsCol = styled.div`
+const ActionToolbar = styled.div`
   flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem 0.85rem;
+  padding: 0.42rem 0.85rem;
+  border-bottom: 1px solid #e8edf5;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+`;
+
+const ToolbarGroup = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem;
-  justify-content: flex-end;
-  align-self: center;
-  max-width: min(440px, 46%);
-  align-items: flex-end;
+`;
+
+const ToolbarDivider = styled.span`
+  width: 1px;
+  align-self: stretch;
+  min-height: 1.4rem;
+  background: #e2e8f0;
+  margin: 0 0.15rem;
 `;
 
 const EmailToggleBtn = styled.button`
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.72rem;
-  min-height: 34px;
-  border-radius: 8px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  gap: 0.3rem;
+  padding: 0.32rem 0.7rem;
+  min-height: 32px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
   cursor: pointer;
   font-family: inherit;
-  border: 1.5px solid ${p => p.$active ? '#059669' : '#cbd5e1'};
-  background: ${p => p.$active ? '#ecfdf5' : '#f8fafc'};
-  color: ${p => p.$active ? '#065f46' : '#64748b'};
+  border: 1px solid ${p => p.$active ? '#6ee7b7' : '#e2e8f0'};
+  background: ${p => p.$active ? '#ecfdf5' : '#fff'};
+  color: ${p => p.$active ? '#047857' : '#64748b'};
   transition: background 0.15s, border-color 0.15s, color 0.15s;
   &:hover:not(:disabled) {
-    border-color: ${p => p.$active ? '#047857' : '#94a3b8'};
-    background: ${p => p.$active ? '#d1fae5' : '#f1f5f9'};
+    border-color: ${p => p.$active ? '#34d399' : '#cbd5e1'};
+    background: ${p => p.$active ? '#d1fae5' : '#f8fafc'};
   }
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-`;
-
-const StatusStack = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  align-items: flex-end;
-`;
-
-const StatusFieldLabel = styled.span`
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #64748b;
-`;
-
-const FlowStatusSelect = styled.select`
-  min-height: 34px;
-  padding: 0.32rem 1.85rem 0.32rem 0.65rem;
-  border-radius: 8px;
-  border: 1px solid #c7d2fe;
-  font-size: 0.8rem;
-  font-weight: 700;
-  font-family: inherit;
-  background: linear-gradient(180deg, #fafbff 0%, #eef2ff 100%);
-  color: #3730a3;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.55rem center;
   &:disabled {
     opacity: 0.55;
     cursor: not-allowed;
@@ -189,16 +190,20 @@ const FlowStatusSelect = styled.select`
 `;
 
 const ActionBtn = styled.button`
-  padding: 0.35rem 0.72rem;
-  min-height: 34px;
-  border-radius: 8px;
-  font-size: 0.82rem;
-  font-weight: 600;
+  padding: 0.32rem 0.72rem;
+  min-height: 32px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
   cursor: pointer;
   font-family: inherit;
-  border: 1px solid ${(p) => (p.$danger ? '#fecaca' : p.$primary ? 'transparent' : '#e2e8f0')};
-  background: ${(p) => (p.$danger ? '#fef2f2' : p.$primary ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : '#fff')};
+  border: 1px solid ${(p) => (p.$danger ? 'transparent' : p.$primary ? 'transparent' : '#e2e8f0')};
+  background: ${(p) => (p.$danger ? 'transparent' : p.$primary ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : '#fff')};
   color: ${(p) => (p.$danger ? '#b91c1c' : p.$primary ? '#fff' : '#334155')};
+  &:hover:not(:disabled) {
+    background: ${(p) => (p.$danger ? '#fef2f2' : p.$primary ? undefined : '#f8fafc')};
+    border-color: ${(p) => (p.$danger ? '#fecaca' : p.$primary ? 'transparent' : '#cbd5e1')};
+  }
   &:disabled {
     opacity: 0.55;
     cursor: not-allowed;
@@ -1726,6 +1731,7 @@ function TaskAssignmentWorkspace({
   const [error, setError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [emailNotifBusy, setEmailNotifBusy] = useState(false);
+  const [systemEmailConfigured, setSystemEmailConfigured] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [folderFilesModal, setFolderFilesModal] = useState(null);
@@ -1776,8 +1782,23 @@ function TaskAssignmentWorkspace({
     });
   }, [comment]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await ipcRenderer.invoke('is-email-configured', { actingUsername });
+        if (!cancelled) {
+          setSystemEmailConfigured(!!(res?.success && res.configured));
+        }
+      } catch (_e) {
+        if (!cancelled) setSystemEmailConfigured(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [actingUsername]);
+
   const handleToggleEmailNotifications = useCallback(async () => {
-    if (emailNotifBusy) return;
+    if (emailNotifBusy || !systemEmailConfigured) return;
     setEmailNotifBusy(true);
     try {
       const newVal = !task.emailNotifications;
@@ -1792,7 +1813,7 @@ function TaskAssignmentWorkspace({
     } finally {
       setEmailNotifBusy(false);
     }
-  }, [task, actingUsername, emailNotifBusy, onUpdated]);
+  }, [task, actingUsername, emailNotifBusy, systemEmailConfigured, onUpdated]);
 
   const isAssigner = task.createdBy?.toLowerCase() === actingUsername?.toLowerCase();
   const isAssignee = (task.assignees || []).some(
@@ -1824,7 +1845,44 @@ function TaskAssignmentWorkspace({
     !hasLeftWorkArchive(task, actingUsername);
   const sc = TASK_STATUS_COLORS[task.status] || {};
 
+  const showEmailToggle = isAssigner && systemEmailConfigured;
+  const showDepartBtn = workflowOpen && isAssignee && !isAssigner && ['pending', 'in_progress'].includes(task.status);
+  const showEditBtn = Boolean(
+    onEdit && canEditAsAssigner && (
+      (workflowOpen && isAssigner && task.status !== 'completed')
+      || assignerWithdrawnCleanup
+    )
+  );
+  const showWithdrawBtn = workflowOpen && isAssigner && canEditAsAssigner && task.status !== 'completed';
+  const showDeleteBtn = Boolean(onDelete && isAssigner && canEditAsAssigner);
+  const showPrimaryToolbar = showEmailToggle || showDepartBtn || showEditBtn || showLeaveArchiveBtn;
+  const showDangerToolbar = showWithdrawBtn || showDeleteBtn;
+  const showActionToolbar = showPrimaryToolbar || showDangerToolbar;
+
   const feedItems = useMemo(() => buildUnifiedTimeline(task), [task]);
+
+  const handleStatusChange = (e) => {
+    const next = e.target.value;
+    if (next === task.status) return;
+    runStatus(next);
+  };
+
+  const statusSelectOptions = canReopenFromArchive ? (
+    <>
+      <option value="completed" disabled>
+        {TASK_STATUS_LABELS.completed} (τρέχουσα)
+      </option>
+      <option value="pending">{TASK_STATUS_LABELS.pending}</option>
+      <option value="in_progress">{TASK_STATUS_LABELS.in_progress}</option>
+      <option value="cancelled">{TASK_STATUS_LABELS.cancelled}</option>
+    </>
+  ) : (
+    <>
+      <option value="pending">{TASK_STATUS_LABELS.pending}</option>
+      <option value="in_progress">{TASK_STATUS_LABELS.in_progress}</option>
+      <option value="completed">{TASK_STATUS_LABELS.completed}</option>
+    </>
+  );
 
   const feedScrollSig = useMemo(() => feedItems.map((i) => i.id).join('|'), [feedItems]);
 
@@ -2211,10 +2269,27 @@ function TaskAssignmentWorkspace({
           <HeadTitleRow>
             <TaskTitle>{task.title}</TaskTitle>
             <MetaRow style={{ marginTop: 0 }}>
-              <Badge $bg={sc.bg} $color={sc.color}>
-                {TASK_STATUS_LABELS[task.status] || task.status}
-              </Badge>
-              <Badge>{TASK_PRIORITY_LABELS[task.priority] || task.priority}</Badge>
+              {canSetFlowStatus ? (
+                <StatusBadgeSelect
+                  $bg={sc.bg}
+                  $color={sc.color}
+                  aria-label={
+                    canReopenFromArchive
+                      ? 'Επαναφορά χώρου στον ενεργό χώρο εργασίας'
+                      : 'Αλλαγή κατάστασης χώρου'
+                  }
+                  title={canReopenFromArchive ? 'Επαναφορά από αποθήκη' : 'Αλλαγή κατάστασης'}
+                  value={task.status}
+                  disabled={busy}
+                  onChange={handleStatusChange}
+                >
+                  {statusSelectOptions}
+                </StatusBadgeSelect>
+              ) : (
+                <Badge $bg={sc.bg} $color={sc.color}>
+                  {TASK_STATUS_LABELS[task.status] || task.status}
+                </Badge>
+              )}
               {assignerWithdrawnCleanup ? (
                 <Badge $bg="#fef9c3" $color="#854d0e" title="Ο χώρος δεν εμφανίζεται πλέον στους συναδέλφους">
                   Κλειστός · χρειάζεται ενέργεια
@@ -2245,98 +2320,64 @@ function TaskAssignmentWorkspace({
             </ParticipantPanel>
           </ParticipantDetails>
         </HeadMain>
-        <ActionsCol>
-          {canSetFlowStatus && (
-            <StatusStack>
-              <StatusFieldLabel>
-                {canReopenFromArchive ? 'Επαναφορά από αποθήκη' : 'Κατάσταση'}
-              </StatusFieldLabel>
-              <FlowStatusSelect
-                aria-label={
-                  canReopenFromArchive
-                    ? 'Επαναφορά χώρου στον ενεργό χώρο εργασίας'
-                    : 'Αλλαγή κατάστασης χώρου'
-                }
-                value={task.status}
+      </TopBar>
+
+      {showActionToolbar && (
+        <ActionToolbar aria-label="Ενέργειες χώρου εργασίας">
+          <ToolbarGroup>
+            {showEmailToggle && (
+              <EmailToggleBtn
+                type="button"
+                $active={!!task.emailNotifications}
+                disabled={emailNotifBusy}
+                title={task.emailNotifications ? 'Ειδοποιήσεις email ενεργές — κλικ για απενεργοποίηση' : 'Ειδοποιήσεις email ανενεργές — κλικ για ενεργοποίηση'}
+                onClick={handleToggleEmailNotifications}
+              >
+                {task.emailNotifications ? '✉ Email ON' : '✉ Email OFF'}
+              </EmailToggleBtn>
+            )}
+            {showEditBtn && (
+              <ActionBtn type="button" disabled={busy} onClick={onEdit}>
+                Επεξεργασία
+              </ActionBtn>
+            )}
+            {showDepartBtn && (
+              <ActionBtn
+                type="button"
                 disabled={busy}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  if (next === task.status) return;
-                  runStatus(next);
+                onClick={() => {
+                  setDepartNote('');
+                  setDepartModalOpen(true);
                 }}
               >
-                {canReopenFromArchive ? (
-                  <>
-                    <option value="completed" disabled>
-                      {TASK_STATUS_LABELS.completed} (τρέχουσα)
-                    </option>
-                    <option value="pending">{TASK_STATUS_LABELS.pending}</option>
-                    <option value="in_progress">{TASK_STATUS_LABELS.in_progress}</option>
-                    <option value="cancelled">{TASK_STATUS_LABELS.cancelled}</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="pending">{TASK_STATUS_LABELS.pending}</option>
-                    <option value="in_progress">{TASK_STATUS_LABELS.in_progress}</option>
-                    <option value="completed">{TASK_STATUS_LABELS.completed}</option>
-                  </>
-                )}
-              </FlowStatusSelect>
-            </StatusStack>
-          )}
-          {isAssigner && (
-            <EmailToggleBtn
-              type="button"
-              $active={!!task.emailNotifications}
-              disabled={emailNotifBusy}
-              title={task.emailNotifications ? 'Ειδοποιήσεις email ενεργές — κλικ για απενεργοποίηση' : 'Ειδοποιήσεις email ανενεργές — κλικ για ενεργοποίηση'}
-              onClick={handleToggleEmailNotifications}
-            >
-              {task.emailNotifications ? '✉ Email ON' : '✉ Email OFF'}
-            </EmailToggleBtn>
-          )}
-          {workflowOpen && isAssignee && !isAssigner && ['pending', 'in_progress'].includes(task.status) && (
-            <ActionBtn
-              $danger
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setDepartNote('');
-                setDepartModalOpen(true);
-              }}
-            >
-              Αποχώρηση
-            </ActionBtn>
-          )}
-          {workflowOpen && isAssigner && canEditAsAssigner && task.status !== 'completed' && (
-            <>
-              {onEdit && (
-                <ActionBtn type="button" disabled={busy} onClick={onEdit}>
-                  Επεξεργασία
-                </ActionBtn>
-              )}
-              <ActionBtn $danger type="button" disabled={busy} onClick={() => setWithdrawModalOpen(true)}>
-                Κλείσιμο χώρου
+                Αποχώρηση
               </ActionBtn>
+            )}
+            {showLeaveArchiveBtn && onLeaveArchive && (
+              <ActionBtn type="button" disabled={busy} onClick={() => setLeaveArchiveModalOpen(true)}>
+                Αποχώρηση από αποθήκη
+              </ActionBtn>
+            )}
+          </ToolbarGroup>
+          {showDangerToolbar && (
+            <>
+              {showPrimaryToolbar ? <ToolbarDivider aria-hidden /> : null}
+              <ToolbarGroup>
+                {showWithdrawBtn && (
+                  <ActionBtn $danger type="button" disabled={busy} onClick={() => setWithdrawModalOpen(true)}>
+                    Κλείσιμο χώρου
+                  </ActionBtn>
+                )}
+                {showDeleteBtn && (
+                  <ActionBtn $danger type="button" disabled={busy} onClick={onDelete}>
+                    {workArchiveMode ? 'Οριστική διαγραφή' : 'Διαγραφή'}
+                  </ActionBtn>
+                )}
+              </ToolbarGroup>
             </>
           )}
-          {assignerWithdrawnCleanup && canEditAsAssigner && onEdit && (
-            <ActionBtn type="button" disabled={busy} onClick={onEdit}>
-              Επεξεργασία
-            </ActionBtn>
-          )}
-          {showLeaveArchiveBtn && onLeaveArchive && (
-            <ActionBtn type="button" disabled={busy} onClick={() => setLeaveArchiveModalOpen(true)}>
-              Αποχώρηση από αποθήκη
-            </ActionBtn>
-          )}
-          {onDelete && isAssigner && canEditAsAssigner && (
-            <ActionBtn $danger type="button" disabled={busy} onClick={onDelete}>
-              {workArchiveMode ? 'Οριστική διαγραφή' : 'Διαγραφή'}
-            </ActionBtn>
-          )}
-        </ActionsCol>
-      </TopBar>
+        </ActionToolbar>
+      )}
 
       {departModalOpen && workflowOpen && isAssignee && !isAssigner && ['pending', 'in_progress'].includes(task.status) && (
         <DepartModalBackdrop
@@ -2638,15 +2679,6 @@ function TaskAssignmentWorkspace({
                           <strong>{authorDisplayName(item.author, usersMap)}</strong>
                         </OriginMeta>
                       </OriginHeadRow>
-                      {(() => {
-                        const showPriority = task.priority && task.priority !== 'normal';
-                        if (!showPriority) return null;
-                        return (
-                          <OriginMeta style={{ marginBottom: item.description ? 10 : 0 }}>
-                            {TASK_PRIORITY_LABELS[task.priority] || task.priority}
-                          </OriginMeta>
-                        );
-                      })()}
                       {item.description ? (
                         <OriginDescription>{item.description}</OriginDescription>
                       ) : (

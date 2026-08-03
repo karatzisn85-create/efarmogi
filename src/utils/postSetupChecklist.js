@@ -71,11 +71,12 @@ export function isPostSetupChecklistDismissed(now = Date.now(), storage = null) 
   }
 }
 
-export function dismissPostSetupChecklist(storage = null) {
+export function dismissPostSetupChecklist(storage = null, now = Date.now()) {
   try {
     const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
     if (!store) return;
-    store.setItem(POST_SETUP_DISMISS_KEY, new Date().toISOString());
+    const ts = typeof now === 'number' ? now : Date.now();
+    store.setItem(POST_SETUP_DISMISS_KEY, new Date(ts).toISOString());
   } catch {
     /* ignore */
   }

@@ -7,7 +7,6 @@ import { DISMISS_TASK_EVENT } from './TaskAssignmentToastHost';
 import {
   TASK_STATUS_LABELS,
   TASK_STATUS_COLORS,
-  TASK_PRIORITY_LABELS,
   isTaskWithdrawnByAssigner,
   formatAssigneeDisplayNames
 } from '../utils/taskAssignmentDisplay';
@@ -540,38 +539,6 @@ const StatusBadge = styled.span`
   font-weight: 700;
   background: ${(p) => p.$bg || '#e2e8f0'};
   color: ${(p) => p.$color || '#334155'};
-`;
-
-const PriorityPill = styled.span`
-  display: inline-flex;
-  align-items: center;
-  padding: 0.1rem 0.4rem;
-  border-radius: 6px;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  ${(p) => {
-    const pr = String(p.$priority || 'normal');
-    if (pr === 'high') {
-      return css`
-        background: linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%);
-        color: #991b1b;
-        border: 1px solid #fecaca;
-      `;
-    }
-    if (pr === 'low') {
-      return css`
-        background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-        color: #64748b;
-        border: 1px solid #e2e8f0;
-      `;
-    }
-    return css`
-      background: linear-gradient(180deg, #fafbff 0%, #eef2ff 100%);
-      color: #3730a3;
-      border: 1px solid #c7d2fe;
-    `;
-  }}
 `;
 
 const WithdrawBadge = styled.span`
@@ -1174,7 +1141,6 @@ function TaskAssignmentManager({
           <StatusBadge $bg={sc.bg} $color={sc.color}>
             {TASK_STATUS_LABELS[t.status] || t.status}
           </StatusBadge>
-          <PriorityPill $priority={t.priority}>{TASK_PRIORITY_LABELS[t.priority] || t.priority}</PriorityPill>
           {showWithdrawBadge ? <WithdrawBadge title="Ο χώρος δεν εμφανίζεται πλέον στους συναδέλφους">Κλειστός · ενέργεια</WithdrawBadge> : null}
         </CardMeta>
         {assignees ? (

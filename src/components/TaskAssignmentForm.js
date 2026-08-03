@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect, useRef } from 'react';
+import React, { useState, useLayoutEffect, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import {
@@ -162,31 +162,6 @@ const TextArea = styled.textarea`
   }
 `;
 
-const Select = styled.select`
-  width: 100%;
-  padding: 0.62rem 0.88rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 11px;
-  font-size: 0.96rem;
-  box-sizing: border-box;
-  font-family: inherit;
-  min-height: 46px;
-  background: #fff;
-  color: #334155;
-  cursor: pointer;
-  &:focus {
-    outline: none;
-    border-color: #818cf8;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
-  }
-`;
-
-const Row = styled.div`
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-`;
-
 const BtnRow = styled.div`
   display: flex;
   gap: 0.65rem;
@@ -289,16 +264,67 @@ const ErrorMsg = styled.div`
   border: 1px solid #fecaca;
 `;
 
+const EmailOptionCard = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid #c7d2fe;
+  background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+`;
+
+const EmailOptionText = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+
+const EmailOptionTitle = styled.div`
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #312e81;
+  margin-bottom: 0.25rem;
+`;
+
+const EmailOptionHint = styled.div`
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #64748b;
+  line-height: 1.45;
+`;
+
+const EmailToggleGroup = styled.div`
+  display: inline-flex;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid #c7d2fe;
+  overflow: hidden;
+  background: #fff;
+`;
+
+const EmailToggleChoice = styled.button`
+  border: none;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  background: ${(p) => (p.$active ? (p.$on ? '#059669' : '#64748b') : 'transparent')};
+  color: ${(p) => (p.$active ? '#fff' : '#64748b')};
+  transition: background 0.12s ease, color 0.12s ease;
+`;
+
 function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = null, assignableUsers = [] }) {
   const titleRef = useRef(null);
   const errorRef = useRef(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState('normal');
   const [assignees, setAssignees] = useState([]);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [systemEmailConfigured, setSystemEmailConfigured] = useState(false);
+  const [emailNotifications, setEmailNotifications] = useState(false);
 
   useLayoutEffect(() => {
     resetDocumentInteractionState();
@@ -318,18 +344,32 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
     if (editingTask) {
       setTitle(editingTask.title || '');
       setDescription(editingTask.description || '');
-      setPriority(editingTask.priority || 'normal');
       setAssignees(Array.isArray(editingTask.assignees) ? [...editingTask.assignees] : []);
     } else {
       setTitle('');
       setDescription('');
-      setPriority('normal');
       setAssignees([]);
     }
     setPendingFiles([]);
     setError('');
     setSaving(false);
+    setEmailNotifications(false);
   }, [editingTask]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await ipcRenderer.invoke('is-email-configured', { actingUsername });
+        if (!cancelled) {
+          setSystemEmailConfigured(!!(res?.success && res.configured));
+        }
+      } catch (_e) {
+        if (!cancelled) setSystemEmailConfigured(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [actingUsername]);
 
   const toggleAssignee = (username) => {
     setAssignees((prev) => {
@@ -400,8 +440,10 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
     const payload = {
       title: title.trim(),
       description: description.trim(),
-      priority,
       assignees,
+      ...(!editingTask && systemEmailConfigured
+        ? { emailNotifications: !!emailNotifications }
+        : {}),
     };
     try {
       let result;
@@ -502,21 +544,41 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
             </AssigneeGrid>
           </Section>
 
-          <Section>
-            <SectionHead>
-              <SectionTitle>Προτεραιότητα & ολοκλήρωση εργασίας</SectionTitle>
-            </SectionHead>
-            <Row>
-              <div>
-                <Label htmlFor="ta-priority">Προτεραιότητα</Label>
-                <Select id="ta-priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
-                  <option value="low">Χαμηλή</option>
-                  <option value="normal">Κανονική</option>
-                  <option value="high">Υψηλή</option>
-                </Select>
-              </div>
-            </Row>
-          </Section>
+          {!editingTask && systemEmailConfigured && (
+            <Section>
+              <SectionHead>
+                <SectionTitle>Ειδοποιήσεις email</SectionTitle>
+                <SectionHint>προαιρετικό</SectionHint>
+              </SectionHead>
+              <EmailOptionCard>
+                <EmailOptionText>
+                  <EmailOptionTitle>Email ειδοποιήσεις για αυτόν τον χώρο</EmailOptionTitle>
+                  <EmailOptionHint>
+                    Αν είναι ON, οι συμμετέχοντες λαμβάνουν email για δημιουργία και σημαντική δραστηριότητα
+                    στον χώρο. Μπορείτε να το αλλάξετε και αργότερα μέσα στον χώρο.
+                  </EmailOptionHint>
+                </EmailOptionText>
+                <EmailToggleGroup role="group" aria-label="Ειδοποιήσεις email">
+                  <EmailToggleChoice
+                    type="button"
+                    $active={!emailNotifications}
+                    $on={false}
+                    onClick={() => setEmailNotifications(false)}
+                  >
+                    OFF
+                  </EmailToggleChoice>
+                  <EmailToggleChoice
+                    type="button"
+                    $active={emailNotifications}
+                    $on
+                    onClick={() => setEmailNotifications(true)}
+                  >
+                    ON
+                  </EmailToggleChoice>
+                </EmailToggleGroup>
+              </EmailOptionCard>
+            </Section>
+          )}
 
           <Section>
             <SectionHead>

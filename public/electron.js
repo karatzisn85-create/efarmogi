@@ -2956,6 +2956,18 @@ ipcMain.handle('get-email-config', async (_event, { actingUsername } = {}) => {
   }
 });
 
+/** Μόνο boolean — για UI χώρου εργασίας· χωρίς credentials. */
+ipcMain.handle('is-email-configured', async (_event, { actingUsername } = {}) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, configured: false, error: auth.error };
+  try {
+    if (!dataDir) return { success: true, configured: false };
+    return { success: true, configured: isConfigured(loadEmailConfig(dataDir)) };
+  } catch (error) {
+    return { success: false, configured: false, error: error.message };
+  }
+});
+
 ipcMain.handle('save-email-config', async (_event, { actingUsername, user, appPassword, fromName }) => {
   try {
     if (!isSuperAdminUser(actingUsername || loggedInUsername)) {

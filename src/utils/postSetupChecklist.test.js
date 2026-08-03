@@ -61,7 +61,7 @@ describe('postSetupChecklist', () => {
   test('dismiss lasts POST_SETUP_DISMISS_DAYS', () => {
     const store = memoryStorage();
     const now = Date.parse('2026-07-23T12:00:00.000Z');
-    dismissPostSetupChecklist(store);
+    dismissPostSetupChecklist(store, now);
     expect(store.getItem(POST_SETUP_DISMISS_KEY)).toBeTruthy();
     expect(isPostSetupChecklistDismissed(now, store)).toBe(true);
     const later = now + (POST_SETUP_DISMISS_DAYS + 1) * 24 * 60 * 60 * 1000;
