@@ -8,6 +8,7 @@ import {
   countKhmdhsFindingAttentionItems,
   getKhmdhsSubprojectAttention,
   khmdhsFindingsNeedAttention,
+  reconcileKhmdhsFindingsWithProjectState,
   KHMDHS_FINDING_ACTION,
   KHMDHS_FINDING_OUTCOME,
 } from './khmdhsRefreshFindings';
@@ -91,5 +92,37 @@ describe('getKhmdhsSubprojectAttention', () => {
       }),
     };
     expect(getKhmdhsSubprojectAttention(project).level).toBe('attention');
+  });
+});
+
+describe('reconcileKhmdhsFindingsWithProjectState', () => {
+  it('αφαιρεί DATA_REVIEW όταν δεν εκκρεμεί έλεγχος στοιχείων', () => {
+    const findings = buildKhmdhsRefreshFindings({
+      outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
+      actions: [
+        buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.DATA_REVIEW),
+        buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.APE_CONFLICT),
+      ],
+    });
+    const next = reconcileKhmdhsFindingsWithProjectState({
+      khmdhsLastRefreshFindings: findings,
+      khmdhsDataQualityReview: { hasActionRequired: false, items: [], resolutions: {} },
+    });
+    expect(next.actions.map((a) => a.id)).toEqual([KHMDHS_FINDING_ACTION.APE_CONFLICT]);
+    expect(next.acknowledgedAt).toBeFalsy();
+  });
+
+  it('κλείνει πλήρως τα ευρήματα όταν δεν μένει τίποτα ανοιχτό', () => {
+    const findings = buildKhmdhsRefreshFindings({
+      outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
+      actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.DATA_REVIEW)],
+    });
+    const next = reconcileKhmdhsFindingsWithProjectState({
+      khmdhsLastRefreshFindings: findings,
+      khmdhsDataQualityReview: { hasActionRequired: false, items: [], resolutions: {} },
+    }, { by: 'kostas' });
+    expect(next.actions).toEqual([]);
+    expect(next.acknowledgedAt).toBeTruthy();
+    expect(next.acknowledgedBy).toBe('kostas');
   });
 });

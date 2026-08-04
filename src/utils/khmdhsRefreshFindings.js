@@ -154,6 +154,42 @@ export function withAcknowledgedFindings(project, opts = {}) {
 }
 
 /**
+ * Μετά από επίλυση ελέγχου στοιχείων / κατανομής, αφαιρεί από τα ευρήματα
+ * ενέργειες που δεν εκκρεμούν πια — ώστε να μην μένουν «νεκρές» επισημάνσεις.
+ */
+export function reconcileKhmdhsFindingsWithProjectState(project, { by = '' } = {}) {
+  const findings = getKhmdhsRefreshFindings(project);
+  if (!findings || findings.acknowledgedAt) return findings;
+
+  const nextActions = (findings.actions || []).filter((action) => {
+    if (action.id === KHMDHS_FINDING_ACTION.DATA_REVIEW) {
+      return getUnresolvedReviewItems(project.khmdhsDataQualityReview, project).length > 0;
+    }
+    if (action.id === KHMDHS_FINDING_ACTION.CHARACTERIZE_SYMV) {
+      return !project.khmdhsSymvChainPlan?.items?.length;
+    }
+    if (action.id === KHMDHS_FINDING_ACTION.APE_CONFLICT) {
+      return true;
+    }
+    if (action.id === KHMDHS_FINDING_ACTION.RETRY_FETCH) {
+      return !!String(findings.error || '').trim();
+    }
+    return true;
+  });
+
+  if (nextActions.length === (findings.actions || []).length) return findings;
+
+  const next = { ...findings, actions: nextActions };
+  const stillNeeds = (next.attentionLines?.length || 0) > 0
+    || nextActions.length > 0
+    || !!String(next.error || '').trim();
+  if (!stillNeeds) {
+    return acknowledgeKhmdhsRefreshFindings(next, { by });
+  }
+  return next;
+}
+
+/**
  * Ενιαία εικόνα «τι χρειάζεται ο χρήστης να δει» για ένα υποέργο — τροφοδοτεί
  * τόσο την κάρτα στο dashboard όσο και το πάνελ μέσα στην επεξεργασία.
  *

@@ -123,4 +123,19 @@ describe('projectCardDisplay', () => {
     expect(summary.label).toBe('Συμπληρωματικές (2)');
     expect(summary.totalFormatted).toBe('15.000,00');
   });
+
+  test('σύνοψη εμφανίζει γραμμή με μόνο ημερομηνίες (χωρίς ποσό/ανάδοχο)', () => {
+    const rows = buildProjectCardContractRows({
+      implementationForm: 'Μια Σύμβαση',
+      contractDate: '2023-06-01',
+      contractEndDate: '2024-06-01',
+      khmdhsContractChainHistory: [],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].date).toBe('2023-06-01');
+    expect(rows[0].amount).toBe('');
+    expect(rows[0].contractorName).toBe('');
+    expect(rows[0].deadline?.label).toBe('Λήξη υλοποίησης');
+    expect(rows[0].deadline?.value).toBe('01/06/2024');
+  });
 });

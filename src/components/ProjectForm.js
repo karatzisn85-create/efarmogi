@@ -50,7 +50,12 @@ import { awardIndicatesNoPriorNotice } from '../utils/khmdhsLifecycleStages';
 import KhmdhsFormStageResults, { projectHasKhmdhsFormResults } from './KhmdhsFormStageResults';
 import KhmdhsPendingFab from './KhmdhsPendingFab';
 import KhmdhsRefreshFindingsPanel from './KhmdhsRefreshFindingsPanel';
-import { acknowledgeKhmdhsRefreshFindings } from '../utils/khmdhsRefreshFindings';
+import {
+  acknowledgeKhmdhsRefreshFindings,
+  getKhmdhsRefreshFindings,
+  KHMDHS_FINDINGS_FIELD,
+  reconcileKhmdhsFindingsWithProjectState,
+} from '../utils/khmdhsRefreshFindings';
 import KhmdhsInlineField from './KhmdhsInlineField';
 import KhmdhsRemovableChainEntries from './KhmdhsRemovableChainEntries';
 import KhmdhsUserEditsPanel from './KhmdhsUserEditsPanel';
@@ -657,13 +662,75 @@ const FormHeader = styled.div`
 
 const FormHeaderText = styled.div`
   min-width: 0;
+  flex: 1;
+  padding-right: 0.75rem;
 `;
 
-const FormTitle = styled.h2`
+const FormModeLabel = styled.div`
+  margin: 0 0 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+`;
+
+const FormContextStack = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+`;
+
+const FormContextRow = styled.div`
+  display: grid;
+  grid-template-columns: 4.6rem minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: baseline;
+  min-width: 0;
+`;
+
+const FormContextRole = styled.span`
+  font-size: 0.66rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.68);
+  white-space: nowrap;
+`;
+
+const FormContextValue = styled.span`
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: ${(p) => (p.$emphasis ? '1.02rem' : '0.9rem')};
+  font-weight: ${(p) => (p.$emphasis ? 750 : 600)};
   letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: ${(p) => (p.$emphasis ? '#fff' : 'rgba(255, 255, 255, 0.92)')};
+  word-break: break-word;
+`;
+
+const FormContextMeta = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  margin-top: 0.4rem;
+`;
+
+const FormContextStatus = styled.span`
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  color: #1e1b4b;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
 `;
 
 const FormSubtitle = styled.p`
@@ -2465,7 +2532,17 @@ const KhmdhsLockedPanel = styled.div`
  * Ξαναϋπολογίζει συμπληρωματικές, και (μόνο όταν ορθή επανάληψη διορθώνει) ποσό/ημ/νία.
  */
 
-function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null, userRole = 'USER', currentUser = null, allProjects = [] }) {
+function ProjectForm({
+  isOpen,
+  onClose,
+  onSave,
+  onDelete,
+  editingProject = null,
+  userRole = 'USER',
+  currentUser = null,
+  allProjects = [],
+  onKhmdhsFindingsPersisted = null,
+}) {
   const { showToast } = useToast();
   const canManageFunding = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
 
@@ -5389,9 +5466,13 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
           findings: acknowledged,
         }).catch(() => { /* θα αποθηκευτεί με τη φόρμα */ });
       }
+      // Ενημερώνει τη λίστα/αναφορά μαζικής ανανέωσης χωρίς να περιμένει πλήρη αποθήκευση.
+      if (subprojectId && typeof onKhmdhsFindingsPersisted === 'function') {
+        onKhmdhsFindingsPersisted({ subprojectId, findings: acknowledged });
+      }
       return { ...prev, khmdhsLastRefreshFindings: acknowledged };
     });
-  }, [currentUser?.username, editingProject?.subprojectId]);
+  }, [currentUser?.username, editingProject?.subprojectId, onKhmdhsFindingsPersisted]);
 
   const handleReviewResolveItem = useCallback((item, opts) => {
     setFormData((prev) => {
@@ -6085,7 +6166,7 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
       }
 
       const { supervisor: _legacySupervisorSave, ...formWithoutLegacy } = saveFormData;
-      const normalizedFormData = {
+      let normalizedFormData = {
         ...formWithoutLegacy,
         dataEntryMode: 'khmdhs',
         khmdhsChainSeedAdam: sanitizeAdamInput(saveFormData.khmdhsChainSeedAdam),
@@ -6105,6 +6186,19 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
         ...resolveContractStorageForSave(saveFormData, editingProject),
         ...resolveNoticeKhmdhsForSave(saveFormData, editingProject)
       };
+
+      // Ό,τι λύθηκε στην επεξεργασία (έλεγχος στοιχείων, κατανομή κ.λπ.) φεύγει
+      // και από τα ευρήματα — ώστε να καθαρίζει και η αναφορά μαζικής ανανέωσης.
+      const findingsBefore = getKhmdhsRefreshFindings(normalizedFormData);
+      const findingsAfter = reconcileKhmdhsFindingsWithProjectState(normalizedFormData, {
+        by: currentUser?.username || '',
+      });
+      if (findingsAfter !== findingsBefore) {
+        normalizedFormData = {
+          ...normalizedFormData,
+          [KHMDHS_FINDINGS_FIELD]: findingsAfter,
+        };
+      }
 
       const projectData = {
         ...normalizedFormData,
@@ -6251,6 +6345,13 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
 
       setPhaseBResetUnsaved(false);
       setSelectedFiles([]);
+
+      if (findingsAfter !== findingsBefore) {
+        setFormData((prev) => ({
+          ...prev,
+          [KHMDHS_FINDINGS_FIELD]: findingsAfter,
+        }));
+      }
 
       savedFormFingerprintRef.current = buildProjectFormFingerprint(
         formDataRef.current,
@@ -7038,12 +7139,35 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             </KhmdhsFetchOverlayCard>
           </FormProcessingOverlay>
         )}
-        {/* Header */}
+        {/* Header — πάντα ορατό πλαίσιο: έργο · υποέργο · κατάσταση */}
         <FormHeader>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-            <FormTitle style={{ margin: 0, fontSize: '1rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
-              {(editingProject || formData.subprojectId) ? 'Επεξεργασία υποέργου' : 'Νέο υποέργο'}
-            </FormTitle>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%' }}>
+            <FormHeaderText>
+              <FormModeLabel>
+                {(editingProject || formData.subprojectId) ? 'Επεξεργασία υποέργου' : 'Νέο υποέργο'}
+              </FormModeLabel>
+              <FormContextStack>
+                <FormContextRow>
+                  <FormContextRole>Έργο</FormContextRole>
+                  <FormContextValue>
+                    {String(formData.projectTitle || '').trim() || '—'}
+                  </FormContextValue>
+                </FormContextRow>
+                <FormContextRow>
+                  <FormContextRole>Υποέργο</FormContextRole>
+                  <FormContextValue $emphasis as="h2">
+                    {String(formData.subprojectTitle || '').trim() || '—'}
+                  </FormContextValue>
+                </FormContextRow>
+              </FormContextStack>
+              {String(formData.projectStatus || '').trim() ? (
+                <FormContextMeta>
+                  <FormContextStatus title="Κατάσταση υποέργου">
+                    {formData.projectStatus}
+                  </FormContextStatus>
+                </FormContextMeta>
+              ) : null}
+            </FormHeaderText>
             <FormHeaderClose type="button" onClick={handleRequestClose} disabled={isSaving} aria-label="Κλείσιμο">
               ×
             </FormHeaderClose>

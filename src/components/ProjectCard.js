@@ -3,14 +3,12 @@ import styled, { css, keyframes } from 'styled-components';
 import {
   PROJECT_STATUS_ABANDONED,
   isAbandonedSubproject,
-  getCharacterization,
   getProjectTypeBadgeColors,
   normalizeProjectType
 } from '../data/formOptions';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
 import { getKhmdhsChainFreshness } from '../utils/khmdhsChainRefresh';
 import { getKhmdhsSubprojectAttention } from '../utils/khmdhsRefreshFindings';
-import { getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
 import { formatDateEl } from '../utils/dateFormat';
 import KhmdhsFreshnessBadge from './KhmdhsFreshnessBadge';
 import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
@@ -18,12 +16,8 @@ import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import {
   buildProjectCardContractRows,
   shouldShowContractZone,
-  shouldShowProcedureZone,
   formatAleCodes,
 } from '../utils/projectCardDisplay';
-import { getProjectAssignmentProcedure } from '../utils/khmdhsNoticeFields';
-import { evaluateKhmdhsContractExpiryPrompt } from '../utils/khmdhsContractExpiryPrompt';
-import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
 
 const iconProps = { width: 14, height: 14, 'aria-hidden': true };
 
@@ -139,36 +133,20 @@ const Card = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 320px;
+  min-height: 280px;
   cursor: pointer;
   position: relative;
   overflow: visible;
   isolation: isolate;
 
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: ${(props) => props.$statusGrad || 'linear-gradient(90deg, #6366f1, #8b5cf6)'};
-    border-radius: 18px 18px 0 0;
-    opacity: 0.9;
-    transition: opacity 0.35s ease, height 0.25s ease;
-  }
+  /* Κατάσταση μόνο μέσω StatusPill — χωρίς χρωματική λωρίδα στην κορυφή. */
 
   &:hover {
     transform: translateY(-3px);
     box-shadow:
-      0 16px 36px ${(props) => props.$statusShadow || 'rgba(99, 102, 241, 0.14)'},
+      0 16px 36px rgba(15, 23, 42, 0.10),
       0 4px 12px rgba(15, 23, 42, 0.06);
-    border-color: rgba(165, 180, 252, 0.55);
-
-    &::before {
-      opacity: 1;
-      height: 5px;
-    }
+    border-color: rgba(148, 163, 184, 0.75);
   }
 
   ${props => props.$abandoned && css`
@@ -176,11 +154,6 @@ const Card = styled.div`
     border: 2px dashed #94a3b8;
     background: linear-gradient(160deg, #f8fafc 0%, #f1f5f9 55%, #e2e8f0 100%);
     filter: grayscale(0.35);
-
-    &::before {
-      opacity: 0.55;
-      height: 3px;
-    }
 
     &:hover {
       transform: translateY(-2px);
@@ -327,20 +300,6 @@ const HeaderMetaTags = styled.div`
   align-items: center;
   gap: 0.35rem;
   margin-top: 0.45rem;
-`;
-
-const MetaTag = styled.span`
-  display: inline-flex;
-  align-items: center;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  color: ${(p) => p.$color || '#64748b'};
-  background: ${(p) => p.$bg || '#f8fafc'};
-  border: 1px solid ${(p) => p.$border || '#e2e8f0'};
-  white-space: nowrap;
 `;
 
 const attentionGlow = keyframes`
@@ -543,22 +502,6 @@ const FinanceBoxValue = styled.div`
   letter-spacing: 0.01em;
 `;
 
-const CommentsBlock = styled.div`
-  font-size: 0.78rem;
-  line-height: 1.45;
-  color: #475569;
-  white-space: pre-wrap;
-  word-break: break-word;
-  padding: 0.5rem 0.6rem;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px dashed rgba(148, 163, 184, 0.4);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-`;
-
 const SupplementaryHint = styled.div`
   font-size: 0.68rem;
   line-height: 1.35;
@@ -574,41 +517,6 @@ const AmendmentsLine = styled.div`
   margin-top: 0.35rem;
   padding-top: 0.35rem;
   border-top: 1px dashed rgba(203, 213, 225, 0.7);
-`;
-
-const ContractExpiryBanner = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.65rem;
-  margin: 0.35rem 0 0.15rem;
-  padding: 0.55rem 0.65rem;
-  border-radius: 10px;
-  background: #fffbeb;
-  border: 1px solid #fcd34d;
-  font-size: 0.78rem;
-  line-height: 1.4;
-  color: #92400e;
-`;
-
-const ContractExpiryBannerText = styled.span`
-  flex: 1 1 12rem;
-`;
-
-const ContractExpiryBannerButton = styled.button`
-  flex: 0 0 auto;
-  border: none;
-  border-radius: 8px;
-  padding: 0.35rem 0.65rem;
-  font-size: 0.76rem;
-  font-weight: 700;
-  cursor: pointer;
-  background: #f59e0b;
-  color: #fff;
-
-  &:hover {
-    background: #d97706;
-  }
 `;
 
 const ContractRowBlock = styled.div`
@@ -669,55 +577,6 @@ const SubprojectTitle = styled.h4`
   flex: 1;
   min-width: 0;
 `;
-
-const MisPraxhsBadge = styled.span`
-  display: inline-flex;
-  align-items: center;
-  padding: 0.25rem 0.75rem;
-  background: transparent;
-  color: #000000;
-  border: none;
-  border-radius: 0;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  box-shadow: none;
-  white-space: nowrap;
-`;
-
-const EpLinkBadge = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-  border: 1.5px solid #6ee7b7;
-  color: #065f46;
-  border-radius: 8px;
-  padding: 3px 10px;
-  font-size: 10.5px;
-  font-weight: 800;
-  margin-left: 8px;
-  letter-spacing: 0.25px;
-  vertical-align: middle;
-  white-space: nowrap;
-  box-shadow: 0 0 0 3px rgba(110,231,183,0.2), 0 1px 4px rgba(5,150,105,0.12);
-  text-transform: uppercase;
-  cursor: default;
-  transition: box-shadow 0.15s;
-  &:hover {
-    box-shadow: 0 0 0 4px rgba(110,231,183,0.3), 0 2px 8px rgba(5,150,105,0.18);
-  }
-`;
-
-function formatEpDisplayCode(epLinkedAction) {
-  if (!epLinkedAction?.axisCode) return 'ΕΠ';
-  const mc = epLinkedAction.measureCode;
-  if (!mc) return epLinkedAction.axisCode;
-  const parts = mc.split('.');
-  if (parts.length > 1) return `${epLinkedAction.axisCode}.${parts.slice(1).join('.')}`;
-  return mc;
-}
-
 
 const CardContent = styled.div`
   display: flex;
@@ -877,18 +736,6 @@ const HoverPreviewBudgetFill = styled.div`
   width: ${props => Math.min(100, props.$pct || 0)}%;
   background: ${props => props.$statusGrad || 'linear-gradient(90deg, #6366f1, #8b5cf6)'};
   border-radius: 99px;
-`;
-
-const CharacterizationBadge = styled.span`
-  display: inline-block;
-  padding: 0.28rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  background: ${(props) => (props.$type === 'ΝΕΟ' ? '#eff6ff' : '#fffbeb')};
-  color: ${(props) => (props.$type === 'ΝΕΟ' ? '#1d4ed8' : '#b45309')};
-  border: 1px solid ${(props) => (props.$type === 'ΝΕΟ' ? '#bfdbfe' : '#fde68a')};
 `;
 
 const TypeBadge = styled.span`
@@ -1291,11 +1138,7 @@ function ProjectCard({
   project,
   userRole,
   onEdit,
-  onViewFile,
-  onDownloadFile,
-  onDeleteFile,
   onOpenFileManager,
-  onOpenEntaxis,
   onOpenEgkriseis,
   hasCreditApproval = false,
   hasLinkedEgkrisi = false,
@@ -1311,27 +1154,20 @@ function ProjectCard({
   onViewDetails,
   engineerCatalog = [],
   linkedNotesMap = {},
-  notes = [],
   onOpenNoteFromEntity,
-  portalEnabled = false,
-  isPublishedToPortal = false,
-  epLinkedAction = null,
-  hasDirectAssignmentViolation = false,
   onExportReport,
-  actRootSiblingsIndex = null,
-  onContractExpiryAccept,
+  // Διατηρούνται για συμβατότητα με Dashboard· δεν εμφανίζονται πλέον στην εξωτερική σύνοψη.
+  portalEnabled: _portalEnabled = false,
+  isPublishedToPortal: _isPublishedToPortal = false,
+  epLinkedAction: _epLinkedAction = null,
+  hasDirectAssignmentViolation: _hasDirectAssignmentViolation = false,
+  actRootSiblingsIndex: _actRootSiblingsIndex = null,
+  onContractExpiryAccept: _onContractExpiryAccept,
 }) {
   const [exportingReport, setExportingReport] = useState(false);
-  const [contractExpiryPrompt, setContractExpiryPrompt] = useState(null);
   const statusColor = getStatusColor(project.projectStatus);
   const isAbandoned = isAbandonedSubproject(project);
-  const canSuggestStatus = userRole !== 'USER' && userRole !== 'ENGINEER';
-  const contractExpiryEval = useMemo(
-    () => (canSuggestStatus ? evaluateKhmdhsContractExpiryPrompt(project) : null),
-    [project, canSuggestStatus]
-  );
-  // Εκκρεμότητες ΚΗΜΔΗΣ (έλεγχος στοιχείων + ευρήματα τελευταίας ανανέωσης) — ό,τι περιμένει
-  // τον χρήστη μέσα στην επεξεργασία του υποέργου, ώστε να φαίνεται ήδη από την κάρτα.
+  // Εκκρεμότητες ΚΗΜΔΗΣ — εμφανίζονται στην κάρτα ώστε να ανοίγει η επεξεργασία.
   const khmdhsAttention = useMemo(
     () => (userRole === 'USER' ? null : getKhmdhsSubprojectAttention(project)),
     [project, userRole]
@@ -1364,10 +1200,8 @@ function ProjectCard({
 
   const formatDate = (dateString) => formatDateEl(dateString, '-');
 
-  const characterization = getCharacterization(project);
   const aleDisplay = formatAleCodes(project);
   const contractRows = useMemo(() => buildProjectCardContractRows(project), [project]);
-  const showProcedureZone = shouldShowProcedureZone(project);
   const showContractZone = shouldShowContractZone(project);
 
   const { displayChargePrimary, displayChargeParticipants } = useMemo(
@@ -1381,13 +1215,6 @@ function ProjectCard({
     () => getKhmdhsChainFreshness(project),
     [project]
   );
-
-  const actRootSiblings = useMemo(() => {
-    const root = getSubprojectActRootReq(project);
-    if (!root || !actRootSiblingsIndex) return [];
-    const bucket = actRootSiblingsIndex.get(root) || [];
-    return bucket.filter((p) => p.subprojectId !== project.subprojectId);
-  }, [project, actRootSiblingsIndex]);
 
   const renderContractRow = (row, key) => (
     <ContractRowBlock key={key}>
@@ -1449,131 +1276,88 @@ function ProjectCard({
   );
 
   return (
-    <>
-      <Card
-        onClick={handleCardClick}
-        $statusGrad={statusColor.gradient}
-        $statusShadow={statusColor.shadow}
-        $abandoned={isAbandoned}
-      >
-        {isAbandoned && <AbandonedRibbon>Απενταγμένο</AbandonedRibbon>}
-        {linkedNotes.length > 0 && (
-          <LinkedNoteSticker links={linkedNotes} onOpenNote={onOpenNoteFromEntity} placement="top-left" />
-        )}
-        {/* Lock Status Button */}
-        <LockStatusButton isLocked={isLocked}>
-          {isLocked ? '🔒' : '🔓'}
-          <LockTooltip>
-            {isLocked ? 'Ανοιχτό από άλλον χρήστη' : 'Διαθέσιμο'}
-          </LockTooltip>
-        </LockStatusButton>
+    <Card
+      onClick={handleCardClick}
+      $abandoned={isAbandoned}
+    >
+      {isAbandoned && <AbandonedRibbon>Απενταγμένο</AbandonedRibbon>}
+      {linkedNotes.length > 0 && (
+        <LinkedNoteSticker links={linkedNotes} onOpenNote={onOpenNoteFromEntity} placement="top-left" />
+      )}
+      <LockStatusButton isLocked={isLocked}>
+        {isLocked ? '🔒' : '🔓'}
+        <LockTooltip>
+          {isLocked ? 'Ανοιχτό από άλλον χρήστη' : 'Διαθέσιμο'}
+        </LockTooltip>
+      </LockStatusButton>
 
-        {onExportReport && (
-          <ReportFab
-            type="button"
-            title="Λήψη αναφοράς υποέργου (PDF)"
-            disabled={exportingReport}
-            onClick={handleExportReport}
-            aria-label="Λήψη αναφοράς υποέργου"
-          >
-            <IconReport />
-            <ReportFabTooltip>
-              {exportingReport ? 'Δημιουργία αναφοράς…' : 'Αναφορά υποέργου'}
-            </ReportFabTooltip>
-          </ReportFab>
-        )}
-        
-        <CardHeader>
-          <CardKindLabel>Υποέργο</CardKindLabel>
-          <HeaderTopRow>
-            <SubprojectTitle>{project.subprojectTitle}</SubprojectTitle>
-            {chainFreshness.level !== 'none' && (
-              <KhmdhsFreshnessBadge
-                freshness={chainFreshness}
-                compact
-                title={chainFreshness.label}
-              />
-            )}
-          </HeaderTopRow>
+      {onExportReport && (
+        <ReportFab
+          type="button"
+          title="Λήψη αναφοράς υποέργου (PDF)"
+          disabled={exportingReport}
+          onClick={handleExportReport}
+          aria-label="Λήψη αναφοράς υποέργου"
+        >
+          <IconReport />
+          <ReportFabTooltip>
+            {exportingReport ? 'Δημιουργία αναφοράς…' : 'Αναφορά υποέργου'}
+          </ReportFabTooltip>
+        </ReportFab>
+      )}
 
-          {(displayChargePrimary || displayChargeParticipants) && (
-            <ChargeHeaderStrip onClick={(e) => e.stopPropagation()}>
-              {displayChargePrimary && (
-                <ChargeHeaderLine>
-                  <span aria-hidden style={{ fontSize: '0.9rem', lineHeight: 1.2 }}>👷</span>
-                  <ChargeHeaderRole>Επιβλέπων</ChargeHeaderRole>
-                  <ChargeHeaderName>{displayChargePrimary}</ChargeHeaderName>
-                </ChargeHeaderLine>
-              )}
-              {displayChargeParticipants && (
-                <ChargeHeaderLine>
-                  <span aria-hidden style={{ fontSize: '0.85rem', lineHeight: 1.2, opacity: 0.85 }}>🤝</span>
-                  <ChargeHeaderRole>Βοηθούν</ChargeHeaderRole>
-                  <ChargeHeaderAux>{displayChargeParticipants}</ChargeHeaderAux>
-                </ChargeHeaderLine>
-              )}
-            </ChargeHeaderStrip>
+      <CardHeader>
+        <CardKindLabel>Υποέργο</CardKindLabel>
+        <HeaderTopRow>
+          <SubprojectTitle>{project.subprojectTitle}</SubprojectTitle>
+          {chainFreshness.level !== 'none' && (
+            <KhmdhsFreshnessBadge
+              freshness={chainFreshness}
+              compact
+              title={chainFreshness.label}
+            />
           )}
+        </HeaderTopRow>
 
-          {(portalEnabled && isPublishedToPortal) || (project.misPraxhsName && project.misPraxhsCode) || epLinkedAction || hasDirectAssignmentViolation || actRootSiblings.length > 0 || khmdhsAttention?.total > 0 ? (
-            <HeaderMetaTags>
-              {khmdhsAttention?.total > 0 && (
-                <AttentionTag
-                  type="button"
-                  $blocking={khmdhsAttention.level === 'blocking'}
-                  title={`Ανοίξτε την επεξεργασία του υποέργου:\n• ${khmdhsAttention.reasons.join('\n• ')}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (typeof onEdit === 'function') onEdit(project);
-                  }}
-                >
-                  <span aria-hidden>📌</span>
-                  Θέλει τη ματιά σας
-                  <AttentionCount>{khmdhsAttention.total}</AttentionCount>
-                </AttentionTag>
-              )}
-              {actRootSiblings.length > 0 && (
-                <MetaTag
-                  $color="#5b21b6"
-                  $bg="#f5f3ff"
-                  $border="#c4b5fd"
-                  title={actRootSiblings.map((s) => s.subprojectTitle).join('\n')}
-                >
-                  Κοινή πράξη · {actRootSiblings.length + 1} υποέργα
-                </MetaTag>
-              )}
-              {project.misPraxhsName && project.misPraxhsCode && (
-                <MetaTag $color="#475569" $bg="#f8fafc" $border="#e2e8f0">
-                  {project.misPraxhsName}: {project.misPraxhsCode}
-                </MetaTag>
-              )}
-              {epLinkedAction && (
-                <MetaTag
-                  $color="#065f46"
-                  $bg="#ecfdf5"
-                  $border="#6ee7b7"
-                  title={`Επιχειρησιακό Πρόγραμμα — Δράση #${epLinkedAction.aa || '—'}: ${epLinkedAction.title || ''}`}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ cursor: 'default' }}
-                >
-                  Επιχειρησιακό
-                </MetaTag>
-              )}
-              {portalEnabled && isPublishedToPortal && (
-                <MetaTag $color="#1d4ed8" $bg="#eff6ff" $border="#93c5fd">
-                  Portal
-                </MetaTag>
-              )}
-              {hasDirectAssignmentViolation && (
-                <MetaTag $color="#b45309" $bg="#fffbeb" $border="#fcd34d" title="Πιθανή παράβαση κανόνα 12 μηνών">
-                  ⚠ 12μ.
-                </MetaTag>
-              )}
-            </HeaderMetaTags>
-          ) : null}
-        </CardHeader>
+        {(displayChargePrimary || displayChargeParticipants) && (
+          <ChargeHeaderStrip onClick={(e) => e.stopPropagation()}>
+            {displayChargePrimary && (
+              <ChargeHeaderLine>
+                <span aria-hidden style={{ fontSize: '0.9rem', lineHeight: 1.2 }}>👷</span>
+                <ChargeHeaderRole>Επιβλέπων</ChargeHeaderRole>
+                <ChargeHeaderName>{displayChargePrimary}</ChargeHeaderName>
+              </ChargeHeaderLine>
+            )}
+            {displayChargeParticipants && (
+              <ChargeHeaderLine>
+                <span aria-hidden style={{ fontSize: '0.85rem', lineHeight: 1.2, opacity: 0.85 }}>🤝</span>
+                <ChargeHeaderRole>Βοηθούν</ChargeHeaderRole>
+                <ChargeHeaderAux>{displayChargeParticipants}</ChargeHeaderAux>
+              </ChargeHeaderLine>
+            )}
+          </ChargeHeaderStrip>
+        )}
 
-        <CardContent>
+        {khmdhsAttention?.total > 0 && (
+          <HeaderMetaTags>
+            <AttentionTag
+              type="button"
+              $blocking={khmdhsAttention.level === 'blocking'}
+              title={`Ανοίξτε την επεξεργασία του υποέργου:\n• ${khmdhsAttention.reasons.join('\n• ')}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (typeof onEdit === 'function') onEdit(project);
+              }}
+            >
+              <span aria-hidden>📌</span>
+              Θέλει τη ματιά σας
+              <AttentionCount>{khmdhsAttention.total}</AttentionCount>
+            </AttentionTag>
+          </HeaderMetaTags>
+        )}
+      </CardHeader>
+
+      <CardContent>
         <KhmdhsLifecycleRail project={project} variant="compact" freshness={chainFreshness} />
 
         <CardSection $accent="#6366f1" $tint="rgba(238, 242, 255, 0.35)">
@@ -1591,11 +1375,6 @@ function ProjectCard({
             >
               {project.projectStatus}
             </StatusPill>
-            {characterization && (
-              <CharacterizationBadge $type={characterization}>
-                {characterization}
-              </CharacterizationBadge>
-            )}
           </IdentityStrip>
           {aleDisplay && (
             <div style={{ marginTop: '0.55rem' }}>
@@ -1624,47 +1403,13 @@ function ProjectCard({
               <MetaLabel>Εγκεκριμένο</MetaLabel>
               <MetaValue style={{ color: '#059669', fontWeight: 800 }}>{formatAmount(project.approvedAmount)}</MetaValue>
             </MetaCell>
-            {project.projectBudget && (
-              <MetaCell>
-                <MetaLabel>Προϋπολογισμός</MetaLabel>
-                <MetaValue>{formatAmount(project.projectBudget)}</MetaValue>
-              </MetaCell>
-            )}
           </MetaGrid>
         </CardSection>
-
-        {showProcedureZone && (
-          <CardSection $accent="#6366f1" $tint="rgba(238, 242, 255, 0.35)">
-            <SectionHeader>Διαδικασία ανάθεσης</SectionHeader>
-            <MetaValue style={{ color: '#4338ca', fontSize: '0.86rem' }}>{getProjectAssignmentProcedure(project)}</MetaValue>
-          </CardSection>
-        )}
 
         {showContractZone && contractRows.length > 0 && (
           <CardSection $accent="#4338ca" $tint="rgba(238, 242, 255, 0.2)">
             <SectionHeader>Σύμβαση{contractRows.length > 1 ? ' · Πολλές γραμμές' : ''}</SectionHeader>
-            {contractExpiryEval && (
-              <ContractExpiryBanner onClick={(e) => e.stopPropagation()}>
-                <ContractExpiryBannerText>
-                  Η λήξη της σύμβασης έχει περάσει ({contractExpiryEval.latestEndLabel}).
-                  Προτείνεται κατάσταση «Ολοκληρωμένο».
-                </ContractExpiryBannerText>
-                <ContractExpiryBannerButton
-                  type="button"
-                  onClick={() => setContractExpiryPrompt(contractExpiryEval)}
-                >
-                  Ενημέρωση κατάστασης
-                </ContractExpiryBannerButton>
-              </ContractExpiryBanner>
-            )}
             {contractRows.map((row, idx) => renderContractRow(row, idx))}
-          </CardSection>
-        )}
-
-        {project.comments && String(project.comments).trim() && (
-          <CardSection $accent="#94a3b8" $tint="rgba(248, 250, 252, 0.5)">
-            <SectionHeader>Σχόλια</SectionHeader>
-            <CommentsBlock>{project.comments}</CommentsBlock>
           </CardSection>
         )}
       </CardContent>
@@ -1717,20 +1462,8 @@ function ProjectCard({
         </BottomButtonContainer>
       </ButtonContainer>
 
-        <ViewDetailsHint>Κλικ στην κάρτα για λεπτομέρειες</ViewDetailsHint>
-      </Card>
-      <KhmdhsContractExpiryPromptDialog
-        isOpen={!!contractExpiryPrompt}
-        prompt={contractExpiryPrompt}
-        onDismiss={() => setContractExpiryPrompt(null)}
-        onAccept={() => {
-          if (typeof onContractExpiryAccept === 'function') {
-            onContractExpiryAccept(project);
-          }
-          setContractExpiryPrompt(null);
-        }}
-      />
-    </>
+      <ViewDetailsHint>Κλικ στην κάρτα για λεπτομέρειες</ViewDetailsHint>
+    </Card>
   );
 }
 

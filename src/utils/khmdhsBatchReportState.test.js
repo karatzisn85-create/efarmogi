@@ -4,10 +4,13 @@
 import {
   batchRunHasOutcome,
   isKhmdhsCharacterizationPending,
+  isKhmdhsCharacterizationResolved,
   markBatchItemsResolved,
   mergeKhmdhsBatchResults,
+  syncBatchReportWithProjects,
 } from './khmdhsBatchReportState';
 import {
+  acknowledgeKhmdhsRefreshFindings,
   buildKhmdhsFindingAction,
   buildKhmdhsRefreshFindings,
   KHMDHS_FINDING_ACTION,
@@ -128,7 +131,208 @@ describe('isKhmdhsCharacterizationPending', () => {
     })).toBe(false);
   });
 
+  it('χωρίς εύρημα CHARACTERIZE_SYMV δεν θεωρείται εκκρεμότητα', () => {
+    expect(isKhmdhsCharacterizationPending({
+      khmdhsLastRefreshFindings: buildKhmdhsRefreshFindings({
+        outcome: KHMDHS_FINDING_OUTCOME.APPLIED,
+        actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.DATA_REVIEW)],
+      }),
+    })).toBe(false);
+    expect(isKhmdhsCharacterizationPending({ projectTitle: 'Χ' })).toBe(false);
+  });
+
   it('υποέργο που δεν υπάρχει πια δεν κρατά εκκρεμότητα', () => {
     expect(isKhmdhsCharacterizationPending(null)).toBe(false);
+  });
+});
+
+describe('isKhmdhsCharacterizationResolved', () => {
+  const flagged = buildKhmdhsRefreshFindings({
+    outcome: KHMDHS_FINDING_OUTCOME.INTERVENED,
+    actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.CHARACTERIZE_SYMV)],
+  });
+
+  it('θεωρεί επιλυμένο μόνο με κατανομή ή ρητό κλείσιμο', () => {
+    expect(isKhmdhsCharacterizationResolved({
+      khmdhsSymvChainPlan: { items: [{ adam: '24SYMV000000001' }] },
+    })).toBe(true);
+    expect(isKhmdhsCharacterizationResolved({
+      khmdhsLastRefreshFindings: acknowledgeKhmdhsRefreshFindings(flagged, { by: 'kostas' }),
+    })).toBe(true);
+  });
+
+  it('η απουσία ευρήματος δεν μετρά ως επίλυση', () => {
+    expect(isKhmdhsCharacterizationResolved({ subprojectId: 'sp' })).toBe(false);
+    expect(isKhmdhsCharacterizationResolved({
+      khmdhsLastRefreshFindings: buildKhmdhsRefreshFindings({
+        outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
+        attentionLines: ['Άλλο σημείο'],
+      }),
+    })).toBe(false);
+  });
+});
+
+describe('syncBatchReportWithProjects', () => {
+  const dataReviewAction = buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.DATA_REVIEW);
+
+  it('καθαρίζει follow-up όταν λύθηκε ο έλεγχος στοιχείων', () => {
+    const results = {
+      refreshed: 1,
+      needsIntervention: 0,
+      failed: 0,
+      skipped: 0,
+      interventionItems: [],
+      items: [{
+        status: 'refreshed',
+        id: 'sp1',
+        label: 'Υποέργο Α',
+        category: 'attention',
+        actions: [dataReviewAction],
+      }],
+    };
+    const project = {
+      subprojectId: 'sp1',
+      // Αναφορά ελέγχου υπάρχει και δεν έχει ανοιχτά — θετική επίλυση.
+      khmdhsDataQualityReview: {
+        hasActionRequired: false,
+        items: [{
+          fieldId: 'contractAmount',
+          status: 'complete',
+          label: 'Ποσό σύμβασης',
+          manualFieldKey: 'contractAmount',
+        }],
+        resolutions: {},
+      },
+      // Το DATA_REVIEW αφαιρέθηκε μετά την αποθήκευση (reconcile).
+      khmdhsLastRefreshFindings: buildKhmdhsRefreshFindings({
+        outcome: KHMDHS_FINDING_OUTCOME.APPLIED,
+        appliedLines: ['Ενημερώθηκε ποσό σύμβασης'],
+      }),
+    };
+
+    const { results: synced, cleared } = syncBatchReportWithProjects(results, [project]);
+    expect(cleared).toEqual([{ id: 'sp1', label: 'Υποέργο Α', kind: 'followup' }]);
+    expect(synced.items[0].followUpClearedAt).toBeTruthy();
+    expect(synced.items[0].actions).toEqual([]);
+  });
+
+  it('κρατά follow-up όσο εκκρεμεί ο έλεγχος στοιχείων', () => {
+    const results = {
+      refreshed: 1,
+      needsIntervention: 0,
+      failed: 0,
+      skipped: 0,
+      interventionItems: [],
+      items: [{
+        status: 'refreshed',
+        id: 'sp1',
+        label: 'Υποέργο Α',
+        category: 'attention',
+        actions: [dataReviewAction],
+      }],
+    };
+    const project = {
+      subprojectId: 'sp1',
+      khmdhsDataQualityReview: {
+        hasActionRequired: true,
+        items: [{
+          fieldId: 'contractAmount',
+          status: 'missing',
+          label: 'Ποσό σύμβασης',
+          manualFieldKey: 'contractAmount',
+        }],
+        resolutions: {},
+      },
+    };
+
+    const { results: synced, cleared } = syncBatchReportWithProjects(results, [project]);
+    expect(cleared).toEqual([]);
+    expect(synced).toBe(results);
+    expect(results.items[0].followUpClearedAt).toBeUndefined();
+  });
+
+  it('δεν καθαρίζει follow-up όταν η λίστα υποέργου δεν έχει ακόμη ευρήματα', () => {
+    const results = {
+      refreshed: 1,
+      needsIntervention: 0,
+      failed: 0,
+      skipped: 0,
+      interventionItems: [],
+      items: [{
+        status: 'refreshed',
+        id: 'sp1',
+        label: 'Υποέργο Α',
+        category: 'attention',
+        actions: [dataReviewAction],
+      }],
+    };
+    // Παλιά κάρτα στη μνήμη — χωρίς review/ευρήματα μετά τη μαζική ανανέωση.
+    const project = { subprojectId: 'sp1', projectTitle: 'Χ' };
+
+    const { results: synced, cleared } = syncBatchReportWithProjects(results, [project]);
+    expect(cleared).toEqual([]);
+    expect(synced).toBe(results);
+  });
+
+  it('σημειώνει intervened ως resolved όταν ορίστηκε κατανομή SYMV', () => {
+    const flagged = buildKhmdhsRefreshFindings({
+      outcome: KHMDHS_FINDING_OUTCOME.INTERVENED,
+      actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.CHARACTERIZE_SYMV)],
+    });
+    const results = {
+      refreshed: 0,
+      needsIntervention: 1,
+      failed: 0,
+      skipped: 0,
+      interventionItems: [{ id: 'sp2', label: 'Υποέργο Β' }],
+      items: [{ status: 'intervened', id: 'sp2', label: 'Υποέργο Β' }],
+    };
+    const project = {
+      subprojectId: 'sp2',
+      khmdhsSymvChainPlan: { items: [{ adam: '24SYMV000000001' }] },
+      khmdhsLastRefreshFindings: flagged,
+    };
+
+    const { results: synced, cleared } = syncBatchReportWithProjects(results, [project]);
+    expect(cleared).toEqual([{ id: 'sp2', label: 'Υποέργο Β', kind: 'characterize' }]);
+    expect(synced.items[0].status).toBe('resolved');
+    expect(synced.needsIntervention).toBe(0);
+  });
+
+  it('δεν κλείνει intervened όταν λείπουν ευρήματα από τη μνήμη', () => {
+    const results = {
+      refreshed: 0,
+      needsIntervention: 1,
+      failed: 0,
+      skipped: 0,
+      interventionItems: [{ id: 'sp2', label: 'Υποέργο Β' }],
+      items: [{ status: 'intervened', id: 'sp2', label: 'Υποέργο Β' }],
+    };
+    const { results: synced, cleared } = syncBatchReportWithProjects(results, [
+      { subprojectId: 'sp2', projectTitle: 'Παλιά κάρτα' },
+    ]);
+    expect(cleared).toEqual([]);
+    expect(synced).toBe(results);
+    expect(synced.items[0].status).toBe('intervened');
+  });
+
+  it('δεν αλλάζει γραμμές που το υποέργο λείπει από τη λίστα', () => {
+    const results = {
+      refreshed: 1,
+      needsIntervention: 0,
+      failed: 0,
+      skipped: 0,
+      interventionItems: [],
+      items: [{
+        status: 'refreshed',
+        id: 'missing',
+        label: 'Χ',
+        category: 'attention',
+        actions: [dataReviewAction],
+      }],
+    };
+    const { results: synced, cleared } = syncBatchReportWithProjects(results, []);
+    expect(cleared).toEqual([]);
+    expect(synced).toBe(results);
   });
 });

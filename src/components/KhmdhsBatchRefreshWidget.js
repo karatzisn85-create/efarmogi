@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import styled, { keyframes, css } from 'styled-components';
 import { useToast } from './ToastProvider';
 import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhsChainApply';
-import { resolveReusableSymvChainPlan } from '../utils/khmdhsSymvChainPlanner';
+import { resolveReusableSymvChainPlan, mergeStitchChainResForSymvPlan } from '../utils/khmdhsSymvChainPlanner';
 import {
   buildKhmdhsRefreshChangeReport,
   KHMDHS_FRESHNESS_YELLOW_DAYS,
@@ -41,12 +41,6 @@ const fadeIn = keyframes`
 const scaleIn = keyframes`
   from { opacity: 0; transform: scale(0.85); }
   to { opacity: 1; transform: scale(1); }
-`;
-
-const checkBounce = keyframes`
-  0% { transform: scale(0); }
-  50% { transform: scale(1.3); }
-  100% { transform: scale(1); }
 `;
 
 const fabPulseCalm = keyframes`
@@ -649,19 +643,22 @@ const SectionHeader = styled.button`
   gap: 0.5rem;
   width: 100%;
   text-align: left;
-  padding: 0.6rem 0;
-  margin-top: 0.8rem;
+  padding: 0.65rem 0;
+  margin-top: 0.85rem;
   border: none;
   background: none;
   cursor: pointer;
-  font-size: 0.76rem;
-  font-weight: 700;
+  font-size: 0.84rem;
+  font-weight: 750;
+  letter-spacing: -0.01em;
   color: ${(p) => p.$color || '#334155'};
   &:hover { opacity: 0.8; }
 `;
 
 const SectionChevron = styled.span`
   transition: transform 0.2s;
+  font-size: 0.7rem;
+  color: #94a3b8;
   ${(p) => p.$open && 'transform: rotate(90deg);'}
 `;
 
@@ -671,13 +668,13 @@ const InterventionItem = styled.button`
   gap: 0.6rem;
   width: 100%;
   text-align: left;
-  padding: 0.65rem 0.9rem;
+  padding: 0.75rem 0.95rem;
   margin-bottom: 5px;
   border: 1px solid #fde68a;
   border-radius: 10px;
   background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
   color: #78350f;
-  font-size: 0.72rem;
+  font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
@@ -690,8 +687,11 @@ const InterventionItem = styled.button`
 
 const InterventionIcon = styled.span`
   flex-shrink: 0;
-  font-size: 0.9rem;
-  margin-top: 1px;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-top: 0.45rem;
+  border-radius: 50%;
+  background: #d97706;
 `;
 
 const InterventionContent = styled.div`
@@ -700,22 +700,24 @@ const InterventionContent = styled.div`
 `;
 
 const InterventionTitle = styled.div`
-  font-weight: 700;
-  line-height: 1.3;
+  font-weight: 750;
+  font-size: 0.88rem;
+  line-height: 1.35;
 `;
 
 const InterventionSubtitle = styled.div`
-  font-size: 0.64rem;
+  font-size: 0.76rem;
   font-weight: 500;
   color: #a16207;
-  margin-top: 2px;
+  margin-top: 3px;
+  line-height: 1.45;
 `;
 
 const SkippedList = styled.div`
   padding: 0.4rem 0;
-  font-size: 0.65rem;
+  font-size: 0.78rem;
   color: #64748b;
-  line-height: 1.6;
+  line-height: 1.55;
 `;
 
 const AllDoneBanner = styled.div`
@@ -727,7 +729,7 @@ const AllDoneBanner = styled.div`
   background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
   border: 1px solid #6ee7b7;
   margin-top: 0.8rem;
-  font-size: 0.76rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: #065f46;
   animation: ${fadeIn} 0.3s ease;
@@ -747,7 +749,7 @@ const DetailCardHead = styled.button`
   gap: 0.5rem;
   width: 100%;
   text-align: left;
-  padding: 0.65rem 0.8rem;
+  padding: 0.75rem 0.9rem;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -757,29 +759,30 @@ const DetailCardHead = styled.button`
 const DetailCardTitle = styled.div`
   flex: 1;
   min-width: 0;
-  font-size: 0.74rem;
-  font-weight: 700;
+  font-size: 0.88rem;
+  font-weight: 750;
   color: #1e293b;
-  line-height: 1.35;
+  line-height: 1.4;
 `;
 
 const DetailCardMeta = styled.div`
-  font-size: 0.62rem;
+  font-size: 0.76rem;
   font-weight: 500;
   color: #64748b;
-  margin-top: 2px;
+  margin-top: 3px;
+  line-height: 1.45;
 `;
 
 const DetailCardBody = styled.div`
-  padding: 0 0.8rem 0.7rem 2rem;
+  padding: 0 0.9rem 0.8rem 1.15rem;
   border-top: 1px dashed #e2e8f0;
 `;
 
 const ChangeLine = styled.div`
-  font-size: 0.72rem;
+  font-size: 0.84rem;
   color: #334155;
   line-height: 1.55;
-  padding: 0.22rem 0;
+  padding: 0.28rem 0;
   &::before {
     content: '•';
     color: #0d9488;
@@ -796,20 +799,20 @@ const ChangeLineMuted = styled(ChangeLine)`
 const ChangeLineWarn = styled(ChangeLine)`
   color: #92400e;
   font-weight: 600;
-  &::before { content: '⚠'; color: #d97706; }
+  &::before { content: '·'; color: #d97706; }
 `;
 
 const ActionLine = styled.div`
   display: flex;
   align-items: flex-start;
-  gap: 0.4rem;
+  gap: 0.45rem;
   margin-top: 0.3rem;
-  padding: 0.4rem 0.55rem;
+  padding: 0.5rem 0.65rem;
   border-radius: 8px;
   background: #fff7ed;
   border: 1px solid #fed7aa;
-  font-size: 0.7rem;
-  line-height: 1.45;
+  font-size: 0.82rem;
+  line-height: 1.5;
   color: #7c2d12;
 
   strong { display: block; font-weight: 800; }
@@ -817,10 +820,10 @@ const ActionLine = styled.div`
 `;
 
 const ChangeGroupLabel = styled.div`
-  font-size: 0.68rem;
+  font-size: 0.74rem;
   font-weight: 800;
   color: #0f766e;
-  margin: 0.45rem 0 0.2rem;
+  margin: 0.5rem 0 0.25rem;
   letter-spacing: 0.01em;
 `;
 
@@ -899,24 +902,24 @@ const ReportLinkBtn = styled.button`
 `;
 
 const OpenSubBtn = styled.button`
-  margin-top: 0.35rem;
+  margin-top: 0.45rem;
   padding: 0;
   border: none;
   background: none;
   color: #0d9488;
-  font-size: 0.62rem;
+  font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
   text-decoration: underline;
   &:hover { color: #0f766e; }
 `;
 
-/* ── Summary-first hero ── */
+/* ── Summary-first hero: αφήγηση με μεγάλα νούμερα ── */
 const ReportHero = styled.div`
   position: relative;
   border-radius: 16px;
-  padding: 1.1rem 1.25rem;
-  margin-bottom: 1rem;
+  padding: 1.15rem 1.25rem 1.05rem;
+  margin-bottom: 0.85rem;
   overflow: hidden;
   color: #fff;
   background: ${(p) => p.$tone === 'attention'
@@ -942,54 +945,68 @@ const HeroGlow = styled.div`
   pointer-events: none;
 `;
 
-const HeroTop = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  position: relative;
-`;
-
-const HeroEmoji = styled.span`
-  font-size: 1.5rem;
-  animation: ${checkBounce} 0.5s ease;
-`;
-
 const HeroVerdict = styled.div`
-  font-size: 1.02rem;
+  position: relative;
+  font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: -0.01em;
-  line-height: 1.2;
+  line-height: 1.25;
 `;
 
 const HeroSub = styled.div`
   position: relative;
-  margin-top: 0.35rem;
-  font-size: 0.74rem;
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
   font-weight: 500;
   opacity: 0.92;
   line-height: 1.5;
 `;
 
-const StatChipRow = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+const HeroStatGrid = styled.div`
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.95rem;
+
+  @media (max-width: 560px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
-const StatChip = styled.div`
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.75rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  background: ${(p) => p.$bg || '#f8fafc'};
-  color: ${(p) => p.$color || '#334155'};
-  border: 1px solid ${(p) => p.$border || '#e2e8f0'};
+const HeroStatCard = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  padding: 0.7rem 0.75rem 0.65rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(6px);
+`;
 
-  strong { font-weight: 800; font-variant-numeric: tabular-nums; }
+const HeroStatNumber = styled.div`
+  font-size: 1.85rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1;
+`;
+
+const HeroStatLabel = styled.div`
+  font-size: 0.72rem;
+  font-weight: 650;
+  opacity: 0.92;
+  line-height: 1.3;
+`;
+
+const HeroStatHint = styled.div`
+  font-size: 0.66rem;
+  font-weight: 500;
+  opacity: 0.78;
+  line-height: 1.3;
+  margin-top: 0.1rem;
 `;
 
 const RetryBar = styled.div`
@@ -1006,10 +1023,10 @@ const RetryBar = styled.div`
 `;
 
 const RetryText = styled.div`
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   color: #0f766e;
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.45;
 `;
 
 const RetryButton = styled.button`
@@ -1019,7 +1036,7 @@ const RetryButton = styled.button`
   border: none;
   background: linear-gradient(135deg, #0d9488, #14b8a6);
   color: #fff;
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   font-weight: 700;
   font-family: inherit;
   cursor: pointer;
@@ -1062,7 +1079,6 @@ function ReportItemCard({
   onToggle,
   border,
   bg,
-  icon,
   meta,
   onNavigate,
   defaultShowAllRegistry = false,
@@ -1096,7 +1112,6 @@ function ReportItemCard({
   return (
     <DetailCard $border={border} $bg={bg}>
       <DetailCardHead type="button" onClick={onToggle}>
-        <span style={{ fontSize: '0.85rem', flexShrink: 0 }}>{icon}</span>
         <DetailCardTitle>
           {item.label}
           {meta && <DetailCardMeta>{meta}</DetailCardMeta>}
@@ -1131,7 +1146,7 @@ function ReportItemCard({
                     style={{ cursor: hasMoreRegistry ? 'pointer' : 'default' }}
                   >
                     <span>
-                      📁 {appliedSplit.registry.length} νέ
+                      {appliedSplit.registry.length} νέ
                       {appliedSplit.registry.length === 1 ? 'ο έγγραφο' : 'α έγγραφα'} στα Αρχεία Υποέργου
                     </span>
                     {hasMoreRegistry && <span>{showAllRegistry ? '▲' : '▼'}</span>}
@@ -1167,7 +1182,6 @@ function ReportItemCard({
               </ChangeGroupLabel>
               {item.actions.map((action) => (
                 <ActionLine key={action.id}>
-                  <span aria-hidden>{action.icon}</span>
                   <div>
                     <strong>{action.title}</strong>
                     {action.detail && <span>{action.detail}</span>}
@@ -1207,12 +1221,12 @@ export function KhmdhsBatchReportModal({
   onDismiss,
 }) {
   const [openSections, setOpenSections] = useState({
-    refreshed: true,
-    attention: true,
-    unchanged: false,
+    intervened: true,
     failed: true,
     later: true,
-    intervened: true,
+    attention: true,
+    refreshed: false,
+    unchanged: false,
     skipped: false,
   });
   const [openItems, setOpenItems] = useState({});
@@ -1221,7 +1235,6 @@ export function KhmdhsBatchReportModal({
 
   const items = Array.isArray(results.items) ? results.items : [];
   const refreshedItems = items.filter((i) => i.status === 'refreshed' && i.category === 'applied');
-  const attentionItems = items.filter((i) => i.status === 'refreshed' && i.category === 'attention');
   const unchangedItems = items.filter((i) => i.status === 'refreshed' && (i.category === 'unchanged' || (!i.category && !i.hasSubstantiveChanges)));
   // Τα πιασμένα δεν είναι «αποτυχία» — απλώς τα δούλευε κάποιος τη στιγμή εκείνη.
   // Ούτε όσα δεν προλάβαμε λόγω ακύρωσης· και τα δύο ξαναδοκιμάζονται με την «Επανάληψη».
@@ -1229,44 +1242,52 @@ export function KhmdhsBatchReportModal({
   const laterItems = items.filter((i) => i.busy || i.notProcessed);
   const skippedItems = items.filter((i) => i.status === 'skipped' && !i.busy && !i.notProcessed);
   const intervenedFromItems = items.filter((i) => i.status === 'intervened');
-  const interventionList = pendingItems?.length
+  // Άδειο pendingItems σημαίνει «μηδέν εκκρεμή» — όχι «αγνόησε και δείξε όλα τα intervened».
+  const interventionList = Array.isArray(pendingItems)
     ? pendingItems
     : intervenedFromItems;
 
-  const allResolved = (!pendingItems || pendingItems.length === 0)
-    && (results.needsIntervention > 0 || intervenedFromItems.length > 0);
+  const resolvedInterventionCount = items.filter((i) => i.status === 'resolved').length;
+  const allResolved = Array.isArray(pendingItems)
+    && pendingItems.length === 0
+    && resolvedInterventionCount > 0
+    && intervenedFromItems.length === 0;
 
   // Υποψήφια για «Επανάληψη»: πραγματικές αποτυχίες + κλειδωμένα (ό,τι δεν ολοκληρώθηκε).
   const retryCandidates = [...failedItems, ...laterItems]
     .filter((i) => i.id)
     .map((i) => ({ id: i.id, label: i.label }));
 
-  // Ιεραρχία ευρημάτων: πρώτο ό,τι θέλει ενέργεια, μετά ό,τι πήγε καλά.
-  // Τα «με ενέργειες» ενημερώθηκαν κανονικά, αλλά περιμένουν κάτι από τον χρήστη
-  // μέσα στην επεξεργασία του υποέργου (έλεγχος στοιχείων, ΑΠΕ κ.λπ.).
-  const actionItems = items.filter((i) => i.status === 'refreshed' && (i.actions?.length || 0) > 0);
-  const okCount = refreshedItems.length + unchangedItems.length;
-  const needsActionCount = interventionList.length + failedItems.length + actionItems.length;
+  // Προσοχή ή ενέργεια μέσα στο υποέργο — ανοιχτή ενότητα στην αφήγηση.
+  // Όσα επιλύθηκαν μετά την αποθήκευση (followUpClearedAt) δεν εμφανίζονται ξανά.
+  const followUpItems = items.filter((i) => (
+    i.status === 'refreshed'
+    && !i.followUpClearedAt
+    && (i.category === 'attention' || (i.actions?.length || 0) > 0)
+  ));
+  const followUpIds = new Set(followUpItems.map((i) => i.id));
+  const refreshedOnly = refreshedItems.filter((i) => !followUpIds.has(i.id));
+  const unchangedOnly = unchangedItems.filter((i) => !followUpIds.has(i.id));
+
+  // «Έγιναν καλά» = μόνο όσα δεν έχουν εκκρεμή ενέργεια (χωρίς διπλομέτρηση με follow-up).
+  const okCount = refreshedOnly.length + unchangedOnly.length;
+  const needsActionCount = interventionList.length + followUpItems.length;
   const heroTone = failedItems.length > 0
     ? 'error'
     : needsActionCount > 0
       ? 'attention'
       : 'ok';
-  const heroEmoji = heroTone === 'error' ? '⚠️' : heroTone === 'attention' ? '📝' : '🎉';
   const heroVerdict = heroTone === 'error'
     ? 'Ολοκληρώθηκε — χρειάζεται μια ματιά'
     : heroTone === 'attention'
       ? 'Σχεδόν έτοιμο — μένουν λίγες ενέργειες'
-      : 'Όλα ενημερωμένα!';
+      : 'Όλα ενημερωμένα';
   const heroParts = [];
-  if (refreshedItems.length) heroParts.push(`${refreshedItems.length} ενημερώθηκαν`);
-  if (attentionItems.length) heroParts.push(`${attentionItems.length} θέλουν προσοχή`);
-  if (unchangedItems.length) heroParts.push(`${unchangedItems.length} χωρίς αλλαγές`);
-  if (actionItems.length) heroParts.push(`${actionItems.length} ζητούν ενέργεια στο υποέργο`);
-  if (interventionList.length) heroParts.push(`${interventionList.length} για χαρακτηρισμό`);
+  if (needsActionCount) heroParts.push(`${needsActionCount} ζητούν ενέργεια`);
   if (failedItems.length) heroParts.push(`${failedItems.length} απέτυχαν`);
   if (laterItems.length) heroParts.push(`${laterItems.length} για αργότερα`);
-  if (skippedItems.length) heroParts.push(`${skippedItems.length} εκτός`);
+  if (okCount) heroParts.push(`${okCount} ολοκληρώθηκαν χωρίς εκκρεμότητα`);
+  if (skippedItems.length) heroParts.push(`${skippedItems.length} εκτός ελέγχου`);
   const heroSub = heroParts.length ? heroParts.join(' · ') : 'Δεν καταγράφηκαν ευρήματα.';
 
   const toggleSection = (key) => {
@@ -1301,56 +1322,32 @@ export function KhmdhsBatchReportModal({
     <ModalOverlay onClick={onClose}>
       <ModalBox onClick={(e) => e.stopPropagation()}>
         <ModalHeader>
-          <ModalTitle>📋 Αναφορά μαζικής ανανέωσης ΚΗΜΔΗΣ</ModalTitle>
+          <ModalTitle>Αναφορά μαζικής ανανέωσης ΚΗΜΔΗΣ</ModalTitle>
           <ModalCloseBtn onClick={onClose}>✕</ModalCloseBtn>
         </ModalHeader>
         <ModalBody>
           <ReportHero $tone={heroTone}>
             <HeroGlow />
-            <HeroTop>
-              <HeroEmoji>{heroEmoji}</HeroEmoji>
-              <HeroVerdict>{heroVerdict}</HeroVerdict>
-            </HeroTop>
+            <HeroVerdict>{heroVerdict}</HeroVerdict>
             <HeroSub>{heroSub}</HeroSub>
+            <HeroStatGrid>
+              <HeroStatCard>
+                <HeroStatNumber>{needsActionCount}</HeroStatNumber>
+                <HeroStatLabel>Χρειάζονται ενέργεια</HeroStatLabel>
+              </HeroStatCard>
+              <HeroStatCard>
+                <HeroStatNumber>{failedItems.length}</HeroStatNumber>
+                <HeroStatLabel>Απέτυχαν</HeroStatLabel>
+                {laterItems.length > 0 && (
+                  <HeroStatHint>+ {laterItems.length} για αργότερα</HeroStatHint>
+                )}
+              </HeroStatCard>
+              <HeroStatCard>
+                <HeroStatNumber>{okCount}</HeroStatNumber>
+                <HeroStatLabel>Έγιναν καλά</HeroStatLabel>
+              </HeroStatCard>
+            </HeroStatGrid>
           </ReportHero>
-
-          <StatChipRow>
-            {okCount > 0 && (
-              <StatChip $bg="#ecfdf5" $color="#065f46" $border="#6ee7b7">
-                ✅ Ενημερωμένα <strong>{okCount}</strong>
-              </StatChip>
-            )}
-            {attentionItems.length > 0 && (
-              <StatChip $bg="#fffbeb" $color="#92400e" $border="#fde68a">
-                ℹ️ Προσοχή <strong>{attentionItems.length}</strong>
-              </StatChip>
-            )}
-            {actionItems.length > 0 && (
-              <StatChip $bg="#fff7ed" $color="#9a3412" $border="#fed7aa">
-                👉 Ζητούν ενέργεια <strong>{actionItems.length}</strong>
-              </StatChip>
-            )}
-            {interventionList.length > 0 && (
-              <StatChip $bg="#fffbeb" $color="#b45309" $border="#fde68a">
-                ⚠️ Χαρακτηρισμός <strong>{interventionList.length}</strong>
-              </StatChip>
-            )}
-            {failedItems.length > 0 && (
-              <StatChip $bg="#fef2f2" $color="#991b1b" $border="#fecaca">
-                ❌ Απέτυχαν <strong>{failedItems.length}</strong>
-              </StatChip>
-            )}
-            {laterItems.length > 0 && (
-              <StatChip $bg="#f1f5f9" $color="#475569" $border="#cbd5e1">
-                🔒 Αργότερα <strong>{laterItems.length}</strong>
-              </StatChip>
-            )}
-            {skippedItems.length > 0 && (
-              <StatChip $bg="#f8fafc" $color="#64748b" $border="#e2e8f0">
-                ⏭️ Εκτός <strong>{skippedItems.length}</strong>
-              </StatChip>
-            )}
-          </StatChipRow>
 
           {typeof onRetry === 'function' && retryCandidates.length > 0 && (
             <RetryBar>
@@ -1363,90 +1360,23 @@ export function KhmdhsBatchReportModal({
                 {' '}Θέλετε να ξαναπροσπαθήσουμε μόνο αυτά;
               </RetryText>
               <RetryButton type="button" onClick={handleRetry}>
-                🔁 Επανάληψη ({retryCandidates.length})
+                Επανάληψη ({retryCandidates.length})
               </RetryButton>
             </RetryBar>
-          )}
-
-          {refreshedItems.length > 0 && (
-            <>
-              <SectionHeader $color="#065f46" onClick={() => toggleSection('refreshed')}>
-                <SectionChevron $open={openSections.refreshed}>▶</SectionChevron>
-                ✅ Ενημερώθηκαν με αλλαγές ({refreshedItems.length}) — πλήρης λίστα προσθηκών
-              </SectionHeader>
-              {openSections.refreshed && refreshedItems.map((item) => (
-                <ReportItemCard
-                  key={item.id}
-                  item={item}
-                  open={isItemOpen(item.id, true)}
-                  onToggle={() => toggleItem(item.id, true)}
-                  border="#6ee7b7"
-                  bg="#f0fdf4"
-                  icon="✅"
-                  meta={summarizeAppliedChanges(item.appliedLines?.length ? item.appliedLines : item.changeLines)}
-                  onNavigate={goTo}
-                  defaultShowAllRegistry
-                />
-              ))}
-            </>
-          )}
-
-          {attentionItems.length > 0 && (
-            <>
-              <SectionHeader $color="#92400e" onClick={() => toggleSection('attention')}>
-                <SectionChevron $open={openSections.attention}>▶</SectionChevron>
-                ℹ️ Ελέγχθηκαν — χρειάζονται προσοχή ({attentionItems.length})
-              </SectionHeader>
-              {openSections.attention && attentionItems.map((item) => (
-                <ReportItemCard
-                  key={item.id}
-                  item={item}
-                  open={isItemOpen(item.id, true)}
-                  onToggle={() => toggleItem(item.id, true)}
-                  border="#fde68a"
-                  bg="#fffbeb"
-                  icon="ℹ️"
-                  meta="Ελέγχθηκε — υπάρχουν σημεία προς προσοχή (π.χ. διατηρήθηκαν υπάρχοντα δεδομένα ή χειροκίνητες τιμές)."
-                  onNavigate={goTo}
-                />
-              ))}
-            </>
-          )}
-
-          {unchangedItems.length > 0 && (
-            <>
-              <SectionHeader $color="#64748b" onClick={() => toggleSection('unchanged')}>
-                <SectionChevron $open={openSections.unchanged}>▶</SectionChevron>
-                ➖ Χωρίς ουσιώδεις διαφορές ({unchangedItems.length})
-              </SectionHeader>
-              {openSections.unchanged && unchangedItems.map((item) => (
-                <ReportItemCard
-                  key={item.id}
-                  item={item}
-                  open={!!openItems[item.id]}
-                  onToggle={() => toggleItem(item.id)}
-                  border="#e2e8f0"
-                  bg="#f8fafc"
-                  icon="➖"
-                  meta="Ελέγχθηκε στο ΚΗΜΔΗΣ — τα δεδομένα ήταν ήδη ενημερωμένα"
-                  onNavigate={goTo}
-                />
-              ))}
-            </>
           )}
 
           {interventionList.length > 0 && (
             <>
               <SectionHeader $color="#92400e" onClick={() => toggleSection('intervened')}>
                 <SectionChevron $open={openSections.intervened}>▶</SectionChevron>
-                ⚠️ Χρειάζονται χαρακτηρισμό ({interventionList.length})
+                Χρειάζονται χαρακτηρισμό ({interventionList.length})
               </SectionHeader>
               {openSections.intervened && interventionList.map((item) => (
                 <InterventionItem
                   key={item.id}
                   onClick={() => goTo(item.id)}
                 >
-                  <InterventionIcon>📄</InterventionIcon>
+                  <InterventionIcon aria-hidden />
                   <InterventionContent>
                     <InterventionTitle>{item.label}</InterventionTitle>
                     <InterventionSubtitle>
@@ -1462,17 +1392,16 @@ export function KhmdhsBatchReportModal({
             <>
               <SectionHeader $color="#991b1b" onClick={() => toggleSection('failed')}>
                 <SectionChevron $open={openSections.failed}>▶</SectionChevron>
-                ❌ Αποτυχίες ({failedItems.length})
+                Απέτυχαν ({failedItems.length})
               </SectionHeader>
               {openSections.failed && failedItems.map((item) => (
                 <ReportItemCard
                   key={`fail-${item.id}`}
                   item={item}
-                  open={openItems[`fail-${item.id}`] !== false}
-                  onToggle={() => toggleItem(`fail-${item.id}`)}
+                  open={isItemOpen(`fail-${item.id}`, true)}
+                  onToggle={() => toggleItem(`fail-${item.id}`, true)}
                   border="#fca5a5"
                   bg="#fef2f2"
-                  icon="❌"
                   meta={summarizeKhmdhsFetchFailure(item.error || item.reason)}
                   onNavigate={goTo}
                 />
@@ -1484,7 +1413,7 @@ export function KhmdhsBatchReportModal({
             <>
               <SectionHeader $color="#475569" onClick={() => toggleSection('later')}>
                 <SectionChevron $open={openSections.later}>▶</SectionChevron>
-                🔒 Για αργότερα ({laterItems.length})
+                Για αργότερα ({laterItems.length})
               </SectionHeader>
               {openSections.later && (
                 <>
@@ -1500,7 +1429,6 @@ export function KhmdhsBatchReportModal({
                       onToggle={() => toggleItem(`later-${item.id}`)}
                       border="#cbd5e1"
                       bg="#f1f5f9"
-                      icon="🔒"
                       meta={item.reason || item.error || 'Έμεινε για αργότερα'}
                       onNavigate={goTo}
                     />
@@ -1510,11 +1438,77 @@ export function KhmdhsBatchReportModal({
             </>
           )}
 
+          {followUpItems.length > 0 && (
+            <>
+              <SectionHeader $color="#9a3412" onClick={() => toggleSection('attention')}>
+                <SectionChevron $open={openSections.attention}>▶</SectionChevron>
+                Χρειάζονται προσοχή ή ενέργεια στο υποέργο ({followUpItems.length})
+              </SectionHeader>
+              {openSections.attention && followUpItems.map((item) => (
+                <ReportItemCard
+                  key={item.id}
+                  item={item}
+                  open={isItemOpen(item.id, true)}
+                  onToggle={() => toggleItem(item.id, true)}
+                  border="#fed7aa"
+                  bg="#fff7ed"
+                  meta={item.category === 'attention'
+                    ? 'Ελέγχθηκε — υπάρχουν σημεία προς προσοχή ή χειροκίνητες τιμές που διατηρήθηκαν.'
+                    : 'Ενημερώθηκε — μένουν ενέργειες μέσα στην επεξεργασία του υποέργου.'}
+                  onNavigate={goTo}
+                />
+              ))}
+            </>
+          )}
+
+          {refreshedOnly.length > 0 && (
+            <>
+              <SectionHeader $color="#065f46" onClick={() => toggleSection('refreshed')}>
+                <SectionChevron $open={openSections.refreshed}>▶</SectionChevron>
+                Ενημερώθηκαν με αλλαγές ({refreshedOnly.length})
+              </SectionHeader>
+              {openSections.refreshed && refreshedOnly.map((item) => (
+                <ReportItemCard
+                  key={item.id}
+                  item={item}
+                  open={isItemOpen(item.id, false)}
+                  onToggle={() => toggleItem(item.id, false)}
+                  border="#6ee7b7"
+                  bg="#f0fdf4"
+                  meta={summarizeAppliedChanges(item.appliedLines?.length ? item.appliedLines : item.changeLines)}
+                  onNavigate={goTo}
+                  defaultShowAllRegistry
+                />
+              ))}
+            </>
+          )}
+
+          {unchangedOnly.length > 0 && (
+            <>
+              <SectionHeader $color="#64748b" onClick={() => toggleSection('unchanged')}>
+                <SectionChevron $open={openSections.unchanged}>▶</SectionChevron>
+                Χωρίς ουσιώδεις διαφορές ({unchangedOnly.length})
+              </SectionHeader>
+              {openSections.unchanged && unchangedOnly.map((item) => (
+                <ReportItemCard
+                  key={item.id}
+                  item={item}
+                  open={!!openItems[item.id]}
+                  onToggle={() => toggleItem(item.id)}
+                  border="#e2e8f0"
+                  bg="#f8fafc"
+                  meta="Ελέγχθηκε στο ΚΗΜΔΗΣ — τα δεδομένα ήταν ήδη ενημερωμένα"
+                  onNavigate={goTo}
+                />
+              ))}
+            </>
+          )}
+
           {skippedItems.length > 0 && (
             <>
               <SectionHeader $color="#64748b" onClick={() => toggleSection('skipped')}>
                 <SectionChevron $open={openSections.skipped}>▶</SectionChevron>
-                ⏭️ Παραλείφθηκαν ({skippedItems.length})
+                Εκτός ελέγχου ({skippedItems.length})
               </SectionHeader>
               {openSections.skipped && (
                 <>
@@ -1529,7 +1523,6 @@ export function KhmdhsBatchReportModal({
                       onToggle={() => toggleItem(`skip-${item.id}`)}
                       border="#e2e8f0"
                       bg="#f8fafc"
-                      icon="⏭️"
                       meta={item.reason || 'Παραλείφθηκε'}
                     />
                   ))}
@@ -1540,11 +1533,11 @@ export function KhmdhsBatchReportModal({
 
           {allResolved && (
             <AllDoneBanner>
-              🎉 Όλοι οι χαρακτηρισμοί ολοκληρώθηκαν — η βάση δεδομένων είναι πλήρως ενημερωμένη!
+              Όλοι οι χαρακτηρισμοί ολοκληρώθηκαν — η βάση δεδομένων είναι πλήρως ενημερωμένη.
             </AllDoneBanner>
           )}
 
-          {!refreshedItems.length && !attentionItems.length && !unchangedItems.length
+          {!refreshedOnly.length && !followUpItems.length && !unchangedOnly.length
             && !failedItems.length && !laterItems.length && !interventionList.length && !skippedItems.length && (
             <SkippedList>
               Δεν καταγράφηκαν λεπτομέρειες για αυτή την εκτέλεση.
@@ -1955,14 +1948,17 @@ export default function KhmdhsBatchRefreshWidget({
 
           const project = res.projectSnapshot;
           const existingPlan = project?.khmdhsSymvChainPlan;
-          const reusablePlan = resolveReusableSymvChainPlan(existingPlan, res.chainRes);
+          const planChainRes = res.usesStitchPlan
+            ? mergeStitchChainResForSymvPlan(res.chainRes, res.stitchResults)
+            : res.chainRes;
+          const reusablePlan = resolveReusableSymvChainPlan(existingPlan, planChainRes);
 
           // Τεχνητή αλυσίδα / ανανέωση σε επίπεδο υποέργου: πάντα stitch (όχι replace στη γραμμή 0).
           const registryChainResList = [];
           let applyResult;
           if (res.usesStitchPlan && Array.isArray(res.stitchResults) && res.stitchResults.length) {
             applyResult = applyStitchRefreshResults(project, res.stitchResults, {
-              fallbackChainRes: res.chainRes,
+              fallbackChainRes: planChainRes || res.chainRes,
               fallbackSeedAdam: res.seedAdam,
               symvChainPlan: reusablePlan,
             });
@@ -2114,6 +2110,17 @@ export default function KhmdhsBatchRefreshWidget({
               error: saveRes?.error || 'Σφάλμα αποθήκευσης',
               phase: 'save',
             });
+            await persistItemFindings(item.id, buildKhmdhsRefreshFindings({
+              outcome: KHMDHS_FINDING_OUTCOME.FAILED,
+              runId,
+              at: runStartedAt,
+              by: currentUser?.username,
+              seedAdam: res.seedAdam,
+              error: saveRes?.error || 'Σφάλμα αποθήκευσης',
+              actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.RETRY_FETCH, {
+                detail: saveRes?.error || 'Σφάλμα αποθήκευσης',
+              })],
+            }));
             addLog('❌', `${item.label} — Σφάλμα αποθήκευσης`);
           }
         } catch (err) {
@@ -2125,6 +2132,18 @@ export default function KhmdhsBatchRefreshWidget({
             error: err?.message || 'Απρόσμενο σφάλμα',
             phase: 'exception',
           });
+          try {
+            await persistItemFindings(item.id, buildKhmdhsRefreshFindings({
+              outcome: KHMDHS_FINDING_OUTCOME.FAILED,
+              runId,
+              at: runStartedAt,
+              by: currentUser?.username,
+              error: err?.message || 'Απρόσμενο σφάλμα',
+              actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.RETRY_FETCH, {
+                detail: err?.message || 'Απρόσμενο σφάλμα',
+              })],
+            }));
+          } catch { /* ignore persist failure */ }
           addLog('❌', `${item.label} — Εξαίρεση`);
         } finally {
           if (lockAcquired) {
@@ -2167,14 +2186,14 @@ export default function KhmdhsBatchRefreshWidget({
         isRetry: !!retryItems,
       };
 
-      if (typeof onBatchResults === 'function') {
-        onBatchResults(batchResults);
+      // Πρώτα φρέσκα υποέργα στη λίστα, μετά η αναφορά — αλλιώς ο συγχρονισμός
+      // μπορεί να «κλείσει» εκκρεμότητες πάνω σε παλιά δεδομένα μνήμης.
+      if (typeof onRefreshComplete === 'function') {
+        await onRefreshComplete();
       }
 
-      // Πάντα επαναφόρτωση: ακόμη και χωρίς επιτυχή ανανέωση έχουν γραφτεί ευρήματα
-      // στα υποέργα (αποτυχίες, εκκρεμείς χαρακτηρισμοί) που πρέπει να φανούν στις κάρτες.
-      if (typeof onRefreshComplete === 'function') {
-        onRefreshComplete();
+      if (typeof onBatchResults === 'function') {
+        onBatchResults(batchResults);
       }
 
       const lockedCount = detailItems.filter((d) => d.busy).length;

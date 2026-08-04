@@ -16,9 +16,8 @@ import TaskAssignmentToastHost from './TaskAssignmentToastHost';
 import { KhmdhsBatchReportFab, KhmdhsBatchReportModal } from './KhmdhsBatchRefreshWidget';
 import {
   batchRunHasOutcome,
-  isKhmdhsCharacterizationPending,
-  markBatchItemsResolved,
   mergeKhmdhsBatchResults,
+  syncBatchReportWithProjects,
 } from '../utils/khmdhsBatchReportState';
 import { KHMDHS_FRESHNESS_YELLOW_DAYS } from '../utils/khmdhsChainRefresh';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
@@ -3423,35 +3422,45 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     refreshKhmdhsStaleCount();
   }, [batchReportResults, refreshKhmdhsStaleCount, persistKhmdhsBatchReport]);
 
-  // Οι εκκρεμείς χαρακτηρισμοί κλείνουν μόνο όταν πραγματικά επιλυθούν στο υποέργο
-  // (ορίστηκε κατανομή SYMV ή ο χρήστης έκλεισε ρητά το εύρημα) — όχι με κάθε ανανέωση οθόνης.
+  // Εκκρεμότητες αναφοράς (χαρακτηρισμός, έλεγχος στοιχείων κ.λπ.) κλείνουν όταν
+  // επιλυθούν πραγματικά στο υποέργο και αποθηκευτούν — όχι κατά τη διάρκεια μαζικής ανανέωσης.
   useEffect(() => {
-    if (!batchPendingItems.length || !projects.length) return;
-    const resolved = batchPendingItems.filter((item) => {
-      const project = projects.find((row) => row.subprojectId === item.id);
-      // Αν το υποέργο δεν είναι φορτωμένο, δεν συμπεραίνουμε επίλυση.
-      return project ? !isKhmdhsCharacterizationPending(project) : false;
-    });
-    if (!resolved.length) return;
+    if (khmdhsBatchRunning) return;
+    if (!batchReportResults?.items?.length || !projects.length) return;
+    const { results: synced, cleared } = syncBatchReportWithProjects(batchReportResults, projects);
+    if (!cleared.length && synced === batchReportResults) return;
+    if (synced === batchReportResults && !cleared.length) return;
 
-    const resolvedIds = resolved.map((item) => item.id);
-    const next = batchPendingItems.filter((item) => !resolvedIds.includes(item.id));
-    setBatchPendingItems(next);
-    resolved.forEach((item) => showToast(`✓ Χαρακτηρισμός ολοκληρώθηκε: ${item.label}`, 'success'));
-    if (!next.length) {
-      setTimeout(() => showToast('🎉 Όλοι οι εκκρεμείς χαρακτηρισμοί ολοκληρώθηκαν!', 'success'), 1200);
+    const nextPending = synced.interventionItems || [];
+    setBatchReportResults(synced);
+    setBatchPendingItems(nextPending);
+
+    cleared.forEach((item) => {
+      if (item.kind === 'characterize') {
+        showToast(`✓ Χαρακτηρισμός ολοκληρώθηκε: ${item.label}`, 'success');
+      } else {
+        showToast(`✓ Εκκρεμότητα έκλεισε: ${item.label}`, 'success');
+      }
+    });
+    if (
+      nextPending.length === 0
+      && !(synced.items || []).some((i) => (
+        i.status === 'refreshed'
+        && !i.followUpClearedAt
+        && (i.category === 'attention' || (i.actions?.length || 0) > 0)
+      ))
+      && cleared.length > 0
+    ) {
+      setTimeout(() => showToast('Όλες οι εκκρεμείς ενέργειες της αναφοράς ολοκληρώθηκαν.', 'success'), 1200);
     }
-    const updated = batchReportResults
-      ? markBatchItemsResolved(batchReportResults, resolvedIds)
-      : batchReportResults;
-    if (updated) setBatchReportResults(updated);
+
     void persistKhmdhsBatchReport({
-      results: updated,
-      pendingItems: next,
+      results: synced,
+      pendingItems: nextPending,
       lastRun: khmdhsLastRun,
     });
   }, [
-    projects, batchPendingItems, batchReportResults,
+    projects, batchReportResults, khmdhsBatchRunning,
     showToast, persistKhmdhsBatchReport, khmdhsLastRun,
   ]);
 
@@ -7157,6 +7166,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         userRole={userRole}
         currentUser={currentUser}
         allProjects={projects}
+        onKhmdhsFindingsPersisted={({ subprojectId, findings }) => {
+          if (!subprojectId) return;
+          setProjects((prev) => prev.map((p) => (
+            p.subprojectId === subprojectId
+              ? { ...p, khmdhsLastRefreshFindings: findings }
+              : p
+          )));
+        }}
       />
 
 
@@ -7915,7 +7932,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         khmdhsWidgetProps={{
           userRole,
           currentUser,
-          onRefreshComplete: () => { loadProjects(); refreshKhmdhsStaleCount(); },
+          onRefreshComplete: async () => {
+            await loadProjects();
+            refreshKhmdhsStaleCount();
+          },
           onBatchResults: handleBatchResults,
           onRunningChange: setKhmdhsBatchRunning,
           onOpenReport: () => setIsBatchReportOpen(true),

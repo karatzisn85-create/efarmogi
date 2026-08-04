@@ -4,7 +4,7 @@
 import { isMultipleContractsForm, emptyKhmdhsOnContract, resolveStoredApeAmount } from './khmdhsFields';
 import { syncPreservedContractApeAmount, hasRealStoredContractApe, emptyLegacyApeFields, stripPhantomContractApeFromForm } from './khmdhsApeEntry';
 import { applyParallelContractAmountHints, resolveParallelContractSiblings } from './khmdhsParallelContractApply';
-import { shouldOfferSymvChainPlanner, resolveReusableSymvChainPlan } from './khmdhsSymvChainPlanner';
+import { shouldOfferSymvChainPlanner, resolveReusableSymvChainPlan, mergeStitchChainResForSymvPlan } from './khmdhsSymvChainPlanner';
 import { applySymvChainPlanToForm } from './khmdhsSymvChainApply';
 import { normalizeAmountForCompare } from './projectFormPhases';
 import { prepareFormForInferredImplementationForm } from './khmdhsImplementationFormInference';
@@ -164,6 +164,40 @@ export function emptyKhmdhsChainFields() {
     khmdhsSymvPlanAppliedAt: '',
     khmdhsChainLastRefreshedAt: '',
   };
+}
+
+/** Μετά κατανομή SYMV, κράτα στάδια που γέμισαν από άλλα τμήματα συρραφής. */
+export function preserveStitchedSharedKhmdhsFields(afterPlan, beforePlan) {
+  if (!afterPlan || !beforePlan) return afterPlan;
+  const sharedKeys = [
+    'khmdhsNoticeAdam',
+    'khmdhsNoticeSnapshot',
+    'khmdhsNoticeFetchedAt',
+    'khmdhsAwardAdam',
+    'khmdhsAwardSnapshot',
+    'khmdhsAwardFetchedAt',
+    'khmdhsRequestAdam',
+    'khmdhsRequestSnapshot',
+    'khmdhsRequestFetchedAt',
+    'khmdhsCommitmentAdam',
+    'khmdhsCommitmentSnapshot',
+    'khmdhsCommitmentFetchedAt',
+    'khmdhsCommitmentDecisions',
+    'khmdhsPayments',
+  ];
+  const out = { ...afterPlan };
+  sharedKeys.forEach((key) => {
+    const afterVal = out[key];
+    const beforeVal = beforePlan[key];
+    const afterEmpty = afterVal == null
+      || afterVal === ''
+      || (Array.isArray(afterVal) && afterVal.length === 0);
+    const beforeHas = beforeVal != null
+      && beforeVal !== ''
+      && !(Array.isArray(beforeVal) && beforeVal.length === 0);
+    if (afterEmpty && beforeHas) out[key] = beforeVal;
+  });
+  return out;
 }
 
 export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } = {}) {
@@ -1029,19 +1063,23 @@ export function applyStitchRefreshResults(project, stitchResults, {
   }
 
   // Μετά το stitch επαναφέρουμε/εφαρμόζουμε την κατανομή SYMV ώστε τα «Δεν καταχωρείται»
-  // να μην χαθούν από την τμηματική ανανέωση.
+  // να μην χαθούν από την τμηματική ανανέωση. Χρησιμοποιούμε ενωμένη αλυσίδα όλων
+  // των σπόρων· μετά επαναφέρουμε REQ/PROC/AWRD/PAY που γέμισαν από άλλα τμήματα.
+  const planChainRes = mergeStitchChainResForSymvPlan(fallbackChainRes, stitchResults)
+    || fallbackChainRes;
   let planToApply = symvChainPlan?.items?.length ? symvChainPlan : null;
-  if (!planToApply && project?.khmdhsSymvChainPlan?.items?.length && fallbackChainRes) {
-    planToApply = resolveReusableSymvChainPlan(project.khmdhsSymvChainPlan, fallbackChainRes);
+  if (!planToApply && project?.khmdhsSymvChainPlan?.items?.length && planChainRes) {
+    planToApply = resolveReusableSymvChainPlan(project.khmdhsSymvChainPlan, planChainRes);
   }
 
-  if (planToApply?.items?.length && fallbackChainRes?.success) {
-    const planned = applySymvChainPlanToForm(running, fallbackChainRes, planToApply, {
+  if (planToApply?.items?.length && planChainRes?.success) {
+    const planned = applySymvChainPlanToForm(running, planChainRes, planToApply, {
       seedAdam: fallbackSeedAdam,
       suppressSituationModal: true,
     });
     return {
       ...planned,
+      form: preserveStitchedSharedKhmdhsFields(planned.form, running),
       warnings: [...new Set([...(planned.warnings || []), ...allWarnings])],
       stitchFilledStages: [...new Set(filled)],
       stitchUpdatedStages: [...new Set(updated)],
@@ -1050,8 +1088,8 @@ export function applyStitchRefreshResults(project, stitchResults, {
   }
 
   if (
-    fallbackChainRes?.success
-    && shouldOfferSymvChainPlanner(fallbackChainRes)
+    planChainRes?.success
+    && shouldOfferSymvChainPlanner(planChainRes)
     && !planToApply?.items?.length
   ) {
     return {

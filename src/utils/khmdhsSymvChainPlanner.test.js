@@ -10,6 +10,7 @@ import {
   resolveReusableSymvChainPlan,
   inferDefaultSymvRole,
   symvPlanMatchesChain,
+  mergeStitchChainResForSymvPlan,
 } from './khmdhsSymvChainPlanner';
 import { applySymvChainPlanToForm, buildContractChainHistoryFromSymvPlan } from './khmdhsSymvChainApply';
 
@@ -218,5 +219,57 @@ describe('khmdhsSymvChainPlanner', () => {
       title: 'ΟΡΘΗ ΕΠΑΝΑΛΗΨΗ ΠΑΡΑΤΑΣΗΣ ΠΡΟΘΕΣΜΙΑΣ',
       historyLabel: '',
     }, pezonChainRes)).toBe(SYMV_CHAIN_ROLE.EXTENSION);
+  });
+
+  it('merges SYMV docs from all stitch segments for plan reuse', () => {
+    const primary = {
+      success: true,
+      contract: { adam: '22SYMV011799800' },
+      contractChainHistory: [{ adam: '22SYMV011799800', isRoot: true }],
+      chainMeta: {
+        contractSnapshotsByAdam: {
+          '22SYMV011799800': { title: 'ΚΥΡΙΑ', referenceNumber: '22SYMV011799800' },
+        },
+        parallelContractCandidates: ['22SYMV011799800'],
+      },
+    };
+    const secondary = {
+      success: true,
+      chainRes: {
+        success: true,
+        contractChainHistory: [
+          { adam: '25SYMV088888888', label: 'Ορθή επανάληψη' },
+          { adam: '25SYMV077777777', label: 'Συμπληρωματική σύμβαση' },
+        ],
+        chainMeta: {
+          contractSnapshotsByAdam: {
+            '25SYMV088888888': { title: 'ΟΡΘΗ ΕΠΑΝΑΛΗΨΗ', referenceNumber: '25SYMV088888888' },
+            '25SYMV077777777': {
+              title: 'ΣΥΜΠΛΗΡΩΜΑΤΙΚΗ ΣΥΜΒΑΣΗ',
+              referenceNumber: '25SYMV077777777',
+              contractSignedDate: '2025-02-01',
+              contractBudget: 1000,
+            },
+          },
+          parallelContractCandidates: ['25SYMV088888888', '25SYMV077777777'],
+        },
+      },
+    };
+    const combined = mergeStitchChainResForSymvPlan(primary, [
+      { success: true, chainRes: primary, seedAdam: 'A' },
+      secondary,
+    ]);
+    const docs = collectSymvChainDocuments(combined);
+    expect(docs.map((d) => d.adam).sort()).toEqual([
+      '22SYMV011799800',
+      '25SYMV077777777',
+      '25SYMV088888888',
+    ]);
+    // Νέα συμπληρωματική απαιτεί απόφαση — δεν επαναχρησιμοποιείται αυτόματα.
+    expect(resolveReusableSymvChainPlan({
+      items: [
+        { adam: '22SYMV011799800', role: SYMV_CHAIN_ROLE.MAIN },
+      ],
+    }, combined)).toBeNull();
   });
 });

@@ -307,6 +307,58 @@ export function resolveReusableSymvChainPlan(existingPlan, chainRes) {
   return merged;
 }
 
+/**
+ * Ενοποιεί τα SYMV / snapshots όλων των επιτυχημένων τμημάτων συρραφής
+ * ώστε η επαναχρησιμοποίηση κατανομής να μη βλέπει μόνο τον πρώτο σπόρο.
+ */
+export function mergeStitchChainResForSymvPlan(primaryChainRes, stitchResults) {
+  if (!primaryChainRes?.success) return primaryChainRes;
+  const segments = (Array.isArray(stitchResults) ? stitchResults : [])
+    .filter((seg) => seg?.success && seg.chainRes?.success);
+  if (segments.length <= 1) return primaryChainRes;
+
+  const snapshots = { ...(primaryChainRes.chainMeta?.contractSnapshotsByAdam || {}) };
+  const history = [...(primaryChainRes.contractChainHistory || [])];
+  const seenHistory = new Set(history.map((h) => normalizeAdam(h?.adam)).filter(Boolean));
+  const parallelCandidates = new Set(
+    (primaryChainRes.chainMeta?.parallelContractCandidates || []).map(normalizeAdam).filter(Boolean)
+  );
+  const parallelContracts = new Set(
+    (primaryChainRes.chainMeta?.parallelContracts || []).map(normalizeAdam).filter(Boolean)
+  );
+
+  segments.forEach((seg) => {
+    const cr = seg.chainRes;
+    Object.assign(snapshots, cr.chainMeta?.contractSnapshotsByAdam || {});
+    (cr.contractChainHistory || []).forEach((h) => {
+      const adam = normalizeAdam(h?.adam);
+      if (!adam || seenHistory.has(adam)) return;
+      seenHistory.add(adam);
+      history.push(h);
+    });
+    (cr.chainMeta?.parallelContractCandidates || []).forEach((a) => {
+      const n = normalizeAdam(a);
+      if (n) parallelCandidates.add(n);
+    });
+    (cr.chainMeta?.parallelContracts || []).forEach((a) => {
+      const n = normalizeAdam(a);
+      if (n) parallelContracts.add(n);
+    });
+  });
+
+  return {
+    ...primaryChainRes,
+    success: true,
+    contractChainHistory: history,
+    chainMeta: {
+      ...(primaryChainRes.chainMeta || {}),
+      contractSnapshotsByAdam: snapshots,
+      parallelContractCandidates: [...parallelCandidates],
+      parallelContracts: [...parallelContracts],
+    },
+  };
+}
+
 export function shouldOfferSymvChainPlanner(chainRes) {
   return collectSymvChainDocuments(chainRes).length >= 2;
 }
