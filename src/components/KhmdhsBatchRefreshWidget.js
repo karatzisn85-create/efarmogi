@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import styled, { keyframes, css } from 'styled-components';
 import { useToast } from './ToastProvider';
 import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhsChainApply';
-import { symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
+import { resolveReusableSymvChainPlan } from '../utils/khmdhsSymvChainPlanner';
 import {
   buildKhmdhsRefreshChangeReport,
   KHMDHS_FRESHNESS_YELLOW_DAYS,
@@ -69,15 +70,21 @@ const shimmer = keyframes`
 const Container = styled.div`
   animation: ${fadeIn} 0.35s ease;
   position: relative;
-  background:
-    radial-gradient(120% 140% at 0% 0%, rgba(20, 184, 166, 0.10) 0%, transparent 45%),
-    linear-gradient(135deg, #ffffff 0%, #f0fdfa 100%);
-  border: 1px solid #99f6e4;
-  border-radius: 16px;
-  padding: 1.05rem 1.25rem 1.1rem;
-  margin-bottom: 1rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 30px rgba(13, 148, 136, 0.06);
+  background: ${(p) => (p.$embedded
+    ? 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
+    : `radial-gradient(120% 140% at 0% 0%, rgba(20, 184, 166, 0.10) 0%, transparent 45%),
+       linear-gradient(135deg, #ffffff 0%, #f0fdfa 100%)`)};
+  border: ${(p) => (p.$embedded ? 'none' : '1px solid #99f6e4')};
+  border-radius: ${(p) => (p.$embedded ? '0' : (p.$compact ? '14px' : '16px'))};
+  padding: ${(p) => (p.$compact ? '0.7rem 0.95rem 0.75rem' : '1.05rem 1.25rem 1.1rem')};
+  margin-bottom: ${(p) => (p.$compact || p.$embedded ? '0' : '1rem')};
+  height: auto;
+  min-height: ${(p) => (p.$compact || p.$embedded ? '100%' : '0')};
+  box-shadow: ${(p) => (p.$embedded
+    ? 'none'
+    : '0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 30px rgba(13, 148, 136, 0.06)')};
   overflow: hidden;
+  color: inherit;
 
   &::before {
     content: '';
@@ -107,16 +114,17 @@ const HeaderLeft = styled.div`
 
 const IconChip = styled.div`
   flex-shrink: 0;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
+  width: ${(p) => (p.$compact ? '32px' : '38px')};
+  height: ${(p) => (p.$compact ? '32px' : '38px')};
+  border-radius: ${(p) => (p.$compact ? '9px' : '11px')};
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
+  font-size: ${(p) => (p.$compact ? '0.95rem' : '1.1rem')};
   color: #fff;
   background: linear-gradient(135deg, #0d9488, #14b8a6 60%, #2dd4bf);
   box-shadow: 0 4px 12px rgba(13, 148, 136, 0.32);
+  border: none;
 `;
 
 const TitleGroup = styled.div`
@@ -125,7 +133,7 @@ const TitleGroup = styled.div`
 
 const Title = styled.h4`
   margin: 0;
-  font-size: 0.98rem;
+  font-size: ${(p) => (p.$compact ? '0.88rem' : '0.98rem')};
   font-weight: 800;
   letter-spacing: -0.01em;
   color: #0f766e;
@@ -137,7 +145,7 @@ const Title = styled.h4`
 
 const Subtitle = styled.div`
   margin-top: 2px;
-  font-size: 0.72rem;
+  font-size: ${(p) => (p.$compact ? '0.68rem' : '0.72rem')};
   color: #64748b;
   font-weight: 500;
 `;
@@ -156,10 +164,10 @@ const StaleBadge = styled.span`
 `;
 
 const MetaLine = styled.div`
-  margin-top: 0.75rem;
-  padding-top: 0.65rem;
+  margin-top: ${(p) => (p.$compact ? '0.45rem' : '0.75rem')};
+  padding-top: ${(p) => (p.$compact ? '0.4rem' : '0.65rem')};
   border-top: 1px dashed #cbfbef;
-  font-size: 0.7rem;
+  font-size: ${(p) => (p.$compact ? '0.66rem' : '0.7rem')};
   color: #64748b;
   display: flex;
   align-items: center;
@@ -169,8 +177,8 @@ const MetaLine = styled.div`
 
 const Btn = styled.button`
   flex-shrink: 0;
-  padding: 0.55rem 1.35rem;
-  border-radius: 11px;
+  padding: ${(p) => (p.$compact ? '0.42rem 1rem' : '0.55rem 1.35rem')};
+  border-radius: ${(p) => (p.$compact ? '10px' : '11px')};
   border: none;
   background: linear-gradient(135deg, #0d9488, #14b8a6);
   color: #fff;
@@ -180,7 +188,7 @@ const Btn = styled.button`
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(13, 148, 136, 0.32);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  &:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(13, 148, 136, 0.42); }
+  &:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(13, 148, 136, 0.4); }
   &:active:not(:disabled) { transform: translateY(0); }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
@@ -204,7 +212,11 @@ const CancelBtn = styled.button`
 `;
 
 const RunPanel = styled.div`
-  margin-top: 0.9rem;
+  margin-top: 0.65rem;
+  padding: 0.55rem 0.65rem 0.6rem;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f0fdfa 0%, #f8fafc 100%);
+  border: 1px solid rgba(13, 148, 136, 0.18);
 `;
 
 const ProgressHead = styled.div`
@@ -307,14 +319,14 @@ const LogEntry = styled.div`
 const ConfirmOverlay = styled.div`
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(2px);
+  /* Χωρίς backdrop-filter: στο Electron το blur + κινούμενα στοιχεία πίσω
+     προκαλεί συνεχές τρεμόσβημα στα πλαίσια της οθόνης. */
+  background: rgba(15, 23, 42, 0.52);
   z-index: 11500;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  animation: ${fadeIn} 0.15s ease;
 `;
 
 const ConfirmBox = styled.div`
@@ -543,13 +555,11 @@ const ModalOverlay = styled.div`
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(3px);
   z-index: 12000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  animation: ${fadeIn} 0.2s ease;
 `;
 
 const ModalBox = styled.div`
@@ -1287,7 +1297,7 @@ export function KhmdhsBatchReportModal({
     }
   };
 
-  return (
+  return createPortal(
     <ModalOverlay onClick={onClose}>
       <ModalBox onClick={(e) => e.stopPropagation()}>
         <ModalHeader>
@@ -1562,7 +1572,8 @@ export function KhmdhsBatchReportModal({
           </ModalFooter>
         )}
       </ModalBox>
-    </ModalOverlay>
+    </ModalOverlay>,
+    document.body
   );
 }
 
@@ -1581,6 +1592,8 @@ export default function KhmdhsBatchRefreshWidget({
   lastRunInfo = null,
   hasReport = false,
   retrySignal = null,
+  compact = false,
+  embedded = false,
 }) {
   const { showToast } = useToast();
   const [running, setRunning] = useState(false);
@@ -1617,11 +1630,13 @@ export default function KhmdhsBatchRefreshWidget({
     }, 50);
   }, []);
 
+  const actingUsername = currentUser?.username || '';
+
   const fetchEligiblePreview = useCallback(async ({ resetScope = false } = {}) => {
     setEligibleLoading(true);
     try {
       const eligRes = await ipcRenderer.invoke('batch-khmdhs-refresh-eligible', {
-        actingUsername: currentUser?.username,
+        actingUsername,
       });
       if (eligRes?.success) {
         const list = eligRes.eligible || [];
@@ -1646,7 +1661,7 @@ export default function KhmdhsBatchRefreshWidget({
     } finally {
       setEligibleLoading(false);
     }
-  }, [currentUser]);
+  }, [actingUsername]);
 
   const handleConfirmStart = useCallback(async () => {
     setConfirmOpen(true);
@@ -1940,9 +1955,7 @@ export default function KhmdhsBatchRefreshWidget({
 
           const project = res.projectSnapshot;
           const existingPlan = project?.khmdhsSymvChainPlan;
-          const reusablePlan = existingPlan?.items?.length
-            && symvPlanMatchesChain(existingPlan, res.chainRes)
-            ? existingPlan : null;
+          const reusablePlan = resolveReusableSymvChainPlan(existingPlan, res.chainRes);
 
           // Τεχνητή αλυσίδα / ανανέωση σε επίπεδο υποέργου: πάντα stitch (όχι replace στη γραμμή 0).
           const registryChainResList = [];
@@ -2245,21 +2258,21 @@ export default function KhmdhsBatchRefreshWidget({
 
   return (
     <>
-      <Container>
+      <Container $compact={compact} $embedded={embedded}>
         <Header>
           <HeaderLeft>
-            <IconChip>{running ? <FabSpinner>⟳</FabSpinner> : '🔄'}</IconChip>
+            <IconChip $compact={compact} $embedded={embedded}>{running ? <FabSpinner>⟳</FabSpinner> : '🔄'}</IconChip>
             <TitleGroup>
-              <Title>
+              <Title $compact={compact} $embedded={embedded}>
                 Μαζική ανανέωση ΚΗΜΔΗΣ
                 {!running && staleCount > 0 && (
-                  <StaleBadge>
-                    🟡 {staleCount} για ανανέωση
+                  <StaleBadge $embedded={embedded}>
+                    {staleCount} για ανανέωση
                     {oldestDays ? ` · έως ${oldestDays} ημ.` : ''}
                   </StaleBadge>
                 )}
               </Title>
-              <Subtitle>
+              <Subtitle $compact={compact} $embedded={embedded}>
                 {running
                   ? 'Ανανέωση σε εξέλιξη — ενημερώνουμε τα υποέργα από το ΚΗΜΔΗΣ…'
                   : staleCount > 0
@@ -2269,7 +2282,7 @@ export default function KhmdhsBatchRefreshWidget({
             </TitleGroup>
           </HeaderLeft>
           {!running && (
-            <Btn onClick={handleConfirmStart}>Εκτέλεση</Btn>
+            <Btn $compact={compact} $embedded={embedded} onClick={handleConfirmStart}>Εκτέλεση</Btn>
           )}
           {running && (
             <CancelBtn
@@ -2283,11 +2296,11 @@ export default function KhmdhsBatchRefreshWidget({
         </Header>
 
         {lastRunInfo && !running && (
-          <MetaLine>
-            <span>🕓 Τελευταία εκτέλεση: {lastRunInfo.date} — {lastRunInfo.refreshed} ενημερώθηκαν</span>
+          <MetaLine $compact={compact} $embedded={embedded}>
+            <span>Τελευταία εκτέλεση: {lastRunInfo.date} — {lastRunInfo.refreshed} ενημερώθηκαν</span>
             {hasReport && typeof onOpenReport === 'function' && (
-              <ReportLinkBtn type="button" onClick={onOpenReport}>
-                📋 Δείτε αναφορά
+              <ReportLinkBtn type="button" onClick={onOpenReport} $embedded={embedded}>
+                Δείτε αναφορά
               </ReportLinkBtn>
             )}
           </MetaLine>
@@ -2326,7 +2339,7 @@ export default function KhmdhsBatchRefreshWidget({
         )}
       </Container>
 
-      {confirmOpen && (
+      {confirmOpen && createPortal(
         <ConfirmOverlay onClick={() => setConfirmOpen(false)}>
           <ConfirmBox onClick={(e) => e.stopPropagation()}>
             <ConfirmTitle>🔄 Εκκίνηση μαζικής ανανέωσης ΚΗΜΔΗΣ</ConfirmTitle>
@@ -2406,7 +2419,8 @@ export default function KhmdhsBatchRefreshWidget({
               </ConfirmProceed>
             </ConfirmActions>
           </ConfirmBox>
-        </ConfirmOverlay>
+        </ConfirmOverlay>,
+        document.body
       )}
     </>
   );

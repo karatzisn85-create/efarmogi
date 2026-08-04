@@ -389,7 +389,9 @@ export function mergeSymvChainPlanIntoDataQualityReview(review, plan, form) {
         resolutions: {
           ...(next.resolutions || {}),
           [key]: {
-            value: '',
+            // Όχι κενό: το isSupplementaryFieldDeferred αγνοεί άδεια value και
+            // ξαναζητά ποσό συμπληρωματικής για ήδη αποκλεισμένα ΑΔΑΜ.
+            value: 'other',
             source: KHMDHS_RESOLUTION_SOURCE.USER_CONFIRMED,
             resolvedAt: new Date().toISOString(),
             note: 'Αποκλείστηκε στη κατανομή SYMV',
@@ -411,7 +413,10 @@ export function mergeSymvChainPlanIntoDataQualityReview(review, plan, form) {
     if (!planItem) return;
 
     if (planItem.role === SYMV_CHAIN_ROLE.SKIP) {
-      if (item.fieldId !== 'chainKindReview' && item.status === 'needs_review') {
+      if (
+        item.fieldId !== 'chainKindReview'
+        && (item.status === 'needs_review' || item.status === 'missing')
+      ) {
         next = resolveReviewItem(next, item, {
           value: '—',
           source: KHMDHS_RESOLUTION_SOURCE.USER_CONFIRMED,

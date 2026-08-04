@@ -6,6 +6,10 @@ import {
   collectSymvChainDocuments,
   buildDefaultSymvChainPlan,
   validateSymvChainPlan,
+  mergeExistingSymvPlanOntoChain,
+  resolveReusableSymvChainPlan,
+  inferDefaultSymvRole,
+  symvPlanMatchesChain,
 } from './khmdhsSymvChainPlanner';
 import { applySymvChainPlanToForm, buildContractChainHistoryFromSymvPlan } from './khmdhsSymvChainApply';
 
@@ -136,5 +140,83 @@ describe('khmdhsSymvChainPlanner', () => {
     ]);
     expect(history[1].label).toBe('Απόφαση Δ.Σ.');
     expect(history[1].kind).toBe('other');
+  });
+
+  it('preserves prior skip roles when chain gains a new SYMV', () => {
+    const existingPlan = {
+      items: [
+        { adam: '22SYMV011799800', role: SYMV_CHAIN_ROLE.MAIN, date: '2022-06-01', amount: '100' },
+        { adam: '22SYMV011327633', role: SYMV_CHAIN_ROLE.SKIP },
+        { adam: '22SYMV011308661', role: SYMV_CHAIN_ROLE.SKIP },
+        { adam: '24SYMV015482244', role: SYMV_CHAIN_ROLE.SUPPLEMENTARY, date: '2024-09-19', amount: '74.155,85' },
+      ],
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const extendedChain = {
+      ...pezonChainRes,
+      contractChainHistory: [
+        ...pezonChainRes.contractChainHistory,
+        { adam: '25SYMV099999999', label: 'Ορθή επανάληψη παράτασης' },
+      ],
+      chainMeta: {
+        ...pezonChainRes.chainMeta,
+        contractSnapshotsByAdam: {
+          ...pezonChainRes.chainMeta.contractSnapshotsByAdam,
+          '25SYMV099999999': {
+            title: 'ΟΡΘΗ ΕΠΑΝΑΛΗΨΗ ΠΑΡΑΤΑΣΗΣ',
+            referenceNumber: '25SYMV099999999',
+            contractSignedDate: '2025-01-10',
+          },
+        },
+      },
+    };
+    expect(symvPlanMatchesChain(existingPlan, extendedChain)).toBe(false);
+    const merged = mergeExistingSymvPlanOntoChain(existingPlan, extendedChain);
+    const byAdam = Object.fromEntries(merged.items.map((i) => [i.adam, i.role]));
+    expect(byAdam['22SYMV011327633']).toBe(SYMV_CHAIN_ROLE.SKIP);
+    expect(byAdam['22SYMV011308661']).toBe(SYMV_CHAIN_ROLE.SKIP);
+    expect(byAdam['22SYMV011799800']).toBe(SYMV_CHAIN_ROLE.MAIN);
+    expect(byAdam['24SYMV015482244']).toBe(SYMV_CHAIN_ROLE.SUPPLEMENTARY);
+    expect(byAdam['25SYMV099999999']).toBe(SYMV_CHAIN_ROLE.EXTENSION);
+  });
+
+  it('reuses merged plan when only auto-skipped new docs appear', () => {
+    const existingPlan = {
+      items: [
+        { adam: '22SYMV011799800', role: SYMV_CHAIN_ROLE.MAIN, date: '2022-06-01', amount: '100' },
+        { adam: '22SYMV011327633', role: SYMV_CHAIN_ROLE.SKIP },
+        { adam: '22SYMV011308661', role: SYMV_CHAIN_ROLE.SKIP },
+        { adam: '24SYMV015482244', role: SYMV_CHAIN_ROLE.SUPPLEMENTARY, date: '2024-09-19', amount: '74.155,85' },
+      ],
+    };
+    const withSkippedRepublication = {
+      ...pezonChainRes,
+      contractChainHistory: [
+        ...pezonChainRes.contractChainHistory,
+        { adam: '25SYMV088888888', label: 'Ορθή επανάληψη' },
+      ],
+      chainMeta: {
+        ...pezonChainRes.chainMeta,
+        contractSnapshotsByAdam: {
+          ...pezonChainRes.chainMeta.contractSnapshotsByAdam,
+          '25SYMV088888888': {
+            title: 'ΟΡΘΗ ΕΠΑΝΑΛΗΨΗ ΑΠΟΦΑΣΗΣ',
+            referenceNumber: '25SYMV088888888',
+          },
+        },
+      },
+    };
+    const reusable = resolveReusableSymvChainPlan(existingPlan, withSkippedRepublication);
+    expect(reusable).not.toBeNull();
+    expect(reusable.items.find((i) => i.adam === '22SYMV011327633')?.role).toBe(SYMV_CHAIN_ROLE.SKIP);
+    expect(reusable.items.find((i) => i.adam === '25SYMV088888888')?.role).toBe(SYMV_CHAIN_ROLE.SKIP);
+  });
+
+  it('infers republication+extension as extension, not supplementary', () => {
+    expect(inferDefaultSymvRole({
+      adam: '25SYMV1',
+      title: 'ΟΡΘΗ ΕΠΑΝΑΛΗΨΗ ΠΑΡΑΤΑΣΗΣ ΠΡΟΘΕΣΜΙΑΣ',
+      historyLabel: '',
+    }, pezonChainRes)).toBe(SYMV_CHAIN_ROLE.EXTENSION);
   });
 });

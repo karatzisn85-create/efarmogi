@@ -122,7 +122,7 @@ import KhmdhsDuplicateAnchorDialog from './KhmdhsDuplicateAnchorDialog';
 import KhmdhsSupplementaryConfirmDialog from './KhmdhsSupplementaryConfirmDialog';
 import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
 import KhmdhsSymvChainPlannerDialog from './KhmdhsSymvChainPlannerDialog';
-import { shouldOfferSymvChainPlanner, symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
+import { shouldOfferSymvChainPlanner, mergeExistingSymvPlanOntoChain } from '../utils/khmdhsSymvChainPlanner';
 import KhmdhsDocumentRegistryModal from './KhmdhsDocumentRegistryModal';
 import KhmdhsRelatedDocumentsModal from './KhmdhsRelatedDocumentsModal';
 import {
@@ -4603,12 +4603,12 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
             seedAdam: seed,
             subprojectTitle: fetchFormData.subprojectTitle || '',
             draftPlan: null,
-            existingPlan: (
-              fetchFormData.khmdhsSymvChainPlan
-              && symvPlanMatchesChain(fetchFormData.khmdhsSymvChainPlan, res)
-              && getStoredChainSeedAdam(fetchFormData, fetchFormData)
-            )
-              ? fetchFormData.khmdhsSymvChainPlan
+            // Πάντα περνάμε το αποθηκευμένο σχέδιο· ο διάλογος συγχωνεύει τα παλιά skip
+            // ακόμα κι αν η αλυσίδα έχει νέα ΑΔΑΜ.
+            existingPlan: fetchFormData.khmdhsSymvChainPlan?.items?.length
+              ? (
+                mergeExistingSymvPlanOntoChain(fetchFormData.khmdhsSymvChainPlan, res)
+              )
               : null,
             fetchOptions: {
               seedAdam: seed,
@@ -7633,6 +7633,25 @@ function ProjectForm({ isOpen, onClose, onSave, onDelete, editingProject = null,
               findings={formData.khmdhsLastRefreshFindings}
               onOpenReview={openKhmdhsDataReview}
               onAcknowledge={handleAcknowledgeRefreshFindings}
+              onCharacterizeSymv={(seedAdam) => {
+                const adam = String(
+                  seedAdam
+                  || formData.khmdhsLastRefreshFindings?.seedAdam
+                  || getStoredChainSeedAdam(formData, formData)
+                  || formData.khmdhsAdam
+                  || adamInputDraft.chain
+                  || ''
+                ).trim();
+                if (!adam) {
+                  showToast(
+                    'Δεν βρέθηκε ΑΔΑΜ για κατανομή. Πατήστε «Ανάκτηση από ΚΗΜΔΗΣ».',
+                    'warning'
+                  );
+                  return;
+                }
+                setAdamInputDraft((prev) => ({ ...prev, chain: adam }));
+                runKhmdhsChainFetch({ adam, forceChainFetch: true });
+              }}
             />
             {renderKhmdhsLegacyUpgradeBanner()}
             {!phaseBEditable && (

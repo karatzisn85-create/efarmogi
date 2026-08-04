@@ -220,7 +220,12 @@ function formatWhen(iso) {
  * Παραμένει ορατή μέχρι ο χρήστης να δηλώσει ότι την είδε — και αποθηκεύεται μαζί
  * με το υποέργο, ώστε να μη χάνεται με το κλείσιμο της εφαρμογής.
  */
-export default function KhmdhsRefreshFindingsPanel({ findings, onOpenReview, onAcknowledge }) {
+export default function KhmdhsRefreshFindingsPanel({
+  findings,
+  onOpenReview,
+  onAcknowledge,
+  onCharacterizeSymv,
+}) {
   const needsAttention = khmdhsFindingsNeedAttention(findings);
   const [open, setOpen] = useState(needsAttention);
 
@@ -270,6 +275,15 @@ export default function KhmdhsRefreshFindingsPanel({ findings, onOpenReview, onA
                     {action.id === KHMDHS_FINDING_ACTION.DATA_REVIEW && typeof onOpenReview === 'function' && (
                       <ActionCta type="button" onClick={() => onOpenReview(null)}>
                         Άνοιγμα ελέγχου στοιχείων →
+                      </ActionCta>
+                    )}
+                    {action.id === KHMDHS_FINDING_ACTION.CHARACTERIZE_SYMV
+                      && typeof onCharacterizeSymv === 'function' && (
+                      <ActionCta
+                        type="button"
+                        onClick={() => onCharacterizeSymv(findings.seedAdam || '')}
+                      >
+                        Άνοιγμα κατανομής συμβάσεων →
                       </ActionCta>
                     )}
                   </ActionBody>

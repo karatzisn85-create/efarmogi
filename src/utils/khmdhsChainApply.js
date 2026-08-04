@@ -4,7 +4,7 @@
 import { isMultipleContractsForm, emptyKhmdhsOnContract, resolveStoredApeAmount } from './khmdhsFields';
 import { syncPreservedContractApeAmount, hasRealStoredContractApe, emptyLegacyApeFields, stripPhantomContractApeFromForm } from './khmdhsApeEntry';
 import { applyParallelContractAmountHints, resolveParallelContractSiblings } from './khmdhsParallelContractApply';
-import { shouldOfferSymvChainPlanner } from './khmdhsSymvChainPlanner';
+import { shouldOfferSymvChainPlanner, resolveReusableSymvChainPlan } from './khmdhsSymvChainPlanner';
 import { applySymvChainPlanToForm } from './khmdhsSymvChainApply';
 import { normalizeAmountForCompare } from './projectFormPhases';
 import { prepareFormForInferredImplementationForm } from './khmdhsImplementationFormInference';
@@ -1026,6 +1026,46 @@ export function applyStitchRefreshResults(project, stitchResults, {
       symvChainPlan,
       applyMode: 'stitch',
     });
+  }
+
+  // Μετά το stitch επαναφέρουμε/εφαρμόζουμε την κατανομή SYMV ώστε τα «Δεν καταχωρείται»
+  // να μην χαθούν από την τμηματική ανανέωση.
+  let planToApply = symvChainPlan?.items?.length ? symvChainPlan : null;
+  if (!planToApply && project?.khmdhsSymvChainPlan?.items?.length && fallbackChainRes) {
+    planToApply = resolveReusableSymvChainPlan(project.khmdhsSymvChainPlan, fallbackChainRes);
+  }
+
+  if (planToApply?.items?.length && fallbackChainRes?.success) {
+    const planned = applySymvChainPlanToForm(running, fallbackChainRes, planToApply, {
+      seedAdam: fallbackSeedAdam,
+      suppressSituationModal: true,
+    });
+    return {
+      ...planned,
+      warnings: [...new Set([...(planned.warnings || []), ...allWarnings])],
+      stitchFilledStages: [...new Set(filled)],
+      stitchUpdatedStages: [...new Set(updated)],
+      stitchConflictStages: [...new Set(conflicts)],
+    };
+  }
+
+  if (
+    fallbackChainRes?.success
+    && shouldOfferSymvChainPlanner(fallbackChainRes)
+    && !planToApply?.items?.length
+  ) {
+    return {
+      form: project,
+      warnings: [...new Set(['symvPlannerRequired', ...allWarnings])],
+      apeConflict: null,
+      statusAutoUpdated: null,
+      protectedCount: 0,
+      protectedFields: [],
+      implementationFormAutoUpdated: null,
+      stitchFilledStages: [...new Set(filled)],
+      stitchUpdatedStages: [...new Set(updated)],
+      stitchConflictStages: [...new Set(conflicts)],
+    };
   }
 
   return {

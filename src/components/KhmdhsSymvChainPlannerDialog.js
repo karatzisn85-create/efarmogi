@@ -7,6 +7,7 @@ import {
   buildDefaultSymvChainPlan,
   validateSymvChainPlan,
   symvPlanMatchesChain,
+  mergeExistingSymvPlanOntoChain,
 } from '../utils/khmdhsSymvChainPlanner';
 import { openKhmdhsActOnline } from '../utils/openKhmdhsActOnline';
 import { useToast } from './ToastProvider';
@@ -534,6 +535,9 @@ export default function KhmdhsSymvChainPlannerDialog({
       if (prev?.items?.length && symvPlanMatchesChain(prev, chainRes)) return prev;
       if (existingPlan?.items?.length && symvPlanMatchesChain(existingPlan, chainRes)) {
         return existingPlan;
+      }
+      if (existingPlan?.items?.length) {
+        return mergeExistingSymvPlanOntoChain(existingPlan, chainRes);
       }
       return buildDefaultSymvChainPlan(chainRes);
     });

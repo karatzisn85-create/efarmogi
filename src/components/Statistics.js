@@ -3814,7 +3814,7 @@ function Statistics({
     return (
       <StatisticsContainer>
         <StatsHeader>
-          <StatisticsTitle>Σύνοψη Υποέργων</StatisticsTitle>
+          <StatisticsTitle>Σύνοψη χαρτοφυλακίου</StatisticsTitle>
           {onOpenFullStatistics && (
             <OpenFullStatsBtn type="button" onClick={onOpenFullStatistics}>
               Άνοιγμα αναλυτικών →

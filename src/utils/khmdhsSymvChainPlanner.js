@@ -38,6 +38,7 @@ export function isAdamSkippedInSymvPlan(planOrProject, adam) {
 
 const RE_EXTENSION = /παράταση|παραταση|διατήρηση\s+προθεσμ|διατηρηση\s+προθεσμ/i;
 const RE_SUPPLEMENTARY = /συμπληρωματικ/i;
+const RE_REPUBLICATION = /ορθ[ήη]\s*επαν[άα]ληψ|ορθη\s*επαναληψ|ορθ[ήη]\s*επανέκδοσ|διορθωτικ[ήη]\s*επαν/i;
 
 function historyByAdam(chainRes) {
   const map = new Map();
@@ -129,6 +130,15 @@ export function inferDefaultSymvRole(doc, chainRes) {
     || doc.isChainSeed
     || normalizeAdam(chainRes?.contract?.adam) === doc.adam;
 
+  // Ορθή επανάληψη: δεν προτείνουμε συμπληρωματική (και ποσό) — αν είναι παράταση, κράτα παράταση.
+  if (RE_REPUBLICATION.test(title) || RE_REPUBLICATION.test(String(doc.historyLabel || ''))) {
+    if (RE_EXTENSION.test(title) || RE_EXTENSION.test(String(doc.historyLabel || ''))) {
+      return SYMV_CHAIN_ROLE.EXTENSION;
+    }
+    if (isPrimary) return SYMV_CHAIN_ROLE.MAIN;
+    return SYMV_CHAIN_ROLE.SKIP;
+  }
+
   if (isPrimary) {
     if (RE_EXTENSION.test(title)) return SYMV_CHAIN_ROLE.EXTENSION;
     if (RE_SUPPLEMENTARY.test(title)) return SYMV_CHAIN_ROLE.SUPPLEMENTARY;
@@ -219,6 +229,82 @@ export function symvPlanMatchesChain(plan, chainRes) {
     if (!planAdams.has(adam)) return false;
   }
   return true;
+}
+
+/**
+ * Κρατά τους ρόλους/ποσά/ημ/νίες της προηγούμενης κατανομής για ΑΔΑΜ που εξακολουθούν
+ * να υπάρχουν· για νέα ΑΔΑΜ χρησιμοποιεί την αυτόματη πρόταση.
+ * Έτσι τα «Δεν καταχωρείται» δεν χάνονται όταν η αλυσίδα μεγαλώσει κατά 1 έγγραφο.
+ */
+export function mergeExistingSymvPlanOntoChain(existingPlan, chainRes) {
+  const base = buildDefaultSymvChainPlan(chainRes);
+  if (!existingPlan?.items?.length) return base;
+
+  const prevByAdam = new Map();
+  existingPlan.items.forEach((item) => {
+    const adam = normalizeAdam(item?.adam);
+    if (adam) prevByAdam.set(adam, item);
+  });
+
+  const items = base.items.map((item) => {
+    const prev = prevByAdam.get(normalizeAdam(item.adam));
+    if (!prev?.role) return item;
+    const role = prev.role;
+    const keepAmount = role !== SYMV_CHAIN_ROLE.SKIP
+      && role !== SYMV_CHAIN_ROLE.EXTENSION
+      && role !== SYMV_CHAIN_ROLE.INTERMEDIATE;
+    return {
+      ...item,
+      role,
+      date: String(prev.date || item.date || '').slice(0, 10),
+      amount: keepAmount
+        ? (String(prev.amount || '').trim() || item.amount || '')
+        : '',
+      label: String(prev.label || item.label || '').trim(),
+    };
+  });
+
+  // Μία κύρια το πολύ — επιπλέον «main» από παλιό σχέδιο γίνονται παράλληλες.
+  let seenMain = false;
+  const normalized = items.map((item) => {
+    if (item.role !== SYMV_CHAIN_ROLE.MAIN) return item;
+    if (!seenMain) {
+      seenMain = true;
+      return item;
+    }
+    return { ...item, role: SYMV_CHAIN_ROLE.PARALLEL };
+  });
+
+  return {
+    items: normalized,
+    createdAt: existingPlan.createdAt || base.createdAt,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Σχέδιο έτοιμο για αυτόματη εφαρμογή μετά ανανέωση:
+ * - ακριβές ταίριασμα, ή
+ * - μερική συγχώνευση χωρίς νέα ΑΔΑΜ που χρειάζονται απόφαση χρήστη, και έγκυρο validate.
+ */
+export function resolveReusableSymvChainPlan(existingPlan, chainRes) {
+  if (!existingPlan?.items?.length || !chainRes?.success) return null;
+  if (symvPlanMatchesChain(existingPlan, chainRes)) return existingPlan;
+
+  const merged = mergeExistingSymvPlanOntoChain(existingPlan, chainRes);
+  const prevAdams = new Set(
+    existingPlan.items.map((i) => normalizeAdam(i.adam)).filter(Boolean)
+  );
+  const docs = collectSymvChainDocuments(chainRes);
+  const newDocsNeedUser = docs.some((doc) => {
+    const adam = normalizeAdam(doc.adam);
+    if (!adam || prevAdams.has(adam)) return false;
+    const item = merged.items.find((i) => normalizeAdam(i.adam) === adam);
+    return item && item.role !== SYMV_CHAIN_ROLE.SKIP;
+  });
+  if (newDocsNeedUser) return null;
+  if (!validateSymvChainPlan(merged).ok) return null;
+  return merged;
 }
 
 export function shouldOfferSymvChainPlanner(chainRes) {

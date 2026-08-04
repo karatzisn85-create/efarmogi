@@ -9,6 +9,8 @@ import { getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
 import { uploadSubprojectFiles, uploadSubprojectFolder } from '../utils/uploadSubprojectFiles';
 import AdvancedFilters from './AdvancedFilters';
 import ActiveFiltersBanner from './ActiveFiltersBanner';
+import DashboardOverviewZone from './DashboardOverviewZone';
+import DashboardOpsFabStack from './DashboardOpsFabStack';
 import FileManager from './FileManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
 import { KhmdhsBatchReportFab, KhmdhsBatchReportModal } from './KhmdhsBatchRefreshWidget';
@@ -419,47 +421,214 @@ const getRoleLabel = (role) => {
 const ContentArea = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.15rem;
 `;
 
 
+
+const CommandDeck = styled.section`
+  position: relative;
+  border-radius: 22px;
+  overflow: hidden;
+  border: 1px solid rgba(13, 148, 136, 0.22);
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(20, 184, 166, 0.16) 0%, transparent 52%),
+    radial-gradient(90% 70% at 100% 8%, rgba(56, 189, 248, 0.10) 0%, transparent 48%),
+    linear-gradient(165deg, #ecfdf8 0%, #e6f4f1 38%, #eef6f8 72%, #f0f4f8 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 10px 28px rgba(15, 118, 110, 0.08);
+`;
+
+const CommandDeckTopRail = styled.div`
+  position: relative;
+  z-index: 1;
+`;
+
+const CommandDeckFooterBand = styled.div`
+  position: relative;
+  z-index: 1;
+  margin: 0.65rem;
+  border-radius: 16px;
+  background:
+    radial-gradient(90% 80% at 0% 0%, rgba(20, 184, 166, 0.08) 0%, transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 253, 250, 0.96) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 6px 18px rgba(15, 118, 110, 0.07);
+  border: 1px solid rgba(13, 148, 136, 0.22);
+  overflow: hidden;
+`;
+
+const titleSheen = keyframes`
+  0% { background-position: 120% 50%; }
+  100% { background-position: -20% 50%; }
+`;
+
+const titleGlowPulse = keyframes`
+  0%, 100% { opacity: 0.45; transform: translateX(-50%) scaleX(0.92); }
+  50% { opacity: 0.85; transform: translateX(-50%) scaleX(1); }
+`;
+
+const PortfolioThreshold = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  padding: 0.35rem 0.25rem 0.15rem;
+  margin: 0.35rem 0 0;
+`;
+
+const PortfolioThresholdLine = styled.span`
+  flex: 1;
+  max-width: 9rem;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(99, 102, 241, 0.45) 35%,
+    rgba(165, 180, 252, 0.7) 50%,
+    rgba(99, 102, 241, 0.45) 65%,
+    transparent 100%
+  );
+`;
+
+const PortfolioThresholdMark = styled.span`
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #4f46e5;
+  white-space: nowrap;
+`;
 
 const ProjectsContainer = styled.div`
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(10px);
-  border-radius: 20px;
-  padding: 2rem;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
-  border: 1px solid rgba(226, 232, 240, 0.6);
+  background:
+    radial-gradient(90% 60% at 50% 0%, rgba(99, 102, 241, 0.10) 0%, transparent 55%),
+    rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  border-radius: 22px;
+  padding: 0 1.6rem 2rem;
+  box-shadow:
+    0 4px 24px rgba(15, 23, 42, 0.05),
+    0 18px 40px rgba(99, 102, 241, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.85) inset;
+  border: 1px solid rgba(129, 140, 248, 0.42);
   min-height: 400px;
   width: 100%;
-`;
-
-const ProjectsTitle = styled.h2`
-  color: #1e293b;
-  margin-bottom: 2rem;
-  font-size: 1.5rem;
-  font-weight: 800;
-  letter-spacing: 1px;
-  text-align: left;
   position: relative;
-  padding-left: 16px;
-  text-transform: uppercase;
+  overflow: hidden;
 
   &::before {
     content: '';
     position: absolute;
+    top: 0;
     left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 4px;
-    height: 70%;
-    background: linear-gradient(180deg, #6366f1, #8b5cf6);
-    border-radius: 4px;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #4338ca 0%, #6366f1 35%, #818cf8 55%, #a78bfa 100%);
+    box-shadow: 0 0 18px rgba(99, 102, 241, 0.45);
   }
 `;
 
+const PortfolioHeader = styled.div`
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.4rem;
+  margin: 0 -1.6rem 1.5rem;
+  padding: 1.45rem 1.5rem 1.25rem;
+  background:
+    radial-gradient(70% 120% at 50% 0%, rgba(99, 102, 241, 0.16) 0%, transparent 60%),
+    linear-gradient(180deg, #eef2ff 0%, #f8fafc 55%, #ffffff 100%);
+  border-bottom: 1px solid rgba(165, 180, 252, 0.45);
 
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -1px;
+    width: min(14rem, 48%);
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, transparent, #6366f1, #a78bfa, #6366f1, transparent);
+    animation: ${titleGlowPulse} 3.6s ease-in-out infinite;
+  }
+`;
+
+const PortfolioEyebrow = styled.span`
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #4f46e5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+
+  &::before,
+  &::after {
+    content: '';
+    width: 1.6rem;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(79, 70, 229, 0.7));
+  }
+
+  &::after {
+    background: linear-gradient(90deg, rgba(79, 70, 229, 0.7), transparent);
+  }
+`;
+
+const ProjectsTitle = styled.h2`
+  margin: 0;
+  width: 100%;
+  text-align: center;
+  font-size: clamp(1.35rem, 2.2vw, 1.85rem);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  background: linear-gradient(
+    105deg,
+    #1e1b4b 0%,
+    #312e81 28%,
+    #4f46e5 48%,
+    #818cf8 52%,
+    #312e81 72%,
+    #1e1b4b 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ${titleSheen} 5.5s linear infinite;
+  filter: drop-shadow(0 2px 10px rgba(99, 102, 241, 0.22));
+`;
+
+const PortfolioTitleRow = styled.div`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+`;
+
+const PortfolioTitleWing = styled.span`
+  flex: 1;
+  max-width: 7.5rem;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(99, 102, 241, 0.2) 20%,
+    rgba(129, 140, 248, 0.85) 50%,
+    rgba(99, 102, 241, 0.2) 80%,
+    transparent 100%
+  );
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.25);
+`;
 
 const ProjectGroup = styled.div`
   content-visibility: auto;
@@ -1296,36 +1465,119 @@ const ReminderDot = styled.span`
   }
 `;
 
+const backupPulse = keyframes`
+  0%, 100% { box-shadow: 0 0 0 0 rgba(100, 116, 139, 0.08); }
+  50% { box-shadow: 0 0 0 4px rgba(100, 116, 139, 0.05); }
+`;
+
 const BackupReminderBanner = styled.div`
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin: 0 0 18px;
-  padding: 16px 20px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #fff7ed, #ffedd5);
-  border: 1px solid #fdba74;
-  box-shadow: 0 4px 16px rgba(234, 88, 12, 0.12);
-  color: #9a3412;
-  font-size: 14px;
-  line-height: 1.5;
+  gap: 0.55rem;
+  margin: 0;
+  padding: ${(p) => (p.$onDeck ? '0.5rem 0.85rem 0.5rem 0.7rem' : '0.45rem 0.65rem 0.45rem 0.55rem')};
+  border-radius: ${(p) => (p.$onDeck ? '0' : '12px')};
+  background: ${(p) => (p.$onDeck
+    ? 'linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 55%, #f1f5f9 100%)'
+    : 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)')};
+  border: ${(p) => (p.$onDeck ? 'none' : '1.5px solid #94a3b8')};
+  border-bottom: ${(p) => (p.$onDeck ? '1px solid rgba(148, 163, 184, 0.35)' : undefined)};
+  color: #334155;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  animation: ${backupPulse} 2.8s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
 
-  strong { font-size: 15px; }
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, #475569, #64748b);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.35) 50%, transparent 60%);
+    background-size: 220% 100%;
+    pointer-events: none;
+  }
+`;
+
+const BackupReminderIcon = styled.span`
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  background: linear-gradient(145deg, #64748b, #475569);
+  color: #f8fafc;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(100, 116, 139, 0.25);
+`;
+
+const BackupReminderText = styled.div`
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.45rem;
+`;
+
+const BackupReminderTitle = styled.strong`
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: inherit;
+  white-space: nowrap;
+`;
+
+const BackupReminderDetail = styled.span`
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: inherit;
+  opacity: 0.88;
+
+  @media (max-width: 720px) {
+    display: none;
+  }
+`;
+
+const BackupDaysChip = styled.span`
+  flex-shrink: 0;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  background: rgba(71, 85, 105, 0.1);
+  border: 1px solid rgba(100, 116, 139, 0.35);
+  color: #334155;
+  white-space: nowrap;
 `;
 
 const BackupReminderBtn = styled.button`
   margin-left: auto;
   flex-shrink: 0;
-  padding: 9px 18px;
+  padding: 0.38rem 0.85rem;
   border-radius: 9px;
-  border: none;
-  background: linear-gradient(135deg, #ea580c, #f97316);
+  border: 1px solid #64748b;
+  background: linear-gradient(135deg, #334155, #475569);
   color: #fff;
-  font-weight: 700;
-  font-size: 13.5px;
+  font-weight: 800;
+  font-size: 0.72rem;
+  font-family: inherit;
   cursor: pointer;
+  letter-spacing: 0.01em;
   transition: transform 0.15s, box-shadow 0.15s;
-  &:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(234, 88, 12, 0.35); }
+  &:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18); }
 `;
 
 const CalendarNavButton = styled.button`
@@ -5814,6 +6066,70 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       })
   ), [groupedProjects]);
 
+  // Ανάλυση υποέργων στην οθόνη κατά βασική κατάσταση (συμπαγής σύνοψη).
+  const overviewStatusBreakdown = useMemo(() => {
+    const rows = Object.values(groupedProjects).flat();
+    let maturing = 0;
+    let contracting = 0;
+    let executing = 0;
+    let completedPhysical = 0;
+    for (const p of rows) {
+      const status = p?.projectStatus;
+      if (status === 'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ') maturing += 1;
+      else if (status === 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ') contracting += 1;
+      else if (status === 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ') executing += 1;
+      else if (status === 'ΟΛΟΚΛΗΡΩΜΕΝΟ' || status === 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ') {
+        completedPhysical += 1;
+      }
+    }
+    return [
+      {
+        key: 'maturing',
+        value: maturing,
+        label: 'βραχυπρόθεσμη ωρίμανση',
+        title: 'Υπό βραχυπρόθεσμη ωρίμανση',
+        bg: 'linear-gradient(165deg, #fffbeb 0%, #ffffff 100%)',
+        border: 'rgba(245, 158, 11, 0.28)',
+        accent: '#f59e0b',
+        color: '#92400e',
+        muted: '#b45309',
+      },
+      {
+        key: 'contracting',
+        value: contracting,
+        label: 'Σε διαδικασία σύναψης σύμβασης',
+        title: 'Σε διαδικασία σύναψης σύμβασης',
+        bg: 'linear-gradient(165deg, #fff7ed 0%, #ffffff 100%)',
+        border: 'rgba(234, 88, 12, 0.28)',
+        accent: '#ea580c',
+        color: '#9a3412',
+        muted: '#c2410c',
+      },
+      {
+        key: 'executing',
+        value: executing,
+        label: 'Εκτελούμενο - Συμβασιοποιημένο',
+        title: 'Εκτελούμενο - Συμβασιοποιημένο',
+        bg: 'linear-gradient(165deg, #eff6ff 0%, #ffffff 100%)',
+        border: 'rgba(37, 99, 235, 0.25)',
+        accent: '#2563eb',
+        color: '#1e3a8a',
+        muted: '#1d4ed8',
+      },
+      {
+        key: 'completed-physical',
+        value: completedPhysical,
+        label: 'ολοκλ. φυσικό αντικείμενο',
+        title: 'Ολοκληρωμένο φυσικό αντικείμενο',
+        bg: 'linear-gradient(165deg, #ecfdf5 0%, #ffffff 100%)',
+        border: 'rgba(5, 150, 105, 0.28)',
+        accent: '#059669',
+        color: '#065f46',
+        muted: '#047857',
+      },
+    ];
+  }, [groupedProjects]);
+
   // Φάση 3: παράθυρο ορατών ομάδων (virtualization χωρίς νέα dependency)
   useEffect(() => {
     const GROUP_ESTIMATE_PX = 320;
@@ -6042,23 +6358,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               }}
             />
           )}
-          {canManageAll && backupReminderDue && (
-            <BackupReminderBanner>
-              <span style={{ fontSize: 26, flexShrink: 0 }}>🛡️</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <strong style={{ display: 'block', marginBottom: 3 }}>
-                  {backupHasAny ? 'Ώρα για νέο αντίγραφο ασφαλείας' : 'Δεν έχει δημιουργηθεί ποτέ αντίγραφο ασφαλείας'}
-                </strong>
-                {backupHasAny
-                  ? `Έχουν περάσει ${backupDaysSince ?? '—'} ημέρες από το τελευταίο αντίγραφο ασφαλείας. Δημιουργήστε ένα νέο για την προστασία των δεδομένων.`
-                  : 'Δημιουργήστε ένα πλήρες αντίγραφο ασφαλείας για την προστασία των δεδομένων σας.'}
-              </div>
-              <BackupReminderBtn onClick={() => setIsBackupManagerOpen(true)}>
-                Δημιουργία τώρα
-              </BackupReminderBtn>
-            </BackupReminderBanner>
-          )}
-
           {/* Active Filters Banner */}
           <ActiveFiltersBanner
             activeFilterCount={activeFilterCount}
@@ -6066,65 +6365,105 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             onClearFilters={handleClearAllListFilters}
           />
 
-          {/* Statistics — εξαιρούνται τα αρχειοθετημένα εκτός αν επιλεγούν */}
-          {summaryStatsReady ? (
-            <Suspense fallback={<LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>}>
-              <Statistics
-                variant="summary"
-                projects={statisticsProjects}
-                directAssignmentViolations={statisticsDirectAssignmentViolations}
-                loggedInUsername={currentUser?.username || ''}
-                onPortfolioDrillDown={handlePortfolioDrillDown}
-                statisticsFilterNote={statisticsFilterNote}
-                statisticsScopeNote={statisticsScopeNote}
-                onOpenFullStatistics={() => setIsStatisticsModalOpen(true)}
-              />
-            </Suspense>
-          ) : (
-            <LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>
-          )}
+          {/* Κατάστρωμα: υπενθύμιση αντιγράφου + αναλυτική σύνοψη (οι διαδικασίες είναι στα FABs) */}
+          <CommandDeck aria-label="Κατάστρωμα ελέγχου">
+            {canManageAll && backupReminderDue && (
+              <CommandDeckTopRail>
+                <BackupReminderBanner $onDeck role="status" aria-live="polite">
+                  <BackupReminderIcon aria-hidden="true">🛡️</BackupReminderIcon>
+                  <BackupReminderText>
+                    <BackupReminderTitle>
+                      {backupHasAny ? 'Αντίγραφο ασφαλείας εκκρεμεί' : 'Χωρίς αντίγραφο ασφαλείας'}
+                    </BackupReminderTitle>
+                    <BackupReminderDetail>
+                      {backupHasAny
+                        ? 'Προστατέψτε τα δεδομένα με νέο αντίγραφο.'
+                        : 'Δημιουργήστε το πρώτο αντίγραφο για προστασία δεδομένων.'}
+                    </BackupReminderDetail>
+                  </BackupReminderText>
+                  {backupHasAny && backupDaysSince != null && (
+                    <BackupDaysChip $onDeck>{backupDaysSince} ημ.</BackupDaysChip>
+                  )}
+                  <BackupReminderBtn $onDeck type="button" onClick={() => setIsBackupManagerOpen(true)}>
+                    Δημιουργία τώρα
+                  </BackupReminderBtn>
+                </BackupReminderBanner>
+              </CommandDeckTopRail>
+            )}
 
-          {(userRole === 'ADMIN' || userRole === 'SUPERADMIN') && (
-            <Suspense fallback={null}>
-              <KhmdhsBatchRefreshWidget
-                userRole={userRole}
-                currentUser={currentUser}
-                onRefreshComplete={() => { loadProjects(); refreshKhmdhsStaleCount(); }}
-                onBatchResults={handleBatchResults}
-                onRunningChange={setKhmdhsBatchRunning}
-                onOpenReport={() => setIsBatchReportOpen(true)}
-                staleCount={khmdhsStaleCount}
-                oldestDays={khmdhsOldestDays}
-                lastRunInfo={khmdhsLastRun}
-                hasReport={!!batchReportResults}
-                retrySignal={khmdhsRetrySignal}
-              />
-            </Suspense>
-          )}
-
-          <Suspense fallback={null}>
-            <CalendarDeadlineWidget
-              projects={visibleProjects}
-              proskliseis={proskliseis}
-              userRole={userRole}
-              currentUser={currentUser}
-              engineerCatalog={engineerCatalogForCards}
-              includeAepo={userRole === 'ADMIN' || userRole === 'SUPERADMIN' || !!currentUser?.orimanthiCanEdit}
-              maxDays={30}
-              limit={8}
-              refreshKey={calendarRefreshKey}
-              onOpenOrimanthi={() => setIsOrimanthiOpen(true)}
-              onOpenProsklisi={(prosklisiId) => handleOpenLinkedProsklisi(prosklisiId)}
-              onOpenCalendar={(opts) => {
-                if (opts?.customEventId) setCalendarFocusCustomEventId(opts.customEventId);
-                setIsProcurementCalendarOpen(true);
-              }}
-              onViewSubproject={(subprojectId) => {
-                const p = projects.find((row) => row.subprojectId === subprojectId);
-                if (p) openSubprojectDetail(p);
-              }}
-            />
-          </Suspense>
+            <CommandDeckFooterBand>
+              <DashboardOverviewZone
+                embedded
+                username={currentUser?.username || ''}
+                subtitleCollapsed="Βασικά νούμερα — αναπτύξτε για πλήρη σύνοψη χαρτοφυλακίου"
+                subtitleExpanded="Πλήρης σύνοψη — σύμπτυξη για να δείτε αμέσως το χαρτοφυλάκιο"
+                breakdown={overviewStatusBreakdown}
+                stats={[
+                  {
+                    key: 'projects',
+                    value: sortedGroupedEntries.length,
+                    label: sortedGroupedEntries.length === 1 ? 'έργο / πράξη' : 'έργα / πράξεις',
+                    bg: 'linear-gradient(165deg, #ecfeff 0%, #f0f9ff 55%, #ffffff 100%)',
+                    color: '#0e7490',
+                    border: 'rgba(14, 116, 144, 0.28)',
+                    accent: 'linear-gradient(180deg, #0891b2, #06b6d4)',
+                    muted: '#0e7490',
+                  },
+                  {
+                    key: 'subprojects',
+                    value: Object.values(groupedProjects).reduce((n, rows) => n + (rows?.length || 0), 0),
+                    label: 'υποέργα στην οθόνη',
+                    bg: 'linear-gradient(165deg, #f0fdfa 0%, #ecfdf5 55%, #ffffff 100%)',
+                    color: '#0f766e',
+                    border: 'rgba(13, 148, 136, 0.28)',
+                    accent: 'linear-gradient(180deg, #0d9488, #14b8a6)',
+                    muted: '#0f766e',
+                  },
+                  ...((userRole === 'ADMIN' || userRole === 'SUPERADMIN') && batchPendingItems.length > 0
+                    ? [{
+                      key: 'pending-report',
+                      value: batchPendingItems.length,
+                      label: batchPendingItems.length === 1 ? 'εκκρεμής ενέργεια' : 'εκκρεμείς ενέργειες',
+                      bg: 'linear-gradient(165deg, #fffbeb 0%, #fef3c7 50%, #ffffff 100%)',
+                      color: '#92400e',
+                      border: 'rgba(217, 119, 6, 0.35)',
+                      accent: 'linear-gradient(180deg, #d97706, #f59e0b)',
+                      muted: '#b45309',
+                    }]
+                    : []),
+                  ...(activeFilterCount > 0 || portfolioDrillFilter || quickSearchText.trim() || quickSearchStatus || quickSearchType
+                    ? [{
+                      key: 'filters',
+                      value: activeFilterCount || '•',
+                      label: 'ενεργά φίλτρα',
+                      bg: 'linear-gradient(165deg, #eef2ff 0%, #ffffff 100%)',
+                      color: '#3730a3',
+                      border: 'rgba(99, 102, 241, 0.3)',
+                      accent: 'linear-gradient(180deg, #4f46e5, #6366f1)',
+                      muted: '#4338ca',
+                    }]
+                    : []),
+                ]}
+              >
+                {summaryStatsReady ? (
+                  <Suspense fallback={<LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>}>
+                    <Statistics
+                      variant="summary"
+                      projects={statisticsProjects}
+                      directAssignmentViolations={statisticsDirectAssignmentViolations}
+                      loggedInUsername={currentUser?.username || ''}
+                      onPortfolioDrillDown={handlePortfolioDrillDown}
+                      statisticsFilterNote={statisticsFilterNote}
+                      statisticsScopeNote={statisticsScopeNote}
+                      onOpenFullStatistics={() => setIsStatisticsModalOpen(true)}
+                    />
+                  </Suspense>
+                ) : (
+                  <LazyChunkFallback>Φόρτωση στατιστικών…</LazyChunkFallback>
+                )}
+              </DashboardOverviewZone>
+            </CommandDeckFooterBand>
+          </CommandDeck>
 
           {(userRole === 'ENGINEER' || userRole === 'USER') && (
             <Suspense fallback={null}>
@@ -6160,10 +6499,23 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             </ArchiveBanner>
           )}
 
+          <PortfolioThreshold aria-hidden="true">
+            <PortfolioThresholdLine />
+            <PortfolioThresholdMark>Κεντρική σελίδα</PortfolioThresholdMark>
+            <PortfolioThresholdLine />
+          </PortfolioThreshold>
+
           <ProjectsContainer ref={projectsListRef}>
-            <ProjectsTitle>
-              {showArchivedProjects ? 'Αρχείο — Ολοκληρωμένα & Αποπληρωμένα' : 'Έργα & Υποέργα'}
-            </ProjectsTitle>
+            <PortfolioHeader>
+              <PortfolioEyebrow>Αρχή κεντρικής σελίδας</PortfolioEyebrow>
+              <PortfolioTitleRow>
+                <PortfolioTitleWing aria-hidden="true" />
+                <ProjectsTitle>
+                  {showArchivedProjects ? 'Αρχείο — Ολοκληρωμένα & Αποπληρωμένα' : 'Επισκόπηση χαρτοφυλακίου'}
+                </ProjectsTitle>
+                <PortfolioTitleWing aria-hidden="true" />
+              </PortfolioTitleRow>
+            </PortfolioHeader>
 
             {loading ? (
               <SkeletonProjectsGrid />
@@ -7551,6 +7903,50 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           📝
         </NotesFab>
       )}
+
+      <DashboardOpsFabStack
+        visible={(canManageAll || isEngineer || userRole === 'USER') && !isNotesOpen}
+        canManageKhmdhs={userRole === 'ADMIN' || userRole === 'SUPERADMIN'}
+        khmdhsBatchRunning={khmdhsBatchRunning}
+        staleCount={khmdhsStaleCount}
+        oldestDays={khmdhsOldestDays}
+        KhmdhsBatchRefreshWidget={KhmdhsBatchRefreshWidget}
+        CalendarDeadlineWidget={CalendarDeadlineWidget}
+        khmdhsWidgetProps={{
+          userRole,
+          currentUser,
+          onRefreshComplete: () => { loadProjects(); refreshKhmdhsStaleCount(); },
+          onBatchResults: handleBatchResults,
+          onRunningChange: setKhmdhsBatchRunning,
+          onOpenReport: () => setIsBatchReportOpen(true),
+          staleCount: khmdhsStaleCount,
+          oldestDays: khmdhsOldestDays,
+          lastRunInfo: khmdhsLastRun,
+          hasReport: !!batchReportResults,
+          retrySignal: khmdhsRetrySignal,
+        }}
+        deadlineWidgetProps={{
+          projects: visibleProjects,
+          proskliseis,
+          userRole,
+          currentUser,
+          engineerCatalog: engineerCatalogForCards,
+          includeAepo: userRole === 'ADMIN' || userRole === 'SUPERADMIN' || !!currentUser?.orimanthiCanEdit,
+          maxDays: 30,
+          limit: 8,
+          refreshKey: calendarRefreshKey,
+          onOpenOrimanthi: () => setIsOrimanthiOpen(true),
+          onOpenProsklisi: (prosklisiId) => handleOpenLinkedProsklisi(prosklisiId),
+          onOpenCalendar: (opts) => {
+            if (opts?.customEventId) setCalendarFocusCustomEventId(opts.customEventId);
+            setIsProcurementCalendarOpen(true);
+          },
+          onViewSubproject: (subprojectId) => {
+            const p = projects.find((row) => row.subprojectId === subprojectId);
+            if (p) openSubprojectDetail(p);
+          },
+        }}
+      />
 
       <KhmdhsBatchReportFab
         pendingItems={batchPendingItems}

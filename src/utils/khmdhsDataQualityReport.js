@@ -106,6 +106,9 @@ export function isSupplementaryFieldDeferred(review, item, formData) {
   const adam = supplementaryChainAdam(item, formData);
   if (!adam) return false;
   const choice = review?.resolutions?.[chainKindReviewResolutionKey(adam)];
+  // Αποκλεισμός από κατανομή SYMV (παλιά κενή value ή σημείωση).
+  const note = String(choice?.note || '');
+  if (note.includes('Αποκλείστηκε στη κατανομή SYMV')) return true;
   if (choice?.value && choice.value !== 'modification') return true;
   const kindItem = getReviewItem(review, 'chainKindReview', null, null, adam);
   if (kindItem && !choice) return true;
