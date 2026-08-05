@@ -20,13 +20,12 @@ import {
   getInitialEditorValue,
   getFormValueForReviewItem,
   parseReviewDisplayValue,
-  buildReviewContextLine,
+  buildReviewItemCollapsedView,
   getResolutionConflict,
   formatResolutionSourceLabel,
   formatResolutionDate,
   getReviewItemUserGuide,
   sortReviewItemsByUserPriority,
-  normalizeReviewSearchSteps,
   normalizeReviewFieldValue,
 } from '../utils/khmdhsDataQualityReport';
 import { showConfirm } from '../utils/confirmModal';
@@ -918,6 +917,51 @@ const ContextLine = styled.div`
   color: #475569;
 `;
 
+const ShellQuestion = styled.div`
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.4;
+  flex: 1;
+  min-width: 0;
+`;
+
+const ShellDetail = styled.div`
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  color: #64748b;
+  line-height: 1.45;
+`;
+
+const ShellMoreToggle = styled.button`
+  margin-top: 0.45rem;
+  border: none;
+  background: none;
+  color: #0369a1;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  &:hover { text-decoration: underline; }
+`;
+
+const ShellMoreBox = styled.div`
+  margin-top: 0.4rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 0.75rem;
+  color: #475569;
+  line-height: 1.5;
+  white-space: pre-wrap;
+`;
+
+const ShellBody = styled.div`
+  margin-top: 0.65rem;
+`;
+
 const EditorRow = styled.div`
   display: flex;
   flex-wrap: wrap;
@@ -1209,6 +1253,61 @@ function contractScopeLabel(contractIndex) {
   return ` · Σύμβαση ${contractIndex + 1}`;
 }
 
+/**
+ * Κοινό κέλυφος κάρτας ελέγχου: μία ερώτηση + Περισσότερα + σώμα επεξεργασίας.
+ */
+function ReviewItemShell({
+  status,
+  itemKey,
+  highlight = false,
+  wizard = false,
+  stepBadge = null,
+  question,
+  detail = null,
+  statusBadge = null,
+  icon = null,
+  moreLines = [],
+  extraMore = null,
+  children,
+}) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const hasMore = (moreLines && moreLines.length > 0) || extraMore;
+
+  return (
+    <ItemRow $status={status} data-review-item-key={itemKey} $highlight={highlight} $wizard={wizard}>
+      {stepBadge}
+      <ItemTop>
+        <ItemHead>
+          {icon ? <ItemIcon aria-hidden>{icon}</ItemIcon> : null}
+          <ShellQuestion>{question}</ShellQuestion>
+        </ItemHead>
+        {statusBadge}
+      </ItemTop>
+      {detail ? <ShellDetail>{detail}</ShellDetail> : null}
+      {hasMore ? (
+        <>
+          <ShellMoreToggle
+            type="button"
+            onClick={() => setMoreOpen((v) => !v)}
+            aria-expanded={moreOpen}
+          >
+            {moreOpen ? 'Λιγότερα' : 'Περισσότερα'}
+          </ShellMoreToggle>
+          {moreOpen ? (
+            <ShellMoreBox>
+              {(moreLines || []).map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+              {extraMore}
+            </ShellMoreBox>
+          ) : null}
+        </>
+      ) : null}
+      <ShellBody>{children}</ShellBody>
+    </ItemRow>
+  );
+}
+
 function formatEditorDisplayValue(item, value) {
   if (!value) return '—';
   const kind = getReviewFieldInputKind(item);
@@ -1443,54 +1542,42 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
   const suggestionLabel = enrichedItem.suggestedKind ? CHAIN_KIND_LABEL[enrichedItem.suggestedKind] : '';
   const khmdhsLabel = (enrichedItem.references || []).find((r) => /πώς τη συνδέει/i.test(r.label || ''))?.value;
   const signals = (enrichedItem.relatedInfo || []).filter((r) => /ένδειξη/i.test(r.label || ''));
+  const collapsed = buildReviewItemCollapsedView(enrichedItem, { review });
+  const shellDetail = suggestionLabel
+    ? `Πρόταση: ${suggestionLabel}`
+    : (enrichedItem.label || null);
 
   return (
-    <ItemRow
-      $status={status}
-      data-review-item-key={itemKey}
-      $highlight={highlight}
-      $wizard={wizard}
-    >
-      {!wizard ? <ItemStepBadge>Βήμα: χαρακτηρισμός εγγράφου</ItemStepBadge> : null}
-      <ItemTop>
-        <ItemHead>
-          <ItemIcon aria-hidden>{resolved ? '✔️' : '🏷️'}</ItemIcon>
-          <ItemTitle>{enrichedItem.label}</ItemTitle>
-        </ItemHead>
+    <ReviewItemShell
+      status={status}
+      itemKey={itemKey}
+      highlight={highlight}
+      wizard={wizard}
+      stepBadge={!wizard ? <ItemStepBadge>Βήμα: χαρακτηρισμός εγγράφου</ItemStepBadge> : null}
+      question={collapsed.question}
+      detail={shellDetail}
+      icon={resolved ? '✔️' : collapsed.icon}
+      statusBadge={(
         <StatusBadge $status={status}>
-          {resolved ? 'Ολοκληρώθηκε' : 'Επιλέξτε τύπο'}
+          {resolved ? 'Ολοκληρώθηκε' : collapsed.statusLabel}
         </StatusBadge>
-      </ItemTop>
-
-      <ContextLine>{buildReviewContextLine(enrichedItem)}</ContextLine>
-
-      {!wizard ? (
-        <CompactHint>
-          {enrichedItem.message || (
-            suggestionLabel
-              ? <>Πρόταση: <strong>{suggestionLabel}</strong> — επιλέξτε τον σωστό τύπο.</>
-              : <>Διαλέξτε τι είδους έγγραφο είναι.</>
-          )}
-          {khmdhsLabel ? <> ΚΗΜΔΗΣ: «{khmdhsLabel}».</> : null}
-        </CompactHint>
-      ) : null}
-
-      {signals.length > 0 && (
-        wizard ? (
-          <details style={{ marginTop: '0.35rem', fontSize: '0.72rem', color: '#64748b' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Ενδείξεις από ΚΗΜΔΗΣ</summary>
-            <div style={{ marginTop: '0.25rem', lineHeight: 1.4 }}>
+      )}
+      moreLines={collapsed.moreLines}
+      extraMore={(khmdhsLabel || signals.length > 0 || (resolved && existing?.resolvedBy)) ? (
+        <>
+          {khmdhsLabel ? <div>ΚΗΜΔΗΣ: «{khmdhsLabel}»</div> : null}
+          {signals.length > 0 ? (
+            <div style={{ marginTop: '0.25rem' }}>
+              <strong>Ενδείξεις:</strong>{' '}
               {signals.map((s) => s.value).join(' · ')}
             </div>
-          </details>
-        ) : (
-          <InlineSignals>
-            <strong>Ενδείξεις:</strong>{' '}
-            {signals.map((s) => s.value).join(' · ')}
-          </InlineSignals>
-        )
-      )}
-
+          ) : null}
+          {resolved && existing?.resolvedBy ? (
+            <div style={{ marginTop: '0.25rem' }}>Χαρακτηρίστηκε από: {existing.resolvedBy}</div>
+          ) : null}
+        </>
+      ) : null}
+    >
       <CompactFieldRow>
         <CompactLabel htmlFor={`kind-select-${adam}`}>Τύπος εγγράφου</CompactLabel>
         <KindSelect
@@ -1586,7 +1673,7 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
         <MiniBtn type="button" $primary onClick={handleSave} disabled={!canSave}>
           {kind === CHAIN_KIND.MODIFICATION
             ? (resolved ? 'Επεξεργασία στοιχείων συμπληρωματικής' : 'Συμπλήρωση στοιχείων συμπληρωματικής…')
-            : (resolved ? 'Ενημέρωση χαρακτηρισμού' : 'Αποθήκευση χαρακτηρισμού')}
+            : (resolved ? 'Ενημέρωση χαρακτηρισμού' : (collapsed.primaryCta || 'Αποθήκευση χαρακτηρισμού'))}
         </MiniBtn>
         {adam && (
           <MiniBtn
@@ -1606,10 +1693,6 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
         )}
       </ItemActions>
 
-      {resolved && existing?.resolvedBy && (
-        <ResolvedMeta>Χαρακτηρίστηκε από: {existing.resolvedBy}</ResolvedMeta>
-      )}
-
       <KhmdhsSupplementaryDetailsModal
         isOpen={suppModalOpen}
         enrichedItem={enrichedItem}
@@ -1624,7 +1707,7 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
         onClose={() => setSuppModalOpen(false)}
         onSubmit={handleSuppSubmit}
       />
-    </ItemRow>
+    </ReviewItemShell>
   );
 }
 
@@ -1719,10 +1802,8 @@ function PaymentClassificationCard({
   item, formData, review, onResolve, stepIndex = null, highlight = false, wizard = false,
 }) {
   const action = getReviewActionDescriptor(item);
-  const guide = getReviewItemUserGuide(item);
   const recon = useMemo(() => item?.paymentsReconciliation || {}, [item]);
   const itemKey = reviewItemKey(item);
-  const steps = normalizeReviewSearchSteps(item, action);
   const existingRoles = useMemo(
     () => mergePaymentRolesFromProject(formData, review, item),
     [formData, review, item]
@@ -1789,6 +1870,7 @@ function PaymentClassificationCard({
   const validation = validatePaymentRoleDraft(recon.entries, roleDraft);
   const payable = recon.contractAmountGross;
   const exceedsAfterClassify = payable != null && countableTotal > payable + 0.5;
+  const collapsed = buildReviewItemCollapsedView(item, { review });
 
   const buildAmountsMeta = () => {
     const out = {};
@@ -1841,30 +1923,23 @@ function PaymentClassificationCard({
   };
 
   return (
-    <ItemRow $status={item.status} data-review-item-key={itemKey} $highlight={highlight} $wizard={wizard}>
-      {stepIndex != null && <ItemStepBadge>Βήμα {stepIndex}</ItemStepBadge>}
-      <ItemTop>
-        <ItemHead>
-          <ItemIcon aria-hidden>{guide.icon || statusIcon(item.status)}</ItemIcon>
-          <ItemTitle>{item.label}</ItemTitle>
-        </ItemHead>
+    <ReviewItemShell
+      status={item.status}
+      itemKey={itemKey}
+      highlight={highlight}
+      wizard={wizard}
+      stepBadge={stepIndex != null ? <ItemStepBadge>Βήμα {stepIndex}</ItemStepBadge> : null}
+      question={collapsed.question}
+      detail={item.label || null}
+      icon={collapsed.icon || statusIcon(item.status)}
+      statusBadge={(
         <StatusBadge $status={item.status}>
-          {item.status === KHMDHS_REVIEW_STATUS.MISSING ? 'Λείπει' : 'Έλεγχος'}
+          {item.status === KHMDHS_REVIEW_STATUS.MISSING ? 'Λείπει' : collapsed.statusLabel}
         </StatusBadge>
-      </ItemTop>
-
-      <ContextLine>{buildReviewContextLine(item)}</ContextLine>
-      {item.message ? <ItemMessage>{item.message}</ItemMessage> : null}
-
-      {steps.length > 0 && (
-        <GuideStepsBox>
-          <GuideStepsTitle>Τι να ελέγξετε</GuideStepsTitle>
-          <StepList>
-            {steps.map((step) => <li key={step}>{step}</li>)}
-          </StepList>
-        </GuideStepsBox>
       )}
-
+      moreLines={collapsed.moreLines}
+      extraMore={null}
+    >
       <PaymentClassSummary>
         Ακατέργαστο άθροισμα: {formatKhmdhsEuro(recon.rawTotalGross)}
         {payable != null && (
@@ -1872,7 +1947,7 @@ function PaymentClassificationCard({
         )}
         {exceedsAfterClassify && ' — το ποσό που μετράει ακόμη υπερβαίνει το τελικό πληρωτέο.'}
         <div style={{ marginTop: '0.35rem', fontWeight: 600 }}>
-          💡 Αν ένα ένταλμα πληρώνει μόνο μέρος του ποσού (π.χ. το καθαρό στον ανάδοχο ή μόνο τις
+          Αν ένα ένταλμα πληρώνει μόνο μέρος του ποσού (π.χ. το καθαρό στον ανάδοχο ή μόνο τις
           κρατήσεις), γράψτε το πραγματικό ποσό στο αντίστοιχο πεδίο. Όπου βρέθηκε ποσό μέσα στον τίτλο,
           έχει προσυμπληρωθεί — ελέγξτε το. Αφήστε το κενό για να μετρήσει το ποσό του ΚΗΜΔΗΣ.
         </div>
@@ -1964,10 +2039,10 @@ function PaymentClassificationCard({
         >
           {exceedsAfterClassify
             ? '⚠️ Αποθήκευση — αποδοχή υπέρβασης'
-            : (action.saveLabel || 'Αποθήκευση χαρακτηρισμών')}
+            : (collapsed.primaryCta || action.saveLabel || 'Αποθήκευση χαρακτηρισμών')}
         </MiniBtn>
       </ActionCtaRow>
-    </ItemRow>
+    </ReviewItemShell>
   );
 }
 
@@ -2042,7 +2117,6 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
   const conflict = getResolutionConflict(review, item);
   const scope = contractScopeLabel(item.contractIndex);
   const itemKey = reviewItemKey(item);
-  const steps = normalizeReviewSearchSteps(item, action);
 
   useEffect(() => {
     setDraft(getInitialEditorValue(item, formData));
@@ -2082,42 +2156,39 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
     setDraft(suggested);
   };
 
-  return (
-    <ItemRow $status={item.status} data-review-item-key={itemKey} $highlight={highlight} $wizard={wizard}>
-      {stepIndex != null && (
-        <ItemStepBadge>Βήμα {stepIndex}</ItemStepBadge>
-      )}
-      <ItemTop>
-        <ItemHead>
-          <ItemIcon aria-hidden>{guide.icon || statusIcon(item.status)}</ItemIcon>
-          <ItemTitle>{item.label}{scope}</ItemTitle>
-        </ItemHead>
-        <StatusBadge $status={item.status}>
-          {item.status === KHMDHS_REVIEW_STATUS.MISSING ? 'Λείπει' : 'Έλεγχος'}
-        </StatusBadge>
-      </ItemTop>
+  const collapsed = buildReviewItemCollapsedView(item, { review });
+  const shellDetail = item.label
+    ? `${item.label}${scope}`
+    : null;
 
-      <ContextLine>{buildReviewContextLine(item)}</ContextLine>
-      {item.message ? <ItemMessage>{item.message}</ItemMessage> : null}
-      {conflict && (
+  return (
+    <ReviewItemShell
+      status={item.status}
+      itemKey={itemKey}
+      highlight={highlight}
+      wizard={wizard}
+      stepBadge={stepIndex != null ? <ItemStepBadge>Βήμα {stepIndex}</ItemStepBadge> : null}
+      question={collapsed.question}
+      detail={shellDetail}
+      icon={collapsed.icon || statusIcon(item.status)}
+      statusBadge={(
+        <StatusBadge $status={item.status}>
+          {item.status === KHMDHS_REVIEW_STATUS.MISSING ? 'Λείπει' : collapsed.statusLabel}
+        </StatusBadge>
+      )}
+      moreLines={collapsed.moreLines}
+      extraMore={null}
+    >
+      {conflict ? (
         <ConflictBadge>
           Νέα πρόταση ΚΗΜΔΗΣ: {conflict.currentSuggestion} (πριν: {conflict.previousSuggestion})
         </ConflictBadge>
-      )}
-
+      ) : null}
       {inputKind === 'acknowledge' ? (
         <>
-          {steps.length > 0 && (
-            <GuideStepsBox>
-              <GuideStepsTitle>Τι να ελέγξετε</GuideStepsTitle>
-              <StepList>
-                {steps.map((step) => <li key={step}>{step}</li>)}
-              </StepList>
-            </GuideStepsBox>
-          )}
           <ActionCtaRow>
             <MiniBtn type="button" $primary onClick={handleSave}>
-              {action.saveLabel || guide.cta || 'Επιβεβαίωση'}
+              {collapsed.primaryCta || action.saveLabel || guide.cta || 'Επιβεβαίωση'}
             </MiniBtn>
             {paymentPreviews.length > 0 ? (
               <PaymentPreviewList style={{ flex: '1 1 100%', marginTop: 0 }}>
@@ -2174,7 +2245,7 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
             </MiniBtn>
           )}
           <MiniBtn type="button" $primary onMouseDown={(e) => e.preventDefault()} onClick={handleSave} disabled={!canSave}>
-            {action.saveLabel || 'Επιβεβαίωση'}
+            {collapsed.primaryCta || action.saveLabel || 'Επιβεβαίωση'}
           </MiniBtn>
           {adam && (
             <MiniBtn
@@ -2190,7 +2261,7 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
           )}
         </EditorRow>
       )}
-    </ItemRow>
+    </ReviewItemShell>
   );
 }
 

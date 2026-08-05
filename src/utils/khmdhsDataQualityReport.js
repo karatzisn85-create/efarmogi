@@ -837,6 +837,88 @@ export function getReviewItemUserGuide(item) {
   };
 }
 
+/**
+ * Μοντέλο παρουσίασης κάρτας ελέγχου: μία ερώτηση + κύρια ενέργεια,
+ * λεπτομέρειες (ποιος/πότε/κωδικός/context) σε moreLines για «Περισσότερα».
+ * Δεν περιλαμβάνει πεδία επεξεργασίας.
+ */
+export function buildReviewItemCollapsedView(item, { review = null } = {}) {
+  const guide = getReviewItemUserGuide(item);
+  const action = getReviewActionDescriptor(item);
+  const title = String(guide.title || item?.label || '').trim();
+  const question = String(guide.hint || item?.message || title || 'Ελέγξτε το στοιχείο').trim();
+  const primaryCta = String(action.saveLabel || guide.cta || 'Επιβεβαίωση').trim();
+  const moreLines = [];
+  const seen = new Set();
+
+  const pushLine = (line) => {
+    const text = String(line || '').trim();
+    if (!text || text === question || seen.has(text)) return;
+    seen.add(text);
+    moreLines.push(text);
+  };
+
+  if (title && title !== question) {
+    pushLine(title);
+  }
+
+  pushLine(buildReviewContextLine(item));
+
+  if (item?.message) {
+    pushLine(item.message);
+  }
+
+  const adam = extractKhmdhsAdamFromItem(item);
+  if (adam) {
+    pushLine(`Κωδικός: ${adam}`);
+  }
+
+  (item?.references || []).forEach((ref) => {
+    if (ref?.label && ref?.value) {
+      pushLine(`${ref.label}: ${ref.value}`);
+    }
+  });
+
+  normalizeReviewSearchSteps(item, action).forEach((step, index) => {
+    pushLine(`${index + 1}. ${step}`);
+  });
+
+  if (review && item) {
+    const key = reviewItemKey(item);
+    const resolution = review.resolutions?.[key];
+    if (resolution) {
+      if (resolution.resolvedBy) {
+        pushLine(`Από: ${resolution.resolvedBy}`);
+      }
+      if (resolution.resolvedAt) {
+        const when = formatResolutionDate(resolution.resolvedAt);
+        if (when) pushLine(`Ημερομηνία: ${when}`);
+      }
+      if (resolution.source) {
+        pushLine(formatResolutionSourceLabel(resolution.source));
+      }
+    }
+  }
+
+  let statusLabel = 'Έλεγχος';
+  if (item?.fieldId === 'chainKindReview') {
+    statusLabel = 'Επιλέξτε τύπο';
+  } else if (item?.status === KHMDHS_REVIEW_STATUS.MISSING) {
+    statusLabel = 'Λείπει';
+  } else if (item?.status === KHMDHS_REVIEW_STATUS.COMPLETE) {
+    statusLabel = 'Ολοκληρώθηκε';
+  }
+
+  return {
+    question,
+    title,
+    primaryCta,
+    moreLines,
+    icon: guide.icon || '📋',
+    statusLabel,
+  };
+}
+
 /** Ταξινόμηση εκκρεμών — πρώτα χαρακτηρισμός εγγράφων, μετά συμπληρώσεις */
 export function sortReviewItemsByUserPriority(items) {
   return [...(items || [])].sort((a, b) => {
