@@ -72,6 +72,19 @@ export function countUnresolvedDataReview(formAfter, dqr) {
 }
 
 /**
+ * Ποια γραμμή σύμβασης αφορά ενέργεια κατάστασης (λίστα εκκρεμοτήτων ή modal).
+ * Προτεραιότητα: ρητό από task/λίστα → modal → null (κοινή αλυσίδα).
+ */
+export function resolveSituationActionContractIndex(...candidates) {
+  for (const c of candidates) {
+    if (c != null && Number.isFinite(Number(c)) && Number(c) >= 0) {
+      return Number(c);
+    }
+  }
+  return null;
+}
+
+/**
  * Χτίζει ουρά μετά-εφαρμογής. Δεν ανοίγει UI — μόνο δεδομένα.
  */
 export function buildPostApplyQueue({
@@ -86,6 +99,8 @@ export function buildPostApplyQueue({
   registryDefer = null,
   statusBeforeKhmdhsApply = null,
   skipExpiry = false,
+  /** Γραμμή σύμβασης της ανάκτησης (πολλές συμβάσεις) — για RETRY_SEED από τη λίστα */
+  situationContractIndex = null,
 } = {}) {
   const unresolvedCount = countUnresolvedDataReview(formAfter, dqr);
   const hasUnresolvedDQR = unresolvedCount > 0;
@@ -114,6 +129,7 @@ export function buildPostApplyQueue({
   if (showSituation && filteredReport) {
     const primary = filteredReport.situations.find((s) => s.requiresDecision)
       || filteredReport.situations[0];
+    const contractIndex = resolveSituationActionContractIndex(situationContractIndex);
     tasks.push({
       id: POST_APPLY_TASK.SITUATION,
       type: POST_APPLY_TASK.SITUATION,
@@ -121,6 +137,7 @@ export function buildPostApplyQueue({
       detail: primary?.message || primary?.summary || '',
       priority: filteredReport.requiresDecision ? 'required' : 'important',
       report: filteredReport,
+      contractIndex,
       more: {
         situations: filteredReport.situations.map((s) => ({
           id: s.id,
@@ -230,5 +247,81 @@ export function getFollowUpQueue(queue) {
     tasks,
     needsDataReviewFirst: false,
     hasFollowUpTasks: tasks.length > 0,
+  };
+}
+
+/**
+ * Ξανάνοιγμα λίστας μετά κλείσιμο προειδοποίησης / modal έξω από τη λίστα.
+ * Κρατά ΟΛΗ την ουρά (συμπεριλαμβανομένου DATA_REVIEW) — σε αντίθεση με getFollowUpQueue.
+ *
+ * @returns {{ openPendingTasks: boolean, preserveQueue: true }}
+ */
+export function resolveReopenPendingList(queue) {
+  return {
+    openPendingTasks: queueHasPendingWork(queue),
+    preserveQueue: true,
+  };
+}
+
+/** Υπάρχει οποιαδήποτε εκκρεμότητα στην ουρά (υποχρεωτική ή προαιρετική). */
+export function queueHasPendingWork(queue) {
+  if (!queue) return false;
+  if (queue.needsDataReviewFirst || queue.hasFollowUpTasks) return true;
+  return Array.isArray(queue.tasks) && queue.tasks.length > 0;
+}
+
+/**
+ * Μοναδικό αυτόματο UI μετά την ανάκτηση ΚΗΜΔΗΣ.
+ * Κανόνας: ανοίγει ΜΟΝΟ η λίστα εκκρεμοτήτων — ποτέ απευθείας έλεγχος/μητρώο/κ.λπ.
+ * Τα επιμέρους παράθυρα ανοίγουν μόνο όταν ο χρήστης πατήσει ενέργεια στη λίστα.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.suppress] — μαζική ανανέωση / silent: χωρίς UI
+ * @param {boolean} [options.skip] — συνώνυμο του suppress (όχι skipSituationModal της φόρμας)
+ * @returns {{ openPendingTasks: boolean, openDataReview: boolean }}
+ */
+export function resolvePostFetchUi(queue, { suppress = false, skip = false } = {}) {
+  if (suppress || skip) {
+    return { openPendingTasks: false, openDataReview: false };
+  }
+  if (queueHasPendingWork(queue)) {
+    return { openPendingTasks: true, openDataReview: false };
+  }
+  return { openPendingTasks: false, openDataReview: false };
+}
+
+/**
+ * Μετά το κλείσιμο επιμέρους παραθύρου (έλεγχος / μητρώο): επιστροφή στη λίστα
+ * αν μένουν εκκρεμότητες — αλλιώς κλείσιμο.
+ */
+export function resolveReturnToPendingList(queueAfterRemoval) {
+  const hasWork = queueHasPendingWork(queueAfterRemoval);
+  return {
+    openPendingTasks: hasWork,
+    allClear: !hasWork,
+  };
+}
+
+/**
+ * Συγχώνευση ουράς: νέα ανάκτηση (π.χ. συμπληρωματική) δεν σβήνει
+ * εκκρεμότητες προηγούμενης κύριας ανάκτησης (μητρώο, ΑΠΕ, κ.λπ.).
+ * Αντικαθιστά μόνο ομότυπες εργασίες (π.χ. νέος έλεγχος δεδομένων).
+ */
+export function mergePostApplyQueues(prev, incoming) {
+  if (!incoming) {
+    return prev || { tasks: [], needsDataReviewFirst: false, hasFollowUpTasks: false };
+  }
+  if (!prev?.tasks?.length) return incoming;
+
+  const incomingTasks = Array.isArray(incoming.tasks) ? incoming.tasks : [];
+  const incomingTypes = new Set(incomingTasks.map((t) => t.type));
+  const keptPrev = (prev.tasks || []).filter((t) => !incomingTypes.has(t.type));
+  const tasks = [...incomingTasks, ...keptPrev].sort(
+    (a, b) => TASK_ORDER.indexOf(a.type) - TASK_ORDER.indexOf(b.type)
+  );
+  return {
+    tasks,
+    needsDataReviewFirst: tasks.some((t) => t.type === POST_APPLY_TASK.DATA_REVIEW),
+    hasFollowUpTasks: tasks.some((t) => t.type !== POST_APPLY_TASK.DATA_REVIEW),
   };
 }

@@ -222,7 +222,7 @@ function formatMore(task) {
  * @param {Array} props.tasks
  * @param {function} props.onClose
  * @param {function} props.onOpenDataReview
- * @param {function} props.onSituationAction - (actionId, situationId, action)
+ * @param {function} props.onSituationAction - (actionId, situationId, action, task)
  * @param {function} props.onStitchConfirm
  * @param {function} props.onStitchDecline
  * @param {function} props.onOpenRegistry
@@ -281,7 +281,8 @@ export default function KhmdhsPendingTasksModal({
         <Header>
           <Title id="khmdhs-pending-tasks-title">Εκκρεμότητες μετά την ανάκτηση</Title>
           <Subtitle>
-            Ένα βήμα τη φορά. Ολοκληρώστε όσα χρειάζονται και γυρίστε στην αποθήκευση του υποέργου.
+            Φέρνω δεδομένα → ελέγχω εκκρεμότητες εδώ → αποθηκεύω.
+            Ανοίξτε μόνο όσα χρειάζονται· τα υπόλοιπα είναι προαιρετικά.
           </Subtitle>
         </Header>
         <Body>
@@ -327,7 +328,7 @@ export default function KhmdhsPendingTasksModal({
                             key={`${sit.id}-${act.id}-${act.suggestedAdam || ''}`}
                             type="button"
                             $variant={act.id === KHMDHS_SITUATION_ACTION.CLEAR_KHMDHS ? 'danger' : 'primary'}
-                            onClick={() => onSituationAction?.(act.id, sit.id, act)}
+                            onClick={() => onSituationAction?.(act.id, sit.id, act, task)}
                           >
                             {act.label || act.id}
                           </Btn>

@@ -242,6 +242,11 @@ import {
   buildPostApplyQueue,
   getFollowUpQueue,
   removeTaskFromQueue,
+  resolvePostFetchUi,
+  resolveReturnToPendingList,
+  resolveReopenPendingList,
+  resolveSituationActionContractIndex,
+  mergePostApplyQueues,
   POST_APPLY_TASK,
 } from '../utils/khmdhsPostApplyQueue';
 import { mergeSymvChainPlanIntoDataQualityReview, shouldMergeSymvPlanIntoDataQualityReview } from '../utils/khmdhsSymvChainApply';
@@ -4919,18 +4924,23 @@ function ProjectForm({
           registryDefer,
           statusBeforeKhmdhsApply,
           skipExpiry: applyWarnings.includes('symvPlannerRequired') || !!suppressSituationModal,
+          situationContractIndex: contractIndex != null && contractIndex >= 0 ? contractIndex : null,
         });
         khmdhsPendingStitchPromptBRef.current = null;
         khmdhsPendingDataReviewRef.current = false;
         setPostApplyQueue(postQueue);
         setCompletedPendingTaskIds([]);
         setPendingTasksOpen(false);
-        if (!suppressSituationModal && !skipSituationModal) {
-          if (postQueue.needsDataReviewFirst) {
-            setDataReviewModalOpen(true);
-          } else if (postQueue.hasFollowUpTasks) {
-            setPendingTasksOpen(true);
-          }
+        // Ένα μονοπάτι: μετά την ανάκτηση ανοίγει ΜΟΝΟ η λίστα εκκρεμοτήτων.
+        // Έλεγχος / μητρώο / κ.λπ. ανοίγουν μόνο με κλικ από τη λίστα — όχι σε σειρά.
+        // ΣΗΜΑΝΤΙΚΟ: το skipSituationModal ΔΕΝ μπλοκάρει τη λίστα — σημαίνει μόνο
+        // «μην ξαναβάλεις την κατάσταση στην ουρά» (μετά από προειδοποίηση πριν την εφαρμογή).
+        // Μόνο suppress (π.χ. μαζική ανανέωση) δεν ανοίγει UI.
+        const postUi = resolvePostFetchUi(postQueue, {
+          suppress: !!suppressSituationModal,
+        });
+        if (postUi.openPendingTasks) {
+          setPendingTasksOpen(true);
         }
         if (applyWarnings.includes('noticeConflict')) {
           showToast(
@@ -4962,9 +4972,9 @@ function ProjectForm({
           setAdamInputDraft((prev) => ({ ...prev, chain: '' }));
         }
         const warn = res.warnings?.length ? ` (${res.warnings[0]})` : '';
-        // Μήνυμα επιτυχίας: όχι όταν ανοίγει έλεγχος/εκκρεμότητες (θα δει το παράθυρο).
+        // Μήνυμα επιτυχίας: όχι όταν ανοίγει η λίστα εκκρεμοτήτων (θα δει το παράθυρο).
         const blocksSuccessToast = skipSuccessToast
-          || (!usedSymvPlan && (postQueue.needsDataReviewFirst || postQueue.hasFollowUpTasks));
+          || (!usedSymvPlan && postUi.openPendingTasks);
         if (!blocksSuccessToast && !usedSymvPlan) {
           showToast(`Ανακτήθηκαν από ΚΗΜΔΗΣ: ${res.summary || 'στοιχεία αλυσίδας'}${warn}`, 'success');
         }
@@ -5175,17 +5185,42 @@ function ProjectForm({
 
       if (res?.success) {
         let protectedFieldCount = 0;
+        let appliedForm = null;
         setFormData((prev) => {
           const result = applySupplementaryContractResult(prev, res, { contractIndex: targetIdx });
           protectedFieldCount = result.protectedCount || 0;
+          appliedForm = result.form;
+          formDataRef.current = result.form;
           return result.form;
         });
         setAdamInputDraft((prev) => ({ ...prev, chain: '' }));
-        if (res.dataQualityReport?.hasActionRequired
-          || (res.chainHistoryEntry && res.chainHistoryEntry.needsReview)) {
-          setDataReviewModalOpen(true);
+        const needsReview = !!(
+          res.dataQualityReport?.hasActionRequired
+          || (res.chainHistoryEntry && res.chainHistoryEntry.needsReview)
+        );
+        if (needsReview) {
+          const suppQueue = buildPostApplyQueue({
+            formAfter: appliedForm || formDataRef.current,
+            dqr: appliedForm?.khmdhsDataQualityReview || res.dataQualityReport || null,
+            skipExpiry: true,
+          });
+          // Συγχώνευση με προηγούμενη ουρά — το UI αποφασίζεται από το αποτέλεσμα merge.
+          let mergedQueue = suppQueue;
+          setPostApplyQueue((prev) => {
+            mergedQueue = mergePostApplyQueues(prev, suppQueue);
+            return mergedQueue;
+          });
+          // Μόνο ο έλεγχος δεδομένων ξανανοίγει — δεν σβήνουμε ολοκληρωμένες άλλες εργασίες
+          setCompletedPendingTaskIds((prev) => prev.filter((id) => id !== POST_APPLY_TASK.DATA_REVIEW));
+          const postUi = resolvePostFetchUi(mergedQueue);
+          if (postUi.openPendingTasks) {
+            setPendingTasksOpen(true);
+          } else {
+            showToast('Η συμπληρωματική σύμβαση προστέθηκε στην αλυσίδα — τα υπόλοιπα στοιχεία ΚΗΜΔΗΣ παρέμειναν.', 'success');
+          }
+        } else {
+          showToast('Η συμπληρωματική σύμβαση προστέθηκε στην αλυσίδα — τα υπόλοιπα στοιχεία ΚΗΜΔΗΣ παρέμειναν.', 'success');
         }
-        showToast('Η συμπληρωματική σύμβαση προστέθηκε στην αλυσίδα — τα υπόλοιπα στοιχεία ΚΗΜΔΗΣ παρέμειναν.', 'success');
         if (protectedFieldCount > 0) {
           showToast(
             `${protectedFieldCount} πεδί${protectedFieldCount === 1 ? 'ο' : 'α'} δεν άλλαξ${protectedFieldCount === 1 ? 'ε' : 'αν'} γιατί τα έχετε τροποποιήσει χειροκίνητα.`,
@@ -5366,33 +5401,17 @@ function ProjectForm({
     setPostApplyQueue((prev) => (prev ? removeTaskFromQueue(prev, taskId) : prev));
   }, []);
 
-  const openFollowUpPendingTasks = useCallback((queueOverride = null) => {
-    const applyFollowUp = (prev) => {
-      const base = queueOverride || prev;
-      const follow = getFollowUpQueue(base);
-      if (follow.tasks.length > 0) {
-        window.setTimeout(() => setPendingTasksOpen(true), 0);
-        return follow;
-      }
-      setPendingTasksOpen(false);
-      return follow;
-    };
-    if (queueOverride) {
-      setPostApplyQueue(applyFollowUp(queueOverride));
-      return;
-    }
-    setPostApplyQueue((prev) => applyFollowUp(prev));
-  }, []);
-
+  /** Ξανάνοιγμα λίστας χωρίς να αφαιρεθεί ο υποχρεωτικός έλεγχος (DATA_REVIEW). */
   const openPendingKhmdhsReviewOrRegistry = useCallback(() => {
-    if (khmdhsPendingDataReviewRef.current) {
-      khmdhsPendingDataReviewRef.current = false;
-      setDataReviewModalOpen(true);
-      return;
-    }
     if (pendingTasksOpenRef.current) return;
-    openFollowUpPendingTasks();
-  }, [openFollowUpPendingTasks]);
+    setPostApplyQueue((prev) => {
+      const ret = resolveReopenPendingList(prev);
+      if (ret.openPendingTasks) {
+        window.setTimeout(() => setPendingTasksOpen(true), 0);
+      }
+      return prev;
+    });
+  }, []);
 
   const openKhmdhsDataReview = useCallback((itemKey = null) => {
     const safeKey = typeof itemKey === 'string' && itemKey.trim() ? itemKey.trim() : null;
@@ -5410,7 +5429,8 @@ function ProjectForm({
     setPostApplyQueue((prev) => {
       const without = removeTaskFromQueue(prev, POST_APPLY_TASK.DATA_REVIEW);
       const follow = getFollowUpQueue(without);
-      if (follow.tasks.length > 0) {
+      const ret = resolveReturnToPendingList(follow);
+      if (ret.openPendingTasks) {
         window.setTimeout(() => setPendingTasksOpen(true), 0);
       } else {
         setPendingTasksOpen(false);
@@ -5437,7 +5457,8 @@ function ProjectForm({
     setPostApplyQueue((prev) => {
       const without = removeTaskFromQueue(prev, POST_APPLY_TASK.DATA_REVIEW);
       const follow = getFollowUpQueue(without);
-      if (follow.tasks.length > 0) {
+      const ret = resolveReturnToPendingList(follow);
+      if (ret.openPendingTasks) {
         window.setTimeout(() => setPendingTasksOpen(true), 0);
       } else {
         setPendingTasksOpen(false);
@@ -6881,14 +6902,22 @@ function ProjectForm({
     }, 80);
   };
 
-  const handleKhmdhsSituationAction = (actionId, situationId, actionOverride) => {
+  const handleKhmdhsSituationAction = (actionId, situationId, actionOverride, options = {}) => {
     // actionOverride: το πλήρες action object που στέλνει το modal (αποφεύγουμε
     // το .find() που επιστρέφει πάντα τη 1η εμφάνιση για ίδια actionId)
+    // options.contractIndex: από τη λίστα εκκρεμοτήτων (πολλές συμβάσεις)
     const actionMeta = actionOverride || findSituationAction(actionId, situationId);
-    const contractIndex = khmdhsSituationModal?.contractIndex;
+    const contractIndex = resolveSituationActionContractIndex(
+      options.contractIndex,
+      khmdhsSituationModal?.contractIndex
+    );
+    // Μετά deferApply → finishApply: η ουρά/λίστα ρυθμίστηκε ήδη· μην καλέσουμε
+    // reopen που θα μπέρδευε τη ροή.
+    let deferredApplyRan = false;
 
     switch (actionId) {
       case KHMDHS_SITUATION_ACTION.OPEN_REVIEW:
+        setPendingTasksOpen(false);
         setDataReviewModalOpen(true);
         // Αποθήκευση αναγνώρισης — ο χρήστης εξετάζει το θέμα στην αναφορά ελέγχου
         if (situationId) {
@@ -6984,12 +7013,14 @@ function ProjectForm({
         setErrors((prev) => clearPhaseBErrors(prev));
         setPhaseBResetUnsaved(true);
         showToast('Τα στοιχεία ΚΗΜΔΗΣ διαγράφηκαν και η κατάσταση έγινε «Υπό βραχυπρόθεσμη ωρίμανση». Αποθηκεύστε για οριστική διαγραφή.', 'info');
-        break;
+        setKhmdhsSituationModal(null);
+        return;
       case KHMDHS_SITUATION_ACTION.MANUAL_CONTINUE:
         if (khmdhsSituationModal?.deferApply && khmdhsPendingApplyRef.current) {
           const pendingApply = khmdhsPendingApplyRef.current;
           khmdhsPendingApplyRef.current = null;
           pendingApply();
+          deferredApplyRan = true;
           showToast('Εφαρμόστηκαν τα διαθέσιμα στοιχεία ΚΗΜΔΗΣ. Συμπληρώστε χειροκίνητα τα υπόλοιπα.', 'info');
         } else {
           khmdhsPendingApplyRef.current = null;
@@ -7001,6 +7032,7 @@ function ProjectForm({
           const pendingApply = khmdhsPendingApplyRef.current;
           khmdhsPendingApplyRef.current = null;
           pendingApply();
+          deferredApplyRan = true;
           showToast('Κρατήθηκαν τα διαθέσιμα στοιχεία από ΚΗΜΔΗΣ (ακυρωμένο πρωτογενές).', 'info');
         }
         // fall through for acknowledgedIds
@@ -7018,6 +7050,11 @@ function ProjectForm({
         break;
       default:
         break;
+    }
+    if (deferredApplyRan) {
+      // finishApply ήδη άνοιξε τη λίστα αν υπάρχουν εκκρεμότητες (χωρίς SITUATION).
+      setKhmdhsSituationModal(null);
+      return;
     }
     if (pendingTasksOpenRef.current) {
       markPendingTaskComplete(POST_APPLY_TASK.SITUATION);
@@ -7066,7 +7103,8 @@ function ProjectForm({
     ));
     setPostApplyQueue((prev) => {
       const next = removeTaskFromQueue(prev, POST_APPLY_TASK.REGISTRY);
-      if (next.tasks.length > 0) {
+      const ret = resolveReturnToPendingList(next);
+      if (ret.openPendingTasks) {
         window.setTimeout(() => setPendingTasksOpen(true), 0);
       }
       return next;
@@ -7084,7 +7122,8 @@ function ProjectForm({
     ));
     setPostApplyQueue((prev) => {
       const next = removeTaskFromQueue(prev, POST_APPLY_TASK.REGISTRY);
-      if (next.tasks.length > 0) {
+      const ret = resolveReturnToPendingList(next);
+      if (ret.openPendingTasks) {
         window.setTimeout(() => setPendingTasksOpen(true), 0);
       }
       return next;
@@ -8604,17 +8643,14 @@ function ProjectForm({
         setPendingTasksOpen(false);
         setDataReviewModalOpen(true);
       }}
-      onSituationAction={(actionId, situationId, action) => {
-        const task = (postApplyQueue?.tasks || []).find((t) => t.type === POST_APPLY_TASK.SITUATION);
-        if (task?.report) {
-          setKhmdhsSituationModal({
-            report: task.report,
-            contractIndex: null,
-            suggestedRetryAdam: null,
-          });
-        }
+      onSituationAction={(actionId, situationId, action, task) => {
+        // Χωρίς άνοιγμα situation modal (θα άναβε και έκλεινε στο ίδιο frame).
+        // Το action object περνάει ως override — δεν χρειάζεται modal state.
+        // task.contractIndex: γραμμή σύμβασης της ανάκτησης (πολλές συμβάσεις).
         window.setTimeout(() => {
-          handleKhmdhsSituationAction(actionId, situationId, action);
+          handleKhmdhsSituationAction(actionId, situationId, action, {
+            contractIndex: task?.contractIndex,
+          });
         }, 0);
       }}
       onStitchConfirm={(task) => {
