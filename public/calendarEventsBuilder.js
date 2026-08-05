@@ -398,9 +398,11 @@ function collectProcurementItems(projects) {
       };
 
       if (snap?.finalSubmissionDate) {
+        const deadlineKey = toDateKey(snap.finalSubmissionDate);
         push(makeItem({
           ...base,
-          itemKey: `${EVENT_TYPES.DEADLINE}:${project.subprojectId}`,
+          // Ημερομηνία στο κλειδί: αλλαγή προθεσμίας → νέες υπενθυμίσεις (όχι μπλοκ από παλιά)
+          itemKey: `${EVENT_TYPES.DEADLINE}:${project.subprojectId}:${deadlineKey || String(snap.finalSubmissionDate).slice(0, 10)}`,
           eventType: EVENT_TYPES.DEADLINE,
           label: EVENT_LABELS[EVENT_TYPES.DEADLINE],
           deadlineIso: String(snap.finalSubmissionDate),
@@ -413,11 +415,10 @@ function collectProcurementItems(projects) {
             snap.offersValidTimeUnit
           );
           const expiryKey = toDateKey(expiryIso);
-          const deadlineKey = toDateKey(snap.finalSubmissionDate);
           if (expiryIso && expiryKey && expiryKey !== deadlineKey) {
             push(makeItem({
               ...base,
-              itemKey: `${EVENT_TYPES.OFFERS_EXPIRY}:${project.subprojectId}`,
+              itemKey: `${EVENT_TYPES.OFFERS_EXPIRY}:${project.subprojectId}:${expiryKey}`,
               eventType: EVENT_TYPES.OFFERS_EXPIRY,
               label: EVENT_LABELS[EVENT_TYPES.OFFERS_EXPIRY],
               deadlineIso: expiryIso,
@@ -432,13 +433,14 @@ function collectProcurementItems(projects) {
         if (!endIso) return;
         const suffix = contractIndex != null ? `:${contractIndex}` : '';
         const adamPart = contractAdam || project.khmdhsAdam || '';
+        const endKey = toDateKey(endIso) || String(endIso).slice(0, 10);
         push(makeItem({
           project,
           subprojectId: project.subprojectId,
           subprojectTitle: project.subprojectTitle || '(Χωρίς τίτλο)',
           projectTitle: project.projectTitle || '',
           adam: adamPart || project.khmdhsNoticeAdam || '',
-          itemKey: `${EVENT_TYPES.CONTRACT_END}:${project.subprojectId}:${adamPart}${suffix}`,
+          itemKey: `${EVENT_TYPES.CONTRACT_END}:${project.subprojectId}:${adamPart}${suffix}:${endKey}`,
           eventType: EVENT_TYPES.CONTRACT_END,
           label: EVENT_LABELS[EVENT_TYPES.CONTRACT_END],
           deadlineIso: endIso,
@@ -486,7 +488,7 @@ function collectCustomItems(dataDir) {
     subprojectTitle: ev.title,
     projectTitle: '',
     adam: '',
-    itemKey: `${EVENT_TYPES.CUSTOM}:${ev.id}`,
+    itemKey: `${EVENT_TYPES.CUSTOM}:${ev.id}:${toDateKey(ev.dateIso) || String(ev.dateIso || '').slice(0, 10)}`,
     eventType: EVENT_TYPES.CUSTOM,
     label: EVENT_LABELS[EVENT_TYPES.CUSTOM],
     deadlineIso: ev.dateIso,

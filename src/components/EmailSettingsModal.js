@@ -194,6 +194,7 @@ function EmailSettingsModal({ onClose, currentUser }) {
   const [appPassword, setAppPassword] = useState('');
   const [fromName, setFromName] = useState('ergoHub');
   const [appPasswordSet, setAppPasswordSet] = useState(false);
+  const [decryptFailed, setDecryptFailed] = useState(false);
   const [testTo, setTestTo] = useState('');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -206,16 +207,19 @@ function EmailSettingsModal({ onClose, currentUser }) {
   }, [onClose]);
 
   const loadConfig = useCallback(async () => {
-    const result = await ipcRenderer.invoke('get-email-config');
+    const result = await ipcRenderer.invoke('get-email-config', {
+      actingUsername: currentUser?.username,
+    });
     if (result.success) {
       setGmailUser(result.config.gmail.user || '');
       setFromName(result.config.gmail.fromName || 'ergoHub');
       setAppPasswordSet(!!result.config.gmail.appPasswordSet);
+      setDecryptFailed(!!result.config.gmail.decryptFailed);
       if (result.config.gmail.user) {
         setTestTo(result.config.gmail.user);
       }
     }
-  }, []);
+  }, [currentUser?.username]);
 
   useEffect(() => { loadConfig(); }, [loadConfig]);
 
@@ -237,6 +241,7 @@ function EmailSettingsModal({ onClose, currentUser }) {
     setMessage(null);
     try {
       const payload = {
+        actingUsername: currentUser?.username,
         user: normalizedUser,
         fromName: fromName.trim() || 'ergoHub'
       };
@@ -262,7 +267,10 @@ function EmailSettingsModal({ onClose, currentUser }) {
     setTesting(true);
     setMessage(null);
     try {
-      const result = await ipcRenderer.invoke('test-email-config', { toAddress: testTo.trim() });
+      const result = await ipcRenderer.invoke('test-email-config', {
+        actingUsername: currentUser?.username,
+        toAddress: testTo.trim(),
+      });
       if (result.success) {
         setMessage({ text: `Δοκιμαστικό email στάλθηκε στο ${testTo}`, error: false });
       } else if (result.skipped) {
@@ -325,6 +333,12 @@ function EmailSettingsModal({ onClose, currentUser }) {
               Google Account → Ασφάλεια → 2-Step Verification → App Passwords.
               Δημιουργήστε password για "Mail" και επικολλήστε το εδώ.
             </HelpText>
+            {decryptFailed && (
+              <HelpText style={{ color: '#b45309', marginTop: 6 }}>
+                Ο αποθηκευμένος κωδικός δεν ανοίγει σε αυτόν τον υπολογιστή (π.χ. αντιγραφή φακέλου δεδομένων).
+                Ξαναεισάγετέ τον εδώ και αποθηκεύστε.
+              </HelpText>
+            )}
           </FieldGroup>
 
           <FieldGroup>

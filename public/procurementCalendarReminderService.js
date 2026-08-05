@@ -84,6 +84,32 @@ function formatDateEl(iso) {
   return formatKhmdhsDateTimeEl(iso);
 }
 
+/**
+ * Ώρες ησυχίας χρήστη (π.χ. 22:00–08:00). Επιστρέφει true αν ΔΕΝ πρέπει να σταλεί τώρα.
+ */
+function isWithinQuietHours(preferences, now = new Date()) {
+  const prefs = preferences && typeof preferences === 'object' ? preferences : {};
+  if (prefs.quietHoursEnabled !== true) return false;
+
+  const parseHm = (raw) => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(raw || '').trim());
+    if (!m) return null;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return null;
+    return h * 60 + min;
+  };
+
+  const start = parseHm(prefs.quietHoursStart || '22:00');
+  const end = parseHm(prefs.quietHoursEnd || '08:00');
+  if (start == null || end == null || start === end) return false;
+
+  const cur = now.getHours() * 60 + now.getMinutes();
+  if (start < end) return cur >= start && cur < end;
+  // Διανυκτέρευση (π.χ. 22:00 → 08:00)
+  return cur >= start || cur < end;
+}
+
 function resolveRecipients(config, users) {
   const cfg = config || {};
   const byUsername = new Map();
@@ -94,6 +120,9 @@ function resolveRecipients(config, users) {
     if (!email.includes('@')) continue;
     const username = String(user.username || '').trim().toLowerCase();
     if (!username) continue;
+
+    // Προσωπική προτίμηση: απενεργοποίηση email ημερολογίου
+    if (user.notificationPreferences?.calendarEmail === false) continue;
 
     // Ένταξη αν ο χρήστης ανήκει στους παραλήπτες τουλάχιστον ενός ενεργού τύπου
     const matchesAnyType = ALLOWED_NOTIFY_EVENT_TYPES.some((eventType) => {
@@ -109,6 +138,7 @@ function resolveRecipients(config, users) {
       role: user.role,
       fullName: user.fullName || user.username,
       assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : [],
+      notificationPreferences: user.notificationPreferences || {},
       engineerContext:
         user.role === 'ENGINEER'
           ? buildEngineerVisibilityContext(username, user.assignedSupervisors)
@@ -183,6 +213,83 @@ function hoursSince(iso) {
   return (Date.now() - t) / (60 * 60 * 1000);
 }
 
+/**
+ * Επιλέγει ποια κατώφλια «μέρες πριν» πρέπει να σταλούν τώρα (ακριβής μέρα ή catch-up).
+ *
+ * Κανόνας: για κάθε X που δεν έχει σταλεί, αν daysLeft <= X και δεν υπάρχει
+ * μικρότερο Y στη λίστα με daysLeft <= Y, τότε το X είναι υποψήφιο.
+ * Επιστρέφει το μικρότερο τέτοιο X (το πιο «κοντινό» ανοιχτό κατώφλι) — 0 ή 1 τιμή.
+ *
+ * Έτσι: χάθηκε η «7», άνοιγμα στις 6 → [7]· άνοιγμα στις 3 χωρίς «7» → [3] (όχι και 7).
+ *
+ * @param {number} daysLeft
+ * @param {number[]} daysBefore
+ * @param {Set<number>|number[]} sentThresholdDays — κατώφλια που έχουν ήδη σταλεί για αυτή την προθεσμία
+ * @returns {number[]}
+ */
+function pickThresholdTriggers(daysLeft, daysBefore = [], sentThresholdDays = []) {
+  if (daysLeft == null || daysLeft < 0 || !Number.isFinite(Number(daysLeft))) return [];
+  const left = Number(daysLeft);
+  const thresholds = [...new Set(
+    (Array.isArray(daysBefore) ? daysBefore : [])
+      .map((d) => Number(d))
+      .filter((d) => Number.isFinite(d) && d >= 0)
+  )].sort((a, b) => b - a);
+
+  const sent = sentThresholdDays instanceof Set
+    ? sentThresholdDays
+    : new Set(
+      (Array.isArray(sentThresholdDays) ? sentThresholdDays : [])
+        .map((d) => Number(d))
+        .filter((d) => Number.isFinite(d))
+    );
+
+  const candidates = [];
+  for (const x of thresholds) {
+    if (sent.has(x)) continue;
+    if (left > x) continue;
+    const hasCloserOpen = thresholds.some((y) => y < x && left <= y);
+    if (hasCloserOpen) continue;
+    candidates.push(x);
+  }
+
+  if (!candidates.length) return [];
+  // Ένα μόνο κατώφλι ανά προθεσμία ανά έλεγχο — το πιο κοντινό ανοιχτό.
+  return [Math.min(...candidates)];
+}
+
+/** Παλιά κλειδιά χωρίς ημερομηνία στο itemKey — αποφυγή εφάπαξ διπλής αποστολής μετά την αναβάθμιση. */
+function legacyReminderItemKeys(item) {
+  if (!item?.eventType) return [];
+  const keys = [];
+  if (item.eventType === EVENT_TYPES.DEADLINE && item.subprojectId) {
+    keys.push(`${EVENT_TYPES.DEADLINE}:${item.subprojectId}`);
+  }
+  if (item.eventType === EVENT_TYPES.OFFERS_EXPIRY && item.subprojectId) {
+    keys.push(`${EVENT_TYPES.OFFERS_EXPIRY}:${item.subprojectId}`);
+  }
+  if (item.eventType === EVENT_TYPES.CUSTOM && item.customEventId) {
+    keys.push(`${EVENT_TYPES.CUSTOM}:${item.customEventId}`);
+  }
+  if (item.eventType === EVENT_TYPES.CONTRACT_END && item.itemKey) {
+    const stripped = String(item.itemKey).replace(/:\d{4}-\d{2}-\d{2}$/, '');
+    if (stripped && stripped !== item.itemKey) keys.push(stripped);
+  }
+  return keys;
+}
+
+function hasSentLogKey(sentMap, rcpKey, itemKey, suffix) {
+  return !!sentMap[`${rcpKey}:${itemKey}:${suffix}`];
+}
+
+function wasThresholdSent(sentMap, rcpKey, item, daysBeforeValue) {
+  const suffix = `d:${daysBeforeValue}`;
+  if (hasSentLogKey(sentMap, rcpKey, item.itemKey, suffix)) return true;
+  return legacyReminderItemKeys(item).some((legacyKey) => (
+    hasSentLogKey(sentMap, rcpKey, legacyKey, suffix)
+  ));
+}
+
 function collectItemsForRecipient(items, recipient, config, log) {
   const thresholdItems = [];
   const urgentItems = [];
@@ -193,6 +300,7 @@ function collectItemsForRecipient(items, recipient, config, log) {
 
   const visible = calendarEventsBuilder.filterItemsForRecipient(items, recipient);
   const rcpKey = recipient.username || recipient.email || '';
+  const sentMap = (log && log.sent && typeof log.sent === 'object') ? log.sent : {};
 
   for (const item of visible) {
     if (!isNotifyEventTypeEnabled(config, item.eventType)) continue;
@@ -201,30 +309,39 @@ function collectItemsForRecipient(items, recipient, config, log) {
 
     if (item.eventType === EVENT_TYPES.COMPLIANCE_12M) {
       const key = `${rcpKey}:${item.itemKey}:compliance`;
-      if (!log.sent[key]) complianceItems.push({ ...item, trigger: 'compliance' });
+      if (!sentMap[key]) complianceItems.push({ ...item, trigger: 'compliance' });
       continue;
     }
 
     const { daysLeft } = item;
     if (daysLeft == null || daysLeft < 0) continue;
 
+    const sentThresholdDays = new Set(
+      daysBefore.filter((db) => wasThresholdSent(sentMap, rcpKey, item, db))
+    );
+    const toSend = pickThresholdTriggers(daysLeft, daysBefore, sentThresholdDays);
+
     let addedToThresholdThisRun = false;
-    for (const db of daysBefore) {
-      if (daysLeft === db) {
-        const key = `${rcpKey}:${item.itemKey}:d:${db}`;
-        if (!log.sent[key]) {
-          thresholdItems.push({ ...item, trigger: 'threshold', daysBefore: db });
-          addedToThresholdThisRun = true;
-        }
-      }
+    for (const db of toSend) {
+      thresholdItems.push({
+        ...item,
+        trigger: 'threshold',
+        daysBefore: db,
+        isCatchUp: daysLeft !== db,
+      });
+      addedToThresholdThisRun = true;
     }
 
     const urgCfg = config.urgentRepeat || {};
     if (!addedToThresholdThisRun && urgCfg.enabled !== false && daysLeft >= 0 && daysLeft < 7) {
-      const urgKey = `${rcpKey}:${item.itemKey}:urgent`;
-      const urg = log.sent[urgKey] && typeof log.sent[urgKey] === 'object'
-        ? log.sent[urgKey]
-        : { count: 0, lastSent: null };
+      const urgKeys = [
+        `${rcpKey}:${item.itemKey}:urgent`,
+        ...legacyReminderItemKeys(item).map((k) => `${rcpKey}:${k}:urgent`),
+      ];
+      const urg = urgKeys
+        .map((k) => sentMap[k])
+        .find((v) => v && typeof v === 'object')
+        || { count: 0, lastSent: null };
       const maxCount = Number(urgCfg.maxCount) || 3;
       const intervalHours = Number(urgCfg.intervalHours) || 24;
       if (urg.count < maxCount && hoursSince(urg.lastSent) >= intervalHours) {
@@ -242,6 +359,14 @@ function markSentKeys(log, items, trigger, recipient) {
   for (const item of items) {
     if (trigger === 'threshold') {
       log.sent[`${rcpKey}:${item.itemKey}:d:${item.daysBefore}`] = now;
+      // Μετά από κατώφλι/catch-up μέσα στις τελευταίες 7 μέρες: μην στείλεις επείγον αμέσως μετά.
+      if (item.daysLeft != null && item.daysLeft >= 0 && item.daysLeft < 7) {
+        const urgKey = `${rcpKey}:${item.itemKey}:urgent`;
+        const prev = log.sent[urgKey] && typeof log.sent[urgKey] === 'object'
+          ? log.sent[urgKey]
+          : { count: 0, lastSent: null };
+        log.sent[urgKey] = { count: prev.count || 0, lastSent: now };
+      }
     } else if (trigger === 'urgent') {
       const urgKey = `${rcpKey}:${item.itemKey}:urgent`;
       const prev = log.sent[urgKey] && typeof log.sent[urgKey] === 'object'
@@ -297,12 +422,17 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
   let sentCount = 0;
 
   for (const recipient of recipients) {
+    // Ώρες ησυχίας: δεν στέλνουμε τώρα· το catch-up θα καλύψει στην επόμενη εκτέλεση εκτός ωρών.
+    if (isWithinQuietHours(recipient.notificationPreferences)) continue;
+
     const { thresholdItems, urgentItems, complianceItems } = collectItemsForRecipient(
       allItems,
       recipient,
       config,
       log
     );
+
+    let recipientSent = false;
 
     if (thresholdItems.length) {
       try {
@@ -320,6 +450,7 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
         if (ok) {
           markSentKeys(log, thresholdItems, 'threshold', recipient);
           sentCount += 1;
+          recipientSent = true;
           appendEmailHistory(dataDir, {
             category: 'calendar',
             type: 'threshold',
@@ -350,6 +481,7 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
         if (ok) {
           markSentKeys(log, urgentItems, 'urgent', recipient);
           sentCount += 1;
+          recipientSent = true;
           appendEmailHistory(dataDir, {
             category: 'calendar',
             type: 'urgent',
@@ -380,6 +512,7 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
         if (ok) {
           markSentKeys(log, complianceItems, 'compliance', recipient);
           sentCount += 1;
+          recipientSent = true;
           appendEmailHistory(dataDir, {
             category: 'calendar',
             type: 'compliance',
@@ -393,9 +526,11 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
         console.error('[calendar] compliance reminder failed:', err.message);
       }
     }
+
+    // Άμεση αποθήκευση μετά από επιτυχή αποστολή — λιγότερος κίνδυνος διπλής αποστολής αν κρασάρει στη μέση.
+    if (recipientSent) saveReminderLog(dataDir, log);
   }
 
-  if (sentCount > 0) saveReminderLog(dataDir, log);
   return { checked: true, sent: sentCount };
 }
 
@@ -473,4 +608,8 @@ module.exports = {
   appendEmailHistory,
   daysUntilDate,
   formatDateEl,
+  pickThresholdTriggers,
+  collectItemsForRecipient,
+  markSentKeys,
+  isWithinQuietHours,
 };

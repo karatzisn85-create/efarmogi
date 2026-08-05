@@ -308,7 +308,7 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
     setRegSuccess('');
     if (!regUsername.trim()) { setRegError('Εισάγετε όνομα χρήστη'); return; }
     if (!regFullName.trim()) { setRegError('Εισάγετε ονοματεπώνυμο'); return; }
-    if (!regPassword || regPassword.length < 4) { setRegError('Ο κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες'); return; }
+    if (!regPassword || regPassword.length < 8) { setRegError('Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες'); return; }
     if (regPassword !== regConfirm) { setRegError('Οι κωδικοί δεν ταιριάζουν'); return; }
 
     setRegLoading(true);

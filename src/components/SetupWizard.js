@@ -306,7 +306,7 @@ const StrengthLabel = styled.span`
 function getPasswordStrength(pass) {
   if (!pass) return { level: -1, label: '' };
   const hasLetter = /[a-zA-Zα-ωΑ-Ωά-ώΆ-Ώ]/.test(pass);
-  const long = pass.length >= 6;
+  const long = pass.length >= 8;
   if (!long) return { level: 0, label: 'Πολύ αδύναμος' };
   if (!hasLetter) return { level: 1, label: 'Χρειάζεται γράμμα' };
   return { level: 2, label: 'Αποδεκτός' };
@@ -878,7 +878,7 @@ const SetupWizard = ({ onComplete }) => {
                         <StrengthLabel $level={passStrength.level}>{passStrength.label}</StrengthLabel>
                       </StrengthBar>
                       {passStrength.level === 0 && (
-                        <ErrorText>Απαιτούνται τουλάχιστον 6 χαρακτήρες.</ErrorText>
+                        <ErrorText>Απαιτούνται τουλάχιστον 8 χαρακτήρες.</ErrorText>
                       )}
                       {passStrength.level === 1 && (
                         <ErrorText>Ο κωδικός πρέπει να περιέχει τουλάχιστον ένα γράμμα.</ErrorText>

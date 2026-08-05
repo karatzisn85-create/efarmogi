@@ -3,7 +3,7 @@ import { getHolderCount, forceUnlockBodyScroll } from '../utils/bodyScrollLock';
 import { isInteractionLockAllowed } from '../utils/documentInteractionReset';
 
 /**
- * Δίχτυ ασφαλείας: κάθε 2 δευτερόλεπτα ελέγχει αν body/html/#root
+ * Δίχτυ ασφαλείας: κάθε ~0,5 δευτερόλεπτα ελέγχει αν body/html/#root
  * έχουν κολλημένα styles.
  *
  * ── Λογική (Φάση 1) ──
@@ -44,7 +44,7 @@ export default function InteractionGuard() {
         document.body.removeAttribute('data-modal-open');
         forceUnlockBodyScroll();
       }
-    }, 2000);
+    }, 500);
 
     return () => clearInterval(id);
   }, []);

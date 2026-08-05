@@ -465,6 +465,10 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
     setMessage(null);
 
     if (editingUser) {
+      if (formData.password && formData.password.length < 8) {
+        setMessage({ text: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες', error: true });
+        return;
+      }
       const updates = {
         fullName: formData.fullName,
         email: formData.email.trim() || null,
@@ -498,7 +502,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
       }
     } else {
       if (!formData.username.trim()) { setMessage({ text: 'Εισάγετε όνομα χρήστη', error: true }); return; }
-      if (!formData.password || formData.password.length < 4) { setMessage({ text: 'Ο κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες', error: true }); return; }
+      if (!formData.password || formData.password.length < 8) { setMessage({ text: 'Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες', error: true }); return; }
 
       const createPayload = {
         username: formData.username.trim(),
@@ -551,7 +555,8 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
   const handleToggleActive = async (user) => {
     await ipcRenderer.invoke('update-user', {
       username: user.username,
-      updates: { active: !user.active }
+      updates: { active: !user.active },
+      actingUsername
     });
     await loadUsers();
     if (onUsersChanged) onUsersChanged();
@@ -560,7 +565,8 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
   const handleApprove = async (user) => {
     await ipcRenderer.invoke('update-user', {
       username: user.username,
-      updates: { approved: true }
+      updates: { approved: true },
+      actingUsername
     });
     await loadUsers();
     if (onUsersChanged) onUsersChanged();
@@ -568,14 +574,14 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
 
   const handleReject = async (user) => {
     if (!await showConfirm({ title: 'Απόρριψη Αιτήματος', message: `Απόρριψη και διαγραφή αιτήματος του χρήστη "${user.username}";`, confirmLabel: 'Απόρριψη', icon: '🗑' })) return;
-    await ipcRenderer.invoke('delete-user', { username: user.username });
+    await ipcRenderer.invoke('delete-user', { username: user.username, actingUsername });
     await loadUsers();
     if (onUsersChanged) onUsersChanged();
   };
 
   const handleDelete = async (user) => {
     if (!await showConfirm({ title: 'Διαγραφή Χρήστη', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε τον χρήστη "${user.username}";`, detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) return;
-    const result = await ipcRenderer.invoke('delete-user', { username: user.username });
+    const result = await ipcRenderer.invoke('delete-user', { username: user.username, actingUsername });
     if (result.success) {
       await loadUsers();
       if (onUsersChanged) onUsersChanged();
@@ -597,8 +603,8 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
       return;
     }
     if (wantsPasswordChange) {
-      if (selfData.newPassword.length < 4) {
-        setSelfMsg({ text: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες', error: true });
+      if (selfData.newPassword.length < 8) {
+        setSelfMsg({ text: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες', error: true });
         return;
       }
       if (selfData.newPassword !== selfData.confirmPassword) {

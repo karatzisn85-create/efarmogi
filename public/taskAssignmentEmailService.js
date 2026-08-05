@@ -52,6 +52,64 @@ function getLogoFilePath() {
   return null;
 }
 
+/** Prefixed ciphertext στο email-config.json — όχι plaintext app password. */
+const APP_PASSWORD_ENC_PREFIX = 'safeStorage:v1:';
+
+function getSafeStorage() {
+  try {
+    // eslint-disable-next-line global-require
+    return require('electron').safeStorage;
+  } catch {
+    return null;
+  }
+}
+
+function isEncryptedAppPassword(value) {
+  return String(value || '').startsWith(APP_PASSWORD_ENC_PREFIX);
+}
+
+function encryptAppPassword(plain) {
+  const normalized = normalizeAppPassword(plain);
+  if (!normalized) return '';
+  const safeStorage = getSafeStorage();
+  if (!safeStorage || typeof safeStorage.isEncryptionAvailable !== 'function' || !safeStorage.isEncryptionAvailable()) {
+    // Χωρίς OS keychain (σπάνιο): κρατάμε ως έχει — καλύτερα από αποτυχία αποστολής.
+    return normalized;
+  }
+  try {
+    const encrypted = safeStorage.encryptString(normalized);
+    return APP_PASSWORD_ENC_PREFIX + encrypted.toString('base64');
+  } catch (e) {
+    console.warn('[emailService] encryptAppPassword failed:', e?.message || e);
+    return normalized;
+  }
+}
+
+/**
+ * @returns {{ ok: true, value: string } | { ok: false, reason: 'empty'|'decrypt_failed' }}
+ * ok:false + decrypt_failed σημαίνει ότι υπάρχει ciphertext που δεν ανοίγει — ΜΗΝ το σβήνεις.
+ */
+function decryptAppPasswordResult(stored) {
+  const raw = String(stored || '');
+  if (!raw) return { ok: false, reason: 'empty' };
+  if (!isEncryptedAppPassword(raw)) {
+    return { ok: true, value: normalizeAppPassword(raw) };
+  }
+  const safeStorage = getSafeStorage();
+  if (!safeStorage || typeof safeStorage.decryptString !== 'function') {
+    return { ok: false, reason: 'decrypt_failed' };
+  }
+  try {
+    const b64 = raw.slice(APP_PASSWORD_ENC_PREFIX.length);
+    const plain = normalizeAppPassword(safeStorage.decryptString(Buffer.from(b64, 'base64')));
+    if (!plain) return { ok: false, reason: 'decrypt_failed' };
+    return { ok: true, value: plain };
+  } catch (e) {
+    console.warn('[emailService] decryptAppPassword failed:', e?.message || e);
+    return { ok: false, reason: 'decrypt_failed' };
+  }
+}
+
 function getConfigPath(dataDir) {
   return path.join(dataDir, CONFIG_DIR, CONFIG_FILE);
 }
@@ -60,16 +118,82 @@ function loadEmailConfig(dataDir) {
   try {
     const p = getConfigPath(dataDir);
     if (!fs.existsSync(p)) return defaultConfig();
-    return { ...defaultConfig(), ...JSON.parse(fs.readFileSync(p, 'utf8')) };
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const merged = {
+      ...defaultConfig(),
+      ...parsed,
+      gmail: {
+        ...defaultConfig().gmail,
+        ...(parsed.gmail || {}),
+      },
+    };
+    const storedPass = merged.gmail.appPassword || '';
+    const decrypted = decryptAppPasswordResult(storedPass);
+
+    if (decrypted.ok) {
+      merged.gmail.appPassword = decrypted.value;
+      delete merged.gmail._appPasswordCipher;
+      delete merged.gmail._decryptFailed;
+    } else if (decrypted.reason === 'decrypt_failed' && isEncryptedAppPassword(storedPass)) {
+      // Κράτα το ciphertext· μην εμφανίζεις/μην ξαναγράφεις κενό password.
+      merged.gmail.appPassword = '';
+      merged.gmail._appPasswordCipher = storedPass;
+      merged.gmail._decryptFailed = true;
+    } else {
+      merged.gmail.appPassword = '';
+    }
+
+    // Μετάβαση: παλιό plaintext → κρυπτογραφημένο στο δίσκο (μόνο αν υπάρχει OS encryption).
+    const safeStorage = getSafeStorage();
+    if (
+      storedPass
+      && !isEncryptedAppPassword(storedPass)
+      && decrypted.ok
+      && decrypted.value
+      && safeStorage
+      && typeof safeStorage.isEncryptionAvailable === 'function'
+      && safeStorage.isEncryptionAvailable()
+    ) {
+      try {
+        persistEmailConfig(dataDir, {
+          ...merged,
+          gmail: { ...merged.gmail, appPassword: decrypted.value },
+        });
+      } catch (e) {
+        console.warn('[emailService] migrate plaintext appPassword failed:', e?.message || e);
+      }
+    }
+    return merged;
   } catch {
     return defaultConfig();
   }
 }
 
-function saveEmailConfig(dataDir, config) {
+function persistEmailConfig(dataDir, config) {
   const dir = path.join(dataDir, CONFIG_DIR);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  safeWriteJSON(getConfigPath(dataDir), config);
+  const plain = normalizeAppPassword(config?.gmail?.appPassword);
+  const cipherKeep = config?.gmail?._appPasswordCipher;
+  // Αν δεν δόθηκε νέο password αλλά υπάρχει παλιό ciphertext που δεν ανοίγει, κράτα το άθικτο.
+  const storedPass = plain
+    ? encryptAppPassword(plain)
+    : (cipherKeep && isEncryptedAppPassword(cipherKeep) ? cipherKeep : '');
+  const gmailOut = {
+    user: config?.gmail?.user || '',
+    appPassword: storedPass,
+    fromName: (config?.gmail?.fromName || 'ergoHub'),
+  };
+  const toWrite = {
+    ...config,
+    gmail: gmailOut,
+  };
+  delete toWrite.gmail._appPasswordCipher;
+  delete toWrite.gmail._decryptFailed;
+  safeWriteJSON(getConfigPath(dataDir), toWrite);
+}
+
+function saveEmailConfig(dataDir, config) {
+  persistEmailConfig(dataDir, config);
 }
 
 function defaultConfig() {
@@ -96,10 +220,19 @@ function normalizeAppPassword(raw) {
 function isConfigured(config) {
   const user = normalizeGmailUser(config?.gmail?.user);
   const pass = normalizeAppPassword(config?.gmail?.appPassword);
-  return !!(user && pass && user.includes('@'));
+  // Ciphertext που δεν ανοίγει ακόμα μετρά ως «ρυθμισμένο» για UI — η αποστολή θα αποτύχει με καθαρό μήνυμα.
+  const hasCipher = !!(config?.gmail?._appPasswordCipher && config?.gmail?._decryptFailed);
+  return !!(user && user.includes('@') && (pass || hasCipher));
 }
 
 function createTransporter(config) {
+  if (config?.gmail?._decryptFailed) {
+    const err = new Error(
+      'Ο κωδικός email δεν μπορεί να διαβαστεί σε αυτόν τον υπολογιστή. Ανοίξτε τις Ρυθμίσεις Email και ξαναεισάγετέ τον.'
+    );
+    err.code = 'EMAIL_DECRYPT_FAILED';
+    throw err;
+  }
   const nodemailer = require('nodemailer');
   const user = normalizeGmailUser(config.gmail.user);
   const pass = normalizeAppPassword(config.gmail.appPassword);

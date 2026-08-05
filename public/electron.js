@@ -28,6 +28,12 @@ const {
   sendWorkspaceActivityEmail,
   sendTestEmail
 } = require('./taskAssignmentEmailService');
+const {
+  hashPassword,
+  verifyPassword,
+  needsPasswordRehash,
+  validatePasswordPolicy,
+} = require('./passwordAuth');
 const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
 const projectsIndex = require('./projectsIndex');
 const concurrencyGuards = require('./concurrencyGuards');
@@ -453,12 +459,7 @@ ipcMain.handle('check-folder-has-config', async (_event, folderPath) => {
 });
 
 // ── User Management ──
-
-const SALT = 'ErgoHub2026!@#SecureSalt';
-
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(SALT + password).digest('hex');
-}
+// Hashing: public/passwordAuth.js (scrypt + συμβατότητα παλιού SHA-256)
 
 function getUsersPath() {
   return path.join(dataDir, 'users.json');
@@ -541,10 +542,24 @@ function getTaskAssignmentService() {
 
 ipcMain.handle('authenticate', async (_event, { username, password }) => {
   const users = loadUsers();
-  const hashed = hashPassword(password);
-  const user = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.passwordHash === hashed && u.active !== false);
+  const user = users.find((u) => (
+    u.username.toLowerCase() === String(username || '').toLowerCase()
+    && u.active !== false
+    && verifyPassword(password, u.passwordHash)
+  ));
   if (!user) return { success: false, error: 'Λάθος όνομα χρήστη ή κωδικός' };
   if (user.approved === false) return { success: false, error: 'Ο λογαριασμός σας αναμένει έγκριση από τον διαχειριστή' };
+
+  // Μετάβαση: παλιά hashes αναβαθμίζονται αθόρυβα μετά από επιτυχή είσοδο.
+  if (needsPasswordRehash(user.passwordHash)) {
+    try {
+      user.passwordHash = hashPassword(password);
+      saveUsers(users);
+    } catch (e) {
+      logger.warn('authenticate', 'password rehash failed', e?.message || e);
+    }
+  }
+
   return {
     success: true,
     user: {
@@ -566,7 +581,8 @@ ipcMain.handle('register-user', async (_event, { username, password, role, fullN
   }
   const allowedRoles = ['ADMIN', 'USER'];
   if (!allowedRoles.includes(role)) return { success: false, error: 'Μη έγκυρος ρόλος' };
-  if (!password || password.length < 4) return { success: false, error: 'Ο κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες' };
+  const policy = validatePasswordPolicy(password);
+  if (!policy.ok) return { success: false, error: policy.error };
 
   users.push({
     username: username.trim(),
@@ -625,27 +641,39 @@ ipcMain.handle('save-my-notification-preferences', async (_event, { actingUserna
 
 ipcMain.handle('create-user', async (_event, { username, password, role, fullName, email, assignedSupervisors = [], taskAssignment, orimanthiCanEdit, meletaiCanEdit, actingUsername }) => {
   const users = loadUsers();
+  const noUsersYet = users.length === 0;
+  const actor = actingUsername || loggedInUsername;
+  // Αρχική ρύθμιση (κανένας χρήστης) ή μόνο SUPERADMIN.
+  if (!noUsersYet && !isSuperAdminUser(actor)) {
+    return { success: false, error: 'Δεν έχετε δικαίωμα δημιουργίας χρηστών' };
+  }
   if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
     return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
   }
   const validRoles = ['SUPERADMIN', 'ADMIN', 'USER', 'ENGINEER'];
   if (!validRoles.includes(role)) return { success: false, error: 'Μη έγκυρος ρόλος' };
+  // Κατά bootstrap επιτρέπεται μόνο SUPERADMIN.
+  if (noUsersYet && role !== 'SUPERADMIN') {
+    return { success: false, error: 'Ο πρώτος λογαριασμός πρέπει να είναι Υπερδιαχειριστής' };
+  }
+  const policy = validatePasswordPolicy(password);
+  if (!policy.ok) return { success: false, error: policy.error };
   const normalizedSupervisors = Array.isArray(assignedSupervisors)
     ? [...new Set(assignedSupervisors.map(s => String(s || '').trim()).filter(Boolean))]
     : [];
 
   let taskAssignmentNorm = normalizeTaskAssignment({ canAssign: false, assignableScope: 'none', assignableUsernames: [] });
   if (taskAssignment !== undefined) {
-    if (!isSuperAdminUser(actingUsername)) {
+    if (!isSuperAdminUser(actor)) {
       return { success: false, error: 'Μόνο ο superadmin μπορεί να ορίσει δικαιώματα χώρου εργασίας' };
     }
     taskAssignmentNorm = normalizeTaskAssignment(taskAssignment);
   }
 
-  if (orimanthiCanEdit !== undefined && !isSuperAdminUser(actingUsername)) {
+  if (orimanthiCanEdit !== undefined && !isSuperAdminUser(actor)) {
     return { success: false, error: 'Μόνο ο superadmin μπορεί να ορίσει δικαιώματα ωρίμανσης έργων' };
   }
-  if (meletaiCanEdit !== undefined && !isSuperAdminUser(actingUsername)) {
+  if (meletaiCanEdit !== undefined && !isSuperAdminUser(actor)) {
     return { success: false, error: 'Μόνο ο superadmin μπορεί να ορίσει δικαιώματα μητρώου μελετών' };
   }
 
@@ -676,6 +704,10 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
 });
 
 ipcMain.handle('update-user', async (_event, { username, updates, actingUsername }) => {
+  const actor = actingUsername || loggedInUsername;
+  if (!isSuperAdminUser(actor)) {
+    return { success: false, error: 'Δεν έχετε δικαίωμα ενημέρωσης χρηστών' };
+  }
   const users = loadUsers();
   const idx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
   if (idx === -1) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
@@ -687,7 +719,11 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
   if (updates.role !== undefined) users[idx].role = updates.role;
   if (updates.active !== undefined) users[idx].active = updates.active;
   if (updates.approved !== undefined) users[idx].approved = updates.approved;
-  if (updates.password) users[idx].passwordHash = hashPassword(updates.password);
+  if (updates.password) {
+    const policy = validatePasswordPolicy(updates.password);
+    if (!policy.ok) return { success: false, error: policy.error };
+    users[idx].passwordHash = hashPassword(updates.password);
+  }
   if ('email' in updates) {
     const emailVal = String(updates.email || '').trim().toLowerCase() || null;
     if (emailVal) {
@@ -706,13 +742,13 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
     users[idx].assignedSupervisors = [];
   }
   if (updates.taskAssignment !== undefined) {
-    if (!isSuperAdminUser(actingUsername)) {
+    if (!isSuperAdminUser(actor)) {
       return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα χώρου εργασίας' };
     }
     users[idx].taskAssignment = normalizeTaskAssignment(updates.taskAssignment);
   }
   if (updates.orimanthiCanEdit !== undefined) {
-    if (!isSuperAdminUser(actingUsername)) {
+    if (!isSuperAdminUser(actor)) {
       return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα ωρίμανσης έργων' };
     }
     const effectiveRole = updates.role !== undefined ? updates.role : users[idx].role;
@@ -723,7 +759,7 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
     }
   }
   if (updates.meletaiCanEdit !== undefined) {
-    if (!isSuperAdminUser(actingUsername)) {
+    if (!isSuperAdminUser(actor)) {
       return { success: false, error: 'Μόνο ο superadmin μπορεί να αλλάξει δικαιώματα μητρώου μελετών' };
     }
     const effectiveRole = updates.role !== undefined ? updates.role : users[idx].role;
@@ -756,7 +792,11 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
   return { success: true };
 });
 
-ipcMain.handle('delete-user', async (_event, { username }) => {
+ipcMain.handle('delete-user', async (_event, { username, actingUsername } = {}) => {
+  const actor = actingUsername || loggedInUsername;
+  if (!isSuperAdminUser(actor)) {
+    return { success: false, error: 'Δεν έχετε δικαίωμα διαγραφής χρηστών' };
+  }
   let users = loadUsers();
   const target = users.find(u => u.username.toLowerCase() === username.toLowerCase());
   if (!target) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
@@ -779,13 +819,20 @@ ipcMain.handle('delete-user', async (_event, { username }) => {
 });
 
 ipcMain.handle('change-password', async (_event, { username, oldPassword, newPassword }) => {
+  const targetName = String(username || '').trim();
+  const actor = String(loggedInUsername || '').trim();
+  if (!actor || actor.toLowerCase() !== targetName.toLowerCase()) {
+    return { success: false, error: 'Δεν έχετε δικαίωμα αλλαγής κωδικού άλλου χρήστη' };
+  }
   const users = loadUsers();
-  const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+  const user = users.find(u => u.username.toLowerCase() === targetName.toLowerCase());
   if (!user) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
 
-  if (user.passwordHash !== hashPassword(oldPassword)) {
+  if (!verifyPassword(oldPassword, user.passwordHash)) {
     return { success: false, error: 'Ο τρέχων κωδικός είναι λάθος' };
   }
+  const policy = validatePasswordPolicy(newPassword);
+  if (!policy.ok) return { success: false, error: policy.error };
 
   user.passwordHash = hashPassword(newPassword);
   saveUsers(users);
@@ -798,11 +845,16 @@ ipcMain.handle('has-users', async () => {
 });
 
 ipcMain.handle('rename-user', async (_event, { username, currentPassword, newUsername }) => {
+  const targetName = String(username || '').trim();
+  const actor = String(loggedInUsername || '').trim();
+  if (!actor || actor.toLowerCase() !== targetName.toLowerCase()) {
+    return { success: false, error: 'Δεν έχετε δικαίωμα μετονομασίας άλλου χρήστη' };
+  }
   const users = loadUsers();
-  const idx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+  const idx = users.findIndex(u => u.username.toLowerCase() === targetName.toLowerCase());
   if (idx === -1) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
 
-  if (users[idx].passwordHash !== hashPassword(currentPassword)) {
+  if (!verifyPassword(currentPassword, users[idx].passwordHash)) {
     return { success: false, error: 'Ο τρέχων κωδικός είναι λάθος' };
   }
 
@@ -3001,7 +3053,8 @@ ipcMain.handle('get-email-config', async (_event, { actingUsername } = {}) => {
       config: {
         gmail: {
           user: config.gmail?.user || '',
-          appPasswordSet: !!(config.gmail?.appPassword),
+          appPasswordSet: !!(config.gmail?.appPassword || config.gmail?._appPasswordCipher),
+          decryptFailed: !!config.gmail?._decryptFailed,
           fromName: config.gmail?.fromName || 'ergoHub'
         }
       }
@@ -3034,15 +3087,20 @@ ipcMain.handle('save-email-config', async (_event, { actingUsername, user, appPa
     if (normalizedUser && !normalizedUser.includes('@')) {
       normalizedUser = `${normalizedUser}@gmail.com`;
     }
-    const normalizedPass =
-      appPassword !== undefined
-        ? String(appPassword).replace(/\s+/g, '').trim()
-        : (existing.gmail?.appPassword || '').replace(/\s+/g, '').trim();
+    const providedNewPass = appPassword !== undefined
+      ? String(appPassword).replace(/\s+/g, '').trim()
+      : '';
+    // Χωρίς νέο password: κράτα plaintext αν υπάρχει, αλλιώς το παλιό ciphertext (μην το σβήνεις).
     const updated = {
       gmail: {
         user: normalizedUser,
-        appPassword: normalizedPass,
-        fromName: (fromName || 'ergoHub').trim()
+        appPassword: providedNewPass || existing.gmail?.appPassword || '',
+        fromName: (fromName || 'ergoHub').trim(),
+        ...(
+          !providedNewPass && !existing.gmail?.appPassword && existing.gmail?._appPasswordCipher
+            ? { _appPasswordCipher: existing.gmail._appPasswordCipher }
+            : {}
+        ),
       }
     };
     saveEmailConfig(dataDir, updated);
@@ -14563,7 +14621,13 @@ ipcMain.handle('merge-and-save-pdf', async (_event, { mainBuffer, attachmentPath
 ipcMain.handle('get-audit-log', async (event, options = {}) => {
   try {
     const { limit = 1000, entityType = null, entityId = null, action = null, startDate = null, endDate = null, requestingUser = null } = options;
-    
+
+    // Ρόλος μόνο από συνεδρία main process — όχι από username που στέλνει ο renderer.
+    const actor = findUserByUsername(loggedInUsername);
+    if (!actor || actor.active === false) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στο ιστορικό' };
+    }
+
     let auditLog = { logs: [] };
     if (fs.existsSync(auditLogPath)) {
       try {
@@ -14577,12 +14641,12 @@ ipcMain.handle('get-audit-log', async (event, options = {}) => {
     let filteredLogs = auditLog.logs || [];
     
     // Role-based visibility filtering
-    if (requestingUser && requestingUser.role) {
-      const role = requestingUser.role;
-      const reqUsername = (requestingUser.username || '').toLowerCase();
-      const reqFullName = (requestingUser.fullName || '').toLowerCase();
+    {
+      const role = actor.role;
+      const reqUsername = (actor.username || '').toLowerCase();
+      const reqFullName = (actor.fullName || '').toLowerCase();
       
-      if (role === 'ENGINEER') {
+      if (role === 'ENGINEER' || role === 'USER') {
         filteredLogs = filteredLogs.filter(log => {
           const logUser = (log.userFullName || log.user || '').toLowerCase();
           return logUser === reqFullName || logUser === reqUsername;
@@ -14637,19 +14701,24 @@ ipcMain.handle('get-audit-log', async (event, options = {}) => {
 });
 
 // Clear audit log (keep last N entries)
-ipcMain.handle('clear-audit-log', async (event, keepLast = 1000) => {
+ipcMain.handle('clear-audit-log', async (_event, keepLast = 1000) => {
   try {
+    if (!isSuperAdminUser(loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα εκκαθάρισης ιστορικού ενεργειών' };
+    }
+    const keep = Math.max(0, Number(keepLast) || 0);
     let auditLog = { logs: [] };
     if (fs.existsSync(auditLogPath)) {
       auditLog = JSON.parse(fs.readFileSync(auditLogPath, 'utf8'));
     }
-    
-    if (auditLog.logs.length > keepLast) {
-      auditLog.logs = auditLog.logs.slice(0, keepLast);
+
+    const before = (auditLog.logs || []).length;
+    if (before > keep) {
+      auditLog.logs = auditLog.logs.slice(0, keep);
       safeWriteJSON(auditLogPath, auditLog);
-      return { success: true, deletedCount: auditLog.logs.length - keepLast };
+      return { success: true, deletedCount: before - auditLog.logs.length };
     }
-    
+
     return { success: true, deletedCount: 0 };
   } catch (error) {
     console.error('Error clearing audit log:', error);
@@ -14660,6 +14729,9 @@ ipcMain.handle('clear-audit-log', async (event, keepLast = 1000) => {
 // Fix projectId in audit log entries (for entries with wrong projectId)
 ipcMain.handle('fix-audit-log-projectids', async (event) => {
   try {
+    if (!isSuperAdminUser(loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
     console.log('🔧 Starting audit log projectId fix...');
     
     // Load audit log

@@ -1,6 +1,6 @@
 {
   "name": "efarmogi-app",
-  "version": "1.4.42",
+  "version": "1.4.43",
   "description": "Desktop εφαρμογή διαχείρισης έργων",
   "author": "Δήμος Αρχανών-Αστερούσιων",
   "main": "public/electron.js",
@@ -137,7 +137,9 @@
         }
       ],
       "icon": "public/assets/icons/icon.ico",
-      "artifactName": "${productName}-${version}-Setup.${ext}"
+      "artifactName": "${productName}-${version}-Setup.${ext}",
+      "signAndEditExecutable": false,
+      "forceCodeSigning": false
     },
     "nsis": {
       "oneClick": false,

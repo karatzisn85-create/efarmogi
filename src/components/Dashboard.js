@@ -13,7 +13,6 @@ import DashboardOverviewZone from './DashboardOverviewZone';
 import DashboardOpsFabStack from './DashboardOpsFabStack';
 import FileManager from './FileManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
-import { KhmdhsBatchReportFab, KhmdhsBatchReportModal } from './KhmdhsBatchRefreshWidget';
 import {
   batchRunHasOutcome,
   mergeKhmdhsBatchResults,
@@ -69,6 +68,18 @@ import {
   POST_SETUP_ITEM,
 } from '../utils/postSetupChecklist';
 
+/** Εκτέλεση μετά το πρώτο paint / όταν το UI είναι αδρανές — δεν μπλοκάρει κλικ στο άνοιγμα. */
+function runWhenIdle(fn, { timeout = 1200, fallbackMs = 320 } = {}) {
+  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(() => { fn(); }, { timeout });
+    return () => {
+      if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(id);
+    };
+  }
+  const t = setTimeout(fn, fallbackMs);
+  return () => clearTimeout(t);
+}
+
 const Statistics = lazy(() => import('./Statistics'));
 const StatisticsModal = lazy(() => import('./StatisticsModal'));
 const PDFViewer = lazy(() => import('./PDFViewer'));
@@ -94,6 +105,12 @@ const MyNotificationPreferences = lazy(() => import('./MyNotificationPreferences
 const EmailSendHistory = lazy(() => import('./EmailSendHistory'));
 const RoleDashboardWidget = lazy(() => import('./RoleDashboardWidget'));
 const KhmdhsBatchRefreshWidget = lazy(() => import('./KhmdhsBatchRefreshWidget'));
+const KhmdhsBatchReportFab = lazy(() =>
+  import('./KhmdhsBatchRefreshWidget').then((m) => ({ default: m.KhmdhsBatchReportFab }))
+);
+const KhmdhsBatchReportModal = lazy(() =>
+  import('./KhmdhsBatchRefreshWidget').then((m) => ({ default: m.KhmdhsBatchReportModal }))
+);
 const MunicipalUnitsManager = lazy(() => import('./MunicipalUnitsManager'));
 const SubprojectExcelImportModal = lazy(() => import('./SubprojectExcelImportModal'));
 const TaskAssignmentManager = lazy(() => import('./TaskAssignmentManager'));
@@ -450,12 +467,13 @@ const CommandDeckFooterBand = styled.div`
   margin: 0.65rem;
   border-radius: 16px;
   background:
-    radial-gradient(90% 80% at 0% 0%, rgba(20, 184, 166, 0.08) 0%, transparent 50%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 253, 250, 0.96) 100%);
+    radial-gradient(90% 80% at 8% 0%, rgba(251, 191, 36, 0.12) 0%, transparent 52%),
+    radial-gradient(70% 60% at 100% 20%, rgba(251, 146, 60, 0.08) 0%, transparent 48%),
+    linear-gradient(165deg, #fffbf5 0%, #fff7ed 42%, #faf6f1 100%);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 6px 18px rgba(15, 118, 110, 0.07);
-  border: 1px solid rgba(13, 148, 136, 0.22);
+    0 1px 0 rgba(255, 255, 255, 0.92) inset,
+    0 6px 18px rgba(120, 53, 15, 0.06);
+  border: 1px solid rgba(180, 83, 9, 0.22);
   overflow: hidden;
 `;
 
@@ -467,38 +485,6 @@ const titleSheen = keyframes`
 const titleGlowPulse = keyframes`
   0%, 100% { opacity: 0.45; transform: translateX(-50%) scaleX(0.92); }
   50% { opacity: 0.85; transform: translateX(-50%) scaleX(1); }
-`;
-
-const PortfolioThreshold = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.85rem;
-  padding: 0.35rem 0.25rem 0.15rem;
-  margin: 0.35rem 0 0;
-`;
-
-const PortfolioThresholdLine = styled.span`
-  flex: 1;
-  max-width: 9rem;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(99, 102, 241, 0.45) 35%,
-    rgba(165, 180, 252, 0.7) 50%,
-    rgba(99, 102, 241, 0.45) 65%,
-    transparent 100%
-  );
-`;
-
-const PortfolioThresholdMark = styled.span`
-  font-size: 0.64rem;
-  font-weight: 800;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: #4f46e5;
-  white-space: nowrap;
 `;
 
 const ProjectsContainer = styled.div`
@@ -554,29 +540,6 @@ const PortfolioHeader = styled.div`
     border-radius: 999px;
     background: linear-gradient(90deg, transparent, #6366f1, #a78bfa, #6366f1, transparent);
     animation: ${titleGlowPulse} 3.6s ease-in-out infinite;
-  }
-`;
-
-const PortfolioEyebrow = styled.span`
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: #4f46e5;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-
-  &::before,
-  &::after {
-    content: '';
-    width: 1.6rem;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(79, 70, 229, 0.7));
-  }
-
-  &::after {
-    background: linear-gradient(90deg, rgba(79, 70, 229, 0.7), transparent);
   }
 `;
 
@@ -3348,31 +3311,43 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     } catch {}
   }, [userRole, currentUser]);
 
+  // Μετά το πρώτο paint της λίστας — όχι παράλληλα με το κρίσιμο άνοιγμα.
   useEffect(() => {
-    refreshKhmdhsStaleCount();
-  }, [refreshKhmdhsStaleCount]);
+    if (loading) return undefined;
+    if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return undefined;
+    return runWhenIdle(() => {
+      refreshKhmdhsStaleCount();
+    }, { timeout: 2500, fallbackMs: 500 });
+  }, [loading, refreshKhmdhsStaleCount, userRole]);
 
   useEffect(() => {
+    if (loading) return undefined;
     if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return undefined;
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await ipcRenderer.invoke('get-khmdhs-batch-report', {
-          actingUsername: currentUser?.username,
-        });
-        if (cancelled || !res?.success || !res.state) return;
-        const state = res.state;
-        // Χωρίς αναφορά δεν κρατάμε εκκρεμότητες: το πλωτό κουμπί θα άνοιγε κενό παράθυρο.
-        if (!state.results) return;
-        setBatchReportResults(state.results);
-        const pending = Array.isArray(state.pendingItems) ? state.pendingItems : [];
-        setBatchPendingItems(pending);
-        if (state.lastRun) setKhmdhsLastRun(state.lastRun);
-        // Αν υπάρχουν εκκρεμότητες μετά το άνοιγμα, θυμίζουμε με το πλωτό κουμπί (όχι auto-open).
-      } catch { /* ignore */ }
-    })();
-    return () => { cancelled = true; };
-  }, [userRole, currentUser?.username]);
+    const cancelIdle = runWhenIdle(() => {
+      (async () => {
+        try {
+          const res = await ipcRenderer.invoke('get-khmdhs-batch-report', {
+            actingUsername: currentUser?.username,
+          });
+          if (cancelled || !res?.success || !res.state) return;
+          const state = res.state;
+          // Χωρίς αναφορά δεν κρατάμε εκκρεμότητες: το πλωτό κουμπί θα άνοιγε κενό παράθυρο.
+          if (!state.results) return;
+          setBatchReportResults(state.results);
+          const pending = Array.isArray(state.pendingItems) ? state.pendingItems : [];
+          setBatchPendingItems(pending);
+          if (state.lastRun) setKhmdhsLastRun(state.lastRun);
+          // Αν υπάρχουν εκκρεμότητες μετά το άνοιγμα, θυμίζουμε με το πλωτό κουμπί (όχι auto-open).
+        } catch { /* ignore */ }
+      })();
+    // Γρήγορη επαναφορά αναφοράς (πλωτό κουμπί) — όχι στο κρίσιμο IPC bundle, αλλά σχεδόν αμέσως.
+    }, { timeout: 700, fallbackMs: 120 });
+    return () => {
+      cancelled = true;
+      cancelIdle();
+    };
+  }, [loading, userRole, currentUser?.username]);
 
   const persistKhmdhsBatchReport = useCallback(async (payload) => {
     if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return;
@@ -3422,43 +3397,54 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     refreshKhmdhsStaleCount();
   }, [batchReportResults, refreshKhmdhsStaleCount, persistKhmdhsBatchReport]);
 
-  // Εκκρεμότητες αναφοράς (χαρακτηρισμός, έλεγχος στοιχείων κ.λπ.) κλείνουν όταν
-  // επιλυθούν πραγματικά στο υποέργο και αποθηκευτούν — όχι κατά τη διάρκεια μαζικής ανανέωσης.
+  // Εκκρεμότητες αναφοράς κλείνουν όταν επιλυθούν στο υποέργο — σε idle ώστε
+  // να μην «κλέβει» χρόνο από το άνοιγμα της σελίδας και τα πρώτα κλικ.
   useEffect(() => {
-    if (khmdhsBatchRunning) return;
-    if (!batchReportResults?.items?.length || !projects.length) return;
-    const { results: synced, cleared } = syncBatchReportWithProjects(batchReportResults, projects);
-    if (!cleared.length && synced === batchReportResults) return;
-    if (synced === batchReportResults && !cleared.length) return;
+    if (khmdhsBatchRunning) return undefined;
+    if (!batchReportResults?.items?.length || !projects.length) return undefined;
 
-    const nextPending = synced.interventionItems || [];
-    setBatchReportResults(synced);
-    setBatchPendingItems(nextPending);
+    let cancelled = false;
+    const cancelIdle = runWhenIdle(() => {
+      if (cancelled) return;
+      const { results: synced, cleared } = syncBatchReportWithProjects(batchReportResults, projects);
+      if (cancelled) return;
+      if (!cleared.length && synced === batchReportResults) return;
+      if (synced === batchReportResults && !cleared.length) return;
 
-    cleared.forEach((item) => {
-      if (item.kind === 'characterize') {
-        showToast(`✓ Χαρακτηρισμός ολοκληρώθηκε: ${item.label}`, 'success');
-      } else {
-        showToast(`✓ Εκκρεμότητα έκλεισε: ${item.label}`, 'success');
+      const nextPending = synced.interventionItems || [];
+      setBatchReportResults(synced);
+      setBatchPendingItems(nextPending);
+
+      cleared.forEach((item) => {
+        if (item.kind === 'characterize') {
+          showToast(`✓ Χαρακτηρισμός ολοκληρώθηκε: ${item.label}`, 'success');
+        } else {
+          showToast(`✓ Εκκρεμότητα έκλεισε: ${item.label}`, 'success');
+        }
+      });
+      if (
+        nextPending.length === 0
+        && !(synced.items || []).some((i) => (
+          i.status === 'refreshed'
+          && !i.followUpClearedAt
+          && (i.category === 'attention' || (i.actions?.length || 0) > 0)
+        ))
+        && cleared.length > 0
+      ) {
+        setTimeout(() => showToast('Όλες οι εκκρεμείς ενέργειες της αναφοράς ολοκληρώθηκαν.', 'success'), 1200);
       }
-    });
-    if (
-      nextPending.length === 0
-      && !(synced.items || []).some((i) => (
-        i.status === 'refreshed'
-        && !i.followUpClearedAt
-        && (i.category === 'attention' || (i.actions?.length || 0) > 0)
-      ))
-      && cleared.length > 0
-    ) {
-      setTimeout(() => showToast('Όλες οι εκκρεμείς ενέργειες της αναφοράς ολοκληρώθηκαν.', 'success'), 1200);
-    }
 
-    void persistKhmdhsBatchReport({
-      results: synced,
-      pendingItems: nextPending,
-      lastRun: khmdhsLastRun,
-    });
+      void persistKhmdhsBatchReport({
+        results: synced,
+        pendingItems: nextPending,
+        lastRun: khmdhsLastRun,
+      });
+    }, { timeout: 600, fallbackMs: 80 });
+
+    return () => {
+      cancelled = true;
+      cancelIdle();
+    };
   }, [
     projects, batchReportResults, khmdhsBatchRunning,
     showToast, persistKhmdhsBatchReport, khmdhsLastRun,
@@ -3573,6 +3559,21 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       if (timeoutId != null) clearTimeout(timeoutId);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Προφόρτωση πλαϊνών ενοτήτων αφού η λίστα είναι έτοιμη — το πρώτο κλικ δεν περιμένει chunk.
+  useEffect(() => {
+    if (loading) return undefined;
+    return runWhenIdle(() => {
+      void import('./ProsklisisManager');
+      void import('./EntaxisManager');
+      void import('./EgkriseisManager');
+      void import('./ProcurementCalendar');
+      void import('./CalendarDeadlineWidget');
+      if (userRole === 'ADMIN' || userRole === 'SUPERADMIN') {
+        void import('./KhmdhsBatchRefreshWidget');
+      }
+    }, { timeout: 3500, fallbackMs: 700 });
+  }, [loading, userRole]);
 
   // Load linked egkriseis only once when component mounts
   useEffect(() => {
@@ -4216,10 +4217,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       
       refreshEpSubprojectMap();
       refreshMeletaiSubprojectMap();
+      // Συντήρηση μελετών: μετά το paint — δεν μπλοκάρει το κρίσιμο μονοπάτι φόρτωσης.
       if (currentUser?.username) {
-        void ipcRenderer.invoke('run-meletai-maintenance', {
-          actingUsername: currentUser.username,
-        }).then(() => refreshMeletaiSubprojectMap());
+        runWhenIdle(() => {
+          void ipcRenderer.invoke('run-meletai-maintenance', {
+            actingUsername: currentUser.username,
+          }).then(() => refreshMeletaiSubprojectMap());
+        }, { timeout: 4000, fallbackMs: 800 });
       }
 
       // Φόρτωμα prosklisi links - ΠΕΡΙΜΕΝΟΥΜΕ
@@ -6412,21 +6416,21 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                     key: 'projects',
                     value: sortedGroupedEntries.length,
                     label: sortedGroupedEntries.length === 1 ? 'έργο / πράξη' : 'έργα / πράξεις',
-                    bg: 'linear-gradient(165deg, #ecfeff 0%, #f0f9ff 55%, #ffffff 100%)',
-                    color: '#0e7490',
-                    border: 'rgba(14, 116, 144, 0.28)',
-                    accent: 'linear-gradient(180deg, #0891b2, #06b6d4)',
-                    muted: '#0e7490',
+                    bg: 'linear-gradient(165deg, #fff7ed 0%, #ffedd5 45%, #ffffff 100%)',
+                    color: '#9a3412',
+                    border: 'rgba(194, 65, 12, 0.28)',
+                    accent: 'linear-gradient(180deg, #c2410c, #ea580c)',
+                    muted: '#c2410c',
                   },
                   {
                     key: 'subprojects',
                     value: Object.values(groupedProjects).reduce((n, rows) => n + (rows?.length || 0), 0),
                     label: 'υποέργα στην οθόνη',
-                    bg: 'linear-gradient(165deg, #f0fdfa 0%, #ecfdf5 55%, #ffffff 100%)',
-                    color: '#0f766e',
-                    border: 'rgba(13, 148, 136, 0.28)',
-                    accent: 'linear-gradient(180deg, #0d9488, #14b8a6)',
-                    muted: '#0f766e',
+                    bg: 'linear-gradient(165deg, #fffbeb 0%, #fef3c7 50%, #ffffff 100%)',
+                    color: '#92400e',
+                    border: 'rgba(217, 119, 6, 0.28)',
+                    accent: 'linear-gradient(180deg, #b45309, #d97706)',
+                    muted: '#b45309',
                   },
                   ...((userRole === 'ADMIN' || userRole === 'SUPERADMIN') && batchPendingItems.length > 0
                     ? [{
@@ -6508,15 +6512,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             </ArchiveBanner>
           )}
 
-          <PortfolioThreshold aria-hidden="true">
-            <PortfolioThresholdLine />
-            <PortfolioThresholdMark>Κεντρική σελίδα</PortfolioThresholdMark>
-            <PortfolioThresholdLine />
-          </PortfolioThreshold>
-
           <ProjectsContainer ref={projectsListRef}>
             <PortfolioHeader>
-              <PortfolioEyebrow>Αρχή κεντρικής σελίδας</PortfolioEyebrow>
               <PortfolioTitleRow>
                 <PortfolioTitleWing aria-hidden="true" />
                 <ProjectsTitle>
@@ -7968,34 +7965,38 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         }}
       />
 
-      <KhmdhsBatchReportFab
-        pendingItems={batchPendingItems}
-        onClick={() => setIsBatchReportOpen(true)}
-        isRunning={khmdhsBatchRunning}
-        hasReport={!!batchReportResults}
-      />
+      {(batchPendingItems.length > 0 || khmdhsBatchRunning || !!batchReportResults || isBatchReportOpen) && (
+        <Suspense fallback={null}>
+          <KhmdhsBatchReportFab
+            pendingItems={batchPendingItems}
+            onClick={() => setIsBatchReportOpen(true)}
+            isRunning={khmdhsBatchRunning}
+            hasReport={!!batchReportResults}
+          />
 
-      <KhmdhsBatchReportModal
-        isOpen={isBatchReportOpen}
-        onClose={() => setIsBatchReportOpen(false)}
-        results={batchReportResults}
-        pendingItems={batchPendingItems}
-        onNavigateToSubproject={(subprojectId) => {
-          const p = projects.find((row) => row.subprojectId === subprojectId);
-          if (p) openSubprojectDetail(p);
-        }}
-        onRetry={(retryItems) => {
-          if (!Array.isArray(retryItems) || !retryItems.length) return;
-          setIsBatchReportOpen(false);
-          setKhmdhsRetrySignal({ items: retryItems, token: Date.now() });
-        }}
-        onDismiss={() => {
-          setIsBatchReportOpen(false);
-          setBatchReportResults(null);
-          setBatchPendingItems([]);
-          void clearPersistedKhmdhsBatchReport();
-        }}
-      />
+          <KhmdhsBatchReportModal
+            isOpen={isBatchReportOpen}
+            onClose={() => setIsBatchReportOpen(false)}
+            results={batchReportResults}
+            pendingItems={batchPendingItems}
+            onNavigateToSubproject={(subprojectId) => {
+              const p = projects.find((row) => row.subprojectId === subprojectId);
+              if (p) openSubprojectDetail(p);
+            }}
+            onRetry={(retryItems) => {
+              if (!Array.isArray(retryItems) || !retryItems.length) return;
+              setIsBatchReportOpen(false);
+              setKhmdhsRetrySignal({ items: retryItems, token: Date.now() });
+            }}
+            onDismiss={() => {
+              setIsBatchReportOpen(false);
+              setBatchReportResults(null);
+              setBatchPendingItems([]);
+              void clearPersistedKhmdhsBatchReport();
+            }}
+          />
+        </Suspense>
+      )}
 
     </DashboardContainer>
   );

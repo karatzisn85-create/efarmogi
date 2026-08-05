@@ -34,11 +34,11 @@ const Zone = styled.section`
   flex-direction: column;
   gap: 0;
   border-radius: ${(p) => (p.$embedded ? '0' : '16px')};
-  border: ${(p) => (p.$embedded ? 'none' : '1px solid rgba(13, 148, 136, 0.2)')};
+  border: ${(p) => (p.$embedded ? 'none' : '1px solid rgba(180, 83, 9, 0.22)')};
   background: ${(p) => (p.$embedded
     ? 'transparent'
-    : 'linear-gradient(165deg, #f0fdfa 0%, #ffffff 55%, #f8fafc 100%)')};
-  box-shadow: ${(p) => (p.$embedded ? 'none' : '0 1px 3px rgba(15, 23, 42, 0.04)')};
+    : 'linear-gradient(165deg, #fffbf5 0%, #fff7ed 48%, #faf6f1 100%)')};
+  box-shadow: ${(p) => (p.$embedded ? 'none' : '0 1px 3px rgba(120, 53, 15, 0.05)')};
   overflow: hidden;
 `;
 
@@ -46,7 +46,7 @@ const Header = styled.div`
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.75rem 0.95rem 0.6rem 1.05rem;
+  padding: 0.8rem 0.95rem 0.65rem 1.05rem;
 `;
 
 const TitleBlock = styled.div`
@@ -54,37 +54,37 @@ const TitleBlock = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.12rem;
+  gap: 0.16rem;
 `;
 
 const Title = styled.span`
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   font-weight: 850;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #0f766e;
+  color: #9a3412;
 `;
 
 const Subtitle = styled.span`
-  font-size: 0.72rem;
+  font-size: 0.82rem;
   font-weight: 500;
-  color: #64748b;
-  line-height: 1.3;
+  color: #78716c;
+  line-height: 1.35;
 `;
 
 const ExpandBtn = styled.button`
   appearance: none;
   flex-shrink: 0;
-  border: 1px solid rgba(13, 148, 136, 0.35);
+  border: 1px solid rgba(180, 83, 9, 0.38);
   background: ${(p) => (p.$open
-    ? 'linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 100%)'
-    : 'linear-gradient(110deg, #0f766e 0%, #14b8a6 40%, #2dd4bf 55%, #14b8a6 70%, #0f766e 100%)')};
+    ? 'linear-gradient(135deg, #e7e5e4 0%, #f5f5f4 100%)'
+    : 'linear-gradient(110deg, #9a3412 0%, #c2410c 35%, #ea580c 55%, #c2410c 75%, #9a3412 100%)')};
   background-size: ${(p) => (p.$open ? 'auto' : '220% 100%')};
-  color: ${(p) => (p.$open ? '#334155' : '#ffffff')};
+  color: ${(p) => (p.$open ? '#44403c' : '#ffffff')};
   border-radius: 999px;
-  padding: 0.4rem 0.9rem;
+  padding: 0.42rem 0.95rem;
   font-family: inherit;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 800;
   cursor: pointer;
   display: inline-flex;
@@ -92,24 +92,24 @@ const ExpandBtn = styled.button`
   gap: 0.35rem;
   box-shadow: ${(p) => (p.$open
     ? 'none'
-    : '0 4px 14px rgba(13, 148, 136, 0.28)')};
+    : '0 4px 14px rgba(154, 52, 18, 0.22)')};
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   ${(p) => (!p.$open && css`animation: ${expandSheen} 4.5s linear infinite;`)}
 
   &:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 18px rgba(13, 148, 136, 0.35);
-    border-color: rgba(13, 148, 136, 0.5);
+    box-shadow: 0 6px 18px rgba(154, 52, 18, 0.28);
+    border-color: rgba(180, 83, 9, 0.55);
   }
 
   &:focus-visible {
-    outline: 2px solid #14b8a6;
+    outline: 2px solid #f59e0b;
     outline-offset: 2px;
   }
 `;
 
 const Chevron = styled.span`
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-weight: 800;
   transform: rotate(${(p) => (p.$open ? '90deg' : '0deg')});
   transition: transform 0.18s ease;
@@ -118,8 +118,8 @@ const Chevron = styled.span`
 const Compact = styled.div`
   display: ${(p) => (p.$visible ? 'flex' : 'none')};
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 0 0.85rem 0.85rem;
+  gap: 0.6rem;
+  padding: 0 0.85rem 0.95rem;
 `;
 
 const CompactPrimary = styled.div`
@@ -132,15 +132,15 @@ const StatCard = styled.div`
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.65rem 0.8rem 0.6rem;
+  gap: 0.2rem;
+  padding: 0.7rem 0.85rem 0.65rem;
   border-radius: 14px;
   background: ${(p) => p.$bg || '#ffffff'};
-  border: 1px solid ${(p) => p.$border || 'rgba(226, 232, 240, 0.95)'};
+  border: 1px solid ${(p) => p.$border || 'rgba(231, 229, 228, 0.95)'};
   min-width: 0;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.85) inset,
-    0 6px 16px rgba(15, 23, 42, 0.04);
+    0 6px 16px rgba(120, 53, 15, 0.04);
   overflow: hidden;
 
   &::before {
@@ -150,52 +150,52 @@ const StatCard = styled.div`
     top: 0;
     bottom: 0;
     width: 3px;
-    background: ${(p) => p.$accent || 'rgba(13, 148, 136, 0.55)'};
+    background: ${(p) => p.$accent || 'rgba(217, 119, 6, 0.55)'};
   }
 `;
 
 const StatValue = styled.span`
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   font-weight: 900;
   letter-spacing: -0.03em;
-  color: ${(p) => p.$color || '#0f172a'};
+  color: ${(p) => p.$color || '#1c1917'};
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
   padding-left: 0.15rem;
 `;
 
 const StatLabel = styled.span`
-  font-size: 0.76rem;
+  font-size: 0.88rem;
   font-weight: 650;
-  color: ${(p) => p.$muted || '#64748b'};
-  line-height: 1.25;
+  color: ${(p) => p.$muted || '#78716c'};
+  line-height: 1.3;
   padding-left: 0.15rem;
 `;
 
 const BreakdownWrap = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.5rem 0.55rem 0.55rem;
+  gap: 0.4rem;
+  padding: 0.55rem 0.6rem 0.6rem;
   border-radius: 14px;
-  background: linear-gradient(180deg, rgba(240, 253, 250, 0.85) 0%, rgba(248, 250, 252, 0.95) 100%);
-  border: 1px solid rgba(13, 148, 136, 0.14);
+  background: linear-gradient(180deg, rgba(255, 247, 237, 0.9) 0%, rgba(250, 246, 241, 0.96) 100%);
+  border: 1px solid rgba(180, 83, 9, 0.16);
 `;
 
 const BreakdownCaption = styled.span`
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #0f766e;
+  color: #9a3412;
   padding: 0 0.2rem;
-  opacity: 0.85;
+  opacity: 0.9;
 `;
 
 const BreakdownGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.4rem;
+  gap: 0.45rem;
 
   @media (max-width: 640px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -207,12 +207,12 @@ const BreakdownItem = styled.div`
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.08rem;
+  gap: 0.12rem;
   min-width: 0;
-  padding: 0.4rem 0.5rem 0.4rem 0.65rem;
+  padding: 0.45rem 0.55rem 0.45rem 0.7rem;
   border-radius: 10px;
   background: ${(p) => p.$bg || '#ffffff'};
-  border: 1px solid ${(p) => p.$border || 'rgba(226, 232, 240, 0.9)'};
+  border: 1px solid ${(p) => p.$border || 'rgba(231, 229, 228, 0.95)'};
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
 
   &::before {
@@ -223,24 +223,24 @@ const BreakdownItem = styled.div`
     bottom: 20%;
     width: 3px;
     border-radius: 999px;
-    background: ${(p) => p.$accent || '#94a3b8'};
+    background: ${(p) => p.$accent || '#a8a29e'};
   }
 `;
 
 const BreakdownValue = styled.span`
-  font-size: 1.05rem;
+  font-size: 1.18rem;
   font-weight: 900;
   letter-spacing: -0.02em;
-  color: ${(p) => p.$color || '#0f172a'};
+  color: ${(p) => p.$color || '#1c1917'};
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 `;
 
 const BreakdownLabel = styled.span`
-  font-size: 0.66rem;
+  font-size: 0.78rem;
   font-weight: 650;
-  color: ${(p) => p.$muted || '#64748b'};
-  line-height: 1.3;
+  color: ${(p) => p.$muted || '#78716c'};
+  line-height: 1.35;
   max-width: 100%;
 `;
 
@@ -249,8 +249,8 @@ const Body = styled.div`
   flex-direction: column;
   gap: 1.25rem;
   padding: 0 0.85rem 0.95rem;
-  border-top: 1px solid rgba(167, 243, 208, 0.55);
-  background: linear-gradient(180deg, #f0fdfa 0%, #f8fafc 100%);
+  border-top: 1px solid rgba(253, 230, 138, 0.65);
+  background: linear-gradient(180deg, #fff7ed 0%, #faf6f1 100%);
 `;
 
 /**
