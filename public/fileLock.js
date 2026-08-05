@@ -2,8 +2,9 @@ const fs = require('fs');
 const os = require('os');
 
 const STALE_MS = 15000;
-const MAX_RETRIES = 8;
-const RETRY_INTERVAL_MS = 100;
+/** Λιγότερα retries = λιγότερο μπλοκάρισμα main thread σε κοινό φάκελο (πριν: 8×100ms). */
+const MAX_RETRIES = 4;
+const RETRY_INTERVAL_MS = 120;
 
 /**
  * Σύγχρονη παύση χωρίς spin-loop (λιγότερο κάψιμο CPU στο main process).
@@ -74,4 +75,11 @@ function withServiceLock(lockPath, fn) {
   }
 }
 
-module.exports = { acquireServiceLock, releaseServiceLock, withServiceLock };
+module.exports = {
+  acquireServiceLock,
+  releaseServiceLock,
+  withServiceLock,
+  STALE_MS,
+  MAX_RETRIES,
+  RETRY_INTERVAL_MS,
+};

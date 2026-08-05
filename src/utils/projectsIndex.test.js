@@ -33,7 +33,11 @@ const {
   loadProjectsViaIndex,
   findIndexedSubprojectPath,
   MTIME_TOLERANCE_MS,
+  MISSING_CHECK_TTL_MS,
   writeProjectsIndex,
+  clearMissingProjectsCheckCache,
+  canSkipMissingProjectsCheck,
+  rememberMissingCheckOk,
 } = require('../../public/projectsIndex');
 
 const PROJECT_A = 'aaaaaaaa-1111-4111-a111-111111111111';
@@ -51,6 +55,7 @@ describe('projectsIndex', () => {
   let dataDir;
 
   beforeEach(() => {
+    clearMissingProjectsCheckCache();
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eh-idx-'));
     writeSubproject(dataDir, PROJECT_A, SUB_1, {
       projectId: PROJECT_A,
@@ -62,6 +67,7 @@ describe('projectsIndex', () => {
 
   afterEach(() => {
     global.__ehWriteInterceptor = null;
+    clearMissingProjectsCheckCache();
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
@@ -296,5 +302,74 @@ describe('projectsIndex', () => {
     expect(findIndexedSubprojectPath(dataDir, SUB_1)).toContain('data.json');
     invalidateProjectsIndex(dataDir);
     expect(readProjectsIndex(dataDir)).toBeNull();
+  });
+
+  test('αρνητικός έλεγχος ελλείψεων μπαίνει σε TTL — αποφεύγει επαναλαμβανόμενο readdir', () => {
+    rebuildProjectsIndex(dataDir, [{
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
+      projectTitle: 'Έργο Α',
+      subprojectTitle: 'Υποέργο 1',
+    }]);
+    const loaded = loadProjectsViaIndex(dataDir, {
+      skipRoot: new Set(),
+      normalizeProjectTypeField: () => {},
+      isProjectLocked: () => ({ locked: false }),
+      loggedSubprojectIdMismatches: new Set(),
+    });
+    expect(Array.isArray(loaded)).toBe(true);
+    expect(canSkipMissingProjectsCheck(dataDir)).toBe(true);
+    expect(MISSING_CHECK_TTL_MS).toBeGreaterThanOrEqual(15000);
+  });
+
+  test('μέσα στο TTL νέο έργο δίσκου χωρίς ενημέρωση ευρετηρίου δεν φαίνεται μέχρι clear/λήξη', () => {
+    rebuildProjectsIndex(dataDir, [{
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
+      projectTitle: 'Έργο Α',
+      subprojectTitle: 'Υποέργο 1',
+    }]);
+    loadProjectsViaIndex(dataDir, {
+      skipRoot: new Set(),
+      normalizeProjectTypeField: () => {},
+      isProjectLocked: () => ({ locked: false }),
+      loggedSubprojectIdMismatches: new Set(),
+    });
+    writeSubproject(dataDir, PROJECT_B, SUB_9, {
+      projectId: PROJECT_B,
+      subprojectId: SUB_9,
+      projectTitle: 'Έργο Β',
+      subprojectTitle: 'Υποέργο 9',
+    });
+    // Μέσα στο TTL: χρησιμοποιεί ευρετήριο χωρίς έλεγχο ελλείψεων
+    const withinTtl = loadProjectsViaIndex(dataDir, {
+      skipRoot: new Set(),
+      normalizeProjectTypeField: () => {},
+      isProjectLocked: () => ({ locked: false }),
+      loggedSubprojectIdMismatches: new Set(),
+    });
+    expect(Array.isArray(withinTtl)).toBe(true);
+    expect(withinTtl).toHaveLength(1);
+
+    clearMissingProjectsCheckCache(dataDir);
+    const afterClear = loadProjectsViaIndex(dataDir, {
+      skipRoot: new Set(),
+      normalizeProjectTypeField: () => {},
+      isProjectLocked: () => ({ locked: false }),
+      loggedSubprojectIdMismatches: new Set(),
+    });
+    expect(afterClear).toBeNull();
+  });
+
+  test('λήξη TTL ξαναεπιτρέπει έλεγχο ελλείψεων', () => {
+    rememberMissingCheckOk(dataDir, Date.now() - MISSING_CHECK_TTL_MS - 1000);
+    expect(canSkipMissingProjectsCheck(dataDir)).toBe(false);
+  });
+
+  test('invalidate μηδενίζει το TTL cache ελλείψεων', () => {
+    rememberMissingCheckOk(dataDir);
+    expect(canSkipMissingProjectsCheck(dataDir)).toBe(true);
+    invalidateProjectsIndex(dataDir);
+    expect(canSkipMissingProjectsCheck(dataDir)).toBe(false);
   });
 });

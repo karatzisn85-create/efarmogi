@@ -6898,8 +6898,8 @@ async function loadAllProskliseis() {
       if (!fs.existsSync(dataFilePath)) continue;
       try {
         const raw = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
-        // Ισχύουσα λήξη από τροποποιήσεις — και εγγραφή στο δίσκο αν διαφέρει
-        proskliseis.push(applyEffectiveDeadlineToProsklisi(raw, folderPath, { persist: true }));
+        // Ισχύουσα λήξη από τροποποιήσεις (μόνο στη μνήμη — χωρίς εγγραφή στο hot path φόρτωσης)
+        proskliseis.push(applyEffectiveDeadlineToProsklisi(raw, folderPath, { persist: false }));
       } catch (parseError) {
         console.error('Error parsing prosklisi data:', parseError);
       }
@@ -11825,7 +11825,7 @@ function startProcurementCalendarReminderChecker() {
       logger.error('Procurement calendar reminder init failed', e);
     }
   };
-  setTimeout(run, 5 * 60 * 1000);
+  setTimeout(run, 15 * 60 * 1000);
   setInterval(run, 2 * 60 * 60 * 1000);
   try {
     schedule.scheduleJob('0 8 * * *', run);

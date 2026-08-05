@@ -16,6 +16,17 @@ const INDEX_VERSION = 1;
 /** Ανοχή mtime σε κοινό φάκελο (SMB/FAT συχνά στρογγυλοποιούν· 2ms ακύρωνε το ευρετήριο συνέχεια). */
 const MTIME_TOLERANCE_MS = 2000;
 
+/**
+ * Πόσο καιρό μπορούμε να παραλείψουμε τον έλεγχο «λείπει έργο;» μετά από αρνητικό αποτέλεσμα.
+ * Σε κοινό φάκελο ο έλεγχος κάνει readdir σε κάθε φόρτωση — ακριβό.
+ * Νέα έργα από άλλον υπολογιστή εμφανίζονται το αργότερο μετά από αυτό το παράθυρο
+ * (ή αμέσως αν ενημερωθεί το ευρετήριο μέσω upsert/rebuild).
+ */
+const MISSING_CHECK_TTL_MS = 30000;
+
+/** Cache αρνητικού αποτελέσματος ανά dataDir (θετικό = λείπει έργο → δεν κρατάμε, επιβάλλει σάρωση). */
+const missingCheckCacheByDir = new Map();
+
 /** Φάκελοι έργων = UUID v4 — αγνοούμε temp/NAS/σκουπίδια στον έλεγχο ελλείψεων. */
 const PROJECT_DIR_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -91,6 +102,7 @@ function entryFromDisk(dataDir, projectId, subprojectId, data) {
 }
 
 function rebuildProjectsIndex(dataDir, projects) {
+  clearMissingProjectsCheckCache(dataDir);
   const entries = (projects || [])
     .filter((p) => p && p.projectId && p.subprojectId)
     .map((p) => entryFromDisk(dataDir, p.projectId, p.subprojectId, p));
@@ -132,7 +144,7 @@ function upsertProjectsIndexEntry(dataDir, projectData) {
   if (!dataDir || !projectData?.projectId || !projectData?.subprojectId) return false;
   const entry = entryFromDisk(dataDir, projectData.projectId, projectData.subprojectId, projectData);
   const sid = entry.subprojectId;
-  return updateProjectsIndexSafely(
+  const ok = updateProjectsIndexSafely(
     dataDir,
     // Χωρίς υπάρχον ευρετήριο δεν φτιάχνουμε καινούργιο με μία μόνο εγγραφή: θα έκρυβε
     // όλα τα υπόλοιπα υποέργα. Ξαναχτίζεται ολόκληρο στην επόμενη πλήρη φόρτωση.
@@ -141,22 +153,27 @@ function upsertProjectsIndexEntry(dataDir, projectData) {
       : null),
     (saved) => !!saved && saved.entries.some((e) => e.subprojectId === sid)
   );
+  if (ok) clearMissingProjectsCheckCache(dataDir);
+  return ok;
 }
 
 function removeProjectsIndexEntry(dataDir, subprojectId) {
   if (!dataDir || !subprojectId) return false;
   const sid = String(subprojectId);
-  return updateProjectsIndexSafely(
+  const ok = updateProjectsIndexSafely(
     dataDir,
     (index) => (index && index.entries.some((e) => e.subprojectId === sid)
       ? { ...index, entries: index.entries.filter((e) => e.subprojectId !== sid) }
       : null),
     (saved) => !saved || !saved.entries.some((e) => e.subprojectId === sid)
   );
+  if (ok) clearMissingProjectsCheckCache(dataDir);
+  return ok;
 }
 
 function invalidateProjectsIndex(dataDir) {
   if (!dataDir) return;
+  clearMissingProjectsCheckCache(dataDir);
   const indexPath = getProjectsIndexPath(dataDir);
   try {
     if (fs.existsSync(indexPath)) fs.unlinkSync(indexPath);
@@ -169,15 +186,39 @@ function looksLikeProjectDir(dirName) {
   return PROJECT_DIR_UUID_RE.test(String(dirName || ''));
 }
 
+function clearMissingProjectsCheckCache(dataDir = null) {
+  if (dataDir == null) {
+    missingCheckCacheByDir.clear();
+    return;
+  }
+  missingCheckCacheByDir.delete(String(dataDir));
+}
+
+function rememberMissingCheckOk(dataDir, now = Date.now()) {
+  if (!dataDir) return;
+  missingCheckCacheByDir.set(String(dataDir), { checkedAt: now, missing: false });
+}
+
+function canSkipMissingProjectsCheck(dataDir, now = Date.now()) {
+  if (!dataDir) return false;
+  const hit = missingCheckCacheByDir.get(String(dataDir));
+  if (!hit || hit.missing) return false;
+  return (now - hit.checkedAt) < MISSING_CHECK_TTL_MS;
+}
+
 /**
  * Λείπει ολόκληρο έργο από το ευρετήριο ενώ υπάρχει στον δίσκο;
  *
  * Δίχτυ ασφαλείας: ένα ελλιπές ευρετήριο θα «εξαφάνιζε» υποέργα από όλες τις οθόνες χωρίς
  * κανένα άλλο σημάδι. Εξετάζουμε μόνο φακέλους που μοιάζουν με UUID έργου (όχι temp/NAS).
- * Χωρίς cache αποτελέσματος: σε κοινό φάκελο άλλος υπολογιστής μπορεί να πρόσθεσε έργο
- * χωρίς να ενημερώσει το ευρετήριο — cache θα το έκρυβε προσωρινά.
+ * Αρνητικό αποτέλεσμα (τίποτα δεν λείπει) κρατιέται για MISSING_CHECK_TTL_MS ώστε
+ * να μην πληρώνουμε readdir σε κάθε φόρτωση σε κοινό φάκελο. Θετικό δεν κρατιέται —
+ * επιβάλλει πλήρη σάρωση. Η cache μηδενίζεται σε invalidate/rebuild/upsert/remove.
  */
 function indexIsMissingProjects(dataDir, index, skipRoot) {
+  if (canSkipMissingProjectsCheck(dataDir)) {
+    return false;
+  }
   try {
     const indexedProjects = new Set(index.entries.map((e) => e.projectId));
     for (const dir of fs.readdirSync(dataDir)) {
@@ -200,9 +241,13 @@ function indexIsMissingProjects(dataDir, index, skipRoot) {
             return false;
           }
         });
-        if (hasIndexableSubproject) return true;
+        if (hasIndexableSubproject) {
+          clearMissingProjectsCheckCache(dataDir);
+          return true;
+        }
       } catch { /* προσπερνάμε προβληματικό φάκελο */ }
     }
+    rememberMissingCheckOk(dataDir);
     return false;
   } catch {
     return false;
@@ -317,6 +362,7 @@ module.exports = {
   INDEX_LOCK_FILE_NAME,
   INDEX_VERSION,
   MTIME_TOLERANCE_MS,
+  MISSING_CHECK_TTL_MS,
   getProjectsIndexPath,
   getProjectsIndexLockPath,
   readProjectsIndex,
@@ -329,4 +375,8 @@ module.exports = {
   findIndexedSubprojectPath,
   entryFromDisk,
   looksLikeProjectDir,
+  clearMissingProjectsCheckCache,
+  canSkipMissingProjectsCheck,
+  rememberMissingCheckOk,
+  indexIsMissingProjects,
 };

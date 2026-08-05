@@ -56,6 +56,10 @@ import { useToast } from './ToastProvider';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import { formatDateEl } from '../utils/dateFormat';
 import { showConfirm } from '../utils/confirmModal';
+import {
+  shouldClearAllLocksOnProjectListLoad,
+  getDashboardStartupLoadSteps,
+} from '../utils/dashboardStartupLoad';
 import { exportSubprojectReport } from '../utils/subprojectReportExport';
 import PostSetupChecklistBanner from './PostSetupChecklistBanner';
 import {
@@ -146,7 +150,7 @@ function pickDisplayProjectTitleForGroup(subprojects) {
   return best;
 }
 
-const LOCK_POLL_INTERVAL_MS = 30000;
+const LOCK_POLL_INTERVAL_MS = 60000;
 
 const LazyChunkFallback = styled.div`
   padding: 1rem;
@@ -3511,8 +3515,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   ]);
 
   useEffect(() => {
+    const startup = getDashboardStartupLoadSteps();
+    // Καθαρισμός μόνο κολλημένων κλειδωμάτων στο άνοιγμα της αρχικής
+    // (ο handler δεν σβήνει ενεργά κλειδώματα άλλων χρηστών).
+    if (startup.clearAllLocksOnceOnSessionStart) {
+      void ipcRenderer.invoke('clear-all-locks').catch(() => {});
+    }
     loadDataWithCache();
-    loadLinkedEgkriseis();
+    // egkrisi links ήδη μέσα στο loadDataWithCache — όχι δεύτερη κλήση
+    if (startup.loadLinkedEgkriseisSeparately) {
+      loadLinkedEgkriseis();
+    }
 
     // Φάση 1β: τα συνοπτικά στατιστικά μετά το πρώτο paint — όχι στο κρίσιμο μονοπάτι ανοίγματος
     let idleId = null;
@@ -3574,11 +3587,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       }
     }, { timeout: 3500, fallbackMs: 700 });
   }, [loading, userRole]);
-
-  // Load linked egkriseis only once when component mounts
-  useEffect(() => {
-    loadLinkedEgkriseis();
-  }, []); // Load only once on mount to avoid unnecessary re-renders
 
   // Φόρτωση επιλεγμένων υποέργων πύλης (όταν η υπηρεσία είναι ενεργή)
   useEffect(() => {
@@ -4342,14 +4350,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const loadProjects = async () => {
     const myRequestId = ++loadProjectsRequestIdRef.current;
     try {
-      // Πρώτα καθάρισε τα κολλημένα locks
-      try {
-        const clearResult = await ipcRenderer.invoke('clear-all-locks');
-        if (clearResult.success && clearResult.clearedCount > 0) {
-          console.log(`Cleared ${clearResult.clearedCount} stale locks`);
+      // Μαζικός καθαρισμός κλειδωμάτων: μόνο στην έναρξη συνεδρίας (βλ. startup effect),
+      // όχι σε κάθε ανανέωση λίστας — ακριβό σε κοινό φάκελο.
+      if (shouldClearAllLocksOnProjectListLoad()) {
+        try {
+          const clearResult = await ipcRenderer.invoke('clear-all-locks');
+          if (clearResult.success && clearResult.clearedCount > 0) {
+            console.log(`Cleared ${clearResult.clearedCount} stale locks`);
+          }
+        } catch (clearError) {
+          console.error('Error clearing locks:', clearError);
         }
-      } catch (clearError) {
-        console.error('Error clearing locks:', clearError);
       }
       
       // Αυτόματη συσχέτιση αφαιρέθηκε - χρησιμοποιείται μόνο χειροκίνητη συσχέτιση
