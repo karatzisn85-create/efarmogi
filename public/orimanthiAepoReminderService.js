@@ -1,11 +1,24 @@
 /**
  * Υπενθυμίσεις ΑΕΠΟ για Ωρίμανση Έργων — email + alerts για Dashboard.
+ *
+ * Dedup: ανά πρόταση + κατώφλι ημερών (όχι ανά ημερομηνία αποστολής).
+ * Catch-up: ίδια λογική με το ημερολόγιο προθεσμιών (pickThresholdTriggers).
  */
 const fs = require('fs');
 const path = require('path');
 const { safeWriteJSON } = require('./safeWrite');
-const { loadEmailConfig, isConfigured, createTransporter, escapeHtml, getAppDisplayName } = require('./taskAssignmentEmailService');
+const {
+  loadEmailConfig,
+  isConfigured,
+  createTransporter,
+  escapeHtml,
+  getAppDisplayName,
+} = require('./taskAssignmentEmailService');
 const { loadOrimanthiConfig } = require('./orimanthiConfigService');
+const {
+  pickThresholdTriggers,
+  isWithinQuietHours,
+} = require('./procurementCalendarReminderService');
 
 const REMINDER_LOG_FILE = 'orimanthi-aepo-reminder-log.json';
 
@@ -49,8 +62,15 @@ function formatDateEl(iso) {
   return `${day}/${month}/${year}`;
 }
 
+/** Κλειδί ιστορικού ανά πρόταση + κατώφλι (όχι ανά ημερομηνία αποστολής). */
 function reminderKey(proposalId, daysBefore) {
   return `${proposalId}:${daysBefore}`;
+}
+
+/** Κλειδί ανά παραλήπτη ώστε quiet hours / aepoEmail να μην «καίνε» άλλους. */
+function recipientReminderKey(recipientEmail, proposalId, daysBefore) {
+  const em = String(recipientEmail || '').trim().toLowerCase();
+  return `${em}:${reminderKey(proposalId, daysBefore)}`;
 }
 
 function computeAepoAlerts(proposals, { maxDays = 90, limit = 0 } = {}) {
@@ -76,23 +96,93 @@ function computeAepoAlerts(proposals, { maxDays = 90, limit = 0 } = {}) {
   return { alerts: rows, total };
 }
 
-function resolveRecipientEmails(config, users) {
-  const emails = new Set();
+/**
+ * Παραλήπτες ΑΕΠΟ: ADMIN/SUPERADMIN (+ extra emails από config).
+ * Τηρεί aepoEmail · δεν εξαιρεί ακόμα quiet hours (γίνεται ανά αποστολή).
+ */
+function resolveRecipientUsers(config, users) {
+  const out = [];
+  const seen = new Set();
   const aepoCfg = config?.aepoReminders || {};
+
   if (aepoCfg.useAdminEmails !== false) {
     for (const u of users || []) {
       if (!u.active || !u.approved) continue;
-      if (u.role === 'ADMIN' || u.role === 'SUPERADMIN') {
-        const em = String(u.email || '').trim();
-        if (em.includes('@')) emails.add(em.toLowerCase());
+      if (u.role !== 'ADMIN' && u.role !== 'SUPERADMIN') continue;
+      if (u.notificationPreferences?.aepoEmail === false) continue;
+      const em = String(u.email || '').trim().toLowerCase();
+      if (!em.includes('@') || seen.has(em)) continue;
+      seen.add(em);
+      out.push({
+        email: em,
+        fullName: u.fullName || u.username || em,
+        username: u.username || '',
+        notificationPreferences: u.notificationPreferences || {},
+      });
+    }
+  }
+
+  for (const raw of aepoCfg.recipientEmails || []) {
+    const em = String(raw || '').trim().toLowerCase();
+    if (!em.includes('@') || seen.has(em)) continue;
+    seen.add(em);
+    out.push({
+      email: em,
+      fullName: em,
+      username: '',
+      notificationPreferences: {},
+    });
+  }
+
+  return out;
+}
+
+/** @deprecated Χρησιμοποιήστε resolveRecipientUsers — κρατείται για συμβατότητα. */
+function resolveRecipientEmails(config, users) {
+  return resolveRecipientUsers(config, users).map((r) => r.email);
+}
+
+function getSentThresholdsForProposal(log, recipientEmail, proposalId) {
+  const sent = [];
+  const em = String(recipientEmail || '').trim().toLowerCase();
+  const prefix = `${em}:${proposalId}:`;
+  const legacyPrefix = `${proposalId}:`;
+  for (const key of Object.keys(log?.sent || {})) {
+    if (key.startsWith(prefix)) {
+      const thr = Number(key.slice(prefix.length));
+      if (Number.isFinite(thr)) sent.push(thr);
+      continue;
+    }
+    // Παλιά κλειδιά χωρίς email (πριν το per-recipient): μετράνε για όλους.
+    if (key.startsWith(legacyPrefix) && !key.includes('@')) {
+      const rest = key.slice(legacyPrefix.length);
+      if (/^\d+$/.test(rest)) {
+        const thr = Number(rest);
+        if (Number.isFinite(thr)) sent.push(thr);
       }
     }
   }
-  for (const em of aepoCfg.recipientEmails || []) {
-    const e = String(em || '').trim().toLowerCase();
-    if (e.includes('@')) emails.add(e);
+  return sent;
+}
+
+/**
+ * Ποια ζεύγη (πρόταση, κατώφλι) πρέπει να σταλούν σε έναν παραλήπτη τώρα.
+ * @returns {Map<number, object[]>} threshold → proposals
+ */
+function collectAepoBatchesForRecipient(proposals, thresholds, log, recipientEmail) {
+  const byThreshold = new Map();
+  for (const p of proposals || []) {
+    if (!p?.id || !p.aepoRenewalDate) continue;
+    const daysLeft = daysUntilDate(p.aepoRenewalDate);
+    if (daysLeft === null || daysLeft < 0) continue;
+    const sentThr = getSentThresholdsForProposal(log, recipientEmail, p.id);
+    const toSend = pickThresholdTriggers(daysLeft, thresholds, sentThr);
+    for (const thr of toSend) {
+      if (!byThreshold.has(thr)) byThreshold.set(thr, []);
+      byThreshold.get(thr).push(p);
+    }
   }
-  return [...emails];
+  return byThreshold;
 }
 
 function buildAepoEmailHtml({ proposals, thresholdDays, appName }) {
@@ -137,45 +227,60 @@ async function checkAndSendAepoReminders({ dataDir, loadUsers, loadAllProposals 
 
   const proposals = loadAllProposals();
   const users = loadUsers();
-  const recipients = resolveRecipientEmails(config, users);
+  const recipients = resolveRecipientUsers(config, users);
   if (!recipients.length) return { checked: true, sent: 0, skipped: 'no_recipients' };
 
   const thresholds = [...(aepoCfg.daysBefore || [30, 60, 90])]
     .map((d) => Number(d))
-    .filter((d) => d > 0)
+    .filter((d) => Number.isFinite(d) && d > 0)
     .sort((a, b) => b - a);
 
   const log = loadReminderLog(dataDir);
-  if (!log.sent) log.sent = {};
-  const todayKey = new Date().toISOString().slice(0, 10);
+  if (!log.sent || typeof log.sent !== 'object') log.sent = {};
+
   let sentCount = 0;
   const transporter = createTransporter(emailConfig);
   const appName = getAppDisplayName(emailConfig);
+  const fromUser = String(emailConfig.gmail.user || '').trim().toLowerCase();
 
-  for (const threshold of thresholds) {
-    const matching = (proposals || []).filter((p) => {
-      if (!p.aepoRenewalDate) return false;
-      const daysLeft = daysUntilDate(p.aepoRenewalDate);
-      return daysLeft !== null && daysLeft >= 0 && daysLeft <= threshold;
-    });
-    if (!matching.length) continue;
+  for (const recipient of recipients) {
+    if (isWithinQuietHours(recipient.notificationPreferences)) continue;
 
-    const batchKey = `${todayKey}:${threshold}`;
-    if (log.sent[batchKey]) continue;
+    const batches = collectAepoBatchesForRecipient(
+      proposals,
+      thresholds,
+      log,
+      recipient.email
+    );
 
-    const html = buildAepoEmailHtml({ proposals: matching, thresholdDays: threshold, appName });
-    const user = String(emailConfig.gmail.user || '').trim().toLowerCase();
-    try {
-      await transporter.sendMail({
-        from: `${appName} <${user}>`,
-        to: recipients.join(', '),
-        subject: `🔔 ΑΕΠΟ — ${matching.length} έργ${matching.length === 1 ? 'ο' : 'α'} λήγουν εντός ${threshold} ημερών`,
-        html,
+    const sortedThresholds = [...batches.keys()].sort((a, b) => b - a);
+    for (const threshold of sortedThresholds) {
+      const matching = batches.get(threshold) || [];
+      const pending = matching.filter(
+        (p) => !log.sent[recipientReminderKey(recipient.email, p.id, threshold)]
+      );
+      if (!pending.length) continue;
+
+      const html = buildAepoEmailHtml({
+        proposals: pending,
+        thresholdDays: threshold,
+        appName,
       });
-      log.sent[batchKey] = new Date().toISOString();
-      sentCount += 1;
-    } catch (err) {
-      console.error('[orimanthi] AEPO reminder email failed:', err.message);
+      try {
+        await transporter.sendMail({
+          from: `${appName} <${fromUser}>`,
+          to: recipient.email,
+          subject: `🔔 ΑΕΠΟ — ${pending.length} έργ${pending.length === 1 ? 'ο' : 'α'} λήγουν εντός ${threshold} ημερών`,
+          html,
+        });
+        const now = new Date().toISOString();
+        for (const p of pending) {
+          log.sent[recipientReminderKey(recipient.email, p.id, threshold)] = now;
+        }
+        sentCount += 1;
+      } catch (err) {
+        console.error('[orimanthi] AEPO reminder email failed:', err.message);
+      }
     }
   }
 
@@ -189,5 +294,10 @@ module.exports = {
   daysUntilDate,
   formatDateEl,
   resolveRecipientEmails,
+  resolveRecipientUsers,
+  reminderKey,
+  recipientReminderKey,
+  collectAepoBatchesForRecipient,
+  getSentThresholdsForProposal,
   loadReminderLog,
 };

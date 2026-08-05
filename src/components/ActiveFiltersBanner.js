@@ -3,7 +3,7 @@ import styled, { keyframes } from 'styled-components';
 
 const slideDown = keyframes`
   from {
-    transform: translateY(-100%);
+    transform: translateY(-6px);
     opacity: 0;
   }
   to {
@@ -16,81 +16,81 @@ const Banner = styled.div`
   position: sticky;
   top: 0;
   z-index: 99;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 1rem 1.5rem;
+  background: #f8fafc;
+  color: #475569;
+  padding: 0.4rem 1rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-  animation: ${slideDown} 0.4s ease;
-  border-bottom: 3px solid rgba(255, 255, 255, 0.2);
+  gap: 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  animation: ${slideDown} 0.22s ease;
 `;
 
 const LeftSection = styled.div`
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
+  min-width: 0;
+  flex-wrap: wrap;
 `;
 
-const FilterIcon = styled.div`
-  font-size: 1.5rem;
-  animation: pulse 2s ease-in-out infinite;
-
-  @keyframes pulse {
-    0%, 100% {
-      transform: scale(1);
-    }
-    50% {
-      transform: scale(1.1);
-    }
-  }
+const FilterIcon = styled.span`
+  font-size: 0.85rem;
+  line-height: 1;
+  color: #64748b;
+  flex-shrink: 0;
 `;
 
 const FilterBadge = styled.span`
-  background: rgba(255, 255, 255, 0.3);
-  color: white;
-  font-weight: 700;
-  font-size: 1.1rem;
-  padding: 0.4rem 0.9rem;
-  border-radius: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  background: #e2e8f0;
+  color: #334155;
+  font-weight: 650;
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  line-height: 1.3;
+  flex-shrink: 0;
 `;
 
 const FilterMessage = styled.span`
-  font-size: 1rem;
+  font-size: 0.82rem;
   font-weight: 500;
-  letter-spacing: 0.3px;
+  color: #64748b;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 `;
 
 const ClearButton = styled.button`
-  background: rgba(255, 255, 255, 0.25);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.6);
-  padding: 0.6rem 1.5rem;
-  border-radius: 8px;
-  font-size: 0.95rem;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  padding: 0.28rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  white-space: nowrap;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.4);
-    border-color: rgba(255, 255, 255, 0.9);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+    color: #334155;
   }
 
   &::before {
-    content: "✕";
-    font-size: 1.2rem;
+    content: '✕';
+    font-size: 0.7rem;
     font-weight: 700;
+    opacity: 0.7;
   }
 `;
 
@@ -99,21 +99,20 @@ function ActiveFiltersBanner({ activeFilterCount, onClearFilters, portfolioDrill
   if (totalCount === 0) return null;
 
   return (
-    <Banner>
+    <Banner role="status" aria-live="polite">
       <LeftSection>
-        <FilterIcon>🔍</FilterIcon>
+        <FilterIcon aria-hidden="true">🔍</FilterIcon>
         <FilterBadge>{totalCount}</FilterBadge>
         <FilterMessage>
-          {totalCount === 1 ? 'Ενεργό Φίλτρο' : 'Ενεργά Φίλτρα'}
+          {totalCount === 1 ? 'Ενεργό φίλτρο' : 'Ενεργά φίλτρα'}
           {portfolioDrillLabel ? ` · ΚΗΜΔΗΣ: ${portfolioDrillLabel}` : ''}
         </FilterMessage>
       </LeftSection>
-      <ClearButton onClick={onClearFilters}>
-        Καθαρισμός Φίλτρων
+      <ClearButton type="button" onClick={onClearFilters}>
+        Καθαρισμός
       </ClearButton>
     </Banner>
   );
 }
 
 export default ActiveFiltersBanner;
-

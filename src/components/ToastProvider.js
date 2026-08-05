@@ -59,13 +59,17 @@ const iconColors = {
 
 const ToastContainer = styled.div`
   position: fixed;
-  bottom: 24px;
+  /* Πάνω από FAB + στοίβα εργασιών (CSS vars από bottomRightStack / Dashboard). */
+  bottom: calc(
+    var(--ergohub-corner-clearance, 24px) + var(--ergohub-task-toast-lift, 0px)
+  );
   right: 24px;
-  z-index: 100010;
+  z-index: 10100;
   display: flex;
   flex-direction: column-reverse;
   gap: 10px;
   pointer-events: none;
+  max-width: min(480px, calc(100vw - 2rem));
 `;
 
 const ToastItem = styled.div`

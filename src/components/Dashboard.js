@@ -26,6 +26,11 @@ import {
   applyLockMapToProjects,
   sortProjectsForDisplay
 } from '../utils/dashboardProjectLocks';
+import {
+  clearCornerClearance,
+  computeFabClearancePx,
+  setCornerClearancePx,
+} from '../utils/bottomRightStack';
 import { containsSearchTerm } from '../utils/searchUtils';
 import {
   getProjectChargeSearchText,
@@ -5728,6 +5733,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     if (!noteId) return;
     noteReturnRef.current = { noteId, wasEditing: !!editingNote?.id };
   }, [isNotesOpen, editingNote, selectedNoteId]);
+
+  // UX-A5: κράτα χώρο κάτω-δεξιά για FAB ώστε toast / ειδοποιήσεις εργασιών να μην τα καλύπτουν.
+  useEffect(() => {
+    const notesVisible = (canManageAll || isEngineer) && !isNotesOpen;
+    const opsVisible = (canManageAll || isEngineer || userRole === 'USER') && !isNotesOpen;
+    const khmdhsVisible = opsVisible && (userRole === 'ADMIN' || userRole === 'SUPERADMIN');
+    setCornerClearancePx(
+      computeFabClearancePx({ notesVisible, opsVisible, khmdhsVisible })
+    );
+    return () => clearCornerClearance();
+  }, [canManageAll, isEngineer, isNotesOpen, userRole]);
 
   const restoreNoteReturnContext = useCallback(() => {
     const ctx = noteReturnRef.current;

@@ -1,5 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import styled, { keyframes } from 'styled-components';
+import {
+  TOAST_STACK_GAP_PX,
+  clearTaskToastLift,
+  setTaskToastLiftPx,
+} from '../utils/bottomRightStack';
 
 const DISMISS_TASK_EVENT = 'ef-task-toast-dismiss';
 const AUTO_DISMISS_MS = 14500;
@@ -50,13 +55,13 @@ const STARTUP_STAGGER_MS = 420;
 
 const StackRoot = styled.div`
   position: fixed;
-  bottom: 1rem;
-  right: 1rem;
+  bottom: var(--ergohub-corner-clearance, 24px);
+  right: 24px;
   top: auto;
   left: auto;
   z-index: 10050;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   justify-content: flex-end;
   align-items: flex-end;
   gap: 0.75rem;
@@ -502,10 +507,38 @@ function TaskAssignmentToastHost({ actingUsername, onOpenTaskAssignment, onNotif
     if (typeof onOpenTaskAssignment === 'function') onOpenTaskAssignment(t.taskId);
   };
 
+  const stackRootRef = useRef(null);
+
+  useEffect(() => {
+    const el = stackRootRef.current;
+    if (!el || toasts.length === 0) {
+      clearTaskToastLift();
+      return undefined;
+    }
+
+    const publishLift = () => {
+      const h = el.offsetHeight || 0;
+      setTaskToastLiftPx(h > 0 ? h + TOAST_STACK_GAP_PX : 0);
+    };
+
+    publishLift();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(publishLift) : null;
+    if (ro) ro.observe(el);
+
+    return () => {
+      if (ro) ro.disconnect();
+      clearTaskToastLift();
+    };
+  }, [toasts.length, actingUsername]);
+
   if (!actingUsername) return null;
 
   return (
-    <StackRoot aria-live="polite" aria-label="Ειδοποιήσεις χώρου εργασίας">
+    <StackRoot
+      ref={stackRootRef}
+      aria-live="polite"
+      aria-label="Ειδοποιήσεις χώρου εργασίας"
+    >
       {toasts.map((t) => (
         <ToastSurface key={t.id} $accent={toastAccent(t.type)} role="status">
           <ToastInner>
