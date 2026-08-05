@@ -325,7 +325,10 @@ function createWindow() {
     }, 5 * 60 * 1000);
   });
 
-  // Error handlers for the window
+  // Error handlers for the window (Electron 28+: render-process-gone· κρατάμε και crashed για συμβατότητα)
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Renderer process gone:', details?.reason || details);
+  });
   mainWindow.webContents.on('crashed', () => {
     console.error('Window crashed');
   });

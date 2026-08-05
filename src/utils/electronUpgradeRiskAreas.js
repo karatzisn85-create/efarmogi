@@ -125,9 +125,12 @@ export function getCriticalRiskAreas() {
 
 /** Προτεινόμενες φάσεις αναβάθμισης (όχι άλμα 25→τελευταίο). */
 export const ELECTRON_UPGRADE_PHASES = Object.freeze([
-  { id: 'A', from: 25, to: 28, label: 'Πρώτο σκαλοπάτι' },
-  { id: 'B', from: 28, to: 33, label: 'Ορόσημο Node 20 / Chromium 130' },
-  { id: 'C', from: 33, to: 'supported', label: 'Τρέχουσα υποστηριζόμενη γραμμή (π.χ. 40+)' },
+  { id: 'A', from: 25, to: 28, label: 'Πρώτο σκαλοπάτι', status: 'passed' },
+  { id: 'B', from: 28, to: 33, label: 'Ορόσημο Node 20 / Chromium 130', status: 'pending' },
+  { id: 'C', from: 33, to: 'supported', label: 'Τρέχουσα υποστηριζόμενη γραμμή (π.χ. 40+)', status: 'pending' },
 ]);
 
-export const CURRENT_ELECTRON_MAJOR = 25;
+export const CURRENT_ELECTRON_MAJOR = 28;
+
+/** Προηγούμενη σταθερή γραμμή παραγωγής (επιστροφή αν αποτύχει η φάση). */
+export const ELECTRON_ROLLBACK_MAJOR = 25;

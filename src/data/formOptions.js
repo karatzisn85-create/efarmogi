@@ -264,6 +264,27 @@ export function statusShowsAssignmentProcedure(status) {
   return PROJECT_STATUSES.indexOf(status) >= PROJECT_STATUSES.indexOf(MIN_STATUS_FOR_ASSIGNMENT_PROCEDURE);
 }
 
+/**
+ * Στην ωρίμανση / απένταξη η μορφή υλοποίησης μπορεί να μείνει κενή
+ * (συμπληρώνεται αργότερα ή από ΚΗΜΔΗΣ όταν προχωρήσει η κατάσταση).
+ */
+export function statusAllowsEmptyImplementationForm(status) {
+  if (!status) return false;
+  if (isAbandonedSubproject(status)) return true;
+  return status === 'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ';
+}
+
+export const IMPLEMENTATION_FORM_REQUIRED_MESSAGE =
+  'Επιλέξτε μορφή υλοποίησης ή κάντε ανάκτηση ΚΗΜΔΗΣ για αυτόματο συμπλήρωμα';
+
+/** null αν επιτρέπεται κενό· αλλιώς μήνυμα για μπλοκάρισμα αποθήκευσης */
+export function getImplementationFormValidationError(formData) {
+  if (!formData || typeof formData !== 'object') return IMPLEMENTATION_FORM_REQUIRED_MESSAGE;
+  if (formData.implementationForm) return null;
+  if (statusAllowsEmptyImplementationForm(formData.projectStatus)) return null;
+  return IMPLEMENTATION_FORM_REQUIRED_MESSAGE;
+}
+
 /** Καταστάσεις με υπογεγραμμένη σύμβαση — ΑΔΑΜ ΚΗΜΔΗΣ + στοιχεία σύμβασης στη φόρμα */
 export const STATUSES_WITH_KHMDHS_ADAM = [
   'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',

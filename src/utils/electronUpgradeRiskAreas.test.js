@@ -8,6 +8,7 @@ import {
   getSmokeRequiredRiskAreas,
   getCriticalRiskAreas,
   CURRENT_ELECTRON_MAJOR,
+  ELECTRON_ROLLBACK_MAJOR,
 } from './electronUpgradeRiskAreas';
 
 describe('electronUpgradeRiskAreas — E1 χάρτης κινδύνου', () => {
@@ -32,11 +33,16 @@ describe('electronUpgradeRiskAreas — E1 χάρτης κινδύνου', () => 
     }
   });
 
-  test('φάσεις αναβάθμισης ξεκινούν από το τρέχον major και δεν είναι άλμα', () => {
-    expect(CURRENT_ELECTRON_MAJOR).toBe(25);
+  test('φάσεις αναβάθμισης ξεκινούν από το προηγούμενο major και δεν είναι άλμα', () => {
+    expect(CURRENT_ELECTRON_MAJOR).toBe(28);
     expect(ELECTRON_UPGRADE_PHASES[0].from).toBe(25);
     expect(ELECTRON_UPGRADE_PHASES[0].to).toBe(28);
+    expect(ELECTRON_UPGRADE_PHASES[0].status).toBe('passed');
     expect(ELECTRON_UPGRADE_PHASES.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('υπάρχει ρητή γραμμή επιστροφής στο Electron 25', () => {
+    expect(ELECTRON_ROLLBACK_MAJOR).toBe(25);
   });
 
   test('κάθε περιοχή έχει id, severity, title, why', () => {

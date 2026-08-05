@@ -22,6 +22,8 @@ import {
   statusShowsAssignmentProcedure,
   PROJECT_STATUS_CONTRACT_PROCESS,
   isAbandonedSubproject,
+  statusAllowsEmptyImplementationForm,
+  getImplementationFormValidationError,
 } from '../data/formOptions';
 import {
   emptyKhmdhsOnContract,
@@ -3400,9 +3402,9 @@ function ProjectForm({
       return { isValid: Object.keys(newErrors).length === 0, errors: newErrors };
     }
 
-    if (!fd.implementationForm) {
-      newErrors.implementationForm =
-        'Επιλέξτε μορφή υλοποίησης ή κάντε ανάκτηση ΚΗΜΔΗΣ για αυτόματο συμπλήρωμα';
+    const implementationFormErr = getImplementationFormValidationError(fd);
+    if (implementationFormErr) {
+      newErrors.implementationForm = implementationFormErr;
     }
 
     const needsKhmdhsPanel = fd.implementationForm
@@ -7290,7 +7292,14 @@ function ProjectForm({
             <SectionTitle $nobar $color="#7c3aed">🔢 Κωδικοί</SectionTitle>
             <FormGrid cols={2}>
               <FormGroup>
-                <Label>Μορφή Υλοποίησης{manualPhaseSavedOnce && !phaseADirty ? ' *' : ''}</Label>
+                <Label>
+                  Μορφή Υλοποίησης
+                  {manualPhaseSavedOnce
+                    && !phaseADirty
+                    && !statusAllowsEmptyImplementationForm(formData.projectStatus)
+                    ? ' *'
+                    : ''}
+                </Label>
                 <Select
                   value={formData.implementationForm}
                   onChange={(e) => handleInputChange('implementationForm', e.target.value)}
