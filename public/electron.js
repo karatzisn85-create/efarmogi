@@ -319,8 +319,10 @@ function createWindow() {
     startLockWatcher(mainWindow);
     // Καθαρισμός παλιών temp files κατά την εκκίνηση
     cleanupOldTempFiles();
-    // Καθαρισμός αντιγράφων πριν την ανανέωση που δεν χρειάζονται πια
-    try { cleanupOldKhmdhsSnapshots(); } catch { /* ignore */ }
+    // Καθαρισμός αντιγράφων πριν την ανανέωση — στο παρασκήνιο, όχι στο πρώτο paint
+    setTimeout(() => {
+      try { cleanupOldKhmdhsSnapshots(); } catch { /* ignore */ }
+    }, 5 * 60 * 1000);
   });
 
   // Error handlers for the window
@@ -3611,50 +3613,31 @@ ipcMain.handle('check-khmdhs-staleness', async (_event, { maxAgeDays = null, act
     const staleAfterDays = Number.isFinite(Number(maxAgeDays)) && Number(maxAgeDays) > 0
       ? Number(maxAgeDays)
       : refreshSeed.KHMDHS_STALE_DAYS;
-    let projectDirs = [];
-    try { projectDirs = fs.readdirSync(dataDir); } catch { projectDirs = []; }
-    for (const projectDir of projectDirs) {
-      try {
-        if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
-        const projectPath = path.join(dataDir, projectDir);
-        let pStat;
-        try { pStat = fs.statSync(projectPath); } catch { continue; }
-        if (!pStat.isDirectory()) continue;
-        let subDirs = [];
-        try { subDirs = fs.readdirSync(projectPath); } catch { continue; }
-        for (const subDir of subDirs) {
-          try {
-            const subPath = path.join(projectPath, subDir);
-            let sStat;
-            try { sStat = fs.statSync(subPath); } catch { continue; }
-            if (!sStat.isDirectory()) continue;
-            const jsonPath = path.join(subPath, 'data.json');
-            if (!fs.existsSync(jsonPath)) continue;
-            let project;
-            try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
-            const sid = project.subprojectId;
-            if (!sid) continue;
-            // Ίδιο φίλτρο με loadAllProjects — ορφανά/κενά records δεν εμφανίζονται στη λίστα
-            // αλλά παλιά μετρούσαν εδώ και έδειχναν «χρειάζονται ανανέωση» χωρίς έργο στην οθόνη.
-            const pTitle = String(project.projectTitle || '').trim();
-            const sTitle = String(project.subprojectTitle || '').trim();
-            if (!pTitle || !sTitle || pTitle === 'undefined' || sTitle === 'undefined') continue;
-            if (refreshSeed.isKhmdhsChainClosedSubproject(project)) continue;
-            const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
-            if (!seedInfo.adam) continue;
 
-            const { ageDays, lastRefreshed } = refreshSeed.getKhmdhsRefreshAge(project);
-            if (ageDays == null || ageDays >= staleAfterDays) {
-              stale.push({
-                id: sid,
-                label: sTitle || sid,
-                lastRefreshed,
-                ageDays,
-              });
-            }
-          } catch { /* προσπερνάμε προβληματικό υποέργο */ }
+    // Επαναχρησιμοποίηση loadAllProjects (ευρετήριο) — όχι δεύτερη πλήρης σάρωση του δίσκου.
+    const projects = await loadAllProjects();
+    for (const project of projects || []) {
+      try {
+        if (!project) continue;
+        const sid = project.subprojectId;
+        if (!sid) continue;
+        const pTitle = String(project.projectTitle || '').trim();
+        const sTitle = String(project.subprojectTitle || '').trim();
+        if (!pTitle || !sTitle || pTitle === 'undefined' || sTitle === 'undefined') continue;
+        if (refreshSeed.isKhmdhsChainClosedSubproject(project)) continue;
+        const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
+        if (!seedInfo.adam) continue;
+
+        const { ageDays, lastRefreshed } = refreshSeed.getKhmdhsRefreshAge(project);
+        if (ageDays == null || ageDays >= staleAfterDays) {
+          stale.push({
+            id: sid,
+            label: sTitle || sid,
+            lastRefreshed,
+            ageDays,
+          });
         }
-      } catch { /* προσπερνάμε προβληματικό φάκελο έργου */ }
+      } catch { /* προσπερνάμε προβληματικό υποέργο */ }
     }
     return { success: true, stale };
   } catch (e) {
@@ -11808,7 +11791,7 @@ function startNoteReminderChecker() {
     } catch (error) {
       logger.error('Note reminder check failed', error);
     }
-  }, 60 * 1000);
+  }, 5 * 60 * 1000);
 }
 
 startNoteReminderChecker();
@@ -11842,7 +11825,7 @@ function startProcurementCalendarReminderChecker() {
       logger.error('Procurement calendar reminder init failed', e);
     }
   };
-  setTimeout(run, 90 * 1000);
+  setTimeout(run, 5 * 60 * 1000);
   setInterval(run, 2 * 60 * 60 * 1000);
   try {
     schedule.scheduleJob('0 8 * * *', run);

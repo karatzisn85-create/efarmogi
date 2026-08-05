@@ -32,25 +32,32 @@ const {
   invalidateProjectsIndex,
   loadProjectsViaIndex,
   findIndexedSubprojectPath,
+  MTIME_TOLERANCE_MS,
+  writeProjectsIndex,
 } = require('../../public/projectsIndex');
+
+const PROJECT_A = 'aaaaaaaa-1111-4111-a111-111111111111';
+const SUB_1 = 'bbbbbbbb-2222-4222-a222-222222222222';
+const PROJECT_B = 'cccccccc-3333-4333-a333-333333333333';
+const SUB_9 = 'dddddddd-4444-4444-a444-444444444444';
+
+function writeSubproject(root, projectId, subprojectId, data) {
+  const dir = path.join(root, projectId, subprojectId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify(data), 'utf8');
+}
 
 describe('projectsIndex', () => {
   let dataDir;
 
   beforeEach(() => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eh-idx-'));
-    const p1 = path.join(dataDir, 'proj-a', 'sub-1');
-    fs.mkdirSync(p1, { recursive: true });
-    fs.writeFileSync(
-      path.join(p1, 'data.json'),
-      JSON.stringify({
-        projectId: 'proj-a',
-        subprojectId: 'sub-1',
-        projectTitle: 'Έργο Α',
-        subprojectTitle: 'Υποέργο 1',
-      }),
-      'utf8'
-    );
+    writeSubproject(dataDir, PROJECT_A, SUB_1, {
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
+      projectTitle: 'Έργο Α',
+      subprojectTitle: 'Υποέργο 1',
+    });
   });
 
   afterEach(() => {
@@ -60,8 +67,8 @@ describe('projectsIndex', () => {
 
   test('rebuild + load via index', () => {
     const projects = [{
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1',
     }];
@@ -81,30 +88,30 @@ describe('projectsIndex', () => {
 
   test('upsert and remove entry', () => {
     rebuildProjectsIndex(dataDir, [{
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1',
     }]);
     upsertProjectsIndexEntry(dataDir, {
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1β',
     });
     expect(readProjectsIndex(dataDir).entries[0].subprojectTitle).toBe('Υποέργο 1β');
-    removeProjectsIndexEntry(dataDir, 'sub-1');
+    removeProjectsIndexEntry(dataDir, SUB_1);
     expect(readProjectsIndex(dataDir).entries).toHaveLength(0);
   });
 
   test('missing file forces null (fallback to scan)', () => {
     rebuildProjectsIndex(dataDir, [{
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1',
     }]);
-    fs.unlinkSync(path.join(dataDir, 'proj-a', 'sub-1', 'data.json'));
+    fs.unlinkSync(path.join(dataDir, PROJECT_A, SUB_1, 'data.json'));
     const loaded = loadProjectsViaIndex(dataDir, {
       skipRoot: new Set(),
       normalizeProjectTypeField: () => {},
@@ -116,28 +123,27 @@ describe('projectsIndex', () => {
 
   test('η ταυτόχρονη εγγραφή δεν χάνει εγγραφή — η ενημέρωση επιβεβαιώνεται', () => {
     rebuildProjectsIndex(dataDir, [{
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1',
     }]);
 
     // Προσομοίωση άλλου υπολογιστή που γράφει την ίδια στιγμή και «πατάει» τη νέα εγγραφή.
     let clobbered = false;
+    const sub2 = 'eeeeeeee-5555-4555-a555-555555555555';
     global.__ehWriteInterceptor = (filePath, data, write) => {
       if (clobbered || !filePath.endsWith('projects_index.json')) return false;
       clobbered = true;
-      write(filePath, { ...data, entries: data.entries.filter((e) => e.subprojectId !== 'sub-2') });
+      write(filePath, { ...data, entries: data.entries.filter((e) => e.subprojectId !== sub2) });
       return true;
     };
 
-    const p2 = path.join(dataDir, 'proj-a', 'sub-2');
-    fs.mkdirSync(p2, { recursive: true });
-    fs.writeFileSync(path.join(p2, 'data.json'), JSON.stringify({ subprojectId: 'sub-2' }), 'utf8');
+    writeSubproject(dataDir, PROJECT_A, sub2, { subprojectId: sub2 });
 
     const ok = upsertProjectsIndexEntry(dataDir, {
-      projectId: 'proj-a',
-      subprojectId: 'sub-2',
+      projectId: PROJECT_A,
+      subprojectId: sub2,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 2',
     });
@@ -145,15 +151,15 @@ describe('projectsIndex', () => {
     expect(ok).toBe(true);
     expect(clobbered).toBe(true);
     const ids = readProjectsIndex(dataDir).entries.map((e) => e.subprojectId);
-    expect(ids).toContain('sub-2');
-    expect(ids).toContain('sub-1');
+    expect(ids).toContain(sub2);
+    expect(ids).toContain(SUB_1);
   });
 
   test('χωρίς ευρετήριο, η αποθήκευση δεν φτιάχνει ευρετήριο με μία εγγραφή', () => {
     invalidateProjectsIndex(dataDir);
     upsertProjectsIndexEntry(dataDir, {
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1',
     });
@@ -161,22 +167,19 @@ describe('projectsIndex', () => {
     expect(readProjectsIndex(dataDir)).toBeNull();
   });
 
-  test('ελλιπές ευρετήριο (λείπει ολόκληρο έργο) επιβάλλει πλήρη σάρωση', () => {
+  test('ελλιπές ευρετήριο (λείπει ολόκληρο έργο UUID) επιβάλλει πλήρη σάρωση', () => {
     rebuildProjectsIndex(dataDir, [{
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1',
     }]);
-    // Δεύτερο έργο στον δίσκο που δεν πρόλαβε να μπει στο ευρετήριο.
-    const other = path.join(dataDir, 'proj-b', 'sub-9');
-    fs.mkdirSync(other, { recursive: true });
-    fs.writeFileSync(path.join(other, 'data.json'), JSON.stringify({
-      projectId: 'proj-b',
-      subprojectId: 'sub-9',
+    writeSubproject(dataDir, PROJECT_B, SUB_9, {
+      projectId: PROJECT_B,
+      subprojectId: SUB_9,
       projectTitle: 'Έργο Β',
       subprojectTitle: 'Υποέργο 9',
-    }), 'utf8');
+    });
 
     const loaded = loadProjectsViaIndex(dataDir, {
       skipRoot: new Set(),
@@ -189,14 +192,14 @@ describe('projectsIndex', () => {
 
   test('χαλασμένο υποέργο εκτός ευρετηρίου δεν επιβάλλει πλήρη σάρωση', () => {
     rebuildProjectsIndex(dataDir, [{
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1',
     }]);
-    const broken = path.join(dataDir, 'proj-x', 'sub-x');
-    fs.mkdirSync(broken, { recursive: true });
-    fs.writeFileSync(path.join(broken, 'data.json'), JSON.stringify({ projectId: 'proj-x' }), 'utf8');
+    const brokenId = 'ffffffff-6666-4666-a666-666666666666';
+    const brokenSub = '99999999-7777-4777-a777-777777777777';
+    writeSubproject(dataDir, brokenId, brokenSub, { projectId: brokenId });
 
     const loaded = loadProjectsViaIndex(dataDir, {
       skipRoot: new Set(),
@@ -208,10 +211,75 @@ describe('projectsIndex', () => {
     expect(loaded).toHaveLength(1);
   });
 
+  test('φάκελος σκουπιδιών (μη UUID) δεν επιβάλλει πλήρη σάρωση', () => {
+    rebuildProjectsIndex(dataDir, [{
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
+      projectTitle: 'Έργο Α',
+      subprojectTitle: 'Υποέργο 1',
+    }]);
+    writeSubproject(dataDir, 'tmp-nas-junk', 'sub-x', {
+      projectId: 'tmp-nas-junk',
+      subprojectId: 'sub-x',
+      projectTitle: 'Ψεύτικο',
+      subprojectTitle: 'Ψεύτικο υποέργο',
+    });
+
+    const loaded = loadProjectsViaIndex(dataDir, {
+      skipRoot: new Set(),
+      normalizeProjectTypeField: () => {},
+      isProjectLocked: () => ({ locked: false }),
+      loggedSubprojectIdMismatches: new Set(),
+    });
+    expect(Array.isArray(loaded)).toBe(true);
+    expect(loaded).toHaveLength(1);
+  });
+
+  test('μικρή διαφορά mtime (SMB) δεν ακυρώνει το ευρετήριο', () => {
+    rebuildProjectsIndex(dataDir, [{
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
+      projectTitle: 'Έργο Α',
+      subprojectTitle: 'Υποέργο 1',
+    }]);
+    const index = readProjectsIndex(dataDir);
+    index.entries[0].mtimeMs = index.entries[0].mtimeMs - Math.floor(MTIME_TOLERANCE_MS / 2);
+    writeProjectsIndex(dataDir, index);
+
+    const loaded = loadProjectsViaIndex(dataDir, {
+      skipRoot: new Set(),
+      normalizeProjectTypeField: () => {},
+      isProjectLocked: () => ({ locked: false }),
+      loggedSubprojectIdMismatches: new Set(),
+    });
+    expect(Array.isArray(loaded)).toBe(true);
+    expect(loaded).toHaveLength(1);
+  });
+
+  test('μεγάλη διαφορά mtime επιβάλλει πλήρη σάρωση', () => {
+    rebuildProjectsIndex(dataDir, [{
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
+      projectTitle: 'Έργο Α',
+      subprojectTitle: 'Υποέργο 1',
+    }]);
+    const index = readProjectsIndex(dataDir);
+    index.entries[0].mtimeMs = index.entries[0].mtimeMs - (MTIME_TOLERANCE_MS + 5000);
+    writeProjectsIndex(dataDir, index);
+
+    const loaded = loadProjectsViaIndex(dataDir, {
+      skipRoot: new Set(),
+      normalizeProjectTypeField: () => {},
+      isProjectLocked: () => ({ locked: false }),
+      loggedSubprojectIdMismatches: new Set(),
+    });
+    expect(loaded).toBeNull();
+  });
+
   test('δεν μένει κλείδωμα ευρετηρίου μετά την ενημέρωση', () => {
     upsertProjectsIndexEntry(dataDir, {
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1',
     });
@@ -220,12 +288,12 @@ describe('projectsIndex', () => {
 
   test('findIndexedSubprojectPath + invalidate', () => {
     rebuildProjectsIndex(dataDir, [{
-      projectId: 'proj-a',
-      subprojectId: 'sub-1',
+      projectId: PROJECT_A,
+      subprojectId: SUB_1,
       projectTitle: 'Έργο Α',
       subprojectTitle: 'Υποέργο 1',
     }]);
-    expect(findIndexedSubprojectPath(dataDir, 'sub-1')).toContain('data.json');
+    expect(findIndexedSubprojectPath(dataDir, SUB_1)).toContain('data.json');
     invalidateProjectsIndex(dataDir);
     expect(readProjectsIndex(dataDir)).toBeNull();
   });

@@ -13,6 +13,13 @@ const INDEX_FILE_NAME = 'projects_index.json';
 const INDEX_LOCK_FILE_NAME = 'projects_index.lock';
 const INDEX_VERSION = 1;
 
+/** Ανοχή mtime σε κοινό φάκελο (SMB/FAT συχνά στρογγυλοποιούν· 2ms ακύρωνε το ευρετήριο συνέχεια). */
+const MTIME_TOLERANCE_MS = 2000;
+
+/** Φάκελοι έργων = UUID v4 — αγνοούμε temp/NAS/σκουπίδια στον έλεγχο ελλείψεων. */
+const PROJECT_DIR_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function getProjectsIndexPath(dataDir) {
   return path.join(dataDir, INDEX_FILE_NAME);
 }
@@ -105,7 +112,7 @@ function rebuildProjectsIndex(dataDir, projects) {
  * @param {(saved: object|null) => boolean} verify επιβεβαιώνει ότι η αλλαγή έμεινε στον δίσκο
  */
 function updateProjectsIndexSafely(dataDir, mutate, verify) {
-  return withServiceLock(getProjectsIndexLockPath(dataDir), () => {
+  const result = withServiceLock(getProjectsIndexLockPath(dataDir), () => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const index = readProjectsIndex(dataDir);
       const next = mutate(index);
@@ -117,6 +124,8 @@ function updateProjectsIndexSafely(dataDir, mutate, verify) {
     invalidateProjectsIndex(dataDir);
     return false;
   });
+  // Lock δεν αποκτήθηκε → δεν γράψαμε
+  return result === true;
 }
 
 function upsertProjectsIndexEntry(dataDir, projectData) {
@@ -156,12 +165,17 @@ function invalidateProjectsIndex(dataDir) {
   }
 }
 
+function looksLikeProjectDir(dirName) {
+  return PROJECT_DIR_UUID_RE.test(String(dirName || ''));
+}
+
 /**
  * Λείπει ολόκληρο έργο από το ευρετήριο ενώ υπάρχει στον δίσκο;
  *
  * Δίχτυ ασφαλείας: ένα ελλιπές ευρετήριο θα «εξαφάνιζε» υποέργα από όλες τις οθόνες χωρίς
- * κανένα άλλο σημάδι. Ο έλεγχος είναι φθηνός — διαβάζει τον φάκελο έργου μόνο όταν αυτός
- * λείπει εντελώς από το ευρετήριο, που κανονικά δεν συμβαίνει ποτέ.
+ * κανένα άλλο σημάδι. Εξετάζουμε μόνο φακέλους που μοιάζουν με UUID έργου (όχι temp/NAS).
+ * Χωρίς cache αποτελέσματος: σε κοινό φάκελο άλλος υπολογιστής μπορεί να πρόσθεσε έργο
+ * χωρίς να ενημερώσει το ευρετήριο — cache θα το έκρυβε προσωρινά.
  */
 function indexIsMissingProjects(dataDir, index, skipRoot) {
   try {
@@ -169,6 +183,8 @@ function indexIsMissingProjects(dataDir, index, skipRoot) {
     for (const dir of fs.readdirSync(dataDir)) {
       if (skipRoot && skipRoot.has(dir)) continue;
       if (indexedProjects.has(dir)) continue;
+      // Πραγματικά έργα έχουν UUID φάκελο — αγνοούμε σκουπίδια / temp / μη-έργα.
+      if (!looksLikeProjectDir(dir)) continue;
       const projectPath = path.join(dataDir, dir);
       try {
         if (!fs.statSync(projectPath).isDirectory()) continue;
@@ -224,8 +240,9 @@ function loadProjectsViaIndex(dataDir, {
     }
     try {
       const st = fs.statSync(jsonPath);
-      // Αν άλλαξε το αρχείο εκτός εφαρμογής, ξαναχτίζουμε
-      if (entry.mtimeMs && Math.abs(st.mtimeMs - entry.mtimeMs) > 2) {
+      // Αν άλλαξε ουσιαστικά το αρχείο εκτός εφαρμογής, ξαναχτίζουμε.
+      // Ανοχή για SMB/κοινό φάκελο — πολύ μικρό όριο ακύρωνε το ευρετήριο σε κάθε φόρτωση.
+      if (entry.mtimeMs && Math.abs(st.mtimeMs - entry.mtimeMs) > MTIME_TOLERANCE_MS) {
         return null;
       }
       const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
@@ -299,6 +316,7 @@ module.exports = {
   INDEX_FILE_NAME,
   INDEX_LOCK_FILE_NAME,
   INDEX_VERSION,
+  MTIME_TOLERANCE_MS,
   getProjectsIndexPath,
   getProjectsIndexLockPath,
   readProjectsIndex,
@@ -310,4 +328,5 @@ module.exports = {
   loadProjectsViaIndex,
   findIndexedSubprojectPath,
   entryFromDisk,
+  looksLikeProjectDir,
 };
