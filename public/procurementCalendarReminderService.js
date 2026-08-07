@@ -115,7 +115,8 @@ function resolveRecipients(config, users) {
   const byUsername = new Map();
 
   for (const user of users || []) {
-    if (!user?.active || !user.approved) continue;
+    // Ίδιος κανόνας με login / get-users: απουσία πεδίων = ενεργός & εγκεκριμένος
+    if (!user || user.active === false || user.approved === false) continue;
     const email = String(user.email || '').trim();
     if (!email.includes('@')) continue;
     const username = String(user.username || '').trim().toLowerCase();

@@ -99,6 +99,21 @@ describe('ΑΕΠΟ — προτίμηση aepoEmail', () => {
     ];
     expect(resolveRecipientUsers(config, users)).toHaveLength(1);
   });
+
+  test('δέχεται παλιό admin χωρίς πεδία active/approved', () => {
+    const users = [
+      { username: 'legacy', role: 'ADMIN', email: 'legacy@example.com' },
+    ];
+    expect(resolveRecipientUsers(config, users)).toHaveLength(1);
+  });
+
+  test('αποκλείει ρητά ανενεργό ή μη εγκεκριμένο admin', () => {
+    const users = [
+      { username: 'off', role: 'ADMIN', email: 'off@example.com', active: false, approved: true },
+      { username: 'pend', role: 'ADMIN', email: 'pend@example.com', active: true, approved: false },
+    ];
+    expect(resolveRecipientUsers(config, users)).toHaveLength(0);
+  });
 });
 
 describe('getSentThresholdsForProposal', () => {

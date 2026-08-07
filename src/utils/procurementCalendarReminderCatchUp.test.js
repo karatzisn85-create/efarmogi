@@ -105,4 +105,23 @@ describe('resolveRecipients · προσωπικές προτιμήσεις', () 
     ];
     expect(resolveRecipients(baseConfig, users)).toHaveLength(1);
   });
+
+  test('δέχεται παλιό λογαριασμό χωρίς πεδία active/approved', () => {
+    const users = [
+      {
+        username: 'legacyadmin',
+        role: 'ADMIN',
+        email: 'legacy@example.com',
+      },
+    ];
+    expect(resolveRecipients(baseConfig, users)).toHaveLength(1);
+  });
+
+  test('αποκλείει ρητά ανενεργό ή μη εγκεκριμένο', () => {
+    const users = [
+      { username: 'off', role: 'ADMIN', email: 'off@example.com', active: false, approved: true },
+      { username: 'pend', role: 'ADMIN', email: 'pend@example.com', active: true, approved: false },
+    ];
+    expect(resolveRecipients(baseConfig, users)).toHaveLength(0);
+  });
 });

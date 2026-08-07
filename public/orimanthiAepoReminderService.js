@@ -107,7 +107,8 @@ function resolveRecipientUsers(config, users) {
 
   if (aepoCfg.useAdminEmails !== false) {
     for (const u of users || []) {
-      if (!u.active || !u.approved) continue;
+      // Ίδιος κανόνας με login / get-users: απουσία πεδίων = ενεργός & εγκεκριμένος
+      if (u.active === false || u.approved === false) continue;
       if (u.role !== 'ADMIN' && u.role !== 'SUPERADMIN') continue;
       if (u.notificationPreferences?.aepoEmail === false) continue;
       const em = String(u.email || '').trim().toLowerCase();
