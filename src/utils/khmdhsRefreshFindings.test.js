@@ -32,7 +32,7 @@ describe('buildKhmdhsRefreshFindings', () => {
   it('ζητά ενέργεια όταν υπάρχουν σημεία προσοχής ή ενέργειες', () => {
     const withAttention = buildKhmdhsRefreshFindings({
       outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
-      attentionLines: ['Διατηρήθηκε χειροκίνητο ποσό σύμβασης'],
+      attentionLines: ['⚠️ Η σύμβαση δεν επιβεβαιώθηκε — διατηρήθηκε η προηγούμενη.'],
     });
     expect(khmdhsFindingsNeedAttention(withAttention)).toBe(true);
     expect(countKhmdhsFindingAttentionItems(withAttention)).toBe(1);
@@ -42,6 +42,21 @@ describe('buildKhmdhsRefreshFindings', () => {
       actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.CHARACTERIZE_SYMV)],
     });
     expect(khmdhsFindingsNeedAttention(withAction)).toBe(true);
+  });
+
+  it('ℹ️ διατηρημένη χειροκίνητη τιμή δεν ξανανοίγει badge σε κάθε ανανέωση', () => {
+    const findings = buildKhmdhsRefreshFindings({
+      outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
+      attentionLines: [
+        'ℹ️ Διατηρήθηκε η χειροκίνητη τιμή στο πεδίο «Ποσό σύμβασης (με ΦΠΑ)»: '
+        + 'παρέμεινε «18.561,31» αντί για «18.561,30» που έδειξε το ΚΗΜΔΗΣ. '
+        + 'Δεν απαιτείται ενέργεια — η εφαρμογή σεβάστηκε την προηγούμενη διόρθωσή σας.',
+      ],
+    });
+    expect(findings).toBeTruthy();
+    expect(findings.acknowledgedAt).toBeTruthy();
+    expect(findings.outcome).toBe(KHMDHS_FINDING_OUTCOME.UNCHANGED);
+    expect(khmdhsFindingsNeedAttention(findings)).toBe(false);
   });
 
   it('παύει να ζητά ενέργεια μετά το «Τα είδα»', () => {

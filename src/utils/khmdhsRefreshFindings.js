@@ -59,6 +59,23 @@ function cleanLines(lines) {
     .filter(Boolean);
 }
 
+/**
+ * Γραμμές τύπου «διατηρήθηκε χειροκίνητη τιμή — δεν απαιτείται ενέργεια».
+ * Δεν πρέπει να ξανανοίγουν badge / μαζική αναφορά σε κάθε ανανέωση.
+ */
+export function isInformationalRefreshAttentionLine(line) {
+  const s = String(line || '').trim();
+  if (!s) return false;
+  if (!s.startsWith('ℹ️')) return false;
+  return /Δεν απαιτείται ενέργεια/i.test(s)
+    || /σεβάστηκε την προηγούμενη διόρθωσ/i.test(s)
+    || /Διατηρήθηκε η χειροκίνητη τιμή/i.test(s);
+}
+
+export function getActionableRefreshAttentionLines(lines) {
+  return cleanLines(lines).filter((l) => !isInformationalRefreshAttentionLine(l));
+}
+
 export function buildKhmdhsFindingAction(id, overrides = {}) {
   const preset = ACTION_PRESETS[id] || {};
   return {
@@ -87,6 +104,7 @@ export function buildKhmdhsRefreshFindings({
 } = {}) {
   const applied = cleanLines(appliedLines);
   const attention = cleanLines(attentionLines);
+  const actionableAttention = getActionableRefreshAttentionLines(attention);
   const actionList = (Array.isArray(actions) ? actions : []).filter(Boolean);
   const errorText = String(error || '').trim();
 
@@ -96,9 +114,17 @@ export function buildKhmdhsRefreshFindings({
     || applied.length > 0;
   if (!worthKeeping) return null;
 
+  // Μόνο ενημερωτικές ℹ️ γραμμές (π.χ. διαφορά 0,01 € που ήδη σεβαστήκαμε): αποθήκευση
+  // για ιστορικό, αλλά αυτόματη επιβεβαίωση — αλλιώς κάθε μαζική ανανέωση ξανανοίγει badge.
+  const infoOnly = actionableAttention.length === 0
+    && actionList.length === 0
+    && !errorText;
+
   return {
     version: KHMDHS_FINDINGS_VERSION,
-    outcome: outcome || KHMDHS_FINDING_OUTCOME.ATTENTION,
+    outcome: infoOnly
+      ? (KHMDHS_FINDING_OUTCOME.UNCHANGED)
+      : (outcome || KHMDHS_FINDING_OUTCOME.ATTENTION),
     source,
     runId: String(runId || ''),
     at: at || new Date().toISOString(),
@@ -108,8 +134,8 @@ export function buildKhmdhsRefreshFindings({
     attentionLines: attention,
     actions: actionList,
     error: errorText,
-    acknowledgedAt: null,
-    acknowledgedBy: '',
+    acknowledgedAt: infoOnly ? (at || new Date().toISOString()) : null,
+    acknowledgedBy: infoOnly ? 'system' : '',
   };
 }
 
@@ -120,12 +146,12 @@ export function getKhmdhsRefreshFindings(project) {
 }
 
 /**
- * Ευρήματα που ζητούν ενέργεια: όσο δεν έχουν επιβεβαιωθεί από τον χρήστη και έχουν
- * είτε σημεία προσοχής, είτε προτεινόμενες ενέργειες, είτε σφάλμα.
+ * Ευρήματα που ζητούν ενέργεια: αγνοούμε ενημερωτικές ℹ️ γραμμές
+ * («διατηρήθηκε χειροκίνητη τιμή — δεν απαιτείται ενέργεια»).
  */
 export function khmdhsFindingsNeedAttention(findings) {
   if (!findings || findings.acknowledgedAt) return false;
-  return (findings.attentionLines?.length || 0) > 0
+  return getActionableRefreshAttentionLines(findings.attentionLines).length > 0
     || (findings.actions?.length || 0) > 0
     || !!String(findings.error || '').trim();
 }
@@ -133,7 +159,7 @@ export function khmdhsFindingsNeedAttention(findings) {
 export function countKhmdhsFindingAttentionItems(findings) {
   if (!khmdhsFindingsNeedAttention(findings)) return 0;
   const actions = findings.actions?.length || 0;
-  const lines = findings.attentionLines?.length || 0;
+  const lines = getActionableRefreshAttentionLines(findings.attentionLines).length;
   const err = String(findings.error || '').trim() ? 1 : 0;
   return actions + lines + err;
 }
@@ -156,10 +182,11 @@ export function withAcknowledgedFindings(project, opts = {}) {
 /**
  * Μετά από επίλυση ελέγχου στοιχείων / κατανομής, αφαιρεί από τα ευρήματα
  * ενέργειες που δεν εκκρεμούν πια — ώστε να μην μένουν «νεκρές» επισημάνσεις.
+ * Τρέχει και μετά από «Τα είδα», ώστε αν ολοκληρωθεί έλεγχος αργότερα να καθαρίζουν οι ενέργειες.
  */
 export function reconcileKhmdhsFindingsWithProjectState(project, { by = '' } = {}) {
   const findings = getKhmdhsRefreshFindings(project);
-  if (!findings || findings.acknowledgedAt) return findings;
+  if (!findings) return findings;
 
   const nextActions = (findings.actions || []).filter((action) => {
     if (action.id === KHMDHS_FINDING_ACTION.DATA_REVIEW) {
@@ -180,7 +207,7 @@ export function reconcileKhmdhsFindingsWithProjectState(project, { by = '' } = {
   if (nextActions.length === (findings.actions || []).length) return findings;
 
   const next = { ...findings, actions: nextActions };
-  const stillNeeds = (next.attentionLines?.length || 0) > 0
+  const stillNeeds = getActionableRefreshAttentionLines(next.attentionLines).length > 0
     || nextActions.length > 0
     || !!String(next.error || '').trim();
   if (!stillNeeds) {
@@ -219,10 +246,13 @@ export function getKhmdhsSubprojectAttention(project) {
   }
   (findings?.actions || []).forEach((a) => reasons.push(a.title));
   if (findings?.error) reasons.push(findings.error);
-  if (!findings?.actions?.length && !findings?.error && findings?.attentionLines?.length) {
-    reasons.push(findings.attentionLines.length === 1
-      ? '1 σημείο προς προσοχή από την τελευταία ανανέωση'
-      : `${findings.attentionLines.length} σημεία προς προσοχή από την τελευταία ανανέωση`);
+  if (!findings?.actions?.length && !findings?.error) {
+    const actionable = getActionableRefreshAttentionLines(findings?.attentionLines);
+    if (actionable.length) {
+      reasons.push(actionable.length === 1
+        ? '1 σημείο προς προσοχή από την τελευταία ανανέωση'
+        : `${actionable.length} σημεία προς προσοχή από την τελευταία ανανέωση`);
+    }
   }
 
   const blocking = reviewCount > 0

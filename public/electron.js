@@ -3375,6 +3375,11 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
         const r = await chainSvc.resolveKhmdhsAdamChain(seedAdam, {
           apeAmount,
           signal: localAbort?.signal,
+          preferNoticeAdam: project.khmdhsNoticeAdam || project.khmdhsNoticeSnapshot?.referenceNumber || '',
+          extraAdams: [
+            project.khmdhsNoticeAdam,
+            project.khmdhsNoticeSnapshot?.referenceNumber,
+          ].filter(Boolean),
         });
         if (r?.aborted) {
           return { success: false, aborted: true, error: 'Η διαδικασία ακυρώθηκε.' };
@@ -3417,6 +3422,11 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
     const chainRes = await chainSvc.resolveKhmdhsAdamChain(seedInfo.adam, {
       apeAmount,
       signal: localAbort?.signal,
+      preferNoticeAdam: project.khmdhsNoticeAdam || project.khmdhsNoticeSnapshot?.referenceNumber || '',
+      extraAdams: [
+        project.khmdhsNoticeAdam,
+        project.khmdhsNoticeSnapshot?.referenceNumber,
+      ].filter(Boolean),
     });
 
     if (!chainRes?.success) {

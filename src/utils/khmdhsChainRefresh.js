@@ -14,6 +14,7 @@ import {
   getConfirmedStitchSeedAdams,
   stitchPlanConflictsWithImplementationForm,
 } from './khmdhsChainStitchPlan';
+import { getActionableRefreshAttentionLines } from './khmdhsRefreshFindings';
 
 export const KHMDHS_FRESHNESS_YELLOW_DAYS = 30;
 export const KHMDHS_FRESHNESS_YELLOW_MAX = 50;
@@ -640,8 +641,9 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     )
   ) {
     attentionLines.push(
-      '⚠️ Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση (διακήρυξη/πρόσκληση) από την ήδη'
-      + ' καταγεγραμμένη — διατηρήθηκε η προηγούμενη. Ελέγξτε στην επεξεργασία αν χρειάζεται αλλαγή.'
+      '⚠️ Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση από την ήδη καταγεγραμμένη —'
+      + ' διατηρήθηκε η κύρια «Δημοσίευση» στην αλυσίδα. Αν πρόκειται για επιπλέον πράξη'
+      + ' (π.χ. Τεύχη Δημοπράτησης), εμφανίζεται στα Αρχεία Υποέργου, όχι ως νέο στάδιο Ανάθεσης/Σύμβασης.'
     );
   }
 
@@ -683,9 +685,11 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     lines.push(KHMDHS_REFRESH_REPORT_NO_CHANGES);
   }
 
+  // Μόνο ℹ️ «δεν απαιτείται ενέργεια» δεν μετρά ως κατηγορία attention στη μαζική αναφορά.
+  const actionableAttention = getActionableRefreshAttentionLines(attentionLines);
   let category = 'unchanged';
   if (appliedLines.length) category = 'applied';
-  else if (attentionLines.length) category = 'attention';
+  else if (actionableAttention.length) category = 'attention';
 
   return {
     lines,

@@ -2,6 +2,7 @@
  * @jest-environment node
  */
 import {
+  applyAutoDocumentRegistryFromChain,
   buildRegistryModalPayloadAfterReview,
   collectKhmdhsRegistryCandidatesFromChainRes,
   collectKhmdhsRegistryCandidatesFromProject,
@@ -70,6 +71,38 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
     expect(secondEntry).toBeTruthy();
     expect(secondEntry.isStub).not.toBe(true);
     expect(secondEntry.title).toBe('ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ');
+  });
+
+  it('applyAutoDocumentRegistryFromChain προσθέτει δεύτερο PROC με τίτλο στα Αρχεία', () => {
+    const secondNoticeAdam = '26PROC019569916';
+    const project = {
+      khmdhsNoticeAdam: '22PROC010072052',
+      khmdhsDocumentRegistry: [
+        { adam: '22PROC010072052', title: 'Πρόσκληση', stage: 'PROC' },
+      ],
+    };
+    const chainResWithSecondNotice = {
+      ...chainRes,
+      notice: {
+        adam: '22PROC010072052',
+        snapshot: { referenceNumber: '22PROC010072052', title: 'Πρόσκληση' },
+      },
+      chainMeta: {
+        linkedAdams: { notices: ['22PROC010072052', secondNoticeAdam] },
+        noticeSnapshotsByAdam: {
+          [secondNoticeAdam]: {
+            referenceNumber: secondNoticeAdam,
+            title: 'ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ ΕΡΓΟΥ',
+          },
+        },
+      },
+    };
+    const next = applyAutoDocumentRegistryFromChain(project, [chainResWithSecondNotice], {
+      nowIso: '2026-08-07T10:00:00.000Z',
+    });
+    const second = next.find((e) => e.adam === secondNoticeAdam);
+    expect(second).toBeTruthy();
+    expect(second.title).toMatch(/ΤΕΥΧΗ/i);
   });
 
   it('δεν καταχωρεί REQ/PROC/AWRD χωρίς snapshot από το κύριο αποτέλεσμα αλυσίδας', () => {
@@ -319,8 +352,33 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
         noticeType: 'Διακήρυξη',
       },
     ]);
-    expect(tender.linkLabel).toBe('Τεύχη Δημοπράτησης 1');
+    expect(tender.linkLabel).toBe('Τεύχη Δημοπράτησης');
     expect(generic.linkLabel).toBe('Διακήρυξη 2');
+  });
+
+  it('Πρόσκληση + Διακήρυξη (τίτλος έργου) → η Διακήρυξη εμφανίζεται ως Τεύχη Δημοπράτησης', () => {
+    const labeled = annotateRegistryLinkLabels([
+      {
+        id: 'n1',
+        adam: '26PROC012281700',
+        stage: 'PROC',
+        type: 'PROC',
+        title: 'ΜΕΤΑΤΟΠΙΣΗ ΘΕΣΕΩΝ ΜΕΤΡΗΤΩΝ ΤΗΣ ΔΕΔΔΗΕ',
+        noticeType: 'Πρόσκληση υποβολής προσφορών',
+      },
+      {
+        id: 'n2',
+        adam: '26PROC019569916',
+        stage: 'PROC',
+        type: 'PROC',
+        title: 'ΜΕΤΑΤΟΠΙΣΗ ΘΕΣΕΩΝ ΜΕΤΡΗΤΩΝ ΤΗΣ ΔΕΔΔΗΕ',
+        noticeType: 'Διακήρυξη',
+      },
+    ]);
+    const invitation = labeled.find((e) => e.adam === '26PROC012281700');
+    const tender = labeled.find((e) => e.adam === '26PROC019569916');
+    expect(invitation.linkLabel).toMatch(/Πρόσκληση/);
+    expect(tender.linkLabel).toBe('Τεύχη Δημοπράτησης');
   });
 
   it('publicationDocumentLabel αναγνωρίζει τα Τεύχη Δημοπράτησης όταν δοθεί ο τίτλος', () => {

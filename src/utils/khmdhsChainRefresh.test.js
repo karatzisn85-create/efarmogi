@@ -160,6 +160,7 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
     const report = buildKhmdhsRefreshChangeReport({}, {}, { warnings: ['noticeConflict'] });
     expect(report.category).toBe('attention');
     expect(report.attentionLines.some((l) => l.includes('διαφορετική δημοσίευση'))).toBe(true);
+    expect(report.attentionLines.some((l) => /Τεύχη Δημοπράτησης|Αρχεία Υποέργου/i.test(l))).toBe(true);
   });
 
   test('νέα απόφαση ανάληψης χωρίς λεπτομέρειες → προσοχή, όχι καθαρή επιτυχία', () => {
@@ -274,7 +275,7 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
 });
 
 describe('buildKhmdhsRefreshChangeReport categories', () => {
-  test('μόνο χειροκίνητη διατήρηση → category attention (όχι applied)', () => {
+  test('μόνο χειροκίνητη διατήρηση → category unchanged (ℹ️, όχι badge)', () => {
     const report = buildKhmdhsRefreshChangeReport({}, {}, {
       protectedCount: 1,
       protectedFields: [{
@@ -284,9 +285,10 @@ describe('buildKhmdhsRefreshChangeReport categories', () => {
         khmdhsValue: '90.000,00',
       }],
     });
-    expect(report.category).toBe('attention');
+    expect(report.category).toBe('unchanged');
     expect(report.appliedLines).toHaveLength(0);
     expect(report.attentionLines.length).toBeGreaterThan(0);
+    expect(report.attentionLines.every((l) => l.startsWith('ℹ️'))).toBe(true);
   });
 
   test('πραγματική αλλαγή ποσού → category applied', () => {

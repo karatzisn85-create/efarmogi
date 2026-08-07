@@ -539,8 +539,35 @@ export function isTenderDocumentTitle(title) {
   return /τευχ(η|ος)\s+δημοπρατησ/.test(norm) || /τευχ(η|ος)\s+διαγωνισμ/.test(norm);
 }
 
-function noticeLinkLabel(noticeType, index, total, title = '') {
-  if (isTenderDocumentTitle(title)) {
+function isInvitationNoticeType(noticeType) {
+  const nt = String(noticeType || '');
+  return /προκήρυξ/i.test(nt) || /πρόσκληση/i.test(nt);
+}
+
+function isDiakiryxiNoticeType(noticeType) {
+  const nt = String(noticeType || '');
+  return /διακήρυξ/i.test(nt) && !isInvitationNoticeType(nt);
+}
+
+/**
+ * Τεύχη Δημοπράτησης: είτε από τίτλο ΚΗΜΔΗΣ, είτε (συχνό σε δήμους) δεύτερο PROC
+ * με τύπο «Διακήρυξη» ενώ υπάρχει ήδη Πρόσκληση/Προκήρυξη — ο API τίτλος είναι
+ * συχνά ο τίτλος του έργου, όχι η λέξη «Τεύχη».
+ */
+export function isLikelyTenderDossierEntry(entry, allProcEntries = []) {
+  if (!entry || entry.stage !== 'PROC') return false;
+  if (isTenderDocumentTitle(entry.title)) return true;
+  if (!isDiakiryxiNoticeType(entry.noticeType)) return false;
+  const self = normalizeAdam(entry.adam);
+  return (allProcEntries || []).some((sibling) => {
+    if (!sibling || sibling.stage !== 'PROC') return false;
+    if (normalizeAdam(sibling.adam) === self) return false;
+    return isInvitationNoticeType(sibling.noticeType);
+  });
+}
+
+function noticeLinkLabel(noticeType, index, total, title = '', { treatAsTender = false } = {}) {
+  if (treatAsTender || isTenderDocumentTitle(title)) {
     return total > 1 ? `Τεύχη Δημοπράτησης ${index}` : 'Τεύχη Δημοπράτησης';
   }
   const nt = String(noticeType || '').trim();
@@ -667,7 +694,10 @@ export function annotateRegistryLinkLabels(entries) {
   sorted.forEach((e) => {
     totals[e.stage] = (totals[e.stage] || 0) + 1;
   });
+  const procEntries = sorted.filter((e) => e.stage === 'PROC');
   const counters = {};
+  const tenderCounters = { n: 0 };
+  const tenderTotal = procEntries.filter((e) => isLikelyTenderDossierEntry(e, procEntries)).length;
   return sorted.map((entry) => {
     counters[entry.stage] = (counters[entry.stage] || 0) + 1;
     const idx = counters[entry.stage];
@@ -683,11 +713,20 @@ export function annotateRegistryLinkLabels(entries) {
       case 'COMMIT':
         linkLabel = `Απόφαση ανάληψης υποχρέωσης${suffix}`;
         break;
-      case 'PROC':
-        linkLabel = entry.isStub
-          ? `Δημοσίευση${suffix}`
-          : noticeLinkLabel(entry.noticeType, idx, total, entry.title);
+      case 'PROC': {
+        const asTender = !entry.isStub && isLikelyTenderDossierEntry(entry, procEntries);
+        if (asTender) {
+          tenderCounters.n += 1;
+          linkLabel = noticeLinkLabel(entry.noticeType, tenderCounters.n, tenderTotal, entry.title, {
+            treatAsTender: true,
+          });
+        } else {
+          linkLabel = entry.isStub
+            ? `Δημοσίευση${suffix}`
+            : noticeLinkLabel(entry.noticeType, idx, total, entry.title);
+        }
         break;
+      }
       case 'AWRD':
         linkLabel = total > 1 ? `Απόφαση ανάθεσης${suffix}` : 'Απόφαση ανάθεσης';
         break;
@@ -873,6 +912,48 @@ export function mergeRegistryCandidateLists(...lists) {
     });
   });
   return annotateRegistryLinkLabels([...byAdam.values()]);
+}
+
+/**
+ * Αυτόματη ενημέρωση μητρώου εγγράφων από αποτέλεσμα(τα) αλυσίδας:
+ * - ανανέωση τίτλων υπαρχόντων
+ * - προσθήκη νέων πλήρων εγγραφών (όχι γυμνά stubs)
+ * Χρησιμοποιείται στην ανανέωση κάρτας και στη χειροκίνητη ανάκτηση (διατήρηση).
+ */
+export function applyAutoDocumentRegistryFromChain(project, chainResList, { nowIso } = {}) {
+  let chainRegistryCandidates = [];
+  (Array.isArray(chainResList) ? chainResList : []).forEach((cr) => {
+    if (!cr) return;
+    chainRegistryCandidates = mergeRegistryCandidateLists(
+      chainRegistryCandidates,
+      collectKhmdhsRegistryCandidatesFromChainRes(
+        cr,
+        project?.khmdhsDataQualityReview,
+        project
+      )
+    );
+  });
+  const freshRegistryCandidates = filterRegistryCandidatesBySymvPlan(
+    mergeRegistryCandidateLists(
+      chainRegistryCandidates,
+      collectKhmdhsRegistryCandidatesFromProject(project)
+    ),
+    project
+  );
+  const existing = project?.khmdhsDocumentRegistry || [];
+  if (!freshRegistryCandidates.length) return existing;
+
+  const resyncedRegistry = resyncRegistryEntryTitles(existing, freshRegistryCandidates);
+  const newRegistryCandidates = freshRegistryCandidates.filter(
+    (c) => !c.isStub && !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
+  );
+  return newRegistryCandidates.length
+    ? mergeKhmdhsDocumentRegistry(
+      resyncedRegistry,
+      newRegistryCandidates,
+      nowIso || new Date().toISOString()
+    )
+    : resyncedRegistry;
 }
 
 export function buildRegistryModalPayloadAfterReview(project, chainFetchedAt = '', chainRes = null) {

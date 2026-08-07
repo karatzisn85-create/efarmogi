@@ -10,13 +10,7 @@ import {
   KHMDHS_REFRESH_REPORT_NO_CHANGES,
 } from '../utils/khmdhsChainRefresh';
 import {
-  collectKhmdhsRegistryCandidatesFromChainRes,
-  collectKhmdhsRegistryCandidatesFromProject,
-  mergeRegistryCandidateLists,
-  resyncRegistryEntryTitles,
-  registryEntryIsAlreadyRecorded,
-  mergeKhmdhsDocumentRegistry,
-  filterRegistryCandidatesBySymvPlan,
+  applyAutoDocumentRegistryFromChain,
 } from '../utils/khmdhsDocumentRegistry';
 import { summarizeKhmdhsFetchFailure } from '../utils/khmdhsFetchFailureSummary';
 import { evaluateStitchRefreshCompleteness } from '../utils/khmdhsChainStitchPlan';
@@ -2004,32 +1998,10 @@ export default function KhmdhsBatchRefreshWidget({
             ...(res.stitchPlanFormMismatch ? { khmdhsChainStitchPlan: null } : {}),
           };
 
-          let chainRegistryCandidates = [];
-          (registryChainResList.length ? registryChainResList : [res.chainRes]).forEach((cr) => {
-            chainRegistryCandidates = mergeRegistryCandidateLists(
-              chainRegistryCandidates,
-              collectKhmdhsRegistryCandidatesFromChainRes(cr, mergedProject.khmdhsDataQualityReview, mergedProject)
-            );
-          });
-          const freshCandidates = filterRegistryCandidatesBySymvPlan(
-            mergeRegistryCandidateLists(
-              chainRegistryCandidates,
-              collectKhmdhsRegistryCandidatesFromProject(mergedProject)
-            ),
-            mergedProject
+          mergedProject.khmdhsDocumentRegistry = applyAutoDocumentRegistryFromChain(
+            mergedProject,
+            registryChainResList.length ? registryChainResList : [res.chainRes]
           );
-          if (freshCandidates.length) {
-            const resyncedRegistry = resyncRegistryEntryTitles(
-              mergedProject.khmdhsDocumentRegistry || [],
-              freshCandidates
-            );
-            const newCandidates = freshCandidates.filter(
-              (c) => !c.isStub && !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
-            );
-            mergedProject.khmdhsDocumentRegistry = newCandidates.length
-              ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newCandidates, new Date().toISOString())
-              : resyncedRegistry;
-          }
 
           const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
             chainWarnings: (registryChainResList.length ? registryChainResList : [res.chainRes])

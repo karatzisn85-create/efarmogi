@@ -349,6 +349,12 @@ function collectChainEnrichmentCandidates(stages, seedNorm, extraAdams = []) {
   [...(stages.approvedRequests || []), ...(stages.requests || [])].forEach((m) => {
     if (m.adam && m.adam !== seed) out.add(m.adam);
   });
+  // Δεύτερες δημοσιεύσεις (π.χ. Τεύχη Δημοπράτησης) συχνά εμφανίζονται στην adamChain
+  // της ήδη γνωστής PROC, όχι του REQ/ανάληψης. Χωρίς αυτό, η ανανέωση δεν τις βρίσκει.
+  (stages.notices || []).forEach((m) => {
+    const n = normalizeNoticeAdam(m?.adam) || normalizeAdam(m?.adam);
+    if (n && n !== seed) out.add(n);
+  });
   (extraAdams || []).forEach((raw) => {
     const n = normalizeRequestAdam(raw) || normalizeAdam(raw) || normalizeNoticeAdam(raw);
     if (n && n !== seed) out.add(n);
@@ -358,7 +364,9 @@ function collectChainEnrichmentCandidates(stages, seedNorm, extraAdams = []) {
 
 /**
  * Το adamChain από PROC/AWRD συχνά επιστρέφει ελλιπή λίστα (χωρίς AWRD/SYMV).
- * Συμπληρώνουμε από adamChain συνδεδεμένων REQ / εγκεκριμένων αιτημάτων.
+ * Συμπληρώνουμε από adamChain συνδεδεμένων REQ / εγκεκριμένων αιτημάτων / δημοσιεύσεων.
+ * Από υποψήφιο PROC συγχωνεύουμε μόνο notices (+ auctions)· όχι contracts/payments,
+ * για να μην μολυνθεί η αλυσίδα από ελλιπή/παράλληλα SYMV της δημοσίευσης.
  */
 async function enrichChainStagesFromRelatedAdams(stages, seedNorm, extraAdams = []) {
   let merged = stages;
@@ -381,7 +389,14 @@ async function enrichChainStagesFromRelatedAdams(stages, seedNorm, extraAdams = 
       if (!chainRes.success) continue;
       const parsed = parseChainLists(chainRes.adamChain);
       extraSkipped.push(...parsed.skippedCancelled);
-      merged = mergeChainStageLists(merged, parsed.stages);
+      if (adamType(adam) === 'PROC') {
+        merged = mergeChainStageLists(merged, {
+          notices: parsed.stages.notices || [],
+          auctions: parsed.stages.auctions || [],
+        });
+      } else {
+        merged = mergeChainStageLists(merged, parsed.stages);
+      }
     }
   }
 
@@ -389,6 +404,37 @@ async function enrichChainStagesFromRelatedAdams(stages, seedNorm, extraAdams = 
     stages: merged,
     skippedCancelled: extraSkipped,
     enriched: tried.size > 1,
+  };
+}
+
+/**
+ * Πάντα (ακόμα κι όταν υπάρχει ήδη AWRD/SYMV): διεύρυνση λίστας δημοσιεύσεων
+ * από adamChain γνωστών PROC — π.χ. Τεύχη Δημοπράτησης δίπλα στην κύρια διακήρυξη.
+ */
+async function expandNoticeMarkersFromKnownProcs(stages, extraAdams = []) {
+  let merged = stages;
+  const tried = new Set();
+  const seeds = [
+    ...(stages.notices || []).map((m) => m?.adam),
+    ...(extraAdams || []),
+  ]
+    .map((raw) => normalizeNoticeAdam(raw) || (adamType(raw) === 'PROC' ? normalizeAdam(raw) : null))
+    .filter(Boolean);
+
+  for (const adam of [...new Set(seeds)].slice(0, MAX_CANDIDATE_FETCH)) {
+    if (tried.has(adam)) continue;
+    tried.add(adam);
+    const chainRes = await fetchKhmdhsAdamChain(adam);
+    if (!chainRes.success) continue;
+    const parsed = parseChainLists(chainRes.adamChain);
+    merged = mergeChainStageLists(merged, {
+      notices: parsed.stages.notices || [],
+    });
+  }
+
+  return {
+    stages: merged,
+    expanded: tried.size > 0,
   };
 }
 
@@ -1564,7 +1610,7 @@ async function attachOtherNoticeRecords(chosen, noticeMarkers, alreadyFetched) {
   return otherNoticeRecords.length ? { ...chosen, otherNoticeRecords } : chosen;
 }
 
-async function resolveNoticeAdam(noticeMarkers, seedAdam, contractRecord, auctionRecord) {
+async function resolveNoticeAdam(noticeMarkers, seedAdam, contractRecord, auctionRecord, preferAdam = '') {
   const hints = [
     contractRecord?.noticeReferenceNumber,
     auctionRecord?.noticeReferenceNumber,
@@ -1589,7 +1635,16 @@ async function resolveNoticeAdam(noticeMarkers, seedAdam, contractRecord, auctio
     const f = await fetchNoticeIfActive(c);
     if (f) fetchedList.push(f);
   }
-  if (!fetchedList.length) return null;
+
+  const prefer = normalizeNoticeAdam(preferAdam);
+  if (!fetchedList.length) {
+    // Χωρίς markers στην αλυσίδα: δοκίμασε μόνο την ήδη αποθηκευμένη (αν υπάρχει).
+    if (prefer && adamType(prefer) === 'PROC') {
+      const preferredFetched = await fetchNoticeIfActive(prefer);
+      if (preferredFetched) return preferredFetched;
+    }
+    return null;
+  }
 
   const byAdam = new Map(fetchedList.map((f) => [f.adam, f]));
   const amendedBy = new Map();
@@ -1599,9 +1654,38 @@ async function resolveNoticeAdam(noticeMarkers, seedAdam, contractRecord, auctio
   });
 
   const leaves = fetchedList.filter((f) => !amendedBy.has(f.adam));
-  const chosen = leaves.length >= 1
-    ? leaves.sort((a, b) => String(b.adam).localeCompare(String(a.adam)))[0]
-    : fetchedList.sort((a, b) => String(b.adam).localeCompare(String(a.adam)))[0];
+
+  // Προτίμηση αποθηκευμένης κύριας δημοσίευσης ΜΟΝΟ αν είναι «φύλλο» στην τρέχουσα αλυσίδα
+  // (όχι αν έχει αντικατασταθεί από τροποποίηση/νεότερο PROC). Έτσι τα Τεύχη μένουν
+  // στα otherNoticeRecords χωρίς να μπλοκάρουν νόμιμη αντικατάσταση.
+  if (prefer && leaves.some((f) => f.adam === prefer)) {
+    return attachOtherNoticeRecords(byAdam.get(prefer), noticeMarkers, fetchedList);
+  }
+
+  // Προτίμηση Πρόσκλησης/Προκήρυξης έναντι Διακήρυξης/Τευχών ως «κύριας Δημοσίευσης»
+  // στην οριζόντια αλυσίδα — τα Τεύχη εμφανίζονται στα Αρχεία Υποέργου.
+  const noticePickScore = (f) => {
+    const nt = String(f?.snapshot?.noticeType || '');
+    const title = String(f?.snapshot?.title || '');
+    const titleNorm = title
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    if (/τευχ(η|ος)\s+δημοπρατησ/.test(titleNorm) || /τευχ(η|ος)\s+διαγωνισμ/.test(titleNorm)) {
+      return 5;
+    }
+    if (/πρόσκληση/i.test(nt)) return 40;
+    if (/προκήρυξ/i.test(nt)) return 35;
+    if (/διακήρυξ/i.test(nt)) return 10;
+    return 20;
+  };
+
+  const pool = leaves.length >= 1 ? leaves : fetchedList;
+  const chosen = [...pool].sort((a, b) => {
+    const scoreDiff = noticePickScore(b) - noticePickScore(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    return String(b.adam).localeCompare(String(a.adam));
+  })[0];
   return attachOtherNoticeRecords(chosen, noticeMarkers, fetchedList);
 }
 
@@ -1690,6 +1774,11 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   throwIfKhmdhsAborted(abortSignal);
 
   const seedType = adamType(seedNorm);
+  const preferNoticeAdam = normalizeNoticeAdam(opts.preferNoticeAdam) || '';
+  const knownExtraAdams = [
+    ...(Array.isArray(opts.extraAdams) ? opts.extraAdams : []),
+    preferNoticeAdam,
+  ].filter(Boolean);
   const warnings = [];
   let skippedCancelled = [];
 
@@ -1779,10 +1868,12 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
     auctions: stages.auctions.length,
   };
 
-  const enrich1 = await enrichChainStagesFromRelatedAdams(stages, seedNorm);
+  const enrich1 = await enrichChainStagesFromRelatedAdams(stages, seedNorm, knownExtraAdams);
   throwIfKhmdhsAborted(abortSignal);
   stages = enrich1.stages;
   skippedCancelled.push(...enrich1.skippedCancelled);
+  const noticeExpand = await expandNoticeMarkersFromKnownProcs(stages, knownExtraAdams);
+  stages = noticeExpand.stages;
   if (enrich1.enriched && (
     stagesBeforeEnrich.contracts !== stages.contracts.length
     || stagesBeforeEnrich.auctions !== stages.auctions.length
@@ -1872,7 +1963,8 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
     stages.notices,
     seedType === 'PROC' ? seedNorm : '',
     contractWalk?.primaryRecord,
-    auction?.snapshot
+    auction?.snapshot,
+    preferNoticeAdam
   );
 
   if (!contractWalk && notice?.snapshot?.approvedRequestAdam) {
@@ -1931,7 +2023,8 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
         stages.notices,
         seedType === 'PROC' ? seedNorm : '',
         contractWalk?.primaryRecord,
-        auction?.snapshot
+        auction?.snapshot,
+        preferNoticeAdam
       );
     }
   }
@@ -2622,4 +2715,5 @@ module.exports = {
   reconcileProcessStartBeforeContract,
   parseChainMarker,
   parseChainLists,
+  collectChainEnrichmentCandidates,
 };

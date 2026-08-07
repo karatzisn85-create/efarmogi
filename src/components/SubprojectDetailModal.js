@@ -25,13 +25,8 @@ import KhmdhsChainRefreshDialog from './KhmdhsChainRefreshDialog';
 import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
 import KhmdhsDocumentRegistryModal from './KhmdhsDocumentRegistryModal';
 import {
+  applyAutoDocumentRegistryFromChain,
   mergeKhmdhsDocumentRegistry,
-  resyncRegistryEntryTitles,
-  collectKhmdhsRegistryCandidatesFromChainRes,
-  collectKhmdhsRegistryCandidatesFromProject,
-  mergeRegistryCandidateLists,
-  registryEntryIsAlreadyRecorded,
-  filterRegistryCandidatesBySymvPlan,
 } from '../utils/khmdhsDocumentRegistry';
 import { findActRootSiblings, getSubprojectActRootReq } from '../utils/khmdhsBranchAnchor';
 import { useToast } from './ToastProvider';
@@ -1375,38 +1370,11 @@ function SubprojectDetailModal({
         ...(res.stitchPlanFormMismatch ? { khmdhsChainStitchPlan: null } : {}),
       };
       // Αυτόματη ενημέρωση Αρχείων Υποέργου κατά την ανανέωση ΚΗΜΔΗΣ — χωρίς να ζητείται
-      // καμία χειροκίνητη ενέργεια από τον χρήστη:
-      // 1) οι τίτλοι ήδη καταγεγραμμένων εγγράφων ενημερώνονται με τα φρέσκα στοιχεία ΚΗΜΔΗΣ
-      //    (π.χ. παλιά καταχώριση χωρίς όνομα αποκτά τον σωστό τίτλο «Τεύχη Δημοπράτησης»),
-      // 2) νέα έγγραφα που εντοπίζονται στην αλυσίδα καταγράφονται αυτόματα — αφού πρόκειται
-      //    πάντα για ήδη χαρακτηρισμένα/μονοσήμαντα στοιχεία (η αλυσίδα τροποποιήσεων έχει ήδη
-      //    περάσει από τον έλεγχο χαρακτηρισμού), δεν χρειάζεται νέα επιβεβαίωση του χρήστη.
-      let chainRegistryCandidates = [];
-      (registryChainResList.length ? registryChainResList : [res.chainRes]).forEach((cr) => {
-        chainRegistryCandidates = mergeRegistryCandidateLists(
-          chainRegistryCandidates,
-          collectKhmdhsRegistryCandidatesFromChainRes(cr, mergedProject.khmdhsDataQualityReview, mergedProject)
-        );
-      });
-      const freshRegistryCandidates = filterRegistryCandidatesBySymvPlan(
-        mergeRegistryCandidateLists(
-          chainRegistryCandidates,
-          collectKhmdhsRegistryCandidatesFromProject(mergedProject)
-        ),
-        mergedProject
+      // καμία χειροκίνητη ενέργεια από τον χρήστη (τίτλοι + νέα πλήρη έγγραφα αλυσίδας).
+      mergedProject.khmdhsDocumentRegistry = applyAutoDocumentRegistryFromChain(
+        mergedProject,
+        registryChainResList.length ? registryChainResList : [res.chainRes]
       );
-      if (freshRegistryCandidates.length) {
-        const resyncedRegistry = resyncRegistryEntryTitles(
-          mergedProject.khmdhsDocumentRegistry || [],
-          freshRegistryCandidates
-        );
-        const newRegistryCandidates = freshRegistryCandidates.filter(
-          (c) => !c.isStub && !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
-        );
-        mergedProject.khmdhsDocumentRegistry = newRegistryCandidates.length
-          ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newRegistryCandidates, new Date().toISOString())
-          : resyncedRegistry;
-      }
       const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
         chainWarnings: (registryChainResList.length ? registryChainResList : [res.chainRes])
           .flatMap((cr) => cr?.warnings || []),
@@ -1472,25 +1440,10 @@ function SubprojectDetailModal({
       updatedAt: new Date().toISOString(),
       __expectedUpdatedAt: project.updatedAt,
     };
-    const freshRegistryCandidates = filterRegistryCandidatesBySymvPlan(
-      mergeRegistryCandidateLists(
-        collectKhmdhsRegistryCandidatesFromChainRes(chainRes, mergedProject.khmdhsDataQualityReview, mergedProject),
-        collectKhmdhsRegistryCandidatesFromProject(mergedProject)
-      ),
-      mergedProject
+    mergedProject.khmdhsDocumentRegistry = applyAutoDocumentRegistryFromChain(
+      mergedProject,
+      [chainRes]
     );
-    if (freshRegistryCandidates.length) {
-      const resyncedRegistry = resyncRegistryEntryTitles(
-        mergedProject.khmdhsDocumentRegistry || [],
-        freshRegistryCandidates
-      );
-      const newRegistryCandidates = freshRegistryCandidates.filter(
-        (c) => !c.isStub && !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
-      );
-      mergedProject.khmdhsDocumentRegistry = newRegistryCandidates.length
-        ? mergeKhmdhsDocumentRegistry(resyncedRegistry, newRegistryCandidates, new Date().toISOString())
-        : resyncedRegistry;
-    }
     const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
       chainWarnings: chainRes?.warnings || [],
     });

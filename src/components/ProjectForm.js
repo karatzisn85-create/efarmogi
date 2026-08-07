@@ -133,13 +133,10 @@ import { shouldOfferSymvChainPlanner, mergeExistingSymvPlanOntoChain } from '../
 import KhmdhsDocumentRegistryModal from './KhmdhsDocumentRegistryModal';
 import KhmdhsRelatedDocumentsModal from './KhmdhsRelatedDocumentsModal';
 import {
+  applyAutoDocumentRegistryFromChain,
   buildRegistryModalPayloadAfterReview,
   mergeKhmdhsDocumentRegistry,
   shouldOfferRegistryAfterReview,
-  resyncRegistryEntryTitles,
-  collectKhmdhsRegistryCandidatesFromChainRes,
-  collectKhmdhsRegistryCandidatesFromProject,
-  mergeRegistryCandidateLists,
 } from '../utils/khmdhsDocumentRegistry';
 import {
   buildRelatedDocumentEntry,
@@ -4760,19 +4757,10 @@ function ProjectForm({
         protectedFieldCount = applyResult.protectedCount || 0;
         implementationFormAutoUpdated = applyResult.implementationFormAutoUpdated || null;
         let formAfter = applyResult.form;
-        if (formAfter.khmdhsDocumentRegistry?.length) {
-          const freshRegistryCandidates = mergeRegistryCandidateLists(
-            collectKhmdhsRegistryCandidatesFromChainRes(res, formAfter.khmdhsDataQualityReview),
-            collectKhmdhsRegistryCandidatesFromProject(formAfter)
-          );
-          formAfter = {
-            ...formAfter,
-            khmdhsDocumentRegistry: resyncRegistryEntryTitles(
-              formAfter.khmdhsDocumentRegistry,
-              freshRegistryCandidates
-            ),
-          };
-        }
+        formAfter = {
+          ...formAfter,
+          khmdhsDocumentRegistry: applyAutoDocumentRegistryFromChain(formAfter, [res]),
+        };
         capturedMergedDQR = formAfter.khmdhsDataQualityReview || null;
         capturedFormAfterApply = formAfter;
         setFormData(formAfter);
@@ -4944,9 +4932,11 @@ function ProjectForm({
         if (postUi.openPendingTasks) {
           setPendingTasksOpen(true);
         }
-        if (applyWarnings.includes('noticeConflict')) {
+        if (applyWarnings.includes('noticeConflict') || applyWarnings.includes('stitchConflict:proc')) {
           showToast(
-            'Προειδοποίηση: ο ΑΔΑΜ ανήκει σε διαφορετική δημοσίευση. Τα κοινά στοιχεία δημοσίευσης δεν άλλαξαν.',
+            'Βρέθηκε διαφορετική δημοσίευση από την ήδη καταγεγραμμένη. '
+            + 'Η κύρια «Δημοσίευση» στην αλυσίδα δεν άλλαξε — αν πρόκειται για Τεύχη Δημοπράτησης ή άλλη πράξη, '
+            + 'ελέγξτε τα Αρχεία Υποέργου (μητρώο εγγράφων ΚΗΜΔΗΣ).',
             'warning'
           );
         }
