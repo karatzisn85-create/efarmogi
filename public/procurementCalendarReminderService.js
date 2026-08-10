@@ -18,6 +18,7 @@ const {
   escapeHtml,
   getAppDisplayName,
   buildEmailHtml,
+  buildLogoAttachment,
 } = require('./taskAssignmentEmailService');
 const {
   buildEngineerVisibilityContext,
@@ -202,7 +203,7 @@ function buildProcurementReminderHtml({ items, appName, headline, badgeLabel, ba
     rows: [
       { label: 'Προθεσμίες', value: tableBlock },
     ],
-    footnote: 'Άνοιξε το ERGOHUB → Ημερολόγιο Προθεσμιών για λεπτομέρειες και άμεση πρόσβαση στα υποέργα.',
+    footnote: 'Αναλυτικά στοιχεία και άμεση πρόσβαση στα υποέργα βρίσκονται στο Ημερολόγιο Προθεσμιών.',
     useCidLogo: true,
   });
 }
@@ -390,11 +391,13 @@ async function sendBatchEmail({ transporter, emailConfig, appName, recipient, it
     badgeColor,
   });
   const user = String(emailConfig.gmail.user || '').trim().toLowerCase();
+  const logoAttachment = buildLogoAttachment();
   await transporter.sendMail({
     from: `${appName} <${user}>`,
     to: recipient.email,
     subject,
     html,
+    attachments: logoAttachment ? [logoAttachment] : [],
   });
   return true;
 }
@@ -580,6 +583,10 @@ async function sendTestProcurementCalendarReminder({ dataDir, loadUsers, loadAll
     to: target,
     subject: `📅 ${appName} · Δοκιμαστική υπενθύμιση ημερολογίου`,
     html,
+    attachments: (() => {
+      const logoAttachment = buildLogoAttachment();
+      return logoAttachment ? [logoAttachment] : [];
+    })(),
   });
 
   return { success: true };

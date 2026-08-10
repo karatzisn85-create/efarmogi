@@ -114,6 +114,15 @@ const ALLOWED_INVOKE = new Set([
   'get-meletai-config','save-meletai-config','add-meletai-study-category','remove-meletai-study-category',
   'add-meleti-file-group','upload-meleti-files','upload-meleti-folder','delete-meleti-file','delete-meleti-folder','delete-meleti-folder-file','rename-meleti-file','delete-meleti-group',
   'get-meleti-folder-files','open-meleti-file','download-meleti-file','export-meletai-hub-report','export-meletai-study-report','export-portfolio-report','export-statistics-report',
+  'apologismos-get-meta','apologismos-get-periods','apologismos-upsert-period','apologismos-get-report','apologismos-save-report',
+  'apologismos-add-from-subproject','apologismos-add-legacy-card','apologismos-update-card','apologismos-remove-card',
+  'apologismos-sync-amounts','apologismos-dismiss-amount-badge','apologismos-save-photo','apologismos-select-photos',
+  'apologismos-get-presentation','apologismos-export-pptx','apologismos-write-export-file',
+  'apologismos-resolve-media-map','apologismos-list-eligible-subprojects',
+  'apologismos-remove-photo','apologismos-reorder-photo-primary','apologismos-export-photo',
+  'apologismos-save-map-snapshot',
+  'apologismos-update-appearance','apologismos-select-cover-images','apologismos-save-cover-image',
+  'apologismos-frame-cover-images',
 ]);
 
 const ALLOWED_RECEIVE = new Set([

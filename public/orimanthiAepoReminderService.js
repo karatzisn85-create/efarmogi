@@ -13,6 +13,8 @@ const {
   createTransporter,
   escapeHtml,
   getAppDisplayName,
+  buildLogoAttachment,
+  buildAppOpenPromptHtml,
 } = require('./taskAssignmentEmailService');
 const { loadOrimanthiConfig } = require('./orimanthiConfigService');
 const {
@@ -196,8 +198,13 @@ function buildAepoEmailHtml({ proposals, thresholdDays, appName }) {
       <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:center;color:${urgency};font-weight:700">${daysLeft} ημέρες</td>
     </tr>`;
   }).join('');
+  const logoAttachment = buildLogoAttachment();
+  const logoRow = logoAttachment
+    ? `<div style="margin-bottom:12px"><img src="cid:ergohub-logo@ergohub" alt="${escapeHtml(appName)}" style="display:block;max-height:40px;max-width:160px;border:0;" /></div>`
+    : `<div style="margin-bottom:8px;font-weight:800;color:#1a2a3a">${escapeHtml(appName)}</div>`;
   return `
 <div style="font-family:Segoe UI,sans-serif;max-width:640px;margin:0 auto;padding:24px;background:#fff;border-radius:12px;border:1px solid #e2e8f0">
+  ${logoRow}
   <div style="background:linear-gradient(135deg,#4338ca,#6366f1);padding:16px 20px;border-radius:10px;margin-bottom:16px">
     <h2 style="color:#fff;margin:0;font-size:1.1rem">🔔 Υπενθύμιση ΑΕΠΟ — ${thresholdDays} ημέρες πριν τη λήξη</h2>
   </div>
@@ -215,6 +222,7 @@ function buildAepoEmailHtml({ proposals, thresholdDays, appName }) {
     <tbody>${rows}</tbody>
   </table>
   <p style="color:#94a3b8;font-size:0.78rem;margin:16px 0 0">${escapeHtml(appName)} · Ωρίμανση Έργων</p>
+  ${buildAppOpenPromptHtml(appName)}
 </div>`;
 }
 
@@ -273,6 +281,10 @@ async function checkAndSendAepoReminders({ dataDir, loadUsers, loadAllProposals 
           to: recipient.email,
           subject: `🔔 ΑΕΠΟ — ${pending.length} έργ${pending.length === 1 ? 'ο' : 'α'} λήγουν εντός ${threshold} ημερών`,
           html,
+          attachments: (() => {
+            const logoAttachment = buildLogoAttachment();
+            return logoAttachment ? [logoAttachment] : [];
+          })(),
         });
         const now = new Date().toISOString();
         for (const p of pending) {

@@ -124,6 +124,7 @@ const MunicipalUnitsManager = lazy(() => import('./MunicipalUnitsManager'));
 const SubprojectExcelImportModal = lazy(() => import('./SubprojectExcelImportModal'));
 const TaskAssignmentManager = lazy(() => import('./TaskAssignmentManager'));
 const EpProgramManager = lazy(() => import('./EpProgramManager'));
+const ApologismosManager = lazy(() => import('./ApologismosManager'));
 const OrimanthiManager = lazy(() => import('./OrimanthiManager'));
 const CalendarDeadlineWidget = lazy(() => import('./CalendarDeadlineWidget'));
 const ProcurementCalendar = lazy(() => import('./ProcurementCalendar'));
@@ -3245,6 +3246,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [linkedEgkriseis, setLinkedEgkriseis] = useState({});
   const [egkriseisRefreshTrigger, setEgkriseisRefreshTrigger] = useState(0);
   const [isEpProgramOpen, setIsEpProgramOpen] = useState(false);
+  const [isApologismosOpen, setIsApologismosOpen] = useState(false);
   const [isOrimanthiOpen, setIsOrimanthiOpen] = useState(false);
   const [isMeletaiOpen, setIsMeletaiOpen] = useState(false);
   const [selectedMeletiId, setSelectedMeletiId] = useState(null);
@@ -7104,6 +7106,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                     <AdminButtonIcon>📥</AdminButtonIcon>
                     Μαζική Εισαγωγή από Excel
                   </AdminButton>
+                  <AdminButton
+                    onClick={() => {
+                      if (dashboardScrollRef.current) {
+                        savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
+                      }
+                      setIsApologismosOpen(true);
+                    }}
+                    title="Απολογισμός τεχνικού έργου δημοτικής περιόδου"
+                  >
+                    <AdminButtonIcon>📘</AdminButtonIcon>
+                    Απολογισμός Δημάρχου
+                  </AdminButton>
                 </>
               )}
             </CategoryBody>
@@ -7424,6 +7438,24 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             currentUser={currentUser}
             appConfig={appConfig}
             canManageAll={canManageAll}
+          />
+        </Suspense>
+      ) : null}
+
+      {isApologismosOpen ? (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση Απολογισμού…</LazyChunkFallback>}>
+          <ApologismosManager
+            isOpen={isApologismosOpen}
+            onClose={() => {
+              setIsApologismosOpen(false);
+              setTimeout(() => {
+                if (dashboardScrollRef.current) {
+                  dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
+                }
+              }, 100);
+            }}
+            currentUser={currentUser}
+            appConfig={appConfig}
           />
         </Suspense>
       ) : null}

@@ -1,0 +1,714 @@
+/**
+ * Αποθήκευση / φόρτωση Απολογισμού (FS) υπό dataDir/ΑΠΟΛΟΓΙΣΜΟΣ.
+ */
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+const { safeWriteJSON } = require('./safeWrite');
+const domain = require('./apologismosDomain');
+const { suggestCategoryFromEpActions } = require('./apologismosEpSuggest');
+const { buildPresentationModel } = require('./apologismosPresentation');
+const appearanceMod = require('./apologismosAppearance');
+const coverFrame = require('./apologismosCoverFrame');
+
+const APOLOGISMOS_FOLDER = 'ΑΠΟΛΟΓΙΣΜΟΣ';
+
+function getRoot(dataDir) {
+  return path.join(dataDir, APOLOGISMOS_FOLDER);
+}
+
+function ensureDirs(dataDir) {
+  const root = getRoot(dataDir);
+  const reports = path.join(root, 'reports');
+  const media = path.join(root, 'media');
+  const appearance = path.join(root, 'appearance');
+  for (const d of [root, reports, media, appearance]) {
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  }
+  return root;
+}
+
+function periodsPath(dataDir) {
+  return path.join(getRoot(dataDir), 'periods.json');
+}
+
+function reportPath(dataDir, periodId) {
+  const safeId = String(periodId || '').replace(/[<>:"/\\|?*]/g, '_');
+  return path.join(getRoot(dataDir), 'reports', `${safeId}.json`);
+}
+
+function loadPeriods(dataDir) {
+  ensureDirs(dataDir);
+  const fp = periodsPath(dataDir);
+  if (!fs.existsSync(fp)) {
+    const def = domain.createDefaultPeriod();
+    const payload = { periods: [def], updatedAt: new Date().toISOString() };
+    safeWriteJSON(fp, payload);
+    return payload.periods;
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    const periods = Array.isArray(data.periods) ? data.periods : [];
+    if (!periods.length) {
+      const def = domain.createDefaultPeriod();
+      safeWriteJSON(fp, { periods: [def], updatedAt: new Date().toISOString() });
+      return [def];
+    }
+    return periods;
+  } catch (e) {
+    const def = domain.createDefaultPeriod();
+    safeWriteJSON(fp, { periods: [def], updatedAt: new Date().toISOString() });
+    return [def];
+  }
+}
+
+function upsertPeriod(dataDir, periodInput) {
+  ensureDirs(dataDir);
+  const periods = loadPeriods(dataDir);
+  const startYear = Number(periodInput.startYear);
+  const endYear = Number(periodInput.endYear);
+  if (!Number.isFinite(startYear) || !Number.isFinite(endYear) || startYear > endYear) {
+    return { success: false, error: 'Μη έγκυρα έτη περιόδου' };
+  }
+  const id = periodInput.id || `${startYear}-${endYear}`;
+  const next = {
+    id,
+    startYear,
+    endYear,
+    label: periodInput.label || `Δημοτική περίοδος ${startYear}–${endYear}`,
+    isCurrent: !!periodInput.isCurrent,
+  };
+  const idx = periods.findIndex((p) => p.id === id);
+  let list = [...periods];
+  if (next.isCurrent) {
+    list = list.map((p) => ({ ...p, isCurrent: false }));
+  }
+  if (idx >= 0) list[idx] = { ...list[idx], ...next };
+  else list.push(next);
+  if (!list.some((p) => p.isCurrent) && list.length) {
+    list[0] = { ...list[0], isCurrent: true };
+  }
+  safeWriteJSON(periodsPath(dataDir), { periods: list, updatedAt: new Date().toISOString() });
+  return { success: true, periods: list, period: list.find((p) => p.id === id) };
+}
+
+function getPeriodById(dataDir, periodId) {
+  const periods = loadPeriods(dataDir);
+  return periods.find((p) => p.id === periodId) || null;
+}
+
+function getCurrentPeriod(dataDir) {
+  const periods = loadPeriods(dataDir);
+  return periods.find((p) => p.isCurrent) || periods[0] || null;
+}
+
+function loadReport(dataDir, periodId) {
+  ensureDirs(dataDir);
+  const period = getPeriodById(dataDir, periodId) || getCurrentPeriod(dataDir);
+  if (!period) return { success: false, error: 'Δεν βρέθηκε δημοτική περίοδος' };
+  const fp = reportPath(dataDir, period.id);
+  if (!fs.existsSync(fp)) {
+    const empty = domain.createEmptyReport(period.id);
+    safeWriteJSON(fp, empty);
+    return { success: true, report: empty, period };
+  }
+  try {
+    const report = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    if (!Array.isArray(report.cards)) report.cards = [];
+    report.periodId = period.id;
+    let migrated = false;
+    if (!report.appearance || typeof report.appearance !== 'object') {
+      report.appearance = appearanceMod.emptyAppearance();
+      migrated = true;
+    } else {
+      report.appearance = appearanceMod.normalizeAppearance(report.appearance);
+    }
+    report.cards = report.cards.map((card) => {
+      const { card: next, changed } = domain.migrateDeprecatedVizIds(card);
+      if (changed) migrated = true;
+      return next;
+    });
+    if (migrated) {
+      report.updatedAt = new Date().toISOString();
+      safeWriteJSON(fp, report);
+    }
+    return { success: true, report, period };
+  } catch (e) {
+    const empty = domain.createEmptyReport(period.id);
+    safeWriteJSON(fp, empty);
+    return { success: true, report: empty, period };
+  }
+}
+
+function saveReport(dataDir, report) {
+  ensureDirs(dataDir);
+  if (!report || !report.periodId) {
+    return { success: false, error: 'Λείπει periodId' };
+  }
+  const next = {
+    ...report,
+    cards: Array.isArray(report.cards) ? report.cards : [],
+    updatedAt: new Date().toISOString(),
+    createdAt: report.createdAt || new Date().toISOString(),
+  };
+  safeWriteJSON(reportPath(dataDir, report.periodId), next);
+  return { success: true, report: next };
+}
+
+function addFromSubproject(dataDir, { periodId, subproject, epActions }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  const check = domain.canAddLinkedSubproject(subproject, report.cards);
+  if (!check.ok) return { success: false, error: check.error };
+
+  const mapped = domain.mapSubprojectToCardFields(subproject);
+  const suggested = suggestCategoryFromEpActions(epActions);
+  const now = new Date().toISOString();
+  const card = {
+    id: uuidv4(),
+    ...mapped,
+    categoryId: suggested || '',
+    narrative: '',
+    primaryViz: '',
+    secondaryViz: null,
+    photos: { before: [], during: [], after: [] },
+    mapPoints: [],
+    mapLine: null,
+    mapDrawing: domain.emptyMapDrawing(),
+    mapSnapshot: null,
+    metrics: [],
+    amountChangedBadge: false,
+    suggestedCategoryId: suggested || null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  report.cards.push(card);
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return { success: true, report: saved.report, period, card };
+}
+
+function addLegacyCard(dataDir, { periodId, input }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  const check = domain.validateLegacyCardInput(input, period);
+  if (!check.ok) return { success: false, error: check.errors.join(' · ') };
+
+  const now = new Date().toISOString();
+  const card = {
+    id: uuidv4(),
+    source: 'legacy',
+    subprojectId: null,
+    projectId: null,
+    title: check.normalized.title,
+    area: check.normalized.area,
+    completionYear: check.normalized.completionYear,
+    approvedAmount: check.normalized.approvedAmount,
+    contractAmount: check.normalized.contractAmount,
+    categoryId: input.categoryId || '',
+    narrative: String(input.narrative || '').trim(),
+    primaryViz: input.primaryViz || '',
+    secondaryViz: input.secondaryViz || null,
+    photos: { before: [], during: [], after: [] },
+    mapPoints: Array.isArray(input.mapPoints) ? input.mapPoints : [],
+    mapLine: input.mapLine || null,
+    mapDrawing: domain.normalizeMapDrawing(input.mapDrawing),
+    mapSnapshot: input.mapSnapshot || null,
+    metrics: domain.normalizeMetrics(input.metrics),
+    amountChangedBadge: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  report.cards.push(card);
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return { success: true, report: saved.report, period, card };
+}
+
+function updateCard(dataDir, { periodId, cardId, patch }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  const idx = report.cards.findIndex((c) => c.id === cardId);
+  if (idx < 0) return { success: false, error: 'Δεν βρέθηκε κάρτα' };
+
+  const prev = report.cards[idx];
+  if (prev.source === 'legacy' && (patch.completionYear != null || patch.area != null)) {
+    const check = domain.validateLegacyCardInput(
+      {
+        title: patch.title != null ? patch.title : prev.title,
+        area: patch.area != null ? patch.area : prev.area,
+        completionYear:
+          patch.completionYear != null ? patch.completionYear : prev.completionYear,
+        approvedAmount:
+          patch.approvedAmount != null ? patch.approvedAmount : prev.approvedAmount,
+        contractAmount:
+          patch.contractAmount != null ? patch.contractAmount : prev.contractAmount,
+      },
+      period
+    );
+    if (!check.ok) return { success: false, error: check.errors.join(' · ') };
+  }
+
+  const next = {
+    ...prev,
+    ...patch,
+    id: prev.id,
+    source: prev.source,
+    subprojectId: prev.subprojectId,
+    projectId: prev.projectId,
+    updatedAt: new Date().toISOString(),
+  };
+  if (patch.metrics) next.metrics = domain.normalizeMetrics(patch.metrics);
+  if (patch.photos) {
+    next.photos = domain.mergePhotoPhases(prev.photos, patch.photos);
+  }
+  if (patch.mapDrawing !== undefined) {
+    next.mapDrawing = domain.normalizeMapDrawing(patch.mapDrawing);
+  }
+  const migrated = domain.migrateDeprecatedVizIds(next).card;
+  // Linked κάρτες: επιτρέπεται χειροκίνητη συμπλήρωση ποσών (δεν αγγίζει το υποέργο)
+  report.cards[idx] = migrated;
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return { success: true, report: saved.report, period, card: migrated };
+}
+
+function removeCard(dataDir, { periodId, cardId }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  const before = report.cards.length;
+  report.cards = report.cards.filter((c) => c.id !== cardId);
+  if (report.cards.length === before) {
+    return { success: false, error: 'Δεν βρέθηκε κάρτα' };
+  }
+  // cleanup media folder
+  const mediaDir = path.join(getRoot(dataDir), 'media', cardId);
+  try {
+    if (fs.existsSync(mediaDir)) {
+      fs.rmSync(mediaDir, { recursive: true, force: true });
+    }
+  } catch (_) {}
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return { success: true, report: saved.report, period };
+}
+
+/**
+ * @param {Record<string, object>} subprojectById map subprojectId -> subproject
+ */
+function syncAmounts(dataDir, { periodId, subprojectById }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  let changedAny = false;
+  report.cards = report.cards.map((card) => {
+    if (card.source !== 'linked' || !card.subprojectId) return card;
+    const sub = subprojectById?.[card.subprojectId];
+    if (!sub) return card;
+    const { card: next, changed } = domain.syncCardAmountsFromSubproject(card, sub);
+    if (changed) changedAny = true;
+    return next;
+  });
+  if (changedAny) {
+    const saved = saveReport(dataDir, report);
+    if (!saved.success) return saved;
+    return { success: true, report: saved.report, period, changed: true };
+  }
+  return { success: true, report, period, changed: false };
+}
+
+function dismissBadge(dataDir, { periodId, cardId }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  const idx = report.cards.findIndex((c) => c.id === cardId);
+  if (idx < 0) return { success: false, error: 'Δεν βρέθηκε κάρτα' };
+  report.cards[idx] = domain.dismissAmountBadge(report.cards[idx]);
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return { success: true, report: saved.report, period, card: report.cards[idx] };
+}
+
+function getCardMediaDir(dataDir, cardId) {
+  ensureDirs(dataDir);
+  const dir = path.join(getRoot(dataDir), 'media', cardId);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function saveCardPhoto(dataDir, { cardId, phase, sourcePath, fileName, currentPhotos }) {
+  const root = ensureDirs(dataDir);
+  const slot = domain.canAddPhotoToPhase(currentPhotos, phase);
+  if (!slot.ok) return { success: false, error: slot.error };
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    return { success: false, error: 'Δεν βρέθηκε αρχείο πηγής' };
+  }
+  const mediaDir = getCardMediaDir(dataDir, cardId);
+  const phaseDir = path.join(mediaDir, phase);
+  if (!fs.existsSync(phaseDir)) fs.mkdirSync(phaseDir, { recursive: true });
+
+  const safeName = String(fileName || path.basename(sourcePath))
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .slice(0, 80);
+  // Μοναδικό όνομα — αποφυγή σύγκρουσης όταν ανεβαίνουν πολλά αρχεία στο ίδιο ms
+  const destName = `${Date.now()}_${uuidv4().slice(0, 8)}_${safeName}`;
+  const destAbs = path.join(phaseDir, destName);
+  const rel = path.join('media', cardId, phase, destName).replace(/\\/g, '/');
+  const guard = domain.resolveMediaPathSafe(dataDir, root, rel);
+  if (!guard.ok) return { success: false, error: guard.error };
+
+  fs.copyFileSync(sourcePath, destAbs);
+  return { success: true, relativePath: rel, absolutePath: destAbs };
+}
+
+function deleteCardPhotoFile(dataDir, relativePath) {
+  const abs = resolveCardMediaAbsolute(dataDir, relativePath);
+  if (!abs) return { success: false, error: 'Μη επιτρεπτό path' };
+  try {
+    if (fs.existsSync(abs)) fs.unlinkSync(abs);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+  return { success: true };
+}
+
+function removeCardPhoto(dataDir, { periodId, cardId, phase, relativePath }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  const idx = report.cards.findIndex((c) => c.id === cardId);
+  if (idx < 0) return { success: false, error: 'Δεν βρέθηκε κάρτα' };
+  const card = report.cards[idx];
+  const result = domain.removePhotoFromPhase(card.photos, phase, relativePath);
+  if (!result.ok) return { success: false, error: result.error };
+  deleteCardPhotoFile(dataDir, relativePath);
+  report.cards[idx] = {
+    ...card,
+    photos: result.photos,
+    updatedAt: new Date().toISOString(),
+  };
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return { success: true, report: saved.report, period, card: report.cards[idx] };
+}
+
+function reorderCardPhotoPrimary(dataDir, { periodId, cardId, phase, relativePath }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  const idx = report.cards.findIndex((c) => c.id === cardId);
+  if (idx < 0) return { success: false, error: 'Δεν βρέθηκε κάρτα' };
+  const card = report.cards[idx];
+  const result = domain.movePhotoToPrimary(card.photos, phase, relativePath);
+  if (!result.ok) return { success: false, error: result.error };
+  report.cards[idx] = {
+    ...card,
+    photos: result.photos,
+    updatedAt: new Date().toISOString(),
+  };
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return { success: true, report: saved.report, period, card: report.cards[idx] };
+}
+
+/**
+ * Αποθήκευση στιγμιότυπου χάρτη (PNG data URL ή Buffer) + GeoJSON σχεδίων.
+ */
+function saveMapSnapshot(dataDir, {
+  periodId, cardId, dataUrl, buffer, mapDrawing, mapPoints,
+} = {}) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  const idx = report.cards.findIndex((c) => c.id === cardId);
+  if (idx < 0) return { success: false, error: 'Δεν βρέθηκε κάρτα' };
+
+  let bytes = buffer;
+  if (!bytes && dataUrl) {
+    const m = String(dataUrl).match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/i);
+    if (!m) return { success: false, error: 'Μη έγκυρη εικόνα χάρτη' };
+    bytes = Buffer.from(m[2], 'base64');
+  }
+  if (!bytes || !bytes.length) {
+    return { success: false, error: 'Λείπει το στιγμιότυπο χάρτη' };
+  }
+
+  const root = ensureDirs(dataDir);
+  const mediaDir = getCardMediaDir(dataDir, cardId);
+  const mapDir = path.join(mediaDir, 'map');
+  if (!fs.existsSync(mapDir)) fs.mkdirSync(mapDir, { recursive: true });
+
+  const destName = `snapshot_${Date.now()}_${uuidv4().slice(0, 8)}.png`;
+  const destAbs = path.join(mapDir, destName);
+  const rel = path.join('media', cardId, 'map', destName).replace(/\\/g, '/');
+  const guard = domain.resolveMediaPathSafe(dataDir, root, rel);
+  if (!guard.ok) return { success: false, error: guard.error };
+
+  fs.writeFileSync(destAbs, bytes);
+
+  const prev = report.cards[idx];
+  if (prev.mapSnapshot && prev.mapSnapshot !== rel) {
+    deleteCardPhotoFile(dataDir, prev.mapSnapshot);
+  }
+
+  const drawing = domain.normalizeMapDrawing(mapDrawing || domain.resolveCardMapDrawing(prev));
+  const pointsFromDrawing = drawing.features
+    .filter((f) => f.geometry?.type === 'Point')
+    .map((f) => {
+      const [lng, lat] = f.geometry.coordinates || [];
+      return {
+        lat: Number(lat),
+        lng: Number(lng),
+        label: String(f.properties?.name || '').trim(),
+      };
+    })
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+
+  report.cards[idx] = {
+    ...prev,
+    mapSnapshot: rel,
+    mapDrawing: drawing,
+    mapPoints: Array.isArray(mapPoints) && mapPoints.length
+      ? mapPoints
+      : pointsFromDrawing,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return {
+    success: true,
+    report: saved.report,
+    period,
+    card: report.cards[idx],
+    relativePath: rel,
+  };
+}
+
+function mediaFileToDataUrl(absolutePath) {
+  if (!absolutePath || !fs.existsSync(absolutePath)) return null;
+  const ext = path.extname(absolutePath).toLowerCase().replace('.', '');
+  const mime = ext === 'png' ? 'image/png'
+    : ext === 'webp' ? 'image/webp'
+      : ext === 'gif' ? 'image/gif'
+        : 'image/jpeg';
+  const buf = fs.readFileSync(absolutePath);
+  return `data:${mime};base64,${buf.toString('base64')}`;
+}
+
+function resolveMediaMap(dataDir, relativePaths, { asDataUrl = false } = {}) {
+  const map = {};
+  for (const rel of relativePaths || []) {
+    const abs = resolveCardMediaAbsolute(dataDir, rel);
+    if (!abs || !fs.existsSync(abs)) continue;
+    map[rel] = asDataUrl ? mediaFileToDataUrl(abs) : `file:///${abs.replace(/\\/g, '/')}`;
+  }
+  return map;
+}
+
+function resolveCardMediaAbsolute(dataDir, relativePath) {
+  const root = ensureDirs(dataDir);
+  const guard = domain.resolveMediaPathSafe(dataDir, root, relativePath);
+  if (!guard.ok) return null;
+  return guard.resolved;
+}
+
+function getMeta() {
+  return {
+    categories: domain.CATEGORIES,
+    vizModes: domain.VIZ_MODES,
+    eligibleStatuses: domain.ELIGIBLE_STATUSES,
+    maxPhotosPerPhase: domain.MAX_PHOTOS_PER_PHASE,
+    maxMetricsRows: domain.MAX_METRICS_ROWS,
+    photoPhaseLabels: domain.PHOTO_PHASE_LABELS_EL,
+    palettes: appearanceMod.PALETTES,
+    coverLayouts: appearanceMod.COVER_LAYOUTS,
+  };
+}
+
+function enrichReportWithReadiness(report) {
+  const cards = (report.cards || []).map((card) => {
+    const photos = domain.normalizePhotoSlots(card.photos || {}, ['before', 'during', 'after']);
+    const { card: migrated } = domain.migrateDeprecatedVizIds({ ...card, photos });
+    const readiness = domain.getCardReadiness(migrated);
+    return { ...migrated, ready: readiness.ready, readinessErrors: readiness.errors };
+  });
+  return {
+    ...report,
+    appearance: appearanceMod.normalizeAppearance(report.appearance),
+    cards: domain.sortCardsByApprovedAmountDesc(cards),
+  };
+}
+
+function updateAppearance(dataDir, { periodId, patch }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  const prev = appearanceMod.normalizeAppearance(report.appearance);
+  const next = appearanceMod.normalizeAppearance({
+    ...prev,
+    ...(patch || {}),
+    coverImages: patch?.coverImages !== undefined ? patch.coverImages : prev.coverImages,
+    updatedAt: new Date().toISOString(),
+  });
+  report.appearance = next;
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return { success: true, report: saved.report, period, appearance: next };
+}
+
+function saveCoverImage(dataDir, { periodId, sourcePath, fileName, slotIndex = 0 }) {
+  const loaded = loadReport(dataDir, periodId);
+  if (!loaded.success) return loaded;
+  const { report, period } = loaded;
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    return { success: false, error: 'Δεν βρέθηκε αρχείο πηγής' };
+  }
+  const root = ensureDirs(dataDir);
+  const appearanceDir = path.join(root, 'appearance');
+  const safeName = String(fileName || path.basename(sourcePath))
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .slice(0, 80);
+  const destName = `cover_${Number(slotIndex) || 0}_${Date.now()}_${uuidv4().slice(0, 8)}_${safeName}`;
+  const destAbs = path.join(appearanceDir, destName);
+  const rel = path.join('appearance', destName).replace(/\\/g, '/');
+  const guard = domain.resolveMediaPathSafe(dataDir, root, rel);
+  if (!guard.ok) return { success: false, error: guard.error };
+
+  fs.copyFileSync(sourcePath, destAbs);
+
+  const appearance = appearanceMod.normalizeAppearance(report.appearance);
+  const layout = appearanceMod.getCoverLayout(appearance.coverLayoutId);
+  const idx = Math.max(0, Math.min(layout.imageSlots - 1, Number(slotIndex) || 0));
+  const slots = appearanceMod.coverImagesBySlot(appearance);
+  const prev = slots[idx];
+  slots[idx] = {
+    relativePath: rel,
+    focusX: prev?.focusX ?? 0.5,
+    focusY: prev?.focusY ?? 0.5,
+    zoom: prev?.zoom ?? 1,
+    slot: idx,
+  };
+
+  report.appearance = appearanceMod.normalizeAppearance({
+    ...appearance,
+    coverImages: slots.filter(Boolean),
+    updatedAt: new Date().toISOString(),
+  });
+  const saved = saveReport(dataDir, report);
+  if (!saved.success) return saved;
+  return {
+    success: true,
+    report: saved.report,
+    period,
+    appearance: report.appearance,
+    relativePath: rel,
+  };
+}
+
+function buildPresentationModelForExport(report, period, appConfig) {
+  return buildPresentationModel(report, period, { appConfig: appConfig || {} });
+}
+
+/**
+ * Προετοιμασία καδραρισμένων φωτογραφιών εξωφύλλου για PDF/PPTX.
+ * @returns {Promise<{ success: true, frames: Array<string|null>, layoutId: string }>}
+ */
+async function frameCoverImagesForExport(dataDir, { appearance, channel = 'pdf' } = {}) {
+  const a = appearanceMod.normalizeAppearance(appearance);
+  const slots = appearanceMod.coverImagesBySlot(a);
+  const targets = coverFrame.coverFrameTargets(channel, a.coverLayoutId);
+  const bg = appearanceMod.resolveTheme(a).darkBand || '#1e293b';
+  const frames = [];
+
+  for (let i = 0; i < targets.length; i += 1) {
+    const img = slots[i];
+    const target = targets[i];
+    if (!img?.relativePath || !target) {
+      frames.push(null);
+      continue;
+    }
+    const abs = resolveCardMediaAbsolute(dataDir, img.relativePath);
+    if (!abs || !fs.existsSync(abs)) {
+      frames.push(null);
+      continue;
+    }
+    try {
+      const buf = await coverFrame.renderCoverFrame(abs, {
+        focusX: img.focusX,
+        focusY: img.focusY,
+        zoom: img.zoom,
+        width: target.width,
+        height: target.height,
+        background: bg,
+      });
+      frames.push(coverFrame.bufferToDataUrl(buf, 'image/jpeg'));
+    } catch (_) {
+      // Fallback: ανεπεξέργαστη εικόνα ως data URL
+      try {
+        frames.push(mediaFileToDataUrl(abs));
+      } catch (e2) {
+        frames.push(null);
+      }
+    }
+  }
+
+  return { success: true, frames, layoutId: a.coverLayoutId, channel };
+}
+
+/** Αφαιρεί διπλότυπες διαδρομές φωτογραφιών από δίσκο (παλιό bug ίδιου ονόματος αρχείου). */
+function sanitizeReportPhotos(dataDir, report) {
+  let changed = false;
+  const cards = (report.cards || []).map((card) => {
+    const photos = domain.normalizePhotoSlots(card.photos || {}, ['before', 'during', 'after']);
+    const prev = JSON.stringify(card.photos || {});
+    const next = JSON.stringify(photos);
+    if (prev !== next) {
+      changed = true;
+      return { ...card, photos, updatedAt: new Date().toISOString() };
+    }
+    return card;
+  });
+  if (!changed) return { success: true, report, changed: false };
+  const saved = saveReport(dataDir, { ...report, cards });
+  if (!saved.success) return saved;
+  return { success: true, report: saved.report, changed: true };
+}
+
+module.exports = {
+  APOLOGISMOS_FOLDER,
+  ensureDirs,
+  loadPeriods,
+  upsertPeriod,
+  getPeriodById,
+  getCurrentPeriod,
+  loadReport,
+  saveReport,
+  addFromSubproject,
+  addLegacyCard,
+  updateCard,
+  removeCard,
+  syncAmounts,
+  dismissBadge,
+  saveCardPhoto,
+  saveMapSnapshot,
+  removeCardPhoto,
+  reorderCardPhotoPrimary,
+  deleteCardPhotoFile,
+  resolveCardMediaAbsolute,
+  resolveMediaMap,
+  mediaFileToDataUrl,
+  frameCoverImagesForExport,
+  getMeta,
+  enrichReportWithReadiness,
+  sanitizeReportPhotos,
+  updateAppearance,
+  saveCoverImage,
+  buildPresentationModel: buildPresentationModelForExport,
+  appearance: appearanceMod,
+  domain,
+};

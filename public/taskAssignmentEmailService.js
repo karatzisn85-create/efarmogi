@@ -52,6 +52,35 @@ function getLogoFilePath() {
   return null;
 }
 
+/**
+ * Κεφαλαία χωρίς τόνους για badges email (το CSS uppercase διατηρεί ελληνικούς τόνους).
+ * π.χ. «Προθεσμία» → «ΠΡΟΘΕΣΜΙΑ»
+ */
+function greekUpperNoTonos(text) {
+  return String(text || '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLocaleUpperCase('el-GR');
+}
+
+/** Διακριτική, επίσημη προτροπή να ανοίξει ο παραλήπτης την εφαρμογή. */
+function buildAppOpenPromptHtml(appName) {
+  const name = escapeHtml(appName || BRAND.name);
+  return `
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px;">
+                <tr>
+                  <td style="padding:16px 18px;background:#f8fafc;border:1px solid ${BRAND.border};border-radius:10px;border-left:3px solid ${BRAND.navyMid};">
+                    <p style="margin:0 0 6px 0;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${BRAND.textMuted};">Ενημέρωση</p>
+                    <p style="margin:0;font-size:13px;line-height:1.65;color:#334155;">
+                      Για την πληρέστερη και επίκαιρη ενημέρωσή σας, παρακαλούμε ανοίξτε την εφαρμογή
+                      <strong style="color:${BRAND.navy};">${name}</strong>
+                      και ανατρέξτε στα στοιχεία που τηρούνται σε αυτήν.
+                    </p>
+                  </td>
+                </tr>
+              </table>`;
+}
+
 /** Prefixed ciphertext στο email-config.json — όχι plaintext app password. */
 const APP_PASSWORD_ENC_PREFIX = 'safeStorage:v1:';
 
@@ -291,12 +320,14 @@ function buildEmailHtml({
   useCidLogo = false
 }) {
   const name = escapeHtml(appName || BRAND.name);
-  const logoSrc = useCidLogo ? `cid:${LOGO_CID}` : null;
-  const logoBlock = logoSrc
-    ? `<img src="${logoSrc}" alt="${name}" style="display:block;max-height:48px;max-width:180px;width:auto;height:auto;border:0;" />`
+  const logoAvailable = !!getLogoFilePath();
+  const showCidLogo = useCidLogo && logoAvailable;
+  const logoBlock = showCidLogo
+    ? `<img src="cid:${LOGO_CID}" alt="${name}" style="display:block;max-height:48px;max-width:180px;width:auto;height:auto;border:0;" />`
     : `<span style="font-size:20px;font-weight:800;color:${BRAND.navy};letter-spacing:-0.3px;">${name}</span>`;
 
   const badgeBg = badgeColor || BRAND.accent;
+  const badgeText = greekUpperNoTonos(badgeLabel || '');
   const rowsHtml = rows
     .filter((r) => r && (r.value || r.value === 0))
     .map(
@@ -312,6 +343,8 @@ function buildEmailHtml({
     ? `<p style="margin:16px 0 0 0;color:${BRAND.textMuted};font-size:12px;line-height:1.55;">${footnote}</p>`
     : '';
 
+  const appPromptBlock = buildAppOpenPromptHtml(appName);
+
   return `<!DOCTYPE html><html lang="el"><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:${BRAND.bg};font-family:Arial,Helvetica,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.bg};padding:32px 16px;">
     <tr>
@@ -323,7 +356,7 @@ function buildEmailHtml({
                 <tr>
                   <td style="vertical-align:middle;">${logoBlock}</td>
                   <td align="right" style="vertical-align:middle;">
-                    <span style="display:inline-block;padding:6px 12px;border-radius:20px;background:${badgeBg};color:#ffffff;font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">${escapeHtml(badgeLabel)}</span>
+                    <span style="display:inline-block;padding:6px 12px;border-radius:20px;background:${badgeBg};color:#ffffff;font-size:11px;font-weight:700;letter-spacing:0.04em;">${escapeHtml(badgeText)}</span>
                   </td>
                 </tr>
               </table>
@@ -339,6 +372,7 @@ function buildEmailHtml({
               </div>
               ${rowsHtml ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid ${BRAND.border};">${rowsHtml}</table>` : ''}
               ${footnoteBlock}
+              ${appPromptBlock}
             </td>
           </tr>
           <tr>
@@ -394,7 +428,7 @@ async function sendWorkspaceCreatedEmail(task, allUsers, emailConfig) {
     headline: 'Προσκλήθηκες σε νέο χώρο εργασίας',
     workspaceTitle: task.title,
     rows,
-    footnote: 'Άνοιξε την εφαρμογή ergoHub για να δεις λεπτομέρειες και να συνεργαστείς με την ομάδα.',
+    footnote: 'Στον χώρο εργασίας θα βρείτε λεπτομέρειες και μπορείτε να συνεργαστείτε με την ομάδα.',
     useCidLogo: true
   });
 
@@ -445,7 +479,7 @@ async function sendWorkspaceActivityEmail(task, actor, messageText, allUsers, em
         : [])
     ],
     footnote:
-      'Συγκεντρωμένη ειδοποίηση (το πολύ ένα email κάθε 2 ώρες ανά χώρο). Άνοιξε τον χώρο στην εφαρμογή για όλη τη ροή.',
+      'Συγκεντρωμένη ειδοποίηση (το πολύ ένα email κάθε 2 ώρες ανά χώρο). Η πλήρης ροή εμφανίζεται στον χώρο εργασίας.',
     useCidLogo: true
   });
 
@@ -543,6 +577,9 @@ module.exports = {
   getAppDisplayName,
   escapeHtml,
   buildEmailHtml,
+  buildLogoAttachment,
+  buildAppOpenPromptHtml,
+  greekUpperNoTonos,
   sendWorkspaceCreatedEmail,
   sendWorkspaceActivityEmail,
   sendTestEmail

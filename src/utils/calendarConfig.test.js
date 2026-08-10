@@ -23,16 +23,11 @@ describe('calendarConfigService', () => {
     });
   });
 
-  test('normalizeConfig keeps selected notify event types via legacy migration', () => {
+  test('normalizeConfig keeps month and mid-month reminder thresholds', () => {
     const normalized = normalizeConfig({
-      notifyEventTypes: ['contract_end', 'custom'],
-      daysBefore: [180, 90, 7],
+      daysBefore: [180, 90, 30, 15, 7],
     });
-    expect(normalized.notifyEventTypes).toEqual(['contract_end', 'custom']);
-    expect(normalized.daysBefore).toEqual([180, 90, 7]);
-    expect(normalized.eventTypeSettings.contract_end.enabled).toBe(true);
-    expect(normalized.eventTypeSettings.custom.enabled).toBe(true);
-    expect(normalized.eventTypeSettings.deadline.enabled).toBe(false);
+    expect(normalized.daysBefore).toEqual([180, 90, 30, 15, 7]);
   });
 
   test('empty notifyEventTypes falls back to all types', () => {

@@ -26,7 +26,10 @@ const {
   isConfigured,
   sendWorkspaceCreatedEmail,
   sendWorkspaceActivityEmail,
-  sendTestEmail
+  sendTestEmail,
+  buildLogoAttachment,
+  buildAppOpenPromptHtml,
+  getAppDisplayName,
 } = require('./taskAssignmentEmailService');
 const {
   hashPassword,
@@ -1107,7 +1110,8 @@ const requiredSubDirs = [
   'subproject_links',
   'backups',
   'ektelestea_erga',
-  'ANATHESEIS_ERGASION'
+  'ANATHESEIS_ERGASION',
+  'ΑΠΟΛΟΓΙΣΜΟΣ'
 ];
 
 function ensureSubDirs() {
@@ -11772,21 +11776,29 @@ function startNoteReminderChecker() {
 
           const noteTitle = note.title || 'Χωρίς τίτλο';
           const noteContent = (note.content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+          const appName = getAppDisplayName(emailConfig);
+          const logoAttachment = buildLogoAttachment();
+          const logoRow = logoAttachment
+            ? `<div style="margin-bottom:12px"><img src="cid:ergohub-logo@ergohub" alt="${String(appName || 'ergoHub').replace(/</g, '&lt;')}" style="display:block;max-height:40px;max-width:160px;border:0;" /></div>`
+            : '';
           const html = `
 <div style="font-family:Segoe UI,sans-serif;max-width:540px;margin:0 auto;padding:24px;background:#fff;border-radius:12px;border:1px solid #e2e8f0">
+  ${logoRow}
   <div style="background:linear-gradient(135deg,#4338ca,#6366f1);padding:16px 20px;border-radius:10px;margin-bottom:16px">
     <h2 style="color:#fff;margin:0;font-size:1.1rem">🔔 Υπενθύμιση Σημείωσης</h2>
   </div>
   <h3 style="color:#1e293b;margin:0 0 8px">${noteTitle.replace(/</g, '&lt;')}</h3>
   <div style="color:#475569;font-size:0.92rem;line-height:1.6;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:12px">${noteContent || '<em>Κενό περιεχόμενο</em>'}</div>
-  <div style="color:#94a3b8;font-size:0.8rem">ergoHub · Γρήγορες Σημειώσεις</div>
+  <div style="color:#94a3b8;font-size:0.8rem">${String(appName || 'ergoHub').replace(/</g, '&lt;')} · Γρήγορες Σημειώσεις</div>
+  ${buildAppOpenPromptHtml(appName)}
 </div>`;
 
           await transporter.sendMail({
-            from: `ergoHub <${user}>`,
+            from: `${appName} <${user}>`,
             to: creator.email,
             subject: `🔔 Υπενθύμιση: ${noteTitle}`,
-            html
+            html,
+            attachments: logoAttachment ? [logoAttachment] : [],
           });
 
           logger.info(`Note reminder email sent to ${creator.email} for note "${noteTitle}"`);
@@ -18027,6 +18039,737 @@ ipcMain.handle('export-statistics-report', async (_event, {
     return result;
   } catch (e) {
     logger.error('export-statistics-report error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+// ============================================================
+// ΑΠΟΛΟΓΙΣΜΟΣ ΤΕΧΝΙΚΟΥ ΕΡΓΟΥ IPC HANDLERS (SUPERADMIN)
+// ============================================================
+
+const apologismosService = require('./apologismosService');
+
+function assertApologismosSuperAdmin(actingUsername) {
+  const username = actingUsername || loggedInUsername;
+  if (!isSuperAdminUser(username)) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στον Απολογισμό' };
+  }
+  return { ok: true, username };
+}
+
+function loadSubprojectDataById(subprojectId) {
+  if (!dataDir || !subprojectId) return null;
+  const projectDirs = fs.readdirSync(dataDir).filter((f) => {
+    try {
+      return fs.statSync(path.join(dataDir, f)).isDirectory()
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(f);
+    } catch (_) {
+      return false;
+    }
+  });
+  for (const projectDir of projectDirs) {
+    const dataPath = path.join(dataDir, projectDir, subprojectId, 'data.json');
+    if (fs.existsSync(dataPath)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+        return {
+          ...data,
+          projectId: data.projectId || projectDir,
+          subprojectId: data.subprojectId || subprojectId,
+        };
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/** Πλήρης χάρτης — μόνο για λίστα eligible (αραιότερη χρήση). */
+function buildSubprojectAmountMap() {
+  const map = {};
+  if (!dataDir) return map;
+  let projectDirs = [];
+  try {
+    projectDirs = fs.readdirSync(dataDir).filter((f) => {
+      try {
+        return fs.statSync(path.join(dataDir, f)).isDirectory()
+          && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(f);
+      } catch (_) {
+        return false;
+      }
+    });
+  } catch (_) {
+    return map;
+  }
+  for (const projectDir of projectDirs) {
+    const projectPath = path.join(dataDir, projectDir);
+    let subDirs = [];
+    try {
+      subDirs = fs.readdirSync(projectPath).filter((f) => {
+        try {
+          return fs.statSync(path.join(projectPath, f)).isDirectory()
+            && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(f);
+        } catch (_) {
+          return false;
+        }
+      });
+    } catch (_) {
+      continue;
+    }
+    for (const subId of subDirs) {
+      const dataPath = path.join(projectPath, subId, 'data.json');
+      if (!fs.existsSync(dataPath)) continue;
+      try {
+        const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+        map[subId] = {
+          approvedAmount: data.approvedAmount,
+          contractAmount: data.contractAmount,
+          projectStatus: data.projectStatus,
+          subprojectTitle: data.subprojectTitle,
+          projectTitle: data.projectTitle,
+          projectId: data.projectId || projectDir,
+          subprojectId: data.subprojectId || subId,
+        };
+      } catch (_) {}
+    }
+  }
+  return map;
+}
+
+/** Sync μόνο για linked subprojectIds της αναφοράς — αποφεύγει πλήρη σάρωση. */
+function buildSubprojectAmountMapForIds(subprojectIds) {
+  const map = {};
+  const ids = [...new Set((subprojectIds || []).filter(Boolean))];
+  for (const subId of ids) {
+    const data = loadSubprojectDataById(subId);
+    if (!data) continue;
+    map[subId] = {
+      approvedAmount: data.approvedAmount,
+      contractAmount: data.contractAmount,
+      projectStatus: data.projectStatus,
+      subprojectTitle: data.subprojectTitle,
+      projectTitle: data.projectTitle,
+      projectId: data.projectId,
+      subprojectId: data.subprojectId || subId,
+    };
+  }
+  return map;
+}
+
+ipcMain.handle('apologismos-get-meta', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    return { success: true, meta: apologismosService.getMeta() };
+  } catch (e) {
+    logger.error('apologismos-get-meta failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-get-periods', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const periods = apologismosService.loadPeriods(dataDir);
+    return { success: true, periods };
+  } catch (e) {
+    logger.error('apologismos-get-periods failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-upsert-period', async (_event, { actingUsername, period } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = apologismosService.upsertPeriod(dataDir, period || {});
+    return result;
+  } catch (e) {
+    logger.error('apologismos-upsert-period failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-get-report', async (_event, { actingUsername, periodId } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const loaded = apologismosService.loadReport(dataDir, periodId);
+    if (!loaded.success) return loaded;
+    const linkedIds = (loaded.report.cards || [])
+      .filter((c) => c.source === 'linked' && c.subprojectId)
+      .map((c) => c.subprojectId);
+    const synced = apologismosService.syncAmounts(dataDir, {
+      periodId: loaded.period.id,
+      subprojectById: buildSubprojectAmountMapForIds(linkedIds),
+    });
+    const baseReport = synced.success ? synced.report : loaded.report;
+    const sanitized = apologismosService.sanitizeReportPhotos(dataDir, baseReport);
+    const report = apologismosService.enrichReportWithReadiness(
+      sanitized.success ? sanitized.report : baseReport
+    );
+    return {
+      success: true,
+      report,
+      period: synced.period || loaded.period,
+      amountsSynced: !!(synced.success && synced.changed),
+    };
+  } catch (e) {
+    logger.error('apologismos-get-report failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-save-report', async (_event, { actingUsername, report } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const saved = apologismosService.saveReport(dataDir, report);
+    if (!saved.success) return saved;
+    return {
+      success: true,
+      report: apologismosService.enrichReportWithReadiness(saved.report),
+    };
+  } catch (e) {
+    logger.error('apologismos-save-report failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-add-from-subproject', async (_event, { actingUsername, periodId, subprojectId } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const subproject = loadSubprojectDataById(subprojectId);
+    if (!subproject) return { success: false, error: 'Δεν βρέθηκε υποέργο' };
+    let epActions = [];
+    try {
+      epActions = _epGetActionsForSubproject(dataDir, subprojectId) || [];
+    } catch (_) {
+      epActions = [];
+    }
+    const result = apologismosService.addFromSubproject(dataDir, {
+      periodId,
+      subproject,
+      epActions,
+    });
+    if (result.success) {
+      logAuditAction({
+        type: 'create',
+        entityType: 'apologismos_card',
+        entityId: result.card.id,
+        entityTitle: result.card.title,
+        userFullName: findUserByUsername(auth.username)?.fullName || auth.username,
+        userRole: 'SUPERADMIN',
+        details: `Ένταξη υποέργου στον απολογισμό (${subprojectId})`,
+      });
+      return {
+        success: true,
+        report: apologismosService.enrichReportWithReadiness(result.report),
+        period: result.period,
+        card: result.card,
+      };
+    }
+    return result;
+  } catch (e) {
+    logger.error('apologismos-add-from-subproject failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-add-legacy-card', async (_event, { actingUsername, periodId, input } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = apologismosService.addLegacyCard(dataDir, { periodId, input: input || {} });
+    if (result.success) {
+      logAuditAction({
+        type: 'create',
+        entityType: 'apologismos_card',
+        entityId: result.card.id,
+        entityTitle: result.card.title,
+        userFullName: findUserByUsername(auth.username)?.fullName || auth.username,
+        userRole: 'SUPERADMIN',
+        details: 'Χειροκίνητη καταχώρηση παλαιότερου έργου στον απολογισμό',
+      });
+      return {
+        success: true,
+        report: apologismosService.enrichReportWithReadiness(result.report),
+        period: result.period,
+        card: result.card,
+      };
+    }
+    return result;
+  } catch (e) {
+    logger.error('apologismos-add-legacy-card failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-update-card', async (_event, { actingUsername, periodId, cardId, patch } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = apologismosService.updateCard(dataDir, { periodId, cardId, patch: patch || {} });
+    if (!result.success) return result;
+    return {
+      success: true,
+      report: apologismosService.enrichReportWithReadiness(result.report),
+      period: result.period,
+      card: result.card,
+    };
+  } catch (e) {
+    logger.error('apologismos-update-card failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-remove-card', async (_event, { actingUsername, periodId, cardId } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const before = apologismosService.loadReport(dataDir, periodId);
+    const title = before.success
+      ? (before.report.cards.find((c) => c.id === cardId)?.title || cardId)
+      : cardId;
+    const result = apologismosService.removeCard(dataDir, { periodId, cardId });
+    if (result.success) {
+      logAuditAction({
+        type: 'delete',
+        entityType: 'apologismos_card',
+        entityId: cardId,
+        entityTitle: title,
+        userFullName: findUserByUsername(auth.username)?.fullName || auth.username,
+        userRole: 'SUPERADMIN',
+        details: 'Διαγραφή κάρτας από απολογισμό',
+      });
+      return {
+        success: true,
+        report: apologismosService.enrichReportWithReadiness(result.report),
+        period: result.period,
+      };
+    }
+    return result;
+  } catch (e) {
+    logger.error('apologismos-remove-card failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-sync-amounts', async (_event, { actingUsername, periodId } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const loaded = apologismosService.loadReport(dataDir, periodId);
+    if (!loaded.success) return loaded;
+    const linkedIds = (loaded.report.cards || [])
+      .filter((c) => c.source === 'linked' && c.subprojectId)
+      .map((c) => c.subprojectId);
+    const result = apologismosService.syncAmounts(dataDir, {
+      periodId,
+      subprojectById: buildSubprojectAmountMapForIds(linkedIds),
+    });
+    if (!result.success) return result;
+    return {
+      success: true,
+      report: apologismosService.enrichReportWithReadiness(result.report),
+      period: result.period,
+      changed: result.changed,
+    };
+  } catch (e) {
+    logger.error('apologismos-sync-amounts failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-dismiss-amount-badge', async (_event, { actingUsername, periodId, cardId } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = apologismosService.dismissBadge(dataDir, { periodId, cardId });
+    if (!result.success) return result;
+    return {
+      success: true,
+      report: apologismosService.enrichReportWithReadiness(result.report),
+      period: result.period,
+      card: result.card,
+    };
+  } catch (e) {
+    logger.error('apologismos-dismiss-amount-badge failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-select-photos', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = await dialog.showOpenDialog({
+      title: 'Επιλογή φωτογραφιών απολογισμού',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Εικόνες', extensions: ['jpg', 'jpeg', 'png', 'webp'] },
+        { name: 'Όλα τα Αρχεία', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths?.length) {
+      return { success: true, canceled: true, filePaths: [] };
+    }
+    return { success: true, canceled: false, filePaths: result.filePaths };
+  } catch (e) {
+    logger.error('apologismos-select-photos failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-save-photo', async (_event, {
+  actingUsername, periodId, cardId, phase, sourcePath,
+} = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const loaded = apologismosService.loadReport(dataDir, periodId);
+    if (!loaded.success) return loaded;
+    const card = loaded.report.cards.find((c) => c.id === cardId);
+    if (!card) return { success: false, error: 'Δεν βρέθηκε κάρτα' };
+
+    const slot = apologismosService.domain.canAddPhotoToPhase(card.photos, phase);
+    if (!slot.ok) return { success: false, error: slot.error };
+
+    const savedPhoto = apologismosService.saveCardPhoto(dataDir, {
+      cardId,
+      phase,
+      sourcePath,
+      fileName: path.basename(sourcePath || ''),
+      currentPhotos: card.photos,
+    });
+    if (!savedPhoto.success) return savedPhoto;
+
+    const photos = {
+      before: [...(card.photos?.before || [])],
+      during: [...(card.photos?.during || [])],
+      after: [...(card.photos?.after || [])],
+    };
+    photos[phase] = [...(photos[phase] || []), savedPhoto.relativePath];
+    const updated = apologismosService.updateCard(dataDir, {
+      periodId,
+      cardId,
+      patch: { photos },
+    });
+    if (!updated.success) return updated;
+    return {
+      success: true,
+      relativePath: savedPhoto.relativePath,
+      report: apologismosService.enrichReportWithReadiness(updated.report),
+      card: updated.card,
+    };
+  } catch (e) {
+    logger.error('apologismos-save-photo failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-remove-photo', async (_event, {
+  actingUsername, periodId, cardId, phase, relativePath,
+} = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = apologismosService.removeCardPhoto(dataDir, {
+      periodId, cardId, phase, relativePath,
+    });
+    if (!result.success) return result;
+    return {
+      success: true,
+      report: apologismosService.enrichReportWithReadiness(result.report),
+      period: result.period,
+      card: result.card,
+    };
+  } catch (e) {
+    logger.error('apologismos-remove-photo failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-reorder-photo-primary', async (_event, {
+  actingUsername, periodId, cardId, phase, relativePath,
+} = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = apologismosService.reorderCardPhotoPrimary(dataDir, {
+      periodId, cardId, phase, relativePath,
+    });
+    if (!result.success) return result;
+    return {
+      success: true,
+      report: apologismosService.enrichReportWithReadiness(result.report),
+      period: result.period,
+      card: result.card,
+    };
+  } catch (e) {
+    logger.error('apologismos-reorder-photo-primary failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-export-photo', async (_event, { actingUsername, relativePath } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const abs = apologismosService.resolveCardMediaAbsolute(dataDir, relativePath);
+    if (!abs || !fs.existsSync(abs)) {
+      return { success: false, error: 'Δεν βρέθηκε το αρχείο της φωτογραφίας' };
+    }
+    const baseName = path.basename(abs);
+    const ext = path.extname(baseName).replace('.', '').toLowerCase();
+    const filters = [];
+    if (ext) filters.push({ name: 'Εικόνα', extensions: [ext] });
+    filters.push({ name: 'Όλα τα Αρχεία', extensions: ['*'] });
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση φωτογραφίας',
+      defaultPath: baseName,
+      filters,
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    fs.copyFileSync(abs, pick.filePath);
+    return { success: true, filePath: pick.filePath };
+  } catch (e) {
+    logger.error('apologismos-export-photo failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-save-map-snapshot', async (_event, {
+  actingUsername, periodId, cardId, dataUrl, mapDrawing,
+} = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!periodId || !cardId) {
+      return { success: false, error: 'Απαιτούνται περίοδος και κάρτα' };
+    }
+    if (!dataUrl) {
+      return { success: false, error: 'Λείπει το στιγμιότυπο χάρτη' };
+    }
+    const result = apologismosService.saveMapSnapshot(dataDir, {
+      periodId,
+      cardId,
+      dataUrl,
+      mapDrawing,
+    });
+    if (!result.success) return result;
+    return {
+      success: true,
+      relativePath: result.relativePath,
+      report: apologismosService.enrichReportWithReadiness(result.report),
+      period: result.period,
+      card: result.card,
+    };
+  } catch (e) {
+    logger.error('apologismos-save-map-snapshot failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-list-eligible-subprojects', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const map = buildSubprojectAmountMap();
+    const list = Object.values(map)
+      .filter((s) => apologismosService.domain.isEligibleSubprojectStatus(s.projectStatus))
+      .map((s) => ({
+        subprojectId: s.subprojectId,
+        projectId: s.projectId,
+        title: s.subprojectTitle || s.projectTitle || s.subprojectId,
+        projectTitle: s.projectTitle || '',
+        approvedAmount: s.approvedAmount,
+        contractAmount: s.contractAmount,
+        projectStatus: s.projectStatus,
+      }))
+      .sort((a, b) => String(a.title).localeCompare(String(b.title), 'el'));
+    return { success: true, subprojects: list };
+  } catch (e) {
+    logger.error('apologismos-list-eligible-subprojects failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-resolve-media-map', async (_event, {
+  actingUsername, relativePaths, asDataUrl = false,
+} = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const mediaMap = apologismosService.resolveMediaMap(dataDir, relativePaths, { asDataUrl: !!asDataUrl });
+    return { success: true, mediaMap };
+  } catch (e) {
+    logger.error('apologismos-resolve-media-map failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-get-presentation', async (_event, { actingUsername, periodId } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const loaded = apologismosService.loadReport(dataDir, periodId);
+    if (!loaded.success) return loaded;
+    const config = loadConfig();
+    const model = apologismosService.buildPresentationModel(loaded.report, loaded.period, config);
+    return { success: true, model, period: loaded.period };
+  } catch (e) {
+    logger.error('apologismos-get-presentation failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-update-appearance', async (_event, { actingUsername, periodId, patch } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = apologismosService.updateAppearance(dataDir, { periodId, patch });
+    if (!result.success) return result;
+    return {
+      success: true,
+      report: apologismosService.enrichReportWithReadiness(result.report),
+      period: result.period,
+      appearance: result.appearance,
+    };
+  } catch (e) {
+    logger.error('apologismos-update-appearance failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-select-cover-images', async (_event, { actingUsername, multi = false } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = await dialog.showOpenDialog({
+      title: multi ? 'Επιλογή φωτογραφιών εξωφύλλου' : 'Επιλογή φωτογραφίας εξωφύλλου',
+      properties: multi ? ['openFile', 'multiSelections'] : ['openFile'],
+      filters: [
+        { name: 'Εικόνες', extensions: ['jpg', 'jpeg', 'png', 'webp'] },
+        { name: 'Όλα τα Αρχεία', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths?.length) {
+      return { success: true, canceled: true, filePaths: [] };
+    }
+    return { success: true, canceled: false, filePaths: result.filePaths };
+  } catch (e) {
+    logger.error('apologismos-select-cover-images failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-save-cover-image', async (_event, {
+  actingUsername, periodId, sourcePath, slotIndex = 0,
+} = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = apologismosService.saveCoverImage(dataDir, {
+      periodId,
+      sourcePath,
+      fileName: sourcePath ? path.basename(sourcePath) : 'cover.jpg',
+      slotIndex,
+    });
+    if (!result.success) return result;
+    return {
+      success: true,
+      report: apologismosService.enrichReportWithReadiness(result.report),
+      period: result.period,
+      appearance: result.appearance,
+      relativePath: result.relativePath,
+    };
+  } catch (e) {
+    logger.error('apologismos-save-cover-image failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-write-export-file', async (_event, {
+  actingUsername, buffer, defaultName, filters,
+} = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση αρχείου απολογισμού',
+      defaultPath: defaultName || 'apologismos',
+      filters: filters || [{ name: 'Αρχεία', extensions: ['*'] }],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    const buf = Buffer.from(Array.isArray(buffer) ? buffer : []);
+    const resolved = path.resolve(pick.filePath);
+    fs.writeFileSync(resolved, buf);
+    return { success: true, path: resolved };
+  } catch (e) {
+    logger.error('apologismos-write-export-file failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-frame-cover-images', async (_event, {
+  actingUsername, periodId, channel = 'pdf',
+} = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const loaded = apologismosService.loadReport(dataDir, periodId);
+    if (!loaded.success) return loaded;
+    return apologismosService.frameCoverImagesForExport(dataDir, {
+      appearance: loaded.report.appearance,
+      channel: channel === 'pptx' ? 'pptx' : 'pdf',
+    });
+  } catch (e) {
+    logger.error('apologismos-frame-cover-images failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-export-pptx', async (_event, { actingUsername, periodId } = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const { buildApologismosPptx } = require('./apologismosPptxExport');
+    const loaded = apologismosService.loadReport(dataDir, periodId);
+    if (!loaded.success) return loaded;
+    const config = loadConfig();
+    const model = apologismosService.buildPresentationModel(loaded.report, loaded.period, config);
+    const framed = await apologismosService.frameCoverImagesForExport(dataDir, {
+      appearance: loaded.report.appearance,
+      channel: 'pptx',
+    });
+    const buffer = await buildApologismosPptx(model, {
+      resolveMedia: (rel) => apologismosService.resolveCardMediaAbsolute(dataDir, rel),
+      coverFrames: framed.success ? framed.frames : [],
+    });
+    const defaultName = `Απολογισμός_${loaded.period.startYear}-${loaded.period.endYear}.pptx`;
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση παρουσίασης διαφανειών',
+      defaultPath: defaultName,
+      filters: [{ name: 'Παρουσίαση διαφανειών', extensions: ['pptx'] }],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    fs.writeFileSync(pick.filePath, buffer);
+    logAuditAction({
+      type: 'export',
+      entityType: 'apologismos',
+      entityId: loaded.period.id,
+      entityTitle: defaultName,
+      userFullName: findUserByUsername(auth.username)?.fullName || auth.username,
+      userRole: 'SUPERADMIN',
+      details: 'Εξαγωγή απολογισμού ως παρουσίαση διαφανειών',
+    });
+    return { success: true, path: pick.filePath };
+  } catch (e) {
+    logger.error('apologismos-export-pptx failed', e);
     return { success: false, error: e.message };
   }
 });

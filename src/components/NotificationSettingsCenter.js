@@ -320,6 +320,8 @@ function loadEventTypeSettingsFromConfig(cfg = {}) {
 const DAY_OPTIONS = [
   { value: 180, label: '6 μήνες πριν' },
   { value: 90, label: '3 μήνες πριν' },
+  { value: 30, label: '1 μήνα πριν' },
+  { value: 15, label: '15 μέρες πριν' },
   { value: 7, label: '7 ημέρες πριν' },
   { value: 3, label: '3 ημέρες πριν' },
   { value: 1, label: '1 ημέρα πριν' },
@@ -348,6 +350,8 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
   const [eventTypeSettings, setEventTypeSettings] = useState(buildDefaultEventTypeSettings);
   const [days180, setDays180] = useState(false);
   const [days90, setDays90] = useState(false);
+  const [days30, setDays30] = useState(false);
+  const [days15, setDays15] = useState(false);
   const [days7, setDays7] = useState(true);
   const [days3, setDays3] = useState(true);
   const [days1, setDays1] = useState(true);
@@ -395,6 +399,8 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
         const db = cfg.daysBefore || [7, 3, 1, 0];
         setDays180(db.includes(180));
         setDays90(db.includes(90));
+        setDays30(db.includes(30));
+        setDays15(db.includes(15));
         setDays7(db.includes(7));
         setDays3(db.includes(3));
         setDays1(db.includes(1));
@@ -437,6 +443,8 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
     const daysBefore = [];
     if (days180) daysBefore.push(180);
     if (days90) daysBefore.push(90);
+    if (days30) daysBefore.push(30);
+    if (days15) daysBefore.push(15);
     if (days7) daysBefore.push(7);
     if (days3) daysBefore.push(3);
     if (days1) daysBefore.push(1);
@@ -671,6 +679,8 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
           const stateMap = {
             180: [days180, setDays180],
             90: [days90, setDays90],
+            30: [days30, setDays30],
+            15: [days15, setDays15],
             7: [days7, setDays7],
             3: [days3, setDays3],
             1: [days1, setDays1],

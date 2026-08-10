@@ -1,5 +1,10 @@
 const path = require('path');
 
+/** Καθαρά modules που μοιράζονται Electron main + React renderer (χωρίς Node APIs). */
+const SHARED_PUBLIC_MODULES = [
+  path.resolve(__dirname, 'public/apologismosAppearance.js'),
+];
+
 module.exports = {
   webpack: {
     configure: (webpackConfig) => {
@@ -20,6 +25,16 @@ module.exports = {
       };
 
       webpackConfig.target = 'web';
+
+      // Επιτρέπουμε στοχευμένα imports από public/ για shared pure modules.
+      const scopePlugin = (webpackConfig.resolve.plugins || []).find(
+        (p) => p && p.constructor && p.constructor.name === 'ModuleScopePlugin'
+      );
+      if (scopePlugin && scopePlugin.allowedFiles) {
+        for (const abs of SHARED_PUBLIC_MODULES) {
+          scopePlugin.allowedFiles.add(abs);
+        }
+      }
 
       // Αγνόηση φακέλων build και dist από το file watching
       webpackConfig.watchOptions = {
