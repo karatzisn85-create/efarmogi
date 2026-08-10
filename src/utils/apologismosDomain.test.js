@@ -121,6 +121,11 @@ describe('apologismosDomain — period & amounts', () => {
     expect(parseAmountNumber('1.234.567,89')).toBeCloseTo(1234567.89);
   });
 
+  test('parseAmountNumber δεν αλλοιώνει ήδη αριθμητικά σύνολα', () => {
+    expect(parseAmountNumber(414482.279)).toBeCloseTo(414482.279);
+    expect(parseAmountNumber(1962000.08)).toBeCloseTo(1962000.08);
+  });
+
   test('δεν υπάρχει helper έκπτωσης στο module', () => {
     const mod = require('../../public/apologismosDomain');
     const discountKeys = Object.keys(mod).filter((k) => /discount|έκπτω|exonom|saving/i.test(k));

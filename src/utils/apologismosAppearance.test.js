@@ -31,6 +31,10 @@ describe('apologismosAppearance', () => {
       coverImages: [],
       motionEnabled: false,
       motionStyle: 'fade',
+      textScale: 'normal',
+      footerMode: 'full',
+      sectionDividers: true,
+      coverStats: true,
       updatedAt: null,
     });
     const bad = normalizeAppearance({

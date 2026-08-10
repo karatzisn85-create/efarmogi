@@ -26,7 +26,13 @@ import {
   removeMetricsRow,
 } from '../utils/apologismosCardUi';
 import { hasMapSnapshot } from '../utils/apologismosMapDrawing';
-import { coverImageStyle } from '../utils/apologismosAppearance';
+import ApologismosSlideView from './ApologismosSlideView';
+import {
+  SLIDE_W,
+  SLIDE_H,
+  buildFooter,
+  resolveSlideDesign,
+} from '../utils/apologismosSlideDesign';
 import ApologismosMapEditor from './ApologismosMapEditor';
 import ApologismosAppearanceEditor from './ApologismosAppearanceEditor';
 
@@ -683,54 +689,42 @@ const PresentOverlay = styled.div`
 `;
 const PresentTop = styled.div`
   display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 20px; background: rgba(0,0,0,0.35); border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 10px 20px; background: rgba(0,0,0,0.38); border-bottom: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.85rem; letter-spacing: 0.04em;
 `;
 const PresentBody = styled.div`
-  flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px;
+  flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px 24px 28px;
+  min-height: 0;
 `;
 const PresentFade = styled.div`
-  width: min(1100px, 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   opacity: ${(p) => (p.$opacity == null ? 1 : p.$opacity)};
   transition: opacity ${(p) => (p.$motion ? '0.38s' : '0s')} ease;
 `;
-const PresentCard = styled.div`
-  width: min(960px, 100%);
-  background: ${(p) => p.$surface || '#fff'};
-  color: ${(p) => p.$text || '#0f172a'};
-  border-radius: 16px;
-  padding: ${(p) => (p.$flush ? '0' : '28px 32px')};
-  min-height: 420px;
+/** Πλαίσιο που κρατά την αναλογία 16:9 της διαφάνειας. */
+const PresentStage = styled.div`
+  position: relative;
   overflow: hidden;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+  border-radius: 10px;
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.45);
 `;
-const PresentKpiRow = styled.div`
-  display: flex; gap: 16px; margin-top: 24px; flex-wrap: wrap;
-`;
-const PresentKpi = styled.div`
-  flex: 1; min-width: 180px; border-radius: 14px; padding: 16px 18px;
-  background: ${(p) => p.$accent || '#2563eb'};
-  color: ${(p) => p.$accentText || '#fff'};
-`;
-const PresentKpiLabel = styled.div`font-size: 13px; opacity: 0.9; margin-bottom: 6px;`;
-const PresentKpiValue = styled.div`font-size: 28px; font-weight: 800; line-height: 1.15;`;
-const PhotoRow = styled.div`display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;`;
-const PhotoBox = styled.div`flex: 1; min-width: 180px;`;
-const PhotoLabel = styled.div`font-size: 12px; color: #64748b; margin-bottom: 6px; font-weight: 700;`;
-const PhotoImg = styled.div`
-  height: 180px; border-radius: 10px; background: #e2e8f0 center/cover no-repeat;
-  border: 1px solid #cbd5e1;
+const PresentStageInner = styled.div`
+  position: absolute; left: 0; top: 0;
+  transform-origin: top left;
 `;
 
 function formatAmount(v) {
   if (v == null || v === '') return '—';
-  const raw = String(v).trim();
-  if (!raw) return '—';
-  const n = Number(
-    raw.replace(/[€\s]/g, '').replace(/\./g, '').replace(',', '.')
-  );
+  // Ήδη αριθμός (π.χ. σύνολα παρουσίασης) — ΜΗΝ αφαιρείς την υποδιαστολή.
+  let n;
+  if (typeof v === 'number') {
+    n = v;
+  } else {
+    const raw = String(v).trim();
+    if (!raw) return '—';
+    n = Number(
+      raw.replace(/[€\s]/g, '').replace(/\./g, '').replace(',', '.')
+    );
+  }
   if (!Number.isFinite(n)) return '—';
   return `${n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 }
@@ -773,6 +767,8 @@ export default function ApologismosManager({
   const presentTargetRef = useRef(null);
   const PRESENT_FADE_MS = 380;
   const [mediaUrls, setMediaUrls] = useState({});
+  const stageWrapRef = useRef(null);
+  const [stageScale, setStageScale] = useState(1);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
 
@@ -840,6 +836,23 @@ export default function ApologismosManager({
     presentTargetRef.current = null;
     setPresentFade(1);
   }, []);
+
+  // Η διαφάνεια σχεδιάζεται πάντα σε καμβά 960×540 και προσαρμόζεται στο παράθυρο.
+  useEffect(() => {
+    if (!presentation) return undefined;
+    const el = stageWrapRef.current;
+    if (!el) return undefined;
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      const availableW = Math.max(320, rect.width - 48);
+      const availableH = Math.max(180, rect.height - 48);
+      setStageScale(Math.min(availableW / SLIDE_W, availableH / SLIDE_H));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [presentation]);
 
   const goToPresentationSlide = useCallback((nextIndex) => {
     if (!presentation) return;
@@ -1226,6 +1239,7 @@ export default function ApologismosManager({
   const buildSlides = (model) => {
     const slides = [];
     const cover = model.cover || {};
+    const showDividers = model.design?.sectionDividers !== false;
     slides.push({
       type: 'cover',
       cover,
@@ -1234,15 +1248,24 @@ export default function ApologismosManager({
       organizationTitle: cover.organizationTitle || '',
       subtitle: cover.subtitle || '',
       periodLabel: cover.periodLabel || model.period?.label || '',
+      stats: [
+        { label: 'Έργα', value: String(model.totals?.projectCount ?? 0) },
+        { label: 'Εγκεκριμένα', value: formatAmount(model.totals?.totalApproved) },
+        { label: 'Συμβάσεις', value: formatAmount(model.totals?.totalContract) },
+      ],
     });
     for (const section of model.sections || []) {
-      slides.push({
-        type: 'category',
-        title: section.label,
-        totalApproved: section.totalApproved,
-        totalContract: section.totalContract,
-        count: section.count,
-      });
+      if (showDividers) {
+        slides.push({
+          type: 'category',
+          title: section.label,
+          totalApproved: section.totalApproved,
+          totalContract: section.totalContract,
+          totalApprovedText: formatAmount(section.totalApproved),
+          totalContractText: formatAmount(section.totalContract),
+          count: section.count,
+        });
+      }
       for (const entry of section.cards || []) {
         const pages = entry.contentPages?.length
           ? entry.contentPages
@@ -1254,6 +1277,12 @@ export default function ApologismosManager({
             page,
             pageIndex: idx,
             sectionLabel: section.label,
+            approvedText: formatAmount(
+              page.type === 'amounts' ? page.approvedAmount : entry.display?.approvedAmount
+            ),
+            contractText: formatAmount(
+              page.type === 'amounts' ? page.contractAmount : entry.display?.contractAmount
+            ),
           });
         });
       }
@@ -1285,6 +1314,9 @@ export default function ApologismosManager({
       theme: res.model.theme || null,
       cover: res.model.cover || null,
       motion: res.model.motion || null,
+      design: res.model.design || null,
+      organizationTitle: res.model.cover?.organizationTitle || '',
+      periodLabel: res.model.cover?.periodLabel || res.model.period?.label || '',
     });
     setPresentFade(1);
     setPresentation(buildSlides(res.model));
@@ -2274,12 +2306,14 @@ export default function ApologismosManager({
           bg: '#0f172a', surface: '#fff', text: '#0f172a', muted: '#64748b',
           accent: '#2563eb', accentText: '#fff', darkBand: '#1e293b', darkText: '#fff',
         };
-        const coverImgs = slide.cover?.images || [];
-        const coverLayer = (img) => {
-          const url = img?.relativePath ? mediaUrls[img.relativePath] : null;
-          if (!url) return { background: theme.darkBand };
-          return coverImageStyle(img, url);
-        };
+        const design = presentationMeta.design || resolveSlideDesign({}, theme);
+        const footer = buildFooter({
+          design,
+          organizationTitle: presentationMeta.organizationTitle,
+          periodLabel: presentationMeta.periodLabel,
+          index: slideIndex,
+          total: presentation.length,
+        });
         const closePresentation = () => {
           clearPresentationMotion();
           setPresentation(null);
@@ -2287,7 +2321,7 @@ export default function ApologismosManager({
         };
         const motionOn = presentationMeta.motion?.enabled === true;
         return (
-        <PresentOverlay $bg={theme.darkBand}>
+        <PresentOverlay $bg={design.colors.darkBand}>
           <PresentTop>
             <div>{slideIndex + 1} / {presentation.length}</div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -2310,176 +2344,23 @@ export default function ApologismosManager({
               <Btn type="button" onClick={closePresentation}>Κλείσιμο</Btn>
             </div>
           </PresentTop>
-          <PresentBody>
+          <PresentBody ref={stageWrapRef}>
             <PresentFade $opacity={presentFade} $motion={motionOn}>
-            {slide.type === 'cover' ? (
-              <PresentCard $flush $surface={theme.darkBand} $text={theme.darkText} style={{ height: 'min(560px, 78vh)', width: 'min(1100px, 100%)' }}>
-                {slide.cover?.layoutId === 'hero_side' ? (
-                  <div style={{ display: 'flex', height: '100%' }}>
-                    <div style={{ flex: 1.2, ...coverLayer(coverImgs[0]) }} />
-                    <div style={{
-                      flex: 1, background: theme.darkBand, color: theme.darkText,
-                      padding: 36, display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                    }}>
-                      <div style={{ opacity: 0.9, fontSize: 14 }}>{slide.organizationTitle}</div>
-                      <h2 style={{ margin: '10px 0 8px', fontSize: 32 }}>{slide.title}</h2>
-                      <div style={{ fontSize: 16 }}>{slide.periodLabel}</div>
-                      {slide.subtitle ? <div style={{ marginTop: 12, opacity: 0.9 }}>{slide.subtitle}</div> : null}
-                      <PresentKpiRow>
-                        <PresentKpi $accent={theme.accent} $accentText={theme.accentText}>
-                          <PresentKpiLabel>Έργα</PresentKpiLabel>
-                          <PresentKpiValue>{slide.totals?.projectCount ?? 0}</PresentKpiValue>
-                        </PresentKpi>
-                        <PresentKpi $accent={theme.cardDark || theme.accent} $accentText={theme.darkText}>
-                          <PresentKpiLabel>Εγκεκριμένα</PresentKpiLabel>
-                          <PresentKpiValue style={{ fontSize: 18 }}>{formatAmount(slide.totals?.totalApproved)}</PresentKpiValue>
-                        </PresentKpi>
-                      </PresentKpiRow>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ position: 'relative', height: '100%' }}>
-                    {slide.cover?.layoutId === 'hero_split' ? (
-                      <div style={{ display: 'flex', height: '100%' }}>
-                        <div style={{ flex: 1, ...coverLayer(coverImgs[0]) }} />
-                        <div style={{ flex: 1, ...coverLayer(coverImgs[1]) }} />
-                      </div>
-                    ) : (
-                      <div style={{ position: 'absolute', inset: 0, ...coverLayer(coverImgs[0]) }} />
-                    )}
-                    <div style={{
-                      position: 'absolute', left: 0, right: 0, bottom: 0,
-                      padding: '28px 32px',
-                      background: 'linear-gradient(transparent, rgba(0,0,0,0.78))',
-                      color: '#fff',
-                    }}>
-                      <div style={{ opacity: 0.9 }}>{slide.organizationTitle}</div>
-                      <h2 style={{ margin: '8px 0' }}>{slide.title}</h2>
-                      <div>{slide.periodLabel}</div>
-                      {slide.subtitle ? <div style={{ marginTop: 6, opacity: 0.9 }}>{slide.subtitle}</div> : null}
-                      <div style={{ marginTop: 14, fontWeight: 700 }}>
-                        {slide.totals?.projectCount ?? 0} έργα · Εγκεκριμένα {formatAmount(slide.totals?.totalApproved)}
-                        {' · '}Συμβάσεις {formatAmount(slide.totals?.totalContract)}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </PresentCard>
-            ) : slide.type === 'category' ? (
-              <PresentCard $surface={theme.darkBand} $text={theme.darkText}>
-                <div style={{ fontSize: 13, opacity: 0.8 }}>Κατηγορία</div>
-                <h2 style={{ marginTop: 8, fontSize: 34 }}>{slide.title}</h2>
-                <PresentKpiRow>
-                  <PresentKpi $accent={theme.accent} $accentText={theme.accentText}>
-                    <PresentKpiLabel>Έργα</PresentKpiLabel>
-                    <PresentKpiValue>{slide.count}</PresentKpiValue>
-                  </PresentKpi>
-                  <PresentKpi $accent={theme.cardDark || '#334155'} $accentText={theme.darkText}>
-                    <PresentKpiLabel>Εγκεκριμένα</PresentKpiLabel>
-                    <PresentKpiValue style={{ fontSize: 20 }}>{formatAmount(slide.totalApproved)}</PresentKpiValue>
-                  </PresentKpi>
-                  <PresentKpi $accent={theme.cardDark || '#334155'} $accentText={theme.darkText}>
-                    <PresentKpiLabel>Συμβάσεις</PresentKpiLabel>
-                    <PresentKpiValue style={{ fontSize: 20 }}>{formatAmount(slide.totalContract)}</PresentKpiValue>
-                  </PresentKpi>
-                </PresentKpiRow>
-              </PresentCard>
-            ) : (
-              <PresentCard $surface={theme.surface} $text={theme.text}>
-                  <div style={{ color: theme.muted, fontSize: 13 }}>{slide.sectionLabel}</div>
-                  <h2 style={{ marginTop: 6 }}>{slide.entry.display.title}</h2>
-                  {slide.pageIndex === 0 && slide.entry.display.area && (
-                    <div style={{ color: theme.muted }}>{slide.entry.display.area}</div>
-                  )}
-                  {slide.pageIndex === 0 && slide.entry.display.showHeaderNarrative !== false && (
-                    <p style={{ lineHeight: 1.5 }}>{slide.entry.display.narrative}</p>
-                  )}
-                  {slide.pageIndex === 0 && slide.entry.display.showHeaderAmounts !== false && (
-                    <div style={{ fontWeight: 700, color: theme.accent }}>
-                      Εγκεκριμένο: {formatAmount(slide.entry.display.approvedAmount)}
-                      {' · '}
-                      Συμβατικό: {formatAmount(slide.entry.display.contractAmount)}
-                    </div>
-                  )}
-                  {slide.page?.role === 'secondary' && (
-                    <div style={{ marginTop: 8, color: theme.muted, fontSize: 13 }}>
-                      Δευτερεύουσα σελίδα: {slide.page.vizLabel || slide.page.vizId}
-                    </div>
-                  )}
-                  {(slide.page?.type === 'primary_photos' || slide.page?.type === 'primary') && (
-                    <PhotoRow>
-                      {Object.entries(slide.page.primary || {}).map(([phase, rel]) => (
-                        rel ? (
-                          <PhotoBox key={phase}>
-                            <PhotoLabel style={{ color: theme.muted }}>{photoPhaseLabel(phase)}</PhotoLabel>
-                            <PhotoImg style={{ backgroundImage: mediaUrls[rel] ? `url("${mediaUrls[rel]}")` : undefined }} />
-                          </PhotoBox>
-                        ) : null
-                      ))}
-                    </PhotoRow>
-                  )}
-                  {slide.page?.type === 'gallery' && (
-                    <>
-                      <Hint style={{ color: theme.muted }}>Επιπλέον λήψεις</Hint>
-                      <PhotoRow>
-                        {(slide.page.items || []).map((item, i) => (
-                          <PhotoBox key={i}>
-                            <PhotoLabel style={{ color: theme.muted }}>{item.phaseLabel || photoPhaseLabel(item.phase)}</PhotoLabel>
-                            <PhotoImg style={{ backgroundImage: mediaUrls[item.photo] ? `url("${mediaUrls[item.photo]}")` : undefined }} />
-                          </PhotoBox>
-                        ))}
-                      </PhotoRow>
-                    </>
-                  )}
-                  {slide.page?.type === 'map' && (
-                    slide.page.mapSnapshot && mediaUrls[slide.page.mapSnapshot] ? (
-                      <div
-                        style={{
-                          marginTop: 16, height: 360, borderRadius: 14,
-                          border: '1px solid rgba(148,163,184,0.35)',
-                          background: `center/contain no-repeat url("${mediaUrls[slide.page.mapSnapshot]}") #0f172a`,
-                        }}
-                      />
-                    ) : (
-                      <ul style={{ marginTop: 16 }}>
-                        {(slide.page.mapPoints || []).map((p, i) => (
-                          <li key={i}>{p.label || `Σημείο ${i + 1}`}: {p.lat}, {p.lng}</li>
-                        ))}
-                      </ul>
-                    )
-                  )}
-                  {slide.page?.type === 'metrics' && (
-                    <ul style={{ marginTop: 16 }}>
-                      {(slide.page.metrics || []).map((m, i) => (
-                        <li key={i}>{m.label}: {m.value}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {slide.page?.type === 'amounts' && (
-                    <PresentKpiRow>
-                      <PresentKpi $accent={theme.accent} $accentText={theme.accentText}>
-                        <PresentKpiLabel>Εγκεκριμένο</PresentKpiLabel>
-                        <PresentKpiValue style={{ fontSize: 26 }}>{formatAmount(slide.page.approvedAmount)}</PresentKpiValue>
-                      </PresentKpi>
-                      <PresentKpi $accent={theme.cardDark || theme.accent} $accentText={theme.darkText || theme.accentText}>
-                        <PresentKpiLabel>Συμβατικό</PresentKpiLabel>
-                        <PresentKpiValue style={{ fontSize: 26 }}>{formatAmount(slide.page.contractAmount)}</PresentKpiValue>
-                      </PresentKpi>
-                    </PresentKpiRow>
-                  )}
-                  {slide.page?.type === 'simple' && (
-                    <p style={{
-                      lineHeight: 1.55,
-                      marginTop: 20,
-                      fontSize: slide.pageIndex === 0 ? 20 : 17,
-                      fontWeight: 600,
-                      color: theme.text,
-                    }}>
-                      {slide.page.narrative || slide.entry.display.narrative}
-                    </p>
-                  )}
-              </PresentCard>
-            )}
+              <PresentStage
+                style={{ width: SLIDE_W * stageScale, height: SLIDE_H * stageScale }}
+              >
+                <PresentStageInner
+                  style={{ width: SLIDE_W, height: SLIDE_H, transform: `scale(${stageScale})` }}
+                >
+                  <ApologismosSlideView
+                    slide={slide}
+                    design={design}
+                    footer={footer}
+                    mediaUrls={mediaUrls}
+                    coverImages={slide.cover?.images || presentationMeta.cover?.images || []}
+                  />
+                </PresentStageInner>
+              </PresentStage>
             </PresentFade>
           </PresentBody>
         </PresentOverlay>

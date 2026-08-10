@@ -3,13 +3,18 @@ import styled from 'styled-components';
 import {
   PALETTES,
   COVER_LAYOUTS,
+  TEXT_SCALES,
+  FOOTER_MODES,
   normalizeAppearance,
   resolveOrganizationTitle,
   coverImageWarnings,
   coverImageStyle,
   getCoverLayout,
   coverImagesBySlot,
+  resolveDesign,
 } from '../utils/apologismosAppearance';
+import { SLIDE_W, SLIDE_H, buildFooter } from '../utils/apologismosSlideDesign';
+import ApologismosSlideView from './ApologismosSlideView';
 
 const ipcRenderer = window.electronAPI;
 
@@ -68,21 +73,16 @@ const Warn = styled.div`
   background: #fff7ed; color: #9a3412; font-size: 0.85rem;
 `;
 const PreviewWrap = styled.div`
-  display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; margin-top: 14px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px;
   @media (max-width: 800px) { grid-template-columns: 1fr; }
 `;
-const CoverPreview = styled.div`
-  position: relative; height: 220px; border-radius: 12px; overflow: hidden;
-  border: 1px solid #e2e8f0; background: ${(p) => p.$bg || '#1e293b'};
+const MiniFrame = styled.div`
+  position: relative; overflow: hidden; border-radius: 10px;
+  border: 1px solid #e2e8f0; background: #0f172a;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
 `;
-const PageSample = styled.div`
-  border-radius: 12px; border: 1px solid #e2e8f0; padding: 12px;
-  background: ${(p) => p.$bg || '#f8fafc'}; color: ${(p) => p.$text || '#0f172a'};
-`;
-const Kpi = styled.div`
-  margin-top: 10px; padding: 10px 12px; border-radius: 10px;
-  background: ${(p) => p.$accent || '#2563eb'}; color: ${(p) => p.$accentText || '#fff'};
-  font-weight: 800; font-size: 1.1rem;
+const MiniInner = styled.div`
+  position: absolute; left: 0; top: 0; transform-origin: top left;
 `;
 const SlotRow = styled.div`display: flex; flex-direction: column; gap: 10px; margin-top: 8px;`;
 const SlotCard = styled.div`
@@ -110,78 +110,146 @@ const ReadOnly = styled.div`
   padding: 8px 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;
 `;
 
-function coverLayerStyle(img, url, theme) {
-  if (!img?.relativePath || !url) {
-    return { background: theme.darkBand || '#1e293b' };
-  }
-  return coverImageStyle(img, url);
+const MINI_WIDTH = 420;
+
+/** Πεδία εμφάνισης που αποθηκεύονται — ένα σημείο αλήθειας για κάθε patch. */
+function patchOf(a) {
+  return {
+    paletteId: a.paletteId,
+    coverLayoutId: a.coverLayoutId,
+    subtitle: a.subtitle,
+    coverImages: a.coverImages,
+    motionEnabled: a.motionEnabled === true,
+    motionStyle: a.motionStyle || 'fade',
+    textScale: a.textScale,
+    footerMode: a.footerMode,
+    sectionDividers: a.sectionDividers !== false,
+    coverStats: a.coverStats !== false,
+  };
 }
 
-function CoverLivePreview({ appearance, theme, orgTitle, periodLabel, mediaMap }) {
-  const a = normalizeAppearance(appearance);
-  const layout = getCoverLayout(a.coverLayoutId);
-  const imgs = coverImagesBySlot(a);
-  const url0 = imgs[0] ? mediaMap[imgs[0].relativePath] : null;
-  const url1 = imgs[1] ? mediaMap[imgs[1].relativePath] : null;
+/** Προεπισκόπηση πραγματικής διαφάνειας, σμικρυμένη από τον καμβά 960×540. */
+function MiniSlide({ slide, design, footer, mediaMap, coverImages }) {
+  const wrapRef = useRef(null);
+  const [scale, setScale] = useState(MINI_WIDTH / SLIDE_W);
 
-  const titleBar = (
-    <div
-      style={{
-        position: 'absolute', left: 0, right: 0, bottom: 0,
-        padding: '14px 16px',
-        background: 'linear-gradient(transparent, rgba(0,0,0,0.72))',
-        color: '#fff',
-      }}
-    >
-      <div style={{ fontSize: 11, opacity: 0.9 }}>{orgTitle || 'Οργανισμός'}</div>
-      <div style={{ fontWeight: 800, fontSize: 16 }}>Απολογισμός τεχνικού έργου</div>
-      <div style={{ fontSize: 12, opacity: 0.92 }}>{periodLabel}</div>
-      {a.subtitle ? <div style={{ fontSize: 11, marginTop: 2 }}>{a.subtitle}</div> : null}
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const update = () => {
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setScale(Math.min(MINI_WIDTH, w) / SLIDE_W);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={wrapRef} style={{ width: '100%', maxWidth: MINI_WIDTH }}>
+      <MiniFrame style={{ width: SLIDE_W * scale, height: SLIDE_H * scale }}>
+        <MiniInner style={{ width: SLIDE_W, height: SLIDE_H, transform: `scale(${scale})` }}>
+          <ApologismosSlideView
+            slide={slide}
+            design={design}
+            footer={footer}
+            mediaUrls={mediaMap}
+            coverImages={coverImages}
+          />
+        </MiniInner>
+      </MiniFrame>
     </div>
   );
+}
 
-  if (layout.id === 'hero_split') {
-    return (
-      <CoverPreview $bg={theme.darkBand}>
-        <div style={{ display: 'flex', height: '100%' }}>
-          <div style={{ flex: 1, ...coverLayerStyle(imgs[0], url0, theme) }} />
-          <div style={{ flex: 1, ...coverLayerStyle(imgs[1], url1, theme) }} />
-        </div>
-        {titleBar}
-      </CoverPreview>
-    );
+function parseAmount(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const raw = String(value ?? '').trim();
+  if (!raw) return NaN;
+  return Number(raw.replace(/[€\s]/g, '').replace(/\./g, '').replace(',', '.'));
+}
+
+function formatEuro(value) {
+  const n = parseAmount(value);
+  if (!Number.isFinite(n)) return '—';
+  return `${n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+}
+
+/** Σύνοψη πραγματικών δεδομένων για τις προεπισκοπήσεις. */
+function previewTotals(report) {
+  const ready = (report?.cards || []).filter((c) => c.ready === true);
+  const sum = (key) => ready.reduce((acc, c) => {
+    const n = parseAmount(c[key]);
+    return Number.isFinite(n) ? acc + n : acc;
+  }, 0);
+  return {
+    projectCount: ready.length,
+    totalApproved: sum('approvedAmount'),
+    totalContract: sum('contractAmount'),
+    sample: ready[0] || null,
+  };
+}
+
+/**
+ * Διαφάνεια δείγματος όπως θα παραχθεί πραγματικά (όχι ψεύτικο «μόνο κείμενο»
+ * πάνω σε κάρτα φωτογραφιών — αυτό μπέρδευε την προεπισκόπηση).
+ */
+function buildPreviewProjectSlide(sample) {
+  const primaryViz = sample?.primaryViz || 'simple_card';
+  const isSimple = primaryViz === 'simple_card';
+  const isEconomy = primaryViz === 'economy_phases';
+  const narrative = String(sample?.narrative || '').trim();
+  const title = sample?.title || 'Τίτλος έργου';
+  const area = sample?.area || '';
+  const approvedText = formatEuro(sample?.approvedAmount ?? 1250000);
+  const contractText = formatEuro(sample?.contractAmount ?? 1080000);
+
+  let page;
+  if (isSimple) {
+    page = {
+      type: 'simple',
+      narrative: narrative || 'Σύντομη περιγραφή του έργου, όπως θα εμφανιστεί στη διαφάνεια.',
+    };
+  } else if (isEconomy) {
+    page = {
+      type: 'amounts',
+      approvedAmount: sample?.approvedAmount,
+      contractAmount: sample?.contractAmount,
+    };
+  } else if (primaryViz === 'metrics_table') {
+    page = {
+      type: 'metrics',
+      metrics: (sample?.metrics || []).slice(0, 4).length
+        ? (sample.metrics || []).slice(0, 4)
+        : [
+          { label: 'Δείκτης Α', value: '—' },
+          { label: 'Δείκτης Β', value: '—' },
+        ],
+    };
+  } else {
+    // Φωτογραφίες / χάρτης: στο σώμα μένουν τα οπτικά· το κείμενο μόνο στην κεφαλίδα.
+    page = { type: 'primary_photos', primary: { after: null } };
   }
-  if (layout.id === 'hero_side') {
-    return (
-      <CoverPreview $bg={theme.darkBand}>
-        <div style={{ display: 'flex', height: '100%' }}>
-          <div style={{ flex: 1.15, ...coverLayerStyle(imgs[0], url0, theme) }} />
-          <div
-            style={{
-              flex: 1,
-              background: theme.darkBand,
-              color: theme.darkText,
-              padding: 16,
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-            }}
-          >
-            <div style={{ fontSize: 11, opacity: 0.9 }}>{orgTitle || 'Οργανισμός'}</div>
-            <div style={{ fontWeight: 800, fontSize: 15, marginTop: 6 }}>Απολογισμός τεχνικού έργου</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>{periodLabel}</div>
-            {a.subtitle ? <div style={{ fontSize: 11, marginTop: 8, opacity: 0.9 }}>{a.subtitle}</div> : null}
-          </div>
-        </div>
-      </CoverPreview>
-    );
-  }
-  return (
-    <CoverPreview $bg={theme.darkBand}>
-      <div style={{ position: 'absolute', inset: 0, ...coverLayerStyle(imgs[0], url0, theme) }} />
-      {titleBar}
-    </CoverPreview>
-  );
+
+  return {
+    type: 'project',
+    pageIndex: 0,
+    sectionLabel: 'Οδοποιία και υποδομές',
+    approvedText,
+    contractText,
+    page,
+    entry: {
+      display: {
+        title,
+        area,
+        narrative,
+        // Ίδιοι κανόνες με την πραγματική παρουσίαση
+        showHeaderAmounts: !isEconomy,
+        showHeaderNarrative: !isSimple && !!narrative,
+      },
+    },
+  };
 }
 
 function FocusZoomSlot({
@@ -281,6 +349,8 @@ export default function ApologismosAppearanceEditor({
   );
   const layout = useMemo(() => getCoverLayout(draft.coverLayoutId), [draft.coverLayoutId]);
   const warnings = useMemo(() => coverImageWarnings(draft), [draft]);
+  const design = useMemo(() => resolveDesign(draft), [draft]);
+  const totals = useMemo(() => previewTotals(report), [report]);
 
   const refreshMedia = useCallback(async (appearance) => {
     const rels = (appearance?.coverImages || []).map((i) => i.relativePath).filter(Boolean);
@@ -316,14 +386,7 @@ export default function ApologismosAppearanceEditor({
         const res = await ipcRenderer.invoke('apologismos-update-appearance', {
           actingUsername: username,
           periodId,
-          patch: {
-            paletteId: snap.paletteId,
-            coverLayoutId: snap.coverLayoutId,
-            subtitle: snap.subtitle,
-            coverImages: snap.coverImages,
-            motionEnabled: snap.motionEnabled === true,
-            motionStyle: snap.motionStyle || 'fade',
-          },
+          patch: patchOf(snap),
         });
         if (res?.success) onSaved?.(res);
         else showToast(res?.error || 'Δεν ήταν δυνατή η αναίρεση αλλαγών εμφάνισης', 'error');
@@ -357,14 +420,7 @@ export default function ApologismosAppearanceEditor({
     const persistDraft = await ipcRenderer.invoke('apologismos-update-appearance', {
       actingUsername: username,
       periodId,
-      patch: {
-        paletteId: draft.paletteId,
-        coverLayoutId: draft.coverLayoutId,
-        subtitle: draft.subtitle,
-        coverImages: draft.coverImages,
-        motionEnabled: draft.motionEnabled === true,
-        motionStyle: draft.motionStyle || 'fade',
-      },
+      patch: patchOf(draft),
     });
     if (!persistDraft?.success) {
       showToast(persistDraft?.error || 'Αποτυχία αποθήκευσης εμφάνισης', 'error');
@@ -393,22 +449,7 @@ export default function ApologismosAppearanceEditor({
       const res = await ipcRenderer.invoke('apologismos-update-appearance', {
         actingUsername: username,
         periodId,
-        patch: {
-          paletteId: draft.paletteId,
-          coverLayoutId: draft.coverLayoutId,
-          subtitle: draft.subtitle,
-          coverImages: draft.coverImages,
-          motionEnabled: draft.motionEnabled === true,
-          motionStyle: draft.motionStyle || 'fade',
-        },
-        patch: {
-          paletteId: draft.paletteId,
-          coverLayoutId: draft.coverLayoutId,
-          subtitle: draft.subtitle,
-          coverImages: draft.coverImages,
-          motionEnabled: draft.motionEnabled === true,
-          motionStyle: draft.motionStyle || 'fade',
-        },
+        patch: patchOf(draft),
       });
       if (!res?.success) {
         showToast(res?.error || 'Αποτυχία αποθήκευσης εμφάνισης', 'error');
@@ -527,27 +568,100 @@ export default function ApologismosAppearanceEditor({
         </SlotRow>
         {warnings.map((w) => <Warn key={w}>{w}</Warn>)}
 
+        <StepLabel>4. Μέγεθος κειμένου στις διαφάνειες</StepLabel>
+        <Grid>
+          {TEXT_SCALES.map((s) => (
+            <Chip
+              key={s.id}
+              type="button"
+              $on={draft.textScale === s.id}
+              $accent={theme.accent}
+              onClick={() => applyLocal({ textScale: s.id })}
+            >
+              <ChipTitle>{s.label}</ChipTitle>
+              <ChipDesc>{s.description}</ChipDesc>
+            </Chip>
+          ))}
+        </Grid>
+
+        <StepLabel>5. Υποσέλιδο διαφανειών</StepLabel>
+        <Grid>
+          {FOOTER_MODES.map((f) => (
+            <Chip
+              key={f.id}
+              type="button"
+              $on={draft.footerMode === f.id}
+              $accent={theme.accent}
+              onClick={() => applyLocal({ footerMode: f.id })}
+            >
+              <ChipTitle>{f.label}</ChipTitle>
+              <ChipDesc>{f.description}</ChipDesc>
+            </Chip>
+          ))}
+        </Grid>
+
+        <StepLabel>6. Δομή παρουσίασης</StepLabel>
+        <Grid>
+          <Chip
+            type="button"
+            $on={draft.sectionDividers !== false}
+            $accent={theme.accent}
+            onClick={() => applyLocal({ sectionDividers: draft.sectionDividers === false })}
+          >
+            <ChipTitle>Διαφάνεια ανά κατηγορία</ChipTitle>
+            <ChipDesc>
+              Εισαγωγική διαφάνεια με το πλήθος και τα ποσά κάθε κατηγορίας έργων.
+            </ChipDesc>
+          </Chip>
+          <Chip
+            type="button"
+            $on={draft.coverStats !== false}
+            $accent={theme.accent}
+            onClick={() => applyLocal({ coverStats: draft.coverStats === false })}
+          >
+            <ChipTitle>Σύνολα στο εξώφυλλο</ChipTitle>
+            <ChipDesc>
+              Πλήθος έργων, εγκεκριμένα ποσά και συμβάσεις κάτω από τον τίτλο.
+            </ChipDesc>
+          </Chip>
+        </Grid>
+
         <PreviewWrap>
           <div>
             <StepLabel style={{ marginTop: 0 }}>Προεπισκόπηση εξωφύλλου</StepLabel>
-            <CoverLivePreview
-              appearance={draft}
-              theme={theme}
-              orgTitle={orgTitle}
-              periodLabel={periodLabel}
+            <MiniSlide
+              design={design}
               mediaMap={mediaMap}
+              coverImages={coverImagesBySlot(draft)}
+              slide={{
+                type: 'cover',
+                cover: { layoutId: draft.coverLayoutId },
+                title: 'Απολογισμός τεχνικού έργου',
+                organizationTitle: orgTitle || 'Οργανισμός',
+                periodLabel,
+                subtitle: draft.subtitle || '',
+                stats: [
+                  { label: 'Έργα', value: String(totals.projectCount) },
+                  { label: 'Εγκεκριμένα', value: formatEuro(totals.totalApproved) },
+                  { label: 'Συμβάσεις', value: formatEuro(totals.totalContract) },
+                ],
+              }}
             />
           </div>
           <div>
-            <StepLabel style={{ marginTop: 0 }}>Δείγμα σελίδας ποσών</StepLabel>
-            <PageSample $bg={theme.bg} $text={theme.text}>
-              <div style={{ fontSize: 12, color: theme.muted }}>Κατηγορία · Έργο</div>
-              <div style={{ fontWeight: 800, marginTop: 4 }}>Τίτλος έργου</div>
-              <Kpi $accent={theme.accent} $accentText={theme.accentText}>
-                1.250.000,00 €
-              </Kpi>
-              <div style={{ marginTop: 8, fontSize: 12, color: theme.muted }}>Εγκεκριμένο ποσό</div>
-            </PageSample>
+            <StepLabel style={{ marginTop: 0 }}>Προεπισκόπηση διαφάνειας έργου</StepLabel>
+            <MiniSlide
+              design={design}
+              mediaMap={mediaMap}
+              footer={buildFooter({
+                design,
+                organizationTitle: orgTitle,
+                periodLabel,
+                index: 3,
+                total: Math.max(4, totals.projectCount + 2),
+              })}
+              slide={buildPreviewProjectSlide(totals.sample)}
+            />
           </div>
         </PreviewWrap>
 

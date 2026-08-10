@@ -203,6 +203,7 @@ function buildPresentationModel(report, period, opts = {}) {
     organizationTitle,
   });
   const motion = appearanceMod.resolveMotion(appearance);
+  const design = appearanceMod.resolveDesign(appearance);
 
   return {
     period: period
@@ -222,6 +223,7 @@ function buildPresentationModel(report, period, opts = {}) {
     pendingCount: allCards.length - readyCards.length,
     appearance,
     theme,
+    design,
     cover,
     motion,
   };

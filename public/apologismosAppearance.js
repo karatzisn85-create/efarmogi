@@ -4,6 +4,8 @@
  * Καθρέφτης του src/utils/apologismosAppearance.js — κρατήστε τα συγχρονισμένα.
  */
 
+const slideDesign = require('./apologismosSlideDesign');
+
 const DEFAULT_PALETTE_ID = 'light_report';
 const DEFAULT_COVER_LAYOUT_ID = 'hero_single';
 
@@ -143,6 +145,10 @@ function emptyAppearance() {
     coverImages: [],
     motionEnabled: false,
     motionStyle: DEFAULT_MOTION_STYLE,
+    textScale: slideDesign.DEFAULT_TEXT_SCALE,
+    footerMode: slideDesign.DEFAULT_FOOTER_MODE,
+    sectionDividers: true,
+    coverStats: true,
     updatedAt: null,
   };
 }
@@ -193,6 +199,14 @@ function normalizeAppearance(raw) {
     coverImages: slots.filter(Boolean),
     motionEnabled,
     motionStyle,
+    textScale: slideDesign.TEXT_SCALE_IDS.includes(raw.textScale)
+      ? raw.textScale
+      : slideDesign.DEFAULT_TEXT_SCALE,
+    footerMode: slideDesign.FOOTER_MODE_IDS.includes(raw.footerMode)
+      ? raw.footerMode
+      : slideDesign.DEFAULT_FOOTER_MODE,
+    sectionDividers: raw.sectionDividers !== false,
+    coverStats: raw.coverStats !== false,
     updatedAt: raw.updatedAt || null,
   };
 }
@@ -261,6 +275,12 @@ function resolveTheme(appearance) {
   return getPalette(normalizeAppearance(appearance).paletteId).tokens;
 }
 
+/** Tokens σχεδίασης διαφανειών (τυπογραφία, γεωμετρία, παράγωγα χρώματα). */
+function resolveDesign(appearance) {
+  const a = normalizeAppearance(appearance);
+  return slideDesign.resolveSlideDesign(a, getPalette(a.paletteId).tokens);
+}
+
 module.exports = {
   DEFAULT_PALETTE_ID,
   DEFAULT_COVER_LAYOUT_ID,
@@ -280,5 +300,8 @@ module.exports = {
   coverImageWarnings,
   buildCoverDisplay,
   resolveTheme,
+  resolveDesign,
   resolveMotion,
+  TEXT_SCALES: slideDesign.TEXT_SCALES,
+  FOOTER_MODES: slideDesign.FOOTER_MODES,
 };

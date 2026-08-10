@@ -4,6 +4,16 @@
  * Κρατήστε τα δύο αρχεία συγχρονισμένα όταν αλλάζουν παλέτες/κανόνες.
  */
 
+import {
+  DEFAULT_TEXT_SCALE,
+  DEFAULT_FOOTER_MODE,
+  TEXT_SCALE_IDS,
+  FOOTER_MODE_IDS,
+  resolveSlideDesign,
+} from './apologismosSlideDesign';
+
+export { TEXT_SCALES, FOOTER_MODES } from './apologismosSlideDesign';
+
 export const DEFAULT_PALETTE_ID = 'light_report';
 export const DEFAULT_COVER_LAYOUT_ID = 'hero_single';
 export const DEFAULT_MOTION_STYLE = 'fade';
@@ -142,6 +152,10 @@ export function emptyAppearance() {
     coverImages: [],
     motionEnabled: false,
     motionStyle: DEFAULT_MOTION_STYLE,
+    textScale: DEFAULT_TEXT_SCALE,
+    footerMode: DEFAULT_FOOTER_MODE,
+    sectionDividers: true,
+    coverStats: true,
     updatedAt: null,
   };
 }
@@ -187,6 +201,10 @@ export function normalizeAppearance(raw) {
     coverImages: slots.filter(Boolean),
     motionEnabled,
     motionStyle,
+    textScale: TEXT_SCALE_IDS.includes(raw.textScale) ? raw.textScale : DEFAULT_TEXT_SCALE,
+    footerMode: FOOTER_MODE_IDS.includes(raw.footerMode) ? raw.footerMode : DEFAULT_FOOTER_MODE,
+    sectionDividers: raw.sectionDividers !== false,
+    coverStats: raw.coverStats !== false,
     updatedAt: raw.updatedAt || null,
   };
 }
@@ -247,6 +265,12 @@ export function buildCoverDisplay({ appearance, period, organizationTitle }) {
 
 export function resolveTheme(appearance) {
   return getPalette(normalizeAppearance(appearance).paletteId).tokens;
+}
+
+/** Tokens σχεδίασης διαφανειών (τυπογραφία, γεωμετρία, παράγωγα χρώματα). */
+export function resolveDesign(appearance) {
+  const a = normalizeAppearance(appearance);
+  return resolveSlideDesign(a, getPalette(a.paletteId).tokens);
 }
 
 /** CSS background-position / size από focus+zoom του εξωφύλλου. */

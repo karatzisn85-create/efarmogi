@@ -79,29 +79,21 @@ function computeVisibleCoverRegion(placement) {
 }
 
 /**
- * Στόχοι pixel ανά layout για PDF (A4) και PPTX (16:9).
+ * Στόχοι pixel ανά μορφή εξωφύλλου.
+ *
+ * Παρουσίαση, PDF και διαφάνειες μοιράζονται τον ίδιο καμβά 16:9 (960×540),
+ * άρα και τα ίδια κλάσματα πλάτους — οι στόχοι είναι κοινοί (~150 dpi).
  */
 function coverFrameTargets(channel, layoutId) {
-  if (channel === 'pptx') {
-    const H = 844; // ~150 dpi * 5.625"
-    if (layoutId === 'hero_split') {
-      return [
-        { width: 750, height: H },
-        { width: 750, height: H },
-      ];
-    }
-    if (layoutId === 'hero_side') {
-      return [{ width: 780, height: H }];
-    }
-    return [{ width: 1500, height: H }];
-  }
-  // pdf 16:9 (~150dpi) — ίδιο aspect με παρουσίαση / διαφάνειες
+  const { SLIDE_W } = require('./apologismosSlideDesign');
   const W = 1600;
   const H = 900;
   if (layoutId === 'hero_split') {
+    // 3 μονάδες καμβά καταλαμβάνει η γραμμή έμφασης ανάμεσα στις δύο φωτογραφίες.
+    const half = Math.round((W * (SLIDE_W - 3)) / (2 * SLIDE_W));
     return [
-      { width: Math.round(W / 2), height: H },
-      { width: Math.round(W / 2), height: H },
+      { width: half, height: H },
+      { width: half, height: H },
     ];
   }
   if (layoutId === 'hero_side') {

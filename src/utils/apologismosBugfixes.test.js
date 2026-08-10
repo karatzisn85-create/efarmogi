@@ -20,6 +20,7 @@ const {
   buildPresentationModel,
   buildVizContentPages,
   buildCardPresentationEntry,
+  formatAmountEl,
 } = require('../../public/apologismosPresentation');
 const {
   ensureDirs,
@@ -233,6 +234,20 @@ describe('bugfix — φωτογραφίες: όριο πριν την αντιγ
     } finally {
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('bugfix — μορφοποίηση αριθμητικών συνόλων παρουσίασης', () => {
+  test('σύνολα (number) δεν φουσκώνουν αφαιρώντας την υποδιαστολή', () => {
+    // Παλιό bug: String(414482.279).replace(/\./g,'') → "414482279"
+    const broken = Number(String(414482.279).replace(/\./g, '').replace(',', '.'));
+    expect(broken).toBe(414482279);
+    expect(formatAmountEl(414482.279)).toBe('414.482,28 €');
+    expect(formatAmountEl(1962000.08)).toBe('1.962.000,08 €');
+  });
+
+  test('ελληνικές συμβολοσειρές ποσών συνεχίζουν να μορφοποιούνται σωστά', () => {
+    expect(formatAmountEl('1.250.000,50')).toBe('1.250.000,50 €');
   });
 });
 
