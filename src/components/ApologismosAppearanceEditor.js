@@ -332,14 +332,14 @@ export default function ApologismosAppearanceEditor({
   const [closing, setClosing] = useState(false);
   const [mediaMap, setMediaMap] = useState({});
   const snapshotRef = useRef(null);
-  const autoPersistedRef = useRef(false);
+  const pendingCoverRelsRef = useRef([]);
 
   useEffect(() => {
     if (!open) return;
     const a = normalizeAppearance(report?.appearance);
     setDraft(a);
     snapshotRef.current = a;
-    autoPersistedRef.current = false;
+    pendingCoverRelsRef.current = [];
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- μόνο στο άνοιγμα
 
   const orgTitle = useMemo(() => resolveOrganizationTitle(appConfig || {}), [appConfig]);
@@ -371,30 +371,49 @@ export default function ApologismosAppearanceEditor({
     refreshMedia(draft);
   }, [open, draft.coverImages, refreshMedia]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const appearanceDirty = useMemo(() => {
+    if (!open || !snapshotRef.current) return false;
+    return JSON.stringify(patchOf(draft)) !== JSON.stringify(patchOf(snapshotRef.current));
+  }, [open, draft]);
+
   if (!open) return null;
 
   const applyLocal = (patch) => {
     setDraft((prev) => normalizeAppearance({ ...prev, ...patch }));
   };
 
-  const handleClose = async () => {
+  const discardPendingCoversAndClose = async () => {
     if (closing || saving) return;
-    if (autoPersistedRef.current && snapshotRef.current) {
-      setClosing(true);
-      try {
-        const snap = snapshotRef.current;
+    setClosing(true);
+    try {
+      // Επαναφορά αποθηκευμένης εμφάνισης + καθάρισμα προσωρινών αρχείων εξωφύλλου.
+      if (snapshotRef.current && (appearanceDirty || pendingCoverRelsRef.current.length)) {
         const res = await ipcRenderer.invoke('apologismos-update-appearance', {
           actingUsername: username,
           periodId,
-          patch: patchOf(snap),
+          patch: patchOf(snapshotRef.current),
         });
         if (res?.success) onSaved?.(res);
-        else showToast(res?.error || 'Δεν ήταν δυνατή η αναίρεση αλλαγών εμφάνισης', 'error');
-      } finally {
-        setClosing(false);
+        else if (pendingCoverRelsRef.current.length) {
+          showToast(res?.error || 'Δεν καθαρίστηκαν προσωρινές φωτογραφίες εξωφύλλου', 'error');
+        }
       }
+      pendingCoverRelsRef.current = [];
+      onClose();
+    } finally {
+      setClosing(false);
     }
-    onClose();
+  };
+
+  const handleClose = async () => {
+    if (closing || saving) return;
+    if (appearanceDirty || pendingCoverRelsRef.current.length) {
+      const ok = window.confirm(
+        'Υπάρχουν μη αποθηκευμένες αλλαγές εμφάνισης. Να κλείσετε χωρίς αποθήκευση;'
+      );
+      if (!ok) return;
+    }
+    await discardPendingCoversAndClose();
   };
 
   const onChangeFocusZoom = (index, patch) => {
@@ -416,31 +435,34 @@ export default function ApologismosAppearanceEditor({
       multi: false,
     });
     if (!pick?.success || pick.canceled || !pick.filePaths?.[0]) return;
-    // Αποθήκευση τρέχουσας παλέτας/μορφής ώστε η φωτό να μην γράψει πάνω σε παλιό draft.
-    const persistDraft = await ipcRenderer.invoke('apologismos-update-appearance', {
-      actingUsername: username,
-      periodId,
-      patch: patchOf(draft),
-    });
-    if (!persistDraft?.success) {
-      showToast(persistDraft?.error || 'Αποτυχία αποθήκευσης εμφάνισης', 'error');
-      return;
-    }
     const saved = await ipcRenderer.invoke('apologismos-save-cover-image', {
       actingUsername: username,
       periodId,
       sourcePath: pick.filePaths[0],
       slotIndex,
+      commitToReport: false,
     });
     if (!saved?.success) {
       showToast(saved?.error || 'Αποτυχία αποθήκευσης φωτογραφίας', 'error');
-      onSaved?.(persistDraft);
       return;
     }
-    onSaved?.(saved);
-    setDraft(normalizeAppearance(saved.appearance || saved.report?.appearance));
-    autoPersistedRef.current = true;
-    showToast('Η φωτογραφία εξωφύλλου αποθηκεύτηκε', 'success');
+    const slots = coverImagesBySlot(draft);
+    const prev = slots[slotIndex];
+    slots[slotIndex] = {
+      relativePath: saved.relativePath,
+      focusX: prev?.focusX ?? 0.5,
+      focusY: prev?.focusY ?? 0.5,
+      zoom: prev?.zoom ?? 1,
+      slot: slotIndex,
+    };
+    if (saved.relativePath) {
+      pendingCoverRelsRef.current = [
+        ...pendingCoverRelsRef.current.filter((r) => r !== prev?.relativePath),
+        saved.relativePath,
+      ];
+    }
+    applyLocal({ coverImages: slots.filter(Boolean) });
+    showToast('Η φωτογραφία προστέθηκε στο πρόχειρο. Πατήστε «Αποθήκευση» για οριστικοποίηση.', 'info');
   };
 
   const save = async () => {
@@ -456,7 +478,7 @@ export default function ApologismosAppearanceEditor({
         return;
       }
       onSaved?.(res);
-      autoPersistedRef.current = false;
+      pendingCoverRelsRef.current = [];
       snapshotRef.current = normalizeAppearance(res.appearance || res.report?.appearance);
       showToast('Η εμφάνιση αποθηκεύτηκε', 'success');
       onClose();

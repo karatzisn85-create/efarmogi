@@ -185,6 +185,93 @@ function requiredPhotoPhasesForVizIds(vizIds) {
   return ['before', 'during', 'after'].filter((p) => set.has(p));
 }
 
+/** Ενεργοί (έγκυροι) τρόποι οπτικοποίησης της κάρτας. */
+function activeVizIds(card) {
+  const ids = [];
+  const primary = resolveVizId(card?.primaryViz);
+  if (primary && VIZ_MODE_IDS.includes(primary)) ids.push(primary);
+  const secondary = card?.secondaryViz ? resolveVizId(card.secondaryViz) : null;
+  if (secondary && VIZ_MODE_IDS.includes(secondary) && secondary !== primary) {
+    ids.push(secondary);
+  }
+  return ids;
+}
+
+function vizNeedsMetrics(vizIds) {
+  return (vizIds || []).some((id) => id === 'metrics_table');
+}
+
+function vizNeedsMap(vizIds) {
+  return (vizIds || []).some((id) => id === 'map_path' || id === 'map_multi');
+}
+
+/**
+ * Καθαρίζει οπτικά δεδομένα/αναφορές που δεν αντιστοιχούν στους επιλεγμένους τρόπους.
+ * Π.χ. αφαίρεση «Πριν/Μετά» → διαγραφή φωτογραφιών· αφαίρεση χάρτη → καθαρισμός snapshot.
+ *
+ * @param {object} card
+ * @param {{ clearMapIfUnused?: boolean }} [options]
+ * @returns {{ card: object, removedMediaPaths: string[] }}
+ */
+function pruneCardVisualAssets(card, options = {}) {
+  const clearMapIfUnused = options.clearMapIfUnused !== false;
+  if (!card || typeof card !== 'object') {
+    return { card, removedMediaPaths: [] };
+  }
+  const next = { ...card };
+  const removedMediaPaths = [];
+
+  const primaryRaw = resolveVizId(next.primaryViz);
+  if (!primaryRaw || !VIZ_MODE_IDS.includes(primaryRaw)) {
+    next.primaryViz = '';
+    next.secondaryViz = null;
+  } else {
+    next.primaryViz = primaryRaw;
+    const secondaryRaw = next.secondaryViz ? resolveVizId(next.secondaryViz) : null;
+    if (
+      !secondaryRaw
+      || !VIZ_MODE_IDS.includes(secondaryRaw)
+      || secondaryRaw === primaryRaw
+      || areIncompatibleTextOnlyPair(primaryRaw, secondaryRaw)
+    ) {
+      next.secondaryViz = null;
+    } else {
+      next.secondaryViz = secondaryRaw;
+    }
+  }
+
+  const vizIds = activeVizIds(next);
+  const keepPhases = new Set(requiredPhotoPhasesForVizIds(vizIds));
+  const photos = normalizePhotoSlots(next.photos || {}, ['before', 'during', 'after']);
+  const prunedPhotos = { before: [], during: [], after: [] };
+  for (const phase of ['before', 'during', 'after']) {
+    if (keepPhases.has(phase)) {
+      prunedPhotos[phase] = photos[phase];
+    } else {
+      for (const rel of photos[phase]) {
+        if (rel) removedMediaPaths.push(rel);
+      }
+    }
+  }
+  next.photos = prunedPhotos;
+
+  if (!vizNeedsMetrics(vizIds)) {
+    next.metrics = [];
+  } else {
+    next.metrics = normalizeMetrics(next.metrics);
+  }
+
+  if (clearMapIfUnused && !vizNeedsMap(vizIds)) {
+    if (next.mapSnapshot) removedMediaPaths.push(String(next.mapSnapshot));
+    next.mapSnapshot = null;
+    next.mapDrawing = emptyMapDrawing();
+    next.mapPoints = [];
+    next.mapLine = null;
+  }
+
+  return { card: next, removedMediaPaths };
+}
+
 /** Συγχώνευση patch φωτογραφιών χωρίς να μηδενίζει φάσεις που δεν στάλθηκαν. */
 function mergePhotoPhases(existingPhotos, patchPhotos) {
   const base = {
@@ -754,4 +841,6 @@ module.exports = {
   PHOTO_PHASE_LABELS_EL,
   photoPhaseLabelEl,
   requiredPhotoPhasesForVizIds,
+  activeVizIds,
+  pruneCardVisualAssets,
 };

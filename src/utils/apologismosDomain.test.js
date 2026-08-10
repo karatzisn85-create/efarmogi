@@ -28,6 +28,9 @@ const {
   normalizePhotoSlots,
   photoPhaseLabelEl,
   requiredPhotoPhasesForVizIds,
+  pruneCardVisualAssets,
+  activeVizIds,
+  emptyMapDrawing,
 } = require('../../public/apologismosDomain');
 
 const period = { id: '2024-2028', startYear: 2024, endYear: 2028 };
@@ -179,6 +182,67 @@ describe('apologismosDomain — photos', () => {
     const missing = validatePhotoPhases({ before: [], after: [] }, ['before', 'after']);
     expect(missing.errors.join(' ')).toContain('Πριν');
     expect(missing.errors.join(' ')).not.toMatch(/\bbefore\b/);
+  });
+
+  test('pruneCardVisualAssets: χωρίς τρόπο παρουσίασης καθαρίζει φωτογραφίες/μετρικές/χάρτη', () => {
+    const { card, removedMediaPaths } = pruneCardVisualAssets({
+      id: 'c1',
+      primaryViz: '',
+      secondaryViz: 'before_after',
+      photos: {
+        before: ['media/c1/before/a.jpg'],
+        during: ['media/c1/during/b.jpg'],
+        after: ['media/c1/after/c.jpg'],
+      },
+      metrics: [{ label: 'Μήκος', value: '1 km' }],
+      mapSnapshot: 'media/c1/map/snap.png',
+      mapDrawing: { type: 'FeatureCollection', features: [{ type: 'Feature' }] },
+      mapPoints: [{ lat: 1, lng: 2 }],
+    });
+    expect(card.primaryViz).toBe('');
+    expect(card.secondaryViz).toBe(null);
+    expect(card.photos).toEqual({ before: [], during: [], after: [] });
+    expect(card.metrics).toEqual([]);
+    expect(card.mapSnapshot).toBe(null);
+    expect(card.mapDrawing).toEqual(emptyMapDrawing());
+    expect(card.mapPoints).toEqual([]);
+    expect(removedMediaPaths).toEqual(expect.arrayContaining([
+      'media/c1/before/a.jpg',
+      'media/c1/during/b.jpg',
+      'media/c1/after/c.jpg',
+      'media/c1/map/snap.png',
+    ]));
+    expect(activeVizIds(card)).toEqual([]);
+  });
+
+  test('pruneCardVisualAssets: after_only κρατά μόνο «Μετά» και καθαρίζει μετρικές', () => {
+    const { card, removedMediaPaths } = pruneCardVisualAssets({
+      id: 'c1',
+      primaryViz: 'after_only',
+      secondaryViz: null,
+      photos: {
+        before: ['media/c1/before/a.jpg'],
+        during: [],
+        after: ['media/c1/after/c.jpg'],
+      },
+      metrics: [{ label: 'Α', value: '1' }],
+    });
+    expect(card.photos.before).toEqual([]);
+    expect(card.photos.after).toEqual(['media/c1/after/c.jpg']);
+    expect(card.metrics).toEqual([]);
+    expect(removedMediaPaths).toEqual(['media/c1/before/a.jpg']);
+  });
+
+  test('pruneCardVisualAssets: metrics_table κρατά μετρικές, όχι φωτογραφίες', () => {
+    const { card, removedMediaPaths } = pruneCardVisualAssets({
+      id: 'c1',
+      primaryViz: 'metrics_table',
+      photos: { before: ['media/c1/before/a.jpg'], during: [], after: [] },
+      metrics: [{ label: 'Μήκος', value: '2 km' }],
+    });
+    expect(card.photos.before).toEqual([]);
+    expect(card.metrics).toEqual([{ label: 'Μήκος', value: '2 km' }]);
+    expect(removedMediaPaths).toEqual(['media/c1/before/a.jpg']);
   });
 });
 

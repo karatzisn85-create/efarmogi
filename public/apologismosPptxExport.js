@@ -320,13 +320,13 @@ function addCoverSlide(pptx, model, d, p, resolveMedia, coverFrames = []) {
   });
 }
 
-function addCategorySlide(pptx, section, d, p, footerCtx) {
+function addCategorySlide(pptx, section, d, p, footerCtx, sectionIndex, sectionTotal) {
   const g = design.GEOM;
   const t = d.type;
   const slide = pptx.addSlide();
   addRect(slide, pptx, { x: 0, y: 0, w: SLIDE_W, h: SLIDE_H, color: p.darkBand });
 
-  addText(slide, String(section.count), {
+  addText(slide, String(sectionIndex || ''), {
     x: SLIDE_W - g.marginX - 210, y: 54, w: 210, size: 210,
     color: p.darkGhost, bold: true, align: 'right',
   });
@@ -336,7 +336,9 @@ function addCategorySlide(pptx, section, d, p, footerCtx) {
 
   addRect(slide, pptx, { x: g.marginX, y, w: g.coverRuleW, h: 5, color: p.accent });
   y += 5 + 18;
-  addText(slide, 'Κατηγορία έργων', {
+  addText(slide, sectionIndex && sectionTotal
+    ? `Κατηγορία ${sectionIndex} από ${sectionTotal}`
+    : 'Κατηγορία έργων', {
     x: g.marginX, y, w: 600, size: t.eyebrow, color: p.darkMuted, bold: true, caps: true, spacing: 0.14,
   });
   y += t.eyebrow * 1.3 + 12;
@@ -562,9 +564,12 @@ function composeApologismosDeck(model, { resolveMedia, coverFrames = [] } = {}) 
   addCoverSlide(pptx, model, d, p, resolveMedia, coverFrames);
   index += 1;
 
+  const sectionTotal = (model.sections || []).length;
+  let sectionOrdinal = 0;
   for (const section of model.sections || []) {
     if (d.sectionDividers) {
-      addCategorySlide(pptx, section, d, p, nextFooter());
+      sectionOrdinal += 1;
+      addCategorySlide(pptx, section, d, p, nextFooter(), sectionOrdinal, sectionTotal);
     }
     for (const entry of section.cards || []) {
       addProjectSlides(pptx, entry, d, p, resolveMedia, section.label, nextFooter);

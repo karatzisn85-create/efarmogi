@@ -197,6 +197,16 @@ describe('bugfix — φωτογραφίες: όριο πριν την αντιγ
         epActions: [],
       });
       const cardId = added.card.id;
+      const prepared = updateCard(dataDir, {
+        periodId,
+        cardId,
+        patch: {
+          categoryId: 'roads',
+          narrative: 'Reorder test narrative.',
+          primaryViz: 'after_only',
+        },
+      });
+      expect(prepared.success).toBe(true);
       const src1 = path.join(dataDir, 'p1.jpg');
       const src2 = path.join(dataDir, 'p2.jpg');
       fs.writeFileSync(src1, Buffer.from([1]));

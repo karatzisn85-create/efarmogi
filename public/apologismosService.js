@@ -125,8 +125,10 @@ function loadReport(dataDir, periodId) {
     }
     report.cards = report.cards.map((card) => {
       const { card: next, changed } = domain.migrateDeprecatedVizIds(card);
-      if (changed) migrated = true;
-      return next;
+      if (!changed) return card;
+      // Παλιοί τρόποι παρουσίασης → καθαρισμός οπτικών που δεν ταιριάζουν πλέον.
+      migrated = true;
+      return applyVisualAssetPrune(dataDir, next).card;
     });
     if (migrated) {
       report.updatedAt = new Date().toISOString();
@@ -134,9 +136,11 @@ function loadReport(dataDir, periodId) {
     }
     return { success: true, report, period };
   } catch (e) {
-    const empty = domain.createEmptyReport(period.id);
-    safeWriteJSON(fp, empty);
-    return { success: true, report: empty, period };
+    // Μην αντικαθιστάς χαλασμένο αρχείο με κενό — απώλεια δεδομένων.
+    return {
+      success: false,
+      error: `Αδυναμία ανάγνωσης απολογισμού: ${e.message || 'μη έγκυρο αρχείο'}`,
+    };
   }
 }
 
@@ -227,7 +231,7 @@ function addLegacyCard(dataDir, { periodId, input }) {
   return { success: true, report: saved.report, period, card };
 }
 
-function updateCard(dataDir, { periodId, cardId, patch }) {
+function updateCard(dataDir, { periodId, cardId, patch, pruneUnusedVisuals = true }) {
   const loaded = loadReport(dataDir, periodId);
   if (!loaded.success) return loaded;
   const { report, period } = loaded;
@@ -269,11 +273,15 @@ function updateCard(dataDir, { periodId, cardId, patch }) {
     next.mapDrawing = domain.normalizeMapDrawing(patch.mapDrawing);
   }
   const migrated = domain.migrateDeprecatedVizIds(next).card;
-  // Linked κάρτες: επιτρέπεται χειροκίνητη συμπλήρωση ποσών (δεν αγγίζει το υποέργο)
-  report.cards[idx] = migrated;
+  // Σιωπηρή αποθήκευση (π.χ. πριν ανέβασμα φωτο): κρατάμε media ώστε το «Άκυρο» / αλλαγή γνώμης να μην χάνει αρχεία.
+  // Ρητή αποθήκευση κάρτας (και αποθήκευση φωτο/χάρτη): καθαρισμός καταλοίπων.
+  const finalCard = pruneUnusedVisuals
+    ? applyVisualAssetPrune(dataDir, migrated).card
+    : migrated;
+  report.cards[idx] = finalCard;
   const saved = saveReport(dataDir, report);
   if (!saved.success) return saved;
-  return { success: true, report: saved.report, period, card: migrated };
+  return { success: true, report: saved.report, period, card: finalCard };
 }
 
 function removeCard(dataDir, { periodId, cardId }) {
@@ -376,6 +384,85 @@ function deleteCardPhotoFile(dataDir, relativePath) {
   return { success: true };
 }
 
+/** Συλλέγει relative paths media που η κάρτα ακόμα αναφέρει. */
+function referencedCardMediaPaths(card) {
+  const refs = new Set();
+  const photos = domain.normalizePhotoSlots(card?.photos || {}, ['before', 'during', 'after']);
+  for (const phase of ['before', 'during', 'after']) {
+    for (const rel of photos[phase]) {
+      if (rel) refs.add(String(rel).replace(/\\/g, '/'));
+    }
+  }
+  if (card?.mapSnapshot) refs.add(String(card.mapSnapshot).replace(/\\/g, '/'));
+  return refs;
+}
+
+/**
+ * Διαγράφει αρχεία κάτω από media/{cardId} που δεν αναφέρονται πλέον στην κάρτα,
+ * και αφαιρεί άδειους φακέλους φάσης.
+ */
+function cleanupEmptyCardMediaDirs(dataDir, cardId, card) {
+  if (!cardId) return;
+  const root = getRoot(dataDir);
+  const mediaDir = path.join(root, 'media', String(cardId));
+  if (!fs.existsSync(mediaDir)) return;
+
+  const keep = referencedCardMediaPaths(card);
+  const walkAndPrune = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    for (const ent of entries) {
+      const abs = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        walkAndPrune(abs);
+        try {
+          if (fs.readdirSync(abs).length === 0) fs.rmdirSync(abs);
+        } catch (_) {}
+        continue;
+      }
+      if (!ent.isFile()) continue;
+      const rel = path.relative(root, abs).replace(/\\/g, '/');
+      if (!keep.has(rel)) {
+        try {
+          fs.unlinkSync(abs);
+        } catch (_) {}
+      }
+    }
+  };
+
+  walkAndPrune(mediaDir);
+  try {
+    if (fs.existsSync(mediaDir) && fs.readdirSync(mediaDir).length === 0) {
+      fs.rmdirSync(mediaDir);
+    }
+  } catch (_) {}
+}
+
+function isMediaPathForCard(relativePath, cardId) {
+  if (!cardId || !relativePath) return false;
+  const rel = String(relativePath).replace(/\\/g, '/');
+  return rel.startsWith(`media/${cardId}/`);
+}
+
+/**
+ * Καθαρίζει οπτικά πεδία της κάρτας + αντίστοιχα αρχεία στον δίσκο.
+ * Χρησιμοποιείται σε ρητή αποθήκευση / οριστικές ενέργειες — όχι σε σιωπηρό save.
+ */
+function applyVisualAssetPrune(dataDir, card, pruneOptions = {}) {
+  const migrated = domain.migrateDeprecatedVizIds(card).card;
+  const { card: pruned, removedMediaPaths } = domain.pruneCardVisualAssets(migrated, pruneOptions);
+  for (const rel of removedMediaPaths) {
+    if (!isMediaPathForCard(rel, pruned.id)) continue;
+    deleteCardPhotoFile(dataDir, rel);
+  }
+  cleanupEmptyCardMediaDirs(dataDir, pruned.id, pruned);
+  return { card: pruned, removedMediaPaths };
+}
+
 function removeCardPhoto(dataDir, { periodId, cardId, phase, relativePath }) {
   const loaded = loadReport(dataDir, periodId);
   if (!loaded.success) return loaded;
@@ -385,15 +472,19 @@ function removeCardPhoto(dataDir, { periodId, cardId, phase, relativePath }) {
   const card = report.cards[idx];
   const result = domain.removePhotoFromPhase(card.photos, phase, relativePath);
   if (!result.ok) return { success: false, error: result.error };
-  deleteCardPhotoFile(dataDir, relativePath);
-  report.cards[idx] = {
+  if (isMediaPathForCard(relativePath, cardId)) {
+    deleteCardPhotoFile(dataDir, relativePath);
+  }
+  const nextCard = {
     ...card,
     photos: result.photos,
     updatedAt: new Date().toISOString(),
   };
+  cleanupEmptyCardMediaDirs(dataDir, cardId, nextCard);
+  report.cards[idx] = nextCard;
   const saved = saveReport(dataDir, report);
   if (!saved.success) return saved;
-  return { success: true, report: saved.report, period, card: report.cards[idx] };
+  return { success: true, report: saved.report, period, card: nextCard };
 }
 
 function reorderCardPhotoPrimary(dataDir, { periodId, cardId, phase, relativePath }) {
@@ -558,10 +649,59 @@ function updateAppearance(dataDir, { periodId, patch }) {
   report.appearance = next;
   const saved = saveReport(dataDir, report);
   if (!saved.success) return saved;
+  cleanupAppearanceOrphans(dataDir, next);
   return { success: true, report: saved.report, period, appearance: next };
 }
 
-function saveCoverImage(dataDir, { periodId, sourcePath, fileName, slotIndex = 0 }) {
+function deleteAppearanceFile(dataDir, relativePath) {
+  if (!relativePath) return { success: false };
+  const root = ensureDirs(dataDir);
+  const guard = domain.resolveMediaPathSafe(dataDir, root, relativePath);
+  if (!guard.ok) return { success: false, error: guard.error };
+  const rel = String(relativePath).replace(/\\/g, '/');
+  if (!rel.startsWith('appearance/')) return { success: false, error: 'Μη επιτρεπτό path' };
+  try {
+    if (fs.existsSync(guard.resolved)) fs.unlinkSync(guard.resolved);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+  return { success: true };
+}
+
+/** Διαγράφει αρχεία εξωφύλλου που δεν αναφέρονται πια στην εμφάνιση. */
+function cleanupAppearanceOrphans(dataDir, appearance) {
+  const root = ensureDirs(dataDir);
+  const appearanceDir = path.join(root, 'appearance');
+  if (!fs.existsSync(appearanceDir)) return;
+  const keep = new Set(
+    (appearanceMod.normalizeAppearance(appearance).coverImages || [])
+      .map((img) => String(img?.relativePath || '').replace(/\\/g, '/'))
+      .filter(Boolean)
+  );
+  let entries;
+  try {
+    entries = fs.readdirSync(appearanceDir);
+  } catch (_) {
+    return;
+  }
+  for (const name of entries) {
+    const abs = path.join(appearanceDir, name);
+    try {
+      if (!fs.statSync(abs).isFile()) continue;
+    } catch (_) {
+      continue;
+    }
+    const rel = path.join('appearance', name).replace(/\\/g, '/');
+    if (keep.has(rel)) continue;
+    try {
+      fs.unlinkSync(abs);
+    } catch (_) {}
+  }
+}
+
+function saveCoverImage(dataDir, {
+  periodId, sourcePath, fileName, slotIndex = 0, commitToReport = true,
+} = {}) {
   const loaded = loadReport(dataDir, periodId);
   if (!loaded.success) return loaded;
   const { report, period } = loaded;
@@ -570,6 +710,7 @@ function saveCoverImage(dataDir, { periodId, sourcePath, fileName, slotIndex = 0
   }
   const root = ensureDirs(dataDir);
   const appearanceDir = path.join(root, 'appearance');
+  if (!fs.existsSync(appearanceDir)) fs.mkdirSync(appearanceDir, { recursive: true });
   const safeName = String(fileName || path.basename(sourcePath))
     .replace(/[<>:"/\\|?*]/g, '_')
     .slice(0, 80);
@@ -581,11 +722,21 @@ function saveCoverImage(dataDir, { periodId, sourcePath, fileName, slotIndex = 0
 
   fs.copyFileSync(sourcePath, destAbs);
 
+  if (!commitToReport) {
+    return {
+      success: true,
+      relativePath: rel,
+      absolutePath: destAbs,
+      period,
+    };
+  }
+
   const appearance = appearanceMod.normalizeAppearance(report.appearance);
   const layout = appearanceMod.getCoverLayout(appearance.coverLayoutId);
   const idx = Math.max(0, Math.min(layout.imageSlots - 1, Number(slotIndex) || 0));
   const slots = appearanceMod.coverImagesBySlot(appearance);
   const prev = slots[idx];
+  const prevRel = prev?.relativePath ? String(prev.relativePath).replace(/\\/g, '/') : null;
   slots[idx] = {
     relativePath: rel,
     focusX: prev?.focusX ?? 0.5,
@@ -601,6 +752,10 @@ function saveCoverImage(dataDir, { periodId, sourcePath, fileName, slotIndex = 0
   });
   const saved = saveReport(dataDir, report);
   if (!saved.success) return saved;
+  if (prevRel && prevRel !== rel) {
+    deleteAppearanceFile(dataDir, prevRel);
+  }
+  cleanupAppearanceOrphans(dataDir, report.appearance);
   return {
     success: true,
     report: saved.report,
@@ -708,6 +863,8 @@ module.exports = {
   sanitizeReportPhotos,
   updateAppearance,
   saveCoverImage,
+  deleteAppearanceFile,
+  cleanupAppearanceOrphans,
   buildPresentationModel: buildPresentationModelForExport,
   appearance: appearanceMod,
   domain,

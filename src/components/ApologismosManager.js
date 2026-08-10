@@ -752,6 +752,8 @@ export default function ApologismosManager({
   const [viewerPath, setViewerPath] = useState(null);
   const [mapEditorOpen, setMapEditorOpen] = useState(false);
   const draftCardIdRef = useRef(null);
+  const editBaselineRef = useRef(null);
+  const editSessionTouchedDiskRef = useRef(false);
   const [eligibleOpen, setEligibleOpen] = useState(false);
   const [eligible, setEligible] = useState([]);
   const [legacyOpen, setLegacyOpen] = useState(false);
@@ -1052,17 +1054,25 @@ export default function ApologismosManager({
       periodId,
       cardId: selected.id,
       patch,
+      // Σιωπηρή αποθήκευση: δεν σβήνει φωτο/χάρτη — αλλιώς το «Άκυρο» δεν μπορεί να επαναφέρει.
+      pruneUnusedVisuals: !silent,
     });
     if (!res?.success) {
       showToast(res?.error || 'Αποτυχία αποθήκευσης', 'error');
       return false;
     }
     applyReport(res);
-    if (!silent) {
+    if (silent) {
+      editSessionTouchedDiskRef.current = true;
+      // Ευθυγράμμιση πρόχειρου με το αποθηκευμένο — χωρίς ψεύτικες «μη αποθηκευμένες αλλαγές».
+      if (res.card) setDraft(buildDraft(res.card));
+    } else {
+      editSessionTouchedDiskRef.current = false;
+      editBaselineRef.current = null;
       setEditing(false);
       showToast('Η κάρτα αποθηκεύτηκε', 'success');
     }
-    return true;
+    return res.card || true;
   };
 
   const isDirty = useMemo(() => {
@@ -1070,23 +1080,77 @@ export default function ApologismosManager({
     return JSON.stringify(buildDraft(selected)) !== JSON.stringify(draft);
   }, [selected, draft, buildDraft]);
 
-  const selectCard = (id) => {
+  const hasUnsavedCardWork = editing && (isDirty || editSessionTouchedDiskRef.current);
+
+  const restoreEditBaseline = async () => {
+    const baseline = editBaselineRef.current;
+    if (!selected || !baseline || !editSessionTouchedDiskRef.current) {
+      editSessionTouchedDiskRef.current = false;
+      return { ok: true, card: selected };
+    }
+    const patch = {
+      categoryId: baseline.categoryId,
+      narrative: baseline.narrative,
+      primaryViz: baseline.primaryViz,
+      secondaryViz: baseline.secondaryViz || null,
+      metrics: cleanMetricsRows(baseline.metrics),
+      title: baseline.title,
+      approvedAmount: baseline.approvedAmount,
+      contractAmount: baseline.contractAmount,
+      area: baseline.area || '',
+    };
+    if (selected.source === 'legacy') {
+      patch.completionYear = Number(baseline.completionYear);
+    }
+    const res = await ipcRenderer.invoke('apologismos-update-card', {
+      actingUsername: username,
+      periodId,
+      cardId: selected.id,
+      patch,
+      pruneUnusedVisuals: true,
+    });
+    if (!res?.success) {
+      showToast(res?.error || 'Αποτυχία αναίρεσης αλλαγών', 'error');
+      return { ok: false, card: null };
+    }
+    applyReport(res);
+    editSessionTouchedDiskRef.current = false;
+    return { ok: true, card: res.card || selected };
+  };
+
+  const selectCard = async (id) => {
     if (id === selectedId) return;
-    if (editing && isDirty
+    if (hasUnsavedCardWork
       && !window.confirm('Υπάρχουν αλλαγές που δεν έχουν αποθηκευτεί. Να συνεχίσετε χωρίς αποθήκευση;')) {
       return;
     }
+    if (editing && editSessionTouchedDiskRef.current) {
+      const restored = await restoreEditBaseline();
+      if (!restored.ok) return;
+    }
+    editBaselineRef.current = null;
+    setEditing(false);
     setSelectedId(id);
   };
 
   const startEdit = () => {
     if (!selected) return;
-    setDraft(buildDraft(selected));
+    const nextDraft = buildDraft(selected);
+    editBaselineRef.current = JSON.parse(JSON.stringify(nextDraft));
+    editSessionTouchedDiskRef.current = false;
+    setDraft(nextDraft);
     setEditing(true);
   };
 
-  const cancelEdit = () => {
-    if (selected) setDraft(buildDraft(selected));
+  const cancelEdit = async () => {
+    let card = selected;
+    if (editSessionTouchedDiskRef.current) {
+      const restored = await restoreEditBaseline();
+      if (!restored.ok) return;
+      card = restored.card || selected;
+    }
+    if (card) setDraft(buildDraft(card));
+    editBaselineRef.current = null;
     setEditing(false);
   };
 
@@ -1119,12 +1183,7 @@ export default function ApologismosManager({
 
   const uploadPhotos = async (phase) => {
     if (!selected) return;
-    // Πρώτα κατοχυρώνουμε τις επιλογές της κάρτας, ώστε να μη χαθεί
-    // ο τρόπος οπτικοποίησης όταν ανανεωθούν τα δεδομένα μετά το ανέβασμα.
-    if (isDirty) {
-      const ok = await saveDraft({ silent: true });
-      if (!ok) return;
-    }
+    // Πρώτα επιλογή αρχείων — αν ακυρωθεί, δεν αποθηκεύουμε τίποτα σιωπηλά.
     const pick = await ipcRenderer.invoke('apologismos-select-photos', {
       actingUsername: username,
     });
@@ -1133,7 +1192,15 @@ export default function ApologismosManager({
       return;
     }
     if (pick.canceled) return;
-    const currentCount = (selected.photos?.[phase] || []).length;
+
+    // Κατοχύρωση επιλογών κάρτας (χωρίς διαγραφή media) πριν το ανέβασμα.
+    let cardForUpload = selected;
+    if (isDirty) {
+      const savedCard = await saveDraft({ silent: true });
+      if (!savedCard) return;
+      if (savedCard && typeof savedCard === 'object') cardForUpload = savedCard;
+    }
+    const currentCount = (cardForUpload.photos?.[phase] || []).length;
     const room = 3 - currentCount;
     if (room <= 0) {
       showToast('Μέγιστο 3 φωτογραφίες ανά φάση', 'error');
@@ -1145,7 +1212,7 @@ export default function ApologismosManager({
       const res = await ipcRenderer.invoke('apologismos-save-photo', {
         actingUsername: username,
         periodId,
-        cardId: selected.id,
+        cardId: cardForUpload.id,
         phase,
         sourcePath,
       });
@@ -1157,6 +1224,7 @@ export default function ApologismosManager({
     }
     if (last) {
       applyReport(last);
+      if (editing && last.card) setDraft(buildDraft(last.card));
       showToast('Οι φωτογραφίες προστέθηκαν. Η πρώτη κάθε φάσης είναι η κύρια.', 'success');
     }
   };
@@ -1175,6 +1243,7 @@ export default function ApologismosManager({
       return;
     }
     applyReport(res);
+    if (editing && res.card) setDraft(buildDraft(res.card));
     showToast('Η φωτογραφία αφαιρέθηκε', 'success');
   };
 
@@ -1254,8 +1323,10 @@ export default function ApologismosManager({
         { label: 'Συμβάσεις', value: formatAmount(model.totals?.totalContract) },
       ],
     });
+    let sectionOrdinal = 0;
     for (const section of model.sections || []) {
       if (showDividers) {
+        sectionOrdinal += 1;
         slides.push({
           type: 'category',
           title: section.label,
@@ -1264,6 +1335,8 @@ export default function ApologismosManager({
           totalApprovedText: formatAmount(section.totalApproved),
           totalContractText: formatAmount(section.totalContract),
           count: section.count,
+          sectionIndex: sectionOrdinal,
+          sectionTotal: (model.sections || []).length,
         });
       }
       for (const entry of section.cards || []) {
@@ -1525,7 +1598,7 @@ export default function ApologismosManager({
             onChange={async (e) => {
               const id = e.target.value;
               if (id === periodId) return;
-              if (editing && isDirty) {
+              if (hasUnsavedCardWork) {
                 const ok = window.confirm(
                   'Υπάρχουν μη αποθηκευμένες αλλαγές στην κάρτα. Να συνεχίσετε χωρίς αποθήκευση;'
                 );
@@ -1533,7 +1606,15 @@ export default function ApologismosManager({
                   e.target.value = periodId;
                   return;
                 }
+                if (editSessionTouchedDiskRef.current) {
+                  const restored = await restoreEditBaseline();
+                  if (!restored.ok) {
+                    e.target.value = periodId;
+                    return;
+                  }
+                }
               }
+              editBaselineRef.current = null;
               setPeriodId(id);
               setSelectedId(null);
               setEditing(false);
@@ -1551,11 +1632,16 @@ export default function ApologismosManager({
             type="button"
             disabled={loading}
             onClick={async () => {
-              if (editing && isDirty) {
+              if (hasUnsavedCardWork) {
                 const ok = window.confirm(
                   'Υπάρχουν μη αποθηκευμένες αλλαγές στην κάρτα. Η ανανέωση θα τις απορρίψει. Να συνεχίσετε;'
                 );
                 if (!ok) return;
+                if (editSessionTouchedDiskRef.current) {
+                  const restored = await restoreEditBaseline();
+                  if (!restored.ok) return;
+                }
+                editBaselineRef.current = null;
                 setEditing(false);
               }
               await loadReport(periodId);
@@ -2391,6 +2477,7 @@ export default function ApologismosManager({
           onClose={() => setMapEditorOpen(false)}
           onSaved={(res) => {
             applyReport(res);
+            if (editing && res?.card) setDraft(buildDraft(res.card));
           }}
         />
       )}

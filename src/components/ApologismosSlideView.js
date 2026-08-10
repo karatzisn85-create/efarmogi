@@ -325,7 +325,7 @@ function CategorySlide({ slide, design, footer }) {
           userSelect: 'none',
         }}
       >
-        {slide.count}
+        {slide.sectionIndex || ''}
       </div>
       <div
         style={{
@@ -338,7 +338,11 @@ function CategorySlide({ slide, design, footer }) {
       >
         <Rule color={colors.accent} width={GEOM.coverRuleW} height={5} />
         <div style={{ height: 18 }} />
-        <Eyebrow color={rgbaOf(colors.darkText, 0.72)} size={type.eyebrow}>Κατηγορία έργων</Eyebrow>
+        <Eyebrow color={rgbaOf(colors.darkText, 0.72)} size={type.eyebrow}>
+          {slide.sectionIndex && slide.sectionTotal
+            ? `Κατηγορία ${slide.sectionIndex} από ${slide.sectionTotal}`
+            : 'Κατηγορία έργων'}
+        </Eyebrow>
         <div
           style={{
             fontSize: type.titleSection,

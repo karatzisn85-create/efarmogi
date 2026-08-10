@@ -185,6 +185,7 @@ function SlideFooter({ design, footerBase, onDark = false }) {
           fontWeight: 'bold',
           color: onDark ? colors.darkMuted : colors.muted,
         }}
+        fixed
         render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
       />
     </View>
@@ -377,7 +378,7 @@ function CoverPage({ model, design, mediaMap }) {
   );
 }
 
-function CategoryPage({ section, design, footerBase }) {
+function CategoryPage({ section, design, footerBase, sectionIndex, sectionTotal }) {
   const { type, colors } = design;
   return (
     <Page
@@ -400,11 +401,15 @@ function CategoryPage({ section, design, footerBase }) {
           color: colors.darkGhost,
         }}
       >
-        {String(section.count)}
+        {String(sectionIndex || '')}
       </Text>
       <View style={{ height: GEOM.contentBottom - GEOM.marginTop, justifyContent: 'center' }}>
         <Rule color={colors.accent} width={GEOM.coverRuleW} height={5} style={{ marginBottom: 18 }} />
-        <Eyebrow color={rgbaOf(colors.darkText, 0.72)} size={type.eyebrow}>Κατηγορία έργων</Eyebrow>
+        <Eyebrow color={rgbaOf(colors.darkText, 0.72)} size={type.eyebrow}>
+          {sectionIndex && sectionTotal
+            ? `Κατηγορία ${sectionIndex} από ${sectionTotal}`
+            : 'Κατηγορία έργων'}
+        </Eyebrow>
         <Text
           style={{
             fontFamily: FONT,
@@ -665,10 +670,16 @@ export default function ApologismosReport({ model, mediaMap = {} }) {
   return (
     <Document>
       <CoverPage model={model} design={design} mediaMap={mediaMap} />
-      {(model?.sections || []).map((section) => (
+      {(model?.sections || []).map((section, sectionIdx) => (
         <React.Fragment key={section.categoryId}>
           {design.sectionDividers ? (
-            <CategoryPage section={section} design={design} footerBase={footerBase} />
+            <CategoryPage
+              section={section}
+              design={design}
+              footerBase={footerBase}
+              sectionIndex={sectionIdx + 1}
+              sectionTotal={(model?.sections || []).length}
+            />
           ) : null}
           {section.cards.flatMap((entry) =>
             ProjectPages({
