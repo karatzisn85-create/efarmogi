@@ -1,6 +1,6 @@
 {
   "name": "efarmogi-app",
-  "version": "1.4.55",
+  "version": "1.4.56",
   "description": "Desktop εφαρμογή διαχείρισης έργων",
   "author": "Δήμος Αρχανών-Αστερούσιων",
   "main": "public/electron.js",

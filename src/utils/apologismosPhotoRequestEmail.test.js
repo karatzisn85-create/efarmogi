@@ -114,8 +114,8 @@ describe('apologismosPhotoRequestEmail', () => {
       senderDisplayName: 'Διαχειριστής',
       senderOrg: 'Δήμος Δοκιμής',
     });
-    expect(mail.subject).toMatch(/Απολογισμό Τεχνικού Έργου/);
-    expect(mail.subject).toMatch(/2024–2028/);
+    expect(mail.subject).toMatch(/Αίτημα φωτογραφιών/);
+    expect(mail.subject).toMatch(/Υποέργο Α/);
     expect(mail.html).toMatch(/Απολογισμού Τεχνικού Έργου/);
     expect(mail.html).toMatch(/Υποέργο Α/);
     expect(mail.html).toMatch(/Πριν/);
@@ -126,8 +126,21 @@ describe('apologismosPhotoRequestEmail', () => {
     expect(mail.html).toMatch(/Παρακαλώ καθαρή λήψη/);
     expect(mail.html).toMatch(/ERGOHUB/);
     expect(mail.html).toMatch(/συνημμένα/);
+    expect(mail.html).toMatch(/#1e3a5f/);
     expect(mail.textBody).toMatch(/Μαρία Παπα/);
     expect(mail.textBody).toMatch(/έως 3 φωτογραφίες ανά φάση/);
+  });
+
+  test('θέμα email περιέχει τίτλο υποέργου για εύκολη αναζήτηση', () => {
+    const mail = buildPhotoRequestEmailContent({
+      supervisorDisplayName: 'Ναυσικά',
+      periodLabel: 'Δημοτική περίοδος 2024–2028',
+      subprojectTitle: 'ΒΕΛΤΙΩΣΗ ΑΓΡΟΤΙΚΟΥ ΔΡΟΜΟΥ ΠΕΡΙΟΧΗΣ ΜΠΟΤΖΗ',
+      phases: ['before', 'after'],
+    });
+    expect(mail.subject).toBe(
+      'Αίτημα φωτογραφιών — ΒΕΛΤΙΩΣΗ ΑΓΡΟΤΙΚΟΥ ΔΡΟΜΟΥ ΠΕΡΙΟΧΗΣ ΜΠΟΤΖΗ'
+    );
   });
 
   test('buildPhotoRequestEmailContent πριν/κατά/μετά', () => {

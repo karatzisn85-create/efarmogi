@@ -872,12 +872,18 @@ function CoverPage({ basic, paymentSummary, appConfig, isPublishedToPortal, expo
   if (basic.projectBudget) {
     moneyCells.push({ label: 'ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ', value: formatAmount(basic.projectBudget) });
   }
-  // Αρχικό ποσό σύμβασης — ΟΧΙ το διαμορφωθέν μετά ΑΠΕ
-  const originalContractAmt = basic.contractAmount
-    ? formatAmount(basic.contractAmount)
-    : (basic.totalContractAmount > 0 ? formatAmount(basic.totalContractAmount) : '');
+  // Αρχικό ποσό σύμβασης / άθροισμα — ΟΧΙ το διαμορφωθέν μετά ΑΠΕ
+  const isMultiContracts = !!basic.isMultipleContracts;
+  const originalContractAmt = isMultiContracts
+    ? (basic.totalContractAmount > 0
+      ? formatAmount(basic.totalContractAmount)
+      : (basic.contractAmount ? formatAmount(basic.contractAmount) : ''))
+    : (basic.contractAmount
+      ? formatAmount(basic.contractAmount)
+      : (basic.totalContractAmount > 0 ? formatAmount(basic.totalContractAmount) : ''));
+  const contractCoverLabel = isMultiContracts ? 'ΑΘΡΟΙΣΜΑ ΣΥΜΒΑΣΕΩΝ' : 'ΠΟΣΟ ΣΥΜΒΑΣΗΣ';
   if (isMeaningfulPdfValue(originalContractAmt)) {
-    moneyCells.push({ label: 'ΠΟΣΟ ΣΥΜΒΑΣΗΣ', value: originalContractAmt });
+    moneyCells.push({ label: contractCoverLabel, value: originalContractAmt });
   }
   // Τελικός ΑΠΕ — ξεχωριστό κελί όταν υπάρχει αναθεώρηση
   if (basic.hasFinalContractAmountAfterApe && isMeaningfulPdfValue(basic.finalContractAmountAfterApe)) {
@@ -890,9 +896,16 @@ function CoverPage({ basic, paymentSummary, appConfig, isPublishedToPortal, expo
     moneyCells.push({ label: 'ΠΛΗΡΩΜΕΝΟ', value: paymentSummary.paidAmountLabel });
   }
 
-  // Προτεραιότητα στο εξώφυλλο: εγκεκριμένο · ποσό σύμβασης · τελικός ΑΠΕ · πληρωμένο
+  // Προτεραιότητα στο εξώφυλλο: εγκεκριμένο · ποσό/άθροισμα · τελικός ΑΠΕ · πληρωμένο
   // (ο προϋπολογισμός παραχωρεί θέση όταν υπάρχουν ΑΠΕ + πληρωμές)
-  const preferredCoverOrder = ['ΕΓΚΕΚΡΙΜΕΝΟ', 'ΠΟΣΟ ΣΥΜΒΑΣΗΣ', 'ΤΕΛΙΚΟΣ ΑΠΕ', 'ΠΛΗΡΩΜΕΝΟ', 'ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ'];
+  const preferredCoverOrder = [
+    'ΕΓΚΕΚΡΙΜΕΝΟ',
+    'ΠΟΣΟ ΣΥΜΒΑΣΗΣ',
+    'ΑΘΡΟΙΣΜΑ ΣΥΜΒΑΣΕΩΝ',
+    'ΤΕΛΙΚΟΣ ΑΠΕ',
+    'ΠΛΗΡΩΜΕΝΟ',
+    'ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ',
+  ];
   const orderedMoneyCells = preferredCoverOrder
     .map((label) => moneyCells.find((c) => c.label === label))
     .filter(Boolean)

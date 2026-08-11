@@ -28,6 +28,8 @@ import {
   PHOTO_REQUEST_REMINDER_DAYS,
 } from '../utils/apologismosCardUi';
 import { hasMapSnapshot } from '../utils/apologismosMapDrawing';
+import { formatDateEl } from '../utils/dateFormat';
+import { showConfirm } from '../utils/confirmModal';
 import ApologismosSlideView from './ApologismosSlideView';
 import {
   SLIDE_W,
@@ -65,8 +67,8 @@ function collectPresentationMediaPaths(model) {
 
 const fadeIn = keyframes`from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); }`;
 const softPulse = keyframes`
-  0%, 100% { box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.32), 0 8px 22px rgba(79, 70, 229, 0.18); }
-  50% { box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2), 0 10px 28px rgba(79, 70, 229, 0.24); }
+  0%, 100% { box-shadow: 0 0 0 2px rgba(30, 58, 95, 0.22), 0 8px 22px rgba(15, 39, 68, 0.14); }
+  50% { box-shadow: 0 0 0 4px rgba(30, 58, 95, 0.12), 0 10px 28px rgba(15, 39, 68, 0.18); }
 `;
 const shimmer = keyframes`
   0% { background-position: 0% 50%; }
@@ -77,13 +79,17 @@ const floatOrb = keyframes`
   50% { transform: translate(12px, -10px) scale(1.05); }
 `;
 
+/* Δημοτικό ναυτικό μπλε — ίδια οικογένεια με mail / διαφάνειες */
+const NAVY = '#1e3a5f';
+const NAVY_DEEP = '#0f2744';
+const NAVY_SOFT = '#e8eef5';
+
 const Overlay = styled.div`
   position: fixed; inset: 0; z-index: 1200;
   background:
-    radial-gradient(1200px 520px at 8% -10%, rgba(99, 102, 241, 0.16), transparent 55%),
-    radial-gradient(900px 480px at 92% 0%, rgba(14, 165, 233, 0.10), transparent 50%),
-    radial-gradient(700px 420px at 70% 100%, rgba(167, 139, 250, 0.10), transparent 55%),
-    linear-gradient(165deg, #f8fafc 0%, #eef2ff 42%, #f8fafc 100%);
+    radial-gradient(1100px 480px at 6% -8%, rgba(30, 58, 95, 0.12), transparent 55%),
+    radial-gradient(900px 420px at 96% 0%, rgba(14, 116, 144, 0.08), transparent 50%),
+    linear-gradient(165deg, #f8fafc 0%, ${NAVY_SOFT} 48%, #f8fafc 100%);
   display: flex; flex-direction: column; overflow: hidden;
   &::before, &::after {
     content: '';
@@ -92,28 +98,27 @@ const Overlay = styled.div`
   }
   &::before {
     width: 280px; height: 280px; top: 18%; left: -60px;
-    background: radial-gradient(circle, rgba(99, 102, 241, 0.14), transparent 70%);
+    background: radial-gradient(circle, rgba(30, 58, 95, 0.10), transparent 70%);
   }
   &::after {
     width: 340px; height: 340px; bottom: 8%; right: -80px;
-    background: radial-gradient(circle, rgba(56, 189, 248, 0.12), transparent 70%);
+    background: radial-gradient(circle, rgba(56, 189, 248, 0.08), transparent 70%);
     animation-delay: -4s;
   }
 `;
 const Header = styled.div`
   position: relative; z-index: 2;
   flex-shrink: 0; padding: 0.85rem 1.4rem;
-  background: linear-gradient(120deg, #312e81 0%, #4338ca 28%, #6366f1 62%, #4f46e5 100%);
-  background-size: 180% 180%;
-  animation: ${shimmer} 10s ease infinite alternate;
+  background: linear-gradient(118deg, ${NAVY_DEEP} 0%, ${NAVY} 52%, #254a73 100%);
   color: #fff; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-  box-shadow: 0 8px 28px rgba(67, 56, 202, 0.35);
+  box-shadow: 0 8px 28px rgba(15, 39, 68, 0.32);
   &::after {
     content: '';
     position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
-    background: linear-gradient(90deg, #22d3ee, #a78bfa, #f472b6, #22d3ee);
+    background: linear-gradient(90deg, #38bdf8, #93c5fd, #fbbf24, #38bdf8);
     background-size: 200% 100%;
-    animation: ${shimmer} 6s linear infinite;
+    animation: ${shimmer} 8s linear infinite;
+    opacity: 0.85;
   }
 `;
 const HeaderTitle = styled.h1`
@@ -160,16 +165,16 @@ const Body = styled.div`
 const Toolbar = styled.div`
   display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;
   flex-shrink: 0; margin-bottom: 0.9rem;
-  background: linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(238, 242, 255, 0.88) 100%);
-  border: 1px solid rgba(165, 180, 252, 0.45);
+  background: linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(232, 238, 245, 0.9) 100%);
+  border: 1px solid rgba(30, 58, 95, 0.12);
   border-radius: 16px; padding: 0.8rem 1rem;
-  box-shadow: 0 8px 28px rgba(79, 70, 229, 0.08), inset 0 1px 0 rgba(255,255,255,0.8);
+  box-shadow: 0 8px 28px rgba(15, 39, 68, 0.06), inset 0 1px 0 rgba(255,255,255,0.8);
   backdrop-filter: blur(8px);
 `;
 const Select = styled.select`
   border: 1px solid #e2e8f0; border-radius: 11px; padding: 0.5rem 0.8rem;
   font-size: 0.88rem; background: #fff; color: #0f172a; font-family: inherit;
-  &:focus { outline: none; border-color: #818cf8; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18); }
+  &:focus { outline: none; border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.14); }
 `;
 const GhostBtn = styled.button`
   border: 1px solid #e2e8f0; background: #fff; color: #475569; border-radius: 11px;
@@ -179,12 +184,12 @@ const GhostBtn = styled.button`
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 const PrimaryBtn = styled(GhostBtn)`
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: linear-gradient(135deg, #1e3a5f, #0f2744);
   border-color: transparent; color: #fff;
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+  box-shadow: 0 4px 14px rgba(15, 39, 68, 0.28);
   &:hover:not(:disabled) {
-    background: linear-gradient(135deg, #6366f1, #4f46e5);
-    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.42);
+    background: linear-gradient(135deg, #1e3a5f, #0f2744);
+    box-shadow: 0 6px 18px rgba(15, 39, 68, 0.34);
   }
 `;
 const DangerBtn = styled(GhostBtn)`
@@ -200,24 +205,24 @@ const Grid = styled.div`
 const Panel = styled.div`
   position: relative;
   background: linear-gradient(180deg, #ffffff 0%, #fafbff 100%);
-  border: 1px solid rgba(165, 180, 252, 0.35);
+  border: 1px solid rgba(30, 58, 95, 0.10);
   border-radius: 18px;
   min-height: 0; overflow: hidden;
   display: flex; flex-direction: column;
-  box-shadow: 0 10px 32px rgba(79, 70, 229, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 10px 32px rgba(15, 39, 68, 0.06), 0 2px 8px rgba(15, 23, 42, 0.04);
   &::before {
     content: '';
     position: absolute; top: 0; left: 18px; right: 18px; height: 3px;
     border-radius: 0 0 8px 8px;
-    background: linear-gradient(90deg, #6366f1, #22d3ee, #a78bfa);
+    background: linear-gradient(90deg, #1e3a5f, #38bdf8, #93c5fd);
     opacity: 0.85;
     z-index: 3;
   }
 `;
 const ListHead = styled.div`
   flex-shrink: 0; padding: 0.9rem 0.85rem 0.7rem;
-  border-bottom: 1px solid rgba(165, 180, 252, 0.28);
-  background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(238,242,255,0.5) 100%);
+  border-bottom: 1px solid rgba(30, 58, 95, 0.10);
+  background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(232,238,245,0.55) 100%);
 `;
 const ListScroll = styled.div`
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
@@ -232,31 +237,31 @@ const SearchInput = styled.input`
   border: 1px solid #e2e8f0; border-radius: 10px;
   padding: 0.42rem 0.7rem; font-size: 0.8rem; color: #0f172a; background: #fff;
   &::placeholder { color: #94a3b8; }
-  &:focus { outline: none; border-color: #818cf8; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18); }
+  &:focus { outline: none; border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.14); }
 `;
 const FilterRow = styled.div`display: flex; gap: 0.3rem; margin-top: 0.5rem; flex-wrap: wrap;`;
 const FilterChip = styled.button`
   font-family: inherit; cursor: pointer;
   font-size: 0.66rem; font-weight: 800; letter-spacing: 0.02em;
   padding: 0.26rem 0.6rem; border-radius: 999px;
-  background: ${p => (p.$on ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : '#fff')};
+  background: ${p => (p.$on ? 'linear-gradient(135deg, #1e3a5f, #0f2744)' : '#fff')};
   color: ${p => (p.$on ? '#fff' : '#64748b')};
   border: 1px solid ${p => (p.$on ? 'transparent' : '#e2e8f0')};
-  box-shadow: ${p => (p.$on ? '0 3px 10px rgba(79, 70, 229, 0.3)' : 'none')};
+  box-shadow: ${p => (p.$on ? '0 3px 10px rgba(15, 39, 68, 0.28)' : 'none')};
   transition: background 0.2s, color 0.2s;
-  &:hover { border-color: ${p => (p.$on ? 'transparent' : '#c7d2fe')}; }
+  &:hover { border-color: ${p => (p.$on ? 'transparent' : '#94a3b8')}; }
 `;
 const ListCount = styled.div`
   font-size: 0.66rem; font-weight: 700; color: #64748b; margin-top: 0.5rem;
 `;
 const EditPanel = styled(Panel)`
-  box-shadow: 0 14px 40px rgba(79, 70, 229, 0.12), 0 2px 10px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 14px 40px rgba(15, 39, 68, 0.10), 0 2px 10px rgba(15, 23, 42, 0.05);
   &::before { display: none; }
 `;
 const EditPanelHead = styled.div`
   position: relative; flex-shrink: 0;
   padding: 0.85rem 1.15rem 0.75rem;
-  background: linear-gradient(120deg, #312e81 0%, #4338ca 40%, #6366f1 100%);
+  background: linear-gradient(120deg, #0f2744 0%, #1e3a5f 55%, #254a73 100%);
   color: #fff;
   box-shadow: inset 0 -1px 0 rgba(255,255,255,0.12);
   &::after {
@@ -269,7 +274,7 @@ const EditPanelHead = styled.div`
 const EditPanelBody = styled.div`
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
   padding: 0.95rem 1rem 5.5rem;
-  background: linear-gradient(180deg, #fafbff 0%, #f1f5f9 100%);
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f6 100%);
   @media (max-width: 1100px) { overflow: visible; }
   &::-webkit-scrollbar { width: 9px; }
   &::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.5); border-radius: 999px; }
@@ -284,58 +289,157 @@ const EditSection = styled.div`
   overflow: hidden;
   box-shadow: 0 2px 14px rgba(15, 23, 42, 0.05);
   transition: box-shadow 0.2s, transform 0.2s;
-  &:hover { box-shadow: 0 6px 20px rgba(79, 70, 229, 0.08); }
+  &:hover { box-shadow: 0 6px 20px rgba(15, 39, 68, 0.06); }
 `;
 const EditSectionTitle = styled.h3`
   margin: -0.85rem -0.85rem 0.8rem;
   padding: 0.7rem 1rem;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(255, 255, 255, 0.7) 100%);
+  background: linear-gradient(135deg, rgba(30, 58, 95, 0.10) 0%, rgba(255, 255, 255, 0.7) 100%);
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-  border-left: 4px solid #6366f1;
-  font-size: 0.86rem; font-weight: 800; letter-spacing: 0.03em; color: #4338ca;
+  border-left: 4px solid #1e3a5f;
+  font-size: 0.86rem; font-weight: 800; letter-spacing: 0.03em; color: #1e3a5f;
+`;
+const StatusStrip = styled.div`
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem 0.7rem;
+  margin: 0 0 0.75rem; padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  background: linear-gradient(115deg, ${NAVY_DEEP} 0%, ${NAVY} 70%, #254a73 100%);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(15, 39, 68, 0.18);
+`;
+const StatusStripMain = styled.div`
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; flex: 1; min-width: 0;
+`;
+const StatusPill = styled.span`
+  display: inline-flex; align-items: center; gap: 0.28rem;
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 0.22rem 0.55rem; border-radius: 999px;
+  background: ${p => (p.$ok ? 'rgba(16,185,129,0.22)' : 'rgba(245,158,11,0.22)')};
+  border: 1px solid ${p => (p.$ok ? 'rgba(167,243,208,0.45)' : 'rgba(253,230,138,0.45)')};
+  color: ${p => (p.$ok ? '#d1fae5' : '#fde68a')};
+`;
+const StatusMeta = styled.span`
+  font-size: 0.72rem; font-weight: 600; color: rgba(226,232,240,0.92);
+`;
+const StatusGap = styled.div`
+  width: 100%; font-size: 0.74rem; font-weight: 600; line-height: 1.4;
+  color: rgba(226,232,240,0.88); margin-top: 0.15rem;
+`;
+const ZoneCard = styled(EditSection)`
+  border-left: 3px solid ${NAVY};
+`;
+const ZoneEyebrow = styled.div`
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #64748b; margin-bottom: 0.2rem;
+`;
+const LockedBox = styled.div`
+  background: #f1f5f9; border: 1px dashed #cbd5e1; border-radius: 11px;
+  padding: 0.7rem 0.85rem; color: #334155; font-size: 0.9rem; font-weight: 700; line-height: 1.45;
+`;
+const LockedTag = styled.span`
+  display: inline-block; margin-left: 0.4rem;
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  color: #64748b; background: #e2e8f0; border-radius: 999px; padding: 0.12rem 0.45rem;
+  vertical-align: middle;
+`;
+const SupervisorStrip = styled.div`
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem 0.85rem;
+  padding: 0.7rem 0.85rem; margin-bottom: 0.75rem;
+  border-radius: 12px; background: #fff;
+  border: 1px solid rgba(30, 58, 95, 0.12);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+`;
+const SupervisorWho = styled.div`
+  flex: 1; min-width: 160px;
+`;
+const SupervisorName = styled.div`
+  font-size: 0.88rem; font-weight: 800; color: ${NAVY};
+`;
+const SupervisorEmail = styled.div`
+  font-size: 0.74rem; font-weight: 600; color: #64748b; margin-top: 2px;
+`;
+const MaterialTabs = styled.div`
+  display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.75rem;
+`;
+const MaterialTab = styled.button`
+  font-family: inherit; cursor: pointer;
+  border: 1px solid ${p => (p.$on ? NAVY : '#e2e8f0')};
+  background: ${p => (p.$on ? NAVY : '#fff')};
+  color: ${p => (p.$on ? '#fff' : '#475569')};
+  border-radius: 999px; padding: 0.35rem 0.85rem;
+  font-size: 0.74rem; font-weight: 800;
+  box-shadow: ${p => (p.$on ? '0 3px 10px rgba(15,39,68,0.22)' : 'none')};
+`;
+const StickyEditBar = styled.div`
+  position: sticky; bottom: -0.2rem; z-index: 4;
+  margin: 0.85rem -0.15rem -0.35rem; padding: 0.75rem 0.65rem 0.35rem;
+  background: linear-gradient(180deg, rgba(248,250,252,0) 0%, #f8fafc 28%, #f8fafc 100%);
+`;
+const StickyEditInner = styled.div`
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+  padding: 0.65rem 0.75rem; border-radius: 12px;
+  background: #fff; border: 1px solid rgba(30, 58, 95, 0.12);
+  box-shadow: 0 -4px 18px rgba(15, 39, 68, 0.08);
+`;
+const DangerTextBtn = styled.button`
+  font-family: inherit; background: none; border: none; cursor: pointer;
+  margin-left: auto; color: #b91c1c; font-size: 0.76rem; font-weight: 700;
+  padding: 0.35rem 0.2rem; text-decoration: underline; text-underline-offset: 3px;
+  &:hover:not(:disabled) { color: #991b1b; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+`;
+const CheckRow = styled.label`
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  padding: 0.65rem 0.75rem; border-radius: 10px; background: #f8fafc;
+  border: 1px solid #e2e8f0; margin-top: 0.35rem;
+`;
+const CompactTip = styled.div`
+  margin: 0.45rem 0 0.15rem; padding: 0.55rem 0.7rem;
+  border-radius: 10px; background: #f0f9ff; border: 1px solid #bae6fd;
+  font-size: 0.74rem; color: #0c4a6e; line-height: 1.45; font-weight: 600;
 `;
 const PanelTitle = styled.h2`
   margin: 0.15rem 0 0.85rem; font-size: 0.86rem; font-weight: 800;
-  letter-spacing: 0.03em; color: #4338ca;
+  letter-spacing: 0.03em; color: #1e3a5f;
   display: flex; align-items: center; gap: 0.45rem;
   &::before {
     content: '';
     width: 8px; height: 8px; border-radius: 50%;
-    background: linear-gradient(135deg, #6366f1, #22d3ee);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+    background: linear-gradient(135deg, #1e3a5f, #38bdf8);
+    box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.16);
   }
 `;
 const Card = styled.div`
   position: relative;
   background: ${p => (p.$active
-    ? 'linear-gradient(145deg, #eef2ff 0%, #e0e7ff 60%, #fafbff 100%)'
+    ? 'linear-gradient(145deg, #e8eef5 0%, #dbe7f3 60%, #fafbff 100%)'
     : 'linear-gradient(165deg, #ffffff 0%, #f8fafc 100%)')};
-  border: 1px solid ${p => (p.$active ? '#6366f1' : 'rgba(203, 213, 225, 0.85)')};
-  border-left: 4px solid ${p => (p.$active ? '#4f46e5' : (p.$ready ? '#10b981' : '#f59e0b'))};
+  border: 1px solid ${p => (p.$active ? '#1e3a5f' : 'rgba(203, 213, 225, 0.85)')};
+  border-left: 4px solid ${p => (p.$active ? '#0f2744' : (p.$ready ? '#10b981' : '#f59e0b'))};
   border-radius: 12px; padding: 0.55rem 1.3rem 0.6rem 0.65rem;
   margin-bottom: 0.45rem; cursor: pointer; overflow: hidden;
   transition: box-shadow 0.24s ease, border-color 0.24s ease, background 0.24s ease;
   box-shadow: ${p => (p.$active
-    ? '0 0 0 2px rgba(99, 102, 241, 0.32), 0 8px 22px rgba(79, 70, 229, 0.18)'
+    ? '0 0 0 2px rgba(30, 58, 95, 0.28), 0 8px 22px rgba(15, 39, 68, 0.16)'
     : '0 1px 2px rgba(15, 23, 42, 0.04)')};
   animation: ${p => (p.$active ? softPulse : 'none')} 2.8s ease-in-out infinite;
   &::after {
     content: '▸';
     position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%);
-    font-size: 1rem; font-weight: 800; color: #4f46e5;
+    font-size: 1rem; font-weight: 800; color: #1e3a5f;
     opacity: ${p => (p.$active ? 1 : 0)};
     transition: opacity 0.24s ease;
   }
   &:hover {
-    border-color: ${p => (p.$active ? '#4f46e5' : '#a5b4fc')};
+    border-color: ${p => (p.$active ? '#0f2744' : '#94a3b8')};
     box-shadow: ${p => (p.$active
-      ? '0 0 0 3px rgba(99, 102, 241, 0.38), 0 10px 26px rgba(79, 70, 229, 0.24)'
+      ? '0 0 0 3px rgba(30, 58, 95, 0.32), 0 10px 26px rgba(15, 39, 68, 0.20)'
       : '0 6px 18px rgba(15, 23, 42, 0.09)')};
   }
 `;
 const CardTitle = styled.div`
   font-size: 0.82rem; font-weight: 800; line-height: 1.32; margin: 0.25rem 0 0.3rem;
-  color: ${p => (p.$active ? '#312e81' : '#1e293b')};
+  color: ${p => (p.$active ? '#0f2744' : '#1e293b')};
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 `;
 const CardTopRow = styled.div`display: flex; align-items: center; gap: 0.35rem; min-width: 0;`;
@@ -356,7 +460,7 @@ const MicroPill = styled.span`
   border: 1px solid ${p => (p.$tone === 'warn' ? '#fde68a' : '#e2e8f0')};
 `;
 const CardAmount = styled.div`
-  font-size: 0.78rem; font-weight: 800; color: #312e81;
+  font-size: 0.78rem; font-weight: 800; color: #1e3a5f;
 `;
 const CardMetaText = styled.div`
   font-size: 0.66rem; font-weight: 600; color: #64748b; margin-top: 0.15rem;
@@ -366,7 +470,7 @@ const Badge = styled.span`
   display: inline-block; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.02em;
   padding: 0.28rem 0.7rem; border-radius: 999px; margin-right: 0.35rem;
   background: ${p => (
-    p.$tone === 'active' ? 'linear-gradient(135deg, #6366f1, #4f46e5)'
+    p.$tone === 'active' ? 'linear-gradient(135deg, #1e3a5f, #0f2744)'
       : p.$tone === 'warn' ? '#fffbeb'
       : p.$tone === 'ok' ? '#f0fdf4'
       : '#f1f5f9'
@@ -383,7 +487,7 @@ const Badge = styled.span`
       : p.$tone === 'ok' ? '#bbf7d0'
       : '#e2e8f0'
   )};
-  box-shadow: ${p => (p.$tone === 'active' ? '0 3px 10px rgba(79, 70, 229, 0.35)' : 'none')};
+  box-shadow: ${p => (p.$tone === 'active' ? '0 3px 10px rgba(15, 39, 68, 0.28)' : 'none')};
 `;
 const Field = styled.label`
   display: block; font-size: 0.82rem; font-weight: 700; color: #475569; margin: 0 0 0.35rem;
@@ -393,7 +497,7 @@ const fieldControl = `
   border: 1px solid #e2e8f0; border-radius: 11px; padding: 0.62rem 0.88rem;
   font-size: 0.92rem; color: #0f172a; background: #fff;
   transition: border-color 0.2s, box-shadow 0.2s;
-  &:focus { outline: none; border-color: #818cf8; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18); }
+  &:focus { outline: none; border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.14); }
   &:disabled { background-color: #f8fafc; color: #64748b; }
 `;
 const Input = styled.input`
@@ -422,53 +526,53 @@ const VizGuide = styled.div`
   margin-top: 0.7rem;
   padding: 0.75rem 0.85rem;
   border-radius: 12px;
-  background: linear-gradient(145deg, #eef2ff 0%, #f8fafc 100%);
-  border: 1px solid #c7d2fe;
+  background: linear-gradient(145deg, #e8eef5 0%, #f8fafc 100%);
+  border: 1px solid #bfdbfe;
   font-size: 0.78rem;
-  color: #312e81;
+  color: #1e3a5f;
   line-height: 1.5;
 `;
 const VizGuideRole = styled.div`
   font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
-  color: #6366f1; margin-bottom: 0.25rem;
+  color: #1e3a5f; margin-bottom: 0.25rem;
 `;
-const VizGuideTitle = styled.div`font-weight: 800; margin-bottom: 0.35rem; color: #1e1b4b;`;
+const VizGuideTitle = styled.div`font-weight: 800; margin-bottom: 0.35rem; color: #0f2744;`;
 const VizGuideLine = styled.div`
   margin-top: 0.2rem;
-  strong { color: #4338ca; }
+  strong { color: #1e3a5f; }
 `;
 const EmphasisBlock = styled.div`
   margin-bottom: 0.65rem;
   border-radius: 12px;
   padding: ${p => (p.$on ? '0.55rem 0.6rem' : '0')};
-  border: ${p => (p.$on ? '1px solid #a5b4fc' : '1px solid transparent')};
-  background: ${p => (p.$on ? 'linear-gradient(145deg, #eef2ff 0%, #ffffff 85%)' : 'transparent')};
-  box-shadow: ${p => (p.$on ? '0 0 0 2px rgba(99, 102, 241, 0.14)' : 'none')};
+  border: ${p => (p.$on ? '1px solid #93c5fd' : '1px solid transparent')};
+  background: ${p => (p.$on ? 'linear-gradient(145deg, #e8eef5 0%, #ffffff 85%)' : 'transparent')};
+  box-shadow: ${p => (p.$on ? '0 0 0 2px rgba(30, 58, 95, 0.12)' : 'none')};
   animation: ${p => (p.$on ? softPulse : 'none')} 2.4s ease-in-out infinite;
 `;
 const EmphasisTag = styled.div`
-  font-size: 0.68rem; font-weight: 800; color: #4338ca; margin-bottom: 0.35rem;
+  font-size: 0.68rem; font-weight: 800; color: #1e3a5f; margin-bottom: 0.35rem;
 `;
 const SectionHeadRow = styled.div`
   display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
   margin: -0.85rem -0.85rem 0.8rem;
   padding: 0.55rem 0.75rem 0.55rem 0;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(255, 255, 255, 0.7) 100%);
+  background: linear-gradient(135deg, rgba(30, 58, 95, 0.10) 0%, rgba(255, 255, 255, 0.7) 100%);
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 `;
 const SectionHeadTitle = styled.h3`
   margin: 0; padding: 0.15rem 1rem;
-  border-left: 4px solid #6366f1;
-  font-size: 0.86rem; font-weight: 800; letter-spacing: 0.03em; color: #4338ca;
+  border-left: 4px solid #1e3a5f;
+  font-size: 0.86rem; font-weight: 800; letter-spacing: 0.03em; color: #1e3a5f;
 `;
 const InfoIconBtn = styled.button`
   font-family: inherit; cursor: pointer; flex-shrink: 0;
   width: 28px; height: 28px; margin-right: 0.75rem; border-radius: 50%;
-  border: 1px solid #a5b4fc; background: #eef2ff; color: #4338ca;
+  border: 1px solid #93c5fd; background: #e8eef5; color: #1e3a5f;
   font-size: 0.85rem; font-weight: 800; font-style: italic;
   display: inline-flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.12);
-  &:hover { background: #e0e7ff; border-color: #818cf8; }
+  box-shadow: 0 2px 8px rgba(15, 39, 68, 0.12);
+  &:hover { background: #dbe7f3; border-color: #1e3a5f; }
 `;
 const MetricsTable = styled.div`
   border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff;
@@ -476,8 +580,8 @@ const MetricsTable = styled.div`
 const MetricsHead = styled.div`
   display: grid; grid-template-columns: 1.4fr 1fr 44px;
   gap: 0.45rem; padding: 0.55rem 0.65rem;
-  background: #eef2ff; border-bottom: 1px solid #c7d2fe;
-  font-size: 0.72rem; font-weight: 800; color: #4338ca; letter-spacing: 0.02em;
+  background: #e8eef5; border-bottom: 1px solid #bfdbfe;
+  font-size: 0.72rem; font-weight: 800; color: #1e3a5f; letter-spacing: 0.02em;
 `;
 const MetricsRow = styled.div`
   display: grid; grid-template-columns: 1.4fr 1fr 44px;
@@ -498,12 +602,12 @@ const MetricsDelBtn = styled.button`
   &:disabled { opacity: 0.35; cursor: not-allowed; }
 `;
 const ExampleTable = styled.div`
-  border: 1px solid #c7d2fe; border-radius: 12px; overflow: hidden; margin-top: 0.7rem;
+  border: 1px solid #bfdbfe; border-radius: 12px; overflow: hidden; margin-top: 0.7rem;
 `;
 const ExampleHead = styled.div`
   display: grid; grid-template-columns: 1.4fr 1fr;
   gap: 0.4rem; padding: 0.55rem 0.7rem;
-  background: #312e81; color: #fff;
+  background: #0f2744; color: #fff;
   font-size: 0.78rem; font-weight: 800;
 `;
 const ExampleRow = styled.div`
@@ -521,12 +625,12 @@ const PhotoPhaseHead = styled.div`
   display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.55rem;
 `;
 const PhotoPhaseTitle = styled.div`
-  font-size: 0.78rem; font-weight: 800; color: #4338ca;
+  font-size: 0.78rem; font-weight: 800; color: #1e3a5f;
   text-transform: uppercase; letter-spacing: 0.05em;
 `;
 const PhotoCount = styled.span`
-  font-size: 0.66rem; font-weight: 800; color: #4338ca; background: #eef2ff;
-  border: 1px solid #c7d2fe; border-radius: 999px; padding: 0.2rem 0.6rem;
+  font-size: 0.66rem; font-weight: 800; color: #1e3a5f; background: #e8eef5;
+  border: 1px solid #bfdbfe; border-radius: 999px; padding: 0.2rem 0.6rem;
 `;
 const PhotoItem = styled.div`
   display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem;
@@ -541,7 +645,7 @@ const PhotoMini = styled.div`
   flex: 0 0 auto; width: 46px; height: 32px; border-radius: 6px; cursor: pointer;
   background: #e2e8f0 center/cover no-repeat; border: 1px solid rgba(148, 163, 184, 0.35);
   transition: transform 0.2s ease, border-color 0.2s ease;
-  &:hover { transform: scale(1.08); border-color: #6366f1; }
+  &:hover { transform: scale(1.08); border-color: #1e3a5f; }
 `;
 const MiniBtn = styled.button`
   border: 1px solid #e2e8f0; background: #fff; color: #475569; border-radius: 8px;
@@ -575,18 +679,18 @@ const ViewValue = styled.span`
 const Empty = styled.span`color: #94a3b8; font-weight: 500; font-style: italic;`;
 const Chip = styled.span`
   display: inline-block; font-size: 0.74rem; font-weight: 700; padding: 0.24rem 0.7rem;
-  border-radius: 999px; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe;
+  border-radius: 999px; background: #e8eef5; color: #1e3a5f; border: 1px solid #bfdbfe;
 `;
 const ThumbRow = styled.div`display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem;`;
 const Thumb = styled.div`
   width: 104px; border-radius: 10px; overflow: hidden; cursor: pointer;
-  border: 1px solid ${p => (p.$primary ? '#818cf8' : 'rgba(148, 163, 184, 0.3)')};
-  box-shadow: ${p => (p.$primary ? '0 0 0 2px rgba(99, 102, 241, 0.25)' : 'none')};
+  border: 1px solid ${p => (p.$primary ? '#1e3a5f' : 'rgba(148, 163, 184, 0.3)')};
+  box-shadow: ${p => (p.$primary ? '0 0 0 2px rgba(30, 58, 95, 0.22)' : 'none')};
   background: #fff;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   &:hover {
-    transform: translateY(-2px); border-color: #6366f1;
-    box-shadow: 0 8px 20px rgba(79, 70, 229, 0.22);
+    transform: translateY(-2px); border-color: #1e3a5f;
+    box-shadow: 0 8px 20px rgba(15, 39, 68, 0.18);
   }
 `;
 const ThumbImg = styled.div`
@@ -595,8 +699,8 @@ const ThumbImg = styled.div`
 const ThumbCap = styled.div`
   font-size: 0.62rem; font-weight: 800; text-align: center; padding: 0.2rem;
   text-transform: uppercase; letter-spacing: 0.04em;
-  color: ${p => (p.$primary ? '#4338ca' : '#94a3b8')};
-  background: ${p => (p.$primary ? '#eef2ff' : '#f8fafc')};
+  color: ${p => (p.$primary ? '#1e3a5f' : '#94a3b8')};
+  background: ${p => (p.$primary ? '#e8eef5' : '#f8fafc')};
 `;
 const ViewerBack = styled.div`
   position: fixed; inset: 0; z-index: 1450;
@@ -655,8 +759,8 @@ const ViewerBtn = styled.button`
   &:hover { background: rgba(255, 255, 255, 0.26); transform: translateY(-1px); }
 `;
 const ViewerPrimaryBtn = styled(ViewerBtn)`
-  background: linear-gradient(135deg, #6366f1, #4f46e5); border-color: transparent;
-  &:hover { background: linear-gradient(135deg, #6366f1, #4338ca); }
+  background: linear-gradient(135deg, #1e3a5f, #0f2744); border-color: transparent;
+  &:hover { background: linear-gradient(135deg, #254a73, #1e3a5f); }
 `;
 const ViewerDangerBtn = styled(ViewerBtn)`
   background: rgba(220, 38, 38, 0.85); border-color: rgba(254, 202, 202, 0.5);
@@ -669,7 +773,7 @@ const ViewerStrip = styled.div`
 const ViewerStripItem = styled.div`
   width: 64px; height: 44px; border-radius: 8px; cursor: pointer;
   background: rgba(148, 163, 184, 0.25) center/cover no-repeat;
-  border: 2px solid ${p => (p.$on ? '#818cf8' : 'transparent')};
+  border: 2px solid ${p => (p.$on ? '#38bdf8' : 'transparent')};
   opacity: ${p => (p.$on ? 1 : 0.6)};
   transition: opacity 0.2s, border-color 0.2s;
   &:hover { opacity: 1; }
@@ -783,6 +887,7 @@ export default function ApologismosManager({
   const [photoRequestDeadline, setPhotoRequestDeadline] = useState('');
   const [photoRequestNote, setPhotoRequestNote] = useState('');
   const [photoRequestBusy, setPhotoRequestBusy] = useState(false);
+  const [materialTab, setMaterialTab] = useState('photos');
 
   const selected = useMemo(
     () => (report?.cards || []).find((c) => c.id === selectedId) || null,
@@ -1123,6 +1228,9 @@ export default function ApologismosManager({
       title: baseline.title,
       approvedAmount: baseline.approvedAmount,
       contractAmount: baseline.contractAmount,
+      finalContractAmountAfterApe: baseline.finalContractAmountAfterApe,
+      finalContractApeDate: baseline.finalContractApeDate,
+      showFinalContractAmountInPresentation: !!baseline.showFinalContractAmountInPresentation,
       area: baseline.area || '',
     };
     if (selected.source === 'legacy') {
@@ -1146,9 +1254,17 @@ export default function ApologismosManager({
 
   const selectCard = async (id) => {
     if (id === selectedId) return;
-    if (hasUnsavedCardWork
-      && !window.confirm('Υπάρχουν αλλαγές που δεν έχουν αποθηκευτεί. Να συνεχίσετε χωρίς αποθήκευση;')) {
-      return;
+    if (hasUnsavedCardWork) {
+      const ok = await showConfirm({
+        title: 'Μη αποθηκευμένες αλλαγές',
+        message: 'Υπάρχουν αλλαγές που δεν έχουν αποθηκευτεί. Να συνεχίσετε χωρίς αποθήκευση;',
+        detail: 'Οι μη αποθηκευμένες αλλαγές στην κάρτα θα χαθούν.',
+        confirmLabel: 'Συνέχεια χωρίς αποθήκευση',
+        cancelLabel: 'Άκυρο',
+        danger: true,
+        icon: '⚠️',
+      });
+      if (!ok) return;
     }
     if (editing && editSessionTouchedDiskRef.current) {
       const restored = await restoreEditBaseline();
@@ -1156,6 +1272,7 @@ export default function ApologismosManager({
     }
     editBaselineRef.current = null;
     setEditing(false);
+    setMaterialTab('photos');
     setSelectedId(id);
   };
 
@@ -1165,6 +1282,7 @@ export default function ApologismosManager({
     editBaselineRef.current = JSON.parse(JSON.stringify(nextDraft));
     editSessionTouchedDiskRef.current = false;
     setDraft(nextDraft);
+    setMaterialTab('photos');
     setEditing(true);
   };
 
@@ -1182,7 +1300,16 @@ export default function ApologismosManager({
 
   const removeCard = async () => {
     if (!selected) return;
-    if (!window.confirm('Να αφαιρεθεί η κάρτα από τον απολογισμό;')) return;
+    const ok = await showConfirm({
+      title: 'Αφαίρεση κάρτας',
+      message: 'Να αφαιρεθεί η κάρτα από τον απολογισμό;',
+      detail: 'Η κάρτα θα φύγει από την παρουσίαση αυτής της περιόδου.',
+      confirmLabel: 'Αφαίρεση',
+      cancelLabel: 'Άκυρο',
+      danger: true,
+      icon: '🗑',
+    });
+    if (!ok) return;
     const res = await ipcRenderer.invoke('apologismos-remove-card', {
       actingUsername: username,
       periodId,
@@ -1560,6 +1687,44 @@ export default function ApologismosManager({
   const draftMetricsVizLabels = draftVizIds
     .filter((id) => needsMetricsInput([id])).map((id) => vizLabel(id)).join(' + ');
 
+  const materialTabs = useMemo(() => {
+    const tabs = [];
+    if (visiblePhotoPhases.length > 0) tabs.push({ id: 'photos', label: 'Φωτογραφίες' });
+    if (draftNeedsMap) tabs.push({ id: 'map', label: 'Χάρτης' });
+    if (draftNeedsMetrics) tabs.push({ id: 'metrics', label: 'Αποτελέσματα' });
+    return tabs;
+  }, [visiblePhotoPhases.length, draftNeedsMap, draftNeedsMetrics]);
+
+  useEffect(() => {
+    if (!materialTabs.length) return;
+    if (!materialTabs.some((t) => t.id === materialTab)) {
+      setMaterialTab(materialTabs[0].id);
+    }
+  }, [materialTabs, materialTab]);
+
+  const editGapLine = useMemo(() => {
+    if (!draft) return '';
+    const phaseName = (phase) => ({
+      before: 'Πριν', during: 'Κατά', after: 'Μετά',
+    }[phase] || phase);
+    const gaps = [];
+    if (!draft.categoryId) gaps.push('κατηγορία');
+    if (!draft.primaryViz) gaps.push('τρόπος προβολής');
+    if (draftNeedsNarrative && !String(draft.narrative || '').trim()) gaps.push('σύντομο κείμενο');
+    if (visiblePhotoPhases.length) {
+      const missing = visiblePhotoPhases.filter((ph) => !((selected?.photos?.[ph] || []).length));
+      if (missing.length) gaps.push(`φωτογραφίες ${missing.map(phaseName).join('/')}`);
+    }
+    if (draftNeedsMap && !hasMapSnapshot(selected)) gaps.push('χάρτης');
+    if (draftNeedsMetrics && cleanMetricsRows(draft.metrics).length === 0) gaps.push('αποτελέσματα');
+    if (!gaps.length) {
+      return selected?.ready
+        ? 'Όλα τα απαιτούμενα για την παρουσίαση είναι συμπληρωμένα.'
+        : 'Συμπληρώστε και πατήστε Αποθήκευση για να ελεγχθεί η ετοιμότητα.';
+    }
+    return `Λείπει ακόμη: ${gaps.join(' · ')}`;
+  }, [draft, selected, draftNeedsNarrative, draftNeedsMap, draftNeedsMetrics, visiblePhotoPhases]);
+
   const selectedVizIds = cardVizIds(selected);
   const selectedNeedsMap = needsMapInput(selectedVizIds);
   const selectedNeedsMetrics = needsMetricsInput(selectedVizIds);
@@ -1584,12 +1749,20 @@ export default function ApologismosManager({
   };
 
   const openPhotoRequest = () => {
-    if (!selectedCanRequestPhotos) return;
+    if (!selected || selected.source !== 'linked') return;
+    if (!selected.supervisor?.displayName) {
+      showToast('Δεν έχει καταγραφεί επιβλέπων στο συνδεδεμένο υποέργο.', 'error');
+      return;
+    }
     if (!selected.supervisor?.hasEmail) {
+      showToast('Ο επιβλέπων δεν έχει καταχωρημένο email στον λογαριασμό χρήστη του.', 'error');
+      return;
+    }
+    if (!savedPhotoPhases.length) {
       showToast(
-        selected.supervisor?.displayName
-          ? 'Ο επιβλέπων δεν έχει καταχωρημένο email στον λογαριασμό χρήστη του.'
-          : 'Δεν υπάρχει επιβλέπων με λογαριασμό χρήστη και email για αποστολή.',
+        visiblePhotoPhases.length
+          ? 'Αποθηκεύστε πρώτα την κάρτα με τον τρόπο προβολής, ώστε να σταλεί σωστό αίτημα φωτογραφιών.'
+          : 'Επιλέξτε τρόπο προβολής με φωτογραφίες και αποθηκεύστε την κάρτα.',
         'error'
       );
       return;
@@ -1603,11 +1776,16 @@ export default function ApologismosManager({
     if (!selected || photoRequestBusy) return;
     if (selected.photoRequestLast?.sentAt) {
       const when = formatPhotoRequestSentAt(selected.photoRequestLast.sentAt);
-      const ok = window.confirm(
-        when
+      const ok = await showConfirm({
+        title: 'Επαναποστολή αιτήματος',
+        message: when
           ? `Έχει ήδη σταλεί αίτημα στις ${when}. Να ξανασταλεί;`
-          : 'Έχει ήδη σταλεί αίτημα φωτογραφιών. Να ξανασταλεί;'
-      );
+          : 'Έχει ήδη σταλεί αίτημα φωτογραφιών. Να ξανασταλεί;',
+        confirmLabel: 'Ξαναστείλε',
+        cancelLabel: 'Άκυρο',
+        danger: false,
+        icon: '✉️',
+      });
       if (!ok) return;
     }
     setPhotoRequestBusy(true);
@@ -1663,12 +1841,13 @@ export default function ApologismosManager({
     const guide = guideFor(id);
     if (!guide) return null;
     return (
-      <VizGuide>
-        <VizGuideRole>{roleLabel}</VizGuideRole>
-        <VizGuideTitle>{vizLabel(id) || 'Τρόπος προβολής'}</VizGuideTitle>
-        <VizGuideLine><strong>Τι θα εμφανιστεί:</strong> {guide.shows}</VizGuideLine>
-        <VizGuideLine><strong>Τι να συμπληρώσετε:</strong> {guide.needs}</VizGuideLine>
-      </VizGuide>
+      <CompactTip>
+        <strong>{roleLabel}:</strong>
+        {' '}
+        {vizLabel(id) || 'Τρόπος'}
+        {' — '}
+        {guide.needs}
+      </CompactTip>
     );
   };
 
@@ -1741,9 +1920,15 @@ export default function ApologismosManager({
               const id = e.target.value;
               if (id === periodId) return;
               if (hasUnsavedCardWork) {
-                const ok = window.confirm(
-                  'Υπάρχουν μη αποθηκευμένες αλλαγές στην κάρτα. Να συνεχίσετε χωρίς αποθήκευση;'
-                );
+                const ok = await showConfirm({
+                  title: 'Μη αποθηκευμένες αλλαγές',
+                  message: 'Υπάρχουν μη αποθηκευμένες αλλαγές στην κάρτα. Να συνεχίσετε χωρίς αποθήκευση;',
+                  detail: 'Οι αλλαγές στην τρέχουσα κάρτα θα χαθούν.',
+                  confirmLabel: 'Συνέχεια χωρίς αποθήκευση',
+                  cancelLabel: 'Άκυρο',
+                  danger: true,
+                  icon: '⚠️',
+                });
                 if (!ok) {
                   e.target.value = periodId;
                   return;
@@ -1775,9 +1960,14 @@ export default function ApologismosManager({
             disabled={loading}
             onClick={async () => {
               if (hasUnsavedCardWork) {
-                const ok = window.confirm(
-                  'Υπάρχουν μη αποθηκευμένες αλλαγές στην κάρτα. Η ανανέωση θα τις απορρίψει. Να συνεχίσετε;'
-                );
+                const ok = await showConfirm({
+                  title: 'Μη αποθηκευμένες αλλαγές',
+                  message: 'Υπάρχουν μη αποθηκευμένες αλλαγές στην κάρτα. Η ανανέωση θα τις απορρίψει. Να συνεχίσετε;',
+                  confirmLabel: 'Συνέχεια χωρίς αποθήκευση',
+                  cancelLabel: 'Άκυρο',
+                  danger: true,
+                  icon: '⚠️',
+                });
                 if (!ok) return;
                 if (editSessionTouchedDiskRef.current) {
                   const restored = await restoreEditBaseline();
@@ -1887,8 +2077,22 @@ export default function ApologismosManager({
             <EditPanelBody>
               {!selected || !draft ? (
                 <Hint>Επιλέξτε κάρτα από τη λίστα για να δείτε και να συμπληρώσετε τα στοιχεία της.</Hint>
-              ) : !editing ? (
+              ) : (
                 <>
+                  <StatusStrip>
+                    <StatusStripMain>
+                      <StatusPill $ok={!!selected.ready}>
+                        {selected.ready ? 'Έτοιμη' : 'Εκκρεμεί'}
+                      </StatusPill>
+                      <StatusMeta>
+                        {selected.source === 'legacy' ? 'Παλαιότερο έργο' : 'Συνδεδεμένο υποέργο'}
+                      </StatusMeta>
+                      {editing ? <StatusMeta>· Επεξεργασία</StatusMeta> : null}
+                      {isDirty ? <StatusMeta>· Μη αποθηκευμένες αλλαγές</StatusMeta> : null}
+                    </StatusStripMain>
+                    <StatusGap>{editGapLine}</StatusGap>
+                  </StatusStrip>
+
                   {selected.amountChangedBadge && (
                     <EditSection>
                       <Badge $tone="warn">Άλλαξαν τα ποσά από το συνδεδεμένο υποέργο</Badge>
@@ -1896,710 +2100,641 @@ export default function ApologismosManager({
                     </EditSection>
                   )}
 
-                  <EditSection>
-                    <EditSectionTitle>Κατάσταση κάρτας</EditSectionTitle>
-                    <Badge $tone={selected.ready ? 'ok' : 'warn'}>
-                      {selected.ready ? 'Έτοιμη για την παρουσίαση' : 'Εκκρεμεί συμπλήρωση'}
-                    </Badge>
-                    <Badge>{selected.source === 'legacy' ? 'Παλαιότερο έργο' : 'Συνδεδεμένο υποέργο'}</Badge>
-                    {!selected.ready && selected.readinessErrors?.length > 0 && (
-                      <Err>{selected.readinessErrors.join(' · ')}</Err>
-                    )}
-                  </EditSection>
-
-                  {selected.source === 'linked' ? (
-                    <EditSection>
-                      <EditSectionTitle>Επιβλέπων υποέργου & φωτογραφίες</EditSectionTitle>
-                      {selected.supervisor?.displayName ? (
+                  {!editing ? (
+                    <>
+                      <ZoneCard>
+                        <EditSectionTitle>Ταυτότητα & παρουσίαση</EditSectionTitle>
                         <ViewGrid>
-                          <ViewRow $wide>
-                            <ViewLabel>Επιβλέπων</ViewLabel>
-                            <ViewValue>{selected.supervisor.displayName}</ViewValue>
+                          <ViewRow>
+                            <ViewLabel>Κατηγορία</ViewLabel>
+                            <ViewValue>
+                              {categoryLabel(selected.categoryId) || <Empty>Δεν έχει οριστεί</Empty>}
+                            </ViewValue>
                           </ViewRow>
-                          {selected.supervisor.hasEmail ? (
+                          <ViewRow>
+                            <ViewLabel>Κύριος τρόπος</ViewLabel>
+                            <ViewValue>
+                              {selected.primaryViz
+                                ? <Chip>{vizLabel(selected.primaryViz)}</Chip>
+                                : <Empty>Δεν έχει επιλεγεί</Empty>}
+                            </ViewValue>
+                          </ViewRow>
+                          <ViewRow>
+                            <ViewLabel>Δευτερεύων</ViewLabel>
+                            <ViewValue>
+                              {selected.secondaryViz
+                                ? <Chip>{vizLabel(selected.secondaryViz)}</Chip>
+                                : <Empty>Κανένας</Empty>}
+                            </ViewValue>
+                          </ViewRow>
+                          <ViewRow $wide>
+                            <ViewLabel>Σύντομο κείμενο</ViewLabel>
+                            <ViewValue>
+                              {selected.narrative || <Empty>Δεν έχει συμπληρωθεί</Empty>}
+                            </ViewValue>
+                          </ViewRow>
+                        </ViewGrid>
+                      </ZoneCard>
+
+                      <ZoneCard>
+                        <EditSectionTitle>Ποσά παρουσίασης</EditSectionTitle>
+                        <ViewGrid>
+                          <ViewRow>
+                            <ViewLabel>Εγκεκριμένο</ViewLabel>
+                            <ViewValue>{formatAmount(selected.approvedAmount)}</ViewValue>
+                          </ViewRow>
+                          <ViewRow>
+                            <ViewLabel>Συμβατικό</ViewLabel>
+                            <ViewValue>{formatAmount(selected.contractAmount)}</ViewValue>
+                          </ViewRow>
+                          {(selected.hasFinalContractAmountAfterApe || selected.finalContractAmountAfterApe) ? (
                             <ViewRow $wide>
-                              <ViewLabel>Email</ViewLabel>
-                              <ViewValue style={{ fontSize: '0.82rem', color: '#475569' }}>
-                                {selected.supervisor.email}
+                              <ViewLabel>Τελικό μετά ΑΠΕ</ViewLabel>
+                              <ViewValue>
+                                {formatAmount(selected.finalContractAmountAfterApe)}
+                                {selected.finalContractApeDate
+                                  ? ` · ΑΠΕ ${formatDateEl(selected.finalContractApeDate, '')}`
+                                  : ''}
+                                <div style={{ marginTop: 4, fontSize: '0.76rem', color: '#64748b', fontWeight: 600 }}>
+                                  {selected.showFinalContractAmountInPresentation
+                                    ? 'Εμφανίζεται στην παρουσίαση'
+                                    : 'Δεν εμφανίζεται στην παρουσίαση'}
+                                </div>
                               </ViewValue>
                             </ViewRow>
                           ) : (
-                            <Hint style={{ marginTop: 4 }}>
-                              Δεν υπάρχει καταχωρημένο email στον λογαριασμό του επιβλέποντα — δεν μπορεί να σταλεί αίτημα.
-                            </Hint>
+                            <ViewRow $wide>
+                              <ViewLabel>Τελικό μετά ΑΠΕ</ViewLabel>
+                              <ViewValue><Empty>Δεν υπάρχει καταχωρημένο ΑΠΕ</Empty></ViewValue>
+                            </ViewRow>
+                          )}
+                          <ViewRow>
+                            <ViewLabel>Περιοχή</ViewLabel>
+                            <ViewValue>{selected.area || <Empty>Δεν έχει οριστεί</Empty>}</ViewValue>
+                          </ViewRow>
+                          {selected.source === 'legacy' && (
+                            <ViewRow>
+                              <ViewLabel>Έτος ολοκλήρωσης</ViewLabel>
+                              <ViewValue>{selected.completionYear || <Empty>Δεν έχει οριστεί</Empty>}</ViewValue>
+                            </ViewRow>
                           )}
                         </ViewGrid>
-                      ) : (
-                        <Hint>
-                          Δεν έχει καταγραφεί επιβλέπων στο συνδεδεμένο υποέργο. Καταχωρήστε κύρια χρέωση στην κάρτα του υποέργου.
-                        </Hint>
-                      )}
-                      {(() => {
-                        const photoState = getPhotoRequestUiState(selected, meta.vizModes);
-                        if (photoState.status === 'awaiting' || photoState.status === 'reminder') {
-                          return (
-                            <Hint style={{ marginTop: 8 }}>
-                              {photoState.status === 'reminder'
-                                ? `Έχει περάσει πάνω από ${PHOTO_REQUEST_REMINDER_DAYS} ημέρες από το αίτημα και λείπουν ακόμα φωτογραφίες. Μπορείτε να ξαναστείλετε υπενθύμιση.`
-                                : 'Έχει σταλεί αίτημα φωτογραφιών στον επιβλέποντα — αναμονή υλικού.'}
-                              {selected.photoRequestLast?.sentAt
-                                ? ` (τελευταίο: ${formatPhotoRequestSentAt(selected.photoRequestLast.sentAt)})`
-                                : ''}
-                            </Hint>
-                          );
-                        }
-                        if (photoState.status === 'ready' && selected.photoRequestLast?.sentAt) {
-                          return (
-                            <Hint style={{ marginTop: 8 }}>
-                              Οι απαιτούμενες φωτογραφίες είναι συμπληρωμένες
-                              {' '}
-                              · αίτημα στις {formatPhotoRequestSentAt(selected.photoRequestLast.sentAt)}.
-                            </Hint>
-                          );
-                        }
-                        if (selected.photoRequestLast?.sentAt) {
-                          return (
-                            <Hint style={{ marginTop: 8 }}>
-                              Τελευταίο αίτημα φωτογραφιών:
-                              {' '}
-                              {formatPhotoRequestSentAt(selected.photoRequestLast.sentAt)}
-                              {selected.photoRequestLast.toName
-                                ? ` · προς ${selected.photoRequestLast.toName}`
-                                : ''}
-                            </Hint>
-                          );
-                        }
-                        return null;
-                      })()}
-                      {savedPhotoPhases.length > 0 && selected.supervisor?.displayName ? (
-                        <ActionRow style={{ marginTop: 10 }}>
-                          <PrimaryBtn
-                            type="button"
-                            disabled={!selected.supervisor.hasEmail}
-                            onClick={openPhotoRequest}
-                            title={
-                              selected.supervisor.hasEmail
-                                ? 'Αποστολή email με αίτημα φωτογραφιών'
-                                : 'Απαιτείται email επιβλέποντα'
-                            }
-                          >
-                            {selected.photoRequestLast?.sentAt
-                              ? 'Ξαναστείλε αίτημα φωτογραφιών'
-                              : 'Ζήτησε φωτογραφίες από επιβλέποντα'}
-                          </PrimaryBtn>
-                        </ActionRow>
-                      ) : null}
-                      {savedPhotoPhases.length === 0 ? (
-                        <Hint style={{ marginTop: 8 }}>
-                          Για αίτημα φωτογραφιών επιλέξτε πρώτα τρόπο προβολής με φωτογραφίες (π.χ. Πριν / Μετά) και αποθηκεύστε.
-                        </Hint>
-                      ) : null}
-                    </EditSection>
-                  ) : null}
+                      </ZoneCard>
 
-                  <EditSection>
-                    <EditSectionTitle>Επιλογές παρουσίασης</EditSectionTitle>
-                    <ViewGrid>
-                      <ViewRow>
-                        <ViewLabel>Κατηγορία απολογισμού</ViewLabel>
-                        <ViewValue>
-                          {categoryLabel(selected.categoryId) || <Empty>Δεν έχει οριστεί</Empty>}
-                        </ViewValue>
-                      </ViewRow>
-                      <ViewRow>
-                        <ViewLabel>Κύριος τρόπος προβολής</ViewLabel>
-                        <ViewValue>
-                          {selected.primaryViz
-                            ? <Chip>{vizLabel(selected.primaryViz)}</Chip>
-                            : <Empty>Δεν έχει επιλεγεί</Empty>}
-                        </ViewValue>
-                      </ViewRow>
-                      <ViewRow>
-                        <ViewLabel>Δευτερεύων τρόπος προβολής</ViewLabel>
-                        <ViewValue>
-                          {selected.secondaryViz
-                            ? <Chip>{vizLabel(selected.secondaryViz)}</Chip>
-                            : <Empty>Κανένας</Empty>}
-                        </ViewValue>
-                      </ViewRow>
-                      <ViewRow $wide>
-                        <ViewLabel>Σύντομο κείμενο</ViewLabel>
-                        <ViewValue>
-                          {selected.narrative || <Empty>Δεν έχει συμπληρωθεί</Empty>}
-                        </ViewValue>
-                      </ViewRow>
-                    </ViewGrid>
-                    {selected.primaryViz && renderVizGuide(selected.primaryViz, 'Κύριος τρόπος')}
-                    {selected.secondaryViz && renderVizGuide(selected.secondaryViz, 'Δευτερεύων τρόπος')}
-                  </EditSection>
-
-                  {savedPhotoPhases.length > 0 && (
-                    <EditSection>
-                      <EditSectionTitle>Φωτογραφίες έργου</EditSectionTitle>
-                      {savedPhotoPhases.map((phase) => (
-                        <PhotoPhaseCard key={phase}>
-                          <PhotoPhaseHead>
-                            <PhotoPhaseTitle>{photoPhaseLabel(phase)}</PhotoPhaseTitle>
-                            <PhotoCount>{(selected.photos?.[phase] || []).length}/3</PhotoCount>
-                          </PhotoPhaseHead>
-                          {renderThumbs(phase)}
-                        </PhotoPhaseCard>
-                      ))}
-                    </EditSection>
-                  )}
-
-                  {selectedNeedsMap && (
-                    <EditSection>
-                      <EditSectionTitle>Χάρτης έργου</EditSectionTitle>
-                      {hasMapSnapshot(selected) ? (
-                        <>
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            title="Κλικ για προβολή σε μεγάλο μέγεθος"
-                            onClick={() => setViewerPath(selected.mapSnapshot)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                setViewerPath(selected.mapSnapshot);
-                              }
-                            }}
-                            style={{
-                              height: 180, borderRadius: 12, border: '1px solid rgba(148,163,184,0.35)',
-                              background: cardMedia[selected.mapSnapshot]
-                                ? `center/cover no-repeat url("${cardMedia[selected.mapSnapshot]}")`
-                                : '#e2e8f0',
-                              cursor: 'pointer',
-                              boxShadow: '0 4px 16px rgba(15,23,42,0.08)',
-                            }}
-                          />
-                          <Hint style={{ marginTop: 8 }}>
-                            Αποθηκευμένο στιγμιότυπο χάρτη για την παρουσίαση. Κλικ για μεγάλη προβολή.
-                          </Hint>
-                        </>
-                      ) : (
-                        <Empty>Δεν έχει αποθηκευτεί ακόμα χάρτης από τον επεξεργαστή.</Empty>
-                      )}
-                      <ActionRow>
-                        {hasMapSnapshot(selected) && (
-                          <GhostBtn type="button" onClick={() => setViewerPath(selected.mapSnapshot)}>
-                            Προβολή χάρτη
-                          </GhostBtn>
-                        )}
-                        <PrimaryBtn type="button" onClick={() => setMapEditorOpen(true)}>
-                          Άνοιγμα επεξεργαστή χάρτη
-                        </PrimaryBtn>
-                      </ActionRow>
-                    </EditSection>
-                  )}
-
-                  {selectedNeedsMetrics && (
-                    <EditSection>
-                      <SectionHeadRow>
-                        <SectionHeadTitle>Αποτελέσματα</SectionHeadTitle>
-                        <InfoIconBtn
-                          type="button"
-                          title="Παράδειγμα πίνακα αποτελεσμάτων"
-                          aria-label="Παράδειγμα πίνακα αποτελεσμάτων"
-                          onClick={() => setMetricsHelpOpen(true)}
-                        >
-                          i
-                        </InfoIconBtn>
-                      </SectionHeadRow>
-                      {(selected.metrics || []).length === 0 ? (
-                        <Empty>Δεν έχουν καταχωρηθεί γραμμές</Empty>
-                      ) : (
-                        <MetricsTable>
-                          <MetricsHead>
-                            <div>{METRICS_COLUMNS[0].title}</div>
-                            <div>{METRICS_COLUMNS[1].title}</div>
-                            <div />
-                          </MetricsHead>
-                          {(selected.metrics || []).map((m, i) => (
-                            <MetricsRow key={i}>
-                              <div style={{ fontSize: '0.88rem', fontWeight: 600, color: '#0f172a' }}>{m.label}</div>
-                              <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#312e81' }}>{m.value}</div>
-                              <div />
-                            </MetricsRow>
-                          ))}
-                        </MetricsTable>
-                      )}
-                    </EditSection>
-                  )}
-
-                  <EditSection>
-                    <EditSectionTitle>Ποσά & στοιχεία έργου</EditSectionTitle>
-                    <ViewGrid>
-                      <ViewRow>
-                        <ViewLabel>Εγκεκριμένο</ViewLabel>
-                        <ViewValue>{formatAmount(selected.approvedAmount)}</ViewValue>
-                      </ViewRow>
-                      <ViewRow>
-                        <ViewLabel>Συμβατικό</ViewLabel>
-                        <ViewValue>{formatAmount(selected.contractAmount)}</ViewValue>
-                      </ViewRow>
-                      {(selected.hasFinalContractAmountAfterApe || selected.finalContractAmountAfterApe) ? (
-                        <ViewRow>
-                          <ViewLabel>Τελικό μετά ΑΠΕ</ViewLabel>
-                          <ViewValue>
-                            {formatAmount(selected.finalContractAmountAfterApe)}
-                            {selected.finalContractApeDate
-                              ? ` · ΑΠΕ ${selected.finalContractApeDate}`
-                              : ''}
-                            <div style={{ marginTop: 6, fontSize: '0.78rem', color: '#64748b', fontWeight: 600, lineHeight: 1.4 }}>
-                              Τελικό διαμορφωθέν ποσό σύμβασης μετά από αναθεωρήσεις. Ισχύει το πιο πρόσφατο ΑΠΕ.
-                              {selected.showFinalContractAmountInPresentation
-                                ? ' · Εμφανίζεται στην παρουσίαση.'
-                                : ' · Δεν εμφανίζεται στην παρουσίαση.'}
-                            </div>
-                          </ViewValue>
-                        </ViewRow>
-                      ) : (
-                        <ViewRow>
-                          <ViewLabel>Τελικό μετά ΑΠΕ</ViewLabel>
-                          <ViewValue>
-                            <Empty>Δεν υπάρχει καταχωρημένο ΑΠΕ στο συνδεδεμένο υποέργο</Empty>
-                          </ViewValue>
-                        </ViewRow>
-                      )}
-                      <ViewRow>
-                        <ViewLabel>Περιοχή</ViewLabel>
-                        <ViewValue>{selected.area || <Empty>Δεν έχει οριστεί</Empty>}</ViewValue>
-                      </ViewRow>
-                      {selected.source === 'legacy' && (
-                        <ViewRow>
-                          <ViewLabel>Έτος ολοκλήρωσης</ViewLabel>
-                          <ViewValue>{selected.completionYear || <Empty>Δεν έχει οριστεί</Empty>}</ViewValue>
-                        </ViewRow>
-                      )}
-                    </ViewGrid>
-                  </EditSection>
-
-                  <ActionRow>
-                    <PrimaryBtn type="button" onClick={startEdit}>Επεξεργασία στοιχείων</PrimaryBtn>
-                    <DangerBtn type="button" onClick={removeCard}>Αφαίρεση από απολογισμό</DangerBtn>
-                  </ActionRow>
-                </>
-              ) : (
-                <>
-                  {selected.amountChangedBadge && (
-                    <EditSection>
-                      <Badge $tone="warn">Άλλαξαν τα ποσά από το συνδεδεμένο υποέργο</Badge>
-                      <GhostBtn type="button" onClick={dismissBadge} style={{ marginLeft: 8 }}>Εντάξει</GhostBtn>
-                    </EditSection>
-                  )}
-
-                  <EditSection>
-                    <EditSectionTitle>Βασικά στοιχεία</EditSectionTitle>
-                    <FieldBlock>
-                      <Field>Τίτλος</Field>
-                      <Input
-                        value={draft.title}
-                        onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                        disabled={selected.source === 'linked'}
-                      />
-                    </FieldBlock>
-                    <FieldBlock>
-                      <Field>Κατηγορία απολογισμού</Field>
-                      <SelectInput
-                        value={draft.categoryId}
-                        onChange={(e) => setDraft({ ...draft, categoryId: e.target.value })}
-                      >
-                        <option value="">— Επιλογή —</option>
-                        {(meta.categories || []).map((c) => (
-                          <option key={c.id} value={c.id}>{c.label}</option>
-                        ))}
-                      </SelectInput>
-                      {selected.suggestedCategoryId && !selected.categoryId && (
-                        <Hint>Πρόταση από επιχειρησιακό: {
-                          (meta.categories || []).find((c) => c.id === selected.suggestedCategoryId)?.label
-                        }</Hint>
-                      )}
-                    </FieldBlock>
-                    <EmphasisBlock $on={draftNeedsNarrative}>
-                      {draftNeedsNarrative && (
-                        <EmphasisTag>Κύριο περιεχόμενο για «Μόνο κείμενο»</EmphasisTag>
-                      )}
-                      <Field>{narrativeFieldLabel}</Field>
-                      <TextArea
-                        value={draft.narrative}
-                        onChange={(e) => setDraft({ ...draft, narrative: e.target.value })}
-                        placeholder="π.χ. Ολοκληρώθηκε η ανάπλαση της πλατείας με νέες υποδομές…"
-                      />
-                      {draftNeedsNarrative && !String(draft.narrative || '').trim() && (
-                        <Hint>Χωρίς αυτό το κείμενο η κάρτα δεν γίνεται έτοιμη για παρουσίαση.</Hint>
-                      )}
-                    </EmphasisBlock>
-                  </EditSection>
-
-                  <EditSection>
-                    <EditSectionTitle>Ποσά & περιοχή</EditSectionTitle>
-                    {draftNeedsAmounts && (
-                      <VizGuide style={{ marginBottom: 10, marginTop: 0 }}>
-                        <VizGuideTitle>Έμφαση στα ποσά</VizGuideTitle>
-                        <VizGuideLine>
-                          Τα ποσά θα εμφανιστούν μεγάλα ως κύριο περιεχόμενο· δεν επαναλαμβάνονται μικρά κάτω από τον τίτλο.
-                        </VizGuideLine>
-                      </VizGuide>
-                    )}
-                    <FieldGrid>
-                      <FieldBlock>
-                        <Field>
-                          Εγκεκριμένο
-                          {selected.source === 'linked' ? ' (συμπληρώστε αν λείπει από το υποέργο)' : ''}
-                        </Field>
-                        <EmphasisBlock $on={draftNeedsAmounts} style={{ marginBottom: 0 }}>
-                          <Input
-                            value={draft.approvedAmount}
-                            onChange={(e) => setDraft({ ...draft, approvedAmount: e.target.value })}
-                          />
-                        </EmphasisBlock>
-                      </FieldBlock>
-                      <FieldBlock>
-                        <Field>
-                          Συμβατικό
-                          {selected.source === 'linked' ? ' (συμπληρώστε αν λείπει από το υποέργο)' : ''}
-                        </Field>
-                        <EmphasisBlock $on={draftNeedsAmounts} style={{ marginBottom: 0 }}>
-                          <Input
-                            value={draft.contractAmount}
-                            onChange={(e) => setDraft({ ...draft, contractAmount: e.target.value })}
-                          />
-                        </EmphasisBlock>
-                      </FieldBlock>
-                      <FieldBlock style={{ gridColumn: '1 / -1' }}>
-                        <Field>Τελικό διαμορφωθέν ποσό σύμβασης (μετά ΑΠΕ)</Field>
-                        {selected.source === 'linked' ? (
-                          <ViewValue style={{ marginBottom: 8 }}>
-                            {draft.finalContractAmountAfterApe
-                              ? (
-                                <>
-                                  {formatAmount(draft.finalContractAmountAfterApe)}
-                                  {draft.finalContractApeDate ? ` · ΑΠΕ ${draft.finalContractApeDate}` : ''}
-                                </>
-                              )
-                              : <Empty>Δεν υπάρχει ΑΠΕ στο συνδεδεμένο υποέργο — συμπληρώστε ΑΠΕ στην κάρτα υποέργου</Empty>}
-                          </ViewValue>
-                        ) : (
-                          <Input
-                            value={draft.finalContractAmountAfterApe}
-                            onChange={(e) => setDraft({
-                              ...draft,
-                              finalContractAmountAfterApe: e.target.value,
-                              showFinalContractAmountInPresentation:
-                                e.target.value.trim()
-                                  ? draft.showFinalContractAmountInPresentation
-                                  : false,
-                            })}
-                            placeholder="π.χ. 125.000,00"
-                            style={{ marginBottom: 8 }}
-                          />
-                        )}
-                        <Hint style={{ marginBottom: 8 }}>
-                          Είναι το τελικό ποσό της σύμβασης όπως διαμορφώθηκε μετά από αναθεωρήσεις.
-                          Ισχύει πάντα το πιο πρόσφατο ΑΠΕ κατά ημερομηνία — όχι το αρχικό συμβατικό.
-                        </Hint>
-                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={!!draft.showFinalContractAmountInPresentation}
-                            disabled={!String(draft.finalContractAmountAfterApe || '').trim()}
-                            onChange={(e) => setDraft({
-                              ...draft,
-                              showFinalContractAmountInPresentation: e.target.checked,
-                            })}
-                            style={{ marginTop: 3 }}
-                          />
-                          <span style={{ fontSize: '0.86rem', fontWeight: 600, color: '#334155', lineHeight: 1.4 }}>
-                            Εμφάνιση στην παρουσίαση (οθόνη / PDF / PowerPoint)
-                            <span style={{ display: 'block', fontWeight: 500, color: '#64748b', marginTop: 2 }}>
-                              Αν ενεργοποιηθεί, θα φαίνεται ξεκάθαρα ως «τελικό διαμορφωθέν ποσό μετά από αναθεωρήσεις (ΑΠΕ)».
-                            </span>
-                          </span>
-                        </label>
-                      </FieldBlock>
-                      <FieldBlock>
-                        <Field>
-                          Περιοχή
-                          {selected.source === 'legacy' ? ' (υποχρεωτική)' : ''}
-                        </Field>
-                        <Input
-                          value={draft.area}
-                          onChange={(e) => setDraft({ ...draft, area: e.target.value })}
-                          placeholder="π.χ. Αρχάνες, Αστερούσια…"
-                        />
-                        {selected.source === 'linked' && (
-                          <Hint>Εμφανίζεται στην παρουσίαση. Συμπληρώστε ή διορθώστε αν λείπει από το υποέργο.</Hint>
-                        )}
-                      </FieldBlock>
-                      {selected.source === 'legacy' && (
-                        <FieldBlock>
-                          <Field>Έτος ολοκλήρωσης</Field>
-                          <Input
-                            value={draft.completionYear}
-                            onChange={(e) => setDraft({ ...draft, completionYear: e.target.value })}
-                          />
-                          <Hint>Χρησιμοποιείται για την περίοδο · δεν εμφανίζεται στην παρουσίαση.</Hint>
-                        </FieldBlock>
-                      )}
-                    </FieldGrid>
-                    {selected.source === 'linked' && (
-                      <Hint>
-                        Αν το υποέργο έχει ποσό, ενημερώνεται αυτόματα (με σήμα).
-                        Αν λείπει, συμπληρώστε το μόνο για τον απολογισμό.
-                      </Hint>
-                    )}
-                  </EditSection>
-
-                  <EditSection>
-                    <EditSectionTitle>Πώς θα το παρουσιάσουμε</EditSectionTitle>
-                    <FieldGrid>
-                      <FieldBlock>
-                        <Field>Κύριος τρόπος</Field>
-                        <SelectInput
-                          value={draft.primaryViz}
-                          onChange={(e) => {
-                            const next = e.target.value;
-                            const allowed = secondaryVizOptions(meta.vizModes, next).map((v) => v.id);
-                            const sec = draft.secondaryViz;
-                            setDraft({
-                              ...draft,
-                              primaryViz: next,
-                              secondaryViz: (!sec || sec === next || !allowed.includes(sec)) ? '' : sec,
-                            });
-                          }}
-                        >
-                          <option value="">— Επιλογή —</option>
-                          {(meta.vizModes || []).map((v) => (
-                            <option key={v.id} value={v.id}>{v.label}</option>
-                          ))}
-                        </SelectInput>
-                      </FieldBlock>
-                      <FieldBlock>
-                        <Field>Δευτερεύων (προαιρετικά)</Field>
-                        <SelectInput
-                          value={draft.secondaryViz || ''}
-                          onChange={(e) => setDraft({ ...draft, secondaryViz: e.target.value })}
-                        >
-                          <option value="">— Καμία —</option>
-                          {secondaryVizOptions(meta.vizModes, draft.primaryViz).map((v) => (
-                            <option key={v.id} value={v.id}>{v.label}</option>
-                          ))}
-                        </SelectInput>
-                      </FieldBlock>
-                    </FieldGrid>
-                    <Hint>
-                      Επιλέξτε τι θα είναι το κύριο περιεχόμενο της σελίδας. Τα βασικά στοιχεία (τίτλος, κείμενο, ποσά) συμπληρώνονται παραπάνω.
-                      {draft.secondaryViz
-                        ? ' Ο δευτερεύων τρόπος προσθέτει δεύτερη σελίδα με άλλο είδος υλικού.'
-                        : ''}
-                    </Hint>
-                    {draft.primaryViz && renderVizGuide(draft.primaryViz, 'Κύριος τρόπος')}
-                    {draft.secondaryViz && renderVizGuide(draft.secondaryViz, 'Δευτερεύων τρόπος')}
-                  </EditSection>
-
-                  {visiblePhotoPhases.length > 0 && (
-                    <EditSection>
-                      <EditSectionTitle>Φωτογραφίες έργου</EditSectionTitle>
-                      <Hint>
-                        Εμφανίζονται μόνο οι φάσεις που ζητά ο κύριος και ο δευτερεύων τρόπος προβολής.
-                        Η πρώτη φωτογραφία κάθε φάσης είναι η κύρια στην παρουσίαση · έως 3 ανά φάση.
-                        Μόλις προσθέσετε φωτογραφία, οι επιλογές της κάρτας αποθηκεύονται αυτόματα.
-                      </Hint>
-                      {draftVizIds.includes('after_only') && (
-                        <VizGuide style={{ marginTop: 8 }}>
-                          <VizGuideTitle>Φωτογραφίες «Μετά»</VizGuideTitle>
-                          <VizGuideLine>
-                            Ανεβάστε εδώ τουλάχιστον μία φωτογραφία «Μετά» — αυτό είναι το κύριο περιεχόμενο της σελίδας.
-                          </VizGuideLine>
-                        </VizGuide>
-                      )}
-                      {visiblePhotoPhases.map((phase) => {
-                        const list = selected.photos?.[phase] || [];
-                        return (
-                          <PhotoPhaseCard key={phase}>
-                            <PhotoPhaseHead>
-                              <PhotoPhaseTitle>{photoPhaseLabel(phase)}</PhotoPhaseTitle>
-                              <PhotoCount>{list.length}/3</PhotoCount>
-                            </PhotoPhaseHead>
-                            <GhostBtn type="button" onClick={() => uploadPhotos(phase)} disabled={list.length >= 3}>
-                              {list.length >= 3 ? 'Η φάση είναι πλήρης' : 'Προσθήκη φωτογραφιών'}
-                            </GhostBtn>
-                            {list.map((rel, idx) => (
-                              <PhotoItem key={`${phase}-${idx}-${rel}`}>
-                                <PhotoMini
-                                  onClick={() => setViewerPath(rel)}
-                                  title="Κλικ για προβολή σε μεγάλο μέγεθος"
-                                  style={{ backgroundImage: cardMedia[rel] ? `url("${cardMedia[rel]}")` : undefined }}
+                      {(savedPhotoPhases.length > 0 || selectedNeedsMap || selectedNeedsMetrics) && (
+                        <ZoneCard>
+                          <EditSectionTitle>Υλικό παρουσίασης</EditSectionTitle>
+                          {selected.source === 'linked' && savedPhotoPhases.length > 0 && (
+                            <SupervisorStrip style={{ marginBottom: 10 }}>
+                              <SupervisorWho>
+                                <ZoneEyebrow>Επιβλέπων</ZoneEyebrow>
+                                <SupervisorName>
+                                  {selected.supervisor?.displayName || 'Δεν έχει καταγραφεί'}
+                                </SupervisorName>
+                                <SupervisorEmail>
+                                  {selected.supervisor?.hasEmail
+                                    ? selected.supervisor.email
+                                    : (selected.supervisor?.displayName
+                                      ? 'Χωρίς email — δεν μπορεί να σταλεί αίτημα'
+                                      : 'Καταχωρήστε κύρια χρέωση στην κάρτα του υποέργου')}
+                                </SupervisorEmail>
+                              </SupervisorWho>
+                              {selectedCanRequestPhotos ? (
+                                <PrimaryBtn
+                                  type="button"
+                                  disabled={!selected.supervisor?.hasEmail}
+                                  onClick={openPhotoRequest}
+                                >
+                                  {selected.photoRequestLast?.sentAt
+                                    ? 'Ξαναστείλε αίτημα'
+                                    : 'Ζήτησε φωτογραφίες'}
+                                </PrimaryBtn>
+                              ) : null}
+                            </SupervisorStrip>
+                          )}
+                          {savedPhotoPhases.length > 0 && (
+                            <>
+                              <ZoneEyebrow>Φωτογραφίες</ZoneEyebrow>
+                              {(() => {
+                                const photoState = getPhotoRequestUiState(selected, meta.vizModes);
+                                if (photoState.status === 'awaiting' || photoState.status === 'reminder') {
+                                  return (
+                                    <Hint style={{ marginBottom: 8 }}>
+                                      {photoState.status === 'reminder'
+                                        ? `Έχει περάσει πάνω από ${PHOTO_REQUEST_REMINDER_DAYS} ημέρες από το αίτημα και λείπουν ακόμα φωτογραφίες.`
+                                        : 'Έχει σταλεί αίτημα φωτογραφιών — αναμονή υλικού.'}
+                                      {selected.photoRequestLast?.sentAt
+                                        ? ` (τελευταίο: ${formatPhotoRequestSentAt(selected.photoRequestLast.sentAt)})`
+                                        : ''}
+                                    </Hint>
+                                  );
+                                }
+                                if (photoState.status === 'ready' && selected.photoRequestLast?.sentAt) {
+                                  return (
+                                    <Hint style={{ marginBottom: 8 }}>
+                                      Οι απαιτούμενες φωτογραφίες είναι συμπληρωμένες
+                                      {' · '}
+                                      αίτημα στις {formatPhotoRequestSentAt(selected.photoRequestLast.sentAt)}.
+                                    </Hint>
+                                  );
+                                }
+                                return null;
+                              })()}
+                              {savedPhotoPhases.map((phase) => (
+                                <PhotoPhaseCard key={phase}>
+                                  <PhotoPhaseHead>
+                                    <PhotoPhaseTitle>{photoPhaseLabel(phase)}</PhotoPhaseTitle>
+                                    <PhotoCount>{(selected.photos?.[phase] || []).length}/3</PhotoCount>
+                                  </PhotoPhaseHead>
+                                  {renderThumbs(phase)}
+                                </PhotoPhaseCard>
+                              ))}
+                            </>
+                          )}
+                          {selectedNeedsMap && (
+                            <div style={{ marginTop: 10 }}>
+                              <ZoneEyebrow>Χάρτης</ZoneEyebrow>
+                              {hasMapSnapshot(selected) ? (
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  title="Κλικ για προβολή"
+                                  onClick={() => setViewerPath(selected.mapSnapshot)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      setViewerPath(selected.mapSnapshot);
+                                    }
+                                  }}
+                                  style={{
+                                    height: 160, borderRadius: 12, border: '1px solid rgba(148,163,184,0.35)',
+                                    background: cardMedia[selected.mapSnapshot]
+                                      ? `center/cover no-repeat url("${cardMedia[selected.mapSnapshot]}")`
+                                      : '#e2e8f0',
+                                    cursor: 'pointer',
+                                  }}
                                 />
-                                <PhotoName title={rel}>
-                                  {idx === 0 ? '★ Κύρια · ' : `${idx + 1}. `}
-                                  {String(rel).split('/').pop()}
-                                </PhotoName>
-                                <MiniBtn type="button" onClick={() => setViewerPath(rel)}>
-                                  Προβολή
-                                </MiniBtn>
-                                <MiniBtn type="button" onClick={() => downloadPhoto(rel)}>
-                                  Λήψη
-                                </MiniBtn>
-                                {idx > 0 && (
-                                  <MiniBtn type="button" onClick={() => makePhotoPrimary(phase, rel)}>
-                                    Ορισμός ως κύρια
-                                  </MiniBtn>
-                                )}
-                                <DangerMiniBtn type="button" onClick={() => removePhoto(phase, rel)}>
-                                  Διαγραφή
-                                </DangerMiniBtn>
-                              </PhotoItem>
-                            ))}
-                          </PhotoPhaseCard>
-                        );
-                      })}
-                    </EditSection>
-                  )}
-
-                  {draftNeedsMap && (
-                    <EditSection>
-                      <EditSectionTitle>Χάρτης έργου</EditSectionTitle>
-                      {hasMapSnapshot(selected) ? (
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          title="Κλικ για προβολή σε μεγάλο μέγεθος"
-                          onClick={() => setViewerPath(selected.mapSnapshot)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setViewerPath(selected.mapSnapshot);
-                            }
-                          }}
-                          style={{
-                            height: 160, borderRadius: 12, border: '1px solid rgba(148,163,184,0.35)',
-                            background: cardMedia[selected.mapSnapshot]
-                              ? `center/cover no-repeat url("${cardMedia[selected.mapSnapshot]}")`
-                              : '#e2e8f0',
-                            marginBottom: 8, cursor: 'pointer',
-                            boxShadow: '0 4px 16px rgba(15,23,42,0.08)',
-                          }}
-                        />
-                      ) : (
-                        <Empty>Δεν έχει αποθηκευτεί ακόμα χάρτης.</Empty>
+                              ) : (
+                                <Empty>Δεν έχει αποθηκευτεί ακόμα χάρτης.</Empty>
+                              )}
+                            </div>
+                          )}
+                          {selectedNeedsMetrics && (
+                            <div style={{ marginTop: 10 }}>
+                              <ZoneEyebrow>Αποτελέσματα</ZoneEyebrow>
+                              {(selected.metrics || []).length ? (
+                                (selected.metrics || []).slice(0, 4).map((m, i) => (
+                                  <div key={i} style={{ fontSize: '0.8rem', marginTop: 4, color: '#334155' }}>
+                                    <strong>{m.label}</strong>
+                                    {' · '}
+                                    {m.value}
+                                  </div>
+                                ))
+                              ) : (
+                                <Empty>Δεν έχουν συμπληρωθεί αποτελέσματα</Empty>
+                              )}
+                            </div>
+                          )}
+                        </ZoneCard>
                       )}
-                      <Hint>
-                        Ανοίξτε τον επεξεργαστή για δορυφορικό χάρτη με σημεία, διαδρομές και περιοχές.
-                        {draftMinMapPoints >= 2
-                          ? ' Απαιτούνται τουλάχιστον 2 σημεία.'
-                          : ' Απαιτείται τουλάχιστον ένα στοιχείο σχεδίασης.'}
-                        {' '}
-                        Χρειάζεται για: {draftMapVizLabels}.
-                        {hasMapSnapshot(selected) ? ' Κλικ στην εικόνα για μεγάλη προβολή.' : ''}
-                      </Hint>
+
                       <ActionRow>
-                        {hasMapSnapshot(selected) && (
-                          <GhostBtn type="button" onClick={() => setViewerPath(selected.mapSnapshot)}>
-                            Προβολή χάρτη
-                          </GhostBtn>
+                        <PrimaryBtn type="button" onClick={startEdit}>Επεξεργασία στοιχείων</PrimaryBtn>
+                        <DangerTextBtn type="button" onClick={removeCard} style={{ marginLeft: 8 }}>
+                          Αφαίρεση από απολογισμό
+                        </DangerTextBtn>
+                      </ActionRow>
+                    </>
+                  ) : (
+                    <>
+                      <ZoneCard>
+                        <EditSectionTitle>1 · Ταυτότητα</EditSectionTitle>
+                        <FieldBlock>
+                          <Field>
+                            Τίτλος
+                            {selected.source === 'linked' ? <LockedTag>από υποέργο</LockedTag> : null}
+                          </Field>
+                          {selected.source === 'linked' ? (
+                            <LockedBox>{draft.title || '—'}</LockedBox>
+                          ) : (
+                            <Input
+                              value={draft.title}
+                              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                            />
+                          )}
+                        </FieldBlock>
+                        <FieldBlock>
+                          <Field>Κατηγορία απολογισμού</Field>
+                          <SelectInput
+                            value={draft.categoryId}
+                            onChange={(e) => setDraft({ ...draft, categoryId: e.target.value })}
+                          >
+                            <option value="">— Επιλογή —</option>
+                            {(meta.categories || []).map((c) => (
+                              <option key={c.id} value={c.id}>{c.label}</option>
+                            ))}
+                          </SelectInput>
+                          {selected.suggestedCategoryId && !selected.categoryId && (
+                            <Hint>
+                              Πρόταση:
+                              {' '}
+                              {(meta.categories || []).find((c) => c.id === selected.suggestedCategoryId)?.label}
+                            </Hint>
+                          )}
+                        </FieldBlock>
+                        <FieldBlock>
+                          <Field>
+                            Περιοχή
+                            {selected.source === 'legacy' ? ' (υποχρεωτική)' : ''}
+                          </Field>
+                          <Input
+                            value={draft.area}
+                            onChange={(e) => setDraft({ ...draft, area: e.target.value })}
+                            placeholder="π.χ. Αρχάνες, Αστερούσια…"
+                          />
+                        </FieldBlock>
+                        {selected.source === 'legacy' && (
+                          <FieldBlock>
+                            <Field>Έτος ολοκλήρωσης</Field>
+                            <Input
+                              value={draft.completionYear}
+                              onChange={(e) => setDraft({ ...draft, completionYear: e.target.value })}
+                            />
+                          </FieldBlock>
                         )}
-                        <PrimaryBtn
-                          type="button"
-                          onClick={async () => {
-                            if (isDirty) {
-                              const ok = await saveDraft({ silent: true });
-                              if (!ok) return;
-                            }
-                            setMapEditorOpen(true);
-                          }}
-                        >
-                          Άνοιγμα επεξεργαστή χάρτη
-                        </PrimaryBtn>
-                      </ActionRow>
-                    </EditSection>
-                  )}
+                        <EmphasisBlock $on={draftNeedsNarrative}>
+                          {draftNeedsNarrative && (
+                            <EmphasisTag>Κύριο περιεχόμενο για «Μόνο κείμενο»</EmphasisTag>
+                          )}
+                          <Field>{narrativeFieldLabel}</Field>
+                          <TextArea
+                            value={draft.narrative}
+                            onChange={(e) => setDraft({ ...draft, narrative: e.target.value })}
+                            placeholder="π.χ. Ολοκληρώθηκε η ανάπλαση της πλατείας…"
+                          />
+                        </EmphasisBlock>
+                      </ZoneCard>
 
-                  {draftNeedsMetrics && (
-                    <EditSection>
-                      <SectionHeadRow>
-                        <SectionHeadTitle>Αποτελέσματα</SectionHeadTitle>
-                        <InfoIconBtn
-                          type="button"
-                          title="Παράδειγμα πίνακα αποτελεσμάτων"
-                          aria-label="Παράδειγμα πίνακα αποτελεσμάτων"
-                          onClick={() => setMetricsHelpOpen(true)}
-                        >
-                          i
-                        </InfoIconBtn>
-                      </SectionHeadRow>
-                      <Hint style={{ marginTop: 0, marginBottom: 8 }}>
-                        Συμπληρώστε μετρήσιμα αποτελέσματα του έργου. Στήλες: «{METRICS_COLUMNS[0].title}» και «{METRICS_COLUMNS[1].title}» · έως {METRICS_MAX_ROWS} γραμμές.
-                        Χρειάζεται για: {draftMetricsVizLabels}.
-                      </Hint>
-                      <MetricsTable>
-                        <MetricsHead>
-                          <div>{METRICS_COLUMNS[0].title}</div>
-                          <div>{METRICS_COLUMNS[1].title}</div>
-                          <div />
-                        </MetricsHead>
-                        {(draft.metrics || []).map((row, idx) => (
-                          <MetricsRow key={idx}>
-                            <MetricsCellInput
-                              value={row.label}
-                              placeholder={METRICS_COLUMNS[0].hint}
+                      <ZoneCard>
+                        <EditSectionTitle>2 · Ποσά παρουσίασης</EditSectionTitle>
+                        {draftNeedsAmounts && (
+                          <CompactTip>Τα ποσά θα εμφανιστούν μεγάλα ως κύριο περιεχόμενο της σελίδας.</CompactTip>
+                        )}
+                        <FieldGrid>
+                          <FieldBlock>
+                            <Field>Εγκεκριμένο</Field>
+                            <EmphasisBlock $on={draftNeedsAmounts} style={{ marginBottom: 0 }}>
+                              <Input
+                                value={draft.approvedAmount}
+                                onChange={(e) => setDraft({ ...draft, approvedAmount: e.target.value })}
+                              />
+                            </EmphasisBlock>
+                          </FieldBlock>
+                          <FieldBlock>
+                            <Field>Συμβατικό</Field>
+                            <EmphasisBlock $on={draftNeedsAmounts} style={{ marginBottom: 0 }}>
+                              <Input
+                                value={draft.contractAmount}
+                                onChange={(e) => setDraft({ ...draft, contractAmount: e.target.value })}
+                              />
+                            </EmphasisBlock>
+                          </FieldBlock>
+                        </FieldGrid>
+                        <FieldBlock>
+                          <Field>
+                            Τελικό μετά ΑΠΕ
+                            {selected.source === 'linked' ? <LockedTag>από υποέργο</LockedTag> : null}
+                          </Field>
+                          {selected.source === 'linked' ? (
+                            <LockedBox>
+                              {draft.finalContractAmountAfterApe
+                                ? (
+                                  <>
+                                    {formatAmount(draft.finalContractAmountAfterApe)}
+                                    {draft.finalContractApeDate
+                                      ? ` · ΑΠΕ ${formatDateEl(draft.finalContractApeDate, '')}`
+                                      : ''}
+                                  </>
+                                )
+                                : 'Δεν υπάρχει ΑΠΕ στο συνδεδεμένο υποέργο'}
+                            </LockedBox>
+                          ) : (
+                            <Input
+                              value={draft.finalContractAmountAfterApe}
                               onChange={(e) => setDraft({
                                 ...draft,
-                                metrics: updateMetricsRow(draft.metrics, idx, { label: e.target.value }),
+                                finalContractAmountAfterApe: e.target.value,
+                                showFinalContractAmountInPresentation:
+                                  e.target.value.trim()
+                                    ? draft.showFinalContractAmountInPresentation
+                                    : false,
                               })}
+                              placeholder="π.χ. 125.000,00"
                             />
-                            <MetricsCellInput
-                              value={row.value}
-                              placeholder={METRICS_COLUMNS[1].hint}
+                          )}
+                          <CheckRow>
+                            <input
+                              type="checkbox"
+                              checked={!!draft.showFinalContractAmountInPresentation}
+                              disabled={!String(draft.finalContractAmountAfterApe || '').trim()}
                               onChange={(e) => setDraft({
                                 ...draft,
-                                metrics: updateMetricsRow(draft.metrics, idx, { value: e.target.value }),
+                                showFinalContractAmountInPresentation: e.target.checked,
                               })}
+                              style={{ marginTop: 3 }}
                             />
-                            <MetricsDelBtn
-                              type="button"
-                              title="Διαγραφή γραμμής"
-                              disabled={(draft.metrics || []).length <= 1}
-                              onClick={() => setDraft({
-                                ...draft,
-                                metrics: removeMetricsRow(draft.metrics, idx),
-                              })}
+                            <span style={{ fontSize: '0.84rem', fontWeight: 600, color: '#334155', lineHeight: 1.4 }}>
+                              Εμφάνιση στην παρουσίαση
+                              <span style={{ display: 'block', fontWeight: 500, color: '#64748b', marginTop: 2, fontSize: '0.76rem' }}>
+                                Οθόνη / PDF / PowerPoint ως τελικό διαμορφωθέν ποσό
+                              </span>
+                            </span>
+                          </CheckRow>
+                        </FieldBlock>
+                        {selected.source === 'linked' && (
+                          <Hint>Αν λείπει ποσό από το υποέργο, συμπληρώστε το μόνο για τον απολογισμό.</Hint>
+                        )}
+                      </ZoneCard>
+
+                      <ZoneCard>
+                        <EditSectionTitle>3 · Πώς θα φανεί</EditSectionTitle>
+                        <FieldGrid>
+                          <FieldBlock>
+                            <Field>Κύριος τρόπος</Field>
+                            <SelectInput
+                              value={draft.primaryViz}
+                              onChange={(e) => {
+                                const next = e.target.value;
+                                const allowed = secondaryVizOptions(meta.vizModes, next).map((v) => v.id);
+                                const sec = draft.secondaryViz;
+                                setDraft({
+                                  ...draft,
+                                  primaryViz: next,
+                                  secondaryViz: (!sec || sec === next || !allowed.includes(sec)) ? '' : sec,
+                                });
+                              }}
                             >
-                              ×
-                            </MetricsDelBtn>
-                          </MetricsRow>
-                        ))}
-                      </MetricsTable>
-                      <ActionRow style={{ marginTop: 10 }}>
-                        <GhostBtn
-                          type="button"
-                          disabled={(draft.metrics || []).length >= METRICS_MAX_ROWS}
-                          onClick={() => setDraft({
-                            ...draft,
-                            metrics: addMetricsRow(draft.metrics),
-                          })}
-                        >
-                          {(draft.metrics || []).length >= METRICS_MAX_ROWS
-                            ? `Μέγιστο ${METRICS_MAX_ROWS} γραμμές`
-                            : 'Προσθήκη γραμμής'}
-                        </GhostBtn>
-                      </ActionRow>
-                      {cleanMetricsRows(draft.metrics).length === 0 && (
-                        <Hint>Απαιτείται τουλάχιστον μία συμπληρωμένη γραμμή για να είναι έτοιμη η κάρτα.</Hint>
+                              <option value="">— Επιλογή —</option>
+                              {(meta.vizModes || []).map((v) => (
+                                <option key={v.id} value={v.id}>{v.label}</option>
+                              ))}
+                            </SelectInput>
+                          </FieldBlock>
+                          <FieldBlock>
+                            <Field>Δευτερεύων (προαιρετικά)</Field>
+                            <SelectInput
+                              value={draft.secondaryViz || ''}
+                              onChange={(e) => setDraft({ ...draft, secondaryViz: e.target.value })}
+                            >
+                              <option value="">— Καμία —</option>
+                              {secondaryVizOptions(meta.vizModes, draft.primaryViz).map((v) => (
+                                <option key={v.id} value={v.id}>{v.label}</option>
+                              ))}
+                            </SelectInput>
+                          </FieldBlock>
+                        </FieldGrid>
+                        {draft.primaryViz && renderVizGuide(draft.primaryViz, 'Κύριος')}
+                        {draft.secondaryViz && renderVizGuide(draft.secondaryViz, 'Δευτερεύων')}
+
+                        {materialTabs.length > 0 && (
+                          <>
+                            <div style={{ marginTop: 14, marginBottom: 6 }}>
+                              <ZoneEyebrow>Υλικό παρουσίασης</ZoneEyebrow>
+                            </div>
+                            <MaterialTabs>
+                              {materialTabs.map((t) => (
+                                <MaterialTab
+                                  key={t.id}
+                                  type="button"
+                                  $on={materialTab === t.id}
+                                  onClick={() => setMaterialTab(t.id)}
+                                >
+                                  {t.label}
+                                </MaterialTab>
+                              ))}
+                            </MaterialTabs>
+
+                            {materialTab === 'photos' && visiblePhotoPhases.length > 0 && (
+                              <>
+                                {selected.source === 'linked' && (
+                                  <SupervisorStrip>
+                                    <SupervisorWho>
+                                      <ZoneEyebrow>Επιβλέπων</ZoneEyebrow>
+                                      <SupervisorName>
+                                        {selected.supervisor?.displayName || 'Δεν έχει καταγραφεί'}
+                                      </SupervisorName>
+                                      <SupervisorEmail>
+                                        {selected.supervisor?.hasEmail
+                                          ? selected.supervisor.email
+                                          : 'Χωρίς email στον λογαριασμό'}
+                                      </SupervisorEmail>
+                                    </SupervisorWho>
+                                    {selectedCanRequestPhotos ? (
+                                      <PrimaryBtn
+                                        type="button"
+                                        disabled={!selected.supervisor?.hasEmail}
+                                        onClick={openPhotoRequest}
+                                      >
+                                        {selected.photoRequestLast?.sentAt
+                                          ? 'Ξαναστείλε αίτημα'
+                                          : 'Ζήτησε φωτογραφίες'}
+                                      </PrimaryBtn>
+                                    ) : (selected.supervisor?.displayName && visiblePhotoPhases.length > 0) ? (
+                                      <Hint style={{ margin: 0, maxWidth: 220 }}>
+                                        Αποθηκεύστε την κάρτα για να ενεργοποιηθεί το αίτημα φωτογραφιών.
+                                      </Hint>
+                                    ) : null}
+                                  </SupervisorStrip>
+                                )}
+                                <Hint style={{ marginTop: 0, marginBottom: 8 }}>
+                                  Έως 3 φωτογραφίες ανά φάση · η πρώτη είναι η κύρια στην παρουσίαση.
+                                </Hint>
+                                {visiblePhotoPhases.map((phase) => {
+                                  const list = selected.photos?.[phase] || [];
+                                  return (
+                                    <PhotoPhaseCard key={phase}>
+                                      <PhotoPhaseHead>
+                                        <PhotoPhaseTitle>{photoPhaseLabel(phase)}</PhotoPhaseTitle>
+                                        <PhotoCount>{list.length}/3</PhotoCount>
+                                      </PhotoPhaseHead>
+                                      <GhostBtn type="button" onClick={() => uploadPhotos(phase)} disabled={list.length >= 3}>
+                                        {list.length >= 3 ? 'Η φάση είναι πλήρης' : 'Προσθήκη φωτογραφιών'}
+                                      </GhostBtn>
+                                      {list.map((rel, idx) => (
+                                        <PhotoItem key={`${phase}-${idx}-${rel}`}>
+                                          <PhotoMini
+                                            onClick={() => setViewerPath(rel)}
+                                            title="Προβολή"
+                                            style={{ backgroundImage: cardMedia[rel] ? `url("${cardMedia[rel]}")` : undefined }}
+                                          />
+                                          <PhotoName title={rel}>
+                                            {idx === 0 ? '★ Κύρια · ' : `${idx + 1}. `}
+                                            {String(rel).split('/').pop()}
+                                          </PhotoName>
+                                          <MiniBtn type="button" onClick={() => setViewerPath(rel)}>Προβολή</MiniBtn>
+                                          <MiniBtn type="button" onClick={() => downloadPhoto(rel)}>Λήψη</MiniBtn>
+                                          {idx > 0 && (
+                                            <MiniBtn type="button" onClick={() => makePhotoPrimary(phase, rel)}>
+                                              Ορισμός ως κύρια
+                                            </MiniBtn>
+                                          )}
+                                          <DangerMiniBtn type="button" onClick={() => removePhoto(phase, rel)}>
+                                            Διαγραφή
+                                          </DangerMiniBtn>
+                                        </PhotoItem>
+                                      ))}
+                                    </PhotoPhaseCard>
+                                  );
+                                })}
+                              </>
+                            )}
+
+                            {materialTab === 'map' && draftNeedsMap && (
+                              <>
+                                {hasMapSnapshot(selected) ? (
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
+                                    title="Προβολή"
+                                    onClick={() => setViewerPath(selected.mapSnapshot)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setViewerPath(selected.mapSnapshot);
+                                      }
+                                    }}
+                                    style={{
+                                      height: 160, borderRadius: 12, border: '1px solid rgba(148,163,184,0.35)',
+                                      background: cardMedia[selected.mapSnapshot]
+                                        ? `center/cover no-repeat url("${cardMedia[selected.mapSnapshot]}")`
+                                        : '#e2e8f0',
+                                      marginBottom: 8, cursor: 'pointer',
+                                    }}
+                                  />
+                                ) : (
+                                  <Empty>Δεν έχει αποθηκευτεί ακόμα χάρτης.</Empty>
+                                )}
+                                <Hint>
+                                  {draftMinMapPoints >= 2
+                                    ? 'Απαιτούνται τουλάχιστον 2 σημεία.'
+                                    : 'Απαιτείται τουλάχιστον ένα στοιχείο σχεδίασης.'}
+                                  {' '}
+                                  Χρειάζεται για: {draftMapVizLabels}.
+                                </Hint>
+                                <ActionRow>
+                                  {hasMapSnapshot(selected) && (
+                                    <GhostBtn type="button" onClick={() => setViewerPath(selected.mapSnapshot)}>
+                                      Προβολή χάρτη
+                                    </GhostBtn>
+                                  )}
+                                  <PrimaryBtn
+                                    type="button"
+                                    onClick={async () => {
+                                      if (isDirty) {
+                                        const ok = await saveDraft({ silent: true });
+                                        if (!ok) return;
+                                      }
+                                      setMapEditorOpen(true);
+                                    }}
+                                  >
+                                    Άνοιγμα επεξεργαστή χάρτη
+                                  </PrimaryBtn>
+                                </ActionRow>
+                              </>
+                            )}
+
+                            {materialTab === 'metrics' && draftNeedsMetrics && (
+                              <>
+                                <SectionHeadRow style={{ margin: '0 0 8px', padding: '0.4rem 0' }}>
+                                  <SectionHeadTitle style={{ borderLeft: 'none', paddingLeft: 0 }}>
+                                    Αποτελέσματα
+                                  </SectionHeadTitle>
+                                  <InfoIconBtn
+                                    type="button"
+                                    title="Παράδειγμα"
+                                    aria-label="Παράδειγμα"
+                                    onClick={() => setMetricsHelpOpen(true)}
+                                  >
+                                    i
+                                  </InfoIconBtn>
+                                </SectionHeadRow>
+                                <Hint style={{ marginTop: 0, marginBottom: 8 }}>
+                                  Στήλες «{METRICS_COLUMNS[0].title}» και «{METRICS_COLUMNS[1].title}» · έως {METRICS_MAX_ROWS} γραμμές.
+                                  Χρειάζεται για: {draftMetricsVizLabels}.
+                                </Hint>
+                                <MetricsTable>
+                                  <MetricsHead>
+                                    <div>{METRICS_COLUMNS[0].title}</div>
+                                    <div>{METRICS_COLUMNS[1].title}</div>
+                                    <div />
+                                  </MetricsHead>
+                                  {(draft.metrics || []).map((row, idx) => (
+                                    <MetricsRow key={idx}>
+                                      <MetricsCellInput
+                                        value={row.label}
+                                        placeholder={METRICS_COLUMNS[0].hint}
+                                        onChange={(e) => setDraft({
+                                          ...draft,
+                                          metrics: updateMetricsRow(draft.metrics, idx, { label: e.target.value }),
+                                        })}
+                                      />
+                                      <MetricsCellInput
+                                        value={row.value}
+                                        placeholder={METRICS_COLUMNS[1].hint}
+                                        onChange={(e) => setDraft({
+                                          ...draft,
+                                          metrics: updateMetricsRow(draft.metrics, idx, { value: e.target.value }),
+                                        })}
+                                      />
+                                      <MetricsDelBtn
+                                        type="button"
+                                        title="Διαγραφή γραμμής"
+                                        disabled={(draft.metrics || []).length <= 1}
+                                        onClick={() => setDraft({
+                                          ...draft,
+                                          metrics: removeMetricsRow(draft.metrics, idx),
+                                        })}
+                                      >
+                                        ×
+                                      </MetricsDelBtn>
+                                    </MetricsRow>
+                                  ))}
+                                </MetricsTable>
+                                <ActionRow style={{ marginTop: 10 }}>
+                                  <GhostBtn
+                                    type="button"
+                                    disabled={(draft.metrics || []).length >= METRICS_MAX_ROWS}
+                                    onClick={() => setDraft({
+                                      ...draft,
+                                      metrics: addMetricsRow(draft.metrics),
+                                    })}
+                                  >
+                                    {(draft.metrics || []).length >= METRICS_MAX_ROWS
+                                      ? `Μέγιστο ${METRICS_MAX_ROWS} γραμμές`
+                                      : 'Προσθήκη γραμμής'}
+                                  </GhostBtn>
+                                </ActionRow>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </ZoneCard>
+
+                      {!selected.ready && selected.readinessErrors?.length > 0 && (
+                        <Err>{selected.readinessErrors.join(' · ')}</Err>
                       )}
-                    </EditSection>
-                  )}
 
-                  {!selected.ready && selected.readinessErrors?.length > 0 && (
-                    <Err>{selected.readinessErrors.join(' · ')}</Err>
+                      <StickyEditBar>
+                        <StickyEditInner>
+                          <PrimaryBtn type="button" onClick={() => saveDraft()}>Αποθήκευση κάρτας</PrimaryBtn>
+                          <GhostBtn type="button" onClick={cancelEdit}>Άκυρο</GhostBtn>
+                          <DangerTextBtn type="button" onClick={removeCard}>
+                            Αφαίρεση από απολογισμό
+                          </DangerTextBtn>
+                        </StickyEditInner>
+                      </StickyEditBar>
+                    </>
                   )}
-
-                  <ActionRow>
-                    <PrimaryBtn type="button" onClick={() => saveDraft()}>Αποθήκευση κάρτας</PrimaryBtn>
-                    <GhostBtn type="button" onClick={cancelEdit}>Άκυρο</GhostBtn>
-                    <DangerBtn type="button" onClick={removeCard}>Αφαίρεση από απολογισμό</DangerBtn>
-                  </ActionRow>
                 </>
               )}
             </EditPanelBody>
@@ -2989,8 +3124,16 @@ export default function ApologismosManager({
                 )}
                 <ViewerDangerBtn
                   type="button"
-                  onClick={() => {
-                    if (!window.confirm('Να διαγραφεί οριστικά αυτή η φωτογραφία;')) return;
+                  onClick={async () => {
+                    const ok = await showConfirm({
+                      title: 'Διαγραφή φωτογραφίας',
+                      message: 'Να διαγραφεί οριστικά αυτή η φωτογραφία;',
+                      confirmLabel: 'Διαγραφή',
+                      cancelLabel: 'Άκυρο',
+                      danger: true,
+                      icon: '🗑',
+                    });
+                    if (!ok) return;
                     removePhoto(viewerItem.phase, viewerItem.rel);
                   }}
                 >
