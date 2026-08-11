@@ -2599,17 +2599,28 @@ ipcMain.handle('get-all-supervisors', async () => {
   }
 });
 
-/** Μηχανικοί αποκλειστικά από λογαριασμούς (ρόλος ENGINEER, ενεργοί — ονοματεπώνυμο από τη διαχείριση χρηστών). */
+/** Χρήστες για χρέωση επιβλέποντα: όλοι οι ενεργοί/εγκεκριμένοι λογαριασμοί (όχι μόνο ENGINEER). */
 function engineersFromUserAccounts() {
   const users = loadUsers();
+  const roleLabel = (role) => {
+    const r = String(role || '').toUpperCase();
+    if (r === 'SUPERADMIN') return 'Υπερδιαχειριστής';
+    if (r === 'ADMIN') return 'Διαχειριστής';
+    if (r === 'ENGINEER') return 'Μηχανικός';
+    if (r === 'USER') return 'Χρήστης';
+    return r || 'Χρήστης';
+  };
   return users
-    .filter((u) => u && u.role === 'ENGINEER' && u.active !== false)
+    .filter((u) => u && u.active !== false && u.approved !== false)
     .map((u) => {
       const username = String(u.username || '').trim();
       const fullName = String(u.fullName || username || '').trim() || username;
+      const role = String(u.role || 'USER').toUpperCase();
       return {
         id: `user:${username.toLowerCase()}`,
         fullName,
+        role,
+        roleLabel: roleLabel(role),
         source: 'account',
         username
       };
@@ -18426,7 +18437,8 @@ ipcMain.handle('apologismos-request-card-photos', async (_event, {
 
     const sub = loadSubprojectDataById(card.subprojectId);
     if (!sub) return { success: false, error: 'Δεν βρέθηκε το συνδεδεμένο υποέργο.' };
-    const contact = apologismosPhotoRequestEmail.resolveSupervisorContact(sub, loadUsers());
+    const users = loadUsers();
+    const contact = apologismosPhotoRequestEmail.resolveSupervisorContact(sub, users);
     if (!contact?.displayName) {
       return { success: false, error: 'Δεν υπάρχει καταγεγραμμένος επιβλέπων στο υποέργο.' };
     }
@@ -18434,6 +18446,14 @@ ipcMain.handle('apologismos-request-card-photos', async (_event, {
       return {
         success: false,
         error: 'Ο επιβλέπων δεν έχει καταχωρημένο email στον λογαριασμό χρήστη του.',
+      };
+    }
+
+    const replyToContact = apologismosPhotoRequestEmail.resolveSuperAdminReplyTo(users, auth.username);
+    if (!replyToContact?.email) {
+      return {
+        success: false,
+        error: 'Ορίστε email στον λογαριασμό SUPERADMIN, ώστε οι απαντήσεις με φωτογραφίες να φτάνουν σε εσάς.',
       };
     }
 
@@ -18457,7 +18477,8 @@ ipcMain.handle('apologismos-request-card-photos', async (_event, {
       phases,
       optionalDeadline: optionalDeadline || '',
       optionalNote: optionalNote || '',
-      senderDisplayName: senderUser?.fullName || auth.username,
+      // Όνομα στο κείμενο = ποιος λαμβάνει τις απαντήσεις (Reply-To), όχι απαραίτητα ο πατώντας Αποστολή αν δεν έχει email.
+      senderDisplayName: replyToContact.displayName || senderUser?.fullName || auth.username,
       senderOrg: org,
     });
 
@@ -18467,6 +18488,7 @@ ipcMain.handle('apologismos-request-card-photos', async (_event, {
       subject: content.subject,
       html: content.html,
       textBody: content.textBody,
+      replyTo: replyToContact,
     });
     if (!sent.success) return sent;
 
@@ -18474,6 +18496,8 @@ ipcMain.handle('apologismos-request-card-photos', async (_event, {
       sentAt: new Date().toISOString(),
       toEmail: contact.email,
       toName: contact.displayName,
+      replyTo: replyToContact.email,
+      replyToName: replyToContact.displayName || '',
       phases: [...phases],
       periodLabel,
     };
@@ -18502,7 +18526,7 @@ ipcMain.handle('apologismos-request-card-photos', async (_event, {
       entityTitle: card.title || cardId,
       userFullName: senderUser?.fullName || auth.username,
       userRole: 'SUPERADMIN',
-      details: `Αίτημα φωτογραφιών απολογισμού προς ${contact.displayName} <${contact.email}>`,
+      details: `Αίτημα φωτογραφιών απολογισμού προς ${contact.displayName} <${contact.email}> (απάντηση σε ${replyToContact.email})`,
     });
 
     return {

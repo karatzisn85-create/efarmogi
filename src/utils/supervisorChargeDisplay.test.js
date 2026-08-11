@@ -9,13 +9,16 @@ const catalog = [
 ];
 
 describe('getProjectChargeDisplay', () => {
-  test('εμφανίζει μηχανικό καταλόγου από ids', () => {
-    const { displayChargePrimary, displayChargeParticipants } = getProjectChargeDisplay(
-      { supervisorEngineerIds: ['user:maria', 'user:nikos'] },
-      catalog
+  test('εμφανίζει χρήστη καταλόγου (όχι μόνο μηχανικό) από ids', () => {
+    const mixedCatalog = [
+      ...catalog,
+      { id: 'user:viewer1', username: 'viewer1', fullName: 'Θεατής Έργου', role: 'USER' },
+    ];
+    const { displayChargePrimary } = getProjectChargeDisplay(
+      { supervisorEngineerIds: ['user:viewer1'] },
+      mixedCatalog
     );
-    expect(displayChargePrimary).toBe('Μαρία Παπαδοπούλου');
-    expect(displayChargeParticipants).toBe('Νίκος Γεωργίου');
+    expect(displayChargePrimary).toBe('Θεατής Έργου');
   });
 
   test('outside mode με κενό ελεύθερο κείμενο αλλά καταγεγραμμένα ids — fallback σε κατάλογο', () => {

@@ -1422,6 +1422,9 @@ const TextArea = styled.textarea`
 `;
 
 const Select = styled.select`
+  display: block;
+  width: 100%;
+  max-width: 100%;
   padding: 0.78rem 0.85rem;
   border: 1.5px solid #cbd5e1;
   border-radius: 10px;
@@ -1468,7 +1471,14 @@ const EngineerPickCard = styled.div`
   border-radius: 12px;
   padding: 1rem 1.1rem;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+
+  select {
+    width: 100%;
+    max-width: 100%;
+  }
 `;
 
 const EngineerPickCardTitle = styled.div`
@@ -6732,7 +6742,9 @@ function ProjectForm({
     const eng = (registeredEngineers || []).find(
       (e) => e && e.id && String(e.id).trim().toLowerCase() === sid.toLowerCase()
     );
-    return eng ? String(eng.fullName || eng.id).trim() || sid : sid;
+    if (!eng) return sid;
+    const name = String(eng.fullName || eng.id).trim() || sid;
+    return eng.roleLabel ? `${name} (${eng.roleLabel})` : name;
   };
 
   const dockFileCount = useMemo(() => {
@@ -7621,12 +7633,12 @@ function ProjectForm({
             </FormGrid>
           </Section>
 
-          {/* ── SECTION 5: Μηχανικοί ── */}
+          {/* ── SECTION 5: Επιβλέποντες & χρέωση ── */}
           <Section $flat $accent="#0d9488" $bg="#f0fdfa">
-            <SectionTitle $nobar $color="#0d9488">👷 Μηχανικοί & Χρέωση</SectionTitle>
+            <SectionTitle $nobar $color="#0d9488">👷 Επιβλέποντες & Χρέωση</SectionTitle>
             <FormGrid cols={1}>
               <FormGroup fullWidth cols={3}>
-                <Label>Χρέωση από κατάλογο μηχανικών (προαιρετικό)</Label>
+                <Label>Χρέωση από κατάλογο χρηστών (προαιρετικό)</Label>
                 <CheckboxContainer style={{ marginTop: 0, marginBottom: '0.75rem' }}>
                   <Checkbox
                     type="checkbox"
@@ -7646,7 +7658,7 @@ function ProjectForm({
                       }));
                     }}
                   />
-                  <CheckboxLabel htmlFor="supervisorChargeOutsideEngineers">Χρέωση εκτός μηχανικών</CheckboxLabel>
+                  <CheckboxLabel htmlFor="supervisorChargeOutsideEngineers">Χρέωση εκτός καταλόγου χρηστών</CheckboxLabel>
                 </CheckboxContainer>
 
                 {!formData.supervisorChargeOutsideEngineers ? (
@@ -7668,13 +7680,13 @@ function ProjectForm({
                           <option value="">— Καμία επιλογή —</option>
                           {(registeredEngineers || []).map((eng) => (
                             <option key={eng.id} value={eng.id}>
-                              {eng.fullName}
+                              {eng.fullName}{eng.roleLabel ? ` (${eng.roleLabel})` : ''}
                             </option>
                           ))}
                         </Select>
                         {registeredEngineers.length === 0 && (
                           <FieldHint style={{ marginTop: '0.5rem' }}>
-                            Δεν υπάρχουν διαθέσιμοι μηχανικοί. Ορίστε χρήστες με ρόλο «Μηχανικός» στη Διαχείριση χρηστών.
+                            Δεν υπάρχουν διαθέσιμοι χρήστες στον κατάλογο. Ορίστε ενεργούς χρήστες στη Διαχείριση χρηστών.
                           </FieldHint>
                         )}
                       </EngineerPickCard>
@@ -7687,7 +7699,7 @@ function ProjectForm({
                               {registeredEngineers.length === 0
                                 ? 'Κενός κατάλογος.'
                                 : registeredEngineers.length <= 1
-                                  ? 'Μόνο ένας μηχανικός στον κατάλογο.'
+                                  ? 'Μόνο ένας χρήστης στον κατάλογο.'
                                   : 'Δεν υπάρχουν άλλοι διαθέσιμοι (εξαιρείται ο/η επιβλέπων/ουσα).'}
                             </AuxiliaryEmpty>
                           ) : (
@@ -7705,12 +7717,12 @@ function ProjectForm({
                                   <option value="">— Προσθήκη συμμετέχοντος —</option>
                                   {auxiliaryAddDropdownOptions.map((eng) => (
                                     <option key={eng.id} value={eng.id}>
-                                      {eng.fullName}
+                                      {eng.fullName}{eng.roleLabel ? ` (${eng.roleLabel})` : ''}
                                     </option>
                                   ))}
                                 </Select>
                               ) : (
-                                <AuxiliaryEmpty>Όλοι οι διαθέσιμοι μηχανικοί έχουν προστεθεί ως συμμετέχοντες.</AuxiliaryEmpty>
+                                <AuxiliaryEmpty>Όλοι οι διαθέσιμοι χρήστες έχουν προστεθεί ως συμμετέχοντες.</AuxiliaryEmpty>
                               )}
                               <AuxiliaryChips>
                                 {auxiliaryEngineerIds.map((id) => (
@@ -7734,7 +7746,7 @@ function ProjectForm({
                       </EngineerPickCard>
                     </EngineerPickGrid>
                     <FieldHint style={{ marginTop: '0.5rem' }}>
-                      Επιβλέπων/επιβλέπουσα από το αριστερό πεδίο· συμμετέχοντες με προσθήκη από τη λίστα. Για χρέωση σε άλλη υπηρεσία, τικάρετε «Χρέωση εκτός μηχανικών».
+                      Επιβλέπων/επιβλέπουσα από το αριστερό πεδίο· συμμετέχοντες με προσθήκη από τη λίστα. Για χρέωση σε άλλη υπηρεσία, τικάρετε «Χρέωση εκτός καταλόγου χρηστών».
                     </FieldHint>
                   </>
                 ) : (

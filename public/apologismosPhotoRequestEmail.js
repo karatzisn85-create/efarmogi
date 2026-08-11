@@ -29,6 +29,47 @@ function findUserByLooseUsername(users, username) {
   return list.find((u) => String(u?.username || '').trim().toLowerCase() === key) || null;
 }
 
+function isValidEmail(raw) {
+  const email = String(raw || '').trim();
+  return email.includes('@') ? email : '';
+}
+
+/**
+ * Email για Reply-To στο αίτημα φωτογραφιών: προσωπικό mailbox SUPERADMIN,
+ * όχι το Gmail αποστολής της εφαρμογής.
+ * Προτεραιότητα στον χρήστη που στέλνει· αλλιώς πρώτος ενεργός SUPERADMIN με email.
+ * @returns {{ email: string, displayName: string } | null}
+ */
+function resolveSuperAdminReplyTo(users = [], actingUsername = '') {
+  const list = Array.isArray(users) ? users : [];
+  const pickFromUser = (u) => {
+    if (!u || u.role !== 'SUPERADMIN' || u.active === false) return null;
+    const email = isValidEmail(u.email);
+    if (!email) return null;
+    return {
+      email,
+      displayName: String(u.fullName || u.username || '').trim(),
+    };
+  };
+
+  const acting = findUserByLooseUsername(list, actingUsername);
+  const fromActing = pickFromUser(acting);
+  if (fromActing) return fromActing;
+
+  for (const u of list) {
+    const hit = pickFromUser(u);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function formatReplyToHeader({ email, displayName } = {}) {
+  const addr = isValidEmail(email);
+  if (!addr) return '';
+  const name = String(displayName || '').trim().replace(/["\r\n]+/g, '');
+  return name ? `"${name}" <${addr}>` : addr;
+}
+
 /**
  * Επιβλέπων από υποέργο: μόνο ο κύριος (πρώτο id χρέωσης), αλλιώς ελεύθερο όνομα (χωρίς email).
  * Δεν πέφτει σε συμμετέχοντα — ίδια λογική με την εμφάνιση κύριας χρέωσης στην κάρτα.
@@ -171,7 +212,9 @@ function buildPhotoRequestEmailContent({
     deadline ? `Θα σας παρακαλούσαμε για αποστολή έως τις ${deadline}.` : null,
     note || null,
     '',
-    'Παρακαλούμε απαντήστε στο παρόν μήνυμα με τις φωτογραφίες ως συνημμένα.',
+    sender
+      ? `Παρακαλούμε απαντήστε στο παρόν μήνυμα με τις φωτογραφίες ως συνημμένα — η απάντηση θα φτάσει στον/στην ${sender}.`
+      : 'Παρακαλούμε απαντήστε στο παρόν μήνυμα με τις φωτογραφίες ως συνημμένα — η απάντηση θα φτάσει στον υπεύθυνο του αιτήματος.',
     '',
     'Με εκτίμηση,',
     sender || null,
@@ -266,7 +309,10 @@ function buildPhotoRequestEmailContent({
             ${noteBlock}
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0 0 0;"><tr>
               <td style="padding:14px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:14px;line-height:1.6;color:#1e3a8a;font-weight:600;">
-                Παρακαλούμε απαντήστε στο παρόν μήνυμα με τις φωτογραφίες ως συνημμένα.
+                Παρακαλούμε απαντήστε στο παρόν μήνυμα με τις φωτογραφίες ως συνημμένα
+                ${sender
+    ? ` — η απάντηση θα φτάσει στον/στην <strong>${escapeHtml(sender)}</strong>.`
+    : ' — η απάντηση θα φτάσει στον υπεύθυνο του αιτήματος.'}
               </td>
             </tr></table>
             <p style="margin:18px 0 0 0;font-size:13px;line-height:1.55;color:#334155;">
@@ -298,6 +344,7 @@ async function sendPhotoRequestEmail({
   subject,
   html,
   textBody = '',
+  replyTo = null,
 }) {
   const emailConfig = loadEmailConfig(dataDir);
   if (!isConfigured(emailConfig)) {
@@ -308,6 +355,16 @@ async function sendPhotoRequestEmail({
     return { success: false, error: 'Μη έγκυρη διεύθυνση παραλήπτη.' };
   }
 
+  const replyHeader = typeof replyTo === 'string'
+    ? String(replyTo || '').trim()
+    : formatReplyToHeader(replyTo || {});
+  if (!replyHeader) {
+    return {
+      success: false,
+      error: 'Ορίστε email στον λογαριασμό SUPERADMIN, ώστε οι απαντήσεις με φωτογραφίες να φτάνουν σε εσάς.',
+    };
+  }
+
   try {
     const transporter = createTransporter(emailConfig);
     const fromName = getAppDisplayName(emailConfig) || ERGOHUB_APP_NAME;
@@ -315,13 +372,14 @@ async function sendPhotoRequestEmail({
     const mail = {
       from: `"${fromName}" <${fromUser}>`,
       to,
+      replyTo: replyHeader,
       subject,
       html,
     };
     const plain = String(textBody || '').trim();
     if (plain) mail.text = plain;
     await transporter.sendMail(mail);
-    return { success: true };
+    return { success: true, replyTo: replyHeader };
   } catch (e) {
     return { success: false, error: e.message || 'Αποτυχία αποστολής email' };
   }
@@ -330,6 +388,8 @@ async function sendPhotoRequestEmail({
 module.exports = {
   ERGOHUB_APP_NAME,
   resolveSupervisorContact,
+  resolveSuperAdminReplyTo,
+  formatReplyToHeader,
   photoPhasesForCard,
   formatPhotoPhasesPhrase,
   formatPhotoPhasesRequestLines,

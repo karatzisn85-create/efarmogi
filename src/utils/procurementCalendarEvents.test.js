@@ -178,6 +178,33 @@ describe('procurementCalendarEvents', () => {
     expect(ids.has('other-sub')).toBe(false);
   });
 
+  test('ENGINEER δεν βλέπει υποέργο χρεωμένο μόνο σε USER (viewer)', () => {
+    const viewerProject = {
+      ...activeNoticeProject,
+      subprojectId: 'viewer-sub',
+      supervisorEngineerIds: ['user:viewer1'],
+    };
+    const engProject = {
+      ...activeNoticeProject,
+      subprojectId: 'eng-sub',
+      supervisorEngineerIds: ['user:eng1'],
+    };
+    const events = buildProcurementCalendarEvents(
+      [viewerProject, engProject],
+      {
+        userRole: 'ENGINEER',
+        currentUser: { username: 'eng1', assignedSupervisors: [] },
+        engineerCatalog: [
+          { username: 'eng1', fullName: 'Eng 1' },
+          { username: 'viewer1', fullName: 'Viewer 1', role: 'USER' },
+        ],
+      }
+    );
+    const ids = new Set(events.map((e) => e.subprojectId));
+    expect(ids.has('eng-sub')).toBe(true);
+    expect(ids.has('viewer-sub')).toBe(false);
+  });
+
   test('eventsWithinDays always includes compliance violations', () => {
     const events = [
       {

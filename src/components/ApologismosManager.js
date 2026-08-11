@@ -273,7 +273,7 @@ const EditPanelHead = styled.div`
 `;
 const EditPanelBody = styled.div`
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
-  padding: 0.95rem 1rem 5.5rem;
+  padding: 0.95rem 1rem 1.1rem;
   background: linear-gradient(180deg, #f8fafc 0%, #eef2f6 100%);
   @media (max-width: 1100px) { overflow: visible; }
   &::-webkit-scrollbar { width: 9px; }
@@ -371,15 +371,18 @@ const MaterialTab = styled.button`
   box-shadow: ${p => (p.$on ? '0 3px 10px rgba(15,39,68,0.22)' : 'none')};
 `;
 const StickyEditBar = styled.div`
-  position: sticky; bottom: -0.2rem; z-index: 4;
-  margin: 0.85rem -0.15rem -0.35rem; padding: 0.75rem 0.65rem 0.35rem;
-  background: linear-gradient(180deg, rgba(248,250,252,0) 0%, #f8fafc 28%, #f8fafc 100%);
+  flex-shrink: 0;
+  z-index: 5;
+  padding: 0.7rem 0.9rem 0.85rem;
+  border-top: 1px solid rgba(30, 58, 95, 0.10);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 -6px 20px rgba(15, 39, 68, 0.06);
 `;
 const StickyEditInner = styled.div`
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
-  padding: 0.65rem 0.75rem; border-radius: 12px;
+  padding: 0.55rem 0.65rem; border-radius: 12px;
   background: #fff; border: 1px solid rgba(30, 58, 95, 0.12);
-  box-shadow: 0 -4px 18px rgba(15, 39, 68, 0.08);
+  box-shadow: 0 2px 10px rgba(15, 39, 68, 0.05);
 `;
 const DangerTextBtn = styled.button`
   font-family: inherit; background: none; border: none; cursor: pointer;
@@ -2723,21 +2726,22 @@ export default function ApologismosManager({
                       {!selected.ready && selected.readinessErrors?.length > 0 && (
                         <Err>{selected.readinessErrors.join(' · ')}</Err>
                       )}
-
-                      <StickyEditBar>
-                        <StickyEditInner>
-                          <PrimaryBtn type="button" onClick={() => saveDraft()}>Αποθήκευση κάρτας</PrimaryBtn>
-                          <GhostBtn type="button" onClick={cancelEdit}>Άκυρο</GhostBtn>
-                          <DangerTextBtn type="button" onClick={removeCard}>
-                            Αφαίρεση από απολογισμό
-                          </DangerTextBtn>
-                        </StickyEditInner>
-                      </StickyEditBar>
                     </>
                   )}
                 </>
               )}
             </EditPanelBody>
+            {editing && selected && draft ? (
+              <StickyEditBar>
+                <StickyEditInner>
+                  <PrimaryBtn type="button" onClick={() => saveDraft()}>Αποθήκευση κάρτας</PrimaryBtn>
+                  <GhostBtn type="button" onClick={cancelEdit}>Άκυρο</GhostBtn>
+                  <DangerTextBtn type="button" onClick={removeCard}>
+                    Αφαίρεση από απολογισμό
+                  </DangerTextBtn>
+                </StickyEditInner>
+              </StickyEditBar>
+            ) : null}
           </EditPanel>
         </Grid>
       </Body>

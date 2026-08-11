@@ -7003,8 +7003,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             </CategoryBody>
           </CategorySection>
 
-        {/* Κατηγορία: ΕΡΓΑΛΕΙΑ — ADMIN/SUPERADMIN (Υποδείγματα)· SUPERADMIN για Excel / Απολογισμό */}
-        {canManageAll && (
+        {/* Κατηγορία: ΕΡΓΑΛΕΙΑ — Ιστορικό και σε ENGINEER· Υποδείγματα ADMIN+· Excel / Απολογισμός SUPERADMIN */}
+        {(canManageAll || isEngineer) && (
           <CategorySection $accentColor="#d97706" $accentGrad="linear-gradient(135deg, #d97706, #f59e0b)">
             <CategoryHeader $open={expandedCategories.tools} onClick={() => toggleCategory('tools')}>
               <CategoryHeaderLeft>
@@ -7014,10 +7014,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               <CategoryHeaderChevron $open={expandedCategories.tools}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.tools}>
-              <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
-                <AdminButtonIcon>📄</AdminButtonIcon>
-                Υποδείγματα Εγγράφων
+              <AdminButton onClick={() => setIsAuditLogOpen(true)}>
+                <AdminButtonIcon>📋</AdminButtonIcon>
+                Ιστορικό Ενεργειών
               </AdminButton>
+              {canManageAll && (
+                <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
+                  <AdminButtonIcon>📄</AdminButtonIcon>
+                  Υποδείγματα Εγγράφων
+                </AdminButton>
+              )}
               {isSuperAdmin && (
                 <AdminButton onClick={() => setIsExcelImportOpen(true)}>
                   <AdminButtonIcon>📥</AdminButtonIcon>
@@ -7042,8 +7048,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           </CategorySection>
         )}
 
-        {/* Κατηγορία: ΣΥΣΤΗΜΑ — Ιστορικό ενεργειών και σε ENGINEER· αντίγραφα/ειδοποιήσεις/email σε ADMIN+· λοιπά SUPERADMIN */}
-        {(canManageAll || isEngineer) && (
+        {/* Κατηγορία: ΣΥΣΤΗΜΑ — αντίγραφα/ειδοποιήσεις/email σε ADMIN+· λοιπά SUPERADMIN */}
+        {canManageAll && (
           <CategorySection $accentColor="#be185d" $accentGrad="linear-gradient(135deg, #be185d, #ec4899)">
             <CategoryHeader $open={expandedCategories.system} onClick={() => toggleCategory('system')}>
               <CategoryHeaderLeft>
@@ -7053,29 +7059,19 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               <CategoryHeaderChevron $open={expandedCategories.system}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.system}>
-              {canManageAll && (
-                <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
-                  <AdminButtonIcon>💾</AdminButtonIcon>
-                  Αντίγραφα Ασφαλείας
-                  {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
-                </AdminButton>
-              )}
-              <AdminButton onClick={() => setIsAuditLogOpen(true)}>
-                <AdminButtonIcon>📋</AdminButtonIcon>
-                Ιστορικό Ενεργειών
+              <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
+                <AdminButtonIcon>💾</AdminButtonIcon>
+                Αντίγραφα Ασφαλείας
+                {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
               </AdminButton>
-              {canManageAll && (
-                <AdminButton onClick={() => setIsCalendarSettingsOpen(true)}>
-                  <AdminButtonIcon>🔔</AdminButtonIcon>
-                  Κέντρο Ειδοποιήσεων
-                </AdminButton>
-              )}
-              {canManageAll && (
-                <AdminButton onClick={() => setIsEmailHistoryOpen(true)}>
-                  <AdminButtonIcon>📬</AdminButtonIcon>
-                  Ιστορικό Email
-                </AdminButton>
-              )}
+              <AdminButton onClick={() => setIsCalendarSettingsOpen(true)}>
+                <AdminButtonIcon>🔔</AdminButtonIcon>
+                Κέντρο Ειδοποιήσεων
+              </AdminButton>
+              <AdminButton onClick={() => setIsEmailHistoryOpen(true)}>
+                <AdminButtonIcon>📬</AdminButtonIcon>
+                Ιστορικό Email
+              </AdminButton>
               {isSuperAdmin && (
                 <>
                   <AdminButton onClick={() => setIsUserManagementOpen(true)}>
