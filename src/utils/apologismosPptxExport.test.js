@@ -56,34 +56,57 @@ const bodyText = (deck) => JSON.stringify(deck.slides.slice(1));
 describe('εξαγωγή διαφανειών απολογισμού', () => {
   test('εξώφυλλο, διαφάνεια ανά κατηγορία και μία ανά έργο', () => {
     const deck = composeApologismosDeck(modelWith({}), { resolveMedia: () => null });
-    // 1 εξώφυλλο + 3 κατηγορίες + 3 έργα
-    expect(deck.slides).toHaveLength(7);
+    // 1 εξώφυλλο + 1 περιεχόμενα + 3 κατηγορίες + 3 έργα
+    expect(deck.slides).toHaveLength(8);
+    expect(bodyText(deck)).toContain('Περιεχόμενα');
+    expect(bodyText(deck)).toContain('ΟΔΗΓΟΣ ΠΑΡΟΥΣΙΑΣΗΣ');
   });
 
   test('η δομή προσαρμόζεται στις επιλογές του χρήστη', () => {
     const noDividers = composeApologismosDeck(modelWith({ sectionDividers: false }), { resolveMedia: () => null });
-    expect(noDividers.slides).toHaveLength(4);
+    expect(noDividers.slides).toHaveLength(5);
+  });
+
+  test('μήνυμα Δημάρχου προσθέτει διαφάνεια μετά τα περιεχόμενα', () => {
+    const deck = composeApologismosDeck(modelWith({
+      mayorMessage: {
+        enabled: true,
+        mayorName: 'Γιάννης Παπαδόπουλος',
+        text: 'Σύντομο μήνυμα για τον απολογισμό.',
+        photo: { relativePath: 'appearance/mayor.jpg' },
+      },
+    }), { resolveMedia: () => null });
+    // 1 εξώφυλλο + 1 toc + 1 δήμαρχος + 3 κατηγορίες + 3 έργα
+    expect(deck.slides).toHaveLength(9);
+    expect(bodyText(deck)).toContain('Μήνυμα Δημάρχου');
+    expect(bodyText(deck)).toContain('Σύντομο μήνυμα για τον απολογισμό.');
+    expect(bodyText(deck)).toContain('Γιάννης Παπαδόπουλος');
   });
 
   test('το υποσέλιδο ακολουθεί την επιλογή εμφάνισης', () => {
     const full = bodyText(composeApologismosDeck(modelWith({}), { resolveMedia: () => null }));
     // Τα κεφαλαία γράφονται χωρίς τόνους, όπως επιβάλλει η ελληνική τυπογραφία.
     expect(full).toContain('ΔΗΜΟΣ ΑΡΧΑΝΩΝ ΑΣΤΕΡΟΥΣΙΩΝ');
-    expect(full).toContain('2 / 7');
+    expect(full).toContain('2 / 8');
 
     const none = bodyText(composeApologismosDeck(modelWith({ footerMode: 'none' }), { resolveMedia: () => null }));
-    expect(none).not.toContain('2 / 7');
+    expect(none).not.toContain('2 / 8');
 
     const minimal = bodyText(composeApologismosDeck(modelWith({ footerMode: 'minimal' }), { resolveMedia: () => null }));
-    expect(minimal).toContain('2 / 7');
+    expect(minimal).toContain('2 / 8');
     expect(minimal).not.toContain('ΔΗΜΟΣ ΑΡΧΑΝΩΝ');
   });
 
   test('τα σύνολα εξωφύλλου κρύβονται όταν το ζητήσει ο χρήστης', () => {
-    const withStats = deckText(composeApologismosDeck(modelWith({}), { resolveMedia: () => null }));
+    const withStats = JSON.stringify(
+      composeApologismosDeck(modelWith({}), { resolveMedia: () => null }).slides[0]
+    );
     expect(withStats).toContain('ΕΓΚΕΚΡΙΜΕΝΑ');
-    const withoutStats = deckText(
-      composeApologismosDeck(modelWith({ coverStats: false, sectionDividers: false }), { resolveMedia: () => null })
+    const withoutStats = JSON.stringify(
+      composeApologismosDeck(
+        modelWith({ coverStats: false, sectionDividers: false }),
+        { resolveMedia: () => null }
+      ).slides[0]
     );
     expect(withoutStats).not.toContain('ΕΓΚΕΚΡΙΜΕΝΑ');
   });

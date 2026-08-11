@@ -211,6 +211,10 @@ function addLegacyCard(dataDir, { periodId, input }) {
     completionYear: check.normalized.completionYear,
     approvedAmount: check.normalized.approvedAmount,
     contractAmount: check.normalized.contractAmount,
+    finalContractAmountAfterApe: String(input.finalContractAmountAfterApe || '').trim(),
+    finalContractApeDate: String(input.finalContractApeDate || '').trim(),
+    hasFinalContractAmountAfterApe: !!String(input.finalContractAmountAfterApe || '').trim(),
+    showFinalContractAmountInPresentation: !!input.showFinalContractAmountInPresentation,
     categoryId: input.categoryId || '',
     narrative: String(input.narrative || '').trim(),
     primaryViz: input.primaryViz || '',
@@ -273,6 +277,18 @@ function updateCard(dataDir, { periodId, cardId, patch, pruneUnusedVisuals = tru
     next.mapDrawing = domain.normalizeMapDrawing(patch.mapDrawing);
   }
   const migrated = domain.migrateDeprecatedVizIds(next).card;
+  if (Object.prototype.hasOwnProperty.call(patch, 'showFinalContractAmountInPresentation')) {
+    migrated.showFinalContractAmountInPresentation = !!patch.showFinalContractAmountInPresentation;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'finalContractAmountAfterApe')) {
+    const raw = String(patch.finalContractAmountAfterApe || '').trim();
+    migrated.finalContractAmountAfterApe = raw;
+    migrated.hasFinalContractAmountAfterApe = !!raw;
+    if (!raw) migrated.showFinalContractAmountInPresentation = false;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'finalContractApeDate')) {
+    migrated.finalContractApeDate = String(patch.finalContractApeDate || '').trim();
+  }
   // Σιωπηρή αποθήκευση (π.χ. πριν ανέβασμα φωτο): κρατάμε media ώστε το «Άκυρο» / αλλαγή γνώμης να μην χάνει αρχεία.
   // Ρητή αποθήκευση κάρτας (και αποθήκευση φωτο/χάρτη): καθαρισμός καταλοίπων.
   const finalCard = pruneUnusedVisuals
@@ -644,8 +660,24 @@ function updateAppearance(dataDir, { periodId, patch }) {
     ...prev,
     ...(patch || {}),
     coverImages: patch?.coverImages !== undefined ? patch.coverImages : prev.coverImages,
+    mayorMessage: patch?.mayorMessage !== undefined ? patch.mayorMessage : prev.mayorMessage,
     updatedAt: new Date().toISOString(),
   });
+  // Trim μόνο στην αποθήκευση — όχι κατά την πληκτρολόγηση.
+  next.subtitle = String(next.subtitle || '').trim().slice(0, 120);
+  next.mayorMessage = {
+    ...next.mayorMessage,
+    mayorName: String(next.mayorMessage?.mayorName || '').trim().slice(0, appearanceMod.MAYOR_NAME_MAX),
+    text: String(next.mayorMessage?.text || '').trim().slice(0, appearanceMod.MAYOR_TEXT_MAX),
+  };
+  if (next.mayorMessage?.enabled) {
+    if (!next.mayorMessage.text) {
+      return { success: false, error: 'Για τη σελίδα Δημάρχου χρειάζεται σύντομο κείμενο.' };
+    }
+    if (!next.mayorMessage.photo?.relativePath) {
+      return { success: false, error: 'Για τη σελίδα Δημάρχου χρειάζεται φωτογραφία.' };
+    }
+  }
   report.appearance = next;
   const saved = saveReport(dataDir, report);
   if (!saved.success) return saved;
@@ -673,11 +705,14 @@ function cleanupAppearanceOrphans(dataDir, appearance) {
   const root = ensureDirs(dataDir);
   const appearanceDir = path.join(root, 'appearance');
   if (!fs.existsSync(appearanceDir)) return;
+  const a = appearanceMod.normalizeAppearance(appearance);
   const keep = new Set(
-    (appearanceMod.normalizeAppearance(appearance).coverImages || [])
+    (a.coverImages || [])
       .map((img) => String(img?.relativePath || '').replace(/\\/g, '/'))
       .filter(Boolean)
   );
+  const mayorRel = String(a.mayorMessage?.photo?.relativePath || '').replace(/\\/g, '/');
+  if (mayorRel) keep.add(mayorRel);
   let entries;
   try {
     entries = fs.readdirSync(appearanceDir);
@@ -700,7 +735,7 @@ function cleanupAppearanceOrphans(dataDir, appearance) {
 }
 
 function saveCoverImage(dataDir, {
-  periodId, sourcePath, fileName, slotIndex = 0, commitToReport = true,
+  periodId, sourcePath, fileName, slotIndex = 0, commitToReport = true, kind = 'cover',
 } = {}) {
   const loaded = loadReport(dataDir, periodId);
   if (!loaded.success) return loaded;
@@ -714,7 +749,10 @@ function saveCoverImage(dataDir, {
   const safeName = String(fileName || path.basename(sourcePath))
     .replace(/[<>:"/\\|?*]/g, '_')
     .slice(0, 80);
-  const destName = `cover_${Number(slotIndex) || 0}_${Date.now()}_${uuidv4().slice(0, 8)}_${safeName}`;
+  const isMayor = kind === 'mayor';
+  const destName = isMayor
+    ? `mayor_${Date.now()}_${uuidv4().slice(0, 8)}_${safeName}`
+    : `cover_${Number(slotIndex) || 0}_${Date.now()}_${uuidv4().slice(0, 8)}_${safeName}`;
   const destAbs = path.join(appearanceDir, destName);
   const rel = path.join('appearance', destName).replace(/\\/g, '/');
   const guard = domain.resolveMediaPathSafe(dataDir, root, rel);
@@ -732,6 +770,40 @@ function saveCoverImage(dataDir, {
   }
 
   const appearance = appearanceMod.normalizeAppearance(report.appearance);
+
+  if (isMayor) {
+    const prevRel = appearance.mayorMessage?.photo?.relativePath
+      ? String(appearance.mayorMessage.photo.relativePath).replace(/\\/g, '/')
+      : null;
+    const prevPhoto = appearance.mayorMessage?.photo || null;
+    report.appearance = appearanceMod.normalizeAppearance({
+      ...appearance,
+      mayorMessage: {
+        ...appearance.mayorMessage,
+        photo: {
+          relativePath: rel,
+          focusX: prevPhoto?.focusX ?? 0.5,
+          focusY: prevPhoto?.focusY ?? 0.5,
+          zoom: prevPhoto?.zoom ?? 1,
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    });
+    const saved = saveReport(dataDir, report);
+    if (!saved.success) return saved;
+    if (prevRel && prevRel !== rel) {
+      deleteAppearanceFile(dataDir, prevRel);
+    }
+    cleanupAppearanceOrphans(dataDir, report.appearance);
+    return {
+      success: true,
+      report: saved.report,
+      period,
+      appearance: report.appearance,
+      relativePath: rel,
+    };
+  }
+
   const layout = appearanceMod.getCoverLayout(appearance.coverLayoutId);
   const idx = Math.max(0, Math.min(layout.imageSlots - 1, Number(slotIndex) || 0));
   const slots = appearanceMod.coverImagesBySlot(appearance);
@@ -812,7 +884,32 @@ async function frameCoverImagesForExport(dataDir, { appearance, channel = 'pdf' 
     }
   }
 
-  return { success: true, frames, layoutId: a.coverLayoutId, channel };
+  let mayorFrame = null;
+  const mayorPhoto = a.mayorMessage?.photo;
+  if (mayorPhoto?.relativePath) {
+    const abs = resolveCardMediaAbsolute(dataDir, mayorPhoto.relativePath);
+    if (abs && fs.existsSync(abs)) {
+      try {
+        const buf = await coverFrame.renderCoverFrame(abs, {
+          focusX: mayorPhoto.focusX,
+          focusY: mayorPhoto.focusY,
+          zoom: mayorPhoto.zoom,
+          width: 440,
+          height: 560,
+          background: appearanceMod.resolveTheme(a).surface || '#e2e8f0',
+        });
+        mayorFrame = coverFrame.bufferToDataUrl(buf, 'image/jpeg');
+      } catch (_) {
+        try {
+          mayorFrame = mediaFileToDataUrl(abs);
+        } catch (_) {
+          mayorFrame = null;
+        }
+      }
+    }
+  }
+
+  return { success: true, frames, mayorFrame, layoutId: a.coverLayoutId, channel };
 }
 
 /** Αφαιρεί διπλότυπες διαδρομές φωτογραφιών από δίσκο (παλιό bug ίδιου ονόματος αρχείου). */

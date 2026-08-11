@@ -6,8 +6,9 @@ import { COLORS, PAGE_MARGIN_H, CONTINUATION_HEADER_H } from './ReportStyles';
  * Λιτή κεφαλίδα σε κάθε σελίδα από τη 2η και μετά.
  * Η 1η σελίδα μένει ως έχει — το κείμενο εμφανίζεται μόνο όταν pageNumber > 1.
  */
-export default function ReportContinuationHeader({ exportDate }) {
+export default function ReportContinuationHeader({ exportDate, subtitle }) {
   const dateLabel = exportDate || '';
+  const sub = subtitle ? String(subtitle).trim() : '';
 
   return (
     <>
@@ -17,12 +18,16 @@ export default function ReportContinuationHeader({ exportDate }) {
           position: 'absolute',
           top: 8,
           left: PAGE_MARGIN_H,
+          right: PAGE_MARGIN_H + 90,
           fontSize: 7,
           fontFamily: 'DejaVu',
           fontWeight: 'bold',
           color: COLORS.accent,
         }}
-        render={({ pageNumber }) => (pageNumber > 1 ? 'ERGOHUB' : '')}
+        render={({ pageNumber }) => {
+          if (pageNumber <= 1) return '';
+          return sub ? `ERGOHUB  ·  ${sub}` : 'ERGOHUB';
+        }}
       />
       <Text
         fixed

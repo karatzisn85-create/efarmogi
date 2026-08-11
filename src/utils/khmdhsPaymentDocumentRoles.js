@@ -213,11 +213,18 @@ export function mergePaymentAmountsFromProject(project, review = null, item = nu
     if (a != null) amounts[adam] = a;
   });
 
-  const key = item ? `paymentsReconciliation::${item.contractIndex != null ? item.contractIndex : 'shared'}` : '';
-  const resolution = key && review?.resolutions?.[key]
-    ? review.resolutions[key]
-    : review?.resolutions?.['paymentsReconciliation::shared'];
-  Object.assign(amounts, readPaymentAmountsFromReviewResolution(resolution));
+  if (item) {
+    const key = `paymentsReconciliation::${item.contractIndex != null ? item.contractIndex : 'shared'}`;
+    const resolution = review?.resolutions?.[key]
+      || review?.resolutions?.['paymentsReconciliation::shared'];
+    Object.assign(amounts, readPaymentAmountsFromReviewResolution(resolution));
+  } else if (review?.resolutions && typeof review.resolutions === 'object') {
+    Object.keys(review.resolutions).forEach((k) => {
+      if (String(k).startsWith('paymentsReconciliation::')) {
+        Object.assign(amounts, readPaymentAmountsFromReviewResolution(review.resolutions[k]));
+      }
+    });
+  }
   return amounts;
 }
 

@@ -73,10 +73,11 @@ describe('σύστημα σχεδίασης διαφανειών', () => {
     const full = buildFooter({ design: resolveSlideDesign({ footerMode: 'full' }, THEME), ...base });
     expect(full.left).toContain('Δήμος Αρχανών');
     expect(full.left).toContain('Περίοδος 2024–2028');
+    expect(full.left).toContain('ERGOHUB');
     expect(full.right).toBe('3 / 12');
 
     const minimal = buildFooter({ design: resolveSlideDesign({ footerMode: 'minimal' }, THEME), ...base });
-    expect(minimal.left).toBe('');
+    expect(minimal.left).toContain('ERGOHUB');
     expect(minimal.right).toBe('3 / 12');
 
     const none = buildFooter({ design: resolveSlideDesign({ footerMode: 'none' }, THEME), ...base });

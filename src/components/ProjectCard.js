@@ -986,7 +986,8 @@ const ReportFab = styled.button`
   border: none;
   border-radius: 15px;
   cursor: pointer;
-  z-index: 12;
+  /* Πάνω από KhmdhsLifecycleRail (z-index 50) — αλλιώς η γωνία της αλυσίδας κόβει το κουμπί */
+  z-index: 60;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1005,6 +1006,7 @@ const ReportFab = styled.button`
     filter: blur(8px);
     z-index: -1;
     opacity: 0.85;
+    pointer-events: none;
   }
 
   svg {

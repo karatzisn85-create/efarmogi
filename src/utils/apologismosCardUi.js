@@ -243,3 +243,56 @@ export function removeMetricsRow(rows, index, { minRows = 1, maxRows = METRICS_M
   const next = draftMetricsRows(rows, { minRows: 0, maxRows }).filter((_, i) => i !== index);
   return draftMetricsRows(next, { minRows, maxRows });
 }
+
+/** Ημέρες μετά τις οποίες εμφανίζεται ήπια υπενθύμιση για εκκρεμές αίτημα φωτογραφιών. */
+export const PHOTO_REQUEST_REMINDER_DAYS = 7;
+
+export function cardHasAllRequiredPhotos(card, vizModes) {
+  const phases = photoPhasesForVizIds(vizModes, [card?.primaryViz, card?.secondaryViz].filter(Boolean));
+  if (!phases.length) return true;
+  const photos = card?.photos || {};
+  return phases.every((ph) => Array.isArray(photos[ph]) && photos[ph].length > 0);
+}
+
+function daysSinceIso(iso) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return Math.floor((Date.now() - t) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * Κατάσταση αιτήματος φωτογραφιών για λίστα / λεπτομέρειες κάρτας.
+ * @returns {{ status: 'none'|'idle'|'awaiting'|'reminder'|'ready', label: string, daysSince: number|null }}
+ */
+export function getPhotoRequestUiState(card, vizModes) {
+  const phases = photoPhasesForVizIds(vizModes, [card?.primaryViz, card?.secondaryViz].filter(Boolean));
+  if (!phases.length || card?.source !== 'linked') {
+    return { status: 'none', label: '', daysSince: null };
+  }
+  const sentAt = card?.photoRequestLast?.sentAt;
+  const hasPhotos = cardHasAllRequiredPhotos(card, vizModes);
+  if (hasPhotos) {
+    return {
+      status: 'ready',
+      label: sentAt ? 'Φωτογραφίες έτοιμες' : '',
+      daysSince: daysSinceIso(sentAt),
+    };
+  }
+  if (!sentAt) {
+    return { status: 'idle', label: '', daysSince: null };
+  }
+  const days = daysSinceIso(sentAt);
+  if (days != null && days >= PHOTO_REQUEST_REMINDER_DAYS) {
+    return {
+      status: 'reminder',
+      label: `Αναμονή φωτο · ${days}ημ.`,
+      daysSince: days,
+    };
+  }
+  return {
+    status: 'awaiting',
+    label: 'Αναμονή φωτο',
+    daysSince: days,
+  };
+}

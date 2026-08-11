@@ -38,12 +38,12 @@ export const FOOTER_MODES = Object.freeze([
   Object.freeze({
     id: 'full',
     label: 'Πλήρες',
-    description: 'Οργανισμός, περίοδος και αρίθμηση διαφανειών',
+    description: 'Οργανισμός, περίοδος, ERGOHUB και αρίθμηση διαφανειών',
   }),
   Object.freeze({
     id: 'minimal',
     label: 'Λιτό',
-    description: 'Μόνο αρίθμηση διαφανειών',
+    description: 'ERGOHUB και αρίθμηση διαφανειών',
   }),
   Object.freeze({
     id: 'none',
@@ -265,8 +265,12 @@ export function buildFooter({ design, organizationTitle, periodLabel, index, tot
   const position = Number.isFinite(Number(index)) && Number.isFinite(Number(total))
     ? `${Number(index) + 1} / ${Number(total)}`
     : '';
-  if (mode === 'minimal') return { left: '', right: position };
-  const left = [organizationTitle, periodLabel].map((s) => String(s || '').trim()).filter(Boolean).join('  ·  ');
+  const brand = 'Συντάχθηκε με ERGOHUB';
+  if (mode === 'minimal') return { left: brand, right: position };
+  const left = [organizationTitle, periodLabel, brand]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .join('  ·  ');
   return { left, right: position };
 }
 

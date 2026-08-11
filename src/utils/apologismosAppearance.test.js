@@ -35,6 +35,12 @@ describe('apologismosAppearance', () => {
       footerMode: 'full',
       sectionDividers: true,
       coverStats: true,
+      mayorMessage: {
+        enabled: false,
+        mayorName: '',
+        text: '',
+        photo: null,
+      },
       updatedAt: null,
     });
     const bad = normalizeAppearance({
@@ -47,7 +53,8 @@ describe('apologismosAppearance', () => {
     });
     expect(bad.paletteId).toBe(DEFAULT_PALETTE_ID);
     expect(bad.coverLayoutId).toBe(DEFAULT_COVER_LAYOUT_ID);
-    expect(bad.subtitle).toBe('Hello');
+    // Το διάστημα διατηρείται στο normalize (ώστε να δουλεύει το Space κατά την πληκτρολόγηση).
+    expect(bad.subtitle).toBe('  Hello  ');
     expect(bad.coverImages).toEqual([]);
     expect(bad.motionEnabled).toBe(false);
     expect(bad.motionStyle).toBe('fade');
@@ -104,6 +111,48 @@ describe('apologismosAppearance', () => {
     const cover = buildCoverDisplay({ appearance: a, period: { label: 'Π' }, organizationTitle: 'Δ' });
     expect(cover.images[0]).toBeNull();
     expect(cover.images[1].relativePath).toBe('appearance/only-second.jpg');
+  });
+
+  test('κενά στο τέλος διατηρούνται ώστε το Space να δουλεύει κατά την πληκτρολόγηση', () => {
+    expect(normalizeAppearance({ subtitle: 'Έργα ' }).subtitle).toBe('Έργα ');
+    expect(normalizeAppearance({
+      mayorMessage: { enabled: true, text: 'Γεια ', mayorName: 'Νίκος ' },
+    }).mayorMessage).toMatchObject({ text: 'Γεια ', mayorName: 'Νίκος ' });
+  });
+
+  test('mayorMessage: defaults, μήκη, photo guard — χωρίς trim σε κάθε πάτημα', () => {
+    expect(normalizeAppearance({}).mayorMessage).toEqual({
+      enabled: false,
+      mayorName: '',
+      text: '',
+      photo: null,
+    });
+    const a = normalizeAppearance({
+      mayorMessage: {
+        enabled: true,
+        mayorName: '  Γιάννης Παπαδόπουλος  ',
+        text: `  ${'α'.repeat(950)}  `,
+        photo: { relativePath: 'appearance/mayor.jpg', focusX: 0.3, focusY: 0.4, zoom: 1.2 },
+      },
+    });
+    expect(a.mayorMessage.enabled).toBe(true);
+    expect(a.mayorMessage.mayorName).toBe('  Γιάννης Παπαδόπουλος  '.slice(0, 80));
+    expect(a.mayorMessage.text).toHaveLength(900);
+    expect(a.mayorMessage.text.startsWith('  α')).toBe(true);
+    expect(a.mayorMessage.photo).toEqual({
+      relativePath: 'appearance/mayor.jpg',
+      focusX: 0.3,
+      focusY: 0.4,
+      zoom: 1.2,
+    });
+    expect(normalizeAppearance({
+      mayorMessage: { enabled: 'yes', photo: { relativePath: 'media/x.jpg' } },
+    }).mayorMessage).toEqual({
+      enabled: false,
+      mayorName: '',
+      text: '',
+      photo: null,
+    });
   });
 
   test('normalizeCoverImage path guards', () => {

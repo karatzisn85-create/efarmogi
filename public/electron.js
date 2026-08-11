@@ -18048,6 +18048,7 @@ ipcMain.handle('export-statistics-report', async (_event, {
 // ============================================================
 
 const apologismosService = require('./apologismosService');
+const apologismosPhotoRequestEmail = require('./apologismosPhotoRequestEmail');
 
 function assertApologismosSuperAdmin(actingUsername) {
   if (!dashboardSessionActive || !loggedInUsername) {
@@ -18061,6 +18062,36 @@ function assertApologismosSuperAdmin(actingUsername) {
     return { ok: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στον Απολογισμό' };
   }
   return { ok: true, username: loggedInUsername };
+}
+
+/** Readiness + επιβλέπων από συνδεδεμένο υποέργο (μόνο για απόκριση στον renderer). */
+function enrichApologismosReportForClient(report) {
+  const base = apologismosService.enrichReportWithReadiness(report);
+  const users = loadUsers();
+  const subCache = new Map();
+  const cards = (base.cards || []).map((card) => {
+    if (card?.source !== 'linked' || !card.subprojectId) {
+      return { ...card, supervisor: null };
+    }
+    let sub = subCache.get(card.subprojectId);
+    if (sub === undefined) {
+      sub = loadSubprojectDataById(card.subprojectId);
+      subCache.set(card.subprojectId, sub);
+    }
+    const contact = apologismosPhotoRequestEmail.resolveSupervisorContact(sub, users);
+    if (!contact?.displayName) {
+      return { ...card, supervisor: null };
+    }
+    return {
+      ...card,
+      supervisor: {
+        displayName: contact.displayName,
+        hasEmail: !!contact.email,
+        email: contact.email || '',
+      },
+    };
+  });
+  return { ...base, cards };
 }
 
 function loadSubprojectDataById(subprojectId) {
@@ -18131,6 +18162,10 @@ function buildSubprojectAmountMap() {
         map[subId] = {
           approvedAmount: data.approvedAmount,
           contractAmount: data.contractAmount,
+          apeAmount: data.apeAmount,
+          apeEntries: data.apeEntries,
+          implementationForm: data.implementationForm,
+          contracts: data.contracts,
           projectStatus: data.projectStatus,
           subprojectTitle: data.subprojectTitle,
           projectTitle: data.projectTitle,
@@ -18153,6 +18188,10 @@ function buildSubprojectAmountMapForIds(subprojectIds) {
     map[subId] = {
       approvedAmount: data.approvedAmount,
       contractAmount: data.contractAmount,
+      apeAmount: data.apeAmount,
+      apeEntries: data.apeEntries,
+      implementationForm: data.implementationForm,
+      contracts: data.contracts,
       projectStatus: data.projectStatus,
       subprojectTitle: data.subprojectTitle,
       projectTitle: data.projectTitle,
@@ -18232,7 +18271,7 @@ ipcMain.handle('apologismos-get-report', async (_event, { actingUsername, period
     const loaded = loadApologismosReportWithSyncedAmounts(periodId);
     if (!loaded.success) return loaded;
     const sanitized = apologismosService.sanitizeReportPhotos(dataDir, loaded.report);
-    const report = apologismosService.enrichReportWithReadiness(
+    const report = enrichApologismosReportForClient(
       sanitized.success ? sanitized.report : loaded.report
     );
     return {
@@ -18255,7 +18294,7 @@ ipcMain.handle('apologismos-save-report', async (_event, { actingUsername, repor
     if (!saved.success) return saved;
     return {
       success: true,
-      report: apologismosService.enrichReportWithReadiness(saved.report),
+      report: enrichApologismosReportForClient(saved.report),
     };
   } catch (e) {
     logger.error('apologismos-save-report failed', e);
@@ -18292,7 +18331,7 @@ ipcMain.handle('apologismos-add-from-subproject', async (_event, { actingUsernam
       });
       return {
         success: true,
-        report: apologismosService.enrichReportWithReadiness(result.report),
+        report: enrichApologismosReportForClient(result.report),
         period: result.period,
         card: result.card,
       };
@@ -18321,7 +18360,7 @@ ipcMain.handle('apologismos-add-legacy-card', async (_event, { actingUsername, p
       });
       return {
         success: true,
-        report: apologismosService.enrichReportWithReadiness(result.report),
+        report: enrichApologismosReportForClient(result.report),
         period: result.period,
         card: result.card,
       };
@@ -18349,12 +18388,131 @@ ipcMain.handle('apologismos-update-card', async (_event, {
     if (!result.success) return result;
     return {
       success: true,
-      report: apologismosService.enrichReportWithReadiness(result.report),
+      report: enrichApologismosReportForClient(result.report),
       period: result.period,
       card: result.card,
     };
   } catch (e) {
     logger.error('apologismos-update-card failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('apologismos-request-card-photos', async (_event, {
+  actingUsername, periodId, cardId, optionalDeadline, optionalNote,
+} = {}) => {
+  try {
+    const auth = assertApologismosSuperAdmin(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!periodId || !cardId) {
+      return { success: false, error: 'Απαιτείται περίοδος και κάρτα' };
+    }
+
+    const loaded = apologismosService.loadReport(dataDir, periodId);
+    if (!loaded.success) return loaded;
+    const card = (loaded.report.cards || []).find((c) => c.id === cardId);
+    if (!card) return { success: false, error: 'Δεν βρέθηκε κάρτα' };
+    if (card.source !== 'linked' || !card.subprojectId) {
+      return { success: false, error: 'Το αίτημα ισχύει μόνο για συνδεδεμένα υποέργα.' };
+    }
+
+    const phases = apologismosPhotoRequestEmail.photoPhasesForCard(card);
+    if (!phases.length) {
+      return {
+        success: false,
+        error: 'Η κάρτα δεν έχει τρόπο προβολής με φωτογραφίες. Επιλέξτε πρώτα πριν/μετά ή αντίστοιχο τρόπο.',
+      };
+    }
+
+    const sub = loadSubprojectDataById(card.subprojectId);
+    if (!sub) return { success: false, error: 'Δεν βρέθηκε το συνδεδεμένο υποέργο.' };
+    const contact = apologismosPhotoRequestEmail.resolveSupervisorContact(sub, loadUsers());
+    if (!contact?.displayName) {
+      return { success: false, error: 'Δεν υπάρχει καταγεγραμμένος επιβλέπων στο υποέργο.' };
+    }
+    if (!contact.email) {
+      return {
+        success: false,
+        error: 'Ο επιβλέπων δεν έχει καταχωρημένο email στον λογαριασμό χρήστη του.',
+      };
+    }
+
+    const period = loaded.period || {};
+    const periodLabel = String(period.label || period.name || '').trim()
+      || (period.startYear && period.endYear ? `${period.startYear}–${period.endYear}` : '');
+    const senderUser = findUserByUsername(auth.username);
+    let org = '';
+    try {
+      const cfg = loadConfig();
+      org = cfg?.organizationFullName || cfg?.organizationName || '';
+    } catch (_) {
+      org = '';
+    }
+
+    const content = apologismosPhotoRequestEmail.buildPhotoRequestEmailContent({
+      supervisorDisplayName: contact.displayName,
+      periodLabel,
+      projectTitle: card.projectTitle || sub.projectTitle || '',
+      subprojectTitle: card.title || sub.subprojectTitle || '',
+      phases,
+      optionalDeadline: optionalDeadline || '',
+      optionalNote: optionalNote || '',
+      senderDisplayName: senderUser?.fullName || auth.username,
+      senderOrg: org,
+    });
+
+    const sent = await apologismosPhotoRequestEmail.sendPhotoRequestEmail({
+      dataDir,
+      toEmail: contact.email,
+      subject: content.subject,
+      html: content.html,
+      textBody: content.textBody,
+    });
+    if (!sent.success) return sent;
+
+    const photoRequestLast = {
+      sentAt: new Date().toISOString(),
+      toEmail: contact.email,
+      toName: contact.displayName,
+      phases: [...phases],
+      periodLabel,
+    };
+    const updated = apologismosService.updateCard(dataDir, {
+      periodId,
+      cardId,
+      patch: { photoRequestLast },
+      pruneUnusedVisuals: false,
+    });
+    if (!updated.success) {
+      const cardsWithSent = (loaded.report.cards || []).map((c) => (
+        c.id === cardId ? { ...c, photoRequestLast } : c
+      ));
+      return {
+        success: true,
+        warning: 'Το email στάλθηκε, αλλά δεν αποθηκεύτηκε η ένδειξη αποστολής στην κάρτα.',
+        photoRequestLast,
+        report: enrichApologismosReportForClient({ ...loaded.report, cards: cardsWithSent }),
+      };
+    }
+
+    logAuditAction({
+      type: 'update',
+      entityType: 'apologismos_card',
+      entityId: cardId,
+      entityTitle: card.title || cardId,
+      userFullName: senderUser?.fullName || auth.username,
+      userRole: 'SUPERADMIN',
+      details: `Αίτημα φωτογραφιών απολογισμού προς ${contact.displayName} <${contact.email}>`,
+    });
+
+    return {
+      success: true,
+      photoRequestLast,
+      report: enrichApologismosReportForClient(updated.report),
+      card: updated.card,
+    };
+  } catch (e) {
+    logger.error('apologismos-request-card-photos failed', e);
     return { success: false, error: e.message };
   }
 });
@@ -18380,7 +18538,7 @@ ipcMain.handle('apologismos-remove-card', async (_event, { actingUsername, perio
       });
       return {
         success: true,
-        report: apologismosService.enrichReportWithReadiness(result.report),
+        report: enrichApologismosReportForClient(result.report),
         period: result.period,
       };
     }
@@ -18407,7 +18565,7 @@ ipcMain.handle('apologismos-sync-amounts', async (_event, { actingUsername, peri
     if (!result.success) return result;
     return {
       success: true,
-      report: apologismosService.enrichReportWithReadiness(result.report),
+      report: enrichApologismosReportForClient(result.report),
       period: result.period,
       changed: result.changed,
     };
@@ -18425,7 +18583,7 @@ ipcMain.handle('apologismos-dismiss-amount-badge', async (_event, { actingUserna
     if (!result.success) return result;
     return {
       success: true,
-      report: apologismosService.enrichReportWithReadiness(result.report),
+      report: enrichApologismosReportForClient(result.report),
       period: result.period,
       card: result.card,
     };
@@ -18497,7 +18655,7 @@ ipcMain.handle('apologismos-save-photo', async (_event, {
     return {
       success: true,
       relativePath: savedPhoto.relativePath,
-      report: apologismosService.enrichReportWithReadiness(updated.report),
+      report: enrichApologismosReportForClient(updated.report),
       card: updated.card,
     };
   } catch (e) {
@@ -18518,7 +18676,7 @@ ipcMain.handle('apologismos-remove-photo', async (_event, {
     if (!result.success) return result;
     return {
       success: true,
-      report: apologismosService.enrichReportWithReadiness(result.report),
+      report: enrichApologismosReportForClient(result.report),
       period: result.period,
       card: result.card,
     };
@@ -18540,7 +18698,7 @@ ipcMain.handle('apologismos-reorder-photo-primary', async (_event, {
     if (!result.success) return result;
     return {
       success: true,
-      report: apologismosService.enrichReportWithReadiness(result.report),
+      report: enrichApologismosReportForClient(result.report),
       period: result.period,
       card: result.card,
     };
@@ -18599,7 +18757,7 @@ ipcMain.handle('apologismos-save-map-snapshot', async (_event, {
     return {
       success: true,
       relativePath: result.relativePath,
-      report: apologismosService.enrichReportWithReadiness(result.report),
+      report: enrichApologismosReportForClient(result.report),
       period: result.period,
       card: result.card,
     };
@@ -18675,7 +18833,7 @@ ipcMain.handle('apologismos-update-appearance', async (_event, { actingUsername,
     if (!result.success) return result;
     return {
       success: true,
-      report: apologismosService.enrichReportWithReadiness(result.report),
+      report: enrichApologismosReportForClient(result.report),
       period: result.period,
       appearance: result.appearance,
     };
@@ -18708,7 +18866,7 @@ ipcMain.handle('apologismos-select-cover-images', async (_event, { actingUsernam
 });
 
 ipcMain.handle('apologismos-save-cover-image', async (_event, {
-  actingUsername, periodId, sourcePath, slotIndex = 0, commitToReport = true,
+  actingUsername, periodId, sourcePath, slotIndex = 0, commitToReport = true, kind = 'cover',
 } = {}) => {
   try {
     const auth = assertApologismosSuperAdmin(actingUsername);
@@ -18716,9 +18874,10 @@ ipcMain.handle('apologismos-save-cover-image', async (_event, {
     const result = apologismosService.saveCoverImage(dataDir, {
       periodId,
       sourcePath,
-      fileName: sourcePath ? path.basename(sourcePath) : 'cover.jpg',
+      fileName: sourcePath ? path.basename(sourcePath) : (kind === 'mayor' ? 'mayor.jpg' : 'cover.jpg'),
       slotIndex,
       commitToReport: commitToReport !== false,
+      kind: kind === 'mayor' ? 'mayor' : 'cover',
     });
     if (!result.success) return result;
     if (!result.report) {
@@ -18730,7 +18889,7 @@ ipcMain.handle('apologismos-save-cover-image', async (_event, {
     }
     return {
       success: true,
-      report: apologismosService.enrichReportWithReadiness(result.report),
+      report: enrichApologismosReportForClient(result.report),
       period: result.period,
       appearance: result.appearance,
       relativePath: result.relativePath,
@@ -18795,7 +18954,16 @@ ipcMain.handle('apologismos-export-pptx', async (_event, { actingUsername, perio
       appearance: loaded.report.appearance,
       channel: 'pptx',
     });
-    const buffer = await buildApologismosPptx(model, {
+    const exportModel = framed.success && framed.mayorFrame && model.mayorMessage?.photo
+      ? {
+          ...model,
+          mayorMessage: {
+            ...model.mayorMessage,
+            photo: { ...model.mayorMessage.photo, framedDataUrl: framed.mayorFrame },
+          },
+        }
+      : model;
+    const buffer = await buildApologismosPptx(exportModel, {
       resolveMedia: (rel) => apologismosService.resolveCardMediaAbsolute(dataDir, rel),
       coverFrames: framed.success ? framed.frames : [],
     });

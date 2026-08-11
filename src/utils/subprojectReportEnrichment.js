@@ -93,9 +93,20 @@ export function buildNumberedFileInventory(inventory) {
 }
 
 export function buildPaymentSummaryForReport(basic, khmdhsChain) {
-  const contractAmount = basic?.totalContractAmount > 0
+  const originalContractAmount = basic?.totalContractAmount > 0
     ? basic.totalContractAmount
     : parseAmountNumber(basic?.contractAmount);
+  const paymentRef = basic?.paymentReferenceAmount != null
+    ? Number(basic.paymentReferenceAmount)
+    : null;
+  const finalApe = basic?.hasFinalContractAmountAfterApe
+    ? parseAmountNumber(basic.finalContractAmountAfterApe)
+    : 0;
+  // Για υπόλοιπο/ποσοστό πληρωμών: τελικό πληρωτέο (ΑΠΕ αν υπάρχει).
+  // Το αρχικό ποσό σύμβασης μένει ξεχωριστά (originalContractAmount).
+  const contractAmount = (paymentRef != null && Number.isFinite(paymentRef) && paymentRef > 0)
+    ? paymentRef
+    : (finalApe > 0 ? finalApe : originalContractAmount);
   const pay = khmdhsChain?.pay || null;
   // «displayTotalGross»: το ποσό που πράγματι μετράει (μετά χαρακτηρισμό/χειροκίνητη διόρθωση/
   // εκτίμηση συγχρηματοδότησης) — ίδιο με ό,τι βλέπει ο χρήστης στην κάρτα πληρωμών του υποέργου.
@@ -117,6 +128,10 @@ export function buildPaymentSummaryForReport(basic, khmdhsChain) {
     hasPayments,
     contractAmount,
     contractAmountLabel: hasContract ? formatEuroNum(contractAmount) : '—',
+    originalContractAmount,
+    originalContractAmountLabel: originalContractAmount > 0 ? formatEuroNum(originalContractAmount) : '—',
+    // Ετικέτα «μετά ΑΠΕ» μόνο όταν το ποσό αναφοράς πληρωμών συμπίπτει με τελικό ΑΠΕ
+    usesFinalApeReference: finalApe > 0 && Math.abs(contractAmount - finalApe) < 0.5,
     paidAmount: paid,
     paidAmountLabel: hasPayments ? formatEuroNum(paid) : '—',
     remainingAmount: remaining,
@@ -352,7 +367,7 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
           type: 'ape',
           stageName: total > 1 ? `${CHAIN_STAGE_LABELS.ape} (${i + 1})` : CHAIN_STAGE_LABELS.ape,
           dateLabel: c.date,
-          themeKey: 'procedure',
+          themeKey: 'ape',
           fields: [{ label: 'ΑΠΕ', value: c.apeAmount }],
         }));
       }
@@ -395,7 +410,7 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
       stageName: entry.title || CHAIN_STAGE_LABELS.supp,
       adam: entry.adam || '',
       dateLabel: entry.date,
-      themeKey: entry.isExtension ? 'procedure' : 'symv',
+      themeKey: entry.isExtension ? 'awrd' : 'supp',
       sequence: sequence++,
       fields: [
         ...(entry.adam ? [{ label: 'ΑΔΑΜ', value: entry.adam }] : []),
@@ -408,7 +423,7 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
     items.push(timelineItem({
       type: 'ape',
       stageName: CHAIN_STAGE_LABELS.ape,
-      themeKey: 'procedure',
+      themeKey: 'ape',
       fields: [{ label: 'ΑΠΕ + συμπληρωματικές', value: basic.apeAmount }],
     }));
   }

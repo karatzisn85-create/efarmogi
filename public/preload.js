@@ -116,6 +116,7 @@ const ALLOWED_INVOKE = new Set([
   'get-meleti-folder-files','open-meleti-file','download-meleti-file','export-meletai-hub-report','export-meletai-study-report','export-portfolio-report','export-statistics-report',
   'apologismos-get-meta','apologismos-get-periods','apologismos-upsert-period','apologismos-get-report','apologismos-save-report',
   'apologismos-add-from-subproject','apologismos-add-legacy-card','apologismos-update-card','apologismos-remove-card',
+  'apologismos-request-card-photos',
   'apologismos-sync-amounts','apologismos-dismiss-amount-badge','apologismos-save-photo','apologismos-select-photos',
   'apologismos-get-presentation','apologismos-export-pptx','apologismos-write-export-file',
   'apologismos-resolve-media-map','apologismos-list-eligible-subprojects',

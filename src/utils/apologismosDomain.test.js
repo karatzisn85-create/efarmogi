@@ -31,6 +31,8 @@ const {
   pruneCardVisualAssets,
   activeVizIds,
   emptyMapDrawing,
+  cardShowsFinalContractAmountInPresentation,
+  FINAL_CONTRACT_AFTER_APE_SHORT_LABEL,
 } = require('../../public/apologismosDomain');
 
 const period = { id: '2024-2028', startYear: 2024, endYear: 2028 };
@@ -338,12 +340,37 @@ describe('apologismosDomain — sort & include', () => {
       subprojectId: 'x',
       projectId: 'p',
       subprojectTitle: 'Τίτλος',
+      projectTitle: 'Πράξη δοκιμής',
       approvedAmount: '10',
       contractAmount: '8',
       projectStatus: 'ΟΛΟΚΛΗΡΩΜΕΝΟ',
+      apeEntries: [
+        { id: '1', documentDate: '2025-03-01', apeAmount: '12.500,00' },
+      ],
     });
     expect(mapped.source).toBe('linked');
     expect(mapped.title).toBe('Τίτλος');
+    expect(mapped.projectTitle).toBe('Πράξη δοκιμής');
+    expect(mapped.hasFinalContractAmountAfterApe).toBe(true);
+    expect(mapped.finalContractAmountAfterApe).toMatch(/12/);
+    expect(mapped.showFinalContractAmountInPresentation).toBe(false);
+    expect(mapped.finalContractApeDate).toBe('2025-03-01');
+  });
+
+  test('cardShowsFinalContractAmountInPresentation μόνο με ποσό και flag', () => {
+    expect(cardShowsFinalContractAmountInPresentation({
+      showFinalContractAmountInPresentation: true,
+      finalContractAmountAfterApe: '12.500,00',
+    })).toBe(true);
+    expect(cardShowsFinalContractAmountInPresentation({
+      showFinalContractAmountInPresentation: true,
+      finalContractAmountAfterApe: '',
+    })).toBe(false);
+    expect(cardShowsFinalContractAmountInPresentation({
+      showFinalContractAmountInPresentation: false,
+      finalContractAmountAfterApe: '12.500,00',
+    })).toBe(false);
+    expect(FINAL_CONTRACT_AFTER_APE_SHORT_LABEL).toMatch(/ΑΠΕ/);
   });
 });
 
@@ -428,6 +455,49 @@ describe('apologismosDomain — legacy & sync badges', () => {
       { approvedAmount: '', contractAmount: null }
     );
     expect(r.changed).toBe(false);
+  });
+
+  test('sync ενημερώνει και τελικό ποσό μετά ΑΠΕ', () => {
+    const card = {
+      source: 'linked',
+      subprojectId: 's1',
+      approvedAmount: '10',
+      contractAmount: '8',
+      finalContractAmountAfterApe: '',
+      showFinalContractAmountInPresentation: true,
+    };
+    const synced = syncCardAmountsFromSubproject(card, {
+      approvedAmount: '10',
+      contractAmount: '8',
+      apeEntries: [{ id: 'a', documentDate: '2025-02-01', apeAmount: '9.500,00' }],
+    });
+    expect(synced.changed).toBe(true);
+    expect(synced.card.hasFinalContractAmountAfterApe).toBe(true);
+    expect(synced.card.finalContractAmountAfterApe).toMatch(/9/);
+    expect(synced.card.amountChangedBadge).toBe(true);
+  });
+
+  test('sync χωρίς ΑΠΕ κλείνει την εμφάνιση στην παρουσίαση', () => {
+    const synced = syncCardAmountsFromSubproject(
+      {
+        source: 'linked',
+        subprojectId: 's1',
+        approvedAmount: '10',
+        contractAmount: '8',
+        finalContractAmountAfterApe: '9.500,00',
+        hasFinalContractAmountAfterApe: true,
+        showFinalContractAmountInPresentation: true,
+      },
+      {
+        approvedAmount: '10',
+        contractAmount: '8',
+        apeEntries: [],
+        apeAmount: '',
+      }
+    );
+    expect(synced.changed).toBe(true);
+    expect(synced.card.hasFinalContractAmountAfterApe).toBe(false);
+    expect(synced.card.showFinalContractAmountInPresentation).toBe(false);
   });
 });
 

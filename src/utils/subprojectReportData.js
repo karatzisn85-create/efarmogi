@@ -4,7 +4,8 @@ import {
   statusShowsAssignmentProcedure
 } from '../data/formOptions';
 import { getProjectChargeDisplay } from './supervisorChargeDisplay';
-import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm, normalizeContractRow, resolveStoredApeAmount } from './khmdhsFields';
+import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm, normalizeContractRow, resolveStoredApeAmount, resolveFinalContractAmountAfterApe, resolveEffectivePayableAmountGrossForPayments } from './khmdhsFields';
+import { getLatestContractApeAmount } from './khmdhsApeEntry';
 import { formatViolationSummary } from './directAssignmentCompliance';
 import {
   buildKhmdhsNoticeDisplayGroups,
@@ -104,12 +105,15 @@ export function buildFileInventory(fileGroups = [], ungroupedFiles = []) {
   return { groups, ungrouped, totalCount: groups.reduce((n, g) => n + g.files.length, 0) + ungrouped.length };
 }
 
-function mapContractForReport(contract) {
+function mapContractForReport(contract, project = null, arrayIndex = 0) {
   const c = normalizeContractRow(contract);
+  const latestApe = project
+    ? (getLatestContractApeAmount(project, arrayIndex) || c.apeAmount || '')
+    : (c.apeAmount || '');
   return {
     date: c.date,
     amount: c.amount,
-    apeAmount: c.apeAmount,
+    apeAmount: latestApe,
     comments: c.comments,
     khmdhsAdam: c.khmdhsAdam,
     khmdhsAnadoxos: c.khmdhsContractSnapshot?.anadoxosName || '',
@@ -257,11 +261,13 @@ function buildBasicFields(project, engineerCatalog) {
     aleCodes.push(String(project.aleCode).trim());
   }
 
-  const contracts = (project.contracts || []).map(mapContractForReport);
-  const supplementaryContracts = (project.supplementaryContracts || []).map(mapContractForReport);
+  const contracts = (project.contracts || []).map((c, i) => mapContractForReport(c, project, i));
+  const supplementaryContracts = (project.supplementaryContracts || []).map((c) => mapContractForReport(c));
   const supplementaryStageEntries = getKhmdhsSupplementaryStageEntries(project)
     .map(mapSupplementaryEntryForReport)
     .filter(Boolean);
+  const finalAfterApe = resolveFinalContractAmountAfterApe(project);
+  const paymentReferenceAmount = resolveEffectivePayableAmountGrossForPayments(project);
 
   return {
     projectTitle: project.projectTitle || '',
@@ -296,6 +302,12 @@ function buildBasicFields(project, engineerCatalog) {
     contractAmount: project.contractAmount || '',
     apeAmount: resolveStoredApeAmount(project, null) || project.apeAmount || '',
     apeComments: project.apeComments || '',
+    hasFinalContractAmountAfterApe: !!finalAfterApe.hasRevision,
+    finalContractAmountAfterApe: finalAfterApe.hasRevision ? (finalAfterApe.amountRaw || finalAfterApe.amountLabel) : '',
+    finalContractApeDate: finalAfterApe.apeDocumentDate || '',
+    finalContractAfterApeLabel: finalAfterApe.fullLabel,
+    finalContractAfterApeExplanation: finalAfterApe.explanation,
+    paymentReferenceAmount: paymentReferenceAmount != null ? paymentReferenceAmount : null,
     khmdhsAdam: project.khmdhsAdam || '',
     khmdhsContractSnapshot: project.khmdhsContractSnapshot || null,
     khmdhsContractFetchedAt: project.khmdhsContractFetchedAt || '',

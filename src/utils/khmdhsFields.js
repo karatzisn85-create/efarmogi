@@ -172,6 +172,121 @@ function resolveMainContractTrackGross(formData, contractIndex = null) {
   return parseContractAmountGross(formData, contractIndex);
 }
 
+/** Ετικέτες για τελικό διαμορφωθέν ποσό μετά ΑΠΕ (αναφορά / απολογισμός). */
+export const FINAL_CONTRACT_AFTER_APE_SHORT_LABEL = 'Τελικό μετά ΑΠΕ';
+export const FINAL_CONTRACT_AFTER_APE_FULL_LABEL = 'Τελικό διαμορφωθέν ποσό σύμβασης (μετά ΑΠΕ)';
+export const FINAL_CONTRACT_AFTER_APE_EXPLANATION =
+  'Πρόκειται για το τελικό ποσό της σύμβασης όπως διαμορφώθηκε μετά από αναθεωρήσεις (ΑΠΕ). Ισχύει πάντα το πιο πρόσφατο ΑΠΕ κατά ημερομηνία.';
+
+function formatEuroGrossLabel(n) {
+  if (n == null || !Number.isFinite(n) || n <= 0) return '';
+  return n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function latestApeDocumentDate(formData, contractIndex = null) {
+  if (!formData) return '';
+  let entries = [];
+  if (contractIndex != null && isMultipleContractsForm(formData.implementationForm)) {
+    entries = formData.contracts?.[contractIndex]?.apeEntries || [];
+  } else {
+    entries = formData.apeEntries || [];
+  }
+  if (!entries.length) return '';
+  const sorted = [...entries].sort((a, b) => {
+    const da = String(a?.documentDate || a?.createdAt || '').slice(0, 10);
+    const db = String(b?.documentDate || b?.createdAt || '').slice(0, 10);
+    return da.localeCompare(db);
+  });
+  return String(sorted[sorted.length - 1]?.documentDate || '').slice(0, 10);
+}
+
+/**
+ * Τελικό διαμορφωθέν ποσό σύμβασης βάσει του τελευταίου χρονικά ΑΠΕ.
+ * Αν δεν υπάρχει πραγματικός ΑΠΕ → hasRevision: false (δεν εμφανίζεται ως ξεχωριστό πεδίο).
+ * Σε πολλές συμβάσεις: άθροισμα (ΑΠΕ αν υπάρχει ανά σύμβαση, αλλιώς ποσό σύμβασης),
+ * μόνο όταν τουλάχιστον μία έχει ΑΠΕ.
+ */
+export function resolveFinalContractAmountAfterApe(formData) {
+  const empty = {
+    hasRevision: false,
+    amount: null,
+    amountLabel: '',
+    amountRaw: '',
+    baseAmount: null,
+    baseAmountLabel: '',
+    apeDocumentDate: '',
+    shortLabel: FINAL_CONTRACT_AFTER_APE_SHORT_LABEL,
+    fullLabel: FINAL_CONTRACT_AFTER_APE_FULL_LABEL,
+    explanation: FINAL_CONTRACT_AFTER_APE_EXPLANATION,
+  };
+  if (!formData) return empty;
+
+  const tolerance = 0.5;
+
+  if (isMultipleContractsForm(formData.implementationForm)) {
+    const rows = formData.contracts || [];
+    let hasRevision = false;
+    let total = 0;
+    let baseTotal = 0;
+    let latestDate = '';
+    rows.forEach((_row, idx) => {
+      const ape = parseApeAmountGross(formData, idx);
+      const base = parseContractAmountGross(formData, idx);
+      baseTotal += base;
+      if (ape > tolerance) {
+        hasRevision = true;
+        total += ape;
+        const d = latestApeDocumentDate(formData, idx);
+        if (d && (!latestDate || d.localeCompare(latestDate) > 0)) latestDate = d;
+      } else {
+        total += base;
+      }
+    });
+    if (!hasRevision) {
+      return {
+        ...empty,
+        baseAmount: baseTotal > tolerance ? baseTotal : null,
+        baseAmountLabel: formatEuroGrossLabel(baseTotal),
+      };
+    }
+    return {
+      ...empty,
+      hasRevision: true,
+      amount: total,
+      amountLabel: formatEuroGrossLabel(total),
+      amountRaw: formatEuroGrossLabel(total),
+      baseAmount: baseTotal > tolerance ? baseTotal : null,
+      baseAmountLabel: formatEuroGrossLabel(baseTotal),
+      apeDocumentDate: latestDate,
+    };
+  }
+
+  const ape = parseApeAmountGross(formData, null);
+  const base = parseContractAmountGross(formData, null);
+  const hasEntryHistory = (formData.apeEntries || []).some((e) => String(e?.apeAmount || '').trim());
+  const ghostSameAsContract = ape > tolerance
+    && base > tolerance
+    && Math.abs(ape - base) < 0.01
+    && !hasEntryHistory;
+  if (ape <= tolerance || ghostSameAsContract) {
+    return {
+      ...empty,
+      baseAmount: base > tolerance ? base : null,
+      baseAmountLabel: formatEuroGrossLabel(base),
+    };
+  }
+  return {
+    ...empty,
+    hasRevision: true,
+    amount: ape,
+    amountLabel: formatEuroGrossLabel(ape),
+    amountRaw: readLatestContractApeAmountRaw(formData, null) || formatEuroGrossLabel(ape),
+    baseAmount: base > tolerance ? base : null,
+    baseAmountLabel: formatEuroGrossLabel(base),
+    apeDocumentDate: latestApeDocumentDate(formData, null),
+  };
+}
+
 /** Άθροισμα όλων των συμπληρωματικών συμβάσεων (αν υπάρχουν). */
 function resolveSupplementaryGrossToAdd(formData) {
   const tolerance = 0.5;

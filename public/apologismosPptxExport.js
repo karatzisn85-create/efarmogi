@@ -47,6 +47,7 @@ function paletteOf(d) {
     darkGhost: hx(c.darkGhost, '243244'),
     photoFrame: hx(c.photoFrame, 'cbd5e1'),
     photoPlaceholder: hx(c.photoPlaceholder, 'e2e8f0'),
+    accentSoft: hx(c.accentSoft, 'dbeafe'),
   };
 }
 
@@ -188,13 +189,89 @@ function addKpiCards(slide, pptx, d, p, { y, items, height = design.GEOM.kpiH })
       x: col.x + g.kpiPad, y: y + g.kpiPad + 2, w: col.width - g.kpiPad * 2,
       size: d.type.kpiLabel, color: fg, bold: true, caps: true, spacing: 0.08,
     });
+    const valueSize = k.big
+      ? d.type.kpiValueHero
+      : (items.length > 2 ? d.type.kpiValue - 2 : d.type.kpiValue);
     addText(slide, k.value, {
       x: col.x + g.kpiPad,
       y: y + g.kpiPad + d.type.kpiLabel * 1.3 + 10,
       w: col.width - g.kpiPad * 2,
-      size: k.big ? d.type.kpiValueHero : d.type.kpiValue,
+      size: valueSize,
       color: fg,
       bold: true,
+    });
+    if (k.note) {
+      addText(slide, k.note, {
+        x: col.x + g.kpiPad,
+        y: y + height - g.kpiPad - d.type.caption * 1.4,
+        w: col.width - g.kpiPad * 2,
+        size: Math.max(10, d.type.caption - 1),
+        color: fg,
+        bold: true,
+        lines: 2,
+      });
+    }
+  });
+}
+
+/** Πίνακας αποτελεσμάτων — κάρτες με χρώμα παλέτας (ίδιο πνεύμα με την οθόνη). */
+function addMetricsBoard(slide, pptx, d, p, { y, height, rows }) {
+  const g = design.GEOM;
+  const list = (rows || []).filter((r) => r && (r.label || r.value));
+  const contentW = SLIDE_W - g.marginX * 2;
+  const headH = 40;
+  const badge = 28;
+
+  addRect(slide, pptx, {
+    x: g.marginX, y: y + 2, w: badge, h: badge, color: p.accent, radius: 8,
+  });
+  addText(slide, String(list.length), {
+    x: g.marginX, y: y + 7, w: badge, size: 12, color: p.accentText, bold: true, align: 'center',
+  });
+  addText(slide, 'Αποτελέσματα', {
+    x: g.marginX + badge + 10, y: y + 2, w: 280, size: d.type.caption,
+    color: p.accent, bold: true, caps: true, spacing: 0.12,
+  });
+  addText(slide, 'Μετρήσιμα μεγέθη του έργου', {
+    x: g.marginX + badge + 10, y: y + 18, w: 320, size: d.type.caption, color: p.muted, bold: true,
+  });
+
+  if (!list.length) return;
+
+  const cols = list.length === 1 ? 1 : 2;
+  const gutter = 14;
+  const gridTop = y + headH + 8;
+  const gridH = Math.max(72, height - headH - 12);
+  const rowCount = Math.ceil(list.length / cols);
+  const cardH = Math.min(110, Math.max(68, (gridH - gutter * (rowCount - 1)) / rowCount));
+  const cardW = cols === 1 ? contentW : (contentW - gutter) / 2;
+  const valueSize = list.length <= 2 ? d.type.kpiValue : d.type.statValue + 1;
+
+  list.forEach((m, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const cx = g.marginX + col * (cardW + gutter);
+    const cy = gridTop + row * (cardH + gutter);
+    const featured = i % 2 === 0;
+    addRect(slide, pptx, {
+      x: cx, y: cy, w: cardW, h: cardH,
+      color: featured ? p.accentSoft : p.surface,
+      radius: 12,
+    });
+    addRect(slide, pptx, {
+      x: cx, y: cy, w: 5, h: cardH, color: p.accent,
+    });
+    addText(slide, m.label, {
+      x: cx + 16, y: cy + 12, w: cardW - 52, size: d.type.caption,
+      color: p.muted, bold: true, caps: true, spacing: 0.1,
+    });
+    addText(slide, String(i + 1).padStart(2, '0'), {
+      x: cx + cardW - 36, y: cy + 12, w: 24, size: 10,
+      color: p.accent, bold: true, align: 'right',
+    });
+    addText(slide, m.value, {
+      x: cx + 16, y: cy + 34, w: cardW - 28, size: valueSize,
+      color: featured ? p.accent : p.text, bold: true,
     });
   });
 }
@@ -320,6 +397,215 @@ function addCoverSlide(pptx, model, d, p, resolveMedia, coverFrames = []) {
   });
 }
 
+function addTocSlide(pptx, toc, d, p, footerCtx) {
+  const g = design.GEOM;
+  const t = d.type;
+  const items = toc?.items || [];
+  const preface = toc?.preface || [];
+  const listCount = items.length + (preface.length ? 1 : 0);
+  const compact = listCount >= 6;
+  const dense = listCount >= 7;
+  const slide = pptx.addSlide();
+  addRect(slide, pptx, { x: 0, y: 0, w: SLIDE_W, h: SLIDE_H, color: p.surface });
+  addRect(slide, pptx, { x: 0, y: 0, w: 8, h: SLIDE_H, color: p.accent });
+
+  const titleSize = compact ? t.title : t.titleSection;
+  addText(slide, 'Οδηγός παρουσίασης', {
+    x: g.marginX + 12, y: g.marginTop, w: 420, size: t.eyebrow,
+    color: p.accent, bold: true, caps: true, spacing: 0.14,
+  });
+  addText(slide, toc?.title || 'Περιεχόμενα', {
+    x: g.marginX + 12, y: g.marginTop + (compact ? 18 : 22), w: 520, size: titleSize,
+    color: p.text, bold: true,
+  });
+
+  const chips = [
+    { label: 'Κατηγορίες', value: String(toc?.categoryCount ?? items.length) },
+    { label: 'Παρεμβάσεις', value: String(toc?.projectCount ?? 0) },
+    { label: 'Εγκεκριμένα', value: formatAmountEl(toc?.totalApproved) },
+  ];
+  let chipX = g.marginX + 12;
+  const chipY = g.marginTop + (compact ? 56 : 78);
+  if (toc?.periodLabel) {
+    addText(slide, toc.periodLabel, {
+      x: g.marginX + 12, y: chipY - (compact ? 14 : 16), w: 280, size: t.caption, color: p.muted, bold: true,
+    });
+    chipX = g.marginX + 290;
+  }
+  chips.forEach((chip) => {
+    const chipW = chip.label === 'Εγκεκριμένα' ? (compact ? 190 : 210) : (compact ? 120 : 140);
+    addRect(slide, pptx, {
+      x: chipX, y: chipY, w: chipW, h: compact ? 24 : 28, color: p.accentSoft, radius: 14,
+    });
+    addText(slide, `${chip.label}  ${chip.value}`, {
+      x: chipX + 8, y: chipY + (compact ? 5 : 7), w: chipW - 16, size: compact ? 10 : 11,
+      color: p.accent, bold: true, caps: true, spacing: 0.05,
+    });
+    chipX += chipW + 8;
+  });
+
+  let cursorY = chipY + (compact ? 30 : 40);
+  const rowW = SLIDE_W - g.marginX * 2 - 12;
+  const badge = dense ? 18 : compact ? 20 : 24;
+  const nameSize = dense ? 11 : compact ? t.body - 0.5 : t.body;
+  const pageSize = dense ? t.body : compact ? t.statValue - 1 : t.statValue;
+
+  preface.forEach((pf) => {
+    const prefH = compact ? 30 : 34;
+    addRect(slide, pptx, {
+      x: g.marginX + 12, y: cursorY, w: rowW, h: prefH,
+      color: p.accentSoft, radius: 8,
+    });
+    addRect(slide, pptx, {
+      x: g.marginX + 18, y: cursorY + (prefH - badge) / 2, w: badge, h: badge,
+      color: p.accent, radius: 6,
+    });
+    addText(slide, '—', {
+      x: g.marginX + 18, y: cursorY + (prefH - 10) / 2, w: badge, size: 10,
+      color: p.accentText, bold: true, align: 'center',
+    });
+    addText(slide, pf.label, {
+      x: g.marginX + 50, y: cursorY + (prefH - nameSize) / 2, w: 420, size: nameSize, color: p.text, bold: true,
+    });
+    addText(slide, '—', {
+      x: g.marginX + 540, y: cursorY + (prefH - 10) / 2, w: 110, size: 10, color: p.muted, bold: true, align: 'right',
+    });
+    addText(slide, String(pf.startPage), {
+      x: g.marginX + 670, y: cursorY + (prefH - pageSize) / 2, w: 60,
+      size: pageSize, color: p.accent, bold: true, align: 'right',
+    });
+    cursorY += prefH + 6;
+  });
+
+  addText(slide, 'Κατηγορία', {
+    x: g.marginX + 52, y: cursorY, w: 360, size: 9, color: p.muted, bold: true, caps: true, spacing: 0.1,
+  });
+  addText(slide, 'Παρεμβάσεις', {
+    x: g.marginX + 540, y: cursorY, w: 110, size: 9, color: p.muted, bold: true, caps: true, align: 'right', spacing: 0.1,
+  });
+  addText(slide, 'Σελ.', {
+    x: g.marginX + 670, y: cursorY, w: 60, size: 9, color: p.muted, bold: true, caps: true, align: 'right', spacing: 0.1,
+  });
+
+  const listTop = cursorY + 16;
+  const avail = g.contentBottom - listTop;
+  const n = Math.max(1, items.length);
+  // Ισόποση κατανομή ώστε να χωρούν όλες οι γραμμές πριν το υποσέλιδο.
+  const rowH = Math.min(dense ? 32 : compact ? 36 : 42, Math.max(dense ? 22 : 28, Math.floor(avail / n)));
+
+  items.forEach((it, i) => {
+    const y = listTop + i * rowH;
+    const featured = i % 2 === 0;
+    const innerH = Math.max(22, rowH - 3);
+    addRect(slide, pptx, {
+      x: g.marginX + 12, y, w: rowW, h: innerH,
+      color: featured ? p.accentSoft : p.panel, radius: 8,
+    });
+    const badgeY = y + Math.max(2, (innerH - badge) / 2);
+    addRect(slide, pptx, {
+      x: g.marginX + 18, y: badgeY, w: badge, h: badge,
+      color: featured ? p.accent : p.surface, radius: 6,
+    });
+    addText(slide, String(it.index).padStart(2, '0'), {
+      x: g.marginX + 18, y: badgeY + 3, w: badge, size: dense ? 9 : 10,
+      color: featured ? p.accentText : p.accent, bold: true, align: 'center',
+    });
+    const textY = compact ? y + Math.max(2, (innerH - nameSize * 2.2) / 2) : y + 3;
+    addText(slide, it.label, {
+      x: g.marginX + 50, y: textY, w: 420, size: nameSize, color: p.text, bold: true,
+    });
+    addText(slide, compact
+      ? formatAmountEl(it.totalApproved)
+      : `Εγκεκριμένα ${formatAmountEl(it.totalApproved)}`, {
+      x: g.marginX + 50, y: textY + nameSize + 1, w: 420, size: compact ? 9 : 10, color: p.muted, bold: true,
+    });
+    addText(slide, String(it.count), {
+      x: g.marginX + 540, y: y + Math.max(4, (innerH - nameSize) / 2), w: 110,
+      size: nameSize, color: p.text, bold: true, align: 'right',
+    });
+    addText(slide, String(it.startPage), {
+      x: g.marginX + 670, y: y + Math.max(3, (innerH - pageSize) / 2), w: 60,
+      size: pageSize, color: p.accent, bold: true, align: 'right',
+    });
+  });
+
+  addFooter(slide, pptx, d, p, footerCtx);
+}
+
+function addMayorSlide(pptx, mayorMessage, d, p, resolveMedia, footerCtx) {
+  const g = design.GEOM;
+  const t = d.type;
+  const mm = mayorMessage || {};
+  const slide = pptx.addSlide();
+  addRect(slide, pptx, { x: 0, y: 0, w: SLIDE_W, h: SLIDE_H, color: p.surface });
+  addRect(slide, pptx, { x: 0, y: 0, w: 8, h: SLIDE_H, color: p.accent });
+
+  const photoX = g.marginX + 24;
+  const photoY = g.marginTop + 18;
+  const photoW = 220;
+  const photoH = 280;
+  addRect(slide, pptx, {
+    x: photoX, y: photoY, w: photoW, h: photoH, color: p.panel, radius: 14,
+  });
+  const framed = dataUrlToPptxData(mm.photo?.framedDataUrl);
+  if (framed) {
+    try {
+      slide.addImage({
+        data: framed,
+        x: U(photoX), y: U(photoY), w: U(photoW), h: U(photoH),
+      });
+    } catch (_) {
+      addPhoto(slide, resolveMedia, mm.photo?.relativePath, {
+        x: photoX, y: photoY, w: photoW, h: photoH,
+      });
+    }
+  } else {
+    const ok = addPhoto(slide, resolveMedia, mm.photo?.relativePath, {
+      x: photoX, y: photoY, w: photoW, h: photoH,
+    });
+    if (!ok) {
+      addText(slide, 'Φωτογραφία Δημάρχου', {
+        x: photoX + 16, y: photoY + photoH / 2 - 8, w: photoW - 32, size: t.caption,
+        color: p.muted, bold: true, align: 'center',
+      });
+    }
+  }
+  addRect(slide, pptx, {
+    x: photoX, y: photoY, w: 5, h: photoH, color: p.accent,
+  });
+
+  const name = String(mm.mayorName || '').trim();
+  let labelY = photoY + photoH + 12;
+  if (name) {
+    addText(slide, name, {
+      x: photoX, y: labelY, w: photoW, size: t.body, color: p.text, bold: true, align: 'center',
+    });
+    labelY += t.body + 4;
+  }
+  addText(slide, 'Δήμαρχος', {
+    x: photoX, y: labelY, w: photoW, size: t.caption, color: p.accent, bold: true, align: 'center', caps: true, spacing: 0.12,
+  });
+
+  const textX = photoX + photoW + 36;
+  const textW = SLIDE_W - textX - g.marginX;
+  addText(slide, 'Οδηγός παρουσίασης', {
+    x: textX, y: g.marginTop + 24, w: textW, size: t.eyebrow,
+    color: p.accent, bold: true, caps: true, spacing: 0.14,
+  });
+  addText(slide, mm.title || 'Μήνυμα Δημάρχου', {
+    x: textX, y: g.marginTop + 48, w: textW, size: t.titleSection, color: p.text, bold: true,
+  });
+  addRect(slide, pptx, {
+    x: textX, y: g.marginTop + 92, w: 56, h: 4, color: p.accent, radius: 2,
+  });
+  addText(slide, String(mm.text || '').trim() || '—', {
+    x: textX, y: g.marginTop + 114, w: textW,
+    size: t.body + 1, color: p.text, bold: false, lines: 12,
+  });
+
+  addFooter(slide, pptx, d, p, footerCtx);
+}
+
 function addCategorySlide(pptx, section, d, p, footerCtx, sectionIndex, sectionTotal) {
   const g = design.GEOM;
   const t = d.type;
@@ -413,6 +699,12 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
         { label: 'Εγκεκριμένο', value: formatAmountEl(display.approvedAmount) },
         { label: 'Συμβατικό', value: formatAmountEl(display.contractAmount) },
       ];
+      if (display.showFinalContractAmount) {
+        stats.push({
+          label: display.finalContractAmountShortLabel || 'Τελικό μετά ΑΠΕ',
+          value: formatAmountEl(display.finalContractAmountAfterApe),
+        });
+      }
       if (display.area) stats.push({ label: 'Περιοχή', value: display.area });
       addStatStrip(slide, pptx, d, p, {
         x: g.marginX,
@@ -482,36 +774,42 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
         );
       }
     } else if (page.type === 'metrics') {
-      const rows = page.metrics || [];
-      const half = Math.ceil(rows.length / 2);
-      const columns = [rows.slice(0, half), rows.slice(half)].filter((c) => c.length);
-      const colW = (contentW - 40) / 2;
-      const rowH = Math.min(42, contentH / Math.max(1, half));
-      const blockTop = g.contentTop + Math.max(0, (contentH - rowH * half) / 2);
-      columns.forEach((col, ci) => {
-        const cx = g.marginX + ci * (colW + 40);
-        col.forEach((m, i) => {
-          const ry = blockTop + i * rowH;
-          addText(slide, m.label, {
-            x: cx, y: ry + 8, w: colW * 0.6, size: t.body, color: p.muted,
-          });
-          addText(slide, m.value, {
-            x: cx + colW * 0.6, y: ry + 4, w: colW * 0.4, size: t.statValue,
-            color: p.text, bold: true, align: 'right',
-          });
-          addRect(slide, pptx, { x: cx, y: ry + rowH - 1, w: colW, h: 1, color: p.hairline });
-        });
+      addMetricsBoard(slide, pptx, d, p, {
+        y: g.contentTop,
+        height: contentH,
+        rows: page.metrics || [],
       });
     } else if (page.type === 'amounts') {
-      const cardH = 128;
+      const showFinal = !!page.showFinalContractAmount;
+      const cardH = showFinal ? 148 : 128;
+      const items = [
+        { label: 'Εγκεκριμένο ποσό', value: formatAmountEl(page.approvedAmount), tone: 'accent' },
+        { label: 'Συμβατικό ποσό', value: formatAmountEl(page.contractAmount), tone: 'dark' },
+      ];
+      if (showFinal) {
+        items.push({
+          label: page.finalContractAmountShortLabel || 'Τελικό μετά ΑΠΕ',
+          value: formatAmountEl(page.finalContractAmountAfterApe),
+          tone: 'dark',
+          note: 'Διαμορφωθέν μετά από αναθεωρήσεις',
+        });
+      }
       addKpiCards(slide, pptx, d, p, {
-        y: g.contentTop + (contentH - cardH) / 2,
+        y: g.contentTop + (contentH - cardH - (showFinal ? 36 : 0)) / 2,
         height: cardH,
-        items: [
-          { label: 'Εγκεκριμένο ποσό', value: formatAmountEl(page.approvedAmount), tone: 'accent' },
-          { label: 'Συμβατικό ποσό', value: formatAmountEl(page.contractAmount), tone: 'dark' },
-        ],
+        items,
       });
+      if (showFinal) {
+        addText(slide, page.finalContractAmountExplanation || '', {
+          x: g.marginX,
+          y: g.contentTop + (contentH - cardH - 36) / 2 + cardH + 10,
+          w: contentW,
+          size: d.type.caption,
+          color: p.muted,
+          bold: true,
+          lines: 2,
+        });
+      }
     } else {
       const narrative = page.narrative || display.narrative || '';
       const lines = 5;
@@ -541,7 +839,9 @@ function composeApologismosDeck(model, { resolveMedia, coverFrames = [] } = {}) 
   const p = paletteOf(d);
 
   // Πρώτο πέρασμα: πλήθος διαφανειών, ώστε το υποσέλιδο να δείχνει «x / σύνολο».
-  let total = 1;
+  const hasToc = !!(model.toc?.items?.length);
+  const hasMayor = !!(model.mayorMessage?.enabled);
+  let total = 1 + (hasToc ? 1 : 0) + (hasMayor ? 1 : 0);
   for (const section of model.sections || []) {
     if (d.sectionDividers) total += 1;
     for (const entry of section.cards || []) {
@@ -563,6 +863,12 @@ function composeApologismosDeck(model, { resolveMedia, coverFrames = [] } = {}) 
 
   addCoverSlide(pptx, model, d, p, resolveMedia, coverFrames);
   index += 1;
+  if (hasToc) {
+    addTocSlide(pptx, model.toc, d, p, nextFooter());
+  }
+  if (hasMayor) {
+    addMayorSlide(pptx, model.mayorMessage, d, p, resolveMedia, nextFooter());
+  }
 
   const sectionTotal = (model.sections || []).length;
   let sectionOrdinal = 0;

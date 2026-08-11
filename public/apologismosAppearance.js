@@ -137,6 +137,31 @@ function normalizeCoverImage(raw) {
 const DEFAULT_MOTION_STYLE = 'fade';
 const MOTION_STYLE_IDS = Object.freeze(['fade']);
 
+const MAYOR_MESSAGE_TITLE = 'Μήνυμα Δημάρχου';
+const MAYOR_NAME_MAX = 80;
+const MAYOR_TEXT_MAX = 900;
+
+function emptyMayorMessage() {
+  return {
+    enabled: false,
+    mayorName: '',
+    text: '',
+    photo: null,
+  };
+}
+
+function normalizeMayorMessage(raw) {
+  if (!raw || typeof raw !== 'object') return emptyMayorMessage();
+  const photo = normalizeCoverImage(raw.photo);
+  // Χωρίς .trim() εδώ: το normalize τρέχει σε κάθε πλήκτρο στο UI και θα «έτρωγε» το Space.
+  return {
+    enabled: raw.enabled === true,
+    mayorName: String(raw.mayorName ?? '').slice(0, MAYOR_NAME_MAX),
+    text: String(raw.text ?? '').slice(0, MAYOR_TEXT_MAX),
+    photo: photo || null,
+  };
+}
+
 function emptyAppearance() {
   return {
     paletteId: DEFAULT_PALETTE_ID,
@@ -149,6 +174,7 @@ function emptyAppearance() {
     footerMode: slideDesign.DEFAULT_FOOTER_MODE,
     sectionDividers: true,
     coverStats: true,
+    mayorMessage: emptyMayorMessage(),
     updatedAt: null,
   };
 }
@@ -195,7 +221,8 @@ function normalizeAppearance(raw) {
   return {
     paletteId,
     coverLayoutId,
-    subtitle: String(raw.subtitle || '').trim().slice(0, 120),
+    // Χωρίς .trim(): αλλιώς το διάστημα στο τέλος χάνεται σε κάθε πάτημα πλήκτρου.
+    subtitle: String(raw.subtitle ?? '').slice(0, 120),
     coverImages: slots.filter(Boolean),
     motionEnabled,
     motionStyle,
@@ -207,6 +234,7 @@ function normalizeAppearance(raw) {
       : slideDesign.DEFAULT_FOOTER_MODE,
     sectionDividers: raw.sectionDividers !== false,
     coverStats: raw.coverStats !== false,
+    mayorMessage: normalizeMayorMessage(raw.mayorMessage),
     updatedAt: raw.updatedAt || null,
   };
 }
@@ -292,6 +320,11 @@ module.exports = {
   getCoverLayout,
   DEFAULT_MOTION_STYLE,
   MOTION_STYLE_IDS,
+  MAYOR_MESSAGE_TITLE,
+  MAYOR_NAME_MAX,
+  MAYOR_TEXT_MAX,
+  emptyMayorMessage,
+  normalizeMayorMessage,
   emptyAppearance,
   normalizeAppearance,
   normalizeCoverImage,

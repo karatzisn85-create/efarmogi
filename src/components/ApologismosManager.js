@@ -24,6 +24,8 @@ import {
   updateMetricsRow,
   addMetricsRow,
   removeMetricsRow,
+  getPhotoRequestUiState,
+  PHOTO_REQUEST_REMINDER_DAYS,
 } from '../utils/apologismosCardUi';
 import { hasMapSnapshot } from '../utils/apologismosMapDrawing';
 import ApologismosSlideView from './ApologismosSlideView';
@@ -43,6 +45,9 @@ function collectPresentationMediaPaths(model) {
   for (const img of model?.cover?.images || model?.appearance?.coverImages || []) {
     if (img?.relativePath) rels.push(img.relativePath);
   }
+  const mayorPhoto = model?.mayorMessage?.photo?.relativePath
+    || model?.appearance?.mayorMessage?.photo?.relativePath;
+  if (mayorPhoto) rels.push(mayorPhoto);
   for (const section of model?.sections || []) {
     for (const entry of section.cards || []) {
       const photos = entry.card?.photos || {};
@@ -760,6 +765,7 @@ export default function ApologismosManager({
   const [metricsHelpOpen, setMetricsHelpOpen] = useState(false);
   const [legacyForm, setLegacyForm] = useState({
     title: '', area: '', completionYear: '', approvedAmount: '', contractAmount: '',
+    finalContractAmountAfterApe: '', showFinalContractAmountInPresentation: false,
   });
   const [presentation, setPresentation] = useState(null);
   const [presentationMeta, setPresentationMeta] = useState({ theme: null, cover: null, motion: null });
@@ -773,6 +779,10 @@ export default function ApologismosManager({
   const [stageScale, setStageScale] = useState(1);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [photoRequestOpen, setPhotoRequestOpen] = useState(false);
+  const [photoRequestDeadline, setPhotoRequestDeadline] = useState('');
+  const [photoRequestNote, setPhotoRequestNote] = useState('');
+  const [photoRequestBusy, setPhotoRequestBusy] = useState(false);
 
   const selected = useMemo(
     () => (report?.cards || []).find((c) => c.id === selectedId) || null,
@@ -895,7 +905,16 @@ export default function ApologismosManager({
 
   useEffect(() => {
     if (!presentation) return undefined;
+    const isTypingTarget = (el) => {
+      if (!el || el === window || el === document) return false;
+      const node = el.nodeType === 3 ? el.parentElement : el;
+      if (!node || !node.closest) return false;
+      if (node.isContentEditable) return true;
+      return !!node.closest('input, textarea, select, [contenteditable="true"]');
+    };
     const onKey = (e) => {
+      // Μην «κλέβεις» Space/βέλη όσο γράφει ο χρήστης σε πεδίο.
+      if (isTypingTarget(e.target)) return;
       if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
         const base = presentTargetRef.current != null ? presentTargetRef.current : slideIndex;
@@ -923,6 +942,9 @@ export default function ApologismosManager({
     completionYear: card.completionYear || '',
     approvedAmount: card.approvedAmount || '',
     contractAmount: card.contractAmount || '',
+    finalContractAmountAfterApe: card.finalContractAmountAfterApe || '',
+    finalContractApeDate: card.finalContractApeDate || '',
+    showFinalContractAmountInPresentation: !!card.showFinalContractAmountInPresentation,
     title: card.title || '',
     metrics: draftMetricsRows(card.metrics || []),
   }), []);
@@ -1027,6 +1049,7 @@ export default function ApologismosManager({
     setLegacyOpen(false);
     setLegacyForm({
       title: '', area: '', completionYear: '', approvedAmount: '', contractAmount: '',
+      finalContractAmountAfterApe: '', showFinalContractAmountInPresentation: false,
     });
     showToast('Καταχωρήθηκε παλαιότερο έργο', 'success');
   };
@@ -1043,6 +1066,9 @@ export default function ApologismosManager({
       title: draft.title,
       approvedAmount: draft.approvedAmount,
       contractAmount: draft.contractAmount,
+      finalContractAmountAfterApe: draft.finalContractAmountAfterApe,
+      finalContractApeDate: draft.finalContractApeDate,
+      showFinalContractAmountInPresentation: !!draft.showFinalContractAmountInPresentation,
       area: draft.area || '',
     };
     if (selected.source === 'legacy') {
@@ -1323,6 +1349,26 @@ export default function ApologismosManager({
         { label: 'Συμβάσεις', value: formatAmount(model.totals?.totalContract) },
       ],
     });
+    if (model.toc?.items?.length) {
+      slides.push({
+        type: 'toc',
+        toc: {
+          ...model.toc,
+          totalApprovedText: formatAmount(model.toc.totalApproved),
+          totalContractText: formatAmount(model.toc.totalContract),
+          items: (model.toc.items || []).map((it) => ({
+            ...it,
+            totalApprovedText: formatAmount(it.totalApproved),
+          })),
+        },
+      });
+    }
+    if (model.mayorMessage?.enabled) {
+      slides.push({
+        type: 'mayor',
+        mayorMessage: model.mayorMessage,
+      });
+    }
     let sectionOrdinal = 0;
     for (const section of model.sections || []) {
       if (showDividers) {
@@ -1355,6 +1401,11 @@ export default function ApologismosManager({
             ),
             contractText: formatAmount(
               page.type === 'amounts' ? page.contractAmount : entry.display?.contractAmount
+            ),
+            finalContractText: formatAmount(
+              (page.type === 'amounts'
+                ? page.finalContractAmountAfterApe
+                : entry.display?.finalContractAmountAfterApe)
             ),
           });
         });
@@ -1426,6 +1477,15 @@ export default function ApologismosManager({
         images: (model.cover.images || []).map((img, i) => (
           img ? { ...img, framedDataUrl: framedRes.frames[i] || null } : null
         )),
+      };
+    }
+    if (framedRes?.success && framedRes.mayorFrame && model.mayorMessage?.photo) {
+      model.mayorMessage = {
+        ...model.mayorMessage,
+        photo: {
+          ...model.mayorMessage.photo,
+          framedDataUrl: framedRes.mayorFrame,
+        },
       };
     }
     try {
@@ -1503,6 +1563,88 @@ export default function ApologismosManager({
   const selectedVizIds = cardVizIds(selected);
   const selectedNeedsMap = needsMapInput(selectedVizIds);
   const selectedNeedsMetrics = needsMetricsInput(selectedVizIds);
+  const selectedCanRequestPhotos = !!(
+    selected
+    && selected.source === 'linked'
+    && selected.supervisor?.displayName
+    && savedPhotoPhases.length > 0
+  );
+
+  const formatPhotoRequestSentAt = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString('el-GR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const openPhotoRequest = () => {
+    if (!selectedCanRequestPhotos) return;
+    if (!selected.supervisor?.hasEmail) {
+      showToast(
+        selected.supervisor?.displayName
+          ? 'Ο επιβλέπων δεν έχει καταχωρημένο email στον λογαριασμό χρήστη του.'
+          : 'Δεν υπάρχει επιβλέπων με λογαριασμό χρήστη και email για αποστολή.',
+        'error'
+      );
+      return;
+    }
+    setPhotoRequestDeadline('');
+    setPhotoRequestNote('');
+    setPhotoRequestOpen(true);
+  };
+
+  const sendPhotoRequest = async () => {
+    if (!selected || photoRequestBusy) return;
+    if (selected.photoRequestLast?.sentAt) {
+      const when = formatPhotoRequestSentAt(selected.photoRequestLast.sentAt);
+      const ok = window.confirm(
+        when
+          ? `Έχει ήδη σταλεί αίτημα στις ${when}. Να ξανασταλεί;`
+          : 'Έχει ήδη σταλεί αίτημα φωτογραφιών. Να ξανασταλεί;'
+      );
+      if (!ok) return;
+    }
+    setPhotoRequestBusy(true);
+    try {
+      const res = await ipcRenderer.invoke('apologismos-request-card-photos', {
+        actingUsername: username,
+        periodId,
+        cardId: selected.id,
+        optionalDeadline: photoRequestDeadline.trim(),
+        optionalNote: photoRequestNote.trim(),
+      });
+      if (!res?.success) {
+        showToast(res?.error || 'Αποτυχία αποστολής αιτήματος', 'error');
+        return;
+      }
+      if (res.report) setReport(res.report);
+      else if (res.photoRequestLast && selectedId) {
+        setReport((prev) => {
+          if (!prev?.cards) return prev;
+          return {
+            ...prev,
+            cards: prev.cards.map((c) => (
+              c.id === selectedId ? { ...c, photoRequestLast: res.photoRequestLast } : c
+            )),
+          };
+        });
+      }
+      setPhotoRequestOpen(false);
+      showToast(
+        res.warning
+          || `Το αίτημα στάλθηκε στον επιβλέποντα${selected.supervisor?.displayName ? ` (${selected.supervisor.displayName})` : ''}.`,
+        res.warning ? 'info' : 'success'
+      );
+    } finally {
+      setPhotoRequestBusy(false);
+    }
+  };
 
   const vizGuideOpts = {
     vizModes: meta.vizModes,
@@ -1583,7 +1725,7 @@ export default function ApologismosManager({
           </HeaderStat>
         </HeaderStats>
         <HeaderActions>
-          <Btn type="button" disabled={!periodId || !report} onClick={() => setAppearanceOpen(true)}>Εμφάνιση</Btn>
+          <Btn type="button" disabled={!periodId || !report} onClick={() => setAppearanceOpen(true)}>Ρυθμίσεις εξωφύλλου - διαφανειών</Btn>
           <Btn type="button" onClick={openPresentation}>Παρουσίαση</Btn>
           <Btn type="button" disabled={exportBusy} onClick={exportPdf}>Εξαγωγή εγγράφου</Btn>
           <Btn type="button" disabled={exportBusy} onClick={exportPptx}>Εξαγωγή διαφανειών</Btn>
@@ -1700,6 +1842,15 @@ export default function ApologismosManager({
                       </CardStatusText>
                       {card.amountChangedBadge && <MicroPill $tone="warn">Νέο ποσό</MicroPill>}
                       {card.source === 'legacy' && <MicroPill>Παλαιότερο</MicroPill>}
+                      {(() => {
+                        const photoState = getPhotoRequestUiState(card, meta.vizModes);
+                        if (photoState.status === 'awaiting' || photoState.status === 'reminder') {
+                          return (
+                            <MicroPill $tone="warn">{photoState.label || 'Αναμονή φωτο'}</MicroPill>
+                          );
+                        }
+                        return null;
+                      })()}
                     </CardTopRow>
                     <CardTitle $active={isActive}>{card.title}</CardTitle>
                     <CardAmount>{formatAmount(card.approvedAmount)}</CardAmount>
@@ -1755,6 +1906,96 @@ export default function ApologismosManager({
                       <Err>{selected.readinessErrors.join(' · ')}</Err>
                     )}
                   </EditSection>
+
+                  {selected.source === 'linked' ? (
+                    <EditSection>
+                      <EditSectionTitle>Επιβλέπων υποέργου & φωτογραφίες</EditSectionTitle>
+                      {selected.supervisor?.displayName ? (
+                        <ViewGrid>
+                          <ViewRow $wide>
+                            <ViewLabel>Επιβλέπων</ViewLabel>
+                            <ViewValue>{selected.supervisor.displayName}</ViewValue>
+                          </ViewRow>
+                          {selected.supervisor.hasEmail ? (
+                            <ViewRow $wide>
+                              <ViewLabel>Email</ViewLabel>
+                              <ViewValue style={{ fontSize: '0.82rem', color: '#475569' }}>
+                                {selected.supervisor.email}
+                              </ViewValue>
+                            </ViewRow>
+                          ) : (
+                            <Hint style={{ marginTop: 4 }}>
+                              Δεν υπάρχει καταχωρημένο email στον λογαριασμό του επιβλέποντα — δεν μπορεί να σταλεί αίτημα.
+                            </Hint>
+                          )}
+                        </ViewGrid>
+                      ) : (
+                        <Hint>
+                          Δεν έχει καταγραφεί επιβλέπων στο συνδεδεμένο υποέργο. Καταχωρήστε κύρια χρέωση στην κάρτα του υποέργου.
+                        </Hint>
+                      )}
+                      {(() => {
+                        const photoState = getPhotoRequestUiState(selected, meta.vizModes);
+                        if (photoState.status === 'awaiting' || photoState.status === 'reminder') {
+                          return (
+                            <Hint style={{ marginTop: 8 }}>
+                              {photoState.status === 'reminder'
+                                ? `Έχει περάσει πάνω από ${PHOTO_REQUEST_REMINDER_DAYS} ημέρες από το αίτημα και λείπουν ακόμα φωτογραφίες. Μπορείτε να ξαναστείλετε υπενθύμιση.`
+                                : 'Έχει σταλεί αίτημα φωτογραφιών στον επιβλέποντα — αναμονή υλικού.'}
+                              {selected.photoRequestLast?.sentAt
+                                ? ` (τελευταίο: ${formatPhotoRequestSentAt(selected.photoRequestLast.sentAt)})`
+                                : ''}
+                            </Hint>
+                          );
+                        }
+                        if (photoState.status === 'ready' && selected.photoRequestLast?.sentAt) {
+                          return (
+                            <Hint style={{ marginTop: 8 }}>
+                              Οι απαιτούμενες φωτογραφίες είναι συμπληρωμένες
+                              {' '}
+                              · αίτημα στις {formatPhotoRequestSentAt(selected.photoRequestLast.sentAt)}.
+                            </Hint>
+                          );
+                        }
+                        if (selected.photoRequestLast?.sentAt) {
+                          return (
+                            <Hint style={{ marginTop: 8 }}>
+                              Τελευταίο αίτημα φωτογραφιών:
+                              {' '}
+                              {formatPhotoRequestSentAt(selected.photoRequestLast.sentAt)}
+                              {selected.photoRequestLast.toName
+                                ? ` · προς ${selected.photoRequestLast.toName}`
+                                : ''}
+                            </Hint>
+                          );
+                        }
+                        return null;
+                      })()}
+                      {savedPhotoPhases.length > 0 && selected.supervisor?.displayName ? (
+                        <ActionRow style={{ marginTop: 10 }}>
+                          <PrimaryBtn
+                            type="button"
+                            disabled={!selected.supervisor.hasEmail}
+                            onClick={openPhotoRequest}
+                            title={
+                              selected.supervisor.hasEmail
+                                ? 'Αποστολή email με αίτημα φωτογραφιών'
+                                : 'Απαιτείται email επιβλέποντα'
+                            }
+                          >
+                            {selected.photoRequestLast?.sentAt
+                              ? 'Ξαναστείλε αίτημα φωτογραφιών'
+                              : 'Ζήτησε φωτογραφίες από επιβλέποντα'}
+                          </PrimaryBtn>
+                        </ActionRow>
+                      ) : null}
+                      {savedPhotoPhases.length === 0 ? (
+                        <Hint style={{ marginTop: 8 }}>
+                          Για αίτημα φωτογραφιών επιλέξτε πρώτα τρόπο προβολής με φωτογραφίες (π.χ. Πριν / Μετά) και αποθηκεύστε.
+                        </Hint>
+                      ) : null}
+                    </EditSection>
+                  ) : null}
 
                   <EditSection>
                     <EditSectionTitle>Επιλογές παρουσίασης</EditSectionTitle>
@@ -1897,6 +2138,30 @@ export default function ApologismosManager({
                         <ViewLabel>Συμβατικό</ViewLabel>
                         <ViewValue>{formatAmount(selected.contractAmount)}</ViewValue>
                       </ViewRow>
+                      {(selected.hasFinalContractAmountAfterApe || selected.finalContractAmountAfterApe) ? (
+                        <ViewRow>
+                          <ViewLabel>Τελικό μετά ΑΠΕ</ViewLabel>
+                          <ViewValue>
+                            {formatAmount(selected.finalContractAmountAfterApe)}
+                            {selected.finalContractApeDate
+                              ? ` · ΑΠΕ ${selected.finalContractApeDate}`
+                              : ''}
+                            <div style={{ marginTop: 6, fontSize: '0.78rem', color: '#64748b', fontWeight: 600, lineHeight: 1.4 }}>
+                              Τελικό διαμορφωθέν ποσό σύμβασης μετά από αναθεωρήσεις. Ισχύει το πιο πρόσφατο ΑΠΕ.
+                              {selected.showFinalContractAmountInPresentation
+                                ? ' · Εμφανίζεται στην παρουσίαση.'
+                                : ' · Δεν εμφανίζεται στην παρουσίαση.'}
+                            </div>
+                          </ViewValue>
+                        </ViewRow>
+                      ) : (
+                        <ViewRow>
+                          <ViewLabel>Τελικό μετά ΑΠΕ</ViewLabel>
+                          <ViewValue>
+                            <Empty>Δεν υπάρχει καταχωρημένο ΑΠΕ στο συνδεδεμένο υποέργο</Empty>
+                          </ViewValue>
+                        </ViewRow>
+                      )}
                       <ViewRow>
                         <ViewLabel>Περιοχή</ViewLabel>
                         <ViewValue>{selected.area || <Empty>Δεν έχει οριστεί</Empty>}</ViewValue>
@@ -2001,6 +2266,57 @@ export default function ApologismosManager({
                             onChange={(e) => setDraft({ ...draft, contractAmount: e.target.value })}
                           />
                         </EmphasisBlock>
+                      </FieldBlock>
+                      <FieldBlock style={{ gridColumn: '1 / -1' }}>
+                        <Field>Τελικό διαμορφωθέν ποσό σύμβασης (μετά ΑΠΕ)</Field>
+                        {selected.source === 'linked' ? (
+                          <ViewValue style={{ marginBottom: 8 }}>
+                            {draft.finalContractAmountAfterApe
+                              ? (
+                                <>
+                                  {formatAmount(draft.finalContractAmountAfterApe)}
+                                  {draft.finalContractApeDate ? ` · ΑΠΕ ${draft.finalContractApeDate}` : ''}
+                                </>
+                              )
+                              : <Empty>Δεν υπάρχει ΑΠΕ στο συνδεδεμένο υποέργο — συμπληρώστε ΑΠΕ στην κάρτα υποέργου</Empty>}
+                          </ViewValue>
+                        ) : (
+                          <Input
+                            value={draft.finalContractAmountAfterApe}
+                            onChange={(e) => setDraft({
+                              ...draft,
+                              finalContractAmountAfterApe: e.target.value,
+                              showFinalContractAmountInPresentation:
+                                e.target.value.trim()
+                                  ? draft.showFinalContractAmountInPresentation
+                                  : false,
+                            })}
+                            placeholder="π.χ. 125.000,00"
+                            style={{ marginBottom: 8 }}
+                          />
+                        )}
+                        <Hint style={{ marginBottom: 8 }}>
+                          Είναι το τελικό ποσό της σύμβασης όπως διαμορφώθηκε μετά από αναθεωρήσεις.
+                          Ισχύει πάντα το πιο πρόσφατο ΑΠΕ κατά ημερομηνία — όχι το αρχικό συμβατικό.
+                        </Hint>
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!draft.showFinalContractAmountInPresentation}
+                            disabled={!String(draft.finalContractAmountAfterApe || '').trim()}
+                            onChange={(e) => setDraft({
+                              ...draft,
+                              showFinalContractAmountInPresentation: e.target.checked,
+                            })}
+                            style={{ marginTop: 3 }}
+                          />
+                          <span style={{ fontSize: '0.86rem', fontWeight: 600, color: '#334155', lineHeight: 1.4 }}>
+                            Εμφάνιση στην παρουσίαση (οθόνη / PDF / PowerPoint)
+                            <span style={{ display: 'block', fontWeight: 500, color: '#64748b', marginTop: 2 }}>
+                              Αν ενεργοποιηθεί, θα φαίνεται ξεκάθαρα ως «τελικό διαμορφωθέν ποσό μετά από αναθεωρήσεις (ΑΠΕ)».
+                            </span>
+                          </span>
+                        </label>
                       </FieldBlock>
                       <FieldBlock>
                         <Field>
@@ -2379,9 +2695,125 @@ export default function ApologismosManager({
                 <Input value={legacyForm.contractAmount} onChange={(e) => setLegacyForm({ ...legacyForm, contractAmount: e.target.value })} />
               </FieldBlock>
             </FieldGrid>
+            <FieldBlock style={{ marginTop: '0.55rem' }}>
+              <Field>Τελικό διαμορφωθέν ποσό (μετά ΑΠΕ) — προαιρετικό</Field>
+              <Input
+                value={legacyForm.finalContractAmountAfterApe}
+                onChange={(e) => setLegacyForm({
+                  ...legacyForm,
+                  finalContractAmountAfterApe: e.target.value,
+                  showFinalContractAmountInPresentation: e.target.value.trim()
+                    ? legacyForm.showFinalContractAmountInPresentation
+                    : false,
+                })}
+                placeholder="Αν υπήρξαν αναθεωρήσεις ΑΠΕ"
+              />
+              <Hint style={{ marginTop: 6 }}>
+                Το τελικό ποσό σύμβασης μετά από αναθεωρήσεις. Ισχύει το πιο πρόσφατο ΑΠΕ.
+              </Hint>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!!legacyForm.showFinalContractAmountInPresentation}
+                  disabled={!String(legacyForm.finalContractAmountAfterApe || '').trim()}
+                  onChange={(e) => setLegacyForm({
+                    ...legacyForm,
+                    showFinalContractAmountInPresentation: e.target.checked,
+                  })}
+                  style={{ marginTop: 3 }}
+                />
+                <span style={{ fontSize: '0.84rem', fontWeight: 600, color: '#334155' }}>
+                  Εμφάνιση στην παρουσίαση ως τελικό διαμορφωθέν ποσό μετά ΑΠΕ
+                </span>
+              </label>
+            </FieldBlock>
             <ActionRow>
               <PrimaryBtn type="button" onClick={addLegacy}>Καταχώρηση</PrimaryBtn>
               <GhostBtn type="button" onClick={() => setLegacyOpen(false)}>Άκυρο</GhostBtn>
+            </ActionRow>
+          </ModalBox>
+        </ModalBack>
+      )}
+
+      {photoRequestOpen && selected && (
+        <ModalBack onClick={() => !photoRequestBusy && setPhotoRequestOpen(false)}>
+          <ModalBox onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <EditSectionTitle style={{ marginBottom: 8 }}>Αίτημα φωτογραφιών προς επιβλέποντα</EditSectionTitle>
+            <Hint style={{ marginBottom: 12 }}>
+              Θα σταλεί email στον επιβλέποντα
+              {' '}
+              <strong>{selected.supervisor?.displayName || '—'}</strong>
+              {selected.supervisor?.email ? ` (${selected.supervisor.email})` : ''}
+              , στο πλαίσιο του Απολογισμού Τεχνικού Έργου
+              {period?.label || period?.name
+                ? ` για την περίοδο «${period.label || period.name}»`
+                : ''}
+              .
+            </Hint>
+            <div
+              style={{
+                marginBottom: 14,
+                padding: '12px 14px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: 10,
+                fontSize: '0.84rem',
+                color: '#334155',
+                lineHeight: 1.5,
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 6, color: '#0f172a' }}>Τι θα ζητηθεί</div>
+              <div>
+                Φωτογραφίες
+                {' '}
+                <strong>
+                  {savedPhotoPhases.map((p) => photoPhaseLabel(p)).join(' / ') || '—'}
+                </strong>
+                {' '}
+                (έως 3 φωτογραφίες ανά φάση)
+              </div>
+              {selected.projectTitle ? (
+                <div style={{ marginTop: 4 }}>
+                  Πράξη:
+                  {' '}
+                  {selected.projectTitle}
+                </div>
+              ) : null}
+              <div style={{ marginTop: 4 }}>
+                Υποέργο:
+                {' '}
+                {selected.title || '—'}
+              </div>
+            </div>
+            <Field style={{ display: 'block', marginBottom: 6 }}>Προθεσμία αποστολής (προαιρετικά)</Field>
+            <Input
+              value={photoRequestDeadline}
+              onChange={(e) => setPhotoRequestDeadline(e.target.value)}
+              placeholder="π.χ. 20/08/2026"
+              disabled={photoRequestBusy}
+            />
+            <Field style={{ display: 'block', margin: '12px 0 6px' }}>Σημείωση προς τον επιβλέποντα (προαιρετικά)</Field>
+            <TextArea
+              rows={3}
+              value={photoRequestNote}
+              onChange={(e) => setPhotoRequestNote(e.target.value)}
+              placeholder="Σύντομη σημείωση…"
+              disabled={photoRequestBusy}
+            />
+            <Hint style={{ marginTop: 10 }}>
+              Το μήνυμα αναφέρει διακριτικά ότι απεστάλη μέσω ERGOHUB για τον Απολογισμό Τεχνικού Έργου.
+            </Hint>
+            <ActionRow style={{ marginTop: 16, justifyContent: 'flex-end' }}>
+              <GhostBtn
+                type="button"
+                disabled={photoRequestBusy}
+                onClick={() => setPhotoRequestOpen(false)}
+              >
+                Άκυρο
+              </GhostBtn>
+              <PrimaryBtn type="button" disabled={photoRequestBusy} onClick={sendPhotoRequest}>
+                {photoRequestBusy ? 'Αποστολή…' : 'Αποστολή email'}
+              </PrimaryBtn>
             </ActionRow>
           </ModalBox>
         </ModalBack>

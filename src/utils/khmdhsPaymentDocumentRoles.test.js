@@ -6,6 +6,7 @@ import {
   suggestPaymentDocumentRole,
   applyPaymentRolesToProject,
   paymentRoleCountsTowardTotal,
+  mergePaymentAmountsFromProject,
 } from './khmdhsPaymentDocumentRoles';
 import { reconcileKhmdhsPayments } from './khmdhsPaymentReconciliation';
 import {
@@ -88,5 +89,23 @@ describe('khmdhsPaymentDocumentRoles', () => {
     expect(totals.countableTotalGross).toBe(12400);
     expect(totals.displayTotalGross).toBe(12400);
     expect(getKhmdhsPaymentsDisplayAmountGross(totals)).toBe(12400);
+  });
+
+  test('mergePaymentAmountsFromProject διαβάζει όλα τα keys πληρωμών στο review', () => {
+    const amounts = mergePaymentAmountsFromProject(
+      { khmdhsPayments: [] },
+      {
+        resolutions: {
+          'paymentsReconciliation::0': {
+            meta: { paymentAmounts: { '25PAY000000001': 1000 } },
+          },
+          'paymentsReconciliation::1': {
+            meta: { paymentAmounts: { '25PAY000000002': 2000 } },
+          },
+        },
+      }
+    );
+    expect(amounts['25PAY000000001']).toBe(1000);
+    expect(amounts['25PAY000000002']).toBe(2000);
   });
 });

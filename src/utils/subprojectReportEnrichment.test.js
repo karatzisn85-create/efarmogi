@@ -75,6 +75,32 @@ describe('buildPaymentSummaryForReport', () => {
     expect(s.remainingAmount).toBe(0);
     expect(s.percentPaid).toBeCloseTo(100);
   });
+
+  test('κρατά αρχικό ποσό σύμβασης και σημαίνει τελικό ΑΠΕ χωριστά', () => {
+    const basic = {
+      totalContractAmount: 100000,
+      contractAmount: '100.000,00',
+      hasFinalContractAmountAfterApe: true,
+      finalContractAmountAfterApe: '120.000,00',
+      paymentReferenceAmount: 120000,
+    };
+    const s = buildPaymentSummaryForReport(basic, { pay: { count: 1, countableTotalGross: 30000 } });
+    expect(s.originalContractAmount).toBe(100000);
+    expect(s.contractAmount).toBe(120000);
+    expect(s.usesFinalApeReference).toBe(true);
+    expect(s.remainingAmount).toBe(90000);
+  });
+
+  test('χωρίς ΑΠΕ δεν σημειώνει usesFinalApeReference', () => {
+    const basic = {
+      totalContractAmount: 80000,
+      contractAmount: '80.000,00',
+      hasFinalContractAmountAfterApe: false,
+    };
+    const s = buildPaymentSummaryForReport(basic, { pay: { count: 0 } });
+    expect(s.usesFinalApeReference).toBe(false);
+    expect(s.contractAmount).toBe(80000);
+  });
 });
 
 describe('buildCompletenessGapsForReport', () => {

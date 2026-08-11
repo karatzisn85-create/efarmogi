@@ -4,6 +4,7 @@
 const {
   buildPresentationModel,
   buildPhotoLayoutPlan,
+  buildPresentationToc,
 } = require('../../public/apologismosPresentation');
 
 const period = {
@@ -74,6 +75,98 @@ describe('apologismosPresentation', () => {
     expect(model.cover.layoutId).toBe('hero_single');
     expect(model.appearance.paletteId).toBe('light_report');
     expect(model.motion).toEqual({ enabled: false, style: 'fade' });
+  });
+
+  test('toc: κατηγορίες με πλήθος και σελίδα έναρξης μετά εξώφυλλο+περιεχόμενα', () => {
+    const report = {
+      cards: [
+        readyCard({ id: '1', categoryId: 'roads', approvedAmount: '200.000,00' }),
+        readyCard({ id: '2', categoryId: 'roads', approvedAmount: '50.000,00' }),
+        readyCard({
+          id: '3',
+          categoryId: 'regeneration',
+          approvedAmount: '30.000,00',
+          primaryViz: 'before_after',
+          photos: {
+            before: ['media/x/before/a.jpg'],
+            during: [],
+            after: ['media/x/after/b.jpg'],
+          },
+        }),
+      ],
+    };
+    const model = buildPresentationModel(report, period);
+    expect(model.toc.items).toHaveLength(2);
+    expect(model.toc.preface).toEqual([]);
+    expect(model.mayorMessage).toEqual({ enabled: false });
+    // Με διαχωριστικά κατηγορίας: εξώφυλλο(1) + toc(2) + divider roads(3) → roads start 3
+    expect(model.toc.items[0]).toMatchObject({
+      categoryId: 'roads',
+      count: 2,
+      startPage: 3,
+    });
+    // roads: divider + 2 simple pages = 3 · επόμενη κατηγορία στη 6
+    expect(model.toc.items[1]).toMatchObject({
+      categoryId: 'regeneration',
+      count: 1,
+      startPage: 6,
+    });
+    expect(model.toc.projectCount).toBe(3);
+    expect(model.toc.categoryCount).toBe(2);
+
+    const noDiv = buildPresentationToc(
+      model.sections,
+      { sectionDividers: false },
+      model.totals,
+      model.period
+    );
+    expect(noDiv.items[0].startPage).toBe(3);
+    // χωρίς divider: 2 σελίδες roads → regeneration στη 5
+    expect(noDiv.items[1].startPage).toBe(5);
+  });
+
+  test('toc: μήνυμα Δημάρχου στη σελ. 3 και κατηγορίες από 4', () => {
+    const report = {
+      appearance: {
+        mayorMessage: {
+          enabled: true,
+          mayorName: 'Γιάννης Παπαδόπουλος',
+          text: 'Σύντομο μήνυμα για τον απολογισμό.',
+          photo: { relativePath: 'appearance/mayor.jpg', focusX: 0.5, focusY: 0.4, zoom: 1 },
+        },
+      },
+      cards: [
+        readyCard({ id: '1', categoryId: 'roads', approvedAmount: '200.000,00' }),
+        readyCard({ id: '2', categoryId: 'regeneration', approvedAmount: '30.000,00' }),
+      ],
+    };
+    const model = buildPresentationModel(report, period);
+    expect(model.mayorMessage).toMatchObject({
+      enabled: true,
+      title: 'Μήνυμα Δημάρχου',
+      mayorName: 'Γιάννης Παπαδόπουλος',
+      text: 'Σύντομο μήνυμα για τον απολογισμό.',
+    });
+    expect(model.toc.preface).toEqual([{ label: 'Μήνυμα Δημάρχου', startPage: 3 }]);
+    expect(model.toc.items[0]).toMatchObject({ categoryId: 'roads', startPage: 4 });
+    // roads divider+1 + regeneration divider → start 6
+    expect(model.toc.items[1]).toMatchObject({ categoryId: 'regeneration', startPage: 6 });
+  });
+
+  test('toc: ημιτελές μήνυμα Δημάρχου δεν μπαίνει στην παρουσίαση', () => {
+    const model = buildPresentationModel({
+      appearance: {
+        mayorMessage: {
+          enabled: true,
+          text: '',
+          photo: null,
+        },
+      },
+      cards: [readyCard({ id: '1', categoryId: 'roads' })],
+    }, period);
+    expect(model.mayorMessage).toEqual({ enabled: false });
+    expect(model.toc.preface).toEqual([]);
+    expect(model.toc.items[0].startPage).toBe(3);
   });
 
   test('photo layout: 3+3 → primary + leftover gallery pages', () => {
@@ -158,5 +251,42 @@ describe('apologismosPresentation', () => {
     const display = model.sections[0].cards[0].display;
     expect(display.completionYear).toBeUndefined();
     expect(display.area).toBe('Αρχάνες');
+  });
+
+  test('τελικό ποσό μετά ΑΠΕ εμφανίζεται στην παρουσίαση μόνο με flag', () => {
+    const hidden = buildPresentationModel(
+      {
+        cards: [
+          readyCard({
+            primaryViz: 'economy_phases',
+            finalContractAmountAfterApe: '95.000,00',
+            showFinalContractAmountInPresentation: false,
+          }),
+        ],
+      },
+      period
+    );
+    expect(hidden.sections[0].cards[0].display.showFinalContractAmount).toBe(false);
+
+    const shown = buildPresentationModel(
+      {
+        cards: [
+          readyCard({
+            primaryViz: 'economy_phases',
+            finalContractAmountAfterApe: '95.000,00',
+            finalContractApeDate: '2025-04-01',
+            showFinalContractAmountInPresentation: true,
+          }),
+        ],
+      },
+      period
+    );
+    const entry = shown.sections[0].cards[0];
+    expect(entry.display.showFinalContractAmount).toBe(true);
+    expect(entry.display.finalContractAmountAfterApe).toMatch(/95/);
+    expect(entry.display.finalContractAmountExplanation).toMatch(/αναθεωρήσεις/);
+    const amountsPage = entry.contentPages.find((p) => p.type === 'amounts');
+    expect(amountsPage.showFinalContractAmount).toBe(true);
+    expect(amountsPage.finalContractAmountShortLabel).toMatch(/ΑΠΕ/);
   });
 });

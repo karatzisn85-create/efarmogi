@@ -109,6 +109,9 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
 
 function KpiCards({ items, design, height = GEOM.kpiH }) {
   const { type, colors } = design;
+  const valueSize = (k) => (k.big
+    ? type.kpiValueHero
+    : (items.length > 2 ? type.kpiValue - 2 : type.kpiValue));
   return (
     <View style={{ flexDirection: 'row' }}>
       {items.map((k, i) => (
@@ -139,13 +142,27 @@ function KpiCards({ items, design, height = GEOM.kpiH }) {
           <Text
             style={{
               fontFamily: FONT,
-              fontSize: k.big ? type.kpiValueHero : type.kpiValue,
+              fontSize: valueSize(k),
               fontWeight: 'bold',
               color: k.tone === 'accent' ? colors.accentText : colors.darkText,
             }}
           >
             {k.value}
           </Text>
+          {k.note ? (
+            <Text
+              style={{
+                fontFamily: FONT,
+                fontSize: Math.max(9, type.caption - 1),
+                fontWeight: 'bold',
+                marginTop: 8,
+                color: k.tone === 'accent' ? colors.accentText : colors.darkText,
+                opacity: 0.9,
+              }}
+            >
+              {k.note}
+            </Text>
+          ) : null}
         </View>
       ))}
     </View>
@@ -438,6 +455,401 @@ function CategoryPage({ section, design, footerBase, sectionIndex, sectionTotal 
   );
 }
 
+function TocPage({ toc, design, footerBase }) {
+  const { type, colors } = design;
+  const items = toc?.items || [];
+  const preface = toc?.preface || [];
+  const listCount = items.length + (preface.length ? 1 : 0);
+  const compact = listCount >= 6;
+  const dense = listCount >= 7;
+  const rowH = dense ? 26 : compact ? 30 : 40;
+  const rowGap = dense ? 2 : compact ? 3 : 5;
+  const badge = dense ? 18 : compact ? 22 : 26;
+  const titleSize = compact ? type.title : type.titleSection;
+  const nameSize = dense ? 11 : compact ? type.body - 0.5 : type.body;
+  return (
+    <Page
+      size={PAGE_SIZE}
+      style={{
+        backgroundColor: colors.surface,
+        paddingTop: GEOM.marginTop,
+        paddingHorizontal: GEOM.marginX,
+        flexDirection: 'column',
+      }}
+    >
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 8,
+          backgroundColor: colors.accent,
+        }}
+      />
+      <View style={{ paddingLeft: 12, flexShrink: 0 }}>
+        <Eyebrow color={colors.accent} size={type.eyebrow}>Οδηγός παρουσίασης</Eyebrow>
+        <Text
+          style={{
+            fontFamily: FONT,
+            fontSize: titleSize,
+            fontWeight: 'bold',
+            color: colors.text,
+            marginTop: compact ? 4 : 8,
+          }}
+        >
+          {toc?.title || 'Περιεχόμενα'}
+        </Text>
+        <View style={{ flexDirection: 'row', marginTop: compact ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {toc?.periodLabel ? (
+            <Text
+              style={{
+                fontFamily: FONT, fontSize: type.caption, color: colors.muted, marginRight: 10,
+              }}
+            >
+              {toc.periodLabel}
+            </Text>
+          ) : null}
+          {[
+            { label: 'Κατηγορίες', value: String(toc?.categoryCount ?? items.length) },
+            { label: 'Παρεμβάσεις', value: String(toc?.projectCount ?? 0) },
+            { label: 'Εγκεκριμένα', value: formatEuro(toc?.totalApproved) },
+          ].map((chip, i) => (
+            <View
+              key={chip.label}
+              style={{
+                paddingVertical: compact ? 4 : 5,
+                paddingHorizontal: 8,
+                borderRadius: 999,
+                backgroundColor: colors.accentSoft,
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderColor: colors.accent,
+                marginRight: i === 2 ? 0 : 6,
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: FONT,
+                  fontSize: 8,
+                  fontWeight: 'bold',
+                  letterSpacing: 0.7,
+                  color: colors.muted,
+                  marginRight: 5,
+                }}
+              >
+                {String(chip.label).toLocaleUpperCase('el-GR')}
+              </Text>
+              <Text
+                style={{
+                  fontFamily: FONT,
+                  fontSize: compact ? type.caption + 1 : type.body,
+                  fontWeight: 'bold',
+                  color: colors.accent,
+                }}
+              >
+                {chip.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <View style={{ marginTop: compact ? 8 : 12, paddingLeft: 12, flexGrow: 1 }}>
+        {preface.map((pf, pi) => (
+          <View
+            key={`preface-${pi}`}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              height: rowH + 2,
+              marginBottom: rowGap + 2,
+              paddingHorizontal: 6,
+              borderRadius: 8,
+              backgroundColor: colors.accentSoft,
+              borderWidth: 1,
+              borderStyle: 'solid',
+              borderColor: colors.accent,
+            }}
+          >
+            <View
+              style={{
+                width: badge,
+                height: badge,
+                borderRadius: 7,
+                backgroundColor: colors.accent,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 8,
+              }}
+            >
+              <Text style={{ fontFamily: FONT, fontSize: 9, fontWeight: 'bold', color: colors.accentText }}>
+                —
+              </Text>
+            </View>
+            <Text
+              style={{ fontFamily: FONT, fontSize: nameSize, fontWeight: 'bold', color: colors.text, flex: 1 }}
+              maxLines={1}
+            >
+              {pf.label}
+            </Text>
+            <Text
+              style={{
+                fontFamily: FONT, fontSize: 9, color: colors.muted, width: 78, textAlign: 'right',
+              }}
+            >
+              —
+            </Text>
+            <Text
+              style={{
+                fontFamily: FONT,
+                fontSize: compact ? type.body : type.statValue,
+                fontWeight: 'bold',
+                color: colors.accent,
+                width: 42,
+                textAlign: 'right',
+              }}
+            >
+              {String(pf.startPage)}
+            </Text>
+          </View>
+        ))}
+        <View style={{ flexDirection: 'row', marginBottom: 3, paddingHorizontal: 6 }}>
+          <Text style={{ fontFamily: FONT, fontSize: 8, fontWeight: 'bold', color: colors.muted, width: 30 }} />
+          <Text style={{ fontFamily: FONT, fontSize: 8, fontWeight: 'bold', color: colors.muted, flex: 1 }}>
+            ΚΑΤΗΓΟΡΙΑ
+          </Text>
+          <Text
+            style={{
+              fontFamily: FONT, fontSize: 8, fontWeight: 'bold', color: colors.muted, width: 78, textAlign: 'right',
+            }}
+          >
+            ΠΑΡΕΜΒΑΣΕΙΣ
+          </Text>
+          <Text
+            style={{
+              fontFamily: FONT, fontSize: 8, fontWeight: 'bold', color: colors.muted, width: 42, textAlign: 'right',
+            }}
+          >
+            ΣΕΛ.
+          </Text>
+        </View>
+        {items.map((it, i) => {
+          const featured = i % 2 === 0;
+          return (
+            <View
+              key={it.categoryId || i}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                height: rowH,
+                marginBottom: i === items.length - 1 ? 0 : rowGap,
+                paddingHorizontal: 6,
+                borderRadius: 8,
+                backgroundColor: featured ? colors.accentSoft : colors.panel,
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderColor: featured ? colors.accent : colors.panelBorder,
+              }}
+            >
+              <View
+                style={{
+                  width: badge,
+                  height: badge,
+                  borderRadius: 7,
+                  backgroundColor: featured ? colors.accent : colors.surface,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 8,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: dense ? 9 : 10,
+                    fontWeight: 'bold',
+                    color: featured ? colors.accentText : colors.accent,
+                  }}
+                >
+                  {String(it.index).padStart(2, '0')}
+                </Text>
+              </View>
+              <View style={{ flex: 1, paddingRight: 6 }}>
+                <Text
+                  style={{ fontFamily: FONT, fontSize: nameSize, fontWeight: 'bold', color: colors.text }}
+                  maxLines={1}
+                >
+                  {it.label}
+                </Text>
+                <Text style={{ fontFamily: FONT, fontSize: compact ? 8 : 9, color: colors.muted, marginTop: 1 }}>
+                  {compact ? formatEuro(it.totalApproved) : `Εγκεκριμένα ${formatEuro(it.totalApproved)}`}
+                </Text>
+              </View>
+              <Text
+                style={{
+                  fontFamily: FONT, fontSize: nameSize, fontWeight: 'bold', color: colors.text,
+                  width: 78, textAlign: 'right',
+                }}
+              >
+                {String(it.count)}
+              </Text>
+              <Text
+                style={{
+                  fontFamily: FONT,
+                  fontSize: compact ? type.body : type.statValue,
+                  fontWeight: 'bold',
+                  color: colors.accent,
+                  width: 42,
+                  textAlign: 'right',
+                }}
+              >
+                {String(it.startPage)}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+      <SlideFooter design={design} footerBase={footerBase} />
+    </Page>
+  );
+}
+
+function MayorPage({ mayorMessage, design, footerBase, mediaMap }) {
+  const { type, colors } = design;
+  const mm = mayorMessage || {};
+  const photo = mm.photo;
+  const src = photo?.framedDataUrl
+    || (photo?.relativePath && mediaMap?.[photo.relativePath])
+    || null;
+  const body = String(mm.text || '').trim() || '—';
+  const name = String(mm.mayorName || '').trim();
+
+  return (
+    <Page
+      size={PAGE_SIZE}
+      style={{
+        backgroundColor: colors.surface,
+        paddingTop: GEOM.marginTop,
+        paddingHorizontal: GEOM.marginX,
+        flexDirection: 'column',
+      }}
+    >
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 8,
+          backgroundColor: colors.accent,
+        }}
+      />
+      <View
+        style={{
+          flexGrow: 1,
+          flexDirection: 'row',
+          paddingLeft: 16,
+          alignItems: 'center',
+        }}
+      >
+        <View style={{ width: 250, alignItems: 'center', marginRight: 28 }}>
+          <View
+            style={{
+              width: 220,
+              height: 280,
+              borderRadius: 14,
+              overflow: 'hidden',
+              backgroundColor: colors.panel,
+              borderWidth: 1,
+              borderStyle: 'solid',
+              borderColor: colors.panelBorder,
+              position: 'relative',
+            }}
+          >
+            <View
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 5,
+                backgroundColor: colors.accent,
+                zIndex: 1,
+              }}
+            />
+            {src ? (
+              <Image src={src} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+                <Text style={{ fontFamily: FONT, fontSize: type.caption, color: colors.muted, textAlign: 'center' }}>
+                  Φωτογραφία Δημάρχου
+                </Text>
+              </View>
+            )}
+          </View>
+          {name ? (
+            <Text
+              style={{
+                fontFamily: FONT,
+                fontSize: type.body,
+                fontWeight: 'bold',
+                color: colors.text,
+                marginTop: 12,
+                textAlign: 'center',
+              }}
+            >
+              {name}
+            </Text>
+          ) : null}
+          <Text
+            style={{
+              fontFamily: FONT,
+              fontSize: type.caption,
+              fontWeight: 'bold',
+              letterSpacing: 1.2,
+              color: colors.accent,
+              marginTop: name ? 4 : 12,
+              textAlign: 'center',
+            }}
+          >
+            ΔΗΜΑΡΧΟΣ
+          </Text>
+        </View>
+
+        <View style={{ flex: 1, justifyContent: 'center', paddingRight: 8 }}>
+          <Eyebrow color={colors.accent} size={type.eyebrow}>Οδηγός παρουσίασης</Eyebrow>
+          <Text
+            style={{
+              fontFamily: FONT,
+              fontSize: type.titleSection,
+              fontWeight: 'bold',
+              color: colors.text,
+              marginTop: 8,
+            }}
+          >
+            {mm.title || 'Μήνυμα Δημάρχου'}
+          </Text>
+          <Rule color={colors.accent} width={56} height={4} style={{ marginTop: 12 }} />
+          <Text
+            style={{
+              fontFamily: FONT,
+              fontSize: type.body + 1,
+              color: colors.text,
+              marginTop: 18,
+              lineHeight: 1.55,
+            }}
+          >
+            {body}
+          </Text>
+        </View>
+      </View>
+      <SlideFooter design={design} footerBase={footerBase} />
+    </Page>
+  );
+}
+
 function ProjectContent({ page, display, design, mediaMap }) {
   const { type, colors } = design;
   const resolve = (rel) => (rel && mediaMap?.[rel]) || null;
@@ -508,48 +920,143 @@ function ProjectContent({ page, display, design, mediaMap }) {
   }
 
   if (page.type === 'metrics') {
-    const rows = page.metrics || [];
-    const half = Math.ceil(rows.length / 2);
-    const columns = [rows.slice(0, half), rows.slice(half)].filter((c) => c.length);
+    const rows = (page.metrics || []).filter((r) => r && (r.label || r.value));
+    const cols = rows.length === 1 ? 1 : 2;
     return (
-      <View style={{ flexDirection: 'row', height: '100%', alignItems: 'center' }}>
-        {columns.map((col, ci) => (
-          <View key={ci} style={{ flex: 1, marginRight: ci === columns.length - 1 ? 0 : 40 }}>
-            {col.map((m, i) => (
+      <View style={{ height: '100%', justifyContent: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+          <View
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 8,
+              backgroundColor: colors.accent,
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 10,
+            }}
+          >
+            <Text style={{ fontFamily: FONT, fontSize: 12, fontWeight: 'bold', color: colors.accentText }}>
+              {rows.length}
+            </Text>
+          </View>
+          <View>
+            <Text
+              style={{
+                fontFamily: FONT,
+                fontSize: type.caption,
+                fontWeight: 'bold',
+                letterSpacing: 1.2,
+                color: colors.accent,
+              }}
+            >
+              ΑΠΟΤΕΛΕΣΜΑΤΑ
+            </Text>
+            <Text style={{ fontFamily: FONT, fontSize: type.caption, color: colors.muted, marginTop: 2 }}>
+              Μετρήσιμα μεγέθη του έργου
+            </Text>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+          {rows.map((m, i) => {
+            const featured = i % 2 === 0;
+            const isLastInRow = cols === 1 || i % 2 === 1 || i === rows.length - 1;
+            return (
               <View
                 key={i}
                 style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  paddingVertical: 11,
-                  borderBottomWidth: 1,
-                  borderBottomStyle: 'solid',
-                  borderBottomColor: colors.hairline,
+                  width: cols === 1 ? '100%' : '48%',
+                  marginRight: isLastInRow || cols === 1 ? 0 : '4%',
+                  marginBottom: 10,
+                  minHeight: rows.length <= 2 ? 88 : 72,
+                  borderRadius: 12,
+                  backgroundColor: featured ? colors.accentSoft : colors.surface,
+                  borderWidth: 1,
+                  borderStyle: 'solid',
+                  borderColor: featured ? colors.accent : colors.panelBorder,
+                  paddingTop: 12,
+                  paddingBottom: 12,
+                  paddingLeft: 16,
+                  paddingRight: 12,
+                  justifyContent: 'center',
                 }}
               >
-                <Text style={{ fontFamily: FONT, fontSize: type.body, color: colors.muted }}>{m.label}</Text>
-                <Text style={{ fontFamily: FONT, fontSize: type.statValue, fontWeight: 'bold', color: colors.text }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <Text
+                    style={{
+                      fontFamily: FONT,
+                      fontSize: type.caption,
+                      fontWeight: 'bold',
+                      letterSpacing: 1,
+                      color: colors.muted,
+                      maxWidth: '78%',
+                    }}
+                  >
+                    {String(m.label || '').toLocaleUpperCase('el-GR')}
+                  </Text>
+                  <Text
+                    style={{
+                      fontFamily: FONT,
+                      fontSize: 9,
+                      fontWeight: 'bold',
+                      color: colors.accent,
+                    }}
+                  >
+                    {String(i + 1).padStart(2, '0')}
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: rows.length <= 2 ? type.kpiValue : type.statValue + 1,
+                    fontWeight: 'bold',
+                    color: featured ? colors.accent : colors.text,
+                    marginTop: 6,
+                  }}
+                >
                   {m.value}
                 </Text>
               </View>
-            ))}
-          </View>
-        ))}
+            );
+          })}
+        </View>
       </View>
     );
   }
 
   if (page.type === 'amounts') {
+    const showFinal = !!page.showFinalContractAmount;
+    const items = [
+      { label: 'Εγκεκριμένο ποσό', value: formatEuro(page.approvedAmount), tone: 'accent' },
+      { label: 'Συμβατικό ποσό', value: formatEuro(page.contractAmount), tone: 'dark' },
+    ];
+    if (showFinal) {
+      items.push({
+        label: page.finalContractAmountShortLabel || 'Τελικό μετά ΑΠΕ',
+        value: formatEuro(page.finalContractAmountAfterApe),
+        tone: 'dark',
+        note: 'Διαμορφωθέν μετά από αναθεωρήσεις',
+      });
+    }
     return (
       <View style={{ height: '100%', justifyContent: 'center' }}>
-        <KpiCards
-          design={design}
-          height={128}
-          items={[
-            { label: 'Εγκεκριμένο ποσό', value: formatEuro(page.approvedAmount), tone: 'accent' },
-            { label: 'Συμβατικό ποσό', value: formatEuro(page.contractAmount), tone: 'dark' },
-          ]}
-        />
+        <KpiCards design={design} height={showFinal ? 148 : 128} items={items} />
+        {showFinal ? (
+          <Text
+            style={{
+              fontFamily: FONT,
+              fontSize: type.caption,
+              color: colors.muted,
+              fontWeight: 'bold',
+              marginTop: 12,
+              lineHeight: 1.45,
+              maxWidth: 920,
+            }}
+          >
+            {page.finalContractAmountExplanation
+              || 'Πρόκειται για το τελικό ποσό της σύμβασης όπως διαμορφώθηκε μετά από αναθεωρήσεις (ΑΠΕ).'}
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -631,6 +1138,12 @@ function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase }) {
                 stats={[
                   { label: 'Εγκεκριμένο', value: formatEuro(display.approvedAmount) },
                   { label: 'Συμβατικό', value: formatEuro(display.contractAmount) },
+                  ...(display.showFinalContractAmount
+                    ? [{
+                      label: display.finalContractAmountShortLabel || 'Τελικό μετά ΑΠΕ',
+                      value: formatEuro(display.finalContractAmountAfterApe),
+                    }]
+                    : []),
                   ...(display.area ? [{ label: 'Περιοχή', value: display.area }] : []),
                 ]}
               />
@@ -670,6 +1183,17 @@ export default function ApologismosReport({ model, mediaMap = {} }) {
   return (
     <Document>
       <CoverPage model={model} design={design} mediaMap={mediaMap} />
+      {model?.toc?.items?.length ? (
+        <TocPage toc={model.toc} design={design} footerBase={footerBase} />
+      ) : null}
+      {model?.mayorMessage?.enabled ? (
+        <MayorPage
+          mayorMessage={model.mayorMessage}
+          design={design}
+          footerBase={footerBase}
+          mediaMap={mediaMap}
+        />
+      ) : null}
       {(model?.sections || []).map((section, sectionIdx) => (
         <React.Fragment key={section.categoryId}>
           {design.sectionDividers ? (

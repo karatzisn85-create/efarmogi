@@ -16,6 +16,7 @@ import {
   pickRegistryDominantTitle,
   shouldShowRegistryEntryTitle,
   resyncRegistryEntryTitles,
+  mergeRegistryCandidateLists,
 } from './khmdhsDocumentRegistry';
 import { CHAIN_KIND } from './khmdhsChainActions';
 import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
@@ -314,6 +315,86 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
       amount: '25258.56',
     }]);
     expect(pay.linkLabel).toMatch(/Ένταλμα πληρωμής.*25\.258,56€/);
+  });
+
+  it('PAY candidates προτιμούν το χειροκίνητο πραγματικό ποσό αντί του ποσού ΚΗΜΔΗΣ', () => {
+    const project = {
+      khmdhsPayments: [
+        {
+          adam: '25PAY000000001',
+          userActualAmount: 12000.5,
+          snapshot: {
+            referenceNumber: '25PAY000000001',
+            title: 'Ενταλμα',
+            signedDate: '2025-06-01',
+            costs: [{ costType: 'GROSS', amount: 33888.7 }],
+          },
+        },
+        {
+          adam: '25PAY000000002',
+          userActualAmount: 8000,
+          snapshot: {
+            referenceNumber: '25PAY000000002',
+            title: 'Ενταλμα 2',
+            signedDate: '2025-07-01',
+            costs: [{ costType: 'GROSS', amount: 33888.7 }],
+          },
+        },
+      ],
+    };
+    const pays = collectKhmdhsRegistryCandidatesFromProject(project)
+      .filter((c) => c.stage === 'PAY');
+    expect(pays).toHaveLength(2);
+    expect(pays[0].linkLabel).toMatch(/12\.000,50€/);
+    expect(pays[1].linkLabel).toMatch(/8\.000,00€/);
+    expect(pays.every((c) => !/33\.888,70/.test(c.linkLabel))).toBe(true);
+    expect(pays.every((c) => c.amountSource === 'user')).toBe(true);
+  });
+
+  it('mergeRegistryCandidateLists δεν αντικαθιστά χειροκίνητο ποσό PAY με ποσό ΚΗΜΔΗΣ', () => {
+    const merged = mergeRegistryCandidateLists(
+      [{
+        adam: '25PAY000000001',
+        stage: 'PAY',
+        type: 'PAY',
+        amount: '12.000,50',
+        amountSource: 'user',
+        title: 'A',
+      }],
+      [{
+        adam: '25PAY000000001',
+        stage: 'PAY',
+        type: 'PAY',
+        amount: '33.888,70',
+        amountSource: 'khmdhs',
+        title: 'A',
+      }]
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].amount).toBe('12.000,50');
+    expect(merged[0].amountSource).toBe('user');
+  });
+
+  it('resyncRegistryEntryTitles δεν αντικαθιστά υπάρχον ποσό PAY με μεικτό ΚΗΜΔΗΣ', () => {
+    const existing = [{
+      id: 'p1',
+      adam: '25PAY000000001',
+      stage: 'PAY',
+      type: 'PAY',
+      title: 'Ενταλμα',
+      amount: '12.000,50',
+      amountSource: 'user',
+    }];
+    const [updated] = resyncRegistryEntryTitles(existing, [{
+      adam: '25PAY000000001',
+      stage: 'PAY',
+      title: 'Ενταλμα ενημερωμένο',
+      amount: '33.888,70',
+      amountSource: 'khmdhs',
+    }]);
+    expect(updated.title).toBe('Ενταλμα ενημερωμένο');
+    expect(updated.amount).toBe('12.000,50');
+    expect(updated.amountSource).toBe('user');
   });
 
   describe('isTenderDocumentTitle — αναγνώριση Τευχών Δημοπράτησης', () => {

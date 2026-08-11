@@ -17,6 +17,9 @@ export { TEXT_SCALES, FOOTER_MODES } from './apologismosSlideDesign';
 export const DEFAULT_PALETTE_ID = 'light_report';
 export const DEFAULT_COVER_LAYOUT_ID = 'hero_single';
 export const DEFAULT_MOTION_STYLE = 'fade';
+export const MAYOR_MESSAGE_TITLE = 'Μήνυμα Δημάρχου';
+export const MAYOR_NAME_MAX = 80;
+export const MAYOR_TEXT_MAX = 900;
 
 export const PALETTES = Object.freeze([
   Object.freeze({
@@ -144,6 +147,27 @@ export function normalizeCoverImage(raw) {
   };
 }
 
+export function emptyMayorMessage() {
+  return {
+    enabled: false,
+    mayorName: '',
+    text: '',
+    photo: null,
+  };
+}
+
+export function normalizeMayorMessage(raw) {
+  if (!raw || typeof raw !== 'object') return emptyMayorMessage();
+  const photo = normalizeCoverImage(raw.photo);
+  // Χωρίς .trim() εδώ: το normalize τρέχει σε κάθε πλήκτρο στο UI και θα «έτρωγε» το Space.
+  return {
+    enabled: raw.enabled === true,
+    mayorName: String(raw.mayorName ?? '').slice(0, MAYOR_NAME_MAX),
+    text: String(raw.text ?? '').slice(0, MAYOR_TEXT_MAX),
+    photo: photo || null,
+  };
+}
+
 export function emptyAppearance() {
   return {
     paletteId: DEFAULT_PALETTE_ID,
@@ -156,6 +180,7 @@ export function emptyAppearance() {
     footerMode: DEFAULT_FOOTER_MODE,
     sectionDividers: true,
     coverStats: true,
+    mayorMessage: emptyMayorMessage(),
     updatedAt: null,
   };
 }
@@ -197,7 +222,8 @@ export function normalizeAppearance(raw) {
   return {
     paletteId,
     coverLayoutId,
-    subtitle: String(raw.subtitle || '').trim().slice(0, 120),
+    // Χωρίς .trim(): αλλιώς το διάστημα στο τέλος χάνεται σε κάθε πάτημα πλήκτρου.
+    subtitle: String(raw.subtitle ?? '').slice(0, 120),
     coverImages: slots.filter(Boolean),
     motionEnabled,
     motionStyle,
@@ -205,6 +231,7 @@ export function normalizeAppearance(raw) {
     footerMode: FOOTER_MODE_IDS.includes(raw.footerMode) ? raw.footerMode : DEFAULT_FOOTER_MODE,
     sectionDividers: raw.sectionDividers !== false,
     coverStats: raw.coverStats !== false,
+    mayorMessage: normalizeMayorMessage(raw.mayorMessage),
     updatedAt: raw.updatedAt || null,
   };
 }

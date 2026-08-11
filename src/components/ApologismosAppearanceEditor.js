@@ -5,6 +5,9 @@ import {
   COVER_LAYOUTS,
   TEXT_SCALES,
   FOOTER_MODES,
+  MAYOR_MESSAGE_TITLE,
+  MAYOR_NAME_MAX,
+  MAYOR_TEXT_MAX,
   normalizeAppearance,
   resolveOrganizationTitle,
   coverImageWarnings,
@@ -68,6 +71,11 @@ const Input = styled.input`
   width: 100%; padding: 8px 10px; border-radius: 8px;
   border: 1px solid #cbd5e1; font-size: 0.95rem;
 `;
+const TextArea = styled.textarea`
+  width: 100%; min-height: 110px; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid #cbd5e1; font-size: 0.95rem; resize: vertical;
+  font-family: inherit; line-height: 1.45;
+`;
 const Warn = styled.div`
   margin-top: 8px; padding: 8px 10px; border-radius: 8px;
   background: #fff7ed; color: #9a3412; font-size: 0.85rem;
@@ -125,6 +133,12 @@ function patchOf(a) {
     footerMode: a.footerMode,
     sectionDividers: a.sectionDividers !== false,
     coverStats: a.coverStats !== false,
+    mayorMessage: a.mayorMessage || {
+      enabled: false,
+      mayorName: '',
+      text: '',
+      photo: null,
+    },
   };
 }
 
@@ -259,8 +273,11 @@ function FocusZoomSlot({
   onPick,
   onChangeFocusZoom,
   onClear,
+  label,
+  zoomId,
 }) {
   const dragging = useRef(null);
+  const id = zoomId || `zoom-${index}`;
 
   const onPointerDown = (e) => {
     if (!image?.relativePath) return;
@@ -283,7 +300,7 @@ function FocusZoomSlot({
   return (
     <SlotCard>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <strong>Φωτογραφία {index + 1}</strong>
+        <strong>{label || `Φωτογραφία ${index + 1}`}</strong>
         <div style={{ display: 'flex', gap: 6 }}>
           <Ghost type="button" onClick={() => onPick(index)}>Επιλογή…</Ghost>
           {image?.relativePath && (
@@ -299,9 +316,9 @@ function FocusZoomSlot({
         title="Σύρετε για πλαίσιο κάλυψης"
       />
       <div style={{ marginTop: 8 }}>
-        <Field htmlFor={`zoom-${index}`}>Μεγέθυνση ({(image?.zoom || 1).toFixed(2)}×)</Field>
+        <Field htmlFor={id}>Μεγέθυνση ({(image?.zoom || 1).toFixed(2)}×)</Field>
         <input
-          id={`zoom-${index}`}
+          id={id}
           type="range"
           min={1}
           max={2}
@@ -354,13 +371,15 @@ export default function ApologismosAppearanceEditor({
 
   const refreshMedia = useCallback(async (appearance) => {
     const rels = (appearance?.coverImages || []).map((i) => i.relativePath).filter(Boolean);
+    const mayorRel = appearance?.mayorMessage?.photo?.relativePath;
+    if (mayorRel) rels.push(mayorRel);
     if (!rels.length) {
       setMediaMap({});
       return;
     }
     const res = await ipcRenderer.invoke('apologismos-resolve-media-map', {
       actingUsername: username,
-      relativePaths: rels,
+      relativePaths: [...new Set(rels)],
       asDataUrl: true,
     });
     setMediaMap(res?.mediaMap || {});
@@ -369,7 +388,7 @@ export default function ApologismosAppearanceEditor({
   useEffect(() => {
     if (!open) return;
     refreshMedia(draft);
-  }, [open, draft.coverImages, refreshMedia]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, draft.coverImages, draft.mayorMessage?.photo?.relativePath, refreshMedia]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const appearanceDirty = useMemo(() => {
     if (!open || !snapshotRef.current) return false;
@@ -441,6 +460,7 @@ export default function ApologismosAppearanceEditor({
       sourcePath: pick.filePaths[0],
       slotIndex,
       commitToReport: false,
+      kind: 'cover',
     });
     if (!saved?.success) {
       showToast(saved?.error || 'Αποτυχία αποθήκευσης φωτογραφίας', 'error');
@@ -465,7 +485,87 @@ export default function ApologismosAppearanceEditor({
     showToast('Η φωτογραφία προστέθηκε στο πρόχειρο. Πατήστε «Αποθήκευση» για οριστικοποίηση.', 'info');
   };
 
+  const patchMayor = (patch) => {
+    setDraft((prev) => normalizeAppearance({
+      ...prev,
+      mayorMessage: {
+        ...(prev.mayorMessage || { enabled: false, mayorName: '', text: '', photo: null }),
+        ...patch,
+      },
+    }));
+  };
+
+  const pickMayorImage = async () => {
+    const pick = await ipcRenderer.invoke('apologismos-select-cover-images', {
+      actingUsername: username,
+      multi: false,
+    });
+    if (!pick?.success || pick.canceled || !pick.filePaths?.[0]) return;
+    const saved = await ipcRenderer.invoke('apologismos-save-cover-image', {
+      actingUsername: username,
+      periodId,
+      sourcePath: pick.filePaths[0],
+      commitToReport: false,
+      kind: 'mayor',
+    });
+    if (!saved?.success) {
+      showToast(saved?.error || 'Αποτυχία αποθήκευσης φωτογραφίας Δημάρχου', 'error');
+      return;
+    }
+    setDraft((prev) => {
+      const prevPhoto = prev.mayorMessage?.photo;
+      if (saved.relativePath) {
+        pendingCoverRelsRef.current = [
+          ...pendingCoverRelsRef.current.filter((r) => r !== prevPhoto?.relativePath),
+          saved.relativePath,
+        ];
+      }
+      return normalizeAppearance({
+        ...prev,
+        mayorMessage: {
+          ...(prev.mayorMessage || { enabled: false, mayorName: '', text: '', photo: null }),
+          photo: {
+            relativePath: saved.relativePath,
+            focusX: prevPhoto?.focusX ?? 0.5,
+            focusY: prevPhoto?.focusY ?? 0.4,
+            zoom: prevPhoto?.zoom ?? 1,
+          },
+        },
+      });
+    });
+    showToast('Η φωτογραφία Δημάρχου προστέθηκε στο πρόχειρο. Πατήστε «Αποθήκευση» για οριστικοποίηση.', 'info');
+  };
+
+  const onChangeMayorFocusZoom = (_index, patch) => {
+    setDraft((prev) => {
+      const prevPhoto = prev.mayorMessage?.photo;
+      if (!prevPhoto?.relativePath) return prev;
+      return normalizeAppearance({
+        ...prev,
+        mayorMessage: {
+          ...(prev.mayorMessage || { enabled: false, mayorName: '', text: '', photo: null }),
+          photo: { ...prevPhoto, ...patch },
+        },
+      });
+    });
+  };
+
+  const clearMayorPhoto = () => {
+    patchMayor({ photo: null });
+  };
+
   const save = async () => {
+    const mm = draft.mayorMessage || {};
+    if (mm.enabled === true) {
+      if (!String(mm.text || '').trim()) {
+        showToast('Για τη σελίδα Δημάρχου χρειάζεται σύντομο κείμενο.', 'error');
+        return;
+      }
+      if (!mm.photo?.relativePath) {
+        showToast('Για τη σελίδα Δημάρχου χρειάζεται φωτογραφία.', 'error');
+        return;
+      }
+    }
     setSaving(true);
     try {
       const res = await ipcRenderer.invoke('apologismos-update-appearance', {
@@ -647,6 +747,84 @@ export default function ApologismosAppearanceEditor({
             </ChipDesc>
           </Chip>
         </Grid>
+
+        <StepLabel>7. Μήνυμα Δημάρχου</StepLabel>
+        <Chip
+          type="button"
+          $on={draft.mayorMessage?.enabled === true}
+          $accent={theme.accent}
+          onClick={() => patchMayor({ enabled: draft.mayorMessage?.enabled !== true })}
+          style={{ width: '100%', maxWidth: 640 }}
+        >
+          <ChipTitle>Σελίδα μηνύματος μετά τα Περιεχόμενα</ChipTitle>
+          <ChipDesc>
+            Προσθέτει τη σελίδα 3 με σύντομο λόγο και φωτογραφία Δημάρχου· εμφανίζεται αυτόματα στα Περιεχόμενα.
+          </ChipDesc>
+        </Chip>
+        {draft.mayorMessage?.enabled === true ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 10 }}>
+              <Field htmlFor="mayor-name">Όνομα Δημάρχου (προαιρετικά)</Field>
+              <Input
+                id="mayor-name"
+                value={draft.mayorMessage?.mayorName || ''}
+                maxLength={MAYOR_NAME_MAX}
+                placeholder="π.χ. Γιάννης Παπαδόπουλος"
+                onChange={(e) => patchMayor({ mayorName: e.target.value })}
+              />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <Field htmlFor="mayor-text">
+                Σύντομο κείμενο ({String(draft.mayorMessage?.text || '').length}/{MAYOR_TEXT_MAX})
+              </Field>
+              <TextArea
+                id="mayor-text"
+                value={draft.mayorMessage?.text || ''}
+                maxLength={MAYOR_TEXT_MAX}
+                placeholder="Λίγες προτάσεις για τον απολογισμό της δημοτικής περιόδου…"
+                onChange={(e) => patchMayor({ text: e.target.value })}
+              />
+            </div>
+            <FocusZoomSlot
+              index={0}
+              label="Φωτογραφία Δημάρχου"
+              zoomId="mayor-zoom"
+              image={draft.mayorMessage?.photo}
+              mediaUrl={
+                draft.mayorMessage?.photo?.relativePath
+                  ? mediaMap[draft.mayorMessage.photo.relativePath]
+                  : null
+              }
+              onPick={() => pickMayorImage()}
+              onChangeFocusZoom={onChangeMayorFocusZoom}
+              onClear={clearMayorPhoto}
+            />
+            <div style={{ marginTop: 14, maxWidth: MINI_WIDTH + 20 }}>
+              <StepLabel style={{ marginTop: 0 }}>Προεπισκόπηση σελίδας Δημάρχου</StepLabel>
+              <MiniSlide
+                design={design}
+                mediaMap={mediaMap}
+                footer={buildFooter({
+                  design,
+                  organizationTitle: orgTitle,
+                  periodLabel,
+                  index: 2,
+                  total: Math.max(4, totals.projectCount + 3),
+                })}
+                slide={{
+                  type: 'mayor',
+                  mayorMessage: {
+                    enabled: true,
+                    title: MAYOR_MESSAGE_TITLE,
+                    mayorName: draft.mayorMessage?.mayorName || '',
+                    text: draft.mayorMessage?.text || 'Το κείμενο του Δημάρχου θα εμφανιστεί εδώ.',
+                    photo: draft.mayorMessage?.photo || null,
+                  },
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
 
         <PreviewWrap>
           <div>

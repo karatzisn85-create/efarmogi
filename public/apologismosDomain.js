@@ -3,6 +3,14 @@
  * Καμία αναφορά/υπολογισμός εκπτώσεων.
  */
 
+const {
+  extractFinalContractAmountFieldsFromSubproject,
+  cardShowsFinalContractAmountInPresentation,
+  FINAL_CONTRACT_AFTER_APE_SHORT_LABEL,
+  FINAL_CONTRACT_AFTER_APE_FULL_LABEL,
+  FINAL_CONTRACT_AFTER_APE_EXPLANATION,
+} = require('./apologismosFinalContractAmount');
+
 const ELIGIBLE_STATUSES = Object.freeze([
   'ΟΛΟΚΛΗΡΩΜΕΝΟ',
   'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ',
@@ -623,13 +631,19 @@ function sortCardsByApprovedAmountDesc(cards) {
 
 function mapSubprojectToCardFields(subproject) {
   if (!subproject) return null;
+  const finalApe = extractFinalContractAmountFieldsFromSubproject(subproject);
   return {
     source: 'linked',
     subprojectId: subproject.subprojectId || null,
     projectId: subproject.projectId || null,
     title: String(subproject.subprojectTitle || subproject.projectTitle || '').trim(),
+    projectTitle: String(subproject.projectTitle || '').trim(),
     approvedAmount: subproject.approvedAmount ?? '',
     contractAmount: subproject.contractAmount ?? '',
+    finalContractAmountAfterApe: finalApe.finalContractAmountAfterApe,
+    finalContractApeDate: finalApe.finalContractApeDate,
+    hasFinalContractAmountAfterApe: finalApe.hasFinalContractAmountAfterApe,
+    showFinalContractAmountInPresentation: false,
     projectStatus: subproject.projectStatus || '',
     area: String(subproject.municipalUnit || subproject.location || '').trim(),
   };
@@ -702,29 +716,51 @@ function syncCardAmountsFromSubproject(card, subproject) {
   if (!card || card.source !== 'linked' || !subproject) {
     return { card, changed: false };
   }
-  const nextApproved = hasUsableAmount(subproject.approvedAmount)
+    const nextApproved = hasUsableAmount(subproject.approvedAmount)
     ? subproject.approvedAmount
     : card.approvedAmount;
   const nextContract = hasUsableAmount(subproject.contractAmount)
     ? subproject.contractAmount
     : card.contractAmount;
+  const nextProjectTitle = String(subproject.projectTitle || '').trim() || card.projectTitle || '';
+  const finalApe = extractFinalContractAmountFieldsFromSubproject(subproject);
+  const nextFinal = finalApe.hasFinalContractAmountAfterApe
+    ? finalApe.finalContractAmountAfterApe
+    : '';
+  const nextFinalDate = finalApe.hasFinalContractAmountAfterApe
+    ? (finalApe.finalContractApeDate || '')
+    : '';
   const approvedChanged =
     String(nextApproved ?? '') !== String(card.approvedAmount ?? '');
   const contractChanged =
     String(nextContract ?? '') !== String(card.contractAmount ?? '');
-  if (!approvedChanged && !contractChanged) {
+  const titleMetaChanged =
+    String(nextProjectTitle || '') !== String(card.projectTitle || '');
+  const finalChanged =
+    String(nextFinal ?? '') !== String(card.finalContractAmountAfterApe ?? '')
+    || String(nextFinalDate) !== String(card.finalContractApeDate || '')
+    || !!finalApe.hasFinalContractAmountAfterApe !== !!card.hasFinalContractAmountAfterApe;
+  if (!approvedChanged && !contractChanged && !finalChanged && !titleMetaChanged) {
     return { card, changed: false };
   }
-  return {
-    changed: true,
-    card: {
-      ...card,
-      approvedAmount: nextApproved,
-      contractAmount: nextContract,
-      amountChangedBadge: true,
-      updatedAt: new Date().toISOString(),
-    },
+  const next = {
+    ...card,
+    approvedAmount: nextApproved,
+    contractAmount: nextContract,
+    projectTitle: nextProjectTitle,
+    finalContractAmountAfterApe: nextFinal,
+    finalContractApeDate: nextFinalDate,
+    hasFinalContractAmountAfterApe: !!finalApe.hasFinalContractAmountAfterApe,
+    amountChangedBadge: approvedChanged || contractChanged || finalChanged
+      ? true
+      : !!card.amountChangedBadge,
+    updatedAt: new Date().toISOString(),
   };
+  // Αν έφυγε ο ΑΠΕ από το υποέργο, κλείνει και η εμφάνιση στην παρουσίαση
+  if (!finalApe.hasFinalContractAmountAfterApe) {
+    next.showFinalContractAmountInPresentation = false;
+  }
+  return { changed: true, card: next };
 }
 
 function dismissAmountBadge(card) {
@@ -732,6 +768,66 @@ function dismissAmountBadge(card) {
   return {
     ...card,
     amountChangedBadge: false,
+  };
+}
+
+/** Ημέρες μετά τις οποίες εμφανίζεται ήπια υπενθύμιση για εκκρεμές αίτημα φωτογραφιών. */
+const PHOTO_REQUEST_REMINDER_DAYS = 7;
+
+function cardRequiresPhotoPhases(card) {
+  return requiredPhotoPhasesForVizIds([
+    card?.primaryViz,
+    card?.secondaryViz,
+  ].filter(Boolean));
+}
+
+function cardHasAllRequiredPhotos(card) {
+  const phases = cardRequiresPhotoPhases(card);
+  if (!phases.length) return true;
+  const photos = card?.photos || {};
+  return phases.every((ph) => Array.isArray(photos[ph]) && photos[ph].length > 0);
+}
+
+function daysSinceIso(iso) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return Math.floor((Date.now() - t) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * Κατάσταση αιτήματος φωτογραφιών για UI λίστας/λεπτομερειών.
+ * @returns {{ status: 'none'|'idle'|'awaiting'|'reminder'|'ready', label: string, daysSince: number|null }}
+ */
+function getPhotoRequestUiState(card) {
+  const phases = cardRequiresPhotoPhases(card);
+  if (!phases.length || card?.source !== 'linked') {
+    return { status: 'none', label: '', daysSince: null };
+  }
+  const sentAt = card?.photoRequestLast?.sentAt;
+  const hasPhotos = cardHasAllRequiredPhotos(card);
+  if (hasPhotos) {
+    return {
+      status: 'ready',
+      label: sentAt ? 'Φωτογραφίες έτοιμες' : '',
+      daysSince: daysSinceIso(sentAt),
+    };
+  }
+  if (!sentAt) {
+    return { status: 'idle', label: '', daysSince: null };
+  }
+  const days = daysSinceIso(sentAt);
+  if (days != null && days >= PHOTO_REQUEST_REMINDER_DAYS) {
+    return {
+      status: 'reminder',
+      label: `Αναμονή φωτο · ${days}ημ.`,
+      daysSince: days,
+    };
+  }
+  return {
+    status: 'awaiting',
+    label: 'Αναμονή φωτο',
+    daysSince: days,
   };
 }
 
@@ -834,6 +930,14 @@ module.exports = {
   validateLegacyCardInput,
   syncCardAmountsFromSubproject,
   dismissAmountBadge,
+  PHOTO_REQUEST_REMINDER_DAYS,
+  cardRequiresPhotoPhases,
+  cardHasAllRequiredPhotos,
+  getPhotoRequestUiState,
+  cardShowsFinalContractAmountInPresentation,
+  FINAL_CONTRACT_AFTER_APE_SHORT_LABEL,
+  FINAL_CONTRACT_AFTER_APE_FULL_LABEL,
+  FINAL_CONTRACT_AFTER_APE_EXPLANATION,
   createEmptyReport,
   createDefaultPeriod,
   resolveMediaPathSafe,

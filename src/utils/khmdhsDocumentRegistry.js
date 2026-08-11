@@ -19,6 +19,10 @@ import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEn
 import { getSymvPlanCustomLabel, overlaySymvPlanLabelsOnChainHistory, SYMV_CHAIN_ROLE, isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
 import { normalizeSearchText } from './searchUtils';
 import { compareKhmdhsDocumentsByDateAsc } from './khmdhsDocumentChronology';
+import {
+  readPaymentActualAmountFromPayment,
+  mergePaymentAmountsFromProject,
+} from './khmdhsPaymentDocumentRoles';
 
 export const KHMDHS_REGISTRY_STAGE_ORDER = ['REQ', 'COMMIT', 'PROC', 'AWRD', 'SYMV', 'EXT', 'APE', 'PAY', 'RELATED'];
 
@@ -71,6 +75,7 @@ function buildRegistryEntry({
   fetchedAt = '',
   chainFetchedAt = '',
   isStub = false,
+  amountSource = '',
 }) {
   const normalized = normalizeAdam(adam || snapshot?.referenceNumber);
   if (!normalized) return null;
@@ -79,6 +84,10 @@ function buildRegistryEntry({
   const resolvedType = type || adamTypeCode(normalized);
   const resolvedStage = stage || stageFromType(resolvedType);
   const meta = KHMDHS_REGISTRY_STAGE_META[resolvedStage] || KHMDHS_REGISTRY_STAGE_META.SYMV;
+  const amountStr = String(amount || '').trim();
+  const source = amountStr && (amountSource === 'user' || amountSource === 'khmdhs')
+    ? amountSource
+    : '';
 
   return {
     id: uuidv4(),
@@ -88,7 +97,8 @@ function buildRegistryEntry({
     stageLabel: meta.label,
     title: String(title || snapshot?.title || '').trim(),
     subtitle: String(subtitle || '').trim(),
-    amount: String(amount || '').trim(),
+    amount: amountStr,
+    amountSource: source,
     date: String(date || '').trim(),
     openUrl: buildKhmdhsOpenUrl(normalized),
     roleLabel: String(roleLabel || '').trim(),
@@ -204,13 +214,49 @@ function entryFromContract({ adam, snapshot, fetchedAt, roleLabel, title, amount
   });
 }
 
-function entryFromPayment(block) {
+function formatPaymentRegistryAmountNumber(n) {
+  if (n == null || !Number.isFinite(n) || n <= 0) return '';
+  return n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Ποσό εντάλματος για καταγραφή: προτεραιότητα στο χειροκίνητο πραγματικό ποσό,
+ * μετά lookup από χαρακτηρισμό πληρωμών, αλλιώς το μεικτό από ΚΗΜΔΗΣ.
+ * @returns {{ amount: string, amountSource: 'user'|'khmdhs'|'' }}
+ */
+function resolvePaymentRegistryAmount(block, amountLookup = null) {
+  const fromBlock = readPaymentActualAmountFromPayment(block);
+  if (fromBlock != null) {
+    return {
+      amount: formatPaymentRegistryAmountNumber(fromBlock),
+      amountSource: 'user',
+    };
+  }
+
+  const adam = normalizeAdam(block?.adam || block?.snapshot?.referenceNumber);
+  if (adam && amountLookup && amountLookup[adam] != null) {
+    return {
+      amount: formatPaymentRegistryAmountNumber(amountLookup[adam]),
+      amountSource: 'user',
+    };
+  }
+
+  const snap = block?.snapshot;
+  const fromKhmdhs = snap ? (formatKhmdhsCostSnapshotGross(snap) || '') : '';
+  return {
+    amount: fromKhmdhs,
+    amountSource: fromKhmdhs ? 'khmdhs' : '',
+  };
+}
+
+function entryFromPayment(block, amountLookup = null) {
   if (!block?.adam) return null;
   const customLabel = String(block.userDocumentLabel || block.roleLabel || '').trim();
   // Χωρίς λεπτομέρειες δεν καταχωρούμε stub στα Αρχεία — αλλιώς άσχετα PAY
   // εμφανίζονται ως «νέα έγγραφα» πριν ελεγχθεί η σχετικότητα με τη σύμβαση.
   if (!block.snapshot) return null;
   const snap = block.snapshot;
+  const { amount, amountSource } = resolvePaymentRegistryAmount(block, amountLookup);
   return buildRegistryEntry({
     adam: block.adam || snap?.referenceNumber,
     snapshot: snap,
@@ -218,7 +264,8 @@ function entryFromPayment(block) {
     type: 'PAY',
     title: snap?.title || '',
     subtitle: snap?.organization || '',
-    amount: snap ? (formatKhmdhsCostSnapshotGross(snap) || '') : '',
+    amount,
+    amountSource,
     date: snap?.signedDate ? formatKhmdhsDateOnly(snap.signedDate) : '',
     roleLabel: customLabel,
     fetchedAt: block.fetchedAt,
@@ -268,6 +315,10 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = n
   const map = new Map();
   // Χρησιμοποιούμε το fetchedAt της αλυσίδας αν υπάρχει — πιο ακριβής χρόνος
   const chainFetchedAt = chainRes.fetchedAt || chainRes.contract?.fetchedAt || new Date().toISOString();
+  const paymentAmountLookup = mergePaymentAmountsFromProject(
+    project,
+    review || project?.khmdhsDataQualityReview
+  );
 
   pushUnique(map, entryFromRequest(chainRes.request, chainFetchedAt));
 
@@ -313,7 +364,18 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = n
   });
 
   (chainRes.payments || []).forEach((p) => {
-    pushUnique(map, entryFromPayment(p));
+    const adam = normalizeAdam(p?.adam || p?.snapshot?.referenceNumber);
+    const fromProject = (project?.khmdhsPayments || []).find(
+      (row) => normalizeAdam(row?.adam || row?.snapshot?.referenceNumber) === adam
+    );
+    pushUnique(map, entryFromPayment({
+      ...p,
+      ...(fromProject || {}),
+      adam: p.adam || fromProject?.adam,
+      snapshot: p.snapshot || fromProject?.snapshot,
+      userDocumentLabel: fromProject?.userDocumentLabel || p.userDocumentLabel || '',
+      userActualAmount: fromProject?.userActualAmount ?? p.userActualAmount,
+    }, paymentAmountLookup));
   });
 
   addLinkedAdamStubs(chainRes, map);
@@ -393,6 +455,7 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
   const map = new Map();
   const review = project.khmdhsDataQualityReview || null;
   const suppLookup = buildRegistrySuppAmountDateLookup(project);
+  const paymentAmountLookup = mergePaymentAmountsFromProject(project, review);
 
   if (project.khmdhsRequestSnapshot || project.khmdhsRequestAdam) {
     pushUnique(map, entryFromRequest({
@@ -520,7 +583,8 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
       adam: p.adam,
       snapshot: p.snapshot,
       userDocumentLabel: paymentBlock?.userDocumentLabel || '',
-    }));
+      userActualAmount: paymentBlock?.userActualAmount,
+    }, paymentAmountLookup));
   });
 
   return annotateRegistryLinkLabels([...map.values()]);
@@ -825,6 +889,23 @@ export function resyncRegistryEntryTitles(existing, candidates) {
     if (freshTitle && freshTitle !== entry.title) patch.title = freshTitle;
     if (freshNoticeType && freshNoticeType !== entry.noticeType) patch.noticeType = freshNoticeType;
     if (freshSubtitle && freshSubtitle !== entry.subtitle) patch.subtitle = freshSubtitle;
+    const freshAmount = String(fresh.amount || '').trim();
+    if (freshAmount && freshAmount !== String(entry.amount || '').trim()) {
+      const isPay = entry.stage === 'PAY' || fresh.stage === 'PAY';
+      if (!isPay) {
+        patch.amount = freshAmount;
+        if (fresh.amountSource) patch.amountSource = fresh.amountSource;
+      } else if (fresh.amountSource === 'user') {
+        // Νέο χειροκίνητο ποσό πάντα υπερισχύει
+        patch.amount = freshAmount;
+        patch.amountSource = 'user';
+      } else if (!String(entry.amount || '').trim() || entry.amountSource === 'khmdhs') {
+        // Γέμισμα κενού ή ενημέρωση προηγούμενου ποσού ΚΗΜΔΗΣ
+        patch.amount = freshAmount;
+        if (fresh.amountSource) patch.amountSource = fresh.amountSource;
+      }
+      // Αλλιώς: υπάρχον ποσό εντάλματος (χειροκίνητο ή παλιό χωρίς πηγή) διατηρείται
+    }
     // Ένα «γυμνό» ΑΔΑΜ (χωρίς ποτέ ανακτημένα στοιχεία) παύει να είναι stub μόλις βρεθεί
     // πραγματικός τίτλος του — αλλιώς η ετικέτα του παραμένει γενική («Δημοσίευση Ν»).
     if (entry.isStub && freshTitle) patch.isStub = false;
@@ -908,7 +989,38 @@ export function mergeRegistryCandidateLists(...lists) {
       const key = normalizeAdam(e?.adam);
       if (!key) return;
       const prev = byAdam.get(key);
-      byAdam.set(key, prev ? { ...prev, ...e, title: e.title || prev.title } : e);
+      if (!prev) {
+        byAdam.set(key, e);
+        return;
+      }
+      const nextAmount = String(e.amount || '').trim();
+      const prevAmount = String(prev.amount || '').trim();
+      let amount = nextAmount || prevAmount;
+      let amountSource = (nextAmount ? e.amountSource : prev.amountSource) || '';
+      // Εντάλματα: το χειροκίνητο ποσό δεν χάνεται από μεταγενέστερο ποσό ΚΗΜΔΗΣ
+      if ((e.stage === 'PAY' || prev.stage === 'PAY') && prevAmount && nextAmount) {
+        if (prev.amountSource === 'user' && e.amountSource !== 'user') {
+          amount = prevAmount;
+          amountSource = 'user';
+        } else if (e.amountSource === 'user') {
+          amount = nextAmount;
+          amountSource = 'user';
+        } else if (prev.amountSource === 'user') {
+          amount = prevAmount;
+          amountSource = 'user';
+        }
+      } else if ((e.stage === 'PAY' || prev.stage === 'PAY') && prevAmount && !nextAmount) {
+        amount = prevAmount;
+        amountSource = prev.amountSource || amountSource;
+      }
+      byAdam.set(key, {
+        ...prev,
+        ...e,
+        title: e.title || prev.title,
+        amount,
+        amountSource,
+        roleLabel: e.roleLabel || prev.roleLabel,
+      });
     });
   });
   return annotateRegistryLinkLabels([...byAdam.values()]);

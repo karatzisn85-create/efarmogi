@@ -214,7 +214,8 @@ export const S = StyleSheet.create({
 });
 
 export function formatAmount(val) {
-  if (!val) return '—';
+  // Μηδενικό ποσό είναι έγκυρο — μην το εμφανίζεις ως παύλα
+  if (val == null || val === '') return '—';
   const num = parseFloat(String(val).replace(/[.,]/g, (m, i, s) => {
     const lastDot = s.lastIndexOf('.');
     const lastComma = s.lastIndexOf(',');
@@ -227,9 +228,18 @@ export function formatAmount(val) {
 
 export function formatDate(dateStr) {
   if (!dateStr) return '—';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  const s = String(dateStr).trim();
+  if (!s || s === '—') return '—';
+  // YYYY-MM-DD (και ISO με ώρα) — χωρίς UTC shift
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dmy) {
+    return `${String(dmy[1]).padStart(2, '0')}/${String(dmy[2]).padStart(2, '0')}/${dmy[3]}`;
+  }
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
 export function nowFormatted() {

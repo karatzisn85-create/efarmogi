@@ -38,9 +38,10 @@ const RailShell = styled.div`
   overflow: hidden;
   flex-shrink: 0;
   width: 100%;
-  position: ${(p) => (p.$slim ? 'relative' : 'sticky')};
-  top: ${(p) => (p.$slim ? 'auto' : '0')};
-  z-index: ${(p) => (p.$slim ? 1 : 50)};
+  position: ${(p) => (p.$slim || p.$compact ? 'relative' : 'sticky')};
+  top: ${(p) => (p.$slim || p.$compact ? 'auto' : '0')};
+  /* compact στην κάρτα: χαμηλό z-index — αλλιώς καλύπτει το κουμπί αναφοράς */
+  z-index: ${(p) => (p.$slim || p.$compact ? 1 : 50)};
 `;
 
 /* ── Slim variant — compact αλλά αναγνώσιμη ─────────────────────────── */
