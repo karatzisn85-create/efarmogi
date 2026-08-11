@@ -18736,7 +18736,7 @@ ipcMain.handle('apologismos-export-photo', async (_event, { actingUsername, rela
 });
 
 ipcMain.handle('apologismos-save-map-snapshot', async (_event, {
-  actingUsername, periodId, cardId, dataUrl, mapDrawing,
+  actingUsername, periodId, cardId, dataUrl, mapDrawing, mapView,
 } = {}) => {
   try {
     const auth = assertApologismosSuperAdmin(actingUsername);
@@ -18752,6 +18752,7 @@ ipcMain.handle('apologismos-save-map-snapshot', async (_event, {
       cardId,
       dataUrl,
       mapDrawing,
+      mapView,
     });
     if (!result.success) return result;
     return {

@@ -7,6 +7,7 @@ const path = require('path');
 const {
   emptyMapDrawing,
   normalizeMapDrawing,
+  normalizeMapView,
   legacyMapPointsToDrawing,
   resolveCardMapDrawing,
   hasMapSnapshot,
@@ -137,6 +138,17 @@ describe('παρουσίαση χάρτη προτιμά στιγμιότυπο'
   });
 });
 
+describe('normalizeMapView (κάδρο παρουσίασης)', () => {
+  test('δέχεται lat/lng/zoom και κόβει άκυρα', () => {
+    expect(normalizeMapView({ lat: 35.18, lng: 25.16, zoom: 14.4 }))
+      .toEqual({ lat: 35.18, lng: 25.16, zoom: 14.4 });
+    expect(normalizeMapView({ centerLat: 35, centerLng: 25, zoom: 99 }).zoom).toBe(19);
+    expect(normalizeMapView({ lat: 35, lng: 25, zoom: 1 }).zoom).toBe(3);
+    expect(normalizeMapView(null)).toBeNull();
+    expect(normalizeMapView({ lat: 999, lng: 25, zoom: 10 })).toBeNull();
+  });
+});
+
 describe('saveMapSnapshot path guard & persistence', () => {
   test('αποθηκεύει PNG εντός φακέλου απολογισμού και ενημερώνει κάρτα', () => {
     const dataDir = tempDir();
@@ -172,12 +184,14 @@ describe('saveMapSnapshot path guard & persistence', () => {
         cardId: added.card.id,
         dataUrl: `data:image/png;base64,${tinyPng.toString('base64')}`,
         mapDrawing: drawing,
+        mapView: { lat: 35.2, lng: 25.1, zoom: 15 },
       });
       expect(saved.success).toBe(true);
       expect(saved.relativePath).toMatch(/^media\/.+\/map\/snapshot_/);
       expect(saved.card.mapSnapshot).toBe(saved.relativePath);
       expect(saved.card.mapDrawing.features).toHaveLength(1);
       expect(saved.card.mapPoints[0].label).toBe('Πλατεία');
+      expect(saved.card.mapView).toEqual({ lat: 35.2, lng: 25.1, zoom: 15 });
       const abs = resolveCardMediaAbsolute(dataDir, saved.relativePath);
       expect(abs).toBeTruthy();
       expect(fs.existsSync(abs)).toBe(true);

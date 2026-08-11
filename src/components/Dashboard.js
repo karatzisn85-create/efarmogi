@@ -7003,8 +7003,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             </CategoryBody>
           </CategorySection>
 
-        {/* Κατηγορία: ΕΡΓΑΛΕΙΑ - ADMIN/SUPERADMIN/ENGINEER */}
-        {(canManageAll || isEngineer) && (
+        {/* Κατηγορία: ΕΡΓΑΛΕΙΑ — ADMIN/SUPERADMIN (Υποδείγματα)· SUPERADMIN για Excel / Απολογισμό */}
+        {canManageAll && (
           <CategorySection $accentColor="#d97706" $accentGrad="linear-gradient(135deg, #d97706, #f59e0b)">
             <CategoryHeader $open={expandedCategories.tools} onClick={() => toggleCategory('tools')}>
               <CategoryHeaderLeft>
@@ -7014,6 +7014,52 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               <CategoryHeaderChevron $open={expandedCategories.tools}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.tools}>
+              <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
+                <AdminButtonIcon>📄</AdminButtonIcon>
+                Υποδείγματα Εγγράφων
+              </AdminButton>
+              {isSuperAdmin && (
+                <AdminButton onClick={() => setIsExcelImportOpen(true)}>
+                  <AdminButtonIcon>📥</AdminButtonIcon>
+                  Μαζική Εισαγωγή από Excel
+                </AdminButton>
+              )}
+              {isSuperAdmin && (
+                <AdminButton
+                  onClick={() => {
+                    if (dashboardScrollRef.current) {
+                      savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
+                    }
+                    setIsApologismosOpen(true);
+                  }}
+                  title="Δημιουργία απολογισμού τεχνικού έργου δημοτικής περιόδου"
+                >
+                  <AdminButtonIcon>📘</AdminButtonIcon>
+                  Δημιουργία Απολογισμού Δημοτικής Περιόδου
+                </AdminButton>
+              )}
+            </CategoryBody>
+          </CategorySection>
+        )}
+
+        {/* Κατηγορία: ΣΥΣΤΗΜΑ — Ιστορικό ενεργειών και σε ENGINEER· αντίγραφα/ειδοποιήσεις/email σε ADMIN+· λοιπά SUPERADMIN */}
+        {(canManageAll || isEngineer) && (
+          <CategorySection $accentColor="#be185d" $accentGrad="linear-gradient(135deg, #be185d, #ec4899)">
+            <CategoryHeader $open={expandedCategories.system} onClick={() => toggleCategory('system')}>
+              <CategoryHeaderLeft>
+                <CategoryHeaderIcon $accent="linear-gradient(135deg, #be185d, #ec4899)">⚙️</CategoryHeaderIcon>
+                <CategoryHeaderTitle>Σύστημα</CategoryHeaderTitle>
+              </CategoryHeaderLeft>
+              <CategoryHeaderChevron $open={expandedCategories.system}>▶</CategoryHeaderChevron>
+            </CategoryHeader>
+            <CategoryBody $open={expandedCategories.system}>
+              {canManageAll && (
+                <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
+                  <AdminButtonIcon>💾</AdminButtonIcon>
+                  Αντίγραφα Ασφαλείας
+                  {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
+                </AdminButton>
+              )}
               <AdminButton onClick={() => setIsAuditLogOpen(true)}>
                 <AdminButtonIcon>📋</AdminButtonIcon>
                 Ιστορικό Ενεργειών
@@ -7030,64 +7076,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                   Ιστορικό Email
                 </AdminButton>
               )}
-              {canManageAll && (
-                <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
-                  <AdminButtonIcon>📄</AdminButtonIcon>
-                  Υποδείγματα Εγγράφων
-                </AdminButton>
-              )}
-              {isSuperAdmin && (
-                <AdminButton
-                  onClick={reopenPostSetupChecklist}
-                  title="Επαναφέρει την κάρτα ολοκλήρωσης εγκατάστασης (Email, αντίγραφα, πύλη)"
-                >
-                  <AdminButtonIcon>🧰</AdminButtonIcon>
-                  Εργαλεία προγραμματιστή
-                </AdminButton>
-              )}
-              {isSuperAdmin && (
-                <AdminButton
-                  onClick={async () => {
-                    try {
-                      const res = await ipcRenderer.invoke('rebuild-projects-index', {
-                        actingUsername: currentUser?.username,
-                      });
-                      if (res?.success) {
-                        showToast(`Το ευρετήριο ανανεώθηκε (${res.count || 0} υποέργα).`, 'success');
-                        await loadDataWithCache(true, { silent: true });
-                      } else {
-                        showToast(res?.error || 'Αποτυχία ανανέωσης ευρετηρίου.', 'error');
-                      }
-                    } catch (err) {
-                      showToast(err?.message || 'Αποτυχία ανανέωσης ευρετηρίου.', 'error');
-                    }
-                  }}
-                  title="Ξαναχτίζει το ευρετήριο υποέργων για πιο γρήγορο άνοιγμα"
-                >
-                  <AdminButtonIcon>📇</AdminButtonIcon>
-                  Επαναδημιουργία ευρετηρίου
-                </AdminButton>
-              )}
-            </CategoryBody>
-          </CategorySection>
-        )}
-
-        {/* Κατηγορία: ΣΥΣΤΗΜΑ — αντίγραφα ασφαλείας για ADMIN/SUPERADMIN, λοιπά μόνο SUPERADMIN */}
-        {canManageAll && (
-          <CategorySection $accentColor="#be185d" $accentGrad="linear-gradient(135deg, #be185d, #ec4899)">
-            <CategoryHeader $open={expandedCategories.system} onClick={() => toggleCategory('system')}>
-              <CategoryHeaderLeft>
-                <CategoryHeaderIcon $accent="linear-gradient(135deg, #be185d, #ec4899)">⚙️</CategoryHeaderIcon>
-                <CategoryHeaderTitle>Σύστημα</CategoryHeaderTitle>
-              </CategoryHeaderLeft>
-              <CategoryHeaderChevron $open={expandedCategories.system}>▶</CategoryHeaderChevron>
-            </CategoryHeader>
-            <CategoryBody $open={expandedCategories.system}>
-              <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
-                <AdminButtonIcon>💾</AdminButtonIcon>
-                Αντίγραφα Ασφαλείας
-                {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
-              </AdminButton>
               {isSuperAdmin && (
                 <>
                   <AdminButton onClick={() => setIsUserManagementOpen(true)}>
@@ -7102,21 +7090,33 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                     <AdminButtonIcon>🏘</AdminButtonIcon>
                     Δημοτικές Ενότητες
                   </AdminButton>
-                  <AdminButton onClick={() => setIsExcelImportOpen(true)}>
-                    <AdminButtonIcon>📥</AdminButtonIcon>
-                    Μαζική Εισαγωγή από Excel
+                  <AdminButton
+                    onClick={reopenPostSetupChecklist}
+                    title="Επαναφέρει την κάρτα ολοκλήρωσης εγκατάστασης (Email, αντίγραφα, πύλη)"
+                  >
+                    <AdminButtonIcon>🧰</AdminButtonIcon>
+                    Εργαλεία προγραμματιστή
                   </AdminButton>
                   <AdminButton
-                    onClick={() => {
-                      if (dashboardScrollRef.current) {
-                        savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
+                    onClick={async () => {
+                      try {
+                        const res = await ipcRenderer.invoke('rebuild-projects-index', {
+                          actingUsername: currentUser?.username,
+                        });
+                        if (res?.success) {
+                          showToast(`Το ευρετήριο ανανεώθηκε (${res.count || 0} υποέργα).`, 'success');
+                          await loadDataWithCache(true, { silent: true });
+                        } else {
+                          showToast(res?.error || 'Αποτυχία ανανέωσης ευρετηρίου.', 'error');
+                        }
+                      } catch (err) {
+                        showToast(err?.message || 'Αποτυχία ανανέωσης ευρετηρίου.', 'error');
                       }
-                      setIsApologismosOpen(true);
                     }}
-                    title="Απολογισμός τεχνικού έργου δημοτικής περιόδου"
+                    title="Ξαναχτίζει το ευρετήριο υποέργων για πιο γρήγορο άνοιγμα"
                   >
-                    <AdminButtonIcon>📘</AdminButtonIcon>
-                    Απολογισμός Δημάρχου
+                    <AdminButtonIcon>📇</AdminButtonIcon>
+                    Επαναδημιουργία ευρετηρίου
                   </AdminButton>
                 </>
               )}

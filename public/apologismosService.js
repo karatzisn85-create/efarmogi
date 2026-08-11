@@ -181,6 +181,7 @@ function addFromSubproject(dataDir, { periodId, subproject, epActions }) {
     mapLine: null,
     mapDrawing: domain.emptyMapDrawing(),
     mapSnapshot: null,
+    mapView: null,
     metrics: [],
     amountChangedBadge: false,
     suggestedCategoryId: suggested || null,
@@ -224,6 +225,7 @@ function addLegacyCard(dataDir, { periodId, input }) {
     mapLine: input.mapLine || null,
     mapDrawing: domain.normalizeMapDrawing(input.mapDrawing),
     mapSnapshot: input.mapSnapshot || null,
+    mapView: domain.normalizeMapView(input.mapView),
     metrics: domain.normalizeMetrics(input.metrics),
     amountChangedBadge: false,
     createdAt: now,
@@ -526,7 +528,7 @@ function reorderCardPhotoPrimary(dataDir, { periodId, cardId, phase, relativePat
  * Αποθήκευση στιγμιότυπου χάρτη (PNG data URL ή Buffer) + GeoJSON σχεδίων.
  */
 function saveMapSnapshot(dataDir, {
-  periodId, cardId, dataUrl, buffer, mapDrawing, mapPoints,
+  periodId, cardId, dataUrl, buffer, mapDrawing, mapPoints, mapView,
 } = {}) {
   const loaded = loadReport(dataDir, periodId);
   if (!loaded.success) return loaded;
@@ -575,10 +577,13 @@ function saveMapSnapshot(dataDir, {
     })
     .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
 
+  const nextView = domain.normalizeMapView(mapView);
+
   report.cards[idx] = {
     ...prev,
     mapSnapshot: rel,
     mapDrawing: drawing,
+    mapView: nextView || prev.mapView || null,
     mapPoints: Array.isArray(mapPoints) && mapPoints.length
       ? mapPoints
       : pointsFromDrawing,

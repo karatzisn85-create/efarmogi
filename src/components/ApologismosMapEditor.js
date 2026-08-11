@@ -13,6 +13,8 @@ import {
   boundsFromDrawing,
   resolveCardMapDrawing,
   normalizeMapDrawing,
+  normalizeMapView,
+  mapViewFromLeafletMap,
   geometryAnchorLatLng,
   resolveLabelLatLng,
   normalizeLeaderStyle,
@@ -350,6 +352,29 @@ const HelpList = styled.ol`
   li { margin-bottom: 0.25rem; }
 `;
 
+const ViewFrameHint = styled.div`
+  font-size: 0.78rem; color: #334155; line-height: 1.45;
+  background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px;
+  padding: 0.55rem 0.65rem; margin-bottom: 0.35rem;
+`;
+
+const ZoomRow = styled.div`
+  display: grid; grid-template-columns: 44px 1fr 44px; gap: 0.35rem; align-items: center;
+`;
+
+const ZoomValue = styled.div`
+  text-align: center; font-size: 0.9rem; font-weight: 800; color: #312e81;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+  padding: 0.5rem 0.4rem;
+`;
+
+const ZoomBtn = styled.button`
+  font-family: inherit; cursor: pointer; border-radius: 10px;
+  padding: 0.5rem 0; font-size: 1.15rem; font-weight: 800; line-height: 1;
+  border: 1px solid #e2e8f0; background: #fff; color: #334155;
+  &:hover:not(:disabled) { border-color: #a5b4fc; background: #f8fafc; }
+`;
+
 function featureTypeLabel(type) {
   if (type === 'Point') return 'Σημείο';
   if (type === 'LineString') return 'Γραμμή / διαδρομή';
@@ -413,6 +438,7 @@ export default function ApologismosMapEditor({
   const [baseLayer, setBaseLayer] = useState('sat');
   const [tilesReady, setTilesReady] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [viewZoom, setViewZoom] = useState(DEFAULT_MAP_CENTER.zoom);
   const [error, setError] = useState('');
   const [selectedName, setSelectedName] = useState('');
   const [leaderColor, setLeaderColor] = useState(DEFAULT_LEADER_STYLE.leaderColor);
@@ -559,9 +585,13 @@ export default function ApologismosMapEditor({
   useEffect(() => {
     if (!open || !mapElRef.current) return undefined;
 
+    // preferCanvas: τα πολύγωνα/γραμμές σχεδιάζονται σε Canvas αντί για SVG.
+    // Το html2canvas μετατοπίζει λάθος τα SVG paths του Leaflet, ενώ τα σημεία (DOM markers)
+    // εμφανίζονται σωστά — γι' αυτό στην παρουσίαση η περιοχή «έφευγε» από τη θέση της.
     const map = L.map(mapElRef.current, {
       zoomControl: false,
       attributionControl: true,
+      preferCanvas: true,
     });
     L.control.zoom({ position: 'bottomright' }).addTo(map);
     mapRef.current = map;
@@ -670,24 +700,65 @@ export default function ApologismosMapEditor({
           upsertLabelDecoration(layer);
         },
       });
-      const b = boundsFromDrawing(initial);
-      if (b.length >= 2) {
-        map.fitBounds(L.latLngBounds(b), { padding: [40, 40], maxZoom: 16 });
-      } else if (b.length === 1) {
-        map.setView(b[0], 15);
-      } else {
-        map.setView([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], DEFAULT_MAP_CENTER.zoom);
-      }
-    } else {
-      map.setView([DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng], DEFAULT_MAP_CENTER.zoom);
     }
+
+    const savedView = normalizeMapView(card?.mapView);
+    const applyInitialView = () => {
+      if (savedView) {
+        map.setView([savedView.lat, savedView.lng], savedView.zoom, { animate: false });
+        setViewZoom(savedView.zoom);
+        return;
+      }
+      if (initial.features.length) {
+        const b = boundsFromDrawing(initial);
+        if (b.length >= 2) {
+          map.fitBounds(L.latLngBounds(b), { padding: [48, 48], maxZoom: 17, animate: false });
+        } else if (b.length === 1) {
+          map.setView(b[0], 16, { animate: false });
+        } else {
+          map.setView(
+            [DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng],
+            DEFAULT_MAP_CENTER.zoom,
+            { animate: false }
+          );
+        }
+        setViewZoom(map.getZoom());
+        return;
+      }
+      map.setView(
+        [DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng],
+        DEFAULT_MAP_CENTER.zoom,
+        { animate: false }
+      );
+      setViewZoom(DEFAULT_MAP_CENTER.zoom);
+    };
+
+    // Πρώτη εφαρμογή πριν το invalidateSize (για να υπάρχει κέντρο),
+    // και δεύτερη μετά — αλλιώς το fitBounds σε μηδενικό μέγεθος αφήνει υπερβολικά zoom-out.
+    applyInitialView();
+
+    const syncViewMeta = () => {
+      try {
+        setViewZoom(Math.round(map.getZoom() * 10) / 10);
+      } catch (_) { /* ignore */ }
+    };
+    map.on('zoomend', syncViewMeta);
+    map.on('moveend', syncViewMeta);
 
     setTilesReady(false);
     waitForTiles(map).then(() => setTilesReady(true));
-    setTimeout(() => map.invalidateSize(), 80);
+    setTimeout(() => {
+      try {
+        map.invalidateSize(false);
+        applyInitialView();
+        syncViewMeta();
+      } catch (_) { /* ignore */ }
+    }, 80);
     refreshFeatureList();
 
     return () => {
+      map.off('zoomend', syncViewMeta);
+      map.off('moveend', syncViewMeta);
       labelMapRef.current.clear();
       map.remove();
       mapRef.current = null;
@@ -753,6 +824,31 @@ export default function ApologismosMapEditor({
     setActiveTool(tool);
   };
 
+  const fitToAllFeatures = () => {
+    const map = mapRef.current;
+    const group = drawnRef.current;
+    if (!map || !group) return;
+    try {
+      const b = group.getBounds?.();
+      if (b && b.isValid()) {
+        map.fitBounds(b, { padding: [48, 48], maxZoom: 17 });
+        return;
+      }
+    } catch (_) { /* ignore */ }
+    const coords = boundsFromDrawing(collectDrawing());
+    if (coords.length >= 2) {
+      map.fitBounds(L.latLngBounds(coords), { padding: [48, 48], maxZoom: 17 });
+    } else if (coords.length === 1) {
+      map.setView(coords[0], 16);
+    }
+  };
+
+  const zoomBy = (delta) => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.setZoom(Math.max(3, Math.min(19, map.getZoom() + delta)));
+  };
+
   const selectFeatureFromList = (layer) => {
     selectedLayerRef.current = layer;
     const p = ensureFeatureProps(layer);
@@ -763,11 +859,18 @@ export default function ApologismosMapEditor({
     setLeaderDash(st.leaderDash);
     refreshFeatureList();
     activateTool('pan');
+    // Δεν αλλάζουμε το zoom της παρουσίασης — μόνο κεντράρουμε αν το στοιχείο είναι εκτός οθόνης.
     try {
+      const map = mapRef.current;
+      if (!map) return;
       if (layer.getBounds) {
-        mapRef.current?.fitBounds(layer.getBounds(), { padding: [40, 40], maxZoom: 17 });
+        const b = layer.getBounds();
+        if (b && !map.getBounds().contains(b)) {
+          map.panInsideBounds(b, { padding: [40, 40] });
+        }
       } else if (layer.getLatLng) {
-        mapRef.current?.setView(layer.getLatLng(), 16);
+        const ll = layer.getLatLng();
+        if (!map.getBounds().contains(ll)) map.panTo(ll);
       }
     } catch (_) { /* ignore */ }
   };
@@ -812,18 +915,40 @@ export default function ApologismosMapEditor({
       setTilesReady(true);
     }
     setSaving(true);
+    let controls = [];
     try {
-      const controls = mapElRef.current.querySelectorAll('.leaflet-pm-toolbar, .leaflet-control-zoom, .leaflet-control-attribution');
+      controls = Array.from(
+        mapElRef.current.querySelectorAll('.leaflet-pm-toolbar, .leaflet-control-zoom, .leaflet-control-attribution')
+      );
       controls.forEach((el) => { el.style.visibility = 'hidden'; });
       await waitForTiles(mapRef.current, 5000);
+      // Κρατάμε το κάδρο που βλέπει ο χρήστης και το ξαναεφαρμόζουμε μετά το invalidateSize,
+      // αλλιώς το screenshot μπορεί να βγει με διαφορετικό κέντρο/zoom.
+      const mapView = mapViewFromLeafletMap(mapRef.current);
+      mapRef.current.invalidateSize(false);
+      if (mapView) {
+        mapRef.current.setView([mapView.lat, mapView.lng], mapView.zoom, { animate: false });
+      }
+      await new Promise((r) => setTimeout(r, 80));
       const canvas = await html2canvas(mapElRef.current, {
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#0f172a',
         logging: false,
         scale: 1,
+        onclone: (_doc, el) => {
+          // Ασφάλεια: αν μείνει SVG pane, μετατρέπουμε CSS transform σε left/top
+          // ώστε το html2canvas να μην μετατοπίσει γραμμές/περιοχές.
+          el.querySelectorAll('.leaflet-overlay-pane svg.leaflet-zoom-animated').forEach((svg) => {
+            const t = svg.style.transform || '';
+            const m = t.match(/translate3d\((-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px/);
+            if (!m) return;
+            svg.style.transform = 'none';
+            svg.style.left = `${m[1]}px`;
+            svg.style.top = `${m[2]}px`;
+          });
+        },
       });
-      controls.forEach((el) => { el.style.visibility = ''; });
       const dataUrl = canvas.toDataURL('image/png');
       const ipc = window.electronAPI;
       const res = await ipc.invoke('apologismos-save-map-snapshot', {
@@ -832,6 +957,7 @@ export default function ApologismosMapEditor({
         cardId: card.id,
         dataUrl,
         mapDrawing: drawing,
+        mapView,
       });
       if (!res?.success) {
         setError(res?.error || 'Αποτυχία αποθήκευσης χάρτη');
@@ -843,6 +969,7 @@ export default function ApologismosMapEditor({
     } catch (e) {
       setError(e?.message || 'Αποτυχία αποθήκευσης χάρτη');
     } finally {
+      controls.forEach((el) => { el.style.visibility = ''; });
       setSaving(false);
     }
   };
@@ -920,13 +1047,34 @@ export default function ApologismosMapEditor({
                   <li>Επιλέξτε <strong>Σημείο</strong>, <strong>Γραμμή</strong> ή <strong>Περιοχή</strong> και σχεδιάστε στον χάρτη.</li>
                   <li>Γράψτε όνομα δεξιά — εμφανίζεται ετικέτα με γραμμή σύνδεσης.</li>
                   <li>Σύρετε την ετικέτα όπου φαίνεται καθαρά (χωρίς να καλύπτει το έργο).</li>
-                  <li>Πατήστε <strong>Αποθήκευση</strong> — ο χάρτης μπαίνει στην παρουσίαση ως φωτογραφία.</li>
+                  <li>Ρυθμίστε <strong>εστίαση και θέση</strong> όπως θέλετε να φαίνεται στην παρουσίαση.</li>
+                  <li>Πατήστε <strong>Αποθήκευση</strong> — αποθηκεύεται ακριβώς ό,τι βλέπετε στο πλαίσιο.</li>
                 </HelpList>
                 <Hint style={{ marginTop: 8 }}>{toolHint}</Hint>
               </Card>
 
               <Card>
-                <CardTitle><StepNum>2</StepNum> Υπόβαθρο χάρτη</CardTitle>
+                <CardTitle><StepNum>2</StepNum> Προβολή παρουσίασης</CardTitle>
+                <ViewFrameHint>
+                  Ό,τι φαίνεται τώρα στον χάρτη θα εμφανιστεί στην παρουσίαση.
+                  Ζουμάρετε και μετακινήστε μέχρι να είναι σωστό το κάδρο.
+                </ViewFrameHint>
+                <Field>Τρέχουσα εστίαση</Field>
+                <ZoomRow>
+                  <ZoomBtn type="button" onClick={() => zoomBy(-1)} title="Απομάκρυνση">−</ZoomBtn>
+                  <ZoomValue>z {viewZoom}</ZoomValue>
+                  <ZoomBtn type="button" onClick={() => zoomBy(1)} title="Εστίαση">+</ZoomBtn>
+                </ZoomRow>
+                <SideBtn type="button" style={{ marginTop: 8 }} onClick={fitToAllFeatures}>
+                  Εστίαση σε όλα τα στοιχεία
+                </SideBtn>
+                <Hint style={{ marginTop: 8 }}>
+                  Η επιλογή «Εστίαση σε όλα» είναι βοηθητική· ρυθμίστε μετά χειροκίνητα το τελικό κάδρο πριν την αποθήκευση.
+                </Hint>
+              </Card>
+
+              <Card>
+                <CardTitle><StepNum>3</StepNum> Υπόβαθρο χάρτη</CardTitle>
                 <SegRow>
                   <SegBtn type="button" $on={baseLayer === 'sat'} onClick={() => setBaseLayer('sat')}>
                     Δορυφορικός
@@ -941,7 +1089,7 @@ export default function ApologismosMapEditor({
               </Card>
 
               <Card>
-                <CardTitle><StepNum>3</StepNum> Όνομα επιλεγμένου</CardTitle>
+                <CardTitle><StepNum>4</StepNum> Όνομα επιλεγμένου</CardTitle>
                 {!hasSelection ? (
                   <EmptyBox>
                     Κάντε κλικ σε σημείο/γραμμή/περιοχή στον χάρτη<br />ή επιλέξτε από τη λίστα παρακάτω.
@@ -974,7 +1122,7 @@ export default function ApologismosMapEditor({
               </Card>
 
               <Card>
-                <CardTitle><StepNum>4</StepNum> Γραμμή σύνδεσης ετικέτας</CardTitle>
+                <CardTitle><StepNum>5</StepNum> Γραμμή σύνδεσης ετικέτας</CardTitle>
                 {!hasNamedSelection ? (
                   <Hint>Διαθέσιμο αφού το επιλεγμένο στοιχείο έχει όνομα.</Hint>
                 ) : (
@@ -1020,7 +1168,7 @@ export default function ApologismosMapEditor({
 
               <Card>
                 <CardTitle>
-                  <StepNum>5</StepNum> Στοιχεία στον χάρτη
+                  <StepNum>6</StepNum> Στοιχεία στον χάρτη
                   <span style={{ marginLeft: 'auto', color: '#64748b', fontWeight: 700 }}>
                     {features.length}
                   </span>

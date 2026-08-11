@@ -160,6 +160,25 @@ export function hasMapSnapshot(card) {
 /** Προεπιλεγμένο κέντρο: Δήμος Αρχανών–Αστερουσίων (Κρήτη). */
 export const DEFAULT_MAP_CENTER = Object.freeze({ lat: 35.18, lng: 25.16, zoom: 11 });
 
+/** Κανονικοποίηση αποθηκευμένης προβολής χάρτη (κέντρο + zoom) για παρουσίαση/επεξεργασία. */
+export function normalizeMapView(view) {
+  if (!view || typeof view !== 'object') return null;
+  const lat = Number(view.lat ?? view.centerLat);
+  const lng = Number(view.lng ?? view.centerLng);
+  let zoom = Number(view.zoom);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  if (!Number.isFinite(zoom)) zoom = DEFAULT_MAP_CENTER.zoom;
+  zoom = Math.max(3, Math.min(19, Math.round(zoom * 10) / 10));
+  return { lat, lng, zoom };
+}
+
+export function mapViewFromLeafletMap(map) {
+  if (!map?.getCenter || !map?.getZoom) return null;
+  const c = map.getCenter();
+  return normalizeMapView({ lat: c.lat, lng: c.lng, zoom: map.getZoom() });
+}
+
 export function boundsFromDrawing(drawing) {
   const coords = [];
   const walk = (c) => {

@@ -273,6 +273,7 @@ function pruneCardVisualAssets(card, options = {}) {
     if (next.mapSnapshot) removedMediaPaths.push(String(next.mapSnapshot));
     next.mapSnapshot = null;
     next.mapDrawing = emptyMapDrawing();
+    next.mapView = null;
     next.mapPoints = [];
     next.mapLine = null;
   }
@@ -407,6 +408,18 @@ function validateMapPoints(points, { min = 1 } = {}) {
 
 function emptyMapDrawing() {
   return { type: 'FeatureCollection', features: [] };
+}
+
+function normalizeMapView(view) {
+  if (!view || typeof view !== 'object') return null;
+  const lat = Number(view.lat ?? view.centerLat);
+  const lng = Number(view.lng ?? view.centerLng);
+  let zoom = Number(view.zoom);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  if (!Number.isFinite(zoom)) zoom = 11;
+  zoom = Math.max(3, Math.min(19, Math.round(zoom * 10) / 10));
+  return { lat, lng, zoom };
 }
 
 function normalizeLeaderStyleProps(props = {}) {
@@ -916,6 +929,7 @@ module.exports = {
   validateMapPoints,
   emptyMapDrawing,
   normalizeMapDrawing,
+  normalizeMapView,
   countMapPointFeatures,
   countMapDrawableFeatures,
   legacyMapPointsToDrawing,
