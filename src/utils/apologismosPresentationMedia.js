@@ -74,12 +74,25 @@ export function collectPathsFromSlides(slides) {
 }
 
 /**
- * Για μεγάλα decks αποφεύγουμε πλήρη αρχεία ως data URL στο PDF.
+ * Μέγεθος εικόνων για PDF.
+ * Ο καμβάς είναι 960×540· τα πλήρη αρχεία (≤2400px) ως data URL καθυστερούν
+ * πολύ χωρίς ορατό όφελος στην ποιότητα εκτύπωσης οθόνης/A4.
  * @returns {'full'|'preview'}
  */
-export function resolvePdfMediaVariant(projectCount, pathCount) {
-  const projects = Math.max(0, Number(projectCount) || 0);
-  const paths = Math.max(0, Number(pathCount) || 0);
-  if (projects > 40 || paths > 60) return 'preview';
-  return 'full';
+export function resolvePdfMediaVariant(_projectCount, _pathCount) {
+  return 'preview';
+}
+
+/**
+ * Paths καρτών για PDF — χωρίς εξώφυλλο/δήμαρχο όταν θα καδραριστούν χωριστά.
+ */
+export function collectPdfCardMediaPaths(slides, { coverImages = [], mayorPhotoPath = null } = {}) {
+  const skip = new Set();
+  for (const img of coverImages || []) {
+    const rel = String(img?.relativePath || '').trim();
+    if (rel) skip.add(rel);
+  }
+  const mayor = String(mayorPhotoPath || '').trim();
+  if (mayor) skip.add(mayor);
+  return collectPathsFromSlides(slides).filter((rel) => !skip.has(rel));
 }

@@ -39,7 +39,7 @@ import {
 } from '../utils/apologismosSlideDesign';
 import {
   collectPathsForSlideWindow,
-  collectPathsFromSlides,
+  collectPdfCardMediaPaths,
   resolvePdfMediaVariant,
 } from '../utils/apologismosPresentationMedia';
 import ApologismosMapEditor from './ApologismosMapEditor';
@@ -50,10 +50,6 @@ const ipcRenderer = window.electronAPI;
 const PRESENT_MEDIA_RADIUS = 1;
 
 const fadeIn = keyframes`from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); }`;
-const softPulse = keyframes`
-  0%, 100% { box-shadow: 0 0 0 2px rgba(30, 58, 95, 0.22), 0 8px 22px rgba(15, 39, 68, 0.14); }
-  50% { box-shadow: 0 0 0 4px rgba(30, 58, 95, 0.12), 0 10px 28px rgba(15, 39, 68, 0.18); }
-`;
 const shimmer = keyframes`
   0% { background-position: 0% 50%; }
   100% { background-position: 100% 50%; }
@@ -409,7 +405,6 @@ const Card = styled.div`
   box-shadow: ${p => (p.$active
     ? '0 0 0 2px rgba(30, 58, 95, 0.28), 0 8px 22px rgba(15, 39, 68, 0.16)'
     : '0 1px 2px rgba(15, 23, 42, 0.04)')};
-  animation: ${p => (p.$active ? softPulse : 'none')} 2.8s ease-in-out infinite;
   &::after {
     content: '▸';
     position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%);
@@ -535,7 +530,6 @@ const EmphasisBlock = styled.div`
   border: ${p => (p.$on ? '1px solid #93c5fd' : '1px solid transparent')};
   background: ${p => (p.$on ? 'linear-gradient(145deg, #e8eef5 0%, #ffffff 85%)' : 'transparent')};
   box-shadow: ${p => (p.$on ? '0 0 0 2px rgba(30, 58, 95, 0.12)' : 'none')};
-  animation: ${p => (p.$on ? softPulse : 'none')} 2.4s ease-in-out infinite;
 `;
 const EmphasisTag = styled.div`
   font-size: 0.68rem; font-weight: 800; color: #1e3a5f; margin-bottom: 0.35rem;
@@ -1012,7 +1006,7 @@ export default function ApologismosManager({
     const mediaRes = await ipcRenderer.invoke('apologismos-resolve-media-map', {
       actingUsername: username,
       relativePaths: missing,
-      asDataUrl: true,
+      asDataUrl: false,
       variant: 'preview',
     });
     const next = { ...mediaUrlsRef.current, ...(mediaRes?.mediaMap || {}) };
@@ -1031,7 +1025,7 @@ export default function ApologismosManager({
       const mediaRes = await ipcRenderer.invoke('apologismos-resolve-media-map', {
         actingUsername: username,
         relativePaths: missing,
-        asDataUrl: true,
+        asDataUrl: false,
         variant: 'preview',
       });
       if (cancelled) return;
@@ -1129,7 +1123,7 @@ export default function ApologismosManager({
       const res = await ipcRenderer.invoke('apologismos-resolve-media-map', {
         actingUsername: username,
         relativePaths: selectedPhotoKey.split('|'),
-        asDataUrl: true,
+        asDataUrl: false,
         variant: 'preview',
       });
       if (!cancelled) setCardMedia(res?.mediaMap || {});
@@ -1247,7 +1241,17 @@ export default function ApologismosManager({
 
   const isDirty = useMemo(() => {
     if (!selected || !draft) return false;
-    return JSON.stringify(buildDraft(selected)) !== JSON.stringify(draft);
+    const base = buildDraft(selected);
+    const keys = Object.keys(base);
+    for (let i = 0; i < keys.length; i += 1) {
+      const k = keys[i];
+      if (k === 'metrics') {
+        if (JSON.stringify(base.metrics) !== JSON.stringify(draft.metrics)) return true;
+      } else if (String(base[k] ?? '') !== String(draft[k] ?? '')) {
+        return true;
+      }
+    }
+    return false;
   }, [selected, draft, buildDraft]);
 
   const hasUnsavedCardWork = editing && (isDirty || editSessionTouchedDiskRef.current);
@@ -1608,74 +1612,95 @@ export default function ApologismosManager({
       periodLabel: res.model.cover?.periodLabel || res.model.period?.label || '',
     });
     setPresentFade(1);
+    await ensurePresentationMedia(slides, 0);
     setSlideIndex(0);
     setPresentation(slides);
-    await ensurePresentationMedia(slides, 0);
   };
 
   const exportPdf = async () => {
     if (exportBusy) return;
     setExportBusy(true);
     try {
-    const res = await ipcRenderer.invoke('apologismos-get-presentation', {
-      actingUsername: username,
-      periodId,
-    });
-    if (!res?.success) {
-      showToast(res?.error || 'Αποτυχία εξαγωγής', 'error');
-      return;
-    }
-    const slides = buildSlides(res.model);
-    const rels = collectPathsFromSlides(slides);
-    const projectCount = Number(res.model?.totals?.projectCount) || 0;
-    // Με πολλά έργα οι πλήρεις εικόνες ως data URL φουσκώνουν τη μνήμη — προεπισκόπηση.
-    const mediaVariant = resolvePdfMediaVariant(projectCount, rels.length);
-    if (mediaVariant === 'preview') {
-      showToast('Προετοιμασία εγγράφου με ελαφρύτερες εικόνες…', 'info');
-    } else if (rels.length > 20) {
+      const res = await ipcRenderer.invoke('apologismos-get-presentation', {
+        actingUsername: username,
+        periodId,
+      });
+      if (!res?.success) {
+        showToast(res?.error || 'Αποτυχία εξαγωγής', 'error');
+        return;
+      }
+      const slides = buildSlides(res.model);
+      const projectCount = Number(res.model?.totals?.projectCount) || 0;
+      const coverImages = res.model?.cover?.images || [];
+      const mayorPhotoPath = res.model?.mayorMessage?.photo?.relativePath || null;
+      const mediaRels = collectPdfCardMediaPaths(slides, {
+        coverImages,
+        mayorPhotoPath,
+      });
+      // Ελαφριές εικόνες (προεπισκόπηση) — ο καμβάς PDF είναι 960×540.
+      const mediaVariant = resolvePdfMediaVariant(projectCount, mediaRels.length);
       showToast('Προετοιμασία εγγράφου…', 'info');
-    }
-    const mediaRes = await ipcRenderer.invoke('apologismos-resolve-media-map', {
-      actingUsername: username,
-      relativePaths: rels,
-      asDataUrl: true,
-      variant: mediaVariant,
-    });
-    const framedRes = await ipcRenderer.invoke('apologismos-frame-cover-images', {
-      actingUsername: username,
-      periodId,
-      channel: 'pdf',
-    });
-    const model = { ...res.model };
-    if (framedRes?.success && Array.isArray(framedRes.frames) && model.cover) {
-      model.cover = {
-        ...model.cover,
-        images: (model.cover.images || []).map((img, i) => (
-          img ? { ...img, framedDataUrl: framedRes.frames[i] || null } : null
-        )),
-      };
-    }
-    if (framedRes?.success && framedRes.mayorFrame && model.mayorMessage?.photo) {
-      model.mayorMessage = {
-        ...model.mayorMessage,
-        photo: {
-          ...model.mayorMessage.photo,
-          framedDataUrl: framedRes.mayorFrame,
-        },
-      };
-    }
-    try {
+      const [mediaRes, framedRes] = await Promise.all([
+        mediaRels.length
+          ? ipcRenderer.invoke('apologismos-resolve-media-map', {
+            actingUsername: username,
+            relativePaths: mediaRels,
+            asDataUrl: true,
+            variant: mediaVariant,
+          })
+          : Promise.resolve({ mediaMap: {} }),
+        ipcRenderer.invoke('apologismos-frame-cover-images', {
+          actingUsername: username,
+          periodId,
+          channel: 'pdf',
+        }),
+      ]);
+      const model = { ...res.model };
+      if (framedRes?.success && Array.isArray(framedRes.frames) && model.cover) {
+        model.cover = {
+          ...model.cover,
+          images: (model.cover.images || []).map((img, i) => (
+            img ? { ...img, framedDataUrl: framedRes.frames[i] || null } : null
+          )),
+        };
+      }
+      if (framedRes?.success && framedRes.mayorFrame && model.mayorMessage?.photo) {
+        model.mayorMessage = {
+          ...model.mayorMessage,
+          photo: {
+            ...model.mayorMessage.photo,
+            framedDataUrl: framedRes.mayorFrame,
+          },
+        };
+      }
+      // Αν το καδράρισμα απέτυχε για κάποιο slot, φόρτωσε το πρωτότυπο ως εφεδρεία.
+      const fallbackRels = [];
+      for (const img of model.cover?.images || []) {
+        if (img?.relativePath && !img.framedDataUrl) fallbackRels.push(img.relativePath);
+      }
+      if (model.mayorMessage?.photo?.relativePath && !model.mayorMessage.photo.framedDataUrl) {
+        fallbackRels.push(model.mayorMessage.photo.relativePath);
+      }
+      let mediaMap = { ...(mediaRes?.mediaMap || {}) };
+      if (fallbackRels.length) {
+        const fb = await ipcRenderer.invoke('apologismos-resolve-media-map', {
+          actingUsername: username,
+          relativePaths: [...new Set(fallbackRels)],
+          asDataUrl: true,
+          variant: mediaVariant,
+        });
+        mediaMap = { ...mediaMap, ...(fb?.mediaMap || {}) };
+      }
       const out = await exportApologismosPdf({
         model,
         appConfig,
-        mediaMap: mediaRes?.mediaMap || {},
+        mediaMap,
       });
       if (out?.canceled) return;
       if (out?.success) showToast('Το έγγραφο αποθηκεύτηκε', 'success');
       else showToast(out?.error || 'Αποτυχία εξαγωγής εγγράφου', 'error');
     } catch (e) {
-      showToast(e.message || 'Αποτυχία εξαγωγής εγγράφου', 'error');
-    }
+      showToast(e?.message || 'Αποτυχία εξαγωγής εγγράφου', 'error');
     } finally {
       setExportBusy(false);
     }

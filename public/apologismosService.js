@@ -12,6 +12,7 @@ const appearanceMod = require('./apologismosAppearance');
 const coverFrame = require('./apologismosCoverFrame');
 const coverFrameCache = require('./apologismosCoverFrameCache');
 const mediaIngest = require('./apologismosMediaIngest');
+const { pathToFileURL } = require('url');
 
 const APOLOGISMOS_FOLDER = 'ΑΠΟΛΟΓΙΣΜΟΣ';
 
@@ -659,7 +660,7 @@ async function resolveMediaMap(dataDir, relativePaths, { asDataUrl = false, vari
           useAbs = abs;
         }
       }
-      map[rel] = asDataUrl ? mediaFileToDataUrl(useAbs) : `file:///${useAbs.replace(/\\/g, '/')}`;
+      map[rel] = asDataUrl ? mediaFileToDataUrl(useAbs) : pathToFileURL(useAbs).href;
     }));
   }
   return map;

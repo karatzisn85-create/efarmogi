@@ -59,30 +59,11 @@ function upper(text) {
 
 /**
  * Διακριτικό λογότυπο δήμου ανά τύπο διαφάνειας
- * (cover / backdrop / content — όχι σε σκούρες διαφάνειες κατηγορίας).
+ * (backdrop σε Περιεχόμενα/Δήμαρχο · μικρό εικονίδιο στις υπόλοιπες).
  */
 function addMunicipalityBrand(slide, branding, variant = 'content') {
   const data = dataUrlToPptxData(branding?.showLogo ? branding.logoDataUrl : null);
   if (!data) return;
-  if (variant === 'cover') {
-    slide.addImage({
-      data,
-      x: U(SLIDE_W * 0.29),
-      y: U(SLIDE_H * 0.22),
-      w: U(SLIDE_W * 0.42),
-      h: U(SLIDE_H * 0.42),
-      transparency: 93,
-    });
-    slide.addImage({
-      data,
-      x: U(SLIDE_W - 156),
-      y: U(28),
-      w: U(120),
-      h: U(58),
-      transparency: 8,
-    });
-    return;
-  }
   if (variant === 'backdrop') {
     slide.addImage({
       data,
@@ -94,16 +75,20 @@ function addMunicipalityBrand(slide, branding, variant = 'content') {
     });
     return;
   }
-  if (variant === 'content') {
-    slide.addImage({
-      data,
-      x: U(SLIDE_W - design.GEOM.marginX - 96),
-      y: U(22),
-      w: U(96),
-      h: U(36),
-      transparency: 78,
-    });
-  }
+  const onDark = variant === 'cover' || variant === 'contentDark';
+  const top = onDark ? 28 : 22;
+  const right = onDark ? 36 : design.GEOM.marginX;
+  const height = onDark ? 44 : 36;
+  const width = onDark ? 110 : 96;
+  const transparency = onDark ? 12 : 45;
+  slide.addImage({
+    data,
+    x: U(SLIDE_W - right - width),
+    y: U(top),
+    w: U(width),
+    h: U(height),
+    transparency,
+  });
 }
 
 /** Κείμενο με συντεταγμένες σε μονάδες καμβά. */
@@ -728,6 +713,7 @@ function addCategorySlide(pptx, section, d, p, footerCtx, sectionIndex, sectionT
     ],
   });
 
+  addMunicipalityBrand(slide, branding, 'contentDark');
   addFooter(slide, pptx, d, p, { ...footerCtx, onDark: true });
 }
 
@@ -751,7 +737,9 @@ function addPhotoColumns(slide, pptx, d, p, resolveMedia, items) {
     addRect(slide, pptx, {
       x: col.x, y: boxY, w: col.width, h: boxH, color: p.photoPlaceholder, radius: g.cardRadius,
     });
-    addPhoto(slide, resolveMedia, item.photo, { x: col.x, y: boxY, w: col.width, h: boxH });
+    addPhoto(slide, resolveMedia, item.photo, {
+      x: col.x, y: boxY, w: col.width, h: boxH, fit: 'contain',
+    });
   });
 }
 

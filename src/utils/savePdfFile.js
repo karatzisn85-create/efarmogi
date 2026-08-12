@@ -14,9 +14,10 @@ export async function savePdfWithDialog({
   const pick = await showSavePdfDialog({ defaultName, title, subtitle });
   if (pick.canceled) return { canceled: true };
 
+  // Uint8Array περνάει με structured clone — αποφεύγουμε Array.from (πολλαπλάσια μνήμη/χρόνος).
   const payload = buffer instanceof Uint8Array
-    ? Array.from(buffer)
-    : (Array.isArray(buffer) ? buffer : Array.from(new Uint8Array(buffer)));
+    ? buffer
+    : (Array.isArray(buffer) ? Uint8Array.from(buffer) : new Uint8Array(buffer));
 
   const result = await ipcRenderer.invoke('write-pdf-file', {
     buffer: payload,

@@ -19,6 +19,7 @@ import {
 } from '../utils/khmdhsApeEntry';
 import { formatDateEl } from '../utils/dateFormat';
 import { getDefaultSubprojectPhaseTab } from '../utils/subprojectPhaseTabDefault';
+import { getVisibleFundingSourceRows, isCoFinancedProject } from '../utils/coFinancingDisplay';
 import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
 import KhmdhsRefreshActionButton from './KhmdhsRefreshActionButton';
 import KhmdhsFormStageResults, { projectHasKhmdhsFormResults } from './KhmdhsFormStageResults';
@@ -1718,6 +1719,9 @@ function SubprojectDetailModal({
     [project, engineerCatalog]
   );
 
+  const coFinancedRows = useMemo(() => getVisibleFundingSourceRows(project), [project]);
+  const showCoFinancing = isCoFinancedProject(project) && coFinancedRows.length > 0;
+
   const khmdhsEntries = useMemo(() => getKhmdhsDisplayEntries(project), [project]);
   const hasKhmdhsSection = useMemo(
     () => projectHasKhmdhsFormResults(project) || khmdhsEntries.length > 0,
@@ -2232,33 +2236,94 @@ function SubprojectDetailModal({
             </FieldGrid>
           </SectionBlock>
 
-          <SectionBlock icon="💰" title="Χρηματοδότηση" accent={ACCENTS.funding}>
-            <FieldGrid>
-              <Field>
-                <FieldLabel>Βασική Πηγή</FieldLabel>
-                <FieldValue>{val(project.fundingSource) || <EmptyValue>—</EmptyValue>}</FieldValue>
-              </Field>
-              <Field>
-                <FieldLabel>Εξειδίκευση</FieldLabel>
-                <FieldValue>{val(project.fundingDetails) || <EmptyValue>—</EmptyValue>}</FieldValue>
-              </Field>
-              <Field>
-                <FieldLabel>Εγκεκριμένο Ποσό</FieldLabel>
-                <FieldValue>
-                  {formatAmount(project.approvedAmount)
-                    ? <AmountValue>{formatAmount(project.approvedAmount)}</AmountValue>
-                    : <EmptyValue>—</EmptyValue>}
-                </FieldValue>
-              </Field>
-              <Field>
-                <FieldLabel>Προϋπολογισμός Έργου</FieldLabel>
-                <FieldValue>
-                  {formatAmount(project.projectBudget)
-                    ? <AmountValue>{formatAmount(project.projectBudget)}</AmountValue>
-                    : <EmptyValue>—</EmptyValue>}
-                </FieldValue>
-              </Field>
-            </FieldGrid>
+          <SectionBlock
+            icon="💰"
+            title={showCoFinancing ? 'Χρηματοδότηση · Συγχρηματοδότηση' : 'Χρηματοδότηση'}
+            accent={ACCENTS.funding}
+          >
+            {showCoFinancing ? (
+              <>
+                {coFinancedRows.map((row, idx) => (
+                  <FieldGrid
+                    key={`fund-detail-${idx}`}
+                    style={{
+                      marginBottom: '0.85rem',
+                      paddingBottom: '0.85rem',
+                      borderBottom: '1px solid rgba(5,150,105,0.15)',
+                    }}
+                  >
+                    <Field>
+                      <FieldLabel>
+                        Πηγή {coFinancedRows.length > 1 ? idx + 1 : ''}
+                        {row.ownResources ? ' (ίδιοι πόροι)' : ''}
+                      </FieldLabel>
+                      <FieldValue>{val(row.source) || <EmptyValue>—</EmptyValue>}</FieldValue>
+                    </Field>
+                    <Field>
+                      <FieldLabel>Εξειδίκευση</FieldLabel>
+                      <FieldValue>{val(row.details) || <EmptyValue>—</EmptyValue>}</FieldValue>
+                    </Field>
+                    <Field>
+                      <FieldLabel>Ποσό</FieldLabel>
+                      <FieldValue>
+                        {formatAmount(row.amount)
+                          ? (
+                            <AmountValue style={row.ownResources ? { color: '#b45309' } : undefined}>
+                              {formatAmount(row.amount)}
+                            </AmountValue>
+                          )
+                          : <EmptyValue>—</EmptyValue>}
+                      </FieldValue>
+                    </Field>
+                  </FieldGrid>
+                ))}
+                <FieldGrid>
+                  <Field>
+                    <FieldLabel>Εγκεκριμένο Ποσό (σύνολο)</FieldLabel>
+                    <FieldValue>
+                      {formatAmount(project.approvedAmount)
+                        ? <AmountValue>{formatAmount(project.approvedAmount)}</AmountValue>
+                        : <EmptyValue>—</EmptyValue>}
+                    </FieldValue>
+                  </Field>
+                  <Field>
+                    <FieldLabel>Προϋπολογισμός Έργου</FieldLabel>
+                    <FieldValue>
+                      {formatAmount(project.projectBudget)
+                        ? <AmountValue>{formatAmount(project.projectBudget)}</AmountValue>
+                        : <EmptyValue>—</EmptyValue>}
+                    </FieldValue>
+                  </Field>
+                </FieldGrid>
+              </>
+            ) : (
+              <FieldGrid>
+                <Field>
+                  <FieldLabel>Βασική Πηγή</FieldLabel>
+                  <FieldValue>{val(project.fundingSource) || <EmptyValue>—</EmptyValue>}</FieldValue>
+                </Field>
+                <Field>
+                  <FieldLabel>Εξειδίκευση</FieldLabel>
+                  <FieldValue>{val(project.fundingDetails) || <EmptyValue>—</EmptyValue>}</FieldValue>
+                </Field>
+                <Field>
+                  <FieldLabel>Εγκεκριμένο Ποσό</FieldLabel>
+                  <FieldValue>
+                    {formatAmount(project.approvedAmount)
+                      ? <AmountValue>{formatAmount(project.approvedAmount)}</AmountValue>
+                      : <EmptyValue>—</EmptyValue>}
+                  </FieldValue>
+                </Field>
+                <Field>
+                  <FieldLabel>Προϋπολογισμός Έργου</FieldLabel>
+                  <FieldValue>
+                    {formatAmount(project.projectBudget)
+                      ? <AmountValue>{formatAmount(project.projectBudget)}</AmountValue>
+                      : <EmptyValue>—</EmptyValue>}
+                  </FieldValue>
+                </Field>
+              </FieldGrid>
+            )}
           </SectionBlock>
 
           {(project.remainingAmount || (project.aleRemainingAmounts && project.aleRemainingAmounts.some(a => a))) && (

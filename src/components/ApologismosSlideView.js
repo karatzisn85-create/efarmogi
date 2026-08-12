@@ -40,49 +40,13 @@ function phaseLabel(phase) {
 
 /**
  * Διακριτικό λογότυπο δήμου ανά τύπο διαφάνειας:
- * - cover: γωνία + απαλό κεντρικό φόντο
- * - backdrop: μεγάλο απαλό φόντο μόνο σε ανοιχτές διαφάνειες (Περιεχόμενα, Μήνυμα Δημάρχου)
- * - content: μικρό σήμα πάνω δεξιά σε διαφάνειες έργου
- * Σκούρες διαφάνειες κατηγορίας: χωρίς λογότυπο (δεν δένει αισθητικά).
+ * - backdrop: μεγάλο απαλό φόντο μόνο σε Περιεχόμενα / Μήνυμα Δημάρχου
+ * - cover / content: μικρό εικονίδιο στη γωνία (εξώφυλλο, έργα)
+ * - contentDark: μικρό εικονίδιο σε σκούρες διαφάνειες κατηγορίας
  */
 function MunicipalityBrandLayer({ branding, variant = 'content' }) {
   const url = branding?.logoDataUrl;
   if (!branding?.showLogo || !url) return null;
-
-  if (variant === 'cover') {
-    return (
-      <>
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: `center / 42% no-repeat url("${url}")`,
-            opacity: 0.07,
-            pointerEvents: 'none',
-            zIndex: 1,
-          }}
-        />
-        <img
-          src={url}
-          alt=""
-          aria-hidden
-          style={{
-            position: 'absolute',
-            top: 28,
-            right: 36,
-            height: 58,
-            width: 'auto',
-            maxWidth: 140,
-            objectFit: 'contain',
-            opacity: 0.92,
-            pointerEvents: 'none',
-            zIndex: 3,
-          }}
-        />
-      </>
-    );
-  }
 
   if (variant === 'backdrop') {
     return (
@@ -104,29 +68,32 @@ function MunicipalityBrandLayer({ branding, variant = 'content' }) {
     );
   }
 
-  if (variant === 'content') {
-    return (
-      <img
-        src={url}
-        alt=""
-        aria-hidden
-        style={{
-          position: 'absolute',
-          top: 22,
-          right: GEOM.marginX,
-          height: 36,
-          width: 'auto',
-          maxWidth: 96,
-          objectFit: 'contain',
-          opacity: 0.22,
-          pointerEvents: 'none',
-          zIndex: 2,
-        }}
-      />
-    );
-  }
+  const onDark = variant === 'cover' || variant === 'contentDark';
+  const top = onDark ? 28 : 22;
+  const right = onDark ? 36 : GEOM.marginX;
+  const height = onDark ? 44 : 36;
+  const maxWidth = onDark ? 110 : 96;
+  const opacity = onDark ? 0.88 : 0.55;
 
-  return null;
+  return (
+    <img
+      src={url}
+      alt=""
+      aria-hidden
+      style={{
+        position: 'absolute',
+        top,
+        right,
+        height,
+        width: 'auto',
+        maxWidth,
+        objectFit: 'contain',
+        opacity,
+        pointerEvents: 'none',
+        zIndex: 3,
+      }}
+    />
+  );
 }
 
 /**
@@ -583,8 +550,9 @@ function PhotoFrame({ url, design, caption, flex = 1 }) {
           flex: 1,
           borderRadius: GEOM.cardRadius,
           border: `1px solid ${colors.photoFrame}`,
+          /* contain: ολόκληρη η φωτογραφία όπως στην προβολή επεξεργασίας — όχι cover/crop */
           background: url
-            ? `center/cover no-repeat url("${url}")`
+            ? `center/contain no-repeat url("${url}") ${colors.photoPlaceholder}`
             : colors.photoPlaceholder,
         }}
       />
@@ -1190,6 +1158,109 @@ function TocSlide({ slide, design, footer, branding = null }) {
   );
 }
 
+function ProjectMapPanel({ page, design, mediaUrls }) {
+  const { type, colors } = design;
+  const snap = String(page?.mapSnapshot || '').trim();
+  const url = snap ? mediaUrls[snap] : null;
+  // Μικρή αναμονή πριν live map, ώστε να μην ανοίγει Leaflet και να κλείνει αμέσως όταν έρθει το στιγμιότυπο.
+  const [allowLiveFallback, setAllowLiveFallback] = useState(!snap);
+
+  useEffect(() => {
+    if (!snap || url) {
+      setAllowLiveFallback(true);
+      return undefined;
+    }
+    setAllowLiveFallback(false);
+    const timer = setTimeout(() => setAllowLiveFallback(true), 900);
+    return () => clearTimeout(timer);
+  }, [snap, url]);
+
+  if (url) {
+    return (
+      <div
+        style={{
+          height: '100%',
+          borderRadius: GEOM.cardRadius,
+          border: `1px solid ${colors.panelBorder}`,
+          background: `center/contain no-repeat url("${url}") ${colors.panel}`,
+        }}
+      />
+    );
+  }
+
+  if (allowLiveFallback && canShowLiveMap(page, mediaUrls)) {
+    return (
+      <div
+        style={{
+          height: '100%',
+          borderRadius: GEOM.cardRadius,
+          border: `1px solid ${colors.panelBorder}`,
+          overflow: 'hidden',
+          background: colors.panel,
+        }}
+      >
+        <ApologismosLiveMap
+          key={`${page.vizId}-live`}
+          mapDrawing={page.mapDrawing}
+          mapView={page.mapView}
+        />
+      </div>
+    );
+  }
+
+  if (snap && !url && !allowLiveFallback) {
+    return (
+      <div
+        style={{
+          height: '100%',
+          borderRadius: GEOM.cardRadius,
+          border: `1px solid ${colors.panelBorder}`,
+          background: colors.panel,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: colors.muted,
+          fontSize: type.caption,
+          fontWeight: 600,
+        }}
+      >
+        Φόρτωση χάρτη…
+      </div>
+    );
+  }
+
+  if (snap && !url) {
+    return (
+      <div
+        style={{
+          height: '100%',
+          borderRadius: GEOM.cardRadius,
+          border: `1px solid ${colors.panelBorder}`,
+          background: colors.panel,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: colors.muted,
+          fontSize: type.caption,
+          fontWeight: 600,
+        }}
+      >
+        Χάρτης μη διαθέσιμος
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {(page.mapPoints || []).map((p, i) => (
+        <div key={i} style={{ fontSize: type.body, color: colors.text }}>
+          {i + 1}. {p.label || `Σημείο ${i + 1}`} — {p.lat}, {p.lng}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ProjectContent({ slide, design, mediaUrls }) {
   const { type, colors } = design;
   const page = slide.page || {};
@@ -1232,47 +1303,7 @@ function ProjectContent({ slide, design, mediaUrls }) {
   }
 
   if (page.type === 'map') {
-    const url = page.mapSnapshot ? mediaUrls[page.mapSnapshot] : null;
-    if (url) {
-      return (
-        <div
-          style={{
-            height: '100%',
-            borderRadius: GEOM.cardRadius,
-            border: `1px solid ${colors.panelBorder}`,
-            background: `center/contain no-repeat url("${url}") ${colors.panel}`,
-          }}
-        />
-      );
-    }
-    if (canShowLiveMap(page, mediaUrls)) {
-      return (
-        <div
-          style={{
-            height: '100%',
-            borderRadius: GEOM.cardRadius,
-            border: `1px solid ${colors.panelBorder}`,
-            overflow: 'hidden',
-            background: colors.panel,
-          }}
-        >
-          <ApologismosLiveMap
-            key={`${page.vizId}-live`}
-            mapDrawing={page.mapDrawing}
-            mapView={page.mapView}
-          />
-        </div>
-      );
-    }
-    return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {(page.mapPoints || []).map((p, i) => (
-          <div key={i} style={{ fontSize: type.body, color: colors.text }}>
-            {i + 1}. {p.label || `Σημείο ${i + 1}`} — {p.lat}, {p.lng}
-          </div>
-        ))}
-      </div>
-    );
+    return <ProjectMapPanel page={page} design={design} mediaUrls={mediaUrls} />;
   }
 
   if (page.type === 'metrics') {
@@ -1761,6 +1792,9 @@ export default function ApologismosSlideView({
       {slide.type === 'project' && (
         <ProjectSlide slide={slide} design={design} footer={footer} mediaUrls={mediaUrls} />
       )}
+      {slide.type === 'category' ? (
+        <MunicipalityBrandLayer branding={branding} variant="contentDark" />
+      ) : null}
       {slide.type === 'project' ? (
         <MunicipalityBrandLayer branding={branding} variant="content" />
       ) : null}

@@ -12,6 +12,8 @@
     "projectType": "Είδος",
     "fundingSource": "Βασική Πηγή Χρηματοδότησης",
     "fundingDetails": "Εξειδίκευση Πηγής",
+    "coFinanced": "Συγχρηματοδότηση",
+    "fundingSources": "Πηγές Συγχρηματοδότησης",
     "approvedAmount": "Εγκεκριμένο Ποσό",
     "projectBudget": "Προϋπολογισμός Έργου",
     "budget": "Προϋπολογισμός",

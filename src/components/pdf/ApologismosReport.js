@@ -76,34 +76,6 @@ function Rule({ color, width = GEOM.headerRuleW, height = GEOM.headerRuleH, styl
 function MunicipalityBrand({ branding, variant = 'content' }) {
   const url = branding?.logoDataUrl;
   if (!branding?.showLogo || !url) return null;
-  if (variant === 'cover') {
-    return (
-      <>
-        <View
-          style={{
-            position: 'absolute',
-            left: Math.round(SLIDE_W * 0.29),
-            top: Math.round(SLIDE_H * 0.22),
-            width: Math.round(SLIDE_W * 0.42),
-            height: Math.round(SLIDE_H * 0.42),
-          }}
-        >
-          <Image src={url} style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.07 }} />
-        </View>
-        <View
-          style={{
-            position: 'absolute',
-            top: 28,
-            right: 36,
-            height: 58,
-            width: 120,
-          }}
-        >
-          <Image src={url} style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.92 }} />
-        </View>
-      </>
-    );
-  }
   if (variant === 'backdrop') {
     return (
       <View
@@ -119,22 +91,25 @@ function MunicipalityBrand({ branding, variant = 'content' }) {
       </View>
     );
   }
-  if (variant === 'content') {
-    return (
-      <View
-        style={{
-          position: 'absolute',
-          top: 22,
-          right: GEOM.marginX,
-          height: 36,
-          width: 96,
-        }}
-      >
-        <Image src={url} style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.22 }} />
-      </View>
-    );
-  }
-  return null;
+  const onDark = variant === 'cover' || variant === 'contentDark';
+  const top = onDark ? 28 : 22;
+  const right = onDark ? 36 : GEOM.marginX;
+  const height = onDark ? 44 : 36;
+  const width = onDark ? 110 : 96;
+  const opacity = onDark ? 0.88 : 0.55;
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        top,
+        right,
+        height,
+        width,
+      }}
+    >
+      <Image src={url} style={{ width: '100%', height: '100%', objectFit: 'contain', opacity }} />
+    </View>
+  );
 }
 
 function StatStrip({ stats, design, onDark = false, gap = 30, totalWidth }) {
@@ -351,7 +326,9 @@ function PhotoFrame({ src, caption, design, isLast }) {
           overflow: 'hidden',
         }}
       >
-        {src ? <Image src={src} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : null}
+        {src ? (
+          <Image src={src} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        ) : null}
       </View>
     </View>
   );
@@ -506,7 +483,7 @@ function CoverPage({ model, design, mediaMap }) {
   );
 }
 
-function CategoryPage({ section, design, footerBase, sectionIndex, sectionTotal, mediaMap = {} }) {
+function CategoryPage({ section, design, footerBase, sectionIndex, sectionTotal, mediaMap = {}, branding = null }) {
   const { type, colors } = design;
   const heroUrl = section.heroPhoto ? mediaMap[section.heroPhoto] : null;
   return (
@@ -533,6 +510,7 @@ function CategoryPage({ section, design, footerBase, sectionIndex, sectionTotal,
           }}
         />
       ) : null}
+      <MunicipalityBrand branding={branding} variant="contentDark" />
       <View
         style={{
           position: 'absolute',
@@ -1525,6 +1503,7 @@ export default function ApologismosReport({ model, mediaMap = {} }) {
               sectionIndex={sectionIdx + 1}
               sectionTotal={(model?.sections || []).length}
               mediaMap={mediaMap}
+              branding={branding}
             />
           ) : null}
           {section.cards.flatMap((entry) =>

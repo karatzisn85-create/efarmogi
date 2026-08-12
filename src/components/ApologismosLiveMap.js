@@ -245,11 +245,14 @@ export default function ApologismosLiveMap({
   );
 }
 
-/** true αν υπάρχει σχέδιο για ζωντανή προβολή και δεν υπάρχει διαθέσιμο αποθηκευμένο στιγμιότυπο. */
+/**
+ * Ζωντανός χάρτης όταν υπάρχει σχέδιο και δεν έχει φορτωθεί ακόμα στιγμιότυπο.
+ * Αν το snapshot URL είναι διαθέσιμο, προτιμάται η στατική εικόνα.
+ */
 export function canShowLiveMap(page, mediaUrls = {}) {
   const drawing = normalizeMapDrawing(page?.mapDrawing);
   if (!drawing.features.length) return false;
-  const snap = page?.mapSnapshot;
+  const snap = String(page?.mapSnapshot || '').trim();
   if (snap && mediaUrls?.[snap]) return false;
   return true;
 }

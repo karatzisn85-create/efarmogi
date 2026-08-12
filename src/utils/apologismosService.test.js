@@ -82,6 +82,35 @@ describe('apologismosService — persistence & flow', () => {
     expect(removed.report.cards).toHaveLength(0);
   });
 
+  test('syncAmounts συμπληρώνει είδος υποέργου για ετικέτα τίτλου', () => {
+    const periods = loadPeriods(dataDir);
+    const periodId = periods[0].id;
+    const sub = {
+      subprojectId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      projectId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      subprojectTitle: 'Προμήθεια εξοπλισμού',
+      projectTitle: 'Πράξη Α',
+      projectStatus: 'ΟΛΟΚΛΗΡΩΜΕΝΟ',
+      approvedAmount: '50.000,00',
+      contractAmount: '45.000,00',
+      projectType: 'ΠΡΟΜΗΘΕΙΑ',
+    };
+    const added = addFromSubproject(dataDir, {
+      periodId,
+      subproject: { ...sub, projectType: undefined },
+      epActions: [],
+    });
+    expect(added.success).toBe(true);
+    expect(added.card.projectType || '').toBe('');
+
+    const synced = syncAmounts(dataDir, {
+      periodId,
+      subprojectById: { [sub.subprojectId]: sub },
+    });
+    expect(synced.changed).toBe(true);
+    expect(synced.report.cards[0].projectType).toBe('ΠΡΟΜΗΘΕΙΑ');
+  });
+
   test('legacy εκτός περιόδου απορρίπτεται· εντός προστίθεται χωρίς subprojectId', () => {
     const periods = loadPeriods(dataDir);
     const periodId = periods[0].id;

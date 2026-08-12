@@ -75,6 +75,7 @@ import {
   serializePhaseASnapshot,
   isPhaseADirty,
 } from '../utils/projectFormPhases';
+import { syncPrimaryFundingFieldsFromSources, parseCoFinancingAmount } from '../utils/coFinancingDisplay';
 import { getDefaultSubprojectPhaseTab } from '../utils/subprojectPhaseTabDefault';
 import {
   getKhmdhsAdamGuidance,
@@ -3832,26 +3833,6 @@ function ProjectForm({
   // ── Συγχρηματοδότηση: πολλαπλές πηγές χρηματοδότησης ──
   const isOwnResourcesDetail = (details) => String(details || '').toUpperCase().includes('ΙΔΙΟΙ ΠΟΡΟΙ');
 
-  const parseCoFinancingAmount = (val) => {
-    if (val == null || val === '') return 0;
-    const cleaned = String(val).trim().replace(/[^\d,.-]/g, '');
-    if (!cleaned) return 0;
-    const hasComma = cleaned.includes(',');
-    const hasDot = cleaned.includes('.');
-    let normalized;
-    if (hasComma && hasDot) normalized = cleaned.replace(/\./g, '').replace(',', '.');
-    else if (hasComma) normalized = cleaned.replace(',', '.');
-    else if (hasDot) {
-      const dotCount = (cleaned.match(/\./g) || []).length;
-      if (dotCount === 1) {
-        const [, frac = ''] = cleaned.split('.');
-        normalized = frac.length <= 2 ? cleaned : cleaned.replace(/\./g, '');
-      } else normalized = cleaned.replace(/\./g, '');
-    } else normalized = cleaned;
-    const n = parseFloat(normalized);
-    return Number.isFinite(n) ? n : 0;
-  };
-
   const formatCoFinancingTotal = (num) => {
     if (!Number.isFinite(num) || num === 0) return '';
     return num.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -6211,6 +6192,12 @@ function ProjectForm({
         ...resolveContractStorageForSave(saveFormData, editingProject),
         ...resolveNoticeKhmdhsForSave(saveFormData, editingProject)
       };
+
+      // Συγχρηματοδότηση: σιγουρεύουμε ότι τα μοναδικά πεδία (και το εγκεκριμένο)
+      // αντικατοπτρίζουν τις γραμμές πριν την εγγραφή στο δίσκο.
+      if (normalizedFormData.coFinanced === true) {
+        normalizedFormData = syncPrimaryFundingFieldsFromSources(normalizedFormData);
+      }
 
       // Ό,τι λύθηκε στην επεξεργασία (έλεγχος στοιχείων, κατανομή κ.λπ.) φεύγει
       // και από τα ευρήματα — ώστε να καθαρίζει και η αναφορά μαζικής ανανέωσης.

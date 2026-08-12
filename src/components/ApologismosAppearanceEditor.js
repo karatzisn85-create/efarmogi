@@ -419,7 +419,7 @@ export default function ApologismosAppearanceEditor({
     const res = await ipcRenderer.invoke('apologismos-resolve-media-map', {
       actingUsername: username,
       relativePaths: [...new Set(rels)],
-      asDataUrl: true,
+      asDataUrl: false,
       variant: 'preview',
     });
     setMediaMap(res?.mediaMap || {});
@@ -795,7 +795,7 @@ export default function ApologismosAppearanceEditor({
             <ChipTitle>Λογότυπο δήμου στις διαφάνειες</ChipTitle>
             <ChipDesc>
               {brandingPreview?.logoDataUrl
-                ? 'Τοποθετεί διακριτικά το λογότυπο από τις Δημοτικές Ενότητες (εξώφυλλο και υδατογράφημα).'
+                ? 'Φόντο στα Περιεχόμενα και στο μήνυμα Δημάρχου· μικρό εικονίδιο στις υπόλοιπες σελίδες.'
                 : 'Πρώτα προσθέστε λογότυπο στις ρυθμίσεις Δημοτικών Ενοτήτων· μετά ενεργοποιήστε το εδώ.'}
             </ChipDesc>
           </Chip>

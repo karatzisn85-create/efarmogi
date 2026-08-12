@@ -14482,7 +14482,10 @@ ipcMain.handle('write-pdf-file', async (_event, { buffer, filePath } = {}) => {
     if (!resolved.toLowerCase().endsWith('.pdf')) {
       return { success: false, error: 'Μη έγκυρο αρχείο PDF' };
     }
-    fs.writeFileSync(resolved, Buffer.from(buffer));
+    const bytes = Buffer.isBuffer(buffer)
+      ? buffer
+      : Buffer.from(buffer instanceof Uint8Array ? buffer : (buffer || []));
+    fs.writeFileSync(resolved, bytes);
     return { success: true, path: resolved };
   } catch (e) {
     logger.error('write-pdf-file error:', e.message);
@@ -18253,6 +18256,7 @@ function buildSubprojectAmountMap() {
           projectStatus: data.projectStatus,
           subprojectTitle: data.subprojectTitle,
           projectTitle: data.projectTitle,
+          projectType: data.projectType,
           projectId: data.projectId || projectDir,
           subprojectId: data.subprojectId || subId,
         };
@@ -18279,6 +18283,7 @@ function buildSubprojectAmountMapForIds(subprojectIds) {
       projectStatus: data.projectStatus,
       subprojectTitle: data.subprojectTitle,
       projectTitle: data.projectTitle,
+      projectType: data.projectType,
       projectId: data.projectId,
       subprojectId: data.subprojectId || subId,
     };

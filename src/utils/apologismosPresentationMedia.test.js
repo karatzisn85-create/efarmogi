@@ -5,6 +5,7 @@ import {
   collectPathsFromSlide,
   collectPathsForSlideWindow,
   collectPathsFromSlides,
+  collectPdfCardMediaPaths,
   resolvePdfMediaVariant,
 } from './apologismosPresentationMedia';
 
@@ -41,9 +42,21 @@ describe('apologismosPresentationMedia', () => {
     );
   });
 
-  test('resolvePdfMediaVariant: πλήρες για μικρά, preview για μεγάλα', () => {
-    expect(resolvePdfMediaVariant(10, 20)).toBe('full');
+  test('resolvePdfMediaVariant: πάντα preview για καμβά 960×540', () => {
+    expect(resolvePdfMediaVariant(10, 20)).toBe('preview');
+    expect(resolvePdfMediaVariant(2, 5)).toBe('preview');
     expect(resolvePdfMediaVariant(41, 10)).toBe('preview');
-    expect(resolvePdfMediaVariant(5, 61)).toBe('preview');
+  });
+
+  test('collectPdfCardMediaPaths παραλείπει εξώφυλλο και δήμαρχο', () => {
+    const slides = [
+      { type: 'cover', cover: { images: [{ relativePath: 'cover.jpg' }] } },
+      { type: 'mayor', mayorMessage: { photo: { relativePath: 'mayor.jpg' } } },
+      { type: 'project', page: { primary: { after: 'p1.jpg' } } },
+    ];
+    expect(collectPdfCardMediaPaths(slides, {
+      coverImages: [{ relativePath: 'cover.jpg' }],
+      mayorPhotoPath: 'mayor.jpg',
+    })).toEqual(['p1.jpg']);
   });
 });

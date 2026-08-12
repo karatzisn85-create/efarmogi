@@ -18,6 +18,7 @@ import {
   shouldShowContractZone,
   formatAleCodes,
 } from '../utils/projectCardDisplay';
+import { getVisibleFundingSourceRows, isCoFinancedProject } from '../utils/coFinancingDisplay';
 
 const iconProps = { width: 14, height: 14, 'aria-hidden': true };
 
@@ -1205,6 +1206,8 @@ function ProjectCard({
   const aleDisplay = formatAleCodes(project);
   const contractRows = useMemo(() => buildProjectCardContractRows(project), [project]);
   const showContractZone = shouldShowContractZone(project);
+  const coFinancedRows = useMemo(() => getVisibleFundingSourceRows(project), [project]);
+  const showCoFinancing = isCoFinancedProject(project) && coFinancedRows.length > 0;
 
   const { displayChargePrimary, displayChargeParticipants } = useMemo(
     () => getProjectChargeDisplay(project, engineerCatalog),
@@ -1387,25 +1390,81 @@ function ProjectCard({
         </CardSection>
 
         <CardSection $accent="#059669" $tint="rgba(236, 253, 245, 0.45)">
-          <SectionHeader>Χρηματοδότηση</SectionHeader>
-          <MetaGrid>
-            <MetaCell>
-              <MetaLabel>Πηγή</MetaLabel>
-              <MetaValue>{project.fundingSource || '—'}</MetaValue>
-            </MetaCell>
-            {project.fundingDetails && (
+          <SectionHeader>
+            Χρηματοδότηση
+            {showCoFinancing ? ' · Συγχρηματοδότηση' : ''}
+          </SectionHeader>
+          {showCoFinancing ? (
+            <>
+              {coFinancedRows.map((row, idx) => (
+                <div
+                  key={`fund-${idx}-${row.source || ''}`}
+                  style={{
+                    marginBottom: idx < coFinancedRows.length - 1 ? '0.55rem' : 0,
+                    paddingBottom: idx < coFinancedRows.length - 1 ? '0.55rem' : 0,
+                    borderBottom: idx < coFinancedRows.length - 1 ? '1px solid rgba(5,150,105,0.18)' : 'none',
+                  }}
+                >
+                  <MetaGrid>
+                    <MetaCell $full>
+                      <MetaLabel>
+                        Πηγή {coFinancedRows.length > 1 ? idx + 1 : ''}
+                        {row.ownResources ? ' · ίδιοι πόροι' : ''}
+                      </MetaLabel>
+                      <MetaValue>{row.source || '—'}</MetaValue>
+                    </MetaCell>
+                    {row.details ? (
+                      <MetaCell $full>
+                        <MetaLabel>Εξειδίκευση</MetaLabel>
+                        <MetaValue style={{ fontSize: '0.76rem', fontWeight: 500, color: '#64748b' }}>
+                          {row.details}
+                        </MetaValue>
+                      </MetaCell>
+                    ) : null}
+                    {row.amount ? (
+                      <MetaCell>
+                        <MetaLabel>Ποσό</MetaLabel>
+                        <MetaValue style={{
+                          color: row.ownResources ? '#b45309' : '#059669',
+                          fontWeight: 800,
+                        }}
+                        >
+                          {formatAmount(row.amount)}
+                        </MetaValue>
+                      </MetaCell>
+                    ) : null}
+                  </MetaGrid>
+                </div>
+              ))}
+              <MetaGrid style={{ marginTop: '0.55rem' }}>
+                <MetaCell>
+                  <MetaLabel>Εγκεκριμένο (σύνολο)</MetaLabel>
+                  <MetaValue style={{ color: '#059669', fontWeight: 800 }}>
+                    {formatAmount(project.approvedAmount)}
+                  </MetaValue>
+                </MetaCell>
+              </MetaGrid>
+            </>
+          ) : (
+            <MetaGrid>
               <MetaCell>
-                <MetaLabel>Εξειδίκευση</MetaLabel>
-                <MetaValue style={{ fontSize: '0.76rem', fontWeight: 500, color: '#64748b' }}>
-                  {project.fundingDetails}
-                </MetaValue>
+                <MetaLabel>Πηγή</MetaLabel>
+                <MetaValue>{project.fundingSource || '—'}</MetaValue>
               </MetaCell>
-            )}
-            <MetaCell>
-              <MetaLabel>Εγκεκριμένο</MetaLabel>
-              <MetaValue style={{ color: '#059669', fontWeight: 800 }}>{formatAmount(project.approvedAmount)}</MetaValue>
-            </MetaCell>
-          </MetaGrid>
+              {project.fundingDetails && (
+                <MetaCell>
+                  <MetaLabel>Εξειδίκευση</MetaLabel>
+                  <MetaValue style={{ fontSize: '0.76rem', fontWeight: 500, color: '#64748b' }}>
+                    {project.fundingDetails}
+                  </MetaValue>
+                </MetaCell>
+              )}
+              <MetaCell>
+                <MetaLabel>Εγκεκριμένο</MetaLabel>
+                <MetaValue style={{ color: '#059669', fontWeight: 800 }}>{formatAmount(project.approvedAmount)}</MetaValue>
+              </MetaCell>
+            </MetaGrid>
+          )}
         </CardSection>
 
         {showContractZone && contractRows.length > 0 && (
