@@ -10,6 +10,8 @@ const { suggestCategoryFromEpActions } = require('./apologismosEpSuggest');
 const { buildPresentationModel } = require('./apologismosPresentation');
 const appearanceMod = require('./apologismosAppearance');
 const coverFrame = require('./apologismosCoverFrame');
+const coverFrameCache = require('./apologismosCoverFrameCache');
+const mediaIngest = require('./apologismosMediaIngest');
 
 const APOLOGISMOS_FOLDER = 'ΑΠΟΛΟΓΙΣΜΟΣ';
 
@@ -174,6 +176,7 @@ function addFromSubproject(dataDir, { periodId, subproject, epActions }) {
     ...mapped,
     categoryId: suggested || '',
     narrative: '',
+    impactLine: '',
     primaryViz: '',
     secondaryViz: null,
     photos: { before: [], during: [], after: [] },
@@ -218,6 +221,7 @@ function addLegacyCard(dataDir, { periodId, input }) {
     showFinalContractAmountInPresentation: !!input.showFinalContractAmountInPresentation,
     categoryId: input.categoryId || '',
     narrative: String(input.narrative || '').trim(),
+    impactLine: domain.normalizeImpactLine(input.impactLine),
     primaryViz: input.primaryViz || '',
     secondaryViz: input.secondaryViz || null,
     photos: { before: [], during: [], after: [] },
@@ -272,6 +276,9 @@ function updateCard(dataDir, { periodId, cardId, patch, pruneUnusedVisuals = tru
     updatedAt: new Date().toISOString(),
   };
   if (patch.metrics) next.metrics = domain.normalizeMetrics(patch.metrics);
+  if (Object.prototype.hasOwnProperty.call(patch, 'impactLine')) {
+    next.impactLine = domain.normalizeImpactLine(patch.impactLine);
+  }
   if (patch.photos) {
     next.photos = domain.mergePhotoPhases(prev.photos, patch.photos);
   }
@@ -366,7 +373,7 @@ function getCardMediaDir(dataDir, cardId) {
   return dir;
 }
 
-function saveCardPhoto(dataDir, { cardId, phase, sourcePath, fileName, currentPhotos }) {
+async function saveCardPhoto(dataDir, { cardId, phase, sourcePath, fileName, currentPhotos }) {
   const root = ensureDirs(dataDir);
   const slot = domain.canAddPhotoToPhase(currentPhotos, phase);
   if (!slot.ok) return { success: false, error: slot.error };
@@ -377,18 +384,32 @@ function saveCardPhoto(dataDir, { cardId, phase, sourcePath, fileName, currentPh
   const phaseDir = path.join(mediaDir, phase);
   if (!fs.existsSync(phaseDir)) fs.mkdirSync(phaseDir, { recursive: true });
 
-  const safeName = String(fileName || path.basename(sourcePath))
-    .replace(/[<>:"/\\|?*]/g, '_')
-    .slice(0, 80);
-  // Μοναδικό όνομα — αποφυγή σύγκρουσης όταν ανεβαίνουν πολλά αρχεία στο ίδιο ms
-  const destName = `${Date.now()}_${uuidv4().slice(0, 8)}_${safeName}`;
-  const destAbs = path.join(phaseDir, destName);
+  const uniquePrefix = `${Date.now()}_${uuidv4().slice(0, 8)}_`;
+  const ingest = await mediaIngest.ingestImageToDir(
+    sourcePath,
+    phaseDir,
+    uniquePrefix,
+    String(fileName || path.basename(sourcePath))
+  );
+  const destName = ingest.destName;
+  const destAbs = ingest.destAbs;
   const rel = path.join('media', cardId, phase, destName).replace(/\\/g, '/');
   const guard = domain.resolveMediaPathSafe(dataDir, root, rel);
-  if (!guard.ok) return { success: false, error: guard.error };
+  if (!guard.ok) {
+    try { if (fs.existsSync(destAbs)) fs.unlinkSync(destAbs); } catch (_) {}
+    return { success: false, error: guard.error };
+  }
 
-  fs.copyFileSync(sourcePath, destAbs);
-  return { success: true, relativePath: rel, absolutePath: destAbs };
+  try {
+    await mediaIngest.ensurePreviewThumb(root, destAbs);
+  } catch (_) {}
+  return {
+    success: true,
+    relativePath: rel,
+    absolutePath: destAbs,
+    compressed: ingest.compressed,
+    fallbackCopy: ingest.fallbackCopy,
+  };
 }
 
 function deleteCardPhotoFile(dataDir, relativePath) {
@@ -612,12 +633,29 @@ function mediaFileToDataUrl(absolutePath) {
   return `data:${mime};base64,${buf.toString('base64')}`;
 }
 
-function resolveMediaMap(dataDir, relativePaths, { asDataUrl = false } = {}) {
+/**
+ * @param {string} dataDir
+ * @param {string[]} relativePaths
+ * @param {{ asDataUrl?: boolean, variant?: 'full'|'preview' }} [opts]
+ *   variant=preview → ελαφριά προεπισκόπηση για οθόνη· full → πρωτότυπο (εξαγωγή).
+ */
+async function resolveMediaMap(dataDir, relativePaths, { asDataUrl = false, variant = 'full' } = {}) {
+  const root = ensureDirs(dataDir);
+  const usePreview = variant === 'preview';
   const map = {};
   for (const rel of relativePaths || []) {
     const abs = resolveCardMediaAbsolute(dataDir, rel);
     if (!abs || !fs.existsSync(abs)) continue;
-    map[rel] = asDataUrl ? mediaFileToDataUrl(abs) : `file:///${abs.replace(/\\/g, '/')}`;
+    let useAbs = abs;
+    if (usePreview) {
+      try {
+        const thumb = await mediaIngest.ensurePreviewThumb(root, abs);
+        if (thumb?.path) useAbs = thumb.path;
+      } catch (_) {
+        useAbs = abs;
+      }
+    }
+    map[rel] = asDataUrl ? mediaFileToDataUrl(useAbs) : `file:///${useAbs.replace(/\\/g, '/')}`;
   }
   return map;
 }
@@ -687,6 +725,8 @@ function updateAppearance(dataDir, { periodId, patch }) {
   const saved = saveReport(dataDir, report);
   if (!saved.success) return saved;
   cleanupAppearanceOrphans(dataDir, next);
+  // Focus/zoom/layout/palette μπορεί να άλλαξαν — ξαναφτιάχνουμε καδραρίσματα στην επόμενη εξαγωγή.
+  coverFrameCache.invalidateCoverFrameCache(getRoot(dataDir));
   return { success: true, report: saved.report, period, appearance: next };
 }
 
@@ -739,7 +779,7 @@ function cleanupAppearanceOrphans(dataDir, appearance) {
   }
 }
 
-function saveCoverImage(dataDir, {
+async function saveCoverImage(dataDir, {
   periodId, sourcePath, fileName, slotIndex = 0, commitToReport = true, kind = 'cover',
 } = {}) {
   const loaded = loadReport(dataDir, periodId);
@@ -751,19 +791,28 @@ function saveCoverImage(dataDir, {
   const root = ensureDirs(dataDir);
   const appearanceDir = path.join(root, 'appearance');
   if (!fs.existsSync(appearanceDir)) fs.mkdirSync(appearanceDir, { recursive: true });
-  const safeName = String(fileName || path.basename(sourcePath))
-    .replace(/[<>:"/\\|?*]/g, '_')
-    .slice(0, 80);
   const isMayor = kind === 'mayor';
-  const destName = isMayor
-    ? `mayor_${Date.now()}_${uuidv4().slice(0, 8)}_${safeName}`
-    : `cover_${Number(slotIndex) || 0}_${Date.now()}_${uuidv4().slice(0, 8)}_${safeName}`;
-  const destAbs = path.join(appearanceDir, destName);
+  const uniquePrefix = isMayor
+    ? `mayor_${Date.now()}_${uuidv4().slice(0, 8)}_`
+    : `cover_${Number(slotIndex) || 0}_${Date.now()}_${uuidv4().slice(0, 8)}_`;
+  const ingest = await mediaIngest.ingestImageToDir(
+    sourcePath,
+    appearanceDir,
+    uniquePrefix,
+    String(fileName || path.basename(sourcePath))
+  );
+  const destName = ingest.destName;
+  const destAbs = ingest.destAbs;
   const rel = path.join('appearance', destName).replace(/\\/g, '/');
   const guard = domain.resolveMediaPathSafe(dataDir, root, rel);
-  if (!guard.ok) return { success: false, error: guard.error };
+  if (!guard.ok) {
+    try { if (fs.existsSync(destAbs)) fs.unlinkSync(destAbs); } catch (_) {}
+    return { success: false, error: guard.error };
+  }
 
-  fs.copyFileSync(sourcePath, destAbs);
+  try {
+    await mediaIngest.ensurePreviewThumb(root, destAbs);
+  } catch (_) {}
 
   if (!commitToReport) {
     return {
@@ -771,6 +820,8 @@ function saveCoverImage(dataDir, {
       relativePath: rel,
       absolutePath: destAbs,
       period,
+      compressed: ingest.compressed,
+      fallbackCopy: ingest.fallbackCopy,
     };
   }
 
@@ -800,12 +851,15 @@ function saveCoverImage(dataDir, {
       deleteAppearanceFile(dataDir, prevRel);
     }
     cleanupAppearanceOrphans(dataDir, report.appearance);
+    coverFrameCache.invalidateCoverFrameCache(root);
     return {
       success: true,
       report: saved.report,
       period,
       appearance: report.appearance,
       relativePath: rel,
+      compressed: ingest.compressed,
+      fallbackCopy: ingest.fallbackCopy,
     };
   }
 
@@ -833,17 +887,47 @@ function saveCoverImage(dataDir, {
     deleteAppearanceFile(dataDir, prevRel);
   }
   cleanupAppearanceOrphans(dataDir, report.appearance);
+  coverFrameCache.invalidateCoverFrameCache(root);
   return {
     success: true,
     report: saved.report,
     period,
     appearance: report.appearance,
     relativePath: rel,
+    compressed: ingest.compressed,
+    fallbackCopy: ingest.fallbackCopy,
   };
 }
 
-function buildPresentationModelForExport(report, period, appConfig) {
-  return buildPresentationModel(report, period, { appConfig: appConfig || {} });
+function buildPresentationModelForExport(report, period, appConfig, dataDir) {
+  const model = buildPresentationModel(report, period, { appConfig: appConfig || {} });
+  return attachMunicipalityBranding(model, dataDir);
+}
+
+/**
+ * Προαιρετικό λογότυπο δήμου από ρυθμίσεις δημοτικών ενοτήτων.
+ * @param {object} model
+ * @param {string} [dataDir]
+ */
+function attachMunicipalityBranding(model, dataDir) {
+  if (!model || typeof model !== 'object') return model;
+  const show = model.appearance?.showMunicipalityLogo === true
+    || model.design?.showMunicipalityLogo === true;
+  if (!show || !dataDir) {
+    model.branding = { showLogo: false, logoDataUrl: null };
+    return model;
+  }
+  try {
+    const municipalUnitsConfigService = require('./municipalUnitsConfigService');
+    const logo = municipalUnitsConfigService.getMunicipalityLogoDataUrl(dataDir);
+    model.branding = {
+      showLogo: !!logo.dataUrl,
+      logoDataUrl: logo.dataUrl || null,
+    };
+  } catch (_) {
+    model.branding = { showLogo: false, logoDataUrl: null };
+  }
+  return model;
 }
 
 /**
@@ -855,6 +939,7 @@ async function frameCoverImagesForExport(dataDir, { appearance, channel = 'pdf' 
   const slots = appearanceMod.coverImagesBySlot(a);
   const targets = coverFrame.coverFrameTargets(channel, a.coverLayoutId);
   const bg = appearanceMod.resolveTheme(a).darkBand || '#1e293b';
+  const root = ensureDirs(dataDir);
   const frames = [];
 
   for (let i = 0; i < targets.length; i += 1) {
@@ -870,15 +955,20 @@ async function frameCoverImagesForExport(dataDir, { appearance, channel = 'pdf' 
       continue;
     }
     try {
-      const buf = await coverFrame.renderCoverFrame(abs, {
-        focusX: img.focusX,
-        focusY: img.focusY,
-        zoom: img.zoom,
-        width: target.width,
-        height: target.height,
-        background: bg,
-      });
-      frames.push(coverFrame.bufferToDataUrl(buf, 'image/jpeg'));
+      const { buffer } = await coverFrameCache.getOrRenderCoverFrame(
+        root,
+        abs,
+        {
+          focusX: img.focusX,
+          focusY: img.focusY,
+          zoom: img.zoom,
+          width: target.width,
+          height: target.height,
+          background: bg,
+        },
+        { relativePath: img.relativePath, channel }
+      );
+      frames.push(coverFrame.bufferToDataUrl(buffer, 'image/jpeg'));
     } catch (_) {
       // Fallback: ανεπεξέργαστη εικόνα ως data URL
       try {
@@ -895,15 +985,20 @@ async function frameCoverImagesForExport(dataDir, { appearance, channel = 'pdf' 
     const abs = resolveCardMediaAbsolute(dataDir, mayorPhoto.relativePath);
     if (abs && fs.existsSync(abs)) {
       try {
-        const buf = await coverFrame.renderCoverFrame(abs, {
-          focusX: mayorPhoto.focusX,
-          focusY: mayorPhoto.focusY,
-          zoom: mayorPhoto.zoom,
-          width: 440,
-          height: 560,
-          background: appearanceMod.resolveTheme(a).surface || '#e2e8f0',
-        });
-        mayorFrame = coverFrame.bufferToDataUrl(buf, 'image/jpeg');
+        const { buffer } = await coverFrameCache.getOrRenderCoverFrame(
+          root,
+          abs,
+          {
+            focusX: mayorPhoto.focusX,
+            focusY: mayorPhoto.focusY,
+            zoom: mayorPhoto.zoom,
+            width: 440,
+            height: 560,
+            background: appearanceMod.resolveTheme(a).surface || '#e2e8f0',
+          },
+          { relativePath: mayorPhoto.relativePath, channel: `${channel}:mayor` }
+        );
+        mayorFrame = coverFrame.bufferToDataUrl(buffer, 'image/jpeg');
       } catch (_) {
         try {
           mayorFrame = mediaFileToDataUrl(abs);
@@ -970,4 +1065,6 @@ module.exports = {
   buildPresentationModel: buildPresentationModelForExport,
   appearance: appearanceMod,
   domain,
+  mediaIngest,
+  coverFrameCache,
 };

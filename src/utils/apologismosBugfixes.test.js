@@ -138,7 +138,7 @@ describe('bugfix — φωτογραφίες: όριο πριν την αντιγ
     expect(merged.after).toEqual(['z']);
   });
 
-  test('saveCardPhoto δεν αντιγράφει όταν η φάση είναι γεμάτη (όχι orphan)', () => {
+  test('saveCardPhoto δεν αντιγράφει όταν η φάση είναι γεμάτη (όχι orphan)', async () => {
     const dataDir = tempDir();
     try {
       ensureDirs(dataDir);
@@ -162,7 +162,7 @@ describe('bugfix — φωτογραφίες: όριο πριν την αντιγ
       fs.writeFileSync(src, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 
       const full = { before: ['x1', 'x2', 'x3'], during: [], after: [] };
-      const blocked = saveCardPhoto(dataDir, {
+      const blocked = await saveCardPhoto(dataDir, {
         cardId,
         phase: 'before',
         sourcePath: src,
@@ -178,7 +178,7 @@ describe('bugfix — φωτογραφίες: όριο πριν την αντιγ
     }
   });
 
-  test('removeCardPhoto + reorderCardPhotoPrimary end-to-end', () => {
+  test('removeCardPhoto + reorderCardPhotoPrimary end-to-end', async () => {
     const dataDir = tempDir();
     try {
       ensureDirs(dataDir);
@@ -212,7 +212,7 @@ describe('bugfix — φωτογραφίες: όριο πριν την αντιγ
       fs.writeFileSync(src1, Buffer.from([1]));
       fs.writeFileSync(src2, Buffer.from([2]));
 
-      const a1 = saveCardPhoto(dataDir, {
+      const a1 = await saveCardPhoto(dataDir, {
         cardId, phase: 'after', sourcePath: src1, fileName: 'p1.jpg', currentPhotos: {},
       });
       expect(a1.success).toBe(true);
@@ -220,7 +220,7 @@ describe('bugfix — φωτογραφίες: όριο πριν την αντιγ
         periodId, cardId, patch: { photos: { after: [a1.relativePath] } },
       }).card;
 
-      const a2 = saveCardPhoto(dataDir, {
+      const a2 = await saveCardPhoto(dataDir, {
         cardId, phase: 'after', sourcePath: src2, fileName: 'p2.jpg', currentPhotos: card.photos,
       });
       expect(a2.success).toBe(true);
@@ -413,7 +413,7 @@ describe('bugfix — path guard & media data URL', () => {
     expect(resolveMediaPathSafe(dataDir, root, 'media/card/a.jpg').ok).toBe(true);
   });
 
-  test('resolveMediaMap asDataUrl επιστρέφει data: URL', () => {
+  test('resolveMediaMap asDataUrl επιστρέφει data: URL', async () => {
     const dataDir = tempDir();
     try {
       ensureDirs(dataDir);
@@ -433,7 +433,7 @@ describe('bugfix — path guard & media data URL', () => {
       });
       const src = path.join(dataDir, 'm.jpg');
       fs.writeFileSync(src, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
-      const saved = saveCardPhoto(dataDir, {
+      const saved = await saveCardPhoto(dataDir, {
         cardId: added.card.id,
         phase: 'after',
         sourcePath: src,
@@ -441,14 +441,14 @@ describe('bugfix — path guard & media data URL', () => {
         currentPhotos: {},
       });
       expect(saved.success).toBe(true);
-      const map = resolveMediaMap(dataDir, [saved.relativePath], { asDataUrl: true });
+      const map = await resolveMediaMap(dataDir, [saved.relativePath], { asDataUrl: true });
       expect(map[saved.relativePath]).toMatch(/^data:image\/jpeg;base64,/);
     } finally {
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
   });
 
-  test('λήψη φωτογραφίας: resolveCardMediaAbsolute δίνει υπαρκτό αρχείο, όχι traversal', () => {
+  test('λήψη φωτογραφίας: resolveCardMediaAbsolute δίνει υπαρκτό αρχείο, όχι traversal', async () => {
     const dataDir = tempDir();
     try {
       ensureDirs(dataDir);
@@ -467,7 +467,7 @@ describe('bugfix — path guard & media data URL', () => {
       });
       const src = path.join(dataDir, 'download.jpg');
       fs.writeFileSync(src, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
-      const saved = saveCardPhoto(dataDir, {
+      const saved = await saveCardPhoto(dataDir, {
         cardId: added.card.id,
         phase: 'after',
         sourcePath: src,
@@ -485,7 +485,7 @@ describe('bugfix — path guard & media data URL', () => {
     }
   });
 
-  test('ίδιο basename σε διαδοχικές αποθηκεύσεις → μοναδικά paths', () => {
+  test('ίδιο basename σε διαδοχικές αποθηκεύσεις → μοναδικά paths', async () => {
     const dataDir = tempDir();
     try {
       ensureDirs(dataDir);
@@ -506,14 +506,14 @@ describe('bugfix — path guard & media data URL', () => {
       const cardId = added.card.id;
       const src = path.join(dataDir, 'same.jpg');
       fs.writeFileSync(src, Buffer.from([1, 2, 3]));
-      const a = saveCardPhoto(dataDir, {
+      const a = await saveCardPhoto(dataDir, {
         cardId, phase: 'after', sourcePath: src, fileName: 'same.jpg', currentPhotos: {},
       });
-      const b = saveCardPhoto(dataDir, {
+      const b = await saveCardPhoto(dataDir, {
         cardId, phase: 'after', sourcePath: src, fileName: 'same.jpg',
         currentPhotos: { after: [a.relativePath] },
       });
-      const c = saveCardPhoto(dataDir, {
+      const c = await saveCardPhoto(dataDir, {
         cardId, phase: 'after', sourcePath: src, fileName: 'same.jpg',
         currentPhotos: { after: [a.relativePath, b.relativePath] },
       });
@@ -526,7 +526,7 @@ describe('bugfix — path guard & media data URL', () => {
     }
   });
 
-  test('ο τρόπος προβολής παραμένει μετά από αποθήκευση φωτογραφίας', () => {
+  test('ο τρόπος προβολής παραμένει μετά από αποθήκευση φωτογραφίας', async () => {
     const dataDir = tempDir();
     try {
       ensureDirs(dataDir);
@@ -558,7 +558,7 @@ describe('bugfix — path guard & media data URL', () => {
 
       const src = path.join(dataDir, 'v.jpg');
       fs.writeFileSync(src, Buffer.from([9]));
-      const photo = saveCardPhoto(dataDir, {
+      const photo = await saveCardPhoto(dataDir, {
         cardId, phase: 'before', sourcePath: src, fileName: 'v.jpg', currentPhotos: saved.card.photos,
       });
       const afterPhoto = updateCard(dataDir, {

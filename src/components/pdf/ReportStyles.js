@@ -1,12 +1,17 @@
 import { StyleSheet, Font } from '@react-pdf/renderer';
+import {
+  APOLOGISMOS_PDF_FONT_FAMILY,
+  resolveApologismosFontUrl,
+} from '../../utils/apologismosFonts';
 
+/** Sync εγγραφή — χωρίς async race σε οποιοδήποτε PDF που κάνει import το ReportStyles. */
 Font.register({
-  family: 'DejaVu',
+  family: APOLOGISMOS_PDF_FONT_FAMILY,
   fonts: [
-    { src: 'https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans.ttf', fontWeight: 'normal', fontStyle: 'normal' },
-    { src: 'https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans-Bold.ttf', fontWeight: 'bold', fontStyle: 'normal' },
-    { src: 'https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans-Oblique.ttf', fontWeight: 'normal', fontStyle: 'italic' },
-    { src: 'https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans-BoldOblique.ttf', fontWeight: 'bold', fontStyle: 'italic' },
+    { src: resolveApologismosFontUrl('DejaVuSans.ttf'), fontWeight: 'normal', fontStyle: 'normal' },
+    { src: resolveApologismosFontUrl('DejaVuSans-Bold.ttf'), fontWeight: 'bold', fontStyle: 'normal' },
+    { src: resolveApologismosFontUrl('DejaVuSans-Oblique.ttf'), fontWeight: 'normal', fontStyle: 'italic' },
+    { src: resolveApologismosFontUrl('DejaVuSans-BoldOblique.ttf'), fontWeight: 'bold', fontStyle: 'italic' },
   ],
 });
 

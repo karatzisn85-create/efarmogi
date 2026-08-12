@@ -8,10 +8,12 @@ const {
   getCardReadiness,
   sortCardsByApprovedAmountDesc,
   getPrimaryPhoto,
+  getBestHeroPhoto,
   parseAmountNumber,
   sumAmounts,
   getVizMode,
   normalizeMetrics,
+  normalizeImpactLine,
   photoPhaseLabelEl,
   showHeaderAmountsForPrimary,
   showHeaderNarrativeForPrimary,
@@ -68,7 +70,22 @@ function buildPhotoLayoutPlanForViz(card, vizId) {
     }
   }
   const pages = [];
-  pages.push({ type: 'primary_photos', primary, vizId });
+  const layoutHint = (() => {
+    const id = viz.id || vizId;
+    if (id === 'before_after' && primary.before && primary.after) {
+      return 'before_after_compare';
+    }
+    if (id === 'after_only' && primary.after && !primary.before && !primary.during) {
+      return 'photo_first';
+    }
+    return null;
+  })();
+  pages.push({
+    type: 'primary_photos',
+    primary,
+    vizId,
+    ...(layoutHint ? { layout: layoutHint } : {}),
+  });
   for (let i = 0; i < leftovers.length; i += 2) {
     pages.push({
       type: 'gallery',
@@ -112,6 +129,9 @@ function buildVizContentPages(card, vizId, role) {
       mapSnapshot: card.mapSnapshot || null,
       mapPoints: card.mapPoints || [],
       mapLine: card.mapLine || null,
+      // Για ζωντανή προβολή οθόνης· PDF/PPTX συνεχίζουν με mapSnapshot.
+      mapDrawing: card.mapDrawing || null,
+      mapView: card.mapView || null,
     });
     return pages;
   }
@@ -172,6 +192,7 @@ function buildCardPresentationEntry(card) {
     display: {
       title: card.title,
       narrative: card.narrative,
+      impactLine: normalizeImpactLine(card.impactLine),
       area: card.area || '',
       approvedAmount: card.approvedAmount,
       contractAmount: card.contractAmount,
@@ -199,12 +220,14 @@ function buildCategorySections(readyCards) {
   for (const cat of CATEGORIES) {
     const cards = byCat[cat.id] || [];
     if (!cards.length) continue;
+    const topCard = cards[0];
     sections.push({
       categoryId: cat.id,
       label: cat.label,
       count: cards.length,
       totalApproved: sumAmounts(cards, 'approvedAmount'),
       totalContract: sumAmounts(cards, 'contractAmount'),
+      heroPhoto: getBestHeroPhoto(topCard?.photos) || null,
       cards: cards.map((card) => buildCardPresentationEntry(card)),
     });
   }

@@ -1,6 +1,12 @@
-import React from 'react';
-import { GEOM, SLIDE_W, SLIDE_H, rgbaOf, mixHex, coverScrimCss } from '../utils/apologismosSlideDesign';
+import React, { useEffect } from 'react';
+import { GEOM, SLIDE_W, SLIDE_H, rgbaOf, mixHex, coverScrimCss, fitTitleFontSize, resolveProjectHeaderNarrativeLines } from '../utils/apologismosSlideDesign';
 import { coverImageStyle } from '../utils/apologismosAppearance';
+import {
+  APOLOGISMOS_CSS_FONT_STACK,
+  ensureApologismosScreenFonts,
+} from '../utils/apologismosFonts';
+import ApologismosLiveMap, { canShowLiveMap } from './ApologismosLiveMap';
+import { resolveTocLayout, splitTocColumns } from '../utils/apologismosTocLayout';
 
 /**
  * Απόδοση μίας διαφάνειας απολογισμού στον καμβά αναφοράς 960×540.
@@ -15,6 +21,97 @@ const PHOTO_PHASE_LABELS = {
 
 function phaseLabel(phase) {
   return PHOTO_PHASE_LABELS[phase] || phase;
+}
+
+/**
+ * Διακριτικό λογότυπο δήμου ανά τύπο διαφάνειας:
+ * - cover: γωνία + απαλό κεντρικό φόντο
+ * - backdrop: μεγάλο απαλό φόντο μόνο σε ανοιχτές διαφάνειες (Περιεχόμενα, Μήνυμα Δημάρχου)
+ * - content: μικρό σήμα πάνω δεξιά σε διαφάνειες έργου
+ * Σκούρες διαφάνειες κατηγορίας: χωρίς λογότυπο (δεν δένει αισθητικά).
+ */
+function MunicipalityBrandLayer({ branding, variant = 'content' }) {
+  const url = branding?.logoDataUrl;
+  if (!branding?.showLogo || !url) return null;
+
+  if (variant === 'cover') {
+    return (
+      <>
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: `center / 42% no-repeat url("${url}")`,
+            opacity: 0.07,
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
+        <img
+          src={url}
+          alt=""
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 28,
+            right: 36,
+            height: 58,
+            width: 'auto',
+            maxWidth: 140,
+            objectFit: 'contain',
+            opacity: 0.92,
+            pointerEvents: 'none',
+            zIndex: 3,
+          }}
+        />
+      </>
+    );
+  }
+
+  if (variant === 'backdrop') {
+    return (
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          right: -40,
+          top: '50%',
+          width: 420,
+          height: 420,
+          marginTop: -210,
+          background: `center / contain no-repeat url("${url}")`,
+          opacity: 0.085,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+    );
+  }
+
+  if (variant === 'content') {
+    return (
+      <img
+        src={url}
+        alt=""
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 22,
+          right: GEOM.marginX,
+          height: 36,
+          width: 'auto',
+          maxWidth: 96,
+          objectFit: 'contain',
+          opacity: 0.22,
+          pointerEvents: 'none',
+          zIndex: 2,
+        }}
+      />
+    );
+  }
+
+  return null;
 }
 
 /**
@@ -52,10 +149,12 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
   if (!stats?.length) return null;
   const labelColor = onDark ? colors.darkMuted : colors.muted;
   const valueColor = onDark ? colors.darkText : colors.text;
+  const labelLineH = 1.15;
+  const labelMinH = Math.ceil(type.statLabel * labelLineH * 2);
   return (
     <div style={{ display: 'flex', alignItems: 'stretch', gap }}>
       {stats.map((s) => (
-        <div key={s.label} style={{ paddingLeft: 11, borderLeft: `3px solid ${colors.accent}` }}>
+        <div key={s.label} style={{ paddingLeft: 11, borderLeft: `3px solid ${colors.accent}`, minWidth: 0, flex: 1 }}>
           <div
             style={{
               fontSize: type.statLabel,
@@ -63,11 +162,17 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
               letterSpacing: '0.09em',
               color: labelColor,
               marginBottom: 3,
+              lineHeight: labelLineH,
+              minHeight: labelMinH,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
             }}
           >
             {upperEl(s.label)}
           </div>
-          <div style={{ fontSize: type.statValue, fontWeight: 700, color: valueColor, lineHeight: 1.1 }}>
+          <div style={{ fontSize: type.statValue, fontWeight: 700, color: valueColor, lineHeight: 1.15 }}>
             {s.value}
           </div>
         </div>
@@ -326,6 +431,7 @@ function SlideFooter({ footer, design, onDark = false }) {
   const { type, colors } = design;
   if (!footer) return null;
   const color = onDark ? colors.darkMuted : colors.muted;
+  const creditColor = onDark ? rgbaOf(colors.darkText, 0.42) : rgbaOf(colors.text, 0.38);
   const line = onDark ? colors.darkHairline : colors.hairline;
   return (
     <div
@@ -340,14 +446,48 @@ function SlideFooter({ footer, design, onDark = false }) {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'baseline',
+          gap: 16,
           fontSize: type.footer,
-          letterSpacing: '0.06em',
           color,
           height: GEOM.footerTextH,
         }}
       >
-        <span style={{ fontWeight: 600 }}>{upperEl(footer.left)}</span>
-        <span style={{ fontWeight: 700 }}>{footer.right}</span>
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontWeight: 500,
+            letterSpacing: '0.01em',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            opacity: 0.92,
+          }}
+        >
+          {footer.left || ''}
+        </span>
+        <span
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 14,
+            flexShrink: 0,
+          }}
+        >
+          {footer.credit ? (
+            <span
+              style={{
+                fontWeight: 500,
+                fontSize: Math.max(9, type.footer - 0.5),
+                letterSpacing: '0.02em',
+                color: creditColor,
+              }}
+            >
+              {footer.credit}
+            </span>
+          ) : null}
+          <span style={{ fontWeight: 600, letterSpacing: '0.04em' }}>{footer.right}</span>
+        </span>
       </div>
     </div>
   );
@@ -442,7 +582,7 @@ function CoverMeta({ slide, design, onDark, align = 'bottom' }) {
   );
 }
 
-function CoverSlide({ slide, design, images, mediaUrls }) {
+function CoverSlide({ slide, design, images, mediaUrls, branding }) {
   const { colors } = design;
   const layer = (img) => {
     const url = img?.relativePath ? mediaUrls[img.relativePath] : null;
@@ -452,7 +592,7 @@ function CoverSlide({ slide, design, images, mediaUrls }) {
 
   if (slide.cover?.layoutId === 'hero_side') {
     return (
-      <div style={{ display: 'flex', width: '100%', height: '100%', background: colors.darkBand }}>
+      <div style={{ display: 'flex', width: '100%', height: '100%', background: colors.darkBand, position: 'relative' }}>
         <div style={{ width: '52%', ...layer(images[0]) }} />
         <div
           style={{
@@ -462,10 +602,12 @@ function CoverSlide({ slide, design, images, mediaUrls }) {
             flexDirection: 'column',
             justifyContent: 'center',
             background: colors.darkBand,
+            position: 'relative',
           }}
         >
           <CoverMeta slide={slide} design={design} onDark align="side" />
         </div>
+        <MunicipalityBrandLayer branding={branding} variant="cover" />
       </div>
     );
   }
@@ -489,16 +631,19 @@ function CoverSlide({ slide, design, images, mediaUrls }) {
           left: GEOM.coverPadX,
           right: GEOM.coverPadX,
           bottom: GEOM.coverPadY,
+          zIndex: 2,
         }}
       >
         <CoverMeta slide={slide} design={design} onDark />
       </div>
+      <MunicipalityBrandLayer branding={branding} variant="cover" />
     </div>
   );
 }
 
-function CategorySlide({ slide, design, footer }) {
+function CategorySlide({ slide, design, footer, mediaUrls = {} }) {
   const { type, colors } = design;
+  const heroUrl = slide.heroPhoto ? mediaUrls[slide.heroPhoto] : null;
   return (
     <div
       style={{
@@ -513,6 +658,25 @@ function CategorySlide({ slide, design, footer }) {
         overflow: 'hidden',
       }}
     >
+      {heroUrl ? (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: `center/cover no-repeat url("${heroUrl}")`,
+            opacity: 0.38,
+          }}
+        />
+      ) : null}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: heroUrl
+            ? `linear-gradient(120deg, ${rgbaOf(colors.darkBand, 0.92)} 0%, ${rgbaOf(colors.darkBand, 0.72)} 55%, ${rgbaOf(colors.darkBand, 0.55)} 100%)`
+            : 'transparent',
+        }}
+      />
       <div
         style={{
           position: 'absolute',
@@ -524,6 +688,7 @@ function CategorySlide({ slide, design, footer }) {
           letterSpacing: '-0.04em',
           color: colors.darkGhost,
           userSelect: 'none',
+          zIndex: 1,
         }}
       >
         {slide.sectionIndex || ''}
@@ -535,6 +700,7 @@ function CategorySlide({ slide, design, footer }) {
           flexDirection: 'column',
           justifyContent: 'center',
           position: 'relative',
+          zIndex: 1,
         }}
       >
         <Rule color={colors.accent} width={GEOM.coverRuleW} height={5} />
@@ -572,21 +738,17 @@ function CategorySlide({ slide, design, footer }) {
 }
 
 /** Δεύτερη διαφάνεια — αυτόματα περιεχόμενα ανά κατηγορία απολογισμού. */
-function TocSlide({ slide, design, footer }) {
+function TocSlide({ slide, design, footer, branding = null }) {
   const { type, colors } = design;
   const toc = slide.toc || {};
   const items = toc.items || [];
   const preface = toc.preface || [];
-  // Από 6+ κατηγορίες: συμπαγής λίστα· από 7+ ακόμα πιο πυκνή, ώστε να χωρούν όλες.
-  const listCount = items.length + (preface.length ? 1 : 0);
-  const compact = listCount >= 6;
-  const dense = listCount >= 7;
-  const gap = dense ? 2 : compact ? 3 : 5;
-  const badge = dense ? 20 : compact ? 24 : 28;
+  const layout = resolveTocLayout(toc);
+  const { compact, dense, twoColumn, gap, badge, rowMaxH } = layout;
   const titleSize = compact ? type.title : type.titleSection;
   const nameSize = dense ? type.caption + 1 : compact ? type.body - 0.5 : type.body;
   const pageSize = dense ? type.body : compact ? type.statValue - 1 : type.statValue;
-  const rowMaxH = dense ? 34 : compact ? 38 : 52;
+  const [colA, colB] = twoColumn ? splitTocColumns(items) : [items, []];
 
   return (
     <div
@@ -602,17 +764,7 @@ function TocSlide({ slide, design, footer }) {
         overflow: 'hidden',
       }}
     >
-      <div
-        style={{
-          position: 'absolute',
-          right: -40,
-          top: -50,
-          width: 180,
-          height: 180,
-          borderRadius: 180,
-          background: rgbaOf(colors.accent, 0.07),
-        }}
-      />
+      <MunicipalityBrandLayer branding={branding} variant="backdrop" />
       <div
         style={{
           position: 'absolute',
@@ -624,7 +776,7 @@ function TocSlide({ slide, design, footer }) {
         }}
       />
 
-      <div style={{ flexShrink: 0, paddingLeft: 12, position: 'relative' }}>
+      <div style={{ flexShrink: 0, paddingLeft: 12, position: 'relative', zIndex: 1 }}>
         <Eyebrow color={colors.accent} size={type.eyebrow}>Οδηγός παρουσίασης</Eyebrow>
         <div
           style={{
@@ -698,6 +850,7 @@ function TocSlide({ slide, design, footer }) {
           flexDirection: 'column',
           gap,
           position: 'relative',
+          zIndex: 1,
           overflow: 'hidden',
         }}
       >
@@ -764,9 +917,9 @@ function TocSlide({ slide, design, footer }) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '34px 1fr 88px 56px',
-            gap: 6,
-            padding: '0 8px 2px',
+            gridTemplateColumns: twoColumn ? '1fr 1fr' : '34px 1fr 88px 56px',
+            gap: twoColumn ? 10 : 6,
+            padding: twoColumn ? 0 : '0 8px 2px',
             fontSize: 9,
             fontWeight: 800,
             letterSpacing: '0.1em',
@@ -774,12 +927,98 @@ function TocSlide({ slide, design, footer }) {
             flexShrink: 0,
           }}
         >
-          <span />
-          <span>ΚΑΤΗΓΟΡΙΑ</span>
-          <span style={{ textAlign: 'right' }}>ΠΑΡΕΜΒΑΣΕΙΣ</span>
-          <span style={{ textAlign: 'right' }}>ΣΕΛ.</span>
+          {twoColumn ? null : (
+            <>
+              <span />
+              <span>ΚΑΤΗΓΟΡΙΑ</span>
+              <span style={{ textAlign: 'right' }}>ΠΑΡΕΜΒΑΣΕΙΣ</span>
+              <span style={{ textAlign: 'right' }}>ΣΕΛ.</span>
+            </>
+          )}
         </div>
-        {items.map((it, i) => {
+        {twoColumn ? (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 10,
+              alignContent: 'start',
+            }}
+          >
+            {[colA, colB].map((col, colIdx) => (
+              <div
+                key={colIdx}
+                style={{ display: 'flex', flexDirection: 'column', gap: Math.max(2, gap - 1) }}
+              >
+                {col.map((it, i) => {
+                  const globalIndex = colIdx === 0 ? i : colA.length + i;
+                  const featured = globalIndex % 2 === 0;
+                  return (
+                    <div
+                      key={it.categoryId || `${colIdx}-${i}`}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '28px 1fr 40px',
+                        alignItems: 'center',
+                        gap: 4,
+                        minHeight: Math.max(28, rowMaxH - 6),
+                        maxHeight: rowMaxH,
+                        padding: '0 6px',
+                        borderRadius: 9,
+                        background: featured
+                          ? `linear-gradient(90deg, ${colors.accentSoft} 0%, ${colors.surface} 85%)`
+                          : colors.panel,
+                        border: `1px solid ${featured ? rgbaOf(colors.accent, 0.2) : colors.panelBorder}`,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: Math.max(18, badge - 4),
+                          height: Math.max(18, badge - 4),
+                          borderRadius: 7,
+                          background: featured ? colors.accent : rgbaOf(colors.accent, 0.14),
+                          color: featured ? colors.accentText : colors.accent,
+                          fontWeight: 800,
+                          fontSize: 10,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {String(it.index).padStart(2, '0')}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: Math.max(10.5, nameSize - 0.5),
+                          fontWeight: 700,
+                          color: colors.text,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {it.label}
+                      </div>
+                      <div
+                        style={{
+                          textAlign: 'right',
+                          fontSize: pageSize,
+                          fontWeight: 800,
+                          color: colors.accent,
+                        }}
+                      >
+                        {it.startPage}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        ) : (
+          items.map((it, i) => {
           const featured = i % 2 === 0;
           return (
             <div
@@ -876,7 +1115,8 @@ function TocSlide({ slide, design, footer }) {
               </div>
             </div>
           );
-        })}
+        })
+        )}
       </div>
 
       <div style={{ flexShrink: 0 }}>
@@ -894,14 +1134,17 @@ function ProjectContent({ slide, design, mediaUrls }) {
   if (page.type === 'primary_photos' || page.type === 'primary') {
     const entries = Object.entries(page.primary || {}).filter(([, rel]) => rel);
     if (!entries.length) return null;
+    const isCompare = page.layout === 'before_after_compare';
+    const isPhotoFirst = page.layout === 'photo_first';
     return (
-      <div style={{ display: 'flex', gap: GEOM.gutter, height: '100%' }}>
+      <div style={{ display: 'flex', gap: isCompare ? 14 : GEOM.gutter, height: '100%' }}>
         {entries.map(([phase, rel]) => (
           <PhotoFrame
             key={phase}
             url={mediaUrls[rel]}
             design={design}
             caption={phaseLabel(phase)}
+            flex={isPhotoFirst ? 1 : 1}
           />
         ))}
       </div>
@@ -936,6 +1179,25 @@ function ProjectContent({ slide, design, mediaUrls }) {
             background: `center/contain no-repeat url("${url}") ${colors.panel}`,
           }}
         />
+      );
+    }
+    if (canShowLiveMap(page, mediaUrls)) {
+      return (
+        <div
+          style={{
+            height: '100%',
+            borderRadius: GEOM.cardRadius,
+            border: `1px solid ${colors.panelBorder}`,
+            overflow: 'hidden',
+            background: colors.panel,
+          }}
+        >
+          <ApologismosLiveMap
+            key={`${page.vizId}-live`}
+            mapDrawing={page.mapDrawing}
+            mapView={page.mapView}
+          />
+        </div>
       );
     }
     return (
@@ -1011,6 +1273,22 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
   const isFirstPage = slide.pageIndex === 0;
   const showStats = isFirstPage && display.showHeaderAmounts !== false;
   const showNarrative = isFirstPage && display.showHeaderNarrative !== false && !!display.narrative;
+  const hasImpact = !!String(display.impactLine || '').trim();
+  const titleText = display.title || slide.entry?.card?.title || '';
+  const titleMaxW = SLIDE_W - GEOM.marginX * 2;
+  const titleSize = fitTitleFontSize(titleText, {
+    maxWidth: titleMaxW,
+    maxSize: type.title,
+    minSize: Math.max(14, type.title - 12),
+    maxLines: 2,
+  });
+  const titleBlockH = Math.ceil(titleSize * 1.25 * 2);
+  const narrativeLines = resolveProjectHeaderNarrativeLines({
+    type,
+    hasImpact,
+    showStats,
+    titleSize,
+  });
 
   return (
     <div
@@ -1040,32 +1318,50 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
         </div>
         <div
           style={{
-            fontSize: type.title,
+            fontSize: titleSize,
             fontWeight: 700,
-            lineHeight: 1.18,
+            lineHeight: 1.25,
             color: colors.text,
             marginTop: 8,
-            flexShrink: 1,
-            minHeight: 0,
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
+            flexShrink: 0,
+            minHeight: titleBlockH,
+            maxHeight: titleBlockH + 2,
             overflow: 'hidden',
+            wordBreak: 'break-word',
           }}
         >
-          {display.title || slide.entry?.card?.title}
+          {titleText}
         </div>
-        {showNarrative ? (
+        {hasImpact ? (
+          <div
+            style={{
+              fontSize: type.subtitle,
+              fontWeight: 600,
+              lineHeight: 1.3,
+              color: colors.accent,
+              marginTop: 6,
+              flexShrink: 0,
+              maxHeight: type.subtitle * 1.3 + 2,
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'clip',
+            }}
+          >
+            {display.impactLine}
+          </div>
+        ) : null}
+        {showNarrative && narrativeLines > 0 ? (
           <div
             style={{
               fontSize: type.body,
               lineHeight: 1.35,
               color: colors.text,
               marginTop: 8,
-              flexShrink: 0,
-              maxHeight: type.body * 1.35 * (showStats ? 2 : 3) + 2,
+              flexShrink: 1,
+              minHeight: 0,
+              maxHeight: type.body * 1.35 * narrativeLines + 2,
               display: '-webkit-box',
-              WebkitLineClamp: showStats ? 2 : 3,
+              WebkitLineClamp: narrativeLines,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
             }}
@@ -1113,7 +1409,7 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
   );
 }
 
-function MayorSlide({ slide, design, footer, mediaUrls }) {
+function MayorSlide({ slide, design, footer, mediaUrls, branding = null }) {
   const { type, colors } = design;
   const mm = slide.mayorMessage || {};
   const photo = mm.photo;
@@ -1136,6 +1432,7 @@ function MayorSlide({ slide, design, footer, mediaUrls }) {
         overflow: 'hidden',
       }}
     >
+      <MunicipalityBrandLayer branding={branding} variant="backdrop" />
       <div
         style={{
           position: 'absolute',
@@ -1144,18 +1441,6 @@ function MayorSlide({ slide, design, footer, mediaUrls }) {
           bottom: 0,
           width: 8,
           background: `linear-gradient(180deg, ${colors.accent} 0%, ${mixHex(colors.accent, colors.darkBand, 0.4)} 100%)`,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          right: -60,
-          bottom: 40,
-          width: 220,
-          height: 220,
-          borderRadius: 220,
-          background: rgbaOf(colors.accent, 0.06),
-          pointerEvents: 'none',
         }}
       />
 
@@ -1168,6 +1453,8 @@ function MayorSlide({ slide, design, footer, mediaUrls }) {
           paddingLeft: 16,
           paddingRight: 8,
           alignItems: 'stretch',
+          position: 'relative',
+          zIndex: 1,
         }}
       >
         <div
@@ -1322,35 +1609,67 @@ function MayorSlide({ slide, design, footer, mediaUrls }) {
   );
 }
 
-export default function ApologismosSlideView({ slide, design, footer, mediaUrls = {}, coverImages = [] }) {
+export default function ApologismosSlideView({
+  slide,
+  design,
+  footer,
+  mediaUrls = {},
+  coverImages = [],
+  branding = null,
+}) {
+  useEffect(() => {
+    ensureApologismosScreenFonts();
+  }, []);
+
   if (!slide || !design) return null;
   return (
     <div
       style={{
+        position: 'relative',
         width: SLIDE_W,
         height: SLIDE_H,
         overflow: 'hidden',
         boxSizing: 'border-box',
         background: design.colors.surface,
         color: design.colors.text,
-        fontFamily: 'Segoe UI, Arial, sans-serif',
+        fontFamily: APOLOGISMOS_CSS_FONT_STACK,
       }}
     >
       {slide.type === 'cover' && (
-        <CoverSlide slide={slide} design={design} images={coverImages} mediaUrls={mediaUrls} />
+        <CoverSlide
+          slide={slide}
+          design={design}
+          images={coverImages}
+          mediaUrls={mediaUrls}
+          branding={branding}
+        />
       )}
       {slide.type === 'toc' && (
-        <TocSlide slide={slide} design={design} footer={footer} />
+        <TocSlide slide={slide} design={design} footer={footer} branding={branding} />
       )}
       {slide.type === 'mayor' && (
-        <MayorSlide slide={slide} design={design} footer={footer} mediaUrls={mediaUrls} />
+        <MayorSlide
+          slide={slide}
+          design={design}
+          footer={footer}
+          mediaUrls={mediaUrls}
+          branding={branding}
+        />
       )}
       {slide.type === 'category' && (
-        <CategorySlide slide={slide} design={design} footer={footer} />
+        <CategorySlide
+          slide={slide}
+          design={design}
+          footer={footer}
+          mediaUrls={mediaUrls}
+        />
       )}
       {slide.type === 'project' && (
         <ProjectSlide slide={slide} design={design} footer={footer} mediaUrls={mediaUrls} />
       )}
+      {slide.type === 'project' ? (
+        <MunicipalityBrandLayer branding={branding} variant="content" />
+      ) : null}
     </div>
   );
 }

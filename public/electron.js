@@ -16786,14 +16786,20 @@ function searchProposalFilesInMetadata(proposal, query, results, seen) {
 
 ipcMain.handle('get-municipal-units-config', async () => {
   try {
-    return { success: true, config: municipalUnitsConfigService.loadMunicipalUnitsConfig(dataDir) };
+    const config = municipalUnitsConfigService.loadMunicipalUnitsConfig(dataDir);
+    const logo = municipalUnitsConfigService.getMunicipalityLogoDataUrl(dataDir);
+    return {
+      success: true,
+      config,
+      logoDataUrl: logo.dataUrl || null,
+    };
   } catch (e) {
     logger.error('get-municipal-units-config error:', e.message);
     return { success: false, error: e.message };
   }
 });
 
-ipcMain.handle('save-municipal-units-config', async (_event, { units, actingUsername } = {}) => {
+ipcMain.handle('save-municipal-units-config', async (_event, { units, logoRelativePath, actingUsername } = {}) => {
   try {
     if (!isSuperAdminUser(actingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα' };
@@ -16801,8 +16807,10 @@ ipcMain.handle('save-municipal-units-config', async (_event, { units, actingUser
     if (!Array.isArray(units)) {
       return { success: false, error: 'Μη έγκυρη λίστα δημοτικών ενοτήτων' };
     }
-    const saved = municipalUnitsConfigService.saveMunicipalUnitsConfig(dataDir, units);
-    const actor = findUserByUsername(auth.username);
+    const payload = { units };
+    if (logoRelativePath !== undefined) payload.logoRelativePath = logoRelativePath;
+    const saved = municipalUnitsConfigService.saveMunicipalUnitsConfig(dataDir, payload);
+    const actor = findUserByUsername(actingUsername);
     logAuditAction({
       type: 'update',
       entityType: 'municipalUnitsConfig',
@@ -16810,11 +16818,88 @@ ipcMain.handle('save-municipal-units-config', async (_event, { units, actingUser
       entityTitle: 'Δημοτικές Ενότητες',
       userFullName: actor?.fullName || actingUsername || '',
       userRole: actor?.role || 'SUPERADMIN',
-      details: `Ενημέρωση λίστας (${saved.units.length} ενότητες)`,
+      details: `Ενημέρωση λίστας (${saved.units.length} ενότητες)${saved.logoRelativePath ? ' · λογότυπο' : ''}`,
     });
-    return { success: true, config: saved };
+    const logo = municipalUnitsConfigService.getMunicipalityLogoDataUrl(dataDir);
+    return { success: true, config: saved, logoDataUrl: logo.dataUrl || null };
   } catch (e) {
     logger.error('save-municipal-units-config error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('select-municipality-logo', async (_event, { actingUsername } = {}) => {
+  try {
+    if (!isSuperAdminUser(actingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const pick = await dialog.showOpenDialog({
+      title: 'Επιλογή λογοτύπου δήμου',
+      properties: ['openFile'],
+      filters: [{ name: 'Εικόνες', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+    });
+    if (pick.canceled || !pick.filePaths?.length) {
+      return { success: true, canceled: true };
+    }
+    return { success: true, canceled: false, filePath: pick.filePaths[0] };
+  } catch (e) {
+    logger.error('select-municipality-logo failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-municipality-logo', async (_event, { actingUsername, sourcePath } = {}) => {
+  try {
+    if (!isSuperAdminUser(actingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const result = await municipalUnitsConfigService.saveMunicipalityLogo(dataDir, {
+      sourcePath,
+      fileName: sourcePath ? path.basename(sourcePath) : 'logo.jpg',
+    });
+    if (!result.success) return result;
+    const actor = findUserByUsername(actingUsername);
+    logAuditAction({
+      type: 'update',
+      entityType: 'municipalUnitsConfig',
+      entityId: 'municipality-logo',
+      entityTitle: 'Λογότυπο Δήμου',
+      userFullName: actor?.fullName || actingUsername || '',
+      userRole: actor?.role || 'SUPERADMIN',
+      details: 'Αποθήκευση λογοτύπου δήμου',
+    });
+    const logo = municipalUnitsConfigService.getMunicipalityLogoDataUrl(dataDir);
+    return {
+      success: true,
+      config: result.config,
+      relativePath: result.relativePath,
+      logoDataUrl: logo.dataUrl || null,
+    };
+  } catch (e) {
+    logger.error('save-municipality-logo failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('clear-municipality-logo', async (_event, { actingUsername } = {}) => {
+  try {
+    if (!isSuperAdminUser(actingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const result = municipalUnitsConfigService.clearMunicipalityLogo(dataDir);
+    const actor = findUserByUsername(actingUsername);
+    logAuditAction({
+      type: 'update',
+      entityType: 'municipalUnitsConfig',
+      entityId: 'municipality-logo',
+      entityTitle: 'Λογότυπο Δήμου',
+      userFullName: actor?.fullName || actingUsername || '',
+      userRole: actor?.role || 'SUPERADMIN',
+      details: 'Διαγραφή λογοτύπου δήμου',
+    });
+    return { success: true, config: result.config, logoDataUrl: null };
+  } catch (e) {
+    logger.error('clear-municipality-logo failed', e);
     return { success: false, error: e.message };
   }
 });
@@ -18653,7 +18738,7 @@ ipcMain.handle('apologismos-save-photo', async (_event, {
     const slot = apologismosService.domain.canAddPhotoToPhase(card.photos, phase);
     if (!slot.ok) return { success: false, error: slot.error };
 
-    const savedPhoto = apologismosService.saveCardPhoto(dataDir, {
+    const savedPhoto = await apologismosService.saveCardPhoto(dataDir, {
       cardId,
       phase,
       sourcePath,
@@ -18817,12 +18902,15 @@ ipcMain.handle('apologismos-list-eligible-subprojects', async (_event, { actingU
 });
 
 ipcMain.handle('apologismos-resolve-media-map', async (_event, {
-  actingUsername, relativePaths, asDataUrl = false,
+  actingUsername, relativePaths, asDataUrl = false, variant = 'full',
 } = {}) => {
   try {
     const auth = assertApologismosSuperAdmin(actingUsername);
     if (!auth.ok) return { success: false, error: auth.error };
-    const mediaMap = apologismosService.resolveMediaMap(dataDir, relativePaths, { asDataUrl: !!asDataUrl });
+    const mediaMap = await apologismosService.resolveMediaMap(dataDir, relativePaths, {
+      asDataUrl: !!asDataUrl,
+      variant: variant === 'preview' ? 'preview' : 'full',
+    });
     return { success: true, mediaMap };
   } catch (e) {
     logger.error('apologismos-resolve-media-map failed', e);
@@ -18837,7 +18925,7 @@ ipcMain.handle('apologismos-get-presentation', async (_event, { actingUsername, 
     const loaded = loadApologismosReportWithSyncedAmounts(periodId);
     if (!loaded.success) return loaded;
     const config = loadConfig();
-    const model = apologismosService.buildPresentationModel(loaded.report, loaded.period, config);
+    const model = apologismosService.buildPresentationModel(loaded.report, loaded.period, config, dataDir);
     return {
       success: true,
       model,
@@ -18896,7 +18984,7 @@ ipcMain.handle('apologismos-save-cover-image', async (_event, {
   try {
     const auth = assertApologismosSuperAdmin(actingUsername);
     if (!auth.ok) return { success: false, error: auth.error };
-    const result = apologismosService.saveCoverImage(dataDir, {
+    const result = await apologismosService.saveCoverImage(dataDir, {
       periodId,
       sourcePath,
       fileName: sourcePath ? path.basename(sourcePath) : (kind === 'mayor' ? 'mayor.jpg' : 'cover.jpg'),
@@ -18974,7 +19062,7 @@ ipcMain.handle('apologismos-export-pptx', async (_event, { actingUsername, perio
     const loaded = loadApologismosReportWithSyncedAmounts(periodId);
     if (!loaded.success) return loaded;
     const config = loadConfig();
-    const model = apologismosService.buildPresentationModel(loaded.report, loaded.period, config);
+    const model = apologismosService.buildPresentationModel(loaded.report, loaded.period, config, dataDir);
     const framed = await apologismosService.frameCoverImagesForExport(dataDir, {
       appearance: loaded.report.appearance,
       channel: 'pptx',

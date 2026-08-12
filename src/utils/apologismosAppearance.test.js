@@ -35,6 +35,7 @@ describe('apologismosAppearance', () => {
       footerMode: 'full',
       sectionDividers: true,
       coverStats: true,
+      showMunicipalityLogo: false,
       mayorMessage: {
         enabled: false,
         mayorName: '',
@@ -66,6 +67,12 @@ describe('apologismosAppearance', () => {
     expect(a.motionEnabled).toBe(true);
     expect(resolveMotion(a)).toEqual({ enabled: true, style: 'fade' });
     expect(resolveMotion(null)).toEqual({ enabled: false, style: 'fade' });
+  });
+
+  test('showMunicipalityLogo: opt-in (default false)', () => {
+    expect(normalizeAppearance(null).showMunicipalityLogo).toBe(false);
+    expect(normalizeAppearance({ showMunicipalityLogo: true }).showMunicipalityLogo).toBe(true);
+    expect(normalizeAppearance({ showMunicipalityLogo: 'yes' }).showMunicipalityLogo).toBe(false);
   });
 
   test('resolveOrganizationTitle: fullName / name+type / κενό', () => {
@@ -224,7 +231,7 @@ describe('apologismosAppearance', () => {
     }
   });
 
-  test('updateAppearance + saveCoverImage με path guard', () => {
+  test('updateAppearance + saveCoverImage με path guard', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eh-appear2-'));
     try {
       ensureDirs(dataDir);
@@ -232,15 +239,21 @@ describe('apologismosAppearance', () => {
       const periodId = periods[0].id;
       const updated = updateAppearance(dataDir, {
         periodId,
-        patch: { paletteId: 'tech_green', coverLayoutId: 'hero_split', subtitle: 'Demo' },
+        patch: {
+          paletteId: 'tech_green',
+          coverLayoutId: 'hero_split',
+          subtitle: 'Demo',
+          showMunicipalityLogo: true,
+        },
       });
       expect(updated.success).toBe(true);
       expect(updated.appearance.paletteId).toBe('tech_green');
       expect(updated.appearance.coverLayoutId).toBe('hero_split');
+      expect(updated.appearance.showMunicipalityLogo).toBe(true);
 
       const src = path.join(dataDir, 'source.png');
       fs.writeFileSync(src, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-      const saved = saveCoverImage(dataDir, {
+      const saved = await saveCoverImage(dataDir, {
         periodId,
         sourcePath: src,
         fileName: 'source.png',

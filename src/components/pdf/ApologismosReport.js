@@ -10,7 +10,11 @@ import {
   resolveSlideDesign,
   coverScrimBands,
   buildFooter,
+  fitTitleFontSize,
+  softBreakLongWords,
+  resolveProjectHeaderNarrativeLines,
 } from '../../utils/apologismosSlideDesign';
+import { resolveTocLayout, splitTocColumns } from '../../utils/apologismosTocLayout';
 
 /**
  * Έγγραφο απολογισμού — ίδια γεωμετρία και τυπογραφία με την παρουσίαση
@@ -63,11 +67,75 @@ function Rule({ color, width = GEOM.headerRuleW, height = GEOM.headerRuleH, styl
   return <View style={{ width, height, backgroundColor: color, borderRadius: height, ...style }} />;
 }
 
+function MunicipalityBrand({ branding, variant = 'content' }) {
+  const url = branding?.logoDataUrl;
+  if (!branding?.showLogo || !url) return null;
+  if (variant === 'cover') {
+    return (
+      <>
+        <View
+          style={{
+            position: 'absolute',
+            left: Math.round(SLIDE_W * 0.29),
+            top: Math.round(SLIDE_H * 0.22),
+            width: Math.round(SLIDE_W * 0.42),
+            height: Math.round(SLIDE_H * 0.42),
+          }}
+        >
+          <Image src={url} style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.07 }} />
+        </View>
+        <View
+          style={{
+            position: 'absolute',
+            top: 28,
+            right: 36,
+            height: 58,
+            width: 120,
+          }}
+        >
+          <Image src={url} style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.92 }} />
+        </View>
+      </>
+    );
+  }
+  if (variant === 'backdrop') {
+    return (
+      <View
+        style={{
+          position: 'absolute',
+          right: -40,
+          top: Math.round(SLIDE_H / 2 - 210),
+          width: 420,
+          height: 420,
+        }}
+      >
+        <Image src={url} style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.085 }} />
+      </View>
+    );
+  }
+  if (variant === 'content') {
+    return (
+      <View
+        style={{
+          position: 'absolute',
+          top: 22,
+          right: GEOM.marginX,
+          height: 36,
+          width: 96,
+        }}
+      >
+        <Image src={url} style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: 0.22 }} />
+      </View>
+    );
+  }
+  return null;
+}
+
 function StatStrip({ stats, design, onDark = false, gap = 30 }) {
   const { type, colors } = design;
   if (!stats?.length) return null;
   return (
-    <View style={{ flexDirection: 'row' }}>
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
       {stats.map((s, i) => (
         <View
           key={s.label}
@@ -77,6 +145,7 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
             borderLeftWidth: 3,
             borderLeftColor: colors.accent,
             borderLeftStyle: 'solid',
+            flexDirection: 'column',
           }}
         >
           <Text
@@ -85,8 +154,9 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
               fontSize: type.statLabel,
               fontWeight: 'bold',
               letterSpacing: 1,
+              lineHeight: 1.25,
               color: onDark ? colors.darkMuted : colors.muted,
-              marginBottom: 3,
+              marginBottom: 4,
             }}
           >
             {String(s.label).toLocaleUpperCase('el-GR')}
@@ -96,6 +166,7 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
               fontFamily: FONT,
               fontSize: type.statValue,
               fontWeight: 'bold',
+              lineHeight: 1.25,
               color: onDark ? colors.darkText : colors.text,
             }}
           >
@@ -172,6 +243,8 @@ function KpiCards({ items, design, height = GEOM.kpiH }) {
 function SlideFooter({ design, footerBase, onDark = false }) {
   const { type, colors } = design;
   if (!footerBase) return null;
+  const muted = onDark ? colors.darkMuted : colors.muted;
+  const creditColor = onDark ? rgbaOf(colors.darkText, 0.42) : rgbaOf(colors.text, 0.38);
   return (
     <View
       style={{
@@ -182,6 +255,7 @@ function SlideFooter({ design, footerBase, onDark = false }) {
         borderTopColor: onDark ? colors.darkHairline : colors.hairline,
         flexDirection: 'row',
         justifyContent: 'space-between',
+        alignItems: 'flex-end',
         height: GEOM.footerTextH + 11,
       }}
     >
@@ -189,22 +263,40 @@ function SlideFooter({ design, footerBase, onDark = false }) {
         style={{
           fontFamily: FONT,
           fontSize: type.footer,
-          letterSpacing: 0.8,
-          color: onDark ? colors.darkMuted : colors.muted,
+          fontWeight: 500,
+          letterSpacing: 0.2,
+          color: muted,
+          maxWidth: SLIDE_W * 0.55,
         }}
       >
-        {String(footerBase.left || '').toLocaleUpperCase('el-GR')}
+        {footerBase.left || ' '}
       </Text>
-      <Text
-        style={{
-          fontFamily: FONT,
-          fontSize: type.footer,
-          fontWeight: 'bold',
-          color: onDark ? colors.darkMuted : colors.muted,
-        }}
-        fixed
-        render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
-      />
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+        {footerBase.credit ? (
+          <Text
+            style={{
+              fontFamily: FONT,
+              fontSize: Math.max(9, type.footer - 0.5),
+              fontWeight: 500,
+              letterSpacing: 0.3,
+              color: creditColor,
+              marginRight: 14,
+            }}
+          >
+            {footerBase.credit}
+          </Text>
+        ) : null}
+        <Text
+          style={{
+            fontFamily: FONT,
+            fontSize: type.footer,
+            fontWeight: 'bold',
+            color: muted,
+          }}
+          fixed
+          render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
+        />
+      </View>
     </View>
   );
 }
@@ -345,6 +437,7 @@ function CoverPage({ model, design, mediaMap }) {
         >
           <CoverMeta model={model} design={design} align="side" />
         </View>
+        <MunicipalityBrand branding={model?.branding} variant="cover" />
       </Page>
     );
   }
@@ -391,82 +484,115 @@ function CoverPage({ model, design, mediaMap }) {
       >
         <CoverMeta model={model} design={design} />
       </View>
+      <MunicipalityBrand branding={model?.branding} variant="cover" />
     </Page>
   );
 }
 
-function CategoryPage({ section, design, footerBase, sectionIndex, sectionTotal }) {
+function CategoryPage({ section, design, footerBase, sectionIndex, sectionTotal, mediaMap = {} }) {
   const { type, colors } = design;
+  const heroUrl = section.heroPhoto ? mediaMap[section.heroPhoto] : null;
   return (
     <Page
       size={PAGE_SIZE}
-      style={{
-        backgroundColor: colors.darkBand,
-        paddingTop: GEOM.marginTop,
-        paddingHorizontal: GEOM.marginX,
-        flexDirection: 'column',
-      }}
+      wrap={false}
+      style={{ backgroundColor: colors.darkBand }}
     >
-      <Text
+      {/* Ίδιο μοτίβο με το εξώφυλλο: Image μόνο μέσα σε absolute View, χωρίς padding στη Page. */}
+      {heroUrl ? (
+        <View style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}>
+          <Image src={heroUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        </View>
+      ) : null}
+      {heroUrl ? (
+        <View
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: rgbaOf(colors.darkBand, 0.72),
+          }}
+        />
+      ) : null}
+      <View
         style={{
           position: 'absolute',
           right: GEOM.marginX,
           top: 54,
-          fontFamily: FONT,
-          fontSize: 210,
-          fontWeight: 'bold',
-          color: colors.darkGhost,
+          width: 220,
+          height: 220,
+          alignItems: 'flex-end',
         }}
       >
-        {String(sectionIndex || '')}
-      </Text>
-      <View style={{ height: GEOM.contentBottom - GEOM.marginTop, justifyContent: 'center' }}>
-        <Rule color={colors.accent} width={GEOM.coverRuleW} height={5} style={{ marginBottom: 18 }} />
-        <Eyebrow color={rgbaOf(colors.darkText, 0.72)} size={type.eyebrow}>
-          {sectionIndex && sectionTotal
-            ? `Κατηγορία ${sectionIndex} από ${sectionTotal}`
-            : 'Κατηγορία έργων'}
-        </Eyebrow>
         <Text
           style={{
             fontFamily: FONT,
-            fontSize: type.titleSection,
+            fontSize: 210,
             fontWeight: 'bold',
-            color: colors.darkText,
-            marginTop: 12,
-            marginBottom: 28,
-            maxWidth: 700,
-            lineHeight: 1.14,
+            lineHeight: 1,
+            color: colors.darkGhost,
           }}
         >
-          {section.label}
+          {String(sectionIndex || '')}
         </Text>
-        <KpiCards
-          design={design}
-          items={[
-            { label: 'Έργα', value: String(section.count), tone: 'accent', big: true },
-            { label: 'Εγκεκριμένα', value: formatEuro(section.totalApproved), tone: 'dark' },
-            { label: 'Συμβάσεις', value: formatEuro(section.totalContract), tone: 'dark' },
-          ]}
-        />
       </View>
-      <SlideFooter design={design} footerBase={footerBase} onDark />
+      <View
+        style={{
+          paddingTop: GEOM.marginTop,
+          paddingHorizontal: GEOM.marginX,
+          height: SLIDE_H,
+        }}
+      >
+        <View style={{ height: GEOM.contentBottom - GEOM.marginTop, justifyContent: 'center' }}>
+          <Rule color={colors.accent} width={GEOM.coverRuleW} height={5} style={{ marginBottom: 18 }} />
+          <Eyebrow color={rgbaOf(colors.darkText, 0.72)} size={type.eyebrow}>
+            {sectionIndex && sectionTotal
+              ? `Κατηγορία ${sectionIndex} από ${sectionTotal}`
+              : 'Κατηγορία έργων'}
+          </Eyebrow>
+          <Text
+            style={{
+              fontFamily: FONT,
+              fontSize: type.titleSection,
+              fontWeight: 'bold',
+              color: colors.darkText,
+              marginTop: 12,
+              marginBottom: 28,
+              maxWidth: 700,
+              lineHeight: 1.14,
+            }}
+          >
+            {section.label}
+          </Text>
+          <KpiCards
+            design={design}
+            items={[
+              { label: 'Έργα', value: String(section.count), tone: 'accent', big: true },
+              { label: 'Εγκεκριμένα', value: formatEuro(section.totalApproved), tone: 'dark' },
+              { label: 'Συμβάσεις', value: formatEuro(section.totalContract), tone: 'dark' },
+            ]}
+          />
+        </View>
+        <SlideFooter design={design} footerBase={footerBase} onDark />
+      </View>
     </Page>
   );
 }
 
-function TocPage({ toc, design, footerBase }) {
+function TocPage({ toc, design, footerBase, branding = null }) {
   const { type, colors } = design;
   const items = toc?.items || [];
   const preface = toc?.preface || [];
-  const listCount = items.length + (preface.length ? 1 : 0);
-  const compact = listCount >= 6;
-  const dense = listCount >= 7;
+  const layout = resolveTocLayout(toc);
+  const { compact, dense, twoColumn } = layout;
   const rowH = dense ? 26 : compact ? 30 : 40;
   const rowGap = dense ? 2 : compact ? 3 : 5;
   const badge = dense ? 18 : compact ? 22 : 26;
   const titleSize = compact ? type.title : type.titleSection;
   const nameSize = dense ? 11 : compact ? type.body - 0.5 : type.body;
+  const [colA, colB] = twoColumn ? splitTocColumns(items) : [items, []];
   return (
     <Page
       size={PAGE_SIZE}
@@ -477,6 +603,7 @@ function TocPage({ toc, design, footerBase }) {
         flexDirection: 'column',
       }}
     >
+      <MunicipalityBrand branding={branding} variant="backdrop" />
       <View
         style={{
           position: 'absolute',
@@ -616,6 +743,70 @@ function TocPage({ toc, design, footerBase }) {
             </Text>
           </View>
         ))}
+        {twoColumn ? (
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            {[colA, colB].map((col, colIdx) => (
+              <View key={colIdx} style={{ flex: 1 }}>
+                {col.map((it, i) => {
+                  const globalIndex = colIdx === 0 ? i : colA.length + i;
+                  const featured = globalIndex % 2 === 0;
+                  return (
+                    <View
+                      key={it.categoryId || `${colIdx}-${i}`}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        height: Math.max(24, rowH - 2),
+                        marginBottom: i === col.length - 1 ? 0 : Math.max(1, rowGap - 1),
+                        paddingHorizontal: 5,
+                        borderRadius: 7,
+                        backgroundColor: featured ? colors.accentSoft : colors.panel,
+                        borderWidth: 1,
+                        borderStyle: 'solid',
+                        borderColor: featured ? colors.accent : colors.panelBorder,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: Math.max(16, badge - 2),
+                          height: Math.max(16, badge - 2),
+                          borderRadius: 6,
+                          backgroundColor: featured ? colors.accent : colors.surface,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: 6,
+                        }}
+                      >
+                        <Text style={{ fontFamily: FONT, fontSize: 9, fontWeight: 'bold', color: featured ? colors.accentText : colors.accent }}>
+                          {String(it.index).padStart(2, '0')}
+                        </Text>
+                      </View>
+                      <Text
+                        style={{ fontFamily: FONT, fontSize: Math.max(10, nameSize - 0.5), fontWeight: 'bold', color: colors.text, flex: 1 }}
+                        maxLines={1}
+                      >
+                        {it.label}
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: FONT,
+                          fontSize: compact ? type.body : type.statValue,
+                          fontWeight: 'bold',
+                          color: colors.accent,
+                          width: 36,
+                          textAlign: 'right',
+                        }}
+                      >
+                        {String(it.startPage)}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        ) : (
+          <>
         <View style={{ flexDirection: 'row', marginBottom: 3, paddingHorizontal: 6 }}>
           <Text style={{ fontFamily: FONT, fontSize: 8, fontWeight: 'bold', color: colors.muted, width: 30 }} />
           <Text style={{ fontFamily: FONT, fontSize: 8, fontWeight: 'bold', color: colors.muted, flex: 1 }}>
@@ -710,25 +901,31 @@ function TocPage({ toc, design, footerBase }) {
             </View>
           );
         })}
+          </>
+        )}
       </View>
       <SlideFooter design={design} footerBase={footerBase} />
     </Page>
   );
 }
 
-function MayorPage({ mayorMessage, design, footerBase, mediaMap }) {
+function MayorPage({ mayorMessage, design, footerBase, mediaMap, branding = null }) {
   const { type, colors } = design;
   const mm = mayorMessage || {};
   const photo = mm.photo;
   const src = photo?.framedDataUrl
     || (photo?.relativePath && mediaMap?.[photo.relativePath])
     || null;
-  const body = String(mm.text || '').trim() || '—';
+  const body = softBreakLongWords(String(mm.text || '').trim() || '—', 20);
   const name = String(mm.mayorName || '').trim();
+  const photoColW = 250;
+  const gap = 28;
+  const textColW = SLIDE_W - GEOM.marginX * 2 - 16 - photoColW - gap - 8;
 
   return (
     <Page
       size={PAGE_SIZE}
+      wrap={false}
       style={{
         backgroundColor: colors.surface,
         paddingTop: GEOM.marginTop,
@@ -736,6 +933,7 @@ function MayorPage({ mayorMessage, design, footerBase, mediaMap }) {
         flexDirection: 'column',
       }}
     >
+      <MunicipalityBrand branding={branding} variant="backdrop" />
       <View
         style={{
           position: 'absolute',
@@ -754,12 +952,12 @@ function MayorPage({ mayorMessage, design, footerBase, mediaMap }) {
           alignItems: 'center',
         }}
       >
-        <View style={{ width: 250, alignItems: 'center', marginRight: 28 }}>
+        <View style={{ width: photoColW, alignItems: 'center', marginRight: gap }}>
           <View
             style={{
               width: 220,
               height: 280,
-              borderRadius: 14,
+              borderRadius: 16,
               overflow: 'hidden',
               backgroundColor: colors.panel,
               borderWidth: 1,
@@ -798,6 +996,7 @@ function MayorPage({ mayorMessage, design, footerBase, mediaMap }) {
                 color: colors.text,
                 marginTop: 12,
                 textAlign: 'center',
+                maxWidth: 230,
               }}
             >
               {name}
@@ -818,7 +1017,7 @@ function MayorPage({ mayorMessage, design, footerBase, mediaMap }) {
           </Text>
         </View>
 
-        <View style={{ flex: 1, justifyContent: 'center', paddingRight: 8 }}>
+        <View style={{ width: textColW, justifyContent: 'center', paddingRight: 8 }}>
           <Eyebrow color={colors.accent} size={type.eyebrow}>Οδηγός παρουσίασης</Eyebrow>
           <Text
             style={{
@@ -835,11 +1034,14 @@ function MayorPage({ mayorMessage, design, footerBase, mediaMap }) {
           <Text
             style={{
               fontFamily: FONT,
-              fontSize: type.body + 1,
+              fontSize: type.body + 1.5,
               color: colors.text,
               marginTop: 18,
               lineHeight: 1.55,
+              width: textColW,
+              maxWidth: textColW,
             }}
+            maxLines={12}
           >
             {body}
           </Text>
@@ -1082,15 +1284,34 @@ function ProjectContent({ page, display, design, mediaMap }) {
   );
 }
 
-function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase }) {
+function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase, branding = null }) {
   const { type, colors } = design;
   const { display, contentPages } = entry;
   const pages = contentPages?.length ? contentPages : [{ type: 'simple', role: 'primary' }];
+  const headerH = GEOM.contentTop - GEOM.marginTop;
+  const hasImpact = !!String(display.impactLine || '').trim();
+  /** Χώρος για ποσά κάτω στην κεφαλίδα — το react-pdf δεν στηρίζει αξιόπιστα marginTop:auto. */
+  const metaReserve = Math.max(GEOM.statH, Math.ceil(type.statLabel * 1.25 + 4 + type.statValue * 1.25)) + 14;
+  const titleMaxW = SLIDE_W - GEOM.marginX * 2;
+  const titleSize = fitTitleFontSize(display.title || '', {
+    maxWidth: titleMaxW,
+    maxSize: type.title,
+    minSize: Math.max(14, type.title - 12),
+    maxLines: 2,
+  });
 
   return pages.map((page, pageIndex) => {
     const isFirst = pageIndex === 0;
     const showStats = isFirst && display.showHeaderAmounts !== false;
     const showNarrative = isFirst && display.showHeaderNarrative !== false && !!display.narrative;
+    const needsMeta = showStats || !!display.area || page.role === 'secondary';
+    const topBandH = Math.max(48, headerH - (needsMeta ? metaReserve : 8));
+    const narrativeLines = resolveProjectHeaderNarrativeLines({
+      type,
+      hasImpact,
+      showStats,
+      titleSize,
+    });
     return (
       <Page
         key={`${entry.card.id}-${pageIndex}`}
@@ -1102,64 +1323,94 @@ function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase }) {
           flexDirection: 'column',
         }}
       >
-        <View style={{ height: GEOM.contentTop - GEOM.marginTop, overflow: 'hidden' }}>
-          <Eyebrow color={colors.muted} size={type.eyebrow}>{sectionLabel}</Eyebrow>
-          <Text
-            maxLines={2}
-            style={{
-              fontFamily: FONT,
-              fontSize: type.title,
-              fontWeight: 'bold',
-              color: colors.text,
-              marginTop: 8,
-              lineHeight: 1.18,
-            }}
-          >
-            {display.title}
-          </Text>
-          {showNarrative ? (
+        <MunicipalityBrand branding={branding} variant="content" />
+        <View style={{ height: headerH, position: 'relative' }}>
+          <View style={{ height: topBandH, overflow: 'hidden' }}>
+            <Eyebrow color={colors.muted} size={type.eyebrow}>{sectionLabel}</Eyebrow>
             <Text
-              maxLines={showStats ? 2 : 3}
+              maxLines={2}
               style={{
                 fontFamily: FONT,
-                fontSize: type.body,
+                fontSize: titleSize,
+                fontWeight: 'bold',
                 color: colors.text,
                 marginTop: 8,
-                lineHeight: 1.35,
+                lineHeight: 1.25,
+                minHeight: Math.ceil(titleSize * 1.25 * 2),
               }}
             >
-              {display.narrative}
+              {display.title}
             </Text>
-          ) : null}
-          <View style={{ marginTop: 'auto', paddingBottom: 12 }}>
-            {showStats ? (
-              <StatStrip
-                design={design}
-                stats={[
-                  { label: 'Εγκεκριμένο', value: formatEuro(display.approvedAmount) },
-                  { label: 'Συμβατικό', value: formatEuro(display.contractAmount) },
-                  ...(display.showFinalContractAmount
-                    ? [{
-                      label: display.finalContractAmountShortLabel || 'Τελικό μετά ΑΠΕ',
-                      value: formatEuro(display.finalContractAmountAfterApe),
-                    }]
-                    : []),
-                  ...(display.area ? [{ label: 'Περιοχή', value: display.area }] : []),
-                ]}
-              />
-            ) : (
-              <View>
-                {display.area ? (
-                  <Text style={{ fontFamily: FONT, fontSize: type.body, color: colors.muted }}>{display.area}</Text>
-                ) : null}
-                {page.role === 'secondary' ? (
-                  <Eyebrow color={colors.muted} size={type.caption} style={{ marginTop: 6 }}>
-                    {page.vizLabel || page.vizId}
-                  </Eyebrow>
-                ) : null}
-              </View>
-            )}
+            {hasImpact ? (
+              <Text
+                maxLines={1}
+                style={{
+                  fontFamily: FONT,
+                  fontSize: type.subtitle,
+                  fontWeight: 'bold',
+                  color: colors.accent,
+                  marginTop: 6,
+                  lineHeight: 1.3,
+                  maxHeight: Math.ceil(type.subtitle * 1.3),
+                }}
+              >
+                {display.impactLine}
+              </Text>
+            ) : null}
+            {showNarrative && narrativeLines > 0 ? (
+              <Text
+                maxLines={narrativeLines}
+                style={{
+                  fontFamily: FONT,
+                  fontSize: type.body,
+                  color: colors.text,
+                  marginTop: 8,
+                  lineHeight: 1.35,
+                  maxHeight: Math.ceil(type.body * 1.35 * narrativeLines),
+                }}
+              >
+                {display.narrative}
+              </Text>
+            ) : null}
           </View>
+          {needsMeta ? (
+            <View
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 12,
+              }}
+            >
+              {showStats ? (
+                <StatStrip
+                  design={design}
+                  stats={[
+                    { label: 'Εγκεκριμένο', value: formatEuro(display.approvedAmount) },
+                    { label: 'Συμβατικό', value: formatEuro(display.contractAmount) },
+                    ...(display.showFinalContractAmount
+                      ? [{
+                        label: display.finalContractAmountShortLabel || 'Τελικό μετά ΑΠΕ',
+                        value: formatEuro(display.finalContractAmountAfterApe),
+                      }]
+                      : []),
+                    ...(display.area ? [{ label: 'Περιοχή', value: display.area }] : []),
+                  ]}
+                />
+              ) : (
+                <View>
+                  {display.area ? (
+                    <Text style={{ fontFamily: FONT, fontSize: type.body, color: colors.muted }}>{display.area}</Text>
+                  ) : null}
+                  {page.role === 'secondary' ? (
+                    <Eyebrow color={colors.muted} size={type.caption} style={{ marginTop: 6 }}>
+                      {page.vizLabel || page.vizId}
+                    </Eyebrow>
+                  ) : null}
+                </View>
+              )}
+            </View>
+          ) : null}
         </View>
 
         <View style={{ height: GEOM.contentBottom - GEOM.contentTop }}>
@@ -1174,6 +1425,7 @@ function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase }) {
 
 export default function ApologismosReport({ model, mediaMap = {} }) {
   const design = model?.design || resolveSlideDesign(model?.appearance || {}, model?.theme || {});
+  const branding = model?.branding || null;
   const footerBase = buildFooter({
     design,
     organizationTitle: model?.cover?.organizationTitle,
@@ -1184,7 +1436,7 @@ export default function ApologismosReport({ model, mediaMap = {} }) {
     <Document>
       <CoverPage model={model} design={design} mediaMap={mediaMap} />
       {model?.toc?.items?.length ? (
-        <TocPage toc={model.toc} design={design} footerBase={footerBase} />
+        <TocPage toc={model.toc} design={design} footerBase={footerBase} branding={branding} />
       ) : null}
       {model?.mayorMessage?.enabled ? (
         <MayorPage
@@ -1192,6 +1444,7 @@ export default function ApologismosReport({ model, mediaMap = {} }) {
           design={design}
           footerBase={footerBase}
           mediaMap={mediaMap}
+          branding={branding}
         />
       ) : null}
       {(model?.sections || []).map((section, sectionIdx) => (
@@ -1203,6 +1456,7 @@ export default function ApologismosReport({ model, mediaMap = {} }) {
               footerBase={footerBase}
               sectionIndex={sectionIdx + 1}
               sectionTotal={(model?.sections || []).length}
+              mediaMap={mediaMap}
             />
           ) : null}
           {section.cards.flatMap((entry) =>
@@ -1212,6 +1466,7 @@ export default function ApologismosReport({ model, mediaMap = {} }) {
               design,
               mediaMap,
               footerBase,
+              branding,
             })
           )}
         </React.Fragment>

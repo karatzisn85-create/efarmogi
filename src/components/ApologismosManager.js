@@ -810,7 +810,14 @@ const PresentBody = styled.div`
 `;
 const PresentFade = styled.div`
   opacity: ${(p) => (p.$opacity == null ? 1 : p.$opacity)};
-  transition: opacity ${(p) => (p.$motion ? '0.38s' : '0s')} ease;
+  transform: ${(p) => (
+    p.$motion && p.$opacity != null && Number(p.$opacity) < 0.98
+      ? 'translateY(6px)'
+      : 'translateY(0)'
+  )};
+  transition: ${(p) => (p.$motion
+    ? 'opacity 0.42s cubic-bezier(0.22, 1, 0.36, 1), transform 0.42s cubic-bezier(0.22, 1, 0.36, 1)'
+    : 'none')};
 `;
 /** Πλαίσιο που κρατά την αναλογία 16:9 της διαφάνειας. */
 const PresentStage = styled.div`
@@ -880,7 +887,7 @@ export default function ApologismosManager({
   const [presentFade, setPresentFade] = useState(1);
   const presentFadeTimerRef = useRef(null);
   const presentTargetRef = useRef(null);
-  const PRESENT_FADE_MS = 380;
+  const PRESENT_FADE_MS = 420;
   const [mediaUrls, setMediaUrls] = useState({});
   const stageWrapRef = useRef(null);
   const [stageScale, setStageScale] = useState(1);
@@ -1044,6 +1051,7 @@ export default function ApologismosManager({
   const buildDraft = useCallback((card) => ({
     categoryId: card.categoryId || card.suggestedCategoryId || '',
     narrative: card.narrative || '',
+    impactLine: card.impactLine || '',
     primaryViz: card.primaryViz || '',
     secondaryViz: card.secondaryViz || '',
     area: card.area || '',
@@ -1096,6 +1104,7 @@ export default function ApologismosManager({
         actingUsername: username,
         relativePaths: selectedPhotoKey.split('|'),
         asDataUrl: true,
+        variant: 'preview',
       });
       if (!cancelled) setCardMedia(res?.mediaMap || {});
     })();
@@ -1168,6 +1177,7 @@ export default function ApologismosManager({
     const patch = {
       categoryId: draft.categoryId,
       narrative: draft.narrative,
+      impactLine: draft.impactLine,
       primaryViz: draft.primaryViz,
       secondaryViz: draft.secondaryViz || null,
       metrics,
@@ -1225,6 +1235,7 @@ export default function ApologismosManager({
     const patch = {
       categoryId: baseline.categoryId,
       narrative: baseline.narrative,
+      impactLine: baseline.impactLine,
       primaryViz: baseline.primaryViz,
       secondaryViz: baseline.secondaryViz || null,
       metrics: cleanMetricsRows(baseline.metrics),
@@ -1513,6 +1524,7 @@ export default function ApologismosManager({
           count: section.count,
           sectionIndex: sectionOrdinal,
           sectionTotal: (model.sections || []).length,
+          heroPhoto: section.heroPhoto || null,
         });
       }
       for (const entry of section.cards || []) {
@@ -1562,6 +1574,7 @@ export default function ApologismosManager({
       actingUsername: username,
       relativePaths: rels,
       asDataUrl: true,
+      variant: 'preview',
     });
     setMediaUrls(mediaRes?.mediaMap || {});
     setPresentationMeta({
@@ -1569,6 +1582,7 @@ export default function ApologismosManager({
       cover: res.model.cover || null,
       motion: res.model.motion || null,
       design: res.model.design || null,
+      branding: res.model.branding || null,
       organizationTitle: res.model.cover?.organizationTitle || '',
       periodLabel: res.model.cover?.periodLabel || res.model.period?.label || '',
     });
@@ -1594,6 +1608,7 @@ export default function ApologismosManager({
       actingUsername: username,
       relativePaths: rels,
       asDataUrl: true,
+      variant: 'full',
     });
     const framedRes = await ipcRenderer.invoke('apologismos-frame-cover-images', {
       actingUsername: username,
@@ -2365,17 +2380,40 @@ export default function ApologismosManager({
                             />
                           </FieldBlock>
                         )}
-                        <EmphasisBlock $on={draftNeedsNarrative}>
-                          {draftNeedsNarrative && (
-                            <EmphasisTag>Κύριο περιεχόμενο για «Μόνο κείμενο»</EmphasisTag>
-                          )}
-                          <Field>{narrativeFieldLabel}</Field>
-                          <TextArea
-                            value={draft.narrative}
-                            onChange={(e) => setDraft({ ...draft, narrative: e.target.value })}
-                            placeholder="π.χ. Ολοκληρώθηκε η ανάπλαση της πλατείας…"
+                          <Field>Γραμμή αντίκτυπου (προαιρετικό)</Field>
+                          <Input
+                            value={draft.impactLine || ''}
+                            onChange={(e) => {
+                              const raw = String(e.target.value || '').replace(/\r?\n+/g, ' ');
+                              const trailing = /\s$/.test(raw);
+                              const words = raw.trim().split(/\s+/).filter(Boolean);
+                              const limited = words.slice(0, 14).join(' ');
+                              const next = (trailing && words.length < 14 ? `${limited} ` : limited)
+                                .slice(0, 140);
+                              setDraft({ ...draft, impactLine: next });
+                            }}
+                            placeholder="π.χ. Νερό άρδευσης για 120 αγρότες της περιοχής"
+                            maxLength={140}
                           />
-                        </EmphasisBlock>
+                          <CompactTip style={{ marginTop: 6 }}>
+                            Μία σύντομη πρόταση κάτω από τον τίτλο (έως 14 λέξεις / 140 χαρακτήρες).
+                            {' '}
+                            {(() => {
+                              const n = String(draft.impactLine || '').trim().split(/\s+/).filter(Boolean).length;
+                              return n ? `(${n}/14 λέξεις)` : '';
+                            })()}
+                          </CompactTip>
+                          <EmphasisBlock $on={draftNeedsNarrative} style={{ marginTop: 12 }}>
+                            {draftNeedsNarrative && (
+                              <EmphasisTag>Κύριο περιεχόμενο για «Μόνο κείμενο»</EmphasisTag>
+                            )}
+                            <Field>{narrativeFieldLabel}</Field>
+                            <TextArea
+                              value={draft.narrative}
+                              onChange={(e) => setDraft({ ...draft, narrative: e.target.value })}
+                              placeholder="π.χ. Ολοκληρώθηκε η ανάπλαση της πλατείας…"
+                            />
+                          </EmphasisBlock>
                       </ZoneCard>
 
                       <ZoneCard>
@@ -3015,6 +3053,7 @@ export default function ApologismosManager({
                     footer={footer}
                     mediaUrls={mediaUrls}
                     coverImages={slide.cover?.images || presentationMeta.cover?.images || []}
+                    branding={presentationMeta.branding}
                   />
                 </PresentStageInner>
               </PresentStage>

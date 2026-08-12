@@ -10,8 +10,10 @@ const { formatAmountEl } = require('./apologismosPresentation');
 const domain = require('./apologismosDomain');
 const design = require('./apologismosSlideDesign');
 const appearanceMod = require('./apologismosAppearance');
+const tocLayout = require('./apologismosTocLayout');
+const { APOLOGISMOS_PPTX_FONT_FACE } = require('./apologismosFonts');
 
-const FONT = 'Arial';
+const FONT = APOLOGISMOS_PPTX_FONT_FACE;
 const U = design.toInches;
 const F = design.toPptxFont;
 const { SLIDE_W, SLIDE_H } = design;
@@ -53,6 +55,55 @@ function paletteOf(d) {
 
 function upper(text) {
   return String(text || '').toLocaleUpperCase('el-GR');
+}
+
+/**
+ * Διακριτικό λογότυπο δήμου ανά τύπο διαφάνειας
+ * (cover / backdrop / content — όχι σε σκούρες διαφάνειες κατηγορίας).
+ */
+function addMunicipalityBrand(slide, branding, variant = 'content') {
+  const data = dataUrlToPptxData(branding?.showLogo ? branding.logoDataUrl : null);
+  if (!data) return;
+  if (variant === 'cover') {
+    slide.addImage({
+      data,
+      x: U(SLIDE_W * 0.29),
+      y: U(SLIDE_H * 0.22),
+      w: U(SLIDE_W * 0.42),
+      h: U(SLIDE_H * 0.42),
+      transparency: 93,
+    });
+    slide.addImage({
+      data,
+      x: U(SLIDE_W - 156),
+      y: U(28),
+      w: U(120),
+      h: U(58),
+      transparency: 8,
+    });
+    return;
+  }
+  if (variant === 'backdrop') {
+    slide.addImage({
+      data,
+      x: U(SLIDE_W - 380),
+      y: U(SLIDE_H / 2 - 210),
+      w: U(420),
+      h: U(420),
+      transparency: 91,
+    });
+    return;
+  }
+  if (variant === 'content') {
+    slide.addImage({
+      data,
+      x: U(SLIDE_W - design.GEOM.marginX - 96),
+      y: U(22),
+      w: U(96),
+      h: U(36),
+      transparency: 78,
+    });
+  }
 }
 
 /** Κείμενο με συντεταγμένες σε μονάδες καμβά. */
@@ -285,14 +336,23 @@ function addFooter(slide, pptx, d, p, { footerBase, index, total, onDark = false
     color: onDark ? p.darkHairline : p.hairline,
   });
   const color = onDark ? p.darkMuted : p.muted;
+  const creditColor = onDark ? '94a3b8' : '94a3b8';
   if (footerBase.left) {
     addText(slide, footerBase.left, {
-      x: g.marginX, y: g.footerTextY, w: w * 0.7, size: d.type.footer,
-      color, caps: true, bold: true, spacing: 0.06,
+      x: g.marginX, y: g.footerTextY, w: w * 0.52, size: d.type.footer,
+      color, bold: false, spacing: 0,
     });
   }
+  let rightX = g.marginX + w * 0.62;
+  if (footerBase.credit) {
+    addText(slide, footerBase.credit, {
+      x: rightX, y: g.footerTextY, w: w * 0.18, size: Math.max(9, d.type.footer - 0.5),
+      color: creditColor, bold: false, align: 'right', spacing: 0,
+    });
+    rightX = g.marginX + w * 0.82;
+  }
   addText(slide, `${index + 1} / ${total}`, {
-    x: g.marginX + w * 0.7, y: g.footerTextY, w: w * 0.3, size: d.type.footer,
+    x: rightX, y: g.footerTextY, w: g.marginX + w - rightX, size: d.type.footer,
     color, bold: true, align: 'right',
   });
 }
@@ -369,6 +429,7 @@ function addCoverSlide(pptx, model, d, p, resolveMedia, coverFrames = []) {
       width: SLIDE_W - imgW - g.coverPadX * 2,
       centerY: SLIDE_H / 2,
     });
+    addMunicipalityBrand(slide, model.branding, 'cover');
     return;
   }
 
@@ -395,18 +456,20 @@ function addCoverSlide(pptx, model, d, p, resolveMedia, coverFrames = []) {
     width: SLIDE_W - g.coverPadX * 2,
     bottom: SLIDE_H - g.coverPadY,
   });
+  addMunicipalityBrand(slide, model.branding, 'cover');
 }
 
-function addTocSlide(pptx, toc, d, p, footerCtx) {
+function addTocSlide(pptx, toc, d, p, footerCtx, branding = null) {
   const g = design.GEOM;
   const t = d.type;
   const items = toc?.items || [];
   const preface = toc?.preface || [];
-  const listCount = items.length + (preface.length ? 1 : 0);
-  const compact = listCount >= 6;
-  const dense = listCount >= 7;
+  const layout = tocLayout.resolveTocLayout(toc);
+  const { compact, dense } = layout;
+  // Δύο στήλες εφαρμόζονται σε οθόνη/PDF· στο PPTX μένει μία πυκνή στήλη.
   const slide = pptx.addSlide();
   addRect(slide, pptx, { x: 0, y: 0, w: SLIDE_W, h: SLIDE_H, color: p.surface });
+  addMunicipalityBrand(slide, branding, 'backdrop');
   addRect(slide, pptx, { x: 0, y: 0, w: 8, h: SLIDE_H, color: p.accent });
 
   const titleSize = compact ? t.title : t.titleSection;
@@ -532,12 +595,13 @@ function addTocSlide(pptx, toc, d, p, footerCtx) {
   addFooter(slide, pptx, d, p, footerCtx);
 }
 
-function addMayorSlide(pptx, mayorMessage, d, p, resolveMedia, footerCtx) {
+function addMayorSlide(pptx, mayorMessage, d, p, resolveMedia, footerCtx, branding = null) {
   const g = design.GEOM;
   const t = d.type;
   const mm = mayorMessage || {};
   const slide = pptx.addSlide();
   addRect(slide, pptx, { x: 0, y: 0, w: SLIDE_W, h: SLIDE_H, color: p.surface });
+  addMunicipalityBrand(slide, branding, 'backdrop');
   addRect(slide, pptx, { x: 0, y: 0, w: 8, h: SLIDE_H, color: p.accent });
 
   const photoX = g.marginX + 24;
@@ -606,11 +670,19 @@ function addMayorSlide(pptx, mayorMessage, d, p, resolveMedia, footerCtx) {
   addFooter(slide, pptx, d, p, footerCtx);
 }
 
-function addCategorySlide(pptx, section, d, p, footerCtx, sectionIndex, sectionTotal) {
+function addCategorySlide(pptx, section, d, p, footerCtx, sectionIndex, sectionTotal, resolveMedia, branding = null) {
   const g = design.GEOM;
   const t = d.type;
   const slide = pptx.addSlide();
   addRect(slide, pptx, { x: 0, y: 0, w: SLIDE_W, h: SLIDE_H, color: p.darkBand });
+  if (section.heroPhoto) {
+    addPhoto(slide, resolveMedia, section.heroPhoto, {
+      x: 0, y: 0, w: SLIDE_W, h: SLIDE_H, fit: 'cover',
+    });
+    addRect(slide, pptx, {
+      x: 0, y: 0, w: SLIDE_W, h: SLIDE_H, color: p.darkBand, transparency: 55,
+    });
+  }
 
   addText(slide, String(sectionIndex || ''), {
     x: SLIDE_W - g.marginX - 210, y: 54, w: 210, size: 210,
@@ -669,7 +741,7 @@ function addPhotoColumns(slide, pptx, d, p, resolveMedia, items) {
   });
 }
 
-function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerFor) {
+function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerFor, branding = null) {
   const g = design.GEOM;
   const t = d.type;
   const { card, display, contentPages } = entry;
@@ -684,15 +756,34 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
       x: g.marginX, y: g.marginTop, w: contentW, size: t.eyebrow,
       color: p.muted, bold: true, caps: true, spacing: 0.14,
     });
-    addText(slide, display.title || card.title, {
-      x: g.marginX, y: g.marginTop + t.eyebrow * 1.3 + 8, w: contentW,
-      size: t.title, color: p.text, bold: true, lines: 2,
+    const titleTop = g.marginTop + t.eyebrow * 1.3 + 8;
+    const titleText = display.title || card.title || '';
+    const titleSize = design.fitTitleFontSize(titleText, {
+      maxWidth: contentW,
+      maxSize: t.title,
+      minSize: Math.max(14, t.title - 12),
+      maxLines: 2,
     });
+    addText(slide, titleText, {
+      x: g.marginX, y: titleTop, w: contentW,
+      size: titleSize, color: p.text, bold: true, lines: 2,
+    });
+
+    const hasImpact = !!String(display.impactLine || '').trim();
+    let cursorY = titleTop + titleSize * 1.25 * 2;
+    if (hasImpact) {
+      addText(slide, display.impactLine, {
+        x: g.marginX, y: cursorY + 4, w: contentW,
+        size: t.subtitle, color: p.accent, bold: true, lines: 1,
+      });
+      cursorY += 4 + t.subtitle * 1.3;
+    }
 
     const isFirst = pageIndex === 0;
     const showStats = isFirst && display.showHeaderAmounts !== false;
     const showNarrative = isFirst && display.showHeaderNarrative !== false && !!display.narrative;
     const metaBottom = g.contentTop - 12;
+    const statsH = showStats ? statStripHeight(d) : 0;
 
     if (showStats) {
       const stats = [
@@ -708,7 +799,7 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
       if (display.area) stats.push({ label: 'Περιοχή', value: display.area });
       addStatStrip(slide, pptx, d, p, {
         x: g.marginX,
-        y: metaBottom - statStripHeight(d),
+        y: metaBottom - statsH,
         stats,
       });
     } else {
@@ -728,16 +819,26 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
     }
 
     if (showNarrative) {
-      const narrativeTop = g.marginTop + t.eyebrow * 1.3 + 8 + t.title * 1.24 + 8;
-      addText(slide, display.narrative, {
-        x: g.marginX,
-        y: narrativeTop,
-        w: contentW,
-        size: t.body,
-        color: p.text,
-        lines: showStats ? 2 : 3,
-        lineSpacingUnits: t.body * 1.35,
+      const narrativeTop = cursorY + 8;
+      const narrativeBottom = metaBottom - (showStats ? statsH + 6 : 4);
+      const lineH = t.body * 1.35;
+      const narrativeLines = design.resolveProjectHeaderNarrativeLines({
+        type: t,
+        hasImpact,
+        showStats,
+        titleSize,
       });
+      if (narrativeLines > 0 && narrativeBottom > narrativeTop + lineH * 0.8) {
+        addText(slide, display.narrative, {
+          x: g.marginX,
+          y: narrativeTop,
+          w: contentW,
+          size: t.body,
+          color: p.text,
+          lines: narrativeLines,
+          lineSpacingUnits: lineH,
+        });
+      }
     }
 
     const contentH = g.contentBottom - g.contentTop;
@@ -823,6 +924,7 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
       });
     }
 
+    addMunicipalityBrand(slide, branding, 'content');
     addFooter(slide, pptx, d, p, footerFor());
   });
 }
@@ -837,6 +939,7 @@ function composeApologismosDeck(model, { resolveMedia, coverFrames = [] } = {}) 
 
   const d = resolveDesignFor(model);
   const p = paletteOf(d);
+  const branding = model.branding || null;
 
   // Πρώτο πέρασμα: πλήθος διαφανειών, ώστε το υποσέλιδο να δείχνει «x / σύνολο».
   const hasToc = !!(model.toc?.items?.length);
@@ -864,10 +967,10 @@ function composeApologismosDeck(model, { resolveMedia, coverFrames = [] } = {}) 
   addCoverSlide(pptx, model, d, p, resolveMedia, coverFrames);
   index += 1;
   if (hasToc) {
-    addTocSlide(pptx, model.toc, d, p, nextFooter());
+    addTocSlide(pptx, model.toc, d, p, nextFooter(), branding);
   }
   if (hasMayor) {
-    addMayorSlide(pptx, model.mayorMessage, d, p, resolveMedia, nextFooter());
+    addMayorSlide(pptx, model.mayorMessage, d, p, resolveMedia, nextFooter(), branding);
   }
 
   const sectionTotal = (model.sections || []).length;
@@ -875,10 +978,10 @@ function composeApologismosDeck(model, { resolveMedia, coverFrames = [] } = {}) 
   for (const section of model.sections || []) {
     if (d.sectionDividers) {
       sectionOrdinal += 1;
-      addCategorySlide(pptx, section, d, p, nextFooter(), sectionOrdinal, sectionTotal);
+      addCategorySlide(pptx, section, d, p, nextFooter(), sectionOrdinal, sectionTotal, resolveMedia, branding);
     }
     for (const entry of section.cards || []) {
-      addProjectSlides(pptx, entry, d, p, resolveMedia, section.label, nextFooter);
+      addProjectSlides(pptx, entry, d, p, resolveMedia, section.label, nextFooter, branding);
     }
   }
 

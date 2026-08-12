@@ -195,8 +195,40 @@ describe('apologismosPresentation', () => {
     expect(entry.display.showHeaderAmounts).toBe(true);
     expect(entry.display.showHeaderNarrative).toBe(true);
     expect(entry.contentPages[0].type).toBe('primary_photos');
+    expect(entry.contentPages[0].layout).toBe('photo_first');
     expect(entry.contentPages[0].primary).toEqual({ after: 'a1' });
     expect(entry.contentPages.some((p) => p.type === 'gallery')).toBe(true);
+  });
+
+  test('before_after: layout before_after_compare όταν υπάρχουν και οι δύο κύριες', () => {
+    const { buildCardPresentationEntry } = require('../../public/apologismosPresentation');
+    const entry = buildCardPresentationEntry(readyCard({
+      primaryViz: 'before_after',
+      photos: { before: ['b1'], after: ['a1'] },
+      impactLine: 'Νερό για 120 αγρότες',
+    }));
+    expect(entry.contentPages[0].layout).toBe('before_after_compare');
+    expect(entry.display.impactLine).toBe('Νερό για 120 αγρότες');
+  });
+
+  test('buildCategorySections: heroPhoto από κορυφαίο έργο', () => {
+    const { buildCategorySections } = require('../../public/apologismosPresentation');
+    const sections = buildCategorySections([
+      readyCard({
+        id: 'low',
+        categoryId: 'roads',
+        approvedAmount: '1000',
+        photos: { after: ['small.jpg'] },
+      }),
+      readyCard({
+        id: 'high',
+        categoryId: 'roads',
+        approvedAmount: '900000',
+        photos: { after: ['hero.jpg'], before: ['old.jpg'] },
+      }),
+    ]);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].heroPhoto).toBe('hero.jpg');
   });
 
   test('έμφαση ποσών: χωρίς ποσά στην κεφαλίδα· σώμα amounts', () => {

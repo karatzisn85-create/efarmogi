@@ -33,6 +33,11 @@ const {
   emptyMapDrawing,
   cardShowsFinalContractAmountInPresentation,
   FINAL_CONTRACT_AFTER_APE_SHORT_LABEL,
+  normalizeImpactLine,
+  validateImpactLine,
+  getBestHeroPhoto,
+  MAX_IMPACT_LINE_CHARS,
+  MAX_IMPACT_LINE_WORDS,
 } = require('../../public/apologismosDomain');
 
 const period = { id: '2024-2028', startYear: 2024, endYear: 2028 };
@@ -101,6 +106,31 @@ describe('apologismosDomain — constants', () => {
       primaryViz: 'simple_card',
       secondaryViz: 'economy_phases',
     })).ready).toBe(true);
+  });
+});
+
+describe('apologismosDomain — impactLine & hero photo', () => {
+  test('normalizeImpactLine: μία γραμμή, όριο χαρακτήρων και λέξεων', () => {
+    expect(normalizeImpactLine('  α  \n  β  ')).toBe('α β');
+    expect(normalizeImpactLine('')).toBe('');
+    const long = 'x'.repeat(MAX_IMPACT_LINE_CHARS + 40);
+    expect(normalizeImpactLine(long).length).toBe(MAX_IMPACT_LINE_CHARS);
+    const manyWords = Array.from({ length: MAX_IMPACT_LINE_WORDS + 5 }, (_, i) => `λ${i}`).join(' ');
+    expect(normalizeImpactLine(manyWords).split(/\s+/)).toHaveLength(MAX_IMPACT_LINE_WORDS);
+  });
+
+  test('validateImpactLine: κενό OK· υπερβολικές λέξεις απορρίπτονται', () => {
+    expect(validateImpactLine('').ok).toBe(true);
+    expect(validateImpactLine('Νέο δίκτυο ύδρευσης').text).toBe('Νέο δίκτυο ύδρευσης');
+    const manyWords = Array.from({ length: MAX_IMPACT_LINE_WORDS + 2 }, (_, i) => `λέξη${i}`).join(' ');
+    expect(validateImpactLine(manyWords).ok).toBe(false);
+  });
+
+  test('getBestHeroPhoto προτιμά after → before → during', () => {
+    expect(getBestHeroPhoto({ after: ['a'], before: ['b'] })).toBe('a');
+    expect(getBestHeroPhoto({ before: ['b'], during: ['d'] })).toBe('b');
+    expect(getBestHeroPhoto({ during: ['d'] })).toBe('d');
+    expect(getBestHeroPhoto({})).toBeNull();
   });
 
   test('eligible statuses μόνο ολοκληρωμένα / αποπληρωμένα', () => {

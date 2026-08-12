@@ -75,6 +75,7 @@ import {
   serializePhaseASnapshot,
   isPhaseADirty,
 } from '../utils/projectFormPhases';
+import { getDefaultSubprojectPhaseTab } from '../utils/subprojectPhaseTabDefault';
 import {
   getKhmdhsAdamGuidance,
   khmdhsAdamTypeById,
@@ -2990,7 +2991,8 @@ function ProjectForm({
         })
       )));
       setManualPhaseSavedOnce(true);
-      setActivePhaseTab('B');
+      // Ωρίμανση → Α· αλλιώς Β μόνο αν έχει ήδη γίνει αρχική ανάκτηση ΚΗΜΔΗΣ
+      setActivePhaseTab(getDefaultSubprojectPhaseTab(withSymvDqr));
     } else {
       // Reset form for new project
       setActivePhaseTab('A');

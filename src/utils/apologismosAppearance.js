@@ -180,6 +180,7 @@ export function emptyAppearance() {
     footerMode: DEFAULT_FOOTER_MODE,
     sectionDividers: true,
     coverStats: true,
+    showMunicipalityLogo: false,
     mayorMessage: emptyMayorMessage(),
     updatedAt: null,
   };
@@ -231,6 +232,7 @@ export function normalizeAppearance(raw) {
     footerMode: FOOTER_MODE_IDS.includes(raw.footerMode) ? raw.footerMode : DEFAULT_FOOTER_MODE,
     sectionDividers: raw.sectionDividers !== false,
     coverStats: raw.coverStats !== false,
+    showMunicipalityLogo: raw.showMunicipalityLogo === true,
     mayorMessage: normalizeMayorMessage(raw.mayorMessage),
     updatedAt: raw.updatedAt || null,
   };

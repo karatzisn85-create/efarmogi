@@ -54,6 +54,14 @@ const VIZ_MODE_IDS = Object.freeze(VIZ_MODES.map((v) => v.id));
 const MAX_PHOTOS_PER_PHASE = 3;
 const MAX_METRICS_ROWS = 6;
 const MAX_NARRATIVE_LINES = 3;
+/** Μία πρόταση αντίκτυπου κάτω από τον τίτλο — ξεχωριστά από το αφήγημα. */
+const MAX_IMPACT_LINE_CHARS = 140;
+/** Όριο λέξεων ώστε η γραμμή να χωράει στην κεφαλίδα χωρίς αποκοπή. */
+const MAX_IMPACT_LINE_WORDS = 14;
+
+function countImpactWords(text) {
+  return String(text || '').trim().split(/\s+/).filter(Boolean).length;
+}
 
 function parseAmountNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -388,6 +396,49 @@ function validateNarrative(text) {
     return { ok: false, error: `Το κείμενο μπορεί να έχει έως ${MAX_NARRATIVE_LINES} γραμμές` };
   }
   return { ok: true, text: trimmed };
+}
+
+/**
+ * Προαιρετική γραμμή αντίκτυπου (μία πρόταση, χωρίς αλλαγές γραμμής).
+ * @returns {{ ok: boolean, text: string, error?: string }}
+ */
+function normalizeImpactLine(text) {
+  const oneLine = String(text || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!oneLine) return '';
+  const words = oneLine.split(/\s+/).filter(Boolean).slice(0, MAX_IMPACT_LINE_WORDS);
+  return words.join(' ').slice(0, MAX_IMPACT_LINE_CHARS);
+}
+
+function validateImpactLine(text) {
+  const raw = String(text || '').replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!raw) return { ok: true, text: '' };
+  const wordCount = countImpactWords(raw);
+  if (wordCount > MAX_IMPACT_LINE_WORDS) {
+    return {
+      ok: false,
+      error: `Η γραμμή αντίκτυπου μπορεί να έχει έως ${MAX_IMPACT_LINE_WORDS} λέξεις`,
+      text: normalizeImpactLine(raw),
+    };
+  }
+  if (raw.length > MAX_IMPACT_LINE_CHARS) {
+    return {
+      ok: false,
+      error: `Η γραμμή αντίκτυπου μπορεί να έχει έως ${MAX_IMPACT_LINE_CHARS} χαρακτήρες`,
+      text: normalizeImpactLine(raw),
+    };
+  }
+  return { ok: true, text: normalizeImpactLine(raw) };
+}
+
+/** Καλύτερη διαθέσιμη κύρια φωτογραφία για hero κατηγορίας / προεπισκόπηση. */
+function getBestHeroPhoto(photosByPhase) {
+  return getPrimaryPhoto(photosByPhase, 'after')
+    || getPrimaryPhoto(photosByPhase, 'before')
+    || getPrimaryPhoto(photosByPhase, 'during')
+    || null;
 }
 
 function validateMapPoints(points, { min = 1 } = {}) {
@@ -902,6 +953,9 @@ module.exports = {
   MAX_PHOTOS_PER_PHASE,
   MAX_METRICS_ROWS,
   MAX_NARRATIVE_LINES,
+  MAX_IMPACT_LINE_CHARS,
+  MAX_IMPACT_LINE_WORDS,
+  countImpactWords,
   parseAmountNumber,
   hasUsableAmount,
   yearBelongsToPeriod,
@@ -923,9 +977,12 @@ module.exports = {
   movePhotoToPrimary,
   validatePhotoPhases,
   getPrimaryPhoto,
+  getBestHeroPhoto,
   normalizeMetrics,
   countNarrativeLines,
   validateNarrative,
+  normalizeImpactLine,
+  validateImpactLine,
   validateMapPoints,
   emptyMapDrawing,
   normalizeMapDrawing,

@@ -14,6 +14,10 @@ import {
   toPptxFont,
   columnLayout,
   mixHex,
+  fitTitleFontSize,
+  estimateWrappedLineCount,
+  softBreakLongWords,
+  resolveProjectHeaderNarrativeLines,
 } from './apologismosSlideDesign';
 import { normalizeAppearance, resolveDesign } from './apologismosAppearance';
 
@@ -73,11 +77,13 @@ describe('σύστημα σχεδίασης διαφανειών', () => {
     const full = buildFooter({ design: resolveSlideDesign({ footerMode: 'full' }, THEME), ...base });
     expect(full.left).toContain('Δήμος Αρχανών');
     expect(full.left).toContain('Περίοδος 2024–2028');
-    expect(full.left).toContain('ERGOHUB');
+    expect(full.left).not.toContain('ERGOHUB');
+    expect(full.credit).toBe('με ERGOHUB');
     expect(full.right).toBe('3 / 12');
 
     const minimal = buildFooter({ design: resolveSlideDesign({ footerMode: 'minimal' }, THEME), ...base });
-    expect(minimal.left).toContain('ERGOHUB');
+    expect(minimal.left).toBe('');
+    expect(minimal.credit).toBe('με ERGOHUB');
     expect(minimal.right).toBe('3 / 12');
 
     const none = buildFooter({ design: resolveSlideDesign({ footerMode: 'none' }, THEME), ...base });
@@ -90,6 +96,32 @@ describe('σύστημα σχεδίασης διαφανειών', () => {
     expect(cols[0].x).toBe(GEOM.marginX);
     expect(cols[2].x + cols[2].width).toBeCloseTo(GEOM.marginX + usable, 5);
     expect(cols[0].width).toBeCloseTo(cols[2].width, 5);
+  });
+
+  test('μακρύς τίτλος μικραίνει γραμματοσειρά αντί να κόβεται', () => {
+    const short = 'Μικρός τίτλος';
+    const long = 'ΑΠΟΚΑΤΑΣΤΑΣΗ ΒΙΟΜΗΧΑΝΙΚΟΥ ΣΥΓΚΡΟΤΗΜΑΤΟΣ ΣΤΟ ΧΟΥΔΕΤΣΙ ΚΑΙ ΕΠΑΝΑΧΡΗΣΗ ΩΣ ΚΕΝΤΡΟ ΠΟΛΙΤΙΣΜΟΥ ΚΑΙ ΚΟΙΝΩΝΙΚΩΝ ΔΡΑΣΤΗΡΙΟΤΗΤΩΝ';
+    const maxW = SLIDE_W - GEOM.marginX * 2;
+    const shortSize = fitTitleFontSize(short, { maxWidth: maxW, maxSize: BASE_TYPE.title, maxLines: 2 });
+    const longSize = fitTitleFontSize(long, { maxWidth: maxW, maxSize: BASE_TYPE.title, maxLines: 2 });
+    expect(shortSize).toBe(BASE_TYPE.title);
+    expect(longSize).toBeLessThan(BASE_TYPE.title);
+    expect(estimateWrappedLineCount(long, longSize, maxW)).toBeLessThanOrEqual(2);
+    expect(mainDesign.fitTitleFontSize(long, { maxWidth: maxW, maxSize: BASE_TYPE.title })).toBe(longSize);
+    expect(softBreakLongWords('α'.repeat(40)).includes('\u200B')).toBe(true);
+    const linesTight = resolveProjectHeaderNarrativeLines({
+      type: BASE_TYPE,
+      hasImpact: true,
+      showStats: true,
+      titleSize: longSize,
+    });
+    expect(linesTight).toBeLessThanOrEqual(1);
+    expect(mainDesign.resolveProjectHeaderNarrativeLines({
+      type: BASE_TYPE,
+      hasImpact: true,
+      showStats: true,
+      titleSize: longSize,
+    })).toBe(linesTight);
   });
 });
 
@@ -109,12 +141,19 @@ describe('συγχρονισμός renderer / main process', () => {
   });
 
   test('ίδια κανονικοποίηση νέων παραμέτρων', () => {
-    const raw = { textScale: 'compact', footerMode: 'none', sectionDividers: false, coverStats: false };
+    const raw = {
+      textScale: 'compact',
+      footerMode: 'none',
+      sectionDividers: false,
+      coverStats: false,
+      showMunicipalityLogo: true,
+    };
     expect(normalizeAppearance(raw)).toEqual(mainAppearance.normalizeAppearance(raw));
     const normalized = normalizeAppearance(raw);
     expect(normalized.textScale).toBe('compact');
     expect(normalized.footerMode).toBe('none');
     expect(normalized.sectionDividers).toBe(false);
     expect(normalized.coverStats).toBe(false);
+    expect(normalized.showMunicipalityLogo).toBe(true);
   });
 });

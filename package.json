@@ -1,6 +1,6 @@
 {
   "name": "efarmogi-app",
-  "version": "1.4.58",
+  "version": "1.4.59",
   "description": "Desktop εφαρμογή διαχείρισης έργων",
   "author": "Δήμος Αρχανών-Αστερούσιων",
   "main": "public/electron.js",
@@ -20,6 +20,7 @@
     "chart.js": "^3.9.1",
     "concurrently": "^7.6.0",
     "core-js": "^3.45.1",
+    "dejavu-fonts-ttf": "^2.37.3",
     "docx": "^9.7.1",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
@@ -45,13 +46,16 @@
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5",
     "xlsx-js-style": "^1.2.0",
-    "yauzl": "^2.10.0"
+    "yauzl": "^2.10.0",
+    "sharp": "^0.34.5"
   },
   "scripts": {
     "start": "chcp 65001 >nul 2>&1 && electron . --no-sandbox",
     "dev": "chcp 65001 >nul 2>&1 && electron . --inspect=5858 --no-sandbox",
     "build": "set CI=&& set NODE_OPTIONS=--max-old-space-size=4096 && craco build",
     "test": "craco test",
+    "postinstall": "node scripts/sync-apologismos-fonts.js",
+    "sync-apologismos-fonts": "node scripts/sync-apologismos-fonts.js",
     "export-subproject-import-enums": "node scripts/export-subproject-import-enums.mjs",
     "eject": "react-scripts eject",
     "electron": "electron . --disable-gpu --disable-gpu-sandbox",
@@ -85,8 +89,7 @@
     "@babel/plugin-transform-runtime": "^7.28.3",
     "electron": "^28.3.3",
     "electron-builder": "^23.6.0",
-    "png-to-ico": "^3.0.1",
-    "sharp": "^0.34.5"
+    "png-to-ico": "^3.0.1"
   },
   "build": {
     "appId": "com.efarmogi.app",
@@ -99,9 +102,11 @@
       "build/static/**/*",
       "build/index.html",
       "build/asset-manifest.json",
+      "build/fonts/**/*",
       "public/electron.js",
       "public/**/*.js",
       "public/**/*.json",
+      "public/fonts/**/*",
       "apply_excel_validations.py",
       "verify_export.py"
     ],

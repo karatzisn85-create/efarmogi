@@ -133,6 +133,7 @@ function patchOf(a) {
     footerMode: a.footerMode,
     sectionDividers: a.sectionDividers !== false,
     coverStats: a.coverStats !== false,
+    showMunicipalityLogo: a.showMunicipalityLogo === true,
     mayorMessage: a.mayorMessage || {
       enabled: false,
       mayorName: '',
@@ -143,7 +144,7 @@ function patchOf(a) {
 }
 
 /** Προεπισκόπηση πραγματικής διαφάνειας, σμικρυμένη από τον καμβά 960×540. */
-function MiniSlide({ slide, design, footer, mediaMap, coverImages }) {
+function MiniSlide({ slide, design, footer, mediaMap, coverImages, branding }) {
   const wrapRef = useRef(null);
   const [scale, setScale] = useState(MINI_WIDTH / SLIDE_W);
 
@@ -170,6 +171,7 @@ function MiniSlide({ slide, design, footer, mediaMap, coverImages }) {
             footer={footer}
             mediaUrls={mediaMap}
             coverImages={coverImages}
+            branding={branding}
           />
         </MiniInner>
       </MiniFrame>
@@ -348,6 +350,7 @@ export default function ApologismosAppearanceEditor({
   const [saving, setSaving] = useState(false);
   const [closing, setClosing] = useState(false);
   const [mediaMap, setMediaMap] = useState({});
+  const [brandingPreview, setBrandingPreview] = useState(null);
   const snapshotRef = useRef(null);
   const pendingCoverRelsRef = useRef([]);
 
@@ -358,6 +361,25 @@ export default function ApologismosAppearanceEditor({
     snapshotRef.current = a;
     pendingCoverRelsRef.current = [];
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- μόνο στο άνοιγμα
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await ipcRenderer.invoke('get-municipal-units-config');
+        if (cancelled) return;
+        if (res?.success && res.logoDataUrl) {
+          setBrandingPreview({ showLogo: true, logoDataUrl: res.logoDataUrl });
+        } else {
+          setBrandingPreview(null);
+        }
+      } catch (_) {
+        if (!cancelled) setBrandingPreview(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
 
   const orgTitle = useMemo(() => resolveOrganizationTitle(appConfig || {}), [appConfig]);
   const theme = useMemo(
@@ -381,6 +403,7 @@ export default function ApologismosAppearanceEditor({
       actingUsername: username,
       relativePaths: [...new Set(rels)],
       asDataUrl: true,
+      variant: 'preview',
     });
     setMediaMap(res?.mediaMap || {});
   }, [username]);
@@ -746,6 +769,19 @@ export default function ApologismosAppearanceEditor({
               Πλήθος έργων, εγκεκριμένα ποσά και συμβάσεις κάτω από τον τίτλο.
             </ChipDesc>
           </Chip>
+          <Chip
+            type="button"
+            $on={draft.showMunicipalityLogo === true}
+            $accent={theme.accent}
+            onClick={() => applyLocal({ showMunicipalityLogo: draft.showMunicipalityLogo !== true })}
+          >
+            <ChipTitle>Λογότυπο δήμου στις διαφάνειες</ChipTitle>
+            <ChipDesc>
+              {brandingPreview?.logoDataUrl
+                ? 'Τοποθετεί διακριτικά το λογότυπο από τις Δημοτικές Ενότητες (εξώφυλλο και υδατογράφημα).'
+                : 'Πρώτα προσθέστε λογότυπο στις ρυθμίσεις Δημοτικών Ενοτήτων· μετά ενεργοποιήστε το εδώ.'}
+            </ChipDesc>
+          </Chip>
         </Grid>
 
         <StepLabel>7. Μήνυμα Δημάρχου</StepLabel>
@@ -833,6 +869,7 @@ export default function ApologismosAppearanceEditor({
               design={design}
               mediaMap={mediaMap}
               coverImages={coverImagesBySlot(draft)}
+              branding={draft.showMunicipalityLogo ? brandingPreview : null}
               slide={{
                 type: 'cover',
                 cover: { layoutId: draft.coverLayoutId },
@@ -853,6 +890,7 @@ export default function ApologismosAppearanceEditor({
             <MiniSlide
               design={design}
               mediaMap={mediaMap}
+              branding={draft.showMunicipalityLogo ? brandingPreview : null}
               footer={buildFooter({
                 design,
                 organizationTitle: orgTitle,

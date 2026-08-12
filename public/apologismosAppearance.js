@@ -174,6 +174,7 @@ function emptyAppearance() {
     footerMode: slideDesign.DEFAULT_FOOTER_MODE,
     sectionDividers: true,
     coverStats: true,
+    showMunicipalityLogo: false,
     mayorMessage: emptyMayorMessage(),
     updatedAt: null,
   };
@@ -234,6 +235,7 @@ function normalizeAppearance(raw) {
       : slideDesign.DEFAULT_FOOTER_MODE,
     sectionDividers: raw.sectionDividers !== false,
     coverStats: raw.coverStats !== false,
+    showMunicipalityLogo: raw.showMunicipalityLogo === true,
     mayorMessage: normalizeMayorMessage(raw.mayorMessage),
     updatedAt: raw.updatedAt || null,
   };

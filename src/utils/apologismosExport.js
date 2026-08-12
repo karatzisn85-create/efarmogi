@@ -8,6 +8,8 @@ const ipcRenderer = window.electronAPI;
  * mediaMap: { relativePath: absolutePathOrDataUrl }
  */
 export async function exportApologismosPdf({ model, appConfig, mediaMap = {} }) {
+  const { registerApologismosPdfFonts } = await import('./apologismosFonts');
+  await registerApologismosPdfFonts();
   const { pdf } = await import('@react-pdf/renderer');
   const { default: ApologismosReport } = await import('../components/pdf/ApologismosReport');
   const el = React.createElement(ApologismosReport, { model, appConfig, mediaMap });

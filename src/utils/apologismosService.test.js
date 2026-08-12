@@ -464,14 +464,14 @@ describe('apologismosService — persistence & flow', () => {
     expect(fs.existsSync(path.join(root, 'media', cardId, 'after'))).toBe(false);
   });
 
-  test('saveCoverImage χωρίς commit δεν αλλάζει την αναφορά· updateAppearance καθαρίζει orphans', () => {
+  test('saveCoverImage χωρίς commit δεν αλλάζει την αναφορά· updateAppearance καθαρίζει orphans', async () => {
     const periods = loadPeriods(dataDir);
     const periodId = periods[0].id;
     ensureDirs(dataDir);
     const src = path.join(dataDir, 'cover-src.jpg');
     fs.writeFileSync(src, Buffer.from([1, 2, 3]));
 
-    const staged = saveCoverImage(dataDir, {
+    const staged = await saveCoverImage(dataDir, {
       periodId,
       sourcePath: src,
       fileName: 'cover-src.jpg',
@@ -503,7 +503,7 @@ describe('apologismosService — persistence & flow', () => {
 
     const orphanSrc = path.join(dataDir, 'orphan.jpg');
     fs.writeFileSync(orphanSrc, Buffer.from([9]));
-    const orphan = saveCoverImage(dataDir, {
+    const orphan = await saveCoverImage(dataDir, {
       periodId,
       sourcePath: orphanSrc,
       fileName: 'orphan.jpg',
@@ -521,5 +521,67 @@ describe('apologismosService — persistence & flow', () => {
     expect(restored.success).toBe(true);
     expect(fs.existsSync(path.join(dataDir, APOLOGISMOS_FOLDER, orphan.relativePath))).toBe(false);
     expect(fs.existsSync(abs)).toBe(true);
+  });
+
+  test('resolveMediaMap preview είναι ελαφρύτερο από full όταν υπάρχει μεγάλη εικόνα', async () => {
+    const { saveCardPhoto, resolveMediaMap } = require('../../public/apologismosService');
+    let sharp;
+    try {
+      sharp = require('sharp');
+      await sharp({
+        create: { width: 8, height: 8, channels: 3, background: { r: 0, g: 0, b: 0 } },
+      }).png().toBuffer();
+    } catch (_) {
+      expect(true).toBe(true);
+      return;
+    }
+
+    ensureDirs(dataDir);
+    const periods = loadPeriods(dataDir);
+    const periodId = periods[0].id;
+    const added = addFromSubproject(dataDir, {
+      periodId,
+      subproject: {
+        subprojectId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        projectId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        subprojectTitle: 'Preview media',
+        projectStatus: 'ΟΛΟΚΛΗΡΩΜΕΝΟ',
+        approvedAmount: '1',
+        contractAmount: '1',
+      },
+      epActions: [],
+    });
+    const src = path.join(dataDir, 'big.png');
+    await sharp({
+      create: {
+        width: 1600,
+        height: 1200,
+        channels: 3,
+        background: { r: 10, g: 80, b: 140 },
+      },
+    }).png().toFile(src);
+
+    const saved = await saveCardPhoto(dataDir, {
+      cardId: added.card.id,
+      phase: 'after',
+      sourcePath: src,
+      fileName: 'big.png',
+      currentPhotos: {},
+    });
+    expect(saved.success).toBe(true);
+
+    const fullMap = await resolveMediaMap(dataDir, [saved.relativePath], {
+      asDataUrl: true,
+      variant: 'full',
+    });
+    const previewMap = await resolveMediaMap(dataDir, [saved.relativePath], {
+      asDataUrl: true,
+      variant: 'preview',
+    });
+    const fullUrl = fullMap[saved.relativePath];
+    const previewUrl = previewMap[saved.relativePath];
+    expect(fullUrl).toMatch(/^data:image\//);
+    expect(previewUrl).toMatch(/^data:image\/jpeg/);
+    expect(previewUrl.length).toBeLessThan(fullUrl.length);
   });
 });

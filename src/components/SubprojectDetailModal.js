@@ -18,6 +18,7 @@ import {
   readSupplementaryApeFields,
 } from '../utils/khmdhsApeEntry';
 import { formatDateEl } from '../utils/dateFormat';
+import { getDefaultSubprojectPhaseTab } from '../utils/subprojectPhaseTabDefault';
 import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
 import KhmdhsRefreshActionButton from './KhmdhsRefreshActionButton';
 import KhmdhsFormStageResults, { projectHasKhmdhsFormResults } from './KhmdhsFormStageResults';
@@ -1751,7 +1752,10 @@ function SubprojectDetailModal({
 
   useEffect(() => {
     if (!project?.subprojectId) return;
-    setActivePhaseTab('A');
+    // Ωρίμανση → Α· αλλιώς Β μόνο αν έχει ήδη γίνει αρχική ανάκτηση ΚΗΜΔΗΣ
+    setActivePhaseTab(getDefaultSubprojectPhaseTab(project));
+    // Μόνο στο άνοιγμα / αλλαγή υποέργου — όχι σε κάθε ανανέωση δεδομένων όσο είναι ανοιχτό το modal
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.subprojectId]);
 
   if (!project) return null;

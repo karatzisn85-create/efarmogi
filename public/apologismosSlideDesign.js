@@ -37,12 +37,12 @@ const FOOTER_MODES = Object.freeze([
   Object.freeze({
     id: 'full',
     label: 'Πλήρες',
-    description: 'Οργανισμός, περίοδος, ERGOHUB και αρίθμηση διαφανειών',
+    description: 'Οργανισμός, περίοδος, διακριτική αναφορά ERGOHUB και αρίθμηση',
   }),
   Object.freeze({
     id: 'minimal',
     label: 'Λιτό',
-    description: 'ERGOHUB και αρίθμηση διαφανειών',
+    description: 'Διακριτική αναφορά ERGOHUB και αρίθμηση διαφανειών',
   }),
   Object.freeze({
     id: 'none',
@@ -200,6 +200,7 @@ function resolveSlideDesign(appearance, theme) {
     footerMode: footer.id,
     sectionDividers: a.sectionDividers !== false,
     coverStats: a.coverStats !== false,
+    showMunicipalityLogo: a.showMunicipalityLogo === true,
     type,
     geom: GEOM,
     colors: {
@@ -265,20 +266,23 @@ function coverScrimCss(hex) {
   return `linear-gradient(180deg, ${stops.join(', ')})`;
 }
 
-/** Κείμενα υποσέλιδου διαφάνειας. */
+/** Κείμενα υποσέλιδου διαφάνειας — χωρίς κεφαλαία σε όλη τη γραμμή. */
+const FOOTER_CREDIT = 'με ERGOHUB';
+
 function buildFooter({ design, organizationTitle, periodLabel, index, total }) {
   const mode = design?.footerMode || DEFAULT_FOOTER_MODE;
   if (mode === 'none') return null;
   const position = Number.isFinite(Number(index)) && Number.isFinite(Number(total))
     ? `${Number(index) + 1} / ${Number(total)}`
     : '';
-  const brand = 'Συντάχθηκε με ERGOHUB';
-  if (mode === 'minimal') return { left: brand, right: position };
-  const left = [organizationTitle, periodLabel, brand]
+  const context = [organizationTitle, periodLabel]
     .map((s) => String(s || '').trim())
     .filter(Boolean)
     .join('  ·  ');
-  return { left, right: position };
+  if (mode === 'minimal') {
+    return { left: '', credit: FOOTER_CREDIT, right: position };
+  }
+  return { left: context, credit: FOOTER_CREDIT, right: position };
 }
 
 /** Μονάδες καμβά → ίντσες PowerPoint. */
@@ -301,6 +305,92 @@ function columnLayout(count, { left = GEOM.marginX, width = SLIDE_W - GEOM.margi
   }));
 }
 
+function estimateWrappedLineCount(text, fontSize, maxWidth, { avgCharFactor = 0.56 } = {}) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 0;
+  const size = Math.max(1, Number(fontSize) || 1);
+  const width = Math.max(1, Number(maxWidth) || 1);
+  const maxChars = Math.max(1, Math.floor(width / (size * avgCharFactor)));
+  let lines = 1;
+  let used = 0;
+  for (const word of words) {
+    if (word.length > maxChars) {
+      if (used > 0) {
+        lines += 1;
+        used = 0;
+      }
+      const chunks = Math.ceil(word.length / maxChars);
+      lines += chunks - 1;
+      used = word.length % maxChars;
+      if (used === 0 && chunks > 0) {
+        used = 0;
+      }
+      continue;
+    }
+    const need = used === 0 ? word.length : word.length + 1;
+    if (used + need <= maxChars) {
+      used += need;
+    } else {
+      lines += 1;
+      used = word.length;
+    }
+  }
+  return lines;
+}
+
+function fitTitleFontSize(text, {
+  maxWidth = SLIDE_W - GEOM.marginX * 2,
+  maxLines = 2,
+  maxSize = BASE_TYPE.title,
+  minSize = 15,
+} = {}) {
+  const t = String(text || '').trim();
+  if (!t) return maxSize;
+  const hi = Number(maxSize);
+  const lo = Number(minSize);
+  if (!Number.isFinite(hi) || !Number.isFinite(lo)) return BASE_TYPE.title;
+  for (let size = hi; size >= lo - 1e-9; size -= 0.5) {
+    if (estimateWrappedLineCount(t, size, maxWidth) <= maxLines) {
+      return roundHalf(size);
+    }
+  }
+  return roundHalf(lo);
+}
+
+function softBreakLongWords(text, chunkSize = 18) {
+  const n = Math.max(8, Math.floor(Number(chunkSize) || 18));
+  return String(text || '').replace(/\S+/g, (word) => {
+    if (word.length <= n) return word;
+    const parts = [];
+    for (let i = 0; i < word.length; i += n) parts.push(word.slice(i, i + n));
+    return parts.join('\u200B');
+  });
+}
+
+function resolveProjectHeaderNarrativeLines({
+  type,
+  hasImpact = false,
+  showStats = false,
+  titleSize,
+} = {}) {
+  const t = type || BASE_TYPE;
+  const size = Number(titleSize);
+  const titleFs = Number.isFinite(size) ? size : t.title;
+  const headerH = GEOM.contentTop - GEOM.marginTop;
+  const metaReserve = Math.max(
+    GEOM.statH,
+    Math.ceil(t.statLabel * 1.25 + 4 + t.statValue * 1.25)
+  ) + 14;
+  const impactReserve = hasImpact ? Math.ceil(t.subtitle * 1.3) + 6 : 0;
+  const titleBlockH = Math.ceil(titleFs * 1.25 * 2) + 8;
+  const eyebrowApprox = Math.ceil(t.eyebrow * 1.35);
+  const topBandH = Math.max(48, headerH - (showStats ? metaReserve : 8));
+  const narrativeBudget = topBandH - eyebrowApprox - titleBlockH - impactReserve - 8;
+  const maxBySpace = Math.max(0, Math.floor(narrativeBudget / (t.body * 1.35)));
+  const preferred = hasImpact ? (showStats ? 1 : 2) : (showStats ? 2 : 3);
+  return Math.min(preferred, maxBySpace);
+}
+
 module.exports = {
   SLIDE_W,
   SLIDE_H,
@@ -318,9 +408,14 @@ module.exports = {
   coverScrimBands,
   coverScrimCss,
   buildFooter,
+  FOOTER_CREDIT,
   toInches,
   toPptxFont,
   columnLayout,
+  estimateWrappedLineCount,
+  fitTitleFontSize,
+  softBreakLongWords,
+  resolveProjectHeaderNarrativeLines,
   mixHex,
   rgbaOf,
   normalizeHex,
