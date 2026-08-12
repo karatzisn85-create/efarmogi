@@ -85,8 +85,8 @@ describe('εξαγωγή διαφανειών απολογισμού', () => {
 
   test('το υποσέλιδο ακολουθεί την επιλογή εμφάνισης', () => {
     const full = bodyText(composeApologismosDeck(modelWith({}), { resolveMedia: () => null }));
-    // Τα κεφαλαία γράφονται χωρίς τόνους, όπως επιβάλλει η ελληνική τυπογραφία.
-    expect(full).toContain('ΔΗΜΟΣ ΑΡΧΑΝΩΝ ΑΣΤΕΡΟΥΣΙΩΝ');
+    // Το υποσέλιδο μένει με κανονικά πεζά/κεφαλαία (όχι ολόκληρη γραμμή σε caps).
+    expect(full).toContain('Δήμος Αρχανών Αστερουσίων');
     expect(full).toContain('2 / 8');
 
     const none = bodyText(composeApologismosDeck(modelWith({ footerMode: 'none' }), { resolveMedia: () => null }));
@@ -94,7 +94,7 @@ describe('εξαγωγή διαφανειών απολογισμού', () => {
 
     const minimal = bodyText(composeApologismosDeck(modelWith({ footerMode: 'minimal' }), { resolveMedia: () => null }));
     expect(minimal).toContain('2 / 8');
-    expect(minimal).not.toContain('ΔΗΜΟΣ ΑΡΧΑΝΩΝ');
+    expect(minimal).not.toContain('Δήμος Αρχανών');
   });
 
   test('τα σύνολα εξωφύλλου κρύβονται όταν το ζητήσει ο χρήστης', () => {

@@ -53,6 +53,44 @@ const VIZ_MODE_IDS = Object.freeze(VIZ_MODES.map((v) => v.id));
 
 const MAX_PHOTOS_PER_PHASE = 3;
 const MAX_METRICS_ROWS = 6;
+/** Όριο λέξεων δείκτη — εμφανίζεται ολόκληρο στη διαφάνεια, χωρίς αποκοπή. */
+const MAX_METRICS_LABEL_WORDS = 8;
+const MAX_METRICS_LABEL_CHARS = 72;
+const MAX_METRICS_VALUE_WORDS = 5;
+const MAX_METRICS_VALUE_CHARS = 36;
+
+function countWords(text) {
+  return String(text || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
+function clampWordsAndChars(text, maxWords, maxChars) {
+  const oneLine = String(text || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!oneLine) return '';
+  const words = oneLine.split(/\s+/).filter(Boolean).slice(0, Math.max(1, maxWords));
+  const limit = Math.max(1, Math.floor(Number(maxChars) || 1));
+  let out = words.join(' ');
+  while (out.length > limit && words.length > 1) {
+    words.pop();
+    out = words.join(' ');
+  }
+  if (out.length > limit) {
+    // Μία μόνο πολύ μεγάλη λέξη — κράτα ολόκληρη μέχρι το όριο χαρακτήρων μόνο αν δεν υπάρχει άλλη επιλογή.
+    return out.slice(0, limit);
+  }
+  return out;
+}
+
+function clampMetricLabel(text) {
+  return clampWordsAndChars(text, MAX_METRICS_LABEL_WORDS, MAX_METRICS_LABEL_CHARS);
+}
+
+function clampMetricValue(text) {
+  return clampWordsAndChars(text, MAX_METRICS_VALUE_WORDS, MAX_METRICS_VALUE_CHARS);
+}
+
 const MAX_NARRATIVE_LINES = 3;
 /** Μία πρόταση αντίκτυπου κάτω από τον τίτλο — ξεχωριστά από το αφήγημα. */
 const MAX_IMPACT_LINE_CHARS = 140;
@@ -374,8 +412,8 @@ function normalizeMetrics(metrics) {
   const rows = Array.isArray(metrics) ? metrics : [];
   return rows
     .map((r) => ({
-      label: String(r?.label || '').trim(),
-      value: String(r?.value || '').trim(),
+      label: clampMetricLabel(r?.label),
+      value: clampMetricValue(r?.value),
     }))
     .filter((r) => r.label || r.value)
     .slice(0, MAX_METRICS_ROWS);
@@ -693,6 +731,36 @@ function sortCardsByApprovedAmountDesc(cards) {
   });
 }
 
+/** Κανονικοποίηση είδους υποέργου (ίδια aliases με τη φόρμα). */
+function normalizeApologismosProjectType(type) {
+  const t = String(type || '').trim();
+  if (!t) return '';
+  if (t === 'ΥΠΗΡΕΣΙΑ') return 'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ';
+  return t;
+}
+
+/**
+ * Ετικέτα πάνω από τον τεχνικό τίτλο στις διαφάνειες —
+ * δηλώνει ότι πρόκειται για επίσημη ονομασία, όχι επικοινωνιακό κείμενο.
+ */
+function resolveOfficialTitleLabel(projectType) {
+  const t = normalizeApologismosProjectType(projectType);
+  switch (t) {
+    case 'ΕΡΓΟ':
+      return 'Τίτλος έργου';
+    case 'ΠΡΟΜΗΘΕΙΑ':
+      return 'Τίτλος προμήθειας';
+    case 'ΜΕΛΕΤΗ':
+      return 'Τίτλος μελέτης';
+    case 'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ':
+    case 'ΠΑΡΟΧΗ ΤΕΧΝΙΚΩΝ ΚΑΙ ΛΟΙΠΩΝ ΣΥΝΑΦΩΝ ΕΠΙΣΤΗΜΟΝΙΚΩΝ ΥΠΗΡΕΣΙΩΝ':
+    case 'ΚΟΙΝΩΝΙΚΕΣ ΚΑΙ ΑΛΛΕΣ ΕΙΔΙΚΕΣ ΥΠΗΡΕΣΙΕΣ':
+      return 'Τίτλος υπηρεσίας';
+    default:
+      return 'Επίσημος τίτλος';
+  }
+}
+
 function mapSubprojectToCardFields(subproject) {
   if (!subproject) return null;
   const finalApe = extractFinalContractAmountFieldsFromSubproject(subproject);
@@ -702,6 +770,7 @@ function mapSubprojectToCardFields(subproject) {
     projectId: subproject.projectId || null,
     title: String(subproject.subprojectTitle || subproject.projectTitle || '').trim(),
     projectTitle: String(subproject.projectTitle || '').trim(),
+    projectType: normalizeApologismosProjectType(subproject.projectType),
     approvedAmount: subproject.approvedAmount ?? '',
     contractAmount: subproject.contractAmount ?? '',
     finalContractAmountAfterApe: finalApe.finalContractAmountAfterApe,
@@ -787,6 +856,9 @@ function syncCardAmountsFromSubproject(card, subproject) {
     ? subproject.contractAmount
     : card.contractAmount;
   const nextProjectTitle = String(subproject.projectTitle || '').trim() || card.projectTitle || '';
+  const nextProjectType = normalizeApologismosProjectType(subproject.projectType)
+    || normalizeApologismosProjectType(card.projectType)
+    || '';
   const finalApe = extractFinalContractAmountFieldsFromSubproject(subproject);
   const nextFinal = finalApe.hasFinalContractAmountAfterApe
     ? finalApe.finalContractAmountAfterApe
@@ -800,11 +872,13 @@ function syncCardAmountsFromSubproject(card, subproject) {
     String(nextContract ?? '') !== String(card.contractAmount ?? '');
   const titleMetaChanged =
     String(nextProjectTitle || '') !== String(card.projectTitle || '');
+  const typeChanged =
+    String(nextProjectType || '') !== String(card.projectType || '');
   const finalChanged =
     String(nextFinal ?? '') !== String(card.finalContractAmountAfterApe ?? '')
     || String(nextFinalDate) !== String(card.finalContractApeDate || '')
     || !!finalApe.hasFinalContractAmountAfterApe !== !!card.hasFinalContractAmountAfterApe;
-  if (!approvedChanged && !contractChanged && !finalChanged && !titleMetaChanged) {
+  if (!approvedChanged && !contractChanged && !finalChanged && !titleMetaChanged && !typeChanged) {
     return { card, changed: false };
   }
   const next = {
@@ -812,6 +886,7 @@ function syncCardAmountsFromSubproject(card, subproject) {
     approvedAmount: nextApproved,
     contractAmount: nextContract,
     projectTitle: nextProjectTitle,
+    projectType: nextProjectType,
     finalContractAmountAfterApe: nextFinal,
     finalContractApeDate: nextFinalDate,
     hasFinalContractAmountAfterApe: !!finalApe.hasFinalContractAmountAfterApe,
@@ -952,6 +1027,13 @@ module.exports = {
   VIZ_MODE_IDS,
   MAX_PHOTOS_PER_PHASE,
   MAX_METRICS_ROWS,
+  MAX_METRICS_LABEL_WORDS,
+  MAX_METRICS_LABEL_CHARS,
+  MAX_METRICS_VALUE_WORDS,
+  MAX_METRICS_VALUE_CHARS,
+  clampMetricLabel,
+  clampMetricValue,
+  countWords,
   MAX_NARRATIVE_LINES,
   MAX_IMPACT_LINE_CHARS,
   MAX_IMPACT_LINE_WORDS,
@@ -1000,6 +1082,8 @@ module.exports = {
   canAddLinkedSubproject,
   validateLegacyCardInput,
   syncCardAmountsFromSubproject,
+  normalizeApologismosProjectType,
+  resolveOfficialTitleLabel,
   dismissAmountBadge,
   PHOTO_REQUEST_REMINDER_DAYS,
   cardRequiresPhotoPhases,

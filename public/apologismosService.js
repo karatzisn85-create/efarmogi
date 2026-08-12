@@ -643,19 +643,24 @@ async function resolveMediaMap(dataDir, relativePaths, { asDataUrl = false, vari
   const root = ensureDirs(dataDir);
   const usePreview = variant === 'preview';
   const map = {};
-  for (const rel of relativePaths || []) {
-    const abs = resolveCardMediaAbsolute(dataDir, rel);
-    if (!abs || !fs.existsSync(abs)) continue;
-    let useAbs = abs;
-    if (usePreview) {
-      try {
-        const thumb = await mediaIngest.ensurePreviewThumb(root, abs);
-        if (thumb?.path) useAbs = thumb.path;
-      } catch (_) {
-        useAbs = abs;
+  const list = [...new Set((relativePaths || []).map((r) => String(r || '').trim()).filter(Boolean))];
+  const CONCURRENCY = 6;
+  for (let i = 0; i < list.length; i += CONCURRENCY) {
+    const chunk = list.slice(i, i + CONCURRENCY);
+    await Promise.all(chunk.map(async (rel) => {
+      const abs = resolveCardMediaAbsolute(dataDir, rel);
+      if (!abs || !fs.existsSync(abs)) return;
+      let useAbs = abs;
+      if (usePreview) {
+        try {
+          const thumb = await mediaIngest.ensurePreviewThumb(root, abs);
+          if (thumb?.path) useAbs = thumb.path;
+        } catch (_) {
+          useAbs = abs;
+        }
       }
-    }
-    map[rel] = asDataUrl ? mediaFileToDataUrl(useAbs) : `file:///${useAbs.replace(/\\/g, '/')}`;
+      map[rel] = asDataUrl ? mediaFileToDataUrl(useAbs) : `file:///${useAbs.replace(/\\/g, '/')}`;
+    }));
   }
   return map;
 }

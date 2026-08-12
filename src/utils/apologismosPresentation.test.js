@@ -200,6 +200,21 @@ describe('apologismosPresentation', () => {
     expect(entry.contentPages.some((p) => p.type === 'gallery')).toBe(true);
   });
 
+  test('ετικέτα επίσημου τίτλου ανά είδος στην παρουσίαση', () => {
+    const { buildCardPresentationEntry } = require('../../public/apologismosPresentation');
+    expect(buildCardPresentationEntry(readyCard({
+      projectType: 'ΠΡΟΜΗΘΕΙΑ',
+      primaryViz: 'simple_card',
+    })).display.officialTitleLabel).toBe('Τίτλος προμήθειας');
+    expect(buildCardPresentationEntry(readyCard({
+      projectType: 'ΜΕΛΕΤΗ',
+      primaryViz: 'simple_card',
+    })).display.officialTitleLabel).toBe('Τίτλος μελέτης');
+    expect(buildCardPresentationEntry(readyCard({
+      primaryViz: 'simple_card',
+    })).display.officialTitleLabel).toBe('Επίσημος τίτλος');
+  });
+
   test('before_after: layout before_after_compare όταν υπάρχουν και οι δύο κύριες', () => {
     const { buildCardPresentationEntry } = require('../../public/apologismosPresentation');
     const entry = buildCardPresentationEntry(readyCard({

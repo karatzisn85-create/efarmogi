@@ -84,8 +84,10 @@ const GEOM = Object.freeze({
   marginTop: 42,
   headerRuleW: 58,
   headerRuleH: 4,
-  /** Ύψος επικεφαλίδας: τίτλος (2 γραμμές), σύντομο κείμενο και ποσά. */
-  contentTop: 236,
+  /** Ύψος επικεφαλίδας: κατηγορία, ετικέτα επίσημου τίτλου, τίτλος (2 γραμμές),
+   * σύντομο κείμενο και ποσά. Αυξήθηκε για να χωράει η ετικέτα τίτλου χωρίς να
+   * μηδενίζει το αφήγημα όταν υπάρχει και γραμμή αντίκτυπου. */
+  contentTop: 296,
   contentBottom: 470,
   footerRuleY: 480,
   footerTextY: 492,
@@ -357,6 +359,92 @@ function fitTitleFontSize(text, {
   return roundHalf(lo);
 }
 
+/** Κρατά το € κολλημένο στο ποσό (χωρίς αναδίπλωση στο κενό). */
+function keepAmountTogether(text) {
+  return String(text ?? '').replace(/\s+€/g, '\u00A0€');
+}
+
+/** Εκτίμηση πλάτους μίας γραμμής (χωρίς DOM) — για ποσά/αριθμούς. */
+function estimateTextWidth(text, fontSize, { avgCharFactor = 0.58 } = {}) {
+  const t = String(text || '');
+  const size = Math.max(1, Number(fontSize) || 1);
+  const factor = Math.max(0.35, Number(avgCharFactor) || 0.58);
+  return t.length * size * factor;
+}
+
+/**
+ * Μικραίνει τη γραμματοσειρά ώστε το κείμενο να χωράει σε μία γραμμή — χωρίς «…».
+ */
+function fitSingleLineFontSize(text, {
+  maxWidth = 160,
+  maxSize = BASE_TYPE.statValue,
+  minSize = 9,
+  avgCharFactor = 0.56,
+} = {}) {
+  const t = keepAmountTogether(String(text || '').trim());
+  if (!t) return Number(maxSize) || BASE_TYPE.statValue;
+  const hi = Number(maxSize);
+  const lo = Number(minSize);
+  if (!Number.isFinite(hi) || !Number.isFinite(lo)) return BASE_TYPE.statValue;
+  const width = Math.max(16, Number(maxWidth) || 16);
+  for (let size = hi; size >= lo - 1e-9; size -= 0.5) {
+    if (estimateTextWidth(t, size, { avgCharFactor }) <= width) {
+      return roundHalf(size);
+    }
+  }
+  return roundHalf(lo);
+}
+
+/**
+ * Μεγέθη τιμών στη λωρίδα ποσών (StatStrip) ώστε κάθε τιμή να χωράει στη στήλη της.
+ * @returns {number[]}
+ */
+function resolveStatValueSizes(stats, {
+  totalWidth = SLIDE_W - GEOM.marginX * 2,
+  gap = 26,
+  padLeft = 11,
+  maxSize = BASE_TYPE.statValue,
+  minSize = 9,
+  avgCharFactor = 0.56,
+} = {}) {
+  const list = Array.isArray(stats) ? stats : [];
+  const n = Math.max(1, list.length);
+  const width = Math.max(48, Number(totalWidth) || 48);
+  const g = Math.max(0, Number(gap) || 0);
+  const colInner = Math.max(20, (width - g * (n - 1)) / n - padLeft);
+  return list.map((s) => fitSingleLineFontSize(s?.value, {
+    maxWidth: colInner,
+    maxSize,
+    minSize,
+    avgCharFactor,
+  }));
+}
+
+/**
+ * Μεγέθη τιμών στις KPI κάρτες ποσών.
+ * @returns {number[]}
+ */
+function resolveKpiValueSizes(items, {
+  maxSize = BASE_TYPE.kpiValue,
+  minSize = 11,
+  padH = GEOM.kpiPad,
+  avgCharFactor = 0.56,
+} = {}) {
+  const list = Array.isArray(items) ? items : [];
+  const cols = columnLayout(Math.max(1, list.length));
+  return list.map((item, i) => {
+    const preferred = item?.big
+      ? BASE_TYPE.kpiValueHero
+      : (list.length > 2 ? Math.max(minSize, Number(maxSize) - 2) : maxSize);
+    return fitSingleLineFontSize(item?.value, {
+      maxWidth: Math.max(24, cols[i].width - padH * 2),
+      maxSize: preferred,
+      minSize,
+      avgCharFactor,
+    });
+  });
+}
+
 function softBreakLongWords(text, chunkSize = 18) {
   const n = Math.max(8, Math.floor(Number(chunkSize) || 18));
   return String(text || '').replace(/\S+/g, (word) => {
@@ -367,11 +455,19 @@ function softBreakLongWords(text, chunkSize = 18) {
   });
 }
 
+/**
+ * Πόσες γραμμές αφηγήματος χωράνε στην κεφαλίδα έργου (οθόνη/PDF/PPTX).
+ * Μετρά κατηγορία, ετικέτα επίσημου τίτλου, τίτλο, γραμμή αντίκτυπου και ποσά
+ * μέσα στο σταθερό GEOM.contentTop.
+ */
 function resolveProjectHeaderNarrativeLines({
   type,
   hasImpact = false,
   showStats = false,
   titleSize,
+  titleText = '',
+  titleMaxWidth = SLIDE_W - GEOM.marginX * 2,
+  hasOfficialTitleLabel = true,
 } = {}) {
   const t = type || BASE_TYPE;
   const size = Number(titleSize);
@@ -382,13 +478,97 @@ function resolveProjectHeaderNarrativeLines({
     Math.ceil(t.statLabel * 1.25 + 4 + t.statValue * 1.25)
   ) + 14;
   const impactReserve = hasImpact ? Math.ceil(t.subtitle * 1.3) + 6 : 0;
-  const titleBlockH = Math.ceil(titleFs * 1.25 * 2) + 8;
+  const titleLines = Math.min(
+    2,
+    Math.max(1, estimateWrappedLineCount(String(titleText || ''), titleFs, titleMaxWidth) || 1)
+  );
+  const titleBlockH = Math.ceil(titleFs * 1.25 * titleLines) + 8;
   const eyebrowApprox = Math.ceil(t.eyebrow * 1.35);
+  const titleKindApprox = hasOfficialTitleLabel
+    ? Math.ceil(Math.max(t.caption, 10) * 1.25) + 6
+    : 0;
   const topBandH = Math.max(48, headerH - (showStats ? metaReserve : 8));
-  const narrativeBudget = topBandH - eyebrowApprox - titleBlockH - impactReserve - 8;
+  const narrativeBudget = topBandH - eyebrowApprox - titleKindApprox - titleBlockH - impactReserve - 8;
   const maxBySpace = Math.max(0, Math.floor(narrativeBudget / (t.body * 1.35)));
   const preferred = hasImpact ? (showStats ? 1 : 2) : (showStats ? 2 : 3);
   return Math.min(preferred, maxBySpace);
+}
+
+function resolveMetricsBoardLayout({
+  count = 0,
+  availableHeight = GEOM.contentBottom - GEOM.contentTop,
+  type = BASE_TYPE,
+} = {}) {
+  const t = type || BASE_TYPE;
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  const avail = Math.max(80, Number(availableHeight) || (GEOM.contentBottom - GEOM.contentTop));
+  const cols = n <= 1 ? 1 : 2;
+  const rowCount = Math.max(1, Math.ceil(Math.max(n, 1) / cols));
+  const dense = n >= 6 || rowCount >= 3;
+  const compact = dense || n >= 4 || rowCount >= 2;
+  let headH = dense ? 30 : compact ? 36 : 44;
+  let gap = dense ? 6 : compact ? 9 : 14;
+  let padV = dense ? 7 : compact ? 10 : 14;
+  let padH = dense ? 11 : 16;
+  let labelSize = dense
+    ? Math.max(8, t.caption - 1.5)
+    : compact
+      ? Math.max(9, t.caption - 0.5)
+      : t.caption;
+  let valueSize = n <= 2
+    ? t.kpiValue
+    : dense
+      ? Math.max(12, t.statValue - 2)
+      : t.statValue + 1;
+  const labelMaxLines = 2;
+  let cardH = dense ? 58 : compact ? 72 : 96;
+
+  for (let i = 0; i < 10; i += 1) {
+    const neededCard = padV * 2
+      + Math.ceil(labelSize * 1.2 * labelMaxLines)
+      + 4
+      + Math.ceil(valueSize * 1.2);
+    const total = headH + rowCount * neededCard + gap * Math.max(0, rowCount - 1);
+    if (total <= avail + 0.5) {
+      cardH = neededCard;
+      break;
+    }
+    labelSize = Math.max(7.5, labelSize - 0.5);
+    valueSize = Math.max(11, valueSize - 0.5);
+    padV = Math.max(5, padV - 0.5);
+    headH = Math.max(26, headH - 1);
+    gap = Math.max(4, gap - 0.5);
+    cardH = Math.max(48, (avail - headH - gap * Math.max(0, rowCount - 1)) / rowCount);
+  }
+
+  return {
+    cols,
+    rowCount,
+    headH,
+    gap,
+    cardH,
+    padV,
+    padH,
+    labelSize,
+    valueSize,
+    labelMaxLines,
+    badgeSize: dense ? 18 : 22,
+    indexSize: dense ? 9 : 10,
+    compact,
+    dense,
+  };
+}
+
+function resolveAmountsKpiHeight({
+  itemCount = 2,
+  availableHeight = GEOM.contentBottom - GEOM.contentTop,
+  hasNote = false,
+} = {}) {
+  const avail = Math.max(96, Number(availableHeight) || (GEOM.contentBottom - GEOM.contentTop));
+  const noteReserve = hasNote ? 36 : 0;
+  const maxH = Math.max(88, avail - noteReserve - 8);
+  const preferred = itemCount >= 3 ? 132 : 128;
+  return Math.min(preferred, maxH);
 }
 
 module.exports = {
@@ -414,8 +594,15 @@ module.exports = {
   columnLayout,
   estimateWrappedLineCount,
   fitTitleFontSize,
+  keepAmountTogether,
+  estimateTextWidth,
+  fitSingleLineFontSize,
+  resolveStatValueSizes,
+  resolveKpiValueSizes,
   softBreakLongWords,
   resolveProjectHeaderNarrativeLines,
+  resolveMetricsBoardLayout,
+  resolveAmountsKpiHeight,
   mixHex,
   rgbaOf,
   normalizeHex,

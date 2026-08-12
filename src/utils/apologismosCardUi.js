@@ -184,6 +184,37 @@ export function needsAmountsEmphasis(vizIds) {
 
 /** Σταθερές στήλες πίνακα αποτελεσμάτων (όχι ελεύθερο Excel). */
 export const METRICS_MAX_ROWS = 6;
+export const METRICS_LABEL_MAX_WORDS = 8;
+export const METRICS_LABEL_MAX_CHARS = 72;
+export const METRICS_VALUE_MAX_WORDS = 5;
+export const METRICS_VALUE_MAX_CHARS = 36;
+
+function clampMetricField(text, maxWords, maxChars, { allowTrailingSpace = false } = {}) {
+  const raw = String(text || '').replace(/\r?\n+/g, ' ');
+  const trailing = allowTrailingSpace && /\s$/.test(raw);
+  const oneLine = raw.replace(/\s+/g, ' ').trim();
+  if (!oneLine && !trailing) return allowTrailingSpace && raw === ' ' ? ' ' : '';
+  const words = oneLine.split(/\s+/).filter(Boolean).slice(0, maxWords);
+  const limit = Math.max(1, maxChars);
+  let limited = words.join(' ');
+  while (limited.length > limit && words.length > 1) {
+    words.pop();
+    limited = words.join(' ');
+  }
+  if (limited.length > limit) limited = limited.slice(0, limit);
+  if (trailing && words.length < maxWords && limited.length < limit) {
+    return `${limited} `;
+  }
+  return limited;
+}
+
+export function clampMetricsLabelInput(text) {
+  return clampMetricField(text, METRICS_LABEL_MAX_WORDS, METRICS_LABEL_MAX_CHARS, { allowTrailingSpace: true });
+}
+
+export function clampMetricsValueInput(text) {
+  return clampMetricField(text, METRICS_VALUE_MAX_WORDS, METRICS_VALUE_MAX_CHARS, { allowTrailingSpace: true });
+}
 
 export const METRICS_COLUMNS = Object.freeze([
   { id: 'label', title: 'Δείκτης / αποτέλεσμα', hint: 'Τι μετράμε ή τι ολοκληρώθηκε' },
@@ -200,15 +231,15 @@ export const METRICS_EXAMPLE = Object.freeze({
     { label: 'Αντικατάσταση αγωγού ύδρευσης', value: '850 μ.' },
     { label: 'Δέντρα που φυτεύτηκαν', value: '120' },
   ]),
-  note: 'Ο πίνακας έχει πάντα δύο στήλες με αυτά τα ονόματα. Συμπληρώνετε έως 6 γραμμές με μετρήσιμα αποτελέσματα του έργου.',
+  note: `Ο πίνακας έχει δύο στήλες. Έως ${METRICS_MAX_ROWS} γραμμές· ο δείκτης έως ${METRICS_LABEL_MAX_WORDS} λέξεις και η τιμή έως ${METRICS_VALUE_MAX_WORDS}, ώστε να φαίνονται ολόκληρα στην παρουσίαση.`,
 });
 
 /** Γραμμές για επεξεργασία: τουλάχιστον μία κενή αν δεν υπάρχουν δεδομένα. */
 export function draftMetricsRows(metrics, { minRows = 1, maxRows = METRICS_MAX_ROWS } = {}) {
   const rows = (Array.isArray(metrics) ? metrics : [])
     .map((r) => ({
-      label: String(r?.label || ''),
-      value: String(r?.value || ''),
+      label: clampMetricsLabelInput(String(r?.label || '')).trimEnd(),
+      value: clampMetricsValueInput(String(r?.value || '')).trimEnd(),
     }))
     .slice(0, maxRows);
   while (rows.length < minRows) rows.push({ label: '', value: '' });
@@ -219,8 +250,8 @@ export function draftMetricsRows(metrics, { minRows = 1, maxRows = METRICS_MAX_R
 export function cleanMetricsRows(rows, { maxRows = METRICS_MAX_ROWS } = {}) {
   return (Array.isArray(rows) ? rows : [])
     .map((r) => ({
-      label: String(r?.label || '').trim(),
-      value: String(r?.value || '').trim(),
+      label: clampMetricsLabelInput(String(r?.label || '')).trim(),
+      value: clampMetricsValueInput(String(r?.value || '')).trim(),
     }))
     .filter((r) => r.label || r.value)
     .slice(0, maxRows);
@@ -229,7 +260,14 @@ export function cleanMetricsRows(rows, { maxRows = METRICS_MAX_ROWS } = {}) {
 export function updateMetricsRow(rows, index, patch, { maxRows = METRICS_MAX_ROWS } = {}) {
   const next = draftMetricsRows(rows, { minRows: 0, maxRows });
   if (index < 0 || index >= next.length) return next;
-  next[index] = { ...next[index], ...patch };
+  const merged = { ...next[index], ...patch };
+  if (Object.prototype.hasOwnProperty.call(patch, 'label')) {
+    merged.label = clampMetricsLabelInput(patch.label);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'value')) {
+    merged.value = clampMetricsValueInput(patch.value);
+  }
+  next[index] = merged;
   return next;
 }
 

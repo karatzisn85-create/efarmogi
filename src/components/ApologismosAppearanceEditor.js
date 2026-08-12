@@ -207,6 +207,22 @@ function previewTotals(report) {
   };
 }
 
+function previewOfficialTitleLabel(projectType) {
+  const t = String(projectType || '').trim();
+  if (t === 'ΥΠΗΡΕΣΙΑ') return 'Τίτλος υπηρεσίας';
+  switch (t) {
+    case 'ΕΡΓΟ': return 'Τίτλος έργου';
+    case 'ΠΡΟΜΗΘΕΙΑ': return 'Τίτλος προμήθειας';
+    case 'ΜΕΛΕΤΗ': return 'Τίτλος μελέτης';
+    case 'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ':
+    case 'ΠΑΡΟΧΗ ΤΕΧΝΙΚΩΝ ΚΑΙ ΛΟΙΠΩΝ ΣΥΝΑΦΩΝ ΕΠΙΣΤΗΜΟΝΙΚΩΝ ΥΠΗΡΕΣΙΩΝ':
+    case 'ΚΟΙΝΩΝΙΚΕΣ ΚΑΙ ΑΛΛΕΣ ΕΙΔΙΚΕΣ ΥΠΗΡΕΣΙΕΣ':
+      return 'Τίτλος υπηρεσίας';
+    default:
+      return 'Επίσημος τίτλος';
+  }
+}
+
 /**
  * Διαφάνεια δείγματος όπως θα παραχθεί πραγματικά (όχι ψεύτικο «μόνο κείμενο»
  * πάνω σε κάρτα φωτογραφιών — αυτό μπέρδευε την προεπισκόπηση).
@@ -258,6 +274,7 @@ function buildPreviewProjectSlide(sample) {
     entry: {
       display: {
         title,
+        officialTitleLabel: previewOfficialTitleLabel(sample?.projectType),
         area,
         narrative,
         // Ίδιοι κανόνες με την πραγματική παρουσίαση

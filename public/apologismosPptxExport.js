@@ -210,18 +210,28 @@ function statStripHeight(d) {
 function addStatStrip(slide, pptx, d, p, { x, y, stats, onDark = false, colWidth = STAT_COL_W }) {
   const labelColor = onDark ? p.darkMuted : p.muted;
   const valueColor = onDark ? p.darkText : p.text;
-  stats.forEach((s, i) => {
+  const n = Math.max(1, (stats || []).length);
+  const stripW = colWidth * n + STAT_GAP * Math.max(0, n - 1);
+  const valueSizes = design.resolveStatValueSizes(stats, {
+    totalWidth: stripW,
+    gap: STAT_GAP,
+    maxSize: d.type.statValue,
+  });
+  const valueH = Math.max(...valueSizes, d.type.statValue) * 1.3;
+  const stripH = d.type.statLabel * 1.3 + 4 + valueH;
+  (stats || []).forEach((s, i) => {
     const sx = x + i * (colWidth + STAT_GAP);
-    addRect(slide, pptx, { x: sx, y, w: 3, h: statStripHeight(d), color: p.accent });
+    const displayValue = design.keepAmountTogether(s.value);
+    addRect(slide, pptx, { x: sx, y, w: 3, h: stripH, color: p.accent });
     addText(slide, s.label, {
       x: sx + 11, y, w: colWidth - 11, size: d.type.statLabel, color: labelColor,
       bold: true, caps: true, spacing: 0.09,
     });
-    addText(slide, s.value, {
+    addText(slide, displayValue, {
       x: sx + 11,
       y: y + d.type.statLabel * 1.3 + 4,
       w: colWidth - 11,
-      size: d.type.statValue,
+      size: valueSizes[i] || d.type.statValue,
       color: valueColor,
       bold: true,
     });
@@ -231,6 +241,7 @@ function addStatStrip(slide, pptx, d, p, { x, y, stats, onDark = false, colWidth
 function addKpiCards(slide, pptx, d, p, { y, items, height = design.GEOM.kpiH }) {
   const g = design.GEOM;
   const cols = design.columnLayout(items.length);
+  const valueSizes = design.resolveKpiValueSizes(items, { maxSize: d.type.kpiValue });
   items.forEach((k, i) => {
     const col = cols[i];
     const fill = k.tone === 'accent' ? p.accent : p.cardDark;
@@ -240,14 +251,11 @@ function addKpiCards(slide, pptx, d, p, { y, items, height = design.GEOM.kpiH })
       x: col.x + g.kpiPad, y: y + g.kpiPad + 2, w: col.width - g.kpiPad * 2,
       size: d.type.kpiLabel, color: fg, bold: true, caps: true, spacing: 0.08,
     });
-    const valueSize = k.big
-      ? d.type.kpiValueHero
-      : (items.length > 2 ? d.type.kpiValue - 2 : d.type.kpiValue);
-    addText(slide, k.value, {
+    addText(slide, design.keepAmountTogether(k.value), {
       x: col.x + g.kpiPad,
       y: y + g.kpiPad + d.type.kpiLabel * 1.3 + 10,
       w: col.width - g.kpiPad * 2,
-      size: valueSize,
+      size: valueSizes[i] || d.type.kpiValue,
       color: fg,
       bold: true,
     });
@@ -270,59 +278,65 @@ function addMetricsBoard(slide, pptx, d, p, { y, height, rows }) {
   const g = design.GEOM;
   const list = (rows || []).filter((r) => r && (r.label || r.value));
   const contentW = SLIDE_W - g.marginX * 2;
-  const headH = 40;
-  const badge = 28;
+  const layout = design.resolveMetricsBoardLayout({
+    count: list.length,
+    availableHeight: height,
+    type: d.type,
+  });
+  const {
+    cols, gap, cardH, headH, padV, padH, labelSize, valueSize, dense, indexSize, labelMaxLines,
+  } = layout;
+  const badge = dense ? 24 : 28;
 
   addRect(slide, pptx, {
     x: g.marginX, y: y + 2, w: badge, h: badge, color: p.accent, radius: 8,
   });
   addText(slide, String(list.length), {
-    x: g.marginX, y: y + 7, w: badge, size: 12, color: p.accentText, bold: true, align: 'center',
+    x: g.marginX, y: y + (dense ? 5 : 7), w: badge, size: dense ? 11 : 12,
+    color: p.accentText, bold: true, align: 'center',
   });
-  addText(slide, 'Αποτελέσματα', {
-    x: g.marginX + badge + 10, y: y + 2, w: 280, size: d.type.caption,
+  addText(slide, 'Πίνακας αποτελεσμάτων', {
+    x: g.marginX + badge + 10, y: y + 2, w: 360, size: Math.max(9, d.type.caption - (dense ? 1 : 0)),
     color: p.accent, bold: true, caps: true, spacing: 0.12,
   });
-  addText(slide, 'Μετρήσιμα μεγέθη του έργου', {
-    x: g.marginX + badge + 10, y: y + 18, w: 320, size: d.type.caption, color: p.muted, bold: true,
-  });
+  if (!dense) {
+    addText(slide, 'Μετρήσιμα μεγέθη του έργου', {
+      x: g.marginX + badge + 10, y: y + 18, w: 320, size: d.type.caption, color: p.muted, bold: true,
+    });
+  }
 
   if (!list.length) return;
 
-  const cols = list.length === 1 ? 1 : 2;
-  const gutter = 14;
-  const gridTop = y + headH + 8;
-  const gridH = Math.max(72, height - headH - 12);
-  const rowCount = Math.ceil(list.length / cols);
-  const cardH = Math.min(110, Math.max(68, (gridH - gutter * (rowCount - 1)) / rowCount));
-  const cardW = cols === 1 ? contentW : (contentW - gutter) / 2;
-  const valueSize = list.length <= 2 ? d.type.kpiValue : d.type.statValue + 1;
+  const gridTop = y + headH + 4;
+  const cardW = cols === 1 ? contentW : (contentW - gap) / 2;
+  const labelBlockH = labelSize * 1.25 * labelMaxLines;
 
   list.forEach((m, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    const cx = g.marginX + col * (cardW + gutter);
-    const cy = gridTop + row * (cardH + gutter);
+    const cx = g.marginX + col * (cardW + gap);
+    const cy = gridTop + row * (cardH + gap);
     const featured = i % 2 === 0;
     addRect(slide, pptx, {
       x: cx, y: cy, w: cardW, h: cardH,
       color: featured ? p.accentSoft : p.surface,
-      radius: 12,
+      radius: dense ? 9 : 12,
     });
     addRect(slide, pptx, {
       x: cx, y: cy, w: 5, h: cardH, color: p.accent,
     });
     addText(slide, m.label, {
-      x: cx + 16, y: cy + 12, w: cardW - 52, size: d.type.caption,
-      color: p.muted, bold: true, caps: true, spacing: 0.1,
+      x: cx + padH, y: cy + padV, w: cardW - padH - 36, size: labelSize,
+      color: p.muted, bold: true, caps: true, spacing: 0.06, lines: labelMaxLines,
     });
     addText(slide, String(i + 1).padStart(2, '0'), {
-      x: cx + cardW - 36, y: cy + 12, w: 24, size: 10,
+      x: cx + cardW - 34, y: cy + padV, w: 24, size: indexSize,
       color: p.accent, bold: true, align: 'right',
     });
     addText(slide, m.value, {
-      x: cx + 16, y: cy + 34, w: cardW - 28, size: valueSize,
-      color: featured ? p.accent : p.text, bold: true,
+      x: cx + padH, y: cy + padV + labelBlockH + 2,
+      w: cardW - padH * 2, size: valueSize,
+      color: featured ? p.accent : p.text, bold: true, lines: 1,
     });
   });
 }
@@ -756,7 +770,19 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
       x: g.marginX, y: g.marginTop, w: contentW, size: t.eyebrow,
       color: p.muted, bold: true, caps: true, spacing: 0.14,
     });
-    const titleTop = g.marginTop + t.eyebrow * 1.3 + 8;
+    const officialTitleLabel = display.officialTitleLabel
+      || ((display.title || card.title) ? 'Επίσημος τίτλος' : '');
+    const titleKindTop = g.marginTop + t.eyebrow * 1.3 + 6;
+    const titleKindSize = Math.max(10, t.caption);
+    if (officialTitleLabel) {
+      addText(slide, officialTitleLabel, {
+        x: g.marginX, y: titleKindTop, w: contentW, size: titleKindSize,
+        color: p.accent, bold: true, caps: true, spacing: 0.1,
+      });
+    }
+    const titleTop = officialTitleLabel
+      ? titleKindTop + titleKindSize * 1.3 + 6
+      : g.marginTop + t.eyebrow * 1.3 + 8;
     const titleText = display.title || card.title || '';
     const titleSize = design.fitTitleFontSize(titleText, {
       maxWidth: contentW,
@@ -770,13 +796,23 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
     });
 
     const hasImpact = !!String(display.impactLine || '').trim();
-    let cursorY = titleTop + titleSize * 1.25 * 2;
+    const titleLines = Math.min(
+      2,
+      Math.max(1, design.estimateWrappedLineCount(titleText, titleSize, contentW) || 1)
+    );
+    let cursorY = titleTop + titleSize * 1.25 * titleLines;
     if (hasImpact) {
+      const impactSize = design.fitTitleFontSize(display.impactLine, {
+        maxWidth: contentW,
+        maxSize: t.subtitle,
+        minSize: Math.max(11, t.subtitle - 5),
+        maxLines: 1,
+      });
       addText(slide, display.impactLine, {
         x: g.marginX, y: cursorY + 4, w: contentW,
-        size: t.subtitle, color: p.accent, bold: true, lines: 1,
+        size: impactSize, color: p.accent, bold: true, lines: 1,
       });
-      cursorY += 4 + t.subtitle * 1.3;
+      cursorY += 4 + impactSize * 1.25;
     }
 
     const isFirst = pageIndex === 0;
@@ -784,6 +820,11 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
     const showNarrative = isFirst && display.showHeaderNarrative !== false && !!display.narrative;
     const metaBottom = g.contentTop - 12;
     const statsH = showStats ? statStripHeight(d) : 0;
+    const statsY = showStats ? metaBottom - statsH : metaBottom;
+    // Αν η κεφαλίδα φουσκώσει (μεγάλη κλίμακα κειμένου), μην επικαλύπτει τα ποσά.
+    if (cursorY > statsY - 4) {
+      cursorY = Math.max(titleTop + titleSize * 1.15, statsY - 4);
+    }
 
     if (showStats) {
       const stats = [
@@ -827,6 +868,9 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
         hasImpact,
         showStats,
         titleSize,
+        titleText,
+        titleMaxWidth: contentW,
+        hasOfficialTitleLabel: !!officialTitleLabel,
       });
       if (narrativeLines > 0 && narrativeBottom > narrativeTop + lineH * 0.8) {
         addText(slide, display.narrative, {
@@ -882,7 +926,6 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
       });
     } else if (page.type === 'amounts') {
       const showFinal = !!page.showFinalContractAmount;
-      const cardH = showFinal ? 148 : 128;
       const items = [
         { label: 'Εγκεκριμένο ποσό', value: formatAmountEl(page.approvedAmount), tone: 'accent' },
         { label: 'Συμβατικό ποσό', value: formatAmountEl(page.contractAmount), tone: 'dark' },
@@ -895,6 +938,11 @@ function addProjectSlides(pptx, entry, d, p, resolveMedia, sectionLabel, footerF
           note: 'Διαμορφωθέν μετά από αναθεωρήσεις',
         });
       }
+      const cardH = design.resolveAmountsKpiHeight({
+        itemCount: items.length,
+        availableHeight: contentH,
+        hasNote: showFinal,
+      });
       addKpiCards(slide, pptx, d, p, {
         y: g.contentTop + (contentH - cardH - (showFinal ? 36 : 0)) / 2,
         height: cardH,

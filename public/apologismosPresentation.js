@@ -22,6 +22,8 @@ const {
   FINAL_CONTRACT_AFTER_APE_SHORT_LABEL,
   FINAL_CONTRACT_AFTER_APE_FULL_LABEL,
   FINAL_CONTRACT_AFTER_APE_EXPLANATION,
+  resolveOfficialTitleLabel,
+  normalizeApologismosProjectType,
 } = require('./apologismosDomain');
 const appearanceMod = require('./apologismosAppearance');
 
@@ -191,6 +193,8 @@ function buildCardPresentationEntry(card) {
     contentPages,
     display: {
       title: card.title,
+      officialTitleLabel: resolveOfficialTitleLabel(card.projectType),
+      projectType: normalizeApologismosProjectType(card.projectType) || '',
       narrative: card.narrative,
       impactLine: normalizeImpactLine(card.impactLine),
       area: card.area || '',

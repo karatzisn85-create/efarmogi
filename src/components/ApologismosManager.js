@@ -37,33 +37,17 @@ import {
   buildFooter,
   resolveSlideDesign,
 } from '../utils/apologismosSlideDesign';
+import {
+  collectPathsForSlideWindow,
+  collectPathsFromSlides,
+  resolvePdfMediaVariant,
+} from '../utils/apologismosPresentationMedia';
 import ApologismosMapEditor from './ApologismosMapEditor';
 import ApologismosAppearanceEditor from './ApologismosAppearanceEditor';
 
 const ipcRenderer = window.electronAPI;
 
-function collectPresentationMediaPaths(model) {
-  const rels = [];
-  for (const img of model?.cover?.images || model?.appearance?.coverImages || []) {
-    if (img?.relativePath) rels.push(img.relativePath);
-  }
-  const mayorPhoto = model?.mayorMessage?.photo?.relativePath
-    || model?.appearance?.mayorMessage?.photo?.relativePath;
-  if (mayorPhoto) rels.push(mayorPhoto);
-  for (const section of model?.sections || []) {
-    for (const entry of section.cards || []) {
-      const photos = entry.card?.photos || {};
-      for (const phase of ['before', 'during', 'after']) {
-        for (const p of photos[phase] || []) rels.push(p);
-      }
-      if (entry.card?.mapSnapshot) rels.push(entry.card.mapSnapshot);
-      for (const page of entry.contentPages || []) {
-        if (page.mapSnapshot) rels.push(page.mapSnapshot);
-      }
-    }
-  }
-  return [...new Set(rels.filter(Boolean))];
-}
+const PRESENT_MEDIA_RADIUS = 1;
 
 const fadeIn = keyframes`from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); }`;
 const softPulse = keyframes`
@@ -889,6 +873,7 @@ export default function ApologismosManager({
   const presentTargetRef = useRef(null);
   const PRESENT_FADE_MS = 420;
   const [mediaUrls, setMediaUrls] = useState({});
+  const mediaUrlsRef = useRef({});
   const stageWrapRef = useRef(null);
   const [stageScale, setStageScale] = useState(1);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
@@ -1018,6 +1003,45 @@ export default function ApologismosManager({
     }, PRESENT_FADE_MS);
   }, [presentation, presentationMeta.motion, slideIndex, clearPresentationMotion]);
 
+  const ensurePresentationMedia = useCallback(async (slides, centerIndex) => {
+    const list = Array.isArray(slides) ? slides : [];
+    if (!list.length) return;
+    const needed = collectPathsForSlideWindow(list, centerIndex, PRESENT_MEDIA_RADIUS);
+    const missing = needed.filter((rel) => !mediaUrlsRef.current[rel]);
+    if (!missing.length) return;
+    const mediaRes = await ipcRenderer.invoke('apologismos-resolve-media-map', {
+      actingUsername: username,
+      relativePaths: missing,
+      asDataUrl: true,
+      variant: 'preview',
+    });
+    const next = { ...mediaUrlsRef.current, ...(mediaRes?.mediaMap || {}) };
+    mediaUrlsRef.current = next;
+    setMediaUrls(next);
+  }, [username]);
+
+  // Προφόρτωση μόνο τρέχουσας διαφάνειας ± γειτονικών — όχι όλου του deck.
+  useEffect(() => {
+    if (!presentation) return undefined;
+    let cancelled = false;
+    (async () => {
+      const needed = collectPathsForSlideWindow(presentation, slideIndex, PRESENT_MEDIA_RADIUS);
+      const missing = needed.filter((rel) => !mediaUrlsRef.current[rel]);
+      if (!missing.length) return;
+      const mediaRes = await ipcRenderer.invoke('apologismos-resolve-media-map', {
+        actingUsername: username,
+        relativePaths: missing,
+        asDataUrl: true,
+        variant: 'preview',
+      });
+      if (cancelled) return;
+      const next = { ...mediaUrlsRef.current, ...(mediaRes?.mediaMap || {}) };
+      mediaUrlsRef.current = next;
+      setMediaUrls(next);
+    })();
+    return () => { cancelled = true; };
+  }, [presentation, slideIndex, username]);
+
   useEffect(() => {
     if (!presentation) return undefined;
     const isTypingTarget = (el) => {
@@ -1040,6 +1064,8 @@ export default function ApologismosManager({
         goToPresentationSlide(base - 1);
       } else if (e.key === 'Escape') {
         clearPresentationMotion();
+        mediaUrlsRef.current = {};
+        setMediaUrls({});
         setPresentation(null);
         setPresentationMeta({ theme: null, cover: null, motion: null });
       }
@@ -1569,14 +1595,9 @@ export default function ApologismosManager({
       showToast('Δεν υπάρχουν έτοιμες κάρτες για παρουσίαση', 'info');
       return;
     }
-    const rels = collectPresentationMediaPaths(res.model);
-    const mediaRes = await ipcRenderer.invoke('apologismos-resolve-media-map', {
-      actingUsername: username,
-      relativePaths: rels,
-      asDataUrl: true,
-      variant: 'preview',
-    });
-    setMediaUrls(mediaRes?.mediaMap || {});
+    const slides = buildSlides(res.model);
+    mediaUrlsRef.current = {};
+    setMediaUrls({});
     setPresentationMeta({
       theme: res.model.theme || null,
       cover: res.model.cover || null,
@@ -1587,8 +1608,9 @@ export default function ApologismosManager({
       periodLabel: res.model.cover?.periodLabel || res.model.period?.label || '',
     });
     setPresentFade(1);
-    setPresentation(buildSlides(res.model));
     setSlideIndex(0);
+    setPresentation(slides);
+    await ensurePresentationMedia(slides, 0);
   };
 
   const exportPdf = async () => {
@@ -1603,12 +1625,21 @@ export default function ApologismosManager({
       showToast(res?.error || 'Αποτυχία εξαγωγής', 'error');
       return;
     }
-    const rels = collectPresentationMediaPaths(res.model);
+    const slides = buildSlides(res.model);
+    const rels = collectPathsFromSlides(slides);
+    const projectCount = Number(res.model?.totals?.projectCount) || 0;
+    // Με πολλά έργα οι πλήρεις εικόνες ως data URL φουσκώνουν τη μνήμη — προεπισκόπηση.
+    const mediaVariant = resolvePdfMediaVariant(projectCount, rels.length);
+    if (mediaVariant === 'preview') {
+      showToast('Προετοιμασία εγγράφου με ελαφρύτερες εικόνες…', 'info');
+    } else if (rels.length > 20) {
+      showToast('Προετοιμασία εγγράφου…', 'info');
+    }
     const mediaRes = await ipcRenderer.invoke('apologismos-resolve-media-map', {
       actingUsername: username,
       relativePaths: rels,
       asDataUrl: true,
-      variant: 'full',
+      variant: mediaVariant,
     });
     const framedRes = await ipcRenderer.invoke('apologismos-frame-cover-images', {
       actingUsername: username,
@@ -2701,6 +2732,7 @@ export default function ApologismosManager({
                                 </SectionHeadRow>
                                 <Hint style={{ marginTop: 0, marginBottom: 8 }}>
                                   Στήλες «{METRICS_COLUMNS[0].title}» και «{METRICS_COLUMNS[1].title}» · έως {METRICS_MAX_ROWS} γραμμές.
+                                  Δείκτης έως 8 λέξεις, τιμή έως 5 — εμφανίζονται ολόκληρα στην παρουσίαση.
                                   Χρειάζεται για: {draftMetricsVizLabels}.
                                 </Hint>
                                 <MetricsTable>
@@ -3011,6 +3043,8 @@ export default function ApologismosManager({
         });
         const closePresentation = () => {
           clearPresentationMotion();
+          mediaUrlsRef.current = {};
+          setMediaUrls({});
           setPresentation(null);
           setPresentationMeta({ theme: null, cover: null, motion: null });
         };

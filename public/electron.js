@@ -18192,30 +18192,18 @@ function enrichApologismosReportForClient(report) {
 
 function loadSubprojectDataById(subprojectId) {
   if (!dataDir || !subprojectId) return null;
-  const projectDirs = fs.readdirSync(dataDir).filter((f) => {
-    try {
-      return fs.statSync(path.join(dataDir, f)).isDirectory()
-        && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(f);
-    } catch (_) {
-      return false;
-    }
-  });
-  for (const projectDir of projectDirs) {
-    const dataPath = path.join(dataDir, projectDir, subprojectId, 'data.json');
-    if (fs.existsSync(dataPath)) {
-      try {
-        const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-        return {
-          ...data,
-          projectId: data.projectId || projectDir,
-          subprojectId: data.subprojectId || subprojectId,
-        };
-      } catch (_) {
-        return null;
-      }
-    }
+  const jsonPath = findSubprojectDataJsonPath(subprojectId);
+  if (!jsonPath || !fs.existsSync(jsonPath)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    return {
+      ...data,
+      projectId: data.projectId || path.basename(path.dirname(path.dirname(jsonPath))),
+      subprojectId: data.subprojectId || subprojectId,
+    };
+  } catch (_) {
+    return null;
   }
-  return null;
 }
 
 /** Πλήρης χάρτης — μόνο για λίστα eligible (αραιότερη χρήση). */

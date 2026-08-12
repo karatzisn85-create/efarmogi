@@ -7,6 +7,8 @@ const {
   ELIGIBLE_STATUSES,
   MAX_PHOTOS_PER_PHASE,
   MAX_METRICS_ROWS,
+  MAX_METRICS_LABEL_WORDS,
+  MAX_METRICS_VALUE_WORDS,
   yearBelongsToPeriod,
   isEligibleSubprojectStatus,
   validatePhotoPhases,
@@ -36,6 +38,7 @@ const {
   normalizeImpactLine,
   validateImpactLine,
   getBestHeroPhoto,
+  clampMetricLabel,
   MAX_IMPACT_LINE_CHARS,
   MAX_IMPACT_LINE_WORDS,
 } = require('../../public/apologismosDomain');
@@ -110,6 +113,12 @@ describe('apologismosDomain — constants', () => {
 });
 
 describe('apologismosDomain — impactLine & hero photo', () => {
+  test('clampWordsAndChars δεν κόβει λέξη στη μέση', () => {
+    const label = clampMetricLabel('αααααααααα αααααααααα αααααααααα αααααααααα αααααααααα αααααααααα αααααααααα αααααααααα αααααααααα');
+    expect(label.length).toBeLessThanOrEqual(72);
+    expect(label.split(/\s+/).every((w) => w.length === 10)).toBe(true);
+  });
+
   test('normalizeImpactLine: μία γραμμή, όριο χαρακτήρων και λέξεων', () => {
     expect(normalizeImpactLine('  α  \n  β  ')).toBe('α β');
     expect(normalizeImpactLine('')).toBe('');
@@ -305,15 +314,17 @@ describe('apologismosDomain — readiness', () => {
     expect(r.ready).toBe(true);
   });
 
-  test('metrics table: κενές γραμμές αγνοούνται, max 6', () => {
+  test('normalizeMetrics: όρια λέξεων σε δείκτη/τιμή, χωρίς αποκοπή με αποσιωπητικά στη διαφάνεια', () => {
+    const longLabel = 'Αγωγοί από πολυαιθυλένιο PE διατομών από Φ63 έως Φ450 και πιέσεως 10 έως 16 ατμ';
     const normalized = normalizeMetrics([
       { label: '', value: '' },
-      { label: 'Μήκος', value: '1,2 χλμ' },
+      { label: longLabel, value: '15.950,00 m επιπλέον περιγραφή μονάδας' },
       ...Array.from({ length: 10 }, (_, i) => ({ label: `L${i}`, value: `${i}` })),
     ]);
-    expect(normalized[0].label).toBe('Μήκος');
+    expect(normalized[0].label.split(/\s+/).length).toBeLessThanOrEqual(MAX_METRICS_LABEL_WORDS);
+    expect(normalized[0].value.split(/\s+/).length).toBeLessThanOrEqual(MAX_METRICS_VALUE_WORDS);
+    expect(normalized[0].label.includes('…')).toBe(false);
     expect(normalized.length).toBeLessThanOrEqual(MAX_METRICS_ROWS);
-
     const r = getCardReadiness(
       baseReadyCard({ primaryViz: 'metrics_table', metrics: [] })
     );
@@ -365,12 +376,34 @@ describe('apologismosDomain — sort & include', () => {
     );
   });
 
+  test('syncCardAmountsFromSubproject: νέο είδος δεν ανάβει badge ποσού', () => {
+    const card = {
+      source: 'linked',
+      subprojectId: 's1',
+      approvedAmount: '10',
+      contractAmount: '9',
+      projectTitle: 'Πράξη',
+      projectType: '',
+      amountChangedBadge: false,
+    };
+    const r = syncCardAmountsFromSubproject(card, {
+      approvedAmount: '10',
+      contractAmount: '9',
+      projectTitle: 'Πράξη',
+      projectType: 'ΠΡΟΜΗΘΕΙΑ',
+    });
+    expect(r.changed).toBe(true);
+    expect(r.card.projectType).toBe('ΠΡΟΜΗΘΕΙΑ');
+    expect(r.card.amountChangedBadge).toBe(false);
+  });
+
   test('mapSubprojectToCardFields', () => {
     const mapped = mapSubprojectToCardFields({
       subprojectId: 'x',
       projectId: 'p',
       subprojectTitle: 'Τίτλος',
       projectTitle: 'Πράξη δοκιμής',
+      projectType: 'ΕΡΓΟ',
       approvedAmount: '10',
       contractAmount: '8',
       projectStatus: 'ΟΛΟΚΛΗΡΩΜΕΝΟ',
@@ -381,10 +414,24 @@ describe('apologismosDomain — sort & include', () => {
     expect(mapped.source).toBe('linked');
     expect(mapped.title).toBe('Τίτλος');
     expect(mapped.projectTitle).toBe('Πράξη δοκιμής');
+    expect(mapped.projectType).toBe('ΕΡΓΟ');
     expect(mapped.hasFinalContractAmountAfterApe).toBe(true);
     expect(mapped.finalContractAmountAfterApe).toMatch(/12/);
     expect(mapped.showFinalContractAmountInPresentation).toBe(false);
     expect(mapped.finalContractApeDate).toBe('2025-03-01');
+  });
+
+  test('resolveOfficialTitleLabel ανά είδος υποέργου', () => {
+    const {
+      resolveOfficialTitleLabel,
+      normalizeApologismosProjectType,
+    } = require('../../public/apologismosDomain');
+    expect(resolveOfficialTitleLabel('ΕΡΓΟ')).toBe('Τίτλος έργου');
+    expect(resolveOfficialTitleLabel('ΠΡΟΜΗΘΕΙΑ')).toBe('Τίτλος προμήθειας');
+    expect(resolveOfficialTitleLabel('ΜΕΛΕΤΗ')).toBe('Τίτλος μελέτης');
+    expect(resolveOfficialTitleLabel('ΥΠΗΡΕΣΙΑ')).toBe('Τίτλος υπηρεσίας');
+    expect(resolveOfficialTitleLabel('')).toBe('Επίσημος τίτλος');
+    expect(normalizeApologismosProjectType('ΥΠΗΡΕΣΙΑ')).toBe('ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ');
   });
 
   test('cardShowsFinalContractAmountInPresentation μόνο με ποσό και flag', () => {

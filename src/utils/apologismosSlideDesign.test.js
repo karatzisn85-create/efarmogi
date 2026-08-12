@@ -18,6 +18,10 @@ import {
   estimateWrappedLineCount,
   softBreakLongWords,
   resolveProjectHeaderNarrativeLines,
+  resolveMetricsBoardLayout,
+  fitSingleLineFontSize,
+  resolveStatValueSizes,
+  keepAmountTogether,
 } from './apologismosSlideDesign';
 import { normalizeAppearance, resolveDesign } from './apologismosAppearance';
 
@@ -114,14 +118,72 @@ describe('σύστημα σχεδίασης διαφανειών', () => {
       hasImpact: true,
       showStats: true,
       titleSize: longSize,
+      titleText: long,
+      hasOfficialTitleLabel: true,
     });
+    expect(linesTight).toBeGreaterThanOrEqual(1);
     expect(linesTight).toBeLessThanOrEqual(1);
     expect(mainDesign.resolveProjectHeaderNarrativeLines({
       type: BASE_TYPE,
       hasImpact: true,
       showStats: true,
       titleSize: longSize,
+      titleText: long,
+      hasOfficialTitleLabel: true,
     })).toBe(linesTight);
+
+    // Χειρότερο σενάριο: ετικέτα + πλήρες μέγεθος τίτλου + αντίκτυπος + ποσά
+    // πρέπει να αφήνει τουλάχιστον 1 γραμμή αφηγήματος (όχι 0).
+    expect(resolveProjectHeaderNarrativeLines({
+      type: BASE_TYPE,
+      hasImpact: true,
+      showStats: true,
+      titleSize: BASE_TYPE.title,
+      titleText: 'Α'.repeat(80),
+      hasOfficialTitleLabel: true,
+    })).toBeGreaterThanOrEqual(1);
+    const largeType = resolveSlideDesign({ textScale: 'large' }, THEME).type;
+    expect(resolveProjectHeaderNarrativeLines({
+      type: largeType,
+      hasImpact: true,
+      showStats: true,
+      titleSize: largeType.title,
+      titleText: 'Α'.repeat(80),
+      hasOfficialTitleLabel: true,
+    })).toBeGreaterThanOrEqual(1);
+    const metrics6 = resolveMetricsBoardLayout({
+      count: 6,
+      availableHeight: GEOM.contentBottom - GEOM.contentTop,
+      type: BASE_TYPE,
+    });
+    expect(metrics6.dense).toBe(true);
+    expect(metrics6.rowCount).toBe(3);
+    expect(metrics6.headH + metrics6.rowCount * metrics6.cardH + metrics6.gap * 2)
+      .toBeLessThanOrEqual(GEOM.contentBottom - GEOM.contentTop + 1);
+    expect(mainDesign.resolveMetricsBoardLayout({ count: 6 }).cardH).toBe(metrics6.cardH);
+  });
+
+  test('ποσά μικραίνουν ώστε να χωράνε σε μία γραμμή στη στήλη', () => {
+    const long = '123.456.789,12 €';
+    const short = '5';
+    expect(keepAmountTogether(long)).toBe('123.456.789,12\u00A0€');
+    const sideStrip = resolveStatValueSizes(
+      [
+        { label: 'Έργα', value: short },
+        { label: 'Εγκεκριμένα', value: long },
+        { label: 'Συμβάσεις', value: long },
+      ],
+      { totalWidth: 340, gap: 26, maxSize: BASE_TYPE.statValue }
+    );
+    expect(sideStrip[0]).toBe(BASE_TYPE.statValue);
+    expect(sideStrip[1]).toBeLessThan(BASE_TYPE.statValue);
+    expect(sideStrip[2]).toBeLessThan(BASE_TYPE.statValue);
+    expect(fitSingleLineFontSize(long, { maxWidth: 90, maxSize: 17, minSize: 9 }))
+      .toBeLessThanOrEqual(12);
+    expect(mainDesign.resolveStatValueSizes(
+      [{ label: 'Α', value: long }],
+      { totalWidth: 100, maxSize: 17 }
+    )[0]).toBeLessThan(17);
   });
 });
 

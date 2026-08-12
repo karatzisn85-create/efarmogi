@@ -12,7 +12,13 @@ import {
   buildFooter,
   fitTitleFontSize,
   softBreakLongWords,
+  estimateWrappedLineCount,
   resolveProjectHeaderNarrativeLines,
+  resolveMetricsBoardLayout,
+  resolveAmountsKpiHeight,
+  resolveStatValueSizes,
+  resolveKpiValueSizes,
+  keepAmountTogether,
 } from '../../utils/apologismosSlideDesign';
 import { resolveTocLayout, splitTocColumns } from '../../utils/apologismosTocLayout';
 
@@ -131,15 +137,24 @@ function MunicipalityBrand({ branding, variant = 'content' }) {
   return null;
 }
 
-function StatStrip({ stats, design, onDark = false, gap = 30 }) {
+function StatStrip({ stats, design, onDark = false, gap = 30, totalWidth }) {
   const { type, colors } = design;
   if (!stats?.length) return null;
+  const stripW = Math.max(48, Number(totalWidth) || (SLIDE_W - GEOM.marginX * 2));
+  const valueSizes = resolveStatValueSizes(stats, {
+    totalWidth: stripW,
+    gap,
+    maxSize: type.statValue,
+  });
+  const n = stats.length;
+  const colW = (stripW - gap * Math.max(0, n - 1)) / n;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', width: stripW }}>
       {stats.map((s, i) => (
         <View
           key={s.label}
           style={{
+            width: colW,
             paddingLeft: 11,
             marginRight: i === stats.length - 1 ? 0 : gap,
             borderLeftWidth: 3,
@@ -164,13 +179,13 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
           <Text
             style={{
               fontFamily: FONT,
-              fontSize: type.statValue,
+              fontSize: valueSizes[i] || type.statValue,
               fontWeight: 'bold',
               lineHeight: 1.25,
               color: onDark ? colors.darkText : colors.text,
             }}
           >
-            {s.value}
+            {keepAmountTogether(s.value)}
           </Text>
         </View>
       ))}
@@ -180,9 +195,7 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
 
 function KpiCards({ items, design, height = GEOM.kpiH }) {
   const { type, colors } = design;
-  const valueSize = (k) => (k.big
-    ? type.kpiValueHero
-    : (items.length > 2 ? type.kpiValue - 2 : type.kpiValue));
+  const valueSizes = resolveKpiValueSizes(items, { maxSize: type.kpiValue });
   return (
     <View style={{ flexDirection: 'row' }}>
       {items.map((k, i) => (
@@ -213,12 +226,13 @@ function KpiCards({ items, design, height = GEOM.kpiH }) {
           <Text
             style={{
               fontFamily: FONT,
-              fontSize: valueSize(k),
+              fontSize: valueSizes[i] || type.kpiValue,
               fontWeight: 'bold',
+              lineHeight: 1.15,
               color: k.tone === 'accent' ? colors.accentText : colors.darkText,
             }}
           >
-            {k.value}
+            {keepAmountTogether(k.value)}
           </Text>
           {k.note ? (
             <Text
@@ -396,6 +410,9 @@ function CoverMeta({ model, design, align = 'bottom' }) {
             design={design}
             onDark
             gap={26}
+            totalWidth={align === 'side'
+              ? SLIDE_W - Math.round(SLIDE_W * 0.52) - GEOM.coverPadX * 2
+              : SLIDE_W - GEOM.coverPadX * 2}
             stats={[
               { label: 'Έργα', value: String(totals.projectCount ?? 0) },
               { label: 'Εγκεκριμένα', value: formatEuro(totals.totalApproved) },
@@ -1123,14 +1140,22 @@ function ProjectContent({ page, display, design, mediaMap }) {
 
   if (page.type === 'metrics') {
     const rows = (page.metrics || []).filter((r) => r && (r.label || r.value));
-    const cols = rows.length === 1 ? 1 : 2;
+    const availableHeight = GEOM.contentBottom - GEOM.contentTop;
+    const layout = resolveMetricsBoardLayout({
+      count: rows.length,
+      availableHeight,
+      type,
+    });
+    const {
+      cols, gap, cardH, headH, padV, padH, labelSize, valueSize, dense,
+    } = layout;
     return (
-      <View style={{ height: '100%', justifyContent: 'center' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+      <View style={{ height: '100%', overflow: 'hidden' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', height: headH, marginBottom: 4 }}>
           <View
             style={{
-              width: 28,
-              height: 28,
+              width: dense ? 24 : 28,
+              height: dense ? 24 : 28,
               borderRadius: 8,
               backgroundColor: colors.accent,
               alignItems: 'center',
@@ -1138,7 +1163,7 @@ function ProjectContent({ page, display, design, mediaMap }) {
               marginRight: 10,
             }}
           >
-            <Text style={{ fontFamily: FONT, fontSize: 12, fontWeight: 'bold', color: colors.accentText }}>
+            <Text style={{ fontFamily: FONT, fontSize: dense ? 11 : 12, fontWeight: 'bold', color: colors.accentText }}>
               {rows.length}
             </Text>
           </View>
@@ -1146,52 +1171,58 @@ function ProjectContent({ page, display, design, mediaMap }) {
             <Text
               style={{
                 fontFamily: FONT,
-                fontSize: type.caption,
+                fontSize: Math.max(9, type.caption - (dense ? 1 : 0)),
                 fontWeight: 'bold',
                 letterSpacing: 1.2,
                 color: colors.accent,
               }}
             >
-              ΑΠΟΤΕΛΕΣΜΑΤΑ
+              ΠΙΝΑΚΑΣ ΑΠΟΤΕΛΕΣΜΑΤΩΝ
             </Text>
-            <Text style={{ fontFamily: FONT, fontSize: type.caption, color: colors.muted, marginTop: 2 }}>
-              Μετρήσιμα μεγέθη του έργου
-            </Text>
+            {!dense ? (
+              <Text style={{ fontFamily: FONT, fontSize: type.caption, color: colors.muted, marginTop: 2 }}>
+                Μετρήσιμα μεγέθη του έργου
+              </Text>
+            ) : null}
           </View>
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
           {rows.map((m, i) => {
             const featured = i % 2 === 0;
             const isLastInRow = cols === 1 || i % 2 === 1 || i === rows.length - 1;
+            const row = Math.floor(i / cols);
+            const isLastRow = row === Math.ceil(rows.length / cols) - 1;
             return (
               <View
                 key={i}
                 style={{
                   width: cols === 1 ? '100%' : '48%',
                   marginRight: isLastInRow || cols === 1 ? 0 : '4%',
-                  marginBottom: 10,
-                  minHeight: rows.length <= 2 ? 88 : 72,
-                  borderRadius: 12,
+                  marginBottom: isLastRow ? 0 : gap,
+                  height: cardH,
+                  borderRadius: dense ? 9 : 12,
                   backgroundColor: featured ? colors.accentSoft : colors.surface,
                   borderWidth: 1,
                   borderStyle: 'solid',
                   borderColor: featured ? colors.accent : colors.panelBorder,
-                  paddingTop: 12,
-                  paddingBottom: 12,
-                  paddingLeft: 16,
-                  paddingRight: 12,
+                  paddingTop: padV,
+                  paddingBottom: padV,
+                  paddingLeft: padH,
+                  paddingRight: padH - 2,
                   justifyContent: 'center',
+                  overflow: 'hidden',
                 }}
               >
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <Text
                     style={{
                       fontFamily: FONT,
-                      fontSize: type.caption,
+                      fontSize: labelSize,
                       fontWeight: 'bold',
-                      letterSpacing: 1,
+                      letterSpacing: 0.8,
                       color: colors.muted,
                       maxWidth: '78%',
+                      lineHeight: 1.2,
                     }}
                   >
                     {String(m.label || '').toLocaleUpperCase('el-GR')}
@@ -1199,7 +1230,7 @@ function ProjectContent({ page, display, design, mediaMap }) {
                   <Text
                     style={{
                       fontFamily: FONT,
-                      fontSize: 9,
+                      fontSize: layout.indexSize,
                       fontWeight: 'bold',
                       color: colors.accent,
                     }}
@@ -1210,10 +1241,11 @@ function ProjectContent({ page, display, design, mediaMap }) {
                 <Text
                   style={{
                     fontFamily: FONT,
-                    fontSize: rows.length <= 2 ? type.kpiValue : type.statValue + 1,
+                    fontSize: valueSize,
                     fontWeight: 'bold',
                     color: featured ? colors.accent : colors.text,
-                    marginTop: 6,
+                    marginTop: dense ? 4 : 6,
+                    lineHeight: 1.15,
                   }}
                 >
                   {m.value}
@@ -1240,9 +1272,14 @@ function ProjectContent({ page, display, design, mediaMap }) {
         note: 'Διαμορφωθέν μετά από αναθεωρήσεις',
       });
     }
+    const kpiH = resolveAmountsKpiHeight({
+      itemCount: items.length,
+      availableHeight: GEOM.contentBottom - GEOM.contentTop,
+      hasNote: showFinal,
+    });
     return (
-      <View style={{ height: '100%', justifyContent: 'center' }}>
-        <KpiCards design={design} height={showFinal ? 148 : 128} items={items} />
+      <View style={{ height: '100%', justifyContent: 'center', overflow: 'hidden' }}>
+        <KpiCards design={design} height={kpiH} items={items} />
         {showFinal ? (
           <Text
             style={{
@@ -1250,8 +1287,8 @@ function ProjectContent({ page, display, design, mediaMap }) {
               fontSize: type.caption,
               color: colors.muted,
               fontWeight: 'bold',
-              marginTop: 12,
-              lineHeight: 1.45,
+              marginTop: 10,
+              lineHeight: 1.4,
               maxWidth: 920,
             }}
           >
@@ -1264,15 +1301,18 @@ function ProjectContent({ page, display, design, mediaMap }) {
   }
 
   const narrative = page.narrative || display.narrative || '';
+  const narrativeSize = String(narrative).length > 420
+    ? Math.max(type.body + 1, type.narrative - 4)
+    : type.narrative;
   return (
-    <View style={{ height: '100%', justifyContent: 'center' }}>
+    <View style={{ height: '100%', justifyContent: 'center', overflow: 'hidden' }}>
       <View style={{ paddingLeft: 20, borderLeftWidth: 4, borderLeftStyle: 'solid', borderLeftColor: colors.accent }}>
         <Text
           style={{
             fontFamily: FONT,
-            fontSize: type.narrative,
+            fontSize: narrativeSize,
             fontWeight: 'bold',
-            lineHeight: 1.5,
+            lineHeight: 1.45,
             color: colors.text,
             maxWidth: 760,
           }}
@@ -1293,12 +1333,27 @@ function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase, brand
   /** Χώρος για ποσά κάτω στην κεφαλίδα — το react-pdf δεν στηρίζει αξιόπιστα marginTop:auto. */
   const metaReserve = Math.max(GEOM.statH, Math.ceil(type.statLabel * 1.25 + 4 + type.statValue * 1.25)) + 14;
   const titleMaxW = SLIDE_W - GEOM.marginX * 2;
-  const titleSize = fitTitleFontSize(display.title || '', {
+  const titleText = display.title || '';
+  const titleSize = fitTitleFontSize(titleText, {
     maxWidth: titleMaxW,
     maxSize: type.title,
     minSize: Math.max(14, type.title - 12),
     maxLines: 2,
   });
+  const titleLines = Math.min(
+    2,
+    Math.max(1, estimateWrappedLineCount(titleText, titleSize, titleMaxW) || 1)
+  );
+  const officialTitleLabel = display.officialTitleLabel
+    || (titleText ? 'Επίσημος τίτλος' : '');
+  const impactSize = hasImpact
+    ? fitTitleFontSize(display.impactLine, {
+      maxWidth: titleMaxW,
+      maxSize: type.subtitle,
+      minSize: Math.max(11, type.subtitle - 5),
+      maxLines: 1,
+    })
+    : type.subtitle;
 
   return pages.map((page, pageIndex) => {
     const isFirst = pageIndex === 0;
@@ -1311,6 +1366,9 @@ function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase, brand
       hasImpact,
       showStats,
       titleSize,
+      titleText,
+      titleMaxWidth: titleMaxW,
+      hasOfficialTitleLabel: !!officialTitleLabel,
     });
     return (
       <Page
@@ -1327,6 +1385,15 @@ function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase, brand
         <View style={{ height: headerH, position: 'relative' }}>
           <View style={{ height: topBandH, overflow: 'hidden' }}>
             <Eyebrow color={colors.muted} size={type.eyebrow}>{sectionLabel}</Eyebrow>
+            {officialTitleLabel ? (
+              <Eyebrow
+                color={colors.accent}
+                size={Math.max(10, type.caption)}
+                style={{ marginTop: 6 }}
+              >
+                {officialTitleLabel}
+              </Eyebrow>
+            ) : null}
             <Text
               maxLines={2}
               style={{
@@ -1334,9 +1401,10 @@ function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase, brand
                 fontSize: titleSize,
                 fontWeight: 'bold',
                 color: colors.text,
-                marginTop: 8,
+                marginTop: 6,
                 lineHeight: 1.25,
-                minHeight: Math.ceil(titleSize * 1.25 * 2),
+                minHeight: Math.ceil(titleSize * 1.25 * titleLines),
+                maxHeight: Math.ceil(titleSize * 1.25 * 2) + 2,
               }}
             >
               {display.title}
@@ -1346,12 +1414,12 @@ function ProjectPages({ entry, sectionLabel, design, mediaMap, footerBase, brand
                 maxLines={1}
                 style={{
                   fontFamily: FONT,
-                  fontSize: type.subtitle,
+                  fontSize: impactSize,
                   fontWeight: 'bold',
                   color: colors.accent,
                   marginTop: 6,
-                  lineHeight: 1.3,
-                  maxHeight: Math.ceil(type.subtitle * 1.3),
+                  lineHeight: 1.25,
+                  maxHeight: Math.ceil(impactSize * 1.25),
                 }}
               >
                 {display.impactLine}

@@ -1,5 +1,20 @@
-import React, { useEffect } from 'react';
-import { GEOM, SLIDE_W, SLIDE_H, rgbaOf, mixHex, coverScrimCss, fitTitleFontSize, resolveProjectHeaderNarrativeLines } from '../utils/apologismosSlideDesign';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  GEOM,
+  SLIDE_W,
+  SLIDE_H,
+  rgbaOf,
+  mixHex,
+  coverScrimCss,
+  fitTitleFontSize,
+  estimateWrappedLineCount,
+  resolveProjectHeaderNarrativeLines,
+  resolveMetricsBoardLayout,
+  resolveAmountsKpiHeight,
+  resolveStatValueSizes,
+  resolveKpiValueSizes,
+  keepAmountTogether,
+} from '../utils/apologismosSlideDesign';
 import { coverImageStyle } from '../utils/apologismosAppearance';
 import {
   APOLOGISMOS_CSS_FONT_STACK,
@@ -144,16 +159,37 @@ function Rule({ color, width = GEOM.headerRuleW, height = GEOM.headerRuleH, top 
   );
 }
 
-function StatStrip({ stats, design, onDark = false, gap = 30 }) {
+function StatStrip({ stats, design, onDark = false, gap = 30, totalWidth: totalWidthProp }) {
   const { type, colors } = design;
+  const wrapRef = useRef(null);
+  const [measuredW, setMeasuredW] = useState(0);
+  useEffect(() => {
+    if (totalWidthProp != null && Number(totalWidthProp) > 0) return undefined;
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const update = () => setMeasuredW(el.clientWidth || 0);
+    update();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [totalWidthProp, stats?.length]);
   if (!stats?.length) return null;
   const labelColor = onDark ? colors.darkMuted : colors.muted;
   const valueColor = onDark ? colors.darkText : colors.text;
   const labelLineH = 1.15;
   const labelMinH = Math.ceil(type.statLabel * labelLineH * 2);
+  const stripW = (totalWidthProp != null && Number(totalWidthProp) > 0)
+    ? Number(totalWidthProp)
+    : (measuredW || (SLIDE_W - GEOM.marginX * 2));
+  const valueSizes = resolveStatValueSizes(stats, {
+    totalWidth: stripW,
+    gap,
+    maxSize: type.statValue,
+  });
   return (
-    <div style={{ display: 'flex', alignItems: 'stretch', gap }}>
-      {stats.map((s) => (
+    <div ref={wrapRef} style={{ display: 'flex', alignItems: 'stretch', gap, width: '100%', minWidth: 0 }}>
+      {stats.map((s, i) => (
         <div key={s.label} style={{ paddingLeft: 11, borderLeft: `3px solid ${colors.accent}`, minWidth: 0, flex: 1 }}>
           <div
             style={{
@@ -164,16 +200,22 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
               marginBottom: 3,
               lineHeight: labelLineH,
               minHeight: labelMinH,
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
+              wordBreak: 'break-word',
             }}
           >
             {upperEl(s.label)}
           </div>
-          <div style={{ fontSize: type.statValue, fontWeight: 700, color: valueColor, lineHeight: 1.15 }}>
-            {s.value}
+          <div
+            style={{
+              fontSize: valueSizes[i] || type.statValue,
+              fontWeight: 700,
+              color: valueColor,
+              lineHeight: 1.15,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+            }}
+          >
+            {keepAmountTogether(s.value)}
           </div>
         </div>
       ))}
@@ -183,9 +225,10 @@ function StatStrip({ stats, design, onDark = false, gap = 30 }) {
 
 function KpiCards({ items, design, height = GEOM.kpiH }) {
   const { type, colors } = design;
+  const valueSizes = resolveKpiValueSizes(items, { maxSize: type.kpiValue });
   return (
     <div style={{ display: 'flex', gap: GEOM.gutter }}>
-      {items.map((k) => (
+      {items.map((k, i) => (
         <div
           key={k.label}
           style={{
@@ -198,6 +241,7 @@ function KpiCards({ items, design, height = GEOM.kpiH }) {
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
+            minWidth: 0,
           }}
         >
           <div
@@ -213,12 +257,14 @@ function KpiCards({ items, design, height = GEOM.kpiH }) {
           </div>
           <div
             style={{
-              fontSize: k.big ? type.kpiValueHero : (items.length > 2 ? type.kpiValue - 2 : type.kpiValue),
+              fontSize: valueSizes[i] || type.kpiValue,
               fontWeight: 800,
               lineHeight: 1.08,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
             }}
           >
-            {k.value}
+            {keepAmountTogether(k.value)}
           </div>
           {k.note ? (
             <div
@@ -243,6 +289,12 @@ function KpiCards({ items, design, height = GEOM.kpiH }) {
 function MetricsBoard({ rows, design }) {
   const { type, colors } = design;
   const list = Array.isArray(rows) ? rows.filter((r) => r && (r.label || r.value)) : [];
+  const availableHeight = GEOM.contentBottom - GEOM.contentTop;
+  const layout = resolveMetricsBoardLayout({
+    count: list.length,
+    availableHeight,
+    type,
+  });
   if (!list.length) {
     return (
       <div style={{ height: '100%', display: 'flex', alignItems: 'center', color: colors.muted, fontSize: type.body }}>
@@ -251,9 +303,7 @@ function MetricsBoard({ rows, design }) {
     );
   }
 
-  const cols = list.length === 1 ? 1 : 2;
-  const rowCount = Math.ceil(list.length / cols);
-  const cardMinH = Math.max(72, Math.min(110, Math.floor((GEOM.contentBottom - GEOM.contentTop - 52) / rowCount) - 12));
+  const { cols, gap, cardH, headH, padV, padH, labelSize, valueSize, labelMaxLines, badgeSize, indexSize, dense } = layout;
 
   return (
     <div
@@ -261,16 +311,26 @@ function MetricsBoard({ rows, design }) {
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: 'center',
-        gap: 12,
+        justifyContent: 'flex-start',
+        gap: dense ? 6 : 8,
         minHeight: 0,
+        overflow: 'hidden',
+        boxSizing: 'border-box',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexShrink: 0,
+          height: headH,
+        }}
+      >
         <div
           style={{
-            width: 34,
-            height: 34,
+            width: badgeSize + 8,
+            height: badgeSize + 8,
             borderRadius: 10,
             background: `linear-gradient(145deg, ${colors.accent} 0%, ${mixHex(colors.accent, colors.darkBand, 0.35)} 100%)`,
             boxShadow: `0 6px 16px ${rgbaOf(colors.accent, 0.28)}`,
@@ -279,8 +339,9 @@ function MetricsBoard({ rows, design }) {
             justifyContent: 'center',
             color: colors.accentText,
             fontWeight: 800,
-            fontSize: 14,
+            fontSize: dense ? 12 : 14,
             letterSpacing: '-0.02em',
+            flexShrink: 0,
           }}
         >
           {list.length}
@@ -288,17 +349,19 @@ function MetricsBoard({ rows, design }) {
         <div style={{ minWidth: 0 }}>
           <div
             style={{
-              fontSize: type.caption,
+              fontSize: Math.max(9, type.caption - (dense ? 1 : 0)),
               fontWeight: 800,
               letterSpacing: '0.14em',
               color: colors.accent,
             }}
           >
-            ΑΠΟΤΕΛΕΣΜΑΤΑ
+            ΠΙΝΑΚΑΣ ΑΠΟΤΕΛΕΣΜΑΤΩΝ
           </div>
-          <div style={{ fontSize: type.caption, color: colors.muted, marginTop: 2, fontWeight: 600 }}>
-            Μετρήσιμα μεγέθη του έργου
-          </div>
+          {!dense ? (
+            <div style={{ fontSize: type.caption, color: colors.muted, marginTop: 2, fontWeight: 600 }}>
+              Μετρήσιμα μεγέθη του έργου
+            </div>
+          ) : null}
         </div>
         <div
           style={{
@@ -316,9 +379,12 @@ function MetricsBoard({ rows, design }) {
         style={{
           display: 'grid',
           gridTemplateColumns: cols === 1 ? '1fr' : '1fr 1fr',
-          gap: 14,
-          alignContent: 'center',
+          gridAutoRows: cardH,
+          gap,
+          alignContent: 'start',
           minHeight: 0,
+          flex: 1,
+          overflow: 'hidden',
         }}
       >
         {list.map((m, i) => {
@@ -328,20 +394,21 @@ function MetricsBoard({ rows, design }) {
               key={`${m.label}-${i}`}
               style={{
                 position: 'relative',
-                minHeight: cardMinH,
-                borderRadius: 14,
-                padding: '14px 16px 14px 18px',
+                height: cardH,
+                borderRadius: dense ? 10 : 14,
+                padding: `${padV}px ${padH}px ${padV}px ${padH + 2}px`,
                 background: featured
                   ? `linear-gradient(135deg, ${colors.accentSoft} 0%, ${colors.surface} 72%)`
                   : colors.surface,
                 border: `1px solid ${featured ? rgbaOf(colors.accent, 0.28) : colors.panelBorder}`,
                 boxShadow: featured
-                  ? `0 10px 22px ${rgbaOf(colors.accent, 0.12)}, 0 2px 6px ${rgbaOf(colors.text, 0.04)}`
-                  : `0 4px 12px ${rgbaOf(colors.text, 0.05)}`,
+                  ? `0 8px 18px ${rgbaOf(colors.accent, 0.1)}`
+                  : `0 3px 10px ${rgbaOf(colors.text, 0.04)}`,
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center',
+                justifyContent: 'space-between',
+                boxSizing: 'border-box',
               }}
             >
               <div
@@ -358,49 +425,44 @@ function MetricsBoard({ rows, design }) {
               />
               <div
                 style={{
-                  position: 'absolute',
-                  right: -18,
-                  top: -18,
-                  width: 64,
-                  height: 64,
-                  borderRadius: 64,
-                  background: rgbaOf(colors.accent, featured ? 0.1 : 0.05),
-                }}
-              />
-              <div
-                style={{
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'flex-start',
-                  gap: 10,
+                  gap: 8,
                   position: 'relative',
+                  minHeight: 0,
+                  flexShrink: 0,
                 }}
               >
                 <div
                   style={{
-                    fontSize: type.caption,
+                    fontSize: labelSize,
                     fontWeight: 800,
-                    letterSpacing: '0.11em',
+                    letterSpacing: '0.06em',
                     color: colors.muted,
-                    lineHeight: 1.25,
-                    maxWidth: '72%',
+                    lineHeight: 1.2,
+                    maxWidth: '78%',
+                    maxHeight: labelSize * 1.2 * labelMaxLines + 1,
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
                   }}
                 >
                   {upperEl(m.label)}
                 </div>
                 <div
                   style={{
-                    minWidth: 22,
-                    height: 22,
-                    padding: '0 6px',
+                    minWidth: badgeSize,
+                    height: badgeSize,
+                    padding: '0 5px',
                     borderRadius: 999,
                     background: rgbaOf(colors.accent, 0.12),
                     color: colors.accent,
-                    fontSize: 10,
+                    fontSize: indexSize,
                     fontWeight: 800,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    flexShrink: 0,
                   }}
                 >
                   {String(i + 1).padStart(2, '0')}
@@ -408,13 +470,15 @@ function MetricsBoard({ rows, design }) {
               </div>
               <div
                 style={{
-                  marginTop: 8,
-                  fontSize: list.length <= 2 ? type.kpiValue : type.statValue + 2,
+                  marginTop: 4,
+                  fontSize: valueSize,
                   fontWeight: 800,
-                  lineHeight: 1.1,
+                  lineHeight: 1.15,
                   color: featured ? colors.accent : colors.text,
                   letterSpacing: '-0.02em',
                   position: 'relative',
+                  wordBreak: 'break-word',
+                  flexShrink: 0,
                 }}
               >
                 {m.value}
@@ -1137,7 +1201,7 @@ function ProjectContent({ slide, design, mediaUrls }) {
     const isCompare = page.layout === 'before_after_compare';
     const isPhotoFirst = page.layout === 'photo_first';
     return (
-      <div style={{ display: 'flex', gap: isCompare ? 14 : GEOM.gutter, height: '100%' }}>
+      <div style={{ display: 'flex', gap: isCompare ? 14 : GEOM.gutter, height: '100%', minHeight: 0, overflow: 'hidden' }}>
         {entries.map(([phase, rel]) => (
           <PhotoFrame
             key={phase}
@@ -1154,7 +1218,7 @@ function ProjectContent({ slide, design, mediaUrls }) {
   if (page.type === 'gallery') {
     const items = page.items || [];
     return (
-      <div style={{ display: 'flex', gap: GEOM.gutter, height: '100%' }}>
+      <div style={{ display: 'flex', gap: GEOM.gutter, height: '100%', minHeight: 0, overflow: 'hidden' }}>
         {items.map((item, i) => (
           <PhotoFrame
             key={i}
@@ -1229,15 +1293,20 @@ function ProjectContent({ slide, design, mediaUrls }) {
         note: 'Διαμορφωθέν μετά από αναθεωρήσεις',
       });
     }
+    const kpiH = resolveAmountsKpiHeight({
+      itemCount: amountItems.length,
+      availableHeight: GEOM.contentBottom - GEOM.contentTop,
+      hasNote: showFinal,
+    });
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', gap: 12, minHeight: 0, overflow: 'hidden' }}>
         <KpiCards
           design={design}
-          height={showFinal ? 148 : 128}
+          height={kpiH}
           items={amountItems}
         />
         {showFinal ? (
-          <div style={{ fontSize: type.caption, color: colors.muted, fontWeight: 600, lineHeight: 1.45, maxWidth: 920 }}>
+          <div style={{ fontSize: type.caption, color: colors.muted, fontWeight: 600, lineHeight: 1.4, maxWidth: 920, flexShrink: 0 }}>
             {page.finalContractAmountExplanation
               || display.finalContractAmountExplanation
               || 'Πρόκειται για το τελικό ποσό της σύμβασης όπως διαμορφώθηκε μετά από αναθεωρήσεις (ΑΠΕ).'}
@@ -1248,16 +1317,22 @@ function ProjectContent({ slide, design, mediaUrls }) {
   }
 
   const narrative = page.narrative || display.narrative || '';
+  const narrativeSize = String(narrative).length > 420
+    ? Math.max(type.body + 1, type.narrative - 4)
+    : type.narrative;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-      <div style={{ paddingLeft: 20, borderLeft: `4px solid ${colors.accent}` }}>
+    <div style={{ display: 'flex', alignItems: 'center', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ paddingLeft: 20, borderLeft: `4px solid ${colors.accent}`, minHeight: 0, maxHeight: '100%' }}>
         <div
           style={{
-            fontSize: type.narrative,
+            fontSize: narrativeSize,
             fontWeight: 600,
-            lineHeight: 1.5,
+            lineHeight: 1.45,
             color: colors.text,
             maxWidth: 760,
+            maxHeight: GEOM.contentBottom - GEOM.contentTop - 8,
+            overflow: 'auto',
+            wordBreak: 'break-word',
           }}
         >
           {narrative}
@@ -1275,6 +1350,8 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
   const showNarrative = isFirstPage && display.showHeaderNarrative !== false && !!display.narrative;
   const hasImpact = !!String(display.impactLine || '').trim();
   const titleText = display.title || slide.entry?.card?.title || '';
+  const officialTitleLabel = display.officialTitleLabel
+    || (titleText ? 'Επίσημος τίτλος' : '');
   const titleMaxW = SLIDE_W - GEOM.marginX * 2;
   const titleSize = fitTitleFontSize(titleText, {
     maxWidth: titleMaxW,
@@ -1282,12 +1359,27 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
     minSize: Math.max(14, type.title - 12),
     maxLines: 2,
   });
-  const titleBlockH = Math.ceil(titleSize * 1.25 * 2);
+  const titleLines = Math.min(
+    2,
+    Math.max(1, estimateWrappedLineCount(titleText, titleSize, titleMaxW) || 1)
+  );
+  const titleBlockH = Math.ceil(titleSize * 1.25 * titleLines);
+  const impactSize = hasImpact
+    ? fitTitleFontSize(display.impactLine, {
+      maxWidth: titleMaxW,
+      maxSize: type.subtitle,
+      minSize: Math.max(11, type.subtitle - 5),
+      maxLines: 1,
+    })
+    : type.subtitle;
   const narrativeLines = resolveProjectHeaderNarrativeLines({
     type,
     hasImpact,
     showStats,
     titleSize,
+    titleText,
+    titleMaxWidth: titleMaxW,
+    hasOfficialTitleLabel: !!officialTitleLabel,
   });
 
   return (
@@ -1315,6 +1407,13 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
           <Eyebrow color={colors.muted} size={type.eyebrow}>
             {slide.sectionLabel}
           </Eyebrow>
+          {officialTitleLabel ? (
+            <div style={{ marginTop: 6 }}>
+              <Eyebrow color={colors.accent} size={Math.max(10, type.caption)}>
+                {officialTitleLabel}
+              </Eyebrow>
+            </div>
+          ) : null}
         </div>
         <div
           style={{
@@ -1322,7 +1421,7 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
             fontWeight: 700,
             lineHeight: 1.25,
             color: colors.text,
-            marginTop: 8,
+            marginTop: 6,
             flexShrink: 0,
             minHeight: titleBlockH,
             maxHeight: titleBlockH + 2,
@@ -1335,16 +1434,13 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
         {hasImpact ? (
           <div
             style={{
-              fontSize: type.subtitle,
+              fontSize: impactSize,
               fontWeight: 600,
-              lineHeight: 1.3,
+              lineHeight: 1.25,
               color: colors.accent,
               marginTop: 6,
               flexShrink: 0,
-              maxHeight: type.subtitle * 1.3 + 2,
-              overflow: 'hidden',
               whiteSpace: 'nowrap',
-              textOverflow: 'clip',
             }}
           >
             {display.impactLine}
@@ -1359,11 +1455,9 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
               marginTop: 8,
               flexShrink: 1,
               minHeight: 0,
-              maxHeight: type.body * 1.35 * narrativeLines + 2,
-              display: '-webkit-box',
-              WebkitLineClamp: narrativeLines,
-              WebkitBoxOrient: 'vertical',
+              maxHeight: type.body * 1.35 * Math.max(narrativeLines, 1) + 2,
               overflow: 'hidden',
+              wordBreak: 'break-word',
             }}
           >
             {display.narrative}
@@ -1400,7 +1494,7 @@ function ProjectSlide({ slide, design, footer, mediaUrls }) {
         </div>
       </div>
 
-      <div style={{ height: GEOM.contentBottom - GEOM.contentTop, minHeight: 0 }}>
+      <div style={{ height: GEOM.contentBottom - GEOM.contentTop, minHeight: 0, overflow: 'hidden' }}>
         <ProjectContent slide={slide} design={design} mediaUrls={mediaUrls} />
       </div>
 
