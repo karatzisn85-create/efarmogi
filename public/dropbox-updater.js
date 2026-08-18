@@ -9,6 +9,7 @@ const fsPromises = require('fs').promises;
 const path = require('path');
 const { exec, spawn } = require('child_process');
 const crypto = require('crypto');
+const { enrichUpdateCheckResult } = require('./appUpdatePolicy');
 
 class DropboxUpdater {
   constructor(config, progressCallback = null) {
@@ -54,7 +55,7 @@ class DropboxUpdater {
         this.updateState.updateInfo = versionInfo;
 
         console.log(`[Update] New version available: ${versionInfo.version}`);
-        return {
+        return enrichUpdateCheckResult({
           available: true,
           version: versionInfo.version,
           releaseDate: versionInfo.releaseDate,
@@ -63,7 +64,7 @@ class DropboxUpdater {
           checksum: versionInfo.checksum,
           changelog: versionInfo.changelog,
           mandatory: versionInfo.mandatory || false
-        };
+        }, this.updateState.currentVersion);
       } else {
         console.log('[Update] Already up to date');
         return { available: false, reason: 'up_to_date' };

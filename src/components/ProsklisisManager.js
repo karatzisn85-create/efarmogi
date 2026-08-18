@@ -379,7 +379,7 @@ const ProjectGroupTitle = styled.h3`
 const GroupCards = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1.15rem;
 `;
 
 /* ── Compact Card ── */
@@ -462,7 +462,7 @@ const ProsklisisItem = styled.div`
   background: ${(p) => (p.$muted
     ? 'linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.92) 100%)'
     : 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%)')};
-  border: 1.5px solid ${(p) => (p.$muted ? 'rgba(203, 213, 225, 0.9)' : 'rgba(203, 213, 225, 0.7)')};
+  border: 2px solid ${(p) => (p.$muted ? 'rgba(148, 163, 184, 0.95)' : 'rgba(148, 163, 184, 0.55)')};
   border-left: 4px solid ${(p) => {
     if (p.$muted) return '#94a3b8';
     switch (p.$status) {
@@ -475,15 +475,15 @@ const ProsklisisItem = styled.div`
   }};
   border-radius: 12px;
   margin-bottom: 0;
-  overflow: visible;
+  overflow: hidden;
   position: relative;
   opacity: ${(p) => (p.$isLocked ? 0.72 : (p.$muted ? 0.88 : 1))};
   filter: ${(p) => (p.$muted ? 'saturate(0.78)' : 'none')};
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.05);
   transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s ease;
   &:hover {
-    border-color: rgba(165, 180, 252, 0.65);
-    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.1), 0 2px 6px rgba(15, 23, 42, 0.06);
+    border-color: rgba(100, 116, 139, 0.75);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
     transform: translateY(-1px);
   }
 `;
@@ -749,9 +749,9 @@ const MenuItem = styled.button`
 /* ── Modifications panel (collapsible, amber theme) ── */
 
 const ModsToggleRow = styled.div`
-  padding: 0.5rem 0.85rem 0.65rem;
+  padding: 0.45rem 0.75rem 0.7rem;
   border-top: 1px solid #e2e8f0;
-  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+  background: #ffffff;
 `;
 
 const ModsToggleButton = styled.button`
@@ -760,8 +760,8 @@ const ModsToggleButton = styled.button`
   align-items: center;
   justify-content: space-between;
   gap: 0.65rem;
-  padding: 0.6rem 1rem;
-  border-radius: 10px;
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -769,16 +769,13 @@ const ModsToggleButton = styled.button`
   cursor: pointer;
   font-family: inherit;
   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-  border: 2px solid ${(p) => (p.$open ? '#d97706' : '#f59e0b')};
-  background: ${(p) => p.$open
-    ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
-    : 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)'};
-  color: ${(p) => (p.$open ? '#92400e' : '#9a3412')};
-  box-shadow: ${(p) => p.$open ? '0 3px 12px rgba(217, 119, 6, 0.22)' : '0 2px 8px rgba(245, 158, 11, 0.18)'};
+  border: 1px solid ${(p) => (p.$open ? '#f59e0b' : '#fcd34d')};
+  background: ${(p) => (p.$open ? '#fef3c7' : '#fffbeb')};
+  color: #92400e;
+  box-shadow: none;
   &:hover {
-    border-color: #d97706;
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-    box-shadow: 0 4px 14px rgba(217, 119, 6, 0.28);
+    border-color: #f59e0b;
+    background: #fef3c7;
   }
 `;
 
@@ -814,9 +811,9 @@ const ModsToggleChevron = styled.span`
 
 const ModificationsPanel = styled.div`
   background: #fffbeb;
-  border-top: 2px solid #fde68a;
-  padding-bottom: 0.35rem;
-  overflow: visible;
+  border-top: 1px solid #fde68a;
+  padding-bottom: 0.55rem;
+  overflow: hidden;
 `;
 
 const ModsSectionHeader = styled.h4`
@@ -995,6 +992,27 @@ const FileIconBtn = styled.button`
 
 const ViewFileBtn = styled(FileIconBtn)`
   &:hover { background: #eef2ff; color: #6366f1; border-color: #c7d2fe; }
+`;
+
+const ModPdfBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #3730a3;
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  color: #f8fafc;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.22);
+  &:hover {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  }
 `;
 
 const DownloadFileBtn = styled(FileIconBtn)`
@@ -2176,14 +2194,6 @@ function ProsklisisManager({
                                               🌐
                                             </ViewFileBtn>
                                           )}
-                                          {hasPDF && (
-                                            <ViewFileBtn
-                                              title="Προβολή PDF τροποποίησης"
-                                              onClick={() => handleViewModificationPDF(prosklisi.prosklisiId, mod.modificationId)}
-                                            >
-                                              📄
-                                            </ViewFileBtn>
-                                          )}
                                         </ModTableHeader>
 
                                         {modDesc && (
@@ -2196,6 +2206,23 @@ function ProsklisisManager({
                                           />
                                         )}
                                       </ModTableMain>
+
+                                      {hasPDF && (
+                                        <ModFilesSection>
+                                          <ModFileBlock>
+                                            <ModFileLabel>PDF τροποποίησης</ModFileLabel>
+                                            <ModFileActions>
+                                              <ModPdfBtn
+                                                type="button"
+                                                title="Προβολή PDF τροποποίησης"
+                                                onClick={() => handleViewModificationPDF(prosklisi.prosklisiId, mod.modificationId)}
+                                              >
+                                                Προβολή PDF
+                                              </ModPdfBtn>
+                                            </ModFileActions>
+                                          </ModFileBlock>
+                                        </ModFilesSection>
+                                      )}
 
                                       {hasChanges && (
                                         <ChangesCompactBlock>

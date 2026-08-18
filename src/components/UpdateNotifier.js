@@ -244,7 +244,9 @@ const UpdateNotifier = () => {
     }
   }, [updateInfo]);
 
-  if (dismissed || !updateInfo) return null;
+  const isMandatory = !!updateInfo?.mandatory;
+  if (!updateInfo) return null;
+  if (dismissed && !isMandatory) return null;
 
   if (downloading && !downloaded) {
     return (
@@ -266,12 +268,16 @@ const UpdateNotifier = () => {
           {version ? <VersionPill>v{version}</VersionPill> : null}
         </CardHeader>
         <CardBody>
-          Η λήψη ολοκληρώθηκε. Πατήστε «Εγκατάσταση» για να κλείσει η εφαρμογή και να ξεκινήσει ο εγκαταστάτης.
+          {isMandatory
+            ? 'Η λήψη ολοκληρώθηκε. Πρέπει να εγκαταστήσετε την ενημέρωση. Μέχρι τότε μπορείτε να βλέπετε τα έργα, όχι να τα αλλάζετε.'
+            : 'Η λήψη ολοκληρώθηκε. Πατήστε «Εγκατάσταση» για να κλείσει η εφαρμογή και να ξεκινήσει ο εγκαταστάτης.'}
         </CardBody>
         <CardActions>
-          <BtnGhost type="button" onClick={() => setDismissed(true)}>
-            Αργότερα
-          </BtnGhost>
+          {isMandatory ? null : (
+            <BtnGhost type="button" onClick={() => setDismissed(true)}>
+              Αργότερα
+            </BtnGhost>
+          )}
           <BtnInstall type="button" onClick={handleInstall} disabled={installing}>
             {installing ? 'Εγκατάσταση...' : 'Εγκατάσταση τώρα'}
           </BtnInstall>
@@ -284,17 +290,22 @@ const UpdateNotifier = () => {
     <UpdateCard role="dialog" aria-label="Διαθέσιμη ενημέρωση ERGOHUB">
       <CardHeader>
         <CardTitle>
-          <strong>Νέα έκδοση</strong> διαθέσιμη
+          <strong>{isMandatory ? 'Υποχρεωτική ενημέρωση' : 'Νέα έκδοση'}</strong>
+          {isMandatory ? '' : ' διαθέσιμη'}
         </CardTitle>
         {version ? <VersionPill>v{version}</VersionPill> : null}
       </CardHeader>
       <CardBody>
-        Υπάρχει ενημέρωση για το ERGOHUB. Πατήστε «Λήψη» για να ξεκινήσει η λήψη (η πρόοδος εμφανίζεται στην κορυφή της οθόνης).
+        {isMandatory
+          ? 'Η έκδοση που τρέχετε είναι παλιά. Πατήστε «Λήψη» και μετά «Εγκατάσταση». Όταν ολοκληρωθεί η λήψη, δεν θα μπορείτε να αποθηκεύσετε αλλαγές μέχρι να εγκαταστήσετε.'
+          : 'Υπάρχει ενημέρωση για το ERGOHUB. Πατήστε «Λήψη» για να ξεκινήσει η λήψη (η πρόοδος εμφανίζεται στην κορυφή της οθόνης).'}
       </CardBody>
       <CardActions>
-        <BtnGhost type="button" onClick={() => setDismissed(true)}>
-          Αργότερα
-        </BtnGhost>
+        {isMandatory ? null : (
+          <BtnGhost type="button" onClick={() => setDismissed(true)}>
+            Αργότερα
+          </BtnGhost>
+        )}
         <BtnPrimary type="button" onClick={handleDownload} disabled={downloading}>
           {downloading ? 'Λήψη...' : 'Λήψη ενημέρωσης'}
         </BtnPrimary>

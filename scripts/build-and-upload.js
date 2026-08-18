@@ -356,7 +356,7 @@ async function main() {
       fileSize: fileSize,
       checksum: checksum,
       changelog: [`Ενημέρωση ERGOHUB ${version}`],
-      mandatory: false
+      mandatory: process.env.ERGOHUB_MANDATORY_UPDATE === '1'
     };
 
     const versionPath = path.join(ROOT_DIR, 'version.json');

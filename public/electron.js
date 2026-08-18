@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const yauzl = require('yauzl');
 const { DropboxUpdater } = require('./dropbox-updater');
 const { UPDATE_CONFIG } = require('./update-config');
+const { MANDATORY_UPDATE_WRITE_ERROR } = require('./appUpdatePolicy');
 const { uploadPortalJson } = require('./portalDropboxUploader');
 const { logger } = require('./logger');
 const {
@@ -891,6 +892,34 @@ ipcMain.handle('rename-user', async (_event, { username, currentPassword, newUse
 
 // ── Auto-Update ──
 let updater = null;
+let mandatoryUpdateKnown = false;
+let mandatoryInstallerReady = false;
+
+function rememberUpdateCheck(updateInfo) {
+  if (!updateInfo) return updateInfo;
+  if (updateInfo.error) return updateInfo;
+  if (!updateInfo.available) {
+    mandatoryUpdateKnown = false;
+    mandatoryInstallerReady = false;
+    return updateInfo;
+  }
+  mandatoryUpdateKnown = !!updateInfo.mandatory;
+  if (!mandatoryUpdateKnown) mandatoryInstallerReady = false;
+  return updateInfo;
+}
+
+function writesBlockedByMandatoryUpdate() {
+  return mandatoryUpdateKnown && mandatoryInstallerReady;
+}
+
+function withMandatoryUpdateGuard(handler) {
+  return async (event, ...args) => {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
+    return handler(event, ...args);
+  };
+}
 
 function initAutoUpdate() {
   updater = new DropboxUpdater(UPDATE_CONFIG, (progress) => {
@@ -911,7 +940,7 @@ function initAutoUpdate() {
         });
       }
 
-      const updateInfo = await updater.checkForUpdates();
+      const updateInfo = rememberUpdateCheck(await updater.checkForUpdates());
       if (updateInfo.available) {
         console.log(`[Update] New version available: ${updateInfo.version}`);
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -920,12 +949,16 @@ function initAutoUpdate() {
         if (UPDATE_CONFIG.AUTO_DOWNLOAD) {
           try {
             const downloadPath = await updater.downloadUpdate(updateInfo.downloadUrl);
-            if (downloadPath && mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('update-downloaded', {
-                version: updateInfo.version, path: downloadPath
-              });
+            if (downloadPath) {
+              if (mandatoryUpdateKnown) mandatoryInstallerReady = true;
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('update-downloaded', {
+                  version: updateInfo.version, path: downloadPath, mandatory: !!updateInfo.mandatory
+                });
+              }
             }
           } catch (dlErr) {
+            mandatoryInstallerReady = false;
             console.error('[Update] Auto-download failed:', dlErr.message);
           }
         }
@@ -938,15 +971,18 @@ function initAutoUpdate() {
   if (UPDATE_CONFIG.CHECK_INTERVAL > 0) {
     global._updateCheckInterval = setInterval(async () => {
       try {
-        const updateInfo = await updater.checkForUpdates();
+        const updateInfo = rememberUpdateCheck(await updater.checkForUpdates());
         if (updateInfo.available && mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('update-available', updateInfo);
           if (UPDATE_CONFIG.AUTO_DOWNLOAD) {
             const downloadPath = await updater.downloadUpdate(updateInfo.downloadUrl);
-            if (downloadPath && mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('update-downloaded', {
-                version: updateInfo.version, path: downloadPath
-              });
+            if (downloadPath) {
+              if (mandatoryUpdateKnown) mandatoryInstallerReady = true;
+              if (!mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('update-downloaded', {
+                  version: updateInfo.version, path: downloadPath, mandatory: !!updateInfo.mandatory
+                });
+              }
             }
           }
         }
@@ -957,12 +993,19 @@ function initAutoUpdate() {
 
 ipcMain.handle('check-for-updates', async () => {
   if (!updater) return { available: false, error: 'Updater not initialized' };
-  return await updater.checkForUpdates();
+  return rememberUpdateCheck(await updater.checkForUpdates());
 });
 
 ipcMain.handle('download-update', async (_event, downloadUrl) => {
   if (!updater) throw new Error('Updater not initialized');
-  return await updater.downloadUpdate(downloadUrl);
+  try {
+    const downloadPath = await updater.downloadUpdate(downloadUrl);
+    if (downloadPath && mandatoryUpdateKnown) mandatoryInstallerReady = true;
+    return downloadPath;
+  } catch (err) {
+    mandatoryInstallerReady = false;
+    throw err;
+  }
 });
 
 ipcMain.handle('install-update', async () => {
@@ -1722,6 +1765,9 @@ function findFileInDirectoryTree(dir, fileName) {
 // IPC Handlers για διαχείριση αρχείων
 async function handleSaveProjectData(event, projectData) {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     // Προαιρετικός έλεγχος «άλλαξε στο μεταξύ;»: ο καλών δηλώνει σε ποια έκδοση του υποέργου
     // βασίστηκε. Γίνεται ΠΡΙΝ από οποιαδήποτε αλλαγή στον δίσκο, ώστε να μη μείνει τίποτα μισό.
     const expectedUpdatedAt = projectData.__expectedUpdatedAt;
@@ -2067,7 +2113,7 @@ async function handleSaveProjectData(event, projectData) {
   }
 }
 
-ipcMain.handle('save-project-data', handleSaveProjectData);
+ipcMain.handle('save-project-data', withMandatoryUpdateGuard(handleSaveProjectData));
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4210,6 +4256,9 @@ function cleanupOldKhmdhsSnapshots() {
  */
 ipcMain.handle('save-khmdhs-refresh-findings', async (_event, { subprojectId, actingUsername, findings } = {}) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const username = String(actingUsername || '').trim();
     if (!username) return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
     const user = findUserByUsername(username);
@@ -4627,6 +4676,9 @@ ipcMain.handle('open-file-dialog', async () => {
 
 ipcMain.handle('save-files', async (event, files, projectId, subprojectId) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const filesDir = path.join(dataDir, projectId, subprojectId, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ');
     
     if (!fs.existsSync(filesDir)) {
@@ -5418,6 +5470,9 @@ ipcMain.handle('load-all-entaxeis', async () => {
 // Save entaxi - ASYNC VERSION (Non-blocking)
 ipcMain.handle('save-entaxi', async (event, entaxiData) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const entaxiId = entaxiData.entaxiId;
 
     // Σημείωση: Το locking για τις εντάξεις γίνεται στο UI (EntaxisManager).
@@ -5681,6 +5736,9 @@ ipcMain.handle('download-entaxi-file', async (event, entaxiId, fileName) => {
 // Save modification - ASYNC VERSION (Non-blocking)
 ipcMain.handle('save-modification', async (event, entaxiId, modificationData) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const entaxiPath = path.join(entaxisDir, entaxiId);
     const dataFile = path.join(entaxiPath, 'data.json');
     
@@ -7087,6 +7145,9 @@ ipcMain.handle('load-all-proskliseis', async () => loadAllProskliseis());
 // Save prosklisi
 ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     console.log('Saving prosklisi:', prosklisiData.title);
     
     // Create proskliseis directory if it doesn't exist
@@ -8400,6 +8461,9 @@ ipcMain.handle('load-project-egkriseis', async (event, projectId) => {
 // Save new egkrisi
 ipcMain.handle('save-egkrisi', async (event, projectId, subprojectId, egkrisiData) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const dataPath = path.join(dataDir, projectId, subprojectId, 'data.json');
     const egkriseisDir = path.join(dataDir, projectId, subprojectId, 'ΕΓΚΡΙΣΕΙΣ_ΔΙΑΘΕΣΗΣ');
     
@@ -8858,6 +8922,9 @@ ipcMain.handle('copy-file', async (event, sourcePath, destinationPath) => {
 // Save egkriseis data - ASYNC VERSION (Non-blocking)
 ipcMain.handle('save-egkriseis-data', async (event, saveData) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const egkriseisDir = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ');
     const dataDir_egkriseis = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ');
     const dataFile = path.join(dataDir_egkriseis, 'egkriseis-data.json');
@@ -9853,6 +9920,9 @@ ipcMain.handle('load-prosklisi-modifications', async (event, prosklisiId) => {
 // IPC handler για αποθήκευση τροποποίησης πρόσκλησης
 ipcMain.handle('save-prosklisi-modification', async (event, modificationData) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const prosklisiId = modificationData.originalProsklisiId;
     const modificationsPath = path.join(proskliseisDir, prosklisiId, 'modifications.json');
     
