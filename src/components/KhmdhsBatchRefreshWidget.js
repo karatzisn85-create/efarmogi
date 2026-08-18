@@ -1843,6 +1843,18 @@ export default function KhmdhsBatchRefreshWidget({
         }
         const item = eligible[i];
         setProgress({ current: i + 1, total, label: `${i + 1} / ${total} — ${item.label}` });
+        let unsubItemProgress = () => {};
+        if (typeof ipcRenderer?.on === 'function') {
+          unsubItemProgress = ipcRenderer.on('khmdhs-refresh-progress', (payload) => {
+            if (!payload || payload.subprojectId !== item.id) return;
+            if (!payload.message) return;
+            setProgress({
+              current: i + 1,
+              total,
+              label: `${i + 1} / ${total} — ${item.label}: ${payload.message}`,
+            });
+          }) || (() => {});
+        }
 
         // Κλείδωμα του υποέργου για ΟΛΗ τη διάρκεια ανάγνωσης→αποθήκευσης, ώστε να μην
         // «πατηθούν» αλλαγές που κάνει ταυτόχρονα άλλος χρήστης σε άλλον υπολογιστή.
@@ -1871,6 +1883,7 @@ export default function KhmdhsBatchRefreshWidget({
             skippedItems.push(busyEntry);
             detailItems.push(busyEntry);
             addLog('🔒', `${item.label} — Ανοιχτό από άλλον χρήστη`);
+            try { unsubItemProgress(); } catch (_) { /* ignore */ }
             continue;
           }
           lockAcquired = true;
@@ -2118,6 +2131,7 @@ export default function KhmdhsBatchRefreshWidget({
           } catch { /* ignore persist failure */ }
           addLog('❌', `${item.label} — Εξαίρεση`);
         } finally {
+          try { unsubItemProgress(); } catch (_) { /* ignore */ }
           if (lockAcquired) {
             try {
               await ipcRenderer.invoke('release-khmdhs-refresh-lock', {

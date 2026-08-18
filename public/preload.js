@@ -131,7 +131,8 @@ const ALLOWED_RECEIVE = new Set([
   'app-close-blocked','backup-completed','backup-progress','locks-changed',
   'task-data-changed',
   'update-available','update-downloaded','update-download-progress','update-installed',
-  'task-notification'
+  'task-notification',
+  'khmdhs-refresh-progress',
 ]);
 
 contextBridge.exposeInMainWorld('electronAPI', {

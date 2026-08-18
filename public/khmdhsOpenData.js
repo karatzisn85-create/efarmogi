@@ -1017,7 +1017,7 @@ function mergeKhmdhsFieldsForSave(projectData, existingData) {
   };
 }
 
-async function fetchKhmdhsContractByAdam(adamRaw) {
+async function fetchKhmdhsContractByAdam(adamRaw, opts = {}) {
   const adam = normalizeAdam(adamRaw);
   if (!adam) {
     return {
@@ -1033,7 +1033,8 @@ async function fetchKhmdhsContractByAdam(adamRaw) {
       Accept: 'application/json',
       'Content-Type': 'application/json; charset=UTF-8'
     },
-    body: JSON.stringify(buildContractSearchBody(adam))
+    body: JSON.stringify(buildContractSearchBody(adam)),
+    signal: opts?.signal || null,
   });
   const text = await res.text();
   let json;
@@ -1078,6 +1079,57 @@ function normalizePaymentAdam(s) {
   return t;
 }
 
+/**
+ * Το ΚΗΜΔΗΣ μερικές φορές επιστρέφει ημερομηνίες με διψήφιο/μηδενισμένο έτος
+ * (π.χ. signedDate «0026-01-21…» αντί για 2026). Χωρίς διόρθωση, το φίλτρο
+ * «ένταλμα πριν τη σύμβαση» αποκλείει έγκυρα PAY.
+ */
+function sanitizeKhmdhsDateValue(raw) {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'object' && raw.value != null) {
+    return sanitizeKhmdhsDateValue(raw.value);
+  }
+  const s = String(raw).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,4})-(\d{2})-(\d{2})(.*)$/);
+  if (!m) return s;
+  let year = parseInt(m[1], 10);
+  if (Number.isNaN(year)) return s;
+  if (year >= 0 && year <= 99) {
+    year += 2000;
+    return `${String(year).padStart(4, '0')}-${m[2]}-${m[3]}${m[4] || ''}`;
+  }
+  return s;
+}
+
+function isPlausibleKhmdhsCalendarDate(raw) {
+  const sanitized = sanitizeKhmdhsDateValue(raw);
+  if (!sanitized) return false;
+  const d = new Date(sanitized);
+  if (Number.isNaN(d.getTime())) return false;
+  const y = d.getFullYear();
+  const maxY = new Date().getFullYear() + 2;
+  return y >= 1990 && y <= maxY;
+}
+
+/** Ημ/νία εντάλματος για σύγκριση με σύμβαση — αγνοεί αδύνατες τιμές ΚΗΜΔΗΣ. */
+function pickPaymentDateForRelatedness(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const candidates = [
+    snapshot.signedDate,
+    snapshot.submissionDate,
+    snapshot.issueDate,
+    snapshot.publicationDate,
+  ];
+  for (const candidate of candidates) {
+    const sanitized = sanitizeKhmdhsDateValue(candidate);
+    if (!sanitized || !isPlausibleKhmdhsCalendarDate(sanitized)) continue;
+    const d = new Date(sanitized);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
 /** Snapshot χρηματικού εντάλματος πληρωμής (PAY) */
 function mapPaymentRecord(row) {
   if (!row || typeof row !== 'object') return null;
@@ -1087,8 +1139,8 @@ function mapPaymentRecord(row) {
   return {
     referenceNumber: row.referenceNumber || null,
     title: row.title || null,
-    signedDate: row.signedDate || null,
-    submissionDate: row.submissionDate || null,
+    signedDate: sanitizeKhmdhsDateValue(row.signedDate),
+    submissionDate: sanitizeKhmdhsDateValue(row.submissionDate),
     lastUpdateDate: row.lastUpdateDate || null,
     cancelled: !!row.cancelled,
     cancellationDate: row.cancellationDate || null,
@@ -1118,7 +1170,7 @@ function pickKhmdhsPaymentSnapshot(snapshot) {
   return mapped;
 }
 
-async function fetchKhmdhsPaymentByAdam(adamRaw) {
+async function fetchKhmdhsPaymentByAdam(adamRaw, opts = {}) {
   const adam = normalizePaymentAdam(adamRaw);
   if (!adam) {
     return {
@@ -1134,6 +1186,7 @@ async function fetchKhmdhsPaymentByAdam(adamRaw) {
       'Content-Type': 'application/json; charset=UTF-8',
     },
     body: JSON.stringify({ referenceNumber: adam }),
+    signal: opts?.signal || null,
   });
   const text = await res.text();
   let json;
@@ -1212,6 +1265,9 @@ module.exports = {
   normalizeNoticeAdam,
   normalizeRequestAdam,
   normalizePaymentAdam,
+  sanitizeKhmdhsDateValue,
+  isPlausibleKhmdhsCalendarDate,
+  pickPaymentDateForRelatedness,
   mapContractRecord,
   mapNoticeRecord,
   mapRequestRecord,

@@ -15,6 +15,7 @@ const {
   pickKhmdhsRequestSnapshot,
   pickKhmdhsPaymentSnapshot,
   pickKhmdhsSnapshot,
+  pickPaymentDateForRelatedness,
   mapKhmdhsToAssignmentProcedure,
   resolveKhmdhsContractAmount,
   applyContractAmountResolution,
@@ -52,6 +53,15 @@ const {
   allSiblingsHaveAmountHints,
   enrichContractRecordWithParallelHint,
 } = require('./khmdhsParallelContractAmounts');
+const {
+  runWithKhmdhsFetchContext,
+  getKhmdhsFetchContext,
+  reportKhmdhsProgress,
+  mapWithConcurrency,
+  cachedFetch,
+  CONTRACT_FETCH_CONCURRENCY,
+  PAYMENT_FETCH_CONCURRENCY,
+} = require('./khmdhsFetchPool');
 
 const MAX_CHAIN_WALK = 24;
 const MAX_CANDIDATE_FETCH = 8;
@@ -438,22 +448,6 @@ async function expandNoticeMarkersFromKnownProcs(stages, extraAdams = []) {
   };
 }
 
-async function loadContractRecordsForMarkers(markers, { limit = MAX_CANDIDATE_FETCH } = {}) {
-  const map = new Map();
-  const cap = Math.max(1, Number(limit) || MAX_CANDIDATE_FETCH);
-  for (const m of (markers || []).slice(0, cap)) {
-    if (!m?.adam) continue;
-    const rec = await fetchContractRecord(m.adam);
-    if (rec && !rec.cancelled) {
-      // Φυλάσσουμε το modified marker (από '*' στη λίστα ΚΗΜΔΗΣ) στο record
-      // ώστε το filterSupplementaryFromParallelRoots να το χρησιμοποιεί
-      // ακόμα κι όταν ο τίτλος δεν αναφέρει ρητά «συμπληρωματική».
-      map.set(m.adam, m.modified ? { ...rec, _khmdhsModified: true } : rec);
-    }
-  }
-  return map;
-}
-
 async function pickInitialContractAdam(markers, seedAdam, { seedType = '' } = {}) {
   const seedHit = pickSeedFromList(markers, seedAdam);
   if (seedHit) {
@@ -791,9 +785,38 @@ function buildChainNodeLabel(kind, { isRoot, isSeed, confidence = '' } = {}) {
 async function fetchContractRecord(adam) {
   const normalized = normalizeAdam(adam);
   if (!normalized) return null;
-  const res = await fetchKhmdhsContractByAdam(normalized);
-  if (!res.success || !res.snapshot) return null;
-  return res.snapshot;
+  return cachedFetch('contract', normalized, async () => {
+    const ctx = getKhmdhsFetchContext();
+    const res = await fetchKhmdhsContractByAdam(normalized, { signal: ctx?.signal || null });
+    if (!res.success || !res.snapshot) return null;
+    return res.snapshot;
+  });
+}
+
+async function loadContractRecordsForMarkers(markers, { limit = MAX_CANDIDATE_FETCH } = {}) {
+  const map = new Map();
+  const cap = Math.max(1, Number(limit) || MAX_CANDIDATE_FETCH);
+  const list = (markers || []).slice(0, cap).filter((m) => m?.adam);
+  if (!list.length) return map;
+
+  reportKhmdhsProgress('contracts', `Ανάκτηση συμβάσεων 0/${list.length}…`, {
+    current: 0,
+    total: list.length,
+  });
+  let done = 0;
+  await mapWithConcurrency(list, CONTRACT_FETCH_CONCURRENCY, async (m) => {
+    throwIfKhmdhsAborted(getKhmdhsFetchContext()?.signal || null);
+    const rec = await fetchContractRecord(m.adam);
+    if (rec && !rec.cancelled) {
+      map.set(m.adam, m.modified ? { ...rec, _khmdhsModified: true } : rec);
+    }
+    done += 1;
+    reportKhmdhsProgress('contracts', `Ανάκτηση συμβάσεων ${done}/${list.length}…`, {
+      current: done,
+      total: list.length,
+    });
+  });
+  return map;
 }
 
 /**
@@ -1500,11 +1523,35 @@ async function resolvePayments(
   const out = [];
   const allPayments = stages.payments || [];
   const payFetchTruncated = allPayments.length > MAX_PAYMENT_FETCH;
-  const list = allPayments.slice(0, MAX_PAYMENT_FETCH);
-  for (const m of list) {
-    if (!m.adam) continue;
-    const res = await fetchKhmdhsPaymentByAdam(m.adam);
-    if (res.success && res.snapshot) {
+  const list = allPayments.slice(0, MAX_PAYMENT_FETCH).filter((m) => m?.adam);
+  const skippedUnrelated = [];
+  const payFetchFailures = [];
+
+  reportKhmdhsProgress('payments', `Ανάκτηση πληρωμών 0/${list.length || 0}…`, {
+    current: 0,
+    total: list.length,
+  });
+
+  let done = 0;
+  const fetched = await mapWithConcurrency(list, PAYMENT_FETCH_CONCURRENCY, async (m) => {
+    throwIfKhmdhsAborted(getKhmdhsFetchContext()?.signal || null);
+    const res = await cachedFetch('payment', normalizeAdam(m.adam) || String(m.adam), async () => {
+      const ctx = getKhmdhsFetchContext();
+      return fetchKhmdhsPaymentByAdam(m.adam, { signal: ctx?.signal || null });
+    });
+    done += 1;
+    reportKhmdhsProgress('payments', `Ανάκτηση πληρωμών ${done}/${list.length}…`, {
+      current: done,
+      total: list.length,
+    });
+    return { marker: m, res };
+  });
+
+  for (const item of fetched) {
+    const m = item?.marker;
+    const res = item?.res;
+    if (!m?.adam) continue;
+    if (res?.success && res.snapshot) {
       const snap = res.snapshot;
       const payContractRef = normalizeAdam(snap.contractRefNo);
       const payRequestRef = normalizeAdam(snap.requestRefNo);
@@ -1513,32 +1560,29 @@ async function resolvePayments(
       let unrelatedReason = null;
 
       if (payContractRef && knownContractAdams.size > 0 && !knownContractAdams.has(payContractRef)) {
-        // Ο ΑΔΑΜ σύμβασης που αναφέρει το ένταλμα δεν ανήκει στην αλυσίδα
         isUnrelated = true;
         unrelatedReason = snap.contractRefNo;
       } else if (!payContractRef && payRequestRef && knownRequestAdams.size > 0 && !knownRequestAdams.has(payRequestRef)) {
-        // Δεν υπάρχει contractRefNo — fallback: ελέγχουμε αν το REQ είναι γνωστό
         isUnrelated = true;
         unrelatedReason = snap.requestRefNo;
       }
 
-      // Ένταλμα ΠΡΙΝ από την υπογραφή σύμβασης = αδύνατο, άρα άσχετο
-      // Χρησιμοποιούμε signedDate (ημ/νία έκδοσης) ή submissionDate ως fallback
       if (!isUnrelated && earliestContractDate instanceof Date) {
-        const rawPayDate = snap.signedDate || snap.submissionDate || '';
-        if (rawPayDate) {
-          const payD = new Date(rawPayDate);
-          if (!isNaN(payD.getTime()) && payD < earliestContractDate) {
-            isUnrelated = true;
-            unrelatedReason = `ημ/νία εντάλματος (${rawPayDate}) προ σύμβασης`;
-          }
+        // Μην εμπιστεύεσαι ακατέργαστο signedDate με έτος τύπου 0026 — προτίμησε
+        // εύλογη ημ/νία (ή καθόλου έλεγχο) ώστε να μη χάνονται έγκυρα PAY.
+        const payD = pickPaymentDateForRelatedness(snap);
+        if (payD && payD < earliestContractDate) {
+          isUnrelated = true;
+          unrelatedReason = `ημ/νία εντάλματος (${payD.toISOString().slice(0, 10)}) προ σύμβασης`;
         }
       }
 
       if (isUnrelated) {
-        // Αποκλεισμός από τη λίστα — καταγράφεται στα skippedUnrelated για το DQR
-        out._skippedUnrelated = out._skippedUnrelated || [];
-        out._skippedUnrelated.push({ adam: m.adam, unrelatedContractRef: unrelatedReason, snapshot: snap });
+        skippedUnrelated.push({
+          adam: m.adam,
+          unrelatedContractRef: unrelatedReason,
+          snapshot: snap,
+        });
         continue;
       }
       out.push({
@@ -1546,16 +1590,16 @@ async function resolvePayments(
         snapshot: snap,
         fetchedAt: new Date().toISOString(),
       });
-    } else {
-      // Χωρίς λεπτομέρειες δεν μπορούμε να ελέγξουμε αν το ένταλμα ανήκει στη σύμβαση
-      // του υποέργου — δεν το προσθέτουμε ως «νέο» (αλλιώς μπαίνουν άσχετα PAY σε stubs).
-      out._payFetchFailures = out._payFetchFailures || [];
-      out._payFetchFailures.push({
+    } else if (res && !res.success) {
+      payFetchFailures.push({
         adam: m.adam,
         error: res.error || 'Δεν ανακτήθηκαν στοιχεία.',
       });
     }
   }
+
+  out._skippedUnrelated = skippedUnrelated;
+  out._payFetchFailures = payFetchFailures;
   out._payFetchTruncated = payFetchTruncated;
   out._totalPaymentsInChain = allPayments.length;
   return out;
@@ -1773,6 +1817,15 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   const abortSignal = opts.signal || null;
   throwIfKhmdhsAborted(abortSignal);
 
+  return runWithKhmdhsFetchContext({
+    contractCache: opts.contractCache instanceof Map ? opts.contractCache : new Map(),
+    paymentCache: opts.paymentCache instanceof Map ? opts.paymentCache : new Map(),
+    signal: abortSignal,
+    onProgress: opts.onProgress,
+  }, async () => resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal));
+}
+
+async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
   const seedType = adamType(seedNorm);
   const preferNoticeAdam = normalizeNoticeAdam(opts.preferNoticeAdam) || '';
   const knownExtraAdams = [
@@ -1783,6 +1836,7 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   let skippedCancelled = [];
 
   try {
+  reportKhmdhsProgress('chain', 'Ανάκτηση αλυσίδας ΑΔΑΜ…');
   let chainRes = await fetchKhmdhsAdamChain(seedNorm, { signal: abortSignal });
   if (chainRes?.aborted) {
     return { success: false, error: chainRes.error || 'Η διαδικασία ακυρώθηκε.', aborted: true };
@@ -1861,6 +1915,20 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
     const parsed = parseChainLists(chainRes.adamChain);
     stages = parsed.stages;
     skippedCancelled = [...parsed.skippedCancelled];
+  }
+
+  // Αν ξεκινήσαμε από ένταλμα, βεβαιώνουμε ότι ο σπόρος παραμένει στη λίστα PAY
+  // (το adamChain το επιστρέφει συνήθως, αλλά μετά από reanchor/φίλτρα δεν πρέπει να χαθεί).
+  if (seedType === 'PAY' && seedNorm) {
+    const hasSeedPay = (stages.payments || []).some(
+      (m) => normalizeAdam(m.adam) === seedNorm
+    );
+    if (!hasSeedPay) {
+      stages.payments = [
+        ...(stages.payments || []),
+        { adam: seedNorm, modified: false, cancelled: false },
+      ];
+    }
   }
 
   const stagesBeforeEnrich = {
@@ -2126,6 +2194,18 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   }
 
   throwIfKhmdhsAborted(abortSignal);
+  reportKhmdhsProgress('payments', 'Ανάκτηση πληρωμών…');
+  if (seedType === 'PAY' && seedNorm) {
+    const hasSeedPay = (stages.payments || []).some(
+      (m) => normalizeAdam(m.adam) === seedNorm
+    );
+    if (!hasSeedPay) {
+      stages.payments = [
+        ...(stages.payments || []),
+        { adam: seedNorm, modified: false, cancelled: false },
+      ];
+    }
+  }
   const payments = await resolvePayments(stages, knownContractAdams, knownRequestAdams, earliestContractDate);
   const skippedUnrelatedPayments = payments._skippedUnrelated || [];
   const payFetchFailures = payments._payFetchFailures || [];
@@ -2151,6 +2231,7 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   const actContractRecords = await loadContractRecordsForMarkers(stages.contracts, {
     limit: MAX_PARALLEL_CONTRACT_FETCH,
   });
+  reportKhmdhsProgress('finalize', 'Ολοκλήρωση ελέγχου δεδομένων…');
   const refreshedParallelInfo = detectParallelContractSiblings(actContractRecords);
   if ((refreshedParallelInfo.siblingRoots || []).length) {
     parallelContractInfo = {

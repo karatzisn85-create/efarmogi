@@ -3320,7 +3320,7 @@ function getKhmdhsSubprojectBusyStatus(subprojectId, username) {
   );
 }
 
-ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectId, actingUsername, batchMode } = {}) => {
+ipcMain.handle('preview-subproject-khmdhs-refresh', async (event, { subprojectId, actingUsername, batchMode } = {}) => {
   let localAbort = null;
   try {
     const username = String(actingUsername || '').trim();
@@ -3380,22 +3380,47 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
     }
 
     const chainSvc = require('./khmdhsAdamChainService');
+    const sharedContractCache = new Map();
+    const sharedPaymentCache = new Map();
+    const emitProgress = (payload) => {
+      try {
+        if (event?.sender && !event.sender.isDestroyed()) {
+          event.sender.send('khmdhs-refresh-progress', {
+            subprojectId: sid,
+            ...(payload && typeof payload === 'object' ? payload : {}),
+          });
+        }
+      } catch (_) { /* ignore */ }
+    };
+    const resolveOptsBase = {
+      apeAmount,
+      signal: localAbort?.signal,
+      preferNoticeAdam: project.khmdhsNoticeAdam || project.khmdhsNoticeSnapshot?.referenceNumber || '',
+      extraAdams: [
+        project.khmdhsNoticeAdam,
+        project.khmdhsNoticeSnapshot?.referenceNumber,
+      ].filter(Boolean),
+      contractCache: sharedContractCache,
+      paymentCache: sharedPaymentCache,
+      onProgress: emitProgress,
+    };
 
     // Τεχνητή (συρραμμένη) αλυσίδα: ανακτούμε διαδοχικά ΟΛΟΥΣ τους σπόρους του σχεδίου
     // ώστε να ξαναχτιστεί όλη η αλυσίδα (ο renderer τα συγχωνεύει με stitch, χωρίς σβήσιμο).
+    // Κοινό cache συμβάσεων/πληρωμών μεταξύ σπόρων — αποφεύγει διπλά downloads.
     if (seedPlan.usesStitchPlan && seedPlan.adams.length >= 2) {
       const stitchResults = [];
-      for (const seedAdam of seedPlan.adams) {
-        // eslint-disable-next-line no-await-in-loop
-        const r = await chainSvc.resolveKhmdhsAdamChain(seedAdam, {
-          apeAmount,
-          signal: localAbort?.signal,
-          preferNoticeAdam: project.khmdhsNoticeAdam || project.khmdhsNoticeSnapshot?.referenceNumber || '',
-          extraAdams: [
-            project.khmdhsNoticeAdam,
-            project.khmdhsNoticeSnapshot?.referenceNumber,
-          ].filter(Boolean),
+      const totalSeeds = seedPlan.adams.length;
+      for (let seedIdx = 0; seedIdx < seedPlan.adams.length; seedIdx += 1) {
+        const seedAdam = seedPlan.adams[seedIdx];
+        emitProgress({
+          phase: 'stitch',
+          message: `Συρραφή αλυσίδας ${seedIdx + 1}/${totalSeeds}…`,
+          current: seedIdx + 1,
+          total: totalSeeds,
         });
+        // eslint-disable-next-line no-await-in-loop
+        const r = await chainSvc.resolveKhmdhsAdamChain(seedAdam, resolveOptsBase);
         if (r?.aborted) {
           return { success: false, aborted: true, error: 'Η διαδικασία ακυρώθηκε.' };
         }
@@ -3434,15 +3459,7 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (_event, { subprojectI
       };
     }
 
-    const chainRes = await chainSvc.resolveKhmdhsAdamChain(seedInfo.adam, {
-      apeAmount,
-      signal: localAbort?.signal,
-      preferNoticeAdam: project.khmdhsNoticeAdam || project.khmdhsNoticeSnapshot?.referenceNumber || '',
-      extraAdams: [
-        project.khmdhsNoticeAdam,
-        project.khmdhsNoticeSnapshot?.referenceNumber,
-      ].filter(Boolean),
-    });
+    const chainRes = await chainSvc.resolveKhmdhsAdamChain(seedInfo.adam, resolveOptsBase);
 
     if (!chainRes?.success) {
       return {

@@ -1277,14 +1277,13 @@ function SubprojectDetailModal({
     if (!canRefreshKhmdhs || refreshLoading || isLocked || !project?.subprojectId) return;
     setRefreshLoading(true);
     setRefreshProgress('Σύνδεση με ΚΗΜΔΗΣ…');
-    const progressSteps = [
-      { delay: 2500, msg: 'Ανάκτηση αλυσίδας πράξεων…' },
-      { delay: 6000, msg: 'Ανάκτηση εγγράφων & πληρωμών…' },
-      { delay: 12000, msg: 'Επεξεργασία δεδομένων…' },
-    ];
-    const timers = progressSteps.map((s) =>
-      setTimeout(() => setRefreshProgress(s.msg), s.delay)
-    );
+    let unsubProgress = () => {};
+    if (typeof ipcRenderer?.on === 'function') {
+      unsubProgress = ipcRenderer.on('khmdhs-refresh-progress', (payload) => {
+        if (!payload || payload.subprojectId !== project.subprojectId) return;
+        if (payload.message) setRefreshProgress(String(payload.message));
+      }) || (() => {});
+    }
     // Όσο μένει ανοιχτός ο διάλογος αλλαγών ή ο χαρακτηρισμός, το κλείδωμα παραμένει.
     let keepLock = false;
     try {
@@ -1406,7 +1405,7 @@ function SubprojectDetailModal({
     } catch (e) {
       showToast(e?.message || 'Σφάλμα κατά την ανανέωση ΚΗΜΔΗΣ.', 'error');
     } finally {
-      timers.forEach(clearTimeout);
+      try { unsubProgress(); } catch (_) { /* ignore */ }
       setRefreshLoading(false);
       setRefreshProgress('');
       if (!keepLock) await releaseKhmdhsRefreshLock();
