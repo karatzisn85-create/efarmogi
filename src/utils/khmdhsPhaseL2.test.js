@@ -180,6 +180,68 @@ describe('khmdhs phase L2 review ↔ form sync', () => {
     expect(form.contractEndDate).toBe('2024-12-31');
   });
 
+  test('χαρακτηρισμός παράτασης δημιουργεί κρίκο εμφάνισης χωρίς ποσό', () => {
+    const extAdam = '24SYMV099999999';
+    let review = baseForm.khmdhsDataQualityReview;
+    const extItem = { fieldId: 'chainKindReview', chainAdam: extAdam, status: 'needs_review' };
+    review = {
+      ...review,
+      items: [...(review.items || []), extItem],
+    };
+    review = resolveChainKindChoice(review, extItem, baseForm, {
+      kind: 'extension',
+      endDate: '2025-06-30',
+    });
+    const eff = computeChainCharacterizationEffects(baseForm.khmdhsContractChainHistory, review);
+    const extRow = eff.supplementaryContracts.find((c) => c.khmdhsAdam === extAdam);
+    expect(extRow).toBeTruthy();
+    expect(extRow.comments).toBe('Παράταση');
+    expect(extRow.amount).toBe('');
+    expect(extRow.khmdhsDerived).toBe(true);
+    expect(extRow.chainKind).toBe('extension');
+    expect(eff.contractDeadline).toBe('2025-06-30');
+
+    const form = applyCharacterizationLikeForm(
+      { ...baseForm, khmdhsDataQualityReview: review },
+      review,
+      { fullRecompute: true }
+    );
+    expect(form.supplementaryContracts.some(
+      (c) => c.khmdhsAdam === extAdam && c.comments === 'Παράταση'
+    )).toBe(true);
+  });
+
+  test('επαναχαρακτηρισμός από συμπληρωματική σε παράταση αντικαθιστά τη γραμμή ποσού', () => {
+    const modAdamLocal = '24SYMV016093873';
+    let review = baseForm.khmdhsDataQualityReview;
+    const kindItem = review.items.find((i) => i.chainAdam === modAdamLocal);
+    review = resolveChainKindChoice(review, kindItem, baseForm, {
+      kind: 'modification',
+      modAmount: '2.000,00',
+      modAmountType: 'delta',
+    });
+    let form = applyCharacterizationLikeForm(
+      { ...baseForm, khmdhsDataQualityReview: review },
+      review
+    );
+    expect(form.supplementaryContracts.find((c) => c.khmdhsAdam === modAdamLocal)?.amount)
+      .toBe('2.000,00');
+
+    review = resolveChainKindChoice(review, kindItem, form, {
+      kind: 'extension',
+      endDate: '2025-08-01',
+    });
+    form = applyCharacterizationLikeForm(
+      { ...form, khmdhsDataQualityReview: review },
+      review,
+      { fullRecompute: true }
+    );
+    const row = form.supplementaryContracts.find((c) => c.khmdhsAdam === modAdamLocal);
+    expect(row?.comments).toBe('Παράταση');
+    expect(row?.amount).toBe('');
+    expect(form.contractEndDate).toBe('2025-08-01');
+  });
+
   test('isChainKindReviewKey detects chain kind keys', () => {
     expect(isChainKindReviewKey('chainKindReview::24SYMV016093873')).toBe(true);
     expect(isChainKindReviewKey('contractAmount::0')).toBe(false);

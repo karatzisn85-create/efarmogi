@@ -6,7 +6,8 @@
  *
  *  - contract (αρχική)      → βάση: ποσό + ημ/νία + λήξη σύμβασης
  *  - republication (ορθή)   → ΑΝΤΙΚΑΘΙΣΤΑ στοιχεία της πράξης που διορθώνει (δεν προστίθεται)
- *  - extension (παράταση)   → ενημερώνει ΜΟΝΟ τη λήξη/προθεσμία (όχι ποσό)
+ *  - extension (παράταση)   → ενημερώνει τη λήξη/προθεσμία (όχι ποσό) και δημιουργεί
+ *                            γραμμή εμφάνισης στην αλυσίδα (κρίκος «Παράταση»)
  *  - modification (τροπ/ση) → νέα συμπληρωματική γραμμή· ποσό = διαφορά ή νέα συνολική αξία
  *  - other / uncertain      → καμία αυτόματη επίπτωση
  */
@@ -183,6 +184,17 @@ export function computeChainCharacterizationEffects(chainHistory, review) {
       if (endIso && (!contractDeadline || endIso > String(contractDeadline).slice(0, 10))) {
         contractDeadline = endIso;
       }
+      // Χωρίς ποσό — μόνο προθεσμία. Η γραμμή χρειάζεται ώστε ο κρίκος «Παράταση»
+      // να εμφανίζεται στη ράγα/στάδια (όπως στην κατανομή SYMV), όχι μόνο στα Αρχεία.
+      supplementaryContracts.push({
+        date: choice?.modDate || h.contractDate || endIso || '',
+        amount: '',
+        comments: CHAIN_KIND_LABEL.extension,
+        khmdhsAdam: h.adam,
+        khmdhsDerived: true,
+        chainKind: kind,
+        amountType: null,
+      });
       perAct.push({ adam: h.adam, kind, effect: 'deadline', endDate: endIso });
       return;
     }

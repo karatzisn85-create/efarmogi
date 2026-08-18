@@ -2,6 +2,7 @@
  * @jest-environment node
  */
 import { buildKhmdhsLifecycleStages, awardIndicatesNoPriorNotice } from './khmdhsLifecycleStages';
+import { computeChainCharacterizationEffects } from './khmdhsChainActions';
 
 describe('awardIndicatesNoPriorNotice — χωρίς δημοσίευση στο ΚΗΜΔΗΣ', () => {
   test('αναγνωρίζει διαπραγμάτευση χωρίς προηγούμενη δημοσίευση', () => {
@@ -86,5 +87,44 @@ describe('buildKhmdhsLifecycleStages — παρατάσεις vs συμπληρ�
     expect(supp?.has).toBe(true);
     expect(supp?.shortLabel).toBe('Συμπλ.');
     expect(ext).toBeUndefined();
+  });
+
+  test('παράταση από χαρακτηρισμό αλυσίδας εμφανίζεται ως κρίκος Παράτ.', () => {
+    const extAdam = '25SYMVEXT001';
+    const history = [
+      {
+        adam: '24SYMV001',
+        isRoot: true,
+        order: 0,
+        contractAmount: '10.000,00',
+        endDate: '2024-12-31',
+      },
+      {
+        adam: extAdam,
+        isRoot: false,
+        order: 1,
+        kind: 'extension',
+        suggestedKind: 'extension',
+        endDate: '2025-06-30',
+        contractDate: '2025-01-10',
+      },
+    ];
+    const review = {
+      items: [{ fieldId: 'chainKindReview', chainAdam: extAdam, status: 'needs_review' }],
+      resolutions: {
+        [`chainKindReview::${extAdam}`]: { value: 'extension', meta: { endDate: '2025-06-30' } },
+      },
+    };
+    const eff = computeChainCharacterizationEffects(history, review);
+    const stages = buildKhmdhsLifecycleStages({
+      ...baseProject,
+      supplementaryContracts: eff.supplementaryContracts,
+      khmdhsContractChainHistory: history,
+      khmdhsDataQualityReview: review,
+    });
+    const ext = stages.find((s) => s.id === 'EXTENSION');
+    expect(ext?.has).toBe(true);
+    expect(ext?.adam).toBe(extAdam);
+    expect(ext?.shortLabel).toBe('Παράτ.');
   });
 });
