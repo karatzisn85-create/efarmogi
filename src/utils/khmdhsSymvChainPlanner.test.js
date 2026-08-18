@@ -11,6 +11,8 @@ import {
   inferDefaultSymvRole,
   symvPlanMatchesChain,
   mergeStitchChainResForSymvPlan,
+  resolveReusablePlanForKhmdhsRefresh,
+  needsSymvPlannerAfterKhmdhsRefresh,
 } from './khmdhsSymvChainPlanner';
 import { applySymvChainPlanToForm, buildContractChainHistoryFromSymvPlan } from './khmdhsSymvChainApply';
 
@@ -271,5 +273,123 @@ describe('khmdhsSymvChainPlanner', () => {
         { adam: '22SYMV011799800', role: SYMV_CHAIN_ROLE.MAIN },
       ],
     }, combined)).toBeNull();
+  });
+
+  it('card refresh does not re-ask when only auto-skipped docs appear', () => {
+    const existingPlan = {
+      items: [
+        { adam: '22SYMV011799800', role: SYMV_CHAIN_ROLE.MAIN, date: '2022-06-01', amount: '100' },
+        { adam: '22SYMV011327633', role: SYMV_CHAIN_ROLE.SKIP },
+        { adam: '22SYMV011308661', role: SYMV_CHAIN_ROLE.SKIP },
+        { adam: '24SYMV015482244', role: SYMV_CHAIN_ROLE.SUPPLEMENTARY, date: '2024-09-19', amount: '74.155,85' },
+      ],
+    };
+    const refreshRes = {
+      success: true,
+      usesStitchPlan: false,
+      chainRes: {
+        ...pezonChainRes,
+        contractChainHistory: [
+          ...pezonChainRes.contractChainHistory,
+          { adam: '25SYMV088888888', label: 'Ορθή επανάληψη' },
+        ],
+        chainMeta: {
+          ...pezonChainRes.chainMeta,
+          contractSnapshotsByAdam: {
+            ...pezonChainRes.chainMeta.contractSnapshotsByAdam,
+            '25SYMV088888888': {
+              title: 'ΟΡΘΗ ΕΠΑΝΑΛΗΨΗ ΑΠΟΦΑΣΗΣ',
+              referenceNumber: '25SYMV088888888',
+            },
+          },
+        },
+      },
+    };
+    expect(symvPlanMatchesChain(existingPlan, refreshRes.chainRes)).toBe(false);
+    const reusable = resolveReusablePlanForKhmdhsRefresh(existingPlan, refreshRes);
+    expect(reusable).not.toBeNull();
+    expect(reusable.items.find((i) => i.adam === '22SYMV011327633')?.role).toBe(SYMV_CHAIN_ROLE.SKIP);
+    expect(reusable.items.find((i) => i.adam === '25SYMV088888888')?.role).toBe(SYMV_CHAIN_ROLE.SKIP);
+    expect(needsSymvPlannerAfterKhmdhsRefresh(existingPlan, refreshRes)).toBe(false);
+  });
+
+  it('card refresh still asks when a new real contract appears', () => {
+    const existingPlan = {
+      items: [
+        { adam: '22SYMV011799800', role: SYMV_CHAIN_ROLE.MAIN, date: '2022-06-01', amount: '100' },
+      ],
+    };
+    const refreshRes = {
+      success: true,
+      usesStitchPlan: false,
+      chainRes: {
+        ...pezonChainRes,
+        contractChainHistory: [
+          ...pezonChainRes.contractChainHistory,
+          { adam: '25SYMV077777777', label: 'Συμπληρωματική σύμβαση' },
+        ],
+        chainMeta: {
+          ...pezonChainRes.chainMeta,
+          contractSnapshotsByAdam: {
+            ...pezonChainRes.chainMeta.contractSnapshotsByAdam,
+            '25SYMV077777777': {
+              title: 'ΣΥΜΠΛΗΡΩΜΑΤΙΚΗ ΣΥΜΒΑΣΗ',
+              referenceNumber: '25SYMV077777777',
+            },
+          },
+        },
+      },
+    };
+    expect(resolveReusablePlanForKhmdhsRefresh(existingPlan, refreshRes)).toBeNull();
+    expect(needsSymvPlannerAfterKhmdhsRefresh(existingPlan, refreshRes)).toBe(true);
+  });
+
+  it('card refresh reuses plan when stitch adds only auto-skipped docs', () => {
+    const existingPlan = {
+      items: [
+        { adam: '22SYMV011799800', role: SYMV_CHAIN_ROLE.MAIN, date: '2022-06-01', amount: '100' },
+      ],
+    };
+    const primary = {
+      success: true,
+      contract: { adam: '22SYMV011799800' },
+      contractChainHistory: [{ adam: '22SYMV011799800', isRoot: true }],
+      chainMeta: {
+        contractSnapshotsByAdam: {
+          '22SYMV011799800': { title: 'ΚΥΡΙΑ', referenceNumber: '22SYMV011799800' },
+        },
+        parallelContractCandidates: ['22SYMV011799800'],
+      },
+    };
+    const refreshRes = {
+      success: true,
+      usesStitchPlan: true,
+      chainRes: primary,
+      stitchResults: [
+        { success: true, chainRes: primary, seedAdam: 'A' },
+        {
+          success: true,
+          seedAdam: 'B',
+          chainRes: {
+            success: true,
+            contractChainHistory: [
+              { adam: '25SYMV088888888', label: 'Ορθή επανάληψη' },
+            ],
+            chainMeta: {
+              contractSnapshotsByAdam: {
+                '25SYMV088888888': {
+                  title: 'ΟΡΘΗ ΕΠΑΝΑΛΗΨΗ ΑΠΟΦΑΣΗΣ',
+                  referenceNumber: '25SYMV088888888',
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+    const reusable = resolveReusablePlanForKhmdhsRefresh(existingPlan, refreshRes);
+    expect(reusable).not.toBeNull();
+    expect(reusable.items.find((i) => i.adam === '25SYMV088888888')?.role).toBe(SYMV_CHAIN_ROLE.SKIP);
+    expect(needsSymvPlannerAfterKhmdhsRefresh(existingPlan, refreshRes)).toBe(false);
   });
 });

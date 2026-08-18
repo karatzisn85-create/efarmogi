@@ -131,7 +131,11 @@ import KhmdhsDuplicateAnchorDialog from './KhmdhsDuplicateAnchorDialog';
 import KhmdhsSupplementaryConfirmDialog from './KhmdhsSupplementaryConfirmDialog';
 import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
 import KhmdhsSymvChainPlannerDialog from './KhmdhsSymvChainPlannerDialog';
-import { shouldOfferSymvChainPlanner, mergeExistingSymvPlanOntoChain } from '../utils/khmdhsSymvChainPlanner';
+import {
+  shouldOfferSymvChainPlanner,
+  mergeExistingSymvPlanOntoChain,
+  resolveReusableSymvChainPlan,
+} from '../utils/khmdhsSymvChainPlanner';
 import KhmdhsDocumentRegistryModal from './KhmdhsDocumentRegistryModal';
 import KhmdhsRelatedDocumentsModal from './KhmdhsRelatedDocumentsModal';
 import {
@@ -246,8 +250,11 @@ import {
   resolvePostFetchUi,
   resolveReturnToPendingList,
   resolveReopenPendingList,
+  resolveReopenAfterFailedFetch,
   resolveSituationActionContractIndex,
   mergePostApplyQueues,
+  queueHasPendingWork,
+  countRemainingPendingTasks,
   POST_APPLY_TASK,
 } from '../utils/khmdhsPostApplyQueue';
 import { mergeSymvChainPlanIntoDataQualityReview, shouldMergeSymvPlanIntoDataQualityReview } from '../utils/khmdhsSymvChainApply';
@@ -1066,6 +1073,26 @@ const PhaseLockedBanner = styled.div`
   line-height: 1.45;
   font-weight: 600;
   margin-bottom: 0.5rem;
+`;
+
+const PendingQueueReopenBtn = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  color: #1e40af;
+  font-size: 0.88rem;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  margin-bottom: 0.5rem;
+  &:hover { background: #dbeafe; }
 `;
 
 const BudgetReadOnlyBox = styled.div`
@@ -2688,6 +2715,11 @@ function ProjectForm({
   const [postApplyQueue, setPostApplyQueue] = useState(null);
   const [pendingTasksOpen, setPendingTasksOpen] = useState(false);
   const [completedPendingTaskIds, setCompletedPendingTaskIds] = useState([]);
+  const postApplyQueueRef = React.useRef(null);
+  const pendingTasksOpenRef = React.useRef(false);
+  postApplyQueueRef.current = postApplyQueue;
+  pendingTasksOpenRef.current = pendingTasksOpen;
+  const remainingPendingCount = countRemainingPendingTasks(postApplyQueue, completedPendingTaskIds);
   const [symvChainPlannerState, setSymvChainPlannerState] = useState(null);
   const [apeEntryTarget, setApeEntryTarget] = useState(null);
   const [manualExtensionTarget, setManualExtensionTarget] = useState(null);
@@ -4665,39 +4697,48 @@ function ProjectForm({
 
         const effectiveUserSelectedBranch = followAllBranches ? false : userSelectedBranch;
 
+        let appliedSymvPlan = symvChainPlan;
         if (
-          !symvChainPlan
+          !appliedSymvPlan
           && contractIndex == null
           && shouldOfferSymvChainPlanner(res)
         ) {
-          setKhmdhsChainFetchTarget(null);
-          setSymvChainPlannerState({
-            open: true,
-            seedChainRes: res,
-            seedAdam: seed,
-            subprojectTitle: fetchFormData.subprojectTitle || '',
-            draftPlan: null,
-            // Πάντα περνάμε το αποθηκευμένο σχέδιο· ο διάλογος συγχωνεύει τα παλιά skip
-            // ακόμα κι αν η αλυσίδα έχει νέα ΑΔΑΜ.
-            existingPlan: fetchFormData.khmdhsSymvChainPlan?.items?.length
-              ? (
-                mergeExistingSymvPlanOntoChain(fetchFormData.khmdhsSymvChainPlan, res)
-              )
-              : null,
-            fetchOptions: {
+          const reusablePlan = resolveReusableSymvChainPlan(
+            fetchFormData.khmdhsSymvChainPlan,
+            res
+          );
+          if (reusablePlan?.items?.length) {
+            appliedSymvPlan = reusablePlan;
+          } else {
+            setKhmdhsChainFetchTarget(null);
+            setSymvChainPlannerState({
+              open: true,
+              seedChainRes: res,
               seedAdam: seed,
-              contractIndex,
-              suppressSituationModal,
-              forceChainFetch,
-              branchAnchor: branchAnchor || null,
-              userSelectedBranch,
-            },
-          });
-          return;
+              subprojectTitle: fetchFormData.subprojectTitle || '',
+              draftPlan: null,
+              // Πάντα περνάμε το αποθηκευμένο σχέδιο· ο διάλογος συγχωνεύει τα παλιά skip
+              // ακόμα κι αν η αλυσίδα έχει νέα ΑΔΑΜ.
+              existingPlan: fetchFormData.khmdhsSymvChainPlan?.items?.length
+                ? (
+                  mergeExistingSymvPlanOntoChain(fetchFormData.khmdhsSymvChainPlan, res)
+                )
+                : null,
+              fetchOptions: {
+                seedAdam: seed,
+                contractIndex,
+                suppressSituationModal,
+                forceChainFetch,
+                branchAnchor: branchAnchor || null,
+                userSelectedBranch,
+              },
+            });
+            return;
+          }
         }
 
         const finishApply = ({ skipSituationModal = false, skipSuccessToast = false } = {}) => {
-        const usedSymvPlan = !!(symvChainPlan?.items?.length);
+        const usedSymvPlan = !!(appliedSymvPlan?.items?.length);
         let applyWarnings = [];
         let pendingApeConflict = null;
         let statusAutoUpdated = null;
@@ -4739,7 +4780,7 @@ function ProjectForm({
           branchAnchor: resolvedBranch,
           suppressSituationModal,
           userSelectedBranch: effectiveUserSelectedBranch,
-          symvChainPlan: usedSymvPlan ? symvChainPlan : null,
+          symvChainPlan: usedSymvPlan ? appliedSymvPlan : null,
           applyMode: stitchApplyMode === 'stitch' ? 'stitch' : 'replace',
         });
         applyWarnings = applyResult.warnings || [];
@@ -4999,7 +5040,7 @@ function ProjectForm({
                   userSelectedBranch,
                   followAllBranches,
                   preloadedChainRes: res,
-                  symvChainPlan,
+                  symvChainPlan: appliedSymvPlan,
                 });
               },
             });
@@ -5010,7 +5051,7 @@ function ProjectForm({
         if (
           !skipStitchPromptA
           && !afterLegacyUpgrade
-          && !symvChainPlan
+          && !appliedSymvPlan
           && contractIndex == null
           && shouldOfferStitchPromptA(fetchFormData, seed, { isMultipleContracts: fetchMulti })
         ) {
@@ -5031,7 +5072,7 @@ function ProjectForm({
               branchAnchor,
               userSelectedBranch: effectiveUserSelectedBranch,
               preloadedChainRes: res,
-              symvChainPlan,
+              symvChainPlan: appliedSymvPlan,
             },
           });
           return;
@@ -5068,6 +5109,7 @@ function ProjectForm({
 
         finishApply();
       } else {
+        let openedSituation = false;
         if (shouldShowKhmdhsSituationModal(situationReport)) {
           const acknowledgedIds2 = new Set(formData.khmdhsAcknowledgedSituationIds || []);
           const filteredSit2 = (situationReport?.situations || []).filter(
@@ -5080,14 +5122,28 @@ function ProjectForm({
               contractIndex: contractIndex != null ? contractIndex : null,
               suggestedRetryAdam: null,
             });
+            openedSituation = true;
           }
         }
         showToast(res?.error || 'Η ανάκτηση από το ΚΗΜΔΗΣ απέτυχε.', 'error');
+        const reopenFailed = resolveReopenAfterFailedFetch(postApplyQueueRef.current, {
+          listAlreadyOpen: pendingTasksOpenRef.current,
+          situationModalOpen: openedSituation,
+        });
+        if (reopenFailed.openPendingTasks) {
+          window.setTimeout(() => setPendingTasksOpen(true), 0);
+        }
 
       }
     } catch (e) {
       if (gen === khmdhsChainFetchGenRef.current[genKey]) {
         showToast(e?.message || 'Σφάλμα κατά την επικοινωνία με το ΚΗΜΔΗΣ.', 'error');
+        const reopenFailed = resolveReopenAfterFailedFetch(postApplyQueueRef.current, {
+          listAlreadyOpen: pendingTasksOpenRef.current,
+        });
+        if (reopenFailed.openPendingTasks) {
+          window.setTimeout(() => setPendingTasksOpen(true), 0);
+        }
       }
     } finally {
       if (gen === khmdhsChainFetchGenRef.current[genKey]) {
@@ -5376,9 +5432,6 @@ function ProjectForm({
     window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
   }, [tryOpenKhmdhsRegistryModal]);
 
-  const pendingTasksOpenRef = React.useRef(false);
-  React.useEffect(() => { pendingTasksOpenRef.current = pendingTasksOpen; }, [pendingTasksOpen]);
-
   const markPendingTaskComplete = useCallback((taskId) => {
     setCompletedPendingTaskIds((prev) => (
       prev.includes(taskId) ? prev : [...prev, taskId]
@@ -5436,19 +5489,13 @@ function ProjectForm({
         'info'
       );
     }
-    setCompletedPendingTaskIds((prev) => (
-      prev.includes(POST_APPLY_TASK.DATA_REVIEW) ? prev : [...prev, POST_APPLY_TASK.DATA_REVIEW]
-    ));
+    // «Θα το ελέγξω αργότερα» κλείνει το παράθυρο — δεν ολοκληρώνει την εργασία.
     setPostApplyQueue((prev) => {
-      const without = removeTaskFromQueue(prev, POST_APPLY_TASK.DATA_REVIEW);
-      const follow = getFollowUpQueue(without);
-      const ret = resolveReturnToPendingList(follow);
+      const ret = resolveReopenPendingList(prev);
       if (ret.openPendingTasks) {
         window.setTimeout(() => setPendingTasksOpen(true), 0);
-      } else {
-        setPendingTasksOpen(false);
       }
-      return follow;
+      return prev;
     });
   }, [showToast]);
 
@@ -7792,6 +7839,18 @@ function ProjectForm({
               formData={formData}
               onOpenReview={openKhmdhsDataReview}
             />
+            {queueHasPendingWork(postApplyQueue) && !pendingTasksOpen && (
+              <PendingQueueReopenBtn
+                type="button"
+                onClick={() => setPendingTasksOpen(true)}
+              >
+                <span>
+                  Εκκρεμότητες ΚΗΜΔΗΣ
+                  {remainingPendingCount > 0 ? ` (${remainingPendingCount})` : ''}
+                </span>
+                <span>Άνοιγμα λίστας</span>
+              </PendingQueueReopenBtn>
+            )}
             <KhmdhsRefreshFindingsPanel
               findings={formData.khmdhsLastRefreshFindings}
               onOpenReview={openKhmdhsDataReview}

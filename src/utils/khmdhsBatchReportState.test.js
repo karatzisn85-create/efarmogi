@@ -7,6 +7,8 @@ import {
   isKhmdhsCharacterizationResolved,
   markBatchItemsResolved,
   mergeKhmdhsBatchResults,
+  nextKhmdhsRetryDelayMs,
+  pickKhmdhsBatchRetryCandidates,
   syncBatchReportWithProjects,
 } from './khmdhsBatchReportState';
 import {
@@ -54,6 +56,50 @@ describe('mergeKhmdhsBatchResults', () => {
   it('χωρίς προηγούμενη αναφορά κρατά τη νέα ως έχει', () => {
     const next = { items: [{ status: 'refreshed', id: 'a' }] };
     expect(mergeKhmdhsBatchResults(null, next)).toBe(next);
+  });
+
+  it('η επανάληψη με όλα τα υποέργα της συνεδρίας δεν χάνει επιτυχίες προηγούμενης στροφής', () => {
+    const afterRound1 = mergeKhmdhsBatchResults(previousRun, {
+      isRetry: true,
+      items: [{ status: 'refreshed', id: 'd', label: 'Δ' }],
+    });
+    const afterRound2 = mergeKhmdhsBatchResults(previousRun, {
+      isRetry: true,
+      items: [
+        { status: 'refreshed', id: 'd', label: 'Δ' },
+        { status: 'failed', id: 'e', label: 'Ε' },
+      ],
+    });
+    expect(afterRound1.failed).toBe(0);
+    expect(afterRound2.items.find((i) => i.id === 'd').status).toBe('refreshed');
+    expect(afterRound2.failed).toBe(1);
+  });
+});
+
+describe('pickKhmdhsBatchRetryCandidates', () => {
+  it('παίρνει αποτυχίες, πιασμένα και όσα δεν προλάβαμε — όχι τα επιτυχημένα', () => {
+    const items = [
+      { status: 'failed', id: 'a', label: 'Α' },
+      { status: 'refreshed', id: 'b', label: 'Β' },
+      { status: 'skipped', id: 'c', label: 'Γ', busy: true },
+      { status: 'skipped', id: 'd', label: 'Δ', notProcessed: true },
+      { status: 'skipped', id: 'e', label: 'Ε', reason: 'Εκτός ελέγχου' },
+      { status: 'failed', label: 'χωρίς id' },
+    ];
+    expect(pickKhmdhsBatchRetryCandidates(items)).toEqual([
+      { id: 'a', label: 'Α' },
+      { id: 'c', label: 'Γ' },
+      { id: 'd', label: 'Δ' },
+    ]);
+  });
+});
+
+describe('nextKhmdhsRetryDelayMs', () => {
+  it('αυξάνει την παύση και την κόβει στα 30″', () => {
+    expect(nextKhmdhsRetryDelayMs(1)).toBe(8000);
+    expect(nextKhmdhsRetryDelayMs(2)).toBe(16000);
+    expect(nextKhmdhsRetryDelayMs(4)).toBe(30000);
+    expect(nextKhmdhsRetryDelayMs(0)).toBe(8000);
   });
 });
 

@@ -486,4 +486,20 @@ describe('khmdhs phase L6 — payment reconciliation', () => {
     const pct = Math.round((payments / payable) * 100);
     expect(pct).toBe(100);
   });
+
+  test('payable δεν χρησιμοποιεί ακατέργαστη κλίμακα 100× συμπληρωματικής (F6)', () => {
+    const form = {
+      implementationForm: 'Μια Σύμβαση',
+      contractAmount: '332.101,10',
+      apeAmount: '',
+      supplementaryContracts: [{
+        amount: '7.415.585,00',
+        khmdhsDerived: true,
+        khmdhsAdam: '24SYMV015482244',
+      }],
+    };
+    const payable = resolveEffectivePayableAmountGrossForPayments(form);
+    expect(payable).toBeGreaterThan(400000);
+    expect(payable).toBeLessThan(500000);
+  });
 });

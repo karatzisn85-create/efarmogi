@@ -270,6 +270,26 @@ export function queueHasPendingWork(queue) {
   return Array.isArray(queue.tasks) && queue.tasks.length > 0;
 }
 
+/** Πόσες εργασίες της λίστας δεν έχουν ολοκληρωθεί ακόμα (για κουμπί επαναφοράς). */
+export function countRemainingPendingTasks(queue, completedIds = []) {
+  const done = new Set(completedIds || []);
+  return (queue?.tasks || []).filter((t) => t && !done.has(t.id)).length;
+}
+
+/**
+ * Αποτυχημένη νέα ανάκτηση: ξανάνοιγμα λίστας αν μένει ουρά από την προηγούμενη επιτυχία.
+ * Δεν πειράζει την ουρά.
+ */
+export function resolveReopenAfterFailedFetch(queue, {
+  listAlreadyOpen = false,
+  situationModalOpen = false,
+} = {}) {
+  if (listAlreadyOpen || situationModalOpen) {
+    return { openPendingTasks: false, preserveQueue: true };
+  }
+  return resolveReopenPendingList(queue);
+}
+
 /**
  * Μοναδικό αυτόματο UI μετά την ανάκτηση ΚΗΜΔΗΣ.
  * Κανόνας: ανοίγει ΜΟΝΟ η λίστα εκκρεμοτήτων — ποτέ απευθείας έλεγχος/μητρώο/κ.λπ.

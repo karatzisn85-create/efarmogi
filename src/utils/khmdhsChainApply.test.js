@@ -3,6 +3,7 @@
  */
 import { applyAdamChainResult, mergeSharedKhmdhsFromChain } from './khmdhsChainApply';
 import { buildKhmdhsRefreshChangeReport } from './khmdhsChainRefresh';
+import { resolveReusablePlanForKhmdhsRefresh, SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
 
 describe('applyAdamChainResult payments merge', () => {
   test('μετά ανανέωση δεν χάνει ένταλμα που έλειπε από το νέο fetch', () => {
@@ -529,5 +530,67 @@ describe('applyAdamChainResult commitments merge', () => {
       '25REQ016195275',
       '25REQ016195999',
     ]);
+  });
+});
+
+describe('applyAdamChainResult SYMV reuse after refresh', () => {
+  test('με auto-skip νέο έγγραφο και σχέδιο κατανομής δεν ζητά ξανά χαρακτηρισμό', () => {
+    const existingPlan = {
+      items: [
+        { adam: '22SYMV011799800', role: SYMV_CHAIN_ROLE.MAIN, date: '2022-06-01', amount: '100' },
+        { adam: '22SYMV011327633', role: SYMV_CHAIN_ROLE.SKIP },
+      ],
+    };
+    const prev = {
+      implementationForm: 'Έργο',
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      khmdhsAdam: '22SYMV011799800',
+      khmdhsSymvChainPlan: existingPlan,
+    };
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '22SYMV011799800',
+        snapshot: { referenceNumber: '22SYMV011799800', title: 'ΚΥΡΙΑ' },
+        formFields: {},
+      },
+      contractChainHistory: [
+        { adam: '22SYMV011799800', isRoot: true, label: 'Αρχική σύμβαση' },
+        { adam: '22SYMV011327633', label: 'Σύμβαση 2' },
+        { adam: '25SYMV088888888', label: 'Ορθή επανάληψη' },
+      ],
+      chainMeta: {
+        contractRootAdam: '22SYMV011799800',
+        contractSnapshotsByAdam: {
+          '22SYMV011799800': { title: 'ΚΥΡΙΑ', referenceNumber: '22SYMV011799800' },
+          '22SYMV011327633': { title: 'ΑΛΛΟ ΕΓΓΡΑΦΟ', referenceNumber: '22SYMV011327633' },
+          '25SYMV088888888': {
+            title: 'ΟΡΘΗ ΕΠΑΝΑΛΗΨΗ ΑΠΟΦΑΣΗΣ',
+            referenceNumber: '25SYMV088888888',
+          },
+        },
+        parallelContractCandidates: [
+          '22SYMV011799800',
+          '22SYMV011327633',
+          '25SYMV088888888',
+        ],
+      },
+    };
+
+    const reusable = resolveReusablePlanForKhmdhsRefresh(existingPlan, { chainRes });
+    expect(reusable).not.toBeNull();
+
+    const result = applyAdamChainResult(prev, chainRes, {
+      seedAdam: '22SYMV011799800',
+      applyMode: 'stitch',
+      symvChainPlan: reusable,
+    });
+
+    expect(result.warnings).not.toContain('symvPlannerRequired');
+    expect(result.form.khmdhsAdam).toBe('22SYMV011799800');
+    expect(result.form.khmdhsSymvChainPlan.items.find((i) => i.adam === '22SYMV011327633')?.role)
+      .toBe(SYMV_CHAIN_ROLE.SKIP);
+    expect(result.form.khmdhsSymvChainPlan.items.find((i) => i.adam === '25SYMV088888888')?.role)
+      .toBe(SYMV_CHAIN_ROLE.SKIP);
   });
 });

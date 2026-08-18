@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { parseGreekAmountString } from './khmdhsFields';
+import { parseGreekAmountString, sumNonExtensionSupplementaryGross } from './khmdhsFields';
 
 describe('parseGreekAmountString', () => {
   test('ελληνική μορφή με χιλιάδες', () => {
@@ -16,5 +16,41 @@ describe('parseGreekAmountString', () => {
 
   test('ακέραια χωρίς διαχωριστικά', () => {
     expect(parseGreekAmountString('256680')).toBe(256680);
+  });
+});
+
+describe('sumNonExtensionSupplementaryGross — πλακίδιο κάρτας', () => {
+  test('διαβάζει ελληνική μορφή χιλιάδων (όχι parseFloat)', () => {
+    const project = {
+      hasSupplementaryContracts: true,
+      supplementaryContracts: [{ amount: '74.155,85' }],
+    };
+    expect(sumNonExtensionSupplementaryGross(project)).toBeCloseTo(74155.85, 2);
+    expect(parseFloat(String('74.155,85').replace(',', '.'))).toBeCloseTo(74.155, 2);
+  });
+
+  test('δεν προσθέτει γραμμές παράτασης', () => {
+    const project = {
+      hasSupplementaryContracts: true,
+      supplementaryContracts: [
+        { amount: '10.000,00', comments: 'Συμπληρωματική' },
+        { amount: '5.000,00', comments: 'Παράταση', chainKind: 'extension' },
+      ],
+    };
+    expect(sumNonExtensionSupplementaryGross(project)).toBeCloseTo(10000, 2);
+  });
+
+  test('με ύποπτη κλίμακα ΚΗΜΔΗΣ δεν δείχνει εκατομμύρια (F6 / πλακίδιο)', () => {
+    const project = {
+      hasSupplementaryContracts: true,
+      contractAmount: '332.101,10',
+      supplementaryContracts: [{
+        amount: '7.415.585,00',
+        khmdhsDerived: true,
+      }],
+    };
+    const n = sumNonExtensionSupplementaryGross(project);
+    expect(n).toBeGreaterThan(70000);
+    expect(n).toBeLessThan(80000);
   });
 });

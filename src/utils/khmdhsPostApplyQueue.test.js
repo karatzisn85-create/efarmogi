@@ -9,8 +9,10 @@ import {
   resolvePostFetchUi,
   resolveReturnToPendingList,
   resolveReopenPendingList,
+  resolveReopenAfterFailedFetch,
   resolveSituationActionContractIndex,
   queueHasPendingWork,
+  countRemainingPendingTasks,
   mergePostApplyQueues,
   POST_APPLY_TASK,
 } from './khmdhsPostApplyQueue';
@@ -431,6 +433,51 @@ describe('resolveReopenPendingList — κλείσιμο προειδοποίησ
     const reopen = resolveReopenPendingList(afterSuccess);
     expect(reopen.openPendingTasks).toBe(true);
     expect(afterSuccess.tasks.map((t) => t.type)).toContain(POST_APPLY_TASK.DATA_REVIEW);
+  });
+
+  test('αποτυχημένη νέα ανάκτηση: ξανάνοιγμα αν η λίστα είναι κλειστή', () => {
+    const afterSuccess = buildPostApplyQueue({
+      formAfter: reviewForm,
+      dqr: reviewForm.khmdhsDataQualityReview,
+      skipExpiry: true,
+    });
+    expect(resolveReopenAfterFailedFetch(afterSuccess, { listAlreadyOpen: false })).toEqual({
+      openPendingTasks: true,
+      preserveQueue: true,
+    });
+    expect(resolveReopenAfterFailedFetch(afterSuccess, { listAlreadyOpen: true })).toEqual({
+      openPendingTasks: false,
+      preserveQueue: true,
+    });
+    expect(resolveReopenAfterFailedFetch(afterSuccess, { situationModalOpen: true })).toEqual({
+      openPendingTasks: false,
+      preserveQueue: true,
+    });
+    expect(afterSuccess.tasks.map((t) => t.type)).toContain(POST_APPLY_TASK.DATA_REVIEW);
+  });
+
+  test('«Θα το ελέγξω αργότερα» δεν αφαιρεί τον υποχρεωτικό έλεγχο', () => {
+    const queue = buildPostApplyQueue({
+      formAfter: reviewForm,
+      dqr: reviewForm.khmdhsDataQualityReview,
+      skipExpiry: true,
+    });
+    const later = resolveReopenPendingList(queue);
+    expect(later.openPendingTasks).toBe(true);
+    expect(later.preserveQueue).toBe(true);
+    expect(queue.tasks.some((t) => t.type === POST_APPLY_TASK.DATA_REVIEW)).toBe(true);
+    expect(getFollowUpQueue(queue).tasks.some((t) => t.type === POST_APPLY_TASK.DATA_REVIEW)).toBe(false);
+  });
+
+  test('countRemainingPendingTasks μετρά όσες δεν έχουν ολοκληρωθεί', () => {
+    const queue = buildPostApplyQueue({
+      formAfter: reviewForm,
+      dqr: reviewForm.khmdhsDataQualityReview,
+      skipExpiry: true,
+    });
+    const reviewId = queue.tasks.find((t) => t.type === POST_APPLY_TASK.DATA_REVIEW)?.id;
+    expect(countRemainingPendingTasks(queue, [])).toBe(queue.tasks.length);
+    expect(countRemainingPendingTasks(queue, [reviewId])).toBe(queue.tasks.length - 1);
   });
 });
 

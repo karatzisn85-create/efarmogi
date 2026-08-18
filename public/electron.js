@@ -40,6 +40,7 @@ const {
 const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
 const projectsIndex = require('./projectsIndex');
 const concurrencyGuards = require('./concurrencyGuards');
+const { mergeFileGroupsForSave, mergeEgkriseisForSave } = require('./subprojectSaveMerge');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -1891,51 +1892,20 @@ async function handleSaveProjectData(event, projectData) {
     // ΣΗΜΑΝΤΙΚΟ: Το projectId στο dataToSave ΠΑΝΤΑ πρέπει να είναι το finalProjectId (από το όνομα φακέλου)
     // ΑΝ το projectData.projectId είναι διαφορετικό, το αγνοούμε και χρησιμοποιούμε το finalProjectId
     
-    // Έξυπνη συγχώνευση fileGroups
-    let mergedFileGroups = [];
     const existingFileGroups = existingData.fileGroups || [];
     const newFileGroups = projectData.fileGroups || [];
-    
     logger.debug(`Merging fileGroups: existing=${existingFileGroups.length}, incoming=${newFileGroups.length}`);
-    
-    if (newFileGroups.length > 0) {
-      // Αν έχουμε νέα fileGroups από τη φόρμα, τα συγχωνεύουμε με τα υπάρχοντα
-      const existingGroupsMap = new Map(existingFileGroups.map(g => [g.id, g]));
-      
-      // Προσθέτουμε/ενημερώνουμε τα νέα groups
-      newFileGroups.forEach(newGroup => {
-        if (existingGroupsMap.has(newGroup.id)) {
-          // Ενημέρωση υπάρχουσας ομάδας - συγχώνευση αρχείων
-          const existingGroup = existingGroupsMap.get(newGroup.id);
-          const mergedFiles = [...existingGroup.files];
-        
-          // Προσθήκη νέων αρχείων που δεν υπάρχουν ήδη
-          newGroup.files.forEach(newFile => {
-            const fileExists = mergedFiles.some(f => 
-              (typeof f === 'string' ? f : f.name) === (typeof newFile === 'string' ? newFile : newFile.name)
-            );
-            if (!fileExists) {
-              mergedFiles.push(newFile);
-            }
-          });
-          
-          existingGroupsMap.set(newGroup.id, {
-            ...existingGroup,
-            title: newGroup.title, // Ενημέρωση τίτλου αν άλλαξε
-            files: mergedFiles
-          });
-        } else {
-          // Νέα ομάδα - την προσθέτουμε
-          existingGroupsMap.set(newGroup.id, newGroup);
-        }
-      });
-      
-      mergedFileGroups = Array.from(existingGroupsMap.values());
-    } else {
-      // Αν δεν έχουμε νέα fileGroups, κρατάμε μόνο τα υπάρχοντα
-      mergedFileGroups = existingFileGroups;
-    }
-    
+    const mergedFileGroups = mergeFileGroupsForSave(
+      existingFileGroups,
+      newFileGroups,
+      (fileName, file) => {
+        if (fs.existsSync(path.join(filesDir, fileName))) return true;
+        const sourcePath = typeof file === 'string'
+          ? file
+          : (file && (file.path || file.filePath));
+        return Boolean(sourcePath && path.isAbsolute(sourcePath) && fs.existsSync(sourcePath));
+      }
+    );
     logger.debug(`Merged fileGroups: result=${mergedFileGroups.length} groups`);
     
     const dataToSave = {
@@ -1946,9 +1916,10 @@ async function handleSaveProjectData(event, projectData) {
       updatedAt: new Date().toISOString(), // Πάντα νέο updatedAt
       // Χρήση των συγχωνευμένων fileGroups
       fileGroups: mergedFileGroups,
-      egkriseisDialthesisPistosis: (existingData.egkriseisDialthesisPistosis && existingData.egkriseisDialthesisPistosis.length > 0)
-        ? existingData.egkriseisDialthesisPistosis
-        : (projectData.egkriseisDialthesisPistosis || []),
+      egkriseisDialthesisPistosis: mergeEgkriseisForSave(
+        existingData.egkriseisDialthesisPistosis,
+        projectData.egkriseisDialthesisPistosis
+      ),
       // Διατήρηση ανάθεσης επιβλεπόντων — κανονικοποίηση χωρίς αφαίρεση ιστορικών ids (π.χ. ανενεργός μηχανικός)
       supervisorEngineerIds: Array.isArray(projectData.supervisorEngineerIds)
         ? normalizeSupervisorEngineerIdList(projectData.supervisorEngineerIds)
@@ -1971,29 +1942,18 @@ async function handleSaveProjectData(event, projectData) {
     stripLegacySupervisorField(dataToSave);
     normalizeProjectTypeField(dataToSave);
 
-    // Αντιγραφή αρχείων από fileGroups στον φάκελο ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ
+    // Αντιγραφή μόνο νέων αρχείων (με πλήρη διαδρομή). Τα ήδη καταχωρημένα
+    // έχουν μόνο όνομα — είναι ήδη στον φάκελο ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ.
     if (mergedFileGroups && mergedFileGroups.length > 0) {
-      console.log('📁 Copying files from fileGroups to ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ...');
-      
       for (const group of mergedFileGroups) {
         if (group.files && group.files.length > 0) {
-          // Δημιουργία φακέλου ομάδας (αν χρειάζεται)
-          const safeGroupName = (group.title || group.id || 'GROUP')
-            .replace(/[<>:"/\\|?*]/g, '_')
-            .substring(0, 50)
-            .trim();
-          const groupFolderPath = path.join(finalFilesDir, safeGroupName);
-          
-          // Αντιγραφή κάθε αρχείου
           for (const file of group.files) {
             try {
-              // Παίρνουμε το path από το file object
               const sourcePath = typeof file === 'string' 
                 ? file 
                 : (file.path || file.filePath);
-              
-              if (!sourcePath) {
-                console.warn('⚠️ File has no path:', file);
+
+              if (!sourcePath || !path.isAbsolute(sourcePath)) {
                 continue;
               }
               

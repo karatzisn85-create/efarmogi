@@ -7,6 +7,7 @@ import {
   resolveModificationSupplementaryAmount,
   prefillSupplementaryModAmount,
   computeProjectContractTotal,
+  parseNormalizedSupplementaryParts,
 } from './khmdhsSupplementaryAmountLogic';
 import {
   computeChainCharacterizationEffects,
@@ -101,5 +102,26 @@ describe('khmdhsSupplementaryAmountLogic', () => {
     const total = computeProjectContractTotal(project);
     expect(total).toBeGreaterThan(332000);
     expect(total).toBeLessThan(600000);
+  });
+
+  test('parseNormalizedSupplementaryParts διορθώνει 100× στο πληρωτέο (F6)', () => {
+    const project = {
+      implementationForm: 'Μια Σύμβαση',
+      contractAmount: '332.101,10',
+      supplementaryContracts: [{
+        date: '2024-09-19',
+        amount: '7.415.585,00',
+        comments: 'Συμπληρωματική σύμβαση',
+        khmdhsDerived: true,
+        khmdhsAdam: '24SYMV015482244',
+      }],
+    };
+    const parts = parseNormalizedSupplementaryParts(project);
+    expect(parts.allSuppPart).toBeGreaterThan(70000);
+    expect(parts.allSuppPart).toBeLessThan(80000);
+    expect(parts.derivedSuppPart).toBeCloseTo(parts.allSuppPart, 2);
+    const total = computeProjectContractTotal(project);
+    expect(total).toBeCloseTo(332101.10 + parts.allSuppPart, 0);
+    expect(total).toBeLessThan(500000);
   });
 });

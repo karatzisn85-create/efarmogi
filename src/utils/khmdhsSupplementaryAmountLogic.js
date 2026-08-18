@@ -80,28 +80,47 @@ function resolveSupplementaryContribution(row, project, runningTotal) {
   return delta;
 }
 
+function baseContractGross(project) {
+  if (!project) return 0;
+  if (isMultipleContractsForm(project.implementationForm)) {
+    return (project.contracts || []).reduce(
+      (sum, c) => sum + parseGreekAmountString(c?.amount),
+      0
+    );
+  }
+  return parseGreekAmountString(project.contractAmount);
+}
+
+/**
+ * Συμπληρωματικές με την ίδια διόρθωση κλίμακας / «νέα συνολική αξία» όπως το σύνολο σύμβασης.
+ * Χωρίζει χειροκίνητες και από ΚΗΜΔΗΣ, χωρίς παρατάσεις.
+ */
+export function parseNormalizedSupplementaryParts(project) {
+  if (!project) return { manualSuppPart: 0, derivedSuppPart: 0, allSuppPart: 0 };
+  let running = baseContractGross(project);
+  let manualSuppPart = 0;
+  let derivedSuppPart = 0;
+  sortSupplementaryRows(project.supplementaryContracts || []).forEach((row) => {
+    if (isExtensionSupplementaryRow(row, project)) return;
+    const delta = resolveSupplementaryContribution(row, project, running);
+    if (row?.khmdhsDerived) derivedSuppPart += delta;
+    else manualSuppPart += delta;
+    running += delta;
+  });
+  return {
+    manualSuppPart,
+    derivedSuppPart,
+    allSuppPart: manualSuppPart + derivedSuppPart,
+  };
+}
+
 /**
  * Τρέχον συνολικό ποσό σύμβασης (αρχική + νόμιμες συμπληρωματικές, όχι παρατάσεις).
  * Αποφεύγει διπλομέτρηση όταν τα ποσά από ΚΗΜΔΗΣ/SYMV είναι «νέα συνολική αξία».
  */
 export function computeProjectContractTotal(project) {
   if (!project) return 0;
-
-  let running = 0;
-  if (isMultipleContractsForm(project.implementationForm)) {
-    (project.contracts || []).forEach((c) => {
-      running += parseGreekAmountString(c?.amount);
-    });
-  } else {
-    running += parseGreekAmountString(project.contractAmount);
-  }
-
-  sortSupplementaryRows(project.supplementaryContracts || []).forEach((row) => {
-    if (isExtensionSupplementaryRow(row, project)) return;
-    running += resolveSupplementaryContribution(row, project, running);
-  });
-
-  return running;
+  return baseContractGross(project) + parseNormalizedSupplementaryParts(project).allSuppPart;
 }
 
 function grossFromChainEntry(h, runningTotal) {

@@ -3,7 +3,10 @@ import { createPortal } from 'react-dom';
 import styled, { keyframes, css } from 'styled-components';
 import { useToast } from './ToastProvider';
 import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhsChainApply';
-import { resolveReusableSymvChainPlan, mergeStitchChainResForSymvPlan } from '../utils/khmdhsSymvChainPlanner';
+import {
+  resolveReusablePlanForKhmdhsRefresh,
+  resolvePlanChainResForKhmdhsRefresh,
+} from '../utils/khmdhsSymvChainPlanner';
 import {
   buildKhmdhsRefreshChangeReport,
   KHMDHS_FRESHNESS_YELLOW_DAYS,
@@ -21,6 +24,25 @@ import {
   KHMDHS_FINDING_ACTION,
   KHMDHS_FINDING_OUTCOME,
 } from '../utils/khmdhsRefreshFindings';
+import {
+  KHMDHS_RETRY_ITEM_GAP_MS,
+  KHMDHS_RETRY_MAX_ROUNDS,
+  nextKhmdhsRetryDelayMs,
+  pickKhmdhsBatchRetryCandidates,
+} from '../utils/khmdhsBatchReportState';
+
+async function waitKhmdhsRetryPause(ms, cancelRef, onTick) {
+  const deadline = Date.now() + Math.max(0, Number(ms) || 0);
+  while (Date.now() < deadline) {
+    if (cancelRef?.current) return false;
+    const remainingSec = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
+    if (typeof onTick === 'function') onTick(remainingSec);
+    const slice = Math.min(250, deadline - Date.now());
+    if (slice <= 0) break;
+    await new Promise((r) => setTimeout(r, slice));
+  }
+  return !cancelRef?.current;
+}
 
 const ipcRenderer = window.electronAPI;
 
@@ -1028,15 +1050,24 @@ const RetryButton = styled.button`
   padding: 0.5rem 1.1rem;
   border-radius: 10px;
   border: none;
-  background: linear-gradient(135deg, #0d9488, #14b8a6);
   color: #fff;
   font-size: 0.78rem;
   font-weight: 700;
   font-family: inherit;
   cursor: pointer;
-  box-shadow: 0 3px 10px rgba(13, 148, 136, 0.3);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  &:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 5px 16px rgba(13, 148, 136, 0.4); }
+  background: ${(p) => (p.$tone === 'stop'
+    ? 'linear-gradient(135deg, #b91c1c, #dc2626)'
+    : 'linear-gradient(135deg, #0d9488, #14b8a6)')};
+  box-shadow: ${(p) => (p.$tone === 'stop'
+    ? '0 3px 10px rgba(185, 28, 28, 0.28)'
+    : '0 3px 10px rgba(13, 148, 136, 0.3)')};
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: ${(p) => (p.$tone === 'stop'
+      ? '0 5px 16px rgba(185, 28, 28, 0.38)'
+      : '0 5px 16px rgba(13, 148, 136, 0.4)')};
+  }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
@@ -1212,6 +1243,8 @@ export function KhmdhsBatchReportModal({
   pendingItems,
   onNavigateToSubproject,
   onRetry,
+  onCancelRetry,
+  retryLive = null,
   onDismiss,
 }) {
   const [openSections, setOpenSections] = useState({
@@ -1307,13 +1340,16 @@ export function KhmdhsBatchReportModal({
   };
 
   const handleRetry = () => {
+    if (retryLive?.active) return;
     if (typeof onRetry === 'function' && retryCandidates.length) {
       onRetry(retryCandidates);
     }
   };
 
+  const retrying = !!retryLive?.active;
+
   return createPortal(
-    <ModalOverlay onClick={onClose}>
+    <ModalOverlay onClick={retrying ? undefined : onClose}>
       <ModalBox onClick={(e) => e.stopPropagation()}>
         <ModalHeader>
           <ModalTitle>Αναφορά μαζικής ανανέωσης ΚΗΜΔΗΣ</ModalTitle>
@@ -1343,7 +1379,31 @@ export function KhmdhsBatchReportModal({
             </HeroStatGrid>
           </ReportHero>
 
-          {typeof onRetry === 'function' && retryCandidates.length > 0 && (
+          {retrying && (
+            <RetryBar>
+              <RetryText>
+                {retryLive.phase === 'wait'
+                  ? `Το ΚΗΜΔΗΣ είναι φορτωμένο. Νέα προσπάθεια σε ${retryLive.countdownSec}″ — απομένουν ${retryLive.remaining}.`
+                  : `Ξανατρέχουμε μόνο όσα δεν ολοκληρώθηκαν`
+                    + (retryLive.total
+                      ? ` (${retryLive.current || 0} από ${retryLive.total})`
+                      : '')
+                    + (retryLive.label ? ` — ${retryLive.label}` : '')
+                    + '.'}
+                {retryLive.maxRounds > 1
+                  ? ` Προσπάθεια ${retryLive.round || 1} από ${retryLive.maxRounds}.`
+                  : ''}
+                {' '}Η αναφορά ενημερώνεται μετά από κάθε πέρασμα.
+              </RetryText>
+              {typeof onCancelRetry === 'function' && (
+                <RetryButton type="button" onClick={onCancelRetry} $tone="stop">
+                  Διακοπή
+                </RetryButton>
+              )}
+            </RetryBar>
+          )}
+
+          {!retrying && typeof onRetry === 'function' && retryCandidates.length > 0 && (
             <RetryBar>
               <RetryText>
                 {failedItems.length > 0 && laterItems.length > 0
@@ -1351,7 +1411,8 @@ export function KhmdhsBatchReportModal({
                   : failedItems.length > 0
                     ? `${failedItems.length} υποέργα δεν ολοκληρώθηκαν.`
                     : `${laterItems.length} υποέργα δεν προλάβαμε να τα δούμε.`}
-                {' '}Θέλετε να ξαναπροσπαθήσουμε μόνο αυτά;
+                {' '}Θα ξανατρέξουμε μόνο αυτά και η αναφορά θα ενημερώνεται μέχρι να μην μείνουν αποτυχίες
+                (με μικρές παύσεις, γιατί το ΚΗΜΔΗΣ συχνά είναι φορτωμένο).
               </RetryText>
               <RetryButton type="button" onClick={handleRetry}>
                 Επανάληψη ({retryCandidates.length})
@@ -1549,10 +1610,12 @@ export function KhmdhsBatchReportModal({
             <DismissBtn
               type="button"
               onClick={onDismiss}
-              disabled={interventionList.length > 0}
-              title={interventionList.length > 0
-                ? 'Ολοκληρώστε πρώτα τους εκκρεμείς χαρακτηρισμούς'
-                : 'Απόκρυψη της αναφοράς αυτής της εκτέλεσης'}
+              disabled={retrying || interventionList.length > 0}
+              title={retrying
+                ? 'Η επανάληψη είναι σε εξέλιξη'
+                : interventionList.length > 0
+                  ? 'Ολοκληρώστε πρώτα τους εκκρεμείς χαρακτηρισμούς'
+                  : 'Απόκρυψη της αναφοράς αυτής της εκτέλεσης'}
             >
               Τα είδα — απόκρυψη αναφοράς
             </DismissBtn>
@@ -1573,12 +1636,14 @@ export default function KhmdhsBatchRefreshWidget({
   onRefreshComplete,
   onBatchResults,
   onRunningChange,
+  onRetryLiveChange,
   onOpenReport,
   staleCount = 0,
   oldestDays = null,
   lastRunInfo = null,
   hasReport = false,
   retrySignal = null,
+  cancelSignal = null,
   compact = false,
   embedded = false,
 }) {
@@ -1799,9 +1864,7 @@ export default function KhmdhsBatchRefreshWidget({
         }
       }
 
-      const total = eligible.length;
-
-      if (!total) {
+      if (!eligible.length) {
         if (typeof onBatchResults === 'function') {
           onBatchResults({
             refreshed: 0,
@@ -1822,19 +1885,79 @@ export default function KhmdhsBatchRefreshWidget({
         return;
       }
 
-      setProgress({ current: 0, total, label: `0 / ${total}` });
-      addLog(
-        '🔍',
-        scope === 'stale'
-          ? `Θα ανανεωθούν ${total} παλαιά υποέργα (>${STALE_BATCH_DAYS} ημ. ή χωρίς ανανέωση)`
-          : `Θα ανανεωθούν όλα τα ${total} επιλέξιμα υποέργα`
-      );
+      const isRetryRun = !!retryItems;
+      const maxRounds = isRetryRun ? KHMDHS_RETRY_MAX_ROUNDS : 1;
+      const sessionLatest = new Map();
+      let queue = eligible;
+      let lastToast = null;
 
-      let refreshed = 0;
-      let needsIntervention = 0;
-      let failed = 0;
-      const interventionItems = [];
-      const detailItems = [...skippedItems];
+      const publishRetryLive = (payload) => {
+        if (!isRetryRun || typeof onRetryLiveChange !== 'function') return;
+        onRetryLiveChange(payload);
+      };
+
+      publishRetryLive({
+        active: true,
+        phase: 'run',
+        round: 1,
+        maxRounds,
+        current: 0,
+        total: queue.length,
+        remaining: queue.length,
+        label: '',
+        countdownSec: null,
+      });
+
+      for (let round = 0; round < maxRounds && queue.length && !cancelRef.current; round++) {
+        if (round > 0) {
+          const delayMs = nextKhmdhsRetryDelayMs(round);
+          addLog('⏳', `Παύση ${Math.round(delayMs / 1000)}″ — απομένουν ${queue.length} για νέα προσπάθεια`);
+          const ok = await waitKhmdhsRetryPause(delayMs, cancelRef, (sec) => {
+            setProgress({
+              current: 0,
+              total: queue.length,
+              label: `Επόμενη προσπάθεια σε ${sec}″ — απομένουν ${queue.length}`,
+            });
+            publishRetryLive({
+              active: true,
+              phase: 'wait',
+              round: round + 1,
+              maxRounds,
+              current: 0,
+              total: queue.length,
+              remaining: queue.length,
+              label: '',
+              countdownSec: sec,
+            });
+          });
+          if (!ok || cancelRef.current) break;
+        }
+
+        eligible = queue;
+        const total = eligible.length;
+
+        setProgress({ current: 0, total, label: `0 / ${total}` });
+        if (round === 0 && !isRetryRun) {
+          addLog(
+            '🔍',
+            scope === 'stale'
+              ? `Θα ανανεωθούν ${total} παλαιά υποέργα (>${STALE_BATCH_DAYS} ημ. ή χωρίς ανανέωση)`
+              : `Θα ανανεωθούν όλα τα ${total} επιλέξιμα υποέργα`
+          );
+        } else if (isRetryRun) {
+          addLog(
+            '🔁',
+            round === 0
+              ? `Ξανατρέχουμε μόνο ${total} υποέργα που δεν ολοκληρώθηκαν`
+              : `Προσπάθεια ${round + 1} από ${maxRounds} — ${total} υποέργα`
+          );
+        }
+
+        let refreshed = 0;
+        let needsIntervention = 0;
+        let failed = 0;
+        const interventionItems = [];
+        const detailItems = (!isRetryRun && round === 0) ? [...skippedItems] : [];
 
       for (let i = 0; i < total; i++) {
         if (cancelRef.current) {
@@ -1843,6 +1966,17 @@ export default function KhmdhsBatchRefreshWidget({
         }
         const item = eligible[i];
         setProgress({ current: i + 1, total, label: `${i + 1} / ${total} — ${item.label}` });
+        publishRetryLive({
+          active: true,
+          phase: 'run',
+          round: round + 1,
+          maxRounds,
+          current: i + 1,
+          total,
+          remaining: Math.max(0, total - i),
+          label: item.label,
+          countdownSec: null,
+        });
         let unsubItemProgress = () => {};
         if (typeof ipcRenderer?.on === 'function') {
           unsubItemProgress = ipcRenderer.on('khmdhs-refresh-progress', (payload) => {
@@ -1852,6 +1986,17 @@ export default function KhmdhsBatchRefreshWidget({
               current: i + 1,
               total,
               label: `${i + 1} / ${total} — ${item.label}: ${payload.message}`,
+            });
+            publishRetryLive({
+              active: true,
+              phase: 'run',
+              round: round + 1,
+              maxRounds,
+              current: i + 1,
+              total,
+              remaining: Math.max(0, total - i),
+              label: `${item.label}: ${payload.message}`,
+              countdownSec: null,
             });
           }) || (() => {});
         }
@@ -1955,10 +2100,8 @@ export default function KhmdhsBatchRefreshWidget({
 
           const project = res.projectSnapshot;
           const existingPlan = project?.khmdhsSymvChainPlan;
-          const planChainRes = res.usesStitchPlan
-            ? mergeStitchChainResForSymvPlan(res.chainRes, res.stitchResults)
-            : res.chainRes;
-          const reusablePlan = resolveReusableSymvChainPlan(existingPlan, planChainRes);
+          const planChainRes = resolvePlanChainResForKhmdhsRefresh(res);
+          const reusablePlan = resolveReusablePlanForKhmdhsRefresh(existingPlan, res);
 
           // Τεχνητή αλυσίδα / ανανέωση σε επίπεδο υποέργου: πάντα stitch (όχι replace στη γραμμή 0).
           const registryChainResList = [];
@@ -2142,7 +2285,7 @@ export default function KhmdhsBatchRefreshWidget({
           }
         }
 
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, isRetryRun ? KHMDHS_RETRY_ITEM_GAP_MS : 300));
       }
 
       // Ό,τι δεν προλάβαμε (ακύρωση ή διακοπή) μένει για συνέχιση με την «Επανάληψη»,
@@ -2161,15 +2304,30 @@ export default function KhmdhsBatchRefreshWidget({
         detailItems.push(pendingEntry);
       }
 
+      for (const entry of detailItems) {
+        if (entry?.id) sessionLatest.set(entry.id, entry);
+      }
+
+      const resultItems = isRetryRun ? [...sessionLatest.values()] : detailItems;
       const batchResults = {
-        refreshed,
-        needsIntervention,
-        failed,
-        skipped: skippedItems.length,
-        interventionItems,
-        items: detailItems,
+        refreshed: isRetryRun
+          ? resultItems.filter((i) => i.status === 'refreshed').length
+          : refreshed,
+        needsIntervention: isRetryRun
+          ? resultItems.filter((i) => i.status === 'intervened').length
+          : needsIntervention,
+        failed: isRetryRun
+          ? resultItems.filter((i) => i.status === 'failed').length
+          : failed,
+        skipped: isRetryRun ? 0 : skippedItems.length,
+        interventionItems: isRetryRun
+          ? resultItems
+            .filter((i) => i.status === 'intervened' && i.id)
+            .map((i) => ({ id: i.id, label: i.label }))
+          : interventionItems,
+        items: resultItems,
         // Η επανάληψη ενημερώνει μόνο τα υποέργα που ξανατρέξαμε — δεν αντικαθιστά την αναφορά.
-        isRetry: !!retryItems,
+        isRetry: isRetryRun,
       };
 
       // Πρώτα φρέσκα υποέργα στη λίστα, μετά η αναφορά — αλλιώς ο συγχρονισμός
@@ -2182,27 +2340,56 @@ export default function KhmdhsBatchRefreshWidget({
         onBatchResults(batchResults);
       }
 
-      const lockedCount = detailItems.filter((d) => d.busy).length;
-      const pendingCount = detailItems.filter((d) => d.notProcessed).length;
-      const realFailed = failed;
+      const lockedCount = resultItems.filter((d) => d.busy).length;
+      const pendingCount = resultItems.filter((d) => d.notProcessed).length;
+      lastToast = {
+        isRetryRun,
+        cancelled: !!cancelRef.current,
+        refreshed: isRetryRun ? resultItems.filter((i) => i.status === 'refreshed').length : refreshed,
+        needsIntervention: batchResults.needsIntervention,
+        failed: batchResults.failed,
+        lockedCount,
+        pendingCount,
+        total,
+        remaining: pickKhmdhsBatchRetryCandidates(detailItems).length,
+      };
 
-      if (cancelRef.current) {
-        showToast(
-          `Η μαζική ανανέωση ακυρώθηκε. Ολοκληρώθηκαν ${refreshed} από ${total}` +
-          (needsIntervention ? `, ${needsIntervention} χρειάζονται χαρακτηρισμό` : '') +
-          (realFailed ? `, ${realFailed} απέτυχαν` : '') +
-          (lockedCount ? `, ${lockedCount} ήταν σε χρήση` : '') +
-          (pendingCount ? `, ${pendingCount} μένουν για συνέχεια` : ''),
-          'info'
-        );
-      } else {
-        showToast(
-          `Μαζική ανανέωση ολοκληρώθηκε: ${refreshed} ενημερώθηκαν` +
-          (needsIntervention ? `, ${needsIntervention} χρειάζονται χαρακτηρισμό` : '') +
-          (realFailed ? `, ${realFailed} απέτυχαν` : '') +
-          (lockedCount ? `, ${lockedCount} για αργότερα (ήταν σε χρήση)` : ''),
-          (needsIntervention || realFailed) ? 'warning' : 'success'
-        );
+      queue = pickKhmdhsBatchRetryCandidates(detailItems);
+      if (!isRetryRun) break;
+      }
+
+      if (lastToast) {
+        const {
+          refreshed: doneCount, needsIntervention: needCount,
+          failed: failCount, lockedCount, pendingCount, total: passTotal, remaining,
+          isRetryRun: wasRetry,
+        } = lastToast;
+        const cancelled = lastToast.cancelled || !!cancelRef.current;
+        if (cancelled) {
+          showToast(
+            `Η ${wasRetry ? 'επανάληψη' : 'μαζική ανανέωση'} ακυρώθηκε. Ολοκληρώθηκαν ${doneCount} από ${passTotal}` +
+            (needCount ? `, ${needCount} χρειάζονται χαρακτηρισμό` : '') +
+            (failCount ? `, ${failCount} απέτυχαν` : '') +
+            (lockedCount ? `, ${lockedCount} ήταν σε χρήση` : '') +
+            (pendingCount ? `, ${pendingCount} μένουν για συνέχεια` : ''),
+            'info'
+          );
+        } else if (wasRetry && remaining > 0) {
+          showToast(
+            `Η επανάληψη σταμάτησε με ${remaining} ακόμα εκκρεμή. Ξαναπατήστε «Επανάληψη» όταν το ΚΗΜΔΗΣ ηρεμήσει.` +
+            (doneCount ? ` Ολοκληρώθηκαν ${doneCount}.` : ''),
+            'warning'
+          );
+        } else {
+          showToast(
+            (wasRetry ? 'Η επανάληψη ολοκληρώθηκε: ' : 'Μαζική ανανέωση ολοκληρώθηκε: ') +
+            `${doneCount} ενημερώθηκαν` +
+            (needCount ? `, ${needCount} χρειάζονται χαρακτηρισμό` : '') +
+            (failCount ? `, ${failCount} απέτυχαν` : '') +
+            (lockedCount ? `, ${lockedCount} για αργότερα (ήταν σε χρήση)` : ''),
+            (needCount || failCount) ? 'warning' : 'success'
+          );
+        }
       }
     } catch (e) {
       showToast(e?.message || 'Σφάλμα μαζικής ανανέωσης', 'error');
@@ -2231,9 +2418,10 @@ export default function KhmdhsBatchRefreshWidget({
       }
       setCancelRequested(false);
       setRunning(false);
+      if (typeof onRetryLiveChange === 'function') onRetryLiveChange(null);
     }
   }, [
-    batchScope, currentUser, showToast, onRefreshComplete, onBatchResults,
+    batchScope, currentUser, showToast, onRefreshComplete, onBatchResults, onRetryLiveChange,
     addLog, eligiblePreview, persistItemFindings,
   ]);
 
@@ -2250,12 +2438,33 @@ export default function KhmdhsBatchRefreshWidget({
   }, [cancelRequested, currentUser, addLog]);
 
   const lastRetryTokenRef = useRef(null);
+  const lastCancelTokenRef = useRef(null);
+
+  useEffect(() => {
+    if (!cancelSignal) return;
+    if (lastCancelTokenRef.current === cancelSignal) return;
+    lastCancelTokenRef.current = cancelSignal;
+    cancelRef.current = true;
+    setCancelRequested(true);
+    addLog('⛔', 'Ακύρωση επανάληψης από την αναφορά…');
+    if (ipcRenderer?.invoke) {
+      ipcRenderer.invoke('cancel-khmdhs-batch-refresh', {
+        actingUsername: currentUser?.username,
+      }).catch(() => {});
+    }
+  }, [cancelSignal, currentUser, addLog]);
+
   useEffect(() => {
     if (!retrySignal || !retrySignal.token) return;
     if (lastRetryTokenRef.current === retrySignal.token) return;
-    lastRetryTokenRef.current = retrySignal.token;
     const items = Array.isArray(retrySignal.items) ? retrySignal.items : [];
-    if (!items.length || running) return;
+    if (!items.length) {
+      lastRetryTokenRef.current = retrySignal.token;
+      return;
+    }
+    // Αν τρέχει ακόμα η προηγούμενη μαζική, μην κάψεις το σήμα — ξαναδοκίμασε όταν ελευθερωθεί.
+    if (running) return;
+    lastRetryTokenRef.current = retrySignal.token;
     void handleBatchRefresh({ retryItems: items });
   }, [retrySignal, running, handleBatchRefresh]);
 

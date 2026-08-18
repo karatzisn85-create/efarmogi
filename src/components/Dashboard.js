@@ -3386,6 +3386,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [khmdhsLastRun, setKhmdhsLastRun] = useState(null);
   const [khmdhsBatchRunning, setKhmdhsBatchRunning] = useState(false);
   const [khmdhsRetrySignal, setKhmdhsRetrySignal] = useState(null);
+  const [khmdhsCancelSignal, setKhmdhsCancelSignal] = useState(null);
+  const [khmdhsRetryLive, setKhmdhsRetryLive] = useState(null);
   const [notes, setNotes] = useState([]);
   const [notesSearch, setNotesSearch] = useState('');
   const [editingNote, setEditingNote] = useState(null);
@@ -3469,6 +3471,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     } catch { /* ignore */ }
   }, [userRole, currentUser?.username]);
 
+  const batchReportResultsRef = useRef(batchReportResults);
+  batchReportResultsRef.current = batchReportResults;
+
   const handleBatchResults = useCallback((results) => {
     // Κενή ή ακυρωμένη εκτέλεση δεν πειράζει την προηγούμενη αναφορά — αλλιώς θα έσβηνε
     // ευρήματα που ο χρήστης δεν πρόλαβε να δει.
@@ -3483,9 +3488,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     };
 
     // Η «Επανάληψη» αφορά συγκεκριμένα υποέργα: ενημερώνει μόνο αυτά και κρατά τα υπόλοιπα.
+    // Ref ώστε διαδοχικές στροφές στην ίδια εκτέλεση να μην συγχωνεύονται πάνω σε παλιά εικόνα.
     const merged = results.isRetry
-      ? mergeKhmdhsBatchResults(batchReportResults, results)
+      ? mergeKhmdhsBatchResults(batchReportResultsRef.current, results)
       : results;
+    batchReportResultsRef.current = merged;
     const pending = merged.interventionItems || [];
 
     setBatchReportResults(merged);
@@ -3496,7 +3503,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     // πρέπει να είναι διαθέσιμα και μετά το κλείσιμο της εφαρμογής.
     void persistKhmdhsBatchReport({ results: merged, pendingItems: pending, lastRun });
     refreshKhmdhsStaleCount();
-  }, [batchReportResults, refreshKhmdhsStaleCount, persistKhmdhsBatchReport]);
+  }, [refreshKhmdhsStaleCount, persistKhmdhsBatchReport]);
 
   // Εκκρεμότητες αναφοράς κλείνουν όταν επιλυθούν στο υποέργο — σε idle ώστε
   // να μην «κλέβει» χρόνο από το άνοιγμα της σελίδας και τα πρώτα κλικ.
@@ -8248,6 +8255,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           lastRunInfo: khmdhsLastRun,
           hasReport: !!batchReportResults,
           retrySignal: khmdhsRetrySignal,
+          cancelSignal: khmdhsCancelSignal,
+          onRetryLiveChange: setKhmdhsRetryLive,
         }}
         deadlineWidgetProps={{
           projects: visibleProjects,
@@ -8292,9 +8301,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             }}
             onRetry={(retryItems) => {
               if (!Array.isArray(retryItems) || !retryItems.length) return;
-              setIsBatchReportOpen(false);
               setKhmdhsRetrySignal({ items: retryItems, token: Date.now() });
             }}
+            onCancelRetry={() => setKhmdhsCancelSignal(Date.now())}
+            retryLive={khmdhsRetryLive}
             onDismiss={() => {
               setIsBatchReportOpen(false);
               setBatchReportResults(null);

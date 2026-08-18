@@ -93,14 +93,34 @@ export function readPaymentActualAmountFromPayment(payment) {
 
 /**
  * Εντοπίζει το ποσό μέσα στο κείμενο του τίτλου εντάλματος
- * (π.χ. «…συνολικού ποσού 27.836,89 ευρώ…») ως αυτόματη πρόταση.
+ * (π.χ. «…ποσού 18.999,00 ευρώ…» ή «ΠΟΣΟΥ 18999,00 ΕΥΡΩ»).
  */
 export function parsePaymentAmountFromTitle(title) {
   const s = String(title || '');
   if (!s) return null;
-  const m = s.match(/ποσο[ύυ]\s*:?\s*(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)\s*(?:ευρ|€|eur)/i);
+  const m = s.match(
+    /ποσο[ύυ]\s*:?\s*(-?\d{1,3}(?:\.\d{3})+,\d{1,2}|-?\d{1,3}(?:\.\d{3})+|-?\d+,\d{1,2}|-?\d+\.\d{1,2}|-?\d+)\s*(?:ευρ[ωώ]?|€|eur)?/i
+  );
   if (!m) return null;
-  const n = Number(String(m[1]).replace(/\./g, '').replace(',', '.'));
+  return parseCapturedTitleAmount(m[1]);
+}
+
+/** 18.999,00 → 18999 · 18.999 → 18999 · 18999,70 → 18999.7 · 12400.50 → 12400.5 */
+function parseCapturedTitleAmount(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  let n = null;
+  if (/^\d{1,3}(?:\.\d{3})+,\d{1,2}$/.test(s)) {
+    n = Number(s.replace(/\./g, '').replace(',', '.'));
+  } else if (/^\d+,\d{1,2}$/.test(s)) {
+    n = Number(s.replace(',', '.'));
+  } else if (/^\d{1,3}(?:\.\d{3})+$/.test(s)) {
+    n = Number(s.replace(/\./g, ''));
+  } else if (/^\d+\.\d{1,2}$/.test(s)) {
+    n = Number(s);
+  } else if (/^\d+$/.test(s)) {
+    n = Number(s);
+  }
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
@@ -114,6 +134,132 @@ export function suggestPaymentActualAmount(title, grossAmount = null) {
   const gross = Number(grossAmount);
   if (Number.isFinite(gross) && gross > 0 && parsed > gross + 0.5) return null;
   return parsed;
+}
+
+const AMOUNT_TOLERANCE = 0.5;
+
+function amountsNear(a, b) {
+  return Math.abs(Number(a) - Number(b)) <= AMOUNT_TOLERANCE;
+}
+
+function paymentTitleKind(title) {
+  const u = String(title || '').toUpperCase();
+  if (/ΕΝΤΟΛ/.test(u)) return 'instruction';
+  if (/ΕΝΤΑΛΜ/.test(u) || /ΠΛΗΡΩΜ/.test(u)) return 'payment';
+  return 'other';
+}
+
+function entryTitle(entry, getTitle) {
+  if (typeof getTitle === 'function') return String(getTitle(entry) || '');
+  return String(entry?.snapshot?.title || entry?.title || '');
+}
+
+/**
+ * Εντολή πληρωμής + ένταλμα με το ίδιο ποσό στον τίτλο.
+ * Παραλείπει την εντολή μόνο όταν το ΚΗΜΔΗΣ της έχει το συμβατικό σύνολο
+ * (όχι το ποσό της δόσης) και, μετά την παράλειψη, το άθροισμα των δόσεων
+ * κλειδώνει στο πληρωτέο. Δύο πραγματικές πληρωμές ίδιου ποσού δεν ενώνονται.
+ */
+export function suggestPaymentDuplicateTitlePlan(entries = [], opts = {}) {
+  if (opts.coFinancingPattern) return null;
+
+  const payable = Number(opts.contractAmountGross);
+  if (!Number.isFinite(payable) || payable <= 0) return null;
+
+  const active = (entries || []).filter((e) => e?.active !== false && e?.adam);
+  if (active.length < 2) return null;
+
+  const enriched = active.map((e) => {
+    const title = entryTitle(e, opts.getTitle);
+    const gross = Number(e.gross);
+    const titleAmount = suggestPaymentActualAmount(title, Number.isFinite(gross) ? gross : null);
+    return {
+      adam: normalizeAdam(e.adam),
+      gross: Number.isFinite(gross) ? gross : 0,
+      title,
+      titleAmount,
+      kind: paymentTitleKind(title),
+    };
+  });
+
+  const rawSum = enriched.reduce((s, e) => s + e.gross, 0);
+  if (rawSum <= payable + AMOUNT_TOLERANCE) return null;
+
+  const informativeAdams = new Set();
+  const droppedTitleAmounts = [];
+  for (let i = 0; i < enriched.length; i += 1) {
+    for (let j = i + 1; j < enriched.length; j += 1) {
+      const a = enriched[i];
+      const b = enriched[j];
+      if (a.titleAmount == null || b.titleAmount == null) continue;
+      if (!amountsNear(a.titleAmount, b.titleAmount)) continue;
+      const instruction = a.kind === 'instruction' ? a : (b.kind === 'instruction' ? b : null);
+      const payment = a.kind === 'payment' ? a : (b.kind === 'payment' ? b : null);
+      if (!instruction || !payment || instruction.adam === payment.adam) continue;
+      // Η εντολή πρέπει να έχει το φουσκωμένο ποσό σύμβασης — αλλιώς είναι κανονική δόση.
+      if (!amountsNear(instruction.gross, payable)) continue;
+      informativeAdams.add(instruction.adam);
+      droppedTitleAmounts.push(instruction.titleAmount);
+    }
+  }
+  if (informativeAdams.size === 0) return null;
+
+  const roles = {};
+  const amounts = {};
+  const labels = {};
+  enriched.forEach((e) => {
+    if (informativeAdams.has(e.adam)) {
+      roles[e.adam] = PAYMENT_DOCUMENT_ROLE.INFORMATIVE;
+      labels[e.adam] = 'Εντολή — ίδιο ποσό με ένταλμα';
+      return;
+    }
+    const suggested = suggestPaymentDocumentRole({
+      snapshot: { title: e.title },
+      adam: e.adam,
+      active: true,
+    });
+    roles[e.adam] = suggested;
+    if (
+      suggested === PAYMENT_DOCUMENT_ROLE.PAYMENT_ORDER
+      && e.titleAmount != null
+      && !amountsNear(e.titleAmount, e.gross)
+    ) {
+      amounts[e.adam] = e.titleAmount;
+    }
+  });
+
+  // Για κάθε ποσό εντολής που παραλείψαμε, πρέπει να μείνει ακριβώς ένα ένταλμα.
+  const uniqueDropped = [];
+  droppedTitleAmounts.forEach((amt) => {
+    if (!uniqueDropped.some((x) => amountsNear(x, amt))) uniqueDropped.push(amt);
+  });
+  const tooManySiblings = uniqueDropped.some((amt) => {
+    const countingSame = enriched.filter((e) => (
+      roles[e.adam] === PAYMENT_DOCUMENT_ROLE.PAYMENT_ORDER
+      && e.titleAmount != null
+      && amountsNear(e.titleAmount, amt)
+    ));
+    return countingSame.length !== 1;
+  });
+  if (tooManySiblings) return null;
+
+  const countable = enriched.reduce((sum, e) => {
+    if (roles[e.adam] !== PAYMENT_DOCUMENT_ROLE.PAYMENT_ORDER) return sum;
+    const amt = amounts[e.adam] != null ? amounts[e.adam] : e.gross;
+    return sum + amt;
+  }, 0);
+  if (!amountsNear(countable, payable)) return null;
+  if (enriched.filter((e) => roles[e.adam] === PAYMENT_DOCUMENT_ROLE.PAYMENT_ORDER).length < 1) {
+    return null;
+  }
+
+  return {
+    id: 'duplicate_instruction_and_installments',
+    roles,
+    amounts,
+    labels,
+    countableTotalGross: Math.round(countable * 100) / 100,
+  };
 }
 
 export function readPaymentLabelsFromReviewResolution(resolution) {
@@ -291,7 +437,15 @@ export function applyPaymentRolesToProject(formData, paymentRoles = {}, paymentL
   return changed ? { ...formData, khmdhsPayments: nextPayments } : formData;
 }
 
-export function buildDefaultPaymentRoleDraft(reconEntries = [], coFinancingPattern = null) {
+export function buildDefaultPaymentRoleDraft(reconEntries = [], coFinancingPattern = null, opts = {}) {
+  const plan = suggestPaymentDuplicateTitlePlan(reconEntries, {
+    contractAmountGross: opts.contractAmountGross,
+    getTitle: opts.getTitle,
+    coFinancingPattern,
+  });
+  if (plan?.roles && Object.keys(plan.roles).length) {
+    return { ...plan.roles };
+  }
   const draft = {};
   (reconEntries || []).forEach((entry) => {
     const adam = normalizeAdam(entry?.adam);

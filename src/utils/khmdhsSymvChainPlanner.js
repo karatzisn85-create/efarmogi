@@ -308,6 +308,37 @@ export function resolveReusableSymvChainPlan(existingPlan, chainRes) {
 }
 
 /**
+ * Αλυσίδα για έλεγχο κατανομής μετά ανανέωση κάρτας / μαζικής.
+ * Δέχεται το αποτέλεσμα preview-subproject-khmdhs-refresh ή απευθείας chainRes.
+ */
+export function resolvePlanChainResForKhmdhsRefresh(refreshRes) {
+  if (!refreshRes) return null;
+  if (refreshRes.chainRes) {
+    return refreshRes.usesStitchPlan
+      ? (mergeStitchChainResForSymvPlan(refreshRes.chainRes, refreshRes.stitchResults)
+        || refreshRes.chainRes)
+      : refreshRes.chainRes;
+  }
+  return refreshRes;
+}
+
+/** Επαναχρησιμοποιήσιμο σχέδιο μετά ανανέωση (ίδιος κανόνας κάρτας και μαζικής). */
+export function resolveReusablePlanForKhmdhsRefresh(existingPlan, refreshRes) {
+  return resolveReusableSymvChainPlan(
+    existingPlan,
+    resolvePlanChainResForKhmdhsRefresh(refreshRes)
+  );
+}
+
+/** Νέα πραγματική σύμβαση (όχι auto-skip): η κάρτα ξαναρωτά κατανομή. */
+export function needsSymvPlannerAfterKhmdhsRefresh(existingPlan, refreshRes) {
+  const reusable = resolveReusablePlanForKhmdhsRefresh(existingPlan, refreshRes);
+  if (reusable?.items?.length) return false;
+  if (!existingPlan?.items?.length) return false;
+  return shouldOfferSymvChainPlanner(resolvePlanChainResForKhmdhsRefresh(refreshRes));
+}
+
+/**
  * Ενοποιεί τα SYMV / snapshots όλων των επιτυχημένων τμημάτων συρραφής
  * ώστε η επαναχρησιμοποίηση κατανομής να μη βλέπει μόνο τον πρώτο σπόρο.
  */

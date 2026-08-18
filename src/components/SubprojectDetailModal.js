@@ -8,7 +8,7 @@ import {
 } from '../data/formOptions';
 import { formatViolationSummary } from '../utils/directAssignmentCompliance';
 import { getProjectChargeDisplay } from '../utils/supervisorChargeDisplay';
-import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm } from '../utils/khmdhsFields';
+import { getKhmdhsDisplayEntries, getTotalContractAmount, isMultipleContractsForm, sumNonExtensionSupplementaryGross } from '../utils/khmdhsFields';
 import { noticeDrivesAssignmentProcedure, projectHasKhmdhsNoticeData, getProjectAssignmentProcedure, getProjectContractProcessStartDate } from '../utils/khmdhsNoticeFields';
 import { projectHasKhmdhsDerivedSupplementary } from '../utils/khmdhsChainDerivedFields';
 import { buildKhmdhsPaymentsTotals } from '../utils/khmdhsChainExtraFields';
@@ -46,7 +46,11 @@ import {
 } from '../utils/khmdhsRefreshFindings';
 import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhsChainApply';
 import { getConfirmedKhmdhsStitchPlan, evaluateStitchRefreshCompleteness } from '../utils/khmdhsChainStitchPlan';
-import { symvPlanMatchesChain } from '../utils/khmdhsSymvChainPlanner';
+import {
+  resolveReusablePlanForKhmdhsRefresh,
+  resolvePlanChainResForKhmdhsRefresh,
+  needsSymvPlannerAfterKhmdhsRefresh,
+} from '../utils/khmdhsSymvChainPlanner';
 import KhmdhsSymvChainPlannerDialog from './KhmdhsSymvChainPlannerDialog';
 import {
   evaluateKhmdhsContractExpiryPrompt,
@@ -1322,20 +1326,29 @@ function SubprojectDetailModal({
         showToast(stitchCompleteness.message, 'error');
         return;
       }
-      // Αν το υποέργο έχει ήδη εγκατεστημένο σχέδιο κατανομής SYMV (πολλαπλές/παράλληλες
-      // συμβάσεις) και η αλυσίδα δεν έχει αλλάξει, το επαναχρησιμοποιούμε ώστε η ανανέωση
-      // να δουλεύει κανονικά χωρίς να ζητά ξανά την ίδια απόφαση από τον χρήστη.
+      // Ίδιος κανόνας με τη μαζική: επαναχρησιμοποίηση κατανομής όταν τα νέα ΑΔΑΜ
+      // είναι μόνο αυτόματα «Δεν καταχωρείται»· αλλιώς ξαναρωτάμε μόνο αν χρειάζεται απόφαση.
       const existingSymvPlan = project.khmdhsSymvChainPlan;
-      const reusableSymvPlan = existingSymvPlan?.items?.length
-        && symvPlanMatchesChain(existingSymvPlan, res.chainRes)
-        ? existingSymvPlan
-        : null;
+      const planChainRes = resolvePlanChainResForKhmdhsRefresh(res);
+      const reusableSymvPlan = resolveReusablePlanForKhmdhsRefresh(existingSymvPlan, res);
+      if (needsSymvPlannerAfterKhmdhsRefresh(existingSymvPlan, res)) {
+        setSymvPlannerState({
+          open: true,
+          chainRes: planChainRes || res.chainRes,
+          seedAdam: res.seedAdam,
+          seedLabel: res.seedLabel,
+          subprojectTitle: project.subprojectTitle || '',
+          existingPlan: existingSymvPlan,
+        });
+        keepLock = true;
+        return;
+      }
       // Τεχνητή αλυσίδα / ανανέωση σε επίπεδο υποέργου: πάντα stitch (όχι replace στη γραμμή 0).
       const registryChainResList = [];
       let applyResult;
       if (res.usesStitchPlan && Array.isArray(res.stitchResults) && res.stitchResults.length) {
         applyResult = applyStitchRefreshResults(project, res.stitchResults, {
-          fallbackChainRes: res.chainRes,
+          fallbackChainRes: planChainRes || res.chainRes,
           fallbackSeedAdam: res.seedAdam,
           symvChainPlan: reusableSymvPlan,
         });
@@ -1353,11 +1366,11 @@ function SubprojectDetailModal({
       if (applyResult.warnings?.includes('symvPlannerRequired')) {
         setSymvPlannerState({
           open: true,
-          chainRes: res.chainRes,
+          chainRes: planChainRes || res.chainRes,
           seedAdam: res.seedAdam,
           seedLabel: res.seedLabel,
           subprojectTitle: project.subprojectTitle || '',
-          existingPlan: project.khmdhsSymvChainPlan || null,
+          existingPlan: existingSymvPlan || null,
         });
         keepLock = true;
         return;
@@ -1751,11 +1764,7 @@ function SubprojectDetailModal({
 
   const totalSupplementaryAmount = useMemo(() => {
     if (!project?.hasSupplementaryContracts || !Array.isArray(project.supplementaryContracts)) return 0;
-    const parseAmt = (v) => {
-      const n = parseFloat(String(v || '').replace(',', '.'));
-      return isNaN(n) ? 0 : n;
-    };
-    return project.supplementaryContracts.reduce((s, c) => s + parseAmt(c?.amount), 0);
+    return sumNonExtensionSupplementaryGross(project);
   }, [project]);
 
   useEffect(() => {

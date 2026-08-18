@@ -61,6 +61,26 @@ export function mergeKhmdhsBatchResults(previous, next) {
   return recount({ ...previous, ...next }, [...kept, ...nextItems]);
 }
 
+/** Μέγιστες αυτόματες στροφές μετά το κλικ «Επανάληψη» — μετά μένει το κουμπί για νέα προσπάθεια. */
+export const KHMDHS_RETRY_MAX_ROUNDS = 8;
+/** Παύση ανάμεσα σε υποέργα στην επανάληψη, ώστε να μην πνίγεται το ΚΗΜΔΗΣ. */
+export const KHMDHS_RETRY_ITEM_GAP_MS = 1500;
+
+/**
+ * Υποέργα της αναφοράς που αξίζει να ξανατρέξουν: αποτυχίες, σε χρήση, ή που δεν προλάβαμε.
+ */
+export function pickKhmdhsBatchRetryCandidates(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((i) => i?.id && (i.status === 'failed' || i.busy || i.notProcessed))
+    .map((i) => ({ id: i.id, label: i.label || i.id }));
+}
+
+/** Παύση πριν την επόμενη αυτόματη προσπάθεια (1 = πρώτη παύση μετά το αρχικό πέρασμα). */
+export function nextKhmdhsRetryDelayMs(roundAfterFirst) {
+  const n = Math.max(1, Number(roundAfterFirst) || 1);
+  return Math.min(8000 * n, 30000);
+}
+
 /** Σημειώνει υποέργο ως επιλυμένο, ώστε να μη μετρά ξανά ως εκκρεμότητα. */
 export function markBatchItemsResolved(results, subprojectIds = []) {
   const ids = new Set(subprojectIds.filter(Boolean));

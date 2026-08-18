@@ -150,15 +150,14 @@ export function isExtensionSupplementaryRow(row, formData) {
 }
 
 function parseSupplementaryParts(formData) {
-  const suppRows = (formData?.supplementaryContracts || [])
-    .filter((row) => !isExtensionSupplementaryRow(row, formData));
-  const manualSuppPart = suppRows
-    .filter((row) => !row?.khmdhsDerived)
-    .reduce((sum, row) => sum + parseGreekAmountString(row?.amount), 0);
-  const derivedSuppPart = suppRows
-    .filter((row) => row?.khmdhsDerived)
-    .reduce((sum, row) => sum + parseGreekAmountString(row?.amount), 0);
-  return { manualSuppPart, derivedSuppPart, allSuppPart: manualSuppPart + derivedSuppPart };
+  const { parseNormalizedSupplementaryParts } = require('./khmdhsSupplementaryAmountLogic');
+  return parseNormalizedSupplementaryParts(formData);
+}
+
+/** Άθροισμα συμπληρωματικών για εμφάνιση στην κάρτα — ελληνικά ποσά, χωρίς παρατάσεις. */
+export function sumNonExtensionSupplementaryGross(formData) {
+  if (!formData) return 0;
+  return parseSupplementaryParts(formData).allSuppPart;
 }
 
 /**

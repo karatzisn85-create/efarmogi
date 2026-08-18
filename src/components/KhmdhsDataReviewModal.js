@@ -51,6 +51,7 @@ import {
   mergePaymentRolesFromProject,
   mergePaymentAmountsFromProject,
   suggestPaymentActualAmount,
+  suggestPaymentDuplicateTitlePlan,
   paymentRoleCountsTowardTotal,
   validatePaymentRoleDraft,
 } from '../utils/khmdhsPaymentDocumentRoles';
@@ -1826,13 +1827,40 @@ function PaymentClassificationCard({
     [formData, review, item]
   );
 
-  const buildAmountDraft = useCallback((snapshotsMap, savedAmounts) => {
+  const titleOf = useCallback((entry) => {
+    const adam = String(entry?.adam || '').trim().toUpperCase();
+    return String(paymentSnapshots.get(adam)?.title || entry?.snapshot?.title || '');
+  }, [paymentSnapshots]);
+
+  const autoPlan = useMemo(
+    () => suggestPaymentDuplicateTitlePlan(recon.entries, {
+      contractAmountGross: recon.contractAmountGross,
+      getTitle: titleOf,
+      coFinancingPattern: recon.coFinancingPattern,
+    }),
+    [recon.entries, recon.contractAmountGross, recon.coFinancingPattern, titleOf]
+  );
+
+  const roleDefaults = useMemo(
+    () => buildDefaultPaymentRoleDraft(recon.entries, recon.coFinancingPattern, {
+      contractAmountGross: recon.contractAmountGross,
+      getTitle: titleOf,
+    }),
+    [recon.entries, recon.coFinancingPattern, recon.contractAmountGross, titleOf]
+  );
+
+  const buildAmountDraft = useCallback((snapshotsMap, savedAmounts, planAmounts = {}) => {
     const draft = {};
     (recon.entries || []).filter((e) => e?.active && e?.adam).forEach((e) => {
       const adam = String(e.adam || '').trim().toUpperCase();
       const saved = savedAmounts?.[adam];
       if (saved != null) {
         draft[adam] = formatAmountInput(saved);
+        return;
+      }
+      const planned = planAmounts?.[adam];
+      if (planned != null) {
+        draft[adam] = formatAmountInput(planned);
         return;
       }
       const snap = snapshotsMap.get(adam);
@@ -1844,19 +1872,35 @@ function PaymentClassificationCard({
     return draft;
   }, [recon.entries]);
 
-  const [roleDraft, setRoleDraft] = useState(() => {
-    const defaults = buildDefaultPaymentRoleDraft(recon.entries, recon.coFinancingPattern);
-    return { ...defaults, ...existingRoles };
-  });
-  const [labelDraft, setLabelDraft] = useState(() => ({ ...existingLabels }));
-  const [amountDraft, setAmountDraft] = useState(() => buildAmountDraft(paymentSnapshots, existingAmounts));
+  const [roleDraft, setRoleDraft] = useState(() => ({ ...roleDefaults, ...existingRoles }));
+  const [labelDraft, setLabelDraft] = useState(() => ({ ...(autoPlan?.labels || {}), ...existingLabels }));
+  const [amountDraft, setAmountDraft] = useState(() => buildAmountDraft(
+    paymentSnapshots,
+    existingAmounts,
+    autoPlan?.amounts
+  ));
 
   useEffect(() => {
-    const defaults = buildDefaultPaymentRoleDraft(recon.entries, recon.coFinancingPattern);
-    setRoleDraft({ ...defaults, ...mergePaymentRolesFromProject(formData, review, item) });
-    setLabelDraft({ ...mergePaymentLabelsFromProject(formData, review, item) });
-    setAmountDraft(buildAmountDraft(paymentSnapshots, mergePaymentAmountsFromProject(formData, review, item)));
-  }, [itemKey, review?.generatedAt, formData, item, recon.entries, recon.coFinancingPattern, buildAmountDraft, paymentSnapshots]);
+    setRoleDraft({ ...roleDefaults, ...mergePaymentRolesFromProject(formData, review, item) });
+    setLabelDraft({
+      ...(autoPlan?.labels || {}),
+      ...mergePaymentLabelsFromProject(formData, review, item),
+    });
+    setAmountDraft(buildAmountDraft(
+      paymentSnapshots,
+      mergePaymentAmountsFromProject(formData, review, item),
+      autoPlan?.amounts
+    ));
+  }, [
+    itemKey,
+    review?.generatedAt,
+    formData,
+    item,
+    roleDefaults,
+    autoPlan,
+    buildAmountDraft,
+    paymentSnapshots,
+  ]);
 
   const activeEntries = (recon.entries || []).filter((e) => e?.active && e?.adam);
   const countableTotal = activeEntries.reduce((sum, e) => {
@@ -1946,6 +1990,13 @@ function PaymentClassificationCard({
           <> · Μετά τους χαρακτηρισμούς: {formatKhmdhsEuro(countableTotal)} / {formatKhmdhsEuro(payable)}</>
         )}
         {exceedsAfterClassify && ' — το ποσό που μετράει ακόμη υπερβαίνει το τελικό πληρωτέο.'}
+        {autoPlan && !exceedsAfterClassify && (
+          <div style={{ marginTop: '0.35rem' }}>
+            Εντοπίστηκε εντολή πληρωμής με το ίδιο ποσό όπως ένα ένταλμα. Η εντολή προτείνεται
+            ως ενημερωτική· τα ποσά των δόσεων πάρθηκαν από τους τίτλους. Ελέγξτε και πατήστε
+            ολοκλήρωση.
+          </div>
+        )}
         <div style={{ marginTop: '0.35rem', fontWeight: 600 }}>
           Αν ένα ένταλμα πληρώνει μόνο μέρος του ποσού (π.χ. το καθαρό στον ανάδοχο ή μόνο τις
           κρατήσεις), γράψτε το πραγματικό ποσό στο αντίστοιχο πεδίο. Όπου βρέθηκε ποσό μέσα στον τίτλο,
