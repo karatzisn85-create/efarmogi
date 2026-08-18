@@ -321,6 +321,7 @@ function createTaskAssignmentService(deps) {
   }
 
   function writeTask(task, { skipLock = false } = {}) {
+    ensureTaskStorage();
     if (skipLock) {
       persistTask(task);
       return;
@@ -1198,6 +1199,7 @@ function createTaskAssignmentService(deps) {
   function addFiles({ actingUsername, taskId, newFiles = [], batch = null }) {
     const users = loadUsers();
     let result = { success: false, error: 'Άγνωστο σφάλμα' };
+    let notifyAfter = null;
     withServiceLock(getWriteLockPath(), () => {
       const task = readTask(taskId);
       if (!task) {
@@ -1255,8 +1257,19 @@ function createTaskAssignmentService(deps) {
         result = { success: false, error: err?.message || 'Αποτυχία αποθήκευσης αρχείων' };
         return;
       }
+      notifyAfter = { updated, copied, batchKind, batchRecord };
+      result = {
+        success: true,
+        task: updated,
+        warning: failed.length > 0
+          ? `Αποθηκεύτηκαν ${copied.length} από ${newFiles.length} αρχεία. Δεν προστέθηκαν: ${failed.map((f) => f.name).join(', ')}`
+          : null
+      };
+    });
+    if (notifyAfter) {
       const uploader = findUser(users, actingUsername);
       const uploaderLabel = uploader?.fullName ? `${uploader.fullName} (${actingUsername})` : actingUsername;
+      const { updated, copied, batchKind, batchRecord } = notifyAfter;
       let notifyMsg;
       if (batchKind === 'folder') {
         const folderLabel = batchRecord.label || 'Φάκελος';
@@ -1278,14 +1291,7 @@ function createTaskAssignmentService(deps) {
         [],
         { excludeUsernames: [actingUsername] }
       );
-      result = {
-        success: true,
-        task: updated,
-        warning: failed.length > 0
-          ? `Αποθηκεύτηκαν ${copied.length} από ${newFiles.length} αρχεία. Δεν προστέθηκαν: ${failed.map((f) => f.name).join(', ')}`
-          : null
-      };
-    });
+    }
     return result;
   }
 
