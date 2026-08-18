@@ -1183,6 +1183,7 @@ function SubprojectDetailModal({
         ...project,
         khmdhsChainStitchPlan: null,
         updatedAt: new Date().toISOString(),
+        __expectedUpdatedAt: project.updatedAt || '',
       };
       const saveRes = await ipcRenderer.invoke('save-project-data', updated);
       if (!saveRes?.success) {
@@ -1480,6 +1481,7 @@ function SubprojectDetailModal({
       ...base,
       projectStatus: KHMDHS_COMPLETED_STATUS_SUGGESTION,
       updatedAt: new Date().toISOString(),
+      __expectedUpdatedAt: base.updatedAt || '',
     };
     if (refreshDialog?.mergedProject) {
       setRefreshDialog({
@@ -1551,11 +1553,14 @@ function SubprojectDetailModal({
       ),
       ...(neverAsk ? { khmdhsDocumentRegistryDismissed: true } : {}),
       updatedAt: new Date().toISOString(),
+      __expectedUpdatedAt: base.updatedAt || '',
     };
     try {
       const saveRes = await ipcRenderer.invoke('save-project-data', updated);
       if (!saveRes?.success) {
-        showToast(saveRes?.error || 'Αποτυχία αποθήκευσης.', 'error');
+        showToast(saveRes?.error || saveRes?.conflict
+          ? 'Τα δεδομένα άλλαξαν από άλλον χρήστη. Ανανεώστε πριν ξαναδοκιμάσετε.'
+          : 'Αποτυχία αποθήκευσης.', 'error');
         return;
       }
       showToast('Τα έγγραφα καταγράφηκαν στα αρχεία υποέργου.', 'success');

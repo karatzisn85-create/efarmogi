@@ -1167,9 +1167,18 @@ function startLockWatcher(mainWindow) {
     lockWatcher = fs.watch(locksDir, { recursive: true }, (eventType, filename) => {
       if (filename && (filename.endsWith('.lock') || filename.includes('projects'))) {
         console.log(`Lock file changed: ${eventType} - ${filename}`);
-        // Ενημέρωση του renderer process
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('locks-changed');
+          const parts = String(filename).replace(/\\/g, '/').split('/').filter(Boolean);
+          const last = parts[parts.length - 1] || '';
+          const entityId = last.toLowerCase().endsWith('.lock')
+            ? last.slice(0, -5)
+            : '';
+          const entityType = parts.length >= 2 ? parts[parts.length - 2] : 'projects';
+          mainWindow.webContents.send('locks-changed', {
+            eventType,
+            entityType,
+            entityId,
+          });
         }
       }
     });
@@ -2480,10 +2489,13 @@ const loadAllProjects = async () => {
             }
 
             // Add lock information to project data
-            data.isLocked = lockStatus.locked;
+            data.isLocked = !!lockStatus.locked;
             if (lockStatus.locked) {
-              data.lockedBy = lockStatus.pid;
+              data.lockedBy = lockStatus.lockedBy || '';
               data.lockMessage = 'Ανοιχτό από άλλον χρήστη';
+            } else {
+              data.lockedBy = '';
+              data.lockMessage = '';
             }
 
             // Ensure projectId / subprojectId match the actual folder names on disk.
@@ -2563,7 +2575,150 @@ const loadAllProjects = async () => {
 
 // IPC Handler για λήψη όλων των έργων
 ipcMain.handle('load-all-projects', async () => {
-  return await loadAllProjects();
+  let reachable = true;
+  try { fs.accessSync(dataDir, fs.constants.R_OK); } catch { reachable = false; }
+  const projects = await loadAllProjects();
+  if (!reachable && projects.length === 0) {
+    return { __unreachable: true, projects: [] };
+  }
+  return projects;
+});
+
+function isResolvedPathInsideDataDir(filePath) {
+  if (!dataDir || !filePath) return false;
+  const resolved = path.resolve(filePath);
+  const root = path.resolve(dataDir);
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+  if (process.platform === 'win32') {
+    const r = resolved.toLowerCase();
+    const rootL = root.toLowerCase();
+    const prefixL = prefix.toLowerCase();
+    return r === rootL || r.startsWith(prefixL);
+  }
+  return resolved === root || resolved.startsWith(prefix);
+}
+
+function hydrateSubprojectFromDisk(raw, projectDir, subprojectDir) {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = { ...raw };
+  if (typeof normalizeProjectTypeField === 'function') {
+    normalizeProjectTypeField(data);
+  }
+  const pTitle = data.projectTitle == null ? '' : String(data.projectTitle).trim();
+  const sTitle = data.subprojectTitle == null ? '' : String(data.subprojectTitle).trim();
+  if (!pTitle || !sTitle || pTitle === 'undefined' || sTitle === 'undefined') return null;
+
+  const lockStatus = isProjectLocked(projectDir);
+  data.isLocked = !!lockStatus.locked;
+  if (lockStatus.locked) {
+    data.lockedBy = lockStatus.lockedBy || '';
+    data.lockMessage = 'Ανοιχτό από άλλον χρήστη';
+  } else {
+    data.lockedBy = '';
+    data.lockMessage = '';
+  }
+  data.projectId = projectDir;
+  data.subprojectId = subprojectDir;
+
+  if (data.remainingAmountsByYear && Array.isArray(data.remainingAmountsByYear) && data.remainingAmountsByYear.length > 0) {
+    const sortedEntries = [...data.remainingAmountsByYear].sort((a, b) => parseInt(b.year) - parseInt(a.year));
+    const latestEntry = sortedEntries.find((entry) => {
+      const amount = (entry.amount || '').toString().trim();
+      return amount && amount !== '0' && amount !== '0,00';
+    });
+    if (latestEntry) {
+      data.remainingAmount = latestEntry.amount;
+      data.remainingAmountYear = latestEntry.year;
+    } else {
+      data.remainingAmount = sortedEntries[0].amount || '';
+      data.remainingAmountYear = sortedEntries[0].year || '';
+    }
+  }
+  return data;
+}
+
+function resolveSubprojectJsonPath(projectId, subprojectId) {
+  const pid = String(projectId || '').trim();
+  const sid = String(subprojectId || '').trim();
+  if (pid && sid) {
+    const direct = path.join(dataDir, pid, sid, 'data.json');
+    if (fs.existsSync(direct) && isResolvedPathInsideDataDir(direct)) return direct;
+  }
+  if (sid) {
+    const found = findSubprojectDataJsonPath(sid);
+    if (found && isResolvedPathInsideDataDir(found)) return found;
+  }
+  return '';
+}
+
+ipcMain.handle('load-one-subproject', async (_event, payload = {}) => {
+  try {
+    const projectId = String(payload.projectId || '').trim();
+    const subprojectId = String(payload.subprojectId || '').trim();
+    if (!subprojectId) {
+      return { success: false, error: 'Απαιτείται υποέργο', missing: true };
+    }
+    // Πριν θεωρήσουμε ότι λείπει, ελέγχουμε αν ο κοινός φάκελος είναι προσβάσιμος.
+    // Σε πτώση δικτύου, fs.existsSync → false → false-positive «missing».
+    let dataDirReachable = true;
+    try {
+      fs.accessSync(dataDir, fs.constants.R_OK);
+    } catch {
+      dataDirReachable = false;
+    }
+    const jsonPath = resolveSubprojectJsonPath(projectId, subprojectId);
+    if (!jsonPath) {
+      if (!dataDirReachable) {
+        return { success: false, error: 'Ο κοινός φάκελος δεδομένων δεν είναι προσβάσιμος' };
+      }
+      return { success: false, error: 'Το υποέργο δεν βρέθηκε', missing: true };
+    }
+    if (!isResolvedPathInsideDataDir(jsonPath)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+    const projectDir = path.basename(path.dirname(path.dirname(jsonPath)));
+    const subDir = path.basename(path.dirname(jsonPath));
+    let raw;
+    try {
+      raw = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    } catch (readErr) {
+      console.error('load-one-subproject read failed:', readErr);
+      return { success: false, error: readErr.message || 'Αποτυχία ανάγνωσης υποέργου' };
+    }
+    const project = hydrateSubprojectFromDisk(raw, projectDir, subDir);
+    if (!project) {
+      return { success: false, error: 'Μη έγκυρα δεδομένα υποέργου' };
+    }
+    return { success: true, project };
+  } catch (error) {
+    console.error('load-one-subproject failed:', error);
+    return { success: false, error: error.message || 'Αποτυχία ανάγνωσης υποέργου' };
+  }
+});
+
+ipcMain.handle('peek-projects-index', async () => {
+  try {
+    try { fs.accessSync(dataDir, fs.constants.R_OK); } catch {
+      return { success: false, error: 'Ο κοινός φάκελος δεδομένων δεν είναι προσβάσιμος' };
+    }
+    const index = projectsIndex.readProjectsIndex(dataDir);
+    if (!index || !Array.isArray(index.entries)) {
+      return { success: false };
+    }
+    return {
+      success: true,
+      updatedAt: index.updatedAt || '',
+      entries: index.entries
+        .filter((e) => e && e.subprojectId)
+        .map((e) => ({
+          projectId: e.projectId || '',
+          subprojectId: e.subprojectId,
+          mtimeMs: Number(e.mtimeMs) || 0,
+        })),
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
 
 // Επαναδημιουργία ευρετηρίου υποέργων (SUPERADMIN) — Φάση 2
@@ -4324,6 +4479,16 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
       return {
         success: false,
         error: 'Ο φάκελος του υποέργου δεν βρέθηκε στον δίσκο. Ανανεώστε τη λίστα και δοκιμάστε ξανά.',
+      };
+    }
+
+    // Προστασία: αν κάποιος χρήστης επεξεργάζεται αυτό το υποέργο, δεν διαγράφεται.
+    const lockCheck = isProjectLocked(resolved.projectDirName);
+    if (lockCheck.locked) {
+      const who = lockCheck.lockedBy || 'άλλον χρήστη';
+      return {
+        success: false,
+        error: `Το υποέργο είναι κλειδωμένο από ${who}. Κλείστε πρώτα την επεξεργασία.`,
       };
     }
 
@@ -13345,7 +13510,6 @@ function logAuditAction(action) {
 
     logger.debug(`Audit: ${userFullName} ${type} ${entityType} ${entityId}`);
 
-    // Async — δεν μπλοκάρει τον κύριο handler, δεν χρειάζεται backup rotation για log
     setImmediate(async () => {
       try {
         let logs = [];
@@ -13359,10 +13523,7 @@ function logAuditAction(action) {
         }
         logs.unshift(auditEntry);
         if (logs.length > 10000) logs = logs.slice(0, 10000);
-        const content = JSON.stringify({ logs }, null, 2);
-        const tmp = `${auditLogPath}.tmp-${Date.now()}`;
-        await fs.promises.writeFile(tmp, content, 'utf8');
-        await fs.promises.rename(tmp, auditLogPath);
+        await safeWriteJSONAsync(auditLogPath, { logs });
       } catch (err) {
         console.error('Error writing audit log async:', err);
       }

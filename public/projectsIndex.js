@@ -306,8 +306,11 @@ function loadProjectsViaIndex(dataDir, {
 
       data.isLocked = !!lockStatus.locked;
       if (lockStatus.locked) {
-        data.lockedBy = lockStatus.pid;
+        data.lockedBy = lockStatus.lockedBy || '';
         data.lockMessage = 'Ανοιχτό από άλλον χρήστη';
+      } else {
+        data.lockedBy = '';
+        data.lockMessage = '';
       }
 
       if (data.projectId !== projectDir) {

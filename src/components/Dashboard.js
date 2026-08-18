@@ -27,6 +27,13 @@ import {
   sortProjectsForDisplay
 } from '../utils/dashboardProjectLocks';
 import {
+  mergeOneSubprojectIntoList,
+  removeSubprojectFromList,
+  diffProjectsIndexEntries,
+  collectIndexReloadTargets,
+  runWithConcurrency,
+} from '../utils/mergeLoadedSubproject';
+import {
   clearCornerClearance,
   computeFabClearancePx,
   setCornerClearancePx,
@@ -157,6 +164,9 @@ function pickDisplayProjectTitleForGroup(subprojects) {
 }
 
 const LOCK_POLL_INTERVAL_MS = 60000;
+const INDEX_POLL_INTERVAL_MS = 45000;
+const LOCK_DATA_RELOAD_DEBOUNCE_MS = 400;
+const INDEX_RELOAD_CONCURRENCY = 2;
 
 const LazyChunkFallback = styled.div`
   padding: 1rem;
@@ -2863,6 +2873,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [egkriseisInitialSearch, setEgkriseisInitialSearch] = useState('');
   const [editingProject, setEditingProject] = useState(null);
   const [selectedDetailProject, setSelectedDetailProject] = useState(null);
+  const projectsRef = useRef([]);
+  const editingProjectRef = useRef(null);
+  const isFormOpenRef = useRef(false);
+  const selectedDetailRef = useRef(null);
+  const indexSnapshotRef = useRef(null);
+  const indexPollBusyRef = useRef(false);
+  const pendingLockReloadsRef = useRef(new Set());
+  const lockReloadTimerRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [pdfViewer, setPdfViewer] = useState({ isOpen: false, filePath: '', fileName: '' });
     const [isFiltersOpen, setIsFiltersOpen] = useState(false);
@@ -2972,11 +2990,83 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     savedScrollPosition.current = y;
   }, []);
 
-  const openSubprojectDetail = useCallback((project) => {
+  useEffect(() => { projectsRef.current = projects; }, [projects]);
+  useEffect(() => { editingProjectRef.current = editingProject; }, [editingProject]);
+  useEffect(() => { isFormOpenRef.current = isFormOpen; }, [isFormOpen]);
+  useEffect(() => { selectedDetailRef.current = selectedDetailProject; }, [selectedDetailProject]);
+
+  const applyLoadedSubproject = useCallback((loaded, { fromRemote = false } = {}) => {
+    if (!loaded?.subprojectId) return;
+    const sid = loaded.subprojectId;
+    if (fromRemote && isFormOpenRef.current && editingProjectRef.current?.subprojectId === sid) {
+      const prevAt = String(editingProjectRef.current?.updatedAt || '');
+      const nextAt = String(loaded.updatedAt || '');
+      if (nextAt && nextAt !== prevAt) {
+        showToast(
+          'Το υποέργο αποθηκεύτηκε από άλλον χρήστη. Κλείστε την επεξεργασία και ανοίξτε ξανά για να δείτε τις αλλαγές.',
+          'warning'
+        );
+      }
+      return;
+    }
+    setProjects((prev) => {
+      const { projects: next, needsSort } = mergeOneSubprojectIntoList(prev, loaded);
+      return needsSort ? sortProjectsForDisplay(next) : next;
+    });
+    if (selectedDetailRef.current?.subprojectId === sid) {
+      setSelectedDetailProject((cur) => {
+        if (!cur || cur.subprojectId !== sid) return cur;
+        return {
+          ...loaded,
+          hasEgkrisiLink: loaded.hasEgkrisiLink ?? cur.hasEgkrisiLink,
+          hasProsklisiLink: loaded.hasProsklisiLink ?? cur.hasProsklisiLink,
+          hasEntaxiLink: loaded.hasEntaxiLink ?? cur.hasEntaxiLink,
+          isLocked: !!loaded.isLocked,
+          lockedBy: loaded.lockedBy || '',
+        };
+      });
+    }
+  }, [showToast]);
+
+  const fetchAndApplySubproject = useCallback(async (projectId, subprojectId, { fromRemote = false } = {}) => {
+    const sid = String(subprojectId || '').trim();
+    if (!sid) return null;
+    try {
+      const res = await ipcRenderer.invoke('load-one-subproject', {
+        projectId: projectId || '',
+        subprojectId: sid,
+      });
+      if (res?.success && res.project) {
+        applyLoadedSubproject(res.project, { fromRemote });
+        return res.project;
+      }
+      if (res?.missing) {
+        if (isFormOpenRef.current && editingProjectRef.current?.subprojectId === sid) {
+          return null;
+        }
+        setProjects((prev) => {
+          const { projects: next, changed } = removeSubprojectFromList(prev, sid);
+          return changed ? next : prev;
+        });
+        if (selectedDetailRef.current?.subprojectId === sid) {
+          setSelectedDetailProject(null);
+        }
+      }
+    } catch {
+      /* επόμενος κύκλος */
+    }
+    return null;
+  }, [applyLoadedSubproject]);
+  const fetchAndApplySubprojectRef = useRef(fetchAndApplySubproject);
+  fetchAndApplySubprojectRef.current = fetchAndApplySubproject;
+
+  const openSubprojectDetail = useCallback(async (project) => {
     if (!project) return;
     captureDashboardScrollForForm();
+    selectedDetailRef.current = project;
     setSelectedDetailProject(project);
-  }, [captureDashboardScrollForForm]);
+    await fetchAndApplySubproject(project.projectId, project.subprojectId);
+  }, [captureDashboardScrollForForm, fetchAndApplySubproject]);
 
   const isSubprojectDashboardModalOpen = isFormOpen || !!selectedDetailProject;
 
@@ -3544,28 +3634,36 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       timeoutId = setTimeout(enableStats, 400);
     }
 
-    // Listener για file watcher events - χρήση functional update για fresh state
-    const handleLocksChanged = () => {
-      console.log('Locks changed event received, refreshing lock status...');
-      setProjects((currentProjects) => {
-        if (currentProjects.length === 0) return currentProjects;
-        // Merge στο latest state — ποτέ αντικατάσταση με παλιό snapshot (θα επανέφερε διαγραμμένα).
-        fetchProjectLockMap(ipcRenderer, currentProjects)
-          .then((lockMap) => {
-            setProjects((latest) => {
-              const updated = applyLockMapToProjects(latest, lockMap);
-              const hasChanges = updated.some((p, i) => {
-                const prev = latest[i];
-                return !prev || prev.isLocked !== p.isLocked || (prev.lockedBy || '') !== (p.lockedBy || '');
-              });
-              return hasChanges ? sortProjectsForDisplay(updated) : latest;
-            });
-          })
-          .catch((error) => {
-            console.error('Error updating lock status:', error);
+    // Listener για file watcher events — φορτώνει μόνο τα επηρεαζόμενα υποέργα.
+    // Η πλήρης ανάγνωση lock (fetchProjectLockMap) γίνεται ήδη στο checkLocks/60",
+    // οπότε εδώ φορτώνουμε μόνο τα υποέργα που αντιστοιχούν στο entity που άλλαξε.
+    const handleLocksChanged = (payload) => {
+      const entityId = String(payload?.entityId || '').trim();
+      if (!entityId) return;
+
+      pendingLockReloadsRef.current.add(entityId);
+      if (lockReloadTimerRef.current) clearTimeout(lockReloadTimerRef.current);
+      lockReloadTimerRef.current = setTimeout(() => {
+        const ids = [...pendingLockReloadsRef.current];
+        pendingLockReloadsRef.current.clear();
+        const list = projectsRef.current || [];
+        if (!list.length) return;
+        const seen = new Set();
+        const targets = [];
+        ids.forEach((id) => {
+          list.forEach((p) => {
+            if (!p?.subprojectId) return;
+            if (p.projectId === id || p.subprojectId === id) {
+              if (seen.has(p.subprojectId)) return;
+              seen.add(p.subprojectId);
+              targets.push(p);
+            }
           });
-        return currentProjects;
-      });
+        });
+        void runWithConcurrency(targets, INDEX_RELOAD_CONCURRENCY, async (p) => {
+          await fetchAndApplySubprojectRef.current?.(p.projectId, p.subprojectId, { fromRemote: true });
+        });
+      }, LOCK_DATA_RELOAD_DEBOUNCE_MS);
     };
 
     // Εγγραφή στο event
@@ -3573,6 +3671,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
     return () => {
       unsubscribe();
+      if (lockReloadTimerRef.current) clearTimeout(lockReloadTimerRef.current);
       if (idleId != null && typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
         window.cancelIdleCallback(idleId);
       }
@@ -4153,6 +4252,78 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     };
   }, []); // Empty deps - uses functional updates
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const runPool = async (items, limit, fn) => {
+      if (!items.length) return;
+      let i = 0;
+      const n = Math.min(limit, items.length);
+      await Promise.all(Array.from({ length: n }, async () => {
+        while (i < items.length && !cancelled) {
+          const idx = i;
+          i += 1;
+          await fn(items[idx]);
+        }
+      }));
+    };
+
+    const pollIndex = async () => {
+      if (cancelled || indexPollBusyRef.current) return;
+      indexPollBusyRef.current = true;
+      try {
+        const res = await ipcRenderer.invoke('peek-projects-index');
+        if (cancelled || !res?.success || !Array.isArray(res.entries)) return;
+        const prev = indexSnapshotRef.current;
+        if (!prev) {
+          indexSnapshotRef.current = res.entries;
+          return;
+        }
+        // Κενό ευρετήριο ενώ έχουμε ήδη υποέργα: πιθανή αποτυχημένη εγγραφή, όχι μαζική διαγραφή.
+        if (res.entries.length === 0 && prev.length > 0) return;
+        const diff = diffProjectsIndexEntries(prev, res.entries);
+
+        // Αφαίρεση διαγραμμένων υποέργων απευθείας (χωρίς load από δίσκο)
+        if (diff.removed?.length && !cancelled) {
+          const removedIds = new Set(diff.removed.map((r) => String(r.subprojectId)));
+          setProjects((cur) => {
+            let list = cur;
+            let touched = false;
+            diff.removed.forEach((row) => {
+              const { projects: next, changed } = removeSubprojectFromList(list, row.subprojectId);
+              if (changed) { list = next; touched = true; }
+            });
+            return touched ? list : cur;
+          });
+          // Κλείσιμο detail view αν δείχνει υποέργο που διαγράφηκε
+          const detailSid = selectedDetailRef.current?.subprojectId;
+          if (detailSid && removedIds.has(detailSid)) {
+            setSelectedDetailProject(null);
+          }
+        }
+
+        // Φόρτωση νέων/αλλαγμένων υποέργων
+        const targets = collectIndexReloadTargets(diff);
+        await runPool(targets, INDEX_RELOAD_CONCURRENCY, async (t) => {
+          if (cancelled) return;
+          await fetchAndApplySubprojectRef.current?.(t.projectId, t.subprojectId, { fromRemote: true });
+        });
+        if (!cancelled) indexSnapshotRef.current = res.entries;
+      } catch {
+        /* επόμενος κύκλος */
+      } finally {
+        indexPollBusyRef.current = false;
+      }
+    };
+
+    const intervalId = setInterval(pollIndex, INDEX_POLL_INTERVAL_MS);
+    const kickoff = setTimeout(pollIndex, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      clearTimeout(kickoff);
+    };
+  }, []);
 
   // 🚀 ΚΕΝΤΡΙΚΗ FUNCTION ΜΕ CACHE - Φορτώνει δεδομένα μόνο αν χρειάζεται - NON-BLOCKING
   const loadDataWithCache = async (forceRefresh = false, options = {}) => {
@@ -4225,10 +4396,20 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         ipcRenderer.invoke('load-egkrisi-links')
       ]);
 
+      // Αν ο κοινός φάκελος δεν ήταν προσβάσιμος, κρατάμε ό,τι είχαμε.
+      const projectsRaw = loadedProjects;
+      let actualProjects;
+      if (projectsRaw && projectsRaw.__unreachable) {
+        console.warn('⚠️ loadDataWithCache: dataDir unreachable — κρατάμε υπάρχουσα λίστα');
+        if (!silent) setLoading(false);
+        return;
+      }
+      actualProjects = Array.isArray(projectsRaw) ? projectsRaw : [];
+
       const loadElapsedMs = Math.round(
         ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - loadStartedAt
       );
-      console.log(`⏱️ loadDataWithCache IPC bundle: ${loadElapsedMs}ms · projects=${(loadedProjects || []).length}`);
+      console.log(`⏱️ loadDataWithCache IPC bundle: ${loadElapsedMs}ms · projects=${actualProjects.length}`);
       
       refreshEpSubprojectMap();
       refreshMeletaiSubprojectMap();
@@ -4276,7 +4457,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       console.log(`📊 FINAL TOTALS: ${egkrisiLinksSet.size} egkrisi, ${prosklisiLinksSet.size} prosklisi, ${entaxiLinksMap.size} entaxi`);
 
       const sortedProjects = sortProjectsForDisplay(
-        enrichProjectsFromLoad(loadedProjects, { egkrisiLinksSet, prosklisiLinksSet, entaxiLinksMap })
+        enrichProjectsFromLoad(actualProjects, { egkrisiLinksSet, prosklisiLinksSet, entaxiLinksMap })
       );
       
       // Process credit approvals
@@ -4307,6 +4488,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       setProskliseis(loadedProskliseis || []);
       setCreditApprovals(approvals);
       setLinkedEgkriseis(linkedEgkriseisData);
+      ipcRenderer.invoke('peek-projects-index').then((idx) => {
+        if (idx?.success && Array.isArray(idx.entries)) indexSnapshotRef.current = idx.entries;
+      }).catch(() => {});
 
       // Update cache with fresh data
       setDataCache({
@@ -4410,10 +4594,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         }
       });
       
+      // Προστασία: μη προσβάσιμος κοινός φάκελος → κρατάμε τα υπάρχοντα.
+      if (loadedProjects && loadedProjects.__unreachable) {
+        console.warn('⚠️ loadProjects: dataDir unreachable — κρατάμε υπάρχουσα λίστα');
+        setLoading(false);
+        return;
+      }
+      const actualLoadedProjects = Array.isArray(loadedProjects) ? loadedProjects : [];
+
       console.log(`📊 loadProjects: ${egkrisiLinksSet.size} egkrisi, ${prosklisiLinksSet.size} prosklisi, ${entaxiLinksMap.size} entaxi`);
 
       const sortedProjects = sortProjectsForDisplay(
-        enrichProjectsFromLoad(loadedProjects, { egkrisiLinksSet, prosklisiLinksSet, entaxiLinksMap })
+        enrichProjectsFromLoad(actualLoadedProjects, { egkrisiLinksSet, prosklisiLinksSet, entaxiLinksMap })
       );
       
       // Bail out if a newer loadProjects superseded us while awaiting IPC calls
@@ -4421,6 +4613,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
       setProjects(sortedProjects);
       setProskliseis(loadedProskliseis || []);
+      ipcRenderer.invoke('peek-projects-index').then((idx) => {
+        if (idx?.success && Array.isArray(idx.entries)) indexSnapshotRef.current = idx.entries;
+      }).catch(() => {});
     } catch (error) {
       console.error('Error loading projects:', error);
     } finally {
@@ -4550,8 +4745,21 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       // Εδώ απλά αποθηκεύουμε τα δεδομένα όπως τα έλαβε
       
       const { keepFormOpen, files, ...dataForSave } = projectData;
+      // Δεύτερο δίχτυ ασφαλείας: αν κάποιος αποθήκευσε στο μεταξύ (π.χ. σπασμένο lock),
+      // ο handler εντοπίζει τη σύγκρουση και δεν πατάει πάνω σε ξένα δεδομένα.
+      if (editingProject?.updatedAt) {
+        dataForSave.__expectedUpdatedAt = editingProject.updatedAt;
+      }
       const result = await ipcRenderer.invoke('save-project-data', dataForSave);
-      
+
+      if (result.conflict) {
+        showToast(
+          result.error || 'Το υποέργο τροποποιήθηκε από άλλον χρήστη. Κλείστε και ανοίξτε ξανά για να δείτε τα τελευταία δεδομένα.',
+          'error'
+        );
+        return;
+      }
+
       if (result.success) {
         // Save files if any — το save-files ενημερώνει και το data.json στον δίσκο·
         // κρατάμε τα ονόματα για συγχώνευση στην τοπική λίστα (#5).
@@ -4632,7 +4840,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         }
 
         if (shouldKeepFormOpen) {
-          const canonical = result.project
+          let canonical = result.project
             ? {
                 ...result.project,
                 files: savedFileNames.length
@@ -4640,6 +4848,19 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                   : (result.project.files || []),
               }
             : dataForSave;
+          // save-files ενημερώνει updatedAt ξεχωριστά — φρεσκάρουμε ώστε ο επόμενος
+          // __expectedUpdatedAt να μην βρει ψεύτικη σύγκρουση.
+          if (savedFileNames.length > 0) {
+            try {
+              const fresh = await ipcRenderer.invoke('load-one-subproject', {
+                projectId: result.projectId,
+                subprojectId: result.subprojectId,
+              });
+              if (fresh?.success && fresh.project?.updatedAt) {
+                canonical = { ...canonical, updatedAt: fresh.project.updatedAt };
+              }
+            } catch { /* χρησιμοποιεί το updatedAt που ήδη είχε */ }
+          }
           setEditingProject({
             ...canonical,
             projectId: result.projectId,
@@ -4747,6 +4968,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     applyFiltersGenerationRef.current += 1;
     setProjects((prev) => prev.filter(keep));
     setFilteredProjects((prev) => prev.filter(keep));
+    // Κλείσιμο detail view αν δείχνει το υποέργο που διαγράφηκε
+    if (selectedDetailRef.current?.subprojectId === subprojectId) {
+      setSelectedDetailProject(null);
+    }
     // Ενημέρωση cache ώστε τυχόν επόμενο load με cache να μην επαναφέρει το διαγραμμένο
     setDataCache((prev) => ({
       ...prev,
@@ -4827,6 +5052,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         ...project,
         projectStatus: KHMDHS_COMPLETED_STATUS_SUGGESTION,
         updatedAt: new Date().toISOString(),
+        __expectedUpdatedAt: project.updatedAt || '',
       };
       const result = await ipcRenderer.invoke('save-project-data', updated);
       if (!result?.success) {
@@ -4901,17 +5127,43 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         return;
       }
 
-      // Άμεση ενημέρωση του UI για να δείξει το lock με διατήρηση ταξινόμησης
-      const updatedProjects = projects.map(p => 
-        p.projectId === project.projectId ? { ...p, isLocked: true } : p
-      ).sort((a, b) => {
-        const projectComparison = a.projectTitle.localeCompare(b.projectTitle, 'el', { sensitivity: 'base' });
-        if (projectComparison !== 0) return projectComparison;
-        return a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' });
-      });
-      setProjects(updatedProjects);
+      let toEdit = project;
+      let fresh = null;
+      try {
+        fresh = await ipcRenderer.invoke('load-one-subproject', {
+          projectId: project.projectId,
+          subprojectId: project.subprojectId,
+        });
+      } catch { /* ελέγχεται παρακάτω */ }
 
-      setEditingProject(project);
+      if (fresh?.missing) {
+        showToast('Το υποέργο δεν βρέθηκε στον κοινό φάκελο δεδομένων.', 'error');
+        try { await ipcRenderer.invoke('unlock-project', project.projectId); } catch { /* ignore */ }
+        setProjects((prev) => {
+          const { projects: next, changed } = removeSubprojectFromList(prev, project.subprojectId);
+          return changed ? next : prev;
+        });
+        return;
+      }
+      if (fresh?.success && fresh.project) {
+        toEdit = fresh.project;
+        applyLoadedSubproject(fresh.project);
+      } else {
+        showToast(
+          'Δεν ήταν δυνατή η ανανέωση από τον φάκελο. Ελέγξτε τα στοιχεία πριν αποθηκεύσετε — μπορεί να μην είναι τα τελευταία.',
+          'warning'
+        );
+      }
+
+      // Άμεση ενημέρωση του UI για να δείξει το lock με διατήρηση ταξινόμησης
+      const lockOwnerLabel = lockOwner || '';
+      setProjects((prev) => prev.map((p) => (
+        p.projectId === toEdit.projectId
+          ? { ...p, isLocked: true, lockedBy: lockOwnerLabel }
+          : p
+      )));
+
+      setEditingProject({ ...toEdit, isLocked: true });
       loadEngineerCatalogForCards();
       setIsFormOpen(true);
     } catch (error) {
