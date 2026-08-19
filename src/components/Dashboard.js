@@ -3759,13 +3759,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     };
   }, [notes]);
 
-  useEffect(() => {
-    setFilteredProjects(projects.filter(
-      (p) => p.projectStatus !== 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ' && !isAbandonedSubproject(p)
-    ));
-  }, [projects]);
-
-
   // Debounce για quickSearchText - αποφυγή συνεχών κλήσεων applyFilters
   const debounceTimeoutRef = useRef(null);
   const [debouncedQuickSearchText, setDebouncedQuickSearchText] = useState('');
