@@ -1,6 +1,7 @@
 /**
  * Συγχώνευση ενός υποέργου στη λίστα Dashboard — χωρίς πλήρη επαναφόρτωση.
  */
+import subprojectLifecycle from '../../app/core/subprojectLifecycle';
 
 const INDEX_MTIME_TOLERANCE_MS = 2000;
 
@@ -64,11 +65,7 @@ export function mergeOneSubprojectIntoList(projects, loaded) {
 }
 
 export function removeSubprojectFromList(projects, subprojectId) {
-  const sid = String(subprojectId || '').trim();
-  const list = Array.isArray(projects) ? projects : [];
-  if (!sid) return { projects: list, changed: false };
-  const next = list.filter((p) => String(p?.subprojectId || '') !== sid);
-  return { projects: next, changed: next.length !== list.length };
+  return subprojectLifecycle.removeSubprojectFromList(projects, subprojectId);
 }
 
 /**

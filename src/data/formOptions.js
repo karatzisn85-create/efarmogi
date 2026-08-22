@@ -1,4 +1,5 @@
 // Επιλογές για τα πεδία της φόρμας
+import subprojectList from '../../app/core/subprojectList';
 
 export const IMPLEMENTATION_FORMS = [
   'Μια Σύμβαση',
@@ -15,14 +16,10 @@ export const PROJECT_TYPES = [
 ];
 
 /** Παλιά ονομασία — μετατρέπεται σε ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ */
-export const LEGACY_PROJECT_TYPE_ALIASES = {
-  'ΥΠΗΡΕΣΙΑ': 'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ'
-};
+export const LEGACY_PROJECT_TYPE_ALIASES = subprojectList.LEGACY_PROJECT_TYPE_ALIASES;
 
 export function normalizeProjectType(type) {
-  if (!type) return '';
-  const t = String(type).trim();
-  return LEGACY_PROJECT_TYPE_ALIASES[t] || t;
+  return subprojectList.normalizeProjectType(type);
 }
 
 export function isServiceProjectType(type) {
@@ -65,7 +62,7 @@ export const FUNDING_SOURCES = [
 ];
 
 /** Υποέργο αποσυρμένο — δεν μετράει σε στατιστικά/εξαγωγές, παραμένει για επαναφορά */
-export const PROJECT_STATUS_ABANDONED = 'ΑΠΕΝΤΑΓΜΕΝΟ';
+export const PROJECT_STATUS_ABANDONED = subprojectList.PROJECT_STATUS_ABANDONED;
 
 export const PROJECT_STATUSES = [
   'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ',
@@ -77,14 +74,11 @@ export const PROJECT_STATUSES = [
 ];
 
 export function isAbandonedSubproject(projectOrStatus) {
-  const status = typeof projectOrStatus === 'string'
-    ? projectOrStatus
-    : projectOrStatus?.projectStatus;
-  return status === PROJECT_STATUS_ABANDONED;
+  return subprojectList.isAbandonedSubproject(projectOrStatus);
 }
 
 export function excludeAbandonedSubprojects(projects = []) {
-  return (projects || []).filter((p) => !isAbandonedSubproject(p));
+  return subprojectList.excludeAbandonedSubprojects(projects);
 }
 
 export const FUNDING_DETAILS = {

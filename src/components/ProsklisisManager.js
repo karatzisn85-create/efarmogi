@@ -20,9 +20,10 @@ import {
   getEffectiveProsklisiDeadline,
   getProsklisiDeadlineChipMeta,
   getProsklisiViewTab,
-  isProsklisiDeadlineExpiringSoon,
   partitionProskliseisByViewTab,
   PROSKLISI_VIEW_TABS,
+  applyProsklisiDailyFilters,
+  showNewProsklisiButton,
 } from '../utils/prosklisiDeadlineUtils';
 
 const ipcRenderer = window.electronAPI;
@@ -1156,7 +1157,7 @@ function ProsklisisManager({
   onOpenRelatedEntaxi = null
 }) {
   const { showToast } = useToast();
-  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
+  const canManageWorkflow = showNewProsklisiButton(userRole);
   const [proskliseis, setProskliseis] = useState([]);
   const [filteredProskliseis, setFilteredProskliseis] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1399,24 +1400,6 @@ function ProsklisisManager({
   const filterProskliseis = () => {
     let filtered = [...proskliseis];
     if (projectFilter) filtered = filtered.filter(p => p.title === projectFilter);
-    if (searchTerm.trim()) {
-      filtered = filtered.filter((p) => {
-        const linkedTitles = (p.linkedProjects || [])
-          .map((lp) => (typeof lp === 'string' ? lp : (lp?.title || lp?.projectTitle || '')))
-          .join(' ');
-        const diavgeiaAda = getProsklisiDiavgeiaEntry(p)?.ada || '';
-        return (
-          containsSearchTerm(p.title, searchTerm) ||
-          containsSearchTerm(p.axis, searchTerm) ||
-          containsSearchTerm(p.fundingSource, searchTerm) ||
-          containsSearchTerm(p.code, searchTerm) ||
-          containsSearchTerm(p.status, searchTerm) ||
-          containsSearchTerm(linkedTitles, searchTerm) ||
-          containsSearchTerm(diavgeiaAda, searchTerm)
-        );
-      });
-    }
-    if (quickSearchStatus) filtered = filtered.filter(p => p.status === quickSearchStatus);
     if (advancedFilters.axis) filtered = filtered.filter(p => containsSearchTerm(p.axis, advancedFilters.axis));
     if (advancedFilters.fundingSource) filtered = filtered.filter(p => containsSearchTerm(p.fundingSource, advancedFilters.fundingSource));
     if (advancedFilters.status) filtered = filtered.filter(p => p.status === advancedFilters.status);
@@ -1459,18 +1442,19 @@ function ProsklisisManager({
     if (advancedFilters.dateFrom) filtered = filtered.filter(p => { const dl = deadlineOf(p); if (!dl) return false; const c = compareDatesOnly(dl, advancedFilters.dateFrom); return c !== null && c >= 0; });
     if (advancedFilters.dateTo) filtered = filtered.filter(p => { const dl = deadlineOf(p); if (!dl) return false; const c = compareDatesOnly(dl, advancedFilters.dateTo); return c !== null && c <= 0; });
     if (selectedProsklisiId) filtered = filtered.filter(p => p.prosklisiId === selectedProsklisiId);
-    if (showExpiringSoonOnly) {
-      filtered = filtered.filter((p) => isProsklisiDeadlineExpiringSoon(deadlineOf(p), 30));
-    }
-    if (showUnlinkedOnly) {
-      filtered = filtered.filter((p) => !Array.isArray(p.linkedProjects) || p.linkedProjects.length === 0);
-    }
-    if (sortByDeadline || showExpiringSoonOnly) {
-      filtered = [...filtered].sort((a, b) => compareProskliseisByDeadline(
-        { deadline: deadlineOf(a) },
-        { deadline: deadlineOf(b) }
-      ));
-    }
+    const diavgeiaAdaById = {};
+    filtered.forEach((p) => {
+      if (p?.prosklisiId) diavgeiaAdaById[p.prosklisiId] = getProsklisiDiavgeiaEntry(p)?.ada || '';
+    });
+    filtered = applyProsklisiDailyFilters(filtered, {
+      searchTerm,
+      quickSearchStatus,
+      showExpiringSoonOnly,
+      showUnlinkedOnly,
+      sortByDeadline,
+      modificationsById: prosklisiModifications,
+      diavgeiaAdaById,
+    });
     setFilteredProskliseis(filtered);
   };
 

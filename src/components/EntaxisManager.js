@@ -19,6 +19,7 @@ import {
   getModificationAmountFlowEntry
 } from '../utils/entaxiAmountUtils';
 import { parseGreekAmountString } from '../utils/khmdhsFields';
+import entaxiCatalog from '../../app/core/entaxiCatalog';
 
 const ipcRenderer = window.electronAPI;
 const path = require('path-browserify');
@@ -1418,7 +1419,7 @@ window.fixAllEntaxeis = async () => {
 
 function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, onClearFocus = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '' }) {
   const { showToast } = useToast();
-  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
+  const canManageWorkflow = entaxiCatalog.showNewEntaxiButton(userRole);
   const [entaxeis, setEntaxeis] = useState([]);
   const [filteredEntaxeis, setFilteredEntaxeis] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1675,12 +1676,8 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       );
     }
 
-    // Quick search filter (searches in title/subject)
     if (quickSearchTerm) {
-      filtered = filtered.filter(entaxi => 
-        containsSearchTerm(entaxi.subject, quickSearchTerm) ||
-        containsSearchTerm(entaxi.projectTitle, quickSearchTerm)
-      );
+      filtered = filtered.filter((entaxi) => entaxiCatalog.entaxiMatchesQuickSearch(entaxi, quickSearchTerm));
     }
 
     // Search filters
@@ -1728,11 +1725,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
     // Unlinked entaxeis filter
     if (searchFilters.showUnlinkedOnly) {
-      filtered = filtered.filter(entaxi => {
-        // Check if entaxi is not linked to any project
-        return !entaxi.projectTitle || entaxi.projectTitle === '' || 
-               (!entaxi.subprojectIds || entaxi.subprojectIds.length === 0);
-      });
+      filtered = filtered.filter((entaxi) => entaxiCatalog.isEntaxiUnlinked(entaxi));
     }
 
     setFilteredEntaxeis(filtered);
@@ -2028,14 +2021,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   }, [isOpen, selectedEntaxiId, loading, filteredEntaxeis]);
 
   // Group filtered entaxeis by project
-  const groupedEntaxeis = filteredEntaxeis.reduce((groups, entaxi) => {
-    const key = entaxi.projectTitle || 'Εντάξεις Μη Συσχετισμένες με Κάποιο Έργο';
-    if (!groups[key]) {
-      groups[key] = [];
-    }
-    groups[key].push(entaxi);
-    return groups;
-  }, {});
+  const groupedEntaxeis = entaxiCatalog.groupEntaxeisByProjectTitle(filteredEntaxeis);
 
   if (!isOpen) return null;
 
@@ -2213,14 +2199,14 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
             Object.entries(groupedEntaxeis)
               .sort(([a], [b]) => {
                 // Ταξινόμηση: οι μη συσχετισμένες εντάξεις πρώτα
-                const aIsUnlinked = a === 'Εντάξεις Μη Συσχετισμένες με Κάποιο Έργο';
-                const bIsUnlinked = b === 'Εντάξεις Μη Συσχετισμένες με Κάποιο Έργο';
+                const aIsUnlinked = a === entaxiCatalog.UNLINKED_GROUP_TITLE;
+                const bIsUnlinked = b === entaxiCatalog.UNLINKED_GROUP_TITLE;
                 if (aIsUnlinked && !bIsUnlinked) return -1;
                 if (!aIsUnlinked && bIsUnlinked) return 1;
                 return a.localeCompare(b);
               })
               .map(([projectTitle, projectEntaxeis]) => {
-                const isUnlinked = projectTitle === 'Εντάξεις Μη Συσχετισμένες με Κάποιο Έργο';
+                const isUnlinked = projectTitle === entaxiCatalog.UNLINKED_GROUP_TITLE;
                 return (
                   <ProjectGroup key={projectTitle} isUnlinked={isUnlinked}>
                     <ProjectHeader isUnlinked={isUnlinked}>{projectTitle}</ProjectHeader>

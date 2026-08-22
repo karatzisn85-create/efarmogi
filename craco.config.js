@@ -3,6 +3,15 @@ const path = require('path');
 /** Καθαρά modules που μοιράζονται Electron main + React renderer (χωρίς Node APIs). */
 const SHARED_PUBLIC_MODULES = [
   path.resolve(__dirname, 'public/apologismosAppearance.js'),
+  path.resolve(__dirname, 'app/core/subprojectCard.js'),
+  path.resolve(__dirname, 'app/core/subprojectList.js'),
+  path.resolve(__dirname, 'app/core/subprojectLifecycle.js'),
+  path.resolve(__dirname, 'app/core/calendarDeadlines.js'),
+  path.resolve(__dirname, 'app/core/prosklisiCatalog.js'),
+  path.resolve(__dirname, 'app/core/entaxiCatalog.js'),
+  path.resolve(__dirname, 'app/core/egkrisiCatalog.js'),
+  path.resolve(__dirname, 'app/core/subprojectFiles.js'),
+  path.resolve(__dirname, 'app/core/taskWorkspace.js'),
 ];
 
 module.exports = {

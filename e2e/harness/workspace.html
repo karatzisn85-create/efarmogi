@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <title>ERGOHUB — κάρτα υποέργου (harness)</title>
+  <link rel="stylesheet" href="/e2e/harness/workspace.css" />
+</head>
+<body>
+  <header class="bar">
+    <strong>Κάρτα υποέργου</strong>
+    <label>Ρόλος
+      <select id="role-select" data-testid="role-select">
+        <option value="ADMIN">Διαχειριστής</option>
+        <option value="ENGINEER">Μηχανικός (user:maria)</option>
+        <option value="USER">Χρήστης (ανάγνωση)</option>
+      </select>
+    </label>
+    <label>Αναζήτηση
+      <input id="quick-search" data-testid="quick-search" type="search" placeholder="Έργο, υποέργο, ΚΑ..." />
+    </label>
+    <label>Κατάσταση
+      <select id="quick-status" data-testid="quick-status">
+        <option value="">Όλες</option>
+        <option value="ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ">ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ</option>
+        <option value="ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ">ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ</option>
+        <option value="ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ">ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ</option>
+        <option value="ΑΠΕΝΤΑΓΜΕΝΟ">ΑΠΕΝΤΑΓΜΕΝΟ</option>
+      </select>
+    </label>
+    <label>Είδος
+      <select id="quick-type" data-testid="quick-type">
+        <option value="">Όλα</option>
+        <option value="ΕΡΓΟ">ΕΡΓΟ</option>
+        <option value="ΠΡΟΜΗΘΕΙΑ">ΠΡΟΜΗΘΕΙΑ</option>
+        <option value="ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ">ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ</option>
+      </select>
+    </label>
+    <label>Χρεωμένο σε
+      <select id="charge-filter" data-testid="charge-filter">
+        <option value="">Όλοι</option>
+        <option value="user:maria">Μαρία Παπαδοπούλου</option>
+        <option value="user:nikos">Νίκος Γεωργίου</option>
+      </select>
+    </label>
+    <button type="button" id="btn-archived" data-testid="btn-archived">Ολοκληρωμένα &amp; Αποπληρωμένα</button>
+    <button type="button" id="btn-new" data-testid="btn-new">Νέο Υποέργο</button>
+    <button type="button" id="btn-calendar" data-testid="btn-calendar">Ημερολόγιο Προθεσμιών</button>
+    <button type="button" id="btn-proskliseis" data-testid="btn-proskliseis">Προσκλήσεις</button>
+    <button type="button" id="btn-entaxeis" data-testid="btn-entaxeis">Εντάξεις Έργων</button>
+    <button type="button" id="btn-egkriseis" data-testid="btn-egkriseis">Εγκρίσεις Διάθεσης Πίστωσης</button>
+    <button type="button" id="btn-tasks" data-testid="btn-tasks">Χώρος Εργασίας</button>
+  </header>
+
+  <main id="card-list" data-testid="card-list" class="list"></main>
+
+  <section id="read-panel" data-testid="read-panel" class="panel" hidden>
+    <h2>Ανάγνωση υποέργου</h2>
+    <p data-testid="read-project-title"></p>
+    <p data-testid="read-subproject-title"></p>
+    <p data-testid="read-ka"></p>
+    <p data-testid="read-charge" class="charge"></p>
+    <p data-testid="read-status"></p>
+    <div class="actions">
+      <button type="button" id="btn-edit" data-testid="btn-edit">Επεξεργασία</button>
+      <button type="button" id="btn-files" data-testid="btn-files">Αρχεία</button>
+      <button type="button" id="btn-close-read" data-testid="btn-close-read">Κλείσιμο</button>
+    </div>
+  </section>
+
+  <section id="edit-panel" data-testid="edit-panel" class="panel" hidden>
+    <h2>Επεξεργασία υποέργου</h2>
+    <p class="ids">
+      έργο <code data-testid="edit-project-id"></code>
+      · υποέργο <code data-testid="edit-subproject-id"></code>
+    </p>
+    <label>Τίτλος έργου <input id="edit-project-title" data-testid="edit-project-title" /></label>
+    <label>Τίτλος υποέργου <input id="edit-subproject-title" data-testid="edit-subproject-title" /></label>
+    <label>ΚΑ <input id="edit-ka" data-testid="edit-ka" /></label>
+    <label class="check">
+      <input id="edit-outside" data-testid="edit-outside" type="checkbox" />
+      Χρέωση εκτός καταλόγου χρηστών
+    </label>
+    <div id="catalog-charge">
+      <label>Επιβλέπων / Επιβλέπουσα
+        <select id="edit-primary" data-testid="edit-primary"></select>
+      </label>
+    </div>
+    <div id="free-charge" hidden>
+      <label>Χρέωση (ελεύθερο κείμενο)
+        <textarea id="edit-free" data-testid="edit-free" rows="3"></textarea>
+      </label>
+    </div>
+    <label class="check">
+      <input id="edit-locked" data-testid="edit-locked" type="checkbox" />
+      Κλειδωμένο από άλλον χρήστη
+    </label>
+    <div class="actions">
+      <button type="button" id="btn-save" data-testid="btn-save">Αποθήκευση</button>
+      <button type="button" id="btn-discard" data-testid="btn-discard">Απόρριψη αλλαγών</button>
+      <button type="button" id="btn-delete" data-testid="btn-delete" class="danger">Διαγραφή</button>
+    </div>
+    <p id="unsaved-hint" data-testid="unsaved-hint" hidden>Υπάρχουν μη αποθηκευμένες αλλαγές.</p>
+  </section>
+
+  <section id="create-panel" data-testid="create-panel" class="panel" hidden>
+    <h2>Νέο υποέργο</h2>
+    <p class="ids">χωρίς ταυτότητα μέχρι την αποθήκευση</p>
+    <label>Τίτλος έργου <input id="create-project-title" data-testid="create-project-title" /></label>
+    <label>Τίτλος υποέργου <input id="create-subproject-title" data-testid="create-subproject-title" /></label>
+    <label>ΚΑ <input id="create-ka" data-testid="create-ka" placeholder="xx-xxxx.xxx" /></label>
+    <label>Είδος
+      <select id="create-type" data-testid="create-type">
+        <option value="">—</option>
+        <option value="ΕΡΓΟ">ΕΡΓΟ</option>
+        <option value="ΠΡΟΜΗΘΕΙΑ">ΠΡΟΜΗΘΕΙΑ</option>
+        <option value="ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ">ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ</option>
+      </select>
+    </label>
+    <label>Κατάσταση
+      <select id="create-status" data-testid="create-status">
+        <option value="">—</option>
+        <option value="ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ">ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ</option>
+        <option value="ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ">ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ</option>
+      </select>
+    </label>
+    <label>Πηγή χρηματοδότησης
+      <select id="create-funding-source" data-testid="create-funding-source">
+        <option value="">—</option>
+        <option value="ΔΗΜΟΤΙΚΟΙ ΠΟΡΟΙ">ΔΗΜΟΤΙΚΟΙ ΠΟΡΟΙ</option>
+      </select>
+    </label>
+    <label>Εξειδίκευση
+      <select id="create-funding-details" data-testid="create-funding-details">
+        <option value="">—</option>
+        <option value="ΚΑΠ">ΚΑΠ</option>
+      </select>
+    </label>
+    <label>Εγκεκριμένο ποσό <input id="create-amount" data-testid="create-amount" /></label>
+    <ul id="create-errors" data-testid="create-errors" class="errors" hidden></ul>
+    <div class="actions">
+      <button type="button" id="btn-create-save" data-testid="btn-create-save">Αποθήκευση</button>
+      <button type="button" id="btn-create-cancel" data-testid="btn-create-cancel">Άκυρο</button>
+    </div>
+  </section>
+
+  <section id="attach-panel" data-testid="attach-panel" class="panel" hidden>
+    <h2>Υπάρχει ήδη έργο με αυτόν τον τίτλο</h2>
+    <p data-testid="attach-title"></p>
+    <p>Να προστεθεί το νέο υποέργο στο υπάρχον έργο;</p>
+    <div class="actions">
+      <button type="button" id="btn-attach-yes" data-testid="btn-attach-yes">ΝΑΙ</button>
+      <button type="button" id="btn-attach-no" data-testid="btn-attach-no">ΟΧΙ - Νέο Έργο</button>
+    </div>
+  </section>
+
+  <section id="delete-confirm" data-testid="delete-confirm" class="panel" hidden>
+    <h2>Διαγραφή Υποέργου</h2>
+    <p>Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το υποέργο;</p>
+    <p>Η ενέργεια είναι μη αναστρέψιμη.</p>
+    <p id="delete-error" data-testid="delete-error" class="errors" hidden></p>
+    <div class="actions">
+      <button type="button" id="btn-delete-confirm" data-testid="btn-delete-confirm" class="danger">Διαγραφή</button>
+      <button type="button" id="btn-delete-cancel" data-testid="btn-delete-cancel">Άκυρο</button>
+    </div>
+  </section>
+
+  <section id="calendar-panel" data-testid="calendar-panel" class="panel" hidden>
+    <h2>Ημερολόγιο Προθεσμιών</h2>
+    <label>Τύπος
+      <select id="calendar-type" data-testid="calendar-type">
+        <option value="all">Όλα</option>
+        <option value="proskliseis">Προσκλήσεις</option>
+        <option value="custom">Ειδοποιήσεις</option>
+        <option value="contracts">Λήξεις συμβάσεων</option>
+      </select>
+    </label>
+    <label>Παράθυρο
+      <select id="calendar-window" data-testid="calendar-window">
+        <option value="7">7 ημέρες</option>
+        <option value="30" selected>1 μήνας</option>
+        <option value="365">1 έτος</option>
+      </select>
+    </label>
+    <h3>Κοντινές προθεσμίες</h3>
+    <div id="calendar-radar" data-testid="calendar-radar"></div>
+    <h3>Λίστα</h3>
+    <div id="calendar-list" data-testid="calendar-list"></div>
+    <div class="actions">
+      <button type="button" id="btn-close-calendar" data-testid="btn-close-calendar">Κλείσιμο</button>
+    </div>
+  </section>
+
+  <section id="prosklisi-panel" data-testid="prosklisi-panel" class="panel" hidden>
+    <h2>Διαχείριση Προσκλήσεων</h2>
+    <button type="button" id="btn-new-prosklisi" data-testid="btn-new-prosklisi">Νέα Πρόσκληση</button>
+    <label>Αναζήτηση
+      <input id="prosklisi-search" data-testid="prosklisi-search" type="search" placeholder="Τίτλος, κωδικός, έργο..." />
+    </label>
+    <div class="actions">
+      <button type="button" id="tab-active" data-testid="tab-active">Ενεργές</button>
+      <button type="button" id="tab-expired" data-testid="tab-expired">Ληγμένες</button>
+      <button type="button" id="tab-submitted" data-testid="tab-submitted">Υποβληθείσες</button>
+    </div>
+    <div class="actions">
+      <button type="button" id="btn-expiring" data-testid="btn-expiring">Λήγουν σύντομα</button>
+      <button type="button" id="btn-unlinked" data-testid="btn-unlinked">Χωρίς έργο</button>
+    </div>
+    <div id="prosklisi-list" data-testid="prosklisi-list"></div>
+    <button type="button" id="btn-close-proskliseis" data-testid="btn-close-proskliseis">Κλείσιμο</button>
+  </section>
+
+  <section id="entaxi-panel" data-testid="entaxi-panel" class="panel" hidden>
+    <h2>Εντάξεις Έργων</h2>
+    <button type="button" id="btn-new-entaxi" data-testid="btn-new-entaxi">Νέα Ένταξη</button>
+    <label>Αναζήτηση
+      <input id="entaxi-search" data-testid="entaxi-search" type="search" placeholder="Θέμα ή έργο..." />
+    </label>
+    <button type="button" id="btn-entaxi-unlinked" data-testid="btn-entaxi-unlinked">Χωρίς έργο</button>
+    <div id="entaxi-list" data-testid="entaxi-list"></div>
+    <button type="button" id="btn-close-entaxeis" data-testid="btn-close-entaxeis">Κλείσιμο</button>
+  </section>
+
+  <section id="egkrisi-panel" data-testid="egkrisi-panel" class="panel" hidden>
+    <h2>Εγκρίσεις Διάθεσης Πίστωσης</h2>
+    <button type="button" id="btn-new-egkrisi" data-testid="btn-new-egkrisi">Νέα Έγκριση</button>
+    <label>Αναζήτηση
+      <input id="egkrisi-search" data-testid="egkrisi-search" type="search" placeholder="Έργο, υποέργο ή ΚΑ..." />
+    </label>
+    <div id="egkrisi-list" data-testid="egkrisi-list"></div>
+    <button type="button" id="btn-close-egkriseis" data-testid="btn-close-egkriseis">Κλείσιμο</button>
+  </section>
+
+  <section id="files-panel" data-testid="files-panel" class="panel" hidden>
+    <h2>Αρχεία υποέργου</h2>
+    <label>Αρχεία προς προσθήκη
+      <input id="file-pending-names" data-testid="file-pending-names" value="νέο.pdf" />
+    </label>
+    <label>Όνομα φακέλου
+      <input id="file-folder-name" data-testid="file-folder-name" value="Προσφορές" />
+    </label>
+    <div class="actions">
+      <button type="button" id="btn-add-files" data-testid="btn-add-files">+ Αρχεία</button>
+      <button type="button" id="btn-add-folder" data-testid="btn-add-folder">Φάκελος</button>
+    </div>
+    <div id="file-group-choice" data-testid="file-group-choice" hidden>
+      <button type="button" id="file-choice-new" data-testid="file-choice-new">Νέα Ομάδα</button>
+      <button type="button" id="file-choice-existing" data-testid="file-choice-existing">Προσθήκη σε Υπάρχουσα Ομάδα</button>
+      <button type="button" id="file-choice-none" data-testid="file-choice-none">Χωρίς Ομαδοποίηση</button>
+      <button type="button" id="file-choice-cancel" data-testid="file-choice-cancel">Ακύρωση ανεβάσματος</button>
+    </div>
+    <div id="file-new-group" data-testid="file-new-group" hidden>
+      <label>Τίτλος νέας ομάδας
+        <input id="file-new-title" data-testid="file-new-title" />
+      </label>
+      <button type="button" id="file-confirm-new" data-testid="file-confirm-new">Επιβεβαίωση</button>
+    </div>
+    <div id="file-existing-group" data-testid="file-existing-group" hidden>
+      <label>Υπάρχουσα ομάδα
+        <select id="file-existing-select" data-testid="file-existing-select"></select>
+      </label>
+      <button type="button" id="file-confirm-existing" data-testid="file-confirm-existing">Επιβεβαίωση</button>
+    </div>
+    <div id="file-list" data-testid="file-list"></div>
+    <button type="button" id="btn-close-files" data-testid="btn-close-files">Κλείσιμο</button>
+  </section>
+
+  <section id="task-panel" data-testid="task-panel" class="panel" hidden>
+    <h2>Χώρος Εργασίας</h2>
+    <div class="actions">
+      <button type="button" id="tab-workspace" data-testid="tab-workspace">Χώρος Εργασίας</button>
+      <button type="button" id="tab-archive" data-testid="tab-archive">Αποθήκη Εργασιών</button>
+      <button type="button" id="btn-new-task" data-testid="btn-new-task">Δημιουργία Χώρου</button>
+    </div>
+    <label>Αναζήτηση
+      <input id="task-search" data-testid="task-search" type="search" placeholder="Τίτλος, συνάδελφος..." />
+    </label>
+    <div id="task-list" data-testid="task-list"></div>
+    <button type="button" id="btn-close-tasks" data-testid="btn-close-tasks">Κλείσιμο</button>
+  </section>
+
+  <section id="calendar-detail" data-testid="calendar-detail" class="panel" hidden>
+    <h2>Προθεσμία</h2>
+    <p data-testid="calendar-detail-title"></p>
+    <p data-testid="calendar-detail-label"></p>
+    <p data-testid="calendar-detail-date"></p>
+    <button type="button" id="btn-close-cal-detail" data-testid="btn-close-cal-detail">Κλείσιμο</button>
+  </section>
+
+  <pre id="persist-dump" data-testid="persist-dump" hidden></pre>
+
+  <script src="/app/core/subprojectCard.js"></script>
+  <script src="/app/core/subprojectList.js"></script>
+  <script src="/app/core/subprojectLifecycle.js"></script>
+  <script src="/app/core/calendarDeadlines.js"></script>
+  <script src="/app/core/prosklisiCatalog.js"></script>
+  <script src="/app/core/entaxiCatalog.js"></script>
+  <script src="/app/core/egkrisiCatalog.js"></script>
+  <script src="/app/core/subprojectFiles.js"></script>
+  <script src="/app/core/taskWorkspace.js"></script>
+  <script src="/e2e/harness/workspace.js"></script>
+</body>
+</html>

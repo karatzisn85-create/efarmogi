@@ -1,10 +1,6 @@
-export const TASK_STATUS_LABELS = {
-  pending: 'Εκκρεμεί',
-  in_progress: 'Σε εξέλιξη',
-  completed: 'Ολοκληρώθηκε',
-  cancelled: 'Κλειστός',
-  rejected: 'Αποχώρησε (legacy)'
-};
+import taskWorkspace from '../../app/core/taskWorkspace';
+
+export const TASK_STATUS_LABELS = taskWorkspace.TASK_STATUS_LABELS;
 
 export const TASK_STATUS_COLORS = {
   pending: { bg: '#fef3c7', color: '#92400e' },
@@ -15,16 +11,10 @@ export const TASK_STATUS_COLORS = {
 };
 
 /** Κλειστός χώρος για συναδέλφους: μένει στον αναθέτη, οι συνάδελφοι δεν τον βλέπουν πλέον. */
-export function isTaskWithdrawnByAssigner(task) {
-  return !!(task && task.status === 'cancelled' && task.withdrawnByAssigner);
-}
+export const isTaskWithdrawnByAssigner = taskWorkspace.isTaskWithdrawnByAssigner;
 
 /** Συνάδελφος που αποχώρησε από την αποθήκη ολοκληρωμένων χώρων. */
-export function hasLeftWorkArchive(task, username) {
-  if (!task || !username) return false;
-  const u = String(username).toLowerCase();
-  return (task.leftArchiveBy || []).some((x) => String(x).toLowerCase() === u);
-}
+export const hasLeftWorkArchive = taskWorkspace.hasLeftWorkArchive;
 
 /** Συνάδελφοι που δεν έχουν αποχωρήσει από την αποθήκη (για εμφάνιση στη λίστα). */
 export function getActiveAssignees(task) {

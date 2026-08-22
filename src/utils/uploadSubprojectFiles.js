@@ -1,5 +1,6 @@
 import { safeFileDialog } from './safeDialogs';
 import { showSubprojectFileGroupingModal } from './subprojectFileGroupingModal';
+import subprojectFiles from '../../app/core/subprojectFiles';
 
 const ipcRenderer = window.electronAPI;
 
@@ -67,7 +68,7 @@ export async function uploadSubprojectFiles({ projectId, subprojectId }) {
     filesMeta.fileGroups || []
   );
 
-  if (groupingChoice === null) {
+  if (subprojectFiles.isUploadGroupingCancelled(groupingChoice)) {
     return { cancelled: true };
   }
 
@@ -112,7 +113,7 @@ export async function uploadSubprojectFolder({ projectId, subprojectId }) {
   }
 
   const fileNames = saveResult.files || newFiles.map((f) => f.name);
-  const folderTitle = String(pick.folderName || 'Φάκελος').trim() || 'Φάκελος';
+  const folderTitle = subprojectFiles.folderGroupTitle(pick.folderName);
   const groupResult = await ipcRenderer.invoke(
     'create-file-group',
     projectId,

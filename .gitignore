@@ -59,3 +59,9 @@ __pycache__/
 # Secrets
 .env
 .dropbox-token-cache.json
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

@@ -13,15 +13,10 @@ import {
 } from './khmdhsNoticeFields';
 import { grossFromCostSnapshot } from './khmdhsVatHelper';
 import { parseAppDate } from './dateFormat';
+import calendarDeadlines from '../../app/core/calendarDeadlines';
 
 export function daysUntilDate(isoDate) {
-  if (!isoDate) return null;
-  const target = parseAppDate(isoDate);
-  if (!target) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  target.setHours(0, 0, 0, 0);
-  return Math.round((target - today) / (24 * 60 * 60 * 1000));
+  return calendarDeadlines.daysUntilDate(isoDate);
 }
 
 export function projectHasSignedContractStatus(project) {

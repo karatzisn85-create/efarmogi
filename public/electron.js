@@ -42,6 +42,8 @@ const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiServ
 const projectsIndex = require('./projectsIndex');
 const concurrencyGuards = require('./concurrencyGuards');
 const { mergeFileGroupsForSave, mergeEgkriseisForSave } = require('./subprojectSaveMerge');
+const subprojectCardCore = require('../app/core/subprojectCard');
+const subprojectLifecycleCore = require('../app/core/subprojectLifecycle');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -56,19 +58,12 @@ const getTempDir = () => {
 
 /** Αφαίρεση παλιού πεδίου «Επιβλέπων Μηχανικός» (αντικαταστάθηκε από σύστημα χρέωσης). */
 function stripLegacySupervisorField(obj) {
-  if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, 'supervisor')) {
-    delete obj.supervisor;
-  }
-  return obj;
+  return subprojectCardCore.stripLegacySupervisorField(obj);
 }
 
 /** Μετονομασία παλιού «ΥΠΗΡΕΣΙΑ» → «ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ» */
 function normalizeProjectTypeField(obj) {
-  if (!obj || typeof obj !== 'object') return obj;
-  if (obj.projectType === 'ΥΠΗΡΕΣΙΑ') {
-    obj.projectType = 'ΓΕΝΙΚΕΣ ΥΠΗΡΕΣΙΕΣ';
-  }
-  return obj;
+  return subprojectCardCore.normalizeProjectTypeField(obj);
 }
 
 // Utility function για καθαρισμό temp files
@@ -1799,18 +1794,16 @@ async function handleSaveProjectData(event, projectData) {
     // Αν δεν υπάρχει projectId, ψάχνουμε για υπάρχον έργο με ίδιο τίτλο
     if (!projectId && projectData.projectTitle) {
       const existingProjects = await loadAllProjects();
-      const normalizedIncoming = normalizeProjectTitleForMatching(projectData.projectTitle);
-      const matchingProject = existingProjects.find(
-        (p) => normalizeProjectTitleForMatching(p.projectTitle) === normalizedIncoming
+      const resolved = subprojectLifecycleCore.resolveProjectIdWhenMissing(
+        '',
+        projectData.projectTitle,
+        existingProjects
       );
-      
-      if (matchingProject) {
-        // Βρέθηκε έργο με ίδιο τίτλο - προσθήκη υποέργου
-        projectId = matchingProject.projectId;
+      if (resolved.reusedExisting) {
+        projectId = resolved.projectId;
         isNewProject = false;
         console.log(`Found existing project with same title: ${projectData.projectTitle}, adding as subproject`);
       } else {
-        // Δεν βρέθηκε - δημιουργία νέου έργου
         projectId = uuidv4();
         isNewProject = true;
         console.log(`No existing project found with title: ${projectData.projectTitle}, creating new project`);
@@ -1954,39 +1947,17 @@ async function handleSaveProjectData(event, projectData) {
     );
     logger.debug(`Merged fileGroups: result=${mergedFileGroups.length} groups`);
     
-    const dataToSave = {
-      ...projectData,
+    const dataToSave = subprojectCardCore.sanitizeSubprojectForPersist(projectData, existingData, {
       projectId: finalProjectId, // ΠΑΝΤΑ το projectId από το όνομα φακέλου
       subprojectId,
-      createdAt: existingData.createdAt || new Date().toISOString(), // Διατήρηση του αρχικού createdAt
-      updatedAt: new Date().toISOString(), // Πάντα νέο updatedAt
-      // Χρήση των συγχωνευμένων fileGroups
+      nowIso: new Date().toISOString(),
       fileGroups: mergedFileGroups,
       egkriseisDialthesisPistosis: mergeEgkriseisForSave(
         existingData.egkriseisDialthesisPistosis,
         projectData.egkriseisDialthesisPistosis
       ),
-      // Διατήρηση ανάθεσης επιβλεπόντων — κανονικοποίηση χωρίς αφαίρεση ιστορικών ids (π.χ. ανενεργός μηχανικός)
-      supervisorEngineerIds: Array.isArray(projectData.supervisorEngineerIds)
-        ? normalizeSupervisorEngineerIdList(projectData.supervisorEngineerIds)
-        : normalizeSupervisorEngineerIdList(existingData.supervisorEngineerIds),
-      ...require('./khmdhsOpenData').mergeKhmdhsFieldsForSave(projectData, existingData)
-    };
-
-    const chargeFreeText = String(dataToSave.supervisorChargeFreePrimary || '').trim();
-    const chargeEngIds = Array.isArray(dataToSave.supervisorEngineerIds)
-      ? dataToSave.supervisorEngineerIds.filter((x) => String(x || '').trim())
-      : [];
-    if (chargeEngIds.length > 0) {
-      dataToSave.supervisorChargeOutsideEngineers = false;
-    } else if (chargeFreeText) {
-      dataToSave.supervisorChargeOutsideEngineers = true;
-      dataToSave.supervisorChargeFreePrimary = chargeFreeText;
-      dataToSave.supervisorEngineerIds = [];
-    }
-
-    stripLegacySupervisorField(dataToSave);
-    normalizeProjectTypeField(dataToSave);
+      extra: require('./khmdhsOpenData').mergeKhmdhsFieldsForSave(projectData, existingData),
+    });
 
     // Αντιγραφή μόνο νέων αρχείων (με πλήρη διαδρομή). Τα ήδη καταχωρημένα
     // έχουν μόνο όνομα — είναι ήδη στον φάκελο ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ.
@@ -2386,19 +2357,7 @@ ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) =
  * Συμπτύσσει whitespace ώστε «ίδιος» τίτλος να μην δημιουργεί διπλό φάκελο έργου.
  */
 function normalizeProjectTitleForMatching(text) {
-  if (!text) return '';
-  return String(text)
-    .replace(/\\n/g, ' ')
-    .replace(/\n/g, ' ')
-    .replace(/\r/g, ' ')
-    .replace(/\t/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/\u00A0/g, ' ')
-    .replace(/[\u2000-\u200B]/g, ' ')
-    .replace(/\u2028/g, ' ')
-    .replace(/\u2029/g, ' ')
-    .trim()
-    .toLowerCase();
+  return subprojectLifecycleCore.normalizeProjectTitleForMatching(text);
 }
 
 /** Τίτλος έργου από άλλο υποέργο στον ίδιο φάκελο (ίδιο projectId) για εναρμόνιση κεφαλαιοποίησης. */
@@ -2805,9 +2764,7 @@ function getAllowedSupervisorEngineerIdSet() {
 const { engineerChargeFilterKey, buildEngineerVisibilityContext, projectVisibleToEngineerContext } = require('./chargeFilterUtils');
 
 function normalizeSupervisorEngineerIdList(ids) {
-  return Array.isArray(ids)
-    ? [...new Set(ids.map((x) => engineerChargeFilterKey(x)).filter(Boolean))]
-    : [];
+  return subprojectCardCore.normalizeSupervisorEngineerIdList(ids);
 }
 
 function filterSupervisorEngineerIds(ids) {
@@ -4493,7 +4450,12 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
 
     // Προστασία: αν κάποιος χρήστης επεξεργάζεται αυτό το υποέργο, δεν διαγράφεται.
     const lockCheck = isProjectLocked(resolved.projectDirName);
-    if (lockCheck.locked) {
+    const deleteGate = subprojectLifecycleCore.evaluateSubprojectDelete({
+      projectId: resolved.projectDirName,
+      subprojectId,
+      locked: lockCheck.locked,
+    });
+    if (!deleteGate.ok && deleteGate.reason === 'locked') {
       const who = lockCheck.lockedBy || 'άλλον χρήστη';
       return {
         success: false,

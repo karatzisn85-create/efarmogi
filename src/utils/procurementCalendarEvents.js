@@ -15,11 +15,20 @@ import {
   pickKhmdhsNoticeSnapshot,
   projectHasKhmdhsNoticeData
 } from './khmdhsNoticeFields';
-import {
-  buildEngineerVisibilityContext,
-  projectVisibleToAssignedEngineer
-} from './supervisorChargeDisplay';
+import calendarDeadlines from '../../app/core/calendarDeadlines';
 import { formatDateEl, formatDateTimeEl, toIsoDateOnly } from './dateFormat';
+
+export const CALENDAR_EVENT_TYPES = calendarDeadlines.CALENDAR_EVENT_TYPES;
+export const CALENDAR_EVENT_LABELS = calendarDeadlines.CALENDAR_EVENT_LABELS;
+export const PROCUREMENT_DEADLINE_EVENT_TYPES = calendarDeadlines.PROCUREMENT_DEADLINE_EVENT_TYPES;
+export const ALL_CALENDAR_EVENT_TYPES = calendarDeadlines.ALL_CALENDAR_EVENT_TYPES;
+export const toDateKey = calendarDeadlines.toDateKey;
+export const isDateOnlyCalendarIso = calendarDeadlines.isDateOnlyCalendarIso;
+export const calendarEventRowKey = calendarDeadlines.calendarEventRowKey;
+export const filterProjectsForCalendar = calendarDeadlines.filterProjectsForCalendar;
+export const filterCalendarEventsByType = calendarDeadlines.filterCalendarEventsByType;
+export const eventsInMonth = calendarDeadlines.eventsInMonth;
+export const eventsWithinDays = calendarDeadlines.eventsWithinDays;
 import { getAllChainHistories } from './khmdhsChainFormAccess';
 import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEntries';
 import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
@@ -28,80 +37,12 @@ import {
   projectProcurementPhaseConcluded
 } from './procurementDeadlines';
 
-export const CALENDAR_EVENT_TYPES = {
-  DEADLINE: 'deadline',
-  OFFERS_EXPIRY: 'offers_expiry',
-  CONTRACT_END: 'contract_end',
-  COMPLIANCE_12M: 'compliance_12m',
-  CUSTOM: 'custom',
-  AEPO_RENEWAL: 'aepo_renewal',
-  PROSKLISI_DEADLINE: 'prosklisi_deadline',
-};
-
-export const CALENDAR_EVENT_LABELS = {
-  [CALENDAR_EVENT_TYPES.DEADLINE]: 'Καταληκτική υποβολής προσφορών',
-  [CALENDAR_EVENT_TYPES.OFFERS_EXPIRY]: 'Λήξη ισχύος προσφορών',
-  [CALENDAR_EVENT_TYPES.CONTRACT_END]: 'Λήξη σύμβασης',
-  [CALENDAR_EVENT_TYPES.COMPLIANCE_12M]: 'Παράβαση κανόνα 12 μηνών',
-  [CALENDAR_EVENT_TYPES.CUSTOM]: 'Ειδοποίηση ημερολογίου',
-  [CALENDAR_EVENT_TYPES.AEPO_RENEWAL]: 'Ανανέωση ΑΕΠΟ',
-  [CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE]: 'Λήξη υποβολής πρόσκλησης',
-};
-
-export const PROCUREMENT_DEADLINE_EVENT_TYPES = [
-  CALENDAR_EVENT_TYPES.DEADLINE,
-  CALENDAR_EVENT_TYPES.OFFERS_EXPIRY
-];
-
-export const ALL_CALENDAR_EVENT_TYPES = [
-  ...PROCUREMENT_DEADLINE_EVENT_TYPES,
-  CALENDAR_EVENT_TYPES.CONTRACT_END,
-  CALENDAR_EVENT_TYPES.COMPLIANCE_12M,
-  CALENDAR_EVENT_TYPES.CUSTOM,
-  CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
-  CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
-];
-
 function parseIsoDate(iso) {
   if (!iso) return null;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function toDateKey(isoOrDate) {
-  const d = isoOrDate instanceof Date ? isoOrDate : parseIsoDate(isoOrDate);
-  if (!d) return '';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/** Ημερομηνία χωρίς ώρα (π.χ. custom ειδοποίηση με T12:00:00.000Z). */
-export function isDateOnlyCalendarIso(iso) {
-  const s = String(iso || '');
-  if (!s.includes('T')) return true;
-  return /^\d{4}-\d{2}-\d{2}T12:00:00(\.000)?Z$/i.test(s)
-    || /^\d{4}-\d{2}-\d{2}T00:00:00(\.000)?Z$/i.test(s);
-}
-
-/** Μοναδικό κλειδί React για γραμμές ημερολογίου (ξεχωριστά ανά σύμβαση). */
-export function calendarEventRowKey(ev, prefix = '') {
-  if (ev?.customEventId) {
-    return `${prefix}${ev.type}-${ev.customEventId}-${ev.dateKey}`;
-  }
-  if (ev?.orimanthiProposalId) {
-    return `${prefix}${ev.type}-${ev.orimanthiProposalId}-${ev.dateKey}`;
-  }
-  if (ev?.prosklisiId) {
-    return `${prefix}${ev.type}-${ev.prosklisiId}-${ev.dateKey}`;
-  }
-  const contractPart = ev?.contractIndex != null
-    ? `-c${ev.contractIndex}`
-    : (ev?.adam ? `-a${ev.adam}` : '');
-  const id = `${ev?.subprojectId || 'x'}${contractPart}`;
-  return `${prefix}${ev?.type}-${id}-${ev?.dateKey}`;
-}
 
 /**
  * ΚΗΜΔΗΣ μονάδες: "1" ημέρες, "2" εβδομάδες, "3" μήνες, "4" έτη
@@ -155,16 +96,6 @@ export function isActiveProcurementProject(project) {
   return !!(snap && !snap.cancelled);
 }
 
-export function filterProjectsForCalendar(projects, { userRole, currentUser, engineerCatalog = [] } = {}) {
-  const list = projects || [];
-  if (userRole !== 'ENGINEER') return list;
-
-  const assigned = Array.isArray(currentUser?.assignedSupervisors)
-    ? currentUser.assignedSupervisors.map((s) => String(s || '').trim()).filter(Boolean)
-    : [];
-  const ctx = buildEngineerVisibilityContext(currentUser, assigned);
-  return list.filter((p) => projectVisibleToAssignedEngineer(p, ctx, engineerCatalog));
-}
 
 function pushEvent(events, seen, payload) {
   const dateIso = payload.dateIso;
@@ -485,30 +416,6 @@ export function buildProcurementCalendarEvents(projects, options = {}) {
   return events;
 }
 
-export function filterCalendarEventsByType(events, filterKey) {
-  if (!filterKey || filterKey === 'all') {
-    return events.filter((e) => ALL_CALENDAR_EVENT_TYPES.includes(e.type));
-  }
-  if (filterKey === 'deadlines') {
-    return events.filter((e) => PROCUREMENT_DEADLINE_EVENT_TYPES.includes(e.type));
-  }
-  if (filterKey === 'contracts') {
-    return events.filter((e) => e.type === CALENDAR_EVENT_TYPES.CONTRACT_END);
-  }
-  if (filterKey === 'compliance') {
-    return events.filter((e) => e.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M);
-  }
-  if (filterKey === 'custom') {
-    return events.filter((e) => e.type === CALENDAR_EVENT_TYPES.CUSTOM);
-  }
-  if (filterKey === 'aepo') {
-    return events.filter((e) => e.type === CALENDAR_EVENT_TYPES.AEPO_RENEWAL);
-  }
-  if (filterKey === 'proskliseis') {
-    return events.filter((e) => e.type === CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE);
-  }
-  return events;
-}
 
 /** Μία εγγραφή ανά υποέργο ανά ημέρα — η πιο σημαντική προθεσμία */
 const EVENT_TYPE_RANK = {
@@ -548,34 +455,6 @@ export function dedupeEventsForMonthDay(events) {
   return Array.from(byBucket.values());
 }
 
-export function eventsInMonth(events, year, monthIndex) {
-  return events.filter((e) => {
-    const d = parseIsoDate(e.dateIso);
-    if (!d) return false;
-    return d.getFullYear() === year && d.getMonth() === monthIndex;
-  });
-}
-
-const PAST_DEADLINE_EVENT_TYPES = [
-  CALENDAR_EVENT_TYPES.DEADLINE,
-  CALENDAR_EVENT_TYPES.OFFERS_EXPIRY,
-  CALENDAR_EVENT_TYPES.CONTRACT_END,
-  CALENDAR_EVENT_TYPES.CUSTOM,
-  CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
-  CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
-];
-
-export function eventsWithinDays(events, maxDays, { includePastDeadlines = true } = {}) {
-  return events.filter((e) => {
-    if (e.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M) return true;
-    if (e.daysLeft == null) return false;
-    if (e.daysLeft >= 0 && e.daysLeft <= maxDays) return true;
-    if (includePastDeadlines && e.daysLeft < 0 && PAST_DEADLINE_EVENT_TYPES.includes(e.type)) {
-      return Math.abs(e.daysLeft) <= maxDays;
-    }
-    return false;
-  });
-}
 
 export function formatEventDateTime(iso) {
   return isDateOnlyCalendarIso(iso) ? formatDateEl(iso) : formatDateTimeEl(iso);

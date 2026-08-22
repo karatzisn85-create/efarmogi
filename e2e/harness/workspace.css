@@ -1,0 +1,47 @@
+body {
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  margin: 0;
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.bar {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  padding: 0.85rem 1.2rem;
+  background: #fff;
+  border-bottom: 1px solid #cbd5e1;
+}
+.bar label { display: flex; flex-direction: column; font-size: 0.78rem; font-weight: 600; }
+.list { display: grid; gap: 1.1rem; padding: 1rem; }
+.group h2 { margin: 0 0 0.45rem; font-size: 1.05rem; }
+.card {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  cursor: pointer;
+}
+.card h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+.card p { margin: 0.15rem 0; font-size: 0.88rem; }
+.charge { color: #0f766e; font-weight: 700; }
+.panel {
+  margin: 0 1rem 1.5rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #99f6e4;
+  border-radius: 12px;
+  display: grid;
+  gap: 0.65rem;
+}
+.panel[hidden] {
+  display: none !important;
+}
+.panel label { display: grid; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; }
+.panel input, .panel select, .panel textarea { font: inherit; padding: 0.4rem 0.5rem; }
+.check { display: flex; align-items: center; gap: 0.5rem; }
+.actions { display: flex; gap: 0.6rem; }
+button { padding: 0.45rem 0.8rem; font-weight: 700; cursor: pointer; }
+.ids { font-size: 0.78rem; color: #64748b; }
+.errors { color: #b91c1c; margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
+.danger { color: #7f1d1d; }

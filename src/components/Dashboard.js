@@ -39,6 +39,10 @@ import {
   setCornerClearancePx,
 } from '../utils/bottomRightStack';
 import { containsSearchTerm } from '../utils/searchUtils';
+import subprojectCard from '../../app/core/subprojectCard';
+import subprojectList from '../../app/core/subprojectList';
+import subprojectLifecycle from '../../app/core/subprojectLifecycle';
+import subprojectFiles from '../../app/core/subprojectFiles';
 import {
   getProjectChargeSearchText,
   projectMatchesChargeFilters,
@@ -55,7 +59,6 @@ import {
   statusShowsAssignmentProcedure,
   normalizeProjectType,
   PROJECT_STATUS_ABANDONED,
-  isAbandonedSubproject,
   excludeAbandonedSubprojects
 } from '../data/formOptions';
 import {
@@ -144,24 +147,7 @@ const ipcRenderer = window.electronAPI;
  * Τίτλος κεφαλίδας ομάδας υποέργων: όταν το ίδιο έργο έχει διαφορετική κεφαλαιοποίηση στο projectTitle
  * ανά data.json, επιλέγουμε την πιο συχνή τιμή (ώστε μία κεφαλίδα αντί για διπλότυπα).
  */
-function pickDisplayProjectTitleForGroup(subprojects) {
-  if (!subprojects?.length) return '';
-  const counts = new Map();
-  for (const p of subprojects) {
-    const t = (p.projectTitle || '').trim();
-    if (!t) continue;
-    counts.set(t, (counts.get(t) || 0) + 1);
-  }
-  let best = (subprojects[0] && subprojects[0].projectTitle) || '';
-  let bestCount = -1;
-  for (const [t, c] of counts) {
-    if (c > bestCount || (c === bestCount && t.length > best.length)) {
-      best = t;
-      bestCount = c;
-    }
-  }
-  return best;
-}
+const pickDisplayProjectTitleForGroup = subprojectList.pickDisplayProjectTitleForGroup;
 
 const LOCK_POLL_INTERVAL_MS = 60000;
 const INDEX_POLL_INTERVAL_MS = 45000;
@@ -3844,28 +3830,24 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
       // Quick Search - text search in all fields
       if (deferredQuickSearchText) {
-        filtered = filtered.filter(p => {
-          const aleCodesMatch = (p.aleCodes && Array.isArray(p.aleCodes) && 
-            p.aleCodes.some(code => containsSearchTerm(code, deferredQuickSearchText))) ||
-            containsSearchTerm(p.aleCode, deferredQuickSearchText);
-          
-          return containsSearchTerm(p.projectTitle, deferredQuickSearchText) ||
-            containsSearchTerm(p.subprojectTitle, deferredQuickSearchText) ||
-            containsSearchTerm(p.kaCode, deferredQuickSearchText) ||
-            aleCodesMatch ||
-            containsSearchTerm(getProjectChargeSearchText(p, engineerCatalogForCards), deferredQuickSearchText) ||
-            containsSearchTerm(getProjectKhmdhsSearchText(p), deferredQuickSearchText);
-        });
+        filtered = filtered.filter((p) => subprojectCard.subprojectMatchesQuickSearch(
+          p,
+          deferredQuickSearchText,
+          {
+            catalog: engineerCatalogForCards,
+            extraTexts: [getProjectKhmdhsSearchText(p)],
+          }
+        ));
       }
 
       // Quick Search - status filter
       if (quickSearchStatus) {
-        filtered = filtered.filter(p => p.projectStatus === quickSearchStatus);
+        filtered = filtered.filter((p) => subprojectList.projectMatchesQuickStatus(p, quickSearchStatus));
       }
 
       // Quick Search - project type filter
       if (quickSearchType) {
-        filtered = filtered.filter((p) => normalizeProjectType(p.projectType) === quickSearchType);
+        filtered = filtered.filter((p) => subprojectList.projectMatchesQuickType(p, quickSearchType));
       }
 
       // Advanced Filters
@@ -4156,26 +4138,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         });
       }
 
-      // Εξαίρεση αρχειοθετημένων / απενταγμένων από την κανονική προβολή
-      const ARCHIVED_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
-      const userExplicitlyFilteredByArchived =
-        (filters.projectStatus && filters.projectStatus.includes(ARCHIVED_STATUS)) ||
-        quickSearchStatus === ARCHIVED_STATUS;
-      const userExplicitlyFilteredByAbandoned =
-        (filters.projectStatus && filters.projectStatus.includes(PROJECT_STATUS_ABANDONED)) ||
-        quickSearchStatus === PROJECT_STATUS_ABANDONED;
-
-      if (showArchivedProjects) {
-        // Εμφάνιση ΜΟΝΟ αρχειοθετημένων
-        filtered = filtered.filter(p => p.projectStatus === ARCHIVED_STATUS);
-      } else if (!userExplicitlyFilteredByArchived) {
-        // Απόκρυψη αρχειοθετημένων από την κανονική λίστα
-        filtered = filtered.filter(p => p.projectStatus !== ARCHIVED_STATUS);
-      }
-
-      if (!userExplicitlyFilteredByAbandoned) {
-        filtered = filtered.filter(p => !isAbandonedSubproject(p));
-      }
+      filtered = subprojectList.applyArchivedAbandonedVisibility(filtered, {
+        showArchivedProjects,
+        quickSearchStatus,
+        filterStatuses: filters.projectStatus,
+      });
 
       setFilteredProjects(filtered);
     };
@@ -4998,7 +4965,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const handleDeleteProject = async (projectId, subprojectId, options = {}) => {
     console.log('Attempting to delete subproject:', { projectId, subprojectId });
 
-    if (!projectId || !subprojectId) {
+    const deleteCheck = subprojectLifecycle.evaluateSubprojectDelete({ projectId, subprojectId });
+    if (!deleteCheck.ok) {
       console.error('Invalid IDs for deletion:', { projectId, subprojectId });
       showToast('Σφάλμα: Μη έγκυρα δεδομένα για διαγραφή', 'error');
       return { success: false };
@@ -5261,12 +5229,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     projects.find((p) => p.projectId === projectId && p.subprojectId === subprojectId) || null;
 
   const assertSubprojectUploadAllowed = (project) => {
-    if (userRole === 'USER') {
-      showToast('Δεν έχετε δικαίωμα προσθήκης αρχείων.', 'warning');
-      return false;
-    }
-    if (project?.isLocked) {
-      const who = project.lockedBy ? `«${project.lockedBy}»` : 'άλλον χρήστη';
+    if (subprojectFiles.isSubprojectFileUploadBlocked(project, userRole)) {
+      if (!subprojectFiles.showSubprojectFileUpload(userRole)) {
+        showToast('Δεν έχετε δικαίωμα προσθήκης αρχείων.', 'warning');
+        return false;
+      }
+      const who = project?.lockedBy ? `«${project.lockedBy}»` : 'άλλον χρήστη';
       showToast(`Το έργο είναι κλειδωμένο από ${who}. Δεν μπορούν να προστεθούν αρχεία αυτή τη στιγμή.`, 'warning');
       return false;
     }
@@ -6341,24 +6309,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       const idSet = new Set(portfolioDrillFilter.subprojectIds);
       source = source.filter((p) => idSet.has(p.subprojectId));
     }
-    return source.reduce((groups, project) => {
-      const key = project.projectId || `__missing_project_id__:${project.subprojectId || 'unknown'}`;
-      if (!groups[key]) {
-        groups[key] = [];
-      }
-      groups[key].push(project);
-      return groups;
-    }, {});
+    return subprojectList.groupSubprojectsByProjectId(source);
   }, [filteredProjects, portfolioDrillFilter]);
 
-  const sortedGroupedEntries = useMemo(() => (
-    Object.entries(groupedProjects)
-      .sort(([, subsA], [, subsB]) => {
-        const titleA = pickDisplayProjectTitleForGroup(subsA);
-        const titleB = pickDisplayProjectTitleForGroup(subsB);
-        return titleA.localeCompare(titleB, 'el', { sensitivity: 'base' });
-      })
-  ), [groupedProjects]);
+  const sortedGroupedEntries = useMemo(
+    () => subprojectList.sortGroupedEntries(groupedProjects),
+    [groupedProjects]
+  );
 
   // Ανάλυση υποέργων στην οθόνη κατά βασική κατάσταση (συμπαγής σύνοψη).
   const overviewStatusBreakdown = useMemo(() => {
@@ -6912,8 +6869,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                     {!isGroupCollapsed && (
                       <ProjectGroupBody>
                         <SubprojectsGrid>
-                        {subprojects
-                          .sort((a, b) => a.subprojectTitle.localeCompare(b.subprojectTitle, 'el', { sensitivity: 'base' }))
+                        {subprojectList.sortSubprojectsInGroup(subprojects)
                           .map(project => {
                             const linkedProsklisi = findLinkedProsklisi(project.subprojectId);
                             const isLocked = project.isLocked || false;
@@ -7493,7 +7449,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           khmdhsDocumentRegistry={fileManager.khmdhsDocumentRegistry}
           khmdhsRelatedDocuments={fileManager.khmdhsRelatedDocuments}
           userRole={userRole}
-          canUpload={userRole !== 'USER'}
+          canUpload={subprojectFiles.showSubprojectFileUpload(userRole)}
           isUploading={fileManagerUploading}
           onUploadFiles={handleUploadSubprojectFilesFromManager}
           onUploadFolder={() => handleUploadSubprojectFolder(fileManager.projectId, fileManager.subprojectId)}

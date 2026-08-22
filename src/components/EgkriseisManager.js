@@ -3,8 +3,8 @@ import styled from 'styled-components';
 import EgkrisiForm from './EgkrisiForm';
 import EgkriseisStructureViewer from './EgkriseisStructureViewer';
 import SubprojectLinkingModal from './SubprojectLinkingModal';
-import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
+import egkrisiCatalog from '../../app/core/egkrisiCatalog';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 import { formatDateEl } from '../utils/dateFormat';
 import { showConfirm } from '../utils/confirmModal';
@@ -417,7 +417,7 @@ const LoadingMessage = styled.div`
 
 function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, onLinkCreated, linkedNotesMap = {}, onOpenNoteFromEntity, initialSearchTerm = '' }) {
   const { showToast } = useToast();
-  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
+  const canManageWorkflow = egkrisiCatalog.canManageEgkrisiActions(userRole);
   const [egkriseisData, setEgkriseisData] = useState({});
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -637,52 +637,14 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
       try {
         const standaloneResult = await ipcRenderer.invoke('load-egkriseis-data');
         if (standaloneResult.success && standaloneResult.data?.projects) {
-          for (const [projKey, projVal] of Object.entries(standaloneResult.data.projects)) {
-            if (!projVal.subprojects) continue;
-            // Find matching projectId from projects array
-            const projTitle = projVal.title || projKey;
-            let matchedProjectId = null;
-            for (const projectGroup of projects) {
-              if (!projectGroup || !Array.isArray(projectGroup)) continue;
-              const match = projectGroup.find(p => p.projectTitle === projTitle);
-              if (match) { matchedProjectId = match.projectId; break; }
-            }
-            if (!matchedProjectId) continue;
-
-            for (const [subKey, subVal] of Object.entries(projVal.subprojects)) {
-              if (!subVal.pdfs || subVal.pdfs.length === 0) continue;
-              const subTitle = subVal.title || subKey.replace(/_/g, ' ');
-              // Find matching subprojectId
-              let matchedSubId = null;
-              for (const projectGroup of projects) {
-                if (!projectGroup || !Array.isArray(projectGroup)) continue;
-                const match = projectGroup.find(p => p.subprojectTitle === subTitle && p.projectId === matchedProjectId);
-                if (match) { matchedSubId = match.subprojectId; break; }
-              }
-              if (!matchedSubId) continue;
-
-              // Check if already loaded
-              const existing = allEgkriseis[matchedProjectId];
-              const alreadyHas = existing?.some(e => e.subprojectId === matchedSubId);
-              if (alreadyHas) continue;
-
-              const egkriseisList = subVal.pdfs.map((pdf, idx) => ({
-                id: `standalone_${projKey}_${subKey}_${idx}`,
-                fileName: pdf,
-                date: null,
-                type: idx === 0 ? 'initial' : 'modification',
-                projectKey: projKey,
-                subprojectKey: subKey
-              }));
-
-              if (!allEgkriseis[matchedProjectId]) allEgkriseis[matchedProjectId] = [];
-              allEgkriseis[matchedProjectId].push({
-                subprojectId: matchedSubId,
-                subprojectTitle: subTitle,
-                egkriseis: egkriseisList
-              });
-            }
-          }
+          const merged = egkrisiCatalog.mergeStandaloneEgkriseis(
+            allEgkriseis,
+            standaloneResult.data,
+            projects
+          );
+          Object.keys(merged).forEach((key) => {
+            allEgkriseis[key] = merged[key];
+          });
         }
       } catch (_) { /* ignore standalone load errors */ }
       
@@ -873,47 +835,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
 
   const formatDate = (dateString) => formatDateEl(dateString, 'Χωρίς ημερομηνία');
 
-  const filterProjects = () => {
-    if (!projects || !Array.isArray(projects)) return [];
-    
-    // Φιλτράρουμε πρώτα τα projectGroups
-    let filtered = !searchTerm 
-      ? projects.filter(projectGroup => 
-          projectGroup && Array.isArray(projectGroup) && projectGroup.length > 0
-        )
-      : projects.filter(projectGroup => 
-          projectGroup && Array.isArray(projectGroup) && projectGroup.length > 0 && projectGroup.some(p => {
-            if (!p) return false;
-            const aleCodesMatch = (p.aleCodes && Array.isArray(p.aleCodes) && 
-              p.aleCodes.some(code => containsSearchTerm(code, searchTerm))) ||
-              containsSearchTerm(p.aleCode, searchTerm);
-            
-            return containsSearchTerm(p.projectTitle, searchTerm) ||
-              containsSearchTerm(p.subprojectTitle, searchTerm) ||
-              containsSearchTerm(p.kaCode, searchTerm) ||
-              aleCodesMatch;
-          })
-        );
-    
-    // Φιλτράρουμε duplicates υποέργων μεταξύ όλων των groups
-    const seenSubprojectIds = new Set();
-    filtered = filtered.map(projectGroup => {
-      if (!projectGroup || !Array.isArray(projectGroup)) return projectGroup;
-      
-      return projectGroup.filter(subproject => {
-        if (!subproject || !subproject.subprojectId) return false;
-        
-        if (seenSubprojectIds.has(subproject.subprojectId)) {
-          return false; // Ήδη το έχουμε δείξει - skip
-        }
-        
-        seenSubprojectIds.add(subproject.subprojectId);
-        return true;
-      }).filter(subproject => subproject); // Αφαίρεση null/undefined
-    }).filter(projectGroup => projectGroup && projectGroup.length > 0); // Αφαίρεση κενών groups
-    
-    return filtered;
-  };
+  const filterProjects = () => egkrisiCatalog.filterEgkrisiProjectGroups(projects, searchTerm);
 
   const getProjectEgkriseis = (projectId) => {
     return egkriseisData[projectId] || [];
@@ -939,9 +861,11 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
+            {egkrisiCatalog.showNewEgkrisiButton(userRole) && (
             <ToolbarActionButton type="button" primary onClick={() => setShowEgkrisiForm(true)}>
               ➕ Νέα Έγκριση
             </ToolbarActionButton>
+            )}
             
           </ActionsBar>
         </ModalTopSection>
@@ -1032,12 +956,12 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
                                       <div className="filename">
                                         {egkrisi.fileName}
                                       </div>
-                                      {egkrisi.type && (
+                                      {egkrisiCatalog.formatEgkrisiType(egkrisi.type) && (
                                         <div className="type">
-                                          {egkrisi.type === 'initial' ? 'Αρχική' : 'Τροποποίηση'}
+                                          {egkrisiCatalog.formatEgkrisiType(egkrisi.type)}
                                         </div>
                                       )}
-                                      {linkedSubprojects[egkrisi.id] && (
+                                      {egkrisiCatalog.isEgkrisiLinked(egkrisi, linkedSubprojects) && (
                                         <div style={{ 
                                           background: '#e8f5e8', 
                                           color: '#2e7d32', 

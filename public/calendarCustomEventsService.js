@@ -7,6 +7,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { safeWriteJSON } = require('./safeWrite');
 const { daysUntilKhmdhsDate } = require('./khmdhsDateUtils');
+const calendarDeadlinesCore = require('../app/core/calendarDeadlines');
 
 const CONFIG_DIR = 'config';
 const EVENTS_FILE = 'calendar_custom_events.json';
@@ -100,31 +101,8 @@ function normalizeEvent(raw, { actor } = {}) {
   };
 }
 
-function effectiveViewerRoles(userRole) {
-  const role = String(userRole || '').trim().toUpperCase();
-  if (role === 'SUPERADMIN') return ['SUPERADMIN', 'ADMIN'];
-  if (role) return [role];
-  return [];
-}
-
-function userCanSeeCustomEvent(event, user, { adminSeesAll = false } = {}) {
-  if (!event || !user) return false;
-  const role = String(user.role || '').trim().toUpperCase();
-  const username = normalizeUsername(user.username);
-  const createdBy = normalizeUsername(event.createdBy);
-
-  if (role === 'SUPERADMIN') return true;
-  if (username && createdBy && username === createdBy) return true;
-  if (adminSeesAll && role === 'ADMIN') return true;
-
-  const roles = event.visibilityRoles || [];
-  const usernames = event.visibilityUsernames || [];
-  if (!roles.length && !usernames.length) return true;
-
-  if (username && usernames.includes(username)) return true;
-
-  const viewerRoles = effectiveViewerRoles(role);
-  return roles.some((r) => viewerRoles.includes(String(r || '').trim().toUpperCase()));
+function userCanSeeCustomEvent(event, user, opts) {
+  return calendarDeadlinesCore.userCanSeeCustomEvent(event, user, opts);
 }
 
 function isStaleCustomEvent(event) {
@@ -142,14 +120,7 @@ function listEventsForUser(dataDir, user) {
 }
 
 function canManageCustomEvent(event, actor) {
-  if (!actor) return false;
-  const role = String(actor.role || '').trim().toUpperCase();
-  if (role === 'SUPERADMIN') return true;
-  if (role !== 'ADMIN') return false;
-  if (!event) return true;
-  const createdBy = normalizeUsername(event.createdBy);
-  const actorName = normalizeUsername(actor.username);
-  return !createdBy || createdBy === actorName;
+  return calendarDeadlinesCore.canManageCustomEvent(event, actor);
 }
 
 function upsertEvent(dataDir, payload, actor) {

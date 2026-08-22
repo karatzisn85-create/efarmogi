@@ -10,7 +10,7 @@ import {
   isTaskWithdrawnByAssigner,
   formatAssigneeDisplayNames
 } from '../utils/taskAssignmentDisplay';
-import { containsSearchTerm } from '../utils/searchUtils';
+import taskWorkspace from '../../app/core/taskWorkspace';
 import {
   allowDocumentInteractionLock,
   resetDocumentInteractionState,
@@ -926,20 +926,10 @@ function TaskAssignmentManager({
   const isWorkArchive = screen === 'workArchive';
 
   const filtered = useMemo(() => {
-    return tasks.filter((t) => {
-      if (isWorkArchive) {
-        if (t.status !== 'completed') return false;
-      } else if (t.status === 'completed') {
-        return false;
-      }
-      if (statusFilter && t.status !== statusFilter) {
-        return false;
-      }
-      if (search) {
-        const blob = [t.title, t.description, t.createdBy, ...(t.assignees || [])].join(' ');
-        if (!containsSearchTerm(blob, search)) return false;
-      }
-      return true;
+    return taskWorkspace.applyTaskDailyFilters(tasks, {
+      isWorkArchive,
+      statusFilter,
+      search
     });
   }, [tasks, search, statusFilter, isWorkArchive]);
 
@@ -1233,7 +1223,7 @@ function TaskAssignmentManager({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
-              {!isWorkArchive && canAssign && (
+              {taskWorkspace.showCreateTaskButton(canAssign, isWorkArchive) && (
                 <PrimaryBtn type="button" onClick={openCreateAssignmentForm}>
                   Δημιουργία Χώρου
                 </PrimaryBtn>

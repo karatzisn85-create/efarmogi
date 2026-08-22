@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const { safeWriteJSON } = require('./safeWrite');
 const { withServiceLock } = require('./fileLock');
 const { loadEmailConfig, isConfigured } = require('./taskAssignmentEmailService');
+const taskWorkspace = require('../app/core/taskWorkspace');
 
 const TASKS_ROOT = 'ANATHESEIS_ERGASION';
 const FILES_SUBDIR = 'ARXEIA';
@@ -342,17 +343,15 @@ function createTaskAssignmentService(deps) {
   }
 
   function isAssigner(task, username) {
-    return task.createdBy && task.createdBy.toLowerCase() === String(username || '').toLowerCase();
+    return taskWorkspace.isTaskAssigner(task, username);
   }
 
   function isAssignee(task, username) {
-    const u = String(username || '').toLowerCase();
-    return (task.assignees || []).some((a) => String(a).toLowerCase() === u);
+    return taskWorkspace.isTaskAssignee(task, username);
   }
 
   function hasLeftArchive(task, username) {
-    const u = String(username || '').toLowerCase();
-    return (task.leftArchiveBy || []).some((x) => String(x).toLowerCase() === u);
+    return taskWorkspace.hasLeftWorkArchive(task, username);
   }
 
   function isSuperAdmin(users, username) {
@@ -361,15 +360,7 @@ function createTaskAssignmentService(deps) {
   }
 
   function canAccessTask(users, task, username) {
-    if (!task) return false;
-    if (isSuperAdmin(users, username)) return true;
-    if (isAssigner(task, username)) return true;
-    if (isAssignee(task, username)) {
-      if (task.status === 'cancelled' && task.withdrawnByAssigner) return false;
-      if (task.status === 'completed' && hasLeftArchive(task, username)) return false;
-      return true;
-    }
-    return false;
+    return taskWorkspace.canAccessTask(task, username, isSuperAdmin(users, username));
   }
 
   function readNotifications() {
@@ -655,50 +646,17 @@ function createTaskAssignmentService(deps) {
       });
     }
 
-    if (view === 'all' && isSA) {
-      // all tasks
-    } else if (view === 'asAssigner') {
-      if (!assignerListVisibility) return { success: false, error: 'Δεν έχετε δικαίωμα δημιουργίας χώρου' };
-      list = list.filter((t) => isAssigner(t, actingUsername));
-    } else {
-      list = list.filter(
-        (t) =>
-          isAssignee(t, actingUsername) ||
-          (assignerListVisibility && isAssigner(t, actingUsername))
-      );
-      if (view === 'asAssignee') {
-        list = list.filter((t) => isAssignee(t, actingUsername) || isAssigner(t, actingUsername));
-      }
+    if (view === 'asAssigner' && !assignerListVisibility) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα δημιουργίας χώρου' };
     }
 
-    if (listScope === 'workArchive') {
-      list = list.filter((t) => t.status === 'completed');
-    } else if (listScope === 'default') {
-      list = list.filter((t) => t.status !== 'completed');
-    }
-
-    if (!(view === 'all' && isSA)) {
-      list = list.filter((t) => {
-        if (isSA) return true;
-        const hiddenForPureAssignee =
-          t.status === 'cancelled' &&
-          t.withdrawnByAssigner &&
-          isAssignee(t, actingUsername) &&
-          !isAssigner(t, actingUsername);
-        if (hiddenForPureAssignee) return false;
-        if (
-          t.status === 'completed' &&
-          hasLeftArchive(t, actingUsername) &&
-          isAssignee(t, actingUsername) &&
-          !isAssigner(t, actingUsername)
-        ) {
-          return false;
-        }
-        return true;
-      });
-    }
-
-    list.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    list = taskWorkspace.listTasksForView(list, {
+      actingUsername,
+      view,
+      listScope,
+      isSuperAdmin: isSA,
+      canAssign: assignerListVisibility
+    });
     return { success: true, tasks: list, canAssign: ta.canAssign || isSA };
   }
 

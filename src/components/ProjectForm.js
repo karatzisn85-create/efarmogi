@@ -8,6 +8,9 @@ import {
   buildProjectFormFingerprint,
   hasUnsavedProjectFormChanges,
 } from '../utils/projectFormUnsaved';
+import subprojectCard from '../../app/core/subprojectCard';
+import subprojectLifecycle from '../../app/core/subprojectLifecycle';
+import subprojectFiles from '../../app/core/subprojectFiles';
 import { useToast } from './ToastProvider';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -2919,19 +2922,12 @@ function ProjectForm({
         aleRemainingAmounts = aleCodes.map(() => '');
       }
 
-      const supervisorEngineerIds = Array.isArray(editingProject.supervisorEngineerIds)
-        ? editingProject.supervisorEngineerIds.map((x) => String(x || '').trim()).filter(Boolean)
-        : [];
-
-      const fp0 = editingProject.supervisorChargeFreePrimary != null ? String(editingProject.supervisorChargeFreePrimary) : '';
-      const fpart0 =
-        editingProject.supervisorChargeFreeParticipants != null ? String(editingProject.supervisorChargeFreeParticipants) : '';
-      const hadLegacyFree = !!(fp0.trim() || fpart0.trim());
-      const explicitOutside = editingProject.supervisorChargeOutsideEngineers === true;
-      const explicitInside = editingProject.supervisorChargeOutsideEngineers === false;
-      const supervisorChargeOutsideEngineers =
-        explicitOutside || (!explicitInside && hadLegacyFree && supervisorEngineerIds.length === 0);
-      const mergedFree = [fp0.trim(), fpart0.trim()].filter(Boolean).join('\n');
+      const {
+        supervisorEngineerIds,
+        supervisorChargeOutsideEngineers,
+        supervisorChargeFreePrimary: loadedChargeFreePrimary,
+        supervisorChargeFreeParticipants: loadedChargeFreeParticipants,
+      } = subprojectCard.loadChargeFieldsFromProject(editingProject);
 
       const { supervisor: _legacySupervisor, ...editingRest } = editingProject;
       const loadedForm = mergeKhmdhsSupplementaryIntoForm(
@@ -2952,8 +2948,8 @@ function ProjectForm({
         fileGroups: editingProject.fileGroups || [],
         supervisorEngineerIds,
         supervisorChargeOutsideEngineers,
-        supervisorChargeFreePrimary: supervisorChargeOutsideEngineers ? mergedFree || fp0 : fp0,
-        supervisorChargeFreeParticipants: supervisorChargeOutsideEngineers ? '' : fpart0,
+        supervisorChargeFreePrimary: loadedChargeFreePrimary,
+        supervisorChargeFreeParticipants: loadedChargeFreeParticipants,
         khmdhsAdam: editingProject.khmdhsAdam != null ? String(editingProject.khmdhsAdam) : '',
         khmdhsContractSnapshot: pickKhmdhsSnapshot(editingProject.khmdhsContractSnapshot),
         khmdhsContractFetchedAt: editingProject.khmdhsContractFetchedAt != null ? String(editingProject.khmdhsContractFetchedAt) : '',
@@ -3019,8 +3015,8 @@ function ProjectForm({
         contracts: loadContractsFromProject(editingProject),
         supervisorEngineerIds,
         supervisorChargeOutsideEngineers,
-        supervisorChargeFreePrimary: supervisorChargeOutsideEngineers ? mergedFree || fp0 : fp0,
-        supervisorChargeFreeParticipants: supervisorChargeOutsideEngineers ? '' : fpart0,
+        supervisorChargeFreePrimary: loadedChargeFreePrimary,
+        supervisorChargeFreeParticipants: loadedChargeFreeParticipants,
         })
       )));
       setManualPhaseSavedOnce(true);
@@ -3105,10 +3101,7 @@ function ProjectForm({
     setUnsavedCloseModalOpen(false);
   }, [editingProject, isOpen]);
 
-  const validateKACode = (code) => {
-    const pattern = /^\d{2}-\d{4}\.\d{3}$/;
-    return pattern.test(code);
-  };
+  const validateKACode = subprojectLifecycle.validateKACode;
 
   // Real-time validation functions
   const validateField = (field, value) => {
@@ -3381,64 +3374,7 @@ function ProjectForm({
     const newErrors = {};
     const fd = formSnapshot || formData;
 
-    if (!formData.projectTitle.trim()) {
-      newErrors.projectTitle = 'Απαιτείται τίτλος έργου';
-    }
-
-    if (!formData.subprojectTitle.trim()) {
-      newErrors.subprojectTitle = 'Απαιτείται τίτλος υποέργου';
-    }
-
-    if (
-      !formData.noKaCode &&
-      formData.kaCode &&
-      formData.kaCode.trim().length > 0 &&
-      !validateKACode(formData.kaCode)
-    ) {
-      newErrors.kaCode = 'Ο κωδικός ΚΑ πρέπει να έχει μορφή xx-xxxx.xxx';
-    }
-
-    // Validation για MIS ΠΡΑΞΗΣ: αν έχει ένα από τα δύο, πρέπει να έχει και το άλλο
-    const hasMisPraxhsName = formData.misPraxhsName && formData.misPraxhsName.trim();
-    const hasMisPraxhsCode = formData.misPraxhsCode && formData.misPraxhsCode.trim();
-    
-    if (hasMisPraxhsName && !hasMisPraxhsCode) {
-      newErrors.misPraxhsCode = 'Παρακαλώ συμπληρώστε και τον κωδικό';
-    }
-    
-    if (hasMisPraxhsCode && !hasMisPraxhsName) {
-      newErrors.misPraxhsName = 'Παρακαλώ συμπληρώστε και το όνομα του κωδικού';
-    }
-
-    if (!formData.projectType) {
-      newErrors.projectType = 'Επιλέξτε είδος';
-    }
-
-    if (formData.coFinanced) {
-      const rows = Array.isArray(formData.fundingSources) ? formData.fundingSources : [];
-      const validRows = rows.filter((r) => r && r.source && r.details && parseCoFinancingAmount(r.amount) > 0);
-      if (validRows.length === 0) {
-        newErrors.fundingSources = 'Προσθέστε τουλάχιστον μία πηγή χρηματοδότησης με πηγή, εξειδίκευση και ποσό';
-      } else if (!validRows.some((r) => !r.ownResources)) {
-        newErrors.fundingSources = 'Απαιτείται τουλάχιστον μία πηγή χρηματοδότησης εκτός ιδίων πόρων';
-      }
-    } else {
-      if (!formData.fundingSource) {
-        newErrors.fundingSource = 'Επιλέξτε πηγή χρηματοδότησης';
-      }
-
-      if (!formData.fundingDetails) {
-        newErrors.fundingDetails = 'Επιλέξτε εξειδίκευση πηγής χρηματοδότησης';
-      }
-
-      if (!formData.approvedAmount) {
-        newErrors.approvedAmount = 'Απαιτείται εγκεκριμένο ποσό';
-      }
-    }
-
-    if (!formData.projectStatus) {
-      newErrors.projectStatus = 'Επιλέξτε κατάσταση έργου';
-    }
+    Object.assign(newErrors, subprojectLifecycle.collectPhaseARequiredErrors(fd));
 
     if (!includePhaseB) {
       return { isValid: Object.keys(newErrors).length === 0, errors: newErrors };
@@ -4129,33 +4065,19 @@ function ProjectForm({
         
         // Απλό modal για επιλογή ομαδοποίησης
         const groupingChoice = await showSimpleGroupingModal(newFiles.length, formData.fileGroups || []);
-        
-        if (groupingChoice !== null && groupingChoice !== false) {
-          if (groupingChoice.action === 'new') {
-            // Δημιουργία νέας ομάδας
-            setFormData(prev => ({
-              ...prev,
-              fileGroups: [...(prev.fileGroups || []), {
-                id: uuidv4(),
-                title: groupingChoice.title,
-                files: newFiles
-              }]
-            }));
-          } else if (groupingChoice.action === 'existing') {
-            // Προσθήκη σε υπάρχουσα ομάδα
-            setFormData(prev => ({
-              ...prev,
-              fileGroups: (prev.fileGroups || []).map(group => 
-                group.id === groupingChoice.groupId
-                  ? { ...group, files: [...group.files, ...newFiles] }
-                  : group
-              )
-            }));
-          }
-        } else {
-          // Κανονική προσθήκη αρχείων χωρίς ομαδοποίηση
-          setSelectedFiles(prev => [...prev, ...newFiles]);
+        if (subprojectFiles.isUploadGroupingCancelled(groupingChoice)) {
+          return;
         }
+
+        const next = subprojectFiles.applyFormFileGrouping(
+          formData.fileGroups || [],
+          selectedFiles,
+          groupingChoice,
+          newFiles,
+          uuidv4()
+        );
+        setFormData((prev) => ({ ...prev, fileGroups: next.fileGroups }));
+        setSelectedFiles(next.ungroupedFiles);
       }
     } catch (error) {
       console.error('Error selecting files:', error);
@@ -4186,14 +4108,15 @@ function ProjectForm({
         return;
       }
 
-      const folderTitle = String(pick.folderName || 'Φάκελος').trim() || 'Φάκελος';
+      const folderTitle = subprojectFiles.folderGroupTitle(pick.folderName);
       setFormData((prev) => ({
         ...prev,
-        fileGroups: [...(prev.fileGroups || []), {
-          id: uuidv4(),
-          title: folderTitle,
-          files: newFiles
-        }]
+        fileGroups: subprojectFiles.applyFolderAsNewGroup(
+          prev.fileGroups || [],
+          pick.folderName,
+          newFiles,
+          uuidv4()
+        )
       }));
       showToast(`Προστέθηκαν ${newFiles.length} αρχείο(α) από τον φάκελο «${folderTitle}».`, 'success');
     } catch (error) {
@@ -4210,18 +4133,14 @@ function ProjectForm({
   const removeFileGroup = (groupId) => {
     setFormData(prev => ({
       ...prev,
-      fileGroups: prev.fileGroups.filter(group => group.id !== groupId)
+      fileGroups: subprojectFiles.removeFileGroupById(prev.fileGroups, groupId)
     }));
   };
 
   const removeFileFromGroup = (groupId, fileIndex) => {
     setFormData(prev => ({
       ...prev,
-      fileGroups: prev.fileGroups.map(group => 
-        group.id === groupId 
-          ? { ...group, files: group.files.filter((_, i) => i !== fileIndex) }
-          : group
-      ).filter(group => group.files.length > 0) // Αφαιρούμε ομάδες χωρίς αρχεία
+      fileGroups: subprojectFiles.removeFileFromGroup(prev.fileGroups, groupId, fileIndex)
     }));
   };
 
@@ -4300,6 +4219,17 @@ function ProjectForm({
             font-weight: 500;
             text-align: left;
           ">📄 Χωρίς Ομαδοποίηση</button>
+          <button id="abortUploadBtn" type="button" style="
+            padding: 0.8rem 1.5rem;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            font-weight: 500;
+            text-align: left;
+          ">✕ Ακύρωση ανεβάσματος</button>
         </div>
         <div id="newGroupSection" style="display: none;">
           <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: #333;">
@@ -4406,48 +4336,7 @@ function ProjectForm({
       const cancelNewBtn = modalContent.querySelector('#cancelNewBtn');
       const confirmExistingBtn = modalContent.querySelector('#confirmExistingBtn');
       const cancelExistingBtn = modalContent.querySelector('#cancelExistingBtn');
-
-      // Νέα ομάδα
-      newGroupBtn.addEventListener('click', () => {
-        newGroupBtn.style.display = 'none';
-        if (existingGroupBtn) existingGroupBtn.style.display = 'none';
-        noGroupBtn.style.display = 'none';
-        newGroupSection.style.display = 'block';
-        newGroupTitle.focus();
-      });
-
-      // Υπάρχουσα ομάδα
-      if (existingGroupBtn) {
-        existingGroupBtn.addEventListener('click', () => {
-          newGroupBtn.style.display = 'none';
-          existingGroupBtn.style.display = 'none';
-          noGroupBtn.style.display = 'none';
-          existingGroupSection.style.display = 'block';
-        });
-      }
-
-      // Χωρίς ομαδοποίηση
-      noGroupBtn.addEventListener('click', () => {
-        document.body.removeChild(modal);
-        resolve(false);
-      });
-
-      // Επιβεβαίωση νέας ομάδας
-      confirmNewBtn.addEventListener('click', () => {
-        const title = newGroupTitle.value.trim();
-        if (title) {
-          document.body.removeChild(modal);
-          resolve({ action: 'new', title });
-        } else {
-          showToast('Παρακαλώ εισάγετε τίτλο ομάδας', 'warning');
-        }
-      });
-
-      // Ακύρωση νέας ομάδας
-      cancelNewBtn.addEventListener('click', () => {
-        document.body.removeChild(modal);
-        resolve(false);
-      });
+      const abortUploadBtn = modalContent.querySelector('#abortUploadBtn');
 
       let handleKeyDown;
       const cleanup = (result) => {
@@ -4460,7 +4349,58 @@ function ProjectForm({
         resolve(result);
       };
 
-      // Επιβεβαίωση υπάρχουσας ομάδας
+      const showMainOptions = () => {
+        newGroupBtn.style.display = '';
+        if (existingGroupBtn) existingGroupBtn.style.display = '';
+        noGroupBtn.style.display = '';
+        if (abortUploadBtn) abortUploadBtn.style.display = '';
+        newGroupSection.style.display = 'none';
+        existingGroupSection.style.display = 'none';
+        newGroupTitle.value = '';
+        if (existingGroupSelect) existingGroupSelect.value = '';
+      };
+
+      const hideMainOptions = () => {
+        newGroupBtn.style.display = 'none';
+        if (existingGroupBtn) existingGroupBtn.style.display = 'none';
+        noGroupBtn.style.display = 'none';
+        if (abortUploadBtn) abortUploadBtn.style.display = 'none';
+      };
+
+      newGroupBtn.addEventListener('click', () => {
+        hideMainOptions();
+        newGroupSection.style.display = 'block';
+        newGroupTitle.focus();
+      });
+
+      if (existingGroupBtn) {
+        existingGroupBtn.addEventListener('click', () => {
+          hideMainOptions();
+          existingGroupSection.style.display = 'block';
+        });
+      }
+
+      noGroupBtn.addEventListener('click', () => cleanup(false));
+      if (abortUploadBtn) {
+        abortUploadBtn.addEventListener('click', () => cleanup(null));
+      }
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) cleanup(null);
+      });
+      modalContent.addEventListener('click', (e) => e.stopPropagation());
+
+      confirmNewBtn.addEventListener('click', () => {
+        const title = newGroupTitle.value.trim();
+        if (subprojectFiles.isNewGroupTitleValid(title)) {
+          cleanup({ action: 'new', title });
+        } else {
+          showToast('Παρακαλώ εισάγετε τίτλο ομάδας', 'warning');
+        }
+      });
+
+      cancelNewBtn.addEventListener('click', () => showMainOptions());
+
       confirmExistingBtn.addEventListener('click', () => {
         const selectedGroupId = existingGroupSelect.value;
         if (selectedGroupId) {
@@ -4470,16 +4410,10 @@ function ProjectForm({
         }
       });
 
-      // Ακύρωση υπάρχουσας ομάδας
-      cancelExistingBtn.addEventListener('click', () => {
-        cleanup(false);
-      });
+      cancelExistingBtn.addEventListener('click', () => showMainOptions());
 
-      // Κλείσιμο με ESC
       handleKeyDown = (e) => {
-        if (e.key === 'Escape') {
-          cleanup(false);
-        }
+        if (e.key === 'Escape') cleanup(null);
       };
       document.addEventListener('keydown', handleKeyDown);
     });
@@ -6183,40 +6117,18 @@ function ProjectForm({
           : 'Αποθήκευση υποέργου…'
       );
 
-      // Normalize τα κείμενα πριν την αποθήκευση
-      let outside = Boolean(saveFormData.supervisorChargeOutsideEngineers);
-      let supervisorEngineerIds = [];
-      if (!outside) {
-        const rawEng = Array.isArray(saveFormData.supervisorEngineerIds) ? saveFormData.supervisorEngineerIds : [];
-        const pEng = String(rawEng[0] || '').trim();
-        const seenEng = new Set();
-        if (pEng) {
-          supervisorEngineerIds.push(pEng);
-          seenEng.add(pEng);
-        }
-        rawEng.slice(1).forEach((id) => {
-          const s = String(id || '').trim();
-          if (s && !seenEng.has(s)) {
-            seenEng.add(s);
-            supervisorEngineerIds.push(s);
-          }
-        });
-      }
-
-      let supervisorChargeFreePrimary = normalizeText(saveFormData.supervisorChargeFreePrimary || '');
-      let supervisorChargeFreeParticipants = normalizeText(saveFormData.supervisorChargeFreeParticipants || '');
-
-      // Πριν καθαρισμό πεδίων: ελεύθερο κείμενο χωρίς κατάλογο = χρέωση εκτός μηχανικών
-      if (supervisorChargeFreePrimary.trim() && supervisorEngineerIds.length === 0) {
-        outside = true;
-      }
-
-      if (outside) {
-        supervisorChargeFreeParticipants = '';
-      } else {
-        supervisorChargeFreePrimary = '';
-        supervisorChargeFreeParticipants = '';
-      }
+      const chargeForSave = subprojectCard.normalizeChargeFromForm({
+        supervisorChargeOutsideEngineers: saveFormData.supervisorChargeOutsideEngineers,
+        supervisorEngineerIds: saveFormData.supervisorEngineerIds,
+        supervisorChargeFreePrimary: normalizeText(saveFormData.supervisorChargeFreePrimary || ''),
+        supervisorChargeFreeParticipants: normalizeText(saveFormData.supervisorChargeFreeParticipants || ''),
+      });
+      const {
+        supervisorEngineerIds,
+        supervisorChargeOutsideEngineers: outside,
+        supervisorChargeFreePrimary,
+        supervisorChargeFreeParticipants,
+      } = chargeForSave;
 
       const { supervisor: _legacySupervisorSave, ...formWithoutLegacy } = saveFormData;
       let normalizedFormData = {
@@ -6387,9 +6299,12 @@ function ProjectForm({
                     document.addEventListener('keydown', handleKeyDown);
                   });
             
-            if (shouldAddToExisting) {
-              // Χρησιμοποιούμε το υπάρχον projectId
-              projectData.projectId = existingProject.projectId;
+            const placement = subprojectLifecycle.applyAddToExistingChoice(
+              existingProject,
+              shouldAddToExisting
+            );
+            if (placement.projectId) {
+              projectData.projectId = placement.projectId;
               console.log('🔗 Adding subproject to existing project:', existingProject.projectId);
             } else {
               console.log('🆕 Creating new project with same title');
@@ -6716,24 +6631,7 @@ function ProjectForm({
     };
   }, [manualExtensionTarget, formData]);
 
-  const mergeSupervisorEngineerIds = (primaryId, auxiliaryIds) => {
-    const p = String(primaryId || '').trim();
-    const aux = Array.isArray(auxiliaryIds) ? auxiliaryIds : [];
-    const seen = new Set();
-    const out = [];
-    if (p) {
-      out.push(p);
-      seen.add(p);
-    }
-    aux.forEach((id) => {
-      const s = String(id || '').trim();
-      if (s && !seen.has(s)) {
-        seen.add(s);
-        out.push(s);
-      }
-    });
-    return out;
-  };
+  const mergeSupervisorEngineerIds = subprojectCard.mergeSupervisorEngineerIds;
 
   const primaryEngineerId = (formData.supervisorEngineerIds || [])[0] || '';
   const auxiliaryEngineerIds = (formData.supervisorEngineerIds || []).slice(1);
@@ -7682,16 +7580,7 @@ function ProjectForm({
                     checked={!!formData.supervisorChargeOutsideEngineers}
                     onChange={(e) => {
                       const on = e.target.checked;
-                      setFormData((prev) => ({
-                        ...prev,
-                        supervisorChargeOutsideEngineers: on,
-                        ...(on
-                          ? { supervisorEngineerIds: [] }
-                          : {
-                              supervisorChargeFreePrimary: '',
-                              supervisorChargeFreeParticipants: ''
-                            })
-                      }));
+                      setFormData((prev) => subprojectCard.applyOutsideChargeToggle(prev, on));
                     }}
                   />
                   <CheckboxLabel htmlFor="supervisorChargeOutsideEngineers">Χρέωση εκτός καταλόγου χρηστών</CheckboxLabel>
@@ -8404,7 +8293,7 @@ function ProjectForm({
               </FooterIconBtn>
             </FooterFileActions>
           )}
-          {(formData.projectId && formData.subprojectId) && onDelete && (
+          {subprojectLifecycle.showDeleteOnForm(formData) && onDelete && (
             <DeleteFormButton
               type="button"
               onClick={() => onDelete(formData.projectId, formData.subprojectId)}
