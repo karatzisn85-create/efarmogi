@@ -3,6 +3,7 @@
  * Προτεραιότητα: κατάσταση → συρραφή Β → μητρώο → ΑΠΕ → λήξη.
  */
 
+import khmdhsPostFetch from '../../app/core/khmdhsPostFetch';
 import { getUnresolvedReviewItems } from './khmdhsDataQualityReport';
 import {
   shouldShowKhmdhsSituationModal,
@@ -12,23 +13,9 @@ import { shouldOfferRegistryAfterReview } from './khmdhsDocumentRegistry';
 import { evaluateKhmdhsContractExpiryPrompt } from './khmdhsContractExpiryPrompt';
 import { formatStitchSegmentScopeLabel } from './khmdhsChainStitchPlan';
 
-export const POST_APPLY_TASK = {
-  DATA_REVIEW: 'data_review',
-  SITUATION: 'situation',
-  STITCH_B: 'stitch_b',
-  REGISTRY: 'registry',
-  APE: 'ape',
-  EXPIRY: 'expiry',
-};
+export const POST_APPLY_TASK = khmdhsPostFetch.POST_APPLY_TASK;
 
-const TASK_ORDER = [
-  POST_APPLY_TASK.DATA_REVIEW,
-  POST_APPLY_TASK.SITUATION,
-  POST_APPLY_TASK.STITCH_B,
-  POST_APPLY_TASK.REGISTRY,
-  POST_APPLY_TASK.APE,
-  POST_APPLY_TASK.EXPIRY,
-];
+const TASK_ORDER = khmdhsPostFetch.TASK_ORDER;
 
 /**
  * Φιλτράρισμα καταστάσεων όπως στο finishApply (ProjectForm).
@@ -231,13 +218,7 @@ export function buildPostApplyQueue({
 }
 
 export function removeTaskFromQueue(queue, taskId) {
-  const tasks = (queue?.tasks || []).filter((t) => t.id !== taskId);
-  return {
-    ...queue,
-    tasks,
-    needsDataReviewFirst: tasks.some((t) => t.type === POST_APPLY_TASK.DATA_REVIEW),
-    hasFollowUpTasks: tasks.some((t) => t.type !== POST_APPLY_TASK.DATA_REVIEW),
-  };
+  return { ...queue, ...khmdhsPostFetch.removeTaskFromQueue(queue, taskId) };
 }
 
 export function getFollowUpQueue(queue) {
@@ -257,17 +238,12 @@ export function getFollowUpQueue(queue) {
  * @returns {{ openPendingTasks: boolean, preserveQueue: true }}
  */
 export function resolveReopenPendingList(queue) {
-  return {
-    openPendingTasks: queueHasPendingWork(queue),
-    preserveQueue: true,
-  };
+  return khmdhsPostFetch.resolveReopenPendingList(queue);
 }
 
 /** Υπάρχει οποιαδήποτε εκκρεμότητα στην ουρά (υποχρεωτική ή προαιρετική). */
 export function queueHasPendingWork(queue) {
-  if (!queue) return false;
-  if (queue.needsDataReviewFirst || queue.hasFollowUpTasks) return true;
-  return Array.isArray(queue.tasks) && queue.tasks.length > 0;
+  return khmdhsPostFetch.queueHasPendingWork(queue);
 }
 
 /** Πόσες εργασίες της λίστας δεν έχουν ολοκληρωθεί ακόμα (για κουμπί επαναφοράς). */
@@ -284,10 +260,10 @@ export function resolveReopenAfterFailedFetch(queue, {
   listAlreadyOpen = false,
   situationModalOpen = false,
 } = {}) {
-  if (listAlreadyOpen || situationModalOpen) {
-    return { openPendingTasks: false, preserveQueue: true };
-  }
-  return resolveReopenPendingList(queue);
+  return khmdhsPostFetch.resolveReopenAfterFailedFetch(queue, {
+    listAlreadyOpen,
+    situationModalOpen,
+  });
 }
 
 /**
@@ -301,13 +277,7 @@ export function resolveReopenAfterFailedFetch(queue, {
  * @returns {{ openPendingTasks: boolean, openDataReview: boolean }}
  */
 export function resolvePostFetchUi(queue, { suppress = false, skip = false } = {}) {
-  if (suppress || skip) {
-    return { openPendingTasks: false, openDataReview: false };
-  }
-  if (queueHasPendingWork(queue)) {
-    return { openPendingTasks: true, openDataReview: false };
-  }
-  return { openPendingTasks: false, openDataReview: false };
+  return khmdhsPostFetch.resolvePostFetchUi(queue, { suppress, skip });
 }
 
 /**
@@ -315,11 +285,7 @@ export function resolvePostFetchUi(queue, { suppress = false, skip = false } = {
  * αν μένουν εκκρεμότητες — αλλιώς κλείσιμο.
  */
 export function resolveReturnToPendingList(queueAfterRemoval) {
-  const hasWork = queueHasPendingWork(queueAfterRemoval);
-  return {
-    openPendingTasks: hasWork,
-    allClear: !hasWork,
-  };
+  return khmdhsPostFetch.resolveReturnToPendingList(queueAfterRemoval);
 }
 
 /**
@@ -328,20 +294,5 @@ export function resolveReturnToPendingList(queueAfterRemoval) {
  * Αντικαθιστά μόνο ομότυπες εργασίες (π.χ. νέος έλεγχος δεδομένων).
  */
 export function mergePostApplyQueues(prev, incoming) {
-  if (!incoming) {
-    return prev || { tasks: [], needsDataReviewFirst: false, hasFollowUpTasks: false };
-  }
-  if (!prev?.tasks?.length) return incoming;
-
-  const incomingTasks = Array.isArray(incoming.tasks) ? incoming.tasks : [];
-  const incomingTypes = new Set(incomingTasks.map((t) => t.type));
-  const keptPrev = (prev.tasks || []).filter((t) => !incomingTypes.has(t.type));
-  const tasks = [...incomingTasks, ...keptPrev].sort(
-    (a, b) => TASK_ORDER.indexOf(a.type) - TASK_ORDER.indexOf(b.type)
-  );
-  return {
-    tasks,
-    needsDataReviewFirst: tasks.some((t) => t.type === POST_APPLY_TASK.DATA_REVIEW),
-    hasFollowUpTasks: tasks.some((t) => t.type !== POST_APPLY_TASK.DATA_REVIEW),
-  };
+  return khmdhsPostFetch.mergePostApplyQueues(prev, incoming);
 }

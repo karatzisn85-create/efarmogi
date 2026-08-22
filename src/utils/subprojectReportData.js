@@ -46,16 +46,7 @@ import {
   getKhmdhsSupplementaryStageEntries,
   mapSupplementaryEntryForReport,
 } from './khmdhsSupplementaryStageEntries';
-
-function normalizeText(text) {
-  if (!text) return '';
-  return String(text)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+import reportsExport from '../../app/core/reportsExport';
 
 function fileNameFromEntry(file) {
   if (!file) return '';
@@ -63,31 +54,11 @@ function fileNameFromEntry(file) {
 }
 
 export function getLinkedEntaxeis(entaxeis, subprojectId) {
-  return (entaxeis || []).filter(
-    (e) => Array.isArray(e.subprojectIds) && e.subprojectIds.includes(subprojectId)
-  );
+  return reportsExport.getLinkedEntaxeis(entaxeis, subprojectId);
 }
 
 export function getLinkedProskliseis(proskliseis, project) {
-  const normTitle = normalizeText(project.projectTitle);
-  const seen = new Set();
-  const matches = [];
-
-  for (const p of proskliseis || []) {
-    let linked = false;
-    if (p.linkedSubprojectId === project.subprojectId) linked = true;
-    if (normalizeText(p.title) === normTitle) linked = true;
-    if (Array.isArray(p.linkedProjects)) {
-      linked = linked || p.linkedProjects.some(
-        (lp) => lp.id === project.projectId || normalizeText(lp.title) === normTitle
-      );
-    }
-    if (linked && p.prosklisiId && !seen.has(p.prosklisiId)) {
-      seen.add(p.prosklisiId);
-      matches.push(p);
-    }
-  }
-  return matches;
+  return reportsExport.getLinkedProskliseis(proskliseis, project);
 }
 
 export function getLinkedEgkrisiLinks(linkedEgkriseis, subprojectId) {

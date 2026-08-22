@@ -4,6 +4,7 @@ import { formatAuditDisplayValue } from '../utils/formatAuditDisplay';
 import { showConfirm } from '../utils/confirmModal';
 import auditConfig from '../data/auditFieldLabels.json';
 import { formatDateTimeEl } from '../utils/dateFormat';
+import auditCatalog from '../../app/core/auditCatalog';
 
 const ipcRenderer = window.electronAPI;
 
@@ -361,44 +362,6 @@ const StatValue = styled.div`
   color: #333;
 `;
 
-const ENTITY_TYPE_LABELS = {
-  'project': 'Έργο',
-  'subproject': 'Υποέργο',
-  'prosklisi': 'Πρόσκληση',
-  'entaxi': 'Ένταξη',
-  'egkrisi': 'Έγκριση Διάθεσης Πίστωσης',
-  'egkrisi_subproject': 'Υποέργο Εγκρίσεων',
-  'prosklisi_modification': 'Τροποποίηση Πρόσκλησης',
-  'entaxi_modification': 'Τροποποίηση Ένταξης',
-  'user': 'Χρήστης',
-  'file': 'Αρχείο',
-  'file_group': 'Ομάδα Αρχείων',
-  'document_template': 'Υπόδειγμα Εγγράφου',
-  'document_category': 'Κατηγορία Εγγράφων',
-  'note': 'Σημείωση',
-  'note_group': 'Ομάδα Σημειώσεων',
-  'egkrisi_link': 'Σύνδεση Έγκρισης',
-  'proposal': 'Έργο Ωρίμανσης',
-  'meleti': 'Μελέτη',
-  'meletai_hub': 'Μητρώο Μελετών',
-  'calendarConfig': 'Ρυθμίσεις Ημερολογίου',
-  'municipalUnitsConfig': 'Δημοτικές Ενότητες',
-};
-
-const ACTION_LABELS = {
-  'create': 'Δημιουργία',
-  'update': 'Ενημέρωση',
-  'delete': 'Διαγραφή',
-  'import': 'Εισαγωγή',
-  'export': 'Εξαγωγή',
-};
-
-function getVisibilityText(role) {
-  if (role === 'SUPERADMIN') return 'Βλέπετε τις ενέργειες ΟΛΩΝ των χρηστών.';
-  if (role === 'ADMIN') return 'Βλέπετε τις ενέργειες όλων των Διαχειριστών και Μηχανικών.';
-  return 'Βλέπετε μόνο τις δικές σας ενέργειες.';
-}
-
 function AuditLogViewer({ isOpen, onClose, currentUser }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -444,29 +407,7 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
       });
 
       if (result.success) {
-        const norm = (s) => {
-          if (typeof s !== 'string') return s;
-          return s.normalize('NFC')
-            .replace(/[\u200B\u200C\u200D\uFEFF\u00AD]/g, '')
-            .replace(/\u00A0/g, ' ')
-            .replace(/[\r\n\t]+/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-        };
-        const cleaned = (result.logs || []).map(log => {
-          if (log.action !== 'update' || !log.changes) return log;
-          const realChanges = {};
-          for (const [field, change] of Object.entries(log.changes)) {
-            const o = norm(change.old);
-            const n = norm(change.new);
-            if (o !== n) realChanges[field] = change;
-          }
-          return { ...log, changes: realChanges };
-        }).filter(log => {
-          if (log.action === 'update' && log.changes && Object.keys(log.changes).length === 0) return false;
-          return true;
-        });
-        setLogs(cleaned);
+        setLogs(auditCatalog.dropEmptyUpdateLogs(result.logs || []));
       } else {
         console.error('Error loading audit log:', result.error);
       }
@@ -496,9 +437,9 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
 
   const formatDate = (dateString) => formatDateTimeEl(dateString, '—');
 
-  const getActionLabel = (action) => ACTION_LABELS[action] || action;
+  const getActionLabel = (action) => auditCatalog.getActionLabel(action);
 
-  const getEntityTypeLabel = (entityType) => ENTITY_TYPE_LABELS[entityType] || entityType;
+  const getEntityTypeLabel = (entityType) => auditCatalog.getEntityTypeLabel(entityType);
 
   const getUserDisplay = (log) => log.userFullName || log.user || 'Άγνωστος';
 
@@ -529,12 +470,7 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
     }
   };
 
-  const stats = {
-    total: logs.length,
-    creates: logs.filter(l => l.action === 'create').length,
-    updates: logs.filter(l => l.action === 'update').length,
-    deletes: logs.filter(l => l.action === 'delete').length
-  };
+  const stats = auditCatalog.summarizeAuditStats(logs);
 
   if (!isOpen) return null;
 
@@ -560,14 +496,14 @@ function AuditLogViewer({ isOpen, onClose, currentUser }) {
                     Δεν καταγράφονται ενέργειες στον Χώρο Εργασίας.
                   </InfoText>
                   <InfoHighlight>
-                    {getVisibilityText(userRole)}
+                    {auditCatalog.getAuditVisibilityText(userRole)}
                   </InfoHighlight>
                 </InfoPopover>
               )}
             </InfoButton>
           </HeaderLeft>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            {userRole === 'SUPERADMIN' && logs.length > 0 && (
+            {auditCatalog.showClearAuditButton(userRole, logs.length) && (
               <ClearButton onClick={handleClearAuditLog}>
                 🗑 Εκκαθάριση
               </ClearButton>

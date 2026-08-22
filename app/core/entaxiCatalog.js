@@ -1,5 +1,6 @@
 /**
- * Κατάλογος εντάξεων: αναζήτηση, ομαδοποίηση, χωρίς έργο, τρέχον ποσό μετά τροποποιήσεις.
+ * Κατάλογος εντάξεων: αναζήτηση, ομαδοποίηση, χωρίς έργο, τρέχον ποσό,
+ * υποχρεωτικά νέας ένταξης και διαγραφή.
  */
 (function (root, factory) {
   var api = factory(root);
@@ -109,6 +110,55 @@
     return userRole !== 'USER' && userRole !== 'ENGINEER';
   }
 
+  function showEntaxiDeleteAction(userRole) {
+    return showNewEntaxiButton(userRole);
+  }
+
+  /**
+   * Ίδια υποχρεωτικά με τη φόρμα ένταξης.
+   * Κενό string κόβει· μόνο κενά στο θέμα περνάνε (όπως σήμερα).
+   * Αρχείο ένταξης απαιτείται μόνο σε νέα εγγραφή.
+   */
+  function collectEntaxiRequiredErrors(formData, options) {
+    var fd = formData || {};
+    var opts = options || {};
+    var isNew = opts.isNew !== false && !opts.editing;
+    var errors = {};
+
+    if (!fd.documentDate) {
+      errors.documentDate = 'Η ημερομηνία είναι υποχρεωτική';
+    }
+    if (!fd.fundingAuthority) {
+      errors.fundingAuthority = 'Ο φορέας χρηματοδότησης είναι υποχρεωτικός';
+    }
+    if (!fd.initialAmount) {
+      errors.initialAmount = 'Το ποσό είναι υποχρεωτικό';
+    }
+    if (!fd.subject) {
+      errors.subject = 'Το θέμα είναι υποχρεωτικό';
+    }
+    if (isNew && (!fd.entaxiPDFs || fd.entaxiPDFs.length === 0)) {
+      errors.entaxiPDFs = 'Τουλάχιστον ένα αρχείο ένταξης είναι υποχρεωτικό';
+    }
+    return errors;
+  }
+
+  function evaluateEntaxiDelete(entaxiId) {
+    if (!String(entaxiId || '').trim()) {
+      return { ok: false, reason: 'missing-id' };
+    }
+    return { ok: true };
+  }
+
+  function removeEntaxiFromList(entaxeis, entaxiId) {
+    var id = String(entaxiId || '').trim();
+    var list = Array.isArray(entaxeis) ? entaxeis : [];
+    if (!id) return list.slice();
+    return list.filter(function (e) {
+      return String((e && e.entaxiId) || '') !== id;
+    });
+  }
+
   function applyEntaxiDailyFilters(entaxeis, options) {
     var opts = options || {};
     var list = Array.isArray(entaxeis) ? entaxeis.slice() : [];
@@ -136,6 +186,10 @@
     groupEntaxeisByProjectTitle: groupEntaxeisByProjectTitle,
     entaxiMatchesQuickSearch: entaxiMatchesQuickSearch,
     showNewEntaxiButton: showNewEntaxiButton,
+    showEntaxiDeleteAction: showEntaxiDeleteAction,
+    collectEntaxiRequiredErrors: collectEntaxiRequiredErrors,
+    evaluateEntaxiDelete: evaluateEntaxiDelete,
+    removeEntaxiFromList: removeEntaxiFromList,
     applyEntaxiDailyFilters: applyEntaxiDailyFilters
   };
 });

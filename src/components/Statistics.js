@@ -26,6 +26,7 @@ import ExportSuccessModal from './ExportSuccessModal';
 import { useToast } from './ToastProvider';
 import { formatDateEl } from '../utils/dateFormat';
 import { containsSearchTerm } from '../utils/searchUtils';
+import reportsExport from '../../app/core/reportsExport';
 import { getProjectAssignmentProcedure } from '../utils/khmdhsNoticeFields';
 import {
   Chart as ChartJS,
@@ -1865,8 +1866,9 @@ function Statistics({
       };
     }
 
-    const totalProjects = projects.length;
-    const uniqueProjects = new Set(projects.map(p => p.projectTitle)).size;
+    const overview = reportsExport.countOverviewStatistics(projects);
+    const totalProjects = overview.totalProjects;
+    const uniqueProjects = overview.uniqueProjects;
 
     const totalFunding = projects.reduce((sum, p) => sum + safeParseAmt(p.approvedAmount), 0);
 
@@ -1874,20 +1876,12 @@ function Statistics({
       return sum + (getTotalContractAmount(p) || 0);
     }, 0);
 
-    const inProgressCount = projects.filter(p =>
-      p.projectStatus === 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ'
-    ).length;
+    const inProgressCount = overview.inProgressCount;
 
     // Μόνο "ΟΛΟΚΛΗΡΩΜΕΝΟ" (εκτέλεση ολοκληρώθηκε, δεν έχει αποπληρωθεί ακόμα)
-    const completedCount = projects.filter(p =>
-      p.projectStatus === 'ΟΛΟΚΛΗΡΩΜΕΝΟ'
-    ).length;
+    const completedCount = overview.completedCount;
 
-    const projectTypes = projects.reduce((acc, p) => {
-      const type = p.projectType || 'Άγνωστο';
-      acc[type] = (acc[type] || 0) + 1;
-      return acc;
-    }, {});
+    const projectTypes = overview.projectTypes;
 
     const fundingSources = projects.reduce((acc, p) => {
       const source = p.fundingSource || 'Άγνωστο';

@@ -4,6 +4,7 @@ import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import { safeFileDialog } from '../utils/safeDialogs';
 import { useToast } from './ToastProvider';
+import entaxiCatalog from '../../app/core/entaxiCatalog';
 
 const ipcRenderer = window.electronAPI;
 
@@ -882,28 +883,9 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
   };
 
   const validateForm = () => {
-    const newErrors = {};
-
-    if (!formData.documentDate) {
-      newErrors.documentDate = 'Η ημερομηνία είναι υποχρεωτική';
-    }
-
-    if (!formData.fundingAuthority) {
-      newErrors.fundingAuthority = 'Ο φορέας χρηματοδότησης είναι υποχρεωτικός';
-    }
-
-    if (!formData.initialAmount) {
-      newErrors.initialAmount = 'Το ποσό είναι υποχρεωτικό';
-    }
-
-    if (!formData.subject) {
-      newErrors.subject = 'Το θέμα είναι υποχρεωτικό';
-    }
-
-    if (!editingEntaxi && formData.entaxiPDFs.length === 0) {
-      newErrors.entaxiPDFs = 'Τουλάχιστον ένα αρχείο ένταξης είναι υποχρεωτικό';
-    }
-
+    const newErrors = entaxiCatalog.collectEntaxiRequiredErrors(formData, {
+      isNew: !editingEntaxi,
+    });
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };

@@ -4,6 +4,7 @@ import { emptyTaskAssignmentPerms } from '../utils/taskAssignmentDisplay';
 import { safeConfirm } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
 import { formatDateEl } from '../utils/dateFormat';
+import userCatalog from '../../app/core/userCatalog';
 
 const ipcRenderer = window.electronAPI;
 
@@ -417,8 +418,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
 
   useEffect(() => () => clearPostSuccessTimer(), [clearPostSuccessTimer]);
 
-  const pendingUsers = users.filter(u => !u.approved);
-  const approvedUsers = users.filter(u => u.approved);
+  const { pending: pendingUsers, approved: approvedUsers } = userCatalog.partitionUsersByApproval(users);
 
   const openCreateForm = () => {
     clearPostSuccessTimer();
@@ -464,11 +464,14 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
   const handleSubmit = async () => {
     setMessage(null);
 
+    const formErrors = userCatalog.collectCreateUserRequiredErrors(formData, { isEdit: !!editingUser });
+    const firstError = userCatalog.firstCreateUserError(formErrors);
+    if (firstError) {
+      setMessage({ text: firstError, error: true });
+      return;
+    }
+
     if (editingUser) {
-      if (formData.password && formData.password.length < 8) {
-        setMessage({ text: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες', error: true });
-        return;
-      }
       const updates = {
         fullName: formData.fullName,
         email: formData.email.trim() || null,
@@ -501,9 +504,6 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
         setMessage({ text: result.error, error: true });
       }
     } else {
-      if (!formData.username.trim()) { setMessage({ text: 'Εισάγετε όνομα χρήστη', error: true }); return; }
-      if (!formData.password || formData.password.length < 8) { setMessage({ text: 'Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες', error: true }); return; }
-
       const createPayload = {
         username: formData.username.trim(),
         password: formData.password,
@@ -841,10 +841,10 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                   <td style={{ fontSize: 12, color: u.email ? '#2563eb' : '#94a3b8' }}>{u.email || '—'}</td>
                   <td><RoleBadge role={u.role}>{ROLE_LABELS[u.role] || u.role}</RoleBadge></td>
                   <td>
-                    {u.role !== 'SUPERADMIN' && (
+                    {userCatalog.showUserEditAction(u) && (
                       <ActionBtn onClick={() => handleEdit(u)}>Επεξεργασία</ActionBtn>
                     )}
-                    {u.username !== currentUser.username && u.role !== 'SUPERADMIN' && (
+                    {userCatalog.showUserDeleteAction(currentUser.username, u) && (
                       <>
                         <ActionBtn onClick={() => handleToggleActive(u)}>
                           {u.active ? 'Απενεργοποίηση' : 'Ενεργοποίηση'}

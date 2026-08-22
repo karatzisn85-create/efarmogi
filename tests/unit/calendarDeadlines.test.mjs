@@ -59,6 +59,58 @@ test('ειδοποίηση μόνο για μηχανικούς κρύβεται
   assert.equal(cal.userCanSeeCustomEvent(ev, { username: 'admin', role: 'ADMIN' }), true);
 });
 
+test('καταληκτική ΚΗΜΔΗΣ: ενεργή προκήρυξη, όχι ακυρωμένη', () => {
+  const tender = {
+    subprojectId: 'sub-tender',
+    projectStatus: 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
+    subprojectTitle: 'Διαγωνισμός Η/Υ',
+    khmdhsNoticeAdam: '24PROC1',
+    khmdhsNoticeSnapshot: {
+      title: 'Προκήρυξη',
+      referenceNumber: '24PROC1',
+      finalSubmissionDate: isoDaysFromToday(10),
+      offersValidTime: 3,
+      offersValidTimeUnit: 'μήνες',
+      cancelled: false,
+    },
+  };
+  const events = cal.buildNoticeDeadlineCalendarEvents(tender);
+  assert.equal(events.some((e) => e.type === cal.CALENDAR_EVENT_TYPES.DEADLINE), true);
+  assert.equal(events.some((e) => e.type === cal.CALENDAR_EVENT_TYPES.OFFERS_EXPIRY), true);
+  assert.deepEqual(cal.buildNoticeDeadlineCalendarEvents({
+    ...tender,
+    khmdhsNoticeSnapshot: { ...tender.khmdhsNoticeSnapshot, cancelled: true },
+  }), []);
+});
+
+test('λήξη σύμβασης: χρειάζεται ποσό· χωρίς ποσό δεν μπαίνει', () => {
+  const signed = {
+    subprojectId: 'sub-signed',
+    subprojectTitle: 'Σύμβαση φωτισμού',
+    contractAmount: '50.000,00',
+    contractEndDate: isoDaysFromToday(20),
+  };
+  assert.equal(cal.buildSimpleContractEndCalendarEvents(signed).length, 1);
+  assert.equal(cal.buildSimpleContractEndCalendarEvents({
+    ...signed,
+    contractAmount: '0',
+  }).length, 0);
+  assert.equal(cal.buildSimpleContractEndCalendarEvents({
+    ...signed,
+    projectStatus: 'ΑΠΕΝΤΑΓΜΕΝΟ',
+  }).length, 0);
+});
+
+test('ειδοποίηση: τίτλος και ημερομηνία· χωρίς ώρα μεσημέρι UTC', () => {
+  const empty = cal.collectCustomEventRequiredErrors({});
+  assert.equal(empty.title, 'Συμπληρώστε τίτλο.');
+  assert.equal(empty.date, 'Επιλέξτε ημερομηνία.');
+  assert.deepEqual(cal.collectCustomEventRequiredErrors({ title: 'ΕΑΔΗΣΥ', date: '2026-09-01' }), {});
+  assert.equal(cal.isoFromDateAndTime('2026-09-01', ''), '2026-09-01T12:00:00.000Z');
+  assert.equal(cal.canCreateCustomCalendarEvent({ role: 'ADMIN', username: 'admin' }), true);
+  assert.equal(cal.canCreateCustomCalendarEvent({ role: 'ENGINEER', username: 'maria' }), false);
+});
+
 test('μηχανικός βλέπει στο ημερολόγιο μόνο χρεωμένα υποέργα', () => {
   const projects = [
     { subprojectId: 'a', supervisorEngineerIds: ['user:maria'] },

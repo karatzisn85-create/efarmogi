@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import styled, { keyframes } from 'styled-components';
 import { useToast } from './ToastProvider';
 import { savePdfWithDialog } from '../utils/savePdfFile';
+import reportsExport from '../../app/core/reportsExport';
 
 // ΔΕΝ υπάρχουν static imports από @react-pdf/renderer εδώ.
 // Όλα γίνονται dynamic import() όταν ο χρήστης ανοίγει το modal.
@@ -185,19 +186,9 @@ const SaveButton = styled.button`
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const TABS = [
-  { id: 'subprojects',  icon: '🗂️',  label: 'Υποέργα' },
-  { id: 'entaxeis',     icon: '📋',  label: 'Εντάξεις' },
-  { id: 'proskliseis',  icon: '📢',  label: 'Προσκλήσεις' },
-  { id: 'egkriseis',    icon: '✅',  label: 'Εγκρίσεις' },
-];
-
-const TAB_NAMES = {
-  subprojects: 'Αναφορά Υποέργων',
-  entaxeis: 'Αναφορά Εντάξεων',
-  proskliseis: 'Αναφορά Προσκλήσεων',
-  egkriseis: 'Αναφορά Εγκρίσεων Διάθεσης Πίστωσης',
-};
+const TAB_ICONS = { subprojects: '🗂️', entaxeis: '📋', proskliseis: '📢', egkriseis: '✅' };
+const TABS = reportsExport.PDF_TABS.map((t) => ({ ...t, icon: TAB_ICONS[t.id] || '' }));
+const TAB_NAMES = reportsExport.PDF_TAB_NAMES;
 
 // ── Helper: load egkriseis flat ───────────────────────────────────────────────
 
@@ -414,7 +405,7 @@ export default function ReportsModal({ projects = [], entaxeis = [], proskliseis
 
         <FooterBar>
           <InfoText>{TAB_NAMES[activeTab]} — προεπισκόπηση PDF</InfoText>
-          <SaveButton onClick={handleSave} disabled={saving || isLoading}>
+          <SaveButton onClick={handleSave} disabled={!reportsExport.canSavePdfReport({ saving, generating: isLoading })}>
             {saving ? '⏳ Αποθήκευση…' : '💾 Αποθήκευση PDF'}
           </SaveButton>
         </FooterBar>

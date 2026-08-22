@@ -2,6 +2,7 @@
  * Ανανέωση αλυσίδας ΚΗΜΔΗΣ — seed ΑΔΑΜ, παλαιότητα, σύνοψη αλλαγών, δικαιώματα.
  */
 import { isKhmdhsChainClosedSubproject } from '../data/formOptions';
+import khmdhsRefresh from '../../app/core/khmdhsRefresh';
 import { parseKhmdhsAdamType } from './khmdhsAdamGuidance';
 import { projectVisibleToAssignedEngineer } from './supervisorChargeDisplay';
 import { projectHasAnyKhmdhsLifecycleData } from './khmdhsLifecycleStages';
@@ -176,8 +177,8 @@ export function getKhmdhsChainFreshness(project) {
     return { level: 'none', days: null, lastFetchedAt: null, label: '' };
   }
 
-  const stamps = collectKhmdhsFetchedAtTimestamps(project);
-  if (!stamps.length) {
+  const { ageDays: days, lastRefreshed: lastFetchedAt } = khmdhsRefresh.getKhmdhsRefreshAge(project);
+  if (days == null) {
     return {
       level: 'yellow',
       days: null,
@@ -185,13 +186,6 @@ export function getKhmdhsChainFreshness(project) {
       label: 'Άγνωστη ημερομηνία ανάκτησης — προτείνεται ανανέωση',
     };
   }
-
-  // Χρησιμοποιούμε το παλαιότερο timestamp για freshness (πότε ανακτήθηκε το πιο παλιό κομμάτι)
-  // αλλά εμφανίζουμε το πιο πρόσφατο ως "τελευταία ανανέωση"
-  const oldestMs = Math.min(...stamps);
-  const newestMs = Math.max(...stamps);
-  const days = Math.floor((Date.now() - oldestMs) / (24 * 60 * 60 * 1000));
-  const lastFetchedAt = new Date(newestMs).toISOString();
 
   if (days < KHMDHS_FRESHNESS_YELLOW_DAYS) {
     return { level: 'none', days, lastFetchedAt, label: '' };
@@ -222,13 +216,12 @@ export function getKhmdhsChainFreshness(project) {
 
 export function canUserRefreshKhmdhsChain({ userRole, currentUser, project, engineerContext, engineerCatalog }) {
   if (!project) return false;
-  if (isKhmdhsChainClosedSubproject(project)) return false;
-  if (userRole === 'USER') return false;
-  if (userRole === 'ADMIN' || userRole === 'SUPERADMIN') return true;
-  if (userRole === 'ENGINEER') {
-    return projectVisibleToAssignedEngineer(project, engineerContext, engineerCatalog);
-  }
-  return false;
+  const visibleToEngineer = projectVisibleToAssignedEngineer(project, engineerContext, engineerCatalog);
+  return khmdhsRefresh.canUserRefreshKhmdhs(
+    { role: userRole, username: currentUser?.username },
+    project,
+    { visibleToEngineer }
+  );
 }
 
 function countPayments(project) {

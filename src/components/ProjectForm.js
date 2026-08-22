@@ -11,6 +11,7 @@ import {
 import subprojectCard from '../../app/core/subprojectCard';
 import subprojectLifecycle from '../../app/core/subprojectLifecycle';
 import subprojectFiles from '../../app/core/subprojectFiles';
+import khmdhsPostFetch from '../../app/core/khmdhsPostFetch';
 import { useToast } from './ToastProvider';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -4532,31 +4533,32 @@ function ProjectForm({
     if (!seed) return;
 
     const formatErr = getAdamFieldError(seed, 'strict');
-    if (formatErr) {
-      const errKey = contractIndex != null ? `khmdhsAdam${contractIndex}` : 'khmdhsChainSeedAdam';
-      setErrors((prev) => ({ ...prev, [errKey]: formatErr }));
-      setTouched((prev) => ({ ...prev, [errKey]: true }));
-      return;
-    }
-
     // Χρησιμοποιούμε το ref για να διαβάσουμε το πιο πρόσφατο formData
     // και να αποφύγουμε stale closures σε rapid/auto-fetches
     const currentFormData = formDataRef.current;
     const multi = isMultipleContractsForm(currentFormData.implementationForm);
     // Duplicate check μόνο για SYMV ADAMs — REQ/PROC/AWRD είναι κοινοί
     // κωδικοί αλυσίδας και δεν αποθηκεύονται ανά γραμμή σύμβασης.
-    if (multi && contractIndex != null && parseKhmdhsAdamType(seed) === 'SYMV') {
-      const dupAt = findDuplicateContractAdam(currentFormData.contracts, seed, contractIndex);
-      if (dupAt >= 0) {
-        showToast(`Ο ΑΔΑΜ χρησιμοποιείται ήδη στη Σύμβαση ${dupAt + 1}.`, 'warning');
-        return;
-      }
+    const dupAt = (multi && contractIndex != null && parseKhmdhsAdamType(seed) === 'SYMV')
+      ? findDuplicateContractAdam(currentFormData.contracts, seed, contractIndex)
+      : -1;
+    const startGate = khmdhsPostFetch.resolveFetchStartGate({
+      invalidAdam: !!formatErr,
+      duplicateSymv: dupAt >= 0,
+      routeSupplementary: !forceChainFetch
+        && shouldRouteAdamAsSupplementaryAdd(currentFormData, seed, { contractIndex }),
+    });
+    if (startGate.next === khmdhsPostFetch.FETCH_START.INVALID_ADAM) {
+      const errKey = contractIndex != null ? `khmdhsAdam${contractIndex}` : 'khmdhsChainSeedAdam';
+      setErrors((prev) => ({ ...prev, [errKey]: formatErr }));
+      setTouched((prev) => ({ ...prev, [errKey]: true }));
+      return;
     }
-
-    if (
-      !forceChainFetch
-      && shouldRouteAdamAsSupplementaryAdd(currentFormData, seed, { contractIndex })
-    ) {
+    if (startGate.next === khmdhsPostFetch.FETCH_START.DUPLICATE_SYMV) {
+      showToast(`Ο ΑΔΑΜ χρησιμοποιείται ήδη στη Σύμβαση ${dupAt + 1}.`, 'warning');
+      return;
+    }
+    if (startGate.next === khmdhsPostFetch.FETCH_START.SUPPLEMENTARY) {
       return runKhmdhsSupplementaryFetch({ adam: seed, contractIndex: contractIndex ?? null });
     }
 
@@ -4595,81 +4597,91 @@ function ProjectForm({
         khmdhsLastChainResRef.current = res;
         const fetchFormData = formDataRef.current;
         const fetchMulti = isMultipleContractsForm(fetchFormData.implementationForm);
+        const candidates = buildBranchCandidatesFromChainRes(res);
+        let appliedSymvPlan = symvChainPlan;
+        const offerPlanner = shouldOfferSymvChainPlanner(res);
+        const reusablePlan = (!appliedSymvPlan && contractIndex == null && offerPlanner)
+          ? resolveReusableSymvChainPlan(fetchFormData.khmdhsSymvChainPlan, res)
+          : null;
+        if (reusablePlan?.items?.length) {
+          appliedSymvPlan = reusablePlan;
+        }
+        const duplicateConflicts = (!skipDuplicateCheck && contractIndex == null)
+          ? checkKhmdhsDuplicateConflicts(fetchFormData, allProjects, res)
+          : [];
+        const preGate = khmdhsPostFetch.resolvePreApplyGate({
+          needsBranchPicker: needsBranchPicker(candidates),
+          suppressBranchPicker,
+          followAllBranches,
+          isMultipleContracts: fetchMulti,
+          offerSymvPlanner: offerPlanner,
+          hasIncomingSymvPlan: !!symvChainPlan,
+          reusableSymvPlan: !!(reusablePlan?.items?.length),
+          hasDuplicateConflict: duplicateConflicts.length > 0,
+          skipDuplicateCheck,
+          contractIndex,
+          offerStitchA: shouldOfferStitchPromptA(fetchFormData, seed, { isMultipleContracts: fetchMulti }),
+          skipStitchPromptA,
+          afterLegacyUpgrade,
+          appliedSymvPlan: !!appliedSymvPlan,
+          deferCancelledSeed: !suppressSituationModal
+            && shouldDeferKhmdhsApplyForSituation(situationReport)
+            && shouldShowKhmdhsSituationModal(situationReport),
+          suppressSituationModal,
+        });
 
-        if (
-          !suppressBranchPicker
-          && !followAllBranches
-          && contractIndex == null
-          && !fetchMulti
-          && !shouldOfferSymvChainPlanner(res)
-        ) {
-          const candidates = buildBranchCandidatesFromChainRes(res);
-          if (needsBranchPicker(candidates)) {
-            const suggested = suggestBestBranchCandidate(
-              candidates,
-              fetchFormData.subprojectTitle,
-              res,
-              seed
-            );
-            setKhmdhsChainFetchTarget(null);
-            setBranchPickerState({
-              candidates,
-              suggestedAdam: suggested?.adam || '',
-              subprojectTitle: fetchFormData.subprojectTitle || '',
-              seedChainRes: res,
-              allowsAllBranches: branchPickerAllowsAllBranches(candidates, res),
-              fetchOptions: {
-                seedAdam: seed,
-                contractIndex,
-                suppressSituationModal,
-                forceChainFetch,
-              },
-            });
-            return;
-          }
+        if (preGate.next === khmdhsPostFetch.PRE_APPLY.BRANCH_PICKER) {
+          const suggested = suggestBestBranchCandidate(
+            candidates,
+            fetchFormData.subprojectTitle,
+            res,
+            seed
+          );
+          setKhmdhsChainFetchTarget(null);
+          setBranchPickerState({
+            candidates,
+            suggestedAdam: suggested?.adam || '',
+            subprojectTitle: fetchFormData.subprojectTitle || '',
+            seedChainRes: res,
+            allowsAllBranches: branchPickerAllowsAllBranches(candidates, res),
+            fetchOptions: {
+              seedAdam: seed,
+              contractIndex,
+              suppressSituationModal,
+              forceChainFetch,
+            },
+          });
+          return;
+        }
+
+        if (preGate.next === khmdhsPostFetch.PRE_APPLY.SYMV_PLANNER) {
+          setKhmdhsChainFetchTarget(null);
+          setSymvChainPlannerState({
+            open: true,
+            seedChainRes: res,
+            seedAdam: seed,
+            subprojectTitle: fetchFormData.subprojectTitle || '',
+            draftPlan: null,
+            // Πάντα περνάμε το αποθηκευμένο σχέδιο· ο διάλογος συγχωνεύει τα παλιά skip
+            // ακόμα κι αν η αλυσίδα έχει νέα ΑΔΑΜ.
+            existingPlan: fetchFormData.khmdhsSymvChainPlan?.items?.length
+              ? (
+                mergeExistingSymvPlanOntoChain(fetchFormData.khmdhsSymvChainPlan, res)
+              )
+              : null,
+            fetchOptions: {
+              seedAdam: seed,
+              contractIndex,
+              suppressSituationModal,
+              forceChainFetch,
+              branchAnchor: branchAnchor || null,
+              userSelectedBranch,
+            },
+          });
+          return;
         }
 
         const effectiveUserSelectedBranch = followAllBranches ? false : userSelectedBranch;
-
-        let appliedSymvPlan = symvChainPlan;
-        if (
-          !appliedSymvPlan
-          && contractIndex == null
-          && shouldOfferSymvChainPlanner(res)
-        ) {
-          const reusablePlan = resolveReusableSymvChainPlan(
-            fetchFormData.khmdhsSymvChainPlan,
-            res
-          );
-          if (reusablePlan?.items?.length) {
-            appliedSymvPlan = reusablePlan;
-          } else {
-            setKhmdhsChainFetchTarget(null);
-            setSymvChainPlannerState({
-              open: true,
-              seedChainRes: res,
-              seedAdam: seed,
-              subprojectTitle: fetchFormData.subprojectTitle || '',
-              draftPlan: null,
-              // Πάντα περνάμε το αποθηκευμένο σχέδιο· ο διάλογος συγχωνεύει τα παλιά skip
-              // ακόμα κι αν η αλυσίδα έχει νέα ΑΔΑΜ.
-              existingPlan: fetchFormData.khmdhsSymvChainPlan?.items?.length
-                ? (
-                  mergeExistingSymvPlanOntoChain(fetchFormData.khmdhsSymvChainPlan, res)
-                )
-                : null,
-              fetchOptions: {
-                seedAdam: seed,
-                contractIndex,
-                suppressSituationModal,
-                forceChainFetch,
-                branchAnchor: branchAnchor || null,
-                userSelectedBranch,
-              },
-            });
-            return;
-          }
-        }
 
         const finishApply = ({ skipSituationModal = false, skipSuccessToast = false } = {}) => {
         const usedSymvPlan = !!(appliedSymvPlan?.items?.length);
@@ -4952,8 +4964,8 @@ function ProjectForm({
         const titleWarn = checkTitleMismatchWarning(fetchFormData.subprojectTitle, res);
         if (titleWarn) showToast(titleWarn.message, 'warning');
 
-        if (!skipDuplicateCheck && contractIndex == null) {
-          const conflicts = checkKhmdhsDuplicateConflicts(fetchFormData, allProjects, res);
+        if (preGate.next === khmdhsPostFetch.PRE_APPLY.DUPLICATE_ANCHOR) {
+          const conflicts = duplicateConflicts;
           if (conflicts.length) {
             setKhmdhsChainFetchTarget(null);
             setDuplicateAnchorModal({
@@ -4982,13 +4994,7 @@ function ProjectForm({
           }
         }
 
-        if (
-          !skipStitchPromptA
-          && !afterLegacyUpgrade
-          && !appliedSymvPlan
-          && contractIndex == null
-          && shouldOfferStitchPromptA(fetchFormData, seed, { isMultipleContracts: fetchMulti })
-        ) {
+        if (preGate.next === khmdhsPostFetch.PRE_APPLY.STITCH_A) {
           setKhmdhsChainFetchTarget(null);
           const knownSeeds = getKnownStitchSeedAdams(fetchFormData);
           setStitchPromptA({
@@ -5012,11 +5018,7 @@ function ProjectForm({
           return;
         }
 
-        if (
-          !suppressSituationModal
-          && shouldDeferKhmdhsApplyForSituation(situationReport)
-          && shouldShowKhmdhsSituationModal(situationReport)
-        ) {
+        if (preGate.next === khmdhsPostFetch.PRE_APPLY.DEFER_SITUATION) {
           const acknowledgedIds = new Set(formData.khmdhsAcknowledgedSituationIds || []);
           const filteredSituations = (situationReport?.situations || []).filter((sit) => {
             if (sit.severity === 'error') return true;

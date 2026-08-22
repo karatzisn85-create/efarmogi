@@ -7,8 +7,8 @@ const { projectVisibleToEngineerContext } = require('./chargeFilterUtils');
 const { computeChainCharacterizationEffects } = require('./khmdhsChainCharacterizationEffects');
 const { resolveContractEndDateIso } = require('./khmdhsContractEndDateResolver');
 const calendarCustomEventsService = require('./calendarCustomEventsService');
+const calendarDeadlinesCore = require('../app/core/calendarDeadlines');
 
-const CONTRACT_PROCESS_STATUS = 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ';
 const PROJECT_STATUS_ABANDONED = 'ΑΠΕΝΤΑΓΜΕΝΟ';
 const MULTIPLE_CONTRACTS_FORM = 'Πολλές Συμβάσεις';
 const DIRECT_ASSIGNMENT_PROCEDURE = 'ΑΠΕΥΘΕΙΑΣ ΑΝΑΘΕΣΗ';
@@ -117,20 +117,10 @@ function projectProcurementPhaseConcluded(project) {
   return false;
 }
 
-function projectHasKhmdhsNoticeData(project) {
-  if (!project) return false;
-  if (String(project.khmdhsNoticeAdam || '').trim()) return true;
-  const snap = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
-  return !!(snap && (snap.title || snap.referenceNumber));
-}
-
 function isActiveProcurementProject(project) {
-  if (!project) return false;
-  if (project.projectStatus !== CONTRACT_PROCESS_STATUS) return false;
-  if (projectProcurementPhaseConcluded(project)) return false;
-  if (!projectHasKhmdhsNoticeData(project)) return false;
-  const snap = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
-  return !!(snap && !snap.cancelled);
+  return calendarDeadlinesCore.isActiveProcurementProject(project, {
+    phaseConcluded: projectProcurementPhaseConcluded(project),
+  });
 }
 
 function toDateKey(isoOrDate) {
@@ -145,38 +135,8 @@ function toDateKey(isoOrDate) {
   return `${y}-${m}-${day}`;
 }
 
-/**
- * ΚΗΜΔΗΣ μονάδες: "1" ημέρες, "2" εβδομάδες, "3" μήνες, "4" έτη.
- * Άγνωστη μονάδα → null (όχι εικασία σε ημέρες).
- */
-function resolveDurationUnitKind(unit) {
-  let raw = unit;
-  if (raw && typeof raw === 'object') {
-    raw = raw.value != null && String(raw.value).trim() !== ''
-      ? raw.value
-      : raw.key;
-  }
-  const u = String(raw || '').trim().toLowerCase();
-  if (!u) return null;
-  if (u === '1' || /ημέρ|ημερ|day/i.test(u)) return 'days';
-  if (u === '2' || /εβδομ|week/i.test(u)) return 'weeks';
-  if (u === '3' || /μήν|μην|month/i.test(u)) return 'months';
-  if (u === '4' || /έτ|ετ|year/i.test(u)) return 'years';
-  return null;
-}
-
 function addDurationToIso(isoStart, amount, unit) {
-  const n = Number(amount);
-  const start = isoStart ? new Date(isoStart) : null;
-  if (!start || Number.isNaN(start.getTime()) || Number.isNaN(n) || n <= 0) return null;
-  const kind = resolveDurationUnitKind(unit);
-  if (!kind) return null;
-  const d = new Date(start);
-  if (kind === 'months') d.setMonth(d.getMonth() + n);
-  else if (kind === 'years') d.setFullYear(d.getFullYear() + n);
-  else if (kind === 'weeks') d.setDate(d.getDate() + Math.round(n * 7));
-  else d.setDate(d.getDate() + Math.round(n));
-  return d.toISOString();
+  return calendarDeadlinesCore.addDurationToIso(isoStart, amount, unit);
 }
 
 function getKhmdhsDisplayEntries(project) {
@@ -428,7 +388,9 @@ function collectProcurementItems(projects) {
       }
     }
 
-    if (getTotalContractAmount(project) > 0) {
+    if (calendarDeadlinesCore.shouldShowContractEndEvent(project, {
+      hasPositiveAmount: getTotalContractAmount(project) > 0,
+    })) {
       const pushContract = (endIso, { contractAdam = '', contractIndex = null } = {}) => {
         if (!endIso) return;
         const suffix = contractIndex != null ? `:${contractIndex}` : '';

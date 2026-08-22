@@ -101,18 +101,33 @@ test('ο κατάλογος εντάξεων καλεί τον κοινό πυρ
   assert.match(manager, /groupEntaxeisByProjectTitle/);
   assert.match(manager, /isEntaxiUnlinked/);
   assert.match(manager, /showNewEntaxiButton/);
+  assert.match(manager, /evaluateEntaxiDelete/);
+  const form = read('src/components/EntaxisForm.js');
+  assert.match(form, /from '\.\.\/\.\.\/app\/core\/entaxiCatalog'/);
+  assert.match(form, /collectEntaxiRequiredErrors/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/entaxiCatalog'\)/);
+  assert.match(electron, /evaluateEntaxiDelete/);
 });
 
 test('ο κατάλογος προσκλήσεων καλεί τον κοινό πυρήνα', () => {
   const utils = read('src/utils/prosklisiDeadlineUtils.js');
   assert.match(utils, /from '\.\.\/\.\.\/app\/core\/prosklisiCatalog'/);
   assert.match(utils, /applyProsklisiDailyFilters/);
+  assert.match(utils, /evaluateProsklisiDelete/);
   const manager = read('src/components/ProsklisisManager.js');
   assert.match(manager, /applyProsklisiDailyFilters/);
   assert.match(manager, /showNewProsklisiButton/);
+  assert.match(manager, /evaluateProsklisiDelete/);
+  const form = read('src/components/ProsklisisForm.js');
+  assert.match(form, /from '\.\.\/\.\.\/app\/core\/prosklisiCatalog'/);
+  assert.match(form, /collectProsklisiRequiredErrors/);
   const helper = read('public/prosklisiDeadlineHelper.js');
   assert.match(helper, /require\('\.\.\/app\/core\/prosklisiCatalog'\)/);
   assert.match(helper, /getEffectiveProsklisiDeadline/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/prosklisiCatalog'\)/);
+  assert.match(electron, /evaluateProsklisiDelete/);
 });
 
 test('το ημερολόγιο προθεσμιών καλεί τον κοινό πυρήνα', () => {
@@ -122,15 +137,192 @@ test('το ημερολόγιο προθεσμιών καλεί τον κοιν�
   const custom = read('src/utils/customCalendarEvents.js');
   assert.match(custom, /from '\.\.\/\.\.\/app\/core\/calendarDeadlines'/);
   assert.match(custom, /userCanSeeCustomEvent/);
+  assert.match(custom, /collectCustomEventRequiredErrors/);
+  assert.match(custom, /canCreateCustomCalendarEvent/);
   const prosklisi = read('src/utils/prosklisiCalendarEvents.js');
   assert.match(prosklisi, /from '\.\.\/\.\.\/app\/core\/calendarDeadlines'/);
   assert.match(prosklisi, /buildProsklisiCalendarEvents/);
   const procurement = read('src/utils/procurementCalendarEvents.js');
   assert.match(procurement, /from '\.\.\/\.\.\/app\/core\/calendarDeadlines'/);
   assert.match(procurement, /filterCalendarEventsByType/);
+  assert.match(procurement, /buildNoticeDeadlineCalendarEvents/);
+  assert.match(procurement, /shouldShowContractEndEvent/);
+  assert.match(procurement, /mapContractEndToCalendarRow/);
+  const form = read('src/components/CalendarCustomEventForm.js');
+  assert.match(form, /collectCustomEventRequiredErrors/);
+  assert.match(form, /isoFromDateAndTime/);
+  const calendar = read('src/components/ProcurementCalendar.js');
+  assert.match(calendar, /canCreateCustomCalendarEvent/);
   const service = read('public/calendarCustomEventsService.js');
   assert.match(service, /require\('\.\.\/app\/core\/calendarDeadlines'\)/);
   assert.match(service, /userCanSeeCustomEvent/);
+  assert.match(service, /collectCustomEventRequiredErrors/);
+  assert.match(service, /removeCustomEventFromList/);
+  const builder = read('public/calendarEventsBuilder.js');
+  assert.match(builder, /require\('\.\.\/app\/core\/calendarDeadlines'\)/);
+  assert.match(builder, /isActiveProcurementProject/);
+  assert.match(builder, /shouldShowContractEndEvent/);
+});
+
+test('η ροή μετά την ανάκτηση ΚΗΜΔΗΣ καλεί τον κοινό πυρήνα', () => {
+  const queue = read('src/utils/khmdhsPostApplyQueue.js');
+  assert.match(queue, /from '\.\.\/\.\.\/app\/core\/khmdhsPostFetch'/);
+  assert.match(queue, /resolvePostFetchUi/);
+  assert.match(queue, /mergePostApplyQueues/);
+  const fields = read('src/utils/khmdhsChainKindFields.js');
+  assert.match(fields, /from '\.\.\/\.\.\/app\/core\/khmdhsPostFetch'/);
+  assert.match(fields, /validateChainKindDraft/);
+  const options = read('src/utils/khmdhsChainKindOptions.js');
+  assert.match(options, /from '\.\.\/\.\.\/app\/core\/khmdhsPostFetch'/);
+  assert.match(options, /buildChainKindSelectOptions/);
+  const form = read('src/components/ProjectForm.js');
+  assert.match(form, /from '\.\.\/\.\.\/app\/core\/khmdhsPostFetch'/);
+  assert.match(form, /resolveFetchStartGate/);
+  assert.match(form, /resolvePreApplyGate/);
+  const review = read('src/components/KhmdhsDataReviewModal.js');
+  assert.match(review, /from '\.\.\/\.\.\/app\/core\/khmdhsPostFetch'/);
+  assert.match(review, /canSaveKindCard/);
+});
+
+test('η ανανέωση ΚΗΜΔΗΣ καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/khmdhsRefresh'/);
+  assert.match(dash, /showBatchRefreshButton/);
+  const modal = read('src/components/SubprojectDetailModal.js');
+  assert.match(modal, /from '\.\.\/\.\.\/app\/core\/khmdhsRefresh'/);
+  assert.match(modal, /showCardRefreshButton/);
+  const refreshUtil = read('src/utils/khmdhsChainRefresh.js');
+  assert.match(refreshUtil, /from '\.\.\/\.\.\/app\/core\/khmdhsRefresh'/);
+  assert.match(refreshUtil, /canUserRefreshKhmdhs/);
+  const formOptions = read('src/data/formOptions.js');
+  assert.match(formOptions, /from '\.\.\/\.\.\/app\/core\/khmdhsRefresh'/);
+  assert.match(formOptions, /isKhmdhsChainClosedSubproject/);
+  const seed = read('public/khmdhsChainRefreshSeed.js');
+  assert.match(seed, /require\('\.\.\/app\/core\/khmdhsRefresh'\)/);
+  assert.match(seed, /canUserRefreshKhmdhs/);
+  const widget = read('src/components/KhmdhsBatchRefreshWidget.js');
+  assert.match(widget, /from '\.\.\/\.\.\/app\/core\/khmdhsRefresh'/);
+  assert.match(widget, /isBatchItemStale/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/khmdhsRefresh'\)/);
+  assert.match(electron, /evaluateBatchRefreshAccess/);
+  assert.match(electron, /evaluateSingleRefreshStart/);
+  assert.match(electron, /classifyForBatchRefresh/);
+});
+
+test('το ιστορικό ενεργειών καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/auditCatalog'/);
+  assert.match(dash, /showAuditLogButton/);
+  const viewer = read('src/components/AuditLogViewer.js');
+  assert.match(viewer, /from '\.\.\/\.\.\/app\/core\/auditCatalog'/);
+  assert.match(viewer, /dropEmptyUpdateLogs/);
+  assert.match(viewer, /showClearAuditButton/);
+  assert.match(viewer, /getAuditVisibilityText/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/auditCatalog'\)/);
+  assert.match(electron, /evaluateGetAuditLog/);
+  assert.match(electron, /evaluateClearAuditLog/);
+  assert.match(electron, /shouldSkipEmptyUpdate/);
+  assert.match(electron, /clearAuditLogs/);
+});
+
+test('η διαχείριση χρηστών καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/userCatalog'/);
+  assert.match(dash, /showUserManagementButton/);
+  const form = read('src/components/UserManagement.js');
+  assert.match(form, /from '\.\.\/\.\.\/app\/core\/userCatalog'/);
+  assert.match(form, /collectCreateUserRequiredErrors/);
+  assert.match(form, /partitionUsersByApproval/);
+  assert.match(form, /showUserDeleteAction/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/userCatalog'\)/);
+  assert.match(electron, /evaluateCreateUser/);
+  assert.match(electron, /evaluateRegisterUser/);
+  assert.match(electron, /evaluateDeleteUser/);
+  assert.match(electron, /newUserStartsApproved/);
+  assert.match(electron, /removeUserFromList/);
+});
+
+test('στατιστικά και εξαγωγές καλούν τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/reportsExport'/);
+  assert.match(dash, /showStatisticsButton/);
+  assert.match(dash, /showTechnicalProgramButton/);
+  assert.match(dash, /showDataExportButton/);
+  assert.match(dash, /resolveExportProjects/);
+  assert.match(dash, /buildStatisticsFilterNote/);
+  const stats = read('src/components/Statistics.js');
+  assert.match(stats, /from '\.\.\/\.\.\/app\/core\/reportsExport'/);
+  assert.match(stats, /countOverviewStatistics/);
+  const exp = read('src/components/ExportData.js');
+  assert.match(exp, /from '\.\.\/\.\.\/app\/core\/reportsExport'/);
+  assert.match(exp, /evaluateDataExport/);
+  assert.match(exp, /canCommitDataExport/);
+  const tech = read('src/components/TechnicalProgramExport.js');
+  assert.match(tech, /from '\.\.\/\.\.\/app\/core\/reportsExport'/);
+  assert.match(tech, /buildTechnicalProgramRows/);
+  assert.match(tech, /evaluateTechnicalExport/);
+  assert.match(dash, /showPdfReportsButton/);
+  const pdfModal = read('src/components/ReportsModal.js');
+  assert.match(pdfModal, /from '\.\.\/\.\.\/app\/core\/reportsExport'/);
+  assert.match(pdfModal, /canSavePdfReport/);
+  assert.match(pdfModal, /PDF_TABS/);
+  const pdfDoc = read('src/components/pdf/SubprojectsReport.js');
+  assert.match(pdfDoc, /countPdfSubprojectsSummary/);
+  const reportData = read('src/utils/subprojectReportData.js');
+  assert.match(reportData, /from '\.\.\/\.\.\/app\/core\/reportsExport'/);
+  assert.match(reportData, /getLinkedEntaxeis/);
+  assert.match(reportData, /getLinkedProskliseis/);
+  const card = read('src/components/ProjectCard.js');
+  assert.match(card, /showCardReportButton/);
+});
+
+test('η πύλη διαφάνειας καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/portalCatalog'/);
+  assert.match(dash, /showPortalButton/);
+  assert.match(dash, /togglePublishedId/);
+  const hub = read('src/components/PortalHubModal.js');
+  assert.match(hub, /from '\.\.\/\.\.\/app\/core\/portalCatalog'/);
+  assert.match(hub, /filterPortalHubProjects/);
+  assert.match(hub, /evaluatePortalExport/);
+  assert.match(hub, /previewPortalSelection/);
+  assert.match(hub, /normalizePortalPublishedRecord/);
+  assert.match(hub, /lastExportedIds/);
+  const detail = read('src/components/SubprojectDetailModal.js');
+  assert.match(detail, /showPortalCardSection/);
+  assert.match(detail, /canTogglePortalOnCard/);
+  assert.match(detail, /resolvePortalCardStatus/);
+  const settings = read('src/components/PortalSettingsModal.js');
+  assert.match(settings, /evaluatePortalSettings/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/portalCatalog'\)/);
+  assert.match(electron, /buildErgonEntry/);
+  assert.match(electron, /selectProjectsForPortalExport/);
+  assert.match(electron, /evaluatePortalExportAccess/);
+  assert.match(electron, /lastExportedIds/);
+  assert.match(electron, /normalizePortalPublishedRecord/);
+  const checklist = read('src/utils/postSetupChecklist.js');
+  assert.match(checklist, /from '\.\.\/\.\.\/app\/core\/portalCatalog'/);
+});
+
+test('η μαζική εισαγωγή από Excel καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/excelImport'/);
+  assert.match(dash, /showExcelImportButton/);
+  const modal = read('src/components/SubprojectExcelImportModal.js');
+  assert.match(modal, /from '\.\.\/\.\.\/app\/core\/excelImport'/);
+  assert.match(modal, /canCommitImport/);
+  assert.match(modal, /showDuplicatePolicyChoice/);
+  const importer = read('public/subprojectExcelImport.js');
+  assert.match(importer, /require\('\.\.\/app\/core\/excelImport'\)/);
+  assert.match(importer, /normalizeTitleKey/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/excelImport'\)/);
+  assert.match(electron, /buildDupKey/);
+  assert.match(electron, /evaluateExcelImportAccess/);
 });
 
 test('δημιουργία και διαγραφή υποέργου καλούν τον κοινό πυρήνα', () => {

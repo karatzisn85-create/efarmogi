@@ -1,5 +1,6 @@
 // Επιλογές για τα πεδία της φόρμας
 import subprojectList from '../../app/core/subprojectList';
+import khmdhsRefresh from '../../app/core/khmdhsRefresh';
 
 export const IMPLEMENTATION_FORMS = [
   'Μια Σύμβαση',
@@ -316,10 +317,7 @@ export const STATUSES_WITHOUT_CHARACTERIZATION = [
 
 /** Κλειστός κύκλος ΚΗΜΔΗΣ — δεν εφαρμόζεται ανανέωση αλυσίδας */
 export function isKhmdhsChainClosedSubproject(projectOrStatus) {
-  const status = typeof projectOrStatus === 'string'
-    ? projectOrStatus
-    : projectOrStatus?.projectStatus;
-  return status === STATUS_NO_CHARACTERIZATION;
+  return khmdhsRefresh.isKhmdhsChainClosedSubproject(projectOrStatus);
 }
 
 /**

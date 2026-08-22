@@ -11,6 +11,7 @@
     <label>Ρόλος
       <select id="role-select" data-testid="role-select">
         <option value="ADMIN">Διαχειριστής</option>
+        <option value="SUPERADMIN">Υπερδιαχειριστής</option>
         <option value="ENGINEER">Μηχανικός (user:maria)</option>
         <option value="USER">Χρήστης (ανάγνωση)</option>
       </select>
@@ -49,6 +50,17 @@
     <button type="button" id="btn-entaxeis" data-testid="btn-entaxeis">Εντάξεις Έργων</button>
     <button type="button" id="btn-egkriseis" data-testid="btn-egkriseis">Εγκρίσεις Διάθεσης Πίστωσης</button>
     <button type="button" id="btn-tasks" data-testid="btn-tasks">Χώρος Εργασίας</button>
+    <button type="button" id="btn-users" data-testid="btn-users">Διαχείριση Χρηστών</button>
+    <button type="button" id="btn-audit" data-testid="btn-audit">Ιστορικό Ενεργειών</button>
+    <button type="button" id="btn-batch-khmdhs" data-testid="btn-batch-khmdhs">Μαζική ανανέωση ΚΗΜΔΗΣ</button>
+    <button type="button" id="btn-post-fetch" data-testid="btn-post-fetch">Μετά την ανάκτηση ΚΗΜΔΗΣ</button>
+    <button type="button" id="btn-resume-pending" data-testid="btn-resume-pending" hidden>Εκκρεμότητες ανάκτησης</button>
+    <button type="button" id="btn-excel" data-testid="btn-excel" hidden>Μαζική Εισαγωγή από Excel</button>
+    <button type="button" id="btn-stats" data-testid="btn-stats">Στατιστικά &amp; Αναφορές</button>
+    <button type="button" id="btn-technical" data-testid="btn-technical">Τεχνικό Πρόγραμμα</button>
+    <button type="button" id="btn-export" data-testid="btn-export">Εξαγωγή Δεδομένων</button>
+    <button type="button" id="btn-pdf" data-testid="btn-pdf">Αναφορές σε PDF</button>
+    <button type="button" id="btn-portal" data-testid="btn-portal">Πύλη Διαφάνειας</button>
   </header>
 
   <main id="card-list" data-testid="card-list" class="list"></main>
@@ -60,9 +72,15 @@
     <p data-testid="read-ka"></p>
     <p data-testid="read-charge" class="charge"></p>
     <p data-testid="read-status"></p>
+    <div id="read-portal" data-testid="read-portal" hidden>
+      <p data-testid="read-portal-status"></p>
+      <button type="button" id="btn-read-portal-toggle" data-testid="btn-read-portal-toggle" hidden>Δημοσίευση</button>
+    </div>
+    <p id="khmdhs-refresh-error" data-testid="khmdhs-refresh-error" class="errors" hidden></p>
     <div class="actions">
       <button type="button" id="btn-edit" data-testid="btn-edit">Επεξεργασία</button>
       <button type="button" id="btn-files" data-testid="btn-files">Αρχεία</button>
+      <button type="button" id="btn-khmdhs-refresh" data-testid="btn-khmdhs-refresh" hidden>Ανανέωση ΚΗΜΔΗΣ</button>
       <button type="button" id="btn-close-read" data-testid="btn-close-read">Κλείσιμο</button>
     </div>
   </section>
@@ -171,6 +189,7 @@
         <option value="all">Όλα</option>
         <option value="proskliseis">Προσκλήσεις</option>
         <option value="custom">Ειδοποιήσεις</option>
+        <option value="deadlines">Καταληκτικές ΚΗΜΔΗΣ</option>
         <option value="contracts">Λήξεις συμβάσεων</option>
       </select>
     </label>
@@ -186,6 +205,7 @@
     <h3>Λίστα</h3>
     <div id="calendar-list" data-testid="calendar-list"></div>
     <div class="actions">
+      <button type="button" id="btn-new-custom" data-testid="btn-new-custom">+ Νέα προθεσμία</button>
       <button type="button" id="btn-close-calendar" data-testid="btn-close-calendar">Κλείσιμο</button>
     </div>
   </section>
@@ -278,12 +298,387 @@
     <button type="button" id="btn-close-tasks" data-testid="btn-close-tasks">Κλείσιμο</button>
   </section>
 
+  <section id="custom-create-panel" data-testid="custom-create-panel" class="panel" hidden>
+    <h2>Νέα προθεσμία / ειδοποίηση</h2>
+    <label>Τίτλος <input id="custom-create-title" data-testid="custom-create-title" /></label>
+    <label>Ημερομηνία <input id="custom-create-date" data-testid="custom-create-date" type="date" /></label>
+    <label>
+      <input type="checkbox" id="custom-create-eng-only" data-testid="custom-create-eng-only" />
+      Μόνο μηχανικοί
+    </label>
+    <p id="custom-create-error" data-testid="custom-create-error" class="errors" hidden></p>
+    <div class="actions">
+      <button type="button" id="btn-custom-create-save" data-testid="btn-custom-create-save">Αποθήκευση</button>
+      <button type="button" id="btn-custom-create-cancel" data-testid="btn-custom-create-cancel">Άκυρο</button>
+    </div>
+  </section>
+
   <section id="calendar-detail" data-testid="calendar-detail" class="panel" hidden>
     <h2>Προθεσμία</h2>
     <p data-testid="calendar-detail-title"></p>
     <p data-testid="calendar-detail-label"></p>
     <p data-testid="calendar-detail-date"></p>
     <button type="button" id="btn-close-cal-detail" data-testid="btn-close-cal-detail">Κλείσιμο</button>
+  </section>
+
+  <section id="entaxi-create-panel" data-testid="entaxi-create-panel" class="panel" hidden>
+    <h2>Νέα Ένταξη</h2>
+    <label>Ημερομηνία <input id="ent-create-date" data-testid="ent-create-date" /></label>
+    <label>Φορέας χρηματοδότησης <input id="ent-create-authority" data-testid="ent-create-authority" /></label>
+    <label>Ποσό <input id="ent-create-amount" data-testid="ent-create-amount" /></label>
+    <label>Θέμα <input id="ent-create-subject" data-testid="ent-create-subject" /></label>
+    <label>
+      <input type="checkbox" id="ent-create-has-pdf" data-testid="ent-create-has-pdf" />
+      Αρχείο ένταξης
+    </label>
+    <ul id="ent-create-errors" data-testid="ent-create-errors" class="errors" hidden></ul>
+    <div class="actions">
+      <button type="button" id="btn-ent-create-save" data-testid="btn-ent-create-save">Αποθήκευση</button>
+      <button type="button" id="btn-ent-create-cancel" data-testid="btn-ent-create-cancel">Άκυρο</button>
+    </div>
+  </section>
+
+  <section id="psk-create-panel" data-testid="psk-create-panel" class="panel" hidden>
+    <h2>Νέα Πρόσκληση</h2>
+    <label>Τίτλος <input id="psk-create-title" data-testid="psk-create-title" /></label>
+    <label>Άξονας προτεραιότητας <input id="psk-create-axis" data-testid="psk-create-axis" /></label>
+    <ul id="psk-create-errors" data-testid="psk-create-errors" class="errors" hidden></ul>
+    <div class="actions">
+      <button type="button" id="btn-psk-create-save" data-testid="btn-psk-create-save">Αποθήκευση</button>
+      <button type="button" id="btn-psk-create-cancel" data-testid="btn-psk-create-cancel">Άκυρο</button>
+    </div>
+  </section>
+
+  <section id="workflow-delete-confirm" data-testid="workflow-delete-confirm" class="panel" hidden>
+    <h2 id="workflow-delete-title" data-testid="workflow-delete-title">Διαγραφή</h2>
+    <p data-testid="workflow-delete-message">Είστε σίγουροι;</p>
+    <p>Η ενέργεια είναι μη αναστρέψιμη.</p>
+    <p id="workflow-delete-error" data-testid="workflow-delete-error" class="errors" hidden></p>
+    <div class="actions">
+      <button type="button" id="btn-workflow-delete-confirm" data-testid="btn-workflow-delete-confirm" class="danger">Διαγραφή</button>
+      <button type="button" id="btn-workflow-delete-cancel" data-testid="btn-workflow-delete-cancel">Άκυρο</button>
+    </div>
+  </section>
+
+  <section id="users-panel" data-testid="users-panel" class="panel" hidden>
+    <h2>Διαχείριση Χρηστών</h2>
+    <h3>Αιτήματα</h3>
+    <div id="users-pending" data-testid="users-pending"></div>
+    <h3>Ενεργοί Χρήστες</h3>
+    <div id="users-approved" data-testid="users-approved"></div>
+    <button type="button" id="btn-new-user" data-testid="btn-new-user">+ Νέος Χρήστης</button>
+    <button type="button" id="btn-close-users" data-testid="btn-close-users">Κλείσιμο</button>
+  </section>
+
+  <section id="user-create-panel" data-testid="user-create-panel" class="panel" hidden>
+    <h2>Νέος Χρήστης</h2>
+    <label>Όνομα χρήστη <input id="user-create-username" data-testid="user-create-username" /></label>
+    <label>Ονοματεπώνυμο <input id="user-create-fullname" data-testid="user-create-fullname" /></label>
+    <label>Κωδικός <input id="user-create-password" data-testid="user-create-password" type="password" /></label>
+    <label>Ρόλος
+      <select id="user-create-role" data-testid="user-create-role">
+        <option value="USER">Χρήστης</option>
+        <option value="ADMIN">Διαχειριστής</option>
+        <option value="ENGINEER">Μηχανικός</option>
+      </select>
+    </label>
+    <p id="user-create-error" data-testid="user-create-error" class="errors" hidden></p>
+    <div class="actions">
+      <button type="button" id="btn-user-create-save" data-testid="btn-user-create-save">Δημιουργία</button>
+      <button type="button" id="btn-user-create-cancel" data-testid="btn-user-create-cancel">Άκυρο</button>
+    </div>
+  </section>
+
+  <section id="khmdhs-batch-panel" data-testid="khmdhs-batch-panel" class="panel" hidden>
+    <h2>Μαζική ανανέωση ΚΗΜΔΗΣ</h2>
+    <button type="button" id="btn-khmdhs-stale" data-testid="btn-khmdhs-stale">Μόνο παλαιά</button>
+    <button type="button" id="btn-khmdhs-all" data-testid="btn-khmdhs-all">Όλα τα υποέργα</button>
+    <h3>Για ανανέωση</h3>
+    <div id="khmdhs-eligible" data-testid="khmdhs-eligible"></div>
+    <h3>Παραλείπονται</h3>
+    <div id="khmdhs-skipped" data-testid="khmdhs-skipped"></div>
+    <p id="khmdhs-batch-empty" data-testid="khmdhs-batch-empty" hidden>Δεν βρέθηκαν υποέργα για ανανέωση.</p>
+    <button type="button" id="btn-close-khmdhs" data-testid="btn-close-khmdhs">Κλείσιμο</button>
+  </section>
+
+  <section id="audit-panel" data-testid="audit-panel" class="panel" hidden>
+    <h2>Ιστορικό Ενεργειών</h2>
+    <p id="audit-visibility" data-testid="audit-visibility"></p>
+    <p>Σύνολο <span data-testid="audit-stat-total"></span></p>
+    <p>Δημιουργίες <span data-testid="audit-stat-creates"></span></p>
+    <p>Ενημερώσεις <span data-testid="audit-stat-updates"></span></p>
+    <p>Διαγραφές <span data-testid="audit-stat-deletes"></span></p>
+    <label>Τύπος
+      <select id="audit-entity" data-testid="audit-entity">
+        <option value="">Όλα</option>
+        <option value="subproject">Υποέργα</option>
+        <option value="user">Χρήστες</option>
+        <option value="prosklisi">Προσκλήσεις</option>
+      </select>
+    </label>
+    <label>Ενέργεια
+      <select id="audit-action" data-testid="audit-action">
+        <option value="">Όλες</option>
+        <option value="create">Δημιουργία</option>
+        <option value="update">Ενημέρωση</option>
+        <option value="delete">Διαγραφή</option>
+      </select>
+    </label>
+    <button type="button" id="btn-audit-clear" data-testid="btn-audit-clear">Εκκαθάριση</button>
+    <p id="audit-empty" data-testid="audit-empty" hidden>Δεν βρέθηκαν καταγραφές</p>
+    <div id="audit-list" data-testid="audit-list"></div>
+    <button type="button" id="btn-close-audit" data-testid="btn-close-audit">Κλείσιμο</button>
+  </section>
+
+  <section id="post-fetch-setup" data-testid="post-fetch-setup" class="panel" hidden>
+    <h2>Μετά την ανάκτηση ΚΗΜΔΗΣ</h2>
+    <p>Προσομοίωση αποτελέσματος ανάκτησης — χωρίς κλήση στο ΚΗΜΔΗΣ.</p>
+    <label>Σενάριο
+      <select id="fetch-scenario" data-testid="fetch-scenario">
+        <option value="">Επιλέξτε σενάριο</option>
+        <option value="invalid_adam">Λάθος μορφή κωδικού</option>
+        <option value="dup_symv">Ίδιος ΑΔΑΜ σε άλλη σύμβαση</option>
+        <option value="supplementary">Συμπληρωματική ανάκτηση</option>
+        <option value="branch">Δύο κλάδοι — επιλογή</option>
+        <option value="planner">Πολλές συμβάσεις — σχεδιασμός</option>
+        <option value="planner_reuse">Επαναχρήση σχεδίου συμβάσεων</option>
+        <option value="duplicate_anchor">Κωδικός ήδη σε άλλο υποέργο</option>
+        <option value="stitch_a">Ερώτηση συρραφής με τα υπάρχοντα</option>
+        <option value="defer">Ακυρωμένο αίτημα πριν την εφαρμογή</option>
+        <option value="clean">Καθαρή ανάκτηση χωρίς εκκρεμότητες</option>
+        <option value="review">Έλεγχος στοιχείων / χαρακτηρισμός</option>
+        <option value="review_from_khmdhs">Χαρακτηρισμός με στοιχεία ΚΗΜΔΗΣ</option>
+        <option value="situation">Προειδοποίηση ανάκτησης</option>
+        <option value="stitch_b">Ερώτηση να θυμάται την αλυσίδα</option>
+        <option value="registry">Καταγραφή εγγράφων</option>
+        <option value="ape">Διαφορά ποσού ΑΠΕ</option>
+        <option value="expiry">Πρόταση ολοκληρωμένου</option>
+        <option value="all_tasks">Όλες οι εκκρεμότητες μαζί</option>
+        <option value="batch_suppress">Μαζική ανανέωση χωρίς παράθυρα</option>
+        <option value="failed_reopen">Αποτυχημένη νέα ανάκτηση</option>
+        <option value="merge_supp">Συμπληρωματική πάνω σε παλιές εκκρεμότητες</option>
+        <option value="root_no_card">Αρχική σύμβαση χωρίς χαρακτηρισμό</option>
+      </select>
+    </label>
+    <div class="actions">
+      <button type="button" id="btn-run-fetch-scenario" data-testid="btn-run-fetch-scenario">Ανάκτηση</button>
+      <button type="button" id="btn-close-post-fetch-setup" data-testid="btn-close-post-fetch-setup">Κλείσιμο</button>
+    </div>
+  </section>
+
+  <section id="post-fetch-gate" data-testid="post-fetch-gate" class="panel" hidden>
+    <h2 data-testid="post-fetch-gate-title"></h2>
+    <p data-testid="post-fetch-gate-kind"></p>
+    <button type="button" id="btn-close-gate" data-testid="btn-close-gate">Κλείσιμο</button>
+  </section>
+
+  <section id="pending-list" data-testid="pending-list" class="panel" hidden>
+    <h2>Εκκρεμότητες μετά την ανάκτηση</h2>
+    <p id="pending-empty" data-testid="pending-empty" hidden>Δεν υπάρχουν εκκρεμότητες.</p>
+    <div id="pending-tasks" data-testid="pending-tasks"></div>
+    <div class="actions">
+      <button type="button" id="btn-pending-later" data-testid="btn-pending-later">Κλείσιμο — θα συνεχίσω αργότερα</button>
+    </div>
+  </section>
+
+  <section id="pending-detail" data-testid="pending-detail" class="panel" hidden>
+    <h2 data-testid="pending-detail-title"></h2>
+    <p data-testid="pending-detail-body"></p>
+    <div id="kind-form" data-testid="kind-form" hidden>
+      <p data-testid="kind-root-note" hidden>Η αρχική σύμβαση δεν χαρακτηρίζεται — είναι η βάση.</p>
+      <label>Είδος εγγράφου
+        <select id="chain-kind" data-testid="chain-kind">
+          <option value="">Επιλέξτε είδος</option>
+        </select>
+      </label>
+      <p id="kind-profile-title" data-testid="kind-profile-title"></p>
+      <p id="kind-profile-hint" data-testid="kind-profile-hint"></p>
+      <label id="kind-end-wrap" hidden>Νέα ημερομηνία λήξης
+        <input id="kind-end-date" data-testid="kind-end-date" />
+      </label>
+      <label id="kind-amount-wrap" hidden>Ποσό συμπληρωματικής
+        <input id="kind-mod-amount" data-testid="kind-mod-amount" />
+      </label>
+      <label id="kind-type-wrap" hidden>Τύπος ποσού
+        <select id="kind-mod-type" data-testid="kind-mod-type">
+          <option value="">Επιλέξτε</option>
+          <option value="delta">Διαφορά</option>
+          <option value="total">Νέα συνολική αξία</option>
+        </select>
+      </label>
+      <label id="kind-mod-date-wrap" hidden>Ημερομηνία συμπληρωματικής
+        <input id="kind-mod-date" data-testid="kind-mod-date" />
+      </label>
+      <label id="kind-corrects-wrap" hidden>Ποιο έγγραφο διορθώνει
+        <select id="kind-corrects-adam" data-testid="kind-corrects-adam">
+          <option value="">Επιλέξτε</option>
+          <option value="24SYMV000000001">Αρχική σύμβαση · 24SYMV000000001</option>
+        </select>
+      </label>
+      <fieldset id="kind-parts-wrap" hidden>
+        <legend>Τι διορθώνει</legend>
+        <label><input type="checkbox" data-testid="kind-part-title" value="title" /> Τίτλος</label>
+        <label><input type="checkbox" data-testid="kind-part-amount" value="amount" /> Ποσό</label>
+        <label><input type="checkbox" data-testid="kind-part-date" value="date" /> Ημερομηνία</label>
+      </fieldset>
+      <p id="kind-error" data-testid="kind-error" class="errors" hidden></p>
+      <button type="button" id="btn-kind-save" data-testid="btn-kind-save">Αποθήκευση χαρακτηρισμού</button>
+    </div>
+    <div class="actions">
+      <button type="button" id="btn-review-later" data-testid="btn-review-later">Θα το ελέγξω αργότερα</button>
+      <button type="button" id="btn-detail-done" data-testid="btn-detail-done">Ολοκλήρωση</button>
+    </div>
+  </section>
+
+  <section id="excel-panel" data-testid="excel-panel" class="panel" hidden>
+    <h2>Μαζική Εισαγωγή Έργων από Excel</h2>
+    <p>Προσομοίωση ελέγχου αρχείου — χωρίς πραγματικό Excel.</p>
+    <div id="excel-intro" data-testid="excel-intro">
+      <label>Σενάριο αρχείου
+        <select id="excel-scenario" data-testid="excel-scenario">
+          <option value="">Επιλέξτε σενάριο</option>
+          <option value="parse_error">Το αρχείο δεν διαβάστηκε</option>
+          <option value="row_errors">Γραμμές με λάθη</option>
+          <option value="empty_valid">Καμία έγκυρη γραμμή</option>
+          <option value="clean_new">Καθαρό αρχείο — νέα υποέργα</option>
+          <option value="with_duplicate">Διπλότυπο υπάρχοντος + νέο</option>
+          <option value="case_spaces">Ίδιος τίτλος με άλλα κεφαλαία/κενά</option>
+        </select>
+      </label>
+      <div class="actions">
+        <button type="button" id="btn-excel-preview" data-testid="btn-excel-preview">Έλεγχος αρχείου</button>
+      </div>
+    </div>
+    <div id="excel-preview" data-testid="excel-preview" hidden>
+      <p>Γραμμές με δεδομένα <span data-testid="excel-total"></span></p>
+      <p>Έτοιμα προς εισαγωγή <span data-testid="excel-valid"></span></p>
+      <p>Γραμμές με λάθη <span data-testid="excel-errors"></span></p>
+      <p id="excel-block" data-testid="excel-block" hidden>Η εισαγωγή δεν μπορεί να προχωρήσει όσο υπάρχουν λάθη.</p>
+      <p id="excel-empty" data-testid="excel-empty" hidden>Δεν βρέθηκαν έγκυρες γραμμές προς εισαγωγή.</p>
+      <div id="excel-existing-choice" data-testid="excel-existing-choice" hidden>
+        <p>Υπάρχουν ήδη έργα στην εφαρμογή</p>
+        <label><input type="radio" name="excel-existing" value="keep" checked /> Διατήρηση υπαρχόντων</label>
+        <label><input type="radio" name="excel-existing" value="wipe" /> Πλήρης διαγραφή &amp; αντικατάσταση</label>
+      </div>
+      <div id="excel-dup-choice" data-testid="excel-dup-choice" hidden>
+        <p><span data-testid="excel-dup-count"></span> υποέργα υπάρχουν ήδη</p>
+        <label><input type="radio" name="excel-dup" value="skip" checked /> Παράλειψη</label>
+        <label><input type="radio" name="excel-dup" value="update" /> Ενημέρωση</label>
+        <label><input type="radio" name="excel-dup" value="create" /> Δημιουργία νέου</label>
+      </div>
+      <div class="actions">
+        <button type="button" id="btn-excel-back" data-testid="btn-excel-back">Πίσω</button>
+        <button type="button" id="btn-excel-commit" data-testid="btn-excel-commit">Επιβεβαίωση εισαγωγής</button>
+      </div>
+    </div>
+    <div id="excel-result" data-testid="excel-result" hidden>
+      <p>Η εισαγωγή ολοκληρώθηκε.</p>
+      <p>Νέα υποέργα <span data-testid="excel-created"></span></p>
+      <p>Ενημερώσεις <span data-testid="excel-updated"></span></p>
+      <p>Παραλείψεις <span data-testid="excel-skipped"></span></p>
+      <p id="excel-deleted-wrap" data-testid="excel-deleted-wrap" hidden>Διαγράφηκαν έργα <span data-testid="excel-deleted"></span></p>
+    </div>
+    <button type="button" id="btn-close-excel" data-testid="btn-close-excel">Κλείσιμο</button>
+  </section>
+
+  <section id="stats-panel" data-testid="stats-panel" class="panel" hidden>
+    <h2>Στατιστικά &amp; Αναφορές</h2>
+    <p id="stats-scope-note" data-testid="stats-scope-note" hidden></p>
+    <p id="stats-filter-note" data-testid="stats-filter-note"></p>
+    <p id="stats-empty" data-testid="stats-empty" hidden>Δεν υπάρχουν δεδομένα για την εμφάνιση στατιστικών</p>
+    <p>Έργα <span data-testid="stats-unique"></span></p>
+    <p>Υποέργα <span data-testid="stats-total"></span></p>
+    <p>Εκτελούμενα <span data-testid="stats-progress"></span></p>
+    <p>Ολοκληρωμένα <span data-testid="stats-completed"></span></p>
+    <button type="button" id="btn-close-stats" data-testid="btn-close-stats">Κλείσιμο</button>
+  </section>
+
+  <section id="technical-panel" data-testid="technical-panel" class="panel" hidden>
+    <h2>Τεχνικό Πρόγραμμα</h2>
+    <label>Έτος
+      <select id="technical-year" data-testid="technical-year">
+        <option value="2024">2024</option>
+        <option value="2025">2025</option>
+        <option value="2026" selected>2026</option>
+      </select>
+    </label>
+    <p>Συνολικά Υποέργα <span data-testid="technical-all"></span></p>
+    <p>Γραμμές <span data-testid="technical-rows"></span></p>
+    <div id="technical-list" data-testid="technical-list"></div>
+    <p id="technical-empty" data-testid="technical-empty" hidden></p>
+    <div class="actions">
+      <button type="button" id="btn-technical-export" data-testid="btn-technical-export">Εξαγωγή σε Excel</button>
+      <button type="button" id="btn-close-technical" data-testid="btn-close-technical">Κλείσιμο</button>
+    </div>
+  </section>
+
+  <section id="export-panel" data-testid="export-panel" class="panel" hidden>
+    <h2>Εξαγωγή δεδομένων</h2>
+    <p>Συνολικά <span data-testid="export-total"></span></p>
+    <p>Προς εξαγωγή <span data-testid="export-count"></span></p>
+    <p id="export-filter-banner" data-testid="export-filter-banner"></p>
+    <div id="export-list" data-testid="export-list"></div>
+    <p>Στήλες επιλεγμένες <span data-testid="export-fields"></span></p>
+    <div class="actions">
+      <button type="button" id="btn-export-clear-fields" data-testid="btn-export-clear-fields">Καθαρισμός στηλών</button>
+      <button type="button" id="btn-export-commit" data-testid="btn-export-commit">Εξαγωγή σε Excel</button>
+      <button type="button" id="btn-close-export" data-testid="btn-close-export">Κλείσιμο</button>
+    </div>
+    <p id="export-error" data-testid="export-error" hidden></p>
+  </section>
+
+  <section id="pdf-panel" data-testid="pdf-panel" class="panel" hidden>
+    <h2>Αναφορές ERGOHUB</h2>
+    <div id="pdf-tabs" data-testid="pdf-tabs"></div>
+    <p>Σύνολο Υποέργων <span data-testid="pdf-total"></span></p>
+    <p>Εκτελούμενα <span data-testid="pdf-executing"></span></p>
+    <p>Ολοκληρωμένα <span data-testid="pdf-completed"></span></p>
+    <div id="pdf-list" data-testid="pdf-list"></div>
+    <p id="pdf-tab-name" data-testid="pdf-tab-name"></p>
+    <div class="actions">
+      <button type="button" id="btn-pdf-save" data-testid="btn-pdf-save">Αποθήκευση PDF</button>
+      <button type="button" id="btn-close-pdf" data-testid="btn-close-pdf">Κλείσιμο</button>
+    </div>
+  </section>
+
+  <section id="portal-panel" data-testid="portal-panel" class="panel" hidden>
+    <h2>Πύλη Διαφάνειας</h2>
+    <p data-testid="portal-state"></p>
+    <p id="portal-locked" data-testid="portal-locked" hidden>Η Πύλη Διαφάνειας δεν είναι ενεργή</p>
+    <p id="portal-readonly" data-testid="portal-readonly" hidden>Η διαχείριση δημοσίευσης γίνεται από διαχειριστή</p>
+    <div id="portal-settings" data-testid="portal-settings" hidden>
+      <label>Αναγνωριστικό Δήμου
+        <input id="portal-uid" data-testid="portal-uid" type="text" />
+      </label>
+      <button type="button" id="btn-portal-toggle-enabled" data-testid="btn-portal-toggle-enabled">Εναλλαγή ενεργής πύλης</button>
+    </div>
+    <div id="portal-workspace" data-testid="portal-workspace" hidden>
+      <input id="portal-search" data-testid="portal-search" type="search" placeholder="Αναζήτηση υποέργου" />
+      <select id="portal-filter-published" data-testid="portal-filter-published">
+        <option value="all">Όλα τα υποέργα</option>
+        <option value="published">Μόνο δημοσιευμένα</option>
+        <option value="unpublished">Μόνο αδημοσίευτα</option>
+      </select>
+      <p>Σύνολο στη λίστα <span data-testid="portal-list-count"></span></p>
+      <p>Επιλεγμένα <span data-testid="portal-selected-count"></span></p>
+      <p>Προϋπολογισμός <span data-testid="portal-budget"></span></p>
+      <div id="portal-list" data-testid="portal-list"></div>
+      <button type="button" id="btn-portal-select-filtered" data-testid="btn-portal-select-filtered">Επιλογή φιλτ.</button>
+      <button type="button" id="btn-portal-export" data-testid="btn-portal-export">Εξαγωγή &amp; Δημοσίευση</button>
+      <p id="portal-export-error" data-testid="portal-export-error" hidden></p>
+      <div id="portal-export-preview" data-testid="portal-export-preview" hidden></div>
+    </div>
+    <button type="button" id="btn-close-portal" data-testid="btn-close-portal">Κλείσιμο</button>
+  </section>
+
+  <section id="card-report-panel" data-testid="card-report-panel" class="panel" hidden>
+    <h2>Αναφορά υποέργου</h2>
+    <p data-testid="card-report-title"></p>
+    <h3>Εντάξεις</h3>
+    <div id="card-report-entaxeis" data-testid="card-report-entaxeis"></div>
+    <h3>Προσκλήσεις</h3>
+    <div id="card-report-proskliseis" data-testid="card-report-proskliseis"></div>
+    <button type="button" id="btn-close-card-report" data-testid="btn-close-card-report">Κλείσιμο</button>
   </section>
 
   <pre id="persist-dump" data-testid="persist-dump" hidden></pre>
@@ -297,6 +692,13 @@
   <script src="/app/core/egkrisiCatalog.js"></script>
   <script src="/app/core/subprojectFiles.js"></script>
   <script src="/app/core/taskWorkspace.js"></script>
+  <script src="/app/core/userCatalog.js"></script>
+  <script src="/app/core/auditCatalog.js"></script>
+  <script src="/app/core/khmdhsRefresh.js"></script>
+  <script src="/app/core/khmdhsPostFetch.js"></script>
+  <script src="/app/core/excelImport.js"></script>
+  <script src="/app/core/reportsExport.js"></script>
+  <script src="/app/core/portalCatalog.js"></script>
   <script src="/e2e/harness/workspace.js"></script>
 </body>
 </html>

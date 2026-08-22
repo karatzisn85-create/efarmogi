@@ -26,6 +26,7 @@ import {
   getProjectCommitmentAdamsForExport,
 } from '../utils/khmdhsExportHelpers';
 import { isMultipleContractsForm } from '../utils/khmdhsFields';
+import reportsExport from '../../app/core/reportsExport';
 
 /* ─── Layout ─── */
 
@@ -898,8 +899,9 @@ function ExportData({
   };
 
   const exportToExcel = () => {
-    if (selectedFields.length === 0) {
-      showToast('Παρακαλώ επιλέξτε τουλάχιστον ένα πεδίο για εξαγωγή.', 'warning');
+    const gate = reportsExport.evaluateDataExport(selectedFields.length);
+    if (!gate.ok) {
+      showToast(gate.error, 'warning');
       return;
     }
 
@@ -1135,7 +1137,7 @@ function ExportData({
 
   if (!isOpen) return null;
 
-  const filtersActive = projects.length < totalProjects;
+  const filtersActive = reportsExport.isExportFilterActive(projects.length, totalProjects);
   const selectedColumnCount = selectedFields.length;
 
   return (
@@ -1297,7 +1299,7 @@ function ExportData({
           <ExportBtn
             type="button"
             onClick={exportToExcel}
-            disabled={selectedFields.length === 0}
+            disabled={!reportsExport.canCommitDataExport(selectedFields.length)}
           >
             Εξαγωγή σε Excel ({selectedColumnCount})
           </ExportBtn>

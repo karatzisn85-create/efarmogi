@@ -1,6 +1,6 @@
 /**
- * Ημερολόγιο προθεσμιών: τύποι, παράθυρο, φίλτρο, προσκλήσεις, ορατότητα ειδοποιήσεων.
- * Ίδιες αποφάσεις με το widget και το πλήρες ημερολόγιο.
+ * Ημερολόγιο προθεσμιών: τύποι, παράθυρο, φίλτρο, προσκλήσεις,
+ * ΚΗΜΔΗΣ / λήξη σύμβασης, καταχώριση ειδοποίησης.
  */
 (function (root, factory) {
   var api = factory(root);
@@ -45,6 +45,13 @@
     CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE
   ]);
 
+  var PROJECT_STATUS_CONTRACT_PROCESS = 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ';
+  var STATUSES_WITH_KHMDHS_ADAM = [
+    'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+    'ΟΛΟΚΛΗΡΩΜΕΝΟ',
+    'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ'
+  ];
+
   var PAST_DEADLINE_EVENT_TYPES = [
     CALENDAR_EVENT_TYPES.DEADLINE,
     CALENDAR_EVENT_TYPES.OFFERS_EXPIRY,
@@ -69,6 +76,13 @@
       if (typeof require === 'function') return require('./subprojectCard');
     } catch (e) { /* browser harness */ }
     return (root && root.ErgoHubSubprojectCard) || {};
+  }
+
+  function listApi() {
+    try {
+      if (typeof require === 'function') return require('./subprojectList');
+    } catch (e) { /* browser harness */ }
+    return (root && root.ErgoHubSubprojectList) || {};
   }
 
   function parseIsoDate(iso) {
@@ -419,6 +433,231 @@
     });
   }
 
+  function pickKhmdhsNoticeSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return null;
+    var title = snapshot.title != null ? String(snapshot.title).trim() : '';
+    if (!title && !snapshot.referenceNumber) return null;
+    return snapshot;
+  }
+
+  function projectHasKhmdhsNoticeData(project) {
+    var adam = String((project && project.khmdhsNoticeAdam) || '').trim();
+    var snap = pickKhmdhsNoticeSnapshot(project && project.khmdhsNoticeSnapshot);
+    return !!(adam || snap);
+  }
+
+  function projectHasSignedContractStatus(project) {
+    return STATUSES_WITH_KHMDHS_ADAM.indexOf(project && project.projectStatus) !== -1;
+  }
+
+  function parseCalendarAmount(val) {
+    if (val == null || val === '') return 0;
+    if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+    var cleaned = String(val).trim().replace(/[^\d,.-]/g, '');
+    if (!cleaned) return 0;
+    var hasComma = cleaned.indexOf(',') !== -1;
+    var hasDot = cleaned.indexOf('.') !== -1;
+    var normalized = cleaned;
+    if (hasComma && hasDot) normalized = cleaned.replace(/\./g, '').replace(',', '.');
+    else if (hasComma) normalized = cleaned.replace(',', '.');
+    var n = parseFloat(normalized);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function projectProcurementPhaseConcluded(project) {
+    if (!project) return false;
+    if (projectHasSignedContractStatus(project)) return true;
+    if (parseCalendarAmount(project.contractAmount) <= 0) return false;
+    if (project.contractDate) return true;
+    if (Array.isArray(project.contracts) && project.contracts.some(function (c) { return c && c.date; })) {
+      return true;
+    }
+    return false;
+  }
+
+  function isActiveProcurementProject(project, options) {
+    var opts = options || {};
+    if (!project) return false;
+    if (project.projectStatus !== PROJECT_STATUS_CONTRACT_PROCESS) return false;
+    var concluded = opts.phaseConcluded;
+    if (concluded == null) concluded = projectProcurementPhaseConcluded(project);
+    if (concluded) return false;
+    if (!projectHasKhmdhsNoticeData(project)) return false;
+    var snap = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
+    return !!(snap && !snap.cancelled);
+  }
+
+  /**
+   * ΚΗΜΔΗΣ μονάδες: "1" ημέρες, "2" εβδομάδες, "3" μήνες, "4" έτη.
+   * Άγνωστη μονάδα → null (όχι εικασία σε ημέρες).
+   */
+  function resolveDurationUnitKind(unit) {
+    var raw = unit;
+    if (raw && typeof raw === 'object') {
+      raw = raw.value != null && String(raw.value).trim() !== '' ? raw.value : raw.key;
+    }
+    var u = String(raw || '').trim().toLowerCase();
+    if (!u) return null;
+    if (u === '1' || /ημέρ|ημερ|day/i.test(u)) return 'days';
+    if (u === '2' || /εβδομ|week/i.test(u)) return 'weeks';
+    if (u === '3' || /μήν|μην|month/i.test(u)) return 'months';
+    if (u === '4' || /έτ|ετ|year/i.test(u)) return 'years';
+    return null;
+  }
+
+  function addDurationToIso(isoStart, amount, unit) {
+    var n = Number(amount);
+    var start = isoStart ? new Date(isoStart) : null;
+    if (!start || Number.isNaN(start.getTime()) || Number.isNaN(n) || n <= 0) return null;
+    var kind = resolveDurationUnitKind(unit);
+    if (!kind) return null;
+    var d = new Date(start);
+    if (kind === 'months') d.setMonth(d.getMonth() + n);
+    else if (kind === 'years') d.setFullYear(d.getFullYear() + n);
+    else if (kind === 'weeks') d.setDate(d.getDate() + Math.round(n * 7));
+    else d.setDate(d.getDate() + Math.round(n));
+    return d.toISOString();
+  }
+
+  function mapNoticeDeadlineRow(project, snap, type, dateIso) {
+    var daysLeft = daysUntilDate(dateIso);
+    return {
+      type: type,
+      priority: type === CALENDAR_EVENT_TYPES.DEADLINE ? 'high' : 'medium',
+      label: CALENDAR_EVENT_LABELS[type],
+      dateIso: String(dateIso),
+      dateKey: toDateKey(dateIso),
+      daysLeft: daysLeft,
+      urgency: urgencyFromDaysLeft(daysLeft),
+      subprojectId: project.subprojectId,
+      projectId: project.projectId,
+      subprojectTitle: project.subprojectTitle || (snap && snap.title) || '(Χωρίς τίτλο)',
+      projectTitle: project.projectTitle || '',
+      adam: (snap && snap.referenceNumber) || project.khmdhsNoticeAdam || ''
+    };
+  }
+
+  function buildNoticeDeadlineCalendarEvents(project, options) {
+    if (!isActiveProcurementProject(project, options)) return [];
+    var snap = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
+    if (!snap || !snap.finalSubmissionDate) return [];
+    var events = [];
+    events.push(mapNoticeDeadlineRow(
+      project,
+      snap,
+      CALENDAR_EVENT_TYPES.DEADLINE,
+      snap.finalSubmissionDate
+    ));
+    if (snap.offersValidTime != null && snap.offersValidTime !== '') {
+      var expiryIso = addDurationToIso(
+        snap.finalSubmissionDate,
+        snap.offersValidTime,
+        snap.offersValidTimeUnit
+      );
+      if (expiryIso && toDateKey(expiryIso) !== toDateKey(snap.finalSubmissionDate)) {
+        events.push(mapNoticeDeadlineRow(
+          project,
+          snap,
+          CALENDAR_EVENT_TYPES.OFFERS_EXPIRY,
+          expiryIso
+        ));
+      }
+    }
+    return events;
+  }
+
+  function shouldShowContractEndEvent(project, options) {
+    var opts = options || {};
+    if (!project || !project.subprojectId) return false;
+    var list = listApi();
+    if (list.isAbandonedSubproject && list.isAbandonedSubproject(project)) return false;
+    var hasAmount = typeof opts.hasPositiveAmount === 'boolean'
+      ? opts.hasPositiveAmount
+      : parseCalendarAmount(project.contractAmount) > 0;
+    return hasAmount;
+  }
+
+  function mapContractEndToCalendarRow(project, endIso, extras) {
+    if (!endIso) return null;
+    var extra = extras || {};
+    var daysLeft = daysUntilDate(endIso);
+    var titleSuffix = extra.contractLabel ? ' (' + extra.contractLabel + ')' : '';
+    var snap = project && project.khmdhsContractSnapshot;
+    return {
+      type: CALENDAR_EVENT_TYPES.CONTRACT_END,
+      priority: 'medium',
+      label: CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.CONTRACT_END],
+      dateIso: String(endIso),
+      dateKey: toDateKey(endIso),
+      daysLeft: daysLeft,
+      urgency: urgencyFromDaysLeft(daysLeft),
+      contractIndex: extra.contractIndex != null ? extra.contractIndex : null,
+      subprojectId: project.subprojectId,
+      projectId: project.projectId,
+      subprojectTitle: (project.subprojectTitle || '(Χωρίς τίτλο)') + titleSuffix,
+      projectTitle: project.projectTitle || '',
+      adam: extra.contractAdam || (snap && snap.referenceNumber) || project.khmdhsAdam || project.khmdhsNoticeAdam || ''
+    };
+  }
+
+  function resolveSimpleContractEndDateIso(project) {
+    if (!project) return '';
+    if (project.contractEndDate) return String(project.contractEndDate);
+    var snap = project.khmdhsContractSnapshot;
+    if (snap && !snap.noEndDate && snap.endDate) return String(snap.endDate);
+    return '';
+  }
+
+  function buildSimpleContractEndCalendarEvents(project, options) {
+    if (!shouldShowContractEndEvent(project, options)) return [];
+    var endIso = resolveSimpleContractEndDateIso(project);
+    var row = mapContractEndToCalendarRow(project, endIso, {});
+    return row ? [row] : [];
+  }
+
+  function buildProcurementCalendarEvents(projects, options) {
+    var scoped = filterProjectsForCalendar(projects, options);
+    var events = [];
+    scoped.forEach(function (p) {
+      buildNoticeDeadlineCalendarEvents(p, options).forEach(function (ev) { events.push(ev); });
+      buildSimpleContractEndCalendarEvents(p, options).forEach(function (ev) { events.push(ev); });
+    });
+    return events;
+  }
+
+  function isoFromDateAndTime(dateStr, timeStr) {
+    var date = String(dateStr || '').trim();
+    if (!date) return '';
+    var time = String(timeStr || '').trim();
+    if (!time) return date + 'T12:00:00.000Z';
+    return date + 'T' + time + ':00';
+  }
+
+  function collectCustomEventRequiredErrors(form) {
+    var fd = form || {};
+    var errors = {};
+    if (!String(fd.title || '').trim()) {
+      errors.title = 'Συμπληρώστε τίτλο.';
+    }
+    if (!String(fd.date || '').trim()) {
+      errors.date = 'Επιλέξτε ημερομηνία.';
+    }
+    return errors;
+  }
+
+  function canCreateCustomCalendarEvent(user) {
+    return canManageCustomEvent(null, user);
+  }
+
+  function removeCustomEventFromList(events, eventId) {
+    var id = String(eventId || '').trim();
+    var list = Array.isArray(events) ? events : [];
+    if (!id) return list.slice();
+    return list.filter(function (e) {
+      return String((e && e.id) || '') !== id;
+    });
+  }
+
   return {
     CALENDAR_EVENT_TYPES: CALENDAR_EVENT_TYPES,
     CALENDAR_EVENT_LABELS: CALENDAR_EVENT_LABELS,
@@ -444,6 +683,25 @@
     prosklisiDeadlineToIsoDate: prosklisiDeadlineToIsoDate,
     mapProsklisiToCalendarRow: mapProsklisiToCalendarRow,
     buildProsklisiCalendarEvents: buildProsklisiCalendarEvents,
-    visibleCustomEventsForUser: visibleCustomEventsForUser
+    visibleCustomEventsForUser: visibleCustomEventsForUser,
+    PROJECT_STATUS_CONTRACT_PROCESS: PROJECT_STATUS_CONTRACT_PROCESS,
+    STATUSES_WITH_KHMDHS_ADAM: STATUSES_WITH_KHMDHS_ADAM,
+    pickKhmdhsNoticeSnapshot: pickKhmdhsNoticeSnapshot,
+    projectHasKhmdhsNoticeData: projectHasKhmdhsNoticeData,
+    projectHasSignedContractStatus: projectHasSignedContractStatus,
+    projectProcurementPhaseConcluded: projectProcurementPhaseConcluded,
+    isActiveProcurementProject: isActiveProcurementProject,
+    resolveDurationUnitKind: resolveDurationUnitKind,
+    addDurationToIso: addDurationToIso,
+    buildNoticeDeadlineCalendarEvents: buildNoticeDeadlineCalendarEvents,
+    shouldShowContractEndEvent: shouldShowContractEndEvent,
+    mapContractEndToCalendarRow: mapContractEndToCalendarRow,
+    resolveSimpleContractEndDateIso: resolveSimpleContractEndDateIso,
+    buildSimpleContractEndCalendarEvents: buildSimpleContractEndCalendarEvents,
+    buildProcurementCalendarEvents: buildProcurementCalendarEvents,
+    isoFromDateAndTime: isoFromDateAndTime,
+    collectCustomEventRequiredErrors: collectCustomEventRequiredErrors,
+    canCreateCustomCalendarEvent: canCreateCustomCalendarEvent,
+    removeCustomEventFromList: removeCustomEventFromList
   };
 });

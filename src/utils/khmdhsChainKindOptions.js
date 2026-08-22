@@ -4,23 +4,16 @@
  */
 
 import { formatDateEl, parseAppDate } from './dateFormat';
+import khmdhsPostFetch from '../../app/core/khmdhsPostFetch';
 import { CHAIN_KIND_LABEL } from './khmdhsChainActions';
 import { normalizeKhmdhsAdam } from './khmdhsDataQualityReport';
 import { getChainHistoryForContract, findChainEntry } from './khmdhsChainFormAccess';
 import { isMultipleContractsForm } from './khmdhsFields';
 
-export const USER_CHAIN_KIND_SELECT_VALUES = [
-  'modification',
-  'extension',
-  'republication',
-  'other',
-];
+export const USER_CHAIN_KIND_SELECT_VALUES = khmdhsPostFetch.USER_CHAIN_KIND_SELECT_VALUES;
 
 export function buildChainKindSelectOptions() {
-  return USER_CHAIN_KIND_SELECT_VALUES.map((value) => ({
-    value,
-    label: (CHAIN_KIND_LABEL[value] || value).replace(/^./, (c) => c.toUpperCase()),
-  }));
+  return khmdhsPostFetch.buildChainKindSelectOptions();
 }
 
 function toIsoDateOnly(value) {

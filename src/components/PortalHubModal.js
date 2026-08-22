@@ -11,6 +11,7 @@
 import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import { useToast } from './ToastProvider';
+import portalCatalog from '../../app/core/portalCatalog';
 
 const PortalSettingsModal = lazy(() => import('./PortalSettingsModal'));
 const ipcRenderer = window.electronAPI;
@@ -547,9 +548,9 @@ export default function PortalHubModal({
   const { showToast } = useToast();
   const username = currentUser?.username || '';
   const userRole = currentUser?.role || '';
-  const isEngineer = userRole === 'ENGINEER';
+  const isEngineer = portalCatalog.isEngineerPortalReadOnly(userRole);
   const portalEnabled = appConfig.portalEnabled === true;
-  const canExportPortal = !isEngineer;
+  const canSeeWorkspace = portalCatalog.canSeePortalWorkspace(userRole, portalEnabled);
 
   // ── State ──
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -580,12 +581,13 @@ export default function PortalHubModal({
     }
     ipcRenderer.invoke('load-portal-published').then((res) => {
       if (res?.success && res.data) {
-        const ids = Array.isArray(res.data.subprojectIds) ? res.data.subprojectIds : [];
-        setSelectedIds(new Set(ids));
+        const rec = portalCatalog.normalizePortalPublishedRecord(res.data);
+        setSelectedIds(new Set(rec.selectedIds));
         setLastExportInfo({
-          lastExportedAt: res.data.lastExportedAt || null,
-          lastDropboxLink: res.data.lastDropboxLink || null,
-          subprojectIds: ids,
+          lastExportedAt: rec.lastExportedAt,
+          lastDropboxLink: rec.lastDropboxLink,
+          lastExportedIds: rec.lastExportedIds,
+          subprojectIds: rec.selectedIds,
         });
       } else {
         setSelectedIds(new Set());
@@ -600,28 +602,19 @@ export default function PortalHubModal({
     return Array.from(set).sort();
   }, [projects]);
 
-  const filteredProjects = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return [...projects]
-      .sort((a, b) => {
-        const ta = `${a.projectTitle || ''} ${a.subprojectTitle || ''}`.toLowerCase();
-        const tb = `${b.projectTitle || ''} ${b.subprojectTitle || ''}`.toLowerCase();
-        return ta.localeCompare(tb, 'el');
-      })
-      .filter(p => {
-        if (q && !`${p.projectTitle} ${p.subprojectTitle} ${p.fundingSource || ''}`.toLowerCase().includes(q)) return false;
-        const pub = lastExportInfo?.subprojectIds?.includes(p.subprojectId);
-        if (filterPublished === 'published' && !pub) return false;
-        if (filterPublished === 'unpublished' && pub) return false;
-        if (filterStatus && p.projectStatus !== filterStatus) return false;
-        return true;
-      });
-  }, [projects, search, filterPublished, filterStatus, lastExportInfo]);
+  const filteredProjects = useMemo(() => (
+    portalCatalog.filterPortalHubProjects(projects, {
+      search,
+      filterPublished,
+      filterStatus,
+      publishedIds: lastExportInfo?.lastExportedIds || [],
+    })
+  ), [projects, search, filterPublished, filterStatus, lastExportInfo]);
 
   // ── Preview stats ──
   const previewStats = useMemo(() => {
     const sel = projects.filter(p => selectedIds.has(p.subprojectId));
-    const totalBudget = sel.reduce((s, p) => s + (Number(p.projectBudget) || Number(p.approvedAmount) || 0), 0);
+    const totals = portalCatalog.previewPortalSelection(projects, Array.from(selectedIds));
     const byStatus = {};
     for (const p of sel) {
       const st = p.projectStatus || 'Άγνωστη';
@@ -632,7 +625,7 @@ export default function PortalHubModal({
       const t = p.projectType || 'Άγνωστο';
       byType[t] = (byType[t] || 0) + 1;
     }
-    return { count: sel.length, totalBudget, byStatus, byType, topStatuses: Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).slice(0,4) };
+    return { count: totals.count, totalBudget: totals.totalBudget, byStatus, byType, topStatuses: Object.entries(byStatus).sort((a,b)=>b[1]-a[1]).slice(0,4) };
   }, [selectedIds, projects]);
 
   const handleToggle = useCallback((id) => {
@@ -644,7 +637,7 @@ export default function PortalHubModal({
   }, []);
 
   const handleSelectAll = useCallback(() => {
-    setSelectedIds(new Set(filteredProjects.map(p => p.subprojectId)));
+    setSelectedIds(new Set(portalCatalog.applySelectFiltered(filteredProjects)));
   }, [filteredProjects]);
 
   const handleDeselectAll = useCallback(() => {
@@ -653,12 +646,14 @@ export default function PortalHubModal({
 
   const handleExport = async () => {
     const dimosUid = (localAppConfig.portalDimosUid || '').trim();
-    if (!dimosUid) {
-      showToast('Ορίστε πρώτα το αναγνωριστικό Δήμου από τις Ρυθμίσεις Πύλης.', 'error');
-      return;
-    }
-    if (selectedIds.size === 0) {
-      showToast('Επιλέξτε τουλάχιστον ένα υποέργο.', 'error');
+    const gate = portalCatalog.evaluatePortalExport({
+      role: userRole,
+      selectedCount: selectedIds.size,
+      dimosUid,
+      exporting: isExporting,
+    });
+    if (!gate.ok) {
+      if (gate.error) showToast(gate.error, 'error');
       return;
     }
     try {
@@ -672,7 +667,12 @@ export default function PortalHubModal({
       });
       if (!res?.success) throw new Error(res?.error || 'Άγνωστο σφάλμα');
       setResult({ dropboxLink: res.dropboxLink, count: res.count, exportedAt: new Date().toLocaleString('el-GR') });
-      setLastExportInfo(prev => ({ ...prev, lastExportedAt: new Date().toISOString(), subprojectIds: Array.from(selectedIds) }));
+      setLastExportInfo(prev => ({
+        ...prev,
+        lastExportedAt: new Date().toISOString(),
+        lastExportedIds: Array.isArray(res.lastExportedIds) ? res.lastExportedIds : Array.from(selectedIds),
+        subprojectIds: Array.from(selectedIds),
+      }));
       setProgress('');
       if (!localAppConfig.portalDimosUid && onDimosUidSaved) onDimosUidSaved(dimosUid);
     } catch (err) {
@@ -699,8 +699,13 @@ export default function PortalHubModal({
 
   const dimosUid = (localAppConfig.portalDimosUid || '').trim();
   const publicUrl = (localAppConfig.portalPublicUrl || '').trim();
-  const publishedCount = lastExportInfo?.subprojectIds?.length || 0;
-  const canDoExport = selectedIds.size > 0 && dimosUid && !isExporting && canExportPortal;
+  const publishedCount = lastExportInfo?.lastExportedIds?.length || 0;
+  const canDoExport = portalCatalog.canCommitPortalExport({
+    role: userRole,
+    selectedCount: selectedIds.size,
+    dimosUid,
+    exporting: isExporting,
+  });
 
   return (
     <Overlay onClick={(e) => { if (e.target === e.currentTarget && !isExporting) onClose(); }}>
@@ -714,7 +719,7 @@ export default function PortalHubModal({
             <HeaderSub>Διαχείριση δημοσίευσης υποέργων · {localAppConfig.organizationName || ''}</HeaderSub>
           </HeaderInfo>
           <HeaderActions>
-            {isSuperAdmin && (
+            {portalCatalog.showPortalSettingsButton(userRole) && (
               <SettingsBtn onClick={() => setShowSettings(true)}>
                 ⚙️ Ρυθμίσεις Πύλης
               </SettingsBtn>
@@ -789,7 +794,7 @@ export default function PortalHubModal({
         <Body>
 
           {/* Πύλη απενεργοποιημένη — μήνυμα για ADMIN/ENGINEER */}
-          {!portalEnabled && !isSuperAdmin ? (
+          {!canSeeWorkspace ? (
             <DisabledCard>
               <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>🔒</div>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 8 }}>
@@ -850,7 +855,8 @@ export default function PortalHubModal({
                       <EmptyState>Δεν βρέθηκαν υποέργα με τα επιλεγμένα φίλτρα.</EmptyState>
                     ) : (
                       filteredProjects.map(p => {
-                        const isPublished = lastExportInfo?.subprojectIds?.includes(p.subprojectId);
+                        const isPublished = (lastExportInfo?.lastExportedIds || []).includes(p.subprojectId);
+                        const isQueued = selectedIds.has(p.subprojectId) && !isPublished;
                         const statusColor = STATUS_COLORS[p.projectStatus] || '#64748b';
                         return (
                           <SubprojectItem key={p.subprojectId}>
@@ -867,6 +873,8 @@ export default function PortalHubModal({
                               </SubprojectMeta>
                             </SubprojectInfo>
                             {isPublished && <PublishedBadge>🌐 Δημοσιευμένο</PublishedBadge>}
+                            {isPublished && !selectedIds.has(p.subprojectId) && <PublishedBadge>Θα φύγει</PublishedBadge>}
+                            {isQueued && <PublishedBadge>Στην επόμενη</PublishedBadge>}
                             <StatusBadge style={{ borderColor: `${statusColor}30`, color: statusColor }}>
                               {p.projectStatus || 'Χωρίς κατάσταση'}
                             </StatusBadge>

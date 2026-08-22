@@ -1,5 +1,6 @@
 /**
- * Κατάλογος προσκλήσεων: ισχύουσα λήξη, καρτέλες, αναζήτηση, «λήγουν σύντομα», «χωρίς έργο».
+ * Κατάλογος προσκλήσεων: ισχύουσα λήξη, καρτέλες, αναζήτηση,
+ * υποχρεωτικά νέας πρόσκλησης και διαγραφή.
  */
 (function (root, factory) {
   var api = factory(root);
@@ -218,6 +219,41 @@
     return userRole !== 'USER' && userRole !== 'ENGINEER';
   }
 
+  function showProsklisiDeleteAction(userRole) {
+    return showNewProsklisiButton(userRole);
+  }
+
+  /**
+   * Ίδια υποχρεωτικά με τη φόρμα πρόσκλησης: μόνο τίτλος και άξονας, με trim.
+   */
+  function collectProsklisiRequiredErrors(formData) {
+    var fd = formData || {};
+    var errors = {};
+    if (!String(fd.title || '').trim()) {
+      errors.title = 'Ο τίτλος είναι υποχρεωτικός';
+    }
+    if (!String(fd.axis || '').trim()) {
+      errors.axis = 'Ο άξονας προτεραιότητας είναι υποχρεωτικός';
+    }
+    return errors;
+  }
+
+  function evaluateProsklisiDelete(prosklisiId) {
+    if (!String(prosklisiId || '').trim()) {
+      return { ok: false, reason: 'missing-id' };
+    }
+    return { ok: true };
+  }
+
+  function removeProsklisiFromList(proskliseis, prosklisiId) {
+    var id = String(prosklisiId || '').trim();
+    var list = Array.isArray(proskliseis) ? proskliseis : [];
+    if (!id) return list.slice();
+    return list.filter(function (p) {
+      return String((p && p.prosklisiId) || '') !== id;
+    });
+  }
+
   function applyProsklisiDailyFilters(proskliseis, options) {
     var opts = options || {};
     var modsMap = opts.modificationsById || {};
@@ -272,6 +308,10 @@
     isProsklisiUnlinked: isProsklisiUnlinked,
     prosklisiMatchesQuickSearch: prosklisiMatchesQuickSearch,
     showNewProsklisiButton: showNewProsklisiButton,
+    showProsklisiDeleteAction: showProsklisiDeleteAction,
+    collectProsklisiRequiredErrors: collectProsklisiRequiredErrors,
+    evaluateProsklisiDelete: evaluateProsklisiDelete,
+    removeProsklisiFromList: removeProsklisiFromList,
     applyProsklisiDailyFilters: applyProsklisiDailyFilters
   };
 });

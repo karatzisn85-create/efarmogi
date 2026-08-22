@@ -16,6 +16,7 @@
 'use strict';
 
 const path = require('path');
+const excelImportCore = require('../app/core/excelImport');
 
 let ENUMS;
 try {
@@ -113,9 +114,9 @@ function sanitizeCellText(value) {
   return s;
 }
 
-/** Κανονικοποίηση τίτλου για σύγκριση/ομαδοποίηση (ίδια λογική με electron.js). */
+/** Κανονικοποίηση τίτλου για σύγκριση/ομαδοποίηση (ίδια λογική παντού). */
 function normalizeTitleKey(text) {
-  return sanitizeCellText(text).toLowerCase();
+  return excelImportCore.normalizeTitleKey(text);
 }
 
 /** Είναι «ίδιοι πόροι» η εξειδίκευση; (εξαιρείται από το εγκεκριμένο ποσό) */

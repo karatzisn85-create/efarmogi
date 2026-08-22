@@ -1,6 +1,5 @@
 /** Events για Ημερολόγιο Προθεσμιών (Φάση 3α) */
 
-import { isAbandonedSubproject, PROJECT_STATUS_CONTRACT_PROCESS } from '../data/formOptions';
 import { computeChainCharacterizationEffects, CHAIN_KIND, getChainKindChoice, getEffectiveChainKind } from './khmdhsChainActions';
 import {
   findDirectAssignmentViolations,
@@ -11,12 +10,15 @@ import {
   isMultipleContractsForm,
   normalizeContractsFromProject
 } from './khmdhsFields';
-import {
-  pickKhmdhsNoticeSnapshot,
-  projectHasKhmdhsNoticeData
-} from './khmdhsNoticeFields';
 import calendarDeadlines from '../../app/core/calendarDeadlines';
 import { formatDateEl, formatDateTimeEl, toIsoDateOnly } from './dateFormat';
+import { getAllChainHistories } from './khmdhsChainFormAccess';
+import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEntries';
+import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
+import {
+  daysUntilDate,
+  projectProcurementPhaseConcluded
+} from './procurementDeadlines';
 
 export const CALENDAR_EVENT_TYPES = calendarDeadlines.CALENDAR_EVENT_TYPES;
 export const CALENDAR_EVENT_LABELS = calendarDeadlines.CALENDAR_EVENT_LABELS;
@@ -29,54 +31,11 @@ export const filterProjectsForCalendar = calendarDeadlines.filterProjectsForCale
 export const filterCalendarEventsByType = calendarDeadlines.filterCalendarEventsByType;
 export const eventsInMonth = calendarDeadlines.eventsInMonth;
 export const eventsWithinDays = calendarDeadlines.eventsWithinDays;
-import { getAllChainHistories } from './khmdhsChainFormAccess';
-import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEntries';
-import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
-import {
-  daysUntilDate,
-  projectProcurementPhaseConcluded
-} from './procurementDeadlines';
 
 function parseIsoDate(iso) {
   if (!iso) return null;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-
-/**
- * ΚΗΜΔΗΣ μονάδες: "1" ημέρες, "2" εβδομάδες, "3" μήνες, "4" έτη
- * (και ελληνικό/αγγλικό κείμενο, ή object { key, value }).
- * Άγνωστη μονάδα → null (όχι εικασία σε ημέρες).
- */
-function resolveDurationUnitKind(unit) {
-  let raw = unit;
-  if (raw && typeof raw === 'object') {
-    raw = raw.value != null && String(raw.value).trim() !== ''
-      ? raw.value
-      : raw.key;
-  }
-  const u = String(raw || '').trim().toLowerCase();
-  if (!u) return null;
-  if (u === '1' || /ημέρ|ημερ|day/i.test(u)) return 'days';
-  if (u === '2' || /εβδομ|week/i.test(u)) return 'weeks';
-  if (u === '3' || /μήν|μην|month/i.test(u)) return 'months';
-  if (u === '4' || /έτ|ετ|year/i.test(u)) return 'years';
-  return null;
-}
-
-function addDurationToIso(isoStart, amount, unit) {
-  const n = Number(amount);
-  const start = parseIsoDate(isoStart);
-  if (!start || Number.isNaN(n) || n <= 0) return null;
-  const kind = resolveDurationUnitKind(unit);
-  if (!kind) return null;
-  const d = new Date(start);
-  if (kind === 'months') d.setMonth(d.getMonth() + n);
-  else if (kind === 'years') d.setFullYear(d.getFullYear() + n);
-  else if (kind === 'weeks') d.setDate(d.getDate() + Math.round(n * 7));
-  else d.setDate(d.getDate() + Math.round(n));
-  return d.toISOString();
 }
 
 function urgencyFromDaysLeft(daysLeft) {
@@ -87,13 +46,13 @@ function urgencyFromDaysLeft(daysLeft) {
   return 'normal';
 }
 
+export const addDurationToIso = calendarDeadlines.addDurationToIso;
+export const resolveDurationUnitKind = calendarDeadlines.resolveDurationUnitKind;
+
 export function isActiveProcurementProject(project) {
-  if (!project) return false;
-  if (project.projectStatus !== PROJECT_STATUS_CONTRACT_PROCESS) return false;
-  if (projectProcurementPhaseConcluded(project)) return false;
-  if (!projectHasKhmdhsNoticeData(project)) return false;
-  const snap = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
-  return !!(snap && !snap.cancelled);
+  return calendarDeadlines.isActiveProcurementProject(project, {
+    phaseConcluded: projectProcurementPhaseConcluded(project),
+  });
 }
 
 
@@ -250,80 +209,29 @@ export function resolveContractEndDateIso(project, contract = null) {
     || null;
 }
 
-function buildNoticeDeadlineEvents(project, snap, events, seen) {
-  const base = {
-    subprojectId: project.subprojectId,
-    projectId: project.projectId,
-    subprojectTitle: project.subprojectTitle || snap.title || '(Χωρίς τίτλο)',
-    projectTitle: project.projectTitle || '',
-    adam: snap.referenceNumber || project.khmdhsNoticeAdam || ''
-  };
-
-  if (snap.finalSubmissionDate) {
-    pushEvent(events, seen, {
-      ...base,
-      type: CALENDAR_EVENT_TYPES.DEADLINE,
-      priority: 'high',
-      label: CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.DEADLINE],
-      dateIso: String(snap.finalSubmissionDate)
-    });
-
-    if (snap.offersValidTime != null && snap.offersValidTime !== '') {
-      const expiryIso = addDurationToIso(
-        snap.finalSubmissionDate,
-        snap.offersValidTime,
-        snap.offersValidTimeUnit
-      );
-      const expiryKey = toDateKey(expiryIso);
-      const deadlineKey = toDateKey(snap.finalSubmissionDate);
-      if (expiryIso && expiryKey && expiryKey !== deadlineKey) {
-        pushEvent(events, seen, {
-          ...base,
-          type: CALENDAR_EVENT_TYPES.OFFERS_EXPIRY,
-          priority: 'medium',
-          label: CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.OFFERS_EXPIRY],
-          dateIso: expiryIso
-        });
-      }
-    }
-  }
-}
-
 function buildProjectEvents(project) {
-  if (!isActiveProcurementProject(project)) return [];
-  const snap = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
-  if (!snap) return [];
-
-  const events = [];
-  const seen = new Set();
-  buildNoticeDeadlineEvents(project, snap, events, seen);
-  return events;
+  return calendarDeadlines.buildNoticeDeadlineCalendarEvents(project, {
+    phaseConcluded: projectProcurementPhaseConcluded(project),
+  });
 }
 
 function buildContractEndEvents(project) {
-  if (!project?.subprojectId || isAbandonedSubproject(project)) return [];
-  if (getTotalContractAmount(project) <= 0) return [];
+  if (!calendarDeadlines.shouldShowContractEndEvent(project, {
+    hasPositiveAmount: getTotalContractAmount(project) > 0,
+  })) return [];
 
   const events = [];
   const seen = new Set();
   const review = project.khmdhsDataQualityReview || null;
 
   const pushContractEnd = (endIso, { contractLabel = '', contractAdam = '', contractIndex = null } = {}) => {
-    if (!endIso) return;
-    const snap = project.khmdhsContractSnapshot;
-    const titleSuffix = contractLabel ? ` (${contractLabel})` : '';
-    pushEvent(events, seen, {
-      type: CALENDAR_EVENT_TYPES.CONTRACT_END,
-      priority: 'medium',
-      label: CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.CONTRACT_END],
-      dateIso: endIso,
+    const row = calendarDeadlines.mapContractEndToCalendarRow(project, endIso, {
+      contractLabel,
+      contractAdam,
       contractIndex,
-      subprojectId: project.subprojectId,
-      projectId: project.projectId,
-      subprojectTitle: `${project.subprojectTitle || '(Χωρίς τίτλο)'}${titleSuffix}`,
-      projectTitle: project.projectTitle || '',
-      adam: contractAdam || snap?.referenceNumber || project.khmdhsAdam || project.khmdhsNoticeAdam || ''
     });
+    if (!row) return;
+    pushEvent(events, seen, row);
   };
 
   if (isMultipleContractsForm(project.implementationForm)) {

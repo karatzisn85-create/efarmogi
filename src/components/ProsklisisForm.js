@@ -6,6 +6,7 @@ import ProsklisiDiavgeiaSection from './ProsklisiDiavgeiaSection';
 import { safeFileDialog } from '../utils/safeDialogs';
 import { buildProsklisiDiavgeiaRegistryEntry } from '../utils/prosklisiDiavgeiaRegistry';
 import { useToast } from './ToastProvider';
+import prosklisiCatalog from '../../app/core/prosklisiCatalog';
 import {
   FormOverlay,
   FormContainer as ChromeFormContainer,
@@ -599,18 +600,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
   };
 
   const validateForm = () => {
-    const newErrors = {};
-
-    if (!formData.title?.trim()) {
-      newErrors.title = 'Ο τίτλος είναι υποχρεωτικός';
-    }
-
-    if (!formData.axis?.trim()) {
-      newErrors.axis = 'Ο άξονας προτεραιότητας είναι υποχρεωτικός';
-    }
-
-    // All other fields are now optional - no validation required
-
+    const newErrors = prosklisiCatalog.collectProsklisiRequiredErrors(formData);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };

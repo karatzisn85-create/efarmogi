@@ -34,7 +34,8 @@ body {
   display: grid;
   gap: 0.65rem;
 }
-.panel[hidden] {
+.panel[hidden],
+.panel [hidden] {
   display: none !important;
 }
 .panel label { display: grid; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; }

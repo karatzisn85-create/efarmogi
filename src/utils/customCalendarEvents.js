@@ -12,6 +12,10 @@ export const CUSTOM_VISIBILITY_ROLES = [
 
 export const userCanSeeCustomEvent = calendarDeadlines.userCanSeeCustomEvent;
 export const canManageCustomEvent = calendarDeadlines.canManageCustomEvent;
+export const canCreateCustomCalendarEvent = calendarDeadlines.canCreateCustomCalendarEvent;
+export const collectCustomEventRequiredErrors = calendarDeadlines.collectCustomEventRequiredErrors;
+export const isoFromDateAndTime = calendarDeadlines.isoFromDateAndTime;
+export const removeCustomEventFromList = calendarDeadlines.removeCustomEventFromList;
 export const mapCustomEventToCalendarRow = calendarDeadlines.mapCustomEventToCalendarRow;
 export const buildCustomCalendarEvents = calendarDeadlines.buildCustomCalendarEvents;
 export const mergeCalendarEventLists = calendarDeadlines.mergeCalendarEventLists;

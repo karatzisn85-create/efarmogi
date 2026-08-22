@@ -1,4 +1,4 @@
-/* global ErgoHubSubprojectCard, ErgoHubSubprojectList, ErgoHubSubprojectLifecycle, ErgoHubCalendarDeadlines, ErgoHubProsklisiCatalog, ErgoHubEntaxiCatalog, ErgoHubEgkrisiCatalog, ErgoHubSubprojectFiles, ErgoHubTaskWorkspace */
+/* global ErgoHubSubprojectCard, ErgoHubSubprojectList, ErgoHubSubprojectLifecycle, ErgoHubCalendarDeadlines, ErgoHubProsklisiCatalog, ErgoHubEntaxiCatalog, ErgoHubEgkrisiCatalog, ErgoHubSubprojectFiles, ErgoHubTaskWorkspace, ErgoHubUserCatalog, ErgoHubAuditCatalog, ErgoHubKhmdhsRefresh, ErgoHubKhmdhsPostFetch, ErgoHubExcelImport, ErgoHubReportsExport, ErgoHubPortalCatalog */
 (function () {
   var core = window.ErgoHubSubprojectCard;
   var list = window.ErgoHubSubprojectList;
@@ -9,6 +9,13 @@
   var egk = window.ErgoHubEgkrisiCatalog;
   var files = window.ErgoHubSubprojectFiles;
   var tw = window.ErgoHubTaskWorkspace;
+  var usersCore = window.ErgoHubUserCatalog;
+  var auditCore = window.ErgoHubAuditCatalog;
+  var khmdhs = window.ErgoHubKhmdhsRefresh;
+  var pf = window.ErgoHubKhmdhsPostFetch;
+  var excel = window.ErgoHubExcelImport;
+  var reports = window.ErgoHubReportsExport;
+  var portal = window.ErgoHubPortalCatalog;
 
   function isoDaysFromToday(offset) {
     var d = new Date();
@@ -38,7 +45,14 @@
       supervisorEngineerIds: ['user:maria'],
       supervisorChargeOutsideEngineers: false,
       supervisorChargeFreePrimary: '',
-      supervisorChargeFreeParticipants: ''
+      supervisorChargeFreeParticipants: '',
+      khmdhsNoticeAdam: '24PROC000000001',
+      khmdhsNoticeFetchedAt: isoDaysFromToday(-40),
+      remainingAmount: '15.000,00',
+      remainingAmountYear: '2026',
+      fundingSource: 'ΕΣΠΑ',
+      projectBudget: '120.000,00',
+      khmdhsAdam: '24SYMV000000001'
     },
     {
       projectId: 'proj-road',
@@ -68,7 +82,12 @@
       supervisorEngineerIds: ['user:nikos'],
       supervisorChargeOutsideEngineers: false,
       supervisorChargeFreePrimary: '',
-      supervisorChargeFreeParticipants: ''
+      supervisorChargeFreeParticipants: '',
+      khmdhsAdam: '24SYMV000000002',
+      khmdhsContractFetchedAt: isoDaysFromToday(-5),
+      remainingAmount: '8000',
+      remainingAmountYear: '2025',
+      fundingSource: 'Ίδιοι Πόροι'
     },
     {
       projectId: 'proj-old',
@@ -80,7 +99,8 @@
       projectType: 'ΕΡΓΟ',
       createdAt: '2022-05-01T08:00:00.000Z',
       updatedAt: '2022-05-01T08:00:00.000Z',
-      supervisor: 'Παλιός Επιβλέπων'
+      supervisor: 'Παλιός Επιβλέπων',
+      khmdhsAdam: '24SYMV000000003'
     },
     {
       projectId: 'proj-done',
@@ -92,7 +112,8 @@
       projectType: 'ΕΡΓΟ',
       createdAt: '2021-01-01T08:00:00.000Z',
       updatedAt: '2023-01-01T08:00:00.000Z',
-      supervisorEngineerIds: ['user:maria']
+      supervisorEngineerIds: ['user:maria'],
+      khmdhsAdam: '24SYMV000000099'
     },
     {
       projectId: 'proj-drop',
@@ -223,6 +244,7 @@
     entaxiOpen: false,
     entaxiSearch: '',
     entaxiUnlinked: false,
+    pendingWorkflowDelete: null,
     egkriseisByProjectId: {
       'proj-road': [
         {
@@ -340,6 +362,63 @@
     taskOpen: false,
     taskScreen: 'workspace',
     taskSearch: '',
+    calendarProjects: [
+      {
+        subprojectId: 'sub-tender',
+        projectId: 'proj-tender',
+        projectTitle: 'Προμήθεια εξοπλισμού',
+        subprojectTitle: 'Διαγωνισμός Η/Υ',
+        projectStatus: 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
+        khmdhsNoticeAdam: '24PROC000000001',
+        khmdhsNoticeSnapshot: {
+          title: 'Προκήρυξη Η/Υ',
+          referenceNumber: '24PROC000000001',
+          finalSubmissionDate: isoDaysFromToday(10),
+          offersValidTime: 3,
+          offersValidTimeUnit: 'μήνες',
+          cancelled: false
+        }
+      },
+      {
+        subprojectId: 'sub-notice-cancelled',
+        projectId: 'proj-tender',
+        projectTitle: 'Προμήθεια εξοπλισμού',
+        subprojectTitle: 'Ακυρωμένος διαγωνισμός',
+        projectStatus: 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
+        khmdhsNoticeAdam: '24PROC000000099',
+        khmdhsNoticeSnapshot: {
+          title: 'Ακυρωμένη προκήρυξη',
+          referenceNumber: '24PROC000000099',
+          finalSubmissionDate: isoDaysFromToday(8),
+          cancelled: true
+        }
+      },
+      {
+        subprojectId: 'sub-signed',
+        projectId: 'proj-signed',
+        projectTitle: 'Οδικό δίκτυο Αρχανών',
+        subprojectTitle: 'Σύμβαση φωτισμού',
+        projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+        contractAmount: '50.000,00',
+        contractDate: '2024-01-15',
+        contractEndDate: isoDaysFromToday(20),
+        khmdhsAdam: '24SYMV000000002',
+        khmdhsContractSnapshot: {
+          referenceNumber: '24SYMV000000002',
+          endDate: isoDaysFromToday(20),
+          noEndDate: false
+        }
+      },
+      {
+        subprojectId: 'sub-zero-contract',
+        projectId: 'proj-signed',
+        projectTitle: 'Οδικό δίκτυο Αρχανών',
+        subprojectTitle: 'Σύμβαση χωρίς ποσό',
+        projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+        contractAmount: '0',
+        contractEndDate: isoDaysFromToday(12)
+      }
+    ],
     customEvents: [
       {
         id: 'evt-eng',
@@ -357,31 +436,137 @@
         visibilityUsernames: [],
         createdBy: 'admin'
       }
-    ]
+    ],
+    users: [
+      { username: 'superadmin', role: 'SUPERADMIN', fullName: 'Υπερδιαχειριστής', approved: true, active: true },
+      { username: 'admin', role: 'ADMIN', fullName: 'Διαχειριστής Δήμου', approved: true, active: true },
+      { username: 'pending', role: 'USER', fullName: 'Αναμονή έγκρισης', approved: false, active: true },
+      { username: 'maria', role: 'ENGINEER', fullName: 'Μαρία Παπαδοπούλου', approved: true, active: true }
+    ],
+    usersOpen: false,
+    auditLogs: [
+      {
+        id: 'aud-create-bridge',
+        timestamp: '2026-08-20T10:00:00.000Z',
+        userFullName: 'Διαχειριστής Δήμου',
+        userRole: 'ADMIN',
+        user: 'Διαχειριστής Δήμου',
+        action: 'create',
+        entityType: 'subproject',
+        entityId: 'sub-bridge',
+        entityTitle: 'Γέφυρα Αγίου Σύλλα',
+        details: 'Νέο υποέργο'
+      },
+      {
+        id: 'aud-update-tank',
+        timestamp: '2026-08-19T10:00:00.000Z',
+        userFullName: 'Μαρία Παπαδοπούλου',
+        userRole: 'ENGINEER',
+        user: 'Μαρία Παπαδοπούλου',
+        action: 'update',
+        entityType: 'subproject',
+        entityId: 'sub-tank',
+        entityTitle: 'Δεξαμενή Παρανύμφων',
+        changes: { 'Τίτλος υποέργου': { old: 'Παλιό όνομα', new: 'Δεξαμενή Παρανύμφων' } }
+      },
+      {
+        id: 'aud-delete-user',
+        timestamp: '2026-08-18T10:00:00.000Z',
+        userFullName: 'Υπερδιαχειριστής',
+        userRole: 'SUPERADMIN',
+        user: 'Υπερδιαχειριστής',
+        action: 'delete',
+        entityType: 'user',
+        entityId: 'old-user',
+        entityTitle: 'Παλιός χρήστης'
+      },
+      {
+        id: 'aud-empty-update',
+        timestamp: '2026-08-17T10:00:00.000Z',
+        userFullName: 'Διαχειριστής Δήμου',
+        userRole: 'ADMIN',
+        user: 'Διαχειριστής Δήμου',
+        action: 'update',
+        entityType: 'subproject',
+        entityId: 'sub-lights',
+        entityTitle: 'Φωτισμός κόμβου',
+        changes: { 'Τίτλος': { old: 'Φωτισμός κόμβου', new: 'Φωτισμός  κόμβου' } }
+      },
+      {
+        id: 'aud-old-psk',
+        timestamp: '2026-08-16T10:00:00.000Z',
+        userFullName: 'Παλιά καταγραφή',
+        userRole: '',
+        user: 'Παλιά καταγραφή',
+        action: 'create',
+        entityType: 'prosklisi',
+        entityId: 'psk-old',
+        entityTitle: 'Παλιά πρόσκληση'
+      }
+    ],
+    auditOpen: false,
+    auditEntity: '',
+    auditAction: '',
+    khmdhsLocks: { 'sub-legacy': true },
+    khmdhsOpen: false,
+    khmdhsOnlyStale: true,
+    postFetchQueue: null,
+    postFetchActiveTask: null,
+    postFetchKind: {
+      kind: '',
+      endDate: '',
+      modAmount: '',
+      modAmountType: '',
+      modDate: '',
+      correctsAdam: '',
+      correctsParts: [],
+      hasKhmdhsAmount: false,
+      hasKhmdhsDate: false,
+      isRoot: false
+    },
+    portalOpen: false,
+    portalEnabled: true,
+    portalDimosUid: 'archanes-asterousion',
+    portalPublishedIds: [],
+    portalLastExportedIds: [],
+    portalSelectedIds: [],
+    portalSearch: '',
+    portalFilterPublished: 'all',
+    portalFilterStatus: '',
+    portalMergeCompleted: false,
+    portalExportError: '',
+    portalExported: false
   };
 
   function currentUser() {
     if (state.role === 'ENGINEER') {
-      return { username: 'maria', role: 'ENGINEER', assignedSupervisors: [] };
+      return { username: 'maria', role: 'ENGINEER', fullName: 'Μαρία Παπαδοπούλου', assignedSupervisors: [] };
     }
     if (state.role === 'USER') {
-      return { username: 'viewer', role: 'USER' };
+      return { username: 'viewer', role: 'USER', fullName: 'Απλός χρήστης' };
     }
-    return { username: 'admin', role: 'ADMIN' };
+    if (state.role === 'SUPERADMIN') {
+      return { username: 'superadmin', role: 'SUPERADMIN', fullName: 'Υπερδιαχειριστής' };
+    }
+    return { username: 'admin', role: 'ADMIN', fullName: 'Διαχειριστής Δήμου' };
   }
 
   function calendarEvents() {
     var visibleCustom = cal.visibleCustomEventsForUser(state.customEvents, currentUser());
     return cal.mergeCalendarEventLists(
       cal.buildProsklisiCalendarEvents(state.proskliseis),
-      cal.buildCustomCalendarEvents(visibleCustom)
+      cal.buildCustomCalendarEvents(visibleCustom),
+      cal.buildProcurementCalendarEvents(state.calendarProjects, {
+        userRole: state.role,
+        currentUser: currentUser()
+      })
     );
   }
 
   function renderEventRow(host, ev, prefix) {
     var el = document.createElement('article');
     el.className = 'card';
-    el.dataset.testid = prefix + (ev.prosklisiId || ev.customEventId || ev.subprojectId || 'x');
+    el.dataset.testid = prefix + (ev.prosklisiId || ev.customEventId || (ev.type && ev.subprojectId ? ev.type + '-' + ev.subprojectId : '') || 'x');
     if (ev.prosklisiId) el.setAttribute('data-prosklisi-id', ev.prosklisiId);
     if (ev.customEventId) el.setAttribute('data-custom-id', ev.customEventId);
     el.setAttribute('data-event-type', ev.type);
@@ -410,6 +595,47 @@
       { includePastDeadlines: true }
     );
     listed.forEach(function (ev) { renderEventRow(listHost, ev, 'cal-event-'); });
+    document.getElementById('btn-new-custom').hidden = !cal.canCreateCustomCalendarEvent(currentUser());
+  }
+
+  function openCustomCreate() {
+    if (!cal.canCreateCustomCalendarEvent(currentUser())) return;
+    document.getElementById('custom-create-title').value = '';
+    document.getElementById('custom-create-date').value = '';
+    document.getElementById('custom-create-eng-only').checked = false;
+    var err = document.getElementById('custom-create-error');
+    err.hidden = true;
+    err.textContent = '';
+    document.getElementById('custom-create-panel').hidden = false;
+  }
+
+  function closeCustomCreate() {
+    document.getElementById('custom-create-panel').hidden = true;
+    document.getElementById('custom-create-error').hidden = true;
+  }
+
+  function saveCustomCreate() {
+    var title = document.getElementById('custom-create-title').value;
+    var date = document.getElementById('custom-create-date').value;
+    var errors = cal.collectCustomEventRequiredErrors({ title: title, date: date });
+    var first = errors.title || errors.date;
+    var err = document.getElementById('custom-create-error');
+    if (first) {
+      err.hidden = false;
+      err.textContent = first;
+      return;
+    }
+    var user = currentUser();
+    state.customEvents.push({
+      id: 'evt-created',
+      title: String(title).trim(),
+      dateIso: cal.isoFromDateAndTime(date, ''),
+      visibilityRoles: document.getElementById('custom-create-eng-only').checked ? ['ENGINEER'] : [],
+      visibilityUsernames: [],
+      createdBy: user.username
+    });
+    closeCustomCreate();
+    renderCalendar();
   }
 
   function openCalendar() {
@@ -446,6 +672,17 @@
         '<h3>' + escapeHtml(p.title) + '</h3>' +
         '<p data-field="code">' + escapeHtml(p.code || '') + '</p>' +
         '<p data-field="deadline">' + escapeHtml(effective) + '</p>';
+      if (psk.showProsklisiDeleteAction(state.role)) {
+        var pskDel = document.createElement('button');
+        pskDel.type = 'button';
+        pskDel.dataset.testid = 'psk-delete-' + p.prosklisiId;
+        pskDel.textContent = 'Διαγραφή';
+        pskDel.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          requestWorkflowDelete('prosklisi', p.prosklisiId);
+        });
+        el.appendChild(pskDel);
+      }
       host.appendChild(el);
     });
     document.getElementById('btn-new-prosklisi').hidden = !psk.showNewProsklisiButton(state.role);
@@ -482,6 +719,17 @@
           '<h3>' + escapeHtml(e.subject) + '</h3>' +
           '<p data-field="project">' + escapeHtml(e.projectTitle || '') + '</p>' +
           '<p data-field="amount">' + escapeHtml(ent.formatEntaxiAmount(ent.getEntaxiCurrentTotal(e))) + '</p>';
+        if (ent.showEntaxiDeleteAction(state.role)) {
+          var entDel = document.createElement('button');
+          entDel.type = 'button';
+          entDel.dataset.testid = 'ent-delete-' + e.entaxiId;
+          entDel.textContent = 'Διαγραφή';
+          entDel.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            requestWorkflowDelete('entaxi', e.entaxiId);
+          });
+          card.appendChild(entDel);
+        }
         section.appendChild(card);
       });
       host.appendChild(section);
@@ -499,6 +747,180 @@
   function closeEntaxeis() {
     state.entaxiOpen = false;
     document.getElementById('entaxi-panel').hidden = true;
+  }
+
+  function showFieldErrors(listId, errors) {
+    var host = document.getElementById(listId);
+    var keys = Object.keys(errors || {});
+    host.hidden = keys.length === 0;
+    host.innerHTML = keys.map(function (k) {
+      return '<li data-error-field="' + k + '">' + escapeHtml(errors[k]) + '</li>';
+    }).join('');
+  }
+
+  function openEntaxiCreate() {
+    if (!ent.showNewEntaxiButton(state.role)) return;
+    document.getElementById('ent-create-date').value = '';
+    document.getElementById('ent-create-authority').value = '';
+    document.getElementById('ent-create-amount').value = '';
+    document.getElementById('ent-create-subject').value = '';
+    document.getElementById('ent-create-has-pdf').checked = false;
+    showFieldErrors('ent-create-errors', {});
+    document.getElementById('entaxi-create-panel').hidden = false;
+  }
+
+  function closeEntaxiCreate() {
+    document.getElementById('entaxi-create-panel').hidden = true;
+    showFieldErrors('ent-create-errors', {});
+  }
+
+  function readEntaxiCreateForm() {
+    return {
+      documentDate: document.getElementById('ent-create-date').value,
+      fundingAuthority: document.getElementById('ent-create-authority').value,
+      initialAmount: document.getElementById('ent-create-amount').value,
+      subject: document.getElementById('ent-create-subject').value,
+      entaxiPDFs: document.getElementById('ent-create-has-pdf').checked
+        ? [{ fileName: 'ένταξη.pdf' }]
+        : []
+    };
+  }
+
+  function saveEntaxiCreate() {
+    var form = readEntaxiCreateForm();
+    var errors = ent.collectEntaxiRequiredErrors(form, { isNew: true });
+    showFieldErrors('ent-create-errors', errors);
+    if (Object.keys(errors).length) return;
+    state.entaxeis.push({
+      entaxiId: 'ent-created',
+      subject: form.subject,
+      projectTitle: '',
+      initialAmount: form.initialAmount,
+      subprojectIds: [],
+      documentDate: form.documentDate,
+      fundingAuthority: form.fundingAuthority,
+      entaxiPDFs: form.entaxiPDFs
+    });
+    closeEntaxiCreate();
+    renderEntaxeis();
+  }
+
+  function openProsklisiCreate() {
+    if (!psk.showNewProsklisiButton(state.role)) return;
+    document.getElementById('psk-create-title').value = '';
+    document.getElementById('psk-create-axis').value = '';
+    showFieldErrors('psk-create-errors', {});
+    document.getElementById('psk-create-panel').hidden = false;
+  }
+
+  function closeProsklisiCreate() {
+    document.getElementById('psk-create-panel').hidden = true;
+    showFieldErrors('psk-create-errors', {});
+  }
+
+  function saveProsklisiCreate() {
+    var form = {
+      title: document.getElementById('psk-create-title').value,
+      axis: document.getElementById('psk-create-axis').value
+    };
+    var errors = psk.collectProsklisiRequiredErrors(form);
+    showFieldErrors('psk-create-errors', errors);
+    if (Object.keys(errors).length) return;
+    state.proskliseis.push({
+      prosklisiId: 'psk-created',
+      title: String(form.title).trim(),
+      axis: String(form.axis).trim(),
+      deadline: '',
+      status: 'Υπό Ωρίμανση',
+      code: '',
+      linkedProjects: []
+    });
+    closeProsklisiCreate();
+    renderProskliseis();
+  }
+
+  function requestWorkflowDelete(kind, id) {
+    state.pendingWorkflowDelete = { kind: kind, id: id };
+    var titleEl = document.getElementById('workflow-delete-title');
+    var msgEl = document.querySelector('[data-testid="workflow-delete-message"]');
+    if (kind === 'entaxi') {
+      titleEl.textContent = 'Διαγραφή Ένταξης';
+      msgEl.textContent = 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την ένταξη;';
+    } else if (kind === 'user') {
+      titleEl.textContent = 'Διαγραφή Χρήστη';
+      msgEl.textContent = 'Είστε σίγουροι ότι θέλετε να διαγράψετε τον χρήστη "' + id + '";';
+    } else if (kind === 'audit-clear') {
+      titleEl.textContent = 'Εκκαθάριση Ιστορικού Ενεργειών';
+      msgEl.textContent = 'Πρόκειται να διαγράψετε όλες τις καταγραφές από το ιστορικό ενεργειών.';
+    } else {
+      titleEl.textContent = 'Διαγραφή Πρόσκλησης';
+      msgEl.textContent = 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την πρόσκληση;';
+    }
+    document.getElementById('workflow-delete-error').hidden = true;
+    document.getElementById('workflow-delete-confirm').hidden = false;
+  }
+
+  function cancelWorkflowDelete() {
+    state.pendingWorkflowDelete = null;
+    document.getElementById('workflow-delete-confirm').hidden = true;
+    document.getElementById('workflow-delete-error').hidden = true;
+  }
+
+  function confirmWorkflowDelete() {
+    var pending = state.pendingWorkflowDelete;
+    if (!pending) return;
+    var err = document.getElementById('workflow-delete-error');
+    if (pending.kind === 'entaxi') {
+      var entDecision = ent.evaluateEntaxiDelete(pending.id);
+      if (!entDecision.ok) {
+        err.hidden = false;
+        err.textContent = 'Λείπει η ταυτότητα της ένταξης';
+        return;
+      }
+      state.entaxeis = ent.removeEntaxiFromList(state.entaxeis, pending.id);
+      cancelWorkflowDelete();
+      renderEntaxeis();
+      return;
+    }
+    if (pending.kind === 'user') {
+      var target = state.users.filter(function (u) { return u.username === pending.id; })[0] || null;
+      var userDecision = usersCore.evaluateDeleteUser({
+        actorIsSuperAdmin: state.role === 'SUPERADMIN',
+        target: target,
+        users: state.users
+      });
+      if (!userDecision.ok) {
+        err.hidden = false;
+        err.textContent = userDecision.error;
+        return;
+      }
+      state.users = usersCore.removeUserFromList(state.users, pending.id);
+      cancelWorkflowDelete();
+      renderUsers();
+      return;
+    }
+    if (pending.kind === 'audit-clear') {
+      var clearDecision = auditCore.evaluateClearAuditLog(state.role === 'SUPERADMIN');
+      if (!clearDecision.ok) {
+        err.hidden = false;
+        err.textContent = clearDecision.error;
+        return;
+      }
+      var cleared = auditCore.clearAuditLogs(state.auditLogs, 0);
+      state.auditLogs = cleared.logs;
+      cancelWorkflowDelete();
+      renderAudit();
+      return;
+    }
+    var pskDecision = psk.evaluateProsklisiDelete(pending.id);
+    if (!pskDecision.ok) {
+      err.hidden = false;
+      err.textContent = 'Λείπει η ταυτότητα της πρόσκλησης';
+      return;
+    }
+    state.proskliseis = psk.removeProsklisiFromList(state.proskliseis, pending.id);
+    cancelWorkflowDelete();
+    renderProskliseis();
   }
 
   function renderEgkriseis() {
@@ -652,12 +1074,37 @@
           '<p data-field="ka">ΚΑ: ' + escapeHtml(p.kaCode || '—') + '</p>' +
           '<p class="charge" data-field="charge">' + escapeHtml(charge.displayChargePrimary || '—') + '</p>';
         el.addEventListener('click', function () { openRead(p.subprojectId); });
+        if (reports.showCardReportButton()) {
+          var reportBtn = document.createElement('button');
+          reportBtn.type = 'button';
+          reportBtn.dataset.testid = 'card-report-' + p.subprojectId;
+          reportBtn.textContent = 'Αναφορά υποέργου';
+          reportBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            openCardReport(p.subprojectId);
+          });
+          el.appendChild(reportBtn);
+        }
         group.appendChild(el);
       });
       host.appendChild(group);
     });
     document.getElementById('btn-archived').setAttribute('aria-pressed', state.showArchived ? 'true' : 'false');
     document.getElementById('btn-new').hidden = state.role !== 'ADMIN';
+    document.getElementById('btn-users').hidden = !usersCore.showUserManagementButton(state.role);
+    document.getElementById('btn-audit').hidden = !auditCore.showAuditLogButton(state.role);
+    document.getElementById('btn-batch-khmdhs').hidden = !khmdhs.showBatchRefreshButton(state.role);
+    document.getElementById('btn-excel').hidden = !excel.showExcelImportButton(state.role);
+    document.getElementById('btn-stats').hidden = !reports.showStatisticsButton(state.role);
+    document.getElementById('btn-technical').hidden = !reports.showTechnicalProgramButton(state.role);
+    document.getElementById('btn-export').hidden = !reports.showDataExportButton(state.role);
+    document.getElementById('btn-pdf').hidden = !reports.showPdfReportsButton(state.role);
+    document.getElementById('btn-portal').hidden = !portal.showPortalButton(state.role);
+    if (state.statsOpen) renderStats();
+    if (state.pdfOpen) renderPdfReports();
+    if (state.portalOpen) renderPortal();
+    if (state.technicalOpen) renderTechnical();
+    if (state.exportOpen) renderExport();
   }
 
   function openRead(sid) {
@@ -678,6 +1125,25 @@
     document.querySelector('[data-testid="read-ka"]').textContent = project.kaCode || '';
     document.querySelector('[data-testid="read-charge"]').textContent = charge.displayChargePrimary || '';
     document.querySelector('[data-testid="read-status"]').textContent = project.projectStatus || '';
+    renderReadPortal(project);
+    syncReadKhmdhsButton();
+  }
+
+  function renderReadPortal(project) {
+    var box = document.getElementById('read-portal');
+    var show = portal.showPortalCardSection(state.portalEnabled);
+    box.hidden = !show;
+    if (!show) return;
+    var status = portal.resolvePortalCardStatus({
+      selectedForNext: (state.portalSelectedIds || []).indexOf(project.subprojectId) >= 0,
+      lastExported: (state.portalLastExportedIds || []).indexOf(project.subprojectId) >= 0
+    });
+    document.querySelector('[data-testid="read-portal-status"]').textContent = status.title;
+    document.querySelector('[data-testid="read-portal-status"]').setAttribute('data-kind', status.kind);
+    var btn = document.getElementById('btn-read-portal-toggle');
+    var canToggle = portal.canTogglePortalOnCard(state.role);
+    btn.hidden = !canToggle;
+    btn.textContent = status.button;
   }
 
   function ensureFiles(sid) {
@@ -1064,6 +1530,728 @@
     renderCards();
   }
 
+  function renderUsers() {
+    var parts = usersCore.partitionUsersByApproval(state.users);
+    var me = currentUser();
+    var pendingHost = document.getElementById('users-pending');
+    var approvedHost = document.getElementById('users-approved');
+    pendingHost.innerHTML = '';
+    approvedHost.innerHTML = '';
+    parts.pending.forEach(function (u) {
+      var row = document.createElement('article');
+      row.className = 'card';
+      row.dataset.testid = 'user-pending-' + u.username;
+      row.innerHTML = '<h3>' + escapeHtml(u.username) + '</h3><p>' + escapeHtml(u.fullName || '') + '</p>';
+      var approve = document.createElement('button');
+      approve.type = 'button';
+      approve.dataset.testid = 'user-approve-' + u.username;
+      approve.textContent = 'Έγκριση';
+      approve.addEventListener('click', function () {
+        state.users = usersCore.approveUserInList(state.users, u.username);
+        renderUsers();
+      });
+      var reject = document.createElement('button');
+      reject.type = 'button';
+      reject.dataset.testid = 'user-reject-' + u.username;
+      reject.textContent = 'Απόρριψη';
+      reject.addEventListener('click', function () {
+        requestWorkflowDelete('user', u.username);
+      });
+      row.appendChild(approve);
+      row.appendChild(reject);
+      pendingHost.appendChild(row);
+    });
+    parts.approved.forEach(function (u) {
+      var row = document.createElement('article');
+      row.className = 'card';
+      row.dataset.testid = 'user-card-' + u.username;
+      row.innerHTML = '<h3>' + escapeHtml(u.username) + '</h3><p>' + escapeHtml(u.fullName || '') + '</p>';
+      if (usersCore.showUserDeleteAction(me.username, u)) {
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.dataset.testid = 'user-delete-' + u.username;
+        del.textContent = 'Διαγραφή';
+        del.addEventListener('click', function () {
+          requestWorkflowDelete('user', u.username);
+        });
+        row.appendChild(del);
+      }
+      approvedHost.appendChild(row);
+    });
+    document.getElementById('btn-users').hidden = !usersCore.showUserManagementButton(state.role);
+  }
+
+  function openUsers() {
+    if (!usersCore.showUserManagementButton(state.role)) return;
+    state.usersOpen = true;
+    document.getElementById('users-panel').hidden = false;
+    renderUsers();
+  }
+
+  function closeUsers() {
+    state.usersOpen = false;
+    document.getElementById('users-panel').hidden = true;
+    document.getElementById('user-create-panel').hidden = true;
+  }
+
+  function openUserCreate() {
+    if (!usersCore.showUserManagementButton(state.role)) return;
+    document.getElementById('user-create-username').value = '';
+    document.getElementById('user-create-fullname').value = '';
+    document.getElementById('user-create-password').value = '';
+    document.getElementById('user-create-role').value = 'USER';
+    var err = document.getElementById('user-create-error');
+    err.hidden = true;
+    err.textContent = '';
+    document.getElementById('user-create-panel').hidden = false;
+  }
+
+  function closeUserCreate() {
+    document.getElementById('user-create-panel').hidden = true;
+    document.getElementById('user-create-error').hidden = true;
+  }
+
+  function saveUserCreate() {
+    var form = {
+      username: document.getElementById('user-create-username').value,
+      fullName: document.getElementById('user-create-fullname').value,
+      password: document.getElementById('user-create-password').value,
+      role: document.getElementById('user-create-role').value
+    };
+    var decision = usersCore.evaluateCreateUser({
+      actorIsSuperAdmin: state.role === 'SUPERADMIN',
+      noUsersYet: state.users.length === 0,
+      username: form.username,
+      password: form.password,
+      role: form.role,
+      users: state.users
+    });
+    var err = document.getElementById('user-create-error');
+    if (!decision.ok) {
+      err.hidden = false;
+      err.textContent = decision.error;
+      return;
+    }
+    var username = String(form.username).trim();
+    state.users.push({
+      username: username,
+      role: form.role,
+      fullName: String(form.fullName).trim() || username,
+      approved: usersCore.newUserStartsApproved(form.role),
+      active: true
+    });
+    closeUserCreate();
+    renderUsers();
+  }
+
+  function visibleAuditLogs() {
+    var actor = currentUser();
+    var result = auditCore.evaluateGetAuditLog(state.auditLogs, actor, {
+      entityType: state.auditEntity || null,
+      action: state.auditAction || null
+    });
+    if (!result.ok) return [];
+    return auditCore.dropEmptyUpdateLogs(result.logs);
+  }
+
+  function renderAudit() {
+    var actor = currentUser();
+    document.getElementById('audit-visibility').textContent = auditCore.getAuditVisibilityText(actor.role);
+    var logs = visibleAuditLogs();
+    var stats = auditCore.summarizeAuditStats(logs);
+    document.querySelector('[data-testid="audit-stat-total"]').textContent = String(stats.total);
+    document.querySelector('[data-testid="audit-stat-creates"]').textContent = String(stats.creates);
+    document.querySelector('[data-testid="audit-stat-updates"]').textContent = String(stats.updates);
+    document.querySelector('[data-testid="audit-stat-deletes"]').textContent = String(stats.deletes);
+    document.getElementById('btn-audit-clear').hidden = !auditCore.showClearAuditButton(actor.role, logs.length);
+    var empty = document.getElementById('audit-empty');
+    var host = document.getElementById('audit-list');
+    host.innerHTML = '';
+    if (!logs.length) {
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+    logs.forEach(function (log) {
+      var el = document.createElement('article');
+      el.className = 'card';
+      el.dataset.testid = 'audit-log-' + log.id;
+      el.setAttribute('data-audit-id', log.id);
+      el.innerHTML =
+        '<h3 data-field="audit-title">' + escapeHtml(log.entityTitle) + '</h3>' +
+        '<p data-field="audit-user">' + escapeHtml(log.userFullName || log.user || '') + '</p>' +
+        '<p data-field="audit-type">' + escapeHtml(auditCore.getEntityTypeLabel(log.entityType)) + '</p>' +
+        '<p data-field="audit-action">' + escapeHtml(auditCore.getActionLabel(log.action)) + '</p>';
+      host.appendChild(el);
+    });
+  }
+
+  function openAudit() {
+    if (!auditCore.showAuditLogButton(state.role)) return;
+    state.auditOpen = true;
+    document.getElementById('audit-panel').hidden = false;
+    renderAudit();
+  }
+
+  function closeAudit() {
+    state.auditOpen = false;
+    document.getElementById('audit-panel').hidden = true;
+  }
+
+  function requestAuditClear() {
+    if (!auditCore.showClearAuditButton(state.role, visibleAuditLogs().length)) return;
+    requestWorkflowDelete('audit-clear', '');
+  }
+
+  function engineerSeesProject(project) {
+    var ctx = core.buildEngineerVisibilityContext(currentUser(), currentUser().assignedSupervisors);
+    return core.projectVisibleToAssignedEngineer(project, ctx);
+  }
+
+  function syncReadKhmdhsButton() {
+    var btn = document.getElementById('btn-khmdhs-refresh');
+    var err = document.getElementById('khmdhs-refresh-error');
+    err.hidden = true;
+    err.textContent = '';
+    var project = state.readingId ? findBySid(state.readingId) : null;
+    if (!project) {
+      btn.hidden = true;
+      return;
+    }
+    var canRefresh = khmdhs.canUserRefreshKhmdhs(currentUser(), project, {
+      visibleToEngineer: engineerSeesProject(project)
+    });
+    var hasSeed = !!khmdhs.getKhmdhsRefreshSeedAdam(project).adam;
+    btn.hidden = !khmdhs.showCardRefreshButton(canRefresh, hasSeed);
+  }
+
+  function startSingleKhmdhsRefresh() {
+    var project = state.readingId ? findBySid(state.readingId) : null;
+    var err = document.getElementById('khmdhs-refresh-error');
+    var actor = currentUser();
+    var decision = khmdhs.evaluateSingleRefreshStart({
+      username: actor.username,
+      actor: actor,
+      subprojectId: state.readingId,
+      project: project,
+      locked: !!(project && state.khmdhsLocks[project.subprojectId]),
+      lockedBy: 'Νίκος',
+      seedAdam: project ? khmdhs.getKhmdhsRefreshSeedAdam(project).adam : '',
+      visibleToEngineer: project ? engineerSeesProject(project) : false
+    });
+    if (!decision.ok) {
+      err.hidden = false;
+      err.textContent = decision.error;
+      return;
+    }
+    project.khmdhsChainLastRefreshedAt = new Date().toISOString();
+    err.hidden = true;
+    if (state.khmdhsOpen) renderKhmdhsBatch();
+  }
+
+  function batchRows() {
+    return khmdhs.classifyProjectsForBatch(state.projects, {
+      locks: state.khmdhsLocks,
+      onlyStale: state.khmdhsOnlyStale
+    });
+  }
+
+  function renderKhmdhsBatch() {
+    var rows = batchRows();
+    var eligHost = document.getElementById('khmdhs-eligible');
+    var skipHost = document.getElementById('khmdhs-skipped');
+    eligHost.innerHTML = '';
+    skipHost.innerHTML = '';
+    rows.eligible.forEach(function (row) {
+      var el = document.createElement('article');
+      el.className = 'card';
+      el.dataset.testid = 'khmdhs-eligible-' + row.id;
+      el.textContent = row.label;
+      eligHost.appendChild(el);
+    });
+    rows.skipped.forEach(function (row) {
+      var el = document.createElement('article');
+      el.className = 'card';
+      el.dataset.testid = 'khmdhs-skipped-' + row.id;
+      el.setAttribute('data-reason', row.reason);
+      el.innerHTML = escapeHtml(row.label) + ' — ' + escapeHtml(row.reason);
+      skipHost.appendChild(el);
+    });
+    document.getElementById('khmdhs-batch-empty').hidden = rows.eligible.length > 0;
+    document.getElementById('btn-khmdhs-stale').setAttribute('aria-pressed', state.khmdhsOnlyStale ? 'true' : 'false');
+    document.getElementById('btn-khmdhs-all').setAttribute('aria-pressed', state.khmdhsOnlyStale ? 'false' : 'true');
+  }
+
+  function openKhmdhsBatch() {
+    if (!khmdhs.showBatchRefreshButton(state.role)) return;
+    state.khmdhsOpen = true;
+    document.getElementById('khmdhs-batch-panel').hidden = false;
+    renderKhmdhsBatch();
+  }
+
+  function closeKhmdhsBatch() {
+    state.khmdhsOpen = false;
+    document.getElementById('khmdhs-batch-panel').hidden = true;
+  }
+
+  function syncResumePending() {
+    var btn = document.getElementById('btn-resume-pending');
+    var has = pf.queueHasPendingWork(state.postFetchQueue);
+    var listOpen = !document.getElementById('pending-list').hidden;
+    btn.hidden = !has || listOpen;
+  }
+
+  function hidePostFetchPanels() {
+    document.getElementById('post-fetch-setup').hidden = true;
+    document.getElementById('post-fetch-gate').hidden = true;
+    document.getElementById('pending-list').hidden = true;
+    document.getElementById('pending-detail').hidden = true;
+    syncResumePending();
+  }
+
+  function openPostFetchSetup() {
+    hidePostFetchPanels();
+    document.getElementById('post-fetch-setup').hidden = false;
+  }
+
+  function showGate(kind, title) {
+    hidePostFetchPanels();
+    document.getElementById('post-fetch-gate').hidden = false;
+    document.querySelector('[data-testid="post-fetch-gate-title"]').textContent = title || '';
+    document.querySelector('[data-testid="post-fetch-gate-kind"]').textContent = kind || '';
+  }
+
+  function showPendingList() {
+    document.getElementById('post-fetch-setup').hidden = true;
+    document.getElementById('post-fetch-gate').hidden = true;
+    document.getElementById('pending-detail').hidden = true;
+    document.getElementById('pending-list').hidden = false;
+    renderPendingList();
+    syncResumePending();
+  }
+
+  function renderPendingList() {
+    var box = document.getElementById('pending-tasks');
+    var empty = document.getElementById('pending-empty');
+    box.innerHTML = '';
+    var tasks = (state.postFetchQueue && state.postFetchQueue.tasks) || [];
+    empty.hidden = tasks.length > 0;
+    tasks.forEach(function (task) {
+      var row = document.createElement('div');
+      row.setAttribute('data-testid', 'pending-task-' + task.id);
+      var q = document.createElement('p');
+      q.textContent = task.question;
+      var d = document.createElement('p');
+      d.textContent = task.detail || '';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Άνοιγμα';
+      btn.setAttribute('data-testid', 'open-task-' + task.id);
+      btn.addEventListener('click', function () { openPendingTask(task.id); });
+      row.appendChild(q);
+      row.appendChild(d);
+      row.appendChild(btn);
+      box.appendChild(row);
+    });
+  }
+
+  function resetKindDraft(extra) {
+    state.postFetchKind = {
+      kind: '',
+      endDate: '',
+      modAmount: '',
+      modAmountType: '',
+      modDate: '',
+      correctsAdam: '',
+      correctsParts: [],
+      hasKhmdhsAmount: false,
+      hasKhmdhsDate: false,
+      isRoot: false
+    };
+    if (extra) {
+      Object.keys(extra).forEach(function (k) { state.postFetchKind[k] = extra[k]; });
+    }
+  }
+
+  function fillKindSelect() {
+    var sel = document.getElementById('chain-kind');
+    var current = sel.value;
+    sel.innerHTML = '';
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Επιλέξτε είδος';
+    sel.appendChild(blank);
+    pf.buildChainKindSelectOptions().forEach(function (opt) {
+      var o = document.createElement('option');
+      o.value = opt.value;
+      o.textContent = opt.label;
+      sel.appendChild(o);
+    });
+    sel.value = current || state.postFetchKind.kind || '';
+  }
+
+  function readKindDraftFromForm() {
+    var parts = [];
+    ['title', 'amount', 'date'].forEach(function (part) {
+      var el = document.querySelector('[data-testid="kind-part-' + part + '"]');
+      if (el && el.checked) parts.push(part);
+    });
+    state.postFetchKind.kind = document.getElementById('chain-kind').value;
+    state.postFetchKind.endDate = document.getElementById('kind-end-date').value;
+    state.postFetchKind.modAmount = document.getElementById('kind-mod-amount').value;
+    state.postFetchKind.modAmountType = document.getElementById('kind-mod-type').value;
+    state.postFetchKind.modDate = document.getElementById('kind-mod-date').value;
+    state.postFetchKind.correctsAdam = document.getElementById('kind-corrects-adam').value;
+    state.postFetchKind.correctsParts = parts;
+    return state.postFetchKind;
+  }
+
+  function renderKindForm() {
+    var draft = state.postFetchKind;
+    var showCard = pf.shouldShowCharacterizationCard(draft);
+    document.getElementById('kind-form').hidden = false;
+    document.querySelector('[data-testid="kind-root-note"]').hidden = showCard;
+    document.getElementById('chain-kind').disabled = !showCard;
+    fillKindSelect();
+    document.getElementById('chain-kind').value = draft.kind || '';
+    var profile = draft.kind ? pf.getChainKindFieldProfile(draft.kind, draft) : null;
+    document.getElementById('kind-profile-title').textContent = profile ? profile.title : '';
+    document.getElementById('kind-profile-hint').textContent = profile ? profile.hint : '';
+    document.getElementById('kind-end-wrap').hidden = !(profile && profile.needsEndDate);
+    document.getElementById('kind-amount-wrap').hidden = !(profile && profile.needsModAmount);
+    document.getElementById('kind-type-wrap').hidden = !(profile && profile.needsModAmountType);
+    document.getElementById('kind-mod-date-wrap').hidden = !(profile && profile.needsModDate);
+    document.getElementById('kind-corrects-wrap').hidden = !(profile && profile.needsRepublicationTarget);
+    document.getElementById('kind-parts-wrap').hidden = !(profile && profile.needsRepublicationTarget);
+    document.getElementById('kind-end-date').value = draft.endDate || '';
+    document.getElementById('kind-mod-amount').value = draft.modAmount || '';
+    document.getElementById('kind-mod-type').value = draft.modAmountType || '';
+    document.getElementById('kind-mod-date').value = draft.modDate || '';
+    document.getElementById('kind-corrects-adam').value = draft.correctsAdam || '';
+    ['title', 'amount', 'date'].forEach(function (part) {
+      var el = document.querySelector('[data-testid="kind-part-' + part + '"]');
+      if (el) el.checked = (draft.correctsParts || []).indexOf(part) >= 0;
+    });
+    var validation = pf.validateChainKindDraft(draft);
+    var err = document.getElementById('kind-error');
+    if (!showCard || validation.ok) {
+      err.hidden = true;
+      err.textContent = '';
+      return;
+    }
+    err.hidden = false;
+    err.textContent = validation.message || '';
+  }
+
+  function openPendingTask(taskId) {
+    var task = ((state.postFetchQueue && state.postFetchQueue.tasks) || []).find(function (t) {
+      return t.id === taskId;
+    });
+    if (!task) return;
+    state.postFetchActiveTask = task;
+    hidePostFetchPanels();
+    document.getElementById('pending-detail').hidden = false;
+    document.querySelector('[data-testid="pending-detail-title"]').textContent = task.question;
+    document.querySelector('[data-testid="pending-detail-body"]').textContent = task.detail || '';
+    if (task.type === pf.POST_APPLY_TASK.DATA_REVIEW) {
+      resetKindDraft(state.postFetchKindScenario || {});
+      renderKindForm();
+    } else {
+      document.getElementById('kind-form').hidden = true;
+    }
+  }
+
+  function completeActiveTask() {
+    if (!state.postFetchActiveTask) return;
+    if (state.postFetchActiveTask.type === pf.POST_APPLY_TASK.DATA_REVIEW) {
+      var draft = readKindDraftFromForm();
+      if (!pf.shouldShowCharacterizationCard(draft)) {
+        // ρίζα: δεν χρειάζεται χαρακτηρισμός
+      } else if (!pf.validateChainKindDraft(draft).ok) {
+        renderKindForm();
+        return;
+      }
+    }
+    var next = pf.removeTaskFromQueue(state.postFetchQueue, state.postFetchActiveTask.id);
+    state.postFetchQueue = next;
+    state.postFetchActiveTask = null;
+    var ret = pf.resolveReturnToPendingList(next);
+    if (ret.openPendingTasks) showPendingList();
+    else {
+      hidePostFetchPanels();
+      document.getElementById('pending-empty').hidden = false;
+      document.getElementById('pending-list').hidden = false;
+      renderPendingList();
+    }
+  }
+
+  function laterFromDetail() {
+    var reopen = pf.resolveReopenPendingList(state.postFetchQueue);
+    state.postFetchActiveTask = null;
+    if (reopen.openPendingTasks) showPendingList();
+    else hidePostFetchPanels();
+  }
+
+  function laterFromList() {
+    hidePostFetchPanels();
+  }
+
+  function applyQueueAndUi(queue, uiOpts) {
+    state.postFetchQueue = queue;
+    var ui = pf.resolvePostFetchUi(queue, uiOpts || {});
+    if (ui.openPendingTasks) showPendingList();
+    else {
+      hidePostFetchPanels();
+      if (uiOpts && (uiOpts.suppress || uiOpts.skip)) {
+        showGate('suppress', 'Η μαζική ανανέωση δεν ανοίγει παράθυρα.');
+      } else {
+        showGate('none', 'Δεν υπάρχουν εκκρεμότητες.');
+      }
+    }
+  }
+
+  function runFetchScenario() {
+    var name = document.getElementById('fetch-scenario').value;
+    if (!name) return;
+    state.postFetchKindScenario = { hasKhmdhsAmount: false, hasKhmdhsDate: false, isRoot: false };
+    var startMap = {
+      invalid_adam: { invalidAdam: true },
+      dup_symv: { duplicateSymv: true },
+      supplementary: { routeSupplementary: true }
+    };
+    if (startMap[name]) {
+      var start = pf.resolveFetchStartGate(startMap[name]);
+      showGate(start.next, pf.fetchStartTitle(start.next));
+      return;
+    }
+
+    var preMap = {
+      branch: { needsBranchPicker: true },
+      planner: { offerSymvPlanner: true },
+      planner_reuse: { offerSymvPlanner: true, reusableSymvPlan: true },
+      duplicate_anchor: { hasDuplicateConflict: true },
+      stitch_a: { offerStitchA: true },
+      defer: { deferCancelledSeed: true }
+    };
+    if (preMap[name]) {
+      var pre = pf.resolvePreApplyGate(preMap[name]);
+      if (pre.next !== pf.PRE_APPLY.APPLY) {
+        showGate(pre.next, pf.preApplyTitle(pre.next));
+        return;
+      }
+      if (name === 'planner_reuse') {
+        showGate('apply', 'Το αποθηκευμένο σχέδιο εφαρμόζεται χωρίς νέο σχεδιασμό.');
+        return;
+      }
+    }
+
+    if (name === 'failed_reopen') {
+      var prev = pf.assemblePostApplyTasks({ unresolvedReviewCount: 2 });
+      state.postFetchQueue = prev;
+      var reopen = pf.resolveReopenAfterFailedFetch(prev, { listAlreadyOpen: false });
+      if (reopen.openPendingTasks) showPendingList();
+      else showGate('none', 'Δεν υπάρχουν εκκρεμότητες.');
+      return;
+    }
+
+    if (name === 'merge_supp') {
+      var previous = pf.assemblePostApplyTasks({
+        offerRegistry: true,
+        apeConflict: { contractLabel: 'Σύμβαση 1' }
+      });
+      var incoming = pf.assemblePostApplyTasks({ unresolvedReviewCount: 1 });
+      var merged = pf.mergePostApplyQueues(previous, incoming);
+      applyQueueAndUi(merged);
+      return;
+    }
+
+    if (name === 'root_no_card') {
+      state.postFetchKindScenario = { isRoot: true };
+      applyQueueAndUi(pf.assemblePostApplyTasks({ unresolvedReviewCount: 1 }));
+      return;
+    }
+
+    if (name === 'review_from_khmdhs') {
+      state.postFetchKindScenario = { hasKhmdhsAmount: true, hasKhmdhsDate: true, isRoot: false };
+      applyQueueAndUi(pf.assemblePostApplyTasks({ unresolvedReviewCount: 1 }));
+      return;
+    }
+
+    var taskFlags = {
+      clean: {},
+      review: { unresolvedReviewCount: 2 },
+      situation: { showSituation: true, situation: { title: 'Ελέγξτε τις προειδοποιήσεις της ανάκτησης.', message: 'Το αίτημα έχει προειδοποιήσεις.', requiresDecision: true } },
+      stitch_b: { stitchBSegments: [{}, {}] },
+      registry: { offerRegistry: true },
+      ape: { apeConflict: { contractLabel: 'Σύμβαση 1' } },
+      expiry: { expiry: { summary: 'Η σύμβαση έληξε.' } },
+      all_tasks: {
+        unresolvedReviewCount: 1,
+        showSituation: true,
+        situation: { title: 'Ελέγξτε τις προειδοποιήσεις της ανάκτησης.', message: 'Υπάρχουν αποφάσεις.', requiresDecision: true },
+        stitchBSegments: [{}, {}],
+        offerRegistry: true,
+        apeConflict: { contractLabel: 'Σύμβαση 1' },
+        expiry: { summary: 'Η σύμβαση έληξε.' }
+      },
+      batch_suppress: { unresolvedReviewCount: 2 }
+    };
+    var flags = taskFlags[name] || taskFlags.clean;
+    var queue = pf.assemblePostApplyTasks(flags);
+    applyQueueAndUi(queue, name === 'batch_suppress' ? { suppress: true } : {});
+  }
+
+  function excelScenarioRows(name) {
+    if (name === 'clean_new') {
+      return [
+        { excelRow: 2, projectTitle: 'Άρδευση Τεμένους', subprojectTitle: 'Δίκτυο Άνω Αρχανών', kaCode: 'ΚΑ-800' },
+        { excelRow: 3, projectTitle: 'Άρδευση Τεμένους', subprojectTitle: 'Αντλιοστάσιο', kaCode: 'ΚΑ-801' }
+      ];
+    }
+    if (name === 'with_duplicate') {
+      return [
+        { excelRow: 2, projectTitle: 'Οδικό δίκτυο Αρχανών', subprojectTitle: 'Γέφυρα Αγίου Σύλλα', kaCode: 'ΚΑ-999' },
+        { excelRow: 3, projectTitle: 'Νέο έργο εισαγωγής', subprojectTitle: 'Νέο υποέργο εισαγωγής', kaCode: 'ΚΑ-700' }
+      ];
+    }
+    if (name === 'case_spaces') {
+      return [
+        { excelRow: 2, projectTitle: '  Οδικό δίκτυο Αρχανών  ', subprojectTitle: 'γέφυρα αγίου σύλλα', kaCode: 'ΚΑ-999' }
+      ];
+    }
+    return [];
+  }
+
+  function buildExcelReport(name) {
+    if (name === 'parse_error') {
+      return {
+        parseErrors: [{ message: 'Το αρχείο δεν διαβάστηκε σωστά.' }],
+        errorRows: [],
+        validRows: [],
+        validCount: 0,
+        totalRows: 0,
+        existingCount: state.projects.length,
+        existingDuplicates: [],
+        versionOk: false
+      };
+    }
+    if (name === 'row_errors') {
+      return {
+        parseErrors: [],
+        errorRows: [{ excelRow: 2, messages: ['Λείπει ο τίτλος υποέργου'] }],
+        validRows: [],
+        validCount: 0,
+        totalRows: 1,
+        existingCount: state.projects.length,
+        existingDuplicates: [],
+        versionOk: true
+      };
+    }
+    if (name === 'empty_valid') {
+      return {
+        parseErrors: [],
+        errorRows: [],
+        validRows: [],
+        validCount: 0,
+        totalRows: 0,
+        existingCount: state.projects.length,
+        existingDuplicates: [],
+        versionOk: true
+      };
+    }
+    var validRows = excelScenarioRows(name);
+    return {
+      parseErrors: [],
+      errorRows: [],
+      validRows: validRows,
+      validCount: validRows.length,
+      totalRows: validRows.length,
+      existingCount: state.projects.length,
+      existingDuplicates: excel.collectExistingDuplicates(validRows, state.projects),
+      versionOk: true
+    };
+  }
+
+  function selectedExcelExistingMode() {
+    var wipe = document.querySelector('input[name="excel-existing"][value="wipe"]');
+    return wipe && wipe.checked ? 'wipe' : 'keep';
+  }
+
+  function selectedExcelDupPolicy() {
+    var update = document.querySelector('input[name="excel-dup"][value="update"]');
+    var create = document.querySelector('input[name="excel-dup"][value="create"]');
+    if (update && update.checked) return 'update';
+    if (create && create.checked) return 'create';
+    return 'skip';
+  }
+
+  function hideExcelPanel() {
+    document.getElementById('excel-panel').hidden = true;
+    state.excelOpen = false;
+  }
+
+  function resetExcelSteps() {
+    document.getElementById('excel-intro').hidden = false;
+    document.getElementById('excel-preview').hidden = true;
+    document.getElementById('excel-result').hidden = true;
+    state.excelReport = null;
+  }
+
+  function openExcel() {
+    if (!excel.showExcelImportButton(state.role)) return;
+    state.excelOpen = true;
+    resetExcelSteps();
+    document.getElementById('excel-panel').hidden = false;
+  }
+
+  function renderExcelPreview() {
+    var report = state.excelReport;
+    if (!report) return;
+    document.getElementById('excel-intro').hidden = true;
+    document.getElementById('excel-preview').hidden = false;
+    document.getElementById('excel-result').hidden = true;
+    document.querySelector('[data-testid="excel-total"]').textContent = String(report.totalRows || 0);
+    document.querySelector('[data-testid="excel-valid"]').textContent = String(report.validCount || 0);
+    document.querySelector('[data-testid="excel-errors"]').textContent = String((report.errorRows || []).length);
+    document.getElementById('excel-block').hidden = !((report.parseErrors && report.parseErrors.length) || (report.errorRows && report.errorRows.length));
+    document.getElementById('excel-empty').hidden = !!(report.parseErrors && report.parseErrors.length) || !!(report.errorRows && report.errorRows.length) || report.validCount > 0;
+    document.getElementById('excel-existing-choice').hidden = !excel.showExistingWorksChoice(report);
+    document.getElementById('excel-dup-choice').hidden = !excel.showDuplicatePolicyChoice(report, selectedExcelExistingMode());
+    document.querySelector('[data-testid="excel-dup-count"]').textContent = String((report.existingDuplicates || []).length);
+    document.getElementById('btn-excel-commit').disabled = !excel.canCommitImport(report);
+  }
+
+  function previewExcelScenario() {
+    var name = document.getElementById('excel-scenario').value;
+    if (!name) return;
+    state.excelReport = buildExcelReport(name);
+    renderExcelPreview();
+  }
+
+  function commitExcelImport() {
+    var report = state.excelReport;
+    var policy = selectedExcelDupPolicy();
+    var wipe = selectedExcelExistingMode() === 'wipe';
+    var gate = excel.evaluateCommitImport(report, policy);
+    if (!gate.ok) return;
+    var result = excel.applyImportPlan(state.projects, report.validRows, {
+      wipeExisting: wipe,
+      duplicatePolicy: policy
+    });
+    state.projects = result.projects;
+    persistAll();
+    document.getElementById('persist-dump').textContent = JSON.stringify(result);
+    document.getElementById('excel-preview').hidden = true;
+    document.getElementById('excel-intro').hidden = true;
+    document.getElementById('excel-result').hidden = false;
+    document.querySelector('[data-testid="excel-created"]').textContent = String(result.created);
+    document.querySelector('[data-testid="excel-updated"]').textContent = String(result.updated);
+    document.querySelector('[data-testid="excel-skipped"]').textContent = String(result.skipped);
+    document.getElementById('excel-deleted-wrap').hidden = !result.wipeExisting;
+    document.querySelector('[data-testid="excel-deleted"]').textContent = String(result.deletedProjects || 0);
+    renderCards();
+  }
+
   document.getElementById('role-select').addEventListener('change', function (e) {
     state.role = e.target.value;
     renderCards();
@@ -1073,6 +2261,19 @@
     if (state.egkrisiOpen) renderEgkriseis();
     if (state.filesOpen) renderFiles();
     if (state.taskOpen) renderTasks();
+    if (state.usersOpen) renderUsers();
+    if (state.auditOpen) renderAudit();
+    if (state.khmdhsOpen) renderKhmdhsBatch();
+    if (state.readingId) syncReadKhmdhsButton();
+    document.getElementById('btn-users').hidden = !usersCore.showUserManagementButton(state.role);
+    document.getElementById('btn-audit').hidden = !auditCore.showAuditLogButton(state.role);
+    document.getElementById('btn-batch-khmdhs').hidden = !khmdhs.showBatchRefreshButton(state.role);
+    document.getElementById('btn-excel').hidden = !excel.showExcelImportButton(state.role);
+    document.getElementById('btn-stats').hidden = !reports.showStatisticsButton(state.role);
+    document.getElementById('btn-technical').hidden = !reports.showTechnicalProgramButton(state.role);
+    document.getElementById('btn-export').hidden = !reports.showDataExportButton(state.role);
+    document.getElementById('btn-pdf').hidden = !reports.showPdfReportsButton(state.role);
+    document.getElementById('btn-portal').hidden = !portal.showPortalButton(state.role);
   });
   document.getElementById('quick-search').addEventListener('input', function (e) {
     state.query = e.target.value;
@@ -1157,6 +2358,74 @@
     });
   });
   document.getElementById('btn-tasks').addEventListener('click', openTasks);
+  document.getElementById('btn-users').addEventListener('click', openUsers);
+  document.getElementById('btn-close-users').addEventListener('click', closeUsers);
+  document.getElementById('btn-audit').addEventListener('click', openAudit);
+  document.getElementById('btn-batch-khmdhs').addEventListener('click', openKhmdhsBatch);
+  document.getElementById('btn-close-khmdhs').addEventListener('click', closeKhmdhsBatch);
+  document.getElementById('btn-khmdhs-stale').addEventListener('click', function () {
+    state.khmdhsOnlyStale = true;
+    renderKhmdhsBatch();
+  });
+  document.getElementById('btn-khmdhs-all').addEventListener('click', function () {
+    state.khmdhsOnlyStale = false;
+    renderKhmdhsBatch();
+  });
+  document.getElementById('btn-khmdhs-refresh').addEventListener('click', startSingleKhmdhsRefresh);
+  document.getElementById('btn-post-fetch').addEventListener('click', openPostFetchSetup);
+  document.getElementById('btn-resume-pending').addEventListener('click', function () {
+    var reopen = pf.resolveReopenPendingList(state.postFetchQueue);
+    if (reopen.openPendingTasks) showPendingList();
+  });
+  document.getElementById('btn-close-post-fetch-setup').addEventListener('click', hidePostFetchPanels);
+  document.getElementById('btn-run-fetch-scenario').addEventListener('click', runFetchScenario);
+  document.getElementById('btn-close-gate').addEventListener('click', hidePostFetchPanels);
+  document.getElementById('btn-pending-later').addEventListener('click', laterFromList);
+  document.getElementById('btn-review-later').addEventListener('click', laterFromDetail);
+  document.getElementById('btn-detail-done').addEventListener('click', completeActiveTask);
+  document.getElementById('chain-kind').addEventListener('change', function () {
+    readKindDraftFromForm();
+    renderKindForm();
+  });
+  ['kind-end-date', 'kind-mod-amount', 'kind-mod-type', 'kind-mod-date', 'kind-corrects-adam'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', function () {
+      readKindDraftFromForm();
+      renderKindForm();
+    });
+    document.getElementById(id).addEventListener('change', function () {
+      readKindDraftFromForm();
+      renderKindForm();
+    });
+  });
+  ['title', 'amount', 'date'].forEach(function (part) {
+    document.querySelector('[data-testid="kind-part-' + part + '"]').addEventListener('change', function () {
+      readKindDraftFromForm();
+      renderKindForm();
+    });
+  });
+  document.getElementById('btn-kind-save').addEventListener('click', function () {
+    readKindDraftFromForm();
+    renderKindForm();
+    var draft = state.postFetchKind;
+    var validation = pf.validateChainKindDraft(draft);
+    if (!pf.shouldShowCharacterizationCard(draft)) return;
+    if (!pf.canSaveKindCard(draft.kind, validation) && !validation.ok) return;
+    if (!validation.ok) return;
+    completeActiveTask();
+  });
+  document.getElementById('btn-close-audit').addEventListener('click', closeAudit);
+  document.getElementById('btn-audit-clear').addEventListener('click', requestAuditClear);
+  document.getElementById('audit-entity').addEventListener('change', function (e) {
+    state.auditEntity = e.target.value;
+    renderAudit();
+  });
+  document.getElementById('audit-action').addEventListener('change', function (e) {
+    state.auditAction = e.target.value;
+    renderAudit();
+  });
+  document.getElementById('btn-new-user').addEventListener('click', openUserCreate);
+  document.getElementById('btn-user-create-save').addEventListener('click', saveUserCreate);
+  document.getElementById('btn-user-create-cancel').addEventListener('click', closeUserCreate);
   document.getElementById('btn-close-tasks').addEventListener('click', closeTasks);
   document.getElementById('tab-workspace').addEventListener('click', function () {
     state.taskScreen = 'workspace';
@@ -1191,6 +2460,9 @@
   document.getElementById('btn-delete-cancel').addEventListener('click', cancelDelete);
   document.getElementById('btn-calendar').addEventListener('click', openCalendar);
   document.getElementById('btn-close-calendar').addEventListener('click', closeCalendar);
+  document.getElementById('btn-new-custom').addEventListener('click', openCustomCreate);
+  document.getElementById('btn-custom-create-save').addEventListener('click', saveCustomCreate);
+  document.getElementById('btn-custom-create-cancel').addEventListener('click', closeCustomCreate);
   document.getElementById('btn-close-cal-detail').addEventListener('click', function () {
     document.getElementById('calendar-detail').hidden = true;
   });
@@ -1230,6 +2502,14 @@
   });
   document.getElementById('btn-entaxeis').addEventListener('click', openEntaxeis);
   document.getElementById('btn-close-entaxeis').addEventListener('click', closeEntaxeis);
+  document.getElementById('btn-new-entaxi').addEventListener('click', openEntaxiCreate);
+  document.getElementById('btn-ent-create-save').addEventListener('click', saveEntaxiCreate);
+  document.getElementById('btn-ent-create-cancel').addEventListener('click', closeEntaxiCreate);
+  document.getElementById('btn-new-prosklisi').addEventListener('click', openProsklisiCreate);
+  document.getElementById('btn-psk-create-save').addEventListener('click', saveProsklisiCreate);
+  document.getElementById('btn-psk-create-cancel').addEventListener('click', closeProsklisiCreate);
+  document.getElementById('btn-workflow-delete-confirm').addEventListener('click', confirmWorkflowDelete);
+  document.getElementById('btn-workflow-delete-cancel').addEventListener('click', cancelWorkflowDelete);
   document.getElementById('entaxi-search').addEventListener('input', function (e) {
     state.entaxiSearch = e.target.value;
     renderEntaxeis();
@@ -1243,6 +2523,429 @@
   document.getElementById('egkrisi-search').addEventListener('input', function (e) {
     state.egkrisiSearch = e.target.value;
     renderEgkriseis();
+  });
+  function catalogRows() {
+    return visibleList();
+  }
+
+  function statisticsScopeProjects() {
+    return state.role === 'ENGINEER'
+      ? core.filterProjectsForRole(state.projects, state.role, { username: 'maria' }, [])
+      : state.projects;
+  }
+
+  function renderStats() {
+    var rows = reports.applyPortfolioDrill(catalogRows(), state.statsDrillIds);
+    var overview = reports.countOverviewStatistics(rows);
+    var scopeNote = reports.engineerStatisticsScopeNote(state.role, statisticsScopeProjects().length);
+    var note = reports.buildStatisticsFilterNote({
+      scopeNote: scopeNote,
+      searchText: state.query,
+      status: state.status,
+      type: state.type,
+      scopeCount: rows.length
+    });
+    document.getElementById('stats-filter-note').textContent = note;
+    var scopeEl = document.getElementById('stats-scope-note');
+    scopeEl.hidden = !scopeNote;
+    scopeEl.textContent = scopeNote;
+    document.getElementById('stats-empty').hidden = rows.length > 0;
+    document.querySelector('[data-testid="stats-unique"]').textContent = String(overview.uniqueProjects);
+    document.querySelector('[data-testid="stats-total"]').textContent = String(overview.totalProjects);
+    document.querySelector('[data-testid="stats-progress"]').textContent = String(overview.inProgressCount);
+    document.querySelector('[data-testid="stats-completed"]').textContent = String(overview.completedCount);
+  }
+
+  function openStats() {
+    if (!reports.showStatisticsButton(state.role)) return;
+    state.statsOpen = true;
+    document.getElementById('stats-panel').hidden = false;
+    renderStats();
+  }
+
+  function closeStats() {
+    state.statsOpen = false;
+    document.getElementById('stats-panel').hidden = true;
+  }
+
+  function technicalProjects() {
+    return reports.excludeAbandoned(state.projects);
+  }
+
+  function renderTechnical() {
+    var year = document.getElementById('technical-year').value;
+    var all = technicalProjects();
+    var rows = reports.buildTechnicalProgramRows(all, year);
+    var gate = reports.evaluateTechnicalExport(rows, year);
+    document.querySelector('[data-testid="technical-all"]').textContent = String(all.length);
+    document.querySelector('[data-testid="technical-rows"]').textContent = String(rows.length);
+    var host = document.getElementById('technical-list');
+    host.innerHTML = '';
+    rows.forEach(function (row) {
+      var el = document.createElement('div');
+      el.dataset.testid = 'tech-row-' + row.project.subprojectId;
+      el.textContent = row.project.subprojectTitle + ' · ' + row.amount;
+      host.appendChild(el);
+    });
+    var empty = document.getElementById('technical-empty');
+    empty.hidden = gate.ok;
+    empty.textContent = gate.ok ? '' : gate.error;
+    document.getElementById('btn-technical-export').disabled = !reports.canCommitTechnicalExport(rows);
+  }
+
+  function openTechnical() {
+    if (!reports.showTechnicalProgramButton(state.role)) return;
+    state.technicalOpen = true;
+    document.getElementById('technical-panel').hidden = false;
+    renderTechnical();
+  }
+
+  function closeTechnical() {
+    state.technicalOpen = false;
+    document.getElementById('technical-panel').hidden = true;
+  }
+
+  function exportFieldCount() {
+    return state.exportFieldCount == null ? 3 : state.exportFieldCount;
+  }
+
+  function renderExport() {
+    var filtered = catalogRows();
+    var rows = reports.resolveExportProjects({
+      filteredProjects: filtered,
+      explicitAbandoned: state.status === reports.STATUS_ABANDONED
+    });
+    var total = reports.excludeAbandoned(state.projects).length;
+    var fields = exportFieldCount();
+    document.querySelector('[data-testid="export-total"]').textContent = String(total);
+    document.querySelector('[data-testid="export-count"]').textContent = String(rows.length);
+    var banner = document.getElementById('export-filter-banner');
+    if (reports.isExportFilterActive(rows.length, total)) {
+      banner.textContent = 'Ενεργά φίλτρα: θα εξαχθούν ' + rows.length + ' από ' + total + ' υποέργα.';
+    } else {
+      banner.textContent = 'Θα εξαχθούν όλα τα ' + total + ' υποέργα.';
+    }
+    var host = document.getElementById('export-list');
+    host.innerHTML = '';
+    rows.forEach(function (p) {
+      var el = document.createElement('div');
+      el.dataset.testid = 'export-row-' + p.subprojectId;
+      el.textContent = p.subprojectTitle;
+      host.appendChild(el);
+    });
+    document.querySelector('[data-testid="export-fields"]').textContent = String(fields);
+    document.getElementById('btn-export-commit').disabled = !reports.canCommitDataExport(fields);
+    document.getElementById('export-error').hidden = true;
+  }
+
+  function openExport() {
+    if (!reports.showDataExportButton(state.role)) return;
+    state.exportOpen = true;
+    state.exportFieldCount = 3;
+    document.getElementById('export-panel').hidden = false;
+    renderExport();
+  }
+
+  function closeExport() {
+    state.exportOpen = false;
+    document.getElementById('export-panel').hidden = true;
+  }
+
+  function pdfCatalogProjects() {
+    return reports.resolveExportProjects({
+      filteredProjects: catalogRows(),
+      explicitAbandoned: state.status === reports.STATUS_ABANDONED
+    });
+  }
+
+  function renderPdfReports() {
+    var tab = state.pdfTab || 'subprojects';
+    var rows = pdfCatalogProjects();
+    var summary = reports.countPdfSubprojectsSummary(rows);
+    document.querySelector('[data-testid="pdf-total"]').textContent = String(summary.total);
+    document.querySelector('[data-testid="pdf-executing"]').textContent = String(summary.executing);
+    document.querySelector('[data-testid="pdf-completed"]').textContent = String(summary.completed);
+    document.getElementById('pdf-tab-name').textContent = reports.PDF_TAB_NAMES[tab] || '';
+    var tabs = document.getElementById('pdf-tabs');
+    tabs.innerHTML = '';
+    reports.PDF_TABS.forEach(function (t) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.testid = 'pdf-tab-' + t.id;
+      btn.textContent = t.label;
+      if (t.id === tab) btn.setAttribute('aria-current', 'true');
+      btn.addEventListener('click', function () {
+        state.pdfTab = t.id;
+        renderPdfReports();
+      });
+      tabs.appendChild(btn);
+    });
+    var host = document.getElementById('pdf-list');
+    host.innerHTML = '';
+    rows.forEach(function (p) {
+      var el = document.createElement('div');
+      el.dataset.testid = 'pdf-row-' + p.subprojectId;
+      el.textContent = p.subprojectTitle;
+      host.appendChild(el);
+    });
+    document.getElementById('btn-pdf-save').disabled = !reports.canSavePdfReport({
+      saving: !!state.pdfSaving,
+      generating: !!state.pdfGenerating
+    });
+  }
+
+  function openPdfReports() {
+    if (!reports.showPdfReportsButton(state.role)) return;
+    state.pdfOpen = true;
+    state.pdfTab = 'subprojects';
+    state.pdfGenerating = false;
+    state.pdfSaving = false;
+    document.getElementById('pdf-panel').hidden = false;
+    renderPdfReports();
+  }
+
+  function closePdfReports() {
+    state.pdfOpen = false;
+    document.getElementById('pdf-panel').hidden = true;
+  }
+
+  function openCardReport(sid) {
+    var project = findBySid(sid);
+    if (!project || !reports.showCardReportButton()) return;
+    document.getElementById('card-report-panel').hidden = false;
+    document.querySelector('[data-testid="card-report-title"]').textContent = project.subprojectTitle || '';
+    var ents = reports.getLinkedEntaxeis(state.entaxeis, project.subprojectId);
+    var psks = reports.getLinkedProskliseis(state.proskliseis, project);
+    var entHost = document.getElementById('card-report-entaxeis');
+    entHost.innerHTML = '';
+    ents.forEach(function (e) {
+      var el = document.createElement('div');
+      el.dataset.testid = 'card-report-ent-' + e.entaxiId;
+      el.textContent = e.subject;
+      entHost.appendChild(el);
+    });
+    var pskHost = document.getElementById('card-report-proskliseis');
+    pskHost.innerHTML = '';
+    psks.forEach(function (p) {
+      var el = document.createElement('div');
+      el.dataset.testid = 'card-report-psk-' + p.prosklisiId;
+      el.textContent = p.title;
+      pskHost.appendChild(el);
+    });
+  }
+
+  function closeCardReport() {
+    document.getElementById('card-report-panel').hidden = true;
+  }
+
+  function portalLastExportedIds() {
+    return state.portalLastExportedIds || [];
+  }
+
+  function renderPortal() {
+    document.getElementById('portal-panel').hidden = !state.portalOpen;
+    document.querySelector('[data-testid="portal-state"]').textContent = state.portalEnabled ? 'ΕΝΕΡΓΗ' : 'ΑΝΕΝΕΡΓΗ';
+    document.getElementById('portal-uid').value = state.portalDimosUid || '';
+    document.getElementById('portal-settings').hidden = !portal.showPortalSettingsButton(state.role);
+    var canSee = portal.canSeePortalWorkspace(state.role, state.portalEnabled);
+    document.getElementById('portal-locked').hidden = canSee;
+    document.getElementById('portal-workspace').hidden = !canSee || portal.isEngineerPortalReadOnly(state.role);
+    document.getElementById('portal-readonly').hidden = !(canSee && portal.isEngineerPortalReadOnly(state.role));
+    if (!canSee || portal.isEngineerPortalReadOnly(state.role)) {
+      document.getElementById('btn-portal-export').hidden = true;
+      return;
+    }
+    document.getElementById('btn-portal-export').hidden = false;
+    var rows = portal.filterPortalHubProjects(state.projects, {
+      search: state.portalSearch,
+      filterPublished: state.portalFilterPublished,
+      filterStatus: state.portalFilterStatus,
+      publishedIds: portalLastExportedIds()
+    });
+    document.querySelector('[data-testid="portal-list-count"]').textContent = String(rows.length);
+    document.querySelector('[data-testid="portal-selected-count"]').textContent = String((state.portalSelectedIds || []).length);
+    var preview = portal.previewPortalSelection(state.projects, state.portalSelectedIds);
+    document.querySelector('[data-testid="portal-budget"]').textContent = String(preview.totalBudget);
+    var host = document.getElementById('portal-list');
+    host.innerHTML = '';
+    rows.forEach(function (p) {
+      var wrap = document.createElement('div');
+      wrap.dataset.testid = 'portal-row-' + p.subprojectId;
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.testid = 'portal-check-' + p.subprojectId;
+      cb.checked = (state.portalSelectedIds || []).indexOf(p.subprojectId) >= 0;
+      cb.addEventListener('change', function () {
+        var next = {};
+        (state.portalSelectedIds || []).forEach(function (id) { next[id] = true; });
+        if (cb.checked) next[p.subprojectId] = true;
+        else delete next[p.subprojectId];
+        state.portalSelectedIds = Object.keys(next);
+        renderPortal();
+      });
+      wrap.appendChild(cb);
+      var title = document.createElement('span');
+      title.textContent = p.subprojectTitle;
+      wrap.appendChild(title);
+      var live = portalLastExportedIds().indexOf(p.subprojectId) >= 0;
+      var queued = cb.checked && !live;
+      if (live) {
+        var badge = document.createElement('span');
+        badge.dataset.testid = 'portal-published-' + p.subprojectId;
+        badge.textContent = 'Δημοσιευμένο';
+        wrap.appendChild(badge);
+      }
+      if (live && !cb.checked) {
+        var leaving = document.createElement('span');
+        leaving.dataset.testid = 'portal-leaving-' + p.subprojectId;
+        leaving.textContent = 'Θα φύγει';
+        wrap.appendChild(leaving);
+      }
+      if (queued) {
+        var nextBadge = document.createElement('span');
+        nextBadge.dataset.testid = 'portal-queued-' + p.subprojectId;
+        nextBadge.textContent = 'Στην επόμενη';
+        wrap.appendChild(nextBadge);
+      }
+      host.appendChild(wrap);
+    });
+    document.getElementById('btn-portal-export').disabled = !portal.canCommitPortalExport({
+      role: state.role,
+      selectedCount: (state.portalSelectedIds || []).length,
+      dimosUid: state.portalDimosUid,
+      exporting: false
+    });
+    var err = document.getElementById('portal-export-error');
+    if (state.portalExportError) {
+      err.hidden = false;
+      err.textContent = state.portalExportError;
+    } else {
+      err.hidden = true;
+    }
+  }
+
+  function openPortal() {
+    if (!portal.showPortalButton(state.role)) return;
+    state.portalOpen = true;
+    state.portalExportError = '';
+    state.portalExported = false;
+    document.getElementById('portal-export-preview').hidden = true;
+    document.getElementById('portal-panel').hidden = false;
+    renderPortal();
+  }
+
+  function closePortal() {
+    state.portalOpen = false;
+    document.getElementById('portal-panel').hidden = true;
+  }
+
+  function commitPortalExport() {
+    var gate = portal.evaluatePortalExport({
+      role: state.role,
+      selectedCount: (state.portalSelectedIds || []).length,
+      dimosUid: state.portalDimosUid,
+      exporting: false
+    });
+    if (!gate.ok) {
+      state.portalExportError = gate.error || '';
+      renderPortal();
+      return;
+    }
+    var exported = portal.selectProjectsForPortalExport(state.projects, state.portalSelectedIds);
+    state.portalLastExportedIds = exported.map(function (p) { return p.subprojectId; });
+    state.portalExportError = '';
+    state.portalExported = true;
+    var host = document.getElementById('portal-export-preview');
+    host.hidden = false;
+    host.innerHTML = '';
+    exported.forEach(function (p) {
+      var entry = portal.buildErgonEntry(p, portal.PORTAL_EXPORT_FIELDS_DEFAULT, state.portalMergeCompleted);
+      var el = document.createElement('div');
+      el.dataset.testid = 'portal-export-' + entry.id;
+      el.textContent = (entry.titlos || '') + ' · ' + (entry.katastasi || '') + (entry.adam ? ' · ' + entry.adam : '');
+      if (entry.adam) el.setAttribute('data-adam', entry.adam);
+      el.setAttribute('data-status', entry.katastasi || '');
+      host.appendChild(el);
+    });
+    renderPortal();
+  }
+
+  function commitExport() {
+    var gate = reports.evaluateDataExport(exportFieldCount());
+    var err = document.getElementById('export-error');
+    if (!gate.ok) {
+      err.hidden = false;
+      err.textContent = gate.error;
+      return;
+    }
+    err.hidden = true;
+  }
+
+  document.getElementById('btn-excel').addEventListener('click', openExcel);
+  document.getElementById('btn-close-excel').addEventListener('click', hideExcelPanel);
+  document.getElementById('btn-excel-preview').addEventListener('click', previewExcelScenario);
+  document.getElementById('btn-excel-back').addEventListener('click', resetExcelSteps);
+  document.getElementById('btn-excel-commit').addEventListener('click', commitExcelImport);
+  document.getElementById('btn-stats').addEventListener('click', openStats);
+  document.getElementById('btn-close-stats').addEventListener('click', closeStats);
+  document.getElementById('btn-technical').addEventListener('click', openTechnical);
+  document.getElementById('btn-close-technical').addEventListener('click', closeTechnical);
+  document.getElementById('technical-year').addEventListener('change', function () {
+    if (state.technicalOpen) renderTechnical();
+  });
+  document.getElementById('btn-export').addEventListener('click', openExport);
+  document.getElementById('btn-close-export').addEventListener('click', closeExport);
+  document.getElementById('btn-export-clear-fields').addEventListener('click', function () {
+    state.exportFieldCount = 0;
+    renderExport();
+  });
+  document.getElementById('btn-export-commit').addEventListener('click', commitExport);
+  document.getElementById('btn-pdf').addEventListener('click', openPdfReports);
+  document.getElementById('btn-close-pdf').addEventListener('click', closePdfReports);
+  document.getElementById('btn-close-card-report').addEventListener('click', closeCardReport);
+  document.getElementById('btn-portal').addEventListener('click', openPortal);
+  document.getElementById('btn-close-portal').addEventListener('click', closePortal);
+  document.getElementById('btn-portal-export').addEventListener('click', commitPortalExport);
+  document.getElementById('btn-portal-select-filtered').addEventListener('click', function () {
+    var rows = portal.filterPortalHubProjects(state.projects, {
+      search: state.portalSearch,
+      filterPublished: state.portalFilterPublished,
+      filterStatus: state.portalFilterStatus,
+      publishedIds: portalLastExportedIds()
+    });
+    state.portalSelectedIds = portal.applySelectFiltered(rows);
+    renderPortal();
+  });
+  document.getElementById('portal-search').addEventListener('input', function (e) {
+    state.portalSearch = e.target.value;
+    if (state.portalOpen) renderPortal();
+  });
+  document.getElementById('portal-filter-published').addEventListener('change', function (e) {
+    state.portalFilterPublished = e.target.value;
+    if (state.portalOpen) renderPortal();
+  });
+  document.getElementById('portal-uid').addEventListener('input', function (e) {
+    state.portalDimosUid = e.target.value;
+    if (state.portalOpen) renderPortal();
+  });
+  document.getElementById('btn-portal-toggle-enabled').addEventListener('click', function () {
+    state.portalEnabled = !state.portalEnabled;
+    if (state.portalOpen) renderPortal();
+    if (state.readingId) {
+      var cur = findBySid(state.readingId);
+      if (cur) renderReadPortal(cur);
+    }
+  });
+  document.getElementById('btn-read-portal-toggle').addEventListener('click', function () {
+    if (!state.readingId || !portal.canTogglePortalOnCard(state.role)) return;
+    state.portalSelectedIds = portal.togglePublishedId(state.portalSelectedIds, state.readingId);
+    renderReadPortal(findBySid(state.readingId));
+    if (state.portalOpen) renderPortal();
+  });
+  document.querySelectorAll('input[name="excel-existing"]').forEach(function (el) {
+    el.addEventListener('change', function () {
+      if (state.excelReport) renderExcelPreview();
+    });
   });
 
   state.projects = loadStore();

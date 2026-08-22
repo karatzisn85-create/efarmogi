@@ -9,9 +9,9 @@ import {
 } from '../utils/khmdhsSymvChainPlanner';
 import {
   buildKhmdhsRefreshChangeReport,
-  KHMDHS_FRESHNESS_YELLOW_DAYS,
   KHMDHS_REFRESH_REPORT_NO_CHANGES,
 } from '../utils/khmdhsChainRefresh';
+import khmdhsRefresh from '../../app/core/khmdhsRefresh';
 import {
   applyAutoDocumentRegistryFromChain,
 } from '../utils/khmdhsDocumentRegistry';
@@ -458,14 +458,12 @@ const ConfirmRefresh = styled.button`
  * «Παλαιό» = ό,τι δείχνει και το κίτρινο badge φρεσκάδας στην κάρτα, ώστε ο αριθμός
  * «Ν για ανανέωση» να αντιστοιχεί σε αυτό που βλέπει ο χρήστης στη λίστα υποέργων.
  */
-const STALE_BATCH_DAYS = KHMDHS_FRESHNESS_YELLOW_DAYS;
+const STALE_BATCH_DAYS = khmdhsRefresh.KHMDHS_STALE_DAYS;
 /** Αν ο διάλογος μείνει ανοιχτός περισσότερο, ξανασαρώνουμε πριν την εκτέλεση (#4). */
 const ELIGIBLE_PREVIEW_MAX_AGE_MS = 2 * 60 * 1000;
 
 function isEligibleStale(item, maxAgeDays = STALE_BATCH_DAYS) {
-  if (!item) return false;
-  if (item.ageDays == null || item.lastRefreshed == null) return true;
-  return Number(item.ageDays) >= maxAgeDays;
+  return khmdhsRefresh.isBatchItemStale(item, maxAgeDays);
 }
 
 /* ═══════════════════════════════════════════

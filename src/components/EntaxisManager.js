@@ -1817,6 +1817,8 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   };
 
   const handleDeleteEntaxi = async (entaxiId) => {
+    const decision = entaxiCatalog.evaluateEntaxiDelete(entaxiId);
+    if (!decision.ok) return;
     if (await showConfirm({ title: 'Διαγραφή Ένταξης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την ένταξη;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         await ipcRenderer.invoke('delete-entaxi', entaxiId);

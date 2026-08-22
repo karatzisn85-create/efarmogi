@@ -59,3 +59,26 @@ test('Νέα Πρόσκληση μόνο για διαχειριστή', () => {
   assert.equal(psk.showNewProsklisiButton('ENGINEER'), false);
   assert.equal(psk.showNewProsklisiButton('USER'), false);
 });
+
+test('νέα πρόσκληση: μόνο τίτλος και άξονας, με trim', () => {
+  const empty = psk.collectProsklisiRequiredErrors({});
+  assert.equal(empty.title, 'Ο τίτλος είναι υποχρεωτικός');
+  assert.equal(empty.axis, 'Ο άξονας προτεραιότητας είναι υποχρεωτικός');
+  const spaces = psk.collectProsklisiRequiredErrors({ title: '   ', axis: '  ' });
+  assert.equal(spaces.title, 'Ο τίτλος είναι υποχρεωτικός');
+  assert.equal(spaces.axis, 'Ο άξονας προτεραιότητας είναι υποχρεωτικός');
+  const ok = psk.collectProsklisiRequiredErrors({ title: 'Πρόσκληση', axis: 'Άξονας 1' });
+  assert.deepEqual(ok, {});
+});
+
+test('διαγραφή πρόσκλησης χρειάζεται ταυτότητα και αφαιρεί μόνο αυτή', () => {
+  assert.equal(psk.evaluateProsklisiDelete('').ok, false);
+  assert.equal(psk.evaluateProsklisiDelete('psk-1').ok, true);
+  assert.equal(psk.showProsklisiDeleteAction('ADMIN'), true);
+  assert.equal(psk.showProsklisiDeleteAction('USER'), false);
+  const next = psk.removeProsklisiFromList([
+    { prosklisiId: 'a' },
+    { prosklisiId: 'b' },
+  ], 'a');
+  assert.deepEqual(next.map((p) => p.prosklisiId), ['b']);
+});

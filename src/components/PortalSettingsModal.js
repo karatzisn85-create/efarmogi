@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
+import portalCatalog from '../../app/core/portalCatalog';
 
 const ipcRenderer = window.electronAPI;
 
@@ -332,9 +333,10 @@ function PortalSettingsModal({ isOpen, onClose, appConfig = {}, onConfigSaved })
 
   const handleSave = async () => {
     const uid = dimosUid.trim();
-    if (portalEnabled && !uid) {
+    const gate = portalCatalog.evaluatePortalSettings({ portalEnabled, dimosUid: uid });
+    if (!gate.ok) {
       setStatusError(true);
-      setStatusMsg('Το αναγνωριστικό Δήμου (slug) είναι υποχρεωτικό για την ενεργοποίηση.');
+      setStatusMsg(gate.error);
       return;
     }
 

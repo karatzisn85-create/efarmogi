@@ -12,6 +12,13 @@ const SHARED_PUBLIC_MODULES = [
   path.resolve(__dirname, 'app/core/egkrisiCatalog.js'),
   path.resolve(__dirname, 'app/core/subprojectFiles.js'),
   path.resolve(__dirname, 'app/core/taskWorkspace.js'),
+  path.resolve(__dirname, 'app/core/userCatalog.js'),
+  path.resolve(__dirname, 'app/core/auditCatalog.js'),
+  path.resolve(__dirname, 'app/core/khmdhsRefresh.js'),
+  path.resolve(__dirname, 'app/core/khmdhsPostFetch.js'),
+  path.resolve(__dirname, 'app/core/excelImport.js'),
+  path.resolve(__dirname, 'app/core/reportsExport.js'),
+  path.resolve(__dirname, 'app/core/portalCatalog.js'),
 ];
 
 module.exports = {
@@ -35,14 +42,33 @@ module.exports = {
 
       webpackConfig.target = 'web';
 
-      // Επιτρέπουμε στοχευμένα imports από public/ για shared pure modules.
+      // Επιτρέπουμε στοχευμένα imports από public/ και app/core.
+      // Το ModuleScopePlugin συγκρίνει το import ΧΩΡΙΣ κατάληξη .js και
+      // το allowedPaths υπολογίζεται μόνο στην κατασκευή — δεν ενημερώνεται
+      // αν προσθέσεις μετά μόνο στο allowedFiles.
       const scopePlugin = (webpackConfig.resolve.plugins || []).find(
         (p) => p && p.constructor && p.constructor.name === 'ModuleScopePlugin'
       );
-      if (scopePlugin && scopePlugin.allowedFiles) {
+      if (scopePlugin) {
+        const extraPaths = new Set([
+          path.resolve(__dirname, 'app/core'),
+          path.resolve(__dirname, 'public'),
+        ]);
         for (const abs of SHARED_PUBLIC_MODULES) {
-          scopePlugin.allowedFiles.add(abs);
+          extraPaths.add(path.dirname(abs));
+          if (scopePlugin.allowedFiles) {
+            scopePlugin.allowedFiles.add(abs);
+            scopePlugin.allowedFiles.add(abs.replace(/\.js$/i, ''));
+          }
         }
+        if (!Array.isArray(scopePlugin.allowedPaths)) {
+          scopePlugin.allowedPaths = [];
+        }
+        extraPaths.forEach((dir) => {
+          if (!scopePlugin.allowedPaths.includes(dir)) {
+            scopePlugin.allowedPaths.push(dir);
+          }
+        });
       }
 
       // Αγνόηση φακέλων build και dist από το file watching

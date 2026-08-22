@@ -41,6 +41,7 @@ import {
 } from '../utils/khmdhsChainActions';
 import { openKhmdhsActOnline } from '../utils/openKhmdhsActOnline';
 import { enrichChainKindReviewItem } from '../utils/khmdhsChainKindOptions';
+import khmdhsPostFetch from '../../app/core/khmdhsPostFetch';
 import { getChainKindFieldProfile, validateChainKindDraft } from '../utils/khmdhsChainKindFields';
 import { prefillSupplementaryModAmount } from '../utils/khmdhsSupplementaryAmountLogic';
 import {
@@ -1439,9 +1440,7 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
     hasKhmdhsAmount: enrichedItem.hasAmount,
     hasKhmdhsDate: enrichedItem.hasKhmdhsDate,
   });
-  const canSave = kind === CHAIN_KIND.MODIFICATION
-    ? !!kind
-    : validation.ok;
+  const canSave = khmdhsPostFetch.canSaveKindCard(kind, validation);
 
   const persistChoice = useCallback((choice, { silent = false } = {}) => {
     if (!kind || !onResolveChainKind) return;

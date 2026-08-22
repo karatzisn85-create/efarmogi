@@ -18,6 +18,7 @@ import {
   shouldShowContractZone,
   formatAleCodes,
 } from '../utils/projectCardDisplay';
+import reportsExport from '../../app/core/reportsExport';
 import { getVisibleFundingSourceRows, isCoFinancedProject } from '../utils/coFinancingDisplay';
 
 const iconProps = { width: 14, height: 14, 'aria-hidden': true };
@@ -1296,7 +1297,7 @@ function ProjectCard({
         </LockTooltip>
       </LockStatusButton>
 
-      {onExportReport && (
+      {onExportReport && reportsExport.showCardReportButton() && (
         <ReportFab
           type="button"
           title="Λήψη αναφοράς υποέργου (PDF)"

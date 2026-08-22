@@ -24,6 +24,7 @@ import {
   PROSKLISI_VIEW_TABS,
   applyProsklisiDailyFilters,
   showNewProsklisiButton,
+  evaluateProsklisiDelete,
 } from '../utils/prosklisiDeadlineUtils';
 
 const ipcRenderer = window.electronAPI;
@@ -1560,6 +1561,8 @@ function ProsklisisManager({
 
   const handleDeleteProsklisi = async (prosklisiId) => {
     closeMenu();
+    const decision = evaluateProsklisiDelete(prosklisiId);
+    if (!decision.ok) return;
     if (await showConfirm({ title: 'Διαγραφή Πρόσκλησης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την πρόσκληση;', detail: 'Θα διαγραφούν επίσης όλα τα αρχεία της. Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi', prosklisiId);

@@ -44,6 +44,13 @@ const concurrencyGuards = require('./concurrencyGuards');
 const { mergeFileGroupsForSave, mergeEgkriseisForSave } = require('./subprojectSaveMerge');
 const subprojectCardCore = require('../app/core/subprojectCard');
 const subprojectLifecycleCore = require('../app/core/subprojectLifecycle');
+const entaxiCatalogCore = require('../app/core/entaxiCatalog');
+const prosklisiCatalogCore = require('../app/core/prosklisiCatalog');
+const userCatalogCore = require('../app/core/userCatalog');
+const auditCatalogCore = require('../app/core/auditCatalog');
+const khmdhsRefreshCore = require('../app/core/khmdhsRefresh');
+const excelImportCore = require('../app/core/excelImport');
+const portalCatalogCore = require('../app/core/portalCatalog');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -581,13 +588,13 @@ ipcMain.handle('authenticate', async (_event, { username, password }) => {
 
 ipcMain.handle('register-user', async (_event, { username, password, role, fullName }) => {
   const users = loadUsers();
-  if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
-    return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
-  }
-  const allowedRoles = ['ADMIN', 'USER'];
-  if (!allowedRoles.includes(role)) return { success: false, error: 'Μη έγκυρος ρόλος' };
-  const policy = validatePasswordPolicy(password);
-  if (!policy.ok) return { success: false, error: policy.error };
+  const decision = userCatalogCore.evaluateRegisterUser({
+    users,
+    username,
+    password,
+    role,
+  });
+  if (!decision.ok) return { success: false, error: decision.error };
 
   users.push({
     username: username.trim(),
@@ -648,21 +655,15 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
   const users = loadUsers();
   const noUsersYet = users.length === 0;
   const actor = actingUsername || loggedInUsername;
-  // Αρχική ρύθμιση (κανένας χρήστης) ή μόνο SUPERADMIN.
-  if (!noUsersYet && !isSuperAdminUser(actor)) {
-    return { success: false, error: 'Δεν έχετε δικαίωμα δημιουργίας χρηστών' };
-  }
-  if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
-    return { success: false, error: 'Το όνομα χρήστη υπάρχει ήδη' };
-  }
-  const validRoles = ['SUPERADMIN', 'ADMIN', 'USER', 'ENGINEER'];
-  if (!validRoles.includes(role)) return { success: false, error: 'Μη έγκυρος ρόλος' };
-  // Κατά bootstrap επιτρέπεται μόνο SUPERADMIN.
-  if (noUsersYet && role !== 'SUPERADMIN') {
-    return { success: false, error: 'Ο πρώτος λογαριασμός πρέπει να είναι Υπερδιαχειριστής' };
-  }
-  const policy = validatePasswordPolicy(password);
-  if (!policy.ok) return { success: false, error: policy.error };
+  const decision = userCatalogCore.evaluateCreateUser({
+    noUsersYet,
+    actorIsSuperAdmin: isSuperAdminUser(actor),
+    username,
+    password,
+    role,
+    users,
+  });
+  if (!decision.ok) return { success: false, error: decision.error };
   const normalizedSupervisors = Array.isArray(assignedSupervisors)
     ? [...new Set(assignedSupervisors.map(s => String(s || '').trim()).filter(Boolean))]
     : [];
@@ -690,7 +691,7 @@ ipcMain.handle('create-user', async (_event, { username, password, role, fullNam
     fullName: fullName || username,
     ...(newUserEmail ? { email: newUserEmail } : {}),
     active: true,
-    approved: role === 'SUPERADMIN' ? true : false,
+    approved: userCatalogCore.newUserStartsApproved(role),
     assignedSupervisors: role === 'ENGINEER' ? normalizedSupervisors : [],
     taskAssignment: taskAssignmentNorm,
     ...(orimanthiEditEligibleRole(role) && orimanthiCanEdit === true ? { orimanthiCanEdit: true } : {}),
@@ -799,19 +800,16 @@ ipcMain.handle('update-user', async (_event, { username, updates, actingUsername
 
 ipcMain.handle('delete-user', async (_event, { username, actingUsername } = {}) => {
   const actor = actingUsername || loggedInUsername;
-  if (!isSuperAdminUser(actor)) {
-    return { success: false, error: 'Δεν έχετε δικαίωμα διαγραφής χρηστών' };
-  }
   let users = loadUsers();
   const target = users.find(u => u.username.toLowerCase() === username.toLowerCase());
-  if (!target) return { success: false, error: 'Χρήστης δεν βρέθηκε' };
+  const decision = userCatalogCore.evaluateDeleteUser({
+    actorIsSuperAdmin: isSuperAdminUser(actor),
+    target,
+    users,
+  });
+  if (!decision.ok) return { success: false, error: decision.error };
 
-  const superadmins = users.filter(u => u.role === 'SUPERADMIN' && u.active !== false);
-  if (target.role === 'SUPERADMIN' && superadmins.length <= 1) {
-    return { success: false, error: 'Δεν μπορεί να διαγραφεί ο τελευταίος SUPERADMIN' };
-  }
-
-  users = users.filter(u => u.username.toLowerCase() !== username.toLowerCase());
+  users = userCatalogCore.removeUserFromList(users, username);
   saveUsers(users);
   logAuditAction({
     type: 'delete',
@@ -2094,11 +2092,10 @@ ipcMain.handle('save-project-data', withMandatoryUpdateGuard(handleSaveProjectDa
 
 /** Χάρτης υπαρχόντων υποέργων ανά κλειδί (τίτλος έργου|||τίτλος υποέργου) → {projectId, subprojectId}. */
 async function buildExistingSubprojectKeyMap() {
-  const importer = require('./subprojectExcelImport');
   const existing = await loadAllProjects();
   const map = new Map();
   for (const p of existing) {
-    const key = `${importer.normalizeTitleKey(p.projectTitle)}|||${importer.normalizeTitleKey(p.subprojectTitle)}`;
+    const key = excelImportCore.buildDupKey(p.projectTitle, p.subprojectTitle);
     if (!map.has(key)) {
       map.set(key, { projectId: p.projectId, subprojectId: p.subprojectId });
     }
@@ -2138,8 +2135,12 @@ async function buildSubprojectImportReport(filePath) {
 
 ipcMain.handle('export-subprojects-import-template', async () => {
   try {
-    if (!isSuperAdminUser(loggedInUsername)) {
-      return { success: false, error: 'Μόνο ο υπερδιαχειριστής μπορεί να δημιουργήσει το πρότυπο εισαγωγής.' };
+    const access = excelImportCore.evaluateExcelImportAccess({
+      actor: findUserByUsername(loggedInUsername),
+      action: 'template',
+    });
+    if (!access.ok) {
+      return { success: false, error: access.error };
     }
     const ExcelJS = require('exceljs');
     const importer = require('./subprojectExcelImport');
@@ -2171,8 +2172,11 @@ ipcMain.handle('export-subprojects-import-template', async () => {
 
 ipcMain.handle('select-subprojects-import-xlsx', async () => {
   try {
-    if (!isSuperAdminUser(loggedInUsername)) {
-      return { success: false, error: 'Μόνο ο υπερδιαχειριστής μπορεί να εισάγει έργα από Excel.' };
+    const access = excelImportCore.evaluateExcelImportAccess({
+      actor: findUserByUsername(loggedInUsername),
+    });
+    if (!access.ok) {
+      return { success: false, error: access.error };
     }
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Επιλογή συμπληρωμένου αρχείου Excel',
@@ -2303,13 +2307,18 @@ ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) =
 
     for (const vr of report.validation.validRows) {
       const isDuplicate = existingKeyMap.has(vr.dupKey);
-      if (isDuplicate && duplicatePolicy === 'skip') {
+      const action = excelImportCore.resolveRowAction({
+        isDuplicate,
+        wipeExisting,
+        duplicatePolicy,
+      });
+      if (action === 'skip') {
         skipped += 1;
         continue;
       }
       const projectData = { ...vr.project };
       let isUpdate = false;
-      if (isDuplicate && duplicatePolicy === 'update') {
+      if (action === 'update') {
         const target = existingKeyMap.get(vr.dupKey);
         projectData.projectId = target.projectId;
         projectData.subprojectId = target.subprojectId;
@@ -3442,52 +3451,30 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (event, { subprojectId
   let localAbort = null;
   try {
     const username = String(actingUsername || '').trim();
-    if (!username) {
-      return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
-    }
     const user = findUserByUsername(username);
-    if (!user || user.active === false || user.approved === false) {
-      return { success: false, error: 'Δεν έχετε δικαίωμα' };
-    }
 
     const sid = String(subprojectId || '').trim();
-    if (!sid) {
-      return { success: false, error: 'Λείπει αναγνωριστικό υποέργου' };
-    }
 
     // Επιτρέπεται αν το υποέργο δεν είναι κλειδωμένο ή αν το κλείδωμα ανήκει στον ίδιο
     // χρήστη (η μαζική ανανέωση κρατά κλείδωμα σε όλη τη διάρκεια ανάγνωσης→αποθήκευσης).
-    const lockStatus = getKhmdhsSubprojectBusyStatus(sid, username);
-    if (lockStatus.locked) {
-      return {
-        success: false,
-        error: `Το υποέργο επεξεργάζεται από ${lockStatus.lockedBy}. Δοκιμάστε ξανά σε λίγο.`,
-      };
-    }
-
-    const project = findSubprojectDataById(sid);
-    if (!project) {
-      return { success: false, error: 'Δεν βρέθηκε το υποέργο' };
-    }
+    const lockStatus = sid ? getKhmdhsSubprojectBusyStatus(sid, username) : { locked: false };
+    const project = sid ? findSubprojectDataById(sid) : null;
 
     const refreshSeed = require('./khmdhsChainRefreshSeed');
-    if (refreshSeed.isKhmdhsChainClosedSubproject(project)) {
-      return {
-        success: false,
-        error: 'Το υποέργο είναι ολοκληρωμένο και αποπληρωμένο — ο κύκλος ΚΗΜΔΗΣ έχει κλείσει.',
-      };
-    }
-    if (!refreshSeed.canUserRefreshKhmdhsOnServer(user, project)) {
-      return { success: false, error: 'Δεν έχετε δικαίωμα ανανέωσης ΚΗΜΔΗΣ για αυτό το υποέργο' };
-    }
-
-    const seedPlan = refreshSeed.getKhmdhsRefreshSeedAdams(project);
+    const seedPlan = project ? refreshSeed.getKhmdhsRefreshSeedAdams(project) : { primary: { adam: '' } };
     const seedInfo = seedPlan.primary;
-    if (!seedInfo.adam) {
-      return {
-        success: false,
-        error: 'Δεν βρέθηκε ΑΔΑΜ αφετηρίας για ανανέωση. Ανοίξτε την επεξεργασία του υποέργου, εισάγετε τον ΑΔΑΜ στη Φάση Β (π.χ. αίτημα ή σύμβαση) και εκτελέστε αρχική ανάκτηση.',
-      };
+    const startDecision = khmdhsRefreshCore.evaluateSingleRefreshStart({
+      username,
+      actor: user,
+      subprojectId: sid,
+      project,
+      locked: !!lockStatus.locked,
+      lockedBy: lockStatus.lockedBy,
+      seedAdam: seedInfo.adam,
+      visibleToEngineer: refreshSeed.canUserRefreshKhmdhsOnServer(user, project || {}),
+    });
+    if (!startDecision.ok) {
+      return { success: false, error: startDecision.error };
     }
 
     const apeAmount = refreshSeed.parseStoredApeAmountGross(project);
@@ -3665,14 +3652,9 @@ ipcMain.handle('release-khmdhs-refresh-lock', async (_event, { subprojectId, act
 ipcMain.handle('batch-khmdhs-refresh-eligible', async (_event, { actingUsername } = {}) => {
   try {
     const username = String(actingUsername || '').trim();
-    if (!username) return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
     const user = findUserByUsername(username);
-    if (!user || user.active === false || user.approved === false) {
-      return { success: false, error: 'Δεν έχετε δικαίωμα' };
-    }
-    if (user.role !== 'ADMIN' && user.role !== 'SUPERADMIN') {
-      return { success: false, error: 'Η μαζική ανανέωση επιτρέπεται μόνο σε διαχειριστές.' };
-    }
+    const access = khmdhsRefreshCore.evaluateBatchRefreshAccess({ username, actor: user });
+    if (!access.ok) return { success: false, error: access.error };
 
     const refreshSeed = require('./khmdhsChainRefreshSeed');
     const eligible = [];
@@ -3705,35 +3687,23 @@ ipcMain.handle('batch-khmdhs-refresh-eligible', async (_event, { actingUsername 
             try { project = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch { continue; }
             const sid = project.subprojectId;
             if (!sid) continue;
-            // Ίδιο φίλτρο με loadAllProjects: χωρίς τίτλους δεν εμφανίζονται στο Dashboard
-            // και δεν πρέπει να μετράνε ως επιλέξιμα για μαζική ανανέωση.
-            const pTitle = String(project.projectTitle || '').trim();
-            const sTitle = String(project.subprojectTitle || '').trim();
-            if (!pTitle || !sTitle || pTitle === 'undefined' || sTitle === 'undefined') continue;
-            const label = sTitle || sid;
-
-            if (refreshSeed.isKhmdhsChainClosedSubproject(project)) {
-              skipped.push({ id: sid, label, reason: 'Ολοκληρωμένο' });
-              continue;
-            }
             const seedInfo = refreshSeed.getKhmdhsRefreshSeedAdam(project);
-            if (!seedInfo.adam) {
-              skipped.push({ id: sid, label, reason: 'Χωρίς ΑΔΑΜ' });
-              continue;
-            }
             const lockStatus = isEntityLocked('projects', sid);
-            if (lockStatus.locked) {
-              skipped.push({ id: sid, label, reason: 'Κλειδωμένο' });
+            const row = khmdhsRefreshCore.classifyForBatchRefresh(project, {
+              locked: !!lockStatus.locked,
+              seedAdam: seedInfo.adam,
+            });
+            if (row.kind === 'ignore') continue;
+            if (row.kind === 'skipped') {
+              skipped.push({ id: row.id, label: row.label, reason: row.reason });
               continue;
             }
-            // Ίδιος ορισμός ηλικίας με το badge φρεσκάδας της κάρτας (παλαιότερο fetchedAt)
-            const { ageDays, lastRefreshed } = refreshSeed.getKhmdhsRefreshAge(project);
             eligible.push({
-              id: sid,
-              label,
-              seedAdam: seedInfo.adam,
-              lastRefreshed,
-              ageDays,
+              id: row.id,
+              label: row.label,
+              seedAdam: row.seedAdam,
+              lastRefreshed: row.lastRefreshed,
+              ageDays: row.ageDays,
             });
           } catch { /* προσπερνάμε προβληματικό υποέργο */ }
         }
@@ -5800,6 +5770,10 @@ ipcMain.handle('save-modification', async (event, entaxiId, modificationData) =>
 // Delete entaxi
 ipcMain.handle('delete-entaxi', async (event, entaxiId) => {
   try {
+    const decision = entaxiCatalogCore.evaluateEntaxiDelete(entaxiId);
+    if (!decision.ok) {
+      return { success: false, error: 'Λείπει η ταυτότητα της ένταξης' };
+    }
     const entaxiPath = path.join(entaxisDir, entaxiId);
     let deletedData = null;
     const dataFile = path.join(entaxiPath, 'data.json');
@@ -7392,6 +7366,10 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
 // Delete prosklisi
 ipcMain.handle('delete-prosklisi', async (event, prosklisiId) => {
   try {
+    const decision = prosklisiCatalogCore.evaluateProsklisiDelete(prosklisiId);
+    if (!decision.ok) {
+      return { success: false, error: 'Λείπει η ταυτότητα της πρόσκλησης' };
+    }
     const prosklisiDir = path.join(proskliseisDir, prosklisiId);
     let deletedData = null;
     const dataFile = path.join(prosklisiDir, 'data.json');
@@ -13482,7 +13460,7 @@ function logAuditAction(action) {
       ? collectAuditChanges(oldValue, newValue, { engineerCatalog: getRegisteredEngineersList() })
       : null;
 
-    if (type === 'update' && changes && Object.keys(changes).length === 0) {
+    if (auditCatalogCore.shouldSkipEmptyUpdate(type, changes)) {
       return;
     }
 
@@ -14816,9 +14794,6 @@ ipcMain.handle('get-audit-log', async (event, options = {}) => {
 
     // Ρόλος μόνο από συνεδρία main process — όχι από username που στέλνει ο renderer.
     const actor = findUserByUsername(loggedInUsername);
-    if (!actor || actor.active === false) {
-      return { success: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στο ιστορικό' };
-    }
 
     let auditLog = { logs: [] };
     if (fs.existsSync(auditLogPath)) {
@@ -14829,62 +14804,18 @@ ipcMain.handle('get-audit-log', async (event, options = {}) => {
         return { success: false, error: 'Error reading audit log' };
       }
     }
-    
-    let filteredLogs = auditLog.logs || [];
-    
-    // Role-based visibility filtering
-    {
-      const role = actor.role;
-      const reqUsername = (actor.username || '').toLowerCase();
-      const reqFullName = (actor.fullName || '').toLowerCase();
-      
-      if (role === 'ENGINEER' || role === 'USER') {
-        filteredLogs = filteredLogs.filter(log => {
-          const logUser = (log.userFullName || log.user || '').toLowerCase();
-          return logUser === reqFullName || logUser === reqUsername;
-        });
-      } else if (role === 'ADMIN') {
-        filteredLogs = filteredLogs.filter(log => {
-          const logRole = (log.userRole || '').toUpperCase();
-          return logRole === 'ADMIN' || !logRole;
-        });
-      }
-      // SUPERADMIN sees everything - no filtering
-    }
-    
-    // Filter by entity type
-    if (entityType) {
-      filteredLogs = filteredLogs.filter(log => log.entityType === entityType);
+
+    const result = auditCatalogCore.evaluateGetAuditLog(auditLog.logs || [], actor, {
+      limit, entityType, entityId, action, startDate, endDate
+    });
+    if (!result.ok) {
+      return { success: false, error: result.error };
     }
 
-    // Filter by entity id
-    if (entityId) {
-      filteredLogs = filteredLogs.filter(log => log.entityId === entityId);
-    }
-    
-    // Filter by action
-    if (action) {
-      filteredLogs = filteredLogs.filter(log => log.action === action);
-    }
-    
-    // Filter by date range
-    if (startDate) {
-      const start = new Date(startDate);
-      filteredLogs = filteredLogs.filter(log => new Date(log.timestamp) >= start);
-    }
-    
-    if (endDate) {
-      const end = new Date(endDate);
-      filteredLogs = filteredLogs.filter(log => new Date(log.timestamp) <= end);
-    }
-    
-    // Apply limit
-    filteredLogs = filteredLogs.slice(0, limit);
-    
     return {
       success: true,
-      logs: filteredLogs,
-      total: auditLog.logs.length
+      logs: result.logs,
+      total: result.total
     };
   } catch (error) {
     console.error('Error getting audit log:', error);
@@ -14895,23 +14826,21 @@ ipcMain.handle('get-audit-log', async (event, options = {}) => {
 // Clear audit log (keep last N entries)
 ipcMain.handle('clear-audit-log', async (_event, keepLast = 1000) => {
   try {
-    if (!isSuperAdminUser(loggedInUsername)) {
-      return { success: false, error: 'Δεν έχετε δικαίωμα εκκαθάρισης ιστορικού ενεργειών' };
+    const decision = auditCatalogCore.evaluateClearAuditLog(isSuperAdminUser(loggedInUsername));
+    if (!decision.ok) {
+      return { success: false, error: decision.error };
     }
-    const keep = Math.max(0, Number(keepLast) || 0);
     let auditLog = { logs: [] };
     if (fs.existsSync(auditLogPath)) {
       auditLog = JSON.parse(fs.readFileSync(auditLogPath, 'utf8'));
     }
 
-    const before = (auditLog.logs || []).length;
-    if (before > keep) {
-      auditLog.logs = auditLog.logs.slice(0, keep);
+    const cleared = auditCatalogCore.clearAuditLogs(auditLog.logs || [], keepLast);
+    if (cleared.deletedCount > 0) {
+      auditLog.logs = cleared.logs;
       safeWriteJSON(auditLogPath, auditLog);
-      return { success: true, deletedCount: before - auditLog.logs.length };
     }
-
-    return { success: true, deletedCount: 0 };
+    return { success: true, deletedCount: cleared.deletedCount };
   } catch (error) {
     console.error('Error clearing audit log:', error);
     return { success: false, error: error.message };
@@ -15151,14 +15080,6 @@ ipcMain.handle('export-invest-projects', async (event, options) => {
 // PORTAL DIAFANIAS IPC HANDLERS
 // ============================================================
 
-// Helper: convert Greek-formatted amount string (e.g. "142.500,00") to number
-function parseGreekAmount(str) {
-  if (!str) return null;
-  const cleaned = String(str).replace(/\./g, '').replace(',', '.');
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? null : num;
-}
-
 // Helper: read entaxeis from disk (sync, lightweight — for portal export only)
 function loadEntaxeisForPortal() {
   if (!entaxisDir || !fs.existsSync(entaxisDir)) return [];
@@ -15189,117 +15110,15 @@ function loadProskliseisForPortal() {
   return result;
 }
 
-// Default portal export fields — all enabled
-const PORTAL_EXPORT_FIELDS_DEFAULT = {
-  xrimatodotisi: true,
-  proupologismos: true,
-  approvedAmount: true,
-  symvasiPoso: true,
-  anadochos: true,
-  diadikasia_anathesis: true,
-  hmerominia_enarksis: true,
-  adam: true,
-  mis: true,
-  kategoria: true,
-};
-
-// Statuses for which ΑΔΑΜ is relevant (contract signed/active/completed)
-const ADAM_VISIBLE_STATUSES = new Set([
-  'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
-  'ΟΛΟΚΛΗΡΩΜΕΝΟ',
-  'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ',
-]);
-
-/**
- * Συνολικό τρέχον ποσό σύμβασης για μία υποσύνολο/σύμβαση (portal export).
- * Αθροίζει βασικό + καταγεγραμμένες συμπληρωματικές (εξαιρεί παρατάσεις που δεν έχουν ποσό).
- */
-function computePortalSingleContractTotal(baseAmountStr, supplementaryContracts) {
-  let running = parseGreekAmount(baseAmountStr) || 0;
-  (Array.isArray(supplementaryContracts) ? supplementaryContracts : []).forEach((row) => {
-    const amt = parseGreekAmount(row?.amount);
-    if (amt && amt > 0) running += amt;
-  });
-  return running > 0 ? running : null;
-}
-
-// Helper: map one subproject to the erga.json ergon entry format
-// fieldMask controls which optional fields are included (id/titlos/katastasi always included)
-// mergeCompleted: if true, "ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ" is normalized to "ΟΛΟΚΛΗΡΩΜΕΝΟ"
-function buildErgonEntry(sp, fieldMask = PORTAL_EXPORT_FIELDS_DEFAULT, mergeCompleted = false) {
-  const mask = { ...PORTAL_EXPORT_FIELDS_DEFAULT, ...fieldMask };
-
-  let symvasiPoso = null;
-  let anadochos = null;
-  let hmEnarksis = null;
-
-  let adam = null;
-
-  if (sp.implementationForm === 'Πολλές Συμβάσεις' && Array.isArray(sp.contracts) && sp.contracts.length > 0) {
-    let total = 0;
-    for (const c of sp.contracts) {
-      const v = computePortalSingleContractTotal(c.amount, sp.supplementaryContracts?.filter(sc => sc?.contractIndex === sp.contracts.indexOf(c)));
-      if (v !== null) total += v;
-    }
-    symvasiPoso = total > 0 ? total : null;
-
-    for (const c of sp.contracts) {
-      const name = c.khmdhsContractSnapshot?.anadoxosName;
-      if (name) { anadochos = name; break; }
-    }
-    const firstWithDate = sp.contracts.find(c => c.date);
-    if (firstWithDate) hmEnarksis = firstWithDate.date;
-
-    // ΑΔΑΜ: συγκέντρωση όλων των μη-κενών ΑΔΑΜ από τις συμβάσεις
-    const adamValues = sp.contracts
-      .map(c => (c.khmdhsAdam || '').trim())
-      .filter(Boolean);
-    adam = adamValues.length > 0 ? adamValues.join(', ') : null;
-  } else {
-    symvasiPoso = computePortalSingleContractTotal(sp.contractAmount, sp.supplementaryContracts);
-    anadochos = sp.khmdhsContractSnapshot?.anadoxosName || null;
-    hmEnarksis = sp.contractDate || null;
-    adam = (sp.khmdhsAdam || '').trim() || null;
-  }
-
-  const mis = sp.misPraxhsCode ? String(sp.misPraxhsCode).trim() || null : null;
-
-  // Κανονικοποίηση κατάστασης αν ενεργοποιηθεί η συγχώνευση
-  const rawStatus = sp.projectStatus || null;
-  const katastasi = (mergeCompleted && rawStatus === 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ')
-    ? 'ΟΛΟΚΛΗΡΩΜΕΝΟ'
-    : rawStatus;
-
-  // Πάντα παρόν: id, titlos, katastasi
-  const entry = {
-    id: sp.subprojectId,
-    titlos: sp.subprojectTitle || null,
-    katastasi,
-  };
-
-  if (mask.kategoria)           entry.kategoria           = sp.projectType || null;
-  if (mask.xrimatodotisi)       entry.xrimatodotisi       = sp.fundingSource || null;
-  if (mask.proupologismos)      entry.proupologismos      = parseGreekAmount(sp.projectBudget);
-  if (mask.approvedAmount)      entry.approvedAmount      = parseGreekAmount(sp.approvedAmount);
-  if (mask.symvasiPoso)         entry.symvasiPoso         = symvasiPoso;
-  if (mask.anadochos)           entry.anadochos           = anadochos;
-  if (mask.diadikasia_anathesis) {
-    const proc = sp.assignmentProcedure != null ? String(sp.assignmentProcedure).trim() : '';
-    entry.diadikasia_anathesis = proc || null;
-  }
-  if (mask.hmerominia_enarksis) entry.hmerominia_enarksis = hmEnarksis || null;
-  // ΑΔΑΜ: εμφανίζεται μόνο για εκτελούμενα/ολοκληρωμένα/αποπληρωμένα (σύμβαση υπαρκτή)
-  if (mask.adam && ADAM_VISIBLE_STATUSES.has(sp.projectStatus)) entry.adam = adam;
-  if (mask.mis)                 entry.mis                 = mis;
-
-  return entry;
-}
+const PORTAL_EXPORT_FIELDS_DEFAULT = portalCatalogCore.PORTAL_EXPORT_FIELDS_DEFAULT;
+const buildErgonEntry = portalCatalogCore.buildErgonEntry;
 
 ipcMain.handle('export-portal-data', async (_event, { selectedSubprojectIds, actingUsername, dimosUid }) => {
   try {
     const actingUser = findUserByUsername(actingUsername);
-    if (!actingUser || (actingUser.role !== 'ADMIN' && actingUser.role !== 'SUPERADMIN')) {
-      return { success: false, error: 'Δεν έχετε δικαίωμα εξαγωγής για την Πύλη Διαφάνειας.' };
+    const access = portalCatalogCore.evaluatePortalExportAccess(actingUser);
+    if (!access.ok) {
+      return { success: false, error: access.error };
     }
 
     if (!Array.isArray(selectedSubprojectIds) || selectedSubprojectIds.length === 0) {
@@ -15310,10 +15129,7 @@ ipcMain.handle('export-portal-data', async (_event, { selectedSubprojectIds, act
     if (!uid) return { success: false, error: 'Το αναγνωριστικό Δήμου (dimosUid) δεν έχει οριστεί.' };
 
     const allProjects = await loadAllProjects();
-    const selectedSet = new Set(selectedSubprojectIds);
-    const selected = allProjects.filter(
-      (p) => selectedSet.has(p.subprojectId) && p.projectStatus !== 'ΑΠΕΝΤΑΓΜΕΝΟ'
-    );
+    const selected = portalCatalogCore.selectProjectsForPortalExport(allProjects, selectedSubprojectIds);
 
     const config = loadConfig();
     const dimosOnoma = config.organizationName || '';
@@ -15333,9 +15149,11 @@ ipcMain.handle('export-portal-data', async (_event, { selectedSubprojectIds, act
 
     const { dropboxLink } = await uploadPortalJson(jsonContent, uid);
 
+    const lastExportedIds = selected.map((p) => p.subprojectId);
     const publishedPath = path.join(dataDir, 'portal-published.json');
     safeWriteJSON(publishedPath, {
       subprojectIds: selectedSubprojectIds,
+      lastExportedIds,
       lastExportedAt: new Date().toISOString(),
       lastDropboxLink: dropboxLink
     });
@@ -15346,7 +15164,7 @@ ipcMain.handle('export-portal-data', async (_event, { selectedSubprojectIds, act
 
     logger.info(`Portal export: ${erga.length} υποέργα → Dropbox /portal/${uid}/erga.json (by ${actingUsername})`);
 
-    return { success: true, dropboxLink, count: erga.length };
+    return { success: true, dropboxLink, count: erga.length, lastExportedIds };
   } catch (e) {
     logger.error('export-portal-data failed', e);
     return { success: false, error: e.message };
@@ -15357,10 +15175,17 @@ ipcMain.handle('load-portal-published', async () => {
   try {
     const publishedPath = path.join(dataDir, 'portal-published.json');
     if (!fs.existsSync(publishedPath)) {
-      return { success: true, data: { subprojectIds: [], lastExportedAt: null, lastDropboxLink: null } };
+      return { success: true, data: portalCatalogCore.normalizePortalPublishedRecord({}) };
     }
     const data = JSON.parse(fs.readFileSync(publishedPath, 'utf8'));
-    return { success: true, data };
+    const normalized = portalCatalogCore.normalizePortalPublishedRecord(data);
+    if (normalized.inferredLastExported) {
+      safeWriteJSON(publishedPath, {
+        ...data,
+        lastExportedIds: normalized.lastExportedIds
+      });
+    }
+    return { success: true, data: normalized };
   } catch (e) {
     logger.error('load-portal-published failed', e);
     return { success: false, error: e.message };

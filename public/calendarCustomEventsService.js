@@ -124,6 +124,13 @@ function canManageCustomEvent(event, actor) {
 }
 
 function upsertEvent(dataDir, payload, actor) {
+  const required = calendarDeadlinesCore.collectCustomEventRequiredErrors({
+    title: payload && payload.title,
+    date: payload && payload.dateIso,
+  });
+  if (required.title || required.date) {
+    return { success: false, error: 'Απαιτούνται τίτλος και έγκυρη ημερομηνία' };
+  }
   const normalized = normalizeEvent(payload, { actor });
   if (!normalized) {
     return { success: false, error: 'Απαιτούνται τίτλος και έγκυρη ημερομηνία' };
@@ -165,7 +172,7 @@ function deleteEvent(dataDir, eventId, actor) {
   if (!canManageCustomEvent(existing, actor)) {
     return { success: false, error: 'Δεν έχετε δικαίωμα διαγραφής αυτής της ειδοποίησης' };
   }
-  store.events = store.events.filter((e) => e.id !== id);
+  store.events = calendarDeadlinesCore.removeCustomEventFromList(store.events, id);
   saveStore(dataDir, store);
   return { success: true };
 }

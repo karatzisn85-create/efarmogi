@@ -18,6 +18,10 @@ export const PROSKLISI_VIEW_TABS = prosklisiCatalog.PROSKLISI_VIEW_TABS;
 export const applyProsklisiDailyFilters = prosklisiCatalog.applyProsklisiDailyFilters;
 export const prosklisiMatchesQuickSearch = prosklisiCatalog.prosklisiMatchesQuickSearch;
 export const showNewProsklisiButton = prosklisiCatalog.showNewProsklisiButton;
+export const showProsklisiDeleteAction = prosklisiCatalog.showProsklisiDeleteAction;
+export const collectProsklisiRequiredErrors = prosklisiCatalog.collectProsklisiRequiredErrors;
+export const evaluateProsklisiDelete = prosklisiCatalog.evaluateProsklisiDelete;
+export const removeProsklisiFromList = prosklisiCatalog.removeProsklisiFromList;
 export const isProsklisiUnlinked = prosklisiCatalog.isProsklisiUnlinked;
 
 export function getProsklisiDeadlineChipMeta(deadline, formatDateFn, now = new Date()) {

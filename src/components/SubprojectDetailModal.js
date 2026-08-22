@@ -22,6 +22,8 @@ import { getDefaultSubprojectPhaseTab } from '../utils/subprojectPhaseTabDefault
 import { getVisibleFundingSourceRows, isCoFinancedProject } from '../utils/coFinancingDisplay';
 import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
 import KhmdhsRefreshActionButton from './KhmdhsRefreshActionButton';
+import khmdhsRefresh from '../../app/core/khmdhsRefresh';
+import portalCatalog from '../../app/core/portalCatalog';
 import KhmdhsFormStageResults, { projectHasKhmdhsFormResults } from './KhmdhsFormStageResults';
 import KhmdhsChainRefreshDialog from './KhmdhsChainRefreshDialog';
 import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
@@ -1110,6 +1112,7 @@ function SubprojectDetailModal({
   engineerCatalog = [],
   portalEnabled = false,
   isPublishedToPortal = false,
+  isLiveOnPortal = false,
   onTogglePortal,
   onRefreshProject,
   onEpLinksChanged,
@@ -2114,7 +2117,7 @@ function SubprojectDetailModal({
                 Β — ΚΗΜΔΗΣ & Σύμβαση
               </PhaseTab>
             </PhaseTabStrip>
-            {canRefreshKhmdhs && (hasKhmdhsFormResults || hasKhmdhsRefreshSeed) && (
+            {khmdhsRefresh.showCardRefreshButton(canRefreshKhmdhs, hasKhmdhsFormResults || hasKhmdhsRefreshSeed) && (
               <KhmdhsRefreshActionButton
                 onClick={handleStartKhmdhsRefresh}
                 loading={refreshLoading}
@@ -2554,38 +2557,40 @@ function SubprojectDetailModal({
             </EpPickerOverlay>
           )}
 
-          {portalEnabled && (
+          {portalCatalog.showPortalCardSection(portalEnabled) && (() => {
+            const portalStatus = portalCatalog.resolvePortalCardStatus({
+              selectedForNext: isPublishedToPortal,
+              lastExported: isLiveOnPortal,
+            });
+            return (
             <SectionBlock icon="🌐" title="Πύλη Διαφάνειας" accent={ACCENTS.portal}>
-              <PortalToggleCard $published={isPublishedToPortal}>
+              <PortalToggleCard $published={portalStatus.selectedForNext}>
                 <div>
                   <div style={{
                     fontWeight: 700,
                     fontSize: '0.88rem',
-                    color: isPublishedToPortal ? '#166534' : '#475569',
+                    color: portalStatus.liveOnPortal ? '#166534' : (portalStatus.selectedForNext ? '#1d4ed8' : '#475569'),
                     marginBottom: 4
                   }}>
-                    {isPublishedToPortal
-                      ? '🌐 Δημοσιευμένο στην Πύλη Διαφάνειας'
-                      : '🔒 Δεν δημοσιεύεται στην Πύλη Διαφάνειας'}
+                    {portalStatus.title}
                   </div>
                   <div style={{ fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.5 }}>
-                    {isPublishedToPortal
-                      ? 'Το υποέργο εμφανίζεται δημόσια στο portal. Αποεπιλέξτε για να το αποκρύψετε.'
-                      : 'Ενεργοποιήστε για να συμπεριληφθεί στην επόμενη εξαγωγή στο portal.'}
+                    {portalStatus.hint}
                   </div>
                 </div>
-                {typeof onTogglePortal === 'function' && (userRole === 'ADMIN' || userRole === 'SUPERADMIN') && (
+                {typeof onTogglePortal === 'function' && portalCatalog.canTogglePortalOnCard(userRole) && (
                   <PortalToggleBtn
                     type="button"
-                    $published={isPublishedToPortal}
+                    $published={portalStatus.selectedForNext}
                     onClick={() => onTogglePortal(project.subprojectId)}
                   >
-                    {isPublishedToPortal ? 'Απόσυρση' : 'Δημοσίευση'}
+                    {portalStatus.button}
                   </PortalToggleBtn>
                 )}
               </PortalToggleCard>
             </SectionBlock>
-          )}
+            );
+          })()}
 
           </>
           )}

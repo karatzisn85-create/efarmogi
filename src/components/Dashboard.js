@@ -43,6 +43,12 @@ import subprojectCard from '../../app/core/subprojectCard';
 import subprojectList from '../../app/core/subprojectList';
 import subprojectLifecycle from '../../app/core/subprojectLifecycle';
 import subprojectFiles from '../../app/core/subprojectFiles';
+import userCatalog from '../../app/core/userCatalog';
+import auditCatalog from '../../app/core/auditCatalog';
+import khmdhsRefresh from '../../app/core/khmdhsRefresh';
+import excelImport from '../../app/core/excelImport';
+import reportsExport from '../../app/core/reportsExport';
+import portalCatalog from '../../app/core/portalCatalog';
 import {
   getProjectChargeSearchText,
   projectMatchesChargeFilters,
@@ -3182,6 +3188,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isPortalSettingsOpen, setIsPortalSettingsOpen] = useState(false);
   const [portalEnabled, setPortalEnabled] = useState(appConfig.portalEnabled === true);
   const [publishedSubprojectIds, setPublishedSubprojectIds] = useState(new Set());
+  const [portalLastExportedIds, setPortalLastExportedIds] = useState(new Set());
   const [isBackupManagerOpen, setIsBackupManagerOpen] = useState(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
   const [isProcurementCalendarOpen, setIsProcurementCalendarOpen] = useState(false);
@@ -3691,14 +3698,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   useEffect(() => {
     if (!portalEnabled) {
       setPublishedSubprojectIds(new Set());
+      setPortalLastExportedIds(new Set());
       return;
     }
     ipcRenderer.invoke('load-portal-published').then((res) => {
-      if (res?.success && Array.isArray(res.data?.subprojectIds)) {
-        setPublishedSubprojectIds(new Set(res.data.subprojectIds));
-      }
+      if (!res?.success || !res.data) return;
+      const rec = portalCatalog.normalizePortalPublishedRecord(res.data);
+      setPublishedSubprojectIds(new Set(rec.selectedIds));
+      setPortalLastExportedIds(new Set(rec.lastExportedIds));
     }).catch(() => {});
-  }, [portalEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [portalEnabled, isPortalHubOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load notes from file on mount
   const notesLoadedRef = useRef(false);
@@ -5960,7 +5969,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   useEffect(() => {
     const notesVisible = (canManageAll || isEngineer) && !isNotesOpen;
     const opsVisible = (canManageAll || isEngineer || userRole === 'USER') && !isNotesOpen;
-    const khmdhsVisible = opsVisible && (userRole === 'ADMIN' || userRole === 'SUPERADMIN');
+    const khmdhsVisible = opsVisible && khmdhsRefresh.showBatchRefreshButton(userRole);
     setCornerClearancePx(
       computeFabClearancePx({ notesVisible, opsVisible, khmdhsVisible })
     );
@@ -6109,14 +6118,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   const handleTogglePortalSubproject = useCallback(async (subprojectId) => {
     setPublishedSubprojectIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(subprojectId)) {
-        next.delete(subprojectId);
-      } else {
-        next.add(subprojectId);
-      }
-      ipcRenderer.invoke('save-portal-published', { subprojectIds: Array.from(next) }).catch(() => {});
-      return next;
+      const nextIds = portalCatalog.togglePublishedId(Array.from(prev), subprojectId);
+      ipcRenderer.invoke('save-portal-published', { subprojectIds: nextIds }).catch(() => {});
+      return new Set(nextIds);
     });
   }, []);
 
@@ -6458,7 +6462,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           directAssignmentViolations,
           project.subprojectId
         ),
-        isPublishedToPortal: publishedSubprojectIds.has(project.subprojectId),
+        isPublishedToPortal: portalLastExportedIds.has(project.subprojectId),
         appConfig,
         appVersion,
         requestingUsername: currentUser?.username || '',
@@ -6476,6 +6480,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     linkedNotesMap,
     directAssignmentViolations,
     publishedSubprojectIds,
+    portalLastExportedIds,
     notes,
     appConfig,
     appVersion,
@@ -6489,49 +6494,30 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     isEngineer ? visibleProjects : projects
   ), [isEngineer, visibleProjects, projects]);
 
-  const statisticsProjects = useMemo(() => {
-    let base = filteredProjects;
-    if (portfolioDrillFilter?.subprojectIds?.length) {
-      const idSet = new Set(portfolioDrillFilter.subprojectIds);
-      base = base.filter((p) => idSet.has(p.subprojectId));
-    }
-    return base;
-  }, [filteredProjects, portfolioDrillFilter]);
+  const statisticsProjects = useMemo(() => (
+    reportsExport.applyPortfolioDrill(filteredProjects, portfolioDrillFilter?.subprojectIds)
+  ), [filteredProjects, portfolioDrillFilter]);
 
   const statisticsDirectAssignmentViolations = useMemo(
     () => findDirectAssignmentViolations(statisticsProjects),
     [statisticsProjects]
   );
 
-  const statisticsScopeNote = useMemo(() => {
-    if (!isEngineer) return '';
-    const n = statisticsScopeProjects.length;
-    return `Μόνο υποέργα της χρέωσής σας (${n})`;
-  }, [isEngineer, statisticsScopeProjects.length]);
+  const statisticsScopeNote = useMemo(() => (
+    reportsExport.engineerStatisticsScopeNote(userRole, statisticsScopeProjects.length)
+  ), [userRole, statisticsScopeProjects.length]);
 
-  const statisticsFilterNote = useMemo(() => {
-    const parts = [];
-    if (statisticsScopeNote) {
-      parts.push(statisticsScopeNote);
-    }
-    if (portfolioDrillFilter?.label) {
-      parts.push(`λίστα: ${portfolioDrillFilter.label}`);
-    }
-    if (activeFilterCount > 0) {
-      parts.push(`${activeFilterCount} φίλτρα`);
-    }
-    if (quickSearchText.trim()) {
-      parts.push(`αναζήτηση «${quickSearchText.trim().slice(0, 40)}»`);
-    }
-    if (quickSearchStatus) {
-      parts.push(`κατάσταση: ${quickSearchStatus}`);
-    }
-    if (quickSearchType) {
-      parts.push(`είδος: ${quickSearchType}`);
-    }
-    const scope = statisticsProjects.length;
-    return parts.length ? `${scope} υποέργα · ${parts.join(' · ')}` : `${scope} υποέργα`;
-  }, [
+  const statisticsFilterNote = useMemo(() => (
+    reportsExport.buildStatisticsFilterNote({
+      scopeNote: statisticsScopeNote,
+      drillLabel: portfolioDrillFilter?.label,
+      activeFilterCount,
+      searchText: quickSearchText,
+      status: quickSearchStatus,
+      type: quickSearchType,
+      scopeCount: statisticsProjects.length,
+    })
+  ), [
     portfolioDrillFilter,
     statisticsScopeNote,
     activeFilterCount,
@@ -6541,13 +6527,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     statisticsProjects.length,
   ]);
 
-  const exportProjects = useMemo(() => {
-    const userExplicitlyFilteredByAbandoned =
-      (Array.isArray(advancedFilters?.projectStatus) && advancedFilters.projectStatus.includes(PROJECT_STATUS_ABANDONED)) ||
-      quickSearchStatus === PROJECT_STATUS_ABANDONED;
-    if (userExplicitlyFilteredByAbandoned) return filteredProjects;
-    return excludeAbandonedSubprojects(filteredProjects);
-  }, [filteredProjects, advancedFilters?.projectStatus, quickSearchStatus]);
+  const exportProjects = useMemo(() => (
+    reportsExport.resolveExportProjects({
+      filteredProjects,
+      explicitAbandoned:
+        (Array.isArray(advancedFilters?.projectStatus) && advancedFilters.projectStatus.includes(PROJECT_STATUS_ABANDONED)) ||
+        quickSearchStatus === PROJECT_STATUS_ABANDONED,
+    })
+  ), [filteredProjects, advancedFilters?.projectStatus, quickSearchStatus]);
 
   // Group projects as array of arrays for EgkriseisManager
   const projectsAsArrayOfArrays = useMemo(() => {
@@ -7048,10 +7035,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           </CalendarNavButton>
         )}
 
-        <StatsNavButton type="button" onClick={() => setIsStatisticsModalOpen(true)}>
-          <CalendarNavIcon>📊</CalendarNavIcon>
-          Στατιστικά & Αναφορές
-        </StatsNavButton>
+        {reportsExport.showStatisticsButton(userRole) && (
+          <StatsNavButton type="button" onClick={() => setIsStatisticsModalOpen(true)}>
+            <CalendarNavIcon>📊</CalendarNavIcon>
+            Στατιστικά & Αναφορές
+          </StatsNavButton>
+        )}
 
         <SidebarPinnedStack>
           {canManageAll && (
@@ -7187,27 +7176,31 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               <CategoryHeaderChevron $open={expandedCategories.exports}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.exports}>
-              {!isEngineer && (
+              {reportsExport.showTechnicalProgramButton(userRole) && (
                 <AdminButton onClick={() => setIsTechnicalProgramOpen(true)}>
                   <AdminButtonIcon>📋</AdminButtonIcon>
                   Τεχνικό Πρόγραμμα
                 </AdminButton>
               )}
               {/* Εκτελεστέα Έργα: κρυμμένο από το μενού — ο μηχανισμός παραμένει στον κώδικα αν χρειαστεί */}
-              {(canManageAll || isEngineer) && (
+              {portalCatalog.showPortalButton(userRole) && (
                 <AdminButton onClick={() => setIsPortalHubOpen(true)}>
                   <AdminButtonIcon>🌐</AdminButtonIcon>
                   Πύλη Διαφάνειας
                 </AdminButton>
               )}
-              <AdminButton onClick={() => setIsExportOpen(true)}>
-                <AdminButtonIcon>📑</AdminButtonIcon>
-                Εξαγωγή Δεδομένων
-              </AdminButton>
-              <AdminButton onClick={() => { setReportsInitialTab('subprojects'); setIsReportsOpen(true); }}>
-                <AdminButtonIcon>📊</AdminButtonIcon>
-                Αναφορές σε PDF
-              </AdminButton>
+              {reportsExport.showDataExportButton(userRole) && (
+                <AdminButton onClick={() => setIsExportOpen(true)}>
+                  <AdminButtonIcon>📑</AdminButtonIcon>
+                  Εξαγωγή Δεδομένων
+                </AdminButton>
+              )}
+              {reportsExport.showPdfReportsButton(userRole) && (
+                <AdminButton onClick={() => { setReportsInitialTab('subprojects'); setIsReportsOpen(true); }}>
+                  <AdminButtonIcon>📊</AdminButtonIcon>
+                  Αναφορές σε PDF
+                </AdminButton>
+              )}
             </CategoryBody>
           </CategorySection>
 
@@ -7222,17 +7215,19 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               <CategoryHeaderChevron $open={expandedCategories.tools}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.tools}>
-              <AdminButton onClick={() => setIsAuditLogOpen(true)}>
-                <AdminButtonIcon>📋</AdminButtonIcon>
-                Ιστορικό Ενεργειών
-              </AdminButton>
+              {auditCatalog.showAuditLogButton(userRole) && (
+                <AdminButton onClick={() => setIsAuditLogOpen(true)}>
+                  <AdminButtonIcon>📋</AdminButtonIcon>
+                  Ιστορικό Ενεργειών
+                </AdminButton>
+              )}
               {canManageAll && (
                 <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
                   <AdminButtonIcon>📄</AdminButtonIcon>
                   Υποδείγματα Εγγράφων
                 </AdminButton>
               )}
-              {isSuperAdmin && (
+              {excelImport.showExcelImportButton(userRole) && (
                 <AdminButton onClick={() => setIsExcelImportOpen(true)}>
                   <AdminButtonIcon>📥</AdminButtonIcon>
                   Μαζική Εισαγωγή από Excel
@@ -7280,7 +7275,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 <AdminButtonIcon>📬</AdminButtonIcon>
                 Ιστορικό Email
               </AdminButton>
-              {isSuperAdmin && (
+              {userCatalog.showUserManagementButton(userRole) && (
                 <>
                   <AdminButton onClick={() => setIsUserManagementOpen(true)}>
                     <AdminButtonIcon>👥</AdminButtonIcon>
@@ -7353,6 +7348,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           lockedBy={selectedDetailProject.lockedBy || ''}
           portalEnabled={portalEnabled}
           isPublishedToPortal={publishedSubprojectIds.has(selectedDetailProject.subprojectId)}
+          isLiveOnPortal={portalLastExportedIds.has(selectedDetailProject.subprojectId)}
           onTogglePortal={handleTogglePortalSubproject}
           onRefreshProject={async () => {
             await loadDataWithCache(true);
@@ -8109,7 +8105,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         </Suspense>
       )}
 
-      {isExcelImportOpen && isSuperAdmin && (
+      {isExcelImportOpen && excelImport.showExcelImportButton(userRole) && (
         <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
           <SubprojectExcelImportModal
             onClose={() => setIsExcelImportOpen(false)}
@@ -8183,7 +8179,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
       <DashboardOpsFabStack
         visible={(canManageAll || isEngineer || userRole === 'USER') && !isNotesOpen}
-        canManageKhmdhs={userRole === 'ADMIN' || userRole === 'SUPERADMIN'}
+        canManageKhmdhs={khmdhsRefresh.showBatchRefreshButton(userRole)}
         khmdhsBatchRunning={khmdhsBatchRunning}
         staleCount={khmdhsStaleCount}
         oldestDays={khmdhsOldestDays}

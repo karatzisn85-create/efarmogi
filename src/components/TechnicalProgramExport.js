@@ -18,6 +18,7 @@ import {
   getProjectApeAmountForExport,
 } from '../utils/khmdhsExportHelpers';
 import EpProgramStatsPanel from './EpProgramStatsPanel';
+import reportsExport from '../../app/core/reportsExport';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -438,48 +439,10 @@ function TechnicalProgramExport({ isOpen, onClose, projects, organizationName = 
 
   const years = Array.from({ length: 11 }, (_, i) => (2020 + i).toString());
 
-  const parseAmount = (value) => {
-    if (!value) return 0;
-    const cleaned = value.toString().trim().replace(/\./g, '').replace(',', '.');
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? 0 : num;
-  };
-
-  const exportRows = useMemo(() => {
-    const rows = [];
-    projects.forEach(project => {
-      const yearStr = selectedYear.toString().trim();
-      const projectYear = (project.remainingAmountYear || '').toString().trim();
-      if (projectYear !== '' && projectYear !== yearStr) return;
-
-      const aleCodes = (project.aleCodes && Array.isArray(project.aleCodes))
-        ? project.aleCodes.filter(c => c && c.trim())
-        : (project.aleCode ? [project.aleCode] : []);
-
-      const aleAmounts = project.aleRemainingAmounts && Array.isArray(project.aleRemainingAmounts)
-        ? project.aleRemainingAmounts
-        : [];
-
-      if (aleCodes.length > 1 && aleAmounts.length > 0) {
-        aleCodes.forEach((aleCode, idx) => {
-          const amount = aleAmounts[idx] || '';
-          if (parseAmount(amount) > 0) {
-            rows.push({ project, aleCode, amount });
-          }
-        });
-      } else {
-        const totalAmount = project.remainingAmount || '';
-        if (parseAmount(totalAmount) > 0) {
-          rows.push({
-            project,
-            aleCode: aleCodes.length > 0 ? aleCodes[0] : '',
-            amount: totalAmount
-          });
-        }
-      }
-    });
-    return rows;
-  }, [projects, selectedYear]);
+  const exportRows = useMemo(
+    () => reportsExport.buildTechnicalProgramRows(projects, selectedYear),
+    [projects, selectedYear]
+  );
 
   const toggleColumn = (key) => {
     const col = COLUMN_DEFINITIONS.find(c => c.key === key);
@@ -560,8 +523,9 @@ function TechnicalProgramExport({ isOpen, onClose, projects, organizationName = 
   };
 
   const exportToExcel = () => {
-    if (exportRows.length === 0) {
-      showToast(`Δεν βρέθηκαν υποέργα με υπόλοιπα για το έτος ${selectedYear}.`, 'info');
+    const gate = reportsExport.evaluateTechnicalExport(exportRows, selectedYear);
+    if (!gate.ok) {
+      showToast(gate.error, 'info');
       return;
     }
 
@@ -841,7 +805,7 @@ function TechnicalProgramExport({ isOpen, onClose, projects, organizationName = 
           <ActionButton
             primary
             onClick={exportToExcel}
-            disabled={exportRows.length === 0}
+            disabled={!reportsExport.canCommitTechnicalExport(exportRows)}
           >
             📊 Εξαγωγή σε Excel ({exportRows.length} γραμμές)
           </ActionButton>

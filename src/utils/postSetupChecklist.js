@@ -3,6 +3,8 @@
  * Email · Αντίγραφα · Πύλη Διαφάνειας
  */
 
+import portalCatalog from '../../app/core/portalCatalog';
+
 export const POST_SETUP_DISMISS_KEY = 'ergohub_post_setup_checklist_dismissed_at';
 export const POST_SETUP_DISMISS_DAYS = 30;
 
@@ -42,9 +44,7 @@ export function buildPostSetupItems(status = {}) {
 }
 
 export function isPortalConfigured(appConfig = {}) {
-  const enabled = appConfig.portalEnabled === true;
-  const uid = String(appConfig.portalDimosUid || '').trim();
-  return enabled && !!uid;
+  return portalCatalog.isPortalConfigured(appConfig);
 }
 
 export function countIncompletePostSetupItems(items) {

@@ -18,6 +18,7 @@ import {
   mergeCalendarEventLists,
   describeCustomVisibility,
   canManageCustomEvent,
+  canCreateCustomCalendarEvent,
 } from '../utils/customCalendarEvents';
 import { buildAepoCalendarEvents } from '../utils/aepoCalendarEvents';
 import { buildProsklisiCalendarEvents } from '../utils/prosklisiCalendarEvents';
@@ -375,7 +376,7 @@ export default function ProcurementCalendar({
   const [viewingCustomEvent, setViewingCustomEvent] = useState(null);
   const consumedFocusRef = useRef(null);
 
-  const canManageCustomEvents = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
+  const canManageCustomEvents = canCreateCustomCalendarEvent(currentUser || { role: userRole });
 
   const loadCustomEvents = useCallback(async () => {
     if (!currentUser?.username) {

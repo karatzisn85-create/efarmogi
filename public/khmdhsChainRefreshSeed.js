@@ -2,6 +2,7 @@
  * Server-side: seed ΑΔΑΜ ανανέωσης + έλεγχος δικαιωμάτων.
  */
 const { projectVisibleToEngineerContext, buildEngineerVisibilityContext } = require('./chargeFilterUtils');
+const khmdhsRefreshCore = require('../app/core/khmdhsRefresh');
 
 function parseAdamType(adamRaw) {
   const m = /^(\d{2})([A-Z]{3,4})(\d{9})$/i.exec(String(adamRaw || '').trim());
@@ -147,42 +148,22 @@ function getKhmdhsRefreshSeedAdams(project) {
   };
 }
 
-const KHMDHS_CHAIN_CLOSED_STATUS = 'ΟΛΟΚΛΗΡΩΜΕΝΟ ΚΑΙ ΑΠΟΠΛΗΡΩΜΕΝΟ';
+const KHMDHS_CHAIN_CLOSED_STATUS = khmdhsRefreshCore.CLOSED_STATUS;
 
 function isKhmdhsChainClosedSubproject(project) {
-  return project?.projectStatus === KHMDHS_CHAIN_CLOSED_STATUS;
+  return khmdhsRefreshCore.isKhmdhsChainClosedSubproject(project);
 }
 
 /**
- * Ηλικία δεδομένων ΚΗΜΔΗΣ σε ημέρες — ίδιος ορισμός με το badge φρεσκάδας στην κάρτα
- * (`getKhmdhsChainFreshness`): μετρά το ΠΑΛΑΙΟΤΕΡΟ κομμάτι της αλυσίδας, όχι μόνο την
- * τελευταία ανανέωση. Έτσι «παλαιό» σημαίνει το ίδιο πράγμα σε όλη την εφαρμογή.
+ * Ηλικία δεδομένων ΚΗΜΔΗΣ σε ημέρες — ίδιος ορισμός με το σήμα φρεσκάδας στην κάρτα.
+ * Αν έχει γίνει επιτυχημένη ανανέωση, μετρά πότε κοιτάξαμε τελευταία φορά το ΚΗΜΔΗΣ.
  *
  * Κατώφλι: ίδιο με το κίτρινο badge (KHMDHS_FRESHNESS_YELLOW_DAYS στον renderer).
  */
-const KHMDHS_STALE_DAYS = 30;
+const KHMDHS_STALE_DAYS = khmdhsRefreshCore.KHMDHS_STALE_DAYS;
 
 function collectKhmdhsFetchedAtTimestamps(project) {
-  if (!project) return [];
-  const stamps = [];
-  const push = (iso) => {
-    if (!iso) return;
-    const t = Date.parse(String(iso));
-    if (!Number.isNaN(t)) stamps.push(t);
-  };
-
-  push(project.khmdhsRequestFetchedAt);
-  push(project.khmdhsNoticeFetchedAt);
-  push(project.khmdhsAwardFetchedAt);
-  push(project.khmdhsContractFetchedAt);
-  push(project.khmdhsCommitmentFetchedAt);
-  push(project.khmdhsChainLastRefreshedAt);
-
-  (project.khmdhsCommitmentDecisions || []).forEach((d) => push(d && d.fetchedAt));
-  (project.khmdhsPayments || []).forEach((p) => push(p && p.fetchedAt));
-  (project.contracts || []).forEach((c) => push(c && c.khmdhsContractFetchedAt));
-
-  return stamps;
+  return khmdhsRefreshCore.collectKhmdhsFetchedAtTimestamps(project);
 }
 
 /**
@@ -190,20 +171,11 @@ function collectKhmdhsFetchedAtTimestamps(project) {
  * `ageDays === null` σημαίνει «δεν έχει ανακτηθεί ποτέ» — θεωρείται πάντα παλαιό.
  */
 function getKhmdhsRefreshAge(project) {
-  const stamps = collectKhmdhsFetchedAtTimestamps(project);
-  if (!stamps.length) return { ageDays: null, lastRefreshed: null };
-  const oldest = Math.min(...stamps);
-  const newest = Math.max(...stamps);
-  return {
-    ageDays: Math.floor((Date.now() - oldest) / (24 * 60 * 60 * 1000)),
-    lastRefreshed: new Date(newest).toISOString(),
-  };
+  return khmdhsRefreshCore.getKhmdhsRefreshAge(project);
 }
 
 function isKhmdhsRefreshStale(project, maxAgeDays = KHMDHS_STALE_DAYS) {
-  const { ageDays } = getKhmdhsRefreshAge(project);
-  if (ageDays == null) return true;
-  return ageDays >= maxAgeDays;
+  return khmdhsRefreshCore.isKhmdhsRefreshStale(project, maxAgeDays);
 }
 
 function readStoredApeAmountRaw(project, contractIndex = null) {
@@ -250,19 +222,15 @@ function parseStoredApeAmountGross(project) {
 }
 
 function canUserRefreshKhmdhsOnServer(user, project) {
-  if (!user || !project) return false;
-  if (isKhmdhsChainClosedSubproject(project)) return false;
-  const role = user.role;
-  if (role === 'USER') return false;
-  if (role === 'ADMIN' || role === 'SUPERADMIN') return true;
-  if (role === 'ENGINEER') {
+  let visibleToEngineer = false;
+  if (user && user.role === 'ENGINEER') {
     const ctx = buildEngineerVisibilityContext(
       user.username,
       user.assignedSupervisors || []
     );
-    return projectVisibleToEngineerContext(project, ctx);
+    visibleToEngineer = projectVisibleToEngineerContext(project, ctx);
   }
-  return false;
+  return khmdhsRefreshCore.canUserRefreshKhmdhs(user, project, { visibleToEngineer });
 }
 
 module.exports = {

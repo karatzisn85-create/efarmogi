@@ -2,7 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
-import { CUSTOM_VISIBILITY_ROLES, describeCustomVisibility } from '../utils/customCalendarEvents';
+import {
+  CUSTOM_VISIBILITY_ROLES,
+  describeCustomVisibility,
+  collectCustomEventRequiredErrors,
+  isoFromDateAndTime,
+} from '../utils/customCalendarEvents';
 
 const ipcRenderer = window.electronAPI;
 
@@ -194,14 +199,6 @@ const Btn = styled.button`
   &:disabled { opacity: 0.55; cursor: not-allowed; }
 `;
 
-function isoFromDateAndTime(dateStr, timeStr) {
-  const date = String(dateStr || '').trim();
-  if (!date) return '';
-  const time = String(timeStr || '').trim();
-  if (!time) return `${date}T12:00:00.000Z`;
-  return `${date}T${time}:00`;
-}
-
 function splitDateTime(iso) {
   if (!iso) return { date: '', time: '' };
   const raw = String(iso);
@@ -331,12 +328,10 @@ export default function CalendarCustomEventForm({
 
   const handleSave = async () => {
     setError('');
-    if (!title.trim()) {
-      setError('Συμπληρώστε τίτλο.');
-      return;
-    }
-    if (!date) {
-      setError('Επιλέξτε ημερομηνία.');
+    const errors = collectCustomEventRequiredErrors({ title, date });
+    const firstError = errors.title || errors.date;
+    if (firstError) {
+      setError(firstError);
       return;
     }
     setSaving(true);

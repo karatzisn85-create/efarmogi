@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import styled from 'styled-components';
 import { useToast } from './ToastProvider';
+import excelImport from '../../app/core/excelImport';
 
 const ipcRenderer = window.electronAPI;
 
@@ -382,9 +383,9 @@ function SubprojectExcelImportModal({ onClose, onImported }) {
 
   const hasParseErrors = report && report.parseErrors && report.parseErrors.length > 0;
   const hasRowErrors = report && report.errorRows && report.errorRows.length > 0;
-  const canCommit = report && !hasParseErrors && !hasRowErrors && report.validCount > 0;
-  const showDuplicateChoice =
-    report && existingMode === 'keep' && report.existingDuplicates && report.existingDuplicates.length > 0;
+  const canCommit = excelImport.canCommitImport(report);
+  const showExistingChoice = excelImport.showExistingWorksChoice(report);
+  const showDuplicateChoice = excelImport.showDuplicatePolicyChoice(report, existingMode);
 
   return (
     <Overlay onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -489,7 +490,7 @@ function SubprojectExcelImportModal({ onClose, onImported }) {
                 </Section>
               )}
 
-              {!hasParseErrors && report.existingCount > 0 && (
+              {!hasParseErrors && showExistingChoice && (
                 <Section>
                   <SectionTitle>🗂️ Υπάρχουν ήδη {report.existingCount} έργα στην εφαρμογή</SectionTitle>
                   <RadioOption $active={existingMode === 'keep'}>
