@@ -94,6 +94,47 @@
     return { ok: true };
   }
 
+  function sanitizeLoginUser(user) {
+    if (!user) return null;
+    return {
+      username: user.username,
+      role: user.role,
+      fullName: user.fullName || user.username,
+      assignedSupervisors: Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : []
+    };
+  }
+
+  function evaluateAuthenticate(input) {
+    var opts = input || {};
+    var needle = String(opts.username || '').trim().toLowerCase();
+    var password = opts.password;
+    var list = opts.users || [];
+    var verify = typeof opts.verifyPassword === 'function'
+      ? opts.verifyPassword
+      : function (plain, hash) { return String(plain || '') === String(hash || ''); };
+    var found = null;
+    for (var i = 0; i < list.length; i++) {
+      var u = list[i];
+      if (!u) continue;
+      if (String(u.username || '').toLowerCase() !== needle) continue;
+      if (u.active === false) continue;
+      if (!verify(password, u.passwordHash)) continue;
+      found = u;
+      break;
+    }
+    if (!found) {
+      return { ok: false, success: false, error: 'Λάθος όνομα χρήστη ή κωδικός' };
+    }
+    if (found.approved === false) {
+      return {
+        ok: false,
+        success: false,
+        error: 'Ο λογαριασμός σας αναμένει έγκριση από τον διαχειριστή'
+      };
+    }
+    return { ok: true, success: true, user: sanitizeLoginUser(found) };
+  }
+
   function evaluateRegisterUser(input) {
     var opts = input || {};
     if (usernameExists(opts.users, opts.username)) {
@@ -173,6 +214,8 @@
     firstCreateUserError: firstCreateUserError,
     newUserStartsApproved: newUserStartsApproved,
     evaluateCreateUser: evaluateCreateUser,
+    evaluateAuthenticate: evaluateAuthenticate,
+    sanitizeLoginUser: sanitizeLoginUser,
     evaluateRegisterUser: evaluateRegisterUser,
     evaluateDeleteUser: evaluateDeleteUser,
     showUserEditAction: showUserEditAction,

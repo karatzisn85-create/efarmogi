@@ -44,7 +44,27 @@ function startServer() {
   });
 
   return new Promise((resolve, reject) => {
-    server.on('error', reject);
+    server.on('error', (err) => {
+      if (err && err.code === 'EADDRINUSE') {
+        const probe = http.get(`http://${HOST}:${PORT}/`, (res) => {
+          res.resume();
+          if (res.statusCode === 200) {
+            resolve({ close() { /* ήδη έτρεχε από προηγούμενη διαδικασία */ } });
+            return;
+          }
+          reject(new Error(
+            `Η θύρα ${PORT} είναι πιασμένη από άλλη διαδικασία. Κλείστε την παλιά εντολή ελέγχων (όχι μόνο το παράθυρο) και ξαναπροσπαθήστε.`
+          ));
+        });
+        probe.on('error', () => {
+          reject(new Error(
+            `Η θύρα ${PORT} είναι πιασμένη. Κλείστε την παλιά διαδικασία Node που έμεινε ανοιχτή και ξανατρέξτε την εντολή.`
+          ));
+        });
+        return;
+      }
+      reject(err);
+    });
     server.listen(PORT, HOST, () => {
       resolve(server);
     });

@@ -55,6 +55,7 @@ const orimanthiCatalogCore = require('../app/core/orimanthiCatalog');
 const meletaiCatalogCore = require('../app/core/meletaiCatalog');
 const epProgramCatalogCore = require('../app/core/epProgramCatalog');
 const backupCatalogCore = require('../app/core/backupCatalog');
+const emailCatalogCore = require('../app/core/emailCatalog');
 const backupRestoreApply = require('./backupRestoreApply');
 
 // Helper function to get temp directory path (portable-safe)
@@ -561,13 +562,15 @@ function getTaskAssignmentService() {
 
 ipcMain.handle('authenticate', async (_event, { username, password }) => {
   const users = loadUsers();
-  const user = users.find((u) => (
-    u.username.toLowerCase() === String(username || '').toLowerCase()
-    && u.active !== false
-    && verifyPassword(password, u.passwordHash)
-  ));
+  const decision = userCatalogCore.evaluateAuthenticate({
+    users,
+    username,
+    password,
+    verifyPassword,
+  });
+  if (!decision.ok) return { success: false, error: decision.error };
+  const user = users.find((u) => u.username.toLowerCase() === String(username || '').toLowerCase());
   if (!user) return { success: false, error: 'Λάθος όνομα χρήστη ή κωδικός' };
-  if (user.approved === false) return { success: false, error: 'Ο λογαριασμός σας αναμένει έγκριση από τον διαχειριστή' };
 
   // Μετάβαση: παλιά hashes αναβαθμίζονται αθόρυβα μετά από επιτυχή είσοδο.
   if (needsPasswordRehash(user.passwordHash)) {
@@ -3202,14 +3205,19 @@ ipcMain.handle('get-email-config', async (_event, { actingUsername } = {}) => {
     }
     if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
     const config = loadEmailConfig(dataDir);
+    const sanitized = emailCatalogCore.sanitizeEmailConfigForClient({
+      gmail: {
+        user: config.gmail?.user || '',
+        fromName: config.gmail?.fromName || 'ergoHub',
+        appPasswordSet: !!(config.gmail?.appPassword || config.gmail?._appPasswordCipher)
+      }
+    });
     return {
       success: true,
       config: {
         gmail: {
-          user: config.gmail?.user || '',
-          appPasswordSet: !!(config.gmail?.appPassword || config.gmail?._appPasswordCipher),
-          decryptFailed: !!config.gmail?._decryptFailed,
-          fromName: config.gmail?.fromName || 'ergoHub'
+          ...sanitized.gmail,
+          decryptFailed: !!config.gmail?._decryptFailed
         }
       }
     };
@@ -3232,18 +3240,20 @@ ipcMain.handle('is-email-configured', async (_event, { actingUsername } = {}) =>
 
 ipcMain.handle('save-email-config', async (_event, { actingUsername, user, appPassword, fromName }) => {
   try {
-    if (!isSuperAdminUser(actingUsername || loggedInUsername)) {
-      return { success: false, error: 'Δεν έχετε δικαίωμα αλλαγής ρυθμίσεων email' };
-    }
     if (!dataDir) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων' };
+    const actor = findUserByUsername(actingUsername || loggedInUsername);
     const existing = loadEmailConfig(dataDir);
-    let normalizedUser = String(user || '').trim().toLowerCase();
-    if (normalizedUser && !normalizedUser.includes('@')) {
-      normalizedUser = `${normalizedUser}@gmail.com`;
-    }
     const providedNewPass = appPassword !== undefined
       ? String(appPassword).replace(/\s+/g, '').trim()
       : '';
+    const decision = emailCatalogCore.evaluateSaveEmailConfig({
+      role: actor && actor.role,
+      gmailUser: user,
+      appPassword: providedNewPass,
+      appPasswordSet: !!(existing.gmail?.appPassword || existing.gmail?._appPasswordCipher)
+    });
+    if (!decision.ok) return { success: false, error: decision.error };
+    const normalizedUser = decision.gmailUser;
     // Χωρίς νέο password: κράτα plaintext αν υπάρχει, αλλιώς το παλιό ciphertext (μην το σβήνεις).
     const updated = {
       gmail: {

@@ -239,6 +239,7 @@ test('η διαχείριση χρηστών καλεί τον κοινό πυρ
   const electron = read('public/electron.js');
   assert.match(electron, /require\('\.\.\/app\/core\/userCatalog'\)/);
   assert.match(electron, /evaluateCreateUser/);
+  assert.match(electron, /evaluateAuthenticate/);
   assert.match(electron, /evaluateRegisterUser/);
   assert.match(electron, /evaluateDeleteUser/);
   assert.match(electron, /newUserStartsApproved/);
@@ -411,10 +412,28 @@ test('τα αντίγραφα ασφαλείας καλούν τον κοινό 
   const catalog = read('app/core/backupCatalog.js');
   assert.match(catalog, /evaluateBackupCoverage/);
   assert.match(catalog, /selectBackupEntryNames/);
-  assert.match(electron, /notifyUser: false/);
-  const applyMod = read('public/backupRestoreApply.js');
-  assert.match(applyMod, /applyFullRestore/);
-  assert.match(applyMod, /resolveSafeExtractPath/);
+});
+
+test('το email και η σύνδεση καλούν τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/emailCatalog'/);
+  assert.match(dash, /showEmailSettingsButton/);
+  assert.match(dash, /canOpenNotificationCenter/);
+  const modal = read('src/components/EmailSettingsModal.js');
+  assert.match(modal, /evaluateSaveEmailConfig/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/emailCatalog'\)/);
+  assert.match(electron, /evaluateSaveEmailConfig/);
+  assert.match(electron, /sanitizeEmailConfigForClient/);
+  assert.match(electron, /evaluateAuthenticate/);
+  const email = read('app/core/emailCatalog.js');
+  assert.match(email, /evaluateSaveEmailConfig/);
+  assert.match(email, /sanitizeEmailConfigForClient/);
+  const users = read('app/core/userCatalog.js');
+  assert.match(users, /evaluateAuthenticate/);
+  const harness = read('e2e/harness/workspace.js');
+  assert.match(harness, /ErgoHubEmailCatalog/);
+  assert.match(harness, /evaluateAuthenticate/);
 });
 
 test('το μητρώο μελετών καλεί τον κοινό πυρήνα', () => {

@@ -66,6 +66,11 @@
     <button type="button" id="btn-ep" data-testid="btn-ep">Επιχειρησιακό Πρόγραμμα</button>
     <button type="button" id="btn-apo" data-testid="btn-apo">Απολογισμός</button>
     <button type="button" id="btn-backup" data-testid="btn-backup">Αντίγραφα Ασφαλείας</button>
+    <button type="button" id="btn-email-settings" data-testid="btn-email-settings">Ρυθμίσεις Email</button>
+    <button type="button" id="btn-notify-center" data-testid="btn-notify-center">Κέντρο Ειδοποιήσεων</button>
+    <button type="button" id="btn-email-history" data-testid="btn-email-history">Ιστορικό Email</button>
+    <button type="button" id="btn-logout" data-testid="btn-logout" hidden>Αποσύνδεση</button>
+    <p id="login-session" data-testid="login-session" hidden></p>
     <label>Δικαίωμα μελετών
       <input id="meletai-can-edit" data-testid="meletai-can-edit" type="checkbox" />
     </label>
@@ -934,6 +939,50 @@
     <button type="button" id="btn-backup-restart" data-testid="btn-backup-restart" hidden>Επανεκκίνηση τώρα</button>
   </section>
 
+  <section id="login-panel" data-testid="login-panel" class="panel" hidden>
+    <h2>Σύνδεση</h2>
+    <label>Όνομα χρήστη <input id="login-username" data-testid="login-username" /></label>
+    <label>Κωδικός <input id="login-password" data-testid="login-password" type="password" /></label>
+    <button type="button" id="btn-login" data-testid="btn-login">Σύνδεση</button>
+    <p id="login-error" data-testid="login-error" hidden></p>
+  </section>
+
+  <section id="email-settings-panel" data-testid="email-settings-panel" class="panel" hidden>
+    <h2>Ρυθμίσεις Email</h2>
+    <label>Gmail <input id="email-gmail" data-testid="email-gmail" /></label>
+    <label>App Password <input id="email-password" data-testid="email-password" type="password" /></label>
+    <p id="email-password-set" data-testid="email-password-set" hidden>Έχει οριστεί κωδικός</p>
+    <p id="email-secret" data-testid="email-secret" hidden></p>
+    <button type="button" id="btn-email-save" data-testid="btn-email-save">Αποθήκευση</button>
+    <button type="button" id="btn-email-test" data-testid="btn-email-test">Δοκιμαστική αποστολή</button>
+    <button type="button" id="btn-close-email" data-testid="btn-close-email">Κλείσιμο</button>
+    <p id="email-error" data-testid="email-error" hidden></p>
+    <p id="email-ok" data-testid="email-ok" hidden></p>
+  </section>
+
+  <section id="notify-center-panel" data-testid="notify-center-panel" class="panel" hidden>
+    <h2>Κέντρο Ειδοποιήσεων</h2>
+    <label><input id="notify-calendar" data-testid="notify-calendar" type="checkbox" checked /> Υπενθυμίσεις ημερολογίου</label>
+    <p id="notify-recipients" data-testid="notify-recipients"></p>
+    <p id="notify-aepo-recipients" data-testid="notify-aepo-recipients"></p>
+    <button type="button" id="btn-close-notify" data-testid="btn-close-notify">Κλείσιμο</button>
+  </section>
+
+  <section id="email-history-panel" data-testid="email-history-panel" class="panel" hidden>
+    <h2>Ιστορικό Email</h2>
+    <p id="email-history-empty" data-testid="email-history-empty">Δεν υπάρχουν αποστολές</p>
+    <button type="button" id="btn-close-history" data-testid="btn-close-history">Κλείσιμο</button>
+  </section>
+
+  <section id="workspace-email-panel" data-testid="workspace-email-panel" class="panel" hidden>
+    <h2>Email χώρου εργασίας</h2>
+    <p id="workspace-email-toggle-wrap" data-testid="workspace-email-toggle-wrap" hidden>
+      <label><input id="workspace-email-on" data-testid="workspace-email-on" type="checkbox" /> Email ON</label>
+    </p>
+    <p id="workspace-email-decision" data-testid="workspace-email-decision"></p>
+    <button type="button" id="btn-close-workspace-email" data-testid="btn-close-workspace-email">Κλείσιμο</button>
+  </section>
+
   <section id="card-report-panel" data-testid="card-report-panel" class="panel" hidden>
     <h2>Αναφορά υποέργου</h2>
     <p data-testid="card-report-title"></p>
@@ -967,6 +1016,7 @@
   <script src="/app/core/epProgramCatalog.js"></script>
   <script src="/app/core/apologismosCatalog.js"></script>
   <script src="/app/core/backupCatalog.js"></script>
+  <script src="/app/core/emailCatalog.js"></script>
   <script src="/e2e/harness/workspace.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-/* global ErgoHubSubprojectCard, ErgoHubSubprojectList, ErgoHubSubprojectLifecycle, ErgoHubCalendarDeadlines, ErgoHubProsklisiCatalog, ErgoHubEntaxiCatalog, ErgoHubEgkrisiCatalog, ErgoHubSubprojectFiles, ErgoHubTaskWorkspace, ErgoHubUserCatalog, ErgoHubAuditCatalog, ErgoHubKhmdhsRefresh, ErgoHubKhmdhsPostFetch, ErgoHubExcelImport, ErgoHubReportsExport, ErgoHubPortalCatalog, ErgoHubOrimanthiCatalog, ErgoHubMeletaiCatalog, ErgoHubEpProgramCatalog, ErgoHubApologismosCatalog, ErgoHubBackupCatalog */
+/* global ErgoHubSubprojectCard, ErgoHubSubprojectList, ErgoHubSubprojectLifecycle, ErgoHubCalendarDeadlines, ErgoHubProsklisiCatalog, ErgoHubEntaxiCatalog, ErgoHubEgkrisiCatalog, ErgoHubSubprojectFiles, ErgoHubTaskWorkspace, ErgoHubUserCatalog, ErgoHubAuditCatalog, ErgoHubKhmdhsRefresh, ErgoHubKhmdhsPostFetch, ErgoHubExcelImport, ErgoHubReportsExport, ErgoHubPortalCatalog, ErgoHubOrimanthiCatalog, ErgoHubMeletaiCatalog, ErgoHubEpProgramCatalog, ErgoHubApologismosCatalog, ErgoHubBackupCatalog, ErgoHubEmailCatalog */
 (function () {
   var core = window.ErgoHubSubprojectCard;
   var list = window.ErgoHubSubprojectList;
@@ -21,6 +21,7 @@
   var ep = window.ErgoHubEpProgramCatalog;
   var apo = window.ErgoHubApologismosCatalog;
   var bk = window.ErgoHubBackupCatalog;
+  var em = window.ErgoHubEmailCatalog;
 
   function isoDaysFromToday(offset) {
     var d = new Date();
@@ -786,7 +787,30 @@
     backupRestarted: false,
     backupNowMs: Date.parse('2026-08-23T12:00:00.000Z'),
     backups: [],
-    backupNextId: 1
+    backupNextId: 1,
+    loginGate: false,
+    sessionUser: null,
+    loginError: '',
+    emailOpen: false,
+    notifyOpen: false,
+    historyOpen: false,
+    workspaceEmailOpen: false,
+    emailError: '',
+    emailOk: '',
+    emailConfig: { gmail: { user: '', fromName: 'ergoHub', appPasswordSet: false } },
+    calendarRemindersEnabled: true,
+    workspaceEmailEnabled: true,
+    isWorkspaceAssigner: true,
+    notifyUsers: [
+      { username: 'nikolas', role: 'SUPERADMIN', approved: true, active: true, notificationPreferences: {} },
+      { username: 'admin', role: 'ADMIN', approved: true, active: true, notificationPreferences: { aepoEmail: false } },
+      { username: 'maria', role: 'ENGINEER', approved: true, active: true, notificationPreferences: {} }
+    ],
+    authUsers: [
+      { username: 'nikolas', passwordHash: 'secret123', role: 'SUPERADMIN', fullName: 'Νικόλας', approved: true, active: true },
+      { username: 'pending', passwordHash: 'secret123', role: 'USER', fullName: 'Εκκρεμής', approved: false, active: true },
+      { username: 'maria', passwordHash: 'secret123', role: 'ENGINEER', fullName: 'Μαρία', approved: true, active: true }
+    ]
   };
 
   function currentUser() {
@@ -1361,7 +1385,11 @@
     document.getElementById('btn-ep').hidden = !ep.showEpProgramButton(state.role);
     document.getElementById('btn-apo').hidden = !apo.showApologismosButton(state.role);
     document.getElementById('btn-backup').hidden = !bk.showBackupButton(state.role);
+    document.getElementById('btn-email-settings').hidden = !em.showEmailSettingsButton(state.role);
+    document.getElementById('btn-notify-center').hidden = !em.canOpenNotificationCenter(state.role);
+    document.getElementById('btn-email-history').hidden = !em.canOpenEmailHistory(state.role);
     renderBackupDeck();
+    renderEmailChrome();
     if (state.statsOpen) renderStats();
     if (state.pdfOpen) renderPdfReports();
     if (state.portalOpen) renderPortal();
@@ -2521,6 +2549,9 @@
 
   document.getElementById('role-select').addEventListener('change', function (e) {
     state.role = e.target.value;
+    if (!em.canOpenNotificationCenter(state.role)) state.notifyOpen = false;
+    if (!em.canOpenEmailHistory(state.role)) state.historyOpen = false;
+    if (!em.showEmailSettingsButton(state.role)) state.emailOpen = false;
     renderCards();
     if (state.calendarOpen) renderCalendar();
     if (state.prosklisiOpen) renderProskliseis();
@@ -2546,7 +2577,11 @@
     document.getElementById('btn-ep').hidden = !ep.showEpProgramButton(state.role);
     document.getElementById('btn-apo').hidden = !apo.showApologismosButton(state.role);
     document.getElementById('btn-backup').hidden = !bk.showBackupButton(state.role);
+    document.getElementById('btn-email-settings').hidden = !em.showEmailSettingsButton(state.role);
+    document.getElementById('btn-notify-center').hidden = !em.canOpenNotificationCenter(state.role);
+    document.getElementById('btn-email-history').hidden = !em.canOpenEmailHistory(state.role);
     renderBackupDeck();
+    renderEmailChrome();
     if (state.orimanthiOpen) renderOrimanthi();
     if (state.meletaiOpen) renderMeletai();
     if (state.epOpen) renderEp();
@@ -4484,6 +4519,177 @@
     state.backupRestarted = true;
     renderBackup();
   });
+
+  function renderEmailChrome() {
+    var locked = state.loginGate && !state.sessionUser;
+    document.getElementById('login-panel').hidden = !state.loginGate || !!state.sessionUser;
+    document.getElementById('btn-logout').hidden = !(state.loginGate && state.sessionUser);
+    var cards = document.getElementById('card-list');
+    if (cards) cards.hidden = !!locked;
+    var sess = document.getElementById('login-session');
+    if (state.sessionUser) {
+      sess.hidden = false;
+      sess.textContent = state.sessionUser.fullName + ' · ' + state.sessionUser.role;
+    } else {
+      sess.hidden = true;
+      sess.textContent = '';
+    }
+    var err = document.getElementById('login-error');
+    err.textContent = state.loginError || '';
+    err.hidden = !state.loginError;
+
+    document.getElementById('email-settings-panel').hidden = !state.emailOpen;
+    document.getElementById('notify-center-panel').hidden = !state.notifyOpen;
+    document.getElementById('email-history-panel').hidden = !state.historyOpen;
+    document.getElementById('workspace-email-panel').hidden = !state.workspaceEmailOpen;
+    var safe = em.sanitizeEmailConfigForClient(state.emailConfig);
+    document.getElementById('email-password-set').hidden = !safe.gmail.appPasswordSet;
+    document.getElementById('email-secret').textContent = '';
+    document.getElementById('email-secret').hidden = true;
+    var eErr = document.getElementById('email-error');
+    eErr.textContent = state.emailError || '';
+    eErr.hidden = !state.emailError;
+    var eOk = document.getElementById('email-ok');
+    eOk.textContent = state.emailOk || '';
+    eOk.hidden = !state.emailOk;
+
+    var calRec = em.evaluateCalendarReminderRecipients({
+      calendarRemindersEnabled: state.calendarRemindersEnabled,
+      users: state.notifyUsers
+    });
+    document.getElementById('notify-calendar').checked = state.calendarRemindersEnabled;
+    document.getElementById('notify-recipients').textContent = calRec.length
+      ? calRec.map(function (u) { return u.username; }).join(', ')
+      : 'κανένας παραλήπτης';
+    var aepoRec = em.evaluateAepoReminderRecipients({ users: state.notifyUsers });
+    document.getElementById('notify-aepo-recipients').textContent = aepoRec.length
+      ? aepoRec.map(function (u) { return u.username; }).join(', ')
+      : 'κανένας παραλήπτης ΑΕΠΟ';
+
+    var showToggle = em.showWorkspaceEmailToggle({
+      isAssigner: state.isWorkspaceAssigner,
+      config: state.emailConfig
+    });
+    document.getElementById('workspace-email-toggle-wrap').hidden = !showToggle;
+    document.getElementById('workspace-email-on').checked = state.workspaceEmailEnabled;
+    var decision = em.evaluateWorkspaceCreatedEmail({
+      config: state.emailConfig,
+      emailEnabled: state.workspaceEmailEnabled
+    });
+    document.getElementById('workspace-email-decision').textContent = decision.send
+      ? 'θα σταλεί'
+      : (decision.reason === 'workspace-off' ? 'παράλειψη: email OFF' : 'παράλειψη: χωρίς ρύθμιση');
+  }
+
+  document.getElementById('btn-email-settings').addEventListener('click', function () {
+    if (!em.showEmailSettingsButton(state.role)) return;
+    state.emailOpen = true;
+    state.emailError = '';
+    state.emailOk = '';
+    renderEmailChrome();
+  });
+  document.getElementById('btn-close-email').addEventListener('click', function () {
+    state.emailOpen = false;
+    renderEmailChrome();
+  });
+  document.getElementById('btn-email-save').addEventListener('click', function () {
+    var check = em.evaluateSaveEmailConfig({
+      role: state.role,
+      gmailUser: document.getElementById('email-gmail').value,
+      appPassword: document.getElementById('email-password').value,
+      appPasswordSet: !!(state.emailConfig.gmail && state.emailConfig.gmail.appPasswordSet)
+    });
+    if (!check.ok) {
+      state.emailError = check.error;
+      state.emailOk = '';
+      renderEmailChrome();
+      return;
+    }
+    state.emailConfig = {
+      gmail: { user: check.gmailUser, fromName: 'ergoHub', appPasswordSet: true }
+    };
+    document.getElementById('email-password').value = '';
+    state.emailError = '';
+    state.emailOk = 'Οι ρυθμίσεις αποθηκεύτηκαν.';
+    renderEmailChrome();
+  });
+  document.getElementById('btn-email-test').addEventListener('click', function () {
+    var check = em.evaluateTestEmail({ role: state.role, config: state.emailConfig });
+    state.emailError = check.ok ? '' : check.error;
+    state.emailOk = check.ok ? check.message : '';
+    renderEmailChrome();
+  });
+  document.getElementById('btn-notify-center').addEventListener('click', function () {
+    if (!em.canOpenNotificationCenter(state.role)) return;
+    state.notifyOpen = true;
+    renderEmailChrome();
+  });
+  document.getElementById('btn-close-notify').addEventListener('click', function () {
+    state.notifyOpen = false;
+    renderEmailChrome();
+  });
+  document.getElementById('notify-calendar').addEventListener('change', function () {
+    state.calendarRemindersEnabled = document.getElementById('notify-calendar').checked;
+    renderEmailChrome();
+  });
+  document.getElementById('btn-email-history').addEventListener('click', function () {
+    if (!em.canOpenEmailHistory(state.role)) return;
+    state.historyOpen = true;
+    renderEmailChrome();
+  });
+  document.getElementById('btn-close-history').addEventListener('click', function () {
+    state.historyOpen = false;
+    renderEmailChrome();
+  });
+  document.getElementById('btn-close-workspace-email').addEventListener('click', function () {
+    state.workspaceEmailOpen = false;
+    renderEmailChrome();
+  });
+  document.getElementById('workspace-email-on').addEventListener('change', function () {
+    state.workspaceEmailEnabled = document.getElementById('workspace-email-on').checked;
+    renderEmailChrome();
+  });
+  document.getElementById('btn-login').addEventListener('click', function () {
+    var decision = usersCore.evaluateAuthenticate({
+      users: state.authUsers,
+      username: document.getElementById('login-username').value,
+      password: document.getElementById('login-password').value
+    });
+    if (!decision.ok) {
+      state.sessionUser = null;
+      state.loginError = decision.error;
+      renderEmailChrome();
+      return;
+    }
+    state.sessionUser = decision.user;
+    state.role = decision.user.role;
+    state.loginError = '';
+    document.getElementById('role-select').value = decision.user.role;
+    renderCards();
+    renderEmailChrome();
+  });
+  document.getElementById('btn-logout').addEventListener('click', function () {
+    state.sessionUser = null;
+    state.loginError = '';
+    renderEmailChrome();
+  });
+
+  window.__e2eRequireLogin = function (flag) {
+    state.loginGate = !!flag;
+    state.sessionUser = null;
+    state.loginError = '';
+    renderEmailChrome();
+  };
+  window.__e2eOpenWorkspaceEmail = function () {
+    state.workspaceEmailOpen = true;
+    renderEmailChrome();
+  };
+  window.__e2eSetWorkspaceAssigner = function (flag) {
+    state.isWorkspaceAssigner = !!flag;
+    renderEmailChrome();
+  };
+
+  renderEmailChrome();
 
   state.projects = loadStore();
   renderCards();

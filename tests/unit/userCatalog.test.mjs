@@ -86,6 +86,19 @@ test('διαγραφή: όχι τελευταίος υπερδιαχειριστ
   assert.deepEqual(next.map((u) => u.username), ['superadmin', 'pending']);
 });
 
+test('σύνδεση: σωστός κωδικός, λάθος κωδικός, αναμονή έγκρισης', () => {
+  const list = [
+    { username: 'nikolas', passwordHash: 'secret123', role: 'SUPERADMIN', fullName: 'Νικόλας', approved: true, active: true },
+    { username: 'pending', passwordHash: 'secret123', role: 'USER', fullName: 'Εκκρεμής', approved: false, active: true }
+  ];
+  const ok = users.evaluateAuthenticate({ users: list, username: 'NIKOLAS', password: 'secret123' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.user.username, 'nikolas');
+  assert.equal(ok.user.passwordHash, undefined);
+  assert.match(users.evaluateAuthenticate({ users: list, username: 'nikolas', password: 'nope' }).error, /κωδικός/);
+  assert.match(users.evaluateAuthenticate({ users: list, username: 'pending', password: 'secret123' }).error, /έγκριση/);
+});
+
 test('έγκριση μεταφέρει από αιτήματα στους ενεργούς', () => {
   const parts = users.partitionUsersByApproval(sample);
   assert.deepEqual(parts.pending.map((u) => u.username), ['pending']);

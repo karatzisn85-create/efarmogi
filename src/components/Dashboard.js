@@ -54,6 +54,7 @@ import meletaiCatalog from '../../app/core/meletaiCatalog';
 import epProgramCatalog from '../../app/core/epProgramCatalog';
 import apologismosCatalog from '../../app/core/apologismosCatalog';
 import backupCatalog from '../../app/core/backupCatalog';
+import emailCatalog from '../../app/core/emailCatalog';
 import {
   getProjectChargeSearchText,
   projectMatchesChargeFilters,
@@ -7276,24 +7277,30 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
               </AdminButton>
               )}
+              {emailCatalog.canOpenNotificationCenter(userRole) && (
               <AdminButton onClick={() => setIsCalendarSettingsOpen(true)}>
                 <AdminButtonIcon>🔔</AdminButtonIcon>
                 Κέντρο Ειδοποιήσεων
               </AdminButton>
+              )}
+              {emailCatalog.canOpenEmailHistory(userRole) && (
               <AdminButton onClick={() => setIsEmailHistoryOpen(true)}>
                 <AdminButtonIcon>📬</AdminButtonIcon>
                 Ιστορικό Email
               </AdminButton>
+              )}
               {userCatalog.showUserManagementButton(userRole) && (
                 <>
                   <AdminButton onClick={() => setIsUserManagementOpen(true)}>
                     <AdminButtonIcon>👥</AdminButtonIcon>
                     Διαχείριση Χρηστών
                   </AdminButton>
+                  {emailCatalog.showEmailSettingsButton(userRole) && (
                   <AdminButton onClick={() => setIsEmailSettingsOpen(true)}>
                     <AdminButtonIcon>✉</AdminButtonIcon>
                     Ρυθμίσεις Email
                   </AdminButton>
+                  )}
                   <AdminButton onClick={() => setIsMunicipalUnitsOpen(true)}>
                     <AdminButtonIcon>🏘</AdminButtonIcon>
                     Δημοτικές Ενότητες

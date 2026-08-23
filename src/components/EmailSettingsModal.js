@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
+import emailCatalog from '../../app/core/emailCatalog';
 
 const ipcRenderer = window.electronAPI;
 
@@ -224,19 +225,17 @@ function EmailSettingsModal({ onClose, currentUser }) {
   useEffect(() => { loadConfig(); }, [loadConfig]);
 
   const handleSave = async () => {
-    const normalizedUser = normalizeGmailUser(gmailUser);
-    if (!normalizedUser) {
-      setMessage({ text: 'Εισάγετε Gmail διεύθυνση (π.χ. ergohubapp@gmail.com)', error: true });
+    const check = emailCatalog.evaluateSaveEmailConfig({
+      role: currentUser?.role,
+      gmailUser,
+      appPassword,
+      appPasswordSet
+    });
+    if (!check.ok) {
+      setMessage({ text: check.error, error: true });
       return;
     }
-    if (!normalizedUser.endsWith('@gmail.com')) {
-      setMessage({ text: 'Χρησιμοποιήστε διεύθυνση @gmail.com', error: true });
-      return;
-    }
-    if (!appPassword && !appPasswordSet) {
-      setMessage({ text: 'Εισάγετε App Password από τη Google', error: true });
-      return;
-    }
+    const normalizedUser = check.gmailUser;
     setSaving(true);
     setMessage(null);
     try {
