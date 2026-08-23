@@ -776,6 +776,13 @@
     backupToastText: '',
     backupRestorePhase: '',
     backupCoverage: [],
+    backupCreateCoverage: [],
+    backupLiveEntries: [
+      'users.json', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'entaxeis', 'EGKRISEIS_DIATHESIS_PISTOSIS',
+      'ΜΕΛΕΤΕΣ', 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'ΑΠΟΛΟΓΙΣΜΟΣ',
+      'ANATHESEIS_ERGASION', 'config', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    ],
+    backupOmitFromZip: [],
     backupRestarted: false,
     backupNowMs: Date.parse('2026-08-23T12:00:00.000Z'),
     backups: [],
@@ -4228,6 +4235,18 @@
     toast.textContent = state.backupToastText || '';
     toast.hidden = !state.backupToastText;
     document.getElementById('backup-toast-count').textContent = String(state.backupToastCount);
+    var createReport = document.getElementById('backup-create-report');
+    createReport.innerHTML = '';
+    if (state.backupCreateCoverage.length) {
+      createReport.hidden = false;
+      state.backupCreateCoverage.forEach(function (area) {
+        var li = document.createElement('p');
+        li.textContent = area;
+        createReport.appendChild(li);
+      });
+    } else {
+      createReport.hidden = true;
+    }
     document.getElementById('backup-delete-confirm').hidden = !state.backupPendingDeleteId;
     document.getElementById('backup-restore-confirm').hidden = !state.backupPendingRestoreId;
     document.getElementById('backup-restore-kind').textContent = state.backupPendingRestoreId ? bk.restoreKindLabel() : '';
@@ -4323,6 +4342,21 @@
       renderBackup();
       return;
     }
+    var live = state.backupLiveEntries || [];
+    var selected = bk.selectBackupEntryNames(live);
+    var omit = state.backupOmitFromZip || [];
+    var zipTop = selected.filter(function (n) { return omit.indexOf(n) === -1; });
+    var coverage = bk.evaluateBackupCoverage({
+      liveEntries: live,
+      selectedEntries: selected,
+      zipTopLevel: zipTop
+    });
+    if (!coverage.ok) {
+      state.backupError = coverage.message;
+      state.backupCreateCoverage = [];
+      renderBackup();
+      return;
+    }
     var id = 'b' + state.backupNextId;
     state.backupNextId += 1;
     state.backups.unshift({
@@ -4331,8 +4365,10 @@
       status: 'success',
       type: 'manual',
       timestamp: new Date(state.backupNowMs).toISOString(),
-      createdBy: { fullName: currentUser().fullName }
+      createdBy: { fullName: currentUser().fullName },
+      contents: { areas: coverage.areas }
     });
+    state.backupCreateCoverage = coverage.areas;
     state.backupError = '';
     state.backupHistoryOpen = true;
     state.backupToastCount += 1;
@@ -4440,6 +4476,9 @@
   };
   window.__e2eFailRestoreExtract = function (flag) {
     state.backupFailExtract = !!flag;
+  };
+  window.__e2eOmitBackupFromZip = function (names) {
+    state.backupOmitFromZip = names || [];
   };
   document.getElementById('btn-backup-restart').addEventListener('click', function () {
     state.backupRestarted = true;

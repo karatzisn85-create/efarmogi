@@ -717,7 +717,9 @@ function BackupManager({ isOpen, onClose, currentUser }) {
       
       if (result.success) {
         resetBackupUiState();
-        showToast(`Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}`, 'success');
+        const areas = result.coverage || result.backupInfo?.coverage || result.backupInfo?.contents?.areas || [];
+        const areaLine = areas.length ? `\nΠεριλαμβάνονται: ${areas.join(', ')}` : '';
+        showToast(`Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}${areaLine}`, 'success');
         loadBackups();
         setView('history');
       } else if (result.aborted) {
@@ -768,10 +770,15 @@ function BackupManager({ isOpen, onClose, currentUser }) {
       setLoading(true);
       const result = await ipcRenderer.invoke('verify-backup', backupId);
       if (result.success) {
-        if (result.valid) {
-          showToast('Το backup είναι έγκυρο και ακέραιο', 'success');
-        } else {
+        if (!result.valid) {
           showToast('Το backup έχει αλλοιωθεί! Ο checksum δεν ταιριάζει.', 'warning');
+        } else if (result.complete === false) {
+          showToast('Το αντίγραφο είναι ακέραιο, αλλά λείπουν τομείς δεδομένων.', 'warning');
+        } else {
+          const areas = result.coverage || [];
+          showToast(areas.length
+            ? `Το αντίγραφο είναι έγκυρο και πλήρες.\nΠεριλαμβάνονται: ${areas.join(', ')}`
+            : 'Το backup είναι έγκυρο και ακέραιο', 'success');
         }
       } else {
         showToast(`Σφάλμα: ${result.error}`, 'error');
@@ -983,9 +990,9 @@ function BackupManager({ isOpen, onClose, currentUser }) {
 
               <BackupOptions>
                 <div style={{ fontSize: '0.95rem', color: '#333', lineHeight: 1.6 }}>
-                  Θα δημιουργηθεί ένα <strong>πλήρες αντίγραφο</strong> όλων των δεδομένων της εφαρμογής:
-                  έργα, εντάξεις, προσκλήσεις, εγκρίσεις, μελέτες, αναθέσεις εργασιών, σημειώσεις,
-                  χρήστες και ρυθμίσεις.
+                  Θα δημιουργηθεί ένα <strong>πλήρες αντίγραφο</strong> όλων των δεδομένων εκείνης της στιγμής:
+                  έργα, εντάξεις, προσκλήσεις, εγκρίσεις, μελέτες, ωρίμανση, επιχειρησιακό, απολογισμός,
+                  χώρος εργασιών, σημειώσεις, χρήστες και ρυθμίσεις. Αν λείπει τομέας, το αντίγραφο δεν γίνεται αποδεκτό.
                 </div>
               </BackupOptions>
 
@@ -1078,6 +1085,9 @@ function BackupManager({ isOpen, onClose, currentUser }) {
                           <span>📦 {formatSize(backup.size || 0)}</span>
                           <span>🏷️ {BACKUP_TYPE_LABELS[backup.type] || backup.type}</span>
                           <span>👤 {backup.createdBy?.fullName || backup.createdBy?.username || 'Άγνωστος'}</span>
+                          {(backup.contents?.areas || backup.coverage || []).length > 0 && (
+                            <span>📚 {(backup.contents?.areas || backup.coverage).join(' · ')}</span>
+                          )}
                           <StatusBadge status={backup.status}>
                             {backup.status === 'success' ? '✅ Επιτυχές' : 
                              backup.status === 'failed' ? '❌ Αποτυχημένο' : 

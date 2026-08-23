@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const fse = require('fs-extra');
+const yauzl = require('yauzl');
 
 const DEFAULT_EXCLUDE = new Set([
   'backups',
@@ -54,6 +55,27 @@ function resolveSafeExtractPath(extractTo, entryName) {
 
 function yieldTick() {
   return new Promise((resolve) => setImmediate(resolve));
+}
+
+function listZipTopLevelNames(zipPath) {
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      const names = new Set();
+      zipfile.readEntry();
+      zipfile.on('entry', (entry) => {
+        const normalized = String(entry.fileName || '').replace(/\\/g, '/');
+        const top = normalized.split('/').filter(Boolean)[0];
+        if (top) names.add(top);
+        zipfile.readEntry();
+      });
+      zipfile.on('end', () => resolve([...names]));
+      zipfile.on('error', reject);
+    });
+  });
 }
 
 async function applyFullRestore(input) {
@@ -119,5 +141,6 @@ module.exports = {
   resolveExtractedSourceDir,
   isExtractedRestoreReady,
   resolveSafeExtractPath,
+  listZipTopLevelNames,
   applyFullRestore,
 };

@@ -84,6 +84,100 @@ test('επαναφορά: πρόοδος και αναφορά τομέων', ()
   assert.deepEqual(bk.missingExpectedRestoreAreas(areas), []);
 });
 
+test('δημιουργία: το αντίγραφο πρέπει να έχει ό,τι είχε η εφαρμογή εκείνη τη στιγμή', () => {
+  assert.equal(bk.isSkippedBackupEntry('backups'), true);
+  assert.equal(bk.isSkippedBackupEntry('temp_extract'), true);
+  assert.equal(bk.isSkippedBackupEntry('users.json.bak'), true);
+  assert.equal(bk.isSkippedBackupEntry('ΑΠΟΛΟΓΙΣΜΟΣ'), false);
+  assert.equal(bk.isSkippedBackupEntry('ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ'), false);
+
+  const live = [
+    'users.json', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'entaxeis', 'EGKRISEIS_DIATHESIS_PISTOSIS',
+    'ΜΕΛΕΤΕΣ', 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'ΑΠΟΛΟΓΙΣΜΟΣ',
+    'ANATHESEIS_ERGASION', 'config', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    'backups', 'locks', 'users.json.bak'
+  ];
+  const selected = bk.selectBackupEntryNames(live);
+  assert.ok(!selected.includes('backups'));
+  assert.ok(!selected.includes('users.json.bak'));
+  assert.ok(selected.includes('ΑΠΟΛΟΓΙΣΜΟΣ'));
+
+  const complete = bk.evaluateBackupCoverage({
+    liveEntries: live,
+    selectedEntries: selected,
+    zipTopLevel: selected
+  });
+  assert.equal(complete.ok, true);
+  assert.match(complete.message, /όλα τα δεδομένα/);
+  assert.ok(complete.areas.includes('Απολογισμός'));
+  assert.ok(complete.areas.includes('Ωρίμανση έργων'));
+  assert.ok(complete.areas.includes('Επιχειρησιακό πρόγραμμα'));
+  assert.deepEqual(bk.missingExpectedRestoreAreas(complete.areas), []);
+
+  const incomplete = bk.evaluateBackupCoverage({
+    liveEntries: live,
+    selectedEntries: selected,
+    zipTopLevel: selected.filter((n) => n !== 'ΑΠΟΛΟΓΙΣΜΟΣ')
+  });
+  assert.equal(incomplete.ok, false);
+  assert.ok(incomplete.missing.includes('ΑΠΟΛΟΓΙΣΜΟΣ'));
+  assert.match(incomplete.message, /Απολογισμός/);
+
+  const contents = bk.summarizeBackupContents(selected);
+  assert.equal(contents.users, 1);
+  assert.equal(contents.apologismos, 1);
+  assert.equal(contents.orimanthi, 1);
+  assert.equal(contents.epProgram, 1);
+  assert.equal(contents.projects, 1);
+});
+
+test('δημιουργία: παραλείπονται μόνο προσωρινά / θέση αντιγράφων, ποτέ τομέας δεδομένων', () => {
+  const skipped = [
+    'backups', 'locks', 'app-config.json', 'data-dir.json',
+    'backup_settings.json', 'backup_location.json',
+    '.hidden', 'temp_extract', 'entity.lock', 'write.tmp',
+    'users.json.tmp-12', 'users.json.bak', 'users.json.bak1'
+  ];
+  skipped.forEach((name) => {
+    assert.equal(bk.isSkippedBackupEntry(name), true, name);
+  });
+  const kept = [
+    'users.json', 'audit_log.json', 'config', 'ONLINE_STATUS',
+    'ektelestea_erga', 'DOCUMENT_TEMPLATES', 'ARCHIVE_EGKRISEIS',
+    'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΑΠΟΛΟΓΙΣΜΟΣ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ',
+    'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  ];
+  kept.forEach((name) => {
+    assert.equal(bk.isSkippedBackupEntry(name), false, name);
+  });
+});
+
+test('δημιουργία: κενός φάκελος μετράει ως παρών· παράλειψη επιλογής αποτυγχάνει', () => {
+  const emptyOk = bk.evaluateBackupCoverage({
+    liveEntries: ['ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'users.json'],
+    selectedEntries: ['ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'users.json'],
+    zipTopLevel: ['users.json'],
+    emptySelectedDirs: ['ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ']
+  });
+  assert.equal(emptyOk.ok, true);
+
+  const emptyMissing = bk.evaluateBackupCoverage({
+    liveEntries: ['ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'users.json'],
+    selectedEntries: ['ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'users.json'],
+    zipTopLevel: ['users.json']
+  });
+  assert.equal(emptyMissing.ok, false);
+  assert.ok(emptyMissing.missing.includes('ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ'));
+
+  const notSelected = bk.evaluateBackupCoverage({
+    liveEntries: ['users.json', 'ΑΠΟΛΟΓΙΣΜΟΣ'],
+    selectedEntries: ['users.json'],
+    zipTopLevel: ['users.json']
+  });
+  assert.equal(notSelected.ok, false);
+  assert.ok(notSelected.missing.includes('ΑΠΟΛΟΓΙΣΜΟΣ'));
+});
+
 test('υπενθύμιση: χωρίς αντίγραφο ή μετά από 10 ημέρες', () => {
   const empty = bk.evaluateBackupReminder([], NOW);
   assert.equal(empty.hasBackup, false);

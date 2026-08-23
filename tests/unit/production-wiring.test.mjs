@@ -396,6 +396,7 @@ test('τα αντίγραφα ασφαλείας καλούν τον κοινό 
   assert.match(manager, /evaluateRestoreOutcome/);
   assert.match(manager, /restoreProgressLabel/);
   assert.match(manager, /Επανεκκίνηση τώρα/);
+  assert.match(manager, /Περιλαμβάνονται/);
   const electron = read('public/electron.js');
   assert.match(electron, /require\('\.\.\/app\/core\/backupCatalog'\)/);
   assert.match(electron, /require\('\.\/backupRestoreApply'\)/);
@@ -403,7 +404,13 @@ test('τα αντίγραφα ασφαλείας καλούν τον κοινό 
   assert.match(electron, /evaluateRestoreReadyToApply/);
   assert.match(electron, /applyFullRestore/);
   assert.match(electron, /summarizeRestoredAreas/);
+  assert.match(electron, /evaluateBackupCoverage/);
+  assert.match(electron, /listZipTopLevelNames/);
+  assert.match(electron, /if \(!coverage\.ok\)/);
   assert.match(electron, /restore-extract/);
+  const catalog = read('app/core/backupCatalog.js');
+  assert.match(catalog, /evaluateBackupCoverage/);
+  assert.match(catalog, /selectBackupEntryNames/);
   assert.match(electron, /notifyUser: false/);
   const applyMod = read('public/backupRestoreApply.js');
   assert.match(applyMod, /applyFullRestore/);

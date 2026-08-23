@@ -1,12 +1,13 @@
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { createWriteStream, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const require = createRequire(import.meta.url);
 const apply = require('../../public/backupRestoreApply.js');
+const archiver = require('archiver');
 
 function makeDir() {
   return mkdtempSync(join(tmpdir(), 'ergohub-restore-'));
@@ -101,6 +102,29 @@ test('επαναφορά: παλιό zip με φάκελο dedomena_ergon', () =
   const source = apply.resolveExtractedSourceDir(extract);
   assert.equal(source, nested);
   assert.equal(apply.isExtractedRestoreReady(source), true);
+});
+
+test('αντίγραφο: η λίστα κορυφαίων ονομάτων του zip', async () => {
+  const dir = makeDir();
+  const zipPath = join(dir, 'pack.zip');
+  const src = join(dir, 'src');
+  mkdirSync(src);
+  writeFileSync(join(src, 'users.json'), '{"ok":1}');
+  mkdirSync(join(src, 'ΑΠΟΛΟΓΙΣΜΟΣ'));
+  writeFileSync(join(src, 'ΑΠΟΛΟΓΙΣΜΟΣ', 'x.json'), '{}');
+  await new Promise((resolve, reject) => {
+    const out = createWriteStream(zipPath);
+    const archive = archiver('zip');
+    archive.on('error', reject);
+    out.on('close', resolve);
+    archive.pipe(out);
+    archive.file(join(src, 'users.json'), { name: 'users.json' });
+    archive.directory(join(src, 'ΑΠΟΛΟΓΙΣΜΟΣ'), 'ΑΠΟΛΟΓΙΣΜΟΣ');
+    archive.finalize();
+  });
+  const names = await apply.listZipTopLevelNames(zipPath);
+  assert.ok(names.includes('users.json'));
+  assert.ok(names.includes('ΑΠΟΛΟΓΙΣΜΟΣ'));
 });
 
 test('διαδρομή εξαγωγής δεν βγαίνει εκτός φακέλου', () => {

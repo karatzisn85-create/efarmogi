@@ -256,6 +256,31 @@ test('P12-21 η πρόοδος επαναφοράς έχει φάσεις', asyn
   await expect(page.locator('[data-testid="backup-restore-progress"]')).toContainText('προηγούμενη');
 });
 
+test('P12-22 η δημιουργία αναφέρει όλους τους τομείς της εφαρμογής', async ({ page }) => {
+  await openBackup(page, 'ADMIN');
+  await page.locator('[data-testid="btn-backup-create"]').click();
+  const report = page.locator('[data-testid="backup-create-report"]');
+  await expect(report).toBeVisible();
+  await expect(report).toContainText('Χρήστες');
+  await expect(report).toContainText('Προσκλήσεις');
+  await expect(report).toContainText('Εντάξεις');
+  await expect(report).toContainText('Εγκρίσεις');
+  await expect(report).toContainText('Μητρώο μελετών');
+  await expect(report).toContainText('Ωρίμανση');
+  await expect(report).toContainText('Επιχειρησιακό');
+  await expect(report).toContainText('Απολογισμός');
+  await expect(report).toContainText('Χώρος εργασιών');
+  await expect(page.locator('[data-testid="backup-error"]')).toBeHidden();
+});
+
+test('P12-23 αν λείπει τομέας το αντίγραφο απορρίπτεται', async ({ page }) => {
+  await openBackup(page, 'ADMIN');
+  await page.evaluate(() => window.__e2eOmitBackupFromZip(['ΑΠΟΛΟΓΙΣΜΟΣ']));
+  await page.locator('[data-testid="btn-backup-create"]').click();
+  await expect(page.locator('[data-testid="backup-error"]')).toContainText('Απολογισμός');
+  await expect(page.locator('[data-testid="backup-list"]')).not.toContainText('ERGOHUB_backup_b1.zip');
+});
+
 test('P12-12 safety και αποτυχημένα δεν μετράνε στην υπενθύμιση', async ({ page }) => {
   await seedBackups(page, [
     { backupId: 's', status: 'success', type: 'safety', timestamp: daysAgo(1), fileName: 'safety.zip' },

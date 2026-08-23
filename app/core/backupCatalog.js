@@ -229,6 +229,94 @@
     return EXPECTED_RESTORE_AREAS.filter(function (a) { return !have[a]; });
   }
 
+  var BACKUP_EXCLUDE_ENTRIES = {
+    backups: true,
+    locks: true,
+    'app-config.json': true,
+    'data-dir.json': true,
+    'backup_settings.json': true,
+    'backup_location.json': true
+  };
+
+  function isSkippedBackupEntry(name) {
+    if (!name) return true;
+    if (BACKUP_EXCLUDE_ENTRIES[name]) return true;
+    if (name.charAt(0) === '.') return true;
+    if (name.indexOf('temp_') === 0) return true;
+    if (name.slice(-5) === '.lock' || name.slice(-4) === '.tmp') return true;
+    if (/\.tmp-\d+$/.test(name)) return true;
+    if (/\.bak\d*$/.test(name)) return true;
+    return false;
+  }
+
+  function selectBackupEntryNames(dirNames) {
+    return (dirNames || []).filter(function (n) { return !isSkippedBackupEntry(n); });
+  }
+
+  function summarizeBackupContents(entryNames) {
+    var names = selectBackupEntryNames(entryNames);
+    var contents = {
+      projects: 0,
+      proskliseis: 0,
+      entaxeis: 0,
+      egkriseis: 0,
+      meletai: 0,
+      tasks: 0,
+      users: 0,
+      orimanthi: 0,
+      epProgram: 0,
+      apologismos: 0
+    };
+    names.forEach(function (name) {
+      if (PROJECT_UUID_RE.test(name)) contents.projects += 1;
+      else if (name === 'ΠΡΟΣΚΛΗΣΕΙΣ' || name === 'proskliseis_data') contents.proskliseis = 1;
+      else if (name === 'entaxeis' || name === 'entaxis_data') contents.entaxeis = 1;
+      else if (name === 'EGKRISEIS_DIATHESIS_PISTOSIS' || name === 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ') contents.egkriseis = 1;
+      else if (name === 'ΜΕΛΕΤΕΣ') contents.meletai = 1;
+      else if (name === 'ANATHESEIS_ERGASION') contents.tasks = 1;
+      else if (name === 'users.json') contents.users = 1;
+      else if (name === 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ') contents.orimanthi = 1;
+      else if (name === 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ') contents.epProgram = 1;
+      else if (name === 'ΑΠΟΛΟΓΙΣΜΟΣ') contents.apologismos = 1;
+    });
+    contents.areas = summarizeRestoredAreas(names);
+    return contents;
+  }
+
+  function evaluateBackupCoverage(input) {
+    var opts = input || {};
+    var live = selectBackupEntryNames(opts.liveEntries);
+    var selected = opts.selectedEntries || live;
+    var zipSeen = {};
+    (opts.zipTopLevel || []).forEach(function (n) { zipSeen[n] = true; });
+    var empty = {};
+    (opts.emptySelectedDirs || []).forEach(function (n) { empty[n] = true; });
+    var missing = [];
+    var seen = {};
+    function addMissing(name) {
+      if (!name || seen[name]) return;
+      seen[name] = true;
+      missing.push(name);
+    }
+    live.forEach(function (n) {
+      if (selected.indexOf(n) === -1) addMissing(n);
+    });
+    if (opts.zipTopLevel) {
+      selected.forEach(function (n) {
+        if (!zipSeen[n] && !empty[n]) addMissing(n);
+      });
+    }
+    var labels = missing.map(function (n) { return RESTORE_AREA_LABELS[n] || n; });
+    return {
+      ok: missing.length === 0,
+      missing: missing,
+      areas: summarizeRestoredAreas(selected),
+      message: missing.length
+        ? ('Το αντίγραφο δεν περιέχει όλα τα δεδομένα της εφαρμογής: ' + labels.join(', ') + '.')
+        : 'Το αντίγραφο περιέχει όλα τα δεδομένα της εφαρμογής εκείνης της στιγμής.'
+    };
+  }
+
   function restoreProgressLabel(phase) {
     if (phase === 'restore-safety' || phase === 'scanning' || phase === 'archiving' || phase === 'finalizing') {
       return 'Φύλαξη τρέχουσας κατάστασης…';
@@ -294,6 +382,11 @@
     EXPECTED_RESTORE_AREAS: EXPECTED_RESTORE_AREAS,
     summarizeRestoredAreas: summarizeRestoredAreas,
     missingExpectedRestoreAreas: missingExpectedRestoreAreas,
-    restoreProgressLabel: restoreProgressLabel
+    restoreProgressLabel: restoreProgressLabel,
+    BACKUP_EXCLUDE_ENTRIES: BACKUP_EXCLUDE_ENTRIES,
+    isSkippedBackupEntry: isSkippedBackupEntry,
+    selectBackupEntryNames: selectBackupEntryNames,
+    summarizeBackupContents: summarizeBackupContents,
+    evaluateBackupCoverage: evaluateBackupCoverage
   };
 });

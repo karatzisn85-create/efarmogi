@@ -12854,12 +12854,7 @@ async function getFilesToBackup() {
   try {
     const entries = fs.readdirSync(dataDir);
     for (const entry of entries) {
-      if (BACKUP_EXCLUDE_ENTRIES.has(entry)) continue;
-      if (entry.startsWith('.')) continue;
-      if (entry.startsWith('temp_')) continue;
-      if (entry.endsWith('.lock') || entry.endsWith('.tmp')) continue;
-      if (/\.tmp-\d+$/.test(entry)) continue;
-      if (/\.bak\d*$/.test(entry)) continue;
+      if (backupCatalogCore.isSkippedBackupEntry(entry)) continue;
 
       const full = path.join(dataDir, entry);
       // Παράλειψη της ενεργής θέσης αντιγράφων αν βρίσκεται εντός του φακέλου δεδομένων
@@ -12926,20 +12921,9 @@ async function computeBackupTotals(filesToBackup, onProgress = null) {
 
 // Μετρά τα περιεχόμενα του αντιγράφου για εμφάνιση στο ιστορικό
 function countBackupContents(filesToBackup) {
-  const contents = { projects: 0, proskliseis: 0, entaxeis: 0, egkriseis: 0, meletai: 0, tasks: 0, users: 0 };
-  try {
-    for (const f of filesToBackup) {
-      const name = f.relativePath;
-      if (f.type === 'dir' && PROJECT_UUID_RE.test(name)) contents.projects++;
-      else if (name === 'ΠΡΟΣΚΛΗΣΕΙΣ') contents.proskliseis = 1;
-      else if (name === 'entaxeis') contents.entaxeis = 1;
-      else if (name === 'EGKRISEIS_DIATHESIS_PISTOSIS') contents.egkriseis = 1;
-      else if (name === 'ΜΕΛΕΤΕΣ') contents.meletai = 1;
-      else if (name === 'ANATHESEIS_ERGASION') contents.tasks = 1;
-      else if (name === 'users.json') contents.users = 1;
-    }
-  } catch (_e) { /* ignore */ }
-  return contents;
+  return backupCatalogCore.summarizeBackupContents(
+    (filesToBackup || []).map((f) => f.relativePath)
+  );
 }
 
 // Ελληνικές ετικέτες τύπου αντιγράφου
@@ -13091,13 +13075,18 @@ async function createBackup(options = {}) {
       for (let i = 0; i < filesToBackup.length; i++) {
         throwIfBackupAborted();
         const file = filesToBackup[i];
-        // Skip lock files and temp files
-        if (file.path.includes('.lock') || file.path.includes('temp_')) continue;
+        if (backupCatalogCore.isSkippedBackupEntry(file.relativePath)) continue;
         
         if (fs.existsSync(file.path)) {
           const stat = fs.statSync(file.path);
           if (stat.isDirectory()) {
-            archive.directory(file.path, file.relativePath);
+            let kids = [];
+            try { kids = fs.readdirSync(file.path); } catch (_e) { kids = []; }
+            if (kids.length === 0) {
+              archive.append(Buffer.alloc(0), { name: `${file.relativePath.replace(/\\/g, '/')}/` });
+            } else {
+              archive.directory(file.path, file.relativePath);
+            }
           } else {
             archive.file(file.path, { name: file.relativePath });
           }
@@ -13159,8 +13148,34 @@ async function createBackup(options = {}) {
     }
     throwIfBackupAborted();
     backupInfo.checksum = await sha256FileStreaming(backupPath);
+
+    const selectedNames = filesToBackup.map((f) => f.relativePath);
+    const zipTopLevel = await backupRestoreApply.listZipTopLevelNames(backupPath);
+    const emptySelectedDirs = filesToBackup
+      .filter((f) => f.type === 'dir')
+      .filter((f) => {
+        try { return fs.readdirSync(f.path).length === 0; } catch (_e) { return false; }
+      })
+      .map((f) => f.relativePath);
+    const liveNames = fs.readdirSync(dataDir).filter((name) => {
+      if (backupCatalogCore.isSkippedBackupEntry(name)) return false;
+      if (backupDir && path.resolve(dataDir, name) === path.resolve(backupDir)) return false;
+      return true;
+    });
+    const coverage = backupCatalogCore.evaluateBackupCoverage({
+      liveEntries: liveNames,
+      selectedEntries: selectedNames,
+      zipTopLevel,
+      emptySelectedDirs,
+    });
+    if (!coverage.ok) {
+      throw new Error(coverage.message);
+    }
+    backupInfo.contents = backupCatalogCore.summarizeBackupContents(selectedNames);
+    backupInfo.entryNames = selectedNames;
+    backupInfo.coverage = coverage.areas;
     
-    // Update metadata — αφαίρεσε τυχόν προηγούμενη εγγραφή με το ίδιο όνομα (άμυνα κατά διπλότυπων)
+    // Update metadata — αφαίρεση τυχόν προηγούμενης εγγραφής με το ίδιο όνομα (άμυνα κατά διπλότυπων)
     const metadata = loadBackupMetadata();
     metadata.backups = (metadata.backups || []).filter(b => b && b.fileName !== backupFileName);
     metadata.backups.unshift(backupInfo);
@@ -13193,7 +13208,7 @@ async function createBackup(options = {}) {
       });
     }
 
-    return { success: true, backupInfo };
+    return { success: true, backupInfo, coverage: backupInfo.coverage || [] };
     
   } catch (error) {
     const aborted = backupAbortRequested || (error && error.code === 'BACKUP_ABORTED');
@@ -13828,12 +13843,24 @@ ipcMain.handle('verify-backup', async (event, backupId) => {
     const currentChecksum = await sha256FileStreaming(backup.path);
     
     const isValid = backup.checksum === currentChecksum;
+    let coverage = null;
+    if (isValid && Array.isArray(backup.entryNames) && backup.entryNames.length) {
+      const zipTopLevel = await backupRestoreApply.listZipTopLevelNames(backup.path);
+      coverage = backupCatalogCore.evaluateBackupCoverage({
+        liveEntries: backup.entryNames,
+        selectedEntries: backup.entryNames,
+        zipTopLevel,
+      });
+    }
     
     return {
       success: true,
       valid: isValid,
       checksum: currentChecksum,
-      expectedChecksum: backup.checksum
+      expectedChecksum: backup.checksum,
+      coverage: coverage ? coverage.areas : ((backup.coverage || (backup.contents && backup.contents.areas)) || []),
+      complete: coverage ? coverage.ok : null,
+      missing: coverage ? coverage.missing : []
     };
   } catch (error) {
     console.error('Error verifying backup:', error);
