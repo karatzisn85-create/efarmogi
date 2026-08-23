@@ -19,7 +19,6 @@ import {
   formatAleCodes,
 } from '../utils/projectCardDisplay';
 import reportsExport from '../../app/core/reportsExport';
-import epProgramCatalog from '../../app/core/epProgramCatalog';
 import { getVisibleFundingSourceRows, isCoFinancedProject } from '../utils/coFinancingDisplay';
 
 const iconProps = { width: 14, height: 14, 'aria-hidden': true };
@@ -385,21 +384,6 @@ const TitleBadges = styled.div`
   flex-wrap: wrap;
   gap: 0.35rem;
   margin-top: 0.45rem;
-`;
-
-const EpLinkChip = styled.div`
-  margin-top: 0.55rem;
-  display: flex;
-  align-items: flex-start;
-  gap: 0.4rem;
-  font-size: 0.75rem;
-  line-height: 1.4;
-  font-weight: 650;
-  color: #3730a3;
-  background: #eef2ff;
-  border: 1px solid #c7d2fe;
-  border-radius: 8px;
-  padding: 0.4rem 0.55rem;
 `;
 
 const OverviewPanel = styled.div`
@@ -1179,7 +1163,6 @@ function ProjectCard({
   // Πύλη / παράβαση άμεσης ανάθεσης: μόνο μέσα στην κάρτα, όχι στην εξωτερική σύνοψη.
   portalEnabled: _portalEnabled = false,
   isPublishedToPortal: _isPublishedToPortal = false,
-  epLinkedAction = null,
   hasDirectAssignmentViolation: _hasDirectAssignmentViolation = false,
   actRootSiblingsIndex: _actRootSiblingsIndex = null,
   onContractExpiryAccept: _onContractExpiryAccept,
@@ -1404,12 +1387,6 @@ function ProjectCard({
               <MetaValue>{aleDisplay}</MetaValue>
             </div>
           )}
-          {epLinkedAction && (
-            <EpLinkChip data-testid={`card-ep-${project.subprojectId}`}>
-              <span aria-hidden>🗺️</span>
-              <span>{epProgramCatalog.formatEpCardLinkLabel(epLinkedAction)}</span>
-            </EpLinkChip>
-          )}
         </CardSection>
 
         <CardSection $accent="#059669" $tint="rgba(236, 253, 245, 0.45)">
@@ -1535,16 +1512,6 @@ function ProjectCard({
             <ToolbarButton type="button" onClick={() => onOpenSpecificMeleti && onOpenSpecificMeleti(project.subprojectId)}>
               📐
               ΜΕΛΕΤΗ
-            </ToolbarButton>
-          )}
-          {epLinkedAction && (
-            <ToolbarButton
-              type="button"
-              title={epProgramCatalog.formatEpCardLinkLabel(epLinkedAction)}
-              onClick={() => onViewDetails && onViewDetails(project)}
-            >
-              🗺️
-              ΕΠ
             </ToolbarButton>
           )}
         </TopButtonsContainer>

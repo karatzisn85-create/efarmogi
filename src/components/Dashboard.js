@@ -3341,21 +3341,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [selectedMeletiId, setSelectedMeletiId] = useState(null);
   const [meletaiRestoreScrollTop, setMeletaiRestoreScrollTop] = useState(0);
   const [meletaiBySubproject, setMeletaiBySubproject] = useState({});
-  const [epSubprojectMap, setEpSubprojectMap] = useState({}); // subprojectId → epActionInfo
-
-  const refreshEpSubprojectMap = useCallback(async () => {
-    const username = currentUser?.username || '';
-    if (!username) return;
-    try {
-      const epRes = await ipcRenderer.invoke('get-ep-subproject-link-map', { requestingUsername: username });
-      if (epRes?.success) {
-        setEpSubprojectMap(epRes.map || {});
-      }
-    } catch {
-      /* non-blocking */
-    }
-  }, [currentUser?.username]);
-
   const refreshMeletaiSubprojectMap = useCallback(async () => {
     const username = currentUser?.username || '';
     if (!username) return;
@@ -4393,7 +4378,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       );
       console.log(`⏱️ loadDataWithCache IPC bundle: ${loadElapsedMs}ms · projects=${actualProjects.length}`);
       
-      refreshEpSubprojectMap();
       refreshMeletaiSubprojectMap();
       // Συντήρηση μελετών: μετά το paint — δεν μπλοκάρει το κρίσιμο μονοπάτι φόρτωσης.
       if (currentUser?.username) {
@@ -6894,7 +6878,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                                 onOpenNoteFromEntity={handleOpenNoteFromEntity}
                                 portalEnabled={portalEnabled}
                                 isPublishedToPortal={publishedSubprojectIds.has(project.subprojectId)}
-                                epLinkedAction={epSubprojectMap[project.subprojectId] || null}
                                 hasDirectAssignmentViolation={directAssignmentViolationSubprojectIds.has(project.subprojectId)}
                                 onExportReport={handleExportSubprojectReport}
                                 actRootSiblingsIndex={actRootSiblingsIndex}
@@ -7377,7 +7360,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             }
             refreshKhmdhsStaleCount();
           }}
-          onEpLinksChanged={refreshEpSubprojectMap}
           directAssignmentViolations={getViolationsForSubproject(
             directAssignmentViolations,
             selectedDetailProject.subprojectId
@@ -7644,7 +7626,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             isOpen={isEpProgramOpen}
             onClose={() => {
               setIsEpProgramOpen(false);
-              refreshEpSubprojectMap();
               setTimeout(() => {
                 if (dashboardScrollRef.current) {
                   dashboardScrollRef.current.scrollTop = savedScrollPosition.current;

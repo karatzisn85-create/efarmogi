@@ -366,9 +366,8 @@ test('το επιχειρησιακό πρόγραμμα καλεί τον κο�
   assert.match(template, /applyEpTemplateDropdowns/);
   assert.match(template, /exceljs/);
   assert.match(template, /definedNames/);
-  const card = read('src/components/ProjectCard.js');
-  assert.match(card, /from '\.\.\/\.\.\/app\/core\/epProgramCatalog'/);
-  assert.match(card, /formatEpCardLinkLabel/);
+  const catalog = read('app/core/epProgramCatalog.js');
+  assert.match(catalog, /formatEpCardLinkLabel/);
 });
 
 test('ο απολογισμός καλεί τον κοινό πυρήνα', () => {

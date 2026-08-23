@@ -1337,22 +1337,17 @@
       header.dataset.testid = 'group-title-' + projectId;
       header.textContent = list.pickDisplayProjectTitleForGroup(subs);
       group.appendChild(header);
-      var epMap = ep.buildEpSubprojectLinkMap(programsWithActions());
       subs.forEach(function (p) {
         var charge = core.getProjectChargeDisplay(p, CATALOG);
         var el = document.createElement('article');
         el.className = 'card';
         el.dataset.testid = 'card-' + p.subprojectId;
         el.setAttribute('data-subproject-id', p.subprojectId);
-        var epLink = epMap[p.subprojectId];
         el.innerHTML =
           '<h3 data-field="project-title">' + escapeHtml(p.projectTitle) + '</h3>' +
           '<p data-field="subproject-title">' + escapeHtml(p.subprojectTitle) + '</p>' +
           '<p data-field="ka">ΚΑ: ' + escapeHtml(p.kaCode || '—') + '</p>' +
-          '<p class="charge" data-field="charge">' + escapeHtml(charge.displayChargePrimary || '—') + '</p>' +
-          (epLink
-            ? '<p data-testid="card-ep-' + p.subprojectId + '">' + escapeHtml(ep.formatEpCardLinkLabel(epLink)) + '</p>'
-            : '');
+          '<p class="charge" data-field="charge">' + escapeHtml(charge.displayChargePrimary || '—') + '</p>';
         el.addEventListener('click', function () { openRead(p.subprojectId); });
         if (reports.showCardReportButton()) {
           var reportBtn = document.createElement('button');

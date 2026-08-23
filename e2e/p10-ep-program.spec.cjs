@@ -208,11 +208,12 @@ test('P10-20 νέα δράση χωρίς Α/Α δεν δημιουργείτα�
   await expect(epCard(page, 'ep-new-1')).toHaveCount(0);
 });
 
-test('P10-21 η κάρτα υποέργου δείχνει τη σύνδεση με το επιχειρησιακό', async ({ page }) => {
-  await expect(page.locator('[data-testid="card-ep-sub-bridge"]')).toBeVisible();
-  await expect(page.locator('[data-testid="card-ep-sub-bridge"]')).toContainText('Πενταετία 2024–2028');
-  await expect(page.locator('[data-testid="card-ep-sub-bridge"]')).toContainText('Ύδρευση Χουδετσίου');
+test('P10-21 η κάρτα υποέργου δεν δείχνει τη σύνδεση με το επιχειρησιακό', async ({ page }) => {
+  await expect(page.locator('[data-testid="card-sub-bridge"]')).toBeVisible();
+  await expect(page.locator('[data-testid="card-ep-sub-bridge"]')).toHaveCount(0);
   await expect(page.locator('[data-testid="card-ep-sub-lights"]')).toHaveCount(0);
+  await openEp(page);
+  await expect(page.locator('[data-testid="ep-linked-count"]')).toHaveText('1');
 });
 
 test('P10-22 κατέβασμα προτύπου ζητά πενταετία ή τετραετία', async ({ page }) => {
