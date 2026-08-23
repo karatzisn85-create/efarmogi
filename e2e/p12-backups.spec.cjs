@@ -221,6 +221,41 @@ test('P12-19 ένα μήνυμα επιτυχίας μετά τη δημιουρ
   await expect(page.locator('[data-testid="backup-toast-count"]')).toHaveText('1');
 });
 
+test('P12-20 μετά την επαναφορά φαίνεται αναφορά τομέων και επανεκκίνηση', async ({ page }) => {
+  await seedBackups(page, [
+    { backupId: 'ok', status: 'success', type: 'manual', timestamp: daysAgo(2), fileName: 'ok.zip' }
+  ], NOW);
+  await openBackup(page, 'SUPERADMIN');
+  await page.locator('[data-testid="btn-backup-history"]').click();
+  await page.locator('[data-testid="btn-backup-restore-ok"]').click();
+  await page.locator('[data-testid="btn-backup-restore-confirm"]').click();
+  const report = page.locator('[data-testid="backup-restore-report"]');
+  await expect(report).toBeVisible();
+  await expect(report).toContainText('Χρήστες');
+  await expect(report).toContainText('Προσκλήσεις');
+  await expect(report).toContainText('Εντάξεις');
+  await expect(report).toContainText('Εγκρίσεις');
+  await expect(report).toContainText('Μητρώο μελετών');
+  await expect(report).toContainText('Ωρίμανση');
+  await expect(report).toContainText('Επιχειρησιακό');
+  await expect(report).toContainText('Απολογισμός');
+  await expect(report).toContainText('Χώρος εργασιών');
+  await expect(page.locator('[data-testid="btn-backup-restart"]')).toBeVisible();
+  await expect(page.locator('[data-testid="backup-panel"]')).toBeVisible();
+});
+
+test('P12-21 η πρόοδος επαναφοράς έχει φάσεις', async ({ page }) => {
+  await seedBackups(page, [
+    { backupId: 'ok', status: 'success', type: 'manual', timestamp: daysAgo(2), fileName: 'ok.zip' }
+  ], NOW);
+  await openBackup(page, 'SUPERADMIN');
+  await page.evaluate(() => window.__e2eFailNextRestoreApply(true));
+  await page.locator('[data-testid="btn-backup-history"]').click();
+  await page.locator('[data-testid="btn-backup-restore-ok"]').click();
+  await page.locator('[data-testid="btn-backup-restore-confirm"]').click();
+  await expect(page.locator('[data-testid="backup-restore-progress"]')).toContainText('προηγούμενη');
+});
+
 test('P12-12 safety και αποτυχημένα δεν μετράνε στην υπενθύμιση', async ({ page }) => {
   await seedBackups(page, [
     { backupId: 's', status: 'success', type: 'safety', timestamp: daysAgo(1), fileName: 'safety.zip' },

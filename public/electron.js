@@ -13967,14 +13967,30 @@ ipcMain.handle('select-backup-folder', async () => {
 });
 
 // Extract ZIP file
-function extractZip(zipPath, extractTo) {
+function extractZip(zipPath, extractTo, onProgress) {
   return new Promise((resolve, reject) => {
     yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
       if (err) return reject(err);
+      let processed = 0;
+      const total = zipfile.entryCount || 0;
+      let lastProgressAt = 0;
+      const emitExtract = () => {
+        if (!onProgress) return;
+        const now = Date.now();
+        if (now - lastProgressAt < 150 && processed < total) return;
+        lastProgressAt = now;
+        onProgress({
+          phase: 'restore-extract',
+          entries: processed,
+          total,
+        });
+      };
       
       zipfile.readEntry();
       
       zipfile.on('entry', (entry) => {
+        processed += 1;
+        emitExtract();
         const safePath = backupRestoreApply.resolveSafeExtractPath(extractTo, entry.fileName);
         if (!safePath) {
           zipfile.readEntry();
@@ -14021,13 +14037,16 @@ function extractZip(zipPath, extractTo) {
 }
 
 // Create safety backup before restore
-async function createSafetyBackup() {
+async function createSafetyBackup(onProgress) {
   try {
     console.log('🛡️ Creating safety backup before restore...');
     const result = await createBackup({
       type: 'safety',
       background: false,
-      notifyUser: false
+      notifyUser: false,
+      onProgress: onProgress
+        ? (progress) => onProgress({ ...progress, phase: 'restore-safety' })
+        : null,
     });
     
     if (result.success) {
@@ -14048,10 +14067,10 @@ function cleanupRestoreTemp(dir) {
   }
 }
 
-async function extractAndApplyRestore(zipPath, tempDir) {
+async function extractAndApplyRestore(zipPath, tempDir, onProgress) {
   if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
   fs.mkdirSync(tempDir, { recursive: true });
-  await extractZip(zipPath, tempDir);
+  await extractZip(zipPath, tempDir, onProgress);
   const sourceDir = backupRestoreApply.resolveExtractedSourceDir(tempDir);
   const ready = backupRestoreApply.isExtractedRestoreReady(sourceDir, {
     dataDir,
@@ -14065,6 +14084,7 @@ async function extractAndApplyRestore(zipPath, tempDir) {
 // Αν η εφαρμογή σπάσει, γυρίζουμε αυτόματα από το αντίγραφο ασφαλείας.
 async function restoreBackup(backupId, options = {}) {
   const type = backupCatalogCore.normalizeRestoreType(options && options.type);
+  const emitProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
   try {
     const metadata = loadBackupMetadata();
     const backup = metadata.backups.find(b => b.backupId === backupId);
@@ -14083,7 +14103,8 @@ async function restoreBackup(backupId, options = {}) {
 
     let safetyBackup = null;
     try {
-      safetyBackup = await createSafetyBackup();
+      if (emitProgress) emitProgress({ phase: 'restore-safety', entries: 0, total: 0 });
+      safetyBackup = await createSafetyBackup(emitProgress);
     } catch (error) {
       const blocked = backupCatalogCore.evaluateRestoreReadyToApply({ safetyOk: false, extractedReady: false });
       return { success: false, error: blocked.error };
@@ -14092,7 +14113,8 @@ async function restoreBackup(backupId, options = {}) {
     const tempExtractDir = path.join(dataDir, 'temp_restore_' + Date.now());
     let extracted;
     try {
-      extracted = await extractAndApplyRestore(backup.path, tempExtractDir);
+      if (emitProgress) emitProgress({ phase: 'restore-extract', entries: 0, total: 0 });
+      extracted = await extractAndApplyRestore(backup.path, tempExtractDir, emitProgress);
     } catch (extractErr) {
       cleanupRestoreTemp(tempExtractDir);
       const blocked = backupCatalogCore.evaluateRestoreReadyToApply({ safetyOk: true, extractedReady: false });
@@ -14108,23 +14130,30 @@ async function restoreBackup(backupId, options = {}) {
       return { success: false, error: ready.error };
     }
 
+    let appliedNames = [];
     try {
-      backupRestoreApply.applyFullRestore({
+      if (emitProgress) emitProgress({ phase: 'restore-apply', entries: 0, total: 0 });
+      const applied = await backupRestoreApply.applyFullRestore({
         dataDir,
         sourceDir: extracted.sourceDir,
         backupDir,
         exclude: BACKUP_EXCLUDE_ENTRIES,
+        onProgress: emitProgress,
       });
+      appliedNames = (applied && applied.applied) || [];
     } catch (applyErr) {
       const safetyTemp = path.join(dataDir, 'temp_restore_safety_' + Date.now());
       try {
-        const safetyExtracted = await extractAndApplyRestore(safetyBackup.path, safetyTemp);
+        if (emitProgress) emitProgress({ phase: 'restore-rollback', entries: 0, total: 0 });
+        const safetyExtracted = await extractAndApplyRestore(safetyBackup.path, safetyTemp, emitProgress);
         if (!safetyExtracted.ready) throw new Error('empty safety');
-        backupRestoreApply.applyFullRestore({
+        await backupRestoreApply.applyFullRestore({
           dataDir,
           sourceDir: safetyExtracted.sourceDir,
           backupDir,
           exclude: BACKUP_EXCLUDE_ENTRIES,
+          phase: 'restore-rollback',
+          onProgress: emitProgress,
         });
         cleanupRestoreTemp(tempExtractDir);
         cleanupRestoreTemp(safetyTemp);
@@ -14175,12 +14204,16 @@ async function restoreBackup(backupId, options = {}) {
     restoreHistory.unshift(restoreInfo);
     safeWriteJSON(restoreHistoryPath, restoreHistory);
 
+    const coverage = backupCatalogCore.summarizeRestoredAreas(appliedNames);
     const ok = backupCatalogCore.evaluateRestoreOutcome({ applyOk: true });
+    if (emitProgress) emitProgress({ phase: 'restore-done', entries: 1, total: 1 });
     return {
       success: true,
       message: ok.message,
       restoreInfo,
       safetyBackup,
+      coverage,
+      appliedCount: appliedNames.length,
     };
   } catch (error) {
     console.error('❌ Error restoring backup:', error);
@@ -14208,6 +14241,11 @@ ipcMain.handle('restore-backup', async (event, backupId, options = {}) => {
       ...options,
       type: backupCatalogCore.normalizeRestoreType(options && options.type),
       actingUser,
+      onProgress: (progress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('backup-progress', progress);
+        }
+      },
     });
     return result;
   } catch (error) {

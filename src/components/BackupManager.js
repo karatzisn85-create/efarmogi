@@ -537,6 +537,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
   // eslint-disable-next-line no-unused-vars
   const [_restorePreview, _setRestorePreview] = useState(null);
   const [restoreInProgress, setRestoreInProgress] = useState(false);
+  const [restoreReport, setRestoreReport] = useState(null);
   
   // Load backups on mount
   useEffect(() => {
@@ -582,9 +583,9 @@ function BackupManager({ isOpen, onClose, currentUser }) {
     };
   }, [isOpen]);
 
-  // Χρονόμετρο + ανίχνευση «κολλήματος» όσο τρέχει το backup
+  // Χρονόμετρο + ανίχνευση «κολλήματος» όσο τρέχει αντίγραφο ή επαναφορά
   useEffect(() => {
-    if (!isBackupInProgress) return;
+    if (!isBackupInProgress && !restoreInProgress) return;
     const tick = setInterval(() => {
       const now = Date.now();
       setElapsedSec(Math.max(0, Math.round((now - startRef.current) / 1000)));
@@ -594,7 +595,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
       }
     }, 1000);
     return () => clearInterval(tick);
-  }, [isBackupInProgress]);
+  }, [isBackupInProgress, restoreInProgress]);
   
   const loadBackups = async () => {
     try {
@@ -793,6 +794,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
       return;
     }
     setSelectedBackup(backup);
+    setRestoreReport(null);
     setView('restore');
   };
   
@@ -812,6 +814,12 @@ function BackupManager({ isOpen, onClose, currentUser }) {
     try {
       setLoading(true);
       setRestoreInProgress(true);
+      setRestoreReport(null);
+      setBackupProgress({ phase: 'restore-safety', entries: 0, total: 0 });
+      startRef.current = Date.now();
+      lastProgressRef.current = Date.now();
+      setElapsedSec(0);
+      setStalled(false);
       
       const result = await ipcRenderer.invoke('restore-backup', selectedBackup.backupId, {
         type: backupCatalog.normalizeRestoreType(),
@@ -819,21 +827,34 @@ function BackupManager({ isOpen, onClose, currentUser }) {
       });
       
       if (result.success) {
-        showToast(backupCatalog.evaluateRestoreOutcome({ applyOk: true }).message, 'success');
-        ipcRenderer.send('restart-app');
+        const outcome = backupCatalog.evaluateRestoreOutcome({ applyOk: true });
+        setRestoreReport({
+          ok: true,
+          message: outcome.message,
+          areas: result.coverage || [],
+        });
+        showToast(outcome.message, 'success');
       } else if (result.rolledBack) {
-        showToast(backupCatalog.evaluateRestoreOutcome({ applyOk: false, rolledBack: true }).message, 'error');
+        const outcome = backupCatalog.evaluateRestoreOutcome({ applyOk: false, rolledBack: true });
+        setRestoreReport({ ok: false, rolledBack: true, message: outcome.message, areas: [] });
+        showToast(outcome.message, 'error');
       } else {
-        showToast(result.error || result.message || backupCatalog.evaluateRestoreOutcome({ applyOk: false }).message, 'error');
+        const outcome = backupCatalog.evaluateRestoreOutcome({ applyOk: false });
+        setRestoreReport({
+          ok: false,
+          message: result.error || result.message || outcome.message,
+          areas: [],
+        });
+        showToast(result.error || result.message || outcome.message, 'error');
       }
-      
-      setView('main');
     } catch (error) {
       console.error('Error restoring backup:', error);
       showToast(`Σφάλμα: ${error.message}`, 'error');
     } finally {
       setLoading(false);
       setRestoreInProgress(false);
+      setBackupProgress(null);
+      setStalled(false);
     }
   };
   
@@ -1095,10 +1116,14 @@ function BackupManager({ isOpen, onClose, currentUser }) {
             <RestoreSection show={true}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <SectionTitle>Επαναφορά δεδομένων</SectionTitle>
-                <SecondaryButton onClick={() => {
-                  setView('history');
-                  setSelectedBackup(null);
-                }}>
+                <SecondaryButton
+                  onClick={() => {
+                    setView('history');
+                    setSelectedBackup(null);
+                    setRestoreReport(null);
+                  }}
+                  disabled={restoreInProgress}
+                >
                   ← Πίσω
                 </SecondaryButton>
               </div>
@@ -1106,25 +1131,78 @@ function BackupManager({ isOpen, onClose, currentUser }) {
               <p>Αντίγραφο: <strong>{selectedBackup.fileName}</strong></p>
               <p>Ημερομηνία: {formatDate(selectedBackup.timestamp)}</p>
               <p>Μέγεθος: {formatSize(selectedBackup.size || 0)}</p>
-              <WarningBox>
-                {backupCatalog.restoreConfirmMessage()}{' '}
-                {backupCatalog.restoreConfirmDetail()}
-              </WarningBox>
-              {restoreInProgress && (
-                <div style={{ background: '#e7f3ff', padding: '1rem', borderRadius: '10px', marginBottom: '1rem', textAlign: 'center' }}>
-                  <p>Η επαναφορά είναι σε εξέλιξη. Παρακαλώ περιμένετε.</p>
+              {!restoreReport && (
+                <WarningBox>
+                  {backupCatalog.restoreConfirmMessage()}{' '}
+                  {backupCatalog.restoreConfirmDetail()}
+                </WarningBox>
+              )}
+              {restoreInProgress && (() => {
+                const p = backupProgress || { phase: 'restore-safety' };
+                const label = backupCatalog.restoreProgressLabel(p.phase);
+                const hasTotal = p.total > 0;
+                const pct = hasTotal ? Math.min(100, (p.entries / p.total) * 100) : 0;
+                return (
+                  <div style={{ background: '#e7f3ff', padding: '1rem', borderRadius: '10px', marginBottom: '1rem' }}>
+                    <p style={{ fontWeight: 700, marginBottom: 8 }}>{label}</p>
+                    <ProgressBar>
+                      {hasTotal ? <ProgressFill progress={pct} /> : <IndeterminateFill />}
+                    </ProgressBar>
+                    <ProgressText>
+                      {hasTotal ? `${p.entries || 0} / ${p.total}` : 'Σε εξέλιξη'}
+                      {p.current ? ` · ${p.current}` : ''}
+                    </ProgressText>
+                    <ProgressMeta>
+                      <span>Μην κλείσετε το παράθυρο. Σε μεγάλο αντίγραφο αυτό κρατά αρκετά λεπτά.</span>
+                      <span>⏱ {fmtTime(elapsedSec)}</span>
+                    </ProgressMeta>
+                    {stalled && (
+                      <StalledWarning>
+                        Καθυστερεί περισσότερο από το αναμενόμενο — η εφαρμογή δουλεύει ακόμα.
+                        Μην την κλείσετε.
+                      </StalledWarning>
+                    )}
+                  </div>
+                );
+              })()}
+              {restoreReport && (
+                <div style={{
+                  padding: '1rem',
+                  borderRadius: 10,
+                  marginBottom: '1rem',
+                  background: restoreReport.ok ? '#f0fdf4' : '#fff7ed',
+                  border: `1.5px solid ${restoreReport.ok ? '#86efac' : '#fdba74'}`,
+                }}>
+                  <p style={{ fontWeight: 700, marginBottom: 8 }}>{restoreReport.message}</p>
+                  {restoreReport.ok && restoreReport.areas && restoreReport.areas.length > 0 && (
+                    <>
+                      <p style={{ marginBottom: 6 }}>Επαναφέρθηκαν:</p>
+                      <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+                        {restoreReport.areas.map((area) => (
+                          <li key={area}>{area}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
                 </div>
               )}
               <ButtonGroup>
                 <SecondaryButton onClick={() => {
                   setView('history');
                   setSelectedBackup(null);
+                  setRestoreReport(null);
                 }} disabled={restoreInProgress}>
                   Άκυρο
                 </SecondaryButton>
-                <PrimaryButton onClick={handleConfirmRestore} disabled={loading || restoreInProgress}>
-                  {loading || restoreInProgress ? 'Σε εξέλιξη...' : 'Επαναφορά όλων των δεδομένων'}
-                </PrimaryButton>
+                {restoreReport && restoreReport.ok ? (
+                  <PrimaryButton onClick={() => ipcRenderer.send('restart-app')}>
+                    Επανεκκίνηση τώρα
+                  </PrimaryButton>
+                ) : (
+                  <PrimaryButton onClick={handleConfirmRestore} disabled={loading || restoreInProgress || !!restoreReport}>
+                    {loading || restoreInProgress ? 'Σε εξέλιξη...' : 'Επαναφορά όλων των δεδομένων'}
+                  </PrimaryButton>
+                )}
               </ButtonGroup>
             </RestoreSection>
           )}

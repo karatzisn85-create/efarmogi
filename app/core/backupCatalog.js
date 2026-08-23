@@ -160,13 +160,93 @@
     return { ok: true, canApply: true };
   }
 
+  var PROJECT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  var RESTORE_AREA_LABELS = {
+    'users.json': 'Χρήστες',
+    'registered-engineers.json': 'Κατάλογος μηχανικών',
+    'audit_log.json': 'Ιστορικό ενεργειών',
+    'funding_options.json': 'Πηγές χρηματοδότησης',
+    'ΠΡΟΣΚΛΗΣΕΙΣ': 'Προσκλήσεις',
+    'proskliseis_data': 'Προσκλήσεις (δεδομένα)',
+    'entaxeis': 'Εντάξεις',
+    'entaxis_data': 'Εντάξεις (δεδομένα)',
+    'EGKRISEIS_DIATHESIS_PISTOSIS': 'Εγκρίσεις διάθεσης',
+    'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ': 'Εγκρίσεις διάθεσης',
+    'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ': 'Εγκρίσεις (δεδομένα)',
+    'egkriseis_links': 'Συνδέσεις εγκρίσεων',
+    'ARCHIVE_EGKRISEIS': 'Αρχείο εγκρίσεων',
+    'ΜΕΛΕΤΕΣ': 'Μητρώο μελετών',
+    'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ': 'Ωρίμανση έργων',
+    'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ': 'Επιχειρησιακό πρόγραμμα',
+    'ΑΠΟΛΟΓΙΣΜΟΣ': 'Απολογισμός',
+    'ANATHESEIS_ERGASION': 'Χώρος εργασιών',
+    'ΣΗΜΕΙΩΣΕΙΣ': 'Σημειώσεις',
+    'DOCUMENT_TEMPLATES': 'Πρότυπα εγγράφων',
+    'config': 'Ρυθμίσεις / ημερολόγιο / ειδοποιήσεις',
+    'subproject_links': 'Συνδέσεις υποέργων',
+    'ektelestea_erga': 'Εκτελεστέα έργα'
+  };
+
+  var EXPECTED_RESTORE_AREAS = [
+    'Χρήστες',
+    'Προσκλήσεις',
+    'Εντάξεις',
+    'Εγκρίσεις διάθεσης',
+    'Μητρώο μελετών',
+    'Ωρίμανση έργων',
+    'Επιχειρησιακό πρόγραμμα',
+    'Απολογισμός',
+    'Χώρος εργασιών',
+    'Ρυθμίσεις / ημερολόγιο / ειδοποιήσεις'
+  ];
+
+  function summarizeRestoredAreas(entryNames) {
+    var names = entryNames || [];
+    var seen = {};
+    var areas = [];
+    var projectCount = 0;
+    names.forEach(function (name) {
+      if (PROJECT_UUID_RE.test(name)) {
+        projectCount += 1;
+        return;
+      }
+      var label = RESTORE_AREA_LABELS[name] || name;
+      if (!seen[label]) {
+        seen[label] = true;
+        areas.push(label);
+      }
+    });
+    if (projectCount) {
+      areas.unshift('Έργα / υποέργα (' + projectCount + ')');
+    }
+    return areas;
+  }
+
+  function missingExpectedRestoreAreas(areaLabels) {
+    var have = {};
+    (areaLabels || []).forEach(function (a) { have[a] = true; });
+    return EXPECTED_RESTORE_AREAS.filter(function (a) { return !have[a]; });
+  }
+
+  function restoreProgressLabel(phase) {
+    if (phase === 'restore-safety' || phase === 'scanning' || phase === 'archiving' || phase === 'finalizing') {
+      return 'Φύλαξη τρέχουσας κατάστασης…';
+    }
+    if (phase === 'restore-extract') return 'Άνοιγμα αντιγράφου…';
+    if (phase === 'restore-apply') return 'Εφαρμογή δεδομένων…';
+    if (phase === 'restore-rollback') return 'Επιστροφή στην προηγούμενη κατάσταση…';
+    if (phase === 'restore-done') return 'Η επαναφορά ολοκληρώθηκε.';
+    return 'Η επαναφορά είναι σε εξέλιξη…';
+  }
+
   function evaluateRestoreOutcome(input) {
     var opts = input || {};
     if (opts.applyOk) {
       return {
         ok: true,
         rolledBack: false,
-        message: 'Η επαναφορά ολοκληρώθηκε. Η εφαρμογή θα επανεκκινηθεί.'
+        message: 'Η επαναφορά ολοκληρώθηκε. Επανεκκινήστε για να φορτωθούν τα νέα δεδομένα.'
       };
     }
     if (opts.rolledBack) {
@@ -209,6 +289,11 @@
     restoreConfirmDetail: restoreConfirmDetail,
     evaluateRestoreReadyToApply: evaluateRestoreReadyToApply,
     evaluateRestoreOutcome: evaluateRestoreOutcome,
-    announceCreateBackupFromEvent: announceCreateBackupFromEvent
+    announceCreateBackupFromEvent: announceCreateBackupFromEvent,
+    RESTORE_AREA_LABELS: RESTORE_AREA_LABELS,
+    EXPECTED_RESTORE_AREAS: EXPECTED_RESTORE_AREAS,
+    summarizeRestoredAreas: summarizeRestoredAreas,
+    missingExpectedRestoreAreas: missingExpectedRestoreAreas,
+    restoreProgressLabel: restoreProgressLabel
   };
 });

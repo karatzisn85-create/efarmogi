@@ -394,12 +394,16 @@ test('τα αντίγραφα ασφαλείας καλούν τον κοινό 
   assert.match(manager, /restoreConfirmDetail/);
   assert.match(manager, /announceCreateBackupFromEvent/);
   assert.match(manager, /evaluateRestoreOutcome/);
+  assert.match(manager, /restoreProgressLabel/);
+  assert.match(manager, /Επανεκκίνηση τώρα/);
   const electron = read('public/electron.js');
   assert.match(electron, /require\('\.\.\/app\/core\/backupCatalog'\)/);
   assert.match(electron, /require\('\.\/backupRestoreApply'\)/);
   assert.match(electron, /evaluateBackupReminder/);
   assert.match(electron, /evaluateRestoreReadyToApply/);
   assert.match(electron, /applyFullRestore/);
+  assert.match(electron, /summarizeRestoredAreas/);
+  assert.match(electron, /restore-extract/);
   assert.match(electron, /notifyUser: false/);
   const applyMod = read('public/backupRestoreApply.js');
   assert.match(applyMod, /applyFullRestore/);

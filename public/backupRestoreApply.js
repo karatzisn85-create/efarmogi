@@ -52,10 +52,15 @@ function resolveSafeExtractPath(extractTo, entryName) {
   return resolved;
 }
 
-function applyFullRestore(input) {
+function yieldTick() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+async function applyFullRestore(input) {
   const opts = input || {};
   const dataDir = opts.dataDir;
   const sourceDir = opts.sourceDir;
+  const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
   if (!dataDir || !sourceDir) {
     throw new Error('Απαιτείται φάκελος δεδομένων και προέλευσης');
   }
@@ -69,8 +74,10 @@ function applyFullRestore(input) {
   }
 
   const sourceNames = fs.readdirSync(sourceDir);
-  for (const name of sourceNames) {
-    if (isProtectedEntry(name, ctx)) continue;
+  const toCopy = sourceNames.filter((name) => !isProtectedEntry(name, ctx));
+  const applied = [];
+  for (let i = 0; i < toCopy.length; i++) {
+    const name = toCopy[i];
     const src = path.join(sourceDir, name);
     const dest = path.join(dataDir, name);
     const st = fs.statSync(src);
@@ -81,9 +88,19 @@ function applyFullRestore(input) {
       if (fs.existsSync(dest)) fs.unlinkSync(dest);
       fs.copyFileSync(src, dest);
     }
+    applied.push(name);
+    if (onProgress) {
+      onProgress({
+        phase: opts.phase || 'restore-apply',
+        entries: i + 1,
+        total: toCopy.length,
+        current: name,
+      });
+    }
+    await yieldTick();
   }
 
-  const sourceSet = new Set(sourceNames.filter((name) => !isProtectedEntry(name, ctx)));
+  const sourceSet = new Set(toCopy);
   for (const name of fs.readdirSync(dataDir)) {
     if (isProtectedEntry(name, ctx)) continue;
     if (sourceSet.has(name)) continue;
@@ -92,6 +109,8 @@ function applyFullRestore(input) {
     if (st.isDirectory()) fs.rmSync(dest, { recursive: true, force: true });
     else fs.unlinkSync(dest);
   }
+
+  return { applied };
 }
 
 module.exports = {

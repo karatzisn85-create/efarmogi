@@ -774,6 +774,9 @@
     backupFailExtract: false,
     backupToastCount: 0,
     backupToastText: '',
+    backupRestorePhase: '',
+    backupCoverage: [],
+    backupRestarted: false,
     backupNowMs: Date.parse('2026-08-23T12:00:00.000Z'),
     backups: [],
     backupNextId: 1
@@ -4236,6 +4239,22 @@
     var rolled = document.getElementById('backup-restore-rolled');
     rolled.textContent = state.backupRolledBack ? bk.evaluateRestoreOutcome({ applyOk: false, rolledBack: true }).message : '';
     rolled.hidden = !state.backupRolledBack;
+    var prog = document.getElementById('backup-restore-progress');
+    prog.textContent = state.backupRestorePhase ? bk.restoreProgressLabel(state.backupRestorePhase) : '';
+    prog.hidden = !state.backupRestorePhase;
+    var report = document.getElementById('backup-restore-report');
+    report.innerHTML = '';
+    if (state.backupRestored && state.backupCoverage.length) {
+      state.backupCoverage.forEach(function (area) {
+        var li = document.createElement('p');
+        li.textContent = area;
+        report.appendChild(li);
+      });
+      report.hidden = false;
+    } else {
+      report.hidden = true;
+    }
+    document.getElementById('btn-backup-restart').hidden = !state.backupRestored;
     var list = document.getElementById('backup-list');
     list.innerHTML = '';
     if (!state.backupHistoryOpen) return;
@@ -4369,8 +4388,11 @@
       renderBackup();
       return;
     }
+    state.backupRestorePhase = 'restore-safety';
+    renderBackup();
     if (state.backupFailNextApply) {
       state.backupFailNextApply = false;
+      state.backupRestorePhase = 'restore-rollback';
       state.backupRolledBack = true;
       state.backupRestored = false;
       state.backupError = bk.evaluateRestoreOutcome({ applyOk: false, rolledBack: true }).message;
@@ -4378,11 +4400,26 @@
       renderBackup();
       return;
     }
+    state.backupRestorePhase = 'restore-apply';
     state.backupLiveTitle = 'δεδομένα αντιγράφου';
     state.backupRestored = true;
     state.backupRolledBack = false;
+    state.backupCoverage = bk.summarizeRestoredAreas([
+      'aaaaaaaa-1111-2222-3333-444444444444',
+      'users.json',
+      'ΠΡΟΣΚΛΗΣΕΙΣ',
+      'entaxeis',
+      'EGKRISEIS_DIATHESIS_PISTOSIS',
+      'ΜΕΛΕΤΕΣ',
+      'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ',
+      'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ',
+      'ΑΠΟΛΟΓΙΣΜΟΣ',
+      'ANATHESEIS_ERGASION',
+      'config'
+    ]);
     state.backupPendingRestoreId = '';
     state.backupError = '';
+    state.backupRestorePhase = '';
     renderBackup();
   });
 
@@ -4404,6 +4441,10 @@
   window.__e2eFailRestoreExtract = function (flag) {
     state.backupFailExtract = !!flag;
   };
+  document.getElementById('btn-backup-restart').addEventListener('click', function () {
+    state.backupRestarted = true;
+    renderBackup();
+  });
 
   state.projects = loadStore();
   renderCards();

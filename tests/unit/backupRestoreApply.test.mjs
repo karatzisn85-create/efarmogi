@@ -12,7 +12,7 @@ function makeDir() {
   return mkdtempSync(join(tmpdir(), 'ergohub-restore-'));
 }
 
-test('επαναφορά: αντικαθιστά ζωντανά, σβήνει περισσευούμενα, δεν αγγίζει αντίγραφα', () => {
+test('επαναφορά: αντικαθιστά ζωντανά, σβήνει περισσευούμενα, δεν αγγίζει αντίγραφα', async () => {
   const live = makeDir();
   const source = makeDir();
   const backups = join(live, 'backups');
@@ -26,7 +26,8 @@ test('επαναφορά: αντικαθιστά ζωντανά, σβήνει π
   mkdirSync(join(source, 'proj-new'));
   writeFileSync(join(source, 'proj-new', 'data.json'), '{"t":"νέο"}');
 
-  apply.applyFullRestore({ dataDir: live, sourceDir: source, backupDir: backups });
+  const result = await apply.applyFullRestore({ dataDir: live, sourceDir: source, backupDir: backups });
+  assert.ok(result.applied.includes('users.json'));
 
   assert.equal(JSON.parse(readFileSync(join(live, 'users.json'), 'utf8')).name, 'από αντίγραφο');
   assert.equal(existsSync(join(live, 'extra.json')), false);
@@ -35,19 +36,19 @@ test('επαναφορά: αντικαθιστά ζωντανά, σβήνει π
   assert.equal(readFileSync(join(backups, 'keep.zip'), 'utf8'), 'zip');
 });
 
-test('επαναφορά: κενό αντίγραφο δεν εφαρμόζεται', () => {
+test('επαναφορά: κενό αντίγραφο δεν εφαρμόζεται', async () => {
   const live = makeDir();
   const source = makeDir();
   writeFileSync(join(live, 'users.json'), '{"name":"τρέχον"}');
   mkdirSync(join(source, 'backups'));
-  assert.throws(
+  await assert.rejects(
     () => apply.applyFullRestore({ dataDir: live, sourceDir: source }),
     /κενό/
   );
   assert.equal(JSON.parse(readFileSync(join(live, 'users.json'), 'utf8')).name, 'τρέχον');
 });
 
-test('επαναφορά: αποτυχία μετά μερική αλλαγή → γύρισμα από αντίγραφο ασφαλείας', () => {
+test('επαναφορά: αποτυχία μετά μερική αλλαγή → γύρισμα από αντίγραφο ασφαλείας', async () => {
   const live = makeDir();
   const restored = makeDir();
   const safety = makeDir();
@@ -56,13 +57,40 @@ test('επαναφορά: αποτυχία μετά μερική αλλαγή �
   writeFileSync(join(restored, 'users.json'), '{"name":"από αντίγραφο"}');
   writeFileSync(join(restored, 'only-in-backup.json'), 'x');
 
-  apply.applyFullRestore({ dataDir: live, sourceDir: restored });
+  await apply.applyFullRestore({ dataDir: live, sourceDir: restored });
   assert.equal(JSON.parse(readFileSync(join(live, 'users.json'), 'utf8')).name, 'από αντίγραφο');
   assert.equal(existsSync(join(live, 'only-in-backup.json')), true);
 
-  apply.applyFullRestore({ dataDir: live, sourceDir: safety });
+  await apply.applyFullRestore({ dataDir: live, sourceDir: safety });
   assert.equal(JSON.parse(readFileSync(join(live, 'users.json'), 'utf8')).name, 'τρέχον');
   assert.equal(existsSync(join(live, 'only-in-backup.json')), false);
+});
+
+test('επαναφορά: εφαρμόζονται όλοι οι επιμέρους τομείς', async () => {
+  const live = makeDir();
+  const source = makeDir();
+  const folders = [
+    'ΠΡΟΣΚΛΗΣΕΙΣ', 'entaxeis', 'EGKRISEIS_DIATHESIS_PISTOSIS', 'ΜΕΛΕΤΕΣ',
+    'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'ΑΠΟΛΟΓΙΣΜΟΣ',
+    'ANATHESEIS_ERGASION', 'config', 'ΣΗΜΕΙΩΣΕΙΣ'
+  ];
+  writeFileSync(join(source, 'users.json'), '{"ok":1}');
+  folders.forEach((name) => {
+    mkdirSync(join(source, name));
+    writeFileSync(join(source, name, 'marker.json'), JSON.stringify({ name }));
+  });
+  mkdirSync(join(source, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'));
+  writeFileSync(join(source, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'data.json'), '{"t":1}');
+
+  const result = await apply.applyFullRestore({ dataDir: live, sourceDir: source });
+  assert.ok(existsSync(join(live, 'users.json')));
+  folders.forEach((name) => {
+    assert.ok(existsSync(join(live, name, 'marker.json')), name);
+  });
+  assert.ok(existsSync(join(live, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'data.json')));
+  assert.ok(result.applied.includes('ΑΠΟΛΟΓΙΣΜΟΣ'));
+  assert.ok(result.applied.includes('ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ'));
+  assert.ok(result.applied.includes('ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ'));
 });
 
 test('επαναφορά: παλιό zip με φάκελο dedomena_ergon', () => {

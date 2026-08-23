@@ -48,9 +48,40 @@ test('επαναφορά: μόνο πλήρης, επιβεβαίωση με χ�
   assert.match(bk.evaluateRestoreReadyToApply({ safetyOk: true, extractedReady: false }).error, /δεν άλλαξαν/);
   assert.equal(bk.evaluateRestoreReadyToApply({ safetyOk: true, extractedReady: true }).canApply, true);
   assert.match(bk.evaluateRestoreOutcome({ applyOk: true }).message, /ολοκληρώθηκε/);
+  assert.match(bk.evaluateRestoreOutcome({ applyOk: true }).message, /Επανεκκινήστε/);
   assert.equal(bk.evaluateRestoreOutcome({ applyOk: false, rolledBack: true }).rolledBack, true);
   assert.match(bk.evaluateRestoreOutcome({ applyOk: false, rolledBack: true }).message, /όπως ήταν πριν/);
   assert.equal(bk.announceCreateBackupFromEvent(), false);
+});
+
+test('επαναφορά: πρόοδος και αναφορά τομέων', () => {
+  assert.match(bk.restoreProgressLabel('restore-safety'), /Φύλαξη/);
+  assert.match(bk.restoreProgressLabel('restore-extract'), /Άνοιγμα/);
+  assert.match(bk.restoreProgressLabel('restore-apply'), /Εφαρμογή/);
+  const areas = bk.summarizeRestoredAreas([
+    'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    'users.json',
+    'ΠΡΟΣΚΛΗΣΕΙΣ',
+    'entaxeis',
+    'EGKRISEIS_DIATHESIS_PISTOSIS',
+    'ΜΕΛΕΤΕΣ',
+    'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ',
+    'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ',
+    'ΑΠΟΛΟΓΙΣΜΟΣ',
+    'ANATHESEIS_ERGASION',
+    'config'
+  ]);
+  assert.ok(areas.some((a) => a.startsWith('Έργα / υποέργα')));
+  assert.ok(areas.includes('Χρήστες'));
+  assert.ok(areas.includes('Προσκλήσεις'));
+  assert.ok(areas.includes('Εντάξεις'));
+  assert.ok(areas.includes('Εγκρίσεις διάθεσης'));
+  assert.ok(areas.includes('Μητρώο μελετών'));
+  assert.ok(areas.includes('Ωρίμανση έργων'));
+  assert.ok(areas.includes('Επιχειρησιακό πρόγραμμα'));
+  assert.ok(areas.includes('Απολογισμός'));
+  assert.ok(areas.includes('Χώρος εργασιών'));
+  assert.deepEqual(bk.missingExpectedRestoreAreas(areas), []);
 });
 
 test('υπενθύμιση: χωρίς αντίγραφο ή μετά από 10 ημέρες', () => {
