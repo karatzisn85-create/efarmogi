@@ -1,3 +1,5 @@
+import meletaiCatalog from '../../app/core/meletaiCatalog';
+
 export function filterMeletiBudgetInput(raw) {
   return String(raw ?? '').replace(/[^\d,.\s€]/gi, '').replace(/\s+/g, ' ');
 }
@@ -47,60 +49,14 @@ export function formatAssignedToNames(names) {
 }
 
 export function countMeletiFiles(meleti) {
-  return (meleti?.fileGroups || []).reduce((sum, g) => {
-    return sum + (g.files || []).reduce((s, entry) => {
-      if (entry?.kind === 'folder') return s + (entry.fileCount || 0);
-      return s + 1;
-    }, 0);
-  }, 0);
+  return meletaiCatalog.countMeletiFiles(meleti);
 }
 
 /** Αυστηρή μορφή: αριθμός/έτος π.χ. 2/2026 — μόνο ψηφία, μία κάθετος, έτος 4 ψηφία */
-export const STUDY_NUMBER_REGEX = /^(\d{1,4})\/(\d{4})$/;
-
-export function filterStudyNumberInput(raw) {
-  let s = String(raw ?? '').replace(/[^\d/]/g, '');
-  const slash = s.indexOf('/');
-  if (slash >= 0) {
-    const num = s.slice(0, slash).slice(0, 4);
-    const year = s.slice(slash + 1).replace(/\//g, '').slice(0, 4);
-    return `${num}/${year}`;
-  }
-  return s.slice(0, 4);
-}
-
-export function validateStudyNumberFormat(value) {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) {
-    return { ok: false, error: 'Απαιτείται αριθμός μελέτης' };
-  }
-  const match = trimmed.match(STUDY_NUMBER_REGEX);
-  if (!match) {
-    return {
-      ok: false,
-      error: 'Μορφή: αριθμός/έτος (π.χ. 2/2026). Μόνο ψηφία, χωρίς κενά ή σύμβολα.',
-    };
-  }
-  const year = parseInt(match[2], 10);
-  if (year < 1990 || year > 2100) {
-    return { ok: false, error: 'Το έτος πρέπει να είναι μεταξύ 1990 και 2100' };
-  }
-  const num = parseInt(match[1], 10);
-  if (!Number.isFinite(num) || num < 1) {
-    return { ok: false, error: 'Ο αριθμός μελέτης πρέπει να είναι θετικός' };
-  }
-  const studyNumber = `${num}/${match[2]}`;
-  return { ok: true, studyNumber };
-}
-
-export function normalizeStudyNumberKey(value) {
-  const v = validateStudyNumberFormat(value);
-  if (v.ok) {
-    const parts = v.studyNumber.split('/');
-    return `${parts[0]}/${parts[1]}`;
-  }
-  return String(value || '').trim().toLowerCase();
-}
+export const STUDY_NUMBER_REGEX = meletaiCatalog.STUDY_NUMBER_REGEX;
+export const filterStudyNumberInput = meletaiCatalog.filterStudyNumberInput;
+export const validateStudyNumberFormat = meletaiCatalog.validateStudyNumberFormat;
+export const normalizeStudyNumberKey = meletaiCatalog.normalizeStudyNumberKey;
 
 /** Μόνο πεδία κειμένου — για έλεγχο «μη αποθηκευμένες αλλαγές» (όχι αρχεία/σύνδεση που αποθηκεύονται άμεσα). */
 export function meletiTextFingerprint(meleti) {

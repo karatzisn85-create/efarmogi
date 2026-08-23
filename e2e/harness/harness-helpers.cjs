@@ -490,6 +490,255 @@ async function setPortalPublishedFilter(page, value) {
   await page.locator('[data-testid="portal-filter-published"]').selectOption(value);
 }
 
+async function openOrimanthi(page) {
+  await page.locator('[data-testid="btn-orimanthi"]').click();
+  await page.locator('[data-testid="orimanthi-panel"]').waitFor();
+}
+
+async function setOrimanthiCanEdit(page, enabled) {
+  const box = page.locator('[data-testid="orimanthi-can-edit"]');
+  if (enabled) await box.check();
+  else await box.uncheck();
+}
+
+async function searchOrimanthi(page, term) {
+  await page.locator('[data-testid="orimanthi-search"]').fill(term);
+}
+
+async function setOrimanthiStatus(page, value) {
+  await page.locator('[data-testid="orimanthi-status"]').selectOption(value);
+}
+
+async function setOrimanthiCategory(page, value) {
+  await page.locator('[data-testid="orimanthi-category"]').selectOption(value);
+}
+
+async function setOrimanthiQuick(page, value) {
+  await page.locator('[data-testid="orimanthi-quick"]').selectOption(value);
+}
+
+function oriCard(page, id) {
+  return page.locator(`[data-testid="ori-card-${id}"]`);
+}
+
+async function openOrimanthiCreate(page) {
+  await page.locator('[data-testid="btn-orimanthi-new"]').click();
+  await page.locator('[data-testid="orimanthi-create"]').waitFor();
+}
+
+async function fillOrimanthiCreate(page, values) {
+  const data = values || {};
+  if (data.title != null) {
+    await page.locator('[data-testid="orimanthi-new-title"]').fill(data.title);
+  }
+  if (data.projectCategory != null) {
+    await page.locator('[data-testid="orimanthi-new-category"]').selectOption(data.projectCategory);
+  }
+  if (data.infrastructureSpecialization != null) {
+    await page.locator('[data-testid="orimanthi-new-spec"]').selectOption(data.infrastructureSpecialization);
+  }
+}
+
+async function submitOrimanthiCreate(page) {
+  await page.locator('[data-testid="btn-orimanthi-create-save"]').click();
+}
+
+async function fillOrimanthiTitle(page, title) {
+  await page.locator('[data-testid="orimanthi-edit-title"]').fill(title);
+}
+
+async function saveOrimanthiEdit(page) {
+  await page.locator('[data-testid="btn-orimanthi-save"]').click();
+}
+
+async function openMeletai(page) {
+  await page.locator('[data-testid="btn-meletai"]').click();
+  await page.locator('[data-testid="meletai-panel"]').waitFor();
+}
+
+async function setMeletaiCanEdit(page, enabled) {
+  const box = page.locator('[data-testid="meletai-can-edit"]');
+  if (enabled) await box.check();
+  else await box.uncheck();
+}
+
+async function searchMeletai(page, term) {
+  await page.locator('[data-testid="meletai-search"]').fill(term);
+}
+
+async function setMeletaiQuick(page, value) {
+  await page.locator('[data-testid="meletai-quick"]').selectOption(value);
+}
+
+function mltCard(page, id) {
+  return page.locator(`[data-testid="mlt-card-${id}"]`);
+}
+
+async function openMeletaiCreate(page) {
+  await page.locator('[data-testid="btn-meletai-new"]').click();
+  await page.locator('[data-testid="meletai-create"]').waitFor();
+}
+
+async function fillMeletaiCreate(page, values) {
+  const data = values || {};
+  if (data.studyNumber != null) {
+    await page.locator('[data-testid="meletai-new-number"]').fill(data.studyNumber);
+  }
+  if (data.title != null) {
+    await page.locator('[data-testid="meletai-new-title"]').fill(data.title);
+  }
+}
+
+async function submitMeletaiCreate(page) {
+  await page.locator('[data-testid="btn-meletai-create-save"]').click();
+}
+
+async function openEp(page) {
+  await page.locator('[data-testid="btn-ep"]').click();
+  await page.locator('[data-testid="ep-panel"]').waitFor();
+}
+
+async function searchEp(page, term) {
+  await page.locator('[data-testid="ep-search"]').fill(term);
+}
+
+async function setEpAxis(page, value) {
+  await page.locator('[data-testid="ep-axis"]').selectOption(value);
+}
+
+async function setEpType(page, value) {
+  await page.locator('[data-testid="ep-type"]').selectOption(value);
+}
+
+async function setEpNew(page, value) {
+  await page.locator('[data-testid="ep-new"]').selectOption(value);
+}
+
+function epCard(page, id) {
+  return page.locator(`[data-testid="ep-card-${id}"]`);
+}
+
+async function openEpCreate(page) {
+  await page.locator('[data-testid="btn-ep-new"]').click();
+  await page.locator('[data-testid="ep-create"]').waitFor();
+}
+
+async function fillEpCreate(page, values) {
+  const data = typeof values === 'string' ? { title: values } : (values || {});
+  if (data.aa != null) {
+    await page.locator('[data-testid="ep-new-aa"]').fill(String(data.aa));
+  }
+  if (data.title != null) {
+    await page.locator('[data-testid="ep-new-title"]').fill(data.title);
+  }
+}
+
+async function submitEpCreate(page) {
+  await page.locator('[data-testid="btn-ep-create-save"]').click();
+}
+
+async function openEpImport(page) {
+  await page.locator('[data-testid="btn-ep-import-open"]').click();
+  await page.locator('[data-testid="ep-import"]').waitFor();
+}
+
+async function fillEpImport(page, values) {
+  const data = values || {};
+  if (data.startYear != null) {
+    await page.locator('[data-testid="ep-import-start"]').fill(data.startYear);
+  }
+  if (data.endYear != null) {
+    await page.locator('[data-testid="ep-import-end"]').fill(data.endYear);
+  }
+  if (data.hasFile != null) {
+    const box = page.locator('[data-testid="ep-import-file"]');
+    if (data.hasFile) await box.check();
+    else await box.uncheck();
+  }
+}
+
+async function submitEpImport(page) {
+  await page.locator('[data-testid="btn-ep-import-save"]').click();
+}
+
+async function unloadEp(page) {
+  await page.locator('[data-testid="btn-ep-unload"]').click();
+}
+
+async function selectEpProgram(page, id) {
+  await page.locator('[data-testid="ep-program"]').selectOption(id);
+}
+
+async function openEpTemplatePeriod(page) {
+  await page.locator('[data-testid="btn-ep-template"]').click();
+  await page.locator('[data-testid="ep-template-period"]').waitFor();
+}
+
+async function fillEpTemplatePeriod(page, values) {
+  const data = values || {};
+  if (data.startYear != null) {
+    await page.locator('[data-testid="ep-tpl-start"]').fill(data.startYear);
+  }
+  if (data.endYear != null) {
+    await page.locator('[data-testid="ep-tpl-end"]').fill(data.endYear);
+  }
+}
+
+async function confirmEpTemplatePeriod(page) {
+  await page.locator('[data-testid="btn-ep-template-confirm"]').click();
+}
+
+async function openApo(page) {
+  await setRole(page, 'SUPERADMIN');
+  await page.locator('[data-testid="btn-apo"]').click();
+  await page.locator('[data-testid="apo-panel"]').waitFor();
+}
+
+async function searchApo(page, term) {
+  await page.locator('[data-testid="apo-search"]').fill(term);
+}
+
+async function setApoFilter(page, value) {
+  await page.locator('[data-testid="apo-filter"]').selectOption(value);
+}
+
+function apoCard(page, id) {
+  return page.locator(`[data-testid="apo-card-${id}"]`);
+}
+
+async function addApoFromPaid(page) {
+  await page.locator('[data-testid="btn-apo-eligible"]').click();
+  await page.locator('[data-testid="apo-eligible-sub-paid"]').click();
+}
+
+async function fillApoLegacy(page, data) {
+  if (data.title != null) await page.locator('[data-testid="apo-legacy-title"]').fill(data.title);
+  if (data.area != null) await page.locator('[data-testid="apo-legacy-area"]').fill(data.area);
+  if (data.year != null) await page.locator('[data-testid="apo-legacy-year"]').fill(data.year);
+  if (data.approved != null) await page.locator('[data-testid="apo-legacy-approved"]').fill(data.approved);
+  if (data.contract != null) await page.locator('[data-testid="apo-legacy-contract"]').fill(data.contract);
+}
+
+async function submitApoLegacy(page) {
+  await page.locator('[data-testid="btn-apo-legacy-save"]').click();
+}
+
+async function openBackup(page, role) {
+  await setRole(page, role || 'ADMIN');
+  await page.locator('[data-testid="btn-backup"]').click();
+  await page.locator('[data-testid="backup-panel"]').waitFor();
+}
+
+async function seedBackups(page, items, nowMs) {
+  await page.evaluate(([list, now]) => {
+    window.__e2eSeedBackups(list, now);
+  }, [items, nowMs]);
+}
+
+function backupItem(page, id) {
+  return page.locator(`[data-testid="backup-item-${id}"]`);
+}
+
 async function startAddFiles(page, names) {
   if (names) {
     await page.locator('[data-testid="file-pending-names"]').fill(names);
@@ -602,4 +851,51 @@ module.exports = {
   togglePortalEnabled,
   searchPortal,
   setPortalPublishedFilter,
+  openOrimanthi,
+  setOrimanthiCanEdit,
+  searchOrimanthi,
+  setOrimanthiStatus,
+  setOrimanthiCategory,
+  setOrimanthiQuick,
+  oriCard,
+  openOrimanthiCreate,
+  fillOrimanthiCreate,
+  submitOrimanthiCreate,
+  fillOrimanthiTitle,
+  saveOrimanthiEdit,
+  openMeletai,
+  setMeletaiCanEdit,
+  searchMeletai,
+  setMeletaiQuick,
+  mltCard,
+  openMeletaiCreate,
+  fillMeletaiCreate,
+  submitMeletaiCreate,
+  openEp,
+  searchEp,
+  setEpAxis,
+  setEpType,
+  setEpNew,
+  epCard,
+  openEpCreate,
+  fillEpCreate,
+  submitEpCreate,
+  openEpImport,
+  fillEpImport,
+  submitEpImport,
+  unloadEp,
+  selectEpProgram,
+  openEpTemplatePeriod,
+  fillEpTemplatePeriod,
+  confirmEpTemplatePeriod,
+  openApo,
+  searchApo,
+  setApoFilter,
+  apoCard,
+  addApoFromPaid,
+  fillApoLegacy,
+  submitApoLegacy,
+  openBackup,
+  seedBackups,
+  backupItem,
 };

@@ -2414,9 +2414,12 @@ function SubprojectDetailModal({
                       {[action.axisCode, action.measureCode, action.objectiveCode].filter(Boolean).join(' › ')}
                       {action.actionType && ` · ${action.actionType}`}
                     </EpActionChipMeta>
-                    <div style={{ fontSize: 11, color: '#6b7fa3', marginTop: 2 }}>{action.programTitle}</div>
+                    <div style={{ fontSize: 11, color: '#6b7fa3', marginTop: 2 }}>
+                      {action.periodLabel || action.programTitle}
+                      {action.isActive === false ? ' · αρχειοθετημένο' : ''}
+                    </div>
                   </div>
-                  {canManageEp && (
+                  {canManageEp && action.isActive !== false && (
                     <EpUnlinkBtn onClick={() => handleEpUnlink(action)} disabled={epLinkLoading}>
                       Αποσύνδεση
                     </EpUnlinkBtn>
@@ -2442,7 +2445,11 @@ function SubprojectDetailModal({
                   </EpPickerHeaderRow>
                   {epPickerProgram && (
                     <EpPickerSubtitle>
-                      {epPickerProgram.title} · {(epPickerProgram.actions || []).length} δράσεις
+                      {epPickerProgram.title}
+                      {epPickerProgram.startYear && epPickerProgram.endYear
+                        ? ` · ${epPickerProgram.startYear}–${epPickerProgram.endYear}`
+                        : ''}
+                      {' · '}{(epPickerProgram.actions || []).length} δράσεις
                     </EpPickerSubtitle>
                   )}
                 </EpPickerHeader>

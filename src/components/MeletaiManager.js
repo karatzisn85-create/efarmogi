@@ -27,6 +27,7 @@ import {
   parseAssignedToNames,
   formatAssignedToNames,
 } from '../utils/meletaiHelpers';
+import meletaiCatalog from '../../app/core/meletaiCatalog';
 import { normalizeSearchText } from '../utils/searchUtils';
 
 /**
@@ -2004,7 +2005,7 @@ function MeletaiManager({
   onDetailScrollRestored = null,
 }) {
   const { showToast } = useToast();
-  const isReadOnly = (userRole === 'USER' || userRole === 'ENGINEER') && !meletaiCanEdit;
+  const isReadOnly = meletaiCatalog.isMeletaiReadOnly({ role: userRole, meletaiCanEdit });
 
   const [loading, setLoading] = useState(true);
   const [meletai, setMeletai] = useState([]);
@@ -2258,22 +2259,11 @@ function MeletaiManager({
   const visibleMeletai = meletai;
 
   const filteredList = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let list = visibleMeletai.filter((m) => {
-      if (categoryFilter && m.category !== categoryFilter) return false;
-      if (hubQuickFilter === 'linked' && !m.linkedSubprojectId) return false;
-      if (hubQuickFilter === 'unlinked' && m.linkedSubprojectId) return false;
-      if (hubQuickFilter === 'with_files' && countMeletiFiles(m) === 0) return false;
-      if (hubQuickFilter === 'without_files' && countMeletiFiles(m) > 0) return false;
-      if (linkFilter === 'linked' && !m.linkedSubprojectId) return false;
-      if (linkFilter === 'unlinked' && m.linkedSubprojectId) return false;
-      if (!q) return true;
-      const hay = [
-        m.studyNumber, m.title, m.assignedTo, m.category,
-        m.projectExpenditureBudget, m.studyApprovalDate,
-        m.linkedSubprojectTitle, m.linkedProjectTitle, m.notes,
-      ].join(' ').toLowerCase();
-      return hay.includes(q);
+    let list = meletaiCatalog.filterMeletaiHub(visibleMeletai, {
+      search,
+      categoryFilter,
+      linkFilter,
+      quickFilter: hubQuickFilter,
     });
 
     list = [...list].sort((a, b) => {
@@ -2320,8 +2310,11 @@ function MeletaiManager({
   );
 
   const isSubprojectLinkable = useCallback((subprojectId) => {
-    if (userRole !== 'ENGINEER' || !visibleSubprojectIds) return true;
-    return visibleSubprojectIds.has(subprojectId);
+    return meletaiCatalog.canLinkSubprojectForRole({
+      role: userRole,
+      visibleSubprojectIds,
+      subprojectId,
+    });
   }, [userRole, visibleSubprojectIds]);
 
   const newModalLinkSearchResults = useMemo(() => {
@@ -2665,16 +2658,13 @@ function MeletaiManager({
 
   const saveNewModalBasics = async () => {
     if (isReadOnly || creatingMeleti || !newModalDraft) return;
-    const fmt = validateStudyNumberFormat(newModalDraft.studyNumber);
-    if (!fmt.ok) {
-      setNewMeletiNumberError(fmt.error);
-      showToast(fmt.error, 'warning');
+    const createGate = meletaiCatalog.evaluateNewMeleti(newModalDraft);
+    if (!createGate.ok) {
+      if (createGate.field === 'studyNumber') setNewMeletiNumberError(createGate.error);
+      showToast(createGate.error, 'warning');
       return;
     }
-    if (!String(newModalDraft.title || '').trim()) {
-      showToast('Απαιτείται τίτλος μελέτης', 'warning');
-      return;
-    }
+    const fmt = createGate;
     const okNum = await checkNewMeletiNumber(newModalDraft.studyNumber, newModalDraft.id);
     if (!okNum) return;
 
@@ -2971,7 +2961,12 @@ function MeletaiManager({
   };
 
   const handleDeleteMeleti = async () => {
-    if (!draft || isReadOnly) return;
+    const deleteGate = meletaiCatalog.evaluateMeletiDelete({
+      role: userRole,
+      meletaiCanEdit,
+      meletiId: draft?.id,
+    });
+    if (!deleteGate.ok) return;
     if (!isDraftOnServer) {
       setDraft(null);
       setSelectedId(null);

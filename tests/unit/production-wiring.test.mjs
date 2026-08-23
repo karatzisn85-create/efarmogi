@@ -308,6 +308,127 @@ test('η πύλη διαφάνειας καλεί τον κοινό πυρήνα
   assert.match(checklist, /from '\.\.\/\.\.\/app\/core\/portalCatalog'/);
 });
 
+test('η ωρίμανση έργων καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/orimanthiCatalog'/);
+  assert.match(dash, /showOrimanthiButton/);
+  assert.match(dash, /includeAepoInCalendar/);
+  const manager = read('src/components/OrimanthiManager.js');
+  assert.match(manager, /from '\.\.\/\.\.\/app\/core\/orimanthiCatalog'/);
+  assert.match(manager, /isOrimanthiReadOnly/);
+  assert.match(manager, /evaluateNewProposal/);
+  assert.match(manager, /evaluateProposalSave/);
+  assert.match(manager, /filterOrimanthiHub/);
+  assert.match(manager, /evaluateProposalDelete/);
+  const users = read('src/components/UserManagement.js');
+  assert.match(users, /from '\.\.\/\.\.\/app\/core\/orimanthiCatalog'/);
+  assert.match(users, /orimanthiEditEligibleRole/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/orimanthiCatalog'\)/);
+  assert.match(electron, /canManageOrimanthi/);
+  assert.match(electron, /evaluateProposalSave/);
+});
+
+test('το επιχειρησιακό πρόγραμμα καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/epProgramCatalog'/);
+  assert.match(dash, /showEpProgramButton/);
+  const manager = read('src/components/EpProgramManager.js');
+  assert.match(manager, /from '\.\.\/\.\.\/app\/core\/epProgramCatalog'/);
+  assert.match(manager, /filterEpActionsHub/);
+  assert.match(manager, /evaluateEpImport/);
+  assert.match(manager, /evaluateImportWizardStep/);
+  assert.match(manager, /evaluateEpActionSave/);
+  assert.match(manager, /describeEpPeriod/);
+  assert.match(manager, /canDownloadEpTemplate/);
+  assert.match(manager, /epImportScreenCopy/);
+  assert.match(manager, /evaluateTemplateDownload/);
+  assert.match(manager, /describeEpImportReload/);
+  assert.match(manager, /download-ep-program-template/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/epProgramCatalog'\)/);
+  assert.match(electron, /canManageEpProgram/);
+  assert.match(electron, /evaluateEpImport/);
+  assert.match(electron, /preview-ep-program/);
+  assert.match(electron, /download-ep-program-template/);
+  assert.match(electron, /evaluateTemplateDownload/);
+  assert.match(electron, /loadMunicipalUnitsConfig/);
+  assert.match(electron, /evaluateEpActionSave/);
+  const service = read('public/epProgramService.js');
+  assert.match(service, /require\('\.\.\/app\/core\/epProgramCatalog'\)/);
+  assert.match(service, /transferEpActionLinks/);
+  assert.match(service, /isEpTemplateExampleTitle/);
+  const template = read('public/epProgramTemplate.js');
+  assert.match(template, /require\('\.\.\/app\/core\/epProgramCatalog'\)/);
+  assert.match(template, /buildEpImportTemplateModel/);
+  assert.match(template, /listModel/);
+  assert.match(template, /applyEpTemplateDropdowns/);
+  assert.match(template, /exceljs/);
+  assert.match(template, /definedNames/);
+  const card = read('src/components/ProjectCard.js');
+  assert.match(card, /from '\.\.\/\.\.\/app\/core\/epProgramCatalog'/);
+  assert.match(card, /formatEpCardLinkLabel/);
+});
+
+test('ο απολογισμός καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/apologismosCatalog'/);
+  assert.match(dash, /showApologismosButton/);
+  const ui = read('src/utils/apologismosCardUi.js');
+  assert.match(ui, /from '\.\.\/\.\.\/app\/core\/apologismosCatalog'/);
+  assert.match(ui, /filterApologismosCards/);
+});
+
+test('τα αντίγραφα ασφαλείας καλούν τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/backupCatalog'/);
+  assert.match(dash, /showBackupButton/);
+  assert.match(dash, /backupReminderTitle/);
+  const manager = read('src/components/BackupManager.js');
+  assert.match(manager, /from '\.\.\/\.\.\/app\/core\/backupCatalog'/);
+  assert.match(manager, /canDeleteBackup/);
+  assert.match(manager, /canRestoreBackup/);
+  assert.match(manager, /canSeeBackupLocation/);
+  assert.match(manager, /evaluateCreateBackup/);
+  assert.match(manager, /restoreKindLabel/);
+  assert.match(manager, /restoreConfirmDetail/);
+  assert.match(manager, /announceCreateBackupFromEvent/);
+  assert.match(manager, /evaluateRestoreOutcome/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/backupCatalog'\)/);
+  assert.match(electron, /require\('\.\/backupRestoreApply'\)/);
+  assert.match(electron, /evaluateBackupReminder/);
+  assert.match(electron, /evaluateRestoreReadyToApply/);
+  assert.match(electron, /applyFullRestore/);
+  assert.match(electron, /notifyUser: false/);
+  const applyMod = read('public/backupRestoreApply.js');
+  assert.match(applyMod, /applyFullRestore/);
+  assert.match(applyMod, /resolveSafeExtractPath/);
+});
+
+test('το μητρώο μελετών καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/meletaiCatalog'/);
+  assert.match(dash, /showMeletaiButton/);
+  const manager = read('src/components/MeletaiManager.js');
+  assert.match(manager, /from '\.\.\/\.\.\/app\/core\/meletaiCatalog'/);
+  assert.match(manager, /isMeletaiReadOnly/);
+  assert.match(manager, /evaluateNewMeleti/);
+  assert.match(manager, /filterMeletaiHub/);
+  assert.match(manager, /evaluateMeletiDelete/);
+  const helpers = read('src/utils/meletaiHelpers.js');
+  assert.match(helpers, /from '\.\.\/\.\.\/app\/core\/meletaiCatalog'/);
+  assert.match(helpers, /validateStudyNumberFormat/);
+  const users = read('src/components/UserManagement.js');
+  assert.match(users, /meletaiEditEligibleRole/);
+  const service = read('public/meletaiService.js');
+  assert.match(service, /require\('\.\.\/app\/core\/meletaiCatalog'\)/);
+  assert.match(service, /evaluateNewMeleti/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/meletaiCatalog'\)/);
+  assert.match(electron, /canManageMeletai/);
+});
+
 test('η μαζική εισαγωγή από Excel καλεί τον κοινό πυρήνα', () => {
   const dash = read('src/components/Dashboard.js');
   assert.match(dash, /from '\.\.\/\.\.\/app\/core\/excelImport'/);

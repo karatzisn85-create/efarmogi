@@ -1,7 +1,18 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const os = require('os');
+const path = require('path');
 const { startServer } = require('./harness/static-server.cjs');
+
+if (process.platform === 'win32' && !process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(
+    os.homedir(),
+    'AppData',
+    'Local',
+    'ms-playwright'
+  );
+}
 
 async function main() {
   const server = await startServer();

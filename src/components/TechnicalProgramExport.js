@@ -19,6 +19,7 @@ import {
 } from '../utils/khmdhsExportHelpers';
 import EpProgramStatsPanel from './EpProgramStatsPanel';
 import reportsExport from '../../app/core/reportsExport';
+import epProgramCatalog from '../../app/core/epProgramCatalog';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -711,12 +712,14 @@ function TechnicalProgramExport({ isOpen, onClose, projects, organizationName = 
           <PageTab $active={pageView === 'technical'} onClick={() => setPageView('technical')}>
             📋 Εξαγωγή Τεχνικού Προγράμματος
           </PageTab>
-          <PageTab $active={pageView === 'epStats'} onClick={() => setPageView('epStats')}>
-            🗺️ Στατιστικά Επιχειρησιακού Προγράμματος
-          </PageTab>
+          {epProgramCatalog.canManageEpProgram(currentUser) && (
+            <PageTab $active={pageView === 'epStats'} onClick={() => setPageView('epStats')}>
+              🗺️ Στατιστικά Επιχειρησιακού Προγράμματος
+            </PageTab>
+          )}
         </PageTabs>
 
-        {pageView === 'epStats' ? (
+        {pageView === 'epStats' && epProgramCatalog.canManageEpProgram(currentUser) ? (
           <EpProgramStatsPanel currentUser={currentUser} appConfig={appConfig} />
         ) : (
         <>

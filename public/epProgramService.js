@@ -8,6 +8,7 @@ const path = require('path');
 const XLSX = require('xlsx');
 const { v4: uuidv4 } = require('uuid');
 const { safeWriteJSON } = require('./safeWrite');
+const epProgramCatalog = require('../app/core/epProgramCatalog');
 
 const EP_FOLDER = 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ';
 
@@ -23,8 +24,39 @@ function ensureEpDir(dataDir) {
   return dir;
 }
 
-function getEpFilePath(dataDir, startYear, endYear) {
-  return path.join(getEpDir(dataDir), `${startYear}_${endYear}.json`);
+function findProgramFilePath(dataDir, programId) {
+  const dir = getEpDir(dataDir);
+  if (!fs.existsSync(dir) || !programId) return null;
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+  for (const file of files) {
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+      if (data.id === programId) return path.join(dir, file);
+    } catch (e) { /* αγνόησε κατεστραμμένα */ }
+  }
+  return null;
+}
+
+function resolveProgramSavePath(dataDir, program) {
+  const existing = findProgramFilePath(dataDir, program && program.id);
+  if (existing) return existing;
+  const sy = program && program.startYear;
+  const ey = program && program.endYear;
+  const id = (program && program.id) || uuidv4();
+  return path.join(getEpDir(dataDir), `${sy}_${ey}_${id}.json`);
+}
+
+function loadAllProgramsFull(dataDir) {
+  const dir = getEpDir(dataDir);
+  if (!fs.existsSync(dir)) return [];
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+  const programs = [];
+  for (const file of files) {
+    try {
+      programs.push(JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')));
+    } catch (e) { /* αγνόησε κατεστραμμένα */ }
+  }
+  return programs.sort((a, b) => (b.startYear || 0) - (a.startYear || 0));
 }
 
 /** Επιστρέφει λίστα όλων των προγραμμάτων (σύνοψη χωρίς actions). */
@@ -204,6 +236,7 @@ function parseEpExcel(filePath) {
     const title = (row[4] || '').toString().trim();
 
     if (!title) continue;
+    if (epProgramCatalog.isEpTemplateExampleTitle(title)) continue;
 
     // Εξαγωγή κωδικών από τα πεδία
     const axisCodeMatch = axisRaw.match(/^(\d+)/);
@@ -290,61 +323,106 @@ function parseEpExcel(filePath) {
   };
 }
 
-/**
- * Εισάγει Επιχειρησιακό Πρόγραμμα από Excel.
- * Αρχειοθετεί το τρέχον ενεργό πρόγραμμα.
- */
-function importEpProgram(dataDir, { filePath, startYear, endYear, importedBy }) {
+function buildImportedProgram(dataDir, { filePath, startYear, endYear, importedBy }) {
   const parsed = parseEpExcel(filePath);
-  const { axes, measures, objectives, actions, budgetYears } = parsed;
-
-  archiveAllPrograms(dataDir);
-  ensureEpDir(dataDir);
-
-  const programId = uuidv4();
   const sy = parseInt(startYear, 10);
   const ey = parseInt(endYear, 10);
-  const title = `ΕΠΙΧΕΙΡΗΣΙΑΚΟ ΠΡΟΓΡΑΜΜΑ ${sy}-${ey}`;
-
-  const program = {
-    id: programId,
-    title,
-    startYear: sy,
-    endYear: ey,
-    isActive: true,
-    budgetYears,
-    axes,
-    measures,
-    objectives,
-    actions,
-    importedAt: new Date().toISOString(),
-    importedBy: importedBy || 'unknown'
+  const period = epProgramCatalog.describeEpPeriod(sy, ey);
+  const existing = loadAllProgramsFull(dataDir);
+  const source = epProgramCatalog.pickLinkSourceProgram(existing, sy, ey);
+  const transfer = source
+    ? epProgramCatalog.transferEpActionLinks(source.actions || [], parsed.actions || [])
+    : { actions: parsed.actions || [], transferred: 0, unmatched: 0 };
+  if (!transfer.actions.length) {
+    throw new Error('Δεν βρέθηκαν δράσεις στο φύλλο. Ελέγξτε ότι υπάρχει στήλη Α/Α και τίτλος.');
+  }
+  return {
+    parsed,
+    period,
+    transfer,
+    source,
+    program: {
+      id: uuidv4(),
+      title: period.title || `ΕΠΙΧΕΙΡΗΣΙΑΚΟ ΠΡΟΓΡΑΜΜΑ ${sy}-${ey}`,
+      startYear: sy,
+      endYear: ey,
+      isActive: true,
+      budgetYears: parsed.budgetYears,
+      axes: parsed.axes,
+      measures: parsed.measures,
+      objectives: parsed.objectives,
+      actions: transfer.actions,
+      importedAt: new Date().toISOString(),
+      importedBy: importedBy || 'unknown'
+    }
   };
+}
 
-  const savePath = getEpFilePath(dataDir, sy, ey);
-  safeWriteJSON(savePath, program);
-
+function previewEpProgram(dataDir, { filePath, startYear, endYear }) {
+  const built = buildImportedProgram(dataDir, { filePath, startYear, endYear, importedBy: 'preview' });
+  const existing = loadAllProgramsFull(dataDir);
+  const impact = epProgramCatalog.summarizeImportImpact(existing, built.program.startYear, built.program.endYear);
   return {
     success: true,
-    programId,
-    title,
-    actionCount: actions.length,
-    axesCount: axes.length,
-    measuresCount: measures.length,
-    objectivesCount: objectives.length
+    title: built.program.title,
+    period: built.period,
+    actionCount: built.program.actions.length,
+    axesCount: built.parsed.axes.length,
+    measuresCount: built.parsed.measures.length,
+    objectivesCount: built.parsed.objectives.length,
+    impact: {
+      ...impact,
+      transferred: built.transfer.transferred,
+      unmatched: built.transfer.unmatched
+    }
   };
+}
+
+/**
+ * Εισάγει Επιχειρησιακό Πρόγραμμα από Excel.
+ * Αρχειοθετεί το τρέχον χωρίς να το διαγράψει· οι συνδέσεις της ίδιας
+ * περιόδου αντιγράφονται στις νέες δράσεις (Α/Α ή τίτλος).
+ */
+function importEpProgram(dataDir, { filePath, startYear, endYear, importedBy }) {
+  const built = buildImportedProgram(dataDir, { filePath, startYear, endYear, importedBy });
+  archiveAllPrograms(dataDir);
+  ensureEpDir(dataDir);
+  safeWriteJSON(resolveProgramSavePath(dataDir, built.program), built.program);
+  return {
+    success: true,
+    programId: built.program.id,
+    title: built.program.title,
+    periodLabel: built.period.label,
+    actionCount: built.program.actions.length,
+    axesCount: built.parsed.axes.length,
+    measuresCount: built.parsed.measures.length,
+    objectivesCount: built.parsed.objectives.length,
+    transferredLinks: built.transfer.transferred,
+    unmatchedLinks: built.transfer.unmatched
+  };
+}
+
+function assertWritableProgram(program) {
+  if (!program) throw new Error('Πρόγραμμα δεν βρέθηκε');
+  if (!program.isActive) {
+    throw new Error('Το αρχειοθετημένο πρόγραμμα είναι μόνο για ανάγνωση. Οι συνδέσεις του διατηρούνται.');
+  }
 }
 
 /** Αποθηκεύει ή ενημερώνει μια δράση ΕΠ. */
 function saveEpAction(dataDir, { programId, action }) {
   const program = getProgramById(dataDir, programId);
-  if (!program) throw new Error('Πρόγραμμα δεν βρέθηκε');
+  assertWritableProgram(program);
 
   const now = new Date().toISOString();
   const idx = program.actions.findIndex(a => a.id === action.id);
 
   if (idx >= 0) {
-    program.actions[idx] = { ...program.actions[idx], ...action, updatedAt: now };
+    const prev = program.actions[idx];
+    const nextLinks = Array.isArray(action && action.linkedSubprojectIds)
+      ? action.linkedSubprojectIds
+      : (prev.linkedSubprojectIds || []);
+    program.actions[idx] = { ...prev, ...action, linkedSubprojectIds: nextLinks, updatedAt: now };
   } else {
     program.actions.push({
       ...action,
@@ -355,45 +433,29 @@ function saveEpAction(dataDir, { programId, action }) {
     });
   }
 
-  const filePath = getEpFilePath(dataDir, program.startYear, program.endYear);
-  safeWriteJSON(filePath, program);
+  safeWriteJSON(resolveProgramSavePath(dataDir, program), program);
   return { success: true };
 }
 
 /** Διαγράφει μια δράση ΕΠ. */
 function deleteEpAction(dataDir, { programId, actionId }) {
   const program = getProgramById(dataDir, programId);
-  if (!program) throw new Error('Πρόγραμμα δεν βρέθηκε');
+  assertWritableProgram(program);
 
   program.actions = program.actions.filter(a => a.id !== actionId);
-  const filePath = getEpFilePath(dataDir, program.startYear, program.endYear);
-  safeWriteJSON(filePath, program);
+  safeWriteJSON(resolveProgramSavePath(dataDir, program), program);
   return { success: true };
 }
 
 /** Επιστρέφει τις δράσεις ΕΠ που έχουν συνδεθεί με ένα συγκεκριμένο υποέργο. */
 function getEpActionsForSubproject(dataDir, subprojectId) {
-  const program = getActiveProgram(dataDir);
-  if (!program || !subprojectId) return [];
-  return (program.actions || []).filter(a =>
-    Array.isArray(a.linkedSubprojectIds) && a.linkedSubprojectIds.includes(subprojectId)
-  ).map(a => ({
-    id: a.id,
-    aa: a.aa,
-    title: a.title,
-    axisCode: a.axisCode,
-    measureCode: a.measureCode,
-    objectiveCode: a.objectiveCode,
-    actionType: a.actionType,
-    programId: program.id,
-    programTitle: program.title
-  }));
+  return epProgramCatalog.collectEpActionsForSubproject(loadAllProgramsFull(dataDir), subprojectId);
 }
 
 /** Προσθέτει ή αφαιρεί ένα υποέργο από τα linkedSubprojectIds μιας δράσης. */
 function linkEpSubproject(dataDir, { programId, actionId, subprojectId, link }) {
   const program = getProgramById(dataDir, programId);
-  if (!program) throw new Error('Πρόγραμμα δεν βρέθηκε');
+  assertWritableProgram(program);
 
   const idx = program.actions.findIndex(a => a.id === actionId);
   if (idx < 0) throw new Error('Δράση δεν βρέθηκε');
@@ -412,15 +474,16 @@ function linkEpSubproject(dataDir, { programId, actionId, subprojectId, link }) 
   action.updatedAt = new Date().toISOString();
   program.actions[idx] = action;
 
-  const filePath = getEpFilePath(dataDir, program.startYear, program.endYear);
-  safeWriteJSON(filePath, program);
+  safeWriteJSON(resolveProgramSavePath(dataDir, program), program);
   return { success: true };
 }
 
 module.exports = {
   loadAllPrograms,
+  loadAllProgramsFull,
   getActiveProgram,
   getProgramById,
+  previewEpProgram,
   importEpProgram,
   saveEpAction,
   deleteEpAction,

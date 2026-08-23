@@ -61,7 +61,25 @@
     <button type="button" id="btn-export" data-testid="btn-export">Εξαγωγή Δεδομένων</button>
     <button type="button" id="btn-pdf" data-testid="btn-pdf">Αναφορές σε PDF</button>
     <button type="button" id="btn-portal" data-testid="btn-portal">Πύλη Διαφάνειας</button>
+    <button type="button" id="btn-orimanthi" data-testid="btn-orimanthi">Ωρίμανση Έργων</button>
+    <button type="button" id="btn-meletai" data-testid="btn-meletai">Μητρώο Μελετών</button>
+    <button type="button" id="btn-ep" data-testid="btn-ep">Επιχειρησιακό Πρόγραμμα</button>
+    <button type="button" id="btn-apo" data-testid="btn-apo">Απολογισμός</button>
+    <button type="button" id="btn-backup" data-testid="btn-backup">Αντίγραφα Ασφαλείας</button>
+    <label>Δικαίωμα μελετών
+      <input id="meletai-can-edit" data-testid="meletai-can-edit" type="checkbox" />
+    </label>
+    <label>Δικαίωμα ωρίμανσης
+      <input id="orimanthi-can-edit" data-testid="orimanthi-can-edit" type="checkbox" />
+    </label>
   </header>
+
+  <div id="backup-deck-reminder" data-testid="backup-deck-reminder" hidden>
+    <p id="backup-deck-title" data-testid="backup-deck-title"></p>
+    <p id="backup-deck-detail" data-testid="backup-deck-detail"></p>
+    <span id="backup-deck-days" data-testid="backup-deck-days" hidden></span>
+    <button type="button" id="btn-backup-now" data-testid="btn-backup-now">Δημιουργία τώρα</button>
+  </div>
 
   <main id="card-list" data-testid="card-list" class="list"></main>
 
@@ -671,6 +689,247 @@
     <button type="button" id="btn-close-portal" data-testid="btn-close-portal">Κλείσιμο</button>
   </section>
 
+  <section id="orimanthi-panel" data-testid="orimanthi-panel" class="panel" hidden>
+    <h2>Ωρίμανση Έργων</h2>
+    <p id="orimanthi-readonly" data-testid="orimanthi-readonly" hidden>Προβολή μόνο</p>
+    <p>ΑΕΠΟ στο ημερολόγιο <span data-testid="orimanthi-aepo-calendar"></span></p>
+    <input id="orimanthi-search" data-testid="orimanthi-search" type="search" placeholder="Αναζήτηση έργου" />
+    <select id="orimanthi-status" data-testid="orimanthi-status">
+      <option value="">Όλες οι καταστάσεις</option>
+      <option value="draft">Προσχέδιο</option>
+      <option value="maturing">Σε ωρίμανση</option>
+      <option value="ready">Έτοιμο</option>
+      <option value="approved">Εγκεκριμένο</option>
+    </select>
+    <select id="orimanthi-category" data-testid="orimanthi-category">
+      <option value="">Όλες οι κατηγορίες</option>
+      <option value="__uncategorized__">Χωρίς κατηγορία</option>
+      <option value="ΥΔΡΑΥΛΙΚΑ">ΥΔΡΑΥΛΙΚΑ</option>
+      <option value="ΟΔΟΠΟΙΙΑ">ΟΔΟΠΟΙΙΑ</option>
+      <option value="ΚΤΙΡΙΑΚΑ">ΚΤΙΡΙΑΚΑ</option>
+      <option value="ΓΕΩΤΡΗΣΕΙΣ">ΓΕΩΤΡΗΣΕΙΣ</option>
+    </select>
+    <select id="orimanthi-quick" data-testid="orimanthi-quick">
+      <option value="">Όλα</option>
+      <option value="maturing">Σε ωρίμανση / προσχέδιο</option>
+      <option value="aepo_soon">ΑΕΠΟ που λήγει σύντομα</option>
+      <option value="pending">Με εκκρεμότητες</option>
+    </select>
+    <div id="orimanthi-list" data-testid="orimanthi-list"></div>
+    <div id="orimanthi-edit" data-testid="orimanthi-edit" hidden>
+      <label>Τίτλος έργου <input id="orimanthi-edit-title" data-testid="orimanthi-edit-title" /></label>
+      <button type="button" id="btn-orimanthi-save" data-testid="btn-orimanthi-save">Αποθήκευση</button>
+    </div>
+    <div id="orimanthi-create" data-testid="orimanthi-create" hidden>
+      <label>Τίτλος <input id="orimanthi-new-title" data-testid="orimanthi-new-title" /></label>
+      <label>Κατηγορία
+        <select id="orimanthi-new-category" data-testid="orimanthi-new-category">
+          <option value="">—</option>
+          <option value="ΥΔΡΑΥΛΙΚΑ">ΥΔΡΑΥΛΙΚΑ</option>
+          <option value="ΟΔΟΠΟΙΙΑ">ΟΔΟΠΟΙΙΑ</option>
+        </select>
+      </label>
+      <label>Εξειδίκευση
+        <select id="orimanthi-new-spec" data-testid="orimanthi-new-spec">
+          <option value="">—</option>
+          <option value="ΥΔΡΕΥΣΗ">ΥΔΡΕΥΣΗ</option>
+          <option value="ΑΠΟΧΕΤΕΥΣΗ">ΑΠΟΧΕΤΕΥΣΗ</option>
+        </select>
+      </label>
+      <button type="button" id="btn-orimanthi-create-save" data-testid="btn-orimanthi-create-save">Δημιουργία</button>
+    </div>
+    <p id="orimanthi-error" data-testid="orimanthi-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="btn-orimanthi-new" data-testid="btn-orimanthi-new">Νέο έργο</button>
+      <button type="button" id="btn-orimanthi-delete" data-testid="btn-orimanthi-delete">Διαγραφή</button>
+      <button type="button" id="btn-close-orimanthi" data-testid="btn-close-orimanthi">Κλείσιμο</button>
+    </div>
+    <div id="orimanthi-delete-confirm" data-testid="orimanthi-delete-confirm" hidden>
+      <p>Διαγραφή του επιλεγμένου έργου;</p>
+      <button type="button" id="btn-orimanthi-delete-confirm" data-testid="btn-orimanthi-delete-confirm">Επιβεβαίωση</button>
+    </div>
+  </section>
+
+  <section id="meletai-panel" data-testid="meletai-panel" class="panel" hidden>
+    <h2>Μητρώο Μελετών</h2>
+    <p id="meletai-readonly" data-testid="meletai-readonly" hidden>Προβολή μόνο</p>
+    <input id="meletai-search" data-testid="meletai-search" type="search" placeholder="Αναζήτηση μελέτης" />
+    <select id="meletai-quick" data-testid="meletai-quick">
+      <option value="">Όλες</option>
+      <option value="linked">Συνδεδεμένες</option>
+      <option value="unlinked">Χωρίς υποέργο</option>
+      <option value="with_files">Με αρχεία</option>
+      <option value="without_files">Χωρίς αρχεία</option>
+    </select>
+    <div id="meletai-list" data-testid="meletai-list"></div>
+    <div id="meletai-create" data-testid="meletai-create" hidden>
+      <label>Αριθμός <input id="meletai-new-number" data-testid="meletai-new-number" /></label>
+      <label>Τίτλος <input id="meletai-new-title" data-testid="meletai-new-title" /></label>
+      <button type="button" id="btn-meletai-create-save" data-testid="btn-meletai-create-save">Δημιουργία</button>
+    </div>
+    <p id="meletai-error" data-testid="meletai-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="btn-meletai-new" data-testid="btn-meletai-new">Νέα μελέτη</button>
+      <button type="button" id="btn-meletai-delete" data-testid="btn-meletai-delete">Διαγραφή</button>
+      <button type="button" id="btn-close-meletai" data-testid="btn-close-meletai">Κλείσιμο</button>
+    </div>
+    <div id="meletai-delete-confirm" data-testid="meletai-delete-confirm" hidden>
+      <p>Διαγραφή της επιλεγμένης μελέτης;</p>
+      <button type="button" id="btn-meletai-delete-confirm" data-testid="btn-meletai-delete-confirm">Επιβεβαίωση</button>
+    </div>
+  </section>
+
+  <section id="ep-panel" data-testid="ep-panel" class="panel" hidden>
+    <h2>Επιχειρησιακό Πρόγραμμα</h2>
+    <p id="ep-empty" data-testid="ep-empty" hidden>Δεν υπάρχει Επιχειρησιακό Πρόγραμμα</p>
+    <p id="ep-empty-help" data-testid="ep-empty-help" hidden></p>
+    <p id="ep-period" data-testid="ep-period"></p>
+    <p>Αρχειοθετημένα <span id="ep-archived" data-testid="ep-archived">0</span></p>
+    <p>Συνδέσεις <span id="ep-linked-count" data-testid="ep-linked-count">0</span></p>
+    <select id="ep-program" data-testid="ep-program"></select>
+    <input id="ep-search" data-testid="ep-search" type="search" placeholder="Αναζήτηση δράσης" />
+    <select id="ep-axis" data-testid="ep-axis">
+      <option value="">Όλοι οι Άξονες</option>
+      <option value="1">1. Υποδομές</option>
+      <option value="2">2. Περιβάλλον</option>
+    </select>
+    <select id="ep-type" data-testid="ep-type">
+      <option value="">Όλα τα Είδη</option>
+      <option value="Έργο">Έργο</option>
+      <option value="Μελέτη">Μελέτη</option>
+    </select>
+    <select id="ep-new" data-testid="ep-new">
+      <option value="">Νέα &amp; Συνεχιζόμενα</option>
+      <option value="new">Μόνο Νέα</option>
+      <option value="continuing">Μόνο Συνεχιζόμενα</option>
+    </select>
+    <div id="ep-groups" data-testid="ep-groups"></div>
+    <div id="ep-list" data-testid="ep-list"></div>
+    <div id="ep-create" data-testid="ep-create" hidden>
+      <label>Α/Α <input id="ep-new-aa" data-testid="ep-new-aa" /></label>
+      <label>Τίτλος <input id="ep-new-title" data-testid="ep-new-title" /></label>
+      <button type="button" id="btn-ep-create-save" data-testid="btn-ep-create-save">Δημιουργία</button>
+    </div>
+    <div id="ep-import" data-testid="ep-import" hidden>
+      <label>Έτος έναρξης <input id="ep-import-start" data-testid="ep-import-start" /></label>
+      <label>Έτος λήξης <input id="ep-import-end" data-testid="ep-import-end" /></label>
+      <label>Αρχείο
+        <input id="ep-import-file" data-testid="ep-import-file" type="checkbox" />
+      </label>
+      <p id="ep-import-period-help" data-testid="ep-import-period-help" hidden></p>
+      <p id="ep-import-file-help" data-testid="ep-import-file-help" hidden></p>
+      <p id="ep-import-reload-notice" data-testid="ep-import-reload-notice" hidden></p>
+      <button type="button" id="btn-ep-import-save" data-testid="btn-ep-import-save">Εισαγωγή</button>
+    </div>
+    <div id="ep-template-period" data-testid="ep-template-period" hidden>
+      <label>Έτος έναρξης προτύπου <input id="ep-tpl-start" data-testid="ep-tpl-start" /></label>
+      <label>Έτος λήξης προτύπου <input id="ep-tpl-end" data-testid="ep-tpl-end" /></label>
+      <button type="button" id="btn-ep-template-confirm" data-testid="btn-ep-template-confirm">Κατέβασμα προτύπου</button>
+    </div>
+    <p id="ep-error" data-testid="ep-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="btn-ep-new" data-testid="btn-ep-new">Νέα Δράση</button>
+      <button type="button" id="btn-ep-import-open" data-testid="btn-ep-import-open">Εισαγωγή από Excel</button>
+      <button type="button" id="btn-ep-template" data-testid="btn-ep-template">Κατέβασμα προτύπου</button>
+      <p id="ep-template-name" data-testid="ep-template-name" hidden></p>
+      <p id="ep-template-guide" data-testid="ep-template-guide" hidden></p>
+      <p id="ep-template-location" data-testid="ep-template-location" hidden></p>
+      <p id="ep-template-lists" data-testid="ep-template-lists" hidden></p>
+      <p id="ep-template-lists-growing" data-testid="ep-template-lists-growing" hidden></p>
+      <p id="ep-template-lists-fixed" data-testid="ep-template-lists-fixed" hidden></p>
+      <button type="button" id="btn-ep-clear-units" data-testid="btn-ep-clear-units">Χωρίς δημοτικές ενότητες</button>
+      <button type="button" id="btn-ep-export" data-testid="btn-ep-export">Εξαγωγή Excel</button>
+      <button type="button" id="btn-ep-delete" data-testid="btn-ep-delete">Διαγραφή</button>
+      <button type="button" id="btn-ep-unload" data-testid="btn-ep-unload">Χωρίς ενεργό πρόγραμμα</button>
+      <button type="button" id="btn-close-ep" data-testid="btn-close-ep">Κλείσιμο</button>
+    </div>
+    <div id="ep-delete-confirm" data-testid="ep-delete-confirm" hidden>
+      <p>Διαγραφή της επιλεγμένης δράσης;</p>
+      <button type="button" id="btn-ep-delete-confirm" data-testid="btn-ep-delete-confirm">Επιβεβαίωση</button>
+    </div>
+  </section>
+
+  <section id="apo-panel" data-testid="apo-panel" class="panel" hidden>
+    <h2>Απολογισμός τεχνικού έργου</h2>
+    <p id="apo-period-label" data-testid="apo-period-label"></p>
+    <p id="apo-counts" data-testid="apo-counts"></p>
+    <p id="apo-empty" data-testid="apo-empty" hidden>Δεν υπάρχουν ακόμα έργα. Προσθέστε από ολοκληρωμένα ή καταχωρήστε παλαιότερο.</p>
+    <p id="apo-none" data-testid="apo-none" hidden>Κανένα έργο δεν ταιριάζει με την αναζήτηση ή το φίλτρο.</p>
+    <p id="apo-error" data-testid="apo-error" hidden></p>
+    <p id="apo-present" data-testid="apo-present" hidden></p>
+    <div class="actions">
+      <label>Αναζήτηση <input id="apo-search" data-testid="apo-search" /></label>
+      <select id="apo-filter" data-testid="apo-filter">
+        <option value="all">Όλα</option>
+        <option value="ready">Έτοιμα</option>
+        <option value="pending">Εκκρεμή</option>
+      </select>
+      <button type="button" id="btn-apo-eligible" data-testid="btn-apo-eligible">+ Από ολοκληρωμένα</button>
+      <button type="button" id="btn-apo-legacy" data-testid="btn-apo-legacy">+ Παλαιότερο έργο</button>
+      <button type="button" id="btn-apo-present" data-testid="btn-apo-present">Παρουσίαση</button>
+      <button type="button" id="btn-apo-delete" data-testid="btn-apo-delete">Αφαίρεση</button>
+      <button type="button" id="btn-apo-complete" data-testid="btn-apo-complete">Ολοκλήρωση κάρτας</button>
+      <button type="button" id="btn-close-apo" data-testid="btn-close-apo">Κλείσιμο</button>
+    </div>
+    <div id="apo-eligible" data-testid="apo-eligible" hidden>
+      <p id="apo-eligible-empty" data-testid="apo-eligible-empty" hidden>Δεν υπάρχουν διαθέσιμα υποέργα προς ένταξη.</p>
+      <div id="apo-eligible-list" data-testid="apo-eligible-list"></div>
+    </div>
+    <div id="apo-legacy" data-testid="apo-legacy" hidden>
+      <label>Τίτλος <input id="apo-legacy-title" data-testid="apo-legacy-title" /></label>
+      <label>Περιοχή <input id="apo-legacy-area" data-testid="apo-legacy-area" /></label>
+      <label>Έτος <input id="apo-legacy-year" data-testid="apo-legacy-year" /></label>
+      <label>Εγκεκριμένο <input id="apo-legacy-approved" data-testid="apo-legacy-approved" /></label>
+      <label>Συμβατικό <input id="apo-legacy-contract" data-testid="apo-legacy-contract" /></label>
+      <button type="button" id="btn-apo-legacy-save" data-testid="btn-apo-legacy-save">Καταχώρηση</button>
+    </div>
+    <div id="apo-period-form" data-testid="apo-period-form">
+      <label>Έναρξη <input id="apo-period-start" data-testid="apo-period-start" /></label>
+      <label>Λήξη <input id="apo-period-end" data-testid="apo-period-end" /></label>
+      <button type="button" id="btn-apo-period-save" data-testid="btn-apo-period-save">Αλλαγή περιόδου</button>
+    </div>
+    <div id="apo-delete-confirm" data-testid="apo-delete-confirm" hidden>
+      <p>Αφαίρεση της κάρτας από την παρουσίαση;</p>
+      <button type="button" id="btn-apo-delete-confirm" data-testid="btn-apo-delete-confirm">Επιβεβαίωση</button>
+    </div>
+    <div id="apo-list" data-testid="apo-list"></div>
+  </section>
+
+  <section id="backup-panel" data-testid="backup-panel" class="panel" hidden>
+    <h2>Αντίγραφα ασφαλείας</h2>
+    <p id="backup-status" data-testid="backup-status"></p>
+    <p id="backup-live" data-testid="backup-live"></p>
+    <p id="backup-toast" data-testid="backup-toast" hidden></p>
+    <p id="backup-toast-count" data-testid="backup-toast-count">0</p>
+    <p id="backup-error" data-testid="backup-error" hidden></p>
+    <div id="backup-location" data-testid="backup-location" hidden>
+      <p>Θέση αποθήκευσης αντιγράφων</p>
+      <p id="backup-location-path" data-testid="backup-location-path">Φάκελος δεδομένων</p>
+    </div>
+    <div class="actions">
+      <button type="button" id="btn-backup-create" data-testid="btn-backup-create">Δημιουργία νέου αντιγράφου</button>
+      <button type="button" id="btn-backup-history" data-testid="btn-backup-history">Ιστορικό αντιγράφων</button>
+      <button type="button" id="btn-close-backup" data-testid="btn-close-backup">Κλείσιμο</button>
+    </div>
+    <div id="backup-history" data-testid="backup-history" hidden>
+      <p id="backup-empty" data-testid="backup-empty" hidden>Δεν υπάρχουν backups</p>
+      <div id="backup-list" data-testid="backup-list"></div>
+    </div>
+    <div id="backup-delete-confirm" data-testid="backup-delete-confirm" hidden>
+      <p>Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το backup;</p>
+      <button type="button" id="btn-backup-delete-confirm" data-testid="btn-backup-delete-confirm">Διαγραφή</button>
+    </div>
+    <div id="backup-restore-confirm" data-testid="backup-restore-confirm" hidden>
+      <p id="backup-restore-kind" data-testid="backup-restore-kind"></p>
+      <p id="backup-restore-confirm-title" data-testid="backup-restore-confirm-title"></p>
+      <p id="backup-restore-confirm-detail" data-testid="backup-restore-confirm-detail"></p>
+      <p>Επαναφορά δεδομένων από αυτό το αντίγραφο;</p>
+      <button type="button" id="btn-backup-restore-confirm" data-testid="btn-backup-restore-confirm">Επαναφορά</button>
+    </div>
+    <p id="backup-restore-done" data-testid="backup-restore-done" hidden></p>
+    <p id="backup-restore-rolled" data-testid="backup-restore-rolled" hidden></p>
+  </section>
+
   <section id="card-report-panel" data-testid="card-report-panel" class="panel" hidden>
     <h2>Αναφορά υποέργου</h2>
     <p data-testid="card-report-title"></p>
@@ -699,6 +958,11 @@
   <script src="/app/core/excelImport.js"></script>
   <script src="/app/core/reportsExport.js"></script>
   <script src="/app/core/portalCatalog.js"></script>
+  <script src="/app/core/orimanthiCatalog.js"></script>
+  <script src="/app/core/meletaiCatalog.js"></script>
+  <script src="/app/core/epProgramCatalog.js"></script>
+  <script src="/app/core/apologismosCatalog.js"></script>
+  <script src="/app/core/backupCatalog.js"></script>
   <script src="/e2e/harness/workspace.js"></script>
 </body>
 </html>

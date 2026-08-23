@@ -56,6 +56,7 @@ import {
   LS_CUSTOM_CATEGORIES,
   LS_CUSTOM_CATEGORY_SPECS,
 } from '../utils/orimanthiProjectCategories';
+import orimanthiCatalog from '../../app/core/orimanthiCatalog';
 
 /* ─── Tokens ─────────────────────────────────────────────────────────────── */
 const C = {
@@ -121,23 +122,6 @@ function keepSpecializationForCategory(category, currentSpec, customSpecMap) {
   const cur = String(currentSpec || '').trim();
   if (!cur || !specs.length) return '';
   return specs.some((s) => s.toLowerCase() === cur.toLowerCase()) ? cur : '';
-}
-
-function parseProjectSearch(project, query) {
-  const q = String(query || '').trim().toLowerCase();
-  if (!q) return true;
-  const pendingText = (project.pendingItems || []).map((i) => i.text).filter(Boolean).join(' ');
-  const haystack = [
-    project.title,
-    project.projectCategory,
-    project.infrastructureSpecialization,
-    project.municipalUnit,
-    project.settlement,
-    project.description,
-    project.notes,
-    pendingText,
-  ].filter(Boolean).join(' ').toLowerCase();
-  return haystack.includes(q);
 }
 
 const PROPOSAL_ACTIVITY_DETAIL_MAX = 500;
@@ -210,53 +194,6 @@ function sortHubProjects(list, sortBy) {
     }
   });
   return sorted;
-}
-
-function matchesHubQuickFilter(project, quickFilter) {
-  if (!quickFilter) return true;
-  switch (quickFilter) {
-    case 'maturing':
-      return project.status === 'maturing' || project.status === 'draft';
-    case 'ready':
-      return project.status === 'ready';
-    case 'approved':
-      return project.status === 'approved';
-    case 'aepo_soon': {
-      if (!project.aepoRenewalDate) return false;
-      const d = new Date(project.aepoRenewalDate);
-      if (Number.isNaN(d.getTime())) return false;
-      const limit = new Date();
-      limit.setDate(limit.getDate() + 60);
-      return d <= limit;
-    }
-    case 'pending':
-      return getProjectPendingOpen(project) > 0;
-    default:
-      return true;
-  }
-}
-
-function matchesHubFilters(project, {
-  search, categoryFilter, statusFilter, municipalUnitFilter, settlementFilter,
-}) {
-  if (!parseProjectSearch(project, search)) return false;
-  if (categoryFilter === HUB_UNCategorized_FILTER) {
-    if (project.projectCategory) return false;
-  } else if (categoryFilter && (project.projectCategory || '') !== categoryFilter) {
-    return false;
-  }
-  if (statusFilter && project.status !== statusFilter) return false;
-  if (municipalUnitFilter === HUB_NO_MUNICIPAL_FILTER) {
-    if (String(project.municipalUnit || '').trim()) return false;
-  } else if (municipalUnitFilter && (project.municipalUnit || '') !== municipalUnitFilter) {
-    return false;
-  }
-  if (settlementFilter === HUB_NO_SETTLEMENT_FILTER) {
-    if (String(project.settlement || '').trim()) return false;
-  } else if (settlementFilter && (project.settlement || '') !== settlementFilter) {
-    return false;
-  }
-  return true;
 }
 
 function getStatusStyle(value) {
@@ -2922,7 +2859,7 @@ const OpenFolderBtn = styled.button`
 export default function OrimanthiManager({ onClose, loggedInUsername, userRole, orimanthiCanEdit = false }) {
   const { showToast } = useToast();
 
-  const isReadOnly = (userRole === 'USER' || userRole === 'ENGINEER') && !orimanthiCanEdit;
+  const isReadOnly = orimanthiCatalog.isOrimanthiReadOnly({ role: userRole, orimanthiCanEdit });
 
   const [proposals, setProposals] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -3509,6 +3446,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (blockedProposalSavesRef.current === updated?.id) {
       return { success: false, error: 'Η αποθήκευση ακυρώθηκε — το έργο διαγράφεται' };
     }
+    const titleGate = orimanthiCatalog.evaluateProposalSave(updated);
+    if (!titleGate.ok) {
+      showToast(titleGate.error, 'warning');
+      return { success: false, error: titleGate.error };
+    }
     const validation = validateProposalCategoryFields(updated, customCategorySpecs);
     if (!validation.ok) {
       showToast(validation.error, 'warning');
@@ -4067,20 +4009,13 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const handleConfirmNewProject = async () => {
     if (isReadOnly || creatingProject) return;
     const title = newProjectDraft.title.trim();
-    if (!title) {
-      showToast('Δώστε τίτλο για το νέο έργο', 'warning');
-      newProjectTitleRef.current?.focus();
-      return;
-    }
-    if (!newProjectDraft.projectCategory) {
-      showToast('Επιλέξτε κατηγορία έργου', 'warning');
-      return;
-    }
-    if (
-      categoryHasSpecializations(newProjectDraft.projectCategory, customCategorySpecs) &&
-      !String(newProjectDraft.infrastructureSpecialization || '').trim()
-    ) {
-      showToast('Επιλέξτε εξειδίκευση για την επιλεγμένη κατηγορία', 'warning');
+    const createGate = orimanthiCatalog.evaluateNewProposal(newProjectDraft, {
+      categoryHasSpecializations: (category, specMap) => categoryHasSpecializations(category, specMap),
+      customSpecMap: customCategorySpecs,
+    });
+    if (!createGate.ok) {
+      showToast(createGate.error, 'warning');
+      if (createGate.field === 'title') newProjectTitleRef.current?.focus();
       return;
     }
 
@@ -4101,7 +4036,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       municipalUnit: newProjectDraft.municipalUnit || '',
       settlement: newProjectDraft.settlement?.trim() || '',
       aepoRenewalDate: newProjectDraft.aepoRenewalDate || '',
-      status: 'maturing',
+      status: createGate.status || orimanthiCatalog.NEW_PROPOSAL_STATUS,
       fileGroups: hasStagedGroups
         ? newProjectStagedGroups.map((g) => ({
           id: g.id,
@@ -4166,7 +4101,12 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
 
   /* ── Delete proposal ── */
   const handleDeleteProposal = async () => {
-    if (isReadOnly || !selectedProposal) return;
+    const deleteGate = orimanthiCatalog.evaluateProposalDelete({
+      role: userRole,
+      orimanthiCanEdit,
+      proposalId: selectedProposal?.id,
+    });
+    if (!deleteGate.ok) return;
     const title = selectedProposal.title || 'Χωρίς τίτλο';
     if (!await showConfirm({
       title: 'Διαγραφή Έργου',
@@ -5017,13 +4957,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   }, [newProjectDraft.projectCategory, customCategorySpecs]);
 
   const hubFilteredProposals = useMemo(() => {
-    const filtered = proposals.filter((p) => matchesHubFilters(p, {
+    const filtered = orimanthiCatalog.filterOrimanthiHub(proposals, {
       search,
       categoryFilter: hubCategoryFilter,
       statusFilter: hubStatusFilter,
       municipalUnitFilter: hubMunicipalUnitFilter,
       settlementFilter: hubSettlementFilter,
-    }) && matchesHubQuickFilter(p, hubQuickFilter));
+      quickFilter: hubQuickFilter,
+    });
     return sortHubProjects(filtered, hubSortBy);
   }, [
     proposals, search, hubCategoryFilter, hubStatusFilter,

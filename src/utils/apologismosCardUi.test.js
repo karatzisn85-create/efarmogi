@@ -66,6 +66,14 @@ describe('λίστα καρτών απολογισμού', () => {
     expect(filterApologismosCards(CARDS, { search: 'δεν υπάρχει' })).toHaveLength(0);
   });
 
+  test('αναζήτηση βρίσκει και τον τίτλο του έργου', () => {
+    const withProject = [
+      { id: '1', title: 'Αίθουσα εκδηλώσεων', projectTitle: 'Ολοκληρωμένο έργο σχολείου', area: '', ready: true }
+    ];
+    expect(filterApologismosCards(withProject, { search: 'σχολείου' }).map((c) => c.id)).toEqual(['1']);
+    expect(filterApologismosCards(withProject, { search: 'ΚΑ-400' })).toHaveLength(0);
+  });
+
   test('αναζήτηση με ΚΕΦΑΛΑΙΑ βρίσκει τίτλους με τόνους', () => {
     expect(filterApologismosCards(CARDS, { search: 'ΚΕΝΤΡΟ' }).map((c) => c.id)).toEqual(['1']);
     expect(filterApologismosCards(CARDS, { search: 'ΠΛΑΤΕΙΑΣ' }).map((c) => c.id)).toEqual(['2']);

@@ -49,6 +49,11 @@ import khmdhsRefresh from '../../app/core/khmdhsRefresh';
 import excelImport from '../../app/core/excelImport';
 import reportsExport from '../../app/core/reportsExport';
 import portalCatalog from '../../app/core/portalCatalog';
+import orimanthiCatalog from '../../app/core/orimanthiCatalog';
+import meletaiCatalog from '../../app/core/meletaiCatalog';
+import epProgramCatalog from '../../app/core/epProgramCatalog';
+import apologismosCatalog from '../../app/core/apologismosCatalog';
+import backupCatalog from '../../app/core/backupCatalog';
 import {
   getProjectChargeSearchText,
   projectMatchesChargeFilters,
@@ -6605,18 +6610,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
           {/* Κατάστρωμα: υπενθύμιση αντιγράφου + αναλυτική σύνοψη (οι διαδικασίες είναι στα FABs) */}
           <CommandDeck aria-label="Κατάστρωμα ελέγχου">
-            {canManageAll && backupReminderDue && (
+            {backupCatalog.showBackupButton(userRole) && backupReminderDue && (
               <CommandDeckTopRail>
                 <BackupReminderBanner $onDeck role="status" aria-live="polite">
                   <BackupReminderIcon aria-hidden="true">🛡️</BackupReminderIcon>
                   <BackupReminderText>
                     <BackupReminderTitle>
-                      {backupHasAny ? 'Αντίγραφο ασφαλείας εκκρεμεί' : 'Χωρίς αντίγραφο ασφαλείας'}
+                      {backupCatalog.backupReminderTitle(backupHasAny)}
                     </BackupReminderTitle>
                     <BackupReminderDetail>
-                      {backupHasAny
-                        ? 'Προστατέψτε τα δεδομένα με νέο αντίγραφο.'
-                        : 'Δημιουργήστε το πρώτο αντίγραφο για προστασία δεδομένων.'}
+                      {backupCatalog.backupReminderDetail(backupHasAny)}
                     </BackupReminderDetail>
                   </BackupReminderText>
                   {backupHasAny && backupDaysSince != null && (
@@ -7113,10 +7116,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 <AdminButtonIcon>📋</AdminButtonIcon>
                 Εγκρίσεις Διάθεσης Πίστωσης
               </AdminButton>
+              {orimanthiCatalog.showOrimanthiButton(userRole) && (
               <AdminButton onClick={() => setIsOrimanthiOpen(true)} title="Βάση Δεδομένων — καταγραφή ωρίμανσης έργων">
                 <AdminButtonIcon>🌱</AdminButtonIcon>
                 Ωρίμανση Έργων
               </AdminButton>
+              )}
+              {meletaiCatalog.showMeletaiButton(userRole) && (
               <AdminButton onClick={() => {
                 if (dashboardScrollRef.current) {
                   savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
@@ -7127,7 +7133,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 <AdminButtonIcon>📐</AdminButtonIcon>
                 Μητρώο Μελετών
               </AdminButton>
-              {canManageAll && (
+              )}
+              {epProgramCatalog.showEpProgramButton(userRole) && (
                 <AdminButton onClick={() => {
                   if (dashboardScrollRef.current) {
                     savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
@@ -7233,7 +7240,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                   Μαζική Εισαγωγή από Excel
                 </AdminButton>
               )}
-              {isSuperAdmin && (
+              {apologismosCatalog.showApologismosButton(userRole) && (
                 <AdminButton
                   onClick={() => {
                     if (dashboardScrollRef.current) {
@@ -7262,11 +7269,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               <CategoryHeaderChevron $open={expandedCategories.system}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.system}>
+              {backupCatalog.showBackupButton(userRole) && (
               <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
                 <AdminButtonIcon>💾</AdminButtonIcon>
                 Αντίγραφα Ασφαλείας
                 {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
               </AdminButton>
+              )}
               <AdminButton onClick={() => setIsCalendarSettingsOpen(true)}>
                 <AdminButtonIcon>🔔</AdminButtonIcon>
                 Κέντρο Ειδοποιήσεων
@@ -7981,7 +7990,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             userRole={userRole}
             currentUser={currentUser}
             engineerCatalog={engineerCatalogForCards}
-            includeAepo={userRole === 'ADMIN' || userRole === 'SUPERADMIN' || !!currentUser?.orimanthiCanEdit}
+            includeAepo={orimanthiCatalog.includeAepoInCalendar({
+              role: userRole,
+              orimanthiCanEdit: !!currentUser?.orimanthiCanEdit,
+            })}
             onOpenOrimanthi={() => {
               setIsProcurementCalendarOpen(false);
               setIsOrimanthiOpen(true);
@@ -8209,7 +8221,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           userRole,
           currentUser,
           engineerCatalog: engineerCatalogForCards,
-          includeAepo: userRole === 'ADMIN' || userRole === 'SUPERADMIN' || !!currentUser?.orimanthiCanEdit,
+          includeAepo: orimanthiCatalog.includeAepoInCalendar({
+            role: userRole,
+            orimanthiCanEdit: !!currentUser?.orimanthiCanEdit,
+          }),
           maxDays: 30,
           limit: 8,
           refreshKey: calendarRefreshKey,

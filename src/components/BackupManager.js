@@ -3,6 +3,7 @@ import styled, { keyframes } from 'styled-components';
 import { showConfirm } from '../utils/confirmModal';
 import { useToast } from './ToastProvider';
 import { formatDateTimeEl } from '../utils/dateFormat';
+import backupCatalog from '../../app/core/backupCatalog';
 
 const ipcRenderer = window.electronAPI;
 
@@ -503,7 +504,10 @@ const SecondaryButton = styled.button`
 function BackupManager({ isOpen, onClose, currentUser }) {
   const { showToast } = useToast();
   const actingUsername = currentUser?.username;
-  const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
+  const userRole = currentUser?.role;
+  const canSeeLocation = backupCatalog.canSeeBackupLocation(userRole);
+  const canDelete = backupCatalog.canDeleteBackup(userRole);
+  const canRestore = backupCatalog.canRestoreBackup(userRole);
   const [view, setView] = useState('main'); // 'main', 'create', 'history', 'restore'
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -529,10 +533,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
   const [savingLocation, setSavingLocation] = useState(false);
   
   // Restore wizard state
-  const [restoreStep, setRestoreStep] = useState(1); // 1: Select backup, 2: Choose type, 3: Select items, 4: Preview, 5: Confirm
   const [selectedBackup, setSelectedBackup] = useState(null);
-  const [restoreType, setRestoreType] = useState('full'); // 'full', 'selective', 'merge'
-  const [selectedItems, setSelectedItems] = useState([]);
   // eslint-disable-next-line no-unused-vars
   const [_restorePreview, _setRestorePreview] = useState(null);
   const [restoreInProgress, setRestoreInProgress] = useState(false);
@@ -542,7 +543,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
     if (isOpen) {
       loadBackups();
       loadStatus();
-      if (isSuperAdmin) loadLocation();
+      if (canSeeLocation) loadLocation();
     }
   }, [isOpen]);
   
@@ -564,13 +565,11 @@ function BackupManager({ isOpen, onClose, currentUser }) {
       }
       resetBackupUiState();
       if (result && result.success) {
-        showToast(`Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}`, 'success');
-        loadBackups(); // Reload list
-        setView('history'); // Show history
-      } else if (result && result.aborted) {
-        showToast('Η δημιουργία αντιγράφου ακυρώθηκε.', 'info');
-      } else {
-        showToast(`Σφάλμα κατά το backup: ${(result && result.message) || 'Άγνωστο σφάλμα'}`, 'error');
+        loadBackups();
+        setView('history');
+        if (backupCatalog.announceCreateBackupFromEvent()) {
+          showToast(`Το backup ολοκληρώθηκε επιτυχώς!\n\nΑρχείο: ${result.backupInfo?.fileName || 'N/A'}\nΜέγεθος: ${result.backupInfo?.size ? (result.backupInfo.size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}`, 'success');
+        }
       }
     };
     
@@ -686,8 +685,12 @@ function BackupManager({ isOpen, onClose, currentUser }) {
   };
 
   const handleCreateBackup = async () => {
-    if (isBackupInProgress) {
-      showToast('Το backup είναι ήδη σε εξέλιξη...', 'info');
+    const createCheck = backupCatalog.evaluateCreateBackup({
+      role: userRole,
+      inProgress: isBackupInProgress
+    });
+    if (!createCheck.ok) {
+      showToast(createCheck.error, isBackupInProgress ? 'info' : 'error');
       return;
     }
     
@@ -736,6 +739,11 @@ function BackupManager({ isOpen, onClose, currentUser }) {
   };
   
   const handleDeleteBackup = async (backupId) => {
+    const deleteCheck = backupCatalog.evaluateDeleteBackup({ role: userRole, backupId });
+    if (!deleteCheck.ok) {
+      showToast(deleteCheck.error, 'error');
+      return;
+    }
     if (!await showConfirm({ title: 'Διαγραφή Backup', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το backup;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '⚠️' })) {
       return;
     }
@@ -776,43 +784,23 @@ function BackupManager({ isOpen, onClose, currentUser }) {
   };
   
   const handleStartRestore = (backup) => {
+    const restoreCheck = backupCatalog.evaluateRestoreBackup({
+      role: userRole,
+      backupId: backup && backup.backupId
+    });
+    if (!restoreCheck.ok) {
+      showToast(restoreCheck.error, 'error');
+      return;
+    }
     setSelectedBackup(backup);
-    setRestoreStep(1);
     setView('restore');
-  };
-  
-  const handleRestoreNext = () => {
-    if (restoreStep === 1) {
-      // Step 1: Select backup (already done)
-      setRestoreStep(2);
-    } else if (restoreStep === 2) {
-      // Step 2: Choose restore type
-      if (restoreType === 'full') {
-        // Skip to preview for full restore
-        setRestoreStep(4);
-      } else {
-        setRestoreStep(3);
-      }
-    } else if (restoreStep === 3) {
-      // Step 3: Select items (for selective/merge)
-      setRestoreStep(4);
-    } else if (restoreStep === 4) {
-      // Step 4: Preview
-      setRestoreStep(5);
-    }
-  };
-  
-  const handleRestoreBack = () => {
-    if (restoreStep > 1) {
-      setRestoreStep(restoreStep - 1);
-    }
   };
   
   const handleConfirmRestore = async () => {
     const confirmed = await showConfirm({
-      title: 'Επαναφορά δεδομένων',
-      message: 'Είστε σίγουροι ότι θέλετε να κάνετε restore;',
-      detail: 'Αυτό θα αντικαταστήσει τα τρέχοντα δεδομένα!',
+      title: backupCatalog.restoreConfirmTitle(),
+      message: backupCatalog.restoreConfirmMessage(),
+      detail: backupCatalog.restoreConfirmDetail(),
       confirmLabel: 'Επαναφορά',
       cancelLabel: 'Άκυρο',
       icon: '⚠️',
@@ -826,21 +814,20 @@ function BackupManager({ isOpen, onClose, currentUser }) {
       setRestoreInProgress(true);
       
       const result = await ipcRenderer.invoke('restore-backup', selectedBackup.backupId, {
-        type: restoreType,
-        items: selectedItems,
+        type: backupCatalog.normalizeRestoreType(),
         actingUsername
       });
       
       if (result.success) {
-        showToast('Το restore ολοκληρώθηκε επιτυχώς! Η εφαρμογή θα επανεκκινηθεί.', 'success');
-        // Restart the app
+        showToast(backupCatalog.evaluateRestoreOutcome({ applyOk: true }).message, 'success');
         ipcRenderer.send('restart-app');
+      } else if (result.rolledBack) {
+        showToast(backupCatalog.evaluateRestoreOutcome({ applyOk: false, rolledBack: true }).message, 'error');
       } else {
-        showToast(`Σφάλμα restore: ${result.error || result.message || 'Άγνωστο σφάλμα'}`, 'error');
+        showToast(result.error || result.message || backupCatalog.evaluateRestoreOutcome({ applyOk: false }).message, 'error');
       }
       
       setView('main');
-      setRestoreStep(1);
     } catch (error) {
       console.error('Error restoring backup:', error);
       showToast(`Σφάλμα: ${error.message}`, 'error');
@@ -928,7 +915,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
               </ActionButtons>
 
               {/* Θέση αποθήκευσης — ΟΡΑΤΗ ΜΟΝΟ ΣΤΟΝ ΥΠΕΡΔΙΑΧΕΙΡΙΣΤΗ */}
-              {isSuperAdmin && location && (
+              {canSeeLocation && location && (
                 <div style={{
                   padding: '1rem 1.25rem',
                   borderRadius: 12,
@@ -1080,7 +1067,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
                       <BackupActions>
                         {backup.status === 'success' && (
                           <>
-                            {isSuperAdmin && (
+                            {canRestore && (
                               <SmallButton success onClick={() => handleStartRestore(backup)}>
                                 🔄 Επαναφορά
                               </SmallButton>
@@ -1090,7 +1077,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
                             </SmallButton>
                           </>
                         )}
-                        {isSuperAdmin && (
+                        {canDelete && (
                           <SmallButton danger onClick={() => handleDeleteBackup(backup.backupId)}>
                             🗑️ Διαγραφή
                           </SmallButton>
@@ -1103,313 +1090,45 @@ function BackupManager({ isOpen, onClose, currentUser }) {
             </HistorySection>
           )}
           
-          {/* Restore Wizard View */}
+          {/* Επαναφορά: μία επιλογή, επιβεβαίωση στα ελληνικά */}
           {view === 'restore' && selectedBackup && (
             <RestoreSection show={true}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <SectionTitle>Restore από Backup</SectionTitle>
+                <SectionTitle>Επαναφορά δεδομένων</SectionTitle>
                 <SecondaryButton onClick={() => {
                   setView('history');
-                  setRestoreStep(1);
                   setSelectedBackup(null);
                 }}>
                   ← Πίσω
                 </SecondaryButton>
               </div>
-              
-              <WizardSteps>
-                <WizardStep>
-                  <StepCircle active={restoreStep >= 1}>1</StepCircle>
-                  <StepLabel active={restoreStep >= 1}>Επιλογή Backup</StepLabel>
-                </WizardStep>
-                <WizardStep>
-                  <StepCircle active={restoreStep >= 2}>2</StepCircle>
-                  <StepLabel active={restoreStep >= 2}>Τύπος Restore</StepLabel>
-                </WizardStep>
-                <WizardStep>
-                  <StepCircle active={restoreStep >= 3}>3</StepCircle>
-                  <StepLabel active={restoreStep >= 3}>Επιλογή Στοιχείων</StepLabel>
-                </WizardStep>
-                <WizardStep>
-                  <StepCircle active={restoreStep >= 4}>4</StepCircle>
-                  <StepLabel active={restoreStep >= 4}>Preview</StepLabel>
-                </WizardStep>
-                <WizardStep>
-                  <StepCircle active={restoreStep >= 5}>5</StepCircle>
-                  <StepLabel active={restoreStep >= 5}>Επιβεβαίωση</StepLabel>
-                </WizardStep>
-              </WizardSteps>
-              
-              {/* Step 1: Select Backup */}
-              {restoreStep === 1 && (
-                <div>
-                  <p>Επιλέχθηκε: <strong>{selectedBackup.fileName}</strong></p>
-                  <p>Ημερομηνία: {formatDate(selectedBackup.timestamp)}</p>
-                  <p>Μέγεθος: {formatSize(selectedBackup.size || 0)}</p>
-                  <ButtonGroup>
-                    <SecondaryButton onClick={() => {
-                      setView('history');
-                      setRestoreStep(1);
-                      setSelectedBackup(null);
-                    }} disabled={restoreInProgress}>
-                      Ακύρωση
-                    </SecondaryButton>
-                    <PrimaryButton onClick={handleRestoreNext} disabled={restoreInProgress}>
-                      Επόμενο →
-                    </PrimaryButton>
-                  </ButtonGroup>
+              <p><strong>{backupCatalog.restoreKindLabel()}</strong></p>
+              <p>Αντίγραφο: <strong>{selectedBackup.fileName}</strong></p>
+              <p>Ημερομηνία: {formatDate(selectedBackup.timestamp)}</p>
+              <p>Μέγεθος: {formatSize(selectedBackup.size || 0)}</p>
+              <WarningBox>
+                {backupCatalog.restoreConfirmMessage()}{' '}
+                {backupCatalog.restoreConfirmDetail()}
+              </WarningBox>
+              {restoreInProgress && (
+                <div style={{ background: '#e7f3ff', padding: '1rem', borderRadius: '10px', marginBottom: '1rem', textAlign: 'center' }}>
+                  <p>Η επαναφορά είναι σε εξέλιξη. Παρακαλώ περιμένετε.</p>
                 </div>
               )}
-              
-              {/* Step 2: Choose Restore Type */}
-              {restoreStep === 2 && (
-                <div>
-                  <RestoreOptions>
-                    <RadioGroup>
-                      <RadioLabel>
-                        <Radio
-                          type="radio"
-                          name="restoreType"
-                          value="full"
-                          checked={restoreType === 'full'}
-                          onChange={(e) => setRestoreType(e.target.value)}
-                          disabled={restoreInProgress}
-                        />
-                        <div>
-                          <strong>Full Restore</strong>
-                          <div style={{ fontSize: '0.9rem', color: '#6c757d', marginTop: '0.25rem' }}>
-                            Αντικατάσταση όλων των δεδομένων
-                          </div>
-                        </div>
-                      </RadioLabel>
-                      
-                      <RadioLabel>
-                        <Radio
-                          type="radio"
-                          name="restoreType"
-                          value="selective"
-                          checked={restoreType === 'selective'}
-                          onChange={(e) => setRestoreType(e.target.value)}
-                          disabled={restoreInProgress}
-                        />
-                        <div>
-                          <strong>Selective Restore</strong>
-                          <div style={{ fontSize: '0.9rem', color: '#6c757d', marginTop: '0.25rem' }}>
-                            Επιλογή συγκεκριμένων έργων/προσκλήσεων
-                          </div>
-                        </div>
-                      </RadioLabel>
-                      
-                      <RadioLabel>
-                        <Radio
-                          type="radio"
-                          name="restoreType"
-                          value="merge"
-                          checked={restoreType === 'merge'}
-                          onChange={(e) => setRestoreType(e.target.value)}
-                          disabled={restoreInProgress}
-                        />
-                        <div>
-                          <strong>Merge Restore</strong>
-                          <div style={{ fontSize: '0.9rem', color: '#6c757d', marginTop: '0.25rem' }}>
-                            Συγχώνευση με υπάρχοντα δεδομένα
-                          </div>
-                        </div>
-                      </RadioLabel>
-                    </RadioGroup>
-                  </RestoreOptions>
-                  
-                  <ButtonGroup>
-                    <SecondaryButton onClick={handleRestoreBack} disabled={restoreInProgress}>
-                      ← Πίσω
-                    </SecondaryButton>
-                    <PrimaryButton onClick={handleRestoreNext} disabled={restoreInProgress}>
-                      Επόμενο →
-                    </PrimaryButton>
-                  </ButtonGroup>
-                </div>
-              )}
-              
-              {/* Step 3: Select Items (for selective/merge) */}
-              {restoreStep === 3 && (
-                <div>
-                  <p style={{ color: '#6c757d', marginBottom: '1rem' }}>
-                    {restoreType === 'selective' 
-                      ? 'Επιλέξτε τα στοιχεία που θέλετε να restore:'
-                      : 'Επιλέξτε τα στοιχεία που θέλετε να συγχωνεύσετε:'}
-                  </p>
-                  <BackupOptions>
-                    <OptionGroup>
-                      <CheckboxLabel>
-                        <Checkbox
-                          type="checkbox"
-                          checked={selectedItems.includes('projects')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, 'projects']);
-                            } else {
-                              setSelectedItems(selectedItems.filter(item => item !== 'projects'));
-                            }
-                          }}
-                        />
-                        <span>📁 Έργα ({selectedBackup.contents?.projects || 0})</span>
-                      </CheckboxLabel>
-                    </OptionGroup>
-                    <OptionGroup>
-                      <CheckboxLabel>
-                        <Checkbox
-                          type="checkbox"
-                          checked={selectedItems.includes('proskliseis')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, 'proskliseis']);
-                            } else {
-                              setSelectedItems(selectedItems.filter(item => item !== 'proskliseis'));
-                            }
-                          }}
-                        />
-                        <span>📢 Προσκλήσεις ({selectedBackup.contents?.proskliseis || 0})</span>
-                      </CheckboxLabel>
-                    </OptionGroup>
-                    <OptionGroup>
-                      <CheckboxLabel>
-                        <Checkbox
-                          type="checkbox"
-                          checked={selectedItems.includes('entaxeis')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, 'entaxeis']);
-                            } else {
-                              setSelectedItems(selectedItems.filter(item => item !== 'entaxeis'));
-                            }
-                          }}
-                        />
-                        <span>📊 Εντάξεις ({selectedBackup.contents?.entaxeis || 0})</span>
-                      </CheckboxLabel>
-                    </OptionGroup>
-                    <OptionGroup>
-                      <CheckboxLabel>
-                        <Checkbox
-                          type="checkbox"
-                          checked={selectedItems.includes('egkriseis')}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedItems([...selectedItems, 'egkriseis']);
-                            } else {
-                              setSelectedItems(selectedItems.filter(item => item !== 'egkriseis'));
-                            }
-                          }}
-                        />
-                        <span>📋 Εγκρίσεις ({selectedBackup.contents?.egkriseis || 0})</span>
-                      </CheckboxLabel>
-                    </OptionGroup>
-                  </BackupOptions>
-                  {selectedItems.length === 0 && (
-                    <WarningBox style={{ marginTop: '1rem' }}>
-                      ⚠️ Παρακαλώ επιλέξτε τουλάχιστον ένα στοιχείο
-                    </WarningBox>
-                  )}
-                  <ButtonGroup>
-                    <SecondaryButton onClick={handleRestoreBack} disabled={restoreInProgress}>
-                      ← Πίσω
-                    </SecondaryButton>
-                    <PrimaryButton onClick={handleRestoreNext} disabled={selectedItems.length === 0 || restoreInProgress}>
-                      Επόμενο →
-                    </PrimaryButton>
-                  </ButtonGroup>
-                </div>
-              )}
-              
-              {/* Step 4: Preview */}
-              {restoreStep === 4 && (
-                <div>
-                  <SectionTitle>Preview Αλλαγών</SectionTitle>
-                  <div style={{ background: '#f8f9fa', padding: '1rem', borderRadius: '10px', marginBottom: '1rem' }}>
-                    <p style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>Τύπος Restore: {restoreType === 'full' ? 'Full Restore' : restoreType === 'selective' ? 'Selective Restore' : 'Merge Restore'}</p>
-                    {restoreType !== 'full' && (
-                      <p style={{ color: '#6c757d', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                        Επιλεγμένα στοιχεία: {selectedItems.length > 0 ? selectedItems.map(item => {
-                          const labels = {
-                            'projects': '📁 Έργα',
-                            'proskliseis': '📢 Προσκλήσεις',
-                            'entaxeis': '📊 Εντάξεις',
-                            'egkriseis': '📋 Εγκρίσεις'
-                          };
-                          return labels[item];
-                        }).join(', ') : 'Κανένα'}
-                      </p>
-                    )}
-                  </div>
-                  <PreviewList>
-                    {(restoreType === 'full' || selectedItems.includes('projects')) && (
-                      <PreviewItem>📁 Έργα: {selectedBackup.contents?.projects || 0}</PreviewItem>
-                    )}
-                    {(restoreType === 'full' || selectedItems.includes('proskliseis')) && (
-                      <PreviewItem>📢 Προσκλήσεις: {selectedBackup.contents?.proskliseis || 0}</PreviewItem>
-                    )}
-                    {(restoreType === 'full' || selectedItems.includes('entaxeis')) && (
-                      <PreviewItem>📊 Εντάξεις: {selectedBackup.contents?.entaxeis || 0}</PreviewItem>
-                    )}
-                    {(restoreType === 'full' || selectedItems.includes('egkriseis')) && (
-                      <PreviewItem>📋 Εγκρίσεις: {selectedBackup.contents?.egkriseis || 0}</PreviewItem>
-                    )}
-                  </PreviewList>
-                  
-                  <WarningBox>
-                    ⚠️ <strong>Προσοχή:</strong> {
-                      restoreType === 'full' 
-                        ? 'Αυτή η λειτουργία θα αντικαταστήσει ΟΛΑ τα τρέχοντα δεδομένα.'
-                        : restoreType === 'selective'
-                        ? 'Αυτή η λειτουργία θα αντικαταστήσει μόνο τα επιλεγμένα στοιχεία.'
-                        : 'Αυτή η λειτουργία θα συγχωνεύσει τα δεδομένα από το backup με τα υπάρχοντα (θα προσθέσει μόνο νέα στοιχεία).'
-                    }
-                    <br/>Συνιστάται να κάνετε backup πριν το restore.
-                  </WarningBox>
-                  
-                  <ButtonGroup>
-                    <SecondaryButton onClick={handleRestoreBack} disabled={restoreInProgress}>
-                      ← Πίσω
-                    </SecondaryButton>
-                    <PrimaryButton onClick={handleRestoreNext} disabled={restoreInProgress}>
-                      Επόμενο →
-                    </PrimaryButton>
-                  </ButtonGroup>
-                </div>
-              )}
-              
-              {/* Step 5: Confirm */}
-              {restoreStep === 5 && (
-                <div>
-                  <SectionTitle>Επιβεβαίωση Restore</SectionTitle>
-                  <div style={{ background: '#f8f9fa', padding: '1.5rem', borderRadius: '10px', marginBottom: '1rem' }}>
-                    <p><strong>Backup:</strong> {selectedBackup.fileName}</p>
-                    <p><strong>Τύπος:</strong> {restoreType === 'full' ? 'Full Restore' : restoreType === 'selective' ? 'Selective Restore' : 'Merge Restore'}</p>
-                    <p><strong>Ημερομηνία Backup:</strong> {formatDate(selectedBackup.timestamp)}</p>
-                  </div>
-                  
-                  <WarningBox>
-                    ⚠️ <strong>Τελική Επιβεβαίωση:</strong> Είστε σίγουροι ότι θέλετε να προχωρήσετε; 
-                    Αυτή η ενέργεια δεν μπορεί να αναιρεθεί!
-                  </WarningBox>
-                  
-                  {restoreInProgress && (
-                    <div style={{ background: '#e7f3ff', padding: '1rem', borderRadius: '10px', marginBottom: '1rem', textAlign: 'center' }}>
-                      <p>⏳ Το restore είναι σε εξέλιξη... Παρακαλώ περιμένετε.</p>
-                    </div>
-                  )}
-                  
-                  <ButtonGroup>
-                    <SecondaryButton onClick={handleRestoreBack} disabled={restoreInProgress || loading}>
-                      ← Πίσω
-                    </SecondaryButton>
-                    <PrimaryButton onClick={handleConfirmRestore} disabled={loading || restoreInProgress}>
-                      {loading || restoreInProgress ? '⏳ Σε εξέλιξη...' : '✅ Επιβεβαίωση Restore'}
-                    </PrimaryButton>
-                  </ButtonGroup>
-                </div>
-              )}
+              <ButtonGroup>
+                <SecondaryButton onClick={() => {
+                  setView('history');
+                  setSelectedBackup(null);
+                }} disabled={restoreInProgress}>
+                  Άκυρο
+                </SecondaryButton>
+                <PrimaryButton onClick={handleConfirmRestore} disabled={loading || restoreInProgress}>
+                  {loading || restoreInProgress ? 'Σε εξέλιξη...' : 'Επαναφορά όλων των δεδομένων'}
+                </PrimaryButton>
+              </ButtonGroup>
             </RestoreSection>
           )}
+
         </ModalContent>
       </ModalContainer>
     </ModalOverlay>

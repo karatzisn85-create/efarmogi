@@ -3,34 +3,16 @@
  * Μένουν εκτός component ώστε να ελέγχονται αυτόματα.
  */
 
+import apologismosCatalog from '../../app/core/apologismosCatalog';
+
 export const PHOTO_PHASE_ORDER = ['before', 'during', 'after'];
 
 const MAP_VIZ_IDS = ['map_path', 'map_multi'];
 const TEXT_ONLY_VIZ_IDS = ['simple_card', 'economy_phases'];
 
-/**
- * Πεζά χωρίς τόνους και με ενιαίο σίγμα: τα ελληνικά κεφαλαία γράφονται άτονα,
- * οπότε αναζήτηση «ΚΕΝΤΡΟ» πρέπει να βρίσκει «Κέντρο».
- */
-function normalizeSearchTerm(value) {
-  return String(value || '')
-    .trim()
-    .toLocaleLowerCase('el-GR')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ς/g, 'σ');
-}
-
-/** Φιλτράρισμα λίστας καρτών με αναζήτηση σε τίτλο/περιοχή και κατάσταση ετοιμότητας. */
+/** Φιλτράρισμα λίστας: τίτλος υποέργου / έργου / περιοχή και ετοιμότητα. */
 export function filterApologismosCards(cards, { search = '', status = 'all' } = {}) {
-  const term = normalizeSearchTerm(search);
-  return (cards || []).filter((card) => {
-    if (status === 'ready' && !card?.ready) return false;
-    if (status === 'pending' && card?.ready) return false;
-    if (!term) return true;
-    const haystack = normalizeSearchTerm(`${card?.title || ''} ${card?.area || ''}`);
-    return haystack.includes(term);
-  });
+  return apologismosCatalog.filterApologismosCards(cards, { search, status });
 }
 
 /** Ενιαία λίστα φωτογραφιών της κάρτας, με σειρά φάσεων και θέση εντός φάσης.

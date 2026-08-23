@@ -1,4 +1,4 @@
-/* global ErgoHubSubprojectCard, ErgoHubSubprojectList, ErgoHubSubprojectLifecycle, ErgoHubCalendarDeadlines, ErgoHubProsklisiCatalog, ErgoHubEntaxiCatalog, ErgoHubEgkrisiCatalog, ErgoHubSubprojectFiles, ErgoHubTaskWorkspace, ErgoHubUserCatalog, ErgoHubAuditCatalog, ErgoHubKhmdhsRefresh, ErgoHubKhmdhsPostFetch, ErgoHubExcelImport, ErgoHubReportsExport, ErgoHubPortalCatalog */
+/* global ErgoHubSubprojectCard, ErgoHubSubprojectList, ErgoHubSubprojectLifecycle, ErgoHubCalendarDeadlines, ErgoHubProsklisiCatalog, ErgoHubEntaxiCatalog, ErgoHubEgkrisiCatalog, ErgoHubSubprojectFiles, ErgoHubTaskWorkspace, ErgoHubUserCatalog, ErgoHubAuditCatalog, ErgoHubKhmdhsRefresh, ErgoHubKhmdhsPostFetch, ErgoHubExcelImport, ErgoHubReportsExport, ErgoHubPortalCatalog, ErgoHubOrimanthiCatalog, ErgoHubMeletaiCatalog, ErgoHubEpProgramCatalog, ErgoHubApologismosCatalog, ErgoHubBackupCatalog */
 (function () {
   var core = window.ErgoHubSubprojectCard;
   var list = window.ErgoHubSubprojectList;
@@ -16,6 +16,11 @@
   var excel = window.ErgoHubExcelImport;
   var reports = window.ErgoHubReportsExport;
   var portal = window.ErgoHubPortalCatalog;
+  var ori = window.ErgoHubOrimanthiCatalog;
+  var mlt = window.ErgoHubMeletaiCatalog;
+  var ep = window.ErgoHubEpProgramCatalog;
+  var apo = window.ErgoHubApologismosCatalog;
+  var bk = window.ErgoHubBackupCatalog;
 
   function isoDaysFromToday(offset) {
     var d = new Date();
@@ -113,7 +118,10 @@
       createdAt: '2021-01-01T08:00:00.000Z',
       updatedAt: '2023-01-01T08:00:00.000Z',
       supervisorEngineerIds: ['user:maria'],
-      khmdhsAdam: '24SYMV000000099'
+      khmdhsAdam: '24SYMV000000099',
+      approvedAmount: '80.000,00',
+      contractAmount: '75.000,00',
+      municipalUnit: 'Αρχανών'
     },
     {
       projectId: 'proj-drop',
@@ -535,7 +543,240 @@
     portalFilterStatus: '',
     portalMergeCompleted: false,
     portalExportError: '',
-    portalExported: false
+    portalExported: false,
+    orimanthiOpen: false,
+    orimanthiCanEdit: false,
+    orimanthiSearch: '',
+    orimanthiStatus: '',
+    orimanthiCategory: '',
+    orimanthiQuick: '',
+    orimanthiSelectedId: '',
+    orimanthiError: '',
+    orimanthiCreateOpen: false,
+    orimanthiConfirmDelete: false,
+    orimanthiNextId: 1,
+    orimanthiProposals: [
+      {
+        id: 'ori-water',
+        title: 'Ύδρευση Χουδετσίου',
+        projectCategory: 'ΥΔΡΑΥΛΙΚΑ',
+        infrastructureSpecialization: 'ΥΔΡΕΥΣΗ',
+        municipalUnit: 'Αρχάνες',
+        settlement: 'Χουδέτσι',
+        status: 'maturing',
+        description: 'Αντικατάσταση δικτύου',
+        notes: '',
+        aepoRenewalDate: isoDaysFromToday(20),
+        pendingItems: [{ text: 'Αρχαιολογική έκθεση', done: false }],
+        fileGroups: [{ files: [{ name: 'ΚΑ-888-σύμβαση.pdf' }] }]
+      },
+      {
+        id: 'ori-road',
+        title: 'Ανάπλαση πλατείας Πεζών',
+        projectCategory: 'ΟΔΟΠΟΙΙΑ',
+        infrastructureSpecialization: '',
+        municipalUnit: 'Αστερούσια',
+        settlement: 'Πεζά',
+        status: 'ready',
+        description: '',
+        notes: '',
+        aepoRenewalDate: isoDaysFromToday(200),
+        pendingItems: [],
+        fileGroups: []
+      },
+      {
+        id: 'ori-expired',
+        title: 'Γεώτρηση Αχεντριά',
+        projectCategory: 'ΓΕΩΤΡΗΣΕΙΣ',
+        infrastructureSpecialization: '',
+        municipalUnit: 'Αστερούσια',
+        settlement: 'Αχεντριάς',
+        status: 'approved',
+        description: '',
+        notes: '',
+        aepoRenewalDate: isoDaysFromToday(-10),
+        pendingItems: [{ text: 'Έγινε υδρομέτρηση', done: true }],
+        fileGroups: []
+      },
+      {
+        id: 'ori-draft',
+        title: 'Κτίριο δημοτικού',
+        projectCategory: '',
+        infrastructureSpecialization: '',
+        municipalUnit: '',
+        settlement: '',
+        status: 'draft',
+        description: '',
+        notes: 'αναμονή τοπογραφικού',
+        aepoRenewalDate: '',
+        pendingItems: [],
+        fileGroups: []
+      }
+    ],
+    meletaiOpen: false,
+    meletaiCanEdit: false,
+    meletaiSearch: '',
+    meletaiQuick: '',
+    meletaiSelectedId: '',
+    meletaiError: '',
+    meletaiCreateOpen: false,
+    meletaiConfirmDelete: false,
+    meletaiNextId: 1,
+    meletai: [
+      {
+        id: 'mlt-water',
+        studyNumber: '2/2026',
+        title: 'Ύδρευση Χουδετσίου',
+        assignedTo: 'Μαρία Παπαδοπούλου',
+        category: 'ΥΔΡΑΥΛΙΚΑ',
+        notes: '',
+        linkedSubprojectId: 'sub-bridge',
+        linkedSubprojectTitle: 'Γέφυρα Αγίου Σύλλα',
+        linkedProjectTitle: 'Οδικό δίκτυο Αρχανών',
+        fileGroups: [{ files: [{ name: 'ΚΑ-777-μελέτη.pdf' }] }]
+      },
+      {
+        id: 'mlt-square',
+        studyNumber: '15/2025',
+        title: 'Ανάπλαση πλατείας',
+        assignedTo: '',
+        category: 'ΑΝΑΠΛΑΣΕΙΣ',
+        notes: 'αναμονή τοπογραφικού',
+        linkedSubprojectId: null,
+        linkedSubprojectTitle: '',
+        linkedProjectTitle: '',
+        fileGroups: []
+      },
+      {
+        id: 'mlt-road',
+        studyNumber: '3/2026',
+        title: 'Μελέτη οδοποιίας',
+        assignedTo: 'Νίκος Γεωργίου',
+        category: 'ΟΔΟΠΟΙΙΑ',
+        notes: '',
+        linkedSubprojectId: 'sub-tank',
+        linkedSubprojectTitle: 'Δεξαμενή Παρανύμφων',
+        linkedProjectTitle: 'Ύδρευση Αστερουσίων',
+        fileGroups: []
+      }
+    ],
+    epOpen: false,
+    epSearch: '',
+    epAxis: '',
+    epType: '',
+    epNew: '',
+    epSelectedId: '',
+    epError: '',
+    epCreateOpen: false,
+    epImportOpen: false,
+    epImportStart: '',
+    epImportEnd: '',
+    epImportHasFile: false,
+    epConfirmDelete: false,
+    epExported: false,
+    epTemplateName: '',
+    epTemplateGuide: '',
+    epTemplateLocation: '',
+    epTemplateLists: '',
+    epTemplateListsGrowing: '',
+    epTemplateListsFixed: '',
+    epTemplatePeriodOpen: false,
+    epTplStart: '',
+    epTplEnd: '',
+    municipalUnits: ['Αστερουσίων'],
+    epNextId: 1,
+    epViewId: 'ep-active',
+    epPrograms: [
+      {
+        id: 'ep-old',
+        title: 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ ΠΡΟΓΡΑΜΜΑ 2019-2023',
+        startYear: 2019,
+        endYear: 2023,
+        isActive: false,
+        actions: []
+      },
+      {
+        id: 'ep-active',
+        title: 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ ΠΡΟΓΡΑΜΜΑ 2024-2028',
+        startYear: 2024,
+        endYear: 2028,
+        isActive: true,
+        actions: null
+      }
+    ],
+    epActions: [
+      {
+        id: 'ep-water',
+        aa: 1,
+        axisCode: '1',
+        measureCode: '1.1',
+        objectiveCode: '1.1.1',
+        title: 'Ύδρευση Χουδετσίου',
+        actionType: 'Έργο',
+        isNew: true,
+        location: 'Χουδέτσι',
+        responsibleService: 'Διεύθυνση Τεχνικών Υπηρεσιών',
+        fundingSources: ['ΕΣΠΑ 2021-2027'],
+        linkedSubprojectIds: ['sub-bridge']
+      },
+      {
+        id: 'ep-study',
+        aa: 2,
+        axisCode: '2',
+        measureCode: '2.1',
+        objectiveCode: '2.1.1',
+        title: 'Μελέτη πλατείας Αρχανών',
+        actionType: 'Μελέτη',
+        isNew: false,
+        location: 'Αρχάνες',
+        responsibleService: '',
+        fundingSources: []
+      },
+      {
+        id: 'ep-road',
+        aa: 3,
+        axisCode: '1',
+        measureCode: '1.2',
+        objectiveCode: '1.2.1',
+        title: 'Οδοποιία Αστερουσίων',
+        actionType: 'Έργο',
+        isNew: true,
+        location: '',
+        responsibleService: 'ΔΟΥ',
+        fundingSources: ['Ίδιοι πόροι']
+      }
+    ],
+    apoOpen: false,
+    apoSearch: '',
+    apoFilter: 'all',
+    apoError: '',
+    apoEligibleOpen: false,
+    apoLegacyOpen: false,
+    apoConfirmDelete: false,
+    apoSelectedId: '',
+    apoPresent: '',
+    apoPeriodStart: '2024',
+    apoPeriodEnd: '2028',
+    apoNextId: 1,
+    apoPeriod: apo.createDefaultPeriod(),
+    apoCards: [],
+    backupOpen: false,
+    backupHistoryOpen: false,
+    backupInProgress: false,
+    backupError: '',
+    backupPendingDeleteId: '',
+    backupPendingRestoreId: '',
+    backupRestored: false,
+    backupRolledBack: false,
+    backupLiveTitle: 'τρέχον έργο',
+    backupFailNextApply: false,
+    backupFailSafety: false,
+    backupFailExtract: false,
+    backupToastCount: 0,
+    backupToastText: '',
+    backupNowMs: Date.parse('2026-08-23T12:00:00.000Z'),
+    backups: [],
+    backupNextId: 1
   };
 
   function currentUser() {
@@ -1062,17 +1303,22 @@
       header.dataset.testid = 'group-title-' + projectId;
       header.textContent = list.pickDisplayProjectTitleForGroup(subs);
       group.appendChild(header);
+      var epMap = ep.buildEpSubprojectLinkMap(programsWithActions());
       subs.forEach(function (p) {
         var charge = core.getProjectChargeDisplay(p, CATALOG);
         var el = document.createElement('article');
         el.className = 'card';
         el.dataset.testid = 'card-' + p.subprojectId;
         el.setAttribute('data-subproject-id', p.subprojectId);
+        var epLink = epMap[p.subprojectId];
         el.innerHTML =
           '<h3 data-field="project-title">' + escapeHtml(p.projectTitle) + '</h3>' +
           '<p data-field="subproject-title">' + escapeHtml(p.subprojectTitle) + '</p>' +
           '<p data-field="ka">ΚΑ: ' + escapeHtml(p.kaCode || '—') + '</p>' +
-          '<p class="charge" data-field="charge">' + escapeHtml(charge.displayChargePrimary || '—') + '</p>';
+          '<p class="charge" data-field="charge">' + escapeHtml(charge.displayChargePrimary || '—') + '</p>' +
+          (epLink
+            ? '<p data-testid="card-ep-' + p.subprojectId + '">' + escapeHtml(ep.formatEpCardLinkLabel(epLink)) + '</p>'
+            : '');
         el.addEventListener('click', function () { openRead(p.subprojectId); });
         if (reports.showCardReportButton()) {
           var reportBtn = document.createElement('button');
@@ -1100,9 +1346,20 @@
     document.getElementById('btn-export').hidden = !reports.showDataExportButton(state.role);
     document.getElementById('btn-pdf').hidden = !reports.showPdfReportsButton(state.role);
     document.getElementById('btn-portal').hidden = !portal.showPortalButton(state.role);
+    document.getElementById('btn-orimanthi').hidden = !ori.showOrimanthiButton(state.role);
+    document.getElementById('btn-meletai').hidden = !mlt.showMeletaiButton(state.role);
+    document.getElementById('btn-ep').hidden = !ep.showEpProgramButton(state.role);
+    document.getElementById('btn-apo').hidden = !apo.showApologismosButton(state.role);
+    document.getElementById('btn-backup').hidden = !bk.showBackupButton(state.role);
+    renderBackupDeck();
     if (state.statsOpen) renderStats();
     if (state.pdfOpen) renderPdfReports();
     if (state.portalOpen) renderPortal();
+    if (state.orimanthiOpen) renderOrimanthi();
+    if (state.meletaiOpen) renderMeletai();
+    if (state.epOpen) renderEp();
+    if (state.apoOpen) renderApo();
+    if (state.backupOpen) renderBackup();
     if (state.technicalOpen) renderTechnical();
     if (state.exportOpen) renderExport();
   }
@@ -2274,6 +2531,17 @@
     document.getElementById('btn-export').hidden = !reports.showDataExportButton(state.role);
     document.getElementById('btn-pdf').hidden = !reports.showPdfReportsButton(state.role);
     document.getElementById('btn-portal').hidden = !portal.showPortalButton(state.role);
+    document.getElementById('btn-orimanthi').hidden = !ori.showOrimanthiButton(state.role);
+    document.getElementById('btn-meletai').hidden = !mlt.showMeletaiButton(state.role);
+    document.getElementById('btn-ep').hidden = !ep.showEpProgramButton(state.role);
+    document.getElementById('btn-apo').hidden = !apo.showApologismosButton(state.role);
+    document.getElementById('btn-backup').hidden = !bk.showBackupButton(state.role);
+    renderBackupDeck();
+    if (state.orimanthiOpen) renderOrimanthi();
+    if (state.meletaiOpen) renderMeletai();
+    if (state.epOpen) renderEp();
+    if (state.apoOpen) renderApo();
+    if (state.backupOpen) renderBackup();
   });
   document.getElementById('quick-search').addEventListener('input', function (e) {
     state.query = e.target.value;
@@ -2903,6 +3171,979 @@
   document.getElementById('btn-pdf').addEventListener('click', openPdfReports);
   document.getElementById('btn-close-pdf').addEventListener('click', closePdfReports);
   document.getElementById('btn-close-card-report').addEventListener('click', closeCardReport);
+  function orimanthiActor() {
+    return { role: state.role, orimanthiCanEdit: !!state.orimanthiCanEdit };
+  }
+
+  function visibleOrimanthi() {
+    return ori.filterOrimanthiHub(state.orimanthiProposals, {
+      search: state.orimanthiSearch,
+      statusFilter: state.orimanthiStatus,
+      categoryFilter: state.orimanthiCategory,
+      quickFilter: state.orimanthiQuick
+    });
+  }
+
+  function renderOrimanthi() {
+    document.getElementById('orimanthi-panel').hidden = !state.orimanthiOpen;
+    var readOnly = ori.isOrimanthiReadOnly(orimanthiActor());
+    document.getElementById('orimanthi-readonly').hidden = !readOnly;
+    document.getElementById('btn-orimanthi-new').hidden = readOnly;
+    document.getElementById('btn-orimanthi-delete').hidden = readOnly;
+    document.getElementById('orimanthi-create').hidden = readOnly || !state.orimanthiCreateOpen;
+    var selected = state.orimanthiProposals.find(function (p) { return p.id === state.orimanthiSelectedId; });
+    document.getElementById('orimanthi-edit').hidden = readOnly || !selected;
+    if (selected && document.activeElement !== document.getElementById('orimanthi-edit-title')) {
+      document.getElementById('orimanthi-edit-title').value = selected.title || '';
+    }
+    document.querySelector('[data-testid="orimanthi-aepo-calendar"]').textContent =
+      ori.includeAepoInCalendar(orimanthiActor()) ? 'ΝΑΙ' : 'ΟΧΙ';
+    document.getElementById('orimanthi-search').value = state.orimanthiSearch;
+    document.getElementById('orimanthi-status').value = state.orimanthiStatus;
+    document.getElementById('orimanthi-category').value = state.orimanthiCategory;
+    document.getElementById('orimanthi-quick').value = state.orimanthiQuick;
+    var host = document.getElementById('orimanthi-list');
+    host.innerHTML = '';
+    visibleOrimanthi().forEach(function (p) {
+      var el = document.createElement('div');
+      el.dataset.testid = 'ori-card-' + p.id;
+      el.textContent = p.title + ' · ' + (p.status || '');
+      if (state.orimanthiSelectedId === p.id) el.setAttribute('data-selected', 'true');
+      el.addEventListener('click', function () {
+        state.orimanthiSelectedId = p.id;
+        state.orimanthiConfirmDelete = false;
+        renderOrimanthi();
+      });
+      host.appendChild(el);
+    });
+    var err = document.getElementById('orimanthi-error');
+    if (state.orimanthiError) {
+      err.hidden = false;
+      err.textContent = state.orimanthiError;
+    } else {
+      err.hidden = true;
+    }
+    document.getElementById('orimanthi-delete-confirm').hidden = !state.orimanthiConfirmDelete;
+  }
+
+  function openOrimanthi() {
+    if (!ori.showOrimanthiButton(state.role)) return;
+    state.orimanthiOpen = true;
+    state.orimanthiError = '';
+    state.orimanthiCreateOpen = false;
+    state.orimanthiConfirmDelete = false;
+    renderOrimanthi();
+  }
+
+  function closeOrimanthi() {
+    state.orimanthiOpen = false;
+    document.getElementById('orimanthi-panel').hidden = true;
+  }
+
+  function submitOrimanthiCreate() {
+    var draft = {
+      title: document.getElementById('orimanthi-new-title').value,
+      projectCategory: document.getElementById('orimanthi-new-category').value,
+      infrastructureSpecialization: document.getElementById('orimanthi-new-spec').value
+    };
+    var gate = ori.evaluateNewProposal(draft);
+    if (!gate.ok) {
+      state.orimanthiError = gate.error || '';
+      renderOrimanthi();
+      return;
+    }
+    var id = 'ori-new-' + state.orimanthiNextId;
+    state.orimanthiNextId += 1;
+    state.orimanthiProposals = [{
+      id: id,
+      title: String(draft.title || '').trim(),
+      projectCategory: draft.projectCategory,
+      infrastructureSpecialization: draft.infrastructureSpecialization || '',
+      municipalUnit: '',
+      settlement: '',
+      status: gate.status || ori.NEW_PROPOSAL_STATUS,
+      description: '',
+      notes: '',
+      aepoRenewalDate: '',
+      pendingItems: [],
+      fileGroups: []
+    }].concat(state.orimanthiProposals);
+    state.orimanthiError = '';
+    state.orimanthiCreateOpen = false;
+    state.orimanthiSelectedId = id;
+    document.getElementById('orimanthi-new-title').value = '';
+    document.getElementById('orimanthi-new-category').value = '';
+    document.getElementById('orimanthi-new-spec').value = '';
+    renderOrimanthi();
+  }
+
+  function requestOrimanthiDelete() {
+    var gate = ori.evaluateProposalDelete({
+      role: state.role,
+      orimanthiCanEdit: state.orimanthiCanEdit,
+      proposalId: state.orimanthiSelectedId
+    });
+    if (!gate.ok) {
+      state.orimanthiError = gate.error || '';
+      state.orimanthiConfirmDelete = false;
+      renderOrimanthi();
+      return;
+    }
+    state.orimanthiConfirmDelete = true;
+    state.orimanthiError = '';
+    renderOrimanthi();
+  }
+
+  function saveOrimanthiEdit() {
+    var selected = state.orimanthiProposals.find(function (p) { return p.id === state.orimanthiSelectedId; });
+    if (!selected || ori.isOrimanthiReadOnly(orimanthiActor())) return;
+    var nextTitle = document.getElementById('orimanthi-edit-title').value;
+    var gate = ori.evaluateProposalSave({ title: nextTitle });
+    if (!gate.ok) {
+      state.orimanthiError = gate.error || '';
+      renderOrimanthi();
+      return;
+    }
+    selected.title = String(nextTitle || '').trim();
+    state.orimanthiError = '';
+    renderOrimanthi();
+  }
+
+  function confirmOrimanthiDelete() {
+    var gate = ori.evaluateProposalDelete({
+      role: state.role,
+      orimanthiCanEdit: state.orimanthiCanEdit,
+      proposalId: state.orimanthiSelectedId
+    });
+    if (!gate.ok) {
+      state.orimanthiError = gate.error || '';
+      renderOrimanthi();
+      return;
+    }
+    var id = state.orimanthiSelectedId;
+    state.orimanthiProposals = state.orimanthiProposals.filter(function (p) { return p.id !== id; });
+    state.orimanthiSelectedId = '';
+    state.orimanthiConfirmDelete = false;
+    renderOrimanthi();
+  }
+
+  document.getElementById('btn-orimanthi').addEventListener('click', openOrimanthi);
+  document.getElementById('btn-close-orimanthi').addEventListener('click', closeOrimanthi);
+  document.getElementById('btn-orimanthi-new').addEventListener('click', function () {
+    if (ori.isOrimanthiReadOnly(orimanthiActor())) return;
+    state.orimanthiCreateOpen = true;
+    state.orimanthiError = '';
+    renderOrimanthi();
+  });
+  document.getElementById('btn-orimanthi-create-save').addEventListener('click', submitOrimanthiCreate);
+  document.getElementById('btn-orimanthi-save').addEventListener('click', saveOrimanthiEdit);
+  document.getElementById('btn-orimanthi-delete').addEventListener('click', requestOrimanthiDelete);
+  document.getElementById('btn-orimanthi-delete-confirm').addEventListener('click', confirmOrimanthiDelete);
+  document.getElementById('orimanthi-search').addEventListener('input', function (e) {
+    state.orimanthiSearch = e.target.value;
+    if (state.orimanthiOpen) renderOrimanthi();
+  });
+  document.getElementById('orimanthi-status').addEventListener('change', function (e) {
+    state.orimanthiStatus = e.target.value;
+    if (state.orimanthiOpen) renderOrimanthi();
+  });
+  document.getElementById('orimanthi-category').addEventListener('change', function (e) {
+    state.orimanthiCategory = e.target.value;
+    if (state.orimanthiOpen) renderOrimanthi();
+  });
+  document.getElementById('orimanthi-quick').addEventListener('change', function (e) {
+    state.orimanthiQuick = e.target.value;
+    if (state.orimanthiOpen) renderOrimanthi();
+  });
+  document.getElementById('orimanthi-can-edit').addEventListener('change', function (e) {
+    state.orimanthiCanEdit = !!e.target.checked;
+    if (state.orimanthiOpen) renderOrimanthi();
+  });
+
+  function meletaiActor() {
+    return { role: state.role, meletaiCanEdit: !!state.meletaiCanEdit };
+  }
+
+  function visibleMeletai() {
+    return mlt.filterMeletaiHub(state.meletai, {
+      search: state.meletaiSearch,
+      quickFilter: state.meletaiQuick
+    });
+  }
+
+  function renderMeletai() {
+    document.getElementById('meletai-panel').hidden = !state.meletaiOpen;
+    var readOnly = mlt.isMeletaiReadOnly(meletaiActor());
+    document.getElementById('meletai-readonly').hidden = !readOnly;
+    document.getElementById('btn-meletai-new').hidden = readOnly;
+    document.getElementById('btn-meletai-delete').hidden = readOnly;
+    document.getElementById('meletai-create').hidden = readOnly || !state.meletaiCreateOpen;
+    document.getElementById('meletai-search').value = state.meletaiSearch;
+    document.getElementById('meletai-quick').value = state.meletaiQuick;
+    var host = document.getElementById('meletai-list');
+    host.innerHTML = '';
+    visibleMeletai().forEach(function (row) {
+      var el = document.createElement('div');
+      el.dataset.testid = 'mlt-card-' + row.id;
+      el.textContent = (row.studyNumber || '') + ' · ' + (row.title || '');
+      if (state.meletaiSelectedId === row.id) el.setAttribute('data-selected', 'true');
+      el.addEventListener('click', function () {
+        state.meletaiSelectedId = row.id;
+        state.meletaiConfirmDelete = false;
+        renderMeletai();
+      });
+      host.appendChild(el);
+    });
+    var err = document.getElementById('meletai-error');
+    if (state.meletaiError) {
+      err.hidden = false;
+      err.textContent = state.meletaiError;
+    } else {
+      err.hidden = true;
+    }
+    document.getElementById('meletai-delete-confirm').hidden = !state.meletaiConfirmDelete;
+  }
+
+  function openMeletai() {
+    if (!mlt.showMeletaiButton(state.role)) return;
+    state.meletaiOpen = true;
+    state.meletaiError = '';
+    state.meletaiCreateOpen = false;
+    state.meletaiConfirmDelete = false;
+    renderMeletai();
+  }
+
+  function closeMeletai() {
+    state.meletaiOpen = false;
+    document.getElementById('meletai-panel').hidden = true;
+  }
+
+  function studyNumberTaken(studyNumber) {
+    var key = mlt.normalizeStudyNumberKey(studyNumber);
+    return state.meletai.some(function (row) {
+      return mlt.normalizeStudyNumberKey(row.studyNumber) === key;
+    });
+  }
+
+  function submitMeletaiCreate() {
+    var draft = {
+      studyNumber: document.getElementById('meletai-new-number').value,
+      title: document.getElementById('meletai-new-title').value
+    };
+    var gate = mlt.evaluateNewMeleti(draft);
+    if (!gate.ok) {
+      state.meletaiError = gate.error || '';
+      renderMeletai();
+      return;
+    }
+    if (studyNumberTaken(gate.studyNumber)) {
+      state.meletaiError = 'Ο αριθμός υπάρχει ήδη';
+      renderMeletai();
+      return;
+    }
+    var id = 'mlt-new-' + state.meletaiNextId;
+    state.meletaiNextId += 1;
+    state.meletai = [{
+      id: id,
+      studyNumber: gate.studyNumber,
+      title: gate.title,
+      assignedTo: '',
+      category: '',
+      notes: '',
+      linkedSubprojectId: null,
+      linkedSubprojectTitle: '',
+      linkedProjectTitle: '',
+      fileGroups: []
+    }].concat(state.meletai);
+    state.meletaiError = '';
+    state.meletaiCreateOpen = false;
+    state.meletaiSelectedId = id;
+    document.getElementById('meletai-new-number').value = '';
+    document.getElementById('meletai-new-title').value = '';
+    renderMeletai();
+  }
+
+  function requestMeletaiDelete() {
+    var gate = mlt.evaluateMeletiDelete({
+      role: state.role,
+      meletaiCanEdit: state.meletaiCanEdit,
+      meletiId: state.meletaiSelectedId
+    });
+    if (!gate.ok) {
+      state.meletaiError = gate.error || '';
+      state.meletaiConfirmDelete = false;
+      renderMeletai();
+      return;
+    }
+    state.meletaiConfirmDelete = true;
+    state.meletaiError = '';
+    renderMeletai();
+  }
+
+  function confirmMeletaiDelete() {
+    var gate = mlt.evaluateMeletiDelete({
+      role: state.role,
+      meletaiCanEdit: state.meletaiCanEdit,
+      meletiId: state.meletaiSelectedId
+    });
+    if (!gate.ok) {
+      state.meletaiError = gate.error || '';
+      renderMeletai();
+      return;
+    }
+    var id = state.meletaiSelectedId;
+    state.meletai = state.meletai.filter(function (row) { return row.id !== id; });
+    state.meletaiSelectedId = '';
+    state.meletaiConfirmDelete = false;
+    renderMeletai();
+  }
+
+  document.getElementById('btn-meletai').addEventListener('click', openMeletai);
+  document.getElementById('btn-close-meletai').addEventListener('click', closeMeletai);
+  document.getElementById('btn-meletai-new').addEventListener('click', function () {
+    if (mlt.isMeletaiReadOnly(meletaiActor())) return;
+    state.meletaiCreateOpen = true;
+    state.meletaiError = '';
+    renderMeletai();
+  });
+  document.getElementById('btn-meletai-create-save').addEventListener('click', submitMeletaiCreate);
+  document.getElementById('btn-meletai-delete').addEventListener('click', requestMeletaiDelete);
+  document.getElementById('btn-meletai-delete-confirm').addEventListener('click', confirmMeletaiDelete);
+  document.getElementById('meletai-search').addEventListener('input', function (e) {
+    state.meletaiSearch = e.target.value;
+    if (state.meletaiOpen) renderMeletai();
+  });
+  document.getElementById('meletai-quick').addEventListener('change', function (e) {
+    state.meletaiQuick = e.target.value;
+    if (state.meletaiOpen) renderMeletai();
+  });
+  document.getElementById('meletai-can-edit').addEventListener('change', function (e) {
+    state.meletaiCanEdit = !!e.target.checked;
+    if (state.meletaiOpen) renderMeletai();
+  });
+
+  function epActor() {
+    return { role: state.role };
+  }
+
+  function activeEpProgram() {
+    return ep.findActiveProgram(state.epPrograms);
+  }
+
+  function viewedEpProgram() {
+    if (state.epViewId) {
+      return state.epPrograms.filter(function (p) { return p.id === state.epViewId; })[0] || null;
+    }
+    return activeEpProgram();
+  }
+
+  function programsWithActions() {
+    var viewed = viewedEpProgram();
+    return state.epPrograms.map(function (p) {
+      if (viewed && p.id === viewed.id) return Object.assign({}, p, { actions: state.epActions });
+      return p;
+    });
+  }
+
+  function visibleEpActions() {
+    return ep.filterEpActionsHub(state.epActions, {
+      search: state.epSearch,
+      filterAxis: state.epAxis,
+      filterType: state.epType,
+      filterNew: state.epNew
+    });
+  }
+
+  function renderEp() {
+    document.getElementById('ep-panel').hidden = !state.epOpen;
+    var program = viewedEpProgram();
+    var hasActive = !!activeEpProgram();
+    var viewing = !!program;
+    document.getElementById('ep-empty').hidden = hasActive || !!state.epViewId;
+    var importCopy = ep.epImportScreenCopy();
+    var emptyHelp = document.getElementById('ep-empty-help');
+    emptyHelp.textContent = importCopy.emptyHelp;
+    emptyHelp.hidden = hasActive || !!state.epViewId;
+    var periodHelp = document.getElementById('ep-import-period-help');
+    periodHelp.textContent = importCopy.periodHelpTitle + ' ' + importCopy.periodHelp;
+    periodHelp.hidden = !state.epImportOpen;
+    var fileHelp = document.getElementById('ep-import-file-help');
+    fileHelp.textContent = importCopy.fileHelpTitle + ' ' + importCopy.fileHelp;
+    fileHelp.hidden = !state.epImportOpen;
+    var reload = ep.describeEpImportReload(state.epPrograms, state.epImportStart, state.epImportEnd);
+    var reloadEl = document.getElementById('ep-import-reload-notice');
+    reloadEl.textContent = reload.show ? (reload.title + ' ' + reload.body) : '';
+    reloadEl.hidden = !state.epImportOpen || !reload.show;
+    document.getElementById('ep-search').hidden = !hasActive;
+    document.getElementById('ep-axis').hidden = !hasActive;
+    document.getElementById('ep-type').hidden = !hasActive;
+    document.getElementById('ep-new').hidden = !hasActive;
+    var viewed = viewedEpProgram();
+    var period = viewed ? ep.describeEpPeriod(viewed.startYear, viewed.endYear) : null;
+    document.getElementById('ep-period').textContent = period ? period.label : '';
+    document.getElementById('ep-linked-count').textContent = String(state.epActions.filter(function (row) {
+      return (row.linkedSubprojectIds || []).length > 0;
+    }).length);
+    var sel = document.getElementById('ep-program');
+    sel.innerHTML = '';
+    state.epPrograms.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = ep.describeEpPeriod(p.startYear, p.endYear).label + (p.isActive ? ' ενεργό' : ' αρχείο');
+      sel.appendChild(opt);
+    });
+    if (viewed) sel.value = viewed.id;
+    document.getElementById('ep-archived').textContent = String(ep.countArchivedPrograms(state.epPrograms));
+    document.getElementById('btn-ep-new').hidden = !ep.canCreateEpAction({
+      role: state.role,
+      hasActiveProgram: !!(program && program.isActive)
+    });
+    document.getElementById('btn-ep-export').hidden = !ep.canExportEpProgram({
+      role: state.role,
+      hasActiveProgram: viewing
+    });
+    document.getElementById('btn-ep-import-open').hidden = !ep.canManageEpProgram(epActor());
+    document.getElementById('btn-ep-template').hidden = !ep.canDownloadEpTemplate(epActor());
+    var templateName = document.getElementById('ep-template-name');
+    templateName.textContent = state.epTemplateName || '';
+    templateName.hidden = !state.epTemplateName;
+    var templateGuide = document.getElementById('ep-template-guide');
+    templateGuide.textContent = state.epTemplateGuide || '';
+    templateGuide.hidden = !state.epTemplateGuide;
+    var templateLocation = document.getElementById('ep-template-location');
+    templateLocation.textContent = state.epTemplateLocation || '';
+    templateLocation.hidden = !state.epTemplateLocation;
+    var templateLists = document.getElementById('ep-template-lists');
+    templateLists.textContent = state.epTemplateLists || '';
+    templateLists.hidden = !state.epTemplateLists;
+    var growingEl = document.getElementById('ep-template-lists-growing');
+    growingEl.textContent = state.epTemplateListsGrowing || '';
+    growingEl.hidden = !state.epTemplateListsGrowing;
+    var fixedEl = document.getElementById('ep-template-lists-fixed');
+    fixedEl.textContent = state.epTemplateListsFixed || '';
+    fixedEl.hidden = !state.epTemplateListsFixed;
+    document.getElementById('ep-template-period').hidden = !state.epTemplatePeriodOpen;
+    document.getElementById('ep-tpl-start').value = state.epTplStart || '';
+    document.getElementById('ep-tpl-end').value = state.epTplEnd || '';
+    document.getElementById('btn-ep-delete').hidden = !ep.canManageEpProgram(epActor()) || !(program && program.isActive);
+    document.getElementById('ep-create').hidden = !state.epCreateOpen;
+    document.getElementById('ep-import').hidden = !state.epImportOpen;
+    document.getElementById('ep-search').value = state.epSearch;
+    document.getElementById('ep-axis').value = state.epAxis;
+    document.getElementById('ep-type').value = state.epType;
+    document.getElementById('ep-new').value = state.epNew;
+    document.getElementById('ep-import-start').value = state.epImportStart;
+    document.getElementById('ep-import-end').value = state.epImportEnd;
+    document.getElementById('ep-import-file').checked = !!state.epImportHasFile;
+    var list = document.getElementById('ep-list');
+    list.innerHTML = '';
+    var groups = document.getElementById('ep-groups');
+    groups.innerHTML = '';
+    if (viewing) {
+      var visible = visibleEpActions();
+      var grouped = ep.groupEpActionsByAxis(visible);
+      ep.sortedAxisKeys(grouped).forEach(function (axisCode) {
+        var label = document.createElement('div');
+        label.dataset.testid = 'ep-group-' + axisCode;
+        label.textContent = 'Άξονας ' + axisCode + ' (' + grouped[axisCode].length + ')';
+        groups.appendChild(label);
+      });
+      visible.forEach(function (row) {
+        var el = document.createElement('div');
+        el.dataset.testid = 'ep-card-' + row.id;
+        el.textContent = (row.title || '');
+        if (state.epSelectedId === row.id) el.setAttribute('data-selected', 'true');
+        el.addEventListener('click', function () {
+          state.epSelectedId = row.id;
+          state.epConfirmDelete = false;
+          renderEp();
+        });
+        list.appendChild(el);
+      });
+    }
+    var err = document.getElementById('ep-error');
+    if (state.epError) {
+      err.hidden = false;
+      err.textContent = state.epError;
+    } else {
+      err.hidden = true;
+    }
+    document.getElementById('ep-delete-confirm').hidden = !state.epConfirmDelete;
+    if (state.epExported) {
+      document.getElementById('btn-ep-export').setAttribute('data-exported', 'true');
+    } else {
+      document.getElementById('btn-ep-export').removeAttribute('data-exported');
+    }
+  }
+
+  function openEp() {
+    if (!ep.showEpProgramButton(state.role)) return;
+    state.epOpen = true;
+    state.epError = '';
+    state.epCreateOpen = false;
+    state.epImportOpen = false;
+    state.epConfirmDelete = false;
+    renderEp();
+  }
+
+  function closeEp() {
+    state.epOpen = false;
+    document.getElementById('ep-panel').hidden = true;
+  }
+
+  function submitEpCreate() {
+    var existingAas = state.epActions.map(function (row) { return row.aa; });
+    var gate = ep.evaluateEpActionSave({
+      title: document.getElementById('ep-new-title').value,
+      aa: document.getElementById('ep-new-aa').value,
+      existingAas: existingAas
+    });
+    if (!gate.ok) {
+      state.epError = gate.error || '';
+      renderEp();
+      return;
+    }
+    var id = 'ep-new-' + state.epNextId;
+    state.epNextId += 1;
+    state.epActions = [{
+      id: id,
+      aa: gate.aa,
+      axisCode: '1',
+      title: gate.title,
+      actionType: 'Έργο',
+      isNew: true,
+      location: '',
+      responsibleService: '',
+      fundingSources: []
+    }].concat(state.epActions);
+    state.epError = '';
+    state.epCreateOpen = false;
+    state.epSelectedId = id;
+    document.getElementById('ep-new-title').value = '';
+    document.getElementById('ep-new-aa').value = '';
+    renderEp();
+  }
+
+  function submitEpImport() {
+    var gate = ep.evaluateEpImport({
+      startYear: document.getElementById('ep-import-start').value,
+      endYear: document.getElementById('ep-import-end').value,
+      filePath: state.epImportHasFile ? 'C:\\tmp\\ep.xlsx' : ''
+    });
+    if (!gate.ok) {
+      state.epError = gate.error || '';
+      renderEp();
+      return;
+    }
+    var full = programsWithActions();
+    var source = ep.pickLinkSourceProgram(full, gate.startYear, gate.endYear);
+    var incoming = source
+      ? (source.actions || []).map(function (row) {
+        return Object.assign({}, row, {
+          id: 'ep-imp-' + row.id,
+          linkedSubprojectIds: []
+        });
+      })
+      : [];
+    var transfer = source
+      ? ep.transferEpActionLinks(source.actions || [], incoming)
+      : { actions: incoming, transferred: 0, unmatched: 0 };
+    var newId = 'ep-imported-' + state.epNextId;
+    state.epNextId += 1;
+    state.epPrograms = full.map(function (row) {
+      return Object.assign({}, row, { isActive: false });
+    }).concat([{
+      id: newId,
+      title: (gate.period && gate.period.title) || ('ΕΠΙΧΕΙΡΗΣΙΑΚΟ ΠΡΟΓΡΑΜΜΑ ' + gate.startYear + '-' + gate.endYear),
+      startYear: gate.startYear,
+      endYear: gate.endYear,
+      isActive: true,
+      actions: transfer.actions
+    }]);
+    state.epViewId = newId;
+    state.epActions = transfer.actions;
+    state.epError = '';
+    state.epImportOpen = false;
+    renderEp();
+  }
+
+  function requestEpDelete() {
+    var gate = ep.evaluateEpActionDelete({
+      role: state.role,
+      actionId: state.epSelectedId
+    });
+    if (!gate.ok) {
+      state.epError = gate.error || '';
+      state.epConfirmDelete = false;
+      renderEp();
+      return;
+    }
+    state.epConfirmDelete = true;
+    state.epError = '';
+    renderEp();
+  }
+
+  function confirmEpDelete() {
+    var gate = ep.evaluateEpActionDelete({
+      role: state.role,
+      actionId: state.epSelectedId
+    });
+    if (!gate.ok) {
+      state.epError = gate.error || '';
+      renderEp();
+      return;
+    }
+    var id = state.epSelectedId;
+    state.epActions = state.epActions.filter(function (row) { return row.id !== id; });
+    state.epSelectedId = '';
+    state.epConfirmDelete = false;
+    renderEp();
+  }
+
+  document.getElementById('btn-ep').addEventListener('click', openEp);
+  document.getElementById('btn-close-ep').addEventListener('click', closeEp);
+  document.getElementById('btn-ep-new').addEventListener('click', function () {
+    if (!ep.canCreateEpAction({ role: state.role, hasActiveProgram: !!activeEpProgram() })) return;
+    state.epCreateOpen = true;
+    state.epError = '';
+    renderEp();
+  });
+  document.getElementById('btn-ep-create-save').addEventListener('click', submitEpCreate);
+  document.getElementById('btn-ep-import-open').addEventListener('click', function () {
+    if (!ep.canManageEpProgram(epActor())) return;
+    state.epImportOpen = true;
+    state.epError = '';
+    renderEp();
+  });
+  document.getElementById('btn-ep-import-save').addEventListener('click', submitEpImport);
+  document.getElementById('btn-ep-template').addEventListener('click', function () {
+    if (!ep.canDownloadEpTemplate(epActor())) return;
+    var draft = ep.suggestTemplatePeriodDraft({
+      startYear: document.getElementById('ep-import-start').value,
+      endYear: document.getElementById('ep-import-end').value,
+      nowYear: 2026
+    });
+    state.epTplStart = draft.startYear;
+    state.epTplEnd = draft.endYear;
+    state.epTemplatePeriodOpen = true;
+    state.epError = '';
+    renderEp();
+  });
+  document.getElementById('btn-ep-template-confirm').addEventListener('click', function () {
+    if (!ep.canDownloadEpTemplate(epActor())) return;
+    var period = ep.evaluateTemplateDownload({
+      startYear: document.getElementById('ep-tpl-start').value,
+      endYear: document.getElementById('ep-tpl-end').value
+    });
+    if (!period.ok) {
+      state.epError = period.error || '';
+      renderEp();
+      return;
+    }
+    var model = ep.buildEpImportTemplateModel(period.startYear, period.endYear, {
+      municipalUnits: state.municipalUnits
+    });
+    if (!model.ok) {
+      state.epError = model.error || '';
+      renderEp();
+      return;
+    }
+    state.epTemplateName = model.filename;
+    state.epTemplateGuide = ep.flattenEpTemplateInstructions(model);
+    state.epTemplateLocation = model.exampleLocation;
+    var growing = ((model.listModel && model.listModel.growing) || []).map(function (col) { return col.header; });
+    var fixed = ((model.listModel && model.listModel.fixed) || []).map(function (col) { return col.header; });
+    state.epTemplateLists = growing.concat(fixed).join(' · ');
+    state.epTemplateListsGrowing = growing.join(' · ');
+    state.epTemplateListsFixed = fixed.join(' · ');
+    state.epTemplatePeriodOpen = false;
+    state.epError = '';
+    renderEp();
+  });
+  document.getElementById('btn-ep-clear-units').addEventListener('click', function () {
+    state.municipalUnits = [];
+    renderEp();
+  });
+  document.getElementById('btn-ep-export').addEventListener('click', function () {
+    if (!ep.canExportEpProgram({ role: state.role, hasActiveProgram: !!activeEpProgram() })) return;
+    state.epExported = true;
+    renderEp();
+  });
+  document.getElementById('btn-ep-delete').addEventListener('click', requestEpDelete);
+  document.getElementById('btn-ep-delete-confirm').addEventListener('click', confirmEpDelete);
+  document.getElementById('btn-ep-unload').addEventListener('click', function () {
+    state.epPrograms = programsWithActions().map(function (row) {
+      return Object.assign({}, row, { isActive: false });
+    });
+    state.epViewId = '';
+    state.epCreateOpen = false;
+    state.epConfirmDelete = false;
+    renderEp();
+  });
+  document.getElementById('ep-program').addEventListener('change', function (e) {
+    var cur = viewedEpProgram();
+    if (cur) {
+      state.epPrograms = state.epPrograms.map(function (p) {
+        return p.id === cur.id ? Object.assign({}, p, { actions: state.epActions }) : p;
+      });
+    }
+    state.epViewId = e.target.value;
+    var next = viewedEpProgram();
+    state.epActions = (next && next.actions) || [];
+    renderEp();
+  });
+  document.getElementById('ep-search').addEventListener('input', function (e) {
+    state.epSearch = e.target.value;
+    if (state.epOpen) renderEp();
+  });
+  document.getElementById('ep-axis').addEventListener('change', function (e) {
+    state.epAxis = e.target.value;
+    if (state.epOpen) renderEp();
+  });
+  document.getElementById('ep-type').addEventListener('change', function (e) {
+    state.epType = e.target.value;
+    if (state.epOpen) renderEp();
+  });
+  document.getElementById('ep-new').addEventListener('change', function (e) {
+    state.epNew = e.target.value;
+    if (state.epOpen) renderEp();
+  });
+  document.getElementById('ep-import-start').addEventListener('input', function (e) {
+    state.epImportStart = ep.filterImportYearInput(e.target.value);
+    var end = ep.defaultImportEndYear(state.epImportStart);
+    if (end) state.epImportEnd = end;
+    if (state.epOpen) renderEp();
+  });
+  document.getElementById('ep-import-end').addEventListener('input', function (e) {
+    state.epImportEnd = ep.filterImportYearInput(e.target.value);
+    if (state.epOpen) renderEp();
+  });
+  document.getElementById('ep-import-file').addEventListener('change', function (e) {
+    state.epImportHasFile = !!e.target.checked;
+    if (state.epOpen) renderEp();
+  });
+  document.getElementById('ep-tpl-start').addEventListener('input', function (e) {
+    state.epTplStart = ep.filterImportYearInput(e.target.value);
+    var end = ep.defaultImportEndYear(state.epTplStart);
+    if (end) state.epTplEnd = end;
+    if (state.epOpen) renderEp();
+  });
+  document.getElementById('ep-tpl-end').addEventListener('input', function (e) {
+    state.epTplEnd = ep.filterImportYearInput(e.target.value);
+    if (state.epOpen) renderEp();
+  });
+
+  function apoSelected() {
+    return state.apoCards.filter(function (c) { return c.id === state.apoSelectedId; })[0] || null;
+  }
+
+  function renderApo() {
+    document.getElementById('apo-panel').hidden = !state.apoOpen;
+    if (!state.apoOpen) return;
+    document.getElementById('apo-period-label').textContent = state.apoPeriod.label;
+    document.getElementById('apo-period-start').value = state.apoPeriodStart;
+    document.getElementById('apo-period-end').value = state.apoPeriodEnd;
+    var readyCount = state.apoCards.filter(function (c) { return c.ready; }).length;
+    document.getElementById('apo-counts').textContent =
+      state.apoCards.length + ' κάρτες · ' + readyCount + ' έτοιμες';
+    var visible = apo.filterApologismosCards(state.apoCards, {
+      search: state.apoSearch,
+      status: state.apoFilter
+    });
+    document.getElementById('apo-empty').hidden = state.apoCards.length !== 0;
+    document.getElementById('apo-none').hidden = !(state.apoCards.length && !visible.length);
+    var err = document.getElementById('apo-error');
+    err.textContent = state.apoError || '';
+    err.hidden = !state.apoError;
+    var present = document.getElementById('apo-present');
+    present.textContent = state.apoPresent || '';
+    present.hidden = !state.apoPresent;
+    document.getElementById('apo-search').value = state.apoSearch;
+    document.getElementById('apo-filter').value = state.apoFilter;
+    document.getElementById('apo-eligible').hidden = !state.apoEligibleOpen;
+    document.getElementById('apo-legacy').hidden = !state.apoLegacyOpen;
+    document.getElementById('apo-delete-confirm').hidden = !state.apoConfirmDelete;
+    var list = document.getElementById('apo-list');
+    list.innerHTML = '';
+    visible.forEach(function (card) {
+      var el = document.createElement('article');
+      el.setAttribute('data-testid', 'apo-card-' + card.id);
+      el.textContent = (card.ready ? 'Έτοιμο · ' : 'Εκκρεμές · ') + card.title
+        + (card.area ? ' · ' + card.area : '');
+      el.addEventListener('click', function () {
+        state.apoSelectedId = card.id;
+        state.apoError = '';
+        renderApo();
+      });
+      list.appendChild(el);
+    });
+    var eligibleHost = document.getElementById('apo-eligible-list');
+    eligibleHost.innerHTML = '';
+    var eligible = apo.listEligibleSubprojects(state.projects, state.apoCards);
+    document.getElementById('apo-eligible-empty').hidden = !state.apoEligibleOpen || eligible.length > 0;
+    eligible.forEach(function (sub) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('data-testid', 'apo-eligible-' + sub.subprojectId);
+      btn.textContent = sub.subprojectTitle || sub.projectTitle;
+      btn.addEventListener('click', function () { addApoFromSub(sub); });
+      eligibleHost.appendChild(btn);
+    });
+  }
+
+  function openApo() {
+    if (!apo.showApologismosButton(state.role)) return;
+    state.apoOpen = true;
+    state.apoError = '';
+    state.apoPresent = '';
+    renderApo();
+  }
+
+  function addApoFromSub(sub) {
+    var check = apo.canAddLinkedSubproject(sub, state.apoCards);
+    if (!check.ok) {
+      state.apoError = check.error;
+      renderApo();
+      return;
+    }
+    var mapped = apo.mapSubprojectToCardFields(sub);
+    var card = apo.withReadiness(Object.assign({
+      id: 'apo-' + state.apoNextId,
+      categoryId: '',
+      narrative: '',
+      primaryViz: ''
+    }, mapped));
+    state.apoNextId += 1;
+    state.apoCards.push(card);
+    state.apoSelectedId = card.id;
+    state.apoEligibleOpen = false;
+    state.apoError = '';
+    renderApo();
+  }
+
+  function submitApoLegacy() {
+    var input = {
+      title: document.getElementById('apo-legacy-title').value,
+      area: document.getElementById('apo-legacy-area').value,
+      completionYear: document.getElementById('apo-legacy-year').value,
+      approvedAmount: document.getElementById('apo-legacy-approved').value,
+      contractAmount: document.getElementById('apo-legacy-contract').value
+    };
+    var check = apo.validateLegacyCardInput(input, state.apoPeriod);
+    if (!check.ok) {
+      state.apoError = check.errors.join(' · ');
+      renderApo();
+      return;
+    }
+    var card = apo.withReadiness({
+      id: 'apo-' + state.apoNextId,
+      source: 'legacy',
+      title: check.normalized.title,
+      area: check.normalized.area,
+      completionYear: check.normalized.completionYear,
+      approvedAmount: check.normalized.approvedAmount,
+      contractAmount: check.normalized.contractAmount,
+      categoryId: '',
+      narrative: '',
+      primaryViz: ''
+    });
+    state.apoNextId += 1;
+    state.apoCards.push(card);
+    state.apoSelectedId = card.id;
+    state.apoLegacyOpen = false;
+    state.apoError = '';
+    renderApo();
+  }
+
+  document.getElementById('btn-apo').addEventListener('click', openApo);
+  document.getElementById('btn-close-apo').addEventListener('click', function () {
+    state.apoOpen = false;
+    renderApo();
+  });
+  document.getElementById('btn-apo-eligible').addEventListener('click', function () {
+    state.apoEligibleOpen = !state.apoEligibleOpen;
+    state.apoLegacyOpen = false;
+    state.apoError = '';
+    renderApo();
+  });
+  document.getElementById('btn-apo-legacy').addEventListener('click', function () {
+    state.apoLegacyOpen = !state.apoLegacyOpen;
+    state.apoEligibleOpen = false;
+    state.apoError = '';
+    renderApo();
+  });
+  document.getElementById('btn-apo-legacy-save').addEventListener('click', submitApoLegacy);
+  document.getElementById('btn-apo-present').addEventListener('click', function () {
+    if (!apo.canStartPresentation(state.apoCards)) {
+      state.apoPresent = 'Δεν υπάρχουν έτοιμες κάρτες για παρουσίαση';
+    } else {
+      state.apoPresent = 'Παρουσίαση έτοιμη';
+    }
+    renderApo();
+  });
+  document.getElementById('btn-apo-complete').addEventListener('click', function () {
+    var selected = apoSelected();
+    if (!selected) {
+      state.apoError = 'Απαιτείται κάρτα';
+      renderApo();
+      return;
+    }
+    state.apoCards = state.apoCards.map(function (c) {
+      return c.id === selected.id ? apo.completeAsSimpleCard(c) : c;
+    });
+    state.apoError = '';
+    renderApo();
+  });
+  document.getElementById('btn-apo-delete').addEventListener('click', function () {
+    var gate = apo.evaluateCardRemove(state.apoSelectedId);
+    if (!gate.ok) {
+      state.apoError = gate.error;
+      renderApo();
+      return;
+    }
+    state.apoConfirmDelete = true;
+    renderApo();
+  });
+  document.getElementById('btn-apo-delete-confirm').addEventListener('click', function () {
+    state.apoCards = state.apoCards.filter(function (c) { return c.id !== state.apoSelectedId; });
+    state.apoSelectedId = '';
+    state.apoConfirmDelete = false;
+    renderApo();
+  });
+  document.getElementById('btn-apo-period-save').addEventListener('click', function () {
+    var gate = apo.evaluateApologismosPeriod(state.apoPeriodStart, state.apoPeriodEnd);
+    if (!gate.ok) {
+      state.apoError = gate.error;
+      renderApo();
+      return;
+    }
+    state.apoPeriod = {
+      id: gate.id,
+      startYear: gate.startYear,
+      endYear: gate.endYear,
+      label: gate.label,
+      isCurrent: true
+    };
+    state.apoError = '';
+    renderApo();
+  });
+  document.getElementById('apo-search').addEventListener('input', function (e) {
+    state.apoSearch = e.target.value;
+    renderApo();
+  });
+  document.getElementById('apo-filter').addEventListener('change', function (e) {
+    state.apoFilter = e.target.value;
+    renderApo();
+  });
+  document.getElementById('apo-period-start').addEventListener('input', function (e) {
+    state.apoPeriodStart = apo.filterYearInput(e.target.value);
+    if (state.apoOpen) renderApo();
+  });
+  document.getElementById('apo-period-end').addEventListener('input', function (e) {
+    state.apoPeriodEnd = apo.filterYearInput(e.target.value);
+    if (state.apoOpen) renderApo();
+  });
+
   document.getElementById('btn-portal').addEventListener('click', openPortal);
   document.getElementById('btn-close-portal').addEventListener('click', closePortal);
   document.getElementById('btn-portal-export').addEventListener('click', commitPortalExport);
@@ -2947,6 +4188,222 @@
       if (state.excelReport) renderExcelPreview();
     });
   });
+
+  function renderBackupDeck() {
+    var rem = bk.evaluateBackupReminder(state.backups, state.backupNowMs);
+    var show = bk.showBackupButton(state.role) && rem.reminderDue;
+    document.getElementById('backup-deck-reminder').hidden = !show;
+    if (!show) return;
+    document.getElementById('backup-deck-title').textContent = bk.backupReminderTitle(rem.hasBackup);
+    document.getElementById('backup-deck-detail').textContent = bk.backupReminderDetail(rem.hasBackup);
+    var days = document.getElementById('backup-deck-days');
+    if (rem.hasBackup && rem.daysSince != null) {
+      days.textContent = rem.daysSince + ' ημ.';
+      days.hidden = false;
+    } else {
+      days.textContent = '';
+      days.hidden = true;
+    }
+  }
+
+  function renderBackup() {
+    document.getElementById('backup-panel').hidden = !state.backupOpen;
+    renderBackupDeck();
+    if (!state.backupOpen) return;
+    var rem = bk.evaluateBackupReminder(state.backups, state.backupNowMs);
+    document.getElementById('backup-status').textContent = rem.hasBackup
+      ? 'Τελευταίο αντίγραφο ασφαλείας'
+      : 'Δεν έχει δημιουργηθεί ποτέ αντίγραφο ασφαλείας.';
+    var err = document.getElementById('backup-error');
+    err.textContent = state.backupError || '';
+    err.hidden = !state.backupError;
+    document.getElementById('backup-location').hidden = !bk.canSeeBackupLocation(state.role);
+    document.getElementById('backup-history').hidden = !state.backupHistoryOpen;
+    document.getElementById('backup-empty').hidden = !(state.backupHistoryOpen && !state.backups.length);
+    document.getElementById('backup-live').textContent = state.backupLiveTitle;
+    var toast = document.getElementById('backup-toast');
+    toast.textContent = state.backupToastText || '';
+    toast.hidden = !state.backupToastText;
+    document.getElementById('backup-toast-count').textContent = String(state.backupToastCount);
+    document.getElementById('backup-delete-confirm').hidden = !state.backupPendingDeleteId;
+    document.getElementById('backup-restore-confirm').hidden = !state.backupPendingRestoreId;
+    document.getElementById('backup-restore-kind').textContent = state.backupPendingRestoreId ? bk.restoreKindLabel() : '';
+    document.getElementById('backup-restore-confirm-title').textContent = state.backupPendingRestoreId ? bk.restoreConfirmTitle() : '';
+    document.getElementById('backup-restore-confirm-detail').textContent = state.backupPendingRestoreId ? bk.restoreConfirmDetail() : '';
+    var done = document.getElementById('backup-restore-done');
+    done.textContent = state.backupRestored ? bk.evaluateRestoreOutcome({ applyOk: true }).message : '';
+    done.hidden = !state.backupRestored;
+    var rolled = document.getElementById('backup-restore-rolled');
+    rolled.textContent = state.backupRolledBack ? bk.evaluateRestoreOutcome({ applyOk: false, rolledBack: true }).message : '';
+    rolled.hidden = !state.backupRolledBack;
+    var list = document.getElementById('backup-list');
+    list.innerHTML = '';
+    if (!state.backupHistoryOpen) return;
+    state.backups.forEach(function (b) {
+      var row = document.createElement('article');
+      row.setAttribute('data-testid', 'backup-item-' + b.backupId);
+      var name = document.createElement('p');
+      name.textContent = b.fileName || b.backupId;
+      row.appendChild(name);
+      if (b.status === 'success' && bk.canRestoreBackup(state.role)) {
+        var rest = document.createElement('button');
+        rest.type = 'button';
+        rest.setAttribute('data-testid', 'btn-backup-restore-' + b.backupId);
+        rest.textContent = 'Επαναφορά';
+        rest.addEventListener('click', function () {
+          var check = bk.evaluateRestoreBackup({ role: state.role, backupId: b.backupId });
+          if (!check.ok) {
+            state.backupError = check.error;
+            renderBackup();
+            return;
+          }
+          state.backupPendingRestoreId = b.backupId;
+          state.backupError = '';
+          renderBackup();
+        });
+        row.appendChild(rest);
+      }
+      if (bk.canDeleteBackup(state.role)) {
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.setAttribute('data-testid', 'btn-backup-delete-' + b.backupId);
+        del.textContent = 'Διαγραφή';
+        del.addEventListener('click', function () {
+          var check = bk.evaluateDeleteBackup({ role: state.role, backupId: b.backupId });
+          if (!check.ok) {
+            state.backupError = check.error;
+            renderBackup();
+            return;
+          }
+          state.backupPendingDeleteId = b.backupId;
+          state.backupError = '';
+          renderBackup();
+        });
+        row.appendChild(del);
+      }
+      list.appendChild(row);
+    });
+  }
+
+  function openBackup() {
+    if (!bk.showBackupButton(state.role)) return;
+    state.backupOpen = true;
+    state.backupError = '';
+    state.backupRestored = false;
+    state.backupRolledBack = false;
+    renderBackup();
+  }
+
+  function createHarnessBackup() {
+    var check = bk.evaluateCreateBackup({
+      role: state.role,
+      inProgress: state.backupInProgress
+    });
+    if (!check.ok) {
+      state.backupError = check.error;
+      renderBackup();
+      return;
+    }
+    var id = 'b' + state.backupNextId;
+    state.backupNextId += 1;
+    state.backups.unshift({
+      backupId: id,
+      fileName: 'ERGOHUB_backup_' + id + '.zip',
+      status: 'success',
+      type: 'manual',
+      timestamp: new Date(state.backupNowMs).toISOString(),
+      createdBy: { fullName: currentUser().fullName }
+    });
+    state.backupError = '';
+    state.backupHistoryOpen = true;
+    state.backupToastCount += 1;
+    state.backupToastText = 'Το backup ολοκληρώθηκε επιτυχώς!';
+    renderBackup();
+  }
+
+  document.getElementById('btn-backup').addEventListener('click', openBackup);
+  document.getElementById('btn-backup-now').addEventListener('click', openBackup);
+  document.getElementById('btn-close-backup').addEventListener('click', function () {
+    state.backupOpen = false;
+    renderBackup();
+  });
+  document.getElementById('btn-backup-create').addEventListener('click', createHarnessBackup);
+  document.getElementById('btn-backup-history').addEventListener('click', function () {
+    state.backupHistoryOpen = true;
+    renderBackup();
+  });
+  document.getElementById('btn-backup-delete-confirm').addEventListener('click', function () {
+    if (!state.backupPendingDeleteId) return;
+    var check = bk.evaluateDeleteBackup({ role: state.role, backupId: state.backupPendingDeleteId });
+    if (!check.ok) {
+      state.backupError = check.error;
+      state.backupPendingDeleteId = '';
+      renderBackup();
+      return;
+    }
+    state.backups = state.backups.filter(function (b) {
+      return b.backupId !== state.backupPendingDeleteId;
+    });
+    state.backupPendingDeleteId = '';
+    state.backupError = '';
+    renderBackup();
+  });
+  document.getElementById('btn-backup-restore-confirm').addEventListener('click', function () {
+    if (!state.backupPendingRestoreId) return;
+    var check = bk.evaluateRestoreBackup({ role: state.role, backupId: state.backupPendingRestoreId });
+    if (!check.ok) {
+      state.backupError = check.error;
+      state.backupPendingRestoreId = '';
+      renderBackup();
+      return;
+    }
+    var ready = bk.evaluateRestoreReadyToApply({
+      safetyOk: !state.backupFailSafety,
+      extractedReady: !state.backupFailSafety && !state.backupFailExtract
+    });
+    if (!ready.canApply) {
+      state.backupError = ready.error;
+      state.backupPendingRestoreId = '';
+      state.backupRestored = false;
+      state.backupRolledBack = false;
+      renderBackup();
+      return;
+    }
+    if (state.backupFailNextApply) {
+      state.backupFailNextApply = false;
+      state.backupRolledBack = true;
+      state.backupRestored = false;
+      state.backupError = bk.evaluateRestoreOutcome({ applyOk: false, rolledBack: true }).message;
+      state.backupPendingRestoreId = '';
+      renderBackup();
+      return;
+    }
+    state.backupLiveTitle = 'δεδομένα αντιγράφου';
+    state.backupRestored = true;
+    state.backupRolledBack = false;
+    state.backupPendingRestoreId = '';
+    state.backupError = '';
+    renderBackup();
+  });
+
+  window.__e2eSeedBackups = function (items, nowMs) {
+    state.backups = (items || []).slice();
+    if (nowMs != null) state.backupNowMs = nowMs;
+    if (state.backupOpen) renderBackup();
+    else renderBackupDeck();
+  };
+  window.__e2eSetBackupInProgress = function (flag) {
+    state.backupInProgress = !!flag;
+  };
+  window.__e2eFailNextRestoreApply = function (flag) {
+    state.backupFailNextApply = !!flag;
+  };
+  window.__e2eFailSafetyBackup = function (flag) {
+    state.backupFailSafety = !!flag;
+  };
+  window.__e2eFailRestoreExtract = function (flag) {
+    state.backupFailExtract = !!flag;
+  };
 
   state.projects = loadStore();
   renderCards();

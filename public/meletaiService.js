@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { safeWriteJSON } = require('./safeWrite');
+const meletaiCatalog = require('../app/core/meletaiCatalog');
 
 const MELETAI_DIR_NAME = 'ΜΕΛΕΤΕΣ';
 const DEFAULT_FILES_GROUP_LABEL = 'ΑΡΧΕΙΑ';
@@ -16,36 +17,7 @@ const DATA_DIR_SKIP_ROOT_DIRS = new Set([
   'ΜΕΛΕΤΕΣ', 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'config', 'backups',
 ]);
 const MELETI_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const STUDY_NUMBER_REGEX = /^(\d{1,4})\/(\d{4})$/;
-
-function validateStudyNumberFormat(value) {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) {
-    return { ok: false, error: 'Απαιτείται αριθμός μελέτης' };
-  }
-  const match = trimmed.match(STUDY_NUMBER_REGEX);
-  if (!match) {
-    return {
-      ok: false,
-      error: 'Μορφή: αριθμός/έτος (π.χ. 2/2026). Μόνο ψηφία, χωρίς κενά ή σύμβολα.',
-    };
-  }
-  const year = parseInt(match[2], 10);
-  if (year < 1990 || year > 2100) {
-    return { ok: false, error: 'Το έτος πρέπει να είναι μεταξύ 1990 και 2100' };
-  }
-  const num = parseInt(match[1], 10);
-  if (!Number.isFinite(num) || num < 1) {
-    return { ok: false, error: 'Ο αριθμός μελέτης πρέπει να είναι θετικός' };
-  }
-  return { ok: true, studyNumber: `${num}/${match[2]}` };
-}
-
-function normalizeStudyNumberKey(value) {
-  const v = validateStudyNumberFormat(value);
-  if (v.ok) return v.studyNumber;
-  return String(value || '').trim().toLowerCase();
-}
+const { validateStudyNumberFormat, normalizeStudyNumberKey } = meletaiCatalog;
 
 function countFilesRecursive(dir) {
   if (!fs.existsSync(dir)) return 0;
@@ -291,13 +263,11 @@ function createMeletaiService({ dataDir }) {
   }
 
   function validateMeletiPayload(meleti, excludeId = null) {
-    const fmt = validateStudyNumberFormat(meleti?.studyNumber);
-    if (!fmt.ok) return { ok: false, error: fmt.error, invalidFormat: true };
-    const numCheck = checkStudyNumberAvailable(fmt.studyNumber, excludeId);
+    const gate = meletaiCatalog.evaluateNewMeleti(meleti);
+    if (!gate.ok) return { ok: false, error: gate.error, invalidFormat: gate.field === 'studyNumber' };
+    const numCheck = checkStudyNumberAvailable(gate.studyNumber, excludeId);
     if (!numCheck.available) return { ok: false, error: numCheck.error, duplicate: true };
-    const title = String(meleti?.title || '').trim();
-    if (!title) return { ok: false, error: 'Απαιτείται τίτλος μελέτης' };
-    return { ok: true, studyNumber: fmt.studyNumber, title };
+    return { ok: true, studyNumber: gate.studyNumber, title: gate.title };
   }
 
   function validateLink(subprojectId, meletiId) {

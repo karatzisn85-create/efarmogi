@@ -201,7 +201,6 @@ function computeEpImplementationStats(program, subprojects) {
     let bestOrder = 99;
     for (const sid of (a.linkedSubprojectIds || [])) {
       const st = statusMap[sid];
-      if (st === 'ΑΠΕΝΤΑΓΜΕΝΟ') continue;
       const grp = STATUS_IMPL_GROUP[st] || 'other';
       const ord = IMPL_GROUP_LABELS[grp]?.order || 5;
       if (ord < bestOrder) { bestOrder = ord; bestGroup = grp; }

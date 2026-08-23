@@ -2063,7 +2063,7 @@ export default function ApologismosManager({
                 type="text"
                 value={listSearch}
                 onChange={(e) => setListSearch(e.target.value)}
-                placeholder="Αναζήτηση σε τίτλο ή περιοχή…"
+                placeholder="Αναζήτηση σε τίτλο έργου, υποέργου ή περιοχή…"
               />
               <FilterRow>
                 <FilterChip type="button" $on={listFilter === 'all'} onClick={() => setListFilter('all')}>

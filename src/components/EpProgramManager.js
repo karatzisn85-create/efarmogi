@@ -3,8 +3,10 @@ import styled, { keyframes, css } from 'styled-components';
 import ExportSuccessModal from './ExportSuccessModal';
 import EpProgramStatsPanel from './EpProgramStatsPanel';
 import { useToast } from './ToastProvider';
+import epProgramCatalog from '../../app/core/epProgramCatalog';
 
 const ipcRenderer = window.electronAPI;
+const EP_IMPORT_COPY = epProgramCatalog.epImportScreenCopy();
 
 // ─── Animations ───────────────────────────────────────────────────────────────
 const fadeIn = keyframes`from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); }`;
@@ -556,7 +558,7 @@ const EmptyDesc = styled.p`
   margin: 0 0 28px;
   font-size: 14px;
   color: #64748b;
-  max-width: 420px;
+  max-width: 560px;
   line-height: 1.7;
 `;
 
@@ -573,6 +575,28 @@ const EmptyPrimaryBtn = styled.button`
   transition: all 0.15s;
   box-shadow: 0 4px 14px rgba(99,102,241,0.35);
   &:hover { opacity: 0.88; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(99,102,241,0.4); }
+`;
+
+const EmptyBtnRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+`;
+
+const EmptySecondaryBtn = styled.button`
+  display: flex; align-items: center; gap: 8px;
+  background: white;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  color: #4338ca;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 11px 24px;
+  transition: all 0.15s;
+  &:hover { background: #eef2ff; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
 // ─── Spinner ──────────────────────────────────────────────────────────────────
@@ -682,6 +706,49 @@ const TitlePreview = styled.div`
   font-size: 13px;
   font-weight: 700;
   color: #4338ca;
+`;
+
+const StepRow = styled.div`
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+const StepChip = styled.div`
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: ${p => p.$active ? 'white' : '#64748b'};
+  background: ${p => p.$active ? 'linear-gradient(135deg,#6366f1,#4f46e5)' : '#f1f5f9'};
+  border: 1px solid ${p => p.$active ? 'transparent' : '#e2e8f0'};
+`;
+
+const SpanRow = styled.div`
+  display: flex;
+  gap: 8px;
+`;
+
+const SpanBtn = styled.button`
+  flex: 1;
+  border: 1.5px solid ${p => p.$active ? '#6366f1' : '#e2e8f0'};
+  background: ${p => p.$active ? '#eef2ff' : 'white'};
+  color: ${p => p.$active ? '#3730a3' : '#475569'};
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+`;
+
+const ArchiveSelect = styled.select`
+  background: white;
+  border: 1px solid #c7d2fe;
+  border-radius: 20px;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
 `;
 
 const FilePickArea = styled.div`
@@ -828,6 +895,8 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
   const [showImport, setShowImport] = useState(false);
   const [importStartYear, setImportStartYear] = useState('');
   const [importEndYear, setImportEndYear] = useState('');
+  const [importSpan, setImportSpan] = useState(5);
+  const [importStep, setImportStep] = useState('period');
   const [importFilePath, setImportFilePath] = useState('');
   const [importFileLabel, setImportFileLabel] = useState('');
   const [importPreview, setImportPreview] = useState(null);
@@ -835,20 +904,48 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(null);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+  const [showTemplatePeriod, setShowTemplatePeriod] = useState(false);
+  const [tplStartYear, setTplStartYear] = useState('');
+  const [tplEndYear, setTplEndYear] = useState('');
+  const [tplSpan, setTplSpan] = useState(5);
+  const [tplError, setTplError] = useState('');
 
   const username = currentUser?.username || '';
+  const canManage = epProgramCatalog.canManageEpProgram(currentUser);
+  const viewingActive = !!activeProgram?.isActive;
+  const hasActiveProgram = programs.some((p) => p.isActive) || viewingActive;
+  const viewedPeriod = activeProgram
+    ? epProgramCatalog.describeEpPeriod(activeProgram.startYear, activeProgram.endYear)
+    : null;
+  const importReloadNotice = useMemo(
+    () => epProgramCatalog.describeEpImportReload(
+      programs,
+      importStartYear,
+      importEndYear,
+      importPreview?.impact
+        ? { transferred: importPreview.impact.transferred, unmatched: importPreview.impact.unmatched }
+        : {}
+    ),
+    [programs, importStartYear, importEndYear, importPreview]
+  );
 
   // ─── Load ───────────────────────────────────────────────────────────────────
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (preferProgramId) => {
     if (!isOpen || !username) return;
     setLoading(true);
     setError(null);
     try {
-      const [listRes, programRes] = await Promise.all([
-        ipcRenderer.invoke('load-ep-programs', { requestingUsername: username }),
-        ipcRenderer.invoke('get-ep-program', { requestingUsername: username })
-      ]);
-      if (listRes.success) setPrograms(listRes.programs || []);
+      const listRes = await ipcRenderer.invoke('load-ep-programs', { requestingUsername: username });
+      const list = listRes.success ? (listRes.programs || []) : [];
+      if (listRes.success) setPrograms(list);
+      const activeId = (list.find((p) => p.isActive) || {}).id;
+      const fallbackId = (list[0] || {}).id;
+      const targetId = preferProgramId || activeId || fallbackId;
+      const programRes = await ipcRenderer.invoke('get-ep-program', {
+        programId: targetId,
+        requestingUsername: username
+      });
       if (programRes.success) setActiveProgram(programRes.program || null);
     } catch (e) {
       setError(e.message);
@@ -862,37 +959,27 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
   // ─── Cascading filter options ────────────────────────────────────────────────
   const availableMeasures = useMemo(() => {
     if (!activeProgram) return [];
-    return (activeProgram.measures || []).filter(m => !filterAxis || m.axisCode === filterAxis);
+    return epProgramCatalog.filterAvailableMeasures(activeProgram.measures, filterAxis);
   }, [activeProgram, filterAxis]);
 
   const availableObjectives = useMemo(() => {
     if (!activeProgram) return [];
-    return (activeProgram.objectives || []).filter(o => {
-      if (filterMeasure) return o.measureCode === filterMeasure;
-      if (filterAxis) return o.axisCode === filterAxis;
-      return true;
+    return epProgramCatalog.filterAvailableObjectives(activeProgram.objectives, {
+      filterAxis,
+      filterMeasure
     });
   }, [activeProgram, filterAxis, filterMeasure]);
 
   const filteredActions = useMemo(() => {
     if (!activeProgram) return [];
-    let list = activeProgram.actions || [];
-    if (filterAxis) list = list.filter(a => a.axisCode === filterAxis);
-    if (filterMeasure) list = list.filter(a => a.measureCode === filterMeasure);
-    if (filterObjective) list = list.filter(a => a.objectiveCode === filterObjective);
-    if (filterType) list = list.filter(a => a.actionType === filterType);
-    if (filterNew === 'new') list = list.filter(a => a.isNew);
-    if (filterNew === 'continuing') list = list.filter(a => !a.isNew);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(a =>
-        a.title?.toLowerCase().includes(q) ||
-        a.location?.toLowerCase().includes(q) ||
-        a.responsibleService?.toLowerCase().includes(q) ||
-        a.fundingSources?.some(f => f.toLowerCase().includes(q))
-      );
-    }
-    return list;
+    return epProgramCatalog.filterEpActionsHub(activeProgram.actions, {
+      filterAxis,
+      filterMeasure,
+      filterObjective,
+      filterType,
+      filterNew,
+      search
+    });
   }, [activeProgram, filterAxis, filterMeasure, filterObjective, filterType, filterNew, search]);
 
   const hasFilters = filterAxis || filterMeasure || filterObjective || filterType || filterNew || search;
@@ -910,18 +997,13 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
   });
 
   // ─── Grouped by axis ────────────────────────────────────────────────────────
-  const groupedActions = useMemo(() => {
-    const g = {};
-    for (const a of filteredActions) {
-      const k = a.axisCode || '__';
-      if (!g[k]) g[k] = [];
-      g[k].push(a);
-    }
-    return g;
-  }, [filteredActions]);
+  const groupedActions = useMemo(
+    () => epProgramCatalog.groupEpActionsByAxis(filteredActions),
+    [filteredActions]
+  );
 
   const axisKeys = useMemo(
-    () => Object.keys(groupedActions).sort((a, b) => parseFloat(a) - parseFloat(b)),
+    () => epProgramCatalog.sortedAxisKeys(groupedActions),
     [groupedActions]
   );
 
@@ -955,6 +1037,14 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
   };
 
   const handleDeleteAction = async (actionId) => {
+    const deleteGate = epProgramCatalog.evaluateEpActionDelete({
+      role: currentUser?.role,
+      actionId
+    });
+    if (!deleteGate.ok) {
+      showToast(deleteGate.error || 'Δεν έχετε δικαίωμα διαγραφής δράσεων', 'error');
+      return;
+    }
     if (!activeProgram) return;
     try {
       const res = await ipcRenderer.invoke('delete-ep-action', {
@@ -1003,15 +1093,71 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
 
   const openImport = () => {
     setImportStartYear(''); setImportEndYear('');
+    setImportSpan(5);
+    setImportStep('period');
     setImportFilePath(''); setImportFileLabel('');
     setImportPreview(null); setImportError('');
     setShowImport(true);
   };
 
+  const applyImportSpan = (span, startYear) => {
+    setImportSpan(span);
+    const end = epProgramCatalog.defaultImportEndYear(startYear, span);
+    if (end) setImportEndYear(end);
+  };
+
   const handleStartYear = (val) => {
-    const y = val.replace(/\D/g, '').slice(0, 4);
+    const y = epProgramCatalog.filterImportYearInput(val);
     setImportStartYear(y);
-    if (y.length === 4) setImportEndYear(String(parseInt(y, 10) + 4));
+    applyImportSpan(importSpan, y);
+  };
+
+  const applyTplSpan = (span, startYear) => {
+    setTplSpan(span);
+    const end = epProgramCatalog.defaultImportEndYear(startYear, span);
+    if (end) setTplEndYear(end);
+  };
+
+  const openTemplatePeriod = () => {
+    const draft = epProgramCatalog.suggestTemplatePeriodDraft({
+      startYear: importStartYear || activeProgram?.startYear,
+      endYear: importEndYear || activeProgram?.endYear
+    });
+    setTplStartYear(draft.startYear);
+    setTplEndYear(draft.endYear);
+    setTplSpan(draft.span || 5);
+    setTplError('');
+    setShowTemplatePeriod(true);
+  };
+
+  const handleDownloadTemplate = async () => {
+    const periodGate = epProgramCatalog.evaluateTemplateDownload({
+      startYear: tplStartYear,
+      endYear: tplEndYear
+    });
+    if (!periodGate.ok) {
+      setTplError(periodGate.error || 'Επιλέξτε τετραετία ή πενταετία');
+      return;
+    }
+    setDownloadingTemplate(true);
+    try {
+      const res = await ipcRenderer.invoke('download-ep-program-template', {
+        startYear: periodGate.startYear,
+        endYear: periodGate.endYear,
+        requestingUsername: username
+      });
+      if (res.canceled) return;
+      if (!res.success) {
+        setTplError(res.error || 'Σφάλμα λήψης προτύπου');
+        return;
+      }
+      setShowTemplatePeriod(false);
+      showToast('Αποθηκεύτηκε το πρότυπο ' + (res.periodLabel || ''), 'success');
+    } catch (e) {
+      setTplError(e.message || 'Σφάλμα λήψης προτύπου');
+    } finally {
+      setDownloadingTemplate(false);
+    }
   };
 
   const handleSelectFile = async () => {
@@ -1028,9 +1174,61 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
     }
   };
 
+  const importDraft = {
+    startYear: importStartYear,
+    endYear: importEndYear,
+    filePath: importFilePath
+  };
+
+  const goImportBack = () => {
+    setImportError('');
+    if (importStep === 'file') setImportStep('period');
+    else if (importStep === 'review') setImportStep('file');
+    else if (importStep === 'confirm') setImportStep('review');
+  };
+
+  const goImportNext = async () => {
+    const gate = epProgramCatalog.evaluateImportWizardStep(importStep, importDraft);
+    if (!gate.ok) {
+      setImportError(gate.error || 'Συμπληρώστε τα υποχρεωτικά');
+      return;
+    }
+    setImportError('');
+    if (importStep === 'period') {
+      setImportStep('file');
+      return;
+    }
+    if (importStep === 'file') {
+      setImporting(true);
+      try {
+        const res = await ipcRenderer.invoke('preview-ep-program', {
+          filePath: importFilePath,
+          startYear: parseInt(importStartYear, 10),
+          endYear: parseInt(importEndYear, 10),
+          requestingUsername: username
+        });
+        if (res.success) {
+          setImportPreview(res);
+          setImportStep('review');
+        } else {
+          setImportError(res.error || 'Σφάλμα προεπισκόπησης');
+        }
+      } catch (e) {
+        setImportError(e.message);
+      } finally {
+        setImporting(false);
+      }
+      return;
+    }
+    if (importStep === 'review') {
+      setImportStep('confirm');
+    }
+  };
+
   const handleImport = async () => {
-    if (!importStartYear || !importEndYear || !importFilePath) {
-      setImportError('Συμπληρώστε όλα τα πεδία');
+    const importGate = epProgramCatalog.evaluateEpImport(importDraft);
+    if (!importGate.ok) {
+      setImportError(importGate.error || 'Συμπληρώστε όλα τα πεδία');
       return;
     }
     setImportError('');
@@ -1038,20 +1236,17 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
     try {
       const res = await ipcRenderer.invoke('import-ep-program', {
         filePath: importFilePath,
-        startYear: parseInt(importStartYear, 10),
-        endYear: parseInt(importEndYear, 10),
+        startYear: importGate.startYear,
+        endYear: importGate.endYear,
         requestingUsername: username
       });
       if (res.success) {
-        setImportPreview({
-          title: res.title,
-          actionCount: res.actionCount,
-          axesCount: res.axesCount,
-          measuresCount: res.measuresCount,
-          objectivesCount: res.objectivesCount
-        });
-        await loadAll();
+        await loadAll(res.programId);
         setShowImport(false);
+        const kept = res.transferredLinks
+          ? ` Μεταφέρθηκαν ${res.transferredLinks} συνδέσεις με υποέργα.`
+          : '';
+        showToast((res.periodLabel || 'Η εισαγωγή ολοκληρώθηκε.') + kept, 'success');
       } else {
         setImportError(res.error || 'Σφάλμα κατά την εισαγωγή');
       }
@@ -1076,23 +1271,29 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
             </EpHeaderTitleMain>
             {activeProgram && (
               <EpHeaderTitleSub>
-                Πενταετές Επιχειρησιακό Πρόγραμμα {activeProgram.startYear}–{activeProgram.endYear}
+                {viewedPeriod?.label || `${activeProgram.startYear}–${activeProgram.endYear}`}
+                {activeProgram.isActive ? ' · Ενεργό' : ' · Αρχειοθετημένο (μόνο ανάγνωση)'}
               </EpHeaderTitleSub>
             )}
           </div>
         </EpHeaderLeft>
         <EpHeaderActions>
-          {activeProgram && (
+          {epProgramCatalog.canExportEpProgram({ role: currentUser?.role, hasActiveProgram: !!activeProgram }) && (
             <SecondaryBtn onClick={handleExportExcel} disabled={exporting || loading}>
               {exporting ? '⏳ Εξαγωγή...' : '📤 Εξαγωγή Excel'}
             </SecondaryBtn>
           )}
-          {canManageAll && activeProgram && (
+          {epProgramCatalog.canDownloadEpTemplate(currentUser) && (
+            <SecondaryBtn onClick={openTemplatePeriod} disabled={downloadingTemplate || loading}>
+              {downloadingTemplate ? '⏳ Πρότυπο...' : '📄 Πρότυπο Excel'}
+            </SecondaryBtn>
+          )}
+          {canManage && (
             <SecondaryBtn onClick={openImport}>
               📥 Νέα Εισαγωγή Excel
             </SecondaryBtn>
           )}
-          {canManageAll && activeProgram && (
+          {epProgramCatalog.canCreateEpAction({ role: currentUser?.role, hasActiveProgram: viewingActive }) && (
             <PrimaryBtn onClick={openNewAction}>
               ➕ Νέα Δράση
             </PrimaryBtn>
@@ -1122,15 +1323,28 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
       {activeProgram && (
         <ProgramInfoBar>
           <ProgramInfoChip>
-            📅 {activeProgram.startYear} – {activeProgram.endYear}
+            📅 {viewedPeriod?.label || `${activeProgram.startYear}–${activeProgram.endYear}`}
           </ProgramInfoChip>
+          {programs.length > 1 && (
+            <ArchiveSelect
+              value={activeProgram.id}
+              onChange={e => loadAll(e.target.value)}
+            >
+              {programs.map(p => (
+                <option key={p.id} value={p.id}>
+                  {epProgramCatalog.describeEpPeriod(p.startYear, p.endYear).label}
+                  {p.isActive ? ' · ενεργό' : ' · αρχείο'}
+                </option>
+              ))}
+            </ArchiveSelect>
+          )}
           <ProgramInfoStat>Άξονες: <span>{(activeProgram.axes || []).length}</span></ProgramInfoStat>
           <ProgramInfoStat>Μέτρα: <span>{(activeProgram.measures || []).length}</span></ProgramInfoStat>
           <ProgramInfoStat>Ειδ. Στόχοι: <span>{(activeProgram.objectives || []).length}</span></ProgramInfoStat>
           <ProgramInfoStat>Δράσεις: <span>{(activeProgram.actions || []).length}</span></ProgramInfoStat>
-          {programs.filter(p => !p.isActive).length > 0 && (
+          {epProgramCatalog.countArchivedPrograms(programs) > 0 && (
             <ProgramInfoStat>
-              Αρχειοθετημένα: <span>{programs.filter(p => !p.isActive).length}</span>
+              Αρχειοθετημένα: <span>{epProgramCatalog.countArchivedPrograms(programs)}</span>
             </ProgramInfoStat>
           )}
         </ProgramInfoBar>
@@ -1169,7 +1383,7 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
           </FilterSelect>
           <FilterSelect value={filterType} onChange={e => setFilterType(e.target.value)}>
             <option value="">Όλα τα Είδη</option>
-            {['Έργο', 'Μελέτη', 'Υπηρεσία', 'Προμήθεια', 'Αγορά γης'].map(t => (
+            {epProgramCatalog.ACTION_TYPES.map(t => (
               <option key={t} value={t}>{t}</option>
             ))}
           </FilterSelect>
@@ -1195,14 +1409,16 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
           <EmptyState>
             <EmptyIcon>🗺️</EmptyIcon>
             <EmptyTitle>Δεν υπάρχει Επιχειρησιακό Πρόγραμμα</EmptyTitle>
-            <EmptyDesc>
-              Εισάγετε το Excel του πενταετούς Επιχειρησιακού Προγράμματος
-              για να ξεκινήσετε. Χρησιμοποιήστε αρχείο με φύλλο ΕΠ_ΔΡΑΣΕΙΣ.
-            </EmptyDesc>
-            {canManageAll && (
-              <EmptyPrimaryBtn onClick={openImport}>
-                📥 Εισαγωγή από Excel
-              </EmptyPrimaryBtn>
+            <EmptyDesc>{EP_IMPORT_COPY.emptyHelp}</EmptyDesc>
+            {epProgramCatalog.showEpImportOnEmpty({ role: currentUser?.role, hasActiveProgram }) && (
+              <EmptyBtnRow>
+                <EmptySecondaryBtn onClick={openTemplatePeriod} disabled={downloadingTemplate}>
+                  {downloadingTemplate ? '⏳ Πρότυπο...' : '📄 Κατέβασμα προτύπου'}
+                </EmptySecondaryBtn>
+                <EmptyPrimaryBtn onClick={openImport}>
+                  📥 Εισαγωγή από Excel
+                </EmptyPrimaryBtn>
+              </EmptyBtnRow>
             )}
           </EmptyState>
         )}
@@ -1232,7 +1448,7 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
                 budgetYears={activeProgram.budgetYears || []}
                 expanded={expandedBudget.has(action.id)}
                 onToggleBudget={() => toggleBudget(action.id)}
-                canManage={canManageAll}
+                canManage={canManage && viewingActive}
                 onEdit={() => openEditAction(action)}
                 onDelete={() => setDeletingActionId(action.id)}
               />
@@ -1284,78 +1500,214 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
         <ModalOverlay onClick={e => e.target === e.currentTarget && !importing && setShowImport(false)}>
           <ModalBox>
             <ModalHeader>
-              <ModalTitle>📥 Εισαγωγή Επιχειρησιακού Προγράμματος από Excel</ModalTitle>
+              <ModalTitle>📥 Εισαγωγή Επιχειρησιακού Προγράμματος</ModalTitle>
               <ModalCloseBtn onClick={() => !importing && setShowImport(false)}>✕</ModalCloseBtn>
             </ModalHeader>
             <ModalBody>
-              {activeProgram && (
+              <StepRow>
+                <StepChip $active={importStep === 'period'}>1. Περίοδος</StepChip>
+                <StepChip $active={importStep === 'file'}>2. Αρχείο</StepChip>
+                <StepChip $active={importStep === 'review'}>3. Έλεγχος</StepChip>
+                <StepChip $active={importStep === 'confirm'}>4. Επιβεβαίωση</StepChip>
+              </StepRow>
+
+              {importStep === 'period' && (
+                <>
+                  <FormLabel>Διάρκεια προγράμματος</FormLabel>
+                  <SpanRow>
+                    <SpanBtn type="button" $active={importSpan === 5} onClick={() => applyImportSpan(5, importStartYear)}>
+                      Πενταετία
+                    </SpanBtn>
+                    <SpanBtn type="button" $active={importSpan === 4} onClick={() => applyImportSpan(4, importStartYear)}>
+                      Τετραετία
+                    </SpanBtn>
+                  </SpanRow>
+                  <YearRow>
+                    <FormGroup>
+                      <FormLabel>Έτος Έναρξης</FormLabel>
+                      <FormInput
+                        type="number" placeholder="π.χ. 2024"
+                        value={importStartYear}
+                        onChange={e => handleStartYear(e.target.value)}
+                        min="2000" max="2100"
+                      />
+                    </FormGroup>
+                    <FormGroup>
+                      <FormLabel>Έτος Λήξης</FormLabel>
+                      <FormInput
+                        type="number" placeholder="π.χ. 2028"
+                        value={importEndYear}
+                        onChange={e => setImportEndYear(epProgramCatalog.filterImportYearInput(e.target.value))}
+                        min="2000" max="2100"
+                      />
+                    </FormGroup>
+                  </YearRow>
+                  {epProgramCatalog.describeEpPeriod(importStartYear, importEndYear).label && (
+                    <TitlePreview>
+                      {epProgramCatalog.describeEpPeriod(importStartYear, importEndYear).label}
+                    </TitlePreview>
+                  )}
+                  {importReloadNotice.show && (
+                    <WarningBox>
+                      <strong>{importReloadNotice.title}</strong>
+                      <div style={{ marginTop: 6 }}>{importReloadNotice.body}</div>
+                    </WarningBox>
+                  )}
+                  <PreviewBox>
+                    <PreviewTitle>{EP_IMPORT_COPY.periodHelpTitle}</PreviewTitle>
+                    {EP_IMPORT_COPY.periodHelp}
+                  </PreviewBox>
+                </>
+              )}
+
+              {importStep === 'file' && (
+                <FormGroup>
+                  <FormLabel>Αρχείο Excel (φύλλο ΕΠ_ΔΡΑΣΕΙΣ)</FormLabel>
+                  <FilePickArea onClick={handleSelectFile}>
+                    <FilePickIcon>📊</FilePickIcon>
+                    {importFileLabel
+                      ? <FilePickSelected>✅ {importFileLabel}</FilePickSelected>
+                      : <FilePickText><span>Επιλέξτε αρχείο</span> .xlsx ή .xls</FilePickText>
+                    }
+                  </FilePickArea>
+                  {importReloadNotice.show && (
+                    <WarningBox style={{ marginTop: 12 }}>
+                      <strong>{importReloadNotice.title}</strong>
+                      <div style={{ marginTop: 6 }}>{importReloadNotice.body}</div>
+                    </WarningBox>
+                  )}
+                  <PreviewBox style={{ marginTop: 12 }}>
+                    <PreviewTitle>{EP_IMPORT_COPY.fileHelpTitle}</PreviewTitle>
+                    {EP_IMPORT_COPY.fileHelp}
+                  </PreviewBox>
+                  <EmptySecondaryBtn
+                    type="button"
+                    onClick={openTemplatePeriod}
+                    disabled={downloadingTemplate}
+                    style={{ marginTop: 12 }}
+                  >
+                    {downloadingTemplate ? '⏳ Πρότυπο...' : '📄 Κατέβασμα προτύπου για αυτή την περίοδο'}
+                  </EmptySecondaryBtn>
+                </FormGroup>
+              )}
+
+              {(importStep === 'review' || importStep === 'confirm') && importPreview && (
+                <>
+                  <TitlePreview>
+                    {importPreview.period?.label || importPreview.title}
+                  </TitlePreview>
+                  <PreviewBox>
+                    <PreviewTitle>Το αρχείο περιέχει</PreviewTitle>
+                    <PreviewGrid>
+                      <PreviewItem>Δράσεις: <span>{importPreview.actionCount}</span></PreviewItem>
+                      <PreviewItem>Άξονες: <span>{importPreview.axesCount}</span></PreviewItem>
+                      <PreviewItem>Μέτρα: <span>{importPreview.measuresCount}</span></PreviewItem>
+                      <PreviewItem>Ειδ. Στόχοι: <span>{importPreview.objectivesCount}</span></PreviewItem>
+                    </PreviewGrid>
+                  </PreviewBox>
+                  {importReloadNotice.show && (
+                    <WarningBox>
+                      <strong>{importReloadNotice.title}</strong>
+                      <div style={{ marginTop: 6 }}>{importReloadNotice.body}</div>
+                    </WarningBox>
+                  )}
+                </>
+              )}
+
+              {importStep === 'confirm' && (
                 <WarningBox>
-                  ⚠️ Υπάρχει ήδη ενεργό πρόγραμμα <strong>({activeProgram.title})</strong>.
-                  Η εισαγωγή νέου θα το αρχειοθετήσει αυτόματα.
+                  {importReloadNotice.kind === 'samePeriod'
+                    ? 'Επιβεβαιώστε ότι θέλετε να φορτώσετε ξανά την ίδια περίοδο. Το νέο γίνεται ενεργό· το παλιό φυλάσσεται.'
+                    : 'Επιβεβαιώστε την εισαγωγή. Το νέο πρόγραμμα γίνεται ενεργό· το παλιό φυλάσσεται.'}
                 </WarningBox>
-              )}
-
-              <YearRow>
-                <FormGroup>
-                  <FormLabel>Έτος Έναρξης</FormLabel>
-                  <FormInput
-                    type="number" placeholder="π.χ. 2024"
-                    value={importStartYear}
-                    onChange={e => handleStartYear(e.target.value)}
-                    min="2000" max="2100"
-                  />
-                </FormGroup>
-                <FormGroup>
-                  <FormLabel>Έτος Λήξης</FormLabel>
-                  <FormInput
-                    type="number" placeholder="π.χ. 2028"
-                    value={importEndYear}
-                    onChange={e => setImportEndYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    min="2000" max="2100"
-                  />
-                </FormGroup>
-              </YearRow>
-
-              {importStartYear.length === 4 && importEndYear.length >= 4 && (
-                <TitlePreview>
-                  🗺️ ΕΠΙΧΕΙΡΗΣΙΑΚΟ ΠΡΟΓΡΑΜΜΑ {importStartYear}–{importEndYear}
-                </TitlePreview>
-              )}
-
-              <FormGroup>
-                <FormLabel>Αρχείο Excel (φύλλο ΕΠ_ΔΡΑΣΕΙΣ)</FormLabel>
-                <FilePickArea onClick={handleSelectFile}>
-                  <FilePickIcon>📊</FilePickIcon>
-                  {importFileLabel
-                    ? <FilePickSelected>✅ {importFileLabel}</FilePickSelected>
-                    : <FilePickText><span>Επιλέξτε αρχείο</span> .xlsx ή .xls</FilePickText>
-                  }
-                </FilePickArea>
-              </FormGroup>
-
-              {importPreview && (
-                <PreviewBox>
-                  <PreviewTitle>✅ Αποτελέσματα εισαγωγής</PreviewTitle>
-                  <PreviewGrid>
-                    <PreviewItem>Δράσεις: <span>{importPreview.actionCount}</span></PreviewItem>
-                    <PreviewItem>Άξονες: <span>{importPreview.axesCount}</span></PreviewItem>
-                    <PreviewItem>Μέτρα: <span>{importPreview.measuresCount}</span></PreviewItem>
-                    <PreviewItem>Ειδ. Στόχοι: <span>{importPreview.objectivesCount}</span></PreviewItem>
-                  </PreviewGrid>
-                </PreviewBox>
               )}
 
               {importError && <ErrorMsg>⚠️ {importError}</ErrorMsg>}
             </ModalBody>
             <ModalFooter>
-              <ModalSecondaryBtn onClick={() => setShowImport(false)} disabled={importing}>
+              {importStep === 'period' ? (
+                <ModalSecondaryBtn onClick={() => setShowImport(false)} disabled={importing}>Ακύρωση</ModalSecondaryBtn>
+              ) : (
+                <ModalSecondaryBtn onClick={goImportBack} disabled={importing}>Πίσω</ModalSecondaryBtn>
+              )}
+              {importStep === 'confirm' ? (
+                <ModalPrimaryBtn onClick={handleImport} disabled={importing}>
+                  {importing ? '⏳ Εισαγωγή...' : '📥 Επιβεβαίωση εισαγωγής'}
+                </ModalPrimaryBtn>
+              ) : (
+                <ModalPrimaryBtn onClick={goImportNext} disabled={importing}>
+                  {importing ? '⏳ Έλεγχος...' : 'Επόμενο'}
+                </ModalPrimaryBtn>
+              )}
+            </ModalFooter>
+          </ModalBox>
+        </ModalOverlay>
+      )}
+
+      {showTemplatePeriod && (
+        <ModalOverlay onClick={e => e.target === e.currentTarget && !downloadingTemplate && setShowTemplatePeriod(false)}>
+          <ModalBox onClick={e => e.stopPropagation()}>
+            <ModalHeader>
+              <ModalTitle>📄 Περίοδος προτύπου Excel</ModalTitle>
+              <ModalCloseBtn onClick={() => !downloadingTemplate && setShowTemplatePeriod(false)}>✕</ModalCloseBtn>
+            </ModalHeader>
+            <ModalBody>
+              <FormLabel>Ορίστε τετραετία ή πενταετία</FormLabel>
+              <SpanRow>
+                <SpanBtn type="button" $active={tplSpan === 5} onClick={() => applyTplSpan(5, tplStartYear)}>
+                  Πενταετία
+                </SpanBtn>
+                <SpanBtn type="button" $active={tplSpan === 4} onClick={() => applyTplSpan(4, tplStartYear)}>
+                  Τετραετία
+                </SpanBtn>
+              </SpanRow>
+              <YearRow>
+                <FormGroup>
+                  <FormLabel>Έτος Έναρξης</FormLabel>
+                  <FormInput
+                    type="number"
+                    placeholder="π.χ. 2024"
+                    value={tplStartYear}
+                    onChange={e => {
+                      const y = epProgramCatalog.filterImportYearInput(e.target.value);
+                      setTplStartYear(y);
+                      applyTplSpan(tplSpan, y);
+                    }}
+                    min="2000"
+                    max="2100"
+                  />
+                </FormGroup>
+                <FormGroup>
+                  <FormLabel>Έτος Λήξης</FormLabel>
+                  <FormInput
+                    type="number"
+                    placeholder="π.χ. 2028"
+                    value={tplEndYear}
+                    onChange={e => setTplEndYear(epProgramCatalog.filterImportYearInput(e.target.value))}
+                    min="2000"
+                    max="2100"
+                  />
+                </FormGroup>
+              </YearRow>
+              {epProgramCatalog.describeEpPeriod(tplStartYear, tplEndYear).label && (
+                <TitlePreview>
+                  {epProgramCatalog.describeEpPeriod(tplStartYear, tplEndYear).label}
+                </TitlePreview>
+              )}
+              <PreviewBox>
+                <PreviewTitle>Το πρότυπο θα είναι έτοιμο για αυτή την περίοδο</PreviewTitle>
+                Τα έτη προϋπολογισμού και το φύλλο οδηγιών θα ταιριάζουν με την περίοδο που ορίζετε εδώ.
+                Το παράδειγμα χωροθέτησης παίρνει δημοτική ενότητα του Δήμου σας.
+                Από τα στοιχεία που θα συμπληρώσετε, η εφαρμογή φτιάχνει αυτόματα πλήρη στατιστικά.
+              </PreviewBox>
+              {tplError && <ErrorMsg>⚠️ {tplError}</ErrorMsg>}
+            </ModalBody>
+            <ModalFooter>
+              <ModalSecondaryBtn onClick={() => setShowTemplatePeriod(false)} disabled={downloadingTemplate}>
                 Ακύρωση
               </ModalSecondaryBtn>
-              <ModalPrimaryBtn
-                onClick={handleImport}
-                disabled={importing || !importStartYear || !importEndYear || !importFilePath}
-              >
-                {importing ? '⏳ Εισαγωγή...' : '📥 Εισαγωγή'}
+              <ModalPrimaryBtn onClick={handleDownloadTemplate} disabled={downloadingTemplate}>
+                {downloadingTemplate ? '⏳ Πρότυπο...' : '📄 Κατέβασμα προτύπου'}
               </ModalPrimaryBtn>
             </ModalFooter>
           </ModalBox>
@@ -1375,7 +1727,7 @@ export default function EpProgramManager({ isOpen, onClose, currentUser, canMana
 }
 
 // ─── EpActionForm ─────────────────────────────────────────────────────────────
-const ACTION_TYPES = ['Έργο', 'Μελέτη', 'Υπηρεσία', 'Προμήθεια', 'Αγορά γης'];
+const ACTION_TYPES = epProgramCatalog.ACTION_TYPES;
 const PRIORITIES = ["Α'", "Β'", "Γ'"];
 
 const FormGrid = styled.div`
@@ -1417,6 +1769,11 @@ function EpActionForm({ action, program, onSave, onClose }) {
   const [axisCode, setAxisCode] = useState(action?.axisCode || '');
   const [measureCode, setMeasureCode] = useState(action?.measureCode || '');
   const [objectiveCode, setObjectiveCode] = useState(action?.objectiveCode || '');
+  const [aa, setAa] = useState(
+    action?.aa != null && action?.aa !== ''
+      ? String(action.aa)
+      : String(epProgramCatalog.suggestNextEpActionAa(program.actions))
+  );
   const [title, setTitle] = useState(action?.title || '');
   const [actionType, setActionType] = useState(action?.actionType || '');
   const [isNew, setIsNew] = useState(action ? action.isNew : true);
@@ -1456,14 +1813,18 @@ function EpActionForm({ action, program, onSave, onClose }) {
   };
 
   const handleSubmit = async () => {
-    if (!title.trim()) { setError('Ο τίτλος είναι υποχρεωτικός'); return; }
+    const existingAas = (program.actions || [])
+      .filter((row) => row && row.id !== action?.id)
+      .map((row) => row.aa);
+    const saveGate = epProgramCatalog.evaluateEpActionSave({ title, aa, existingAas });
+    if (!saveGate.ok) { setError(saveGate.error || 'Ο τίτλος είναι υποχρεωτικός'); return; }
     setSaving(true);
     setError('');
     const payload = {
       id: action?.id,
-      aa: action?.aa,
+      aa: saveGate.aa,
       axisCode, measureCode, objectiveCode,
-      title: title.trim(),
+      title: saveGate.title,
       actionType, isNew,
       location: location.trim(),
       priority,
@@ -1514,6 +1875,17 @@ function EpActionForm({ action, program, onSave, onClose }) {
 
           <FormSectionLabel style={{ marginTop: 16 }}>Στοιχεία Δράσης</FormSectionLabel>
           <FormGrid>
+            <FormGroup>
+              <FormLabel>Α/Α *</FormLabel>
+              <FormInput
+                type="number"
+                min="1"
+                step="1"
+                value={aa}
+                onChange={e => setAa(e.target.value)}
+                placeholder="π.χ. 12"
+              />
+            </FormGroup>
             <FormGridFull>
               <FormGroup>
                 <FormLabel>Τίτλος Δράσης *</FormLabel>

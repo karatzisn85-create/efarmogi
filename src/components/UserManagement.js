@@ -5,6 +5,8 @@ import { safeConfirm } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
 import { formatDateEl } from '../utils/dateFormat';
 import userCatalog from '../../app/core/userCatalog';
+import orimanthiCatalog from '../../app/core/orimanthiCatalog';
+import meletaiCatalog from '../../app/core/meletaiCatalog';
 
 const ipcRenderer = window.electronAPI;
 
@@ -925,8 +927,8 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                     setFormData((f) => ({
                       ...f,
                       role,
-                      orimanthiCanEdit: (role === 'USER' || role === 'ENGINEER') ? f.orimanthiCanEdit : false,
-                      meletaiCanEdit: (role === 'USER' || role === 'ENGINEER') ? f.meletaiCanEdit : false,
+                      orimanthiCanEdit: orimanthiCatalog.orimanthiEditEligibleRole(role) ? f.orimanthiCanEdit : false,
+                      meletaiCanEdit: meletaiCatalog.meletaiEditEligibleRole(role) ? f.meletaiCanEdit : false,
                     }));
                   }}
                 >
@@ -937,7 +939,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
               </FieldGroup>
             </FormRow>
 
-            {isSuperAdmin && (formData.role === 'USER' || formData.role === 'ENGINEER') && (
+            {isSuperAdmin && orimanthiCatalog.orimanthiEditEligibleRole(formData.role) && (
               <TaskPermSection>
                 <SectionTitle>Ωρίμανση Έργων</SectionTitle>
                 <CheckboxRow>
@@ -951,7 +953,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
               </TaskPermSection>
             )}
 
-            {isSuperAdmin && (formData.role === 'USER' || formData.role === 'ENGINEER') && (
+            {isSuperAdmin && meletaiCatalog.meletaiEditEligibleRole(formData.role) && (
               <TaskPermSection>
                 <SectionTitle>Μητρώο Μελετών</SectionTitle>
                 <CheckboxRow>

@@ -51,6 +51,11 @@ const auditCatalogCore = require('../app/core/auditCatalog');
 const khmdhsRefreshCore = require('../app/core/khmdhsRefresh');
 const excelImportCore = require('../app/core/excelImport');
 const portalCatalogCore = require('../app/core/portalCatalog');
+const orimanthiCatalogCore = require('../app/core/orimanthiCatalog');
+const meletaiCatalogCore = require('../app/core/meletaiCatalog');
+const epProgramCatalogCore = require('../app/core/epProgramCatalog');
+const backupCatalogCore = require('../app/core/backupCatalog');
+const backupRestoreApply = require('./backupRestoreApply');
 
 // Helper function to get temp directory path (portable-safe)
 const getTempDir = () => {
@@ -501,25 +506,27 @@ function findUserByUsername(username) {
 }
 
 function orimanthiEditEligibleRole(role) {
-  return role === 'USER' || role === 'ENGINEER';
+  return orimanthiCatalogCore.orimanthiEditEligibleRole(role);
 }
 
 function resolveOrimanthiCanEditFlag(user) {
-  return orimanthiEditEligibleRole(user?.role) && user.orimanthiCanEdit === true;
+  return orimanthiCatalogCore.resolveOrimanthiCanEditFlag(user);
 }
 
 function meletaiEditEligibleRole(role) {
-  return role === 'USER' || role === 'ENGINEER';
+  return meletaiCatalogCore.meletaiEditEligibleRole(role);
 }
 
 function resolveMeletaiCanEditFlag(user) {
-  return meletaiEditEligibleRole(user?.role) && user.meletaiCanEdit === true;
+  return meletaiCatalogCore.resolveMeletaiCanEditFlag(user);
 }
 
 function canManageMeletaiUser(user) {
-  if (!user) return false;
-  if (user.role === 'SUPERADMIN' || user.role === 'ADMIN') return true;
-  return resolveMeletaiCanEditFlag(user);
+  return meletaiCatalogCore.canManageMeletai(user);
+}
+
+function canManageEpProgramUser(username) {
+  return epProgramCatalogCore.canManageEpProgram(findUserByUsername(username));
 }
 
 function isSuperAdminUser(username) {
@@ -12834,12 +12841,7 @@ function sha256FileStreaming(filePath) {
 
 // Επιστρέφει το πιο πρόσφατο επιτυχημένο πραγματικό αντίγραφο (όχι safety)
 function getLastRealBackup(metadata) {
-  const list = (metadata && metadata.backups) || [];
-  const real = list.filter(b => b && b.status === 'success' && b.type !== 'safety');
-  if (real.length === 0) return null;
-  return real.reduce((newest, b) =>
-    (new Date(b.timestamp) > new Date(newest.timestamp) ? b : newest)
-  );
+  return backupCatalogCore.getLastRealBackup((metadata && metadata.backups) || []);
 }
 
 const PROJECT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -13731,7 +13733,7 @@ ipcMain.handle('create-backup', async (event, options = {}) => {
     const actingUser = resolveBackupActingUser(actingUsername);
     const result = await createBackup({
       type: 'manual',
-      notifyUser: true,
+      notifyUser: false,
       manageLock: true,
       actingUser,
       onProgress: (progress) => {
@@ -13852,26 +13854,22 @@ ipcMain.handle('cleanup-old-backups', async () => {
 
 // Κατάσταση αντιγράφων ασφαλείας + λογική υπενθύμισης 10 ημερών (ADMIN + SUPERADMIN)
 // ΔΕΝ εκθέτει ποτέ τη διαδρομή αποθήκευσης.
-const BACKUP_REMINDER_DAYS = 10;
 ipcMain.handle('get-backup-status', async (_event, { actingUsername } = {}) => {
   try {
     if (!isSuperAdminOrAdminUser(actingUsername || loggedInUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα' };
     }
     const metadata = syncBackupMetadata();
-    const last = getLastRealBackup(metadata);
-    const lastAt = last ? last.timestamp : null;
-    const daysSince = lastAt ? (Date.now() - new Date(lastAt).getTime()) / 86400000 : null;
-    const reminderDue = daysSince === null || daysSince >= BACKUP_REMINDER_DAYS;
+    const reminder = backupCatalogCore.evaluateBackupReminder((metadata && metadata.backups) || []);
     return {
       success: true,
-      hasBackup: !!last,
-      lastBackupAt: lastAt,
-      lastBackupId: last ? last.backupId : null,
-      lastBackupBy: last && last.createdBy ? (last.createdBy.fullName || null) : null,
-      daysSince: daysSince === null ? null : Math.floor(daysSince),
-      reminderDue,
-      reminderThresholdDays: BACKUP_REMINDER_DAYS,
+      hasBackup: reminder.hasBackup,
+      lastBackupAt: reminder.lastBackupAt,
+      lastBackupId: reminder.lastBackupId,
+      lastBackupBy: reminder.lastBackupBy,
+      daysSince: reminder.daysSince,
+      reminderDue: reminder.reminderDue,
+      reminderThresholdDays: reminder.reminderThresholdDays,
       inProgress: backupOperationInProgress,
     };
   } catch (error) {
@@ -13977,9 +13975,14 @@ function extractZip(zipPath, extractTo) {
       zipfile.readEntry();
       
       zipfile.on('entry', (entry) => {
+        const safePath = backupRestoreApply.resolveSafeExtractPath(extractTo, entry.fileName);
+        if (!safePath) {
+          zipfile.readEntry();
+          return;
+        }
         if (/\/$/.test(entry.fileName)) {
           // Directory entry
-          const dirPath = path.join(extractTo, entry.fileName);
+          const dirPath = safePath;
           if (!fs.existsSync(dirPath)) {
             fs.mkdirSync(dirPath, { recursive: true });
           }
@@ -13989,7 +13992,7 @@ function extractZip(zipPath, extractTo) {
           zipfile.openReadStream(entry, (err, readStream) => {
             if (err) return reject(err);
             
-            const filePath = path.join(extractTo, entry.fileName);
+            const filePath = safePath;
             const dirPath = path.dirname(filePath);
             
             if (!fs.existsSync(dirPath)) {
@@ -14039,359 +14042,146 @@ async function createSafetyBackup() {
   }
 }
 
-// Restore backup
+function cleanupRestoreTemp(dir) {
+  if (dir && fs.existsSync(dir)) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_e) { /* ignore */ }
+  }
+}
+
+async function extractAndApplyRestore(zipPath, tempDir) {
+  if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+  fs.mkdirSync(tempDir, { recursive: true });
+  await extractZip(zipPath, tempDir);
+  const sourceDir = backupRestoreApply.resolveExtractedSourceDir(tempDir);
+  const ready = backupRestoreApply.isExtractedRestoreReady(sourceDir, {
+    dataDir,
+    backupDir,
+    exclude: BACKUP_EXCLUDE_ENTRIES,
+  });
+  return { sourceDir, ready };
+}
+
+// Πλήρης επαναφορά: πρώτα αντίγραφο ασφαλείας + εξαγωγή, μετά εφαρμογή.
+// Αν η εφαρμογή σπάσει, γυρίζουμε αυτόματα από το αντίγραφο ασφαλείας.
 async function restoreBackup(backupId, options = {}) {
-  const {
-    type = 'full', // 'full', 'selective', 'merge'
-    items = [] // For selective/merge
-  } = options;
-  
+  const type = backupCatalogCore.normalizeRestoreType(options && options.type);
   try {
     const metadata = loadBackupMetadata();
     const backup = metadata.backups.find(b => b.backupId === backupId);
-    
+    const gate = backupCatalogCore.evaluateRestoreBackup({
+      role: (options.actingUser && options.actingUser.role) || 'SUPERADMIN',
+      backupId,
+      fileExists: !!(backup && backup.path && fs.existsSync(backup.path)),
+      status: backup && backup.status,
+    });
     if (!backup) {
       return { success: false, error: 'Backup not found' };
     }
-    
-    if (!fs.existsSync(backup.path)) {
-      return { success: false, error: 'Backup file not found' };
+    if (!gate.ok) {
+      return { success: false, error: gate.error };
     }
-    
-    if (backup.status !== 'success') {
-      return { success: false, error: 'Backup is not valid (status: ' + backup.status + ')' };
-    }
-    
-    console.log(`🔄 Starting restore from backup: ${backup.fileName}`);
-    console.log(`   Type: ${type}`);
 
-    // Βήμα 1: Υποχρεωτικό αντίγραφο ασφαλείας πριν την επαναφορά.
-    // Αν αποτύχει, ΔΕΝ προχωράμε — προστατεύουμε τα τρέχοντα δεδομένα.
     let safetyBackup = null;
     try {
       safetyBackup = await createSafetyBackup();
-      console.log(`✅ Safety backup created: ${safetyBackup.fileName}`);
     } catch (error) {
-      console.error('❌ Could not create safety backup — aborting restore:', error);
-      return {
-        success: false,
-        error: 'Δεν ήταν δυνατή η δημιουργία αντιγράφου ασφαλείας πριν την επαναφορά. Η επαναφορά ακυρώθηκε για την προστασία των δεδομένων σας.',
-      };
+      const blocked = backupCatalogCore.evaluateRestoreReadyToApply({ safetyOk: false, extractedReady: false });
+      return { success: false, error: blocked.error };
     }
-    
-    // Step 2: Create temporary extraction directory
+
     const tempExtractDir = path.join(dataDir, 'temp_restore_' + Date.now());
-    if (fs.existsSync(tempExtractDir)) {
-      fs.rmSync(tempExtractDir, { recursive: true, force: true });
-    }
-    fs.mkdirSync(tempExtractDir, { recursive: true });
-    
+    let extracted;
     try {
-      // Step 3: Extract backup
-      console.log('📦 Extracting backup...');
-      await extractZip(backup.path, tempExtractDir);
-      console.log('✅ Backup extracted');
-      
-      // Step 4: Perform restore based on type
-      if (type === 'full') {
-        // Full restore: αντικατάσταση όλων των δεδομένων
-        console.log('🔄 Performing full restore...');
-
-        const extractedDataDir = path.join(tempExtractDir, 'dedomena_ergon');
-        const sourceDir = fs.existsSync(extractedDataDir) ? extractedDataDir : tempExtractDir;
-
-        // 4α. Καθαρίζουμε τα τρέχοντα δεδομένα (εκτός συστημικών/προσωρινών),
-        //     ώστε το αποτέλεσμα να είναι πιστό αντίγραφο του backup.
-        try {
-          const currentEntries = fs.readdirSync(dataDir);
-          for (const entry of currentEntries) {
-            if (BACKUP_EXCLUDE_ENTRIES.has(entry)) continue;
-            if (entry.startsWith('.')) continue;
-            if (entry.startsWith('temp_')) continue; // περιλαμβάνει το temp_restore_*
-            const p = path.join(dataDir, entry);
-            if (backupDir && path.resolve(p) === path.resolve(backupDir)) continue;
-            try {
-              const st = fs.statSync(p);
-              if (st.isDirectory()) fs.rmSync(p, { recursive: true, force: true });
-              else fs.unlinkSync(p);
-            } catch (_e) { /* συνεχίζουμε */ }
-          }
-        } catch (e) {
-          console.error('Error clearing current data before full restore:', e);
-        }
-
-        // 4β. Αντιγραφή όλων των στοιχείων από το backup
-        const entries = fs.readdirSync(sourceDir);
-        for (const entry of entries) {
-          if (entry === 'backups' || entry === 'locks') continue;
-          const sourcePath = path.join(sourceDir, entry);
-          const destPath = path.join(dataDir, entry);
-          if (fs.statSync(sourcePath).isDirectory()) {
-            if (fs.existsSync(destPath)) fs.rmSync(destPath, { recursive: true, force: true });
-            fse.copySync(sourcePath, destPath);
-          } else {
-            if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-            fs.copyFileSync(sourcePath, destPath);
-          }
-        }
-
-        console.log('✅ Full restore completed');
-        
-      } else if (type === 'selective') {
-        // Selective restore: Only restore selected items
-        console.log('🔄 Performing selective restore...');
-        
-        if (!items || items.length === 0) {
-          return { success: false, error: 'Δεν επιλέχθηκαν στοιχεία για restore' };
-        }
-        
-        // Backup current data (if safety backup failed)
-        if (!safetyBackup) {
-          try {
-            safetyBackup = await createSafetyBackup();
-          } catch (e) {
-            console.error('❌ Could not create safety backup, proceeding anyway');
-          }
-        }
-        
-        // Map items to directories
-        const itemToDir = {
-          'projects': null, // Projects are in root, need special handling
-          'proskliseis': 'ΠΡΟΣΚΛΗΣΕΙΣ',
-          'entaxeis': 'entaxeis',
-          'egkriseis': 'EGKRISEIS_DIATHESIS_PISTOSIS'
-        };
-        
-        const extractedDataDir = path.join(tempExtractDir, 'dedomena_ergon');
-        const sourceDir = fs.existsSync(extractedDataDir) ? extractedDataDir : tempExtractDir;
-        
-        // Restore selected items
-        for (const item of items) {
-          if (item === 'projects') {
-            // Projects are in root - restore only project folders (UUID-based)
-            console.log('📁 Restoring projects...');
-            const sourceEntries = fs.readdirSync(sourceDir);
-            for (const entry of sourceEntries) {
-              const sourcePath = path.join(sourceDir, entry);
-              const destPath = path.join(dataDir, entry);
-              
-              // Skip system directories
-              if (entry === 'backups' || entry === 'locks' || 
-                  entry === 'ΠΡΟΣΚΛΗΣΕΙΣ' || entry === 'entaxeis' || 
-                  entry === 'EGKRISEIS_DIATHESIS_PISTOSIS') continue;
-              
-              // Check if it's a project folder (UUID format or contains data.json)
-              const stat = fs.statSync(sourcePath);
-              if (stat.isDirectory()) {
-                const dataJsonPath = path.join(sourcePath, 'data.json');
-                if (fs.existsSync(dataJsonPath) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entry)) {
-                  // It's a project folder
-                  if (fs.existsSync(destPath)) {
-                    fs.rmSync(destPath, { recursive: true, force: true });
-                  }
-                  fse.copySync(sourcePath, destPath);
-                  console.log(`  ✅ Restored project: ${entry}`);
-                }
-              }
-            }
-          } else {
-            // Restore specific directory
-            const dirName = itemToDir[item];
-            if (!dirName) continue;
-            
-            console.log(`📁 Restoring ${item} (${dirName})...`);
-            const sourcePath = path.join(sourceDir, dirName);
-            const destPath = path.join(dataDir, dirName);
-            
-            if (fs.existsSync(sourcePath)) {
-              if (fs.existsSync(destPath)) {
-                fs.rmSync(destPath, { recursive: true, force: true });
-              }
-              fse.copySync(sourcePath, destPath);
-              console.log(`  ✅ Restored ${item}`);
-            } else {
-              console.log(`  ⚠️ ${item} directory not found in backup`);
-            }
-          }
-        }
-        
-        console.log('✅ Selective restore completed');
-        
-      } else if (type === 'merge') {
-        // Merge restore: Merge with existing data
-        console.log('🔄 Performing merge restore...');
-        
-        if (!items || items.length === 0) {
-          return { success: false, error: 'Δεν επιλέχθηκαν στοιχεία για merge' };
-        }
-        
-        // Backup current data (if safety backup failed)
-        if (!safetyBackup) {
-          try {
-            safetyBackup = await createSafetyBackup();
-          } catch (e) {
-            console.error('❌ Could not create safety backup, proceeding anyway');
-          }
-        }
-        
-        // Map items to directories
-        const itemToDir = {
-          'projects': null, // Projects are in root, need special handling
-          'proskliseis': 'ΠΡΟΣΚΛΗΣΕΙΣ',
-          'entaxeis': 'entaxeis',
-          'egkriseis': 'EGKRISEIS_DIATHESIS_PISTOSIS'
-        };
-        
-        const extractedDataDir = path.join(tempExtractDir, 'dedomena_ergon');
-        const sourceDir = fs.existsSync(extractedDataDir) ? extractedDataDir : tempExtractDir;
-        
-        // Merge selected items
-        for (const item of items) {
-          if (item === 'projects') {
-            // Projects: Add projects that don't exist, keep existing ones
-            console.log('📁 Merging projects...');
-            const sourceEntries = fs.readdirSync(sourceDir);
-            let mergedCount = 0;
-            let skippedCount = 0;
-            
-            for (const entry of sourceEntries) {
-              const sourcePath = path.join(sourceDir, entry);
-              const destPath = path.join(dataDir, entry);
-              
-              // Skip system directories
-              if (entry === 'backups' || entry === 'locks' || 
-                  entry === 'ΠΡΟΣΚΛΗΣΕΙΣ' || entry === 'entaxeis' || 
-                  entry === 'EGKRISEIS_DIATHESIS_PISTOSIS') continue;
-              
-              // Check if it's a project folder
-              const stat = fs.statSync(sourcePath);
-              if (stat.isDirectory()) {
-                const dataJsonPath = path.join(sourcePath, 'data.json');
-                if (fs.existsSync(dataJsonPath) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entry)) {
-                  // It's a project folder
-                  if (!fs.existsSync(destPath)) {
-                    // Project doesn't exist, copy it
-                    fse.copySync(sourcePath, destPath);
-                    mergedCount++;
-                    console.log(`  ✅ Added project: ${entry}`);
-                  } else {
-                    // Project exists, skip (keep existing)
-                    skippedCount++;
-                    console.log(`  ⏭️ Skipped existing project: ${entry}`);
-                  }
-                }
-              }
-            }
-            console.log(`  📊 Merged ${mergedCount} projects, skipped ${skippedCount} existing`);
-          } else {
-            // Merge specific directory: Copy items that don't exist
-            const dirName = itemToDir[item];
-            if (!dirName) continue;
-            
-            console.log(`📁 Merging ${item} (${dirName})...`);
-            const sourcePath = path.join(sourceDir, dirName);
-            const destPath = path.join(dataDir, dirName);
-            
-            if (fs.existsSync(sourcePath)) {
-              // Ensure destination directory exists
-              if (!fs.existsSync(destPath)) {
-                fs.mkdirSync(destPath, { recursive: true });
-              }
-              
-              // Copy items from source that don't exist in destination
-              const sourceEntries = fs.readdirSync(sourcePath);
-              let mergedCount = 0;
-              let skippedCount = 0;
-              
-              for (const entry of sourceEntries) {
-                const sourceEntryPath = path.join(sourcePath, entry);
-                const destEntryPath = path.join(destPath, entry);
-                
-                if (!fs.existsSync(destEntryPath)) {
-                  // Item doesn't exist, copy it
-                  const stat = fs.statSync(sourceEntryPath);
-                  if (stat.isDirectory()) {
-                    fse.copySync(sourceEntryPath, destEntryPath);
-                  } else {
-                    fs.copyFileSync(sourceEntryPath, destEntryPath);
-                  }
-                  mergedCount++;
-                } else {
-                  skippedCount++;
-                }
-              }
-              
-              console.log(`  📊 Merged ${mergedCount} items, skipped ${skippedCount} existing`);
-            } else {
-              console.log(`  ⚠️ ${item} directory not found in backup`);
-            }
-          }
-        }
-        
-        console.log('✅ Merge restore completed');
-      }
-      
-      // Step 5: Cleanup temp directory
-      fs.rmSync(tempExtractDir, { recursive: true, force: true });
-      
-      // Step 6: Update restore metadata
-      const restoreActor = options.actingUser || (() => { const u = getCurrentAuditUser(); return { username: u.username, fullName: u.fullName, role: u.role }; })();
-      const restoreInfo = {
-        restoreId: uuidv4(),
-        backupId: backupId,
-        timestamp: new Date().toISOString(),
-        type: type,
-        safetyBackupId: safetyBackup ? safetyBackup.backupId : null,
-        restoredBy: restoreActor,
-        success: true
-      };
-
-      try {
-        logAuditAction({
-          type: 'restore',
-          entityType: 'backup',
-          entityId: backupId,
-          entityTitle: 'Επαναφορά αντιγράφου ασφαλείας',
-          details: `Επαναφορά δεδομένων από αντίγραφο (${backup.fileName})`,
-          userFullName: restoreActor?.fullName,
-          userRole: restoreActor?.role,
-        });
-      } catch (_e) { /* non-critical */ }
-      
-      // Save restore history (optional)
-      const restoreHistoryPath = path.join(backupDir, 'restore_history.json');
-      let restoreHistory = [];
-      if (fs.existsSync(restoreHistoryPath)) {
-        try {
-          restoreHistory = JSON.parse(fs.readFileSync(restoreHistoryPath, 'utf8'));
-        } catch (e) {
-          restoreHistory = [];
-        }
-      }
-      restoreHistory.unshift(restoreInfo);
-      safeWriteJSON(restoreHistoryPath, restoreHistory);
-      
-      console.log('✅ Restore completed successfully');
-      
-      return {
-        success: true,
-        message: 'Το restore ολοκληρώθηκε επιτυχώς',
-        restoreInfo: restoreInfo,
-        safetyBackup: safetyBackup
-      };
-      
-    } catch (error) {
-      // Cleanup on error
-      if (fs.existsSync(tempExtractDir)) {
-        try {
-          fs.rmSync(tempExtractDir, { recursive: true, force: true });
-        } catch (e) {
-          console.error('Error cleaning up temp directory:', e);
-        }
-      }
-      throw error;
+      extracted = await extractAndApplyRestore(backup.path, tempExtractDir);
+    } catch (extractErr) {
+      cleanupRestoreTemp(tempExtractDir);
+      const blocked = backupCatalogCore.evaluateRestoreReadyToApply({ safetyOk: true, extractedReady: false });
+      return { success: false, error: blocked.error };
     }
-    
+
+    const ready = backupCatalogCore.evaluateRestoreReadyToApply({
+      safetyOk: true,
+      extractedReady: !!(extracted && extracted.ready),
+    });
+    if (!ready.canApply) {
+      cleanupRestoreTemp(tempExtractDir);
+      return { success: false, error: ready.error };
+    }
+
+    try {
+      backupRestoreApply.applyFullRestore({
+        dataDir,
+        sourceDir: extracted.sourceDir,
+        backupDir,
+        exclude: BACKUP_EXCLUDE_ENTRIES,
+      });
+    } catch (applyErr) {
+      const safetyTemp = path.join(dataDir, 'temp_restore_safety_' + Date.now());
+      try {
+        const safetyExtracted = await extractAndApplyRestore(safetyBackup.path, safetyTemp);
+        if (!safetyExtracted.ready) throw new Error('empty safety');
+        backupRestoreApply.applyFullRestore({
+          dataDir,
+          sourceDir: safetyExtracted.sourceDir,
+          backupDir,
+          exclude: BACKUP_EXCLUDE_ENTRIES,
+        });
+        cleanupRestoreTemp(tempExtractDir);
+        cleanupRestoreTemp(safetyTemp);
+        const rolled = backupCatalogCore.evaluateRestoreOutcome({ applyOk: false, rolledBack: true });
+        return { success: false, rolledBack: true, error: rolled.message, message: rolled.message };
+      } catch (_rbErr) {
+        cleanupRestoreTemp(tempExtractDir);
+        cleanupRestoreTemp(safetyTemp);
+        const failed = backupCatalogCore.evaluateRestoreOutcome({ applyOk: false, rolledBack: false });
+        return { success: false, rolledBack: false, rollbackFailed: true, error: failed.message, message: failed.message };
+      }
+    }
+
+    cleanupRestoreTemp(tempExtractDir);
+
+    const restoreActor = options.actingUser || (() => { const u = getCurrentAuditUser(); return { username: u.username, fullName: u.fullName, role: u.role }; })();
+    const restoreInfo = {
+      restoreId: uuidv4(),
+      backupId,
+      timestamp: new Date().toISOString(),
+      type,
+      safetyBackupId: safetyBackup ? safetyBackup.backupId : null,
+      restoredBy: restoreActor,
+      success: true
+    };
+
+    try {
+      logAuditAction({
+        type: 'restore',
+        entityType: 'backup',
+        entityId: backupId,
+        entityTitle: 'Επαναφορά αντιγράφου ασφαλείας',
+        details: `Επαναφορά δεδομένων από αντίγραφο (${backup.fileName})`,
+        userFullName: restoreActor?.fullName,
+        userRole: restoreActor?.role,
+      });
+    } catch (_e) { /* non-critical */ }
+
+    const restoreHistoryPath = path.join(backupDir, 'restore_history.json');
+    let restoreHistory = [];
+    if (fs.existsSync(restoreHistoryPath)) {
+      try {
+        restoreHistory = JSON.parse(fs.readFileSync(restoreHistoryPath, 'utf8'));
+      } catch (e) {
+        restoreHistory = [];
+      }
+    }
+    restoreHistory.unshift(restoreInfo);
+    safeWriteJSON(restoreHistoryPath, restoreHistory);
+
+    const ok = backupCatalogCore.evaluateRestoreOutcome({ applyOk: true });
+    return {
+      success: true,
+      message: ok.message,
+      restoreInfo,
+      safetyBackup,
+    };
   } catch (error) {
     console.error('❌ Error restoring backup:', error);
     return {
@@ -14414,7 +14204,11 @@ ipcMain.handle('restore-backup', async (event, backupId, options = {}) => {
   }
   try {
     const actingUser = resolveBackupActingUser(actingUsername);
-    const result = await restoreBackup(backupId, { ...options, actingUser });
+    const result = await restoreBackup(backupId, {
+      ...options,
+      type: backupCatalogCore.normalizeRestoreType(options && options.type),
+      actingUser,
+    });
     return result;
   } catch (error) {
     console.error('Error in restore-backup handler:', error);
@@ -15238,6 +15032,8 @@ const {
   getActiveProgram: _epGetActive,
   getProgramById: _epGetById,
   importEpProgram: _epImport,
+  previewEpProgram: _epPreview,
+  loadAllProgramsFull: _epLoadAllFull,
   saveEpAction: _epSaveAction,
   deleteEpAction: _epDeleteAction,
   getEpActionsForSubproject: _epGetActionsForSubproject,
@@ -15246,7 +15042,7 @@ const {
 
 ipcMain.handle('load-ep-programs', async (_event, { requestingUsername } = {}) => {
   try {
-    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+    if (!canManageEpProgramUser(requestingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στο Επιχειρησιακό Πρόγραμμα' };
     }
     const programs = _epLoadAll(dataDir);
@@ -15259,7 +15055,7 @@ ipcMain.handle('load-ep-programs', async (_event, { requestingUsername } = {}) =
 
 ipcMain.handle('get-ep-program', async (_event, { programId, requestingUsername } = {}) => {
   try {
-    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+    if (!canManageEpProgramUser(requestingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στο Επιχειρησιακό Πρόγραμμα' };
     }
     const program = programId
@@ -15273,10 +15069,34 @@ ipcMain.handle('get-ep-program', async (_event, { programId, requestingUsername 
   }
 });
 
+ipcMain.handle('preview-ep-program', async (_event, { filePath, startYear, endYear, requestingUsername } = {}) => {
+  try {
+    if (!canManageEpProgramUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα εισαγωγής Επιχειρησιακού Προγράμματος' };
+    }
+    const importGate = epProgramCatalogCore.evaluateEpImport({ filePath, startYear, endYear });
+    if (!importGate.ok) {
+      return { success: false, error: importGate.error };
+    }
+    return _epPreview(dataDir, {
+      filePath,
+      startYear: importGate.startYear,
+      endYear: importGate.endYear
+    });
+  } catch (e) {
+    logger.error('preview-ep-program error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('import-ep-program', async (_event, { filePath, startYear, endYear, requestingUsername }) => {
   try {
-    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+    if (!canManageEpProgramUser(requestingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα εισαγωγής Επιχειρησιακού Προγράμματος' };
+    }
+    const importGate = epProgramCatalogCore.evaluateEpImport({ filePath, startYear, endYear });
+    if (!importGate.ok) {
+      return { success: false, error: importGate.error };
     }
     const result = _epImport(dataDir, { filePath, startYear, endYear, importedBy: requestingUsername });
     logger.info(`EP Program imported by ${requestingUsername}: ${result.title} (${result.actionCount} actions)`);
@@ -15289,10 +15109,24 @@ ipcMain.handle('import-ep-program', async (_event, { filePath, startYear, endYea
 
 ipcMain.handle('save-ep-action', async (_event, { programId, action, requestingUsername }) => {
   try {
-    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+    if (!canManageEpProgramUser(requestingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα επεξεργασίας δράσεων' };
     }
-    return _epSaveAction(dataDir, { programId, action });
+    const program = programId ? _epGetById(dataDir, programId) : null;
+    const existingAas = ((program && program.actions) || [])
+      .filter((row) => row && row.id !== (action && action.id))
+      .map((row) => row.aa);
+    const saveGate = epProgramCatalogCore.evaluateEpActionSave({
+      ...(action || {}),
+      existingAas
+    });
+    if (!saveGate.ok) {
+      return { success: false, error: saveGate.error };
+    }
+    return _epSaveAction(dataDir, {
+      programId,
+      action: { ...(action || {}), title: saveGate.title, aa: saveGate.aa }
+    });
   } catch (e) {
     logger.error('save-ep-action error:', e.message);
     return { success: false, error: e.message };
@@ -15301,7 +15135,7 @@ ipcMain.handle('save-ep-action', async (_event, { programId, action, requestingU
 
 ipcMain.handle('delete-ep-action', async (_event, { programId, actionId, requestingUsername }) => {
   try {
-    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+    if (!canManageEpProgramUser(requestingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα διαγραφής δράσεων' };
     }
     return _epDeleteAction(dataDir, { programId, actionId });
@@ -15348,8 +15182,11 @@ ipcMain.handle('get-ep-subproject-link-map', async (_event, { requestingUsername
     if (!findUserByUsername(requestingUsername)) {
       return { success: false, error: 'Μη έγκυρος χρήστης' };
     }
-    const program = programId ? _epGetById(dataDir, programId) : _epGetActive(dataDir);
-    return { success: true, map: _epBuildSubprojectLinkMap(program) };
+    if (programId) {
+      const program = _epGetById(dataDir, programId);
+      return { success: true, map: epProgramCatalogCore.buildEpSubprojectLinkMap(program ? [program] : []) };
+    }
+    return { success: true, map: epProgramCatalogCore.buildEpSubprojectLinkMap(_epLoadAllFull(dataDir)) };
   } catch (e) {
     logger.error('get-ep-subproject-link-map error:', e.message);
     return { success: false, error: e.message };
@@ -15358,7 +15195,7 @@ ipcMain.handle('get-ep-subproject-link-map', async (_event, { requestingUsername
 
 ipcMain.handle('link-ep-subproject', async (_event, { programId, actionId, subprojectId, link, requestingUsername }) => {
   try {
-    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+    if (!canManageEpProgramUser(requestingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα σύνδεσης δράσεων' };
     }
     return _epLinkSubproject(dataDir, { programId, actionId, subprojectId, link });
@@ -15373,7 +15210,7 @@ const { computeEpProgramStatistics, computeEpImplementationStats } = require('./
 
 ipcMain.handle('get-ep-program-statistics', async (_event, { programId, requestingUsername } = {}) => {
   try {
-    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+    if (!canManageEpProgramUser(requestingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα πρόσβασης στα στατιστικά ΕΠ' };
     }
     const program = programId
@@ -15433,7 +15270,7 @@ ipcMain.handle('open-exported-file', async (_event, { filePath, revealInFolder }
 
 ipcMain.handle('export-ep-program', async (_event, { programId, requestingUsername } = {}) => {
   try {
-    if (!isSuperAdminOrAdminUser(requestingUsername)) {
+    if (!canManageEpProgramUser(requestingUsername)) {
       return { success: false, error: 'Δεν έχετε δικαίωμα εξαγωγής Επιχειρησιακού Προγράμματος' };
     }
 
@@ -15477,6 +15314,67 @@ ipcMain.handle('export-ep-program', async (_event, { programId, requestingUserna
   } catch (e) {
     logger.error('export-ep-program error:', e.message);
     return { success: false, error: e.message };
+  }
+});
+
+const { writeEpImportTemplateFile: _epWriteTemplate } = require('./epProgramTemplate');
+
+ipcMain.handle('download-ep-program-template', async (_event, { startYear, endYear, requestingUsername } = {}) => {
+  try {
+    if (!canManageEpProgramUser(requestingUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα λήψης προτύπου Επιχειρησιακού Προγράμματος' };
+    }
+    const periodGate = epProgramCatalogCore.evaluateTemplateDownload({ startYear, endYear });
+    if (!periodGate.ok) {
+      return { success: false, error: periodGate.error || 'Επιλέξτε τετραετία ή πενταετία για το πρότυπο' };
+    }
+    const municipalUnits = (require('./municipalUnitsConfigService').loadMunicipalUnitsConfig(dataDir).units || []);
+    const built = await _epWriteTemplate({
+      startYear: periodGate.startYear,
+      endYear: periodGate.endYear,
+      municipalUnits
+    });
+    if (!built.success) {
+      return { success: false, error: built.error || 'Σφάλμα δημιουργίας προτύπου' };
+    }
+    const saveResult = await dialog.showSaveDialog({
+      title: 'Αποθήκευση προτύπου Επιχειρησιακού Προγράμματος',
+      defaultPath: built.filename,
+      filters: [{ name: 'Excel Αρχεία', extensions: ['xlsx'] }]
+    });
+    if (saveResult.canceled || !saveResult.filePath) {
+      try {
+        if (fs.existsSync(built.outputPath)) fs.unlinkSync(built.outputPath);
+      } catch (e) { /* αγνόησε */ }
+      return { success: true, canceled: true };
+    }
+    try {
+      fs.copyFileSync(built.outputPath, saveResult.filePath);
+    } catch (copyErr) {
+      const locked = copyErr && (copyErr.code === 'EBUSY' || copyErr.code === 'EPERM' || copyErr.code === 'EACCES');
+      return {
+        success: false,
+        error: locked
+          ? 'Το αρχείο είναι ήδη ανοιχτό (π.χ. στο Excel) ή κλειδωμένο. Κλείστε το και δοκιμάστε ξανά, ή αποθηκεύστε με άλλο όνομα.'
+          : (copyErr.message || 'Σφάλμα αποθήκευσης προτύπου')
+      };
+    }
+    return {
+      success: true,
+      canceled: false,
+      downloadPath: saveResult.filePath,
+      filename: built.filename,
+      periodLabel: built.periodLabel
+    };
+  } catch (e) {
+    logger.error('download-ep-program-template error:', e.message);
+    const locked = e && (e.code === 'EBUSY' || e.code === 'EPERM' || e.code === 'EACCES');
+    return {
+      success: false,
+      error: locked
+        ? 'Το αρχείο είναι ήδη ανοιχτό (π.χ. στο Excel) ή κλειδωμένο. Κλείστε το και δοκιμάστε ξανά, ή αποθηκεύστε με άλλο όνομα.'
+        : e.message
+    };
   }
 });
 
@@ -15813,11 +15711,7 @@ function resolveProposalGroupPath(proposalId, groupId, ...parts) {
 }
 
 function canManageOrimanthi(username) {
-  const user = findUserByUsername(username);
-  if (!user || user.active === false || user.approved === false) return false;
-  if (user.role === 'SUPERADMIN' || user.role === 'ADMIN') return true;
-  if (resolveOrimanthiCanEditFlag(user)) return true;
-  return false;
+  return orimanthiCatalogCore.canManageOrimanthi(findUserByUsername(username));
 }
 
 function denyOrimanthiManage(username) {
@@ -15848,6 +15742,8 @@ ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipA
     const auth = requireOrimanthiManage(actingUsername);
     if (!auth.ok) return { success: false, error: auth.error };
     if (!proposal || !proposal.id) return { success: false, error: 'Μη έγκυρα δεδομένα έργου' };
+    const titleGate = orimanthiCatalogCore.evaluateProposalSave(proposal);
+    if (!titleGate.ok) return { success: false, error: titleGate.error };
     const idCheck = assertValidProposalId(proposal.id);
     if (!idCheck.ok) return { success: false, error: idCheck.error };
 
