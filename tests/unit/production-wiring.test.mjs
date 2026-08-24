@@ -10,6 +10,16 @@ function read(rel) {
   return readFileSync(join(root, rel), 'utf8');
 }
 
+test('το πακέτο εγκατάστασης περιλαμβάνει τον κοινό πυρήνα', () => {
+  const pkg = JSON.parse(read('package.json'));
+  const files = pkg.build && pkg.build.files;
+  assert.ok(Array.isArray(files), 'λείπει η λίστα αρχείων εγκατάστασης');
+  assert.ok(
+    files.some((entry) => String(entry).replace(/\\/g, '/').includes('app/core')),
+    'χωρίς app/core η εγκατεστημένη εφαρμογή δεν ανοίγει'
+  );
+});
+
 test('η αποθήκευση στον δίσκο καλεί τον κοινό πυρήνα, όχι δεύτερο αντίγραφο', () => {
   const electron = read('public/electron.js');
   assert.match(electron, /require\('\.\.\/app\/core\/subprojectCard'\)/);
