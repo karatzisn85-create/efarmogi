@@ -1284,6 +1284,7 @@ function ProjectCard({
     <Card
       onClick={handleCardClick}
       $abandoned={isAbandoned}
+      data-user-guide="subproject-card"
     >
       {isAbandoned && <AbandonedRibbon>Απενταγμένο</AbandonedRibbon>}
       {linkedNotes.length > 0 && (
@@ -1325,7 +1326,7 @@ function ProjectCard({
         </HeaderTopRow>
 
         {(displayChargePrimary || displayChargeParticipants) && (
-          <ChargeHeaderStrip onClick={(e) => e.stopPropagation()}>
+          <ChargeHeaderStrip data-user-guide="card-charge" onClick={(e) => e.stopPropagation()}>
             {displayChargePrimary && (
               <ChargeHeaderLine>
                 <span aria-hidden style={{ fontSize: '0.9rem', lineHeight: 1.2 }}>👷</span>
@@ -1362,7 +1363,7 @@ function ProjectCard({
         )}
       </CardHeader>
 
-      <CardContent>
+      <CardContent data-user-guide="card-body">
         <KhmdhsLifecycleRail project={project} variant="compact" freshness={chainFreshness} />
 
         <CardSection $accent="#6366f1" $tint="rgba(238, 242, 255, 0.35)">
@@ -1475,7 +1476,7 @@ function ProjectCard({
         )}
       </CardContent>
 
-      <ButtonContainer>
+      <ButtonContainer data-user-guide="card-actions">
         <TopButtonsContainer>
           {(hasCreditApproval || hasLinkedEgkrisi) && (
             <ToolbarButton

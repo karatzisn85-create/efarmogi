@@ -14,6 +14,7 @@ export const FAB_GAP_PX = 12;
 export const OPS_STACK_BOTTOM_PX = NOTES_FAB_BOTTOM_PX + NOTES_FAB_SIZE_PX + FAB_GAP_PX;
 export const OPS_FAB_SIZE_PX = 50;
 export const KHMDHS_FAB_SIZE_PX = 58;
+export const HELP_FAB_SIZE_PX = 50;
 export const TOAST_STACK_GAP_PX = 10;
 
 /**
@@ -24,6 +25,7 @@ export function computeFabClearancePx({
   notesVisible = false,
   opsVisible = false,
   khmdhsVisible = false,
+  helpVisible = false,
 } = {}) {
   if (!notesVisible && !opsVisible) {
     return DEFAULT_CORNER_BOTTOM_PX;
@@ -32,6 +34,9 @@ export function computeFabClearancePx({
     let top = OPS_STACK_BOTTOM_PX + OPS_FAB_SIZE_PX;
     if (khmdhsVisible) {
       top += FAB_GAP_PX + KHMDHS_FAB_SIZE_PX;
+    }
+    if (helpVisible) {
+      top += FAB_GAP_PX + HELP_FAB_SIZE_PX;
     }
     return top + FAB_GAP_PX;
   }

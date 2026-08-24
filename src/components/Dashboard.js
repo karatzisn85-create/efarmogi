@@ -12,6 +12,8 @@ import ActiveFiltersBanner from './ActiveFiltersBanner';
 import DashboardOverviewZone from './DashboardOverviewZone';
 import DashboardOpsFabStack from './DashboardOpsFabStack';
 import SplashScreen from './SplashScreen';
+import UserGuideTour from './UserGuideTour';
+import UserGuideModal from './UserGuideModal';
 import FileManager from './FileManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
 import {
@@ -39,6 +41,7 @@ import {
   computeFabClearancePx,
   setCornerClearancePx,
 } from '../utils/bottomRightStack';
+import { getTourSteps, markTourDone, shouldAutoStartTour } from '../utils/userGuide';
 import { containsSearchTerm } from '../utils/searchUtils';
 import subprojectCard from '../../app/core/subprojectCard';
 import subprojectList from '../../app/core/subprojectList';
@@ -2945,6 +2948,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isStatisticsModalOpen, setIsStatisticsModalOpen] = useState(false);
   const [portfolioDrillFilter, setPortfolioDrillFilter] = useState(null);
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
+  const [guideModalOpen, setGuideModalOpen] = useState(false);
+  const [guideTourActive, setGuideTourActive] = useState(false);
+  const [guideTourStep, setGuideTourStep] = useState(0);
+  const [guideSpotSteps, setGuideSpotSteps] = useState(null);
+  const autoTourStartedRef = useRef(false);
+  const tourOpenedDetailRef = useRef(false);
   // Φάση 1β/3: στατιστικά μετά το πρώτο paint · virtualization ομάδων
   const [summaryStatsReady, setSummaryStatsReady] = useState(false);
   const [visibleGroupWindow, setVisibleGroupWindow] = useState({ start: 0, end: 40 });
@@ -5961,8 +5970,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     const notesVisible = (canManageAll || isEngineer) && !isNotesOpen;
     const opsVisible = (canManageAll || isEngineer || userRole === 'USER') && !isNotesOpen;
     const khmdhsVisible = opsVisible && khmdhsRefresh.showBatchRefreshButton(userRole);
+    const helpVisible = opsVisible;
     setCornerClearancePx(
-      computeFabClearancePx({ notesVisible, opsVisible, khmdhsVisible })
+      computeFabClearancePx({ notesVisible, opsVisible, khmdhsVisible, helpVisible })
     );
     return () => clearCornerClearance();
   }, [canManageAll, isEngineer, isNotesOpen, userRole]);
@@ -6542,6 +6552,121 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     return Object.values(grouped);
   }, [projects, filteredProjects]);
 
+  const prepareGuideTourTargets = useCallback(() => {
+    const firstGroupId = sortedGroupedEntries[0]?.[0];
+    if (!firstGroupId) return;
+    setCollapsedGroups((prev) => {
+      if (!prev.has(firstGroupId)) return prev;
+      const next = new Set(prev);
+      next.delete(firstGroupId);
+      return next;
+    });
+  }, [sortedGroupedEntries]);
+
+  const closeGuideTour = useCallback(() => {
+    markTourDone(currentUser?.username);
+    setGuideTourActive(false);
+    setGuideTourStep(0);
+    setGuideSpotSteps(null);
+    if (tourOpenedDetailRef.current) {
+      tourOpenedDetailRef.current = false;
+      setSelectedDetailProject(null);
+    }
+  }, [currentUser?.username]);
+
+  const startGuideTour = useCallback(() => {
+    setGuideModalOpen(false);
+    setGuideSpotSteps(null);
+    setGuideTourStep(0);
+    prepareGuideTourTargets();
+    setGuideTourActive(true);
+  }, [prepareGuideTourTargets]);
+
+  useEffect(() => {
+    if (loading || autoTourStartedRef.current) return undefined;
+    if (isNotesOpen || isFormOpen || selectedDetailProject || guideModalOpen || guideSpotSteps) return undefined;
+    if (!shouldAutoStartTour({
+      username: currentUser?.username,
+      role: userRole,
+      loading,
+    })) return undefined;
+    const t = window.setTimeout(() => {
+      if (autoTourStartedRef.current) return;
+      autoTourStartedRef.current = true;
+      prepareGuideTourTargets();
+      setGuideTourActive(true);
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [
+    loading,
+    currentUser?.username,
+    userRole,
+    prepareGuideTourTargets,
+    isNotesOpen,
+    isFormOpen,
+    selectedDetailProject,
+    guideModalOpen,
+    guideSpotSteps,
+  ]);
+
+  const handleGuideNext = useCallback(() => {
+    if (guideSpotSteps) {
+      setGuideSpotSteps(null);
+      return;
+    }
+    const steps = getTourSteps();
+    if (guideTourStep >= steps.length - 1) {
+      closeGuideTour();
+      return;
+    }
+    const next = guideTourStep + 1;
+    if (steps[next]?.openDetail) {
+      const sample = sortedGroupedEntries[0]?.[1]?.[0];
+      if (sample) {
+        tourOpenedDetailRef.current = true;
+        openSubprojectDetail(sample);
+      }
+    }
+    setGuideTourStep(next);
+  }, [guideSpotSteps, guideTourStep, closeGuideTour, sortedGroupedEntries, openSubprojectDetail]);
+
+  const handleGuideBack = useCallback(() => {
+    if (guideSpotSteps) {
+      setGuideSpotSteps(null);
+      return;
+    }
+    if (guideTourStep === 3 && tourOpenedDetailRef.current) {
+      tourOpenedDetailRef.current = false;
+      setSelectedDetailProject(null);
+    }
+    setGuideTourStep((s) => Math.max(0, s - 1));
+  }, [guideSpotSteps, guideTourStep]);
+
+  const handleShowGuideTarget = useCallback((flow) => {
+    if (!flow?.target && !flow?.fallbackTarget) return;
+    setGuideTourActive(false);
+    setGuideTourStep(0);
+    setGuideModalOpen(false);
+    if (flow.expandCategory) {
+      setExpandedCategories((prev) => (
+        prev[flow.expandCategory] ? prev : { ...prev, [flow.expandCategory]: true }
+      ));
+    }
+    const selector = (flow.target && typeof document !== 'undefined' && document.querySelector(flow.target))
+      ? flow.target
+      : (flow.fallbackTarget || flow.target);
+    setGuideSpotSteps([{
+      id: flow.id,
+      title: flow.title,
+      body: flow.body,
+      target: selector,
+    }]);
+  }, []);
+
+  const activeGuideSteps = guideSpotSteps || (guideTourActive ? getTourSteps() : []);
+  const activeGuideStepIndex = guideSpotSteps ? 0 : guideTourStep;
+  const guideOverlayActive = guideTourActive || !!guideSpotSteps;
+
   return (
     <DashboardContainer ref={dashboardScrollRef}>
       {loading && (
@@ -6601,7 +6726,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           />
 
           {/* Κατάστρωμα: υπενθύμιση αντιγράφου + αναλυτική σύνοψη (οι διαδικασίες είναι στα FABs) */}
-          <CommandDeck aria-label="Κατάστρωμα ελέγχου">
+          <CommandDeck aria-label="Κατάστρωμα ελέγχου" data-user-guide="command-deck">
             {backupCatalog.showBackupButton(userRole) && backupReminderDue && (
               <CommandDeckTopRail>
                 <BackupReminderBanner $onDeck role="status" aria-live="polite">
@@ -6821,7 +6946,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                   const projectLinkedNotes = getEntityLinkedNotes(linkedNotesMap, projectId);
                   const isGroupCollapsed = collapsedGroups.has(projectId);
                   return (
-                  <ProjectGroup key={projectId}>
+                  <ProjectGroup key={projectId} data-user-guide="act-group">
                     <ProjectGroupHeaderBand>
                       <ProjectGroupHeaderTop>
                         <ProjectKindLabel>Πράξη</ProjectKindLabel>
@@ -6970,7 +7095,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         </SidebarPinnedStack>
 
         {/* Quick Search */}
-        <QuickSearchContainer>
+        <QuickSearchContainer data-user-guide="search-panel">
           <QuickSearchGrid>
             <SearchInputContainer>
               <SearchLabel>Γρήγορη Αναζήτηση</SearchLabel>
@@ -7023,7 +7148,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         </QuickSearchContainer>
 
         {canOpenProcurementCalendar && (
-          <CalendarNavButton type="button" onClick={() => setIsProcurementCalendarOpen(true)}>
+          <CalendarNavButton type="button" data-user-guide="calendar-nav" onClick={() => setIsProcurementCalendarOpen(true)}>
             <CalendarNavIcon>📅</CalendarNavIcon>
             Ημερολόγιο Προθεσμιών
           </CalendarNavButton>
@@ -7041,6 +7166,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             <PinnedNavButton
               type="button"
               $tone="create"
+              data-user-guide="create-nav"
               onClick={() => {
                 captureDashboardScrollForForm();
                 setEditingProject(null);
@@ -7055,6 +7181,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           <PinnedNavButton
             type="button"
             $tone="archive"
+            data-user-guide="archive-nav"
             $active={showArchivedProjects}
             aria-pressed={showArchivedProjects}
             title={showArchivedProjects
@@ -7076,7 +7203,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         </SidebarPinnedStack>
 
         {/* Κατηγορία: ΔΙΑΔΙΚΑΣΙΕΣ ΕΡΓΩΝ */}
-          <CategorySection $accentColor="#0891b2" $accentGrad="linear-gradient(135deg, #0891b2, #06b6d4)">
+          <CategorySection $accentColor="#0891b2" $accentGrad="linear-gradient(135deg, #0891b2, #06b6d4)" data-user-guide="procedures-nav">
             <CategoryHeader $open={expandedCategories.management} onClick={() => toggleCategory('management')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #0891b2, #06b6d4)">📂</CategoryHeaderIcon>
@@ -7085,7 +7212,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               <CategoryHeaderChevron $open={expandedCategories.management}>▶</CategoryHeaderChevron>
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.management}>
-              <AdminButton onClick={() => {
+              <AdminButton data-user-guide="nav-entaxis" onClick={() => {
                 if (dashboardScrollRef.current) {
                   savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
@@ -7094,7 +7221,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 <AdminButtonIcon>📊</AdminButtonIcon>
                 Εντάξεις Έργων
               </AdminButton>
-              <AdminButton onClick={() => {
+              <AdminButton data-user-guide="nav-proskliseis" onClick={() => {
                 if (dashboardScrollRef.current) {
                   savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
@@ -7103,18 +7230,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 <AdminButtonIcon>📢</AdminButtonIcon>
                 Προσκλήσεις
               </AdminButton>
-              <AdminButton onClick={() => setIsCreditApprovalsOpen(true)}>
+              <AdminButton data-user-guide="nav-egkriseis" onClick={() => setIsCreditApprovalsOpen(true)}>
                 <AdminButtonIcon>📋</AdminButtonIcon>
                 Εγκρίσεις Διάθεσης Πίστωσης
               </AdminButton>
               {orimanthiCatalog.showOrimanthiButton(userRole) && (
-              <AdminButton onClick={() => setIsOrimanthiOpen(true)} title="Βάση Δεδομένων — καταγραφή ωρίμανσης έργων">
+              <AdminButton data-user-guide="nav-orimanthi" onClick={() => setIsOrimanthiOpen(true)} title="Βάση Δεδομένων — καταγραφή ωρίμανσης έργων">
                 <AdminButtonIcon>🌱</AdminButtonIcon>
                 Ωρίμανση Έργων
               </AdminButton>
               )}
               {meletaiCatalog.showMeletaiButton(userRole) && (
-              <AdminButton onClick={() => {
+              <AdminButton data-user-guide="nav-meletai" onClick={() => {
                 if (dashboardScrollRef.current) {
                   savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
@@ -7126,7 +7253,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               </AdminButton>
               )}
               {epProgramCatalog.showEpProgramButton(userRole) && (
-                <AdminButton onClick={() => {
+                <AdminButton data-user-guide="nav-ep" onClick={() => {
                   if (dashboardScrollRef.current) {
                     savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                   }
@@ -7140,7 +7267,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           </CategorySection>
 
         {taskAccess.showModule && (
-          <CategorySection $accentColor="#6366f1" $accentGrad="linear-gradient(135deg, #6366f1, #4f46e5)">
+          <CategorySection $accentColor="#6366f1" $accentGrad="linear-gradient(135deg, #6366f1, #4f46e5)" data-user-guide="tasks-nav">
             <CategoryHeader $open={expandedCategories.assignments} onClick={() => toggleCategory('assignments')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #6366f1, #4f46e5)">📌</CategoryHeaderIcon>
@@ -7165,7 +7292,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         )}
 
         {/* Κατηγορία: ΕΞΑΓΩΓΕΣ */}
-        <CategorySection $accentColor="#059669" $accentGrad="linear-gradient(135deg, #059669, #10b981)">
+        <CategorySection $accentColor="#059669" $accentGrad="linear-gradient(135deg, #059669, #10b981)" data-user-guide="exports-nav">
             <CategoryHeader $open={expandedCategories.exports} onClick={() => toggleCategory('exports')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #059669, #10b981)">📤</CategoryHeaderIcon>
@@ -7251,7 +7378,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
         {/* Κατηγορία: ΣΥΣΤΗΜΑ — αντίγραφα/ειδοποιήσεις/email σε ADMIN+· λοιπά SUPERADMIN */}
         {canManageAll && (
-          <CategorySection $accentColor="#be185d" $accentGrad="linear-gradient(135deg, #be185d, #ec4899)">
+          <CategorySection $accentColor="#be185d" $accentGrad="linear-gradient(135deg, #be185d, #ec4899)" data-user-guide="system-nav">
             <CategoryHeader $open={expandedCategories.system} onClick={() => toggleCategory('system')}>
               <CategoryHeaderLeft>
                 <CategoryHeaderIcon $accent="linear-gradient(135deg, #be185d, #ec4899)">⚙️</CategoryHeaderIcon>
@@ -7261,14 +7388,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.system}>
               {backupCatalog.showBackupButton(userRole) && (
-              <AdminButton onClick={() => setIsBackupManagerOpen(true)}>
+              <AdminButton data-user-guide="nav-backup" onClick={() => setIsBackupManagerOpen(true)}>
                 <AdminButtonIcon>💾</AdminButtonIcon>
                 Αντίγραφα Ασφαλείας
                 {backupReminderDue && <ReminderDot title="Χρειάζεται νέο αντίγραφο ασφαλείας" />}
               </AdminButton>
               )}
               {emailCatalog.canOpenNotificationCenter(userRole) && (
-              <AdminButton onClick={() => setIsCalendarSettingsOpen(true)}>
+              <AdminButton data-user-guide="nav-notifications" onClick={() => setIsCalendarSettingsOpen(true)}>
                 <AdminButtonIcon>🔔</AdminButtonIcon>
                 Κέντρο Ειδοποιήσεων
               </AdminButton>
@@ -8179,7 +8306,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
 
       {(canManageAll || isEngineer) && !isNotesOpen && (
-        <NotesFab onClick={handleOpenNotes} title="Γρήγορες Σημειώσεις">
+        <NotesFab data-user-guide="notes-fab" onClick={handleOpenNotes} title="Γρήγορες Σημειώσεις">
           📝
         </NotesFab>
       )}
@@ -8190,6 +8317,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         khmdhsBatchRunning={khmdhsBatchRunning}
         staleCount={khmdhsStaleCount}
         oldestDays={khmdhsOldestDays}
+        helpActive={guideModalOpen || guideTourActive || !!guideSpotSteps}
+        onOpenHelp={() => {
+          if (tourOpenedDetailRef.current) {
+            tourOpenedDetailRef.current = false;
+            setSelectedDetailProject(null);
+          }
+          setGuideTourActive(false);
+          setGuideSpotSteps(null);
+          setGuideModalOpen(true);
+        }}
         KhmdhsBatchRefreshWidget={KhmdhsBatchRefreshWidget}
         CalendarDeadlineWidget={CalendarDeadlineWidget}
         khmdhsWidgetProps={{
@@ -8269,6 +8406,31 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           />
         </Suspense>
       )}
+
+      <UserGuideModal
+        open={guideModalOpen}
+        role={userRole}
+        canManageKhmdhs={khmdhsRefresh.showBatchRefreshButton(userRole)}
+        onClose={() => setGuideModalOpen(false)}
+        onStartTour={startGuideTour}
+        onShowTarget={handleShowGuideTarget}
+      />
+      <UserGuideTour
+        active={guideOverlayActive && !loading}
+        stepIndex={activeGuideStepIndex}
+        steps={activeGuideSteps}
+        showDiagram={sortedGroupedEntries.length === 0}
+        headerOffset={mainHeaderOffsetPx}
+        onNext={handleGuideNext}
+        onBack={handleGuideBack}
+        onSkip={() => {
+          if (guideSpotSteps) {
+            setGuideSpotSteps(null);
+            return;
+          }
+          closeGuideTour();
+        }}
+      />
 
     </DashboardContainer>
   );

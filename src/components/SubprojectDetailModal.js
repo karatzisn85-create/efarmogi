@@ -2099,7 +2099,7 @@ function SubprojectDetailModal({
             </HeaderActions>
           </div>
           <PhaseTabRow>
-            <PhaseTabStrip>
+            <PhaseTabStrip data-user-guide="detail-tabs">
               <PhaseTab
                 type="button"
                 $active={activePhaseTab === 'A'}

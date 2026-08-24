@@ -32,4 +32,14 @@ describe('computeFabClearancePx', () => {
     const withKh = computeFabClearancePx({ opsVisible: true, khmdhsVisible: true });
     expect(withKh).toBeGreaterThan(without);
   });
+
+  test('ops με οδηγό → ψηλότερα ώστε να μην καλύπτει το νέο κουμπί', () => {
+    const without = computeFabClearancePx({ opsVisible: true, khmdhsVisible: true });
+    const withHelp = computeFabClearancePx({
+      opsVisible: true,
+      khmdhsVisible: true,
+      helpVisible: true,
+    });
+    expect(withHelp).toBe(without + 12 + 50);
+  });
 });

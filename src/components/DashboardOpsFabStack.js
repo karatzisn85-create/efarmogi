@@ -300,7 +300,7 @@ const PanelBody = styled.div`
 `;
 
 /**
- * Αιωρούμενα κουμπιά για μαζική ανανέωση ΚΗΜΔΗΣ και ραντάρ προθεσμιών,
+ * Αιωρούμενα κουμπιά: οδηγός, μαζική ανανέωση ΚΗΜΔΗΣ και ραντάρ προθεσμιών,
  * πάνω από το κουμπί γρήγορων σημειώσεων.
  */
 export default function DashboardOpsFabStack({
@@ -313,6 +313,8 @@ export default function DashboardOpsFabStack({
   CalendarDeadlineWidget,
   khmdhsWidgetProps = {},
   deadlineWidgetProps = {},
+  helpActive = false,
+  onOpenHelp,
 }) {
   const [khmdhsOpen, setKhmdhsOpen] = useState(false);
   const [deadlineOpen, setDeadlineOpen] = useState(false);
@@ -356,6 +358,7 @@ export default function DashboardOpsFabStack({
           <FabWrap>
             <OpsFab
               type="button"
+              data-user-guide="deadline-fab"
               $tone="deadline"
               $alert={!!deadlineSummary.hasUrgent}
               $active={deadlineOpen}
@@ -378,6 +381,7 @@ export default function DashboardOpsFabStack({
             <FabWrap>
               <KhmdhsHeroFab
                 type="button"
+                data-user-guide="khmdhs-fab"
                 $alert={khmdhsAlert}
                 $running={khmdhsBatchRunning}
                 $active={khmdhsOpen}
@@ -395,6 +399,30 @@ export default function DashboardOpsFabStack({
                 </KhmdhsIconChip>
                 {khmdhsAlert && <FabBadge>{staleCount > 99 ? '99+' : staleCount}</FabBadge>}
               </KhmdhsHeroFab>
+            </FabWrap>
+          )}
+
+          {typeof onOpenHelp === 'function' && (
+            <FabWrap>
+              <OpsFab
+                type="button"
+                data-user-guide="help-fab"
+                $active={helpActive}
+                onClick={() => {
+                  if (khmdhsBatchRunning) return;
+                  setDeadlineOpen(false);
+                  setKhmdhsOpen(false);
+                  onOpenHelp();
+                }}
+                aria-label="Οδηγός χρήσης"
+                style={{
+                  background: 'linear-gradient(135deg, #1e3a5f 0%, #1e40af 55%, #3b82f6 100%)',
+                  boxShadow: '0 6px 20px rgba(30, 64, 175, 0.4)',
+                }}
+              >
+                <FabTip>Οδηγός χρήσης</FabTip>
+                ?
+              </OpsFab>
             </FabWrap>
           )}
         </Stack>
