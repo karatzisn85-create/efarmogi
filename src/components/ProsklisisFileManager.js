@@ -98,6 +98,63 @@ const FolderTitle = styled.h3`
   border-left: 4px solid ${C.indigo};
 `;
 
+const GroupCard = styled.div`
+  margin-bottom: 0.65rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+`;
+
+const GroupHeaderRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.65rem;
+`;
+
+const GroupToggle = styled.button`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.2rem 0.15rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: #1e293b;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  &:hover { color: #3730a3; }
+`;
+
+const GroupChevron = styled.span`
+  flex-shrink: 0;
+  color: #64748b;
+  font-size: 0.72rem;
+  transform: rotate(${(p) => (p.$open ? '90deg' : '0deg')});
+  transition: transform 0.15s ease;
+`;
+
+const GroupCount = styled.span`
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: none;
+  letter-spacing: 0;
+`;
+
+const GroupBody = styled.div`
+  padding: 0 0.75rem 0.75rem;
+`;
+
 const FilesList = styled.div`
   display: flex;
   flex-direction: column;
@@ -256,6 +313,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     attachments: []
   });
   const [fileGroups, setFileGroups] = useState([]); // Νέα κατάσταση για ομάδες αρχείων
+  const [expandedGroupIds, setExpandedGroupIds] = useState({});
   const [registrySource, setRegistrySource] = useState({
     documentRegistry: [],
     diavgeiaMeta: null,
@@ -272,6 +330,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
 
   useEffect(() => {
     if (isOpen && prosklisiId) {
+      setExpandedGroupIds({});
       loadFiles();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -313,6 +372,10 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleFileGroup = (groupKey) => {
+    setExpandedGroupIds((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
 
   const handleUploadFiles = async () => {
@@ -975,39 +1038,34 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                   <FolderTitle>
                     📁 Ομαδοποιημένα Αρχεία
                   </FolderTitle>
-                  {fileGroups.map((group, groupIndex) => (
-                    <div key={group.id || groupIndex} style={{ 
-                      marginBottom: '1rem',
-                      background: '#f8fafc',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '10px',
-                      padding: '0.75rem'
-                    }}>
-                      <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'space-between',
-                        marginBottom: '0.55rem',
-                        paddingBottom: '0.45rem',
-                        borderBottom: '1px solid #e2e8f0'
-                      }}>
-                        <h4 style={{ 
-                          margin: 0, 
-                          color: '#1e293b', 
-                          fontSize: '0.82rem',
-                          fontWeight: 700,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.04em'
-                        }}>
-                          📁 {group.title}
-                        </h4>
+                  {fileGroups.map((group, groupIndex) => {
+                    const groupKey = String(group.id || groupIndex);
+                    const isOpenGroup = !!expandedGroupIds[groupKey];
+                    const fileCount = (group.files && group.files.length) || 0;
+                    return (
+                    <GroupCard key={group.id || groupIndex}>
+                      <GroupHeaderRow>
+                        <GroupToggle
+                          type="button"
+                          aria-expanded={isOpenGroup}
+                          onClick={() => toggleFileGroup(groupKey)}
+                        >
+                          <GroupChevron $open={isOpenGroup} aria-hidden>▶</GroupChevron>
+                          <span>📁 {group.title}</span>
+                          <GroupCount>{fileCount} {fileCount === 1 ? 'αρχείο' : 'αρχεία'}</GroupCount>
+                        </GroupToggle>
                         {canManageWorkflow && (
                           <DeleteIconBtn
                             title="Διαγραφή Ομάδας"
-                            onClick={() => handleDeleteGroup(group.id || groupIndex)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteGroup(group.id || groupIndex);
+                            }}
                           >✕</DeleteIconBtn>
                         )}
-                      </div>
+                      </GroupHeaderRow>
+                      {isOpenGroup && (
+                      <GroupBody>
                       <FilesList>
                         {group.files && group.files.length > 0 ? (
                           group.files.map((file, fileIndex) => {
@@ -1033,8 +1091,11 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                           <EmptyFolder>Δεν υπάρχουν αρχεία σε αυτή την ομάδα</EmptyFolder>
                         )}
                       </FilesList>
-                    </div>
-                  ))}
+                      </GroupBody>
+                      )}
+                    </GroupCard>
+                    );
+                  })}
                 </FolderSection>
               )}
             </>
