@@ -11,6 +11,7 @@ import AdvancedFilters from './AdvancedFilters';
 import ActiveFiltersBanner from './ActiveFiltersBanner';
 import DashboardOverviewZone from './DashboardOverviewZone';
 import DashboardOpsFabStack from './DashboardOpsFabStack';
+import SplashScreen from './SplashScreen';
 import FileManager from './FileManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
 import {
@@ -6543,6 +6544,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   return (
     <DashboardContainer ref={dashboardScrollRef}>
+      {loading && (
+        <SplashScreen
+          isLoading
+          organizationName={appConfig.organizationFullName}
+        />
+      )}
       <Header ref={mainHeaderRef}>
         <UserInfo>
           <UserRole role={userRole}>

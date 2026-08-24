@@ -1,150 +1,164 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import ergohubLogo from '../assets/ergohub-logo.svg';
 
-// Animation για το spinner
-const spin = keyframes`
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-`;
+const BOOT_PHASES = [
+  'Προετοιμασία του μητρώου της τεχνικής υπηρεσίας',
+  'Επαλήθευση δικαιωμάτων πρόσβασης',
+  'Ανάκτηση του φακέλου δεδομένων του Δήμου',
+  'Σύνθεση χαρτοφυλακίου έργων και προμηθειών',
+  'Ολοκλήρωση ασφαλούς σύνδεσης στο αρχείο',
+];
 
 const fadeIn = keyframes`
-  0% { opacity: 0; }
-  100% { opacity: 1; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 `;
 
-const pulse = keyframes`
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+const textFade = keyframes`
+  0% { opacity: 0.35; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0.35; }
 `;
 
-// Styled Components
+const slide = keyframes`
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+`;
+
 const SplashContainer = styled.div`
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  inset: 0;
+  z-index: 9200;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  z-index: 9999;
-  animation: ${fadeIn} 0.5s ease-in;
+  background: #0b1220;
+  animation: ${fadeIn} 0.35s ease-out;
 `;
 
-const LogoContainer = styled.div`
+const Crest = styled.div`
+  width: min(92vw, 440px);
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 40px;
+  text-align: center;
 `;
 
 const AppIcon = styled.img`
-  width: 120px;
-  height: 120px;
-  border-radius: 25px;
-  margin-bottom: 20px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-  animation: ${pulse} 2s ease-in-out infinite;
+  width: 88px;
+  height: 88px;
+  border-radius: 20px;
+  margin-bottom: 1.35rem;
   object-fit: cover;
+  border: 1px solid rgba(201, 162, 39, 0.35);
+`;
+
+const OrgLine = styled.p`
+  margin: 0 0 0.85rem;
+  color: #c9a227;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 `;
 
 const AppTitle = styled.h1`
-  color: white;
-  font-size: 32px;
-  font-weight: 300;
   margin: 0;
-  text-align: center;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  color: #f8fafc;
+  font-size: 2rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
 `;
 
 const AppSubtitle = styled.p`
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 16px;
-  margin: 10px 0 0 0;
-  text-align: center;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  margin: 0.55rem 0 0;
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 `;
 
-const LoadingContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-`;
-
-const Spinner = styled.div`
-  width: 50px;
-  height: 50px;
-  border: 4px solid rgba(255, 255, 255, 0.3);
-  border-top: 4px solid white;
-  border-radius: 50%;
-  animation: ${spin} 1s linear infinite;
-  margin-bottom: 20px;
+const Rule = styled.div`
+  width: 56px;
+  height: 1px;
+  margin: 1.35rem 0 1.15rem;
+  background: #c9a227;
 `;
 
 const LoadingText = styled.p`
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 18px;
   margin: 0;
-  text-align: center;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  animation: ${pulse} 1.5s ease-in-out infinite;
+  color: #f1f5f9;
+  font-size: 1.05rem;
+  font-weight: 500;
 `;
 
-const ProgressBar = styled.div`
-  width: 300px;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 2px;
-  margin-top: 20px;
+const ProgressTrack = styled.div`
+  width: min(78vw, 320px);
+  height: 2px;
+  margin-top: 1.35rem;
   overflow: hidden;
+  background: rgba(148, 163, 184, 0.22);
 `;
 
 const ProgressFill = styled.div`
   height: 100%;
-  background: linear-gradient(90deg, #ff6b6b, #4ecdc4);
-  border-radius: 2px;
-  width: ${props => props.progress || 0}%;
-  transition: width 0.3s ease;
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  background: #c9a227;
+  width: ${(p) => (p.$indeterminate ? '38%' : `${p.$progress || 0}%`)};
+  animation: ${(p) => (p.$indeterminate ? slide : 'none')} 1.6s ease-in-out infinite;
+  transition: ${(p) => (p.$indeterminate ? 'none' : 'width 0.35s ease')};
 `;
 
 const StatusText = styled.p`
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 14px;
-  margin: 15px 0 0 0;
-  text-align: center;
-  min-height: 20px;
+  margin: 1rem 0 0;
+  min-height: 1.35rem;
+  color: rgba(148, 163, 184, 0.95);
+  font-size: 0.84rem;
+  animation: ${textFade} 1.55s ease-in-out infinite;
 `;
 
-const SplashScreen = ({ 
-  isLoading = true, 
-  progress = 0, 
-  statusText = "Φόρτωση εφαρμογής...",
-  loadingText = "Παρακαλώ περιμένετε..."
-}) => {
+function SplashScreen({
+  isLoading = true,
+  progress = null,
+  statusText,
+  loadingText = 'Ενεργοποίηση της πλατφόρμας',
+  organizationName = '',
+}) {
+  const [phase, setPhase] = useState(0);
+  const rotate = statusText == null || statusText === '';
+
+  useEffect(() => {
+    if (!isLoading || !rotate) return undefined;
+    const id = setInterval(() => {
+      setPhase((prev) => (prev + 1) % BOOT_PHASES.length);
+    }, 1600);
+    return () => clearInterval(id);
+  }, [isLoading, rotate]);
+
   if (!isLoading) return null;
 
+  const org = String(organizationName || '').trim();
+  const shownStatus = rotate ? BOOT_PHASES[phase] : statusText;
+  const indeterminate = progress == null;
+
   return (
-    <SplashContainer>
-      <LogoContainer>
-        <AppIcon src={ergohubLogo} alt="ERGOHUB" />
+    <SplashContainer role="status" aria-live="polite" aria-busy="true">
+      <Crest>
+        <AppIcon src={ergohubLogo} alt="" />
+        {org ? <OrgLine>{org}</OrgLine> : null}
         <AppTitle>ERGOHUB</AppTitle>
-        <AppSubtitle>Πληροφοριακό Σύστημα Διαχείρισης Έργων & Προμηθειών</AppSubtitle>
-      </LogoContainer>
-      
-      <LoadingContainer>
-        <Spinner />
+        <AppSubtitle>Πλατφόρμα διαχείρισης έργων και προμηθειών</AppSubtitle>
+        <Rule />
         <LoadingText>{loadingText}</LoadingText>
-        <ProgressBar>
-          <ProgressFill progress={progress} />
-        </ProgressBar>
-        <StatusText>{statusText}</StatusText>
-      </LoadingContainer>
+        <ProgressTrack>
+          <ProgressFill $indeterminate={indeterminate} $progress={progress} />
+        </ProgressTrack>
+        <StatusText>{shownStatus}</StatusText>
+      </Crest>
     </SplashContainer>
   );
-};
+}
 
 export default SplashScreen;

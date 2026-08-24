@@ -352,7 +352,8 @@ function App() {
           isLoading={isAppLoading}
           progress={loadingProgress}
           statusText={loadingStatus}
-          loadingText="ERGOHUB"
+          loadingText="Ενεργοποίηση της πλατφόρμας"
+          organizationName={appConfig.organizationFullName}
         />
         {!isAppLoading && (
           <Router>
