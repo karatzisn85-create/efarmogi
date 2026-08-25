@@ -119,6 +119,21 @@ describe('calendarConfigService', () => {
     ).toBe(true);
   });
 
+  test('νέος τύπος εγγυητικών ενεργοποιείται όταν λείπει από παλιές ρυθμίσεις ανά τύπο', () => {
+    const normalized = normalizeConfig({
+      eventTypeSettings: {
+        contract_end: {
+          enabled: true,
+          recipientRoles: ['ADMIN'],
+          recipientUsernames: [],
+        },
+      },
+    });
+    expect(normalized.eventTypeSettings.contractor_registry.enabled).toBe(true);
+    expect(normalized.eventTypeSettings.contractor_registry.recipientRoles).toEqual(['ADMIN', 'ENGINEER']);
+    expect(normalized.notifyEventTypes).toContain('contractor_registry');
+  });
+
   test('userMatchesEventTypeRecipients checks role and explicit username', () => {
     const setting = getEventTypeSetting(
       {

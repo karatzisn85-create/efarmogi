@@ -10,6 +10,7 @@ import {
 } from '../utils/customCalendarEvents';
 import { buildAepoCalendarEvents } from '../utils/aepoCalendarEvents';
 import { buildProsklisiCalendarEvents } from '../utils/prosklisiCalendarEvents';
+import { buildContractorRadarCalendarEvents } from '../utils/contractorRadarCalendarEvents';
 import {
   buildCalendarDeadlineAlerts,
   formatCalendarDaysLabel,
@@ -356,6 +357,8 @@ function typeVisual(type) {
       return { icon: '🌿', bg: 'rgba(99, 102, 241, 0.25)' };
     case CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE:
       return { icon: '📢', bg: 'rgba(14, 165, 233, 0.22)' };
+    case CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY:
+      return { icon: '🏦', bg: 'rgba(29, 78, 216, 0.22)' };
     default:
       return { icon: '📅', bg: 'rgba(255, 255, 255, 0.12)' };
   }
@@ -372,6 +375,8 @@ export default function CalendarDeadlineWidget({
   onOpenProsklisi,
   onOpenCalendar,
   onOpenOrimanthi,
+  onOpenContractorRegistry,
+  visibleSubprojectIds = null,
   includeAepo = false,
   maxDays = 30,
   limit = 8,
@@ -383,6 +388,7 @@ export default function CalendarDeadlineWidget({
 }) {
   const [customEventsRaw, setCustomEventsRaw] = useState([]);
   const [aepoAlertsRaw, setAepoAlertsRaw] = useState([]);
+  const [contractorRecords, setContractorRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(() => (panelMode ? true : readExpandedPreference()));
 
@@ -416,15 +422,31 @@ export default function CalendarDeadlineWidget({
     }
   }, [includeAepo, maxDays]);
 
+  const loadContractorRecords = useCallback(async () => {
+    if (userRole === 'USER' || !currentUser?.username) {
+      setContractorRecords([]);
+      return;
+    }
+    try {
+      const res = await ipcRenderer.invoke('load-contractor-registry', {
+        actingUsername: currentUser.username,
+      });
+      if (res?.success) setContractorRecords(res.records || []);
+      else setContractorRecords([]);
+    } catch {
+      setContractorRecords([]);
+    }
+  }, [userRole, currentUser?.username]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      await Promise.all([loadCustomEvents(), loadAepoAlerts()]);
+      await Promise.all([loadCustomEvents(), loadAepoAlerts(), loadContractorRecords()]);
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [loadCustomEvents, loadAepoAlerts, refreshKey]);
+  }, [loadCustomEvents, loadAepoAlerts, loadContractorRecords, refreshKey]);
 
   const allEvents = useMemo(() => {
     const procurement = buildProcurementCalendarEvents(projects, {
@@ -435,8 +457,16 @@ export default function CalendarDeadlineWidget({
     const custom = buildCustomCalendarEvents(customEventsRaw);
     const aepo = buildAepoCalendarEvents(aepoAlertsRaw);
     const prosklisiEv = buildProsklisiCalendarEvents(proskliseis);
-    return mergeCalendarEventLists(procurement, custom, aepo, prosklisiEv);
-  }, [projects, proskliseis, userRole, currentUser, engineerCatalog, customEventsRaw, aepoAlertsRaw]);
+    const contractorEv = buildContractorRadarCalendarEvents({
+      projects,
+      records: contractorRecords,
+      role: userRole,
+      visibleSubprojectIds,
+      warnDays: maxDays,
+      urgentDays: 7,
+    });
+    return mergeCalendarEventLists(procurement, custom, aepo, prosklisiEv, contractorEv);
+  }, [projects, proskliseis, userRole, currentUser, engineerCatalog, customEventsRaw, aepoAlertsRaw, contractorRecords, visibleSubprojectIds, maxDays]);
 
   const { alerts, totalCount } = useMemo(
     () => buildCalendarDeadlineAlerts(allEvents, { maxDays, limit: 0 }),
@@ -468,6 +498,10 @@ export default function CalendarDeadlineWidget({
   };
 
   const handleClick = (row) => {
+    if (row.isContractorRegistry && onOpenContractorRegistry) {
+      onOpenContractorRegistry({ rowKey: row.contractorRowKey, subprojectId: row.subprojectId });
+      return;
+    }
     if (row.orimanthiProposalId && onOpenOrimanthi) {
       onOpenOrimanthi({ proposalId: row.orimanthiProposalId });
       return;
@@ -549,7 +583,8 @@ export default function CalendarDeadlineWidget({
               const soon = row.daysLeft != null && row.daysLeft > 7 && row.daysLeft <= 14;
               const vis = typeVisual(row.type);
               const clickable = !!(
-                row.subprojectId
+                row.isContractorRegistry
+                || row.subprojectId
                 || row.customEventId
                 || row.orimanthiProposalId
                 || onOpenCalendar
@@ -563,13 +598,15 @@ export default function CalendarDeadlineWidget({
                   $soon={soon}
                   onClick={() => handleClick(row)}
                   title={
-                    row.orimanthiProposalId
-                      ? 'Άνοιγμα Ωρίμανσης'
-                      : row.subprojectId
-                        ? 'Άνοιγμα υποέργου'
-                        : row.customEventId
-                          ? 'Προβολή ειδοποίησης'
-                          : 'Άνοιγμα ημερολογίου'
+                    row.isContractorRegistry
+                      ? 'Άνοιγμα καρτέλας αναδόχου'
+                      : row.orimanthiProposalId
+                        ? 'Άνοιγμα Ωρίμανσης'
+                        : row.subprojectId
+                          ? 'Άνοιγμα υποέργου'
+                          : row.customEventId
+                            ? 'Προβολή ειδοποίησης'
+                            : 'Άνοιγμα ημερολογίου'
                   }
                 >
                   <TypeIcon $bg={vis.bg} aria-hidden>{vis.icon}</TypeIcon>

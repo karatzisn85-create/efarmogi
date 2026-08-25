@@ -27,6 +27,7 @@ export const ALL_CALENDAR_EVENT_TYPES = calendarDeadlines.ALL_CALENDAR_EVENT_TYP
 export const toDateKey = calendarDeadlines.toDateKey;
 export const isDateOnlyCalendarIso = calendarDeadlines.isDateOnlyCalendarIso;
 export const calendarEventRowKey = calendarDeadlines.calendarEventRowKey;
+export const isContractorCalendarEvent = calendarDeadlines.isContractorCalendarEvent;
 export const filterProjectsForCalendar = calendarDeadlines.filterProjectsForCalendar;
 export const filterCalendarEventsByType = calendarDeadlines.filterCalendarEventsByType;
 export const eventsInMonth = calendarDeadlines.eventsInMonth;
@@ -347,6 +348,8 @@ export function dedupeEventsForMonthDay(events) {
       bucketKey = `prosklisi|${ev.prosklisiId}|${ev.dateKey}`;
     } else if (ev.type === CALENDAR_EVENT_TYPES.AEPO_RENEWAL || ev.orimanthiProposalId) {
       bucketKey = `aepo|${ev.orimanthiProposalId}|${ev.dateKey}`;
+    } else if (ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY || ev.isContractorRegistry) {
+      bucketKey = `contractor|${ev.guaranteeId || ev.acceptanceId || ev.contractorRowKey}|${ev.dateKey}`;
     } else {
       bucketKey = `${ev.subprojectId}|${ev.dateKey}`;
     }

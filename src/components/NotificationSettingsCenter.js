@@ -262,6 +262,7 @@ const REMINDER_EVENT_TYPES = [
   CALENDAR_EVENT_TYPES.COMPLIANCE_12M,
   CALENDAR_EVENT_TYPES.CUSTOM,
   CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
+  CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY,
 ];
 
 function makeDefaultTypeSetting() {
@@ -452,7 +453,8 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
     const payloadSettings = {};
     REMINDER_EVENT_TYPES.forEach((type) => {
       const row = eventTypeSettings[type] || makeDefaultTypeSetting();
-      const roles = Array.isArray(row.recipientRoles) ? row.recipientRoles : [];
+      const roles = (Array.isArray(row.recipientRoles) ? row.recipientRoles : [])
+        .filter((r) => type !== CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY || r !== 'USER');
       payloadSettings[type] = {
         enabled: row.enabled === true,
         recipientRoles: roles.length ? roles : (Array.isArray(row.recipientUsernames) && row.recipientUsernames.length ? [] : ['ADMIN']),
@@ -615,7 +617,11 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
                   checked={row.enabled === true}
                   onChange={(e) => updateTypeSetting(eventType, { enabled: e.target.checked })}
                 />
-                <span style={{ fontWeight: 700 }}>{CALENDAR_EVENT_LABELS[eventType]}</span>
+                <span style={{ fontWeight: 700 }}>
+                  {eventType === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY
+                    ? 'Λήξη εγγυητικής ή χρόνου εγγύησης'
+                    : (CALENDAR_EVENT_LABELS[eventType] || eventType)}
+                </span>
               </CheckRow>
               {row.enabled === true && (
                 <TypeCardBody>
@@ -636,6 +642,7 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
                       />
                       <span>Μηχανικοί</span>
                     </CheckRow>
+                    {eventType !== CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY && (
                     <CheckRow>
                       <input
                         type="checkbox"
@@ -644,6 +651,7 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
                       />
                       <span>Χρήστες</span>
                     </CheckRow>
+                    )}
                   </TypeCardRoles>
                   <FieldGroup style={{ marginBottom: 0 }}>
                     <Label>Επιπλέον συγκεκριμένοι χρήστες</Label>
@@ -668,8 +676,9 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
         })}
         <HelpText>
           Π.χ. οι λήξεις συμβάσεων μόνο στους διαχειριστές, οι προθεσμίες
-          προσφορών και στους μηχανικούς. Οι μηχανικοί βλέπουν μόνο υποέργα
-          που τους αφορούν.
+          προσφορών και στους μηχανικούς. Οι λήξεις εγγυητικών και χρόνου
+          εγγύησης αφορούν το μητρώο αναδόχων — όχι τους χρήστες ανάγνωσης.
+          Οι μηχανικοί βλέπουν μόνο υποέργα που τους αφορούν.
         </HelpText>
       </Section>
 

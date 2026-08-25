@@ -163,6 +163,10 @@ test('το ημερολόγιο προθεσμιών καλεί τον κοιν�
   assert.match(form, /isoFromDateAndTime/);
   const calendar = read('src/components/ProcurementCalendar.js');
   assert.match(calendar, /canCreateCustomCalendarEvent/);
+  assert.match(calendar, /buildContractorRadarCalendarEvents/);
+  const widget = read('src/components/CalendarDeadlineWidget.js');
+  assert.match(widget, /buildContractorRadarCalendarEvents/);
+  assert.match(widget, /onOpenContractorRegistry/);
   const service = read('public/calendarCustomEventsService.js');
   assert.match(service, /require\('\.\.\/app\/core\/calendarDeadlines'\)/);
   assert.match(service, /userCanSeeCustomEvent/);
@@ -172,6 +176,15 @@ test('το ημερολόγιο προθεσμιών καλεί τον κοιν�
   assert.match(builder, /require\('\.\.\/app\/core\/calendarDeadlines'\)/);
   assert.match(builder, /isActiveProcurementProject/);
   assert.match(builder, /shouldShowContractEndEvent/);
+  assert.match(builder, /CONTRACTOR_REGISTRY/);
+  assert.match(builder, /collectGuaranteeReminderItems/);
+  const notifyCenter = read('src/components/NotificationSettingsCenter.js');
+  assert.match(notifyCenter, /CONTRACTOR_REGISTRY/);
+  const calCfg = read('public/calendarConfigService.js');
+  assert.match(calCfg, /CONTRACTOR_REGISTRY: 'contractor_registry'/);
+  const reminderSvc = read('public/procurementCalendarReminderService.js');
+  assert.match(reminderSvc, /loadContractorRecords/);
+  assert.match(reminderSvc, /contractorRecords/);
 });
 
 test('η ροή μετά την ανάκτηση ΚΗΜΔΗΣ καλεί τον κοινό πυρήνα', () => {
@@ -288,6 +301,7 @@ test('στατιστικά και εξαγωγές καλούν τον κοιν�
   assert.match(reportData, /getLinkedProskliseis/);
   const card = read('src/components/ProjectCard.js');
   assert.match(card, /showCardReportButton/);
+  assert.match(card, /onOpenContractorRegistry/);
 });
 
 test('η πύλη διαφάνειας καλεί τον κοινό πυρήνα', () => {
@@ -443,6 +457,44 @@ test('το email και η σύνδεση καλούν τον κοινό πυρ�
   const harness = read('e2e/harness/workspace.js');
   assert.match(harness, /ErgoHubEmailCatalog/);
   assert.match(harness, /evaluateAuthenticate/);
+});
+
+test('το μητρώο αναδόχων καλεί τον κοινό πυρήνα', () => {
+  const dash = read('src/components/Dashboard.js');
+  assert.match(dash, /from '\.\.\/\.\.\/app\/core\/contractorRegistry'/);
+  assert.match(dash, /showContractorRegistryButton/);
+  assert.match(dash, /ContractorRegistryManager/);
+  const manager = read('src/components/ContractorRegistryManager.js');
+  assert.match(manager, /from '\.\.\/\.\.\/app\/core\/contractorRegistry'/);
+  assert.match(manager, /isContractorRegistryReadOnly/);
+  assert.match(manager, /filterContractorHub/);
+  assert.match(manager, /buildContractorHubRows/);
+  assert.match(manager, /evaluateGuarantee/);
+  assert.match(manager, /upsertGuaranteeInList/);
+  assert.match(manager, /evaluateAcceptance/);
+  assert.match(manager, /upsertAcceptanceInList/);
+  assert.match(manager, /initialRowKey/);
+  assert.match(manager, /focusNonce/);
+  assert.match(manager, /contractorPendingLockId/);
+  assert.match(dash, /contractorRegistryFocusNonce/);
+  assert.match(dash, /onOpenContractorRegistry/);
+  assert.match(dash, /openContractorRegistryCard/);
+  const display = read('src/utils/projectCardDisplay.js');
+  assert.match(display, /from '\.\.\/\.\.\/app\/core\/contractorRegistry'/);
+  assert.match(display, /contractorIdentityKey/);
+  const card = read('src/components/ProjectCard.js');
+  assert.match(card, /onOpenContractorRegistry/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/contractorRegistry'\)/);
+  assert.match(electron, /save-contractor-registry-record/);
+  assert.match(electron, /engineerMayAccessRecord/);
+  assert.match(electron, /contractorPendingLockId/);
+  assert.match(electron, /filterRecordsForViewer/);
+  assert.match(electron, /presentContractorRegistryRecords/);
+  assert.match(manager, /delete-contractor-registry-record/);
+  assert.match(manager, /canEditContactField/);
+  const preload = read('public/preload.js');
+  assert.match(preload, /load-contractor-registry/);
 });
 
 test('το μητρώο μελετών καλεί τον κοινό πυρήνα', () => {

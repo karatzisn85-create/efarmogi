@@ -24,6 +24,8 @@ import {
 } from './khmdhsChainActions';
 import { resolveContractEndDateIso } from './procurementCalendarEvents';
 
+import contractorRegistry from '../../app/core/contractorRegistry';
+
 function formatDate(value) {
   return formatDateEl(value, '');
 }
@@ -34,6 +36,13 @@ function pickContractor(snapshot) {
     name: String(snapshot.anadoxosName || snapshot.contractorName || '').trim(),
     vat: String(snapshot.anadoxosVat || snapshot.contractorVat || '').trim(),
   };
+}
+
+function contractorRowIdentity(contractor) {
+  return contractorRegistry.contractorIdentityKey({
+    name: contractor?.name,
+    vat: contractor?.vat,
+  });
 }
 
 function collectAmendmentStats(chainHistory, review) {
@@ -130,6 +139,7 @@ function buildSingleContractRow(project) {
     apeAmount: getLatestContractApeAmount(project, 0) || project.apeAmount || '',
     contractorName: contractor.name,
     contractorVat: contractor.vat,
+    identityKey: contractorRowIdentity(contractor),
     deadline: buildDeadlineLine(chainHistory, review, resolveContractEndDateIso(project)),
     amendmentsLine: buildAmendmentsSummaryLine(chainHistory, review),
     supplementarySummary: buildSupplementaryCardSummary(project),
@@ -148,6 +158,7 @@ function buildMultiContractRow(project, contract, index) {
     apeAmount: getLatestContractApeAmount(project, index) || contract.apeAmount || '',
     contractorName: contractor.name,
     contractorVat: contractor.vat,
+    identityKey: contractorRowIdentity(contractor),
     deadline: buildDeadlineLine(
       chainHistory,
       review,

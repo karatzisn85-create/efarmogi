@@ -29,6 +29,7 @@ const {
 } = require('./khmdhsDateUtils');
 const calendarEventsBuilder = require('./calendarEventsBuilder');
 const { EVENT_TYPES } = calendarEventsBuilder;
+const { createContractorRegistryService, CONTRACTOR_REGISTRY_DIR_NAME } = require('./contractorRegistryService');
 
 const REMINDER_LOG_FILE = 'procurement-calendar-reminder-log.json';
 const EMAIL_HISTORY_FILE = 'email-send-history.json';
@@ -402,6 +403,26 @@ async function sendBatchEmail({ transporter, emailConfig, appName, recipient, it
   return true;
 }
 
+function loadContractorRecords(dataDir) {
+  if (!dataDir) return [];
+  try {
+    const root = path.join(dataDir, CONTRACTOR_REGISTRY_DIR_NAME);
+    if (!fs.existsSync(root)) return [];
+    return createContractorRegistryService({ dataDir }).listRecords();
+  } catch {
+    return [];
+  }
+}
+
+function collectReminderItems({ dataDir, projects, proskliseis }) {
+  return calendarEventsBuilder.collectAllCalendarReminderItems({
+    dataDir,
+    projects,
+    proskliseis,
+    contractorRecords: loadContractorRecords(dataDir),
+  });
+}
+
 async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, loadAllProjects, loadAllProskliseis }) {
   const config = loadCalendarConfig(dataDir);
   if (config.enabled !== true) return { checked: true, sent: 0, skipped: 'disabled' };
@@ -415,7 +436,7 @@ async function checkAndSendProcurementCalendarReminders({ dataDir, loadUsers, lo
 
   const projects = await loadAllProjects();
   const proskliseis = typeof loadAllProskliseis === 'function' ? (await loadAllProskliseis()) : [];
-  const allItems = calendarEventsBuilder.collectAllCalendarReminderItems({ dataDir, projects, proskliseis });
+  const allItems = collectReminderItems({ dataDir, projects, proskliseis });
   if (!allItems.length) return { checked: true, sent: 0, skipped: 'no_deadlines' };
 
   const log = loadReminderLog(dataDir);
@@ -547,7 +568,7 @@ async function sendTestProcurementCalendarReminder({ dataDir, loadUsers, loadAll
 
   const projects = await loadAllProjects();
   const proskliseis = typeof loadAllProskliseis === 'function' ? (await loadAllProskliseis()) : [];
-  const allItems = calendarEventsBuilder.collectAllCalendarReminderItems({ dataDir, projects, proskliseis });
+  const allItems = collectReminderItems({ dataDir, projects, proskliseis });
   const upcoming = allItems
     .filter((d) => d.daysLeft != null && d.daysLeft >= 0)
     .sort((a, b) => a.daysLeft - b.daysLeft);

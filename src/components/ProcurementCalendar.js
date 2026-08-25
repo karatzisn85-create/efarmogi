@@ -22,6 +22,7 @@ import {
 } from '../utils/customCalendarEvents';
 import { buildAepoCalendarEvents } from '../utils/aepoCalendarEvents';
 import { buildProsklisiCalendarEvents } from '../utils/prosklisiCalendarEvents';
+import { buildContractorRadarCalendarEvents } from '../utils/contractorRadarCalendarEvents';
 import { CALENDAR_TIME_WINDOWS, getCalendarWindowLabel } from '../utils/calendarAlerts';
 import { exportCalendarEventsToExcel } from '../utils/calendarExport';
 
@@ -203,6 +204,7 @@ const EventPill = styled.button`
   background: ${(p) => {
     if (p.$type === CALENDAR_EVENT_TYPES.CUSTOM) return '#4f46e5';
     if (p.$type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M) return '#b45309';
+    if (p.$type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY) return '#1d4ed8';
     if (p.$urgency === 'past') return '#94a3b8';
     if (p.$urgency === 'urgent') return '#dc2626';
     if (p.$urgency === 'soon') return '#d97706';
@@ -321,6 +323,7 @@ const TYPE_FILTER_LABELS = {
   compliance: 'Παράβαση 12μ.',
   aepo: 'ΑΕΠΟ',
   proskliseis: 'Προσκλήσεις',
+  contractors: 'Ανάδοχοι',
 };
 
 const CheckLabel = styled.label`
@@ -361,6 +364,8 @@ export default function ProcurementCalendar({
   initialCustomEventId = null,
   includeAepo = false,
   onOpenOrimanthi,
+  onOpenContractorRegistry,
+  visibleSubprojectIds = null,
 }) {
   const { showToast } = useToast();
   const [viewMode, setViewMode] = useState('month');
@@ -371,6 +376,7 @@ export default function ProcurementCalendar({
   const [expandedCalendarDays, setExpandedCalendarDays] = useState({});
   const [customEventsRaw, setCustomEventsRaw] = useState([]);
   const [aepoAlertsRaw, setAepoAlertsRaw] = useState([]);
+  const [contractorRecords, setContractorRecords] = useState([]);
   const [customFormOpen, setCustomFormOpen] = useState(false);
   const [editingCustomEvent, setEditingCustomEvent] = useState(null);
   const [viewingCustomEvent, setViewingCustomEvent] = useState(null);
@@ -407,6 +413,22 @@ export default function ProcurementCalendar({
     }
   }, [includeAepo]);
 
+  const loadContractorRecords = useCallback(async () => {
+    if (userRole === 'USER' || !currentUser?.username) {
+      setContractorRecords([]);
+      return;
+    }
+    try {
+      const res = await ipcRenderer.invoke('load-contractor-registry', {
+        actingUsername: currentUser.username,
+      });
+      if (res?.success) setContractorRecords(res.records || []);
+      else setContractorRecords([]);
+    } catch {
+      setContractorRecords([]);
+    }
+  }, [userRole, currentUser?.username]);
+
   useEffect(() => {
     if (!isOpen) {
       consumedFocusRef.current = null;
@@ -414,7 +436,8 @@ export default function ProcurementCalendar({
     }
     loadCustomEvents();
     loadAepoAlerts();
-  }, [isOpen, loadCustomEvents, loadAepoAlerts]);
+    loadContractorRecords();
+  }, [isOpen, loadCustomEvents, loadAepoAlerts, loadContractorRecords]);
 
   useEffect(() => {
     if (!isOpen || !initialCustomEventId) return;
@@ -445,14 +468,27 @@ export default function ProcurementCalendar({
     [proskliseis]
   );
 
+  const contractorEvents = useMemo(
+    () => buildContractorRadarCalendarEvents({
+      projects,
+      records: contractorRecords,
+      role: userRole,
+      visibleSubprojectIds,
+      warnDays: 30,
+      urgentDays: 7,
+    }),
+    [projects, contractorRecords, userRole, visibleSubprojectIds]
+  );
+
   const allEvents = useMemo(
     () => mergeCalendarEventLists(
       procurementEvents,
       customEvents,
       buildAepoCalendarEvents(aepoAlertsRaw),
-      prosklisiEvents
+      prosklisiEvents,
+      contractorEvents
     ),
-    [procurementEvents, customEvents, aepoAlertsRaw, prosklisiEvents]
+    [procurementEvents, customEvents, aepoAlertsRaw, prosklisiEvents, contractorEvents]
   );
 
   const filteredEvents = useMemo(
@@ -533,6 +569,11 @@ export default function ProcurementCalendar({
   });
 
   const handleEventClick = (ev) => {
+    if (ev.isContractorRegistry || ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY) {
+      onOpenContractorRegistry?.({ rowKey: ev.contractorRowKey, subprojectId: ev.subprojectId });
+      onClose?.();
+      return;
+    }
     if (ev.type === CALENDAR_EVENT_TYPES.AEPO_RENEWAL && ev.orimanthiProposalId) {
       onOpenOrimanthi?.();
       onClose?.();
@@ -625,6 +666,11 @@ export default function ProcurementCalendar({
               ΑΕΠΟ
             </TabBtn>
           )}
+          {userRole !== 'USER' && (
+            <TabBtn type="button" $active={typeFilter === 'contractors'} onClick={() => setTypeFilter('contractors')}>
+              Ανάδοχοι
+            </TabBtn>
+          )}
         </Toolbar>
 
         <Body>
@@ -663,7 +709,8 @@ export default function ProcurementCalendar({
                             : ev.type === CALENDAR_EVENT_TYPES.OFFERS_EXPIRY ? '⌛'
                             : ev.type === CALENDAR_EVENT_TYPES.CONTRACT_END ? '📋'
                             : ev.type === CALENDAR_EVENT_TYPES.CUSTOM ? '📌'
-                            : ev.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M ? '⚠' : '•'}{' '}
+                            : ev.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M ? '⚠'
+                            : ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY ? '🏦' : '•'}{' '}
                           {(ev.subprojectTitle || '').slice(0, 18)}
                           {(ev.subprojectTitle || '').length > 18 ? '…' : ''}
                         </EventPill>

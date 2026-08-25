@@ -115,6 +115,7 @@ const ALLOWED_INVOKE = new Set([
   'get-note-reminder-config','save-note-reminder-config',
   'get-orimanthi-config','save-orimanthi-config','apply-orimanthi-pending-template','get-orimanthi-aepo-alerts','export-orimanthi-hub-report',
   'load-all-meletai','run-meletai-maintenance','get-meletai-subprojects','check-meleti-number','save-meleti','delete-meleti','link-meleti-subproject','unlink-meleti-subproject','get-meleti-by-subproject',
+  'load-contractor-registry','get-contractor-registry-record','save-contractor-registry-record','delete-contractor-registry-record',
   'get-meletai-config','save-meletai-config','add-meletai-study-category','remove-meletai-study-category',
   'add-meleti-file-group','upload-meleti-files','upload-meleti-folder','delete-meleti-file','delete-meleti-folder','delete-meleti-folder-file','rename-meleti-file','delete-meleti-group',
   'get-meleti-folder-files','open-meleti-file','download-meleti-file','export-meletai-hub-report','export-meletai-study-report','export-portfolio-report','export-statistics-report',

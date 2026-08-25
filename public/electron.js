@@ -39,6 +39,7 @@ const {
   validatePasswordPolicy,
 } = require('./passwordAuth');
 const { createMeletaiService, DATA_DIR_SKIP_ROOT_DIRS } = require('./meletaiService');
+const { createContractorRegistryService } = require('./contractorRegistryService');
 const projectsIndex = require('./projectsIndex');
 const concurrencyGuards = require('./concurrencyGuards');
 const { mergeFileGroupsForSave, mergeEgkriseisForSave } = require('./subprojectSaveMerge');
@@ -53,6 +54,7 @@ const excelImportCore = require('../app/core/excelImport');
 const portalCatalogCore = require('../app/core/portalCatalog');
 const orimanthiCatalogCore = require('../app/core/orimanthiCatalog');
 const meletaiCatalogCore = require('../app/core/meletaiCatalog');
+const contractorRegistryCore = require('../app/core/contractorRegistry');
 const epProgramCatalogCore = require('../app/core/epProgramCatalog');
 const backupCatalogCore = require('../app/core/backupCatalog');
 const emailCatalogCore = require('../app/core/emailCatalog');
@@ -17266,6 +17268,15 @@ function getMeletaiService() {
   return meletaiService;
 }
 
+let contractorRegistryService = null;
+
+function getContractorRegistryService() {
+  if (!contractorRegistryService && dataDir) {
+    contractorRegistryService = createContractorRegistryService({ dataDir });
+  }
+  return contractorRegistryService;
+}
+
 function canManageMeletaiRole(role) {
   return role === 'SUPERADMIN' || role === 'ADMIN';
 }
@@ -19059,6 +19070,245 @@ ipcMain.handle('apologismos-export-pptx', async (_event, { actingUsername, perio
     return { success: true, path: pick.filePath };
   } catch (e) {
     logger.error('apologismos-export-pptx failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+// ─── ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ ──────────────────────────────────────────────────────────
+
+function requireContractorRegistrySession(actingUsername) {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return auth;
+  const user = findUserByUsername(auth.username);
+  if (!user || user.active === false || user.approved === false) {
+    return { ok: false, error: 'Δεν έχετε πρόσβαση στο σύστημα' };
+  }
+  if (!contractorRegistryCore.canViewContractorRegistry(user.role)) {
+    return { ok: false, error: 'Δεν έχετε πρόσβαση στο μητρώο αναδόχων' };
+  }
+  return { ok: true, username: auth.username, user };
+}
+
+function requireContractorRegistryEdit(actingUsername) {
+  const session = requireContractorRegistrySession(actingUsername);
+  if (!session.ok) return session;
+  if (!contractorRegistryCore.canEditGuarantees(session.user.role)) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα επεξεργασίας μητρώου αναδόχων' };
+  }
+  return session;
+}
+
+function requireContractorRegistryManage(actingUsername) {
+  const session = requireContractorRegistrySession(actingUsername);
+  if (!session.ok) return session;
+  if (!contractorRegistryCore.canManageContractorRegistry(session.user.role)) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα διαγραφής καρτέλας αναδόχου' };
+  }
+  return session;
+}
+
+function getContractorRegistryAuditActor(actingUsername) {
+  const user = findUserByUsername(actingUsername);
+  return {
+    fullName: (user?.fullName || '').trim() || actingUsername || '',
+    role: user?.role || 'USER',
+  };
+}
+
+function requireContractorRegistryEntityLock(recordId, actingUsername, { mustHold } = {}) {
+  const id = String(recordId || '').trim();
+  if (!id) return { ok: true };
+  const lockStatus = isEntityLocked('contractor-registry', id);
+  if (!lockStatus.locked) {
+    if (mustHold) {
+      return { ok: false, error: 'Η καρτέλα δεν είναι κλειδωμένη για επεξεργασία' };
+    }
+    return { ok: true };
+  }
+  try {
+    const lockFile = path.join(dataDir, 'locks', 'contractor-registry', `${id}.lock`);
+    if (fs.existsSync(lockFile)) {
+      const lockData = readLockData(lockFile);
+      const acting = String(actingUsername || '').trim();
+      if (lockData && lockData.username === acting) return { ok: true };
+    }
+  } catch { /* ignore */ }
+  return {
+    ok: false,
+    error: `Η καρτέλα αναδόχου είναι κλειδωμένη από ${lockStatus.lockedBy || 'άλλον χρήστη'}`,
+    locked: true,
+    lockedBy: lockStatus.lockedBy,
+  };
+}
+
+function visibleSubprojectIdsForContractorRegistry(user, records) {
+  const ids = new Set();
+  (records || []).forEach((rec) => {
+    contractorRegistryCore.collectRecordSubprojectIds(rec).forEach((sid) => {
+      if (canEngineerLinkMeletiSubproject(user, sid).ok) ids.add(sid);
+    });
+  });
+  return ids;
+}
+
+async function collectEngineerContractorRegistryScope(user) {
+  const visibleSubprojectIds = new Set();
+  const identityKeys = new Set();
+  const ctx = buildEngineerVisibilityContext(user.username, user.assignedSupervisors);
+  const projects = await loadAllProjects();
+  (projects || []).forEach((project) => {
+    if (!projectVisibleToEngineerContext(project, ctx)) return;
+    const sid = String(project.subprojectId || '').trim();
+    if (sid) visibleSubprojectIds.add(sid);
+    contractorRegistryCore.collectIdentityKeysFromSubproject(project).forEach((key) => {
+      if (key) identityKeys.add(key);
+    });
+  });
+  return { visibleSubprojectIds, identityKeys };
+}
+
+function engineerViewerOpts(scope) {
+  return {
+    role: 'ENGINEER',
+    visibleSubprojectIds: scope.visibleSubprojectIds,
+    identityKeys: scope.identityKeys,
+  };
+}
+
+async function presentContractorRegistryRecords(auth, records) {
+  const list = Array.isArray(records) ? records : [];
+  if (auth.user.role !== 'ENGINEER') return list;
+  const scope = await collectEngineerContractorRegistryScope(auth.user);
+  return contractorRegistryCore.filterRecordsForViewer(list, engineerViewerOpts(scope));
+}
+
+async function presentContractorRegistryRecord(auth, record) {
+  if (!record) return null;
+  if (auth.user.role !== 'ENGINEER') return record;
+  const scope = await collectEngineerContractorRegistryScope(auth.user);
+  const opts = engineerViewerOpts(scope);
+  if (!contractorRegistryCore.recordVisibleToEngineer(record, opts)) return null;
+  return contractorRegistryCore.redactRecordForViewer(record, opts);
+}
+
+ipcMain.handle('load-contractor-registry', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireContractorRegistrySession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error, records: [] };
+    const svc = getContractorRegistryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων', records: [] };
+    const all = svc.listRecords();
+    const records = await presentContractorRegistryRecords(auth, all);
+    return { success: true, records };
+  } catch (e) {
+    logger.error('load-contractor-registry failed', e);
+    return { success: false, error: e.message, records: [] };
+  }
+});
+
+ipcMain.handle('get-contractor-registry-record', async (_event, { recordId, actingUsername } = {}) => {
+  try {
+    const auth = requireContractorRegistrySession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getContractorRegistryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+    const record = svc.loadRecord(recordId);
+    if (!record) return { success: false, error: 'Η καρτέλα αναδόχου δεν βρέθηκε' };
+    const presented = await presentContractorRegistryRecord(auth, record);
+    if (!presented) return { success: false, error: 'Δεν έχετε πρόσβαση σε αυτή την καρτέλα' };
+    return { success: true, record: presented };
+  } catch (e) {
+    logger.error('get-contractor-registry-record failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('save-contractor-registry-record', async (_event, { record, actingUsername, expectedUpdatedAt, assignments } = {}) => {
+  try {
+    const auth = requireContractorRegistryEdit(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getContractorRegistryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+    const pendingLockId = record?.id
+      ? ''
+      : contractorRegistryCore.contractorPendingLockId(record || {});
+    const lockTarget = record?.id || pendingLockId;
+    if (lockTarget) {
+      const lockCheck = requireContractorRegistryEntityLock(lockTarget, auth.username, { mustHold: true });
+      if (!lockCheck.ok) {
+        return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+      }
+    }
+    const saveOpts = { expectedUpdatedAt, role: auth.user.role };
+    if (auth.user.role === 'ENGINEER') {
+      const existing = record?.id ? svc.loadRecord(record.id) : null;
+      saveOpts.visibleSubprojectIds = visibleSubprojectIdsForContractorRegistry(auth.user, [
+        {
+          guarantees: [...(record?.guarantees || []), ...(existing?.guarantees || [])],
+          acceptances: [...(record?.acceptances || []), ...(existing?.acceptances || [])],
+          assignments: Array.isArray(assignments) ? assignments : (record?.assignments || []),
+        },
+      ]);
+      saveOpts.assignments = Array.isArray(assignments) ? assignments : (record?.assignments || []);
+      const accessProbe = existing || record || {};
+      if (!contractorRegistryCore.engineerMayAccessRecord(accessProbe, {
+        visibleSubprojectIds: saveOpts.visibleSubprojectIds,
+        assignments: saveOpts.assignments,
+      })) {
+        return { success: false, error: 'Δεν έχετε πρόσβαση σε αυτή την καρτέλα' };
+      }
+    }
+    const result = svc.saveRecord(record, saveOpts);
+    if (!result.success) return result;
+    if (auth.user.role === 'ENGINEER' && result.record) {
+      result.record = contractorRegistryCore.redactRecordForViewer(result.record, {
+        role: 'ENGINEER',
+        visibleSubprojectIds: saveOpts.visibleSubprojectIds,
+      });
+    }
+    const actor = getContractorRegistryAuditActor(auth.username);
+    logAuditAction({
+      type: result.isNew ? 'create' : 'update',
+      entityType: 'contractor-registry',
+      entityId: result.record.id,
+      entityTitle: result.record.name || result.record.vat || result.record.id,
+      userFullName: actor.fullName,
+      userRole: actor.role,
+      details: result.isNew ? 'Δημιουργία καρτέλας αναδόχου' : 'Ενημέρωση καρτέλας αναδόχου',
+    });
+    return result;
+  } catch (e) {
+    logger.error('save-contractor-registry-record failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-contractor-registry-record', async (_event, { recordId, actingUsername } = {}) => {
+  try {
+    const auth = requireContractorRegistryManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const lockCheck = requireContractorRegistryEntityLock(recordId, auth.username, { mustHold: true });
+    if (!lockCheck.ok) {
+      return { success: false, error: lockCheck.error, locked: true, lockedBy: lockCheck.lockedBy };
+    }
+    const svc = getContractorRegistryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+    const result = svc.deleteRecord(recordId);
+    if (result.success) {
+      const actor = getContractorRegistryAuditActor(auth.username);
+      logAuditAction({
+        type: 'delete',
+        entityType: 'contractor-registry',
+        entityId: recordId,
+        entityTitle: result.record ? (result.record.name || result.record.vat || recordId) : recordId,
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: 'Διαγραφή καρτέλας αναδόχου',
+      });
+    }
+    return result;
+  } catch (e) {
+    logger.error('delete-contractor-registry-record failed', e);
     return { success: false, error: e.message };
   }
 });

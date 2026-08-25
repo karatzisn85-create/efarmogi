@@ -468,6 +468,25 @@ const MetaValue = styled.div`
   line-height: 1.38;
 `;
 
+const ContractorLink = styled.button`
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  word-break: break-word;
+  line-height: 1.38;
+  cursor: pointer;
+  span { color: #64748b; font-weight: 500; }
+  &:hover { text-decoration: underline; }
+`;
+
 const FinanceRow = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1160,6 +1179,7 @@ function ProjectCard({
   linkedNotesMap = {},
   onOpenNoteFromEntity,
   onExportReport,
+  onOpenContractorRegistry,
   // Πύλη / παράβαση άμεσης ανάθεσης: μόνο μέσα στην κάρτα, όχι στην εξωτερική σύνοψη.
   portalEnabled: _portalEnabled = false,
   isPublishedToPortal: _isPublishedToPortal = false,
@@ -1265,12 +1285,30 @@ function ProjectCard({
         {(row.contractorName || row.contractorVat) && (
           <MetaCell $full>
             <MetaLabel>Ανάδοχος</MetaLabel>
-            <MetaValue>
-              {row.contractorName || '—'}
-              {row.contractorVat ? (
-                <span style={{ color: '#64748b', fontWeight: 500 }}> · ΑΦΜ {row.contractorVat}</span>
-              ) : null}
-            </MetaValue>
+            {onOpenContractorRegistry && row.identityKey ? (
+              <ContractorLink
+                type="button"
+                title="Άνοιγμα καρτέλας αναδόχου"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenContractorRegistry({
+                    rowKey: row.identityKey,
+                    name: row.contractorName,
+                    vat: row.contractorVat,
+                  });
+                }}
+              >
+                {row.contractorName || '—'}
+                {row.contractorVat ? <span> · ΑΦΜ {row.contractorVat}</span> : null}
+              </ContractorLink>
+            ) : (
+              <MetaValue>
+                {row.contractorName || '—'}
+                {row.contractorVat ? (
+                  <span style={{ color: '#64748b', fontWeight: 500 }}> · ΑΦΜ {row.contractorVat}</span>
+                ) : null}
+              </MetaValue>
+            )}
           </MetaCell>
         )}
       </MetaGrid>

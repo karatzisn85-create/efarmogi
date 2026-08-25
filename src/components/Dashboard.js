@@ -55,6 +55,7 @@ import reportsExport from '../../app/core/reportsExport';
 import portalCatalog from '../../app/core/portalCatalog';
 import orimanthiCatalog from '../../app/core/orimanthiCatalog';
 import meletaiCatalog from '../../app/core/meletaiCatalog';
+import contractorRegistry from '../../app/core/contractorRegistry';
 import epProgramCatalog from '../../app/core/epProgramCatalog';
 import apologismosCatalog from '../../app/core/apologismosCatalog';
 import backupCatalog from '../../app/core/backupCatalog';
@@ -155,6 +156,7 @@ const OrimanthiManager = lazy(() => import('./OrimanthiManager'));
 const CalendarDeadlineWidget = lazy(() => import('./CalendarDeadlineWidget'));
 const ProcurementCalendar = lazy(() => import('./ProcurementCalendar'));
 const MeletaiManager = lazy(() => import('./MeletaiManager'));
+const ContractorRegistryManager = lazy(() => import('./ContractorRegistryManager'));
 
 const ipcRenderer = window.electronAPI;
 
@@ -3348,6 +3350,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isApologismosOpen, setIsApologismosOpen] = useState(false);
   const [isOrimanthiOpen, setIsOrimanthiOpen] = useState(false);
   const [isMeletaiOpen, setIsMeletaiOpen] = useState(false);
+  const [isContractorRegistryOpen, setIsContractorRegistryOpen] = useState(false);
+  const [contractorRegistryFocusKey, setContractorRegistryFocusKey] = useState(null);
+  const [contractorRegistryFocusNonce, setContractorRegistryFocusNonce] = useState(0);
   const [selectedMeletiId, setSelectedMeletiId] = useState(null);
   const [meletaiRestoreScrollTop, setMeletaiRestoreScrollTop] = useState(0);
   const [meletaiBySubproject, setMeletaiBySubproject] = useState({});
@@ -6189,6 +6194,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     }
   };
 
+  const openContractorRegistryCard = useCallback(({ rowKey } = {}) => {
+    if (dashboardScrollRef.current) {
+      savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
+    }
+    setContractorRegistryFocusKey(rowKey || null);
+    setContractorRegistryFocusNonce((n) => n + 1);
+    setIsContractorRegistryOpen(true);
+  }, []);
+
   // Ευρετήριο prosklisi (τίτλοι + IDs) — O(1) έλεγχος ύπαρξης ανά κάρτα αντί για O(N) σάρωση.
   // Η ένωση όλων των «ταιριασμάτων» είναι ισοδύναμη με το αρχικό .some() ανά prosklisi.
   const prosklisiExistenceIndex = useMemo(() => {
@@ -7012,6 +7026,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                                 isPublishedToPortal={publishedSubprojectIds.has(project.subprojectId)}
                                 hasDirectAssignmentViolation={directAssignmentViolationSubprojectIds.has(project.subprojectId)}
                                 onExportReport={handleExportSubprojectReport}
+                                onOpenContractorRegistry={
+                                  contractorRegistry.showContractorRegistryButton(userRole)
+                                    ? openContractorRegistryCard
+                                    : undefined
+                                }
                                 actRootSiblingsIndex={actRootSiblingsIndex}
                                 onContractExpiryAccept={canManageWorkflow ? handleContractExpiryAccept : undefined}
                               />
@@ -7250,6 +7269,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               }} title="Μητρώο καταχώρησης μελετών">
                 <AdminButtonIcon>📐</AdminButtonIcon>
                 Μητρώο Μελετών
+              </AdminButton>
+              )}
+              {contractorRegistry.showContractorRegistryButton(userRole) && (
+              <AdminButton data-user-guide="nav-contractor-registry" onClick={() => {
+                if (dashboardScrollRef.current) {
+                  savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
+                }
+                setContractorRegistryFocusKey(null);
+                setIsContractorRegistryOpen(true);
+              }} title="Μητρώο αναδόχων — στοιχεία επικοινωνίας και συμβάσεις">
+                <AdminButtonIcon>🏢</AdminButtonIcon>
+                Μητρώο Αναδόχων
               </AdminButton>
               )}
               {epProgramCatalog.showEpProgramButton(userRole) && (
@@ -7714,6 +7745,30 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       </Suspense>
       ) : null}
 
+      {/* Μητρώο Αναδόχων */}
+      {isContractorRegistryOpen ? (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση Μητρώου Αναδόχων…</LazyChunkFallback>}>
+          <ContractorRegistryManager
+            onClose={() => {
+              setIsContractorRegistryOpen(false);
+              setContractorRegistryFocusKey(null);
+              setCalendarRefreshKey((k) => k + 1);
+              setTimeout(() => {
+                if (dashboardScrollRef.current) {
+                  dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
+                }
+              }, 100);
+            }}
+            loggedInUsername={currentUser?.username || ''}
+            userRole={userRole}
+            visibleSubprojectIds={engineerVisibleSubprojectIds}
+            projects={visibleProjects}
+            initialRowKey={contractorRegistryFocusKey}
+            focusNonce={contractorRegistryFocusNonce}
+          />
+        </Suspense>
+      ) : null}
+
       {/* Ωρίμανση Έργων */}
       {isOrimanthiOpen ? (
         <Suspense fallback={<LazyChunkFallback>Φόρτωση Ωρίμανσης Έργων…</LazyChunkFallback>}>
@@ -8129,6 +8184,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               const p = projects.find((x) => x.subprojectId === subprojectId);
               if (p) openSubprojectDetail(p);
             }}
+            visibleSubprojectIds={engineerVisibleSubprojectIds}
+            onOpenContractorRegistry={({ rowKey } = {}) => {
+              setIsProcurementCalendarOpen(false);
+              openContractorRegistryCard({ rowKey });
+            }}
           />
         </Suspense>
       )}
@@ -8370,6 +8430,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             const p = projects.find((row) => row.subprojectId === subprojectId);
             if (p) openSubprojectDetail(p);
           },
+          visibleSubprojectIds: engineerVisibleSubprojectIds,
+          onOpenContractorRegistry: openContractorRegistryCard,
         }}
       />
 

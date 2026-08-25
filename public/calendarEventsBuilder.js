@@ -21,6 +21,7 @@ const EVENT_TYPES = {
   COMPLIANCE_12M: 'compliance_12m',
   CUSTOM: 'custom',
   PROSKLISI_DEADLINE: 'prosklisi_deadline',
+  CONTRACTOR_REGISTRY: 'contractor_registry',
 };
 
 const EVENT_LABELS = {
@@ -30,6 +31,7 @@ const EVENT_LABELS = {
   [EVENT_TYPES.COMPLIANCE_12M]: 'Παράβαση κανόνα 12 μηνών',
   [EVENT_TYPES.CUSTOM]: 'Ειδοποίηση ημερολογίου',
   [EVENT_TYPES.PROSKLISI_DEADLINE]: 'Λήξη υποβολής πρόσκλησης',
+  [EVENT_TYPES.CONTRACTOR_REGISTRY]: 'Λήξη εγγυητικής ή χρόνου εγγύησης',
 };
 
 function parseProsklisiDeadlineToIso(dateString) {
@@ -457,11 +459,74 @@ function collectCustomItems(dataDir) {
   })).filter(Boolean);
 }
 
-function collectAllCalendarReminderItems({ dataDir, projects, proskliseis }) {
+function collectGuaranteeReminderItems(records, projects) {
+  const bySubId = new Map();
+  (projects || []).forEach((p) => {
+    const id = String(p?.subprojectId || '').trim();
+    if (id) bySubId.set(id, p);
+  });
+  const items = [];
+  const seen = new Set();
+  for (const rec of records || []) {
+    for (const g of rec.guarantees || []) {
+      if (!g || g.status !== 'ενεργή') continue;
+      const deadlineIso = String(g.expiresOn || '').trim();
+      if (!deadlineIso) continue;
+      const gid = String(g.id || `${rec.id || rec.identityKey || ''}:${g.letterNumber || ''}`).trim();
+      const dateKey = toDateKey(deadlineIso) || deadlineIso.slice(0, 10);
+      const itemKey = `${EVENT_TYPES.CONTRACTOR_REGISTRY}:${gid}:${dateKey}`;
+      if (!gid || seen.has(itemKey)) continue;
+      seen.add(itemKey);
+      const project = bySubId.get(String(g.subprojectId || '').trim()) || null;
+      const typePart = String(g.type || '').trim();
+      const row = makeItem({
+        itemKey,
+        eventType: EVENT_TYPES.CONTRACTOR_REGISTRY,
+        project,
+        subprojectId: g.subprojectId || '',
+        subprojectTitle: rec.name || '(Ανάδοχος)',
+        projectTitle: project?.subprojectTitle || project?.projectTitle || '',
+        adam: g.letterNumber || '',
+        label: typePart
+          ? `${EVENT_LABELS[EVENT_TYPES.CONTRACTOR_REGISTRY]} (${typePart})`
+          : EVENT_LABELS[EVENT_TYPES.CONTRACTOR_REGISTRY],
+        deadlineIso,
+      });
+      if (row) items.push(row);
+    }
+    for (const acc of rec.acceptances || []) {
+      if (!acc) continue;
+      const deadlineIso = String(acc.warrantyEndsOn || '').trim();
+      if (!deadlineIso) continue;
+      const aid = String(acc.id || `${rec.id || rec.identityKey || ''}:${acc.subprojectId || ''}`).trim();
+      const dateKey = toDateKey(deadlineIso) || deadlineIso.slice(0, 10);
+      const itemKey = `${EVENT_TYPES.CONTRACTOR_REGISTRY}:w:${aid}:${dateKey}`;
+      if (!aid || seen.has(itemKey)) continue;
+      seen.add(itemKey);
+      const project = bySubId.get(String(acc.subprojectId || '').trim()) || null;
+      const row = makeItem({
+        itemKey,
+        eventType: EVENT_TYPES.CONTRACTOR_REGISTRY,
+        project,
+        subprojectId: acc.subprojectId || '',
+        subprojectTitle: rec.name || '(Ανάδοχος)',
+        projectTitle: project?.subprojectTitle || project?.projectTitle || '',
+        adam: '',
+        label: 'Λήξη χρόνου εγγύησης',
+        deadlineIso,
+      });
+      if (row) items.push(row);
+    }
+  }
+  return items;
+}
+
+function collectAllCalendarReminderItems({ dataDir, projects, proskliseis, contractorRecords }) {
   const procurement = collectProcurementItems(projects);
   const custom = collectCustomItems(dataDir);
   const prosklisiItems = collectProsklisiItems(proskliseis);
-  const merged = [...procurement, ...custom, ...prosklisiItems];
+  const guaranteeItems = collectGuaranteeReminderItems(contractorRecords, projects);
+  const merged = [...procurement, ...custom, ...prosklisiItems, ...guaranteeItems];
   merged.sort(
     (a, b) => (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999)
       || (a.subprojectTitle || '').localeCompare(b.subprojectTitle || '', 'el', { sensitivity: 'base' })
@@ -486,6 +551,15 @@ function itemVisibleToRecipient(item, recipient) {
     return role === 'ADMIN' || role === 'SUPERADMIN' || role === 'USER' || role === 'ENGINEER';
   }
 
+  if (item.eventType === EVENT_TYPES.CONTRACTOR_REGISTRY) {
+    if (role === 'USER') return false;
+    if (role === 'ADMIN' || role === 'SUPERADMIN') return true;
+    if (role === 'ENGINEER') {
+      return !!(item.project && projectVisibleToEngineerContext(item.project, recipient.engineerContext));
+    }
+    return false;
+  }
+
   if (role === 'ADMIN' || role === 'SUPERADMIN' || role === 'USER') return true;
   if (role === 'ENGINEER') {
     return item.project && projectVisibleToEngineerContext(item.project, recipient.engineerContext);
@@ -503,6 +577,7 @@ module.exports = {
   collectAllCalendarReminderItems,
   collectProcurementItems,
   collectProsklisiItems,
+  collectGuaranteeReminderItems,
   filterItemsForRecipient,
   itemVisibleToRecipient,
 };

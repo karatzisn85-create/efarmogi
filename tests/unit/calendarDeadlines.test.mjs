@@ -122,3 +122,26 @@ test('μηχανικός βλέπει στο ημερολόγιο μόνο χρ�
   });
   assert.deepEqual(visible.map((p) => p.subprojectId), ['a']);
 });
+
+test('ραντάρ αναδόχου: έληξε η ενεργή εγγυητική μένει στη λίστα', () => {
+  const mapped = cal.mapContractorRadarItemToCalendarRow({
+    kind: 'guarantee',
+    dateIso: '2026-08-01',
+    daysLeft: -23,
+    urgency: 'past',
+    label: 'Εγγυητική καλής εκτέλεσης λήγει',
+    contractorName: 'ΤΕΧΝΙΚΗ Α.Ε.',
+    rowKey: 'rec-1',
+    recordId: 'rec-1',
+    guaranteeId: 'g1',
+    subprojectId: 'sub-a',
+  });
+  assert.equal(mapped.type, cal.CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY);
+  assert.equal(mapped.isContractorRegistry, true);
+  assert.equal(mapped.contractorRowKey, 'rec-1');
+  const { alerts } = cal.buildCalendarDeadlineAlerts([mapped], { maxDays: 30, limit: 0 });
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].contractorRowKey, 'rec-1');
+  assert.equal(cal.filterCalendarEventsByType([mapped], 'contractors').length, 1);
+  assert.equal(cal.eventsWithinDays([mapped], 30, { includePastDeadlines: false }).length, 1);
+});

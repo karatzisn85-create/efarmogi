@@ -1,6 +1,7 @@
 /**
  * @jest-environment node
  */
+import contractorRegistry from '../../app/core/contractorRegistry';
 import {
   buildProjectCardContractRows,
   buildSupplementaryCardSummary,
@@ -135,7 +136,25 @@ describe('projectCardDisplay', () => {
     expect(rows[0].date).toBe('2023-06-01');
     expect(rows[0].amount).toBe('');
     expect(rows[0].contractorName).toBe('');
+    expect(rows[0].identityKey).toBe('');
     expect(rows[0].deadline?.label).toBe('Λήξη υλοποίησης');
     expect(rows[0].deadline?.value).toBe('01/06/2024');
+  });
+
+  test('κλειδί ταυτότητας αναδόχου: ΑΦΜ προηγείται, αλλιώς επωνυμία', () => {
+    const withVat = buildProjectCardContractRows({
+      implementationForm: 'Μια Σύμβαση',
+      contractDate: '2021-03-15',
+      khmdhsContractSnapshot: { anadoxosName: 'Τεχνική Α.Ε.', anadoxosVat: '123456789' },
+    });
+    expect(withVat[0].identityKey).toBe('vat:123456789');
+    const byName = buildProjectCardContractRows({
+      implementationForm: 'Μια Σύμβαση',
+      contractDate: '2021-03-15',
+      khmdhsContractSnapshot: { anadoxosName: 'Τεχνική Α.Ε.' },
+    });
+    expect(byName[0].identityKey).toBe(
+      contractorRegistry.contractorIdentityKey({ name: 'Τεχνική Α.Ε.' }),
+    );
   });
 });

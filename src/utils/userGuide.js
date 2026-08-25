@@ -156,6 +156,7 @@ const FLOW_DEFS = [
     points: [
       'Το κόκκινο σήμα δείχνει πόσες λήξεις βρίσκονται στο ραντάρ.',
       'Από εκεί μπορείτε να ανοίξετε το σχετικό υποέργο ή το ημερολόγιο.',
+      'Διαχειριστές και μηχανικοί βλέπουν και λήξεις εγγυητικών / παραλαβών του μητρώου αναδόχων.',
     ],
     target: '[data-user-guide="deadline-fab"]',
   },
@@ -225,6 +226,15 @@ const FLOW_DEFS = [
     hideForRoles: ['USER'],
   },
   {
+    id: 'contractor-registry',
+    sectionId: 'procedures',
+    title: 'Να δω το μητρώο αναδόχων',
+    body: 'Στο πλευρικό μενού, «Μητρώο αναδόχων». Από την κάρτα υποέργου, το όνομα του αναδόχου ανοίγει την καρτέλα του — επικοινωνία, εγγυητικές και παραλαβές.',
+    target: '[data-user-guide="nav-contractor-registry"]',
+    expandCategory: 'management',
+    hideForRoles: ['USER'],
+  },
+  {
     id: 'ep-program',
     sectionId: 'procedures',
     title: 'Να δω το επιχειρησιακό πρόγραμμα',
@@ -283,7 +293,7 @@ const FLOW_DEFS = [
     id: 'notifications',
     sectionId: 'more',
     title: 'Να ρυθμίσω ειδοποιήσεις',
-    body: 'Στο πλευρικό μενού, «Κέντρο ειδοποιήσεων». Εκεί ορίζονται υπενθυμίσεις (π.χ. προθεσμίες) και το ηλεκτρονικό ταχυδρομείο του συστήματος.',
+    body: 'Στο πλευρικό μενού, «Κέντρο ειδοποιήσεων». Εκεί ορίζονται υπενθυμίσεις (προθεσμίες, λήξεις εγγυητικών και χρόνου εγγύησης) και το ηλεκτρονικό ταχυδρομείο του συστήματος.',
     target: '[data-user-guide="nav-notifications"]',
     expandCategory: 'system',
     requiresAdmin: true,

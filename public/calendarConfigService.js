@@ -22,6 +22,7 @@ const NOTIFY_EVENT_TYPES = {
   COMPLIANCE_12M: 'compliance_12m',
   CUSTOM: 'custom',
   PROSKLISI_DEADLINE: 'prosklisi_deadline',
+  CONTRACTOR_REGISTRY: 'contractor_registry',
 };
 
 const ALLOWED_NOTIFY_EVENT_TYPES = Object.values(NOTIFY_EVENT_TYPES);
@@ -33,6 +34,7 @@ const NOTIFY_EVENT_TYPE_LABELS = {
   [NOTIFY_EVENT_TYPES.COMPLIANCE_12M]: 'Παράβαση κανόνα 12 μηνών',
   [NOTIFY_EVENT_TYPES.CUSTOM]: 'Ειδοποίηση ημερολογίου',
   [NOTIFY_EVENT_TYPES.PROSKLISI_DEADLINE]: 'Λήξη υποβολής πρόσκλησης',
+  [NOTIFY_EVENT_TYPES.CONTRACTOR_REGISTRY]: 'Λήξη εγγυητικής ή χρόνου εγγύησης',
 };
 
 function normalizeRolesAllowEmpty(roles) {
@@ -126,7 +128,7 @@ function normalizeEventTypeSettings(rawSettings, legacy = {}) {
       });
     } else {
       out[type] = makeEventTypeSetting({
-        enabled: legacyEnabled.has(type),
+        enabled: src ? true : legacyEnabled.has(type),
         recipientRoles: fallbackRoles,
         recipientUsernames: legacyUsers,
       });
