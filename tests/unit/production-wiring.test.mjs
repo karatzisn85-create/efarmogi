@@ -512,6 +512,8 @@ test('το μητρώο αναδόχων καλεί τον κοινό πυρήν
   const svc = read('public/contractorRegistryService.js');
   assert.match(svc, /uploadFiles/);
   assert.match(svc, /listFiles/);
+  assert.match(svc, /deleteGuaranteeFiles/);
+  assert.match(electron, /mutate: true/);
 });
 
 test('το μητρώο μελετών καλεί τον κοινό πυρήνα', () => {

@@ -155,6 +155,7 @@ function createContractorRegistryService({ dataDir }) {
     const dir = getRecordDir(id);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     safeWriteJSON(getDataPath(id), toSave);
+    pruneRemovedGuaranteeFiles(id, existing && existing.guarantees, toSave.guarantees);
     const saved = loadRecord(id);
     return { success: true, isNew: !existing, record: saved };
   }
@@ -185,6 +186,21 @@ function createContractorRegistryService({ dataDir }) {
     if (!dir) return null;
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     return dir;
+  }
+
+  function deleteGuaranteeFiles(recordId, guaranteeId) {
+    const dir = getFilesDir(recordId, guaranteeId);
+    if (!dir) return { success: false, error: 'Μη έγκυρο αναγνωριστικό' };
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    return { success: true };
+  }
+
+  function pruneRemovedGuaranteeFiles(recordId, previousGuarantees, nextGuarantees) {
+    const keep = new Set((nextGuarantees || []).map((g) => String((g && g.id) || '')).filter(Boolean));
+    (previousGuarantees || []).forEach((g) => {
+      const id = String((g && g.id) || '').trim();
+      if (id && !keep.has(id)) deleteGuaranteeFiles(recordId, id);
+    });
   }
 
   function uploadFiles(recordId, guaranteeId, filePaths) {
@@ -251,6 +267,7 @@ function createContractorRegistryService({ dataDir }) {
     listFiles,
     getFilePath,
     deleteFile,
+    deleteGuaranteeFiles,
   };
 }
 

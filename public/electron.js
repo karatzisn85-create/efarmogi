@@ -19313,20 +19313,33 @@ ipcMain.handle('delete-contractor-registry-record', async (_event, { recordId, a
   }
 });
 
-async function assertContractorRegistryFileAccess(auth, svc, recordId, guaranteeId) {
+async function assertContractorRegistryFileAccess(auth, svc, recordId, guaranteeId, { mutate } = {}) {
   const record = svc.loadRecord(recordId);
   if (!record) return { ok: false, error: 'Η καρτέλα αναδόχου δεν βρέθηκε' };
   const gid = String(guaranteeId || '').trim();
-  if (gid && !(record.guarantees || []).some((g) => g && g.id === gid)) {
+  const guarantee = gid
+    ? (record.guarantees || []).find((g) => g && g.id === gid)
+    : null;
+  if (gid && !guarantee) {
     return { ok: false, error: 'Η εγγυητική δεν βρέθηκε στην καρτέλα' };
   }
   if (auth.user.role === 'ENGINEER') {
     const scope = await collectEngineerContractorRegistryScope(auth.user);
-    if (!contractorRegistryCore.recordVisibleToEngineer(record, engineerViewerOpts(scope))) {
+    const opts = engineerViewerOpts(scope);
+    if (!contractorRegistryCore.recordVisibleToEngineer(record, opts)) {
       return { ok: false, error: 'Δεν έχετε πρόσβαση σε αυτή την καρτέλα' };
     }
+    if (guarantee) {
+      const visible = contractorRegistryCore.filterLinkedItemsForViewer([guarantee], opts);
+      if (!visible.length) {
+        return { ok: false, error: 'Δεν έχετε πρόσβαση σε αυτή την εγγυητική' };
+      }
+      if (mutate && !contractorRegistryCore.guaranteeIsEditable(guarantee, opts)) {
+        return { ok: false, error: 'Δεν έχετε δικαίωμα επεξεργασίας σε αυτή την εγγυητική' };
+      }
+    }
   }
-  return { ok: true, record };
+  return { ok: true, record, guarantee };
 }
 
 ipcMain.handle('upload-contractor-registry-files', async (_event, { recordId, guaranteeId, filePaths, actingUsername } = {}) => {
@@ -19337,7 +19350,7 @@ ipcMain.handle('upload-contractor-registry-files', async (_event, { recordId, gu
     if (!lockCheck.ok) return { success: false, error: lockCheck.error };
     const svc = getContractorRegistryService();
     if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
-    const access = await assertContractorRegistryFileAccess(auth, svc, recordId, guaranteeId);
+    const access = await assertContractorRegistryFileAccess(auth, svc, recordId, guaranteeId, { mutate: true });
     if (!access.ok) return { success: false, error: access.error };
     return svc.uploadFiles(recordId, guaranteeId, filePaths);
   } catch (e) {
@@ -19387,7 +19400,7 @@ ipcMain.handle('delete-contractor-registry-file', async (_event, { recordId, gua
     if (!lockCheck.ok) return { success: false, error: lockCheck.error };
     const svc = getContractorRegistryService();
     if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
-    const access = await assertContractorRegistryFileAccess(auth, svc, recordId, guaranteeId);
+    const access = await assertContractorRegistryFileAccess(auth, svc, recordId, guaranteeId, { mutate: true });
     if (!access.ok) return { success: false, error: access.error };
     return svc.deleteFile(recordId, guaranteeId, fileName);
   } catch (e) {

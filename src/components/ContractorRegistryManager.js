@@ -6,6 +6,7 @@ import { showConfirm } from '../utils/confirmModal';
 import { formatDateEl } from '../utils/dateFormat';
 import { formatKhmdhsEuro } from '../utils/khmdhsNoticeFields';
 import { buildContractorProfiles } from '../utils/contractorFields';
+import { v4 as uuidv4 } from 'uuid';
 import { safeFileDialog } from '../utils/safeDialogs';
 import contractorRegistry from '../../app/core/contractorRegistry';
 
@@ -265,12 +266,14 @@ const DetailOverlay = styled.div`
   display: flex;
   justify-content: center;
   padding: 0.85rem 1.1rem 1.1rem;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: rgba(15, 23, 42, 0.12);
 `;
 
 const DetailCard = styled.div`
   width: min(880px, 100%);
+  min-width: 0;
   background: ${C.slate50};
   border-radius: 18px;
   border: 1px solid ${C.slate200};
@@ -346,7 +349,9 @@ const Chip = styled.span`
 
 const DetailBody = styled.div`
   padding: 1rem 1.15rem 1.25rem;
+  overflow-x: hidden;
   overflow-y: auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -358,6 +363,8 @@ const SectionPanel = styled.section`
   border-radius: 14px;
   padding: 0.9rem 1rem 1rem;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  min-width: 0;
+  overflow: hidden;
 `;
 
 const SectionHead = styled.div`
@@ -365,6 +372,8 @@ const SectionHead = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
   margin-bottom: ${(p) => (p.$tight ? '0' : '0.7rem')};
 `;
 
@@ -372,6 +381,7 @@ const SectionTitle = styled.div`
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  min-width: 0;
   font-size: 0.82rem;
   font-weight: 800;
   color: ${C.slate800};
@@ -417,44 +427,77 @@ const FactValue = styled.div`
   white-space: ${(p) => (p.$multiline ? 'pre-wrap' : 'normal')};
 `;
 
-const FieldGrid = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-  @media (max-width: 640px) { grid-template-columns: 1fr; }
+const fieldControlStyles = css`
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.62rem 0.75rem;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  font-weight: 400;
+  background: #fff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  &:disabled { background: #f1f5f9; color: #64748b; cursor: not-allowed; }
+  &:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
+  }
+  &::placeholder { color: #cbd5e1; font-weight: 400; opacity: 1; }
 `;
 
-const Field = styled.label`
+const FieldGrid = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem 1rem;
+  width: 100%;
+  min-width: 0;
+  @container (min-width: 540px) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+`;
+
+const Field = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.28rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: ${C.slate500};
+  min-width: 0;
+  max-width: 100%;
+  grid-column: ${(p) => (p.$full ? '1 / -1' : 'auto')};
+  & > input,
+  & > select,
+  & > textarea {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+`;
+
+const FieldLabel = styled.div`
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 0.4rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
 `;
 
 const Input = styled.input`
-  padding: 0.5rem 0.7rem;
-  border: 1px solid ${C.slate200};
-  border-radius: 9px;
-  font-size: 0.84rem;
-  color: ${C.slate800};
-  font-weight: 600;
-  &:disabled { background: ${C.slate50}; color: ${C.slate600}; }
-  &:focus { outline: none; border-color: ${C.blue}; box-shadow: 0 0 0 3px ${C.blueLight}; }
+  ${fieldControlStyles}
+  &[type='date'] {
+    min-height: 2.5rem;
+    -webkit-appearance: none;
+    appearance: none;
+  }
 `;
 
 const TextArea = styled.textarea`
-  padding: 0.5rem 0.7rem;
-  border: 1px solid ${C.slate200};
-  border-radius: 9px;
-  font-size: 0.84rem;
-  color: ${C.slate800};
+  ${fieldControlStyles}
   min-height: 72px;
   resize: vertical;
-  font-family: inherit;
-  &:disabled { background: ${C.slate50}; }
-  &:focus { outline: none; border-color: ${C.blue}; box-shadow: 0 0 0 3px ${C.blueLight}; }
 `;
 
 const GhostBtn = styled.button`
@@ -503,6 +546,8 @@ const ItemCard = styled.div`
   padding: 0.7rem 0.8rem 0.75rem;
   background: ${C.white};
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  min-width: 0;
+  overflow: hidden;
 `;
 
 const ItemTop = styled.div`
@@ -532,11 +577,12 @@ const ItemSub = styled.div`
 
 const ItemMeta = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(118px, 100%), 1fr));
   gap: 0.45rem 0.75rem;
   margin-top: 0.65rem;
   padding-top: 0.55rem;
   border-top: 1px dashed ${C.slate200};
+  min-width: 0;
 `;
 
 const MetaStat = styled.div`
@@ -599,24 +645,24 @@ const InfoNote = styled.p`
 `;
 
 const Select = styled.select`
-  padding: 0.5rem 0.7rem;
-  border: 1px solid ${C.slate200};
-  border-radius: 9px;
-  font-size: 0.84rem;
-  color: ${C.slate800};
-  font-weight: 600;
-  background: ${C.white};
-  font-family: inherit;
-  &:disabled { background: ${C.slate50}; color: ${C.slate600}; }
-  &:focus { outline: none; border-color: ${C.blue}; box-shadow: 0 0 0 3px ${C.blueLight}; }
+  ${fieldControlStyles}
+  cursor: pointer;
+  padding-right: 2rem;
 `;
 
 const GuaranteeForm = styled.div`
+  container-type: inline-size;
+  container-name: guarantee-form;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin: 0 0 0.7rem;
-  padding: 0.85rem;
-  border: 1px solid ${C.blueLight};
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid #c7d2fe;
   border-radius: 12px;
-  background: #f8fbff;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  overflow: hidden;
+  box-sizing: border-box;
 `;
 
 const FormError = styled.div`
@@ -624,6 +670,64 @@ const FormError = styled.div`
   font-size: 0.75rem;
   font-weight: 700;
   margin-bottom: 0.55rem;
+`;
+
+const FormActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed ${C.slate200};
+`;
+
+const FilePickBtn = styled.button`
+  border: 1.5px dashed ${C.slate300};
+  border-radius: 10px;
+  padding: 0.48rem 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: ${C.slate700};
+  background: ${C.slate50};
+  cursor: pointer;
+  font-family: inherit;
+  &:hover:not(:disabled) {
+    border-color: ${C.blue};
+    color: ${C.blueDark};
+    background: ${C.blueLight};
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+`;
+
+const FileList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  width: 100%;
+`;
+
+const FileChip = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.38rem 0.55rem;
+  border-radius: 8px;
+  background: #eef2ff;
+  border: 1px solid #e0e7ff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: ${C.blueDark};
+`;
+
+const FileChipName = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 const LinkBtn = styled.button`
@@ -649,6 +753,12 @@ const ItemActions = styled.div`
   flex-wrap: wrap;
   gap: 0.35rem 0.7rem;
 `;
+
+function fileBaseName(filePath) {
+  const raw = String(filePath || '');
+  const parts = raw.split(/[/\\]/);
+  return parts[parts.length - 1] || raw;
+}
 
 function emptyGuaranteeForm(choices) {
   const first = choices[0] || {};
@@ -782,6 +892,7 @@ function ContractorRegistryManager({
   const [guaranteesDraft, setGuaranteesDraft] = useState([]);
   const [guaranteeForm, setGuaranteeForm] = useState(null);
   const [guaranteeFormError, setGuaranteeFormError] = useState('');
+  const [pendingGuaranteeFiles, setPendingGuaranteeFiles] = useState([]);
   const [acceptancesDraft, setAcceptancesDraft] = useState([]);
   const [acceptanceForm, setAcceptanceForm] = useState(null);
   const [acceptanceFormError, setAcceptanceFormError] = useState('');
@@ -794,6 +905,7 @@ function ContractorRegistryManager({
   const consumedFocusRef = useRef(null);
   const rebindAfterLoadRef = useRef(null);
   const fileLoadSeqRef = useRef(0);
+  const fileReloadPauseRef = useRef(0);
 
   useEffect(() => {
     lockBodyScroll();
@@ -863,6 +975,7 @@ function ContractorRegistryManager({
     setGuaranteesDraft(row?.guarantees || []);
     setGuaranteeForm(null);
     setGuaranteeFormError('');
+    setPendingGuaranteeFiles([]);
     setAcceptancesDraft(row?.acceptances || []);
     setAcceptanceForm(null);
     setAcceptanceFormError('');
@@ -1057,7 +1170,7 @@ function ContractorRegistryManager({
       });
       setGuaranteesDraft(res.record?.guarantees || []);
       setAcceptancesDraft(res.record?.acceptances || []);
-      return true;
+      return res.record || true;
     } finally {
       setSaving(false);
     }
@@ -1152,11 +1265,38 @@ function ContractorRegistryManager({
       return;
     }
     setGuaranteeFormError('');
-    const next = contractorRegistry.upsertGuaranteeInList(guaranteesDraft, evaluated.guarantee);
-    const ok = await saveCard({ guarantees: next });
-    if (ok) {
-      setGuaranteeForm(null);
-      showToast(guaranteeForm.id ? 'Η εγγυητική ενημερώθηκε' : 'Η εγγυητική καταχωρίστηκε', 'success');
+    const guarantee = {
+      ...evaluated.guarantee,
+      id: evaluated.guarantee.id || uuidv4(),
+    };
+    const next = contractorRegistry.upsertGuaranteeInList(guaranteesDraft, guarantee);
+    fileReloadPauseRef.current += 1;
+    ++fileLoadSeqRef.current;
+    try {
+      const saved = await saveCard({ guarantees: next });
+      if (saved) {
+        const pending = pendingGuaranteeFiles.slice();
+        setPendingGuaranteeFiles([]);
+        setGuaranteeForm(null);
+        showToast(guaranteeForm.id ? 'Η εγγυητική ενημερώθηκε' : 'Η εγγυητική καταχωρίστηκε', 'success');
+        const recordId = saved.id || selected?.registryId;
+        if (pending.length && recordId) {
+          const res = await ipcRenderer.invoke('upload-contractor-registry-files', {
+            recordId,
+            guaranteeId: guarantee.id,
+            filePaths: pending,
+            actingUsername: loggedInUsername,
+          });
+          if (res?.success) {
+            showToast(`${res.files.length} αρχεί${res.files.length === 1 ? 'ο' : 'α'} ανέβηκ${res.files.length === 1 ? 'ε' : 'αν'}`, 'success');
+          } else {
+            showToast(res?.error || 'Η εγγυητική αποθηκεύτηκε, αλλά τα αρχεία δεν ανέβηκαν', 'warning');
+          }
+        }
+        if (recordId) await loadAllGuaranteeFiles(recordId, next);
+      }
+    } finally {
+      fileReloadPauseRef.current = Math.max(0, fileReloadPauseRef.current - 1);
     }
   };
 
@@ -1182,8 +1322,21 @@ function ContractorRegistryManager({
     });
     if (!ok) return;
     const next = contractorRegistry.removeGuaranteeFromList(guaranteesDraft, guarantee.id);
-    const saved = await saveCard({ guarantees: next });
-    if (saved) showToast('Η εγγυητική αφαιρέθηκε', 'success');
+    fileReloadPauseRef.current += 1;
+    ++fileLoadSeqRef.current;
+    try {
+      const saved = await saveCard({ guarantees: next });
+      if (saved) {
+        setGuaranteeFiles((prev) => {
+          const copy = { ...prev };
+          delete copy[guarantee.id];
+          return copy;
+        });
+        showToast('Η εγγυητική αφαιρέθηκε', 'success');
+      }
+    } finally {
+      fileReloadPauseRef.current = Math.max(0, fileReloadPauseRef.current - 1);
+    }
   };
 
   const submitAcceptanceForm = async () => {
@@ -1259,6 +1412,7 @@ function ContractorRegistryManager({
   );
 
   useEffect(() => {
+    if (fileReloadPauseRef.current) return;
     if (selected?.registryId && sortedGuarantees.length > 0) {
       loadAllGuaranteeFiles(selected.registryId, sortedGuarantees);
     } else {
@@ -1267,14 +1421,19 @@ function ContractorRegistryManager({
     }
   }, [selected?.registryId, guaranteesKey, loadAllGuaranteeFiles]);
 
-  const uploadGuaranteeFile = async (guarantee) => {
+  const uploadGuaranteeFile = async (guarantee, filePaths) => {
     if (!selected?.registryId || !guarantee?.id || fieldsLocked) return;
-    const result = await safeFileDialog('select-multiple-files', 'Επιλογή αρχείων εγγυητικής', { allFileTypes: true });
-    if (!result?.filePaths?.length) return;
+    let paths = filePaths;
+    if (!paths) {
+      const result = await safeFileDialog('select-multiple-files', 'Επιλογή αρχείων εγγυητικής', { allFileTypes: true });
+      if (!result?.filePaths?.length) return;
+      paths = result.filePaths;
+    }
+    if (!paths?.length) return;
     const res = await ipcRenderer.invoke('upload-contractor-registry-files', {
       recordId: selected.registryId,
       guaranteeId: guarantee.id,
-      filePaths: result.filePaths,
+      filePaths: paths,
       actingUsername: loggedInUsername,
     });
     if (res?.success) {
@@ -1283,6 +1442,17 @@ function ContractorRegistryManager({
     } else {
       showToast(res?.error || 'Σφάλμα ανεβάσματος', 'error');
     }
+  };
+
+  const pickGuaranteeFormFiles = async () => {
+    if (!guaranteeForm || fieldsLocked) return;
+    const result = await safeFileDialog('select-multiple-files', 'Επιλογή αρχείων εγγυητικής', { allFileTypes: true });
+    if (!result?.filePaths?.length) return;
+    if (guaranteeForm.id && selected?.registryId) {
+      await uploadGuaranteeFile({ id: guaranteeForm.id }, result.filePaths);
+      return;
+    }
+    setPendingGuaranteeFiles((prev) => [...prev, ...result.filePaths]);
   };
 
   const openGuaranteeFile = async (guarantee, fileName) => {
@@ -1317,6 +1487,150 @@ function ContractorRegistryManager({
     } else {
       showToast(res?.error || 'Σφάλμα διαγραφής', 'error');
     }
+  };
+
+  const closeGuaranteeEditor = () => {
+    setGuaranteeForm(null);
+    setGuaranteeFormError('');
+    setPendingGuaranteeFiles([]);
+  };
+
+  const renderGuaranteeEditor = () => {
+    if (!guaranteeForm) return null;
+    const savedFiles = guaranteeForm.id ? (guaranteeFiles[guaranteeForm.id] || []) : [];
+    return (
+      <GuaranteeForm>
+        {guaranteeFormError && <FormError>{guaranteeFormError}</FormError>}
+        <FieldGrid>
+          <Field>
+            <FieldLabel>Είδος</FieldLabel>
+            <Select
+              value={guaranteeForm.type}
+              onChange={(e) => setGuaranteeForm((f) => ({ ...f, type: e.target.value }))}
+            >
+              {contractorRegistry.GUARANTEE_TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel>Κατάσταση</FieldLabel>
+            <Select
+              value={guaranteeForm.status}
+              onChange={(e) => setGuaranteeForm((f) => ({ ...f, status: e.target.value }))}
+            >
+              {contractorRegistry.GUARANTEE_STATUSES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field $full>
+            <FieldLabel>Υποέργο</FieldLabel>
+            <Select
+              value={guaranteeForm.subprojectId}
+              onChange={(e) => {
+                const choice = subprojectChoices.find((c) => c.subprojectId === e.target.value);
+                setGuaranteeForm((f) => ({
+                  ...f,
+                  subprojectId: e.target.value,
+                  projectId: choice?.projectId || '',
+                }));
+              }}
+            >
+              {subprojectChoices.map((c) => (
+                <option key={c.subprojectId} value={c.subprojectId}>{c.label}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel>Ποσό (€)</FieldLabel>
+            <Input
+              value={guaranteeForm.amount}
+              onChange={(e) => setGuaranteeForm((f) => ({ ...f, amount: e.target.value }))}
+              placeholder="π.χ. 1.234,56"
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Τράπεζα</FieldLabel>
+            <Input
+              value={guaranteeForm.bank}
+              onChange={(e) => setGuaranteeForm((f) => ({ ...f, bank: e.target.value }))}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Αριθμός επιστολής</FieldLabel>
+            <Input
+              value={guaranteeForm.letterNumber}
+              onChange={(e) => setGuaranteeForm((f) => ({ ...f, letterNumber: e.target.value }))}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Ημερομηνία έκδοσης</FieldLabel>
+            <Input
+              type="date"
+              value={guaranteeForm.issuedOn}
+              onChange={(e) => setGuaranteeForm((f) => ({ ...f, issuedOn: e.target.value }))}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>Ημερομηνία λήξης</FieldLabel>
+            <Input
+              type="date"
+              value={guaranteeForm.expiresOn}
+              onChange={(e) => setGuaranteeForm((f) => ({ ...f, expiresOn: e.target.value }))}
+            />
+          </Field>
+          <Field $full>
+            <FieldLabel>Σημειώσεις</FieldLabel>
+            <TextArea
+              value={guaranteeForm.notes}
+              onChange={(e) => setGuaranteeForm((f) => ({ ...f, notes: e.target.value }))}
+            />
+          </Field>
+          <Field $full>
+            <FieldLabel>Αρχεία εγγυητικής</FieldLabel>
+            <FileList>
+              {savedFiles.map((fn) => (
+                <FileChip key={fn}>
+                  <FileChipName title={fn}>📄 {fn}</FileChipName>
+                  <HeaderActions style={{ gap: '0.45rem', flexShrink: 0 }}>
+                    <LinkBtn type="button" onClick={() => openGuaranteeFile({ id: guaranteeForm.id }, fn)}>
+                      Άνοιγμα
+                    </LinkBtn>
+                    <DangerLink type="button" onClick={() => deleteGuaranteeFile({ id: guaranteeForm.id }, fn)}>
+                      Διαγραφή
+                    </DangerLink>
+                  </HeaderActions>
+                </FileChip>
+              ))}
+              {pendingGuaranteeFiles.map((fp) => (
+                <FileChip key={fp}>
+                  <FileChipName title={fp}>📄 {fileBaseName(fp)}</FileChipName>
+                  <DangerLink
+                    type="button"
+                    onClick={() => setPendingGuaranteeFiles((prev) => prev.filter((p) => p !== fp))}
+                    style={{ flexShrink: 0 }}
+                  >
+                    Αφαίρεση
+                  </DangerLink>
+                </FileChip>
+              ))}
+              <FilePickBtn type="button" onClick={pickGuaranteeFormFiles} disabled={saving}>
+                + Επισύναψη αρχείων
+              </FilePickBtn>
+            </FileList>
+          </Field>
+        </FieldGrid>
+        <FormActions>
+          <PrimaryBtn type="button" onClick={submitGuaranteeForm} disabled={saving}>
+            {guaranteeForm.id ? 'Αποθήκευση εγγυητικής' : 'Καταχώριση εγγυητικής'}
+          </PrimaryBtn>
+          <GhostBtn type="button" onClick={closeGuaranteeEditor}>
+            Άκυρο
+          </GhostBtn>
+        </FormActions>
+      </GuaranteeForm>
+    );
   };
 
   return (
@@ -1521,6 +1835,7 @@ function ContractorRegistryManager({
                             setAcceptanceForm(null);
                             setAcceptanceFormError('');
                             setGuaranteeFormError('');
+                            setPendingGuaranteeFiles([]);
                             setGuaranteeForm(emptyGuaranteeForm(subprojectChoices));
                           }}
                         >
@@ -1533,106 +1848,7 @@ function ContractorRegistryManager({
                       <InfoNote>Για να καταχωρίσετε εγγυητική, ο ανάδοχος πρέπει να έχει σύμβαση σε υποέργο.</InfoNote>
                     )}
 
-                    {editing && guaranteeForm && (
-                      <GuaranteeForm>
-                        {guaranteeFormError && <FormError>{guaranteeFormError}</FormError>}
-                        <FieldGrid>
-                          <Field>
-                            Είδος
-                            <Select
-                              value={guaranteeForm.type}
-                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, type: e.target.value }))}
-                            >
-                              {contractorRegistry.GUARANTEE_TYPES.map((t) => (
-                                <option key={t} value={t}>{t}</option>
-                              ))}
-                            </Select>
-                          </Field>
-                          <Field>
-                            Κατάσταση
-                            <Select
-                              value={guaranteeForm.status}
-                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, status: e.target.value }))}
-                            >
-                              {contractorRegistry.GUARANTEE_STATUSES.map((s) => (
-                                <option key={s} value={s}>{s}</option>
-                              ))}
-                            </Select>
-                          </Field>
-                          <Field>
-                            Ποσό (€)
-                            <Input
-                              value={guaranteeForm.amount}
-                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, amount: e.target.value }))}
-                              placeholder="π.χ. 1.234,56"
-                            />
-                          </Field>
-                          <Field>
-                            Τράπεζα
-                            <Input
-                              value={guaranteeForm.bank}
-                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, bank: e.target.value }))}
-                            />
-                          </Field>
-                          <Field>
-                            Αριθμός επιστολής
-                            <Input
-                              value={guaranteeForm.letterNumber}
-                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, letterNumber: e.target.value }))}
-                            />
-                          </Field>
-                          <Field>
-                            Υποέργο
-                            <Select
-                              value={guaranteeForm.subprojectId}
-                              onChange={(e) => {
-                                const choice = subprojectChoices.find((c) => c.subprojectId === e.target.value);
-                                setGuaranteeForm((f) => ({
-                                  ...f,
-                                  subprojectId: e.target.value,
-                                  projectId: choice?.projectId || '',
-                                }));
-                              }}
-                            >
-                              {subprojectChoices.map((c) => (
-                                <option key={c.subprojectId} value={c.subprojectId}>{c.label}</option>
-                              ))}
-                            </Select>
-                          </Field>
-                          <Field>
-                            Έκδοση
-                            <Input
-                              type="date"
-                              value={guaranteeForm.issuedOn}
-                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, issuedOn: e.target.value }))}
-                            />
-                          </Field>
-                          <Field>
-                            Λήξη
-                            <Input
-                              type="date"
-                              value={guaranteeForm.expiresOn}
-                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, expiresOn: e.target.value }))}
-                            />
-                          </Field>
-                        </FieldGrid>
-                        <Field style={{ marginTop: '0.75rem' }}>
-                          Σημειώσεις
-                          <TextArea
-                            value={guaranteeForm.notes}
-                            onChange={(e) => setGuaranteeForm((f) => ({ ...f, notes: e.target.value }))}
-                          />
-                        </Field>
-                        <HeaderActions style={{ marginTop: '0.75rem' }}>
-                          <PrimaryBtn type="button" onClick={submitGuaranteeForm} disabled={saving}>
-                            {guaranteeForm.id ? 'Ενημέρωση εγγυητικής' : 'Καταχώριση εγγυητικής'}
-                          </PrimaryBtn>
-                          <GhostBtn type="button" onClick={() => { setGuaranteeForm(null); setGuaranteeFormError(''); }}>
-                            Άκυρο
-                          </GhostBtn>
-                        </HeaderActions>
-                      </GuaranteeForm>
-                    )}
+                    {editing && guaranteeForm && !guaranteeForm.id && renderGuaranteeEditor()}
 
                     {sortedGuarantees.length === 0 && !guaranteeForm ? (
                       <EmptyBox>Δεν έχουν καταχωρηθεί εγγυητικές.</EmptyBox>
@@ -1645,6 +1861,13 @@ function ContractorRegistryManager({
                             ? contractorRegistry.daysUntilDate(g.expiresOn)
                             : null;
                           const gFiles = guaranteeFiles[g.id] || [];
+                          if (guaranteeForm?.id && guaranteeForm.id === g.id) {
+                            return (
+                              <div key={g.id || `${g.letterNumber}-${g.subprojectId}`}>
+                                {renderGuaranteeEditor()}
+                              </div>
+                            );
+                          }
                           return (
                             <ItemCard
                               key={g.id || `${g.letterNumber}-${g.subprojectId}`}
@@ -1674,7 +1897,7 @@ function ContractorRegistryManager({
                               </ItemTop>
                               <div style={{
                                 display: 'grid',
-                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
                                 gap: '0.35rem 0.7rem',
                                 marginTop: '0.6rem',
                                 padding: '0.6rem 0.65rem',
@@ -1713,8 +1936,7 @@ function ContractorRegistryManager({
                               {textOrEmpty(g.notes) ? (
                                 <ItemSub style={{ marginTop: '0.4rem', fontStyle: 'italic' }}>{g.notes}</ItemSub>
                               ) : null}
-                              {/* Αρχεία εγγυητικής */}
-                              {(gFiles.length > 0 || (editable && !saving)) && (
+                              {gFiles.length > 0 && (
                                 <div style={{
                                   marginTop: '0.45rem',
                                   padding: '0.4rem 0.55rem',
@@ -1726,18 +1948,11 @@ function ContractorRegistryManager({
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'space-between',
-                                    marginBottom: gFiles.length > 0 ? '0.35rem' : 0,
+                                    marginBottom: '0.35rem',
                                   }}>
                                     <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                                       Αρχεία ({gFiles.length})
                                     </span>
-                                    {editable && !saving && (
-                                      <LinkBtn type="button" onClick={() => uploadGuaranteeFile(g)}
-                                        style={{ fontSize: '0.68rem', color: '#7c3aed' }}
-                                      >
-                                        + Ανέβασμα
-                                      </LinkBtn>
-                                    )}
                                   </div>
                                   {gFiles.map((fn) => (
                                     <div key={fn} style={{
@@ -1754,13 +1969,6 @@ function ContractorRegistryManager({
                                       >
                                         📄 {fn}
                                       </LinkBtn>
-                                      {editable && !saving && (
-                                        <DangerLink type="button" onClick={() => deleteGuaranteeFile(g, fn)}
-                                          style={{ fontSize: '0.65rem', flexShrink: 0 }}
-                                        >
-                                          ✕
-                                        </DangerLink>
-                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -1771,6 +1979,7 @@ function ContractorRegistryManager({
                                     setAcceptanceForm(null);
                                     setAcceptanceFormError('');
                                     setGuaranteeFormError('');
+                                    setPendingGuaranteeFiles([]);
                                     setGuaranteeForm(formFromGuarantee(g, subprojectChoices));
                                   }}>
                                     Επεξεργασία
@@ -1803,6 +2012,7 @@ function ContractorRegistryManager({
                           onClick={() => {
                             setGuaranteeForm(null);
                             setGuaranteeFormError('');
+                            setPendingGuaranteeFiles([]);
                             setAcceptanceFormError('');
                             setAcceptanceForm(emptyAcceptanceForm(acceptanceChoices));
                           }}
@@ -1820,8 +2030,8 @@ function ContractorRegistryManager({
                       <GuaranteeForm>
                         {acceptanceFormError && <FormError>{acceptanceFormError}</FormError>}
                         <FieldGrid>
-                          <Field>
-                            Υποέργο
+                          <Field $full>
+                            <FieldLabel>Υποέργο</FieldLabel>
                             {acceptanceForm.id ? (
                               <Input
                                 disabled
@@ -1852,7 +2062,7 @@ function ContractorRegistryManager({
                             )}
                           </Field>
                           <Field>
-                            Προσωρινή παραλαβή
+                            <FieldLabel>Προσωρινή παραλαβή</FieldLabel>
                             <Input
                               type="date"
                               value={acceptanceForm.provisionalDate}
@@ -1860,37 +2070,37 @@ function ContractorRegistryManager({
                             />
                           </Field>
                           <Field>
-                            Οριστική παραλαβή
+                            <FieldLabel>Οριστική παραλαβή</FieldLabel>
                             <Input
                               type="date"
                               value={acceptanceForm.finalDate}
                               onChange={(e) => setAcceptanceForm((f) => ({ ...f, finalDate: e.target.value }))}
                             />
                           </Field>
-                          <Field>
-                            Λήξη χρόνου εγγύησης
+                          <Field $full>
+                            <FieldLabel>Λήξη χρόνου εγγύησης</FieldLabel>
                             <Input
                               type="date"
                               value={acceptanceForm.warrantyEndsOn}
                               onChange={(e) => setAcceptanceForm((f) => ({ ...f, warrantyEndsOn: e.target.value }))}
                             />
                           </Field>
+                          <Field $full>
+                            <FieldLabel>Σημειώσεις</FieldLabel>
+                            <TextArea
+                              value={acceptanceForm.notes}
+                              onChange={(e) => setAcceptanceForm((f) => ({ ...f, notes: e.target.value }))}
+                            />
+                          </Field>
                         </FieldGrid>
-                        <Field style={{ marginTop: '0.75rem' }}>
-                          Σημειώσεις
-                          <TextArea
-                            value={acceptanceForm.notes}
-                            onChange={(e) => setAcceptanceForm((f) => ({ ...f, notes: e.target.value }))}
-                          />
-                        </Field>
-                        <HeaderActions style={{ marginTop: '0.75rem' }}>
+                        <FormActions>
                           <PrimaryBtn type="button" onClick={submitAcceptanceForm} disabled={saving}>
                             {acceptanceForm.id ? 'Ενημέρωση ημερομηνιών' : 'Καταχώριση ημερομηνιών'}
                           </PrimaryBtn>
                           <GhostBtn type="button" onClick={() => { setAcceptanceForm(null); setAcceptanceFormError(''); }}>
                             Άκυρο
                           </GhostBtn>
-                        </HeaderActions>
+                        </FormActions>
                       </GuaranteeForm>
                     )}
 
@@ -1944,6 +2154,7 @@ function ContractorRegistryManager({
                                   <LinkBtn type="button" onClick={() => {
                                     setGuaranteeForm(null);
                                     setGuaranteeFormError('');
+                                    setPendingGuaranteeFiles([]);
                                     setAcceptanceFormError('');
                                     setAcceptanceForm(formFromAcceptance(acc, subprojectChoices));
                                   }}>

@@ -283,3 +283,60 @@ test('διαγραφή καρτέλας αφαιρεί τον φάκελο', () 
   const missing = svc.deleteRecord(UUID_B);
   assert.equal(missing.success, false);
 });
+
+test('διαγραφή εγγυητικής αφαιρεί τα αρχεία της', () => {
+  const { dataDir, svc } = makeService();
+  const created = svc.saveRecord({
+    id: UUID_A,
+    name: 'Α',
+    vat: '1',
+    guarantees: [validGuarantee({ id: G_OWN, letterNumber: '1' })],
+  });
+  assert.equal(created.success, true);
+  const src = path.join(dataDir, 'sample.pdf');
+  fs.writeFileSync(src, 'pdf');
+  const up = svc.uploadFiles(UUID_A, G_OWN, [src]);
+  assert.equal(up.success, true);
+  const filesDir = path.join(dataDir, CONTRACTOR_REGISTRY_DIR_NAME, UUID_A, 'ΑΡΧΕΙΑ', G_OWN);
+  assert.equal(fs.existsSync(filesDir), true);
+  const cleared = svc.saveRecord({
+    id: UUID_A,
+    name: 'Α',
+    vat: '1',
+    guarantees: [],
+  }, { expectedUpdatedAt: created.record.updatedAt });
+  assert.equal(cleared.success, true);
+  assert.equal(fs.existsSync(filesDir), false);
+});
+
+test('μηχανικός που αφαιρεί δική του εγγυητική δεν σβήνει αρχεία άλλης', () => {
+  const { dataDir, svc } = makeService();
+  const created = svc.saveRecord({
+    id: UUID_A,
+    name: 'Α',
+    vat: '1',
+    guarantees: [
+      validGuarantee({ id: G_FOREIGN, subprojectId: 'sub-z', letterNumber: 'Z' }),
+      validGuarantee({ id: G_OWN, subprojectId: 'sub-a', letterNumber: 'A' }),
+    ],
+  });
+  assert.equal(created.success, true);
+  const src = path.join(dataDir, 'foreign.pdf');
+  fs.writeFileSync(src, 'pdf');
+  assert.equal(svc.uploadFiles(UUID_A, G_FOREIGN, [src]).success, true);
+  const foreignDir = path.join(dataDir, CONTRACTOR_REGISTRY_DIR_NAME, UUID_A, 'ΑΡΧΕΙΑ', G_FOREIGN);
+  assert.equal(fs.existsSync(foreignDir), true);
+  const eng = svc.saveRecord(
+    {
+      id: UUID_A,
+      name: 'Α',
+      vat: '1',
+      guarantees: [],
+    },
+    { role: 'ENGINEER', visibleSubprojectIds: new Set(['sub-a']) },
+  );
+  assert.equal(eng.success, true);
+  assert.equal(eng.record.guarantees.some((g) => g.id === G_FOREIGN), true);
+  assert.equal(eng.record.guarantees.some((g) => g.id === G_OWN), false);
+  assert.equal(fs.existsSync(foreignDir), true);
+});
