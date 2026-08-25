@@ -493,8 +493,25 @@ test('το μητρώο αναδόχων καλεί τον κοινό πυρήν
   assert.match(electron, /presentContractorRegistryRecords/);
   assert.match(manager, /delete-contractor-registry-record/);
   assert.match(manager, /canEditContactField/);
+  assert.match(manager, /upload-contractor-registry-files/);
+  assert.match(manager, /get-contractor-registry-files/);
+  assert.match(manager, /open-contractor-registry-file/);
+  assert.match(manager, /delete-contractor-registry-file/);
   const preload = read('public/preload.js');
   assert.match(preload, /load-contractor-registry/);
+  assert.match(preload, /upload-contractor-registry-files/);
+  assert.match(electron, /upload-contractor-registry-files/);
+  assert.match(electron, /get-contractor-registry-files/);
+  assert.match(electron, /open-contractor-registry-file/);
+  assert.match(electron, /delete-contractor-registry-file/);
+  const core = read('app/core/contractorRegistry.js');
+  assert.match(core, /listAllGuaranteeExpiryItems/);
+  const calDead = read('app/core/calendarDeadlines.js');
+  assert.match(calDead, /GUARANTEE_EXPIRY/);
+  assert.match(calDead, /buildGuaranteeExpiryCalendarEvents/);
+  const svc = read('public/contractorRegistryService.js');
+  assert.match(svc, /uploadFiles/);
+  assert.match(svc, /listFiles/);
 });
 
 test('το μητρώο μελετών καλεί τον κοινό πυρήνα', () => {

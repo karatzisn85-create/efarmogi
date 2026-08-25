@@ -205,6 +205,7 @@ const EventPill = styled.button`
     if (p.$type === CALENDAR_EVENT_TYPES.CUSTOM) return '#4f46e5';
     if (p.$type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M) return '#b45309';
     if (p.$type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY) return '#1d4ed8';
+    if (p.$type === CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY) return '#7c3aed';
     if (p.$urgency === 'past') return '#94a3b8';
     if (p.$urgency === 'urgent') return '#dc2626';
     if (p.$urgency === 'soon') return '#d97706';
@@ -710,7 +711,8 @@ export default function ProcurementCalendar({
                             : ev.type === CALENDAR_EVENT_TYPES.CONTRACT_END ? '📋'
                             : ev.type === CALENDAR_EVENT_TYPES.CUSTOM ? '📌'
                             : ev.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M ? '⚠'
-                            : ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY ? '🏦' : '•'}{' '}
+                            : ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY ? '🏦'
+                            : ev.type === CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY ? '📄' : '•'}{' '}
                           {(ev.subprojectTitle || '').slice(0, 18)}
                           {(ev.subprojectTitle || '').length > 18 ? '…' : ''}
                         </EventPill>

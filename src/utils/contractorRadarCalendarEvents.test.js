@@ -38,7 +38,7 @@ describe('contractorRadarCalendarEvents', () => {
       urgentDays: 7,
     });
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe(CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY);
+    expect(events[0].type).toBe(CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY);
     expect(events[0].contractorName).toBe('ΤΕΧΝΙΚΗ Α.Ε.');
   });
 

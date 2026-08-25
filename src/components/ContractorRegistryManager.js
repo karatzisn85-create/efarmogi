@@ -6,6 +6,7 @@ import { showConfirm } from '../utils/confirmModal';
 import { formatDateEl } from '../utils/dateFormat';
 import { formatKhmdhsEuro } from '../utils/khmdhsNoticeFields';
 import { buildContractorProfiles } from '../utils/contractorFields';
+import { safeFileDialog } from '../utils/safeDialogs';
 import contractorRegistry from '../../app/core/contractorRegistry';
 
 const ipcRenderer = window.electronAPI;
@@ -787,10 +788,12 @@ function ContractorRegistryManager({
   const [saving, setSaving] = useState(false);
   const [lockBlocked, setLockBlocked] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [guaranteeFiles, setGuaranteeFiles] = useState({});
   const lockedIdRef = useRef(null);
   const selectedKeyRef = useRef(null);
   const consumedFocusRef = useRef(null);
   const rebindAfterLoadRef = useRef(null);
+  const fileLoadSeqRef = useRef(0);
 
   useEffect(() => {
     lockBodyScroll();
@@ -843,9 +846,7 @@ function ContractorRegistryManager({
   );
 
   const dirty = selected && (
-    draft.phone !== (selected.phone || '')
-    || draft.email !== (selected.email || '')
-    || draft.notes !== (selected.registryNotes || selected.notes || '')
+    draft.notes !== (selected.registryNotes || selected.notes || '')
     || contractorRegistry.guaranteesFingerprint(guaranteesDraft)
       !== contractorRegistry.guaranteesFingerprint(selected.guarantees || [])
     || contractorRegistry.acceptancesFingerprint(acceptancesDraft)
@@ -1132,13 +1133,8 @@ function ContractorRegistryManager({
     acceptancesDraft,
   );
   const fieldsLocked = !editing || !canEdit || lockBlocked;
-  const phoneWritable = editing && !fieldsLocked
-    && contractorRegistry.canEditContactField(selected?.phone, userRole);
-  const emailWritable = editing && !fieldsLocked
-    && contractorRegistry.canEditContactField(selected?.email, userRole);
   const notesWritable = editing && !fieldsLocked
     && contractorRegistry.canEditContactField(selected?.registryNotes || selected?.notes, userRole);
-  const contactInEdit = phoneWritable || emailWritable || notesWritable;
 
   const submitGuaranteeForm = async () => {
     if (!guaranteeForm || fieldsLocked) return;
@@ -1226,6 +1222,101 @@ function ContractorRegistryManager({
     const next = contractorRegistry.removeAcceptanceFromList(acceptancesDraft, acceptance.id);
     const saved = await saveCard({ acceptances: next });
     if (saved) showToast('Οι ημερομηνίες αφαιρέθηκαν', 'success');
+  };
+
+  const loadGuaranteeFiles = useCallback(async (recordId, guaranteeId) => {
+    if (!recordId || !guaranteeId) return;
+    try {
+      const res = await ipcRenderer.invoke('get-contractor-registry-files', {
+        recordId, guaranteeId, actingUsername: loggedInUsername,
+      });
+      if (res?.success) {
+        setGuaranteeFiles((prev) => ({ ...prev, [guaranteeId]: res.files || [] }));
+      }
+    } catch { /* ignore */ }
+  }, [loggedInUsername]);
+
+  const loadAllGuaranteeFiles = useCallback(async (rid, guarantees) => {
+    if (!rid) return;
+    const seq = ++fileLoadSeqRef.current;
+    const map = {};
+    for (const g of (guarantees || [])) {
+      if (!g?.id) continue;
+      if (fileLoadSeqRef.current !== seq) return;
+      try {
+        const res = await ipcRenderer.invoke('get-contractor-registry-files', {
+          recordId: rid, guaranteeId: g.id, actingUsername: loggedInUsername,
+        });
+        if (res?.success) map[g.id] = res.files || [];
+      } catch { /* ignore */ }
+    }
+    if (fileLoadSeqRef.current === seq) setGuaranteeFiles(map);
+  }, [loggedInUsername]);
+
+  const guaranteesKey = useMemo(
+    () => contractorRegistry.guaranteesFingerprint(sortedGuarantees),
+    [sortedGuarantees],
+  );
+
+  useEffect(() => {
+    if (selected?.registryId && sortedGuarantees.length > 0) {
+      loadAllGuaranteeFiles(selected.registryId, sortedGuarantees);
+    } else {
+      ++fileLoadSeqRef.current;
+      setGuaranteeFiles({});
+    }
+  }, [selected?.registryId, guaranteesKey, loadAllGuaranteeFiles]);
+
+  const uploadGuaranteeFile = async (guarantee) => {
+    if (!selected?.registryId || !guarantee?.id || fieldsLocked) return;
+    const result = await safeFileDialog('select-multiple-files', 'Επιλογή αρχείων εγγυητικής', { allFileTypes: true });
+    if (!result?.filePaths?.length) return;
+    const res = await ipcRenderer.invoke('upload-contractor-registry-files', {
+      recordId: selected.registryId,
+      guaranteeId: guarantee.id,
+      filePaths: result.filePaths,
+      actingUsername: loggedInUsername,
+    });
+    if (res?.success) {
+      showToast(`${res.files.length} αρχεί${res.files.length === 1 ? 'ο' : 'α'} ανέβηκ${res.files.length === 1 ? 'ε' : 'αν'}`, 'success');
+      loadGuaranteeFiles(selected.registryId, guarantee.id);
+    } else {
+      showToast(res?.error || 'Σφάλμα ανεβάσματος', 'error');
+    }
+  };
+
+  const openGuaranteeFile = async (guarantee, fileName) => {
+    if (!selected?.registryId || !guarantee?.id) return;
+    await ipcRenderer.invoke('open-contractor-registry-file', {
+      recordId: selected.registryId,
+      guaranteeId: guarantee.id,
+      fileName,
+      actingUsername: loggedInUsername,
+    });
+  };
+
+  const deleteGuaranteeFile = async (guarantee, fileName) => {
+    if (!selected?.registryId || !guarantee?.id || fieldsLocked) return;
+    const ok = await showConfirm({
+      title: 'Διαγραφή αρχείου',
+      message: `Να διαγραφεί το «${fileName}»;`,
+      confirmLabel: 'Διαγραφή',
+      cancelLabel: 'Άκυρο',
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await ipcRenderer.invoke('delete-contractor-registry-file', {
+      recordId: selected.registryId,
+      guaranteeId: guarantee.id,
+      fileName,
+      actingUsername: loggedInUsername,
+    });
+    if (res?.success) {
+      showToast('Το αρχείο διαγράφηκε', 'success');
+      loadGuaranteeFiles(selected.registryId, guarantee.id);
+    } else {
+      showToast(res?.error || 'Σφάλμα διαγραφής', 'error');
+    }
   };
 
   return (
@@ -1336,99 +1427,14 @@ function ContractorRegistryManager({
                   </HeaderActions>
                 </DetailHead>
                 <DetailBody>
+                  {/* ── Ενεργές συμβάσεις ─── */}
                   <SectionPanel>
                     <SectionHead>
                       <SectionTitle>
-                        <SectionIcon>📞</SectionIcon>
-                        Στοιχεία επικοινωνίας
+                        <SectionIcon $bg="#ecfdf5">📋</SectionIcon>
+                        Ενεργές συμβάσεις
+                        {activeContracts.length > 0 && <Chip $tone="live">{activeContracts.length}</Chip>}
                       </SectionTitle>
-                    </SectionHead>
-                    {editing && contactInEdit ? (
-                      <>
-                        <FieldGrid>
-                          <Field>
-                            Τηλέφωνο
-                            {phoneWritable ? (
-                              <Input
-                                value={draft.phone}
-                                onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))}
-                                placeholder="π.χ. 2810 123456"
-                              />
-                            ) : (
-                              <FactValue $empty={!textOrEmpty(draft.phone)}>
-                                {textOrEmpty(draft.phone) || '—'}
-                              </FactValue>
-                            )}
-                          </Field>
-                          <Field>
-                            Email
-                            {emailWritable ? (
-                              <Input
-                                value={draft.email}
-                                onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
-                                placeholder="name@example.gr"
-                              />
-                            ) : (
-                              <FactValue $empty={!textOrEmpty(draft.email)}>
-                                {textOrEmpty(draft.email) || '—'}
-                              </FactValue>
-                            )}
-                          </Field>
-                        </FieldGrid>
-                        <Field style={{ marginTop: '0.75rem' }}>
-                          Σημειώσεις υπηρεσίας
-                          {notesWritable ? (
-                            <TextArea
-                              value={draft.notes}
-                              onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
-                              placeholder="Επικοινωνία, παρατηρήσεις…"
-                            />
-                          ) : (
-                            <FactValue $multiline $empty={!textOrEmpty(draft.notes)}>
-                              {textOrEmpty(draft.notes) || '—'}
-                            </FactValue>
-                          )}
-                        </Field>
-                      </>
-                    ) : (
-                      <>
-                        {!textOrEmpty(draft.phone) && !textOrEmpty(draft.email) && !textOrEmpty(draft.notes) ? (
-                          <EmptyBox>Δεν έχουν καταχωρηθεί στοιχεία επικοινωνίας.</EmptyBox>
-                        ) : (
-                          <>
-                            <FactGrid>
-                              <Fact>
-                                <FactLabel>Τηλέφωνο</FactLabel>
-                                <FactValue $empty={!textOrEmpty(draft.phone)}>
-                                  {textOrEmpty(draft.phone) || '—'}
-                                </FactValue>
-                              </Fact>
-                              <Fact>
-                                <FactLabel>Email</FactLabel>
-                                <FactValue $empty={!textOrEmpty(draft.email)}>
-                                  {textOrEmpty(draft.email) || '—'}
-                                </FactValue>
-                              </Fact>
-                            </FactGrid>
-                            {textOrEmpty(draft.notes) ? (
-                              <Fact style={{ marginTop: '0.75rem' }}>
-                                <FactLabel>Σημειώσεις υπηρεσίας</FactLabel>
-                                <FactValue $multiline>{draft.notes}</FactValue>
-                              </Fact>
-                            ) : null}
-                          </>
-                        )}
-                      </>
-                    )}
-                  </SectionPanel>
-
-                  <SectionPanel>
-                    <SectionHead>
-                        <SectionTitle>
-                          <SectionIcon $bg="#ecfdf5">📋</SectionIcon>
-                          Ενεργές συμβάσεις
-                          {activeContracts.length > 0 && <Chip $tone="live">{activeContracts.length}</Chip>}
-                        </SectionTitle>
                     </SectionHead>
                     {activeContracts.length === 0 ? (
                       <EmptyBox>Δεν υπάρχει εκτελούμενη σύμβαση.</EmptyBox>
@@ -1461,6 +1467,7 @@ function ContractorRegistryManager({
                     )}
                   </SectionPanel>
 
+                  {/* ── Ιστορικό συμβάσεων ─── */}
                   {otherContracts.length > 0 && (
                     <SectionPanel>
                       <SectionHead>
@@ -1498,16 +1505,18 @@ function ContractorRegistryManager({
                     </SectionPanel>
                   )}
 
-                  <SectionPanel>
+                  {/* ── Εγγυητικές επιστολές ─── */}
+                  <SectionPanel style={{ borderColor: '#c7d2fe', background: 'linear-gradient(180deg, #fafbff 0%, #ffffff 100%)' }}>
                     <SectionHead>
                       <SectionTitle>
-                        <SectionIcon $bg="#eef2ff">🏦</SectionIcon>
-                        Εγγυητικές επιστολές
+                        <SectionIcon $bg="#eef2ff" style={{ fontSize: '1.05rem' }}>🏦</SectionIcon>
+                        <span style={{ fontSize: '0.88rem', letterSpacing: '-0.01em' }}>Εγγυητικές επιστολές</span>
                         {sortedGuarantees.length > 0 && <Chip>{sortedGuarantees.length}</Chip>}
                       </SectionTitle>
                       {editing && canEdit && !lockBlocked && subprojectChoices.length > 0 && (
-                        <GhostBtn
+                        <PrimaryBtn
                           type="button"
+                          style={{ fontSize: '0.72rem', padding: '0.38rem 0.8rem' }}
                           onClick={() => {
                             setAcceptanceForm(null);
                             setAcceptanceFormError('');
@@ -1516,193 +1525,270 @@ function ContractorRegistryManager({
                           }}
                         >
                           + Νέα εγγυητική
-                        </GhostBtn>
+                        </PrimaryBtn>
                       )}
                     </SectionHead>
 
-                  {editing && canEdit && !lockBlocked && subprojectChoices.length === 0 && (
-                    <InfoNote>Για να καταχωρίσετε εγγυητική, ο ανάδοχος πρέπει να έχει σύμβαση σε υποέργο.</InfoNote>
-                  )}
+                    {editing && canEdit && !lockBlocked && subprojectChoices.length === 0 && (
+                      <InfoNote>Για να καταχωρίσετε εγγυητική, ο ανάδοχος πρέπει να έχει σύμβαση σε υποέργο.</InfoNote>
+                    )}
 
-                  {editing && guaranteeForm && (
-                    <GuaranteeForm>
-                      {guaranteeFormError && <FormError>{guaranteeFormError}</FormError>}
-                      <FieldGrid>
-                        <Field>
-                          Είδος
-                          <Select
-                            value={guaranteeForm.type}
-                            onChange={(e) => setGuaranteeForm((f) => ({ ...f, type: e.target.value }))}
-                          >
-                            {contractorRegistry.GUARANTEE_TYPES.map((t) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </Select>
-                        </Field>
-                        <Field>
-                          Κατάσταση
-                          <Select
-                            value={guaranteeForm.status}
-                            onChange={(e) => setGuaranteeForm((f) => ({ ...f, status: e.target.value }))}
-                          >
-                            {contractorRegistry.GUARANTEE_STATUSES.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </Select>
-                        </Field>
-                        <Field>
-                          Ποσό (€)
-                          <Input
-                            value={guaranteeForm.amount}
-                            onChange={(e) => setGuaranteeForm((f) => ({ ...f, amount: e.target.value }))}
-                            placeholder="όπως στο χαρτί, π.χ. 1.234,56"
+                    {editing && guaranteeForm && (
+                      <GuaranteeForm>
+                        {guaranteeFormError && <FormError>{guaranteeFormError}</FormError>}
+                        <FieldGrid>
+                          <Field>
+                            Είδος
+                            <Select
+                              value={guaranteeForm.type}
+                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, type: e.target.value }))}
+                            >
+                              {contractorRegistry.GUARANTEE_TYPES.map((t) => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                            </Select>
+                          </Field>
+                          <Field>
+                            Κατάσταση
+                            <Select
+                              value={guaranteeForm.status}
+                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, status: e.target.value }))}
+                            >
+                              {contractorRegistry.GUARANTEE_STATUSES.map((s) => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </Select>
+                          </Field>
+                          <Field>
+                            Ποσό (€)
+                            <Input
+                              value={guaranteeForm.amount}
+                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, amount: e.target.value }))}
+                              placeholder="π.χ. 1.234,56"
+                            />
+                          </Field>
+                          <Field>
+                            Τράπεζα
+                            <Input
+                              value={guaranteeForm.bank}
+                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, bank: e.target.value }))}
+                            />
+                          </Field>
+                          <Field>
+                            Αριθμός επιστολής
+                            <Input
+                              value={guaranteeForm.letterNumber}
+                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, letterNumber: e.target.value }))}
+                            />
+                          </Field>
+                          <Field>
+                            Υποέργο
+                            <Select
+                              value={guaranteeForm.subprojectId}
+                              onChange={(e) => {
+                                const choice = subprojectChoices.find((c) => c.subprojectId === e.target.value);
+                                setGuaranteeForm((f) => ({
+                                  ...f,
+                                  subprojectId: e.target.value,
+                                  projectId: choice?.projectId || '',
+                                }));
+                              }}
+                            >
+                              {subprojectChoices.map((c) => (
+                                <option key={c.subprojectId} value={c.subprojectId}>{c.label}</option>
+                              ))}
+                            </Select>
+                          </Field>
+                          <Field>
+                            Έκδοση
+                            <Input
+                              type="date"
+                              value={guaranteeForm.issuedOn}
+                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, issuedOn: e.target.value }))}
+                            />
+                          </Field>
+                          <Field>
+                            Λήξη
+                            <Input
+                              type="date"
+                              value={guaranteeForm.expiresOn}
+                              onChange={(e) => setGuaranteeForm((f) => ({ ...f, expiresOn: e.target.value }))}
+                            />
+                          </Field>
+                        </FieldGrid>
+                        <Field style={{ marginTop: '0.75rem' }}>
+                          Σημειώσεις
+                          <TextArea
+                            value={guaranteeForm.notes}
+                            onChange={(e) => setGuaranteeForm((f) => ({ ...f, notes: e.target.value }))}
                           />
                         </Field>
-                        <Field>
-                          Τράπεζα
-                          <Input
-                            value={guaranteeForm.bank}
-                            onChange={(e) => setGuaranteeForm((f) => ({ ...f, bank: e.target.value }))}
-                          />
-                        </Field>
-                        <Field>
-                          Αριθμός επιστολής
-                          <Input
-                            value={guaranteeForm.letterNumber}
-                            onChange={(e) => setGuaranteeForm((f) => ({ ...f, letterNumber: e.target.value }))}
-                          />
-                        </Field>
-                        <Field>
-                          Υποέργο
-                          <Select
-                            value={guaranteeForm.subprojectId}
-                            onChange={(e) => {
-                              const choice = subprojectChoices.find((c) => c.subprojectId === e.target.value);
-                              setGuaranteeForm((f) => ({
-                                ...f,
-                                subprojectId: e.target.value,
-                                projectId: choice?.projectId || '',
-                              }));
-                            }}
-                          >
-                            {subprojectChoices.map((c) => (
-                              <option key={c.subprojectId} value={c.subprojectId}>{c.label}</option>
-                            ))}
-                          </Select>
-                        </Field>
-                        <Field>
-                          Έκδοση
-                          <Input
-                            type="date"
-                            value={guaranteeForm.issuedOn}
-                            onChange={(e) => setGuaranteeForm((f) => ({ ...f, issuedOn: e.target.value }))}
-                          />
-                        </Field>
-                        <Field>
-                          Λήξη
-                          <Input
-                            type="date"
-                            value={guaranteeForm.expiresOn}
-                            onChange={(e) => setGuaranteeForm((f) => ({ ...f, expiresOn: e.target.value }))}
-                          />
-                        </Field>
-                      </FieldGrid>
-                      <Field style={{ marginTop: '0.75rem' }}>
-                        Σημειώσεις
-                        <TextArea
-                          value={guaranteeForm.notes}
-                          onChange={(e) => setGuaranteeForm((f) => ({ ...f, notes: e.target.value }))}
-                        />
-                      </Field>
-                      <HeaderActions style={{ marginTop: '0.75rem' }}>
-                        <PrimaryBtn type="button" onClick={submitGuaranteeForm} disabled={saving}>
-                          {guaranteeForm.id ? 'Ενημέρωση εγγυητικής' : 'Καταχώριση εγγυητικής'}
-                        </PrimaryBtn>
-                        <GhostBtn type="button" onClick={() => { setGuaranteeForm(null); setGuaranteeFormError(''); }}>
-                          Άκυρο
-                        </GhostBtn>
-                      </HeaderActions>
-                    </GuaranteeForm>
-                  )}
+                        <HeaderActions style={{ marginTop: '0.75rem' }}>
+                          <PrimaryBtn type="button" onClick={submitGuaranteeForm} disabled={saving}>
+                            {guaranteeForm.id ? 'Ενημέρωση εγγυητικής' : 'Καταχώριση εγγυητικής'}
+                          </PrimaryBtn>
+                          <GhostBtn type="button" onClick={() => { setGuaranteeForm(null); setGuaranteeFormError(''); }}>
+                            Άκυρο
+                          </GhostBtn>
+                        </HeaderActions>
+                      </GuaranteeForm>
+                    )}
 
-                  {sortedGuarantees.length === 0 && !guaranteeForm ? (
-                    <EmptyBox>Δεν έχουν καταχωρηθεί εγγυητικές.</EmptyBox>
-                  ) : (
-                    <ItemList>
-                      {sortedGuarantees.map((g) => {
-                    const editable = editing && contractorRegistry.guaranteeIsEditable(g, viewerOpts) && !lockBlocked;
-                    const choice = (selected.assignments || []).find((a) => a.subprojectId === g.subprojectId);
-                    const daysLeft = g.status === 'ενεργή'
-                      ? contractorRegistry.daysUntilDate(g.expiresOn)
-                      : null;
-                    return (
-                      <ItemCard
-                        key={g.id || `${g.letterNumber}-${g.subprojectId}`}
-                        $live={g.status === 'ενεργή' && !(daysLeft != null && daysLeft < 0)}
-                        $warn={g.status === 'ενεργή' && daysLeft != null && daysLeft < 0}
-                      >
-                        <ItemTop>
-                          <div style={{ minWidth: 0 }}>
-                            <ItemTitle>{g.type}</ItemTitle>
-                            <ItemSub>
-                              {g.letterNumber ? `Αρ. ${g.letterNumber}` : 'Χωρίς αριθμό'}
-                              {g.bank ? ` · ${g.bank}` : ''}
-                              {choice ? ` · ${choice.subprojectTitle || choice.projectTitle}` : ''}
-                            </ItemSub>
-                          </div>
-                          <StatusPill $active={g.status === 'ενεργή'} $warn={g.status === 'ενεργή' && daysLeft != null && daysLeft < 0}>
-                            {guaranteeStatusLabel(g.status)}
-                          </StatusPill>
-                        </ItemTop>
-                        <ItemMeta>
-                          <MetaStat>
-                            <MetaStatLabel>Έκδοση</MetaStatLabel>
-                            <MetaStatValue>{g.issuedOn ? formatDateEl(g.issuedOn) : '—'}</MetaStatValue>
-                          </MetaStat>
-                          <MetaStat>
-                            <MetaStatLabel>Λήξη</MetaStatLabel>
-                            <MetaStatValue>
-                              {g.expiresOn ? formatDateEl(g.expiresOn) : '—'}
-                              {daysLeft != null && g.status === 'ενεργή' ? (
-                                <ItemSub>
-                                  {daysLeft < 0 ? `έληξε πριν ${-daysLeft} ημ.` : `σε ${daysLeft} ημ.`}
-                                </ItemSub>
+                    {sortedGuarantees.length === 0 && !guaranteeForm ? (
+                      <EmptyBox>Δεν έχουν καταχωρηθεί εγγυητικές.</EmptyBox>
+                    ) : (
+                      <ItemList>
+                        {sortedGuarantees.map((g) => {
+                          const editable = editing && contractorRegistry.guaranteeIsEditable(g, viewerOpts) && !lockBlocked;
+                          const choice = (selected.assignments || []).find((a) => a.subprojectId === g.subprojectId);
+                          const daysLeft = g.status === 'ενεργή'
+                            ? contractorRegistry.daysUntilDate(g.expiresOn)
+                            : null;
+                          const gFiles = guaranteeFiles[g.id] || [];
+                          return (
+                            <ItemCard
+                              key={g.id || `${g.letterNumber}-${g.subprojectId}`}
+                              $live={g.status === 'ενεργή' && !(daysLeft != null && daysLeft < 0)}
+                              $warn={g.status === 'ενεργή' && daysLeft != null && daysLeft < 0}
+                              style={{ borderLeft: `4px solid ${g.status === 'ενεργή' ? (daysLeft != null && daysLeft < 0 ? C.amber : '#7c3aed') : C.slate200}` }}
+                            >
+                              <ItemTop>
+                                <div style={{ minWidth: 0 }}>
+                                  <ItemTitle style={{ color: '#4338ca' }}>{g.type}</ItemTitle>
+                                  <ItemSub>
+                                    {g.letterNumber ? `Αρ. ${g.letterNumber}` : 'Χωρίς αριθμό'}
+                                    {g.bank ? ` · ${g.bank}` : ''}
+                                  </ItemSub>
+                                  {choice && (
+                                    <ItemSub style={{ marginTop: '0.08rem', color: C.slate400 }}>
+                                      {choice.subprojectTitle || choice.projectTitle}
+                                    </ItemSub>
+                                  )}
+                                </div>
+                                <StatusPill
+                                  $active={g.status === 'ενεργή'}
+                                  $warn={g.status === 'ενεργή' && daysLeft != null && daysLeft < 0}
+                                >
+                                  {guaranteeStatusLabel(g.status)}
+                                </StatusPill>
+                              </ItemTop>
+                              <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                gap: '0.35rem 0.7rem',
+                                marginTop: '0.6rem',
+                                padding: '0.6rem 0.65rem',
+                                background: C.slate50,
+                                borderRadius: '10px',
+                                border: `1px solid ${C.slate100}`,
+                              }}>
+                                <MetaStat>
+                                  <MetaStatLabel>Ποσό</MetaStatLabel>
+                                  <MetaStatValue $accent style={{ fontSize: '0.88rem' }}>
+                                    {g.amount != null && g.amount !== '' ? formatKhmdhsEuro(g.amount) : '—'}
+                                  </MetaStatValue>
+                                </MetaStat>
+                                <MetaStat>
+                                  <MetaStatLabel>Έκδοση</MetaStatLabel>
+                                  <MetaStatValue>{g.issuedOn ? formatDateEl(g.issuedOn) : '—'}</MetaStatValue>
+                                </MetaStat>
+                                <MetaStat>
+                                  <MetaStatLabel>Λήξη</MetaStatLabel>
+                                  <MetaStatValue>
+                                    {g.expiresOn ? formatDateEl(g.expiresOn) : '—'}
+                                    {daysLeft != null && g.status === 'ενεργή' ? (
+                                      <span style={{
+                                        display: 'block',
+                                        fontSize: '0.65rem',
+                                        fontWeight: 700,
+                                        marginTop: '0.1rem',
+                                        color: daysLeft < 0 ? '#dc2626' : daysLeft <= 30 ? C.amber : C.emerald,
+                                      }}>
+                                        {daysLeft < 0 ? `έληξε πριν ${-daysLeft} ημ.` : `σε ${daysLeft} ημ.`}
+                                      </span>
+                                    ) : null}
+                                  </MetaStatValue>
+                                </MetaStat>
+                              </div>
+                              {textOrEmpty(g.notes) ? (
+                                <ItemSub style={{ marginTop: '0.4rem', fontStyle: 'italic' }}>{g.notes}</ItemSub>
                               ) : null}
-                            </MetaStatValue>
-                          </MetaStat>
-                          <MetaStat>
-                            <MetaStatLabel>Ποσό</MetaStatLabel>
-                            <MetaStatValue $accent>
-                              {g.amount != null && g.amount !== '' ? formatKhmdhsEuro(g.amount) : '—'}
-                            </MetaStatValue>
-                          </MetaStat>
-                        </ItemMeta>
-                        {textOrEmpty(g.notes) ? (
-                          <ItemSub>{g.notes}</ItemSub>
-                        ) : null}
-                        {editable && !saving && (
-                          <ItemActions>
-                            <LinkBtn type="button" onClick={() => {
-                              setAcceptanceForm(null);
-                              setAcceptanceFormError('');
-                              setGuaranteeFormError('');
-                              setGuaranteeForm(formFromGuarantee(g, subprojectChoices));
-                            }}>
-                              Επεξεργασία
-                            </LinkBtn>
-                            {g.status === 'ενεργή' && (
-                              <LinkBtn type="button" onClick={() => markGuaranteeStatus(g, 'επιστράφηκε')}>Επιστροφή</LinkBtn>
-                            )}
-                            <DangerLink type="button" onClick={() => deleteGuarantee(g)}>Διαγραφή</DangerLink>
-                          </ItemActions>
-                        )}
-                      </ItemCard>
-                    );
-                  })}
-                    </ItemList>
-                  )}
+                              {/* Αρχεία εγγυητικής */}
+                              {(gFiles.length > 0 || (editable && !saving)) && (
+                                <div style={{
+                                  marginTop: '0.45rem',
+                                  padding: '0.4rem 0.55rem',
+                                  background: '#f5f3ff',
+                                  borderRadius: '8px',
+                                  border: '1px solid #e9e5f5',
+                                }}>
+                                  <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    marginBottom: gFiles.length > 0 ? '0.35rem' : 0,
+                                  }}>
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                      Αρχεία ({gFiles.length})
+                                    </span>
+                                    {editable && !saving && (
+                                      <LinkBtn type="button" onClick={() => uploadGuaranteeFile(g)}
+                                        style={{ fontSize: '0.68rem', color: '#7c3aed' }}
+                                      >
+                                        + Ανέβασμα
+                                      </LinkBtn>
+                                    )}
+                                  </div>
+                                  {gFiles.map((fn) => (
+                                    <div key={fn} style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      gap: '0.4rem',
+                                      padding: '0.22rem 0',
+                                      borderBottom: '1px solid #ede9fe',
+                                    }}>
+                                      <LinkBtn type="button" onClick={() => openGuaranteeFile(g, fn)}
+                                        style={{ fontSize: '0.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4338ca' }}
+                                        title={fn}
+                                      >
+                                        📄 {fn}
+                                      </LinkBtn>
+                                      {editable && !saving && (
+                                        <DangerLink type="button" onClick={() => deleteGuaranteeFile(g, fn)}
+                                          style={{ fontSize: '0.65rem', flexShrink: 0 }}
+                                        >
+                                          ✕
+                                        </DangerLink>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {editable && !saving && (
+                                <ItemActions>
+                                  <LinkBtn type="button" onClick={() => {
+                                    setAcceptanceForm(null);
+                                    setAcceptanceFormError('');
+                                    setGuaranteeFormError('');
+                                    setGuaranteeForm(formFromGuarantee(g, subprojectChoices));
+                                  }}>
+                                    Επεξεργασία
+                                  </LinkBtn>
+                                  {g.status === 'ενεργή' && (
+                                    <LinkBtn type="button" onClick={() => markGuaranteeStatus(g, 'επιστράφηκε')}>Επιστροφή</LinkBtn>
+                                  )}
+                                  <DangerLink type="button" onClick={() => deleteGuarantee(g)}>Διαγραφή</DangerLink>
+                                </ItemActions>
+                              )}
+                            </ItemCard>
+                          );
+                        })}
+                      </ItemList>
+                    )}
                   </SectionPanel>
 
+                  {/* ── Παραλαβές ─── */}
                   <SectionPanel>
                     <SectionHead>
                       <SectionTitle>
@@ -1711,8 +1797,9 @@ function ContractorRegistryManager({
                         {sortedAcceptances.length > 0 && <Chip>{sortedAcceptances.length}</Chip>}
                       </SectionTitle>
                       {editing && canEdit && !lockBlocked && acceptanceChoices.length > 0 && (
-                        <GhostBtn
+                        <PrimaryBtn
                           type="button"
+                          style={{ fontSize: '0.72rem', padding: '0.38rem 0.8rem' }}
                           onClick={() => {
                             setGuaranteeForm(null);
                             setGuaranteeFormError('');
@@ -1721,156 +1808,178 @@ function ContractorRegistryManager({
                           }}
                         >
                           + Παραλαβή / εγγύηση
-                        </GhostBtn>
+                        </PrimaryBtn>
                       )}
                     </SectionHead>
 
-                  {editing && canEdit && !lockBlocked && subprojectChoices.length === 0 && (
-                    <InfoNote>Για να καταχωρίσετε παραλαβή, ο ανάδοχος πρέπει να έχει σύμβαση σε υποέργο.</InfoNote>
-                  )}
+                    {editing && canEdit && !lockBlocked && subprojectChoices.length === 0 && (
+                      <InfoNote>Για να καταχωρίσετε παραλαβή, ο ανάδοχος πρέπει να έχει σύμβαση σε υποέργο.</InfoNote>
+                    )}
 
-                  {editing && acceptanceForm && (
-                    <GuaranteeForm>
-                      {acceptanceFormError && <FormError>{acceptanceFormError}</FormError>}
-                      <FieldGrid>
-                        <Field>
-                          Υποέργο
-                          {acceptanceForm.id ? (
+                    {editing && acceptanceForm && (
+                      <GuaranteeForm>
+                        {acceptanceFormError && <FormError>{acceptanceFormError}</FormError>}
+                        <FieldGrid>
+                          <Field>
+                            Υποέργο
+                            {acceptanceForm.id ? (
+                              <Input
+                                disabled
+                                value={
+                                  (selected.assignments || []).find((a) => a.subprojectId === acceptanceForm.subprojectId)
+                                    ?.subprojectTitle
+                                  || (selected.assignments || []).find((a) => a.subprojectId === acceptanceForm.subprojectId)
+                                    ?.projectTitle
+                                  || acceptanceForm.subprojectId
+                                }
+                              />
+                            ) : (
+                              <Select
+                                value={acceptanceForm.subprojectId}
+                                onChange={(e) => {
+                                  const choice = acceptanceChoices.find((c) => c.subprojectId === e.target.value);
+                                  setAcceptanceForm((f) => ({
+                                    ...f,
+                                    subprojectId: e.target.value,
+                                    projectId: choice?.projectId || '',
+                                  }));
+                                }}
+                              >
+                                {acceptanceChoices.map((c) => (
+                                  <option key={c.subprojectId} value={c.subprojectId}>{c.label}</option>
+                                ))}
+                              </Select>
+                            )}
+                          </Field>
+                          <Field>
+                            Προσωρινή παραλαβή
                             <Input
-                              disabled
-                              value={
-                                (selected.assignments || []).find((a) => a.subprojectId === acceptanceForm.subprojectId)
-                                  ?.subprojectTitle
-                                || (selected.assignments || []).find((a) => a.subprojectId === acceptanceForm.subprojectId)
-                                  ?.projectTitle
-                                || acceptanceForm.subprojectId
-                              }
+                              type="date"
+                              value={acceptanceForm.provisionalDate}
+                              onChange={(e) => setAcceptanceForm((f) => ({ ...f, provisionalDate: e.target.value }))}
                             />
-                          ) : (
-                            <Select
-                              value={acceptanceForm.subprojectId}
-                              onChange={(e) => {
-                                const choice = acceptanceChoices.find((c) => c.subprojectId === e.target.value);
-                                setAcceptanceForm((f) => ({
-                                  ...f,
-                                  subprojectId: e.target.value,
-                                  projectId: choice?.projectId || '',
-                                }));
-                              }}
-                            >
-                              {acceptanceChoices.map((c) => (
-                                <option key={c.subprojectId} value={c.subprojectId}>{c.label}</option>
-                              ))}
-                            </Select>
-                          )}
-                        </Field>
-                        <Field>
-                          Προσωρινή παραλαβή
-                          <Input
-                            type="date"
-                            value={acceptanceForm.provisionalDate}
-                            onChange={(e) => setAcceptanceForm((f) => ({ ...f, provisionalDate: e.target.value }))}
+                          </Field>
+                          <Field>
+                            Οριστική παραλαβή
+                            <Input
+                              type="date"
+                              value={acceptanceForm.finalDate}
+                              onChange={(e) => setAcceptanceForm((f) => ({ ...f, finalDate: e.target.value }))}
+                            />
+                          </Field>
+                          <Field>
+                            Λήξη χρόνου εγγύησης
+                            <Input
+                              type="date"
+                              value={acceptanceForm.warrantyEndsOn}
+                              onChange={(e) => setAcceptanceForm((f) => ({ ...f, warrantyEndsOn: e.target.value }))}
+                            />
+                          </Field>
+                        </FieldGrid>
+                        <Field style={{ marginTop: '0.75rem' }}>
+                          Σημειώσεις
+                          <TextArea
+                            value={acceptanceForm.notes}
+                            onChange={(e) => setAcceptanceForm((f) => ({ ...f, notes: e.target.value }))}
                           />
                         </Field>
-                        <Field>
-                          Οριστική παραλαβή
-                          <Input
-                            type="date"
-                            value={acceptanceForm.finalDate}
-                            onChange={(e) => setAcceptanceForm((f) => ({ ...f, finalDate: e.target.value }))}
-                          />
-                        </Field>
-                        <Field>
-                          Λήξη χρόνου εγγύησης
-                          <Input
-                            type="date"
-                            value={acceptanceForm.warrantyEndsOn}
-                            onChange={(e) => setAcceptanceForm((f) => ({ ...f, warrantyEndsOn: e.target.value }))}
-                          />
-                        </Field>
-                      </FieldGrid>
-                      <Field style={{ marginTop: '0.75rem' }}>
-                        Σημειώσεις
-                        <TextArea
-                          value={acceptanceForm.notes}
-                          onChange={(e) => setAcceptanceForm((f) => ({ ...f, notes: e.target.value }))}
-                        />
-                      </Field>
-                      <HeaderActions style={{ marginTop: '0.75rem' }}>
-                        <PrimaryBtn type="button" onClick={submitAcceptanceForm} disabled={saving}>
-                          {acceptanceForm.id ? 'Ενημέρωση ημερομηνιών' : 'Καταχώριση ημερομηνιών'}
-                        </PrimaryBtn>
-                        <GhostBtn type="button" onClick={() => { setAcceptanceForm(null); setAcceptanceFormError(''); }}>
-                          Άκυρο
-                        </GhostBtn>
-                      </HeaderActions>
-                    </GuaranteeForm>
-                  )}
+                        <HeaderActions style={{ marginTop: '0.75rem' }}>
+                          <PrimaryBtn type="button" onClick={submitAcceptanceForm} disabled={saving}>
+                            {acceptanceForm.id ? 'Ενημέρωση ημερομηνιών' : 'Καταχώριση ημερομηνιών'}
+                          </PrimaryBtn>
+                          <GhostBtn type="button" onClick={() => { setAcceptanceForm(null); setAcceptanceFormError(''); }}>
+                            Άκυρο
+                          </GhostBtn>
+                        </HeaderActions>
+                      </GuaranteeForm>
+                    )}
 
-                  {sortedAcceptances.length === 0 && !acceptanceForm ? (
-                    <EmptyBox>Δεν έχουν καταχωρηθεί παραλαβές ή χρόνος εγγύησης.</EmptyBox>
-                  ) : (
-                    <ItemList>
-                      {sortedAcceptances.map((acc) => {
-                    const editable = editing && contractorRegistry.acceptanceIsEditable(acc, viewerOpts) && !lockBlocked;
-                    const choice = (selected.assignments || []).find((a) => a.subprojectId === acc.subprojectId);
-                    const daysLeft = acc.warrantyEndsOn
-                      ? contractorRegistry.daysUntilDate(acc.warrantyEndsOn)
-                      : null;
-                    const phase = acceptancePhaseLabel(acc);
-                    const warn = phase === 'Έληξε η εγγύηση';
-                    const live = phase === 'Χρόνος εγγύησης';
-                    return (
-                      <ItemCard key={acc.id || acc.subprojectId} $live={live} $warn={warn}>
-                        <ItemTop>
-                          <div style={{ minWidth: 0 }}>
-                            <ItemTitle>{readableTitle(choice?.subprojectTitle || choice?.projectTitle || 'Υποέργο')}</ItemTitle>
-                          </div>
-                          <StatusPill $active={live} $warn={warn}>{phase}</StatusPill>
-                        </ItemTop>
-                        <ItemMeta>
-                          <MetaStat>
-                            <MetaStatLabel>Προσωρινή</MetaStatLabel>
-                            <MetaStatValue>{acc.provisionalDate ? formatDateEl(acc.provisionalDate) : '—'}</MetaStatValue>
-                          </MetaStat>
-                          <MetaStat>
-                            <MetaStatLabel>Οριστική</MetaStatLabel>
-                            <MetaStatValue>{acc.finalDate ? formatDateEl(acc.finalDate) : '—'}</MetaStatValue>
-                          </MetaStat>
-                          <MetaStat>
-                            <MetaStatLabel>Λήξη εγγύησης</MetaStatLabel>
-                            <MetaStatValue>
-                              {acc.warrantyEndsOn ? formatDateEl(acc.warrantyEndsOn) : '—'}
-                              {daysLeft != null && acc.warrantyEndsOn ? (
-                                <ItemSub>
-                                  {daysLeft < 0 ? `έληξε πριν ${-daysLeft} ημ.` : `σε ${daysLeft} ημ.`}
-                                </ItemSub>
+                    {sortedAcceptances.length === 0 && !acceptanceForm ? (
+                      <EmptyBox>Δεν έχουν καταχωρηθεί παραλαβές ή χρόνος εγγύησης.</EmptyBox>
+                    ) : (
+                      <ItemList>
+                        {sortedAcceptances.map((acc) => {
+                          const editable = editing && contractorRegistry.acceptanceIsEditable(acc, viewerOpts) && !lockBlocked;
+                          const choice = (selected.assignments || []).find((a) => a.subprojectId === acc.subprojectId);
+                          const daysLeft = acc.warrantyEndsOn
+                            ? contractorRegistry.daysUntilDate(acc.warrantyEndsOn)
+                            : null;
+                          const phase = acceptancePhaseLabel(acc);
+                          const warn = phase === 'Έληξε η εγγύηση';
+                          const live = phase === 'Χρόνος εγγύησης';
+                          return (
+                            <ItemCard key={acc.id || acc.subprojectId} $live={live} $warn={warn}>
+                              <ItemTop>
+                                <div style={{ minWidth: 0 }}>
+                                  <ItemTitle>{readableTitle(choice?.subprojectTitle || choice?.projectTitle || 'Υποέργο')}</ItemTitle>
+                                </div>
+                                <StatusPill $active={live} $warn={warn}>{phase}</StatusPill>
+                              </ItemTop>
+                              <ItemMeta>
+                                <MetaStat>
+                                  <MetaStatLabel>Προσωρινή</MetaStatLabel>
+                                  <MetaStatValue>{acc.provisionalDate ? formatDateEl(acc.provisionalDate) : '—'}</MetaStatValue>
+                                </MetaStat>
+                                <MetaStat>
+                                  <MetaStatLabel>Οριστική</MetaStatLabel>
+                                  <MetaStatValue>{acc.finalDate ? formatDateEl(acc.finalDate) : '—'}</MetaStatValue>
+                                </MetaStat>
+                                <MetaStat>
+                                  <MetaStatLabel>Λήξη εγγύησης</MetaStatLabel>
+                                  <MetaStatValue>
+                                    {acc.warrantyEndsOn ? formatDateEl(acc.warrantyEndsOn) : '—'}
+                                    {daysLeft != null && acc.warrantyEndsOn ? (
+                                      <ItemSub>
+                                        {daysLeft < 0 ? `έληξε πριν ${-daysLeft} ημ.` : `σε ${daysLeft} ημ.`}
+                                      </ItemSub>
+                                    ) : null}
+                                  </MetaStatValue>
+                                </MetaStat>
+                              </ItemMeta>
+                              {textOrEmpty(acc.notes) ? (
+                                <ItemSub>{acc.notes}</ItemSub>
                               ) : null}
-                            </MetaStatValue>
-                          </MetaStat>
-                        </ItemMeta>
-                        {textOrEmpty(acc.notes) ? (
-                          <ItemSub>{acc.notes}</ItemSub>
-                        ) : null}
-                        {editable && !saving && (
-                          <ItemActions>
-                            <LinkBtn type="button" onClick={() => {
-                              setGuaranteeForm(null);
-                              setGuaranteeFormError('');
-                              setAcceptanceFormError('');
-                              setAcceptanceForm(formFromAcceptance(acc, subprojectChoices));
-                            }}>
-                              Επεξεργασία
-                            </LinkBtn>
-                            <DangerLink type="button" onClick={() => deleteAcceptance(acc)}>Διαγραφή</DangerLink>
-                          </ItemActions>
-                        )}
-                      </ItemCard>
-                    );
-                  })}
-                    </ItemList>
-                  )}
+                              {editable && !saving && (
+                                <ItemActions>
+                                  <LinkBtn type="button" onClick={() => {
+                                    setGuaranteeForm(null);
+                                    setGuaranteeFormError('');
+                                    setAcceptanceFormError('');
+                                    setAcceptanceForm(formFromAcceptance(acc, subprojectChoices));
+                                  }}>
+                                    Επεξεργασία
+                                  </LinkBtn>
+                                  <DangerLink type="button" onClick={() => deleteAcceptance(acc)}>Διαγραφή</DangerLink>
+                                </ItemActions>
+                              )}
+                            </ItemCard>
+                          );
+                        })}
+                      </ItemList>
+                    )}
                   </SectionPanel>
+
+                  {/* ── Σημειώσεις ─── */}
+                  {(editing && notesWritable) || textOrEmpty(draft.notes) ? (
+                    <SectionPanel>
+                      <SectionHead $tight>
+                        <SectionTitle>
+                          <SectionIcon $bg="#f1f5f9">📝</SectionIcon>
+                          Σημειώσεις υπηρεσίας
+                        </SectionTitle>
+                      </SectionHead>
+                      {editing && notesWritable ? (
+                        <TextArea
+                          value={draft.notes}
+                          onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+                          placeholder="Παρατηρήσεις, σχόλια…"
+                          style={{ marginTop: '0.55rem' }}
+                        />
+                      ) : (
+                        <FactValue $multiline style={{ marginTop: '0.4rem' }}>{draft.notes}</FactValue>
+                      )}
+                    </SectionPanel>
+                  ) : null}
 
                   {editing && (
                     <InfoNote>

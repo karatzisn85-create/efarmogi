@@ -359,6 +359,8 @@ function typeVisual(type) {
       return { icon: '📢', bg: 'rgba(14, 165, 233, 0.22)' };
     case CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY:
       return { icon: '🏦', bg: 'rgba(29, 78, 216, 0.22)' };
+    case CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY:
+      return { icon: '📄', bg: 'rgba(124, 58, 237, 0.22)' };
     default:
       return { icon: '📅', bg: 'rgba(255, 255, 255, 0.12)' };
   }

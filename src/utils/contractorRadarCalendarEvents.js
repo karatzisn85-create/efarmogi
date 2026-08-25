@@ -17,14 +17,28 @@ export function buildContractorRadarCalendarEvents({
     buildContractorProfiles(projects),
     records,
   );
-  const items = contractorRegistry.listContractorRadarItems(rows, {
+  const radarItems = contractorRegistry.listContractorRadarItems(rows, {
     todayIso,
     warnDays,
     urgentDays,
   });
-  const visible = contractorRegistry.filterRadarItemsForViewer(items, {
+  const visibleRadar = contractorRegistry.filterRadarItemsForViewer(radarItems, {
     role,
     visibleSubprojectIds,
   });
-  return calendarDeadlines.buildContractorRadarCalendarEvents(visible);
+
+  const allExpiryItems = contractorRegistry.listAllGuaranteeExpiryItems(rows);
+  const visibleExpiry = contractorRegistry.filterRadarItemsForViewer(allExpiryItems, {
+    role,
+    visibleSubprojectIds,
+  });
+  const expiryEvents = calendarDeadlines.buildGuaranteeExpiryCalendarEvents(visibleExpiry);
+
+  const expiryKeys = new Set(visibleExpiry.map((i) => `${i.guaranteeId}|${i.dateIso}`));
+  const acceptanceRadar = visibleRadar.filter(
+    (item) => item.kind !== 'guarantee' || !expiryKeys.has(`${item.guaranteeId}|${item.dateIso}`)
+  );
+  const radarEvents = calendarDeadlines.buildContractorRadarCalendarEvents(acceptanceRadar);
+
+  return calendarDeadlines.mergeCalendarEventLists(radarEvents, expiryEvents);
 }

@@ -21,7 +21,8 @@
     CUSTOM: 'custom',
     AEPO_RENEWAL: 'aepo_renewal',
     PROSKLISI_DEADLINE: 'prosklisi_deadline',
-    CONTRACTOR_REGISTRY: 'contractor_registry'
+    CONTRACTOR_REGISTRY: 'contractor_registry',
+    GUARANTEE_EXPIRY: 'guarantee_expiry'
   };
 
   var CALENDAR_EVENT_LABELS = {};
@@ -33,6 +34,7 @@
   CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.AEPO_RENEWAL] = 'Ανανέωση ΑΕΠΟ';
   CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE] = 'Λήξη υποβολής πρόσκλησης';
   CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY] = 'Μητρώο αναδόχων';
+  CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY] = 'Λήξη εγγυητικής';
 
   var PROCUREMENT_DEADLINE_EVENT_TYPES = [
     CALENDAR_EVENT_TYPES.DEADLINE,
@@ -45,7 +47,8 @@
     CALENDAR_EVENT_TYPES.CUSTOM,
     CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
     CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
-    CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY
+    CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY,
+    CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY
   ]);
 
   var PROJECT_STATUS_CONTRACT_PROCESS = 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ';
@@ -62,7 +65,8 @@
     CALENDAR_EVENT_TYPES.CUSTOM,
     CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
     CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
-    CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY
+    CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY,
+    CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY
   ];
 
   var CALENDAR_TIME_WINDOWS = [
@@ -142,7 +146,7 @@
   }
 
   function isContractorCalendarEvent(ev) {
-    return !!(ev && (ev.isContractorRegistry || ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY));
+    return !!(ev && (ev.isContractorRegistry || ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY || ev.type === CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY));
   }
 
   function calendarEventRowKey(ev, prefix) {
@@ -225,7 +229,11 @@
     var opts = options || {};
     var includePast = opts.includePastDeadlines !== false;
     return (events || []).filter(function (e) {
-      if (e.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M || isContractorCalendarEvent(e)) return true;
+      if (e.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M || e.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY) return true;
+      if (e.type === CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY) {
+        if (e.daysLeft == null) return false;
+        return e.daysLeft >= -maxDays && e.daysLeft <= maxDays;
+      }
       if (e.daysLeft == null) return false;
       if (e.daysLeft >= 0 && e.daysLeft <= maxDays) return true;
       if (includePast && e.daysLeft < 0 && PAST_DEADLINE_EVENT_TYPES.indexOf(e.type) !== -1) {
@@ -270,7 +278,7 @@
     var list = events || [];
     for (var i = 0; i < list.length; i += 1) {
       var ev = list[i];
-      if (ev.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M || isContractorCalendarEvent(ev)) {
+      if (ev.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M || ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY) {
         rows.push(mapEventToAlertRow(ev));
         continue;
       }
@@ -398,6 +406,36 @@
 
   function buildContractorRadarCalendarEvents(items) {
     return (items || []).map(mapContractorRadarItemToCalendarRow).filter(Boolean);
+  }
+
+  function mapGuaranteeExpiryToCalendarRow(item) {
+    if (!item || !item.dateIso) return null;
+    var dateIso = toDateKey(item.dateIso);
+    if (!dateIso) return null;
+    var dl = daysUntilDate(dateIso);
+    return {
+      type: CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY,
+      isContractorRegistry: true,
+      contractorRowKey: item.rowKey || item.recordId || item.identityKey || '',
+      contractorRecordId: item.recordId || '',
+      contractorName: item.contractorName || '',
+      subprojectId: item.subprojectId || '',
+      guaranteeId: item.guaranteeId || '',
+      acceptanceId: '',
+      label: item.label || CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY],
+      subprojectTitle: item.contractorName || item.label || '',
+      projectTitle: '',
+      description: item.label || '',
+      dateIso: dateIso,
+      dateKey: dateIso,
+      daysLeft: dl,
+      urgency: urgencyFromDaysLeft(dl),
+      priority: dl != null && dl <= 30 ? 'high' : 'medium'
+    };
+  }
+
+  function buildGuaranteeExpiryCalendarEvents(items) {
+    return (items || []).map(mapGuaranteeExpiryToCalendarRow).filter(Boolean);
   }
 
   function mergeCalendarEventLists() {
@@ -717,6 +755,8 @@
     isContractorCalendarEvent: isContractorCalendarEvent,
     mapContractorRadarItemToCalendarRow: mapContractorRadarItemToCalendarRow,
     buildContractorRadarCalendarEvents: buildContractorRadarCalendarEvents,
+    mapGuaranteeExpiryToCalendarRow: mapGuaranteeExpiryToCalendarRow,
+    buildGuaranteeExpiryCalendarEvents: buildGuaranteeExpiryCalendarEvents,
     filterProjectsForCalendar: filterProjectsForCalendar,
     filterCalendarEventsByType: filterCalendarEventsByType,
     eventsInMonth: eventsInMonth,

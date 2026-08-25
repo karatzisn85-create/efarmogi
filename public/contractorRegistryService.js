@@ -169,6 +169,77 @@ function createContractorRegistryService({ dataDir }) {
     return { success: true, record: rec };
   }
 
+  const FILES_DIR_NAME = 'ΑΡΧΕΙΑ';
+  const SAFE_FILENAME_RE = /^[^<>:"/\\|?*\x00-\x1F]+$/;
+
+  function getFilesDir(recordId, guaranteeId) {
+    const check = assertValidRecordId(recordId);
+    if (!check.ok) return null;
+    const gid = String(guaranteeId || '').trim();
+    if (!RECORD_ID_RE.test(gid)) return null;
+    return path.join(getRecordDir(check.id), FILES_DIR_NAME, gid);
+  }
+
+  function ensureFilesDir(recordId, guaranteeId) {
+    const dir = getFilesDir(recordId, guaranteeId);
+    if (!dir) return null;
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  function uploadFiles(recordId, guaranteeId, filePaths) {
+    const dir = ensureFilesDir(recordId, guaranteeId);
+    if (!dir) return { success: false, error: 'Μη έγκυρο αναγνωριστικό' };
+    const copied = [];
+    for (const fp of (filePaths || [])) {
+      const src = String(fp || '').trim();
+      if (!src || !fs.existsSync(src)) continue;
+      let name = path.basename(src);
+      if (!SAFE_FILENAME_RE.test(name)) name = 'file_' + Date.now() + path.extname(name);
+      let dest = path.join(dir, name);
+      let counter = 1;
+      while (fs.existsSync(dest)) {
+        const ext = path.extname(name);
+        const base = path.basename(name, ext);
+        dest = path.join(dir, `${base}_${counter}${ext}`);
+        counter++;
+      }
+      fs.copyFileSync(src, dest);
+      copied.push(path.basename(dest));
+    }
+    if ((filePaths || []).length > 0 && copied.length === 0) {
+      return { success: false, error: 'Κανένα αρχείο δεν ήταν έγκυρο για αντιγραφή' };
+    }
+    return { success: true, files: copied };
+  }
+
+  function listFiles(recordId, guaranteeId) {
+    const dir = getFilesDir(recordId, guaranteeId);
+    if (!dir || !fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir).filter((f) => {
+      const fp = path.join(dir, f);
+      try { return fs.statSync(fp).isFile(); } catch { return false; }
+    });
+  }
+
+  function getFilePath(recordId, guaranteeId, fileName) {
+    const dir = getFilesDir(recordId, guaranteeId);
+    if (!dir) return null;
+    const name = String(fileName || '').trim();
+    if (!name || !SAFE_FILENAME_RE.test(name)) return null;
+    const fp = path.resolve(path.join(dir, name));
+    if (!fp.startsWith(path.resolve(dir) + path.sep) && fp !== path.resolve(dir)) return null;
+    if (!fs.existsSync(fp)) return null;
+    return fp;
+  }
+
+  function deleteFile(recordId, guaranteeId, fileName) {
+    const fp = getFilePath(recordId, guaranteeId, fileName);
+    if (!fp) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
+    fs.unlinkSync(fp);
+    return { success: true };
+  }
+
   return {
     CONTRACTOR_REGISTRY_DIR_NAME,
     listRecords,
@@ -176,6 +247,10 @@ function createContractorRegistryService({ dataDir }) {
     saveRecord,
     deleteRecord,
     findByIdentityKey,
+    uploadFiles,
+    listFiles,
+    getFilePath,
+    deleteFile,
   };
 }
 

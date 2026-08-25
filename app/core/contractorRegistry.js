@@ -644,6 +644,27 @@
     return listGuaranteeRadarItems(rows, opts).concat(listAcceptanceRadarItems(rows, opts));
   }
 
+  function listAllGuaranteeExpiryItems(rows) {
+    var items = [];
+    (rows || []).forEach(function (row) {
+      ((row && row.guarantees) || []).forEach(function (g) {
+        if (!g || g.status !== STATUS_ACTIVE || !g.expiresOn) return;
+        var dateIso = toDateKey(g.expiresOn);
+        if (!dateIso) return;
+        var dl = daysUntilDate(dateIso);
+        items.push(buildRadarItem('guarantee_expiry', row, {
+          dateIso: dateIso,
+          daysLeft: dl,
+          urgency: urgencyFromDaysLeft(dl),
+          subprojectId: g.subprojectId || '',
+          guaranteeId: g.id || '',
+          label: (g.type || 'Εγγυητική') + ' — ' + ((row && row.name) || 'Ανάδοχος')
+        }));
+      });
+    });
+    return items;
+  }
+
   function filterRadarItemsForViewer(items, input) {
     var opts = input || {};
     var role = opts.role;
@@ -994,6 +1015,7 @@
     listGuaranteeRadarItems: listGuaranteeRadarItems,
     listAcceptanceRadarItems: listAcceptanceRadarItems,
     listContractorRadarItems: listContractorRadarItems,
+    listAllGuaranteeExpiryItems: listAllGuaranteeExpiryItems,
     filterRadarItemsForViewer: filterRadarItemsForViewer,
     filterContractorHub: filterContractorHub,
     recordTouchesVisibleSubproject: rowTouchesVisibleSubproject,
