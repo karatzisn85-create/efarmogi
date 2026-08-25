@@ -39,12 +39,25 @@ test('κάθε id του ROADMAP που λέει καλύφθηκε υπάρχε
   });
 });
 
-test('τα σταθερά specs δεν ανοίγουν Electron ούτε κάνουν login', () => {
+// Τα σταθερά specs τρέχουν πάνω στο harness, ποτέ πάνω στην πραγματική εφαρμογή.
+// Ελέγχουμε τα πραγματικά σημάδια εξάρτησης — όχι λέξεις όπως «login», που ανήκουν
+// κανονικά στο λεξιλόγιο των σεναρίων (π.χ. προσομοιωμένη οθόνη σύνδεσης του harness).
+const REAL_APP_SIGNALS = [
+  { re: /electron/i, why: 'δεν πρέπει να αναφέρει Electron' },
+  { re: /passwordAuth|hashPassword|passwordHash|users\.json/i, why: 'δεν πρέπει να αγγίζει τον πραγματικό μηχανισμό κωδικών' },
+  { re: /require\(\s*['"](?:fs|path|os|child_process)['"]\s*\)/, why: 'δεν πρέπει να αγγίζει το σύστημα αρχείων' }
+];
+
+test('τα σταθερά specs τρέχουν μόνο πάνω στο harness', () => {
   const { files } = specIds(join(root, 'e2e'));
   assert.ok(files.length > 0);
   files.forEach((file) => {
     const text = readFileSync(join(root, 'e2e', file), 'utf8');
-    assert.equal(/electron/i.test(text), false, `${file} δεν πρέπει να αναφέρει Electron`);
-    assert.equal(/login|password/i.test(text), false, `${file} δεν πρέπει να κάνει login`);
+    REAL_APP_SIGNALS.forEach(({ re, why }) => {
+      assert.equal(re.test(text), false, `${file} ${why}`);
+    });
+    (text.match(/page\.goto\(\s*['"][^'"]*['"]/g) || []).forEach((call) => {
+      assert.match(call, /\/e2e\/harness\//, `${file} επιτρέπεται να ανοίγει μόνο σελίδες του harness`);
+    });
   });
 });

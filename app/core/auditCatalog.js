@@ -35,6 +35,7 @@
     proposal: 'Έργο Ωρίμανσης',
     meleti: 'Μελέτη',
     meletai_hub: 'Μητρώο Μελετών',
+    'site-diary': 'Ημερολόγιο Εργοταξίου',
     calendarConfig: 'Ρυθμίσεις Ημερολογίου',
     municipalUnitsConfig: 'Δημοτικές Ενότητες'
   };

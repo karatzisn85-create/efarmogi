@@ -124,6 +124,10 @@ test('μηχανικός δεν σβήνει εγγυητική άλλου υπ�
 
 test('μηχανικός σε νέα καρτέλα δεν περνά εγγυητική ξένου υποέργου', () => {
   const { svc } = makeService();
+  const engineer = { role: 'ENGINEER', visibleSubprojectIds: new Set(['sub-a']) };
+
+  // Ξένο υποέργο μέσα στην καρτέλα: απόρριψη ολόκληρης της αποθήκευσης,
+  // ώστε ο μηχανικός να μη χάσει σιωπηλά ό,τι πληκτρολόγησε.
   const sneak = svc.saveRecord(
     {
       name: 'ΝΕΟΣ',
@@ -133,21 +137,41 @@ test('μηχανικός σε νέα καρτέλα δεν περνά εγγυη
         validGuarantee({ subprojectId: 'sub-z', letterNumber: 'ΞΕΝΗ' }),
       ],
     },
-    { role: 'ENGINEER', visibleSubprojectIds: new Set(['sub-a']) },
+    engineer,
   );
-  assert.equal(sneak.success, true);
-  assert.deepEqual(sneak.record.guarantees.map((g) => g.letterNumber), ['ΔΙΚΗ']);
+  assert.equal(sneak.success, false);
+  assert.match(sneak.error, /δικαίωμα/);
+  assert.equal(svc.listRecords().length, 0);
 
-  const empty = svc.saveRecord(
+  const onlyForeign = svc.saveRecord(
     {
-      name: 'ΚΕΝΟΣ',
+      name: 'ΞΕΝΟΣ',
       vat: '556',
       guarantees: [validGuarantee({ subprojectId: 'sub-z', letterNumber: 'ΞΕΝΗ' })],
     },
-    { role: 'ENGINEER', visibleSubprojectIds: new Set(['sub-a']) },
+    engineer,
   );
-  assert.equal(empty.success, false);
-  assert.match(empty.error, /χρεωμένο υποέργο/);
+  assert.equal(onlyForeign.success, false);
+  assert.match(onlyForeign.error, /δικαίωμα/);
+  assert.equal(svc.listRecords().length, 0);
+
+  // Καρτέλα χωρίς καμία σύνδεση σε υποέργο: ο μηχανικός δεν ανοίγει ορφανούς αναδόχους.
+  const unlinked = svc.saveRecord({ name: 'ΚΕΝΟΣ', vat: '557', guarantees: [] }, engineer);
+  assert.equal(unlinked.success, false);
+  assert.match(unlinked.error, /χρεωμένο υποέργο/);
+  assert.equal(svc.listRecords().length, 0);
+
+  // Καθαρή καρτέλα μόνο με δικό του υποέργο: αποθηκεύεται κανονικά.
+  const ok = svc.saveRecord(
+    {
+      name: 'ΔΙΚΟΣ',
+      vat: '558',
+      guarantees: [validGuarantee({ subprojectId: 'sub-a', letterNumber: 'ΔΙΚΗ' })],
+    },
+    engineer,
+  );
+  assert.equal(ok.success, true);
+  assert.deepEqual(ok.record.guarantees.map((g) => g.letterNumber), ['ΔΙΚΗ']);
   assert.equal(svc.listRecords().length, 1);
 });
 

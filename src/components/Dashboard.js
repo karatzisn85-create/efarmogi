@@ -56,6 +56,7 @@ import portalCatalog from '../../app/core/portalCatalog';
 import orimanthiCatalog from '../../app/core/orimanthiCatalog';
 import meletaiCatalog from '../../app/core/meletaiCatalog';
 import contractorRegistry from '../../app/core/contractorRegistry';
+import siteDiary from '../../app/core/siteDiary';
 import epProgramCatalog from '../../app/core/epProgramCatalog';
 import apologismosCatalog from '../../app/core/apologismosCatalog';
 import backupCatalog from '../../app/core/backupCatalog';
@@ -157,6 +158,8 @@ const CalendarDeadlineWidget = lazy(() => import('./CalendarDeadlineWidget'));
 const ProcurementCalendar = lazy(() => import('./ProcurementCalendar'));
 const MeletaiManager = lazy(() => import('./MeletaiManager'));
 const ContractorRegistryManager = lazy(() => import('./ContractorRegistryManager'));
+const SiteDiaryManager = lazy(() => import('./SiteDiaryManager'));
+const SubprojectSiteDiaryModal = lazy(() => import('./SubprojectSiteDiaryModal'));
 
 const ipcRenderer = window.electronAPI;
 
@@ -3375,6 +3378,40 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       /* non-blocking */
     }
   }, [currentUser?.username]);
+
+  /* ── Ημερολόγιο εργοταξίου ── */
+  const [isSiteDiaryOpen, setIsSiteDiaryOpen] = useState(false);
+  const [siteDiaryCardTarget, setSiteDiaryCardTarget] = useState(null);
+  const [siteDiaryCounts, setSiteDiaryCounts] = useState({});
+  const canSeeSiteDiary = siteDiary.showSiteDiaryButton(userRole);
+
+  const refreshSiteDiaryCounts = useCallback(async () => {
+    const username = currentUser?.username || '';
+    if (!username || !canSeeSiteDiary) return;
+    try {
+      const res = await ipcRenderer.invoke('get-site-diary-entry-counts', { actingUsername: username });
+      if (res?.success) setSiteDiaryCounts(res.counts || {});
+    } catch {
+      /* non-blocking — τα κουμπιά απλώς δεν θα δείχνουν πλήθος */
+    }
+  }, [currentUser?.username, canSeeSiteDiary]);
+
+  useEffect(() => { void refreshSiteDiaryCounts(); }, [refreshSiteDiaryCounts]);
+
+  const handleOpenSiteDiaryForSubproject = useCallback((project) => {
+    setSiteDiaryCardTarget({
+      subprojectId: project?.subprojectId || '',
+      projectTitle: project?.projectTitle || '',
+      subprojectTitle: project?.subprojectTitle || '',
+    });
+  }, []);
+
+  const handleSiteDiaryCountChange = useCallback((subprojectId, count) => {
+    setSiteDiaryCounts((prev) => (
+      prev[subprojectId] === count ? prev : { ...prev, [subprojectId]: count }
+    ));
+  }, []);
+
   const [isDocumentTemplatesOpen, setIsDocumentTemplatesOpen] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [batchReportResults, setBatchReportResults] = useState(null);
@@ -7033,6 +7070,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                                 }
                                 actRootSiblingsIndex={actRootSiblingsIndex}
                                 onContractExpiryAccept={canManageWorkflow ? handleContractExpiryAccept : undefined}
+                                siteDiaryEntryCount={siteDiaryCounts[project.subprojectId] || 0}
+                                siteDiaryVisibleSubprojectIds={engineerVisibleSubprojectIds}
+                                onOpenSiteDiary={canSeeSiteDiary ? handleOpenSiteDiaryForSubproject : undefined}
                               />
                             );
                           })}
@@ -7281,6 +7321,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               }} title="Μητρώο αναδόχων — στοιχεία επικοινωνίας και συμβάσεις">
                 <AdminButtonIcon>🏢</AdminButtonIcon>
                 Μητρώο Αναδόχων
+              </AdminButton>
+              )}
+              {canSeeSiteDiary && (
+              <AdminButton data-user-guide="nav-site-diary" onClick={() => {
+                if (dashboardScrollRef.current) {
+                  savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
+                }
+                setIsSiteDiaryOpen(true);
+              }} title="Επίβλεψη έργων — καταγραφή επισκέψεων στο εργοτάξιο">
+                <AdminButtonIcon>🏗️</AdminButtonIcon>
+                Ημερολόγιο Εργοταξίου
               </AdminButton>
               )}
               {epProgramCatalog.showEpProgramButton(userRole) && (
@@ -7765,6 +7816,41 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             projects={visibleProjects}
             initialRowKey={contractorRegistryFocusKey}
             focusNonce={contractorRegistryFocusNonce}
+          />
+        </Suspense>
+      ) : null}
+
+      {/* Ημερολόγιο Εργοταξίου — ευρεία σελίδα */}
+      {isSiteDiaryOpen ? (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση Ημερολογίου Εργοταξίου…</LazyChunkFallback>}>
+          <SiteDiaryManager
+            onClose={() => {
+              setIsSiteDiaryOpen(false);
+              refreshSiteDiaryCounts();
+              setTimeout(() => {
+                if (dashboardScrollRef.current) {
+                  dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
+                }
+              }, 100);
+            }}
+            currentUser={currentUser}
+            userRole={userRole}
+            projects={visibleProjects}
+          />
+        </Suspense>
+      ) : null}
+
+      {/* Ημερολόγιο Εργοταξίου — καρτέλα ενός υποέργου από την κάρτα του */}
+      {siteDiaryCardTarget ? (
+        <Suspense fallback={<LazyChunkFallback>Φόρτωση ημερολογίου…</LazyChunkFallback>}>
+          <SubprojectSiteDiaryModal
+            subprojectId={siteDiaryCardTarget.subprojectId}
+            projectTitle={siteDiaryCardTarget.projectTitle}
+            subprojectTitle={siteDiaryCardTarget.subprojectTitle}
+            currentUser={currentUser}
+            userRole={userRole}
+            onCountChange={handleSiteDiaryCountChange}
+            onClose={() => setSiteDiaryCardTarget(null)}
           />
         </Suspense>
       ) : null}

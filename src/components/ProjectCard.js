@@ -19,6 +19,7 @@ import {
   formatAleCodes,
 } from '../utils/projectCardDisplay';
 import reportsExport from '../../app/core/reportsExport';
+import siteDiary from '../../app/core/siteDiary';
 import { getVisibleFundingSourceRows, isCoFinancedProject } from '../utils/coFinancingDisplay';
 
 const iconProps = { width: 14, height: 14, 'aria-hidden': true };
@@ -933,6 +934,30 @@ const ToolbarButton = styled.button`
         color: #166534;
       }
     `}
+
+  ${(p) =>
+    p.$tone === 'site' &&
+    css`
+      background: #ecfeff;
+      border-color: #67e8f9;
+      color: #155e75;
+
+      &:hover {
+        background: #cffafe;
+        border-color: #22d3ee;
+      }
+    `}
+`;
+
+/** Πλήθος καταγεγραμμένων επισκέψεων, δίπλα στην ετικέτα του κουμπιού. */
+const ToolbarCount = styled.span`
+  padding: 0.05rem 0.3rem;
+  border-radius: 5px;
+  background: rgba(8, 145, 178, 0.14);
+  color: #0e7490;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0;
 `;
 
 const MainFilesButton = styled.button`
@@ -1186,6 +1211,9 @@ function ProjectCard({
   hasDirectAssignmentViolation: _hasDirectAssignmentViolation = false,
   actRootSiblingsIndex: _actRootSiblingsIndex = null,
   onContractExpiryAccept: _onContractExpiryAccept,
+  siteDiaryEntryCount = 0,
+  siteDiaryVisibleSubprojectIds = null,
+  onOpenSiteDiary,
 }) {
   const [exportingReport, setExportingReport] = useState(false);
   const statusColor = getStatusColor(project.projectStatus);
@@ -1195,6 +1223,16 @@ function ProjectCard({
     () => (userRole === 'USER' ? null : getKhmdhsSubprojectAttention(project)),
     [project, userRole]
   );
+
+  // Το ημερολόγιο εργοταξίου εμφανίζεται όπου υπάρχει εργοτάξιο (εκτελούμενο και
+  // μετά) και πάντα όπου υπάρχει ήδη καταγραφή, ώστε να μη χάνεται το ιστορικό.
+  const showSiteDiary = !!onOpenSiteDiary && siteDiary.showCardDiaryButton({
+    role: userRole,
+    subprojectId: project.subprojectId,
+    visibleSubprojectIds: siteDiaryVisibleSubprojectIds,
+    entryCount: siteDiaryEntryCount,
+    projectStatus: project.projectStatus,
+  });
 
   const handleCardClick = (e) => {
     if (e.target.closest('button') || e.target.closest('a')) return;
@@ -1551,6 +1589,18 @@ function ProjectCard({
             <ToolbarButton type="button" onClick={() => onOpenSpecificMeleti && onOpenSpecificMeleti(project.subprojectId)}>
               📐
               ΜΕΛΕΤΗ
+            </ToolbarButton>
+          )}
+          {showSiteDiary && (
+            <ToolbarButton
+              type="button"
+              $tone="site"
+              title="Ημερολόγιο εργοταξίου — επισκέψεις επίβλεψης"
+              onClick={() => onOpenSiteDiary(project)}
+            >
+              🏗️
+              ΗΜΕΡΟΛΟΓΙΟ
+              {siteDiaryEntryCount > 0 && <ToolbarCount>{siteDiaryEntryCount}</ToolbarCount>}
             </ToolbarButton>
           )}
         </TopButtonsContainer>

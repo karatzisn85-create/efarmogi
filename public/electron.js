@@ -4499,7 +4499,15 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
     } catch (err) {
       console.error('Error cleaning up egkrisi links:', err);
     }
-    
+
+    // Διαγραφή του ημερολογίου εργοταξίου (εγγραφές + φωτογραφίες επισκέψεων)
+    try {
+      const diarySvc = getSiteDiaryService();
+      if (diarySvc) await diarySvc.deleteSubprojectDiary(subprojectId);
+    } catch (err) {
+      console.error('Error cleaning up site diary:', err);
+    }
+
     // Διαγραφή συσχετισμένων εντάξεων
     try {
       const entaxisDir = path.join(dataDir, 'entaxis_data');
@@ -19411,6 +19419,388 @@ ipcMain.handle('delete-contractor-registry-file', async (_event, { recordId, gua
     return svc.deleteFile(recordId, guaranteeId, fileName);
   } catch (e) {
     logger.error('delete-contractor-registry-file failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+// ─── ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ ────────────────────────────────────────────────────
+
+const { createSiteDiaryService } = require('./siteDiaryService');
+const siteDiaryCore = require('../app/core/siteDiary');
+
+let siteDiaryService = null;
+
+function getSiteDiaryService() {
+  if (!siteDiaryService && dataDir) {
+    siteDiaryService = createSiteDiaryService({ dataDir });
+  }
+  return siteDiaryService;
+}
+
+function requireSiteDiarySession(actingUsername) {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return auth;
+  const user = findUserByUsername(auth.username);
+  if (!user || user.active === false || user.approved === false) {
+    return { ok: false, error: 'Δεν έχετε πρόσβαση στο σύστημα' };
+  }
+  if (!siteDiaryCore.canViewSiteDiary(user.role)) {
+    return { ok: false, error: 'Δεν έχετε πρόσβαση στο ημερολόγιο εργοταξίου' };
+  }
+  return { ok: true, username: auth.username, user };
+}
+
+/** null = χωρίς περιορισμό (διαχειριστές) · Set = μόνο τα υποέργα του μηχανικού. */
+async function siteDiaryVisibleSubprojectIds(user) {
+  if (user?.role !== 'ENGINEER') return null;
+  const ids = new Set();
+  const ctx = buildEngineerVisibilityContext(user.username, user.assignedSupervisors);
+  const projects = await loadAllProjects();
+  (projects || []).forEach((project) => {
+    if (!projectVisibleToEngineerContext(project, ctx)) return;
+    const sid = String(project.subprojectId || '').trim();
+    if (sid) ids.add(sid);
+  });
+  return ids;
+}
+
+async function requireSiteDiarySubprojectView(actingUsername, subprojectId) {
+  const auth = requireSiteDiarySession(actingUsername);
+  if (!auth.ok) return auth;
+  const visibleSubprojectIds = await siteDiaryVisibleSubprojectIds(auth.user);
+  const allowed = siteDiaryCore.canViewSubprojectDiary({
+    role: auth.user.role,
+    visibleSubprojectIds,
+    subprojectId,
+  });
+  if (!allowed) {
+    return { ok: false, error: 'Δεν έχετε πρόσβαση στο ημερολόγιο αυτού του υποέργου' };
+  }
+  return { ...auth, visibleSubprojectIds };
+}
+
+async function requireSiteDiaryWrite(actingUsername, subprojectId) {
+  const auth = await requireSiteDiarySubprojectView(actingUsername, subprojectId);
+  if (!auth.ok) return auth;
+  const allowed = siteDiaryCore.canAddEntry({
+    role: auth.user.role,
+    visibleSubprojectIds: auth.visibleSubprojectIds,
+    subprojectId,
+  });
+  if (!allowed) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα καταχώρισης στο ημερολόγιο εργοταξίου' };
+  }
+  return auth;
+}
+
+function siteDiaryAuditActor(username) {
+  const user = findUserByUsername(username);
+  return {
+    fullName: (user?.fullName || '').trim() || username || '',
+    role: user?.role || 'USER',
+  };
+}
+
+function siteDiaryEntityTitle(diary, entry) {
+  const title = String(diary?.subprojectTitle || diary?.subprojectId || '').trim();
+  const date = String(entry?.visitDate || '').trim();
+  return date ? `${title} — επίσκεψη ${date}` : title;
+}
+
+function siteDiarySubprojectMeta(subprojectId) {
+  const sp = findSubprojectDataById(subprojectId);
+  if (!sp) return null;
+  return {
+    projectId: sp.projectId || '',
+    projectTitle: sp.projectTitle || '',
+    subprojectTitle: sp.subprojectTitle || '',
+    projectStatus: sp.projectStatus || '',
+  };
+}
+
+ipcMain.handle('load-site-diary-hub', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireSiteDiarySession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getSiteDiaryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+
+    const visibleSubprojectIds = await siteDiaryVisibleSubprojectIds(auth.user);
+    const diaries = svc.loadAllDiaries().filter((diary) => siteDiaryCore.canViewSubprojectDiary({
+      role: auth.user.role,
+      visibleSubprojectIds,
+      subprojectId: diary.subprojectId,
+    }));
+
+    return {
+      success: true,
+      diaries,
+      access: {
+        role: auth.user.role,
+        username: auth.username,
+        canWrite: siteDiaryCore.canWriteSiteDiary(auth.user.role),
+        readOnly: siteDiaryCore.isSiteDiaryReadOnly(auth.user.role),
+      },
+    };
+  } catch (e) {
+    logger.error('load-site-diary-hub failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-site-diary-entry-counts', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireSiteDiarySession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error, counts: {} };
+    const svc = getSiteDiaryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων', counts: {} };
+
+    // Ο μηχανικός δεν πρέπει να μαθαίνει ούτε καν ποια άλλα υποέργα έχουν ημερολόγιο.
+    const all = svc.getEntryCountsBySubproject();
+    const visibleSubprojectIds = await siteDiaryVisibleSubprojectIds(auth.user);
+    const counts = {};
+    Object.keys(all).forEach((sid) => {
+      const allowed = siteDiaryCore.canViewSubprojectDiary({
+        role: auth.user.role,
+        visibleSubprojectIds,
+        subprojectId: sid,
+      });
+      if (allowed) counts[sid] = all[sid];
+    });
+
+    return { success: true, counts };
+  } catch (e) {
+    logger.error('get-site-diary-entry-counts failed', e);
+    return { success: false, error: e.message, counts: {} };
+  }
+});
+
+ipcMain.handle('get-subproject-site-diary', async (_event, { subprojectId, actingUsername } = {}) => {
+  try {
+    const auth = await requireSiteDiarySubprojectView(actingUsername, subprojectId);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getSiteDiaryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+
+    const loaded = svc.loadSubprojectDiary(subprojectId);
+    if (!loaded.success) return loaded;
+
+    const meta = siteDiarySubprojectMeta(subprojectId);
+    const diary = meta
+      ? {
+        ...loaded.diary,
+        projectId: meta.projectId || loaded.diary.projectId,
+        projectTitle: meta.projectTitle || loaded.diary.projectTitle,
+        subprojectTitle: meta.subprojectTitle || loaded.diary.subprojectTitle,
+        projectStatus: meta.projectStatus,
+      }
+      : loaded.diary;
+
+    return {
+      success: true,
+      diary,
+      access: {
+        role: auth.user.role,
+        username: auth.username,
+        canAdd: siteDiaryCore.canAddEntry({
+          role: auth.user.role,
+          visibleSubprojectIds: auth.visibleSubprojectIds,
+          subprojectId,
+        }),
+        readOnly: siteDiaryCore.isSiteDiaryReadOnly(auth.user.role),
+      },
+    };
+  } catch (e) {
+    logger.error('get-subproject-site-diary failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('add-site-diary-entry', async (_event, { subprojectId, draft, actingUsername } = {}) => {
+  try {
+    const auth = await requireSiteDiaryWrite(actingUsername, subprojectId);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getSiteDiaryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+
+    const meta = siteDiarySubprojectMeta(subprojectId);
+    if (!meta) return { success: false, error: 'Το υποέργο δεν βρέθηκε' };
+
+    const result = await svc.addEntry({
+      subprojectId,
+      subprojectMeta: meta,
+      draft,
+      author: { username: auth.username, fullName: auth.user.fullName || '' },
+    });
+    if (!result.success) return result;
+
+    const actor = siteDiaryAuditActor(auth.username);
+    logAuditAction({
+      type: 'create',
+      entityType: 'site-diary',
+      entityId: result.entry.id,
+      entityTitle: siteDiaryEntityTitle(result.diary, result.entry),
+      userFullName: actor.fullName,
+      userRole: actor.role,
+      details: 'Καταχώριση επίσκεψης εργοταξίου',
+      newValue: svc.pickAuditSnapshot(result.entry),
+    });
+    return result;
+  } catch (e) {
+    logger.error('add-site-diary-entry failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+/** Κοινός έλεγχος για αλλαγή/διαγραφή: ο συντάκτης της εγγραφής ή ο υπερδιαχειριστής. */
+async function requireSiteDiaryEntryOwnership(actingUsername, subprojectId, entryId) {
+  const auth = await requireSiteDiarySubprojectView(actingUsername, subprojectId);
+  if (!auth.ok) return auth;
+  const svc = getSiteDiaryService();
+  if (!svc) return { ok: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+  const loaded = svc.loadSubprojectDiary(subprojectId);
+  if (!loaded.success) return { ok: false, error: loaded.error };
+  const entry = (loaded.diary.entries || []).find((e) => e && e.id === entryId);
+  if (!entry) return { ok: false, error: 'Η εγγραφή δεν βρέθηκε' };
+  if (!siteDiaryCore.canEditEntry({ role: auth.user.role, username: auth.username, entry })) {
+    return { ok: false, error: 'Μπορείτε να αλλάξετε μόνο τις δικές σας καταχωρίσεις' };
+  }
+  return { ...auth, svc, entry, diary: loaded.diary };
+}
+
+ipcMain.handle('update-site-diary-entry', async (_event, { subprojectId, entryId, draft, actingUsername } = {}) => {
+  try {
+    const auth = await requireSiteDiaryEntryOwnership(actingUsername, subprojectId, entryId);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const result = await auth.svc.updateEntry({ subprojectId, entryId, draft });
+    if (!result.success) return result;
+
+    const actor = siteDiaryAuditActor(auth.username);
+    logAuditAction({
+      type: 'update',
+      entityType: 'site-diary',
+      entityId: entryId,
+      entityTitle: siteDiaryEntityTitle(result.diary, result.entry),
+      userFullName: actor.fullName,
+      userRole: actor.role,
+      oldValue: auth.svc.pickAuditSnapshot(result.previous),
+      newValue: auth.svc.pickAuditSnapshot(result.entry),
+    });
+    return result;
+  } catch (e) {
+    logger.error('update-site-diary-entry failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-site-diary-entry', async (_event, { subprojectId, entryId, actingUsername } = {}) => {
+  try {
+    const auth = await requireSiteDiaryEntryOwnership(actingUsername, subprojectId, entryId);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const result = await auth.svc.deleteEntry({ subprojectId, entryId });
+    if (!result.success) return result;
+
+    const actor = siteDiaryAuditActor(auth.username);
+    logAuditAction({
+      type: 'delete',
+      entityType: 'site-diary',
+      entityId: entryId,
+      entityTitle: siteDiaryEntityTitle(result.diary, result.previous),
+      userFullName: actor.fullName,
+      userRole: actor.role,
+      details: 'Διαγραφή επίσκεψης εργοταξίου',
+      oldValue: auth.svc.pickAuditSnapshot(result.previous),
+    });
+    return result;
+  } catch (e) {
+    logger.error('delete-site-diary-entry failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('select-site-diary-photos', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireSiteDiarySession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!siteDiaryCore.canWriteSiteDiary(auth.user.role)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα καταχώρισης φωτογραφιών' };
+    }
+    const result = await dialog.showOpenDialog({
+      title: 'Επιλογή φωτογραφιών επίσκεψης',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Εικόνες', extensions: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'] },
+        { name: 'Όλα τα Αρχεία', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths?.length) {
+      return { success: true, canceled: true, filePaths: [] };
+    }
+    return { success: true, canceled: false, filePaths: result.filePaths };
+  } catch (e) {
+    logger.error('select-site-diary-photos failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('add-site-diary-photos', async (_event, { subprojectId, entryId, filePaths, actingUsername } = {}) => {
+  try {
+    const auth = await requireSiteDiaryEntryOwnership(actingUsername, subprojectId, entryId);
+    if (!auth.ok) return { success: false, error: auth.error };
+    return await auth.svc.addEntryPhotos({ subprojectId, entryId, files: filePaths });
+  } catch (e) {
+    logger.error('add-site-diary-photos failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('delete-site-diary-photo', async (_event, { subprojectId, entryId, photoName, actingUsername } = {}) => {
+  try {
+    const auth = await requireSiteDiaryEntryOwnership(actingUsername, subprojectId, entryId);
+    if (!auth.ok) return { success: false, error: auth.error };
+    return await auth.svc.deleteEntryPhoto({ subprojectId, entryId, photoName });
+  } catch (e) {
+    logger.error('delete-site-diary-photo failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('resolve-site-diary-photos', async (_event, { items, variant, actingUsername } = {}) => {
+  try {
+    const auth = requireSiteDiarySession(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error, map: {} };
+    const svc = getSiteDiaryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων', map: {} };
+
+    const visibleSubprojectIds = await siteDiaryVisibleSubprojectIds(auth.user);
+    const allowed = (items || []).filter((item) => siteDiaryCore.canViewSubprojectDiary({
+      role: auth.user.role,
+      visibleSubprojectIds,
+      subprojectId: item && item.subprojectId,
+    }));
+
+    const map = await svc.resolvePhotos(allowed, variant === 'full' ? 'full' : 'thumb');
+    return { success: true, map };
+  } catch (e) {
+    logger.error('resolve-site-diary-photos failed', e);
+    return { success: false, error: e.message, map: {} };
+  }
+});
+
+ipcMain.handle('open-site-diary-photo', async (_event, { subprojectId, entryId, photoName, actingUsername } = {}) => {
+  try {
+    const auth = await requireSiteDiarySubprojectView(actingUsername, subprojectId);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const svc = getSiteDiaryService();
+    if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
+    const fp = svc.getPhotoPath(subprojectId, entryId, photoName);
+    if (!fp.success) return fp;
+    await shell.openPath(fp.filePath);
+    return { success: true };
+  } catch (e) {
+    logger.error('open-site-diary-photo failed', e);
     return { success: false, error: e.message };
   }
 });

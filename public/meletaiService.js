@@ -15,7 +15,7 @@ const DATA_DIR_SKIP_ROOT_DIRS = new Set([
   'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ',
   'ΣΗΜΕΙΩΣΕΙΣ', 'ANATHESEIS_ERGASION', 'ΥΠΟΔΕΙΓΜΑΤΑ_ΕΓΓΡΑΦΩΝ',
   'ΜΕΛΕΤΕΣ', 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'config', 'backups',
-  'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ',
+  'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ', 'ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ',
 ]);
 const MELETI_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const { validateStudyNumberFormat, normalizeStudyNumberKey } = meletaiCatalog;
