@@ -13,9 +13,10 @@ import contractorRegistry from '../../app/core/contractorRegistry';
 const ipcRenderer = window.electronAPI;
 
 const C = {
-  blue: '#1d4ed8',
-  blueDark: '#1e3a8a',
-  blueLight: '#dbeafe',
+  blue: '#4f46e5',
+  blueDark: '#4338ca',
+  blueLight: '#e0e7ff',
+  indigo: '#6366f1',
   slate50: '#f8fafc',
   slate100: '#f1f5f9',
   slate200: '#e2e8f0',
@@ -38,11 +39,11 @@ const Overlay = styled.div`
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.7);
-  backdrop-filter: blur(5px);
+  backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
   align-items: stretch;
-  z-index: 1200;
+  z-index: 9999;
   padding: 0.45rem;
   overflow: hidden;
 `;
@@ -55,13 +56,13 @@ const Modal = styled.div`
   height: calc(100vh - 0.9rem);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 80px rgba(29, 78, 216, 0.18), 0 4px 20px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 24px 80px rgba(79, 70, 229, 0.18), 0 4px 20px rgba(0, 0, 0, 0.1);
   animation: ${slideIn} 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 `;
 
 const MainModalHeader = styled.div`
-  background: linear-gradient(135deg, ${C.blueDark} 0%, ${C.blue} 55%, #3b82f6 100%);
+  background: linear-gradient(135deg, ${C.blueDark} 0%, ${C.blue} 55%, ${C.indigo} 100%);
   padding: 1.1rem 1.5rem;
   display: flex;
   align-items: center;
@@ -103,8 +104,10 @@ const HeaderSub = styled.div`
 const HeaderActions = styled.div`
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.5rem;
   flex-shrink: 0;
+  flex-wrap: wrap;
 `;
 
 const CloseBtn = styled.button`
@@ -136,7 +139,7 @@ const Body = styled.div`
   overflow: hidden;
   min-height: 0;
   position: relative;
-  background: linear-gradient(160deg, #eff6ff 0%, #f8fafc 55%, #eff6ff 100%);
+  background: linear-gradient(160deg, #eef2ff 0%, #f8fafc 55%, #eef2ff 100%);
 `;
 
 const HubShell = styled.div`
@@ -181,7 +184,8 @@ const HubListWrap = styled.div`
   background: ${C.white};
   border: 1px solid ${C.slate200};
   border-radius: 14px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 `;
 
 const HubListHead = styled.div`
@@ -195,6 +199,7 @@ const HubListHead = styled.div`
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  min-width: 640px;
 `;
 
 const HubListRow = styled.button`
@@ -203,6 +208,7 @@ const HubListRow = styled.button`
   gap: 0.5rem;
   align-items: center;
   width: 100%;
+  min-width: 640px;
   padding: 0.7rem 0.85rem;
   border: none;
   border-bottom: 1px solid ${C.slate100};
@@ -265,22 +271,26 @@ const DetailOverlay = styled.div`
   z-index: 12;
   display: flex;
   justify-content: center;
+  align-items: stretch;
   padding: 0.85rem 1.1rem 1.1rem;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
+  min-height: 0;
   background: rgba(15, 23, 42, 0.12);
 `;
 
 const DetailCard = styled.div`
   width: min(880px, 100%);
   min-width: 0;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
   background: ${C.slate50};
   border-radius: 18px;
   border: 1px solid ${C.slate200};
   box-shadow: 0 22px 56px rgba(15, 23, 42, 0.18);
   display: flex;
   flex-direction: column;
-  max-height: 100%;
   overflow: hidden;
 `;
 
@@ -292,6 +302,7 @@ const DetailHead = styled.div`
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.85rem;
+  flex-wrap: wrap;
   flex-shrink: 0;
 `;
 
@@ -310,12 +321,12 @@ const Avatar = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(145deg, ${C.blue} 0%, ${C.blueDark} 100%);
+  background: linear-gradient(145deg, ${C.indigo} 0%, ${C.blueDark} 100%);
   color: white;
   font-size: 0.92rem;
   font-weight: 800;
   letter-spacing: 0.02em;
-  box-shadow: 0 8px 18px rgba(29, 78, 216, 0.28);
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.28);
 `;
 
 const DetailTitle = styled.h3`
@@ -348,10 +359,12 @@ const Chip = styled.span`
 `;
 
 const DetailBody = styled.div`
-  padding: 1rem 1.15rem 1.25rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 1rem 1.15rem 1.5rem;
   overflow-x: hidden;
   overflow-y: auto;
-  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -364,7 +377,8 @@ const SectionPanel = styled.section`
   padding: 0.9rem 1rem 1rem;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   min-width: 0;
-  overflow: hidden;
+  flex: 0 0 auto;
+  overflow: visible;
 `;
 
 const SectionHead = styled.div`
@@ -385,6 +399,14 @@ const SectionTitle = styled.div`
   font-size: 0.82rem;
   font-weight: 800;
   color: ${C.slate800};
+  &::before {
+    content: '';
+    flex-shrink: 0;
+    width: 3px;
+    height: 16px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, ${C.indigo} 0%, ${C.blueDark} 100%);
+  }
 `;
 
 const SectionIcon = styled.span`
@@ -523,20 +545,28 @@ const PrimaryBtn = styled.button`
   padding: 0.42rem 0.9rem;
   border-radius: 9px;
   border: none;
-  background: ${C.blue};
+  background: linear-gradient(135deg, ${C.indigo} 0%, ${C.blue} 100%);
   color: white;
   font-size: 0.75rem;
   font-weight: 800;
   cursor: pointer;
   font-family: inherit;
-  &:disabled { opacity: 0.45; cursor: not-allowed; }
-  &:hover:not(:disabled) { background: ${C.blueDark}; }
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.24);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  &:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+  &:hover:not(:disabled) {
+    filter: brightness(1.05);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.32);
+  }
+  &:active:not(:disabled) { transform: translateY(0); box-shadow: 0 2px 8px rgba(79, 70, 229, 0.24); }
 `;
 
 const ItemList = styled.div`
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+  flex: 0 0 auto;
 `;
 
 const ItemCard = styled.div`
@@ -547,7 +577,8 @@ const ItemCard = styled.div`
   background: ${C.white};
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   min-width: 0;
-  overflow: hidden;
+  flex: 0 0 auto;
+  overflow: visible;
 `;
 
 const ItemTop = styled.div`
@@ -573,6 +604,7 @@ const ItemSub = styled.div`
   color: ${C.slate500};
   margin-top: 0.18rem;
   line-height: 1.4;
+  word-break: break-word;
 `;
 
 const ItemMeta = styled.div`
@@ -582,6 +614,18 @@ const ItemMeta = styled.div`
   margin-top: 0.65rem;
   padding-top: 0.55rem;
   border-top: 1px dashed ${C.slate200};
+  min-width: 0;
+`;
+
+const GuaranteeStats = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: 0.45rem 0.75rem;
+  margin-top: 0.6rem;
+  padding: 0.65rem 0.7rem;
+  background: ${C.slate50};
+  border-radius: 10px;
+  border: 1px solid ${C.slate100};
   min-width: 0;
 `;
 
@@ -602,6 +646,8 @@ const MetaStatValue = styled.div`
   font-size: 0.8rem;
   font-weight: 800;
   color: ${(p) => (p.$accent ? C.blueDark : C.slate800)};
+  word-break: break-word;
+  overflow-wrap: anywhere;
 `;
 
 const StatusPill = styled.span`
@@ -622,6 +668,12 @@ const StatusPill = styled.span`
   border: 1px solid ${(p) => (p.$active ? '#a7f3d0' : p.$warn ? '#fed7aa' : C.slate200)};
 `;
 
+const ContractStatusPill = styled(StatusPill)`
+  background: ${(p) => p.$tone?.bg || C.white};
+  color: ${(p) => p.$tone?.color || C.slate600};
+  border-color: ${(p) => p.$tone?.border || C.slate200};
+`;
+
 const EmptyBox = styled.div`
   padding: 0.95rem 0.7rem;
   text-align: center;
@@ -639,7 +691,7 @@ const InfoNote = styled.p`
   color: ${C.slate500};
   line-height: 1.45;
   padding: 0.55rem 0.7rem;
-  background: #eff6ff;
+  background: #eef2ff;
   border: 1px solid ${C.blueLight};
   border-radius: 10px;
 `;
@@ -656,12 +708,14 @@ const GuaranteeForm = styled.div`
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  flex: 0 0 auto;
   margin: 0 0 0.7rem;
   padding: 0.9rem 1rem 1rem;
   border: 1px solid #c7d2fe;
   border-radius: 12px;
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
   box-sizing: border-box;
 `;
 
@@ -760,6 +814,16 @@ function fileBaseName(filePath) {
   return parts[parts.length - 1] || raw;
 }
 
+function pathsFromFilePicker(result) {
+  if (!result || result.canceled) return [];
+  if (Array.isArray(result.filePaths) && result.filePaths.length) {
+    return result.filePaths.map((p) => String(p || '').trim()).filter(Boolean);
+  }
+  return (result.files || [])
+    .map((f) => String((f && (f.filePath || f.path)) || '').trim())
+    .filter(Boolean);
+}
+
 function emptyGuaranteeForm(choices) {
   const first = choices[0] || {};
   return {
@@ -822,6 +886,42 @@ function contractStatusShort(status) {
   if (/ΟΛΟΚΛΗΡΩΜΕΝΟ/i.test(s)) return 'Ολοκληρωμένο';
   if (/ΑΠΕΝΤΑΓ/i.test(s)) return 'Απενταγμένο';
   return s || '—';
+}
+
+/**
+ * Κοινή χρωματική «γλώσσα» καταστάσεων με την υπόλοιπη εφαρμογή
+ * (ίδια αντιστοίχιση χρωμάτων με την κάρτα υποέργου).
+ */
+const CONTRACT_STATUS_TONES = {
+  execution: { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' },
+  completed: { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' },
+  settled: { bg: '#f0fdfa', color: '#0f766e', border: '#99f6e4' },
+  process: { bg: '#fff7ed', color: '#c2410c', border: '#fed7aa' },
+  maturing: { bg: '#fffbeb', color: '#b45309', border: '#fde68a' },
+  neutral: { bg: C.white, color: C.slate600, border: C.slate200 },
+};
+
+function contractStatusTone(status) {
+  const s = String(status || '');
+  if (/ΑΠΕΝΤΑΓ/i.test(s)) return CONTRACT_STATUS_TONES.neutral;
+  if (/ΑΠΟΠΛΗΡΩΜΕΝΟ/i.test(s)) return CONTRACT_STATUS_TONES.settled;
+  if (/ΟΛΟΚΛΗΡΩΜΕΝΟ/i.test(s)) return CONTRACT_STATUS_TONES.completed;
+  if (/ΕΚΤΕΛΟΥΜΕΝΟ/i.test(s)) return CONTRACT_STATUS_TONES.execution;
+  if (/ΣΥΝΑΨΗΣ/i.test(s)) return CONTRACT_STATUS_TONES.process;
+  if (/ΩΡΙΜΑΝΣΗ/i.test(s)) return CONTRACT_STATUS_TONES.maturing;
+  return CONTRACT_STATUS_TONES.neutral;
+}
+
+/**
+ * Χρώμα προθεσμίας — ίδια σημασιολογία με το ημερολόγιο προθεσμιών
+ * (ληγμένο/επείγον κόκκινο, πλησιάζει πορτοκαλί, εντάξει τιρκουάζ).
+ */
+function deadlineToneColor(daysLeft) {
+  if (daysLeft == null) return C.slate400;
+  if (daysLeft < 0) return '#dc2626';
+  if (daysLeft <= 7) return '#ef4444';
+  if (daysLeft <= 30) return '#f59e0b';
+  return '#0d9488';
 }
 
 function guaranteeStatusLabel(status) {
@@ -1423,13 +1523,20 @@ function ContractorRegistryManager({
 
   const uploadGuaranteeFile = async (guarantee, filePaths) => {
     if (!selected?.registryId || !guarantee?.id || fieldsLocked) return;
-    let paths = filePaths;
-    if (!paths) {
-      const result = await safeFileDialog('select-multiple-files', 'Επιλογή αρχείων εγγυητικής', { allFileTypes: true });
-      if (!result?.filePaths?.length) return;
-      paths = result.filePaths;
+    let paths = Array.isArray(filePaths) ? filePaths.filter(Boolean) : [];
+    if (!paths.length) {
+      const result = await safeFileDialog('select-multiple-files', {
+        title: 'Επιλογή αρχείων εγγυητικής',
+        allFileTypes: true,
+      });
+      paths = pathsFromFilePicker(result);
+      if (!paths.length) {
+        if (result && !result.canceled) {
+          showToast(result.error || 'Δεν επιλέχθηκαν αρχεία', 'warning');
+        }
+        return;
+      }
     }
-    if (!paths?.length) return;
     const res = await ipcRenderer.invoke('upload-contractor-registry-files', {
       recordId: selected.registryId,
       guaranteeId: guarantee.id,
@@ -1445,14 +1552,30 @@ function ContractorRegistryManager({
   };
 
   const pickGuaranteeFormFiles = async () => {
-    if (!guaranteeForm || fieldsLocked) return;
-    const result = await safeFileDialog('select-multiple-files', 'Επιλογή αρχείων εγγυητικής', { allFileTypes: true });
-    if (!result?.filePaths?.length) return;
-    if (guaranteeForm.id && selected?.registryId) {
-      await uploadGuaranteeFile({ id: guaranteeForm.id }, result.filePaths);
+    if (!guaranteeForm) return;
+    if (fieldsLocked) {
+      showToast('Ανοίξτε την επεξεργασία καρτέλας για να επισυνάψετε αρχεία.', 'warning');
       return;
     }
-    setPendingGuaranteeFiles((prev) => [...prev, ...result.filePaths]);
+    const result = await safeFileDialog('select-multiple-files', {
+      title: 'Επιλογή αρχείων εγγυητικής',
+      allFileTypes: true,
+    });
+    const paths = pathsFromFilePicker(result);
+    if (!paths.length) {
+      if (result && !result.canceled) {
+        showToast(result.error || 'Δεν επιλέχθηκαν αρχεία', 'warning');
+      }
+      return;
+    }
+    if (guaranteeForm.id && selected?.registryId) {
+      await uploadGuaranteeFile({ id: guaranteeForm.id }, paths);
+      return;
+    }
+    setPendingGuaranteeFiles((prev) => {
+      const have = new Set(prev);
+      return [...prev, ...paths.filter((p) => !have.has(p))];
+    });
   };
 
   const openGuaranteeFile = async (guarantee, fileName) => {
@@ -1615,7 +1738,7 @@ function ContractorRegistryManager({
                   </DangerLink>
                 </FileChip>
               ))}
-              <FilePickBtn type="button" onClick={pickGuaranteeFormFiles} disabled={saving}>
+              <FilePickBtn type="button" onClick={pickGuaranteeFormFiles} disabled={saving || fieldsLocked}>
                 + Επισύναψη αρχείων
               </FilePickBtn>
             </FileList>
@@ -1763,7 +1886,7 @@ function ContractorRegistryManager({
                                   <ItemSub>{readableTitle(a.projectTitle)}</ItemSub>
                                 ) : null}
                               </div>
-                              <StatusPill $active>Εκτελούμενο</StatusPill>
+                              <ContractStatusPill $tone={contractStatusTone(a.projectStatus)}>{contractStatusShort(a.projectStatus)}</ContractStatusPill>
                             </ItemTop>
                             <ItemMeta>
                               <MetaStat>
@@ -1801,7 +1924,7 @@ function ContractorRegistryManager({
                                   <ItemSub>{readableTitle(a.projectTitle)}</ItemSub>
                                 ) : null}
                               </div>
-                              <StatusPill>{contractStatusShort(a.projectStatus)}</StatusPill>
+                              <ContractStatusPill $tone={contractStatusTone(a.projectStatus)}>{contractStatusShort(a.projectStatus)}</ContractStatusPill>
                             </ItemTop>
                             <ItemMeta>
                               <MetaStat>
@@ -1873,7 +1996,7 @@ function ContractorRegistryManager({
                               key={g.id || `${g.letterNumber}-${g.subprojectId}`}
                               $live={g.status === 'ενεργή' && !(daysLeft != null && daysLeft < 0)}
                               $warn={g.status === 'ενεργή' && daysLeft != null && daysLeft < 0}
-                              style={{ borderLeft: `4px solid ${g.status === 'ενεργή' ? (daysLeft != null && daysLeft < 0 ? C.amber : '#7c3aed') : C.slate200}` }}
+                              style={{ borderLeft: `4px solid ${g.status === 'ενεργή' ? deadlineToneColor(daysLeft) : C.slate200}` }}
                             >
                               <ItemTop>
                                 <div style={{ minWidth: 0 }}>
@@ -1895,16 +2018,7 @@ function ContractorRegistryManager({
                                   {guaranteeStatusLabel(g.status)}
                                 </StatusPill>
                               </ItemTop>
-                              <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                                gap: '0.35rem 0.7rem',
-                                marginTop: '0.6rem',
-                                padding: '0.6rem 0.65rem',
-                                background: C.slate50,
-                                borderRadius: '10px',
-                                border: `1px solid ${C.slate100}`,
-                              }}>
+                              <GuaranteeStats>
                                 <MetaStat>
                                   <MetaStatLabel>Ποσό</MetaStatLabel>
                                   <MetaStatValue $accent style={{ fontSize: '0.88rem' }}>
@@ -1925,14 +2039,14 @@ function ContractorRegistryManager({
                                         fontSize: '0.65rem',
                                         fontWeight: 700,
                                         marginTop: '0.1rem',
-                                        color: daysLeft < 0 ? '#dc2626' : daysLeft <= 30 ? C.amber : C.emerald,
+                                        color: deadlineToneColor(daysLeft),
                                       }}>
                                         {daysLeft < 0 ? `έληξε πριν ${-daysLeft} ημ.` : `σε ${daysLeft} ημ.`}
                                       </span>
                                     ) : null}
                                   </MetaStatValue>
                                 </MetaStat>
-                              </div>
+                              </GuaranteeStats>
                               {textOrEmpty(g.notes) ? (
                                 <ItemSub style={{ marginTop: '0.4rem', fontStyle: 'italic' }}>{g.notes}</ItemSub>
                               ) : null}
@@ -2139,7 +2253,7 @@ function ContractorRegistryManager({
                                   <MetaStatValue>
                                     {acc.warrantyEndsOn ? formatDateEl(acc.warrantyEndsOn) : '—'}
                                     {daysLeft != null && acc.warrantyEndsOn ? (
-                                      <ItemSub>
+                                      <ItemSub style={{ color: deadlineToneColor(daysLeft), fontWeight: 700 }}>
                                         {daysLeft < 0 ? `έληξε πριν ${-daysLeft} ημ.` : `σε ${daysLeft} ημ.`}
                                       </ItemSub>
                                     ) : null}

@@ -791,6 +791,30 @@
     };
   }
 
+  /**
+   * Εντοπίζει υποέργα που ο μηχανικός προσπαθεί να καταχωρίσει (εγγυητικές/παραλαβές)
+   * αλλά ΔΕΝ ανήκουν στα ορατά/χρεωμένα του. Αυτά τα στοιχεία θα «έπεφταν» σιωπηλά
+   * κατά τη συγχώνευση — τα επιστρέφουμε ώστε ο handler να ακυρώσει την αποθήκευση
+   * με σαφές μήνυμα αντί να χαθεί δεδομένο.
+   */
+  function findUnauthorizedEngineerSubprojects(incoming, visibleSubprojectIds) {
+    var out = [];
+    var seen = {};
+    function scan(list) {
+      (list || []).forEach(function (item) {
+        var sid = String((item && item.subprojectId) || '').trim();
+        if (!sid || seen[sid]) return;
+        if (!idSetHas(visibleSubprojectIds, sid)) {
+          seen[sid] = true;
+          out.push(sid);
+        }
+      });
+    }
+    scan(incoming && incoming.guarantees);
+    scan(incoming && incoming.acceptances);
+    return out;
+  }
+
   function mergeEngineerRecordSave(existing, incoming, visibleSubprojectIds) {
     var src = incoming || {};
     var base = existing ? existing : createEmptyContractorRecord(src);
@@ -1027,6 +1051,7 @@
     buildContractorHubRows: buildContractorHubRows,
     evaluateRecordPayload: evaluateRecordPayload,
     mergeEngineerRecordSave: mergeEngineerRecordSave,
+    findUnauthorizedEngineerSubprojects: findUnauthorizedEngineerSubprojects,
     upsertGuaranteeInList: upsertGuaranteeInList,
     removeGuaranteeFromList: removeGuaranteeFromList,
     sortGuarantees: sortGuarantees,

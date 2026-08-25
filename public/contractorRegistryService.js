@@ -92,6 +92,17 @@ function createContractorRegistryService({ dataDir }) {
 
     let draft = incoming;
     if (options.role === 'ENGINEER') {
+      const unauthorized = catalog.findUnauthorizedEngineerSubprojects(
+        incoming,
+        options.visibleSubprojectIds
+      );
+      if (unauthorized.length) {
+        return {
+          success: false,
+          error: 'Δεν έχετε δικαίωμα καταχώρισης σε ένα ή περισσότερα υποέργα αυτής της καρτέλας. '
+            + 'Ανανεώστε τη λίστα αναδόχων και δοκιμάστε ξανά — δεν αποθηκεύτηκε καμία αλλαγή.',
+        };
+      }
       draft = catalog.mergeEngineerRecordSave(existing, incoming, options.visibleSubprojectIds);
     }
 

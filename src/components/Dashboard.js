@@ -7851,18 +7851,19 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       <Suspense fallback={<LazyChunkFallback>Φόρτωση προσκλήσεων…</LazyChunkFallback>}>
       <ProsklisisManager
         isOpen={isProsklisisOpen}
-        onClose={async () => {
-          await ipcRenderer.invoke('clear-all-locks');
+        onClose={(dataChanged) => {
           setIsProsklisisOpen(false);
           setProsklisiProjectFilter(null);
           setSelectedProsklisiId(null);
-          await loadProjects();
           setTimeout(() => {
             if (dashboardScrollRef.current) {
               dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
             }
           }, 100);
           restoreNoteReturnContext();
+          if (dataChanged) {
+            loadProjects();
+          }
         }}
         userRole={userRoleForWorkflowModals}
         currentUser={currentUser}

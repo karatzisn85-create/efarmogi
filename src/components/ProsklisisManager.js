@@ -1191,6 +1191,7 @@ function ProsklisisManager({
   const listScrollRef = useRef(null);
   const savedListScroll = useRef(0);
   const shouldRestoreListScroll = useRef(false);
+  const catalogDirtyRef = useRef(false);
   const [listScrollRestoreTick, setListScrollRestoreTick] = useState(0);
 
   const captureListScroll = useCallback(() => {
@@ -1279,10 +1280,8 @@ function ProsklisisManager({
 
   useEffect(() => {
     if (isOpen) {
-      ipcRenderer.invoke('clear-all-locks').then(() => {
-        loadProskliseis();
-        loadProsklisiLocks();
-      });
+      catalogDirtyRef.current = false;
+      loadProskliseis();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -1290,11 +1289,6 @@ function ProsklisisManager({
   useEffect(() => {
     filterProskliseis();
   }, [proskliseis, prosklisiModifications, searchTerm, projectFilter, quickSearchStatus, advancedFilters, selectedProsklisiId, showExpiringSoonOnly, showUnlinkedOnly, sortByDeadline]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (proskliseis.length > 0) loadProsklisiLocks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proskliseis]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1362,34 +1356,38 @@ function ProsklisisManager({
   const loadProskliseis = async () => {
     setLoading(true);
     try {
-      const data = await ipcRenderer.invoke('load-all-proskliseis');
-      setProskliseis(data || []);
-      loadRelatedEntaxeis();
+      const data = await ipcRenderer.invoke('load-all-proskliseis', { includeModifications: true });
+      const list = data || [];
       const modifications = {};
-      for (const prosklisi of data || []) {
-        try {
-          const mods = await ipcRenderer.invoke('load-prosklisi-modifications', prosklisi.prosklisiId);
-          modifications[prosklisi.prosklisiId] = mods || [];
-        } catch (error) {
-          modifications[prosklisi.prosklisiId] = [];
-        }
-      }
+      list.forEach((prosklisi) => {
+        modifications[prosklisi.prosklisiId] = Array.isArray(prosklisi.modifications)
+          ? prosklisi.modifications
+          : [];
+      });
+      setProskliseis(list);
       setProsklisiModifications(modifications);
+      loadRelatedEntaxeis();
+      loadProsklisiLocks(list);
     } catch (error) {
       console.error('Error loading proskliseis:', error);
       setProskliseis([]);
+      setProsklisiModifications({});
     } finally {
       setLoading(false);
     }
   };
 
-  const loadProsklisiLocks = async () => {
+  const loadProsklisiLocks = async (list = proskliseis) => {
     try {
       const locks = {};
-      for (const prosklisi of proskliseis) {
-        const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'proskliseis', prosklisi.prosklisiId);
-        locks[prosklisi.prosklisiId] = lockStatus.locked || false;
-      }
+      await Promise.all((list || []).map(async (prosklisi) => {
+        try {
+          const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'proskliseis', prosklisi.prosklisiId);
+          locks[prosklisi.prosklisiId] = lockStatus.locked || false;
+        } catch {
+          locks[prosklisi.prosklisiId] = false;
+        }
+      }));
       setProsklisiLocks(locks);
     } catch (error) {
       console.error('Error loading prosklisi locks:', error);
@@ -1464,6 +1462,7 @@ function ProsklisisManager({
   const handleSaveProsklisi = async (prosklisiData) => {
     try {
       await ipcRenderer.invoke('save-prosklisi', prosklisiData);
+      catalogDirtyRef.current = true;
       await loadProskliseis();
       setIsFormOpen(false);
       setEditingProsklisi(null);
@@ -1534,6 +1533,7 @@ function ProsklisisManager({
     try {
       await ipcRenderer.invoke('save-prosklisi-modification', modificationData);
       await syncProsklisiFieldsFromModification(modificationData);
+      catalogDirtyRef.current = true;
       await loadProskliseis();
       setEditingModification(null);
       setIsModificationFormOpen(false);
@@ -1566,7 +1566,10 @@ function ProsklisisManager({
     if (await showConfirm({ title: 'Διαγραφή Πρόσκλησης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την πρόσκληση;', detail: 'Θα διαγραφούν επίσης όλα τα αρχεία της. Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi', prosklisiId);
-        if (result.success) await loadProskliseis();
+        if (result.success) {
+          catalogDirtyRef.current = true;
+          await loadProskliseis();
+        }
         else showToast('Σφάλμα διαγραφής πρόσκλησης: ' + result.error, 'error');
       } catch (error) { showToast('Σφάλμα διαγραφής πρόσκλησης: ' + error.message, 'error'); }
     }
@@ -1605,6 +1608,7 @@ function ProsklisisManager({
         const deleted = allMods.find((m) => m.modificationId === modificationId);
         const remaining = allMods.filter((m) => m.modificationId !== modificationId);
         await ipcRenderer.invoke('delete-prosklisi-modification', prosklisiId, modificationId);
+        catalogDirtyRef.current = true;
         const baseProsklisi = proskliseis.find((p) => p.prosklisiId === prosklisiId);
         if (baseProsklisi) {
           let baseline = baseProsklisi;
@@ -1637,6 +1641,7 @@ function ProsklisisManager({
     try {
       await ipcRenderer.invoke('update-prosklisi-modification', modificationData);
       await syncProsklisiFieldsFromModification(modificationData);
+      catalogDirtyRef.current = true;
       if (editingModification && editingModification.prosklisiId) {
         await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingModification.prosklisiId);
         setProsklisiLocks(prev => ({ ...prev, [editingModification.prosklisiId]: false }));
@@ -1696,7 +1701,12 @@ function ProsklisisManager({
     showToast('Δεν είναι δυνατή η μετάβαση στις εντάξεις από εδώ.', 'info');
   };
 
-  const handleClose = () => { handleClearFilters(); onClose(); };
+  const handleClose = () => {
+    handleClearFilters();
+    const dataChanged = catalogDirtyRef.current;
+    catalogDirtyRef.current = false;
+    onClose(dataChanged);
+  };
 
   const tabPartition = useMemo(
     () => partitionProskliseisByViewTab(filteredProskliseis, prosklisiModifications),
@@ -2297,7 +2307,6 @@ function ProsklisisManager({
             }
             setIsFormOpen(false);
             setEditingProsklisi(null);
-            await loadProskliseis();
             requestListScrollRestore();
           }}
           onSave={handleSaveProsklisi}
@@ -2329,7 +2338,6 @@ function ProsklisisManager({
             }
             setIsModificationFormOpen(false);
             setEditingModification(null);
-            await loadProskliseis();
             requestListScrollRestore();
           }}
           onSave={editingModification.modificationId ? handleSaveModificationEdit : handleSaveModification}

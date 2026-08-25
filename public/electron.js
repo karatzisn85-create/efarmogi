@@ -7064,9 +7064,10 @@ ipcMain.handle('fix-entaxi-file-objects', async (event, entaxiId) => {
 // Proskliseis IPC Handlers
 const proskliseisDir = dataDir ? path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ') : null;
 
-async function loadAllProskliseis() {
+async function loadAllProskliseis(options = {}) {
   try {
     const { applyEffectiveDeadlineToProsklisi } = require('./prosklisiDeadlineHelper');
+    const includeModifications = !!(options && options.includeModifications);
     const dir = dataDir ? path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ') : proskliseisDir;
     if (!dir) return [];
     if (!fs.existsSync(dir)) {
@@ -7082,7 +7083,10 @@ async function loadAllProskliseis() {
       try {
         const raw = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
         // Ισχύουσα λήξη από τροποποιήσεις (μόνο στη μνήμη — χωρίς εγγραφή στο hot path φόρτωσης)
-        proskliseis.push(applyEffectiveDeadlineToProsklisi(raw, folderPath, { persist: false }));
+        proskliseis.push(applyEffectiveDeadlineToProsklisi(raw, folderPath, {
+          persist: false,
+          includeModifications,
+        }));
       } catch (parseError) {
         console.error('Error parsing prosklisi data:', parseError);
       }
@@ -7095,7 +7099,7 @@ async function loadAllProskliseis() {
 }
 
 // Load all proskliseis
-ipcMain.handle('load-all-proskliseis', async () => loadAllProskliseis());
+ipcMain.handle('load-all-proskliseis', async (_event, options) => loadAllProskliseis(options || {}));
 
 // Save prosklisi
 ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
@@ -7337,6 +7341,7 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
       prosklisiFolders: savedData.prosklisiFolders ?? existingOnDisk.prosklisiFolders ?? [],
       documentRegistry: savedData.documentRegistry ?? existingOnDisk.documentRegistry
     };
+    delete finalData.modifications;
 
     safeWriteJSON(dataFilePath, finalData);
     
@@ -7362,6 +7367,7 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
       prosklisiFiles: finalData.prosklisiFiles,
       prosklisiFolders: finalData.prosklisiFolders
     };
+    delete mergedData.modifications;
     
     safeWriteJSON(prosklisiDataPath, mergedData);
     
