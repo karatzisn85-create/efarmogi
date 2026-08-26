@@ -19,8 +19,63 @@ const {
 const RETRY_COUNT = 2;
 const RETRY_BASE_DELAY_MS = 1500;
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+/**
+ * Όταν η πύλη μας περιορίζει ρητά, η επόμενη προσπάθεια δεν έχει νόημα σε 1,5″:
+ * τα όρια ρυθμού κρατούν συνήθως δεκάδες δευτερόλεπτα.
+ */
+const SLOW_RETRY_STATUS_CODES = new Set([429, 503]);
+const SLOW_RETRY_DELAYS_MS = [5000, 15000, 30000];
+/** Ασφαλιστική δικλείδα: ποτέ αναμονή μεγαλύτερη από αυτό, ό,τι κι αν πει ο διακομιστής. */
+const MAX_RETRY_AFTER_MS = 60000;
 /** Ανώτατος χρόνος αναμονής ανά μεμονωμένο αίτημα προς το ΚΗΜΔΗΣ. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+
+const {
+  noteKhmdhsThrottleSignal,
+  noteKhmdhsTimeoutSignal,
+} = require('./khmdhsThrottleState');
+const { reportKhmdhsProgress } = require('./khmdhsFetchPool');
+
+/**
+ * Διαβάζει το `Retry-After` (δευτερόλεπτα ή ημερομηνία HTTP).
+ * Επιστρέφει 0 όταν λείπει ή δεν είναι κατανοητό — ποτέ δεν πετάει σφάλμα.
+ * @param {string|null|undefined} headerValue
+ * @returns {number} χιλιοστά του δευτερολέπτου, με ανώτατο όριο
+ */
+function parseRetryAfterMs(headerValue) {
+  const raw = String(headerValue == null ? '' : headerValue).trim();
+  if (!raw) return 0;
+  if (/^\d+$/.test(raw)) {
+    const seconds = Number(raw);
+    if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+    return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+  }
+  const when = Date.parse(raw);
+  if (!Number.isFinite(when)) return 0;
+  const diff = when - Date.now();
+  if (diff <= 0) return 0;
+  return Math.min(diff, MAX_RETRY_AFTER_MS);
+}
+
+function readRetryAfterMs(res) {
+  try {
+    return parseRetryAfterMs(res?.headers?.get?.('retry-after'));
+  } catch (_) {
+    return 0;
+  }
+}
+
+/**
+ * Πόσο περιμένουμε πριν την επόμενη προσπάθεια.
+ * Σεβόμαστε το `Retry-After` όταν ζητά περισσότερο από τον δικό μας κανόνα.
+ */
+function computeRetryDelayMs(attempt, status, retryAfterMs) {
+  const base = SLOW_RETRY_STATUS_CODES.has(Number(status))
+    ? (SLOW_RETRY_DELAYS_MS[attempt] || SLOW_RETRY_DELAYS_MS[SLOW_RETRY_DELAYS_MS.length - 1])
+    : RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+  const requested = Math.min(Math.max(Number(retryAfterMs) || 0, 0), MAX_RETRY_AFTER_MS);
+  return Math.max(base, requested);
+}
 
 function createAbortError() {
   const err = new Error('The operation was aborted.');
@@ -69,15 +124,20 @@ async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT, timeoutM
     const onExternalAbort = () => { try { controller.abort(); } catch { /* ignore */ } };
     if (externalSignal) externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let retryStatus = 0;
+    let retryAfterMs = 0;
 
     try {
       const res = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeoutId);
       if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
+      if (!res.ok) noteKhmdhsThrottleSignal(res.status);
       if (res.ok || !RETRYABLE_STATUS_CODES.has(res.status) || attempt === maxRetries) {
         return res;
       }
       lastError = new Error(`HTTP ${res.status}`);
+      retryStatus = res.status;
+      retryAfterMs = readRetryAfterMs(res);
     } catch (e) {
       clearTimeout(timeoutId);
       if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
@@ -85,6 +145,7 @@ async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT, timeoutM
         // Ακύρωση από τον χρήστη → διαδίδεται αμέσως.
         if (externalSignal?.aborted) throw createAbortError();
         // Διαφορετικά πρόκειται για λήξη χρόνου → θεωρείται προσωρινό σφάλμα (retry).
+        noteKhmdhsTimeoutSignal();
         lastError = createTimeoutError();
         if (attempt === maxRetries) throw lastError;
       } else {
@@ -94,7 +155,14 @@ async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT, timeoutM
     }
 
     if (externalSignal?.aborted) throw createAbortError();
-    const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+    const delay = computeRetryDelayMs(attempt, retryStatus, retryAfterMs);
+    // Σε μεγάλες αναμονές ενημερώνουμε την οθόνη, αλλιώς μοιάζει κολλημένο.
+    if (delay >= 3000) {
+      reportKhmdhsProgress(
+        'retry',
+        `Το ΚΗΜΔΗΣ είναι φορτωμένο — νέα προσπάθεια σε ${Math.round(delay / 1000)}″…`
+      );
+    }
     await sleepWithAbort(delay, externalSignal);
   }
   throw lastError;
@@ -1290,4 +1358,6 @@ module.exports = {
   applyContractAmountResolution,
   buildKhmdhsAmountContext,
   friendlyKhmdhsChainError,
+  parseRetryAfterMs,
+  computeRetryDelayMs,
 };

@@ -62,6 +62,7 @@ const {
   CONTRACT_FETCH_CONCURRENCY,
   PAYMENT_FETCH_CONCURRENCY,
 } = require('./khmdhsFetchPool');
+const { getKhmdhsPacing } = require('./khmdhsThrottleState');
 
 const MAX_CHAIN_WALK = 24;
 const MAX_CANDIDATE_FETCH = 8;
@@ -804,7 +805,8 @@ async function loadContractRecordsForMarkers(markers, { limit = MAX_CANDIDATE_FE
     total: list.length,
   });
   let done = 0;
-  await mapWithConcurrency(list, CONTRACT_FETCH_CONCURRENCY, async (m) => {
+  const contractConcurrency = getKhmdhsPacing().contractConcurrency || CONTRACT_FETCH_CONCURRENCY;
+  await mapWithConcurrency(list, contractConcurrency, async (m) => {
     throwIfKhmdhsAborted(getKhmdhsFetchContext()?.signal || null);
     const rec = await fetchContractRecord(m.adam);
     if (rec && !rec.cancelled) {
@@ -1533,7 +1535,8 @@ async function resolvePayments(
   });
 
   let done = 0;
-  const fetched = await mapWithConcurrency(list, PAYMENT_FETCH_CONCURRENCY, async (m) => {
+  const paymentConcurrency = getKhmdhsPacing().paymentConcurrency || PAYMENT_FETCH_CONCURRENCY;
+  const fetched = await mapWithConcurrency(list, paymentConcurrency, async (m) => {
     throwIfKhmdhsAborted(getKhmdhsFetchContext()?.signal || null);
     const res = await cachedFetch('payment', normalizeAdam(m.adam) || String(m.adam), async () => {
       const ctx = getKhmdhsFetchContext();

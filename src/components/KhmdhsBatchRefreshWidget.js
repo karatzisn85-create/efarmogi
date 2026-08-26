@@ -15,7 +15,10 @@ import khmdhsRefresh from '../../app/core/khmdhsRefresh';
 import {
   applyAutoDocumentRegistryFromChain,
 } from '../utils/khmdhsDocumentRegistry';
-import { summarizeKhmdhsFetchFailure } from '../utils/khmdhsFetchFailureSummary';
+import {
+  summarizeKhmdhsFetchFailure,
+  groupKhmdhsFailuresByCause,
+} from '../utils/khmdhsFetchFailureSummary';
 import { evaluateStitchRefreshCompleteness } from '../utils/khmdhsChainStitchPlan';
 import { getUnresolvedReviewItems } from '../utils/khmdhsDataQualityReport';
 import {
@@ -734,6 +737,32 @@ const SkippedList = styled.div`
   line-height: 1.55;
 `;
 
+/** Σύνοψη «γιατί απέτυχαν» — ίδια διακριτική γλώσσα με τα υπόλοιπα επεξηγηματικά μπλοκ. */
+const CauseSummary = styled.div`
+  padding: 0.4rem 0 0.55rem;
+  font-size: 0.78rem;
+  color: #64748b;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+`;
+
+const CauseRow = styled.div`
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+`;
+
+const CauseCount = styled.span`
+  font-weight: 700;
+  color: #991b1b;
+`;
+
+const CauseAdvice = styled.span`
+  color: #94a3b8;
+`;
+
 const AllDoneBanner = styled.div`
   display: flex;
   align-items: center;
@@ -1264,6 +1293,7 @@ export function KhmdhsBatchReportModal({
   // Τα πιασμένα δεν είναι «αποτυχία» — απλώς τα δούλευε κάποιος τη στιγμή εκείνη.
   // Ούτε όσα δεν προλάβαμε λόγω ακύρωσης· και τα δύο ξαναδοκιμάζονται με την «Επανάληψη».
   const failedItems = items.filter((i) => i.status === 'failed');
+  const failureCauses = groupKhmdhsFailuresByCause(failedItems);
   const laterItems = items.filter((i) => i.busy || i.notProcessed);
   const skippedItems = items.filter((i) => i.status === 'skipped' && !i.busy && !i.notProcessed);
   const intervenedFromItems = items.filter((i) => i.status === 'intervened');
@@ -1447,6 +1477,19 @@ export function KhmdhsBatchReportModal({
                 <SectionChevron $open={openSections.failed}>▶</SectionChevron>
                 Απέτυχαν ({failedItems.length})
               </SectionHeader>
+              {openSections.failed && failedItems.length >= 3 && (
+                <CauseSummary>
+                  {failureCauses.map((cause) => (
+                    <CauseRow key={cause.cause}>
+                      <CauseCount>{cause.count}</CauseCount>
+                      <span>
+                        {cause.explanation}
+                        {cause.advice ? <CauseAdvice> {cause.advice}</CauseAdvice> : null}
+                      </span>
+                    </CauseRow>
+                  ))}
+                </CauseSummary>
+              )}
               {openSections.failed && failedItems.map((item) => (
                 <ReportItemCard
                   key={`fail-${item.id}`}

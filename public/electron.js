@@ -3469,6 +3469,21 @@ function getKhmdhsSubprojectBusyStatus(subprojectId, username) {
   );
 }
 
+/** Αναμονή που διακόπτεται αμέσως αν ο χρήστης ακυρώσει τη μαζική ανανέωση. */
+function sleepUnlessAborted(ms, signal) {
+  const wait = Math.max(0, Number(ms) || 0);
+  if (!wait || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, wait);
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    }
+  });
+}
+
 ipcMain.handle('preview-subproject-khmdhs-refresh', async (event, { subprojectId, actingUsername, batchMode } = {}) => {
   let localAbort = null;
   try {
@@ -3531,6 +3546,22 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (event, { subprojectId
       paymentCache: sharedPaymentCache,
       onProgress: emitProgress,
     };
+
+    // Αν το ΚΗΜΔΗΣ έχει ήδη αρχίσει να απορρίπτει αιτήματα, αραιώνουμε μόνοι μας τα
+    // υποέργα αντί να επιμένουμε στον ίδιο ρυθμό και να μαζεύουμε αποτυχίες.
+    if (batchMode) {
+      const pacing = require('./khmdhsThrottleState').getKhmdhsPacing();
+      if (pacing.itemGapMs > 0) {
+        emitProgress({
+          phase: 'throttle',
+          message: 'Το ΚΗΜΔΗΣ δέχεται πολλά αιτήματα — μικρή αναμονή για να μη χαθούν δεδομένα…',
+        });
+        await sleepUnlessAborted(pacing.itemGapMs, localAbort?.signal);
+        if (localAbort?.signal?.aborted) {
+          return { success: false, aborted: true, error: 'Η διαδικασία ακυρώθηκε.' };
+        }
+      }
+    }
 
     // Τεχνητή (συρραμμένη) αλυσίδα: ανακτούμε διαδοχικά ΟΛΟΥΣ τους σπόρους του σχεδίου
     // ώστε να ξαναχτιστεί όλη η αλυσίδα (ο renderer τα συγχωνεύει με stitch, χωρίς σβήσιμο).
@@ -3959,6 +3990,13 @@ ipcMain.handle('start-khmdhs-batch-run', async (_event, { actingUsername, heartb
         startedAt: active.startedAt || '',
         error: `Μαζική ανανέωση εκτελείται ήδη από ${active.fullName || active.username}.`,
       };
+    }
+
+    // Νέα εκτέλεση ξεκινά με καθαρό μετρητή φόρτου (οι παλμοί συνέχισης δεν τον μηδενίζουν).
+    if (!heartbeat) {
+      try {
+        require('./khmdhsThrottleState').resetKhmdhsThrottleState();
+      } catch (_) { /* η προσαρμογή ρυθμού δεν πρέπει ποτέ να εμποδίσει την εκκίνηση */ }
     }
 
     const user = findUserByUsername(auth.username);
