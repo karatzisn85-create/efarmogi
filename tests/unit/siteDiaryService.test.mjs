@@ -156,6 +156,26 @@ test('φωτογραφίες μπαίνουν σε δικό τους φάκελ�
   assert.equal(fs.existsSync(path.join(dataDir, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ')), false);
 });
 
+test('οι φωτογραφίες φτάνουν στην οθόνη ως εικόνες, χωρίς να μπλοκάρουν σε ό,τι λείπει', async () => {
+  const { svc } = makeService();
+  const created = await svc.addEntry({ subprojectId: SUB_A, draft: validDraft(), author: AUTHOR });
+  const entryId = created.entry.id;
+  const added = await svc.addEntryPhotos({
+    subprojectId: SUB_A,
+    entryId,
+    files: [makeSourceFile('οψη.jpg')],
+  });
+  const photoName = added.photos[0].name;
+
+  const map = await svc.resolvePhotos([
+    { subprojectId: SUB_A, entryId, name: photoName },
+    { subprojectId: SUB_A, entryId, name: 'χαμενη.jpg' },
+  ]);
+
+  assert.match(map[`${SUB_A}|${entryId}|${photoName}`] || '', /^data:image\//);
+  assert.equal(Object.keys(map).length, 1, 'όσες λείπουν απλώς παραλείπονται');
+});
+
 test('διαγραφή φωτογραφίας σβήνει και το αρχείο', async () => {
   const { dataDir, svc } = makeService();
   const created = await svc.addEntry({ subprojectId: SUB_A, draft: validDraft(), author: AUTHOR });

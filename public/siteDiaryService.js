@@ -22,8 +22,11 @@ const PHOTOS_DIR_NAME = 'ΦΩΤΟΓΡΑΦΙΕΣ';
 const PHOTO_INGEST_MAX_DIMENSION = 2000;
 const PHOTO_INGEST_QUALITY = 82;
 
-/** Προεπισκοπήσεις οθόνης. */
-const THUMB_MAX_DIMENSION = 520;
+/**
+ * Προεπισκοπήσεις οθόνης. Η μικρογραφία στο χρονολόγιο είναι ~104×78 σημεία·
+ * τα 360 pixel φτάνουν και με το παραπάνω και κρατούν ελαφρύ το φόρτωμα.
+ */
+const THUMB_MAX_DIMENSION = 360;
 const THUMB_QUALITY = 70;
 const FULL_MAX_DIMENSION = 1600;
 const FULL_QUALITY = 82;
@@ -47,10 +50,14 @@ function mimeForExt(ext) {
   }
 }
 
-function fileToDataUrl(absolutePath) {
-  if (!absolutePath || !fs.existsSync(absolutePath)) return null;
+/**
+ * Ασύγχρονη ανάγνωση: με σύγχρονη, το διάβασμα δεκάδων φωτογραφιών κρατούσε
+ * απασχολημένο το κύριο νήμα και η εφαρμογή έδειχνε «κολλημένη».
+ */
+async function fileToDataUrl(absolutePath) {
+  if (!absolutePath) return null;
   try {
-    const buf = fs.readFileSync(absolutePath);
+    const buf = await fs.promises.readFile(absolutePath);
     return `data:${mimeForExt(path.extname(absolutePath))};base64,${buf.toString('base64')}`;
   } catch {
     return null;
@@ -472,10 +479,10 @@ function createSiteDiaryService({ dataDir }) {
         const key = `${item.subprojectId}|${item.entryId}|${resolved.name}`;
         try {
           const preview = await ensurePreviewThumb(root, resolved.absolutePath, opts);
-          const dataUrl = fileToDataUrl(preview?.path || resolved.absolutePath);
+          const dataUrl = await fileToDataUrl(preview?.path || resolved.absolutePath);
           if (dataUrl) map[key] = dataUrl;
         } catch {
-          const dataUrl = fileToDataUrl(resolved.absolutePath);
+          const dataUrl = await fileToDataUrl(resolved.absolutePath);
           if (dataUrl) map[key] = dataUrl;
         }
       }));

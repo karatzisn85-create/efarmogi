@@ -1773,6 +1773,9 @@ async function handleSaveProjectData(event, projectData) {
     if (writesBlockedByMandatoryUpdate()) {
       return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
     }
+    // Η χρέωση επιβλέποντα μπορεί να άλλαξε — η μνήμη ορατότητας του ημερολογίου
+    // δεν πρέπει να κρατά παλιά εικόνα.
+    invalidateSiteDiaryVisibilityCache();
     // Προαιρετικός έλεγχος «άλλαξε στο μεταξύ;»: ο καλών δηλώνει σε ποια έκδοση του υποέργου
     // βασίστηκε. Γίνεται ΠΡΙΝ από οποιαδήποτε αλλαγή στον δίσκο, ώστε να μη μείνει τίποτα μισό.
     const expectedUpdatedAt = projectData.__expectedUpdatedAt;
@@ -4427,6 +4430,7 @@ function resolveSubprojectDirOnDisk(projectId, subprojectId) {
 ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
   try {
     console.log(`Deleting subproject: ${projectId}/${subprojectId}`);
+    invalidateSiteDiaryVisibilityCache();
 
     const resolved = resolveSubprojectDirOnDisk(projectId, subprojectId);
     if (!resolved) {
@@ -19450,9 +19454,27 @@ function requireSiteDiarySession(actingUsername) {
   return { ok: true, username: auth.username, user };
 }
 
+/**
+ * Ο κατάλογος ορατών υποέργων του μηχανικού βγαίνει από όλα τα data.json.
+ * Στο ημερολόγιο ζητείται πολλές φορές στη σειρά (άνοιγμα, μικρογραφίες,
+ * αποθήκευση, κάθε φωτογραφία σε μεγέθυνση) — χωρίς σύντομη μνήμη η εφαρμογή
+ * σαρώνει τον κοινό φάκελο ξανά και ξανά και «παγώνει».
+ */
+const SITE_DIARY_VISIBILITY_TTL_MS = 20000;
+const siteDiaryVisibilityCache = new Map();
+
+function invalidateSiteDiaryVisibilityCache() {
+  siteDiaryVisibilityCache.clear();
+}
+
 /** null = χωρίς περιορισμό (διαχειριστές) · Set = μόνο τα υποέργα του μηχανικού. */
 async function siteDiaryVisibleSubprojectIds(user) {
   if (user?.role !== 'ENGINEER') return null;
+  const cacheKey = String(user.username || '').trim().toLowerCase();
+  const cached = siteDiaryVisibilityCache.get(cacheKey);
+  if (cached && (Date.now() - cached.at) < SITE_DIARY_VISIBILITY_TTL_MS) {
+    return cached.ids;
+  }
   const ids = new Set();
   const ctx = buildEngineerVisibilityContext(user.username, user.assignedSupervisors);
   const projects = await loadAllProjects();
@@ -19461,6 +19483,7 @@ async function siteDiaryVisibleSubprojectIds(user) {
     const sid = String(project.subprojectId || '').trim();
     if (sid) ids.add(sid);
   });
+  if (cacheKey) siteDiaryVisibilityCache.set(cacheKey, { at: Date.now(), ids });
   return ids;
 }
 

@@ -17,6 +17,8 @@ import {
   monthShort,
   weekdayName,
   longDate,
+  relativeDayLabel,
+  yearIfNotCurrent,
   todayInputValue,
   photoKey,
 } from '../utils/siteDiaryTheme';
@@ -46,64 +48,50 @@ const PanelScroll = styled.div`
 
 /* ─── Σύνοψη υποέργου ─────────────────────────────────────────────────────── */
 
-const ContextCard = styled.div`
-  position: relative;
-  padding: 0.85rem 1rem;
-  margin-bottom: 0.85rem;
-  background: linear-gradient(135deg, ${C.white} 0%, ${C.cyanLight} 100%);
-  border: 1px solid rgba(8, 145, 178, 0.2);
-  border-radius: 14px;
-  box-shadow: 0 2px 12px rgba(8, 145, 178, 0.08);
+/** Ο τίτλος του υποέργου φαίνεται ήδη στην μπάρα· εδώ αρκεί το έργο-γονέας. */
+const ContextLine = styled.div`
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: ${C.slate500};
+  margin-bottom: 0.7rem;
   overflow: hidden;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; bottom: 0;
-    width: 4px;
-    background: ${PRIMARY_GRADIENT};
-  }
-`;
-
-const ContextProject = styled.div`
-  font-size: 0.66rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: ${C.cyanDark};
-  margin-bottom: 0.2rem;
-`;
-
-const ContextTitle = styled.div`
-  font-size: 0.92rem;
-  font-weight: 800;
-  color: ${C.slate900};
-  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 const StatRow = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.6rem;
-  margin-bottom: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
 `;
 
 const StatCard = styled.div`
-  padding: 0.65rem 0.8rem;
+  padding: 0.55rem 0.75rem;
   background: ${C.white};
-  border: 1px solid ${(p) => p.$border || C.slate200};
-  border-left: 4px solid ${(p) => p.$accent || C.slate300};
+  border: 1px solid ${C.slate200};
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 `;
 
 const StatLabel = styled.div`
-  font-size: 0.62rem;
+  display: flex;
+  align-items: center;
+  gap: 0.34rem;
+  font-size: 0.6rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: ${C.slate500};
-  margin-bottom: 0.22rem;
+  margin-bottom: 0.24rem;
+
+  &::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: ${(p) => p.$dot || C.slate300};
+    flex-shrink: 0;
+  }
 `;
 
 const StatValue = styled.div`
@@ -406,30 +394,46 @@ const DayMonth = styled.div`
 `;
 
 const DayHeading = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+  padding-top: 0.28rem;
   font-size: 0.68rem;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: ${C.slate500};
-  margin-bottom: 0.4rem;
-  padding-top: 0.15rem;
+`;
+
+const DayRelative = styled.span`
+  padding: 0.1rem 0.42rem;
+  border-radius: 999px;
+  background: ${C.cyanLight};
+  border: 1px solid ${C.cyanTint};
+  color: ${C.cyanDeep};
+  font-size: 0.6rem;
+  letter-spacing: 0.03em;
 `;
 
 const EntryCard = styled.div`
   position: relative;
-  padding: 0.8rem 0.9rem;
-  margin-bottom: 0.55rem;
+  padding: 0.75rem 0.85rem;
+  margin-bottom: 0.5rem;
   background: ${C.white};
   border: 1px solid ${C.slate200};
-  border-left: 4px solid ${(p) => p.$accent || C.slate300};
+  border-left: 3px solid ${(p) => p.$accent || C.slate300};
   border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
-  transition: box-shadow 0.18s, transform 0.18s;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 0.18s, border-color 0.18s;
   &:last-child { margin-bottom: 0; }
-  &:hover {
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.09);
-    transform: translateY(-1px);
-  }
+  &:hover { box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08); }
+
+  /* Οι ενέργειες και το ✕ των φωτογραφιών εμφανίζονται μόνο όταν χρειάζονται,
+     ώστε η καταχώριση να διαβάζεται καθαρά. */
+  .sd-hover-actions { opacity: 0; transition: opacity 0.15s; }
+  &:hover .sd-hover-actions,
+  &:focus-within .sd-hover-actions { opacity: 1; }
 `;
 
 const EntryHead = styled.div`
@@ -437,7 +441,7 @@ const EntryHead = styled.div`
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.45rem;
 `;
 
 const EntryTime = styled.span`
@@ -467,59 +471,45 @@ const ProgressPill = styled.span`
   }
 `;
 
-const AuthorChip = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 0.28rem;
-  padding: 0.2rem 0.55rem;
-  border-radius: 8px;
-  background: ${C.slate100};
-  color: ${C.slate600};
-  font-size: 0.65rem;
+const EntryAuthor = styled.span`
+  margin-left: auto;
+  font-size: 0.66rem;
   font-weight: 700;
-`;
-
-const MineBadge = styled.span`
-  padding: 0.18rem 0.45rem;
-  border-radius: 6px;
-  background: ${C.cyanLight};
-  color: ${C.cyanDeep};
-  border: 1px solid ${C.cyanTint};
-  font-size: 0.6rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: ${(p) => (p.$mine ? C.cyanDark : C.slate500)};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
 `;
 
 const EntryActions = styled.div`
-  margin-left: auto;
   display: flex;
   flex-shrink: 0;
-  gap: 0.35rem;
+  gap: 0.3rem;
 `;
 
 const ActionBtn = styled.button`
-  padding: 0.28rem 0.62rem;
+  padding: 0.24rem 0.55rem;
   border-radius: 8px;
-  border: 1px solid ${(p) => (p.$danger ? '#fecaca' : C.slate200)};
-  background: ${(p) => (p.$danger ? '#fef2f2' : C.white)};
-  color: ${(p) => (p.$danger ? C.red : C.slate700)};
-  font-size: 0.68rem;
-  font-weight: 800;
+  border: 1px solid ${C.slate200};
+  background: ${C.white};
+  color: ${C.slate600};
+  font-size: 0.67rem;
+  font-weight: 700;
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s;
   &:hover {
-    border-color: ${(p) => (p.$danger ? C.red : C.cyan)};
-    background: ${(p) => (p.$danger ? '#fee2e2' : C.cyanLight)};
+    border-color: ${(p) => (p.$danger ? '#fecaca' : C.cyanTint)};
+    background: ${(p) => (p.$danger ? '#fef2f2' : C.cyanLight)};
     color: ${(p) => (p.$danger ? C.red : C.cyanDeep)};
   }
   &:disabled { opacity: 0.4; cursor: not-allowed; }
 `;
 
 const EntryNotes = styled.div`
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   line-height: 1.55;
   color: ${C.slate700};
   white-space: pre-wrap;
@@ -527,24 +517,11 @@ const EntryNotes = styled.div`
 `;
 
 const OrderCallout = styled.div`
-  margin-top: 0.6rem;
-  padding: 0.6rem 0.75rem;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #fffbeb 0%, ${C.white} 100%);
-  border: 1px solid #fcd34d;
-  border-left: 4px solid ${C.amber};
-`;
-
-const OrderLabel = styled.div`
-  font-size: 0.62rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #92400e;
-  margin-bottom: 0.22rem;
-`;
-
-const OrderText = styled.div`
+  margin-top: 0.55rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0 10px 10px 0;
+  background: #fffbeb;
+  border-left: 3px solid ${C.amber};
   font-size: 0.78rem;
   line-height: 1.5;
   color: #78350f;
@@ -552,55 +529,117 @@ const OrderText = styled.div`
   word-break: break-word;
 `;
 
+const OrderTag = styled.span`
+  margin-right: 0.4rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #b45309;
+`;
+
 const PhotoStrip = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.45rem;
   margin-top: 0.65rem;
 `;
 
-const Thumb = styled.button`
-  position: relative;
-  width: 84px;
-  height: 64px;
-  border-radius: 9px;
-  border: 1px solid ${C.slate200};
-  background: ${C.slate100} center/cover no-repeat;
-  background-image: ${(p) => (p.$src ? `url("${p.$src}")` : 'none')};
+/** Ίδιο μέγεθος και κόψιμο σε όλες τις μικρογραφίες — αλλιώς η σειρά φαίνεται ανομοιόμορφη. */
+const TILE = `
+  width: 104px;
+  height: 78px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  font-family: inherit;
   cursor: pointer;
   padding: 0;
+`;
+
+const Thumb = styled.button`
+  ${TILE}
+  position: relative;
+  border: 1px solid ${C.slate200};
+  background-color: ${C.slate100};
+  background-image: ${(p) => (p.$src ? `url("${p.$src}")` : 'none')};
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   overflow: hidden;
-  transition: all 0.18s;
-  &:hover { transform: scale(1.05); border-color: ${C.cyan}; box-shadow: 0 4px 14px rgba(8,145,178,0.25); }
+  transition: transform 0.16s, box-shadow 0.16s, border-color 0.16s;
+
+  /* Λεπτή εσωτερική σκίαση: οι ανοιχτόχρωμες φωτογραφίες δεν «λιώνουν» στο λευκό. */
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.07);
+    pointer-events: none;
+  }
+  &:hover {
+    transform: translateY(-2px);
+    border-color: ${C.cyan};
+    box-shadow: 0 6px 16px rgba(8, 145, 178, 0.22);
+  }
+
+  /* Το ✕ μόνο πάνω στη φωτογραφία που δείχνει ο χρήστης, όχι σε όλες μαζί. */
+  .sd-thumb-x { opacity: 0; }
+  &:hover .sd-thumb-x,
+  &:focus-visible .sd-thumb-x { opacity: 1; }
 `;
 
 const ThumbDelete = styled.span`
   position: absolute;
-  top: 2px; right: 2px;
-  width: 18px; height: 18px;
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.65);
+  top: 4px; right: 4px;
+  z-index: 2;
+  width: 20px; height: 20px;
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.6);
   color: ${C.white};
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, opacity 0.15s;
   &:hover { background: ${C.red}; }
 `;
 
-const AddPhotoTile = styled.button`
-  width: 84px;
-  height: 64px;
-  border-radius: 9px;
-  border: 1px dashed ${C.cyan}88;
-  background: ${C.cyanLight};
-  color: ${C.cyanDark};
-  font-size: 0.62rem;
+const MoreTile = styled.button`
+  ${TILE}
+  border: 1px solid ${C.slate200};
+  background: ${C.slate100};
+  color: ${C.slate600};
+  font-size: 0.82rem;
   font-weight: 800;
+  transition: all 0.16s;
+  &:hover { border-color: ${C.cyan}; color: ${C.cyanDeep}; background: ${C.cyanLight}; }
+`;
+
+const AddPhotoTile = styled.button`
+  ${TILE}
+  border: 1px dashed ${C.slate300};
+  background: transparent;
+  color: ${C.slate500};
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.1rem;
+  transition: all 0.16s;
+  &:hover { border-color: ${C.cyan}; color: ${C.cyanDark}; background: ${C.cyanLight}; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+`;
+
+const AddPhotoLink = styled.button`
+  margin-top: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: ${C.slate500};
+  font-size: 0.7rem;
+  font-weight: 700;
   font-family: inherit;
   cursor: pointer;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 0.15rem;
-  transition: all 0.16s;
-  &:hover { border-color: ${C.cyan}; background: ${C.cyanTint}; }
+  transition: color 0.15s;
+  &:hover { color: ${C.cyanDark}; }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
@@ -698,6 +737,9 @@ const LightboxCounter = styled.span`
 
 /* ─── Component ───────────────────────────────────────────────────────────── */
 
+/** Πόσες μικρογραφίες δείχνουμε πριν μαζευτούν σε «+N» — οι πολλές πνίγουν το κείμενο. */
+const VISIBLE_PHOTOS = 5;
+
 const EMPTY_DRAFT = () => ({
   visitDate: todayInputValue(),
   visitTime: '',
@@ -738,26 +780,48 @@ function SiteDiaryPanel({
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
+  // Οι ήδη φορτωμένες μικρογραφίες διαβάζονται χωρίς να ξαναστήνεται η φόρτωση.
+  const thumbsRef = useRef({});
+  useEffect(() => { thumbsRef.current = thumbs; }, [thumbs]);
+
   const entries = useMemo(() => (diary?.entries || []), [diary]);
 
+  /**
+   * Ζητάμε από τον δίσκο μόνο όσες μικρογραφίες δείχνουμε και μόνο όσες δεν
+   * έχουμε ήδη. Αλλιώς κάθε αποθήκευση ξανακατέβαζε ολόκληρο το άλμπουμ και η
+   * καρτέλα «πάγωνε» για λίγα δευτερόλεπτα.
+   */
   const loadThumbs = useCallback(async (rows) => {
-    const items = [];
+    const validKeys = new Set();
+    const missing = [];
     (rows || []).forEach((entry) => {
-      (entry.photos || []).forEach((photo) => {
-        items.push({ subprojectId, entryId: entry.id, name: photo.name });
+      (entry.photos || []).slice(0, VISIBLE_PHOTOS).forEach((photo) => {
+        const key = photoKey(subprojectId, entry.id, photo.name);
+        validKeys.add(key);
+        if (!thumbsRef.current[key]) {
+          missing.push({ subprojectId, entryId: entry.id, name: photo.name });
+        }
       });
     });
-    if (!items.length) {
-      setThumbs({});
-      return;
-    }
+
+    setThumbs((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.length === validKeys.size && keys.every((k) => validKeys.has(k))) return prev;
+      const kept = {};
+      keys.forEach((k) => { if (validKeys.has(k)) kept[k] = prev[k]; });
+      return kept;
+    });
+
+    if (!missing.length) return;
     try {
       const res = await ipcRenderer.invoke('resolve-site-diary-photos', {
-        items,
+        items: missing,
         variant: 'thumb',
         actingUsername,
       });
-      if (mountedRef.current && res?.success) setThumbs(res.map || {});
+      if (mountedRef.current && res?.success) {
+        setThumbs((prev) => ({ ...prev, ...(res.map || {}) }));
+      }
     } catch {
       /* οι μικρογραφίες είναι διακοσμητικές — δεν μπλοκάρουν το ημερολόγιο */
     }
@@ -1013,7 +1077,9 @@ function SiteDiaryPanel({
     let cancelled = false;
     const name = lightbox.names[lightbox.index];
     if (!name) return undefined;
-    setLightboxSrc(thumbs[photoKey(subprojectId, lightbox.entryId, name)] || '');
+    // Η μικρογραφία μπαίνει ως προσωρινή εικόνα· δεν είναι λόγος να ξαναζητηθεί
+    // η μεγάλη φωτογραφία κάθε φορά που αλλάζει ο κατάλογος μικρογραφιών.
+    setLightboxSrc(thumbsRef.current[photoKey(subprojectId, lightbox.entryId, name)] || '');
     (async () => {
       const res = await ipcRenderer.invoke('resolve-site-diary-photos', {
         items: [{ subprojectId, entryId: lightbox.entryId, name }],
@@ -1025,7 +1091,7 @@ function SiteDiaryPanel({
       if (src) setLightboxSrc(src);
     })();
     return () => { cancelled = true; };
-  }, [lightbox, subprojectId, actingUsername, thumbs]);
+  }, [lightbox, subprojectId, actingUsername]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -1065,12 +1131,7 @@ function SiteDiaryPanel({
   /* ── Render ── */
 
   const projectTitle = diary?.projectTitle || fallbackMeta?.projectTitle || '';
-  const subprojectTitle = diary?.subprojectTitle || fallbackMeta?.subprojectTitle || 'Υποέργο';
   const recency = siteDiary.recencyColors(summary.recencyTone);
-  const lastProgressState = summary.lastProgress ? siteDiary.progressState(summary.lastProgress) : null;
-  const lastProgressTone = lastProgressState
-    ? siteDiary.PROGRESS_TONE_COLORS[lastProgressState.tone]
-    : null;
 
   if (loading) {
     return (
@@ -1085,33 +1146,25 @@ function SiteDiaryPanel({
   return (
     <PanelRoot>
       <PanelScroll $embedded={embedded}>
-        <ContextCard>
-          {projectTitle ? <ContextProject>{projectTitle}</ContextProject> : null}
-          <ContextTitle>{subprojectTitle}</ContextTitle>
-        </ContextCard>
+        {projectTitle ? <ContextLine>{projectTitle}</ContextLine> : null}
 
         <StatRow>
-          <StatCard $accent={recency.dot} $border={recency.border}>
-            <StatLabel>Τελευταία επίσκεψη</StatLabel>
+          <StatCard>
+            <StatLabel $dot={recency.dot}>Τελευταία επίσκεψη</StatLabel>
             <StatValue $color={recency.text}>{summary.recencyLabel}</StatValue>
             {summary.lastVisitDate ? <StatHint>{longDate(summary.lastVisitDate)}</StatHint> : null}
           </StatCard>
-          <StatCard $accent={C.cyan}>
-            <StatLabel>Καταγεγραμμένες επισκέψεις</StatLabel>
+          <StatCard>
+            <StatLabel $dot={C.cyan}>Επισκέψεις</StatLabel>
             <StatValue>{summary.total}</StatValue>
           </StatCard>
-          <StatCard $accent={C.indigo}>
-            <StatLabel>Φωτογραφίες</StatLabel>
+          <StatCard>
+            <StatLabel $dot={C.indigo}>Φωτογραφίες</StatLabel>
             <StatValue>{summary.photoCount}</StatValue>
           </StatCard>
-          <StatCard $accent={C.amber}>
-            <StatLabel>Εντολές προς ανάδοχο</StatLabel>
+          <StatCard>
+            <StatLabel $dot={C.amber}>Εντολές</StatLabel>
             <StatValue>{summary.orderCount}</StatValue>
-            {lastProgressTone ? (
-              <StatHint style={{ color: lastProgressTone.text }}>
-                Τελευταία πορεία: {lastProgressState.short}
-              </StatHint>
-            ) : null}
           </StatCard>
         </StatRow>
 
@@ -1135,7 +1188,7 @@ function SiteDiaryPanel({
             $activeBg={`linear-gradient(135deg, ${C.orange} 0%, ${C.red} 100%)`}
             onClick={() => setQuickFilter(quickFilter === 'attention' ? '' : 'attention')}
           >
-            Καθυστέρηση / διακοπή
+            Προβλήματα
           </FilterPill>
           <FilterPill
             type="button"
@@ -1254,7 +1307,12 @@ function SiteDiaryPanel({
                   <DayMonth>{monthShort(group.date)}</DayMonth>
                 </DayBubble>
                 <DayHeading>
-                  {weekdayName(group.date)} · {longDate(group.date)}
+                  {/* Η ημερομηνία λέγεται ήδη στη φούσκα — εδώ μένει ό,τι προσθέτει κάτι. */}
+                  <span>{weekdayName(group.date)}</span>
+                  {yearIfNotCurrent(group.date) ? <span>{yearIfNotCurrent(group.date)}</span> : null}
+                  {relativeDayLabel(group.date)
+                    ? <DayRelative>{relativeDayLabel(group.date)}</DayRelative>
+                    : null}
                 </DayHeading>
                 {group.entries.map((entry) => {
                   const state = siteDiary.progressState(entry.progress);
@@ -1265,12 +1323,13 @@ function SiteDiaryPanel({
                   return (
                     <EntryCard key={entry.id} $accent={tone.dot}>
                       <EntryHead>
-                        <EntryTime>{entry.visitTime || '—'}</EntryTime>
-                        <ProgressPill $tone={tone}>{state.label}</ProgressPill>
-                        <AuthorChip>👷 {entry.authorFullName || entry.authorUsername || '—'}</AuthorChip>
-                        {isMine ? <MineBadge>Δική μου</MineBadge> : null}
+                        {entry.visitTime ? <EntryTime>{entry.visitTime}</EntryTime> : null}
+                        <ProgressPill $tone={tone}>{state.short}</ProgressPill>
+                        <EntryAuthor $mine={isMine}>
+                          {isMine ? 'Εσείς' : (entry.authorFullName || entry.authorUsername || '—')}
+                        </EntryAuthor>
                         {editable ? (
-                          <EntryActions>
+                          <EntryActions className="sd-hover-actions">
                             <ActionBtn
                               type="button"
                               title="Διόρθωση επίσκεψης"
@@ -1296,14 +1355,14 @@ function SiteDiaryPanel({
 
                       {String(entry.contractorOrder || '').trim() ? (
                         <OrderCallout>
-                          <OrderLabel>Εντολή προς τον ανάδοχο</OrderLabel>
-                          <OrderText>{entry.contractorOrder}</OrderText>
+                          <OrderTag>Εντολή</OrderTag>
+                          {entry.contractorOrder}
                         </OrderCallout>
                       ) : null}
 
-                      {(entry.photos || []).length > 0 || editable ? (
+                      {(entry.photos || []).length > 0 ? (
                         <PhotoStrip>
-                          {(entry.photos || []).map((photo, idx) => (
+                          {(entry.photos || []).slice(0, VISIBLE_PHOTOS).map((photo, idx) => (
                             <Thumb
                               key={photo.name}
                               type="button"
@@ -1313,6 +1372,7 @@ function SiteDiaryPanel({
                             >
                               {editable ? (
                                 <ThumbDelete
+                                  className="sd-thumb-x"
                                   role="button"
                                   title="Αφαίρεση φωτογραφίας"
                                   onClick={(e) => handleDeletePhoto(entry, photo, e)}
@@ -1322,17 +1382,41 @@ function SiteDiaryPanel({
                               ) : null}
                             </Thumb>
                           ))}
+                          {(entry.photos || []).length > VISIBLE_PHOTOS ? (
+                            <MoreTile
+                              type="button"
+                              title="Προβολή όλων των φωτογραφιών"
+                              onClick={() => openLightbox(entry, VISIBLE_PHOTOS)}
+                            >
+                              +{(entry.photos || []).length - VISIBLE_PHOTOS}
+                            </MoreTile>
+                          ) : null}
                           {editable ? (
                             <AddPhotoTile
                               type="button"
+                              title="Προσθήκη φωτογραφιών"
                               onClick={() => handleAddPhotosToEntry(entry)}
                               disabled={busyEntryId === entry.id}
                             >
-                              <span>＋</span>
-                              <span>Φωτογραφία</span>
+                              {busyEntryId === entry.id ? (
+                                <span>Ανέβασμα…</span>
+                              ) : (
+                                <>
+                                  <span>＋</span>
+                                  <span>Φωτογραφία</span>
+                                </>
+                              )}
                             </AddPhotoTile>
                           ) : null}
                         </PhotoStrip>
+                      ) : editable ? (
+                        <AddPhotoLink
+                          type="button"
+                          onClick={() => handleAddPhotosToEntry(entry)}
+                          disabled={busyEntryId === entry.id}
+                        >
+                          {busyEntryId === entry.id ? 'Ανέβασμα φωτογραφιών…' : '＋ Προσθήκη φωτογραφιών'}
+                        </AddPhotoLink>
                       ) : null}
                     </EntryCard>
                   );

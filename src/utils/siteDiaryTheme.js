@@ -88,6 +88,27 @@ export function shortDate(iso) {
   return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
+/**
+ * «Σήμερα» / «Χθες» / '' — ώστε το χρονολόγιο να μη λέει δύο φορές την ίδια ημερομηνία.
+ */
+export function relativeDayLabel(iso) {
+  const d = parseIso(iso);
+  if (!d) return '';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today.getTime() - d.getTime()) / 86400000);
+  if (diff === 0) return 'Σήμερα';
+  if (diff === 1) return 'Χθες';
+  return '';
+}
+
+/** Το έτος εμφανίζεται μόνο όταν δεν είναι το τρέχον — αλλιώς περισσεύει. */
+export function yearIfNotCurrent(iso) {
+  const d = parseIso(iso);
+  if (!d) return '';
+  return d.getFullYear() === new Date().getFullYear() ? '' : String(d.getFullYear());
+}
+
 /** Σημερινή ημερομηνία σε μορφή για πεδίο ημερομηνίας (τοπική ώρα). */
 export function todayInputValue() {
   const d = new Date();
