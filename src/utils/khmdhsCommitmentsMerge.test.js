@@ -65,6 +65,38 @@ describe('mergeKhmdhsCommitmentsFromChain', () => {
     const merged = mergeKhmdhsCommitmentsFromChain([c1, c2Stub], []);
     expect(merged).toHaveLength(2);
   });
+
+  test('αφαιρεί μόνο επιβεβαιωμένα ακυρωμένη ανάληψη — η άλλη μένει', () => {
+    const merged = mergeKhmdhsCommitmentsFromChain(
+      [c1, c2Stub],
+      [c1],
+      { cancelledAdams: ['25REQ016195999'] }
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].adam).toBe('25REQ016195275');
+  });
+
+  test('κενό fetch χωρίς cancelledAdams δεν σβήνει τίποτα', () => {
+    const merged = mergeKhmdhsCommitmentsFromChain([c1, c2Stub], [], {});
+    expect(merged).toHaveLength(2);
+  });
+
+  test('κενό fetch με cancelledAdams αφαιρεί μόνο τον ακυρωμένο κρίκο', () => {
+    const merged = mergeKhmdhsCommitmentsFromChain(
+      [c1, c2Stub],
+      [],
+      { cancelledAdams: ['25REQ016195275**'] }
+    );
+    expect(merged.map((d) => d.adam)).toEqual(['25REQ016195999']);
+  });
+
+  test('incoming snapshot.cancelled δεν ξαναμπαίνει και φεύγει από τα προηγούμενα', () => {
+    const merged = mergeKhmdhsCommitmentsFromChain(
+      [c1],
+      [{ adam: '25REQ016195275', snapshot: { cancelled: true, title: 'Ματαιώθηκε' } }]
+    );
+    expect(merged).toHaveLength(0);
+  });
 });
 
 describe('pickPrimaryCommitmentDecision', () => {

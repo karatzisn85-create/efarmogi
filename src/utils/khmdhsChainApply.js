@@ -74,6 +74,28 @@ function mergeRequestFromChain(next, chainRes, { protect = false } = {}) {
   return next;
 }
 
+function commitmentListSignature(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((d) => sanitizeAdamInput(d?.adam))
+    .filter(Boolean)
+    .sort()
+    .join('\n');
+}
+
+function applyMergedCommitmentsToForm(next, merged) {
+  next.khmdhsCommitmentDecisions = merged;
+  const primary = pickPrimaryCommitmentDecision(merged);
+  if (primary) {
+    next.khmdhsCommitmentAdam = primary.adam || '';
+    next.khmdhsCommitmentSnapshot = primary.snapshot || null;
+    next.khmdhsCommitmentFetchedAt = primary.fetchedAt || '';
+  } else {
+    next.khmdhsCommitmentAdam = '';
+    next.khmdhsCommitmentSnapshot = null;
+    next.khmdhsCommitmentFetchedAt = '';
+  }
+}
+
 function mergeCommitmentAndPaymentsFromChain(next, chainRes, {
   protect = false,
   prevPayments,
@@ -96,8 +118,13 @@ function mergeCommitmentAndPaymentsFromChain(next, chainRes, {
   const baselinePayments = Array.isArray(prevPayments)
     ? prevPayments
     : next.khmdhsPayments;
-  const skipCommitments = protect && baselineCommitments?.length > 0;
-  const skipPayments = protect && baselinePayments?.length > 0;
+  const skipCommitments = (protect && baselineCommitments?.length > 0)
+    || chainRes?.skipCommitmentMerge === true;
+  const skipPayments = (protect && baselinePayments?.length > 0)
+    || chainRes?.skipPaymentMerge === true;
+  const cancelledAdams = Array.isArray(chainRes?.chainMeta?.confirmedCancelledAdams)
+    ? chainRes.chainMeta.confirmedCancelledAdams
+    : [];
 
   if (!skipCommitments) {
     const incomingCommitments = allDecisions.length > 0
@@ -112,16 +139,27 @@ function mergeCommitmentAndPaymentsFromChain(next, chainRes, {
     if (incomingCommitments.length > 0 || hasBaseline) {
       const merged = mergeKhmdhsCommitmentsFromChain(
         baselineCommitments,
-        incomingCommitments
+        incomingCommitments,
+        { cancelledAdams }
       );
-      if (merged.length > 0 || incomingCommitments.length > 0) {
-        next.khmdhsCommitmentDecisions = merged;
-        const primary = pickPrimaryCommitmentDecision(merged);
-        if (primary) {
-          next.khmdhsCommitmentAdam = primary.adam || '';
-          next.khmdhsCommitmentSnapshot = primary.snapshot || null;
-          next.khmdhsCommitmentFetchedAt = primary.fetchedAt || '';
-        }
+      applyMergedCommitmentsToForm(next, merged);
+    }
+  } else if (cancelledAdams.length) {
+    // Συρραφή χωρίς στάδιο ανάληψης / protect: μην εφαρμόζεις νέα λίστα,
+    // αλλά αφαίρεσε όσα το ΚΗΜΔΗΣ επιβεβαίωσε ως ακυρωμένα.
+    const baseline = Array.isArray(baselineCommitments) && baselineCommitments.length
+      ? baselineCommitments
+      : (next.khmdhsCommitmentAdam
+        ? [{
+          adam: next.khmdhsCommitmentAdam,
+          snapshot: next.khmdhsCommitmentSnapshot,
+          fetchedAt: next.khmdhsCommitmentFetchedAt,
+        }]
+        : []);
+    if (baseline.length) {
+      const merged = mergeKhmdhsCommitmentsFromChain(baseline, [], { cancelledAdams });
+      if (commitmentListSignature(merged) !== commitmentListSignature(baseline)) {
+        applyMergedCommitmentsToForm(next, merged);
       }
     }
   }
@@ -130,7 +168,16 @@ function mergeCommitmentAndPaymentsFromChain(next, chainRes, {
     next.khmdhsPayments = mergeKhmdhsPaymentsFromChain(
       baselinePayments,
       chainRes.payments,
-      { skippedUnrelated: chainRes.skippedUnrelatedPayments || [] }
+      {
+        skippedUnrelated: chainRes.skippedUnrelatedPayments || [],
+        cancelledAdams,
+      }
+    );
+  } else if (cancelledAdams.length && Array.isArray(baselinePayments) && baselinePayments.length) {
+    next.khmdhsPayments = mergeKhmdhsPaymentsFromChain(
+      baselinePayments,
+      [],
+      { cancelledAdams }
     );
   }
   return next;
@@ -384,29 +431,38 @@ function unionAdamLists(...lists) {
 export function mergeKhmdhsChainMetaForStitch(prevMeta, incomingMeta, formAfter) {
   const prev = prevMeta && typeof prevMeta === 'object' ? prevMeta : {};
   const inc = incomingMeta && typeof incomingMeta === 'object' ? incomingMeta : {};
+  const confirmedCancelledAdams = [...new Set(
+    [
+      ...(Array.isArray(prev.confirmedCancelledAdams) ? prev.confirmedCancelledAdams : []),
+      ...(Array.isArray(inc.confirmedCancelledAdams) ? inc.confirmedCancelledAdams : []),
+    ].map((a) => sanitizeAdamInput(a)).filter(Boolean)
+  )];
+  const cancelledSet = new Set(confirmedCancelledAdams);
+  const withoutCancelled = (list) => unionAdamLists(list)
+    .filter((a) => !cancelledSet.has(a));
   const prevLinked = prev.linkedAdams || {};
   const incLinked = inc.linkedAdams || {};
   const linkedAdams = {
     requests: unionAdamLists(prevLinked.requests, incLinked.requests, formAfter?.khmdhsRequestAdam),
     approvedRequests: unionAdamLists(prevLinked.approvedRequests, incLinked.approvedRequests),
-    budgetCommitments: unionAdamLists(
+    budgetCommitments: withoutCancelled(unionAdamLists(
       prevLinked.budgetCommitments,
       incLinked.budgetCommitments,
       formAfter?.khmdhsCommitmentAdam,
       ...(Array.isArray(formAfter?.khmdhsCommitmentDecisions)
         ? formAfter.khmdhsCommitmentDecisions.map((d) => d?.adam)
         : [])
-    ),
+    )),
     notices: unionAdamLists(prevLinked.notices, incLinked.notices, formAfter?.khmdhsNoticeAdam),
     auctions: unionAdamLists(prevLinked.auctions, incLinked.auctions, formAfter?.khmdhsAwardAdam),
     contracts: unionAdamLists(prevLinked.contracts, incLinked.contracts, formAfter?.khmdhsAdam),
-    payments: unionAdamLists(
+    payments: withoutCancelled(unionAdamLists(
       prevLinked.payments,
       incLinked.payments,
       ...(Array.isArray(formAfter?.khmdhsPayments)
         ? formAfter.khmdhsPayments.map((p) => p?.adam)
         : [])
-    ),
+    )),
   };
   const allBudgetCommitments = [];
   const seenCommit = new Set();
@@ -415,7 +471,8 @@ export function mergeKhmdhsChainMetaForStitch(prevMeta, incomingMeta, formAfter)
     ...(Array.isArray(inc.allBudgetCommitments) ? inc.allBudgetCommitments : []),
   ].forEach((d) => {
     const a = sanitizeAdamInput(d?.adam || d?.snapshot?.referenceNumber);
-    if (!a || seenCommit.has(a)) return;
+    if (!a || seenCommit.has(a) || cancelledSet.has(a)) return;
+    if (d?.snapshot?.cancelled === true) return;
     seenCommit.add(a);
     allBudgetCommitments.push(d);
   });
@@ -453,6 +510,7 @@ export function mergeKhmdhsChainMetaForStitch(prevMeta, incomingMeta, formAfter)
       SYMV: sanitizeAdamInput(formAfter?.khmdhsAdam) || prev.highlightAdams?.SYMV || inc.highlightAdams?.SYMV || null,
     },
     stitchMerged: true,
+    confirmedCancelledAdams,
   };
 }
 

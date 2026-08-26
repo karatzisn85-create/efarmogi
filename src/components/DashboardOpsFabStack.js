@@ -307,6 +307,7 @@ export default function DashboardOpsFabStack({
   visible = true,
   canManageKhmdhs = false,
   khmdhsBatchRunning = false,
+  khmdhsLiveMinimized = false,
   staleCount = 0,
   oldestDays = null,
   KhmdhsBatchRefreshWidget,
@@ -315,13 +316,14 @@ export default function DashboardOpsFabStack({
   deadlineWidgetProps = {},
   helpActive = false,
   onOpenHelp,
+  onRestoreLive,
 }) {
   const [khmdhsOpen, setKhmdhsOpen] = useState(false);
   const [deadlineOpen, setDeadlineOpen] = useState(false);
   const [deadlineSummary, setDeadlineSummary] = useState({ totalCount: 0, hasUrgent: false });
 
   useEffect(() => {
-    if (khmdhsBatchRunning) setKhmdhsOpen(true);
+    if (khmdhsBatchRunning) setKhmdhsOpen(false);
   }, [khmdhsBatchRunning]);
 
   useEffect(() => {
@@ -339,8 +341,10 @@ export default function DashboardOpsFabStack({
   const deadlineBadge = deadlineSummary.totalCount > 0 ? deadlineSummary.totalCount : null;
 
   const khmdhsTip = khmdhsBatchRunning
-    ? 'Μαζική ανανέωση σε εξέλιξη…'
-    : staleCount > 0
+    ? 'Μαζική ανανέωση σε εξέλιξη — κλικ για πλήρη εικόνα'
+    : khmdhsLiveMinimized
+      ? 'Η μαζική ανανέωση ολοκληρώθηκε — κλικ για την αναφορά'
+      : staleCount > 0
       ? `Μαζική ανανέωση ΚΗΜΔΗΣ — ${staleCount} για ανανέωση${oldestDays ? ` · έως ${oldestDays} ημ.` : ''}`
       : 'Μαζική ανανέωση ΚΗΜΔΗΣ';
 
@@ -348,8 +352,8 @@ export default function DashboardOpsFabStack({
     ? `Ραντάρ προθεσμιών — ${deadlineSummary.totalCount} λήξεις${deadlineSummary.hasUrgent ? ' · επείγουσες' : ''}`
     : 'Ραντάρ προθεσμιών';
 
-  const khmdhsPanelOpen = khmdhsOpen || khmdhsBatchRunning;
-  const deadlinePanelOpen = showStack && deadlineOpen && !khmdhsBatchRunning;
+  const khmdhsPanelOpen = khmdhsOpen && !khmdhsBatchRunning;
+  const deadlinePanelOpen = showStack && deadlineOpen;
 
   return (
     <>
@@ -363,13 +367,11 @@ export default function DashboardOpsFabStack({
               $alert={!!deadlineSummary.hasUrgent}
               $active={deadlineOpen}
               onClick={() => {
-                if (khmdhsBatchRunning) return;
                 setDeadlineOpen((v) => !v);
                 setKhmdhsOpen(false);
               }}
               aria-expanded={deadlineOpen}
               aria-label={deadlineTip}
-              title={khmdhsBatchRunning ? 'Διαθέσιμο μετά τη μαζική ανανέωση' : undefined}
             >
               <FabTip>{deadlineTip}</FabTip>
               ⏳
@@ -384,8 +386,14 @@ export default function DashboardOpsFabStack({
                 data-user-guide="khmdhs-fab"
                 $alert={khmdhsAlert}
                 $running={khmdhsBatchRunning}
-                $active={khmdhsOpen}
+                $active={khmdhsOpen && !khmdhsBatchRunning}
                 onClick={() => {
+                  if ((khmdhsBatchRunning || khmdhsLiveMinimized) && typeof onRestoreLive === 'function') {
+                    onRestoreLive();
+                    setKhmdhsOpen(false);
+                    setDeadlineOpen(false);
+                    return;
+                  }
                   setKhmdhsOpen((v) => !v);
                   setDeadlineOpen(false);
                 }}
@@ -409,7 +417,6 @@ export default function DashboardOpsFabStack({
                 data-user-guide="help-fab"
                 $active={helpActive}
                 onClick={() => {
-                  if (khmdhsBatchRunning) return;
                   setDeadlineOpen(false);
                   setKhmdhsOpen(false);
                   onOpenHelp();
@@ -461,8 +468,6 @@ export default function DashboardOpsFabStack({
               type="button"
               onClick={() => setKhmdhsOpen(false)}
               aria-label="Κλείσιμο"
-              disabled={khmdhsBatchRunning}
-              title={khmdhsBatchRunning ? 'Η ανανέωση είναι σε εξέλιξη' : 'Κλείσιμο'}
             >
               ✕
             </PanelClose>

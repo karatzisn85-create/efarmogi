@@ -7,6 +7,30 @@ const INDEX_MTIME_TOLERANCE_MS = 2000;
 
 const PRESERVE_LIST_FLAGS = ['hasEgkrisiLink', 'hasProsklisiLink', 'hasEntaxiLink'];
 
+/**
+ * Ειδοποίηση «άλλος χρήστης αποθήκευσε» ενώ η φόρμα είναι ανοιχτή.
+ * Δεν προειδοποιεί όταν η νέα έκδοση είναι η δική μας αποθήκευση
+ * (ξεκλείδωμα / ευρετήριο που προλαβαίνει να δει την εγγραφή μας).
+ */
+export function shouldWarnRemoteSubprojectSave({
+  previousUpdatedAt,
+  loadedUpdatedAt,
+  loadedSubprojectId,
+  recentLocalSave,
+  now = Date.now(),
+} = {}) {
+  const prevAt = String(previousUpdatedAt || '');
+  const nextAt = String(loadedUpdatedAt || '');
+  if (!nextAt || nextAt === prevAt) return false;
+  const stamp = recentLocalSave && typeof recentLocalSave === 'object' ? recentLocalSave : {};
+  const sameId = String(stamp.subprojectId || '') === String(loadedSubprojectId || '');
+  if (sameId) {
+    if (stamp.updatedAt && String(stamp.updatedAt) === nextAt) return false;
+    if (Number(stamp.until) > now) return false;
+  }
+  return true;
+}
+
 export function subprojectTitlesChanged(prev, next) {
   return String(prev?.projectTitle || '') !== String(next?.projectTitle || '')
     || String(prev?.subprojectTitle || '') !== String(next?.subprojectTitle || '');

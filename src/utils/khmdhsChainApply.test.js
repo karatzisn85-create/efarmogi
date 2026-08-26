@@ -1,7 +1,11 @@
 /**
  * @jest-environment node
  */
-import { applyAdamChainResult, mergeSharedKhmdhsFromChain } from './khmdhsChainApply';
+import {
+  applyAdamChainResult,
+  mergeSharedKhmdhsFromChain,
+  mergeKhmdhsChainMetaForStitch,
+} from './khmdhsChainApply';
 import { buildKhmdhsRefreshChangeReport } from './khmdhsChainRefresh';
 import { resolveReusablePlanForKhmdhsRefresh, SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
 
@@ -46,6 +50,47 @@ describe('applyAdamChainResult payments merge', () => {
       '26PAY000000001',
       '26PAY000000002',
     ]);
+  });
+
+  test('αφαιρεί επιβεβαιωμένα ακυρωμένο ένταλμα και κρατά όσα δεν ακυρώθηκαν', () => {
+    const prev = {
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: 'Έργο',
+      khmdhsPayments: [
+        {
+          adam: '26PAY000000001',
+          snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+        },
+        {
+          adam: '26PAY000000002',
+          snapshot: { referenceNumber: '26PAY000000002', totalCostWithVAT: 2000 },
+        },
+      ],
+    };
+    const chainRes = {
+      success: true,
+      payments: [
+        {
+          adam: '26PAY000000001',
+          snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+          fetchedAt: '2026-07-01T00:00:00.000Z',
+        },
+      ],
+      chainMeta: {
+        confirmedCancelledAdams: ['26PAY000000002'],
+      },
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+    };
+
+    const { form } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+
+    expect(form.khmdhsPayments).toHaveLength(1);
+    expect(form.khmdhsPayments[0].adam).toBe('26PAY000000001');
   });
 });
 
@@ -367,12 +412,13 @@ describe('applyAdamChainResult — πολλαπλές συμβάσεις: προ
     expect(warnings).not.toContain('stagePreserved:contract');
   });
 
-  test('αναφορά: stagePreserved:contract εμφανίζεται ως προσοχή', () => {
+  test('αναφορά: stagePreserved:contract είναι ανεπιβεβαίωση, όχι ενέργεια', () => {
     const report = buildKhmdhsRefreshChangeReport({}, {}, {
       warnings: ['stagePreserved:contract'],
     });
-    expect(report.category).toBe('attention');
-    expect(report.attentionLines.some((l) => l.includes('σύμβαση') && l.includes('διατηρήθηκε'))).toBe(true);
+    expect(report.category).toBe('unchanged');
+    expect(report.incompleteLines.some((l) => l.includes('σύμβαση') && l.includes('διατηρήθηκε'))).toBe(true);
+    expect(report.attentionLines).toHaveLength(0);
   });
 });
 
@@ -472,14 +518,14 @@ describe('applyAdamChainResult — πολλαπλές συμβάσεις: κοι
     expect(warnings.filter((w) => String(w).startsWith('stagePreserved:'))).toHaveLength(0);
   });
 
-  test('αναφορά: stagePreserved notice/award/request εμφανίζονται ως προσοχή', () => {
+  test('αναφορά: stagePreserved notice/award/request είναι ανεπιβεβαίωση', () => {
     const report = buildKhmdhsRefreshChangeReport({}, {}, {
       warnings: ['stagePreserved:notice', 'stagePreserved:award', 'stagePreserved:request'],
     });
-    expect(report.category).toBe('attention');
-    expect(report.attentionLines.some((l) => l.includes('δημοσίευση') && l.includes('διατηρήθηκε'))).toBe(true);
-    expect(report.attentionLines.some((l) => l.includes('ανάθεσης') && l.includes('διατηρήθηκε'))).toBe(true);
-    expect(report.attentionLines.some((l) => l.includes('αίτημα') && l.includes('διατηρήθηκε'))).toBe(true);
+    expect(report.category).toBe('unchanged');
+    expect(report.incompleteLines.some((l) => l.includes('δημοσίευση') && l.includes('διατηρήθηκε'))).toBe(true);
+    expect(report.incompleteLines.some((l) => l.includes('ανάθεσης') && l.includes('διατηρήθηκε'))).toBe(true);
+    expect(report.incompleteLines.some((l) => l.includes('αίτημα') && l.includes('διατηρήθηκε'))).toBe(true);
   });
 });
 
@@ -530,6 +576,95 @@ describe('applyAdamChainResult commitments merge', () => {
       '25REQ016195275',
       '25REQ016195999',
     ]);
+  });
+
+  test('αφαιρεί επιβεβαιωμένα ακυρωμένη ανάληψη και καθαρίζει την κύρια αν μείνει κενή', () => {
+    const prev = {
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: 'Έργο',
+      khmdhsCommitmentDecisions: [
+        {
+          adam: '25REQ016195999',
+          snapshot: { referenceNumber: '25REQ016195999', title: 'Ακυρωμένη', signedDate: '2025-04-01' },
+        },
+      ],
+      khmdhsCommitmentAdam: '25REQ016195999',
+      khmdhsCommitmentSnapshot: {
+        referenceNumber: '25REQ016195999',
+        title: 'Ακυρωμένη',
+        signedDate: '2025-04-01',
+      },
+      khmdhsCommitmentFetchedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const chainRes = {
+      success: true,
+      commitmentDecisions: [],
+      chainMeta: {
+        confirmedCancelledAdams: ['25REQ016195999'],
+      },
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+    };
+
+    const { form } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+
+    expect(form.khmdhsCommitmentDecisions).toEqual([]);
+    expect(form.khmdhsCommitmentAdam).toBe('');
+    expect(form.khmdhsCommitmentSnapshot).toBeNull();
+    expect(form.khmdhsCommitmentFetchedAt).toBe('');
+  });
+
+  test('αφαιρεί μόνο την ακυρωμένη ανάληψη και κρατά την άλλη ως κύρια', () => {
+    const prev = {
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: 'Έργο',
+      khmdhsCommitmentDecisions: [
+        {
+          adam: '25REQ016195275',
+          snapshot: { referenceNumber: '25REQ016195275', title: 'Ζωντανή', signedDate: '2025-03-01' },
+        },
+        {
+          adam: '25REQ016195999',
+          snapshot: { referenceNumber: '25REQ016195999', title: 'Ακυρωμένη', signedDate: '2025-04-01' },
+        },
+      ],
+      khmdhsCommitmentAdam: '25REQ016195999',
+      khmdhsCommitmentSnapshot: {
+        referenceNumber: '25REQ016195999',
+        title: 'Ακυρωμένη',
+        signedDate: '2025-04-01',
+      },
+    };
+    const chainRes = {
+      success: true,
+      commitmentDecisions: [
+        {
+          adam: '25REQ016195275',
+          snapshot: { referenceNumber: '25REQ016195275', title: 'Ζωντανή', signedDate: '2025-03-01' },
+          fetchedAt: '2026-07-01T00:00:00.000Z',
+        },
+      ],
+      chainMeta: {
+        confirmedCancelledAdams: ['25REQ016195999'],
+      },
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+    };
+
+    const { form } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+
+    expect(form.khmdhsCommitmentDecisions).toHaveLength(1);
+    expect(form.khmdhsCommitmentDecisions[0].adam).toBe('25REQ016195275');
+    expect(form.khmdhsCommitmentAdam).toBe('25REQ016195275');
+    expect(form.khmdhsCommitmentSnapshot.title).toBe('Ζωντανή');
   });
 });
 
@@ -592,5 +727,42 @@ describe('applyAdamChainResult SYMV reuse after refresh', () => {
       .toBe(SYMV_CHAIN_ROLE.SKIP);
     expect(result.form.khmdhsSymvChainPlan.items.find((i) => i.adam === '25SYMV088888888')?.role)
       .toBe(SYMV_CHAIN_ROLE.SKIP);
+  });
+});
+
+describe('mergeKhmdhsChainMetaForStitch cancelled commitments', () => {
+  test('δεν ξαναβάζει ακυρωμένη ανάληψη στο allBudgetCommitments ούτε στα linked', () => {
+    const cancelled = '25REQ016195999';
+    const live = '25REQ016195275';
+    const merged = mergeKhmdhsChainMetaForStitch(
+      {
+        allBudgetCommitments: [
+          { adam: live, snapshot: { title: 'Ζωντανή' } },
+          { adam: cancelled, snapshot: { title: 'Ακυρωμένη' } },
+        ],
+        linkedAdams: {
+          budgetCommitments: [live, cancelled],
+          payments: ['26PAY000000001', '26PAY000000002'],
+        },
+        confirmedCancelledAdams: [],
+      },
+      {
+        allBudgetCommitments: [],
+        linkedAdams: { budgetCommitments: [], payments: [] },
+        confirmedCancelledAdams: [cancelled, '26PAY000000002'],
+      },
+      {
+        khmdhsCommitmentDecisions: [{ adam: live }],
+        khmdhsCommitmentAdam: live,
+        khmdhsPayments: [{ adam: '26PAY000000001' }],
+      }
+    );
+
+    expect(merged.allBudgetCommitments.map((d) => d.adam)).toEqual([live]);
+    expect(merged.linkedAdams.budgetCommitments).toEqual([live]);
+    expect(merged.linkedAdams.payments).toEqual(['26PAY000000001']);
+    expect(merged.confirmedCancelledAdams).toEqual(
+      expect.arrayContaining([cancelled, '26PAY000000002'])
+    );
   });
 });

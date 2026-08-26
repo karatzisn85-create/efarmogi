@@ -63,6 +63,8 @@ const {
   PAYMENT_FETCH_CONCURRENCY,
 } = require('./khmdhsFetchPool');
 const { getKhmdhsPacing } = require('./khmdhsThrottleState');
+const { decideKhmdhsRefreshMode } = require('./khmdhsRefreshMode');
+const { collectConfirmedCancelledAdams } = require('./khmdhsCancelledAdams');
 
 const MAX_CHAIN_WALK = 24;
 const MAX_CANDIDATE_FETCH = 8;
@@ -1185,12 +1187,17 @@ function isOrphanSymvChainSeed(chainMeta, seedType, request, notice, auction) {
 async function findFollowUpCommitmentsWithoutContract(stages) {
   const budgetCommitments = [];
   const commitFetchFailures = [];
+  const cancelledAdams = [];
   const seen = new Set();
   for (const m of (stages.approvedRequests || [])) {
     if (!m.adam || seen.has(m.adam)) continue;
     seen.add(m.adam);
     const res = await fetchKhmdhsRequestByAdam(m.adam);
     if (res.success && res.snapshot) {
+      if (res.snapshot.cancelled) {
+        cancelledAdams.push(m.adam);
+        continue;
+      }
       budgetCommitments.push({
         adam: m.adam,
         snapshot: res.snapshot,
@@ -1205,6 +1212,7 @@ async function findFollowUpCommitmentsWithoutContract(stages) {
     }
   }
   budgetCommitments._commitFetchFailures = commitFetchFailures;
+  budgetCommitments._cancelledAdams = cancelledAdams;
   return { followUps: [], budgetCommitments };
 }
 
@@ -1528,6 +1536,7 @@ async function resolvePayments(
   const list = allPayments.slice(0, MAX_PAYMENT_FETCH).filter((m) => m?.adam);
   const skippedUnrelated = [];
   const payFetchFailures = [];
+  const skippedCancelledPay = [];
 
   reportKhmdhsProgress('payments', `Ανάκτηση πληρωμών 0/${list.length || 0}…`, {
     current: 0,
@@ -1588,6 +1597,10 @@ async function resolvePayments(
         });
         continue;
       }
+      if (snap.cancelled) {
+        skippedCancelledPay.push(m.adam);
+        continue;
+      }
       out.push({
         adam: m.adam,
         snapshot: snap,
@@ -1605,6 +1618,7 @@ async function resolvePayments(
   out._payFetchFailures = payFetchFailures;
   out._payFetchTruncated = payFetchTruncated;
   out._totalPaymentsInChain = allPayments.length;
+  out._cancelledAdams = skippedCancelledPay;
   return out;
 }
 
@@ -1810,6 +1824,55 @@ function throwIfKhmdhsAborted(signal) {
   }
 }
 
+async function probeKhmdhsLightRefresh(opts, seedNorm, abortSignal) {
+  const preferLight = opts?.preferLightRefresh === true;
+  const usesStitch = opts?.usesStitchPlan === true;
+  if (!preferLight || usesStitch) {
+    return {
+      skipDoorHunt: false,
+      decision: { mode: 'full', reason: usesStitch ? 'stitch' : 'prefer-off' },
+    };
+  }
+  const storedMeta = opts?.storedChainMeta && typeof opts.storedChainMeta === 'object'
+    ? opts.storedChainMeta
+    : null;
+  const storedPrimary = normalizeRequestAdam(
+    storedMeta?.actRootReqAdam || opts?.storedPrimaryReqAdam || ''
+  );
+  if (!storedPrimary) {
+    return { skipDoorHunt: false, decision: { mode: 'full', reason: 'no-primary' } };
+  }
+
+  const probeRes = await fetchKhmdhsAdamChain(storedPrimary, { signal: abortSignal || null });
+  if (probeRes?.aborted) {
+    return { skipDoorHunt: false, aborted: probeRes, decision: { mode: 'full', reason: 'chain-failed' } };
+  }
+
+  const parsed = probeRes?.success ? parseChainLists(probeRes.adamChain) : { stages: {}, skippedCancelled: [] };
+  const decision = decideKhmdhsRefreshMode({
+    preferLight: true,
+    usesStitchPlan: false,
+    storedLinkedAdams: storedMeta?.linkedAdams,
+    storedPrimaryReqAdam: storedPrimary,
+    seedAdam: seedNorm,
+    incomingStages: parsed.stages,
+    chainFetchOk: !!probeRes?.success,
+  });
+
+  if (decision.mode !== 'light') {
+    return { skipDoorHunt: false, decision, probeRes };
+  }
+
+  return {
+    skipDoorHunt: true,
+    decision,
+    probeRes,
+    stages: parsed.stages,
+    skippedCancelled: parsed.skippedCancelled || [],
+    storedPrimary,
+  };
+}
+
 async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   const seedAdam = String(seedAdamRaw || '').trim().toUpperCase().replace(/\*+$/, '');
   const seedNorm = normalizeAdam(seedAdam) || normalizeNoticeAdam(seedAdam);
@@ -1823,6 +1886,10 @@ async function resolveKhmdhsAdamChain(seedAdamRaw, opts = {}) {
   return runWithKhmdhsFetchContext({
     contractCache: opts.contractCache instanceof Map ? opts.contractCache : new Map(),
     paymentCache: opts.paymentCache instanceof Map ? opts.paymentCache : new Map(),
+    chainCache: opts.chainCache instanceof Map ? opts.chainCache : new Map(),
+    requestCache: opts.requestCache instanceof Map ? opts.requestCache : new Map(),
+    noticeCache: opts.noticeCache instanceof Map ? opts.noticeCache : new Map(),
+    auctionCache: opts.auctionCache instanceof Map ? opts.auctionCache : new Map(),
     signal: abortSignal,
     onProgress: opts.onProgress,
   }, async () => resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal));
@@ -1837,17 +1904,41 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
   ].filter(Boolean);
   const warnings = [];
   let skippedCancelled = [];
+  let skipDoorHunt = false;
+  let refreshModeDecision = { mode: 'full', reason: 'default' };
+  let lightStoredPrimary = null;
 
   try {
   reportKhmdhsProgress('chain', 'Ανάκτηση αλυσίδας ΑΔΑΜ…');
-  let chainRes = await fetchKhmdhsAdamChain(seedNorm, { signal: abortSignal });
-  if (chainRes?.aborted) {
-    return { success: false, error: chainRes.error || 'Η διαδικασία ακυρώθηκε.', aborted: true };
+  const lightProbe = await probeKhmdhsLightRefresh(opts, seedNorm, abortSignal);
+  if (lightProbe?.aborted) {
+    return {
+      success: false,
+      aborted: true,
+      error: lightProbe.aborted.error || 'Η διαδικασία ακυρώθηκε.',
+    };
   }
-  throwIfKhmdhsAborted(abortSignal);
+  refreshModeDecision = lightProbe.decision || refreshModeDecision;
+
+  let chainRes;
   let stages;
   let symvRebuiltFromPrimary = false;
   let symvPrimaryReqAdam = null;
+
+  if (lightProbe.skipDoorHunt) {
+    skipDoorHunt = true;
+    lightStoredPrimary = lightProbe.storedPrimary || null;
+    chainRes = lightProbe.probeRes;
+    stages = lightProbe.stages;
+    skippedCancelled = [...(lightProbe.skippedCancelled || [])];
+    symvRebuiltFromPrimary = true;
+    symvPrimaryReqAdam = lightProbe.storedPrimary || null;
+  } else {
+    chainRes = await fetchKhmdhsAdamChain(seedNorm, { signal: abortSignal });
+    if (chainRes?.aborted) {
+      return { success: false, error: chainRes.error || 'Η διαδικασία ακυρώθηκε.', aborted: true };
+    }
+    throwIfKhmdhsAborted(abortSignal);
 
   if (!chainRes.success) {
     if (seedType === 'SYMV') {
@@ -1919,6 +2010,7 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
     stages = parsed.stages;
     skippedCancelled = [...parsed.skippedCancelled];
   }
+  }
 
   // Αν ξεκινήσαμε από ένταλμα, βεβαιώνουμε ότι ο σπόρος παραμένει στη λίστα PAY
   // (το adamChain το επιστρέφει συνήθως, αλλά μετά από reanchor/φίλτρα δεν πρέπει να χαθεί).
@@ -1935,10 +2027,11 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
   }
 
   const stagesBeforeEnrich = {
-    contracts: stages.contracts.length,
-    auctions: stages.auctions.length,
+    contracts: (stages.contracts || []).length,
+    auctions: (stages.auctions || []).length,
   };
 
+  if (!skipDoorHunt) {
   const enrich1 = await enrichChainStagesFromRelatedAdams(stages, seedNorm, knownExtraAdams);
   throwIfKhmdhsAborted(abortSignal);
   stages = enrich1.stages;
@@ -1977,6 +2070,10 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
       skippedCancelled.push(...(earlyReanchor.skippedCancelled || []));
       if (earlyReanchor.warning) warnings.push(earlyReanchor.warning);
     }
+  }
+  } else {
+    const noticeExpand = await expandNoticeMarkersFromKnownProcs(stages, knownExtraAdams);
+    stages = noticeExpand.stages;
   }
 
   let contractWalk = null;
@@ -2038,7 +2135,7 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
     preferNoticeAdam
   );
 
-  if (!contractWalk && notice?.snapshot?.approvedRequestAdam) {
+  if (!skipDoorHunt && !contractWalk && notice?.snapshot?.approvedRequestAdam) {
     const enrich2 = await enrichChainStagesFromRelatedAdams(
       stages,
       seedNorm,
@@ -2115,14 +2212,16 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
     commitmentDecision = null;
   }
 
-  const discoveredPrimary = await discoverPrimaryRequestAdam(stages, [
-    notice?.snapshot?.approvedRequestAdam,
-    request?.adam,
-    lateReanchor?.primaryReqAdam,
-  ].filter(Boolean));
+  const discoveredPrimary = (skipDoorHunt && lightStoredPrimary)
+    ? { adam: lightStoredPrimary, snapshot: null }
+    : await discoverPrimaryRequestAdam(stages, [
+      notice?.snapshot?.approvedRequestAdam,
+      request?.adam,
+      lateReanchor?.primaryReqAdam,
+    ].filter(Boolean));
   const primaryRequestAdam = discoveredPrimary?.adam
     || resolvePrimaryRequestAdam(stages, request);
-  if (primaryRequestAdam) {
+  if (primaryRequestAdam && !skipDoorHunt) {
     const commitEnrich = await enrichApprovedRequestsFromPrimary(stages, primaryRequestAdam);
     if (commitEnrich.enriched) {
       stages = commitEnrich.stages;
@@ -2214,10 +2313,12 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
   const payFetchFailures = payments._payFetchFailures || [];
   const payFetchTruncated = !!payments._payFetchTruncated;
   const totalPaymentsInChain = payments._totalPaymentsInChain || 0;
+  const payCancelledAdams = payments._cancelledAdams || [];
   delete payments._skippedUnrelated;
   delete payments._payFetchFailures;
   delete payments._payFetchTruncated;
   delete payments._totalPaymentsInChain;
+  delete payments._cancelledAdams;
 
   const noticeVatRate = inferKhmdhsVatRate(
     notice?.snapshot?.totalCostWithoutVAT,
@@ -2558,14 +2659,33 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
     noticeSnapshotsByAdam: notice?.otherNoticeRecords?.length
       ? Object.fromEntries(notice.otherNoticeRecords.map((r) => [r.adam, r.snapshot]))
       : {},
+    refreshMode: skipDoorHunt ? 'light' : 'full',
+    refreshModeReason: refreshModeDecision?.reason || (skipDoorHunt ? 'light' : 'full'),
   };
 
   const followUpResult = await findFollowUpCommitmentsWithoutContract(stages);
   const followUpCommitmentsWithoutContract = followUpResult.followUps;
   const allBudgetCommitments = followUpResult.budgetCommitments; // [{adam, snapshot, fetchedAt}]
   const commitFetchFailures = allBudgetCommitments._commitFetchFailures || [];
+  const commitCancelledAdams = allBudgetCommitments._cancelledAdams || [];
   delete allBudgetCommitments._commitFetchFailures;
+  delete allBudgetCommitments._cancelledAdams;
   const budgetCommitmentAdamSet = new Set(allBudgetCommitments.map((b) => b.adam));
+
+  chainMeta.confirmedCancelledAdams = collectConfirmedCancelledAdams({
+    skippedCancelled,
+    extraAdams: [...commitCancelledAdams, ...payCancelledAdams],
+  });
+  if (chainMeta.confirmedCancelledAdams.length) {
+    const shown = chainMeta.confirmedCancelledAdams.slice(0, 4).join(', ');
+    const more = chainMeta.confirmedCancelledAdams.length > 4
+      ? ` (+${chainMeta.confirmedCancelledAdams.length - 4})`
+      : '';
+    warnings.push(
+      `Το ΚΗΜΔΗΣ έχει ακυρώσει/ματαιώσει ${chainMeta.confirmedCancelledAdams.length} πράξη/εις της αλυσίδας (${shown}${more}). `
+      + 'Η κάρτα του υποέργου ενημερώνεται χωρίς τους ακυρωμένους κρίκους (ανάληψη ή ένταλμα).'
+    );
+  }
 
   if (commitFetchFailures.length) {
     const sample = commitFetchFailures.slice(0, 3).map((f) => f.adam).join(', ');
@@ -2791,6 +2911,7 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
 }
 
 module.exports = {
+  probeKhmdhsLightRefresh,
   resolveKhmdhsAdamChain,
   resolveKhmdhsSupplementaryContract,
   resolveFullContractChain,

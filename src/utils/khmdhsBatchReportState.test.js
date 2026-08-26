@@ -2,13 +2,19 @@
  * @jest-environment node
  */
 import {
+  applyKhmdhsLiveSnapshotToResults,
   batchRunHasOutcome,
   isKhmdhsCharacterizationPending,
   isKhmdhsCharacterizationResolved,
+  itemNeedsBatchFollowUp,
   markBatchItemsResolved,
   mergeKhmdhsBatchResults,
   nextKhmdhsRetryDelayMs,
+  partitionKhmdhsBatchReportItems,
   pickKhmdhsBatchRetryCandidates,
+  buildKhmdhsLiveRunSnapshot,
+  formatKhmdhsLiveDockLine,
+  formatKhmdhsLiveHeadline,
   syncBatchReportWithProjects,
 } from './khmdhsBatchReportState';
 import {
@@ -380,5 +386,134 @@ describe('syncBatchReportWithProjects', () => {
     const { results: synced, cleared } = syncBatchReportWithProjects(results, []);
     expect(cleared).toEqual([]);
     expect(synced).toBe(results);
+  });
+});
+
+describe('partitionKhmdhsBatchReportItems', () => {
+  it('βάζει το παλιό «3 → 2» στην ανεπιβεβαίωση και όχι στα «χρειάζονται ενέργεια»', () => {
+    const { followUpItems, incompleteItems, refreshedOnly } = partitionKhmdhsBatchReportItems([
+      {
+        status: 'refreshed',
+        id: 'sp1',
+        label: 'Υποέργο Α',
+        category: 'applied',
+        appliedLines: ['Αποφάσεις ανάληψης υποχρέωσης: από 3 → 2'],
+      },
+    ], []);
+    expect(followUpItems).toHaveLength(0);
+    expect(itemNeedsBatchFollowUp({
+      status: 'refreshed',
+      category: 'applied',
+      appliedLines: ['Αποφάσεις ανάληψης υποχρέωσης: από 3 → 2'],
+    })).toBe(false);
+    expect(incompleteItems).toHaveLength(1);
+    expect(refreshedOnly).toHaveLength(0);
+  });
+
+  it('κρατά πραγματική ενέργεια στο follow-up', () => {
+    const { followUpItems, incompleteItems } = partitionKhmdhsBatchReportItems([
+      {
+        status: 'refreshed',
+        id: 'sp1',
+        label: 'Υποέργο Α',
+        category: 'attention',
+        attentionLines: ['⚠️ ΑΠΕ: διαφορά ποσού'],
+        actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.APE_CONFLICT)],
+      },
+    ], []);
+    expect(followUpItems).toHaveLength(1);
+    expect(incompleteItems).toHaveLength(0);
+  });
+});
+
+describe('buildKhmdhsLiveRunSnapshot', () => {
+  it('μετρά πρόοδο και εκκρεμότητες από τα ευρήματα ως τώρα', () => {
+    const snap = buildKhmdhsLiveRunSnapshot({
+      running: true,
+      phase: 'run',
+      current: 2,
+      total: 8,
+      itemLabel: 'Οδός Α',
+      stepMessage: 'Ανάκτηση αλυσίδας…',
+      items: [
+        { status: 'refreshed', id: 'a', label: 'Α', category: 'applied' },
+        { status: 'intervened', id: 'b', label: 'Β' },
+      ],
+    });
+    expect(snap.pct).toBe(25);
+    expect(snap.refreshed).toBe(1);
+    expect(snap.needsIntervention).toBe(1);
+    expect(snap.interventionItems).toEqual([{ id: 'b', label: 'Β' }]);
+    expect(formatKhmdhsLiveHeadline(snap)).toMatch(/2 από 8/);
+    expect(formatKhmdhsLiveHeadline(snap)).toMatch(/Οδός Α/);
+    expect(formatKhmdhsLiveHeadline(snap)).toMatch(/Ανάκτηση αλυσίδας/);
+    expect(formatKhmdhsLiveDockLine(snap, { running: true })).toBe('2 / 8 · Οδός Α');
+    expect(formatKhmdhsLiveDockLine(snap, { running: false })).toMatch(/Ολοκληρώθηκε/);
+  });
+});
+
+describe('applyKhmdhsLiveSnapshotToResults', () => {
+  it('η σάρωση δεν σβήνει την προηγούμενη αναφορά', () => {
+    const snap = buildKhmdhsLiveRunSnapshot({
+      running: true,
+      phase: 'scan',
+      reset: true,
+      items: [],
+    });
+    expect(applyKhmdhsLiveSnapshotToResults(previousRun, snap)).toBe(previousRun);
+  });
+
+  it('κενό τέλος χωρίς ουρά κρατά την προηγούμενη αναφορά', () => {
+    const snap = buildKhmdhsLiveRunSnapshot({
+      running: false,
+      phase: 'finishing',
+      current: 0,
+      total: 0,
+      items: [],
+    });
+    expect(applyKhmdhsLiveSnapshotToResults(previousRun, snap)).toBe(previousRun);
+  });
+
+  it('νέα εκτέλεση με ουρά ξεκινά φρέσκια αναφορά', () => {
+    const snap = buildKhmdhsLiveRunSnapshot({
+      running: true,
+      phase: 'run',
+      reset: true,
+      current: 0,
+      total: 4,
+      items: [{ status: 'skipped', id: 'x', label: 'Χ', reason: 'Εκτός' }],
+    });
+    const next = applyKhmdhsLiveSnapshotToResults(previousRun, snap);
+    expect(next).not.toBe(previousRun);
+    expect(next.items).toHaveLength(1);
+    expect(next.items[0].id).toBe('x');
+    expect(next.skipped).toBe(1);
+  });
+
+  it('η επανάληψη με κενά στοιχεία δεν μηδενίζει την αναφορά', () => {
+    const snap = buildKhmdhsLiveRunSnapshot({
+      running: true,
+      phase: 'run',
+      isRetry: true,
+      current: 0,
+      total: 2,
+      items: [],
+    });
+    expect(applyKhmdhsLiveSnapshotToResults(previousRun, snap)).toBe(previousRun);
+  });
+
+  it('η επανάληψη συγχωνεύει μόνο τα υποέργα που ξαναέτρεξαν', () => {
+    const snap = buildKhmdhsLiveRunSnapshot({
+      running: true,
+      phase: 'run',
+      isRetry: true,
+      current: 1,
+      total: 1,
+      items: [{ status: 'refreshed', id: 'd', label: 'Δ' }],
+    });
+    const next = applyKhmdhsLiveSnapshotToResults(previousRun, snap);
+    expect(next.items).toHaveLength(4);
+    expect(next.items.find((i) => i.id === 'd').status).toBe('refreshed');
+    expect(next.failed).toBe(0);
   });
 });

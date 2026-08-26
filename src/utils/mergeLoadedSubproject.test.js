@@ -8,6 +8,7 @@ import {
   collectIndexReloadTargets,
   subprojectTitlesChanged,
   runWithConcurrency,
+  shouldWarnRemoteSubprojectSave,
 } from './mergeLoadedSubproject';
 
 describe('mergeOneSubprojectIntoList', () => {
@@ -123,6 +124,52 @@ describe('collectIndexReloadTargets', () => {
       { projectId: 'p', subprojectId: 's1' },
       { projectId: 'p', subprojectId: 's2' },
     ]);
+  });
+});
+
+describe('shouldWarnRemoteSubprojectSave', () => {
+  test('ίδια έκδοση → καμία ειδοποίηση', () => {
+    expect(shouldWarnRemoteSubprojectSave({
+      previousUpdatedAt: '2026-01-01T10:00:00.000Z',
+      loadedUpdatedAt: '2026-01-01T10:00:00.000Z',
+      loadedSubprojectId: 'a',
+    })).toBe(false);
+  });
+
+  test('άλλη έκδοση χωρίς δική μας αποθήκευση → ειδοποίηση', () => {
+    expect(shouldWarnRemoteSubprojectSave({
+      previousUpdatedAt: '2026-01-01T10:00:00.000Z',
+      loadedUpdatedAt: '2026-01-01T11:00:00.000Z',
+      loadedSubprojectId: 'a',
+    })).toBe(true);
+  });
+
+  test('η νέα έκδοση είναι η δική μας αποθήκευση → καμία ειδοποίηση', () => {
+    expect(shouldWarnRemoteSubprojectSave({
+      previousUpdatedAt: '2026-01-01T10:00:00.000Z',
+      loadedUpdatedAt: '2026-01-01T11:00:00.000Z',
+      loadedSubprojectId: 'a',
+      recentLocalSave: { subprojectId: 'a', updatedAt: '2026-01-01T11:00:00.000Z' },
+    })).toBe(false);
+  });
+
+  test('άλλο υποέργο αποθηκεύτηκε τοπικά → εξακολουθεί η ειδοποίηση', () => {
+    expect(shouldWarnRemoteSubprojectSave({
+      previousUpdatedAt: '2026-01-01T10:00:00.000Z',
+      loadedUpdatedAt: '2026-01-01T11:00:00.000Z',
+      loadedSubprojectId: 'a',
+      recentLocalSave: { subprojectId: 'b', updatedAt: '2026-01-01T11:00:00.000Z' },
+    })).toBe(true);
+  });
+
+  test('μέσα στο παράθυρο της δικής μας αποθήκευσης → καμία ειδοποίηση', () => {
+    expect(shouldWarnRemoteSubprojectSave({
+      previousUpdatedAt: '2026-01-01T10:00:00.000Z',
+      loadedUpdatedAt: '2026-01-01T11:00:00.000Z',
+      loadedSubprojectId: 'a',
+      recentLocalSave: { subprojectId: 'a', updatedAt: 'other', until: 2000 },
+      now: 1000,
+    })).toBe(false);
   });
 });
 

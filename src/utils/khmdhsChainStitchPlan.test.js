@@ -32,6 +32,7 @@ import {
   applyStitchRefreshResults,
   emptyKhmdhsChainFields,
 } from './khmdhsChainApply';
+import { collectKhmdhsCommitmentDecisions } from './khmdhsChainExtraFields';
 import { buildFullKhmdhsPhaseBResetFields } from './khmdhsPhaseResetFields';
 
 describe('khmdhsChainStitchPlan helpers', () => {
@@ -438,6 +439,108 @@ describe('applyAdamChainResultStitch', () => {
     );
     expect(form.khmdhsChainStitchPlan).toEqual(plan);
   });
+
+  test('συρραφή χωρίς στάδιο COMMIT αφαιρεί ακυρωμένη ανάληψη από την κάρτα και δεν την ξαναφέρνει από το meta', () => {
+    const live = {
+      adam: '25REQ016195275',
+      snapshot: { referenceNumber: '25REQ016195275', title: 'Ζωντανή', signedDate: '2025-03-01' },
+    };
+    const cancelled = {
+      adam: '25REQ016195999',
+      snapshot: { referenceNumber: '25REQ016195999', title: 'Ακυρωμένη', signedDate: '2025-04-01' },
+    };
+    const prev = {
+      ...basePrev,
+      khmdhsCommitmentDecisions: [live, cancelled],
+      khmdhsCommitmentAdam: cancelled.adam,
+      khmdhsCommitmentSnapshot: cancelled.snapshot,
+      khmdhsAdamChainMeta: {
+        ...basePrev.khmdhsAdamChainMeta,
+        allBudgetCommitments: [live, cancelled],
+        linkedAdams: {
+          ...basePrev.khmdhsAdamChainMeta.linkedAdams,
+          budgetCommitments: [live.adam, cancelled.adam],
+        },
+      },
+    };
+    const { form } = applyAdamChainResultStitch(
+      prev,
+      {
+        ...symvChainRes,
+        chainMeta: {
+          ...symvChainRes.chainMeta,
+          confirmedCancelledAdams: [cancelled.adam],
+          allBudgetCommitments: [],
+        },
+      },
+      { seedAdam: '24SYMV014193944', stitchCoversStages: ['SYMV', 'PAY'] }
+    );
+
+    expect(form.khmdhsCommitmentDecisions.map((d) => d.adam)).toEqual([live.adam]);
+    expect(form.khmdhsCommitmentAdam).toBe(live.adam);
+    expect(collectKhmdhsCommitmentDecisions(form).map((d) => d.adam)).toEqual([live.adam]);
+    expect((form.khmdhsAdamChainMeta?.allBudgetCommitments || []).map((d) => d.adam))
+      .toEqual([live.adam]);
+  });
+
+  test('συρραφή χωρίς στάδιο COMMIT δεν σβήνει ανάληψη που απλώς έλειπε από το fetch', () => {
+    const kept = {
+      adam: '25REQ016195275',
+      snapshot: { referenceNumber: '25REQ016195275', title: 'Υπάρχουσα' },
+    };
+    const prev = {
+      ...basePrev,
+      khmdhsCommitmentDecisions: [kept],
+      khmdhsCommitmentAdam: kept.adam,
+      khmdhsCommitmentSnapshot: kept.snapshot,
+    };
+    const { form } = applyAdamChainResultStitch(
+      prev,
+      {
+        ...symvChainRes,
+        chainMeta: {
+          ...symvChainRes.chainMeta,
+          confirmedCancelledAdams: [],
+          allBudgetCommitments: [],
+        },
+      },
+      { seedAdam: '24SYMV014193944', stitchCoversStages: ['SYMV', 'PAY'] }
+    );
+    expect(form.khmdhsCommitmentDecisions.map((d) => d.adam)).toEqual([kept.adam]);
+  });
+
+  test('συρραφή χωρίς στάδιο PAY αφαιρεί ακυρωμένο ένταλμα', () => {
+    const prev = {
+      ...basePrev,
+      khmdhsPayments: [
+        {
+          adam: '26PAY000000001',
+          snapshot: { referenceNumber: '26PAY000000001', totalCostWithVAT: 1000 },
+        },
+        {
+          adam: '26PAY000000002',
+          snapshot: { referenceNumber: '26PAY000000002', totalCostWithVAT: 2000 },
+        },
+      ],
+    };
+    const { form } = applyAdamChainResultStitch(
+      prev,
+      {
+        success: true,
+        notice: {
+          adam: '23PROC001',
+          snapshot: { referenceNumber: '23PROC001', title: 'Δημοσίευση νέα' },
+          fetchedAt: '2026-07-09T06:22:37.084Z',
+        },
+        chainMeta: {
+          confirmedCancelledAdams: ['26PAY000000002'],
+        },
+      },
+      { seedAdam: '23PROC001', stitchCoversStages: ['PROC'] }
+    );
+    expect(form.khmdhsPayments.map((p) => p.adam)).toEqual(['26PAY000000001']);
+    expect(form.khmdhsNoticeAdam).toBe('23PROC001');
+  });
 });
 
 describe('applyAdamChainResultStitchMulti — πολλές συμβάσεις', () => {
@@ -627,6 +730,7 @@ describe('stitch hardenings — γνωστοί ΑΔΑΜ, covers filter, refresh 
     expect(filtered.notice?.adam).toBe('24PROC1');
     expect(filtered.contract).toBeUndefined();
     expect(filtered.payments).toBeUndefined();
+    expect(filtered.skipCommitmentMerge).toBe(true);
   });
 
   test('pickStitchedContractAdam προτιμά νέο ΑΔΑΜ γραμμής / SYMV seed', () => {

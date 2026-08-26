@@ -125,6 +125,9 @@ describe('αναμονή πριν την επόμενη προσπάθεια', (
     expect(computeRetryDelayMs(0, 429, 0)).toBeGreaterThanOrEqual(5000);
     expect(computeRetryDelayMs(1, 429, 0)).toBeGreaterThan(computeRetryDelayMs(0, 429, 0));
     expect(computeRetryDelayMs(0, 503, 0)).toBeGreaterThanOrEqual(5000);
+    expect(computeRetryDelayMs(0, 502, 0)).toBeGreaterThanOrEqual(5000);
+    expect(computeRetryDelayMs(0, 504, 0)).toBeGreaterThanOrEqual(5000);
+    expect(computeRetryDelayMs(0, 'timeout', 0)).toBeGreaterThanOrEqual(5000);
   });
 
   test('σε απλό προσωρινό σφάλμα κρατάμε την παλιά, γρήγορη επανάληψη', () => {

@@ -24,13 +24,18 @@ import { getUnresolvedReviewItems } from '../utils/khmdhsDataQualityReport';
 import {
   buildKhmdhsRefreshFindings,
   buildKhmdhsFindingAction,
+  splitRefreshReportLineBuckets,
   KHMDHS_FINDING_ACTION,
   KHMDHS_FINDING_OUTCOME,
 } from '../utils/khmdhsRefreshFindings';
 import {
   KHMDHS_RETRY_ITEM_GAP_MS,
   KHMDHS_RETRY_MAX_ROUNDS,
+  buildKhmdhsLiveRunSnapshot,
+  formatKhmdhsLiveDockLine,
+  formatKhmdhsLiveHeadline,
   nextKhmdhsRetryDelayMs,
+  partitionKhmdhsBatchReportItems,
   pickKhmdhsBatchRetryCandidates,
 } from '../utils/khmdhsBatchReportState';
 
@@ -576,8 +581,8 @@ const ModalOverlay = styled.div`
 const ModalBox = styled.div`
   background: #fff;
   border-radius: 18px;
-  width: min(600px, 100%);
-  max-height: 82vh;
+  width: min(920px, 96vw);
+  max-height: 88vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 24px 80px rgba(0,0,0,0.18);
@@ -587,11 +592,39 @@ const ModalBox = styled.div`
 
 const ModalHeader = styled.div`
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.1rem 1.5rem;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1rem 1.4rem 0.95rem;
   background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
   color: #fff;
+`;
+
+const HeaderTop = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+`;
+
+const HeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+`;
+
+const HeaderGhostBtn = styled.button`
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.22);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: inherit;
+  color: #fff;
+  cursor: pointer;
+  padding: 0.32rem 0.7rem;
+  border-radius: 8px;
+  &:hover { background: rgba(255,255,255,0.25); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
 const ModalTitle = styled.h3`
@@ -612,6 +645,70 @@ const ModalCloseBtn = styled.button`
   padding: 4px 8px;
   border-radius: 6px;
   &:hover { background: rgba(255,255,255,0.25); }
+`;
+
+const LiveProgressRow = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+`;
+
+const LiveProgressMeta = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+`;
+
+const LiveProgressTrack = styled.div`
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.22);
+  overflow: hidden;
+`;
+
+const LiveProgressFill = styled.div`
+  height: 100%;
+  width: ${(p) => Math.max(0, Math.min(100, p.$pct || 0))}%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #fff 0%, #ccfbf1 100%);
+  box-shadow: 0 0 12px rgba(255,255,255,0.45);
+  transition: width 0.35s ease;
+`;
+
+const LiveNowBox = styled.div`
+  margin: 0 0 0.9rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 55%, #f0fdfa 100%);
+  border: 1px solid #c7d2fe;
+  box-shadow: 0 8px 24px rgba(67, 56, 202, 0.12);
+`;
+
+const LiveNowKicker = styled.div`
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4338ca;
+`;
+
+const LiveNowTitle = styled.div`
+  margin-top: 0.2rem;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  line-height: 1.35;
+`;
+
+const LiveNowStep = styled.div`
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #0f766e;
+  line-height: 1.45;
 `;
 
 const ModalBody = styled.div`
@@ -737,6 +834,18 @@ const SkippedList = styled.div`
   line-height: 1.55;
 `;
 
+const SectionBlurb = styled.div`
+  padding: 0.45rem 0.7rem 0.55rem;
+  margin: 0 0 0.45rem;
+  border-radius: 10px;
+  background: ${(p) => p.$bg || '#eef2ff'};
+  border: 1px solid ${(p) => p.$border || '#c7d2fe'};
+  font-size: 0.78rem;
+  color: ${(p) => p.$color || '#3730a3'};
+  line-height: 1.55;
+  font-weight: 550;
+`;
+
 /** Σύνοψη «γιατί απέτυχαν» — ίδια διακριτική γλώσσα με τα υπόλοιπα επεξηγηματικά μπλοκ. */
 const CauseSummary = styled.div`
   padding: 0.4rem 0 0.55rem;
@@ -843,6 +952,12 @@ const ChangeLineWarn = styled(ChangeLine)`
   color: #92400e;
   font-weight: 600;
   &::before { content: '·'; color: #d97706; }
+`;
+
+const ChangeLineIncomplete = styled(ChangeLine)`
+  color: #3730a3;
+  font-weight: 600;
+  &::before { content: '·'; color: #6366f1; }
 `;
 
 const ActionLine = styled.div`
@@ -969,12 +1084,16 @@ const ReportHero = styled.div`
     ? 'linear-gradient(135deg, #b45309 0%, #d97706 55%, #f59e0b 100%)'
     : p.$tone === 'error'
       ? 'linear-gradient(135deg, #9f1239 0%, #be123c 55%, #e11d48 100%)'
-      : 'linear-gradient(135deg, #0f766e 0%, #0d9488 55%, #14b8a6 100%)'};
+      : p.$tone === 'incomplete'
+        ? 'linear-gradient(135deg, #3730a3 0%, #4338ca 55%, #6366f1 100%)'
+        : 'linear-gradient(135deg, #0f766e 0%, #0d9488 55%, #14b8a6 100%)'};
   box-shadow: 0 10px 30px ${(p) => p.$tone === 'attention'
     ? 'rgba(217, 119, 6, 0.28)'
     : p.$tone === 'error'
       ? 'rgba(190, 18, 60, 0.28)'
-      : 'rgba(13, 148, 136, 0.28)'};
+      : p.$tone === 'incomplete'
+        ? 'rgba(67, 56, 202, 0.28)'
+        : 'rgba(13, 148, 136, 0.28)'};
 `;
 
 const HeroGlow = styled.div`
@@ -1008,10 +1127,13 @@ const HeroSub = styled.div`
 const HeroStatGrid = styled.div`
   position: relative;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(${(p) => (p.$cols === 4 ? 4 : 3)}, minmax(0, 1fr));
   gap: 0.55rem;
   margin-top: 0.95rem;
 
+  @media (max-width: 720px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   @media (max-width: 560px) {
     grid-template-columns: 1fr;
   }
@@ -1098,13 +1220,150 @@ const RetryButton = styled.button`
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
+const LiveDock = styled.div`
+  position: fixed;
+  right: 24px;
+  bottom: 154px;
+  z-index: 9100;
+  width: min(420px, calc(100vw - 110px));
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.7rem 0.8rem 0.65rem;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #0f766e 0%, #0d9488 55%, #115e59 100%);
+  color: #fff;
+  box-shadow:
+    0 16px 40px rgba(13, 148, 136, 0.42),
+    0 2px 8px rgba(15, 23, 42, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+`;
+
+const LiveDockMain = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+`;
+
+const LiveDockSpin = styled.span`
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.16);
+  font-size: 1.05rem;
+  animation: ${spin} 1.1s linear infinite;
+`;
+
+const LiveDockCopy = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+
+const LiveDockTitle = styled.div`
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+`;
+
+const LiveDockLine = styled.div`
+  margin-top: 0.12rem;
+  font-size: ${(p) => (p.$muted ? '0.64rem' : '0.74rem')};
+  font-weight: ${(p) => (p.$muted ? 550 : 650)};
+  opacity: ${(p) => (p.$muted ? 0.82 : 0.96)};
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const LiveDockPct = styled.div`
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+`;
+
+const LiveDockTrack = styled.div`
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.2);
+  overflow: hidden;
+`;
+
+const LiveDockFill = styled.div`
+  height: 100%;
+  width: ${(p) => Math.max(0, Math.min(100, p.$pct || 0))}%;
+  background: #fff;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+`;
+
+const LiveDockCancel = styled.button`
+  align-self: flex-end;
+  border: 1px solid rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  &:hover { background: rgba(255,255,255,0.2); }
+`;
+
 /* ═══════════════════════════════════════════
    EXPORTED: Floating Button
    ═══════════════════════════════════════════ */
-export function KhmdhsBatchReportFab({ pendingItems, onClick, isRunning, hasReport }) {
-  if (!pendingItems?.length && !isRunning && !hasReport) return null;
+export function KhmdhsBatchLiveDock({ visible, live, running, onExpand, onCancel }) {
+  if (!visible) return null;
+  const pct = running ? (live?.pct || 0) : 100;
+  const line = formatKhmdhsLiveDockLine(live, { running });
+  const step = running ? (live?.stepMessage || '') : '';
 
-  const count = pendingItems?.length || 0;
+  return createPortal(
+    <LiveDock role="status" aria-live="polite">
+      <LiveDockMain type="button" onClick={onExpand} title="Άνοιγμα πλήρους εικόνας">
+        <LiveDockSpin aria-hidden style={running ? undefined : { animation: 'none' }}>
+          {running ? '⟳' : '✓'}
+        </LiveDockSpin>
+        <LiveDockCopy>
+          <LiveDockTitle>
+            {running ? 'Μαζική ανανέωση ΚΗΜΔΗΣ' : 'Η μαζική ανανέωση ολοκληρώθηκε'}
+          </LiveDockTitle>
+          <LiveDockLine>{line}</LiveDockLine>
+          {step ? <LiveDockLine $muted>{step}</LiveDockLine> : null}
+        </LiveDockCopy>
+        <LiveDockPct>{pct}%</LiveDockPct>
+      </LiveDockMain>
+      <LiveDockTrack aria-hidden>
+        <LiveDockFill $pct={pct} />
+      </LiveDockTrack>
+      {running && typeof onCancel === 'function' && (
+        <LiveDockCancel type="button" onClick={onCancel}>
+          Ακύρωση
+        </LiveDockCancel>
+      )}
+    </LiveDock>,
+    document.body
+  );
+}
+
+export function KhmdhsBatchReportFab({ pendingItems, onClick, isRunning, hasReport }) {
+  const count = Array.isArray(pendingItems) ? pendingItems.length : 0;
+  if (!count && !isRunning && !hasReport) return null;
   const tooltipText = isRunning
     ? 'Μαζική ανανέωση σε εξέλιξη…'
     : count > 0
@@ -1136,25 +1395,18 @@ function ReportItemCard({
   defaultShowAllRegistry = false,
 }) {
   const [showAllRegistry, setShowAllRegistry] = useState(defaultShowAllRegistry);
-  const appliedLines = item.appliedLines
-    || (item.category === 'applied' ? (item.changeLines || []) : []);
-  const attentionLines = item.attentionLines
-    || (item.category === 'attention' ? (item.changeLines || []) : []);
-  const allLines = item.changeLines || [...appliedLines, ...attentionLines];
+  const buckets = splitRefreshReportLineBuckets(item);
+  const appliedLines = buckets.appliedLines;
+  const attentionOnly = buckets.attentionLines;
+  const incompleteLines = buckets.incompleteLines;
+  const allLines = item.changeLines || [...appliedLines, ...incompleteLines, ...attentionOnly];
   const isUnchanged = item.category === 'unchanged'
-    || (allLines.length === 1 && allLines[0] === KHMDHS_REFRESH_REPORT_NO_CHANGES);
+    && !appliedLines.length
+    && !incompleteLines.length
+    && !attentionOnly.length
+    && (allLines.length === 1 && allLines[0] === KHMDHS_REFRESH_REPORT_NO_CHANGES);
 
-  const appliedSplit = splitBatchChangeLines(
-    item.appliedLines?.length
-      ? item.appliedLines
-      : (item.category === 'applied' ? allLines.filter((l) => !String(l).startsWith('⚠️') && !String(l).startsWith('ℹ️')) : [])
-  );
-  const attentionOnly = item.attentionLines?.length
-    ? item.attentionLines
-    : (item.category === 'attention'
-      ? allLines
-      : allLines.filter((l) => String(l).startsWith('⚠️') || String(l).startsWith('ℹ️')));
-
+  const appliedSplit = splitBatchChangeLines(appliedLines);
   const registryPreviewLimit = 8;
   const registryVisible = showAllRegistry
     ? appliedSplit.registry
@@ -1180,6 +1432,17 @@ function ReportItemCard({
           {isUnchanged && allLines.map((line, idx) => (
             <ChangeLineMuted key={`u-${idx}`}>{line}</ChangeLineMuted>
           ))}
+
+          {!isUnchanged && incompleteLines.length > 0 && (
+            <>
+              <ChangeGroupLabel style={{ color: '#3730a3' }}>
+                Δεν επιβεβαιώθηκαν — δεν διαγράφηκε τίποτα
+              </ChangeGroupLabel>
+              {incompleteLines.map((line, idx) => (
+                <ChangeLineIncomplete key={`inc-${idx}`}>{line}</ChangeLineIncomplete>
+              ))}
+            </>
+          )}
 
           {!isUnchanged && (appliedSplit.other.length > 0 || appliedSplit.registry.length > 0) && (
             <>
@@ -1273,11 +1536,14 @@ export function KhmdhsBatchReportModal({
   onCancelRetry,
   retryLive = null,
   onDismiss,
+  live = null,
+  onMinimize,
 }) {
   const [openSections, setOpenSections] = useState({
     intervened: true,
     failed: true,
     later: true,
+    incomplete: true,
     attention: true,
     refreshed: false,
     unchanged: false,
@@ -1285,22 +1551,26 @@ export function KhmdhsBatchReportModal({
   });
   const [openItems, setOpenItems] = useState({});
 
-  if (!isOpen || !results) return null;
+  // Το Dashboard περνά `live` μόνο όσο τρέχει η εκτέλεση. Δεν βασιζόμαστε στο
+  // `live.running`: στο τελευταίο στιγμιότυπο γίνεται false ένα tick πριν κλείσει
+  // η εκτέλεση, και τότε εμφανιζόταν «Τα είδα — απόκρυψη αναφοράς».
+  const liveMode = !!live;
+  if (!isOpen) return null;
+  if (!results && !liveMode) return null;
 
-  const items = Array.isArray(results.items) ? results.items : [];
-  const refreshedItems = items.filter((i) => i.status === 'refreshed' && i.category === 'applied');
-  const unchangedItems = items.filter((i) => i.status === 'refreshed' && (i.category === 'unchanged' || (!i.category && !i.hasSubstantiveChanges)));
-  // Τα πιασμένα δεν είναι «αποτυχία» — απλώς τα δούλευε κάποιος τη στιγμή εκείνη.
-  // Ούτε όσα δεν προλάβαμε λόγω ακύρωσης· και τα δύο ξαναδοκιμάζονται με την «Επανάληψη».
-  const failedItems = items.filter((i) => i.status === 'failed');
+  const items = Array.isArray(results?.items) ? results.items : [];
+  const {
+    failedItems,
+    laterItems,
+    skippedItems,
+    intervenedFromItems,
+    interventionList,
+    followUpItems,
+    incompleteItems,
+    refreshedOnly,
+    unchangedOnly,
+  } = partitionKhmdhsBatchReportItems(items, pendingItems);
   const failureCauses = groupKhmdhsFailuresByCause(failedItems);
-  const laterItems = items.filter((i) => i.busy || i.notProcessed);
-  const skippedItems = items.filter((i) => i.status === 'skipped' && !i.busy && !i.notProcessed);
-  const intervenedFromItems = items.filter((i) => i.status === 'intervened');
-  // Άδειο pendingItems σημαίνει «μηδέν εκκρεμή» — όχι «αγνόησε και δείξε όλα τα intervened».
-  const interventionList = Array.isArray(pendingItems)
-    ? pendingItems
-    : intervenedFromItems;
 
   const resolvedInterventionCount = items.filter((i) => i.status === 'resolved').length;
   const allResolved = Array.isArray(pendingItems)
@@ -1313,37 +1583,44 @@ export function KhmdhsBatchReportModal({
     .filter((i) => i.id)
     .map((i) => ({ id: i.id, label: i.label }));
 
-  // Προσοχή ή ενέργεια μέσα στο υποέργο — ανοιχτή ενότητα στην αφήγηση.
-  // Όσα επιλύθηκαν μετά την αποθήκευση (followUpClearedAt) δεν εμφανίζονται ξανά.
-  const followUpItems = items.filter((i) => (
-    i.status === 'refreshed'
-    && !i.followUpClearedAt
-    && (i.category === 'attention' || (i.actions?.length || 0) > 0)
-  ));
-  const followUpIds = new Set(followUpItems.map((i) => i.id));
-  const refreshedOnly = refreshedItems.filter((i) => !followUpIds.has(i.id));
-  const unchangedOnly = unchangedItems.filter((i) => !followUpIds.has(i.id));
-
-  // «Έγιναν καλά» = μόνο όσα δεν έχουν εκκρεμή ενέργεια (χωρίς διπλομέτρηση με follow-up).
   const okCount = refreshedOnly.length + unchangedOnly.length;
   const needsActionCount = interventionList.length + followUpItems.length;
-  const heroTone = failedItems.length > 0
-    ? 'error'
-    : needsActionCount > 0
-      ? 'attention'
-      : 'ok';
-  const heroVerdict = heroTone === 'error'
-    ? 'Ολοκληρώθηκε — χρειάζεται μια ματιά'
-    : heroTone === 'attention'
-      ? 'Σχεδόν έτοιμο — μένουν λίγες ενέργειες'
-      : 'Όλα ενημερωμένα';
+  const incompleteCount = incompleteItems.length;
+  const heroTone = liveMode
+    ? 'ok'
+    : failedItems.length > 0
+      ? 'error'
+      : needsActionCount > 0
+        ? 'attention'
+        : incompleteCount > 0
+          ? 'incomplete'
+          : 'ok';
+  const heroVerdict = liveMode
+    ? (live?.cancelRequested ? 'Ακύρωση σε εξέλιξη…' : 'Ανανέωση σε εξέλιξη')
+    : heroTone === 'error'
+      ? 'Ολοκληρώθηκε — χρειάζεται μια ματιά'
+      : heroTone === 'attention'
+        ? 'Σχεδόν έτοιμο — μένουν λίγες ενέργειες'
+        : heroTone === 'incomplete'
+          ? 'Ολοκληρώθηκε — κάποια δεν επιβεβαιώθηκαν πλήρως'
+          : 'Όλα ενημερωμένα';
   const heroParts = [];
+  if (liveMode && live?.total) {
+    heroParts.push(`${Math.min(live.current, live.total)} από ${live.total} στη σειρά`);
+  }
   if (needsActionCount) heroParts.push(`${needsActionCount} ζητούν ενέργεια`);
   if (failedItems.length) heroParts.push(`${failedItems.length} απέτυχαν`);
   if (laterItems.length) heroParts.push(`${laterItems.length} για αργότερα`);
-  if (okCount) heroParts.push(`${okCount} ολοκληρώθηκαν χωρίς εκκρεμότητα`);
+  if (incompleteCount) heroParts.push(`${incompleteCount} δεν επιβεβαιώθηκαν πλήρως (δεν διαγράφηκε τίποτα)`);
+  if (okCount) {
+    heroParts.push(liveMode
+      ? `${okCount} ολοκληρώθηκαν ως τώρα χωρίς εκκρεμότητα`
+      : `${okCount} ολοκληρώθηκαν χωρίς εκκρεμότητα`);
+  }
   if (skippedItems.length) heroParts.push(`${skippedItems.length} εκτός ελέγχου`);
-  const heroSub = heroParts.length ? heroParts.join(' · ') : 'Δεν καταγράφηκαν ευρήματα.';
+  const heroSub = liveMode
+    ? (formatKhmdhsLiveHeadline(live) || heroParts.join(' · ') || 'Τα ευρήματα εμφανίζονται εδώ μόλις ολοκληρώνεται κάθε υποέργο.')
+    : (heroParts.length ? heroParts.join(' · ') : 'Δεν καταγράφηκαν ευρήματα.');
 
   const toggleSection = (key) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1363,7 +1640,8 @@ export function KhmdhsBatchReportModal({
   const goTo = (id) => {
     if (typeof onNavigateToSubproject === 'function') {
       onNavigateToSubproject(id);
-      onClose();
+      if (liveMode && typeof onMinimize === 'function') onMinimize();
+      else onClose();
     }
   };
 
@@ -1375,20 +1653,72 @@ export function KhmdhsBatchReportModal({
   };
 
   const retrying = !!retryLive?.active;
+  const handleOverlayClick = () => {
+    if (liveMode && typeof onMinimize === 'function') {
+      onMinimize();
+      return;
+    }
+    if (retrying) return;
+    onClose();
+  };
+  const handleHeaderClose = () => {
+    if (liveMode && typeof onMinimize === 'function') onMinimize();
+    else onClose();
+  };
 
   return createPortal(
-    <ModalOverlay onClick={retrying ? undefined : onClose}>
+    <ModalOverlay onClick={handleOverlayClick}>
       <ModalBox onClick={(e) => e.stopPropagation()}>
         <ModalHeader>
-          <ModalTitle>Αναφορά μαζικής ανανέωσης ΚΗΜΔΗΣ</ModalTitle>
-          <ModalCloseBtn onClick={onClose}>✕</ModalCloseBtn>
+          <HeaderTop>
+            <ModalTitle>
+              {liveMode ? 'Μαζική ανανέωση ΚΗΜΔΗΣ σε εξέλιξη' : 'Αναφορά μαζικής ανανέωσης ΚΗΜΔΗΣ'}
+            </ModalTitle>
+            <HeaderActions>
+              {liveMode && typeof onMinimize === 'function' && (
+                <HeaderGhostBtn type="button" onClick={onMinimize}>
+                  Σμίκρυνση
+                </HeaderGhostBtn>
+              )}
+              {liveMode && typeof onCancelRetry === 'function' && (
+                <HeaderGhostBtn
+                  type="button"
+                  onClick={onCancelRetry}
+                  disabled={!!live?.cancelRequested}
+                >
+                  {live?.cancelRequested ? 'Ακύρωση…' : 'Ακύρωση'}
+                </HeaderGhostBtn>
+              )}
+              <ModalCloseBtn onClick={handleHeaderClose} aria-label={liveMode ? 'Σμίκρυνση' : 'Κλείσιμο'}>
+                ✕
+              </ModalCloseBtn>
+            </HeaderActions>
+          </HeaderTop>
+          {liveMode && (
+            <LiveProgressRow>
+              <LiveProgressMeta>
+                <span>{formatKhmdhsLiveHeadline(live)}</span>
+                <span>{live?.pct || 0}%</span>
+              </LiveProgressMeta>
+              <LiveProgressTrack>
+                <LiveProgressFill $pct={live?.pct || 0} />
+              </LiveProgressTrack>
+            </LiveProgressRow>
+          )}
         </ModalHeader>
         <ModalBody>
+          {liveMode && live?.itemLabel && (
+            <LiveNowBox>
+              <LiveNowKicker>Τώρα</LiveNowKicker>
+              <LiveNowTitle>{live.itemLabel}</LiveNowTitle>
+              {live?.stepMessage ? <LiveNowStep>{live.stepMessage}</LiveNowStep> : null}
+            </LiveNowBox>
+          )}
           <ReportHero $tone={heroTone}>
             <HeroGlow />
             <HeroVerdict>{heroVerdict}</HeroVerdict>
             <HeroSub>{heroSub}</HeroSub>
-            <HeroStatGrid>
+            <HeroStatGrid $cols={incompleteCount > 0 ? 4 : 3}>
               <HeroStatCard>
                 <HeroStatNumber>{needsActionCount}</HeroStatNumber>
                 <HeroStatLabel>Χρειάζονται ενέργεια</HeroStatLabel>
@@ -1400,14 +1730,21 @@ export function KhmdhsBatchReportModal({
                   <HeroStatHint>+ {laterItems.length} για αργότερα</HeroStatHint>
                 )}
               </HeroStatCard>
+              {incompleteCount > 0 && (
+                <HeroStatCard>
+                  <HeroStatNumber>{incompleteCount}</HeroStatNumber>
+                  <HeroStatLabel>Δεν επιβεβαιώθηκαν πλήρως</HeroStatLabel>
+                  <HeroStatHint>Δεν διαγράφηκε τίποτα</HeroStatHint>
+                </HeroStatCard>
+              )}
               <HeroStatCard>
                 <HeroStatNumber>{okCount}</HeroStatNumber>
-                <HeroStatLabel>Έγιναν καλά</HeroStatLabel>
+                <HeroStatLabel>{liveMode ? 'Ολοκληρώθηκαν ως τώρα' : 'Έγιναν καλά'}</HeroStatLabel>
               </HeroStatCard>
             </HeroStatGrid>
           </ReportHero>
 
-          {retrying && (
+          {retrying && !liveMode && (
             <RetryBar>
               <RetryText>
                 {retryLive.phase === 'wait'
@@ -1431,7 +1768,7 @@ export function KhmdhsBatchReportModal({
             </RetryBar>
           )}
 
-          {!retrying && typeof onRetry === 'function' && retryCandidates.length > 0 && (
+          {!retrying && !liveMode && typeof onRetry === 'function' && retryCandidates.length > 0 && (
             <RetryBar>
               <RetryText>
                 {failedItems.length > 0 && laterItems.length > 0
@@ -1526,6 +1863,35 @@ export function KhmdhsBatchReportModal({
                       border="#cbd5e1"
                       bg="#f1f5f9"
                       meta={item.reason || item.error || 'Έμεινε για αργότερα'}
+                      onNavigate={goTo}
+                    />
+                  ))}
+                </>
+              )}
+            </>
+          )}
+
+          {incompleteItems.length > 0 && (
+            <>
+              <SectionHeader $color="#4338ca" onClick={() => toggleSection('incomplete')}>
+                <SectionChevron $open={openSections.incomplete}>▶</SectionChevron>
+                Δεν επιβεβαιώθηκαν όλα — τα υπάρχοντα έμειναν ({incompleteItems.length})
+              </SectionHeader>
+              {openSections.incomplete && (
+                <>
+                  <SectionBlurb>
+                    Το ΚΗΜΔΗΣ ήταν φορτωμένο ή απάντησε ελλιπώς σε αυτά τα υποέργα.
+                    Δεν αφαιρέθηκε τίποτα από τις κάρτες. Μπορείτε να τα ξανατρέξετε όταν η υπηρεσία ηρεμήσει.
+                  </SectionBlurb>
+                  {incompleteItems.map((item) => (
+                    <ReportItemCard
+                      key={`inc-${item.id}`}
+                      item={item}
+                      open={isItemOpen(`inc-${item.id}`, true)}
+                      onToggle={() => toggleItem(`inc-${item.id}`, true)}
+                      border="#c7d2fe"
+                      bg="#eef2ff"
+                      meta="Το ΚΗΜΔΗΣ δεν επιβεβαίωσε κρίκο που ήδη υπάρχει — δεν διαγράφηκε τίποτα."
                       onNavigate={goTo}
                     />
                   ))}
@@ -1633,15 +1999,29 @@ export function KhmdhsBatchReportModal({
             </AllDoneBanner>
           )}
 
-          {!refreshedOnly.length && !followUpItems.length && !unchangedOnly.length
+          {!refreshedOnly.length && !followUpItems.length && !incompleteItems.length && !unchangedOnly.length
             && !failedItems.length && !laterItems.length && !interventionList.length && !skippedItems.length && (
             <SkippedList>
-              Δεν καταγράφηκαν λεπτομέρειες για αυτή την εκτέλεση.
+              {liveMode
+                ? 'Ξεκινά η ανάκτηση. Τα ευρήματα κάθε υποέργου εμφανίζονται εδώ μόλις ολοκληρώνεται.'
+                : 'Δεν καταγράφηκαν λεπτομέρειες για αυτή την εκτέλεση.'}
             </SkippedList>
           )}
         </ModalBody>
 
-        {typeof onDismiss === 'function' && (
+        {liveMode ? (
+          <ModalFooter>
+            <FooterHint>
+              Μπορείτε να σμικρύνετε το παράθυρο και να συνεχίσετε την εργασία σας.
+              Η μαζική ανανέωση συνεχίζεται και η ένδειξη μένει ορατή μέχρι να τελειώσει.
+            </FooterHint>
+            {typeof onMinimize === 'function' && (
+              <DismissBtn type="button" onClick={onMinimize}>
+                Σμίκρυνση — συνεχίζω εργασία
+              </DismissBtn>
+            )}
+          </ModalFooter>
+        ) : typeof onDismiss === 'function' && (
           <ModalFooter>
             <FooterHint>
               {interventionList.length > 0
@@ -1679,6 +2059,7 @@ export default function KhmdhsBatchRefreshWidget({
   onRunningChange,
   onRetryLiveChange,
   onOpenReport,
+  onLiveSnapshot,
   staleCount = 0,
   oldestDays = null,
   lastRunInfo = null,
@@ -1700,8 +2081,10 @@ export default function KhmdhsBatchRefreshWidget({
   const [batchScope, setBatchScope] = useState('stale'); // 'stale' | 'all'
   const cancelRef = useRef(false);
   const [cancelRequested, setCancelRequested] = useState(false);
-  const [showLog, setShowLog] = useState(false);
-  const logRef = useRef(null);
+  const liveItemsRef = useRef([]);
+  const liveIsRetryRef = useRef(false);
+  const onLiveSnapshotRef = useRef(onLiveSnapshot);
+  onLiveSnapshotRef.current = onLiveSnapshot;
 
   const canUse = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
 
@@ -1718,9 +2101,6 @@ export default function KhmdhsBatchRefreshWidget({
 
   const addLog = useCallback((icon, text) => {
     setLogEntries((prev) => [...prev.slice(-30), { icon, text, ts: Date.now() }]);
-    setTimeout(() => {
-      if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-    }, 50);
   }, []);
 
   const actingUsername = currentUser?.username || '';
@@ -1835,10 +2215,29 @@ export default function KhmdhsBatchRefreshWidget({
 
     setRunning(true);
     setLogEntries([]);
-    setShowLog(false);
     cancelRef.current = false;
     setCancelRequested(false);
+    liveItemsRef.current = [];
+    liveIsRetryRef.current = !!retryItems;
     setProgress({ current: 0, total: 0, label: 'Εντοπισμός υποέργων…' });
+    const emitLive = (partial = {}) => {
+      if (typeof onLiveSnapshotRef.current !== 'function') return;
+      onLiveSnapshotRef.current(buildKhmdhsLiveRunSnapshot({
+        running: true,
+        cancelRequested: cancelRef.current,
+        isRetry: liveIsRetryRef.current,
+        items: liveItemsRef.current,
+        ...partial,
+      }));
+    };
+    emitLive({
+      phase: 'scan',
+      current: 0,
+      total: 0,
+      itemLabel: '',
+      stepMessage: 'Εντοπισμός υποέργων…',
+      items: liveItemsRef.current,
+    });
 
     const heartbeat = window.setInterval(() => {
       ipcRenderer.invoke('start-khmdhs-batch-run', {
@@ -1872,6 +2271,16 @@ export default function KhmdhsBatchRefreshWidget({
           });
           if (!eligRes?.success) {
             showToast(eligRes?.error || 'Σφάλμα', 'error');
+            if (typeof onBatchResults === 'function') {
+              onBatchResults({
+                refreshed: 0,
+                needsIntervention: 0,
+                failed: 0,
+                skipped: 0,
+                interventionItems: [],
+                items: [],
+              });
+            }
             setRunning(false);
             return;
           }
@@ -1954,10 +2363,18 @@ export default function KhmdhsBatchRefreshWidget({
           const delayMs = nextKhmdhsRetryDelayMs(round);
           addLog('⏳', `Παύση ${Math.round(delayMs / 1000)}″ — απομένουν ${queue.length} για νέα προσπάθεια`);
           const ok = await waitKhmdhsRetryPause(delayMs, cancelRef, (sec) => {
+            const waitMsg = `Επόμενη προσπάθεια σε ${sec}″ — απομένουν ${queue.length}`;
             setProgress({
               current: 0,
               total: queue.length,
-              label: `Επόμενη προσπάθεια σε ${sec}″ — απομένουν ${queue.length}`,
+              label: waitMsg,
+            });
+            emitLive({
+              phase: 'wait',
+              current: 0,
+              total: queue.length,
+              itemLabel: '',
+              stepMessage: waitMsg,
             });
             publishRetryLive({
               active: true,
@@ -1976,8 +2393,22 @@ export default function KhmdhsBatchRefreshWidget({
 
         eligible = queue;
         const total = eligible.length;
+        let refreshed = 0;
+        let needsIntervention = 0;
+        let failed = 0;
+        const interventionItems = [];
+        const detailItems = (!isRetryRun && round === 0) ? [...skippedItems] : [];
+        liveItemsRef.current = [...detailItems];
 
         setProgress({ current: 0, total, label: `0 / ${total}` });
+        emitLive({
+          phase: 'run',
+          current: 0,
+          total,
+          itemLabel: '',
+          stepMessage: `Έναρξη — ${total} υποέργα`,
+          reset: !isRetryRun && round === 0,
+        });
         if (round === 0 && !isRetryRun) {
           addLog(
             '🔍',
@@ -1994,12 +2425,6 @@ export default function KhmdhsBatchRefreshWidget({
           );
         }
 
-        let refreshed = 0;
-        let needsIntervention = 0;
-        let failed = 0;
-        const interventionItems = [];
-        const detailItems = (!isRetryRun && round === 0) ? [...skippedItems] : [];
-
       for (let i = 0; i < total; i++) {
         if (cancelRef.current) {
           addLog('⛔', 'Η διαδικασία ακυρώθηκε');
@@ -2007,6 +2432,13 @@ export default function KhmdhsBatchRefreshWidget({
         }
         const item = eligible[i];
         setProgress({ current: i + 1, total, label: `${i + 1} / ${total} — ${item.label}` });
+        emitLive({
+          phase: 'run',
+          current: i + 1,
+          total,
+          itemLabel: item.label,
+          stepMessage: 'Σύνδεση με ΚΗΜΔΗΣ…',
+        });
         publishRetryLive({
           active: true,
           phase: 'run',
@@ -2027,6 +2459,13 @@ export default function KhmdhsBatchRefreshWidget({
               current: i + 1,
               total,
               label: `${i + 1} / ${total} — ${item.label}: ${payload.message}`,
+            });
+            emitLive({
+              phase: 'run',
+              current: i + 1,
+              total,
+              itemLabel: item.label,
+              stepMessage: String(payload.message),
             });
             publishRetryLive({
               active: true,
@@ -2240,6 +2679,7 @@ export default function KhmdhsBatchRefreshWidget({
               seedAdam: res.seedAdam,
               appliedLines: report.appliedLines,
               attentionLines: report.attentionLines,
+              incompleteLines: report.incompleteLines,
               actions: findingActions,
             }),
           };
@@ -2259,16 +2699,26 @@ export default function KhmdhsBatchRefreshWidget({
               changeLines: report.lines,
               appliedLines: report.appliedLines,
               attentionLines: report.attentionLines,
+              incompleteLines: report.incompleteLines,
               category: report.category,
               hasSubstantiveChanges: report.category === 'applied',
               actions: findingActions,
             });
-            const logIcon = report.category === 'applied' ? '✅' : report.category === 'attention' ? 'ℹ️' : '➖';
+            const hasIncomplete = (report.incompleteLines || []).length > 0;
+            const logIcon = report.category === 'applied'
+              ? '✅'
+              : report.category === 'attention'
+                ? 'ℹ️'
+                : hasIncomplete
+                  ? '◐'
+                  : '➖';
             const logText = report.category === 'applied'
               ? `${item.label} — ${summarizeAppliedChanges(report.appliedLines)}`
               : report.category === 'attention'
                 ? `${item.label} — Ελέγχθηκε — χρειάζεται προσοχή`
-                : `${item.label} — Χωρίς ουσιώδεις διαφορές`;
+                : hasIncomplete
+                  ? `${item.label} — Δεν επιβεβαιώθηκαν όλα · δεν διαγράφηκε τίποτα`
+                  : `${item.label} — Χωρίς ουσιώδεις διαφορές`;
             addLog(logIcon, logText);
           } else {
             failed++;
@@ -2324,6 +2774,14 @@ export default function KhmdhsBatchRefreshWidget({
               });
             } catch { /* ignore */ }
           }
+          liveItemsRef.current = [...detailItems];
+          emitLive({
+            phase: 'run',
+            current: i + 1,
+            total,
+            itemLabel: item.label,
+            stepMessage: '',
+          });
         }
 
         await new Promise((r) => setTimeout(r, isRetryRun ? KHMDHS_RETRY_ITEM_GAP_MS : 300));
@@ -2344,6 +2802,14 @@ export default function KhmdhsBatchRefreshWidget({
         skippedItems.push(pendingEntry);
         detailItems.push(pendingEntry);
       }
+      liveItemsRef.current = [...detailItems];
+      emitLive({
+        phase: cancelRef.current ? 'run' : 'finishing',
+        current: total,
+        total,
+        itemLabel: '',
+        stepMessage: cancelRef.current ? 'Η διαδικασία ακυρώθηκε' : 'Ολοκλήρωση περάσματος…',
+      });
 
       for (const entry of detailItems) {
         if (entry?.id) sessionLatest.set(entry.id, entry);
@@ -2460,6 +2926,17 @@ export default function KhmdhsBatchRefreshWidget({
       setCancelRequested(false);
       setRunning(false);
       if (typeof onRetryLiveChange === 'function') onRetryLiveChange(null);
+      if (typeof onLiveSnapshotRef.current === 'function') {
+        onLiveSnapshotRef.current(buildKhmdhsLiveRunSnapshot({
+          running: false,
+          phase: 'finishing',
+          current: liveItemsRef.current.length,
+          total: liveItemsRef.current.length,
+          items: liveItemsRef.current,
+          isRetry: liveIsRetryRef.current,
+          cancelRequested: cancelRef.current,
+        }));
+      }
     }
   }, [
     batchScope, currentUser, showToast, onRefreshComplete, onBatchResults, onRetryLiveChange,
@@ -2487,7 +2964,7 @@ export default function KhmdhsBatchRefreshWidget({
     lastCancelTokenRef.current = cancelSignal;
     cancelRef.current = true;
     setCancelRequested(true);
-    addLog('⛔', 'Ακύρωση επανάληψης από την αναφορά…');
+    addLog('⛔', 'Ακύρωση από την αναφορά…');
     if (ipcRenderer?.invoke) {
       ipcRenderer.invoke('cancel-khmdhs-batch-refresh', {
         actingUsername: currentUser?.username,
@@ -2540,13 +3017,20 @@ export default function KhmdhsBatchRefreshWidget({
             <Btn $compact={compact} $embedded={embedded} onClick={handleConfirmStart}>Εκτέλεση</Btn>
           )}
           {running && (
-            <CancelBtn
-              type="button"
-              onClick={handleCancelBatch}
-              disabled={cancelRequested}
-            >
-              {cancelRequested ? 'Ακύρωση…' : 'Ακύρωση'}
-            </CancelBtn>
+            <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+              {typeof onOpenReport === 'function' && (
+                <Btn $compact={compact} $embedded={embedded} type="button" onClick={onOpenReport}>
+                  Πλήρης εικόνα
+                </Btn>
+              )}
+              <CancelBtn
+                type="button"
+                onClick={handleCancelBatch}
+                disabled={cancelRequested}
+              >
+                {cancelRequested ? 'Ακύρωση…' : 'Ακύρωση'}
+              </CancelBtn>
+            </div>
           )}
         </Header>
 
@@ -2575,20 +3059,10 @@ export default function KhmdhsBatchRefreshWidget({
               <ProgressFill $pct={progress.total ? Math.round((progress.current / progress.total) * 100) : 0} />
             </ProgressBar>
             <StatusText>{progress.label}</StatusText>
-            {logEntries.length > 0 && (
-              <>
-                <LogToggle type="button" onClick={() => setShowLog((v) => !v)}>
-                  <LogChevron $open={showLog}>▶</LogChevron>
-                  {showLog ? 'Απόκρυψη λεπτομερειών' : 'Προβολή λεπτομερειών ροής'}
-                </LogToggle>
-                {showLog && (
-                  <LogBox ref={logRef}>
-                    {logEntries.slice(-8).map((entry) => (
-                      <LogEntry key={entry.ts}>{entry.icon} {entry.text}</LogEntry>
-                    ))}
-                  </LogBox>
-                )}
-              </>
+            {typeof onOpenReport === 'function' && (
+              <ReportLinkBtn type="button" onClick={onOpenReport} $embedded={embedded}>
+                Άνοιγμα πλήρους εικόνας
+              </ReportLinkBtn>
             )}
           </RunPanel>
         )}

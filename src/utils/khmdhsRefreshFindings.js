@@ -16,6 +16,7 @@ export const KHMDHS_FINDING_OUTCOME = {
   APPLIED: 'applied',
   ATTENTION: 'attention',
   UNCHANGED: 'unchanged',
+  INCOMPLETE: 'incomplete',
   INTERVENED: 'intervened',
   FAILED: 'failed',
 };
@@ -59,6 +60,14 @@ function cleanLines(lines) {
     .filter(Boolean);
 }
 
+function stripReportLinePrefix(line) {
+  return String(line || '').replace(/^[⚠️ℹ️✅➖\s]+/u, '').trim();
+}
+
+function normalizeIncompleteKey(line) {
+  return stripReportLinePrefix(line).toLowerCase();
+}
+
 /**
  * Γραμμές τύπου «διατηρήθηκε χειροκίνητη τιμή — δεν απαιτείται ενέργεια».
  * Δεν πρέπει να ξανανοίγουν badge / μαζική αναφορά σε κάθε ανανέωση.
@@ -72,8 +81,98 @@ export function isInformationalRefreshAttentionLine(line) {
     || /Διατηρήθηκε η χειροκίνητη τιμή/i.test(s);
 }
 
+/**
+ * Το ΚΗΜΔΗΣ δεν επιβεβαίωσε κρίκο που ήδη υπάρχει — τίποτα δεν διαγράφηκε.
+ * Δεν είναι «χρειάζεται ενέργεια» και δεν είναι πραγματική αλλαγή στην κάρτα.
+ */
+export function isIncompleteConfirmationLine(line) {
+  const s = stripReportLinePrefix(line);
+  if (!s) return false;
+  if (/ακυρωμέν/i.test(s) && /ματαιώσ/i.test(s)) return false;
+  if (/Δεν επιβεβαιώθηκαν όλα/i.test(s)) return true;
+  if (/δεν επιβεβαίωσε/i.test(s) && /ήδη/i.test(s)) return true;
+  if (/χωρίς λεπτομέρειες/i.test(s) && /προσωρινό πρόβλημα/i.test(s)) return true;
+  if (/δεν επιβεβαιώθηκε/i.test(s) && /διατηρήθηκε/i.test(s)) return true;
+  if (/Δεν ανακτήθηκαν λεπτομέρειες/i.test(s)) return true;
+  if (/Τα υπάρχοντα διατηρούνται|Οι υπάρχουσες διατηρούνται/i.test(s)) return true;
+  if (/Δεν διαγράφηκε τίποτα|Δεν αφαιρέθηκε/i.test(s) && /ΚΗΜΔΗΣ/i.test(s)) return true;
+  if (/αφαιρέθηκαν ως άσχετα/i.test(s)) return true;
+  if (/από\s+\d+\s*→\s*\d+/i.test(s) && /(ανάληψ|ένταλμ)/i.test(s)) return true;
+  return false;
+}
+
+/** Παλιές γραμμές «ανάληψη 3 → 2» γίνονται κατανοητό κείμενο για τον χρήστη. */
+export function clarifyKhmdhsIncompleteLine(line) {
+  const s = stripReportLinePrefix(line);
+  if (!s) return '';
+  if (/Αποφάσεις ανάληψης υποχρέωσης:\s*από\s*\d+\s*→\s*\d+/i.test(s)
+    || (/εμφανίζονται\s+\d+\s+από\s+\d+/i.test(s) && /ανάληψ/i.test(s))) {
+    return 'Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε όλες τις αποφάσεις ανάληψης που ήδη έχετε στην κάρτα. '
+      + 'Δεν διαγράφηκε τίποτα — παραμένουν όπως ήταν. Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
+  }
+  if (/Εντάλματα πληρωμής:\s*από\s*\d+\s*→\s*\d+/i.test(s)
+    || /αφαιρέθηκαν ως άσχετα/i.test(s)
+    || (/εμφανίζονται\s+\d+\s+από\s+\d+/i.test(s) && /ένταλμ/i.test(s))) {
+    return 'Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε όλα τα εντάλματα πληρωμής που ήδη έχετε στην κάρτα. '
+      + 'Δεν διαγράφηκε τίποτα — παραμένουν όπως ήταν. Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
+  }
+  return s;
+}
+
+function uniqueIncompleteLines(lines) {
+  const out = [];
+  const seen = new Set();
+  cleanLines(lines).forEach((line) => {
+    const clarified = clarifyKhmdhsIncompleteLine(line);
+    if (!clarified) return;
+    const key = normalizeIncompleteKey(clarified);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(clarified);
+  });
+  return out;
+}
+
+/**
+ * Χωρίζει γραμμές αναφοράς σε αλλαγές / ανεπιβεβαίωση ΚΗΜΔΗΣ / πραγματική προσοχή.
+ * Διαβάζει και παλιές αναφορές που είχαν το «3 → 2» μέσα στις αλλαγές.
+ */
+export function splitRefreshReportLineBuckets(item = {}) {
+  const appliedRaw = cleanLines(
+    item.appliedLines
+    || (item.category === 'applied' ? item.changeLines : [])
+  );
+  const attentionRaw = cleanLines(
+    item.attentionLines
+    || (item.category === 'attention' ? item.changeLines : [])
+  );
+  const storedIncomplete = cleanLines(item.incompleteLines);
+
+  const appliedLines = [];
+  const attentionLines = [];
+  const extractedIncomplete = [];
+
+  appliedRaw.forEach((line) => {
+    if (isIncompleteConfirmationLine(line)) extractedIncomplete.push(line);
+    else appliedLines.push(line);
+  });
+  attentionRaw.forEach((line) => {
+    if (isIncompleteConfirmationLine(line)) extractedIncomplete.push(line);
+    else attentionLines.push(line);
+  });
+
+  return {
+    appliedLines,
+    attentionLines,
+    incompleteLines: uniqueIncompleteLines([...storedIncomplete, ...extractedIncomplete]),
+  };
+}
+
 export function getActionableRefreshAttentionLines(lines) {
-  return cleanLines(lines).filter((l) => !isInformationalRefreshAttentionLine(l));
+  return cleanLines(lines).filter((l) => (
+    !isInformationalRefreshAttentionLine(l)
+    && !isIncompleteConfirmationLine(l)
+  ));
 }
 
 export function buildKhmdhsFindingAction(id, overrides = {}) {
@@ -99,16 +198,24 @@ export function buildKhmdhsRefreshFindings({
   seedAdam = '',
   appliedLines = [],
   attentionLines = [],
+  incompleteLines = [],
   actions = [],
   error = '',
 } = {}) {
-  const applied = cleanLines(appliedLines);
-  const attention = cleanLines(attentionLines);
+  const buckets = splitRefreshReportLineBuckets({
+    appliedLines,
+    attentionLines,
+    incompleteLines,
+  });
+  const applied = buckets.appliedLines;
+  const attention = buckets.attentionLines;
+  const incomplete = buckets.incompleteLines;
   const actionableAttention = getActionableRefreshAttentionLines(attention);
   const actionList = (Array.isArray(actions) ? actions : []).filter(Boolean);
   const errorText = String(error || '').trim();
 
   const worthKeeping = attention.length > 0
+    || incomplete.length > 0
     || actionList.length > 0
     || !!errorText
     || applied.length > 0;
@@ -117,14 +224,27 @@ export function buildKhmdhsRefreshFindings({
   // Μόνο ενημερωτικές ℹ️ γραμμές (π.χ. διαφορά 0,01 € που ήδη σεβαστήκαμε): αποθήκευση
   // για ιστορικό, αλλά αυτόματη επιβεβαίωση — αλλιώς κάθε μαζική ανανέωση ξανανοίγει badge.
   const infoOnly = actionableAttention.length === 0
+    && incomplete.length === 0
     && actionList.length === 0
     && !errorText;
 
+  let resolvedOutcome = infoOnly
+    ? KHMDHS_FINDING_OUTCOME.UNCHANGED
+    : (outcome || KHMDHS_FINDING_OUTCOME.ATTENTION);
+  if (
+    !infoOnly
+    && incomplete.length > 0
+    && !applied.length
+    && !actionableAttention.length
+    && !actionList.length
+    && !errorText
+  ) {
+    resolvedOutcome = KHMDHS_FINDING_OUTCOME.INCOMPLETE;
+  }
+
   return {
     version: KHMDHS_FINDINGS_VERSION,
-    outcome: infoOnly
-      ? (KHMDHS_FINDING_OUTCOME.UNCHANGED)
-      : (outcome || KHMDHS_FINDING_OUTCOME.ATTENTION),
+    outcome: resolvedOutcome,
     source,
     runId: String(runId || ''),
     at: at || new Date().toISOString(),
@@ -132,6 +252,7 @@ export function buildKhmdhsRefreshFindings({
     seedAdam: String(seedAdam || ''),
     appliedLines: applied,
     attentionLines: attention,
+    incompleteLines: incomplete,
     actions: actionList,
     error: errorText,
     acknowledgedAt: infoOnly ? (at || new Date().toISOString()) : null,

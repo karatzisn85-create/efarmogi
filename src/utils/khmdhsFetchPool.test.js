@@ -91,6 +91,101 @@ describe('khmdhsFetchPool', () => {
     });
   });
 
+  test('cachedFetch αλυσίδας: ίδιος ΑΔΑΜ μία φορά, άλλος ΑΔΑΜ νέα κλήση', async () => {
+    let calls = 0;
+    await runWithKhmdhsFetchContext({}, async () => {
+      const fetchChain = (adam) => cachedFetch('chain', adam, async () => {
+        calls += 1;
+        return { success: true, adamChain: { requests: [adam] } };
+      });
+      const a = await fetchChain('26REQ000000001');
+      const b = await fetchChain('26REQ000000001');
+      const c = await fetchChain('26REQ000000002');
+      expect(a.adamChain.requests).toEqual(['26REQ000000001']);
+      expect(b).toBe(a);
+      expect(c.adamChain.requests).toEqual(['26REQ000000002']);
+      expect(calls).toBe(2);
+    });
+  });
+
+  test('cachedFetch δεν μπερδεύει αλυσίδα με αίτημα στον ίδιο ΑΔΑΜ', async () => {
+    const seen = [];
+    await runWithKhmdhsFetchContext({}, async () => {
+      await cachedFetch('chain', '26REQ000000001', async () => {
+        seen.push('chain');
+        return { success: true, kind: 'chain' };
+      });
+      await cachedFetch('request', '26REQ000000001', async () => {
+        seen.push('request');
+        return { success: true, kind: 'request' };
+      });
+      const again = await cachedFetch('chain', '26REQ000000001', async () => {
+        seen.push('chain-again');
+        return { success: true, kind: 'wrong' };
+      });
+      expect(seen).toEqual(['chain', 'request']);
+      expect(again).toEqual({ success: true, kind: 'chain' });
+    });
+  });
+
+  test('cachedFetch δεν αποθηκεύει success:false ώστε να ξαναδοκιμάσει', async () => {
+    let calls = 0;
+    await runWithKhmdhsFetchContext({}, async () => {
+      const a = await cachedFetch('notice', '26PROC000000001', async () => {
+        calls += 1;
+        return { success: false, error: 'προσωρινό' };
+      });
+      const b = await cachedFetch('notice', '26PROC000000001', async () => {
+        calls += 1;
+        return { success: true, snapshot: { title: 'ok' } };
+      });
+      expect(a.success).toBe(false);
+      expect(b.success).toBe(true);
+      expect(calls).toBe(2);
+    });
+  });
+
+  test('χωρίς κοινό Map, δεύτερη ανάκτηση ξαναρωτά — δεν διαρρέει μεταξύ resolve', async () => {
+    let calls = 0;
+    const fetchOnce = () => cachedFetch('auction', '26AWRD000000001', async () => {
+      calls += 1;
+      return { success: true, snapshot: { title: 'awrd' } };
+    });
+    await runWithKhmdhsFetchContext({}, fetchOnce);
+    await runWithKhmdhsFetchContext({}, fetchOnce);
+    expect(calls).toBe(2);
+  });
+
+  test('κοινό chainCache μεταξύ διαδοχικών run με το ίδιο Map (συρραφή ίδιου υποέργου)', async () => {
+    const chainCache = new Map();
+    let calls = 0;
+    const fetchOnce = () => cachedFetch('chain', '26REQ000000001', async () => {
+      calls += 1;
+      return { success: true, adamChain: {} };
+    });
+    await runWithKhmdhsFetchContext({ chainCache }, fetchOnce);
+    await runWithKhmdhsFetchContext({ chainCache }, fetchOnce);
+    expect(calls).toBe(1);
+    expect(chainCache.get('26REQ000000001').success).toBe(true);
+  });
+
+  test('άγνωστο είδος δεν γράφει στο cache συμβάσεων', async () => {
+    const contractCache = new Map();
+    let calls = 0;
+    await runWithKhmdhsFetchContext({ contractCache }, async () => {
+      await cachedFetch('not-a-kind', '26SYMV000000001', async () => {
+        calls += 1;
+        return { leaked: true };
+      });
+      await cachedFetch('not-a-kind', '26SYMV000000001', async () => {
+        calls += 1;
+        return { leaked: true };
+      });
+    });
+    expect(calls).toBe(2);
+    expect(contractCache.size).toBe(0);
+  });
+
   test('reportKhmdhsProgress καλεί onProgress', async () => {
     const seen = [];
     await runWithKhmdhsFetchContext({

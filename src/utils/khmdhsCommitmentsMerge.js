@@ -1,6 +1,7 @@
 /**
  * Συγχώνευση αποφάσεων ανάληψης υποχρέωσης μετά ανάκτηση αλυσίδας ΚΗΜΔΗΣ.
  * Διατηρεί υπάρχουσες αποφάσεις όταν το νέο fetch είναι ελλιπές ή αποτυγχάνει στις λεπτομέρειες.
+ * Αφαιρεί μόνο κρίκους με επιβεβαιωμένη ακύρωση στο ΚΗΜΔΗΣ.
  */
 
 function normalizeCommitmentAdam(value) {
@@ -14,11 +15,17 @@ function normalizeCommitmentAdam(value) {
 /**
  * @param {Array} prevCommitments — αποθηκευμένες αποφάσεις υποέργου
  * @param {Array} incomingCommitments — αποτέλεσμα νέας ανάκτησης
+ * @param {{ cancelledAdams?: string[] }} [opts]
  * @returns {Array}
  */
-export function mergeKhmdhsCommitmentsFromChain(prevCommitments, incomingCommitments) {
+export function mergeKhmdhsCommitmentsFromChain(prevCommitments, incomingCommitments, opts = {}) {
   const prevList = Array.isArray(prevCommitments) ? prevCommitments : [];
   const incoming = Array.isArray(incomingCommitments) ? incomingCommitments : [];
+  const cancelledSet = new Set(
+    (opts.cancelledAdams || [])
+      .map((a) => normalizeCommitmentAdam(a))
+      .filter(Boolean)
+  );
 
   const prevByAdam = new Map();
   prevList.forEach((d) => {
@@ -31,7 +38,11 @@ export function mergeKhmdhsCommitmentsFromChain(prevCommitments, incomingCommitm
 
   incoming.forEach((inc) => {
     const a = normalizeCommitmentAdam(inc?.adam);
-    if (!a) return;
+    if (!a || cancelledSet.has(a)) return;
+    if (inc?.snapshot?.cancelled === true) {
+      cancelledSet.add(a);
+      return;
+    }
     seen.add(a);
     const prev = prevByAdam.get(a);
 
@@ -57,10 +68,11 @@ export function mergeKhmdhsCommitmentsFromChain(prevCommitments, incomingCommitm
     }
   });
 
-  // Παλιές αποφάσεις που λείπουν από το νέο fetch — διατήρηση
+  // Παλιές αποφάσεις που λείπουν από το νέο fetch — διατήρηση, εκτός επιβεβαιωμένης ακύρωσης
   prevList.forEach((prev) => {
     const a = normalizeCommitmentAdam(prev?.adam);
     if (!a || seen.has(a)) return;
+    if (cancelledSet.has(a) || prev?.snapshot?.cancelled === true) return;
     merged.push(prev);
   });
 

@@ -5,10 +5,12 @@ import {
   acknowledgeKhmdhsRefreshFindings,
   buildKhmdhsFindingAction,
   buildKhmdhsRefreshFindings,
+  clarifyKhmdhsIncompleteLine,
   countKhmdhsFindingAttentionItems,
   getKhmdhsSubprojectAttention,
   khmdhsFindingsNeedAttention,
   reconcileKhmdhsFindingsWithProjectState,
+  splitRefreshReportLineBuckets,
   KHMDHS_FINDING_ACTION,
   KHMDHS_FINDING_OUTCOME,
 } from './khmdhsRefreshFindings';
@@ -32,7 +34,7 @@ describe('buildKhmdhsRefreshFindings', () => {
   it('ζητά ενέργεια όταν υπάρχουν σημεία προσοχής ή ενέργειες', () => {
     const withAttention = buildKhmdhsRefreshFindings({
       outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
-      attentionLines: ['⚠️ Η σύμβαση δεν επιβεβαιώθηκε — διατηρήθηκε η προηγούμενη.'],
+      attentionLines: ['⚠️ ΑΠΕ: η καταχωρημένη τιμή παραμένει «50.000», ενώ το ΚΗΜΔΗΣ δείχνει «52.000».'],
     });
     expect(khmdhsFindingsNeedAttention(withAttention)).toBe(true);
     expect(countKhmdhsFindingAttentionItems(withAttention)).toBe(1);
@@ -103,10 +105,24 @@ describe('getKhmdhsSubprojectAttention', () => {
     const project = {
       khmdhsLastRefreshFindings: buildKhmdhsRefreshFindings({
         outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
-        attentionLines: ['Η σύμβαση δεν επιβεβαιώθηκε — διατηρήθηκε η προηγούμενη.'],
+        attentionLines: ['⚠️ ΑΠΕ: η καταχωρημένη τιμή παραμένει «50.000», ενώ το ΚΗΜΔΗΣ δείχνει «52.000».'],
       }),
     };
     expect(getKhmdhsSubprojectAttention(project).level).toBe('attention');
+  });
+
+  it('η ανεπιβεβαίωση ΚΗΜΔΗΣ δεν ανοίγει badge ενέργειας', () => {
+    const project = {
+      khmdhsLastRefreshFindings: buildKhmdhsRefreshFindings({
+        incompleteLines: [
+          'Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε την απόφαση ανάληψης 25REQ016195999 που ήδη υπάρχει στην κάρτα. '
+          + 'Δεν διαγράφηκε τίποτα — παραμένει όπως ήταν.',
+        ],
+      }),
+    };
+    expect(khmdhsFindingsNeedAttention(project.khmdhsLastRefreshFindings)).toBe(false);
+    expect(getKhmdhsSubprojectAttention(project).level).toBe('none');
+    expect(project.khmdhsLastRefreshFindings.outcome).toBe(KHMDHS_FINDING_OUTCOME.INCOMPLETE);
   });
 });
 
@@ -139,5 +155,39 @@ describe('reconcileKhmdhsFindingsWithProjectState', () => {
     expect(next.actions).toEqual([]);
     expect(next.acknowledgedAt).toBeTruthy();
     expect(next.acknowledgedBy).toBe('kostas');
+  });
+});
+
+describe('splitRefreshReportLineBuckets', () => {
+  it('μετατρέπει παλιό «ανάληψη 3 → 2» σε κατανοητή ανεπιβεβαίωση', () => {
+    const buckets = splitRefreshReportLineBuckets({
+      category: 'applied',
+      appliedLines: ['Αποφάσεις ανάληψης υποχρέωσης: από 3 → 2'],
+    });
+    expect(buckets.appliedLines).toEqual([]);
+    expect(buckets.incompleteLines).toHaveLength(1);
+    expect(buckets.incompleteLines[0]).toMatch(/δεν επιβεβαίωσε όλες τις αποφάσεις ανάληψης/i);
+    expect(buckets.incompleteLines[0]).toMatch(/Δεν διαγράφηκε τίποτα/);
+  });
+
+  it('βγάζει από την προσοχή παλιές γραμμές «εμφανίζονται 2 από 3»', () => {
+    const buckets = splitRefreshReportLineBuckets({
+      category: 'attention',
+      attentionLines: [
+        '⚠️ Δεν επιβεβαιώθηκαν όλες οι αποφάσεις ανάληψης σε αυτή την ανάκτηση (εμφανίζονται 2 από 3). Οι υπάρχουσες διατηρούνται — δοκιμάστε ξανά όταν το ΚΗΜΔΗΣ ανταποκρίνεται κανονικά.',
+      ],
+    });
+    expect(buckets.attentionLines).toEqual([]);
+    expect(buckets.incompleteLines[0]).toMatch(/Δεν διαγράφηκε τίποτα/);
+  });
+
+  it('δεν μπερδεύει πραγματική αλλαγή ποσού με ανεπιβεβαίωση', () => {
+    expect(clarifyKhmdhsIncompleteLine('Ποσό σύμβασης: 100.000,00 → 120.000,00 €'))
+      .toBe('Ποσό σύμβασης: 100.000,00 → 120.000,00 €');
+    const buckets = splitRefreshReportLineBuckets({
+      appliedLines: ['Ποσό σύμβασης: 100.000,00 → 120.000,00 €'],
+    });
+    expect(buckets.appliedLines).toHaveLength(1);
+    expect(buckets.incompleteLines).toHaveLength(0);
   });
 });

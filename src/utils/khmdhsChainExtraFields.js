@@ -22,15 +22,39 @@ import {
 
 /* ── Έγκριση δέσμευσης (ΑΠΟΦΑΣΗ ΑΝΑΛΗΨΗΣ ΥΠΟΧΡΕΩΣΗΣ) ── */
 
+function normalizeCommitmentDisplayAdam(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/[^A-Z0-9]/g, '')
+    .replace(/\*+$/, '');
+}
+
 export function pickKhmdhsCommitmentSnapshot(snapshot) {
   return pickKhmdhsRequestSnapshot(snapshot);
 }
 
 /**
  * Όλες οι Αποφάσεις Ανάληψης Υποχρέωσης — από αποθηκευμένη λίστα, chainMeta ή παλιό μεμονωμένο πεδίο.
+ * Επιβεβαιωμένα ακυρωμένοι κρίκοι δεν εμφανίζονται στην κάρτα.
  * @returns {Array<{ adam: string, snapshot: object|null, fetchedAt?: string }>}
  */
 export function collectKhmdhsCommitmentDecisions(project) {
+  const cancelledSet = new Set(
+    (Array.isArray(project?.khmdhsAdamChainMeta?.confirmedCancelledAdams)
+      ? project.khmdhsAdamChainMeta.confirmedCancelledAdams
+      : [])
+      .map((a) => normalizeCommitmentDisplayAdam(a))
+      .filter(Boolean)
+  );
+  const isDroppedCommitment = (d) => {
+    const key = normalizeCommitmentDisplayAdam(d?.adam || d?.snapshot?.referenceNumber);
+    if (!key) return true;
+    if (cancelledSet.has(key)) return true;
+    if (d?.snapshot?.cancelled === true) return true;
+    return false;
+  };
+
   const fromList = Array.isArray(project?.khmdhsCommitmentDecisions)
     ? project.khmdhsCommitmentDecisions.filter((d) => d && (d.adam || d.snapshot))
     : [];
@@ -42,7 +66,8 @@ export function collectKhmdhsCommitmentDecisions(project) {
   const merged = [];
   const seen = new Set();
   [...fromList, ...fromMeta].forEach((d) => {
-    const key = String(d.adam || d.snapshot?.referenceNumber || '').trim();
+    if (isDroppedCommitment(d)) return;
+    const key = normalizeCommitmentDisplayAdam(d.adam || d.snapshot?.referenceNumber);
     if (!key || seen.has(key)) return;
     seen.add(key);
     merged.push({
@@ -57,11 +82,12 @@ export function collectKhmdhsCommitmentDecisions(project) {
   const adam = String(project?.khmdhsCommitmentAdam || '').trim();
   const snap = pickKhmdhsCommitmentSnapshot(project?.khmdhsCommitmentSnapshot);
   if (adam || snap) {
-    return [{
+    const entry = {
       adam: adam || snap?.referenceNumber || '',
       snapshot: snap,
       fetchedAt: project?.khmdhsCommitmentFetchedAt || '',
-    }];
+    };
+    if (!isDroppedCommitment(entry)) return [entry];
   }
   return [];
 }

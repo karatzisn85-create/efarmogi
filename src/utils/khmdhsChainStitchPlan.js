@@ -214,6 +214,7 @@ export function filterChainResByStitchCovers(chainRes, coversStages) {
     next.formFields = undefined;
   }
   if (!allow.has('COMMIT')) {
+    next.skipCommitmentMerge = true;
     next.commitmentDecisions = [];
     next.commitmentDecision = undefined;
     if (next.chainMeta && typeof next.chainMeta === 'object') {

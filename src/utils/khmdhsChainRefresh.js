@@ -15,7 +15,10 @@ import {
   getConfirmedStitchSeedAdams,
   stitchPlanConflictsWithImplementationForm,
 } from './khmdhsChainStitchPlan';
-import { getActionableRefreshAttentionLines } from './khmdhsRefreshFindings';
+import {
+  getActionableRefreshAttentionLines,
+  isIncompleteConfirmationLine,
+} from './khmdhsRefreshFindings';
 
 export const KHMDHS_FRESHNESS_YELLOW_DAYS = 30;
 export const KHMDHS_FRESHNESS_YELLOW_MAX = 50;
@@ -224,10 +227,6 @@ export function canUserRefreshKhmdhsChain({ userRole, currentUser, project, engi
   );
 }
 
-function countPayments(project) {
-  return getKhmdhsPaymentEntries(project).length;
-}
-
 function paymentAdams(project) {
   return new Set(
     getKhmdhsPaymentEntries(project).map((p) => sanitizeAdam(p?.adam)).filter(Boolean)
@@ -386,7 +385,61 @@ function isProblemChainWarning(w) {
   if (!s) return false;
   // Κανονική παράλειψη ακυρωμένων/ματαιωμένων — πληροφοριακό, όχι «προσοχή».
   if (/παραλείφθηκ.*ακυρωμ|παραλείφθηκ.*ματαιωμ/i.test(s)) return false;
+  // Επιβεβαιωμένη ακύρωση που εφαρμόζεται στην κάρτα — η αναφορά αλλαγών το λέει ρητά.
+  if (/έχει ακυρώσει\/ματαιώσει|ενημερώνεται χωρίς τους ακυρωμένους/i.test(s)) return false;
   return /(δεν ανακτήθηκ|δεν βρέθηκ|απέτυχ|αποτυχία|ελλιπ|χωρίς ηλεκτρονικ|προσωρινό πρόβλημα|δεν επιβεβαι)/i.test(s);
+}
+
+function isIncompleteFetchChainWarning(w) {
+  const s = String(w || '').trim();
+  if (!s || !isProblemChainWarning(s)) return false;
+  return isIncompleteConfirmationLine(s)
+    || /(δεν ανακτήθηκ|δεν επιβεβαι|προσωρινό πρόβλημα)/i.test(s);
+}
+
+function describeUnconfirmedExisting(kind, adams) {
+  const list = (Array.isArray(adams) ? adams : []).filter(Boolean);
+  const n = list.length;
+  if (!n) return '';
+  if (kind === 'payment') {
+    if (n === 1) {
+      return `Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε το ένταλμα πληρωμής ${list[0]} που ήδη υπάρχει στην κάρτα. `
+        + 'Δεν διαγράφηκε τίποτα — παραμένει όπως ήταν. Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
+    }
+    return `Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε ${n} εντάλματα πληρωμής που ήδη υπάρχουν στην κάρτα (${list.join(', ')}). `
+      + 'Δεν διαγράφηκε τίποτα — παραμένουν όπως ήταν. Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
+  }
+  if (n === 1) {
+    return `Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε την απόφαση ανάληψης ${list[0]} που ήδη υπάρχει στην κάρτα. `
+      + 'Δεν διαγράφηκε τίποτα — παραμένει όπως ήταν. Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
+  }
+  return `Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε ${n} αποφάσεις ανάληψης που ήδη υπάρχουν στην κάρτα (${list.join(', ')}). `
+    + 'Δεν διαγράφηκε τίποτα — παραμένουν όπως ήταν. Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
+}
+
+function collectReportCancelledAdamSet(after, opts = {}) {
+  const set = new Set();
+  const addAll = (list) => {
+    (Array.isArray(list) ? list : []).forEach((raw) => {
+      const a = sanitizeAdam(raw);
+      if (a) set.add(a);
+    });
+  };
+  addAll(after?.khmdhsAdamChainMeta?.confirmedCancelledAdams);
+  addAll(opts.confirmedCancelledAdams);
+  return set;
+}
+
+function listRemovedCancelledAdams(beforeAdamSet, afterAdamSet, cancelledSet, beforeByAdam) {
+  const removed = [];
+  beforeAdamSet.forEach((a) => {
+    if (!a || afterAdamSet.has(a)) return;
+    const prev = beforeByAdam.get(a);
+    if (cancelledSet.has(a) || prev?.snapshot?.cancelled === true) {
+      removed.push(a);
+    }
+  });
+  return removed;
 }
 
 /**
@@ -396,15 +449,17 @@ function isProblemChainWarning(w) {
  *   category: 'applied' | 'attention' | 'unchanged',
  *   appliedLines: string[],
  *   attentionLines: string[],
+ *   incompleteLines: string[],
  * }}
  * category:
  * - applied: εφαρμόστηκαν πραγματικές αλλαγές δεδομένων από το ΚΗΜΔΗΣ
- * - attention: δεν προστέθηκαν νέα δεδομένα· διατηρήθηκαν χειροκίνητες τιμές ή υπάρχει σημείο προς έλεγχο
- * - unchanged: τίποτα ουσιαστικό δεν άλλαξε
+ * - attention: δεν προστέθηκαν νέα δεδομένα· υπάρχει σημείο προς έλεγχο ή ενέργεια
+ * - unchanged: τίποτα ουσιαστικό δεν άλλαξε (η ανεπιβεβαίωση ΚΗΜΔΗΣ δεν μετρά ως αλλαγή)
  */
 export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, opts = {}) {
   const appliedLines = [];
   const attentionLines = [];
+  const incompleteLines = [];
   const {
     statusAutoUpdated,
     protectedCount = 0,
@@ -413,6 +468,7 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     warnings: applyWarnings = [],
   } = applyResult;
   const chainWarnings = Array.isArray(opts.chainWarnings) ? opts.chainWarnings : [];
+  const cancelledAdamSet = collectReportCancelledAdamSet(after, opts);
 
   const beforePaySet = paymentAdams(before);
   const afterPayEntries = getKhmdhsPaymentEntries(after);
@@ -430,28 +486,36 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     );
   });
   newPayWithoutDetails.forEach((adam) => {
-    attentionLines.push(
-      `⚠️ Εντοπίστηκε ένταλμα ${adam} χωρίς λεπτομέρειες (προσωρινό πρόβλημα ΚΗΜΔΗΣ).`
-      + ' Δοκιμάστε ξανά ανανέωση σε λίγο — δεν διαγράφεται αυτόματα.'
+    incompleteLines.push(
+      `Εντοπίστηκε ένταλμα ${adam} χωρίς λεπτομέρειες (προσωρινό πρόβλημα ΚΗΜΔΗΣ). `
+      + 'Δεν προστέθηκε ως νέο και δεν διαγράφηκε τίποτα υπάρχον — δοκιμάστε ξανά σε λίγο.'
     );
   });
-  if (!newPayWithDetails.length && !newPayWithoutDetails.length) {
-    const beforePay = countPayments(before);
-    const afterPay = countPayments(after);
-    if (afterPay < beforePay) {
-      const afterHasFetchGaps = afterPayEntries.some((p) => !p.snapshot || p.error);
-      if (afterHasFetchGaps) {
-        attentionLines.push(
-          `⚠️ Δεν επιβεβαιώθηκαν όλα τα εντάλματα σε αυτή την ανάκτηση`
-          + ` (εμφανίζονται ${afterPay} από ${beforePay}).`
-          + ' Τα υπάρχοντα διατηρούνται — δοκιμάστε ξανά όταν το ΚΗΜΔΗΣ ανταποκρίνεται κανονικά.'
-        );
-      } else {
-        appliedLines.push(
-          `Εντάλματα πληρωμής: από ${beforePay} → ${afterPay} (αφαιρέθηκαν ως άσχετα ή αντικαταστάθηκαν)`
-        );
-      }
-    }
+  const afterPaySet = new Set(afterPayEntries.map((p) => sanitizeAdam(p?.adam)).filter(Boolean));
+  const beforePayByAdam = new Map();
+  getKhmdhsPaymentEntries(before).forEach((p) => {
+    const a = sanitizeAdam(p?.adam);
+    if (a) beforePayByAdam.set(a, p);
+  });
+  const cancelledRemovedPays = listRemovedCancelledAdams(
+    beforePaySet,
+    afterPaySet,
+    cancelledAdamSet,
+    beforePayByAdam
+  );
+  cancelledRemovedPays.forEach((adam) => {
+    appliedLines.push(
+      `Αφαιρέθηκε ακυρωμένο ένταλμα πληρωμής ${adam} — το ΚΗΜΔΗΣ το έχει ματαιώσει`
+      + ' και δεν εμφανίζεται πλέον στην κάρτα.'
+    );
+  });
+  const missingPayAdams = [];
+  beforePaySet.forEach((a) => {
+    if (!a || afterPaySet.has(a) || cancelledRemovedPays.includes(a)) return;
+    missingPayAdams.push(a);
+  });
+  if (missingPayAdams.length) {
+    incompleteLines.push(describeUnconfirmedExisting('payment', missingPayAdams));
   }
 
   const beforeCommitAdams = new Set(
@@ -484,30 +548,43 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     );
   });
   newCommitWithoutDetails.forEach((adam) => {
-    attentionLines.push(
-      `⚠️ Εντοπίστηκε απόφαση ανάληψης ${adam} χωρίς λεπτομέρειες (προσωρινό πρόβλημα ΚΗΜΔΗΣ).`
-      + ' Δοκιμάστε ξανά ανανέωση σε λίγο — δεν διαγράφεται αυτόματα.'
+    incompleteLines.push(
+      `Εντοπίστηκε απόφαση ανάληψης ${adam} χωρίς λεπτομέρειες (προσωρινό πρόβλημα ΚΗΜΔΗΣ). `
+      + 'Δεν προστέθηκε ως νέα και δεν διαγράφηκε τίποτα υπάρχον — δοκιμάστε ξανά σε λίγο.'
     );
   });
-  if (!newCommitWithDetails.length && !newCommitWithoutDetails.length) {
-    const beforeCommitCount = beforeCommitAdams.size;
-    const afterCommitCount = new Set(
-      afterCommitList.map((d) => sanitizeAdam(d?.adam)).filter(Boolean)
-    ).size;
-    if (afterCommitCount < beforeCommitCount) {
-      const afterHasFetchGaps = afterCommitList.some((d) => !d.snapshot || d.error);
-      if (afterHasFetchGaps) {
-        attentionLines.push(
-          `⚠️ Δεν επιβεβαιώθηκαν όλες οι αποφάσεις ανάληψης σε αυτή την ανάκτηση`
-          + ` (εμφανίζονται ${afterCommitCount} από ${beforeCommitCount}).`
-          + ' Οι υπάρχουσες διατηρούνται — δοκιμάστε ξανά όταν το ΚΗΜΔΗΣ ανταποκρίνεται κανονικά.'
-        );
-      } else {
-        appliedLines.push(
-          `Αποφάσεις ανάληψης υποχρέωσης: από ${beforeCommitCount} → ${afterCommitCount}`
-        );
-      }
-    }
+  const afterCommitAdams = new Set(
+    afterCommitList.map((d) => sanitizeAdam(d?.adam)).filter(Boolean)
+  );
+  const beforeCommitByAdam = new Map();
+  [
+    ...(before?.khmdhsCommitmentDecisions || []),
+    ...(before?.khmdhsCommitmentAdam
+      ? [{ adam: before.khmdhsCommitmentAdam, snapshot: before.khmdhsCommitmentSnapshot }]
+      : []),
+  ].forEach((d) => {
+    const a = sanitizeAdam(d?.adam);
+    if (a && !beforeCommitByAdam.has(a)) beforeCommitByAdam.set(a, d);
+  });
+  const cancelledRemovedCommits = listRemovedCancelledAdams(
+    beforeCommitAdams,
+    afterCommitAdams,
+    cancelledAdamSet,
+    beforeCommitByAdam
+  );
+  cancelledRemovedCommits.forEach((adam) => {
+    appliedLines.push(
+      `Αφαιρέθηκε ακυρωμένη ανάληψη υποχρέωσης ${adam} — το ΚΗΜΔΗΣ την έχει ματαιώσει`
+      + ' και δεν εμφανίζεται πλέον στην κάρτα.'
+    );
+  });
+  const missingCommitAdams = [];
+  beforeCommitAdams.forEach((a) => {
+    if (!a || afterCommitAdams.has(a) || cancelledRemovedCommits.includes(a)) return;
+    missingCommitAdams.push(a);
+  });
+  if (missingCommitAdams.length) {
+    incompleteLines.push(describeUnconfirmedExisting('commitment', missingCommitAdams));
   }
 
   // Νέες γραμμές σύμβασης (πολλές συμβάσεις) ή πρώτη κύρια σύμβαση — πριν το ιστορικό,
@@ -655,30 +732,34 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     if (!m) return;
     const label = STAGE_PRESERVED_LABELS[m[1]];
     if (label) {
-      attentionLines.push(
-        `⚠️ ${label} Δεν χάθηκαν δεδομένα — δοκιμάστε ξανά όταν το ΚΗΜΔΗΣ ανταποκρίνεται κανονικά.`
+      incompleteLines.push(
+        `${label} Δεν χάθηκαν δεδομένα — δοκιμάστε ξανά όταν το ΚΗΜΔΗΣ ανταποκρίνεται κανονικά.`
       );
     }
   });
 
   // #5 — Προειδοποιήσεις της ίδιας της ανάκτησης (π.χ. εντάλματα/έγγραφα που δεν ανακτήθηκαν,
   // ακυρωμένες πράξεις). Εμφανίζονται μόνο όσες δηλώνουν πρόβλημα/έλλειψη, όχι τα επεξηγηματικά.
-  const seenLines = new Set([...appliedLines, ...attentionLines].map((l) => normalizeReportLine(l)));
+  const seenLines = new Set(
+    [...appliedLines, ...incompleteLines, ...attentionLines].map((l) => normalizeReportLine(l))
+  );
   chainWarnings.forEach((w) => {
     if (!isProblemChainWarning(w)) return;
-    const line = `⚠️ ${String(w).trim()}`;
+    const raw = String(w).trim();
+    const line = isIncompleteFetchChainWarning(raw) ? raw : `⚠️ ${raw}`;
     const key = normalizeReportLine(line);
     if (seenLines.has(key)) return;
     seenLines.add(key);
-    attentionLines.push(line);
+    if (isIncompleteFetchChainWarning(raw)) incompleteLines.push(line);
+    else attentionLines.push(line);
   });
 
-  const lines = [...appliedLines, ...attentionLines];
+  const lines = [...appliedLines, ...incompleteLines, ...attentionLines];
   if (!lines.length) {
     lines.push(KHMDHS_REFRESH_REPORT_NO_CHANGES);
   }
 
-  // Μόνο ℹ️ «δεν απαιτείται ενέργεια» δεν μετρά ως κατηγορία attention στη μαζική αναφορά.
+  // Μόνο ℹ️ «δεν απαιτείται ενέργεια» και η ανεπιβεβαίωση ΚΗΜΔΗΣ δεν μετρά ως «χρειάζεται ενέργεια».
   const actionableAttention = getActionableRefreshAttentionLines(attentionLines);
   let category = 'unchanged';
   if (appliedLines.length) category = 'applied';
@@ -689,6 +770,7 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     category,
     appliedLines,
     attentionLines,
+    incompleteLines,
   };
 }
 

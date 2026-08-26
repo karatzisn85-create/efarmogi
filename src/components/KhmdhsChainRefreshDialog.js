@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import styled from 'styled-components';
+import { isIncompleteConfirmationLine } from '../utils/khmdhsRefreshFindings';
 
 const Overlay = styled.div`
   position: fixed;
@@ -183,7 +184,9 @@ export default function KhmdhsChainRefreshDialog({
                       ? { color: '#b45309', fontWeight: 700 }
                       : String(line).startsWith('ℹ️')
                         ? { color: '#92400e' }
-                        : undefined
+                        : isIncompleteConfirmationLine(line)
+                          ? { color: '#3730a3', fontWeight: 600 }
+                          : undefined
                   }
                 >
                   {line}

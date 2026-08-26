@@ -214,6 +214,21 @@ export function getLatestContractApeAmount(project, arrayIndex = 0) {
   return String(getLatestContractApeEntry(project, arrayIndex)?.apeAmount || '').trim();
 }
 
+/** Άθροισμα τελευταίου ΑΠΕ για εμφάνιση στην κάρτα — ελληνικά ποσά με χιλιάδες. */
+export function getTotalApeAmountGross(project) {
+  if (!project) return 0;
+  if (isMultipleContractsForm(project.implementationForm)) {
+    const rows = Array.isArray(project.contracts) ? project.contracts : [];
+    return rows.reduce(
+      (sum, _row, idx) => sum + parseGreekAmountString(getLatestContractApeAmount(project, idx)),
+      0
+    );
+  }
+  const latest = getLatestContractApeAmount(project, 0);
+  if (latest) return parseGreekAmountString(latest);
+  return parseGreekAmountString(project.apeAmount);
+}
+
 /** Είναι αυτή η καταχώριση ΑΠΕ η πιο πρόσφατη (κατά ημερομηνία εγγράφου); */
 export function isLatestContractApeEntry(project, arrayIndex, entryId) {
   if (!entryId) return false;

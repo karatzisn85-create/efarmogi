@@ -7,6 +7,7 @@ describe('parseGreekAmountString', () => {
   test('ελληνική μορφή με χιλιάδες', () => {
     expect(parseGreekAmountString('236.290,21')).toBe(236290.21);
     expect(parseGreekAmountString('1.234.567,89')).toBe(1234567.89);
+    expect(parseGreekAmountString('399.959,77')).toBe(399959.77);
   });
 
   test('διεθνής μορφή με μοναδική τελεία ως δεκαδικό', () => {

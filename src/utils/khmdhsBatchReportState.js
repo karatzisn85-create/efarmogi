@@ -9,8 +9,10 @@
  */
 
 import {
+  getActionableRefreshAttentionLines,
   getKhmdhsRefreshFindings,
   getKhmdhsSubprojectAttention,
+  splitRefreshReportLineBuckets,
   KHMDHS_FINDING_ACTION,
 } from './khmdhsRefreshFindings';
 import { getUnresolvedReviewItems } from './khmdhsDataQualityReport';
@@ -255,4 +257,175 @@ export function syncBatchReportWithProjects(results, projects = []) {
 
   if (!changed) return empty;
   return { results: recount(results, nextItems), cleared };
+}
+
+export function itemHasIncompleteConfirmation(item) {
+  if (!item || item.status !== 'refreshed') return false;
+  return splitRefreshReportLineBuckets(item).incompleteLines.length > 0;
+}
+
+/** Πραγματική εκκρεμότητα χρήστη — όχι «το ΚΗΜΔΗΣ δεν επιβεβαίωσε / δεν διαγράφηκε». */
+export function itemNeedsBatchFollowUp(item) {
+  if (!item || item.status !== 'refreshed' || item.followUpClearedAt) return false;
+  if ((item.actions?.length || 0) > 0) return true;
+  const { attentionLines } = splitRefreshReportLineBuckets(item);
+  return getActionableRefreshAttentionLines(attentionLines).length > 0;
+}
+
+/**
+ * Ομαδοποίηση ενοτήτων της αναφοράς μαζικής ανανέωσης.
+ * Η ανεπιβεβαίωση ΚΗΜΔΗΣ είναι δική της ενότητα και δεν μετρά ως «χρειάζονται ενέργεια».
+ */
+export function partitionKhmdhsBatchReportItems(items = [], pendingItems) {
+  const list = Array.isArray(items) ? items : [];
+  const refreshedItems = list.filter((i) => i.status === 'refreshed' && i.category === 'applied');
+  const unchangedItems = list.filter((i) => (
+    i.status === 'refreshed'
+    && (i.category === 'unchanged' || (!i.category && !i.hasSubstantiveChanges))
+  ));
+  const failedItems = list.filter((i) => i.status === 'failed');
+  const laterItems = list.filter((i) => i.busy || i.notProcessed);
+  const skippedItems = list.filter((i) => i.status === 'skipped' && !i.busy && !i.notProcessed);
+  const intervenedFromItems = list.filter((i) => i.status === 'intervened');
+  const interventionList = Array.isArray(pendingItems)
+    ? pendingItems
+    : intervenedFromItems;
+
+  const followUpItems = list.filter((i) => itemNeedsBatchFollowUp(i));
+  const followUpIds = new Set(followUpItems.map((i) => i.id));
+  const incompleteItems = list.filter((i) => (
+    itemHasIncompleteConfirmation(i) && !itemNeedsBatchFollowUp(i)
+  ));
+  const incompleteIds = new Set(incompleteItems.map((i) => i.id));
+  const refreshedOnly = refreshedItems.filter((i) => (
+    !followUpIds.has(i.id)
+    && !incompleteIds.has(i.id)
+    && splitRefreshReportLineBuckets(i).appliedLines.length > 0
+  ));
+  const unchangedOnly = unchangedItems.filter((i) => (
+    !followUpIds.has(i.id) && !incompleteIds.has(i.id)
+  ));
+
+  return {
+    refreshedItems,
+    unchangedItems,
+    failedItems,
+    laterItems,
+    skippedItems,
+    intervenedFromItems,
+    interventionList,
+    followUpItems,
+    incompleteItems,
+    refreshedOnly,
+    unchangedOnly,
+  };
+}
+
+export function summarizeKhmdhsBatchLiveItems(items = []) {
+  const list = Array.isArray(items) ? items : [];
+  return {
+    items: list,
+    refreshed: list.filter((i) => i.status === 'refreshed').length,
+    needsIntervention: list.filter((i) => i.status === 'intervened').length,
+    failed: list.filter((i) => i.status === 'failed').length,
+    skipped: list.filter((i) => i.status === 'skipped').length,
+    interventionItems: list
+      .filter((i) => i.status === 'intervened' && i.id)
+      .map((i) => ({ id: i.id, label: i.label })),
+  };
+}
+
+function liveSnapshotToReportResults(snap) {
+  return {
+    items: Array.isArray(snap?.items) ? snap.items : [],
+    interventionItems: Array.isArray(snap?.interventionItems) ? snap.interventionItems : [],
+    refreshed: snap?.refreshed || 0,
+    failed: snap?.failed || 0,
+    skipped: snap?.skipped || 0,
+    needsIntervention: snap?.needsIntervention || 0,
+    isRetry: !!snap?.isRetry,
+  };
+}
+
+/**
+ * Ενημερώνει την αναφορά από τη ζωντανή εικόνα.
+ * Σάρωση / κενή έναρξη δεν σβήνουν την προηγούμενη αναφορά — μόνο όταν υπάρχει
+ * πραγματική ουρά ξεκινάμε φρέσκια εικόνα.
+ * @returns {object|null|undefined} την επόμενη αναφορά· ίδια αναφορά αν δεν πρέπει να αλλάξει
+ */
+export function applyKhmdhsLiveSnapshotToResults(previous, snap) {
+  if (!snap) return previous;
+  if (snap.phase === 'scan') return previous;
+
+  const raw = liveSnapshotToReportResults(snap);
+  const hasQueue = (Number(snap.total) || 0) > 0 || raw.items.length > 0;
+
+  if (snap.reset && !snap.isRetry) {
+    return hasQueue ? raw : previous;
+  }
+  if (raw.isRetry) {
+    if (!raw.items.length) return previous;
+    return mergeKhmdhsBatchResults(previous, raw);
+  }
+  if (!hasQueue) return previous;
+  return raw;
+}
+
+export function buildKhmdhsLiveRunSnapshot({
+  running = false,
+  phase = 'run',
+  current = 0,
+  total = 0,
+  itemLabel = '',
+  stepMessage = '',
+  cancelRequested = false,
+  items = [],
+  isRetry = false,
+  reset = false,
+} = {}) {
+  const safeTotal = Math.max(0, Number(total) || 0);
+  const safeCurrent = Math.max(0, Number(current) || 0);
+  const pct = safeTotal > 0 ? Math.min(100, Math.round((safeCurrent / safeTotal) * 100)) : 0;
+  const summary = summarizeKhmdhsBatchLiveItems(items);
+  return {
+    running: !!running,
+    phase: String(phase || 'run'),
+    current: safeCurrent,
+    total: safeTotal,
+    pct,
+    itemLabel: String(itemLabel || '').trim(),
+    stepMessage: String(stepMessage || '').trim(),
+    cancelRequested: !!cancelRequested,
+    isRetry: !!isRetry,
+    reset: !!reset,
+    ...summary,
+  };
+}
+
+export function formatKhmdhsLiveHeadline(live) {
+  if (!live) return '';
+  if (live.phase === 'scan') return 'Εντοπισμός υποέργων προς ανανέωση…';
+  if (live.phase === 'wait') {
+    return live.stepMessage || 'Αναμονή πριν την επόμενη προσπάθεια, για να μην πνιγεί το ΚΗΜΔΗΣ…';
+  }
+  if (live.phase === 'finishing') return 'Ολοκλήρωση και ενημέρωση της αναφοράς…';
+  const of = live.total ? `${live.current} από ${live.total}` : '';
+  const name = live.itemLabel;
+  const step = live.stepMessage;
+  if (name && step) return of ? `${of} — ${name} · ${step}` : `${name} · ${step}`;
+  if (name) return of ? `${of} — ${name}` : name;
+  if (step) return of ? `${of} — ${step}` : step;
+  return of || 'Ανανέωση σε εξέλιξη…';
+}
+
+export function formatKhmdhsLiveDockLine(live, { running = false } = {}) {
+  if (!running) {
+    return 'Ολοκληρώθηκε — ανοίξτε την αναφορά';
+  }
+  if (!live) return 'Μαζική ανανέωση ΚΗΜΔΗΣ σε εξέλιξη…';
+  if (live.phase === 'scan') return 'Εντοπισμός υποέργων…';
+  if (live.phase === 'wait') return live.stepMessage || 'Αναμονή πριν την επόμενη προσπάθεια…';
+  const count = live.total ? `${live.current} / ${live.total}` : '…';
+  const name = live.itemLabel || 'Σε εξέλιξη';
+  return `${count} · ${name}`;
 }

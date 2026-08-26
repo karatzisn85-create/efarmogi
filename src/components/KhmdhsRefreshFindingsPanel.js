@@ -4,6 +4,7 @@ import {
   KHMDHS_FINDING_ACTION,
   KHMDHS_FINDING_OUTCOME,
   khmdhsFindingsNeedAttention,
+  splitRefreshReportLineBuckets,
 } from '../utils/khmdhsRefreshFindings';
 
 const fadeIn = keyframes`
@@ -22,10 +23,12 @@ const Panel = styled.div`
   margin-bottom: 0.9rem;
   border-radius: 14px;
   overflow: hidden;
-  border: 1px solid ${(p) => (p.$attention ? '#fed7aa' : '#bae6fd')};
+  border: 1px solid ${(p) => (p.$attention ? '#fed7aa' : p.$incomplete ? '#c7d2fe' : '#bae6fd')};
   background: ${(p) => (p.$attention
     ? 'linear-gradient(135deg, #fffbf5 0%, #fff7ed 100%)'
-    : 'linear-gradient(135deg, #f8fbff 0%, #f0f9ff 100%)')};
+    : p.$incomplete
+      ? 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)'
+      : 'linear-gradient(135deg, #f8fbff 0%, #f0f9ff 100%)')};
 
   ${(p) => p.$attention && css`animation: ${fadeIn} 0.25s ease, ${softPulse} 3s ease-in-out 3;`}
 `;
@@ -57,7 +60,7 @@ const HeadText = styled.div`
 const Title = styled.div`
   font-size: 0.8rem;
   font-weight: 800;
-  color: ${(p) => (p.$attention ? '#9a3412' : '#075985')};
+  color: ${(p) => (p.$attention ? '#9a3412' : p.$incomplete ? '#3730a3' : '#075985')};
   line-height: 1.3;
 `;
 
@@ -199,10 +202,11 @@ const AckBtn = styled.button`
   &:hover { background: #f1f5f9; }
 `;
 
-const OUTCOME_HEAD = {
+  const OUTCOME_HEAD = {
   [KHMDHS_FINDING_OUTCOME.APPLIED]: { icon: '✅', title: 'Η τελευταία ανανέωση ενημέρωσε στοιχεία' },
   [KHMDHS_FINDING_OUTCOME.ATTENTION]: { icon: '📌', title: 'Η τελευταία ανανέωση άφησε σημεία προς έλεγχο' },
   [KHMDHS_FINDING_OUTCOME.UNCHANGED]: { icon: '➖', title: 'Η τελευταία ανανέωση δεν βρήκε διαφορές' },
+  [KHMDHS_FINDING_OUTCOME.INCOMPLETE]: { icon: '◐', title: 'Η τελευταία ανανέωση δεν επιβεβαίωσε τα πάντα — τίποτα δεν διαγράφηκε' },
   [KHMDHS_FINDING_OUTCOME.INTERVENED]: { icon: '⚠️', title: 'Η μαζική ανανέωση σταμάτησε εδώ και περιμένει εσάς' },
   [KHMDHS_FINDING_OUTCOME.FAILED]: { icon: '❌', title: 'Η τελευταία ανανέωση δεν ολοκληρώθηκε' },
 };
@@ -227,29 +231,35 @@ export default function KhmdhsRefreshFindingsPanel({
   onCharacterizeSymv,
 }) {
   const needsAttention = khmdhsFindingsNeedAttention(findings);
-  const [open, setOpen] = useState(needsAttention);
+  const buckets = splitRefreshReportLineBuckets(findings || {});
+  const applied = buckets.appliedLines;
+  const attention = buckets.attentionLines;
+  const incomplete = buckets.incompleteLines;
+  const [open, setOpen] = useState(needsAttention || incomplete.length > 0);
 
   if (!findings) return null;
-  if (findings.acknowledgedAt && !(findings.appliedLines?.length)) return null;
+  if (findings.acknowledgedAt && !applied.length) return null;
 
-  const head = OUTCOME_HEAD[findings.outcome] || OUTCOME_HEAD[KHMDHS_FINDING_OUTCOME.ATTENTION];
+  const head = OUTCOME_HEAD[findings.outcome]
+    || (incomplete.length && !needsAttention
+      ? OUTCOME_HEAD[KHMDHS_FINDING_OUTCOME.INCOMPLETE]
+      : OUTCOME_HEAD[KHMDHS_FINDING_OUTCOME.ATTENTION]);
   const when = formatWhen(findings.at);
   const sourceLabel = findings.source === 'batch' ? 'μαζική ανανέωση' : 'ανανέωση υποέργου';
-  const applied = findings.appliedLines || [];
-  const attention = findings.attentionLines || [];
   const actions = findings.actions || [];
 
   const summaryParts = [];
   if (actions.length) summaryParts.push(`${actions.length} ενέργει${actions.length === 1 ? 'α' : 'ες'} για εσάς`);
   if (attention.length) summaryParts.push(`${attention.length} σημεί${attention.length === 1 ? 'ο' : 'α'} προσοχής`);
+  if (incomplete.length) summaryParts.push('δεν επιβεβαιώθηκαν όλα · δεν διαγράφηκε τίποτα');
   if (applied.length) summaryParts.push(`${applied.length} αλλαγ${applied.length === 1 ? 'ή' : 'ές'}`);
 
   return (
-    <Panel $attention={needsAttention}>
+    <Panel $attention={needsAttention} $incomplete={!needsAttention && incomplete.length > 0}>
       <Head type="button" onClick={() => setOpen((v) => !v)}>
         <HeadIcon>{head.icon}</HeadIcon>
         <HeadText>
-          <Title $attention={needsAttention}>{head.title}</Title>
+          <Title $attention={needsAttention} $incomplete={!needsAttention && incomplete.length > 0}>{head.title}</Title>
           <Sub>
             {summaryParts.join(' · ') || 'Χωρίς ευρήματα'}
             {when ? ` — ${sourceLabel}, ${when}` : ''}
@@ -288,6 +298,15 @@ export default function KhmdhsRefreshFindingsPanel({
                     )}
                   </ActionBody>
                 </ActionCard>
+              ))}
+            </>
+          )}
+
+          {incomplete.length > 0 && (
+            <>
+              <GroupLabel $color="#3730a3">Δεν επιβεβαιώθηκαν — δεν διαγράφηκε τίποτα</GroupLabel>
+              {incomplete.map((line, idx) => (
+                <Line key={`inc-${idx}`} style={{ color: '#3730a3' }}>{line}</Line>
               ))}
             </>
           )}

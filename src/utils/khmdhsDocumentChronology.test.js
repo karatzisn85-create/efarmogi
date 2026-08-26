@@ -120,6 +120,45 @@ describe('collectKhmdhsCommitmentDecisions / getKhmdhsPaymentEntries chronology'
     const adams = getKhmdhsPaymentEntries(project).map((p) => p.adam);
     expect(adams).toEqual(['22PAY001', '23PAY002', '24PAY003']);
   });
+
+  test('δεν εμφανίζει ανάληψη που το ΚΗΜΔΗΣ έχει επιβεβαιώσει ως ακυρωμένη, ακόμα κι αν μείνει στο chainMeta', () => {
+    const project = {
+      khmdhsCommitmentDecisions: [
+        {
+          adam: '25REQ016195275',
+          snapshot: { referenceNumber: '25REQ016195275', signedDate: '2025-03-01' },
+        },
+      ],
+      khmdhsAdamChainMeta: {
+        confirmedCancelledAdams: ['25REQ016195999'],
+        allBudgetCommitments: [
+          {
+            adam: '25REQ016195275',
+            snapshot: { referenceNumber: '25REQ016195275', signedDate: '2025-03-01' },
+          },
+          {
+            adam: '25REQ016195999',
+            snapshot: { referenceNumber: '25REQ016195999', signedDate: '2025-04-01', title: 'Ακυρωμένη' },
+          },
+        ],
+      },
+    };
+    expect(collectKhmdhsCommitmentDecisions(project).map((d) => d.adam)).toEqual([
+      '25REQ016195275',
+    ]);
+  });
+
+  test('δεν εμφανίζει ανάληψη με snapshot.cancelled', () => {
+    const project = {
+      khmdhsCommitmentDecisions: [
+        {
+          adam: '25REQ016195275',
+          snapshot: { referenceNumber: '25REQ016195275', cancelled: true },
+        },
+      ],
+    };
+    expect(collectKhmdhsCommitmentDecisions(project)).toEqual([]);
+  });
 });
 
 describe('lifecycle rail chronological labels', () => {

@@ -100,4 +100,28 @@ describe('mergeKhmdhsPaymentsFromChain', () => {
     const merged = mergeKhmdhsPaymentsFromChain([pay1, pay2Stub], [], {});
     expect(merged).toHaveLength(2);
   });
+
+  test('αφαιρεί μόνο επιβεβαιωμένα ακυρωμένο ένταλμα — το άλλο μένει', () => {
+    const merged = mergeKhmdhsPaymentsFromChain(
+      [pay1, pay2Stub],
+      [pay1],
+      { cancelledAdams: ['26PAY000000002'] }
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].adam).toBe('26PAY000000001');
+  });
+
+  test('κενό fetch χωρίς cancelledAdams δεν σβήνει εντάλματα', () => {
+    const merged = mergeKhmdhsPaymentsFromChain([pay1, pay2Stub], [], {});
+    expect(merged).toHaveLength(2);
+  });
+
+  test('incoming snapshot.cancelled δεν ξαναμπαίνει και φεύγει από τα προηγούμενα', () => {
+    const merged = mergeKhmdhsPaymentsFromChain(
+      [pay1],
+      [{ adam: '26PAY000000001', snapshot: { cancelled: true, totalCostWithVAT: 10000 } }],
+      {}
+    );
+    expect(merged).toHaveLength(0);
+  });
 });

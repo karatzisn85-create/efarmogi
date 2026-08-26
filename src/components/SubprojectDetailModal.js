@@ -16,6 +16,7 @@ import {
   hasApeEntryData,
   readContractApeFields,
   readSupplementaryApeFields,
+  getTotalApeAmountGross,
 } from '../utils/khmdhsApeEntry';
 import { formatDateEl } from '../utils/dateFormat';
 import { getDefaultSubprojectPhaseTab } from '../utils/subprojectPhaseTabDefault';
@@ -93,6 +94,7 @@ function buildRefreshFindingsForProject({ report, applyResult, mergedProject, se
     seedAdam,
     appliedLines: report.appliedLines,
     attentionLines: report.attentionLines,
+    incompleteLines: report.incompleteLines,
     actions,
   });
 }
@@ -1753,17 +1755,10 @@ function SubprojectDetailModal({
     [project]
   );
 
-  const totalApeAmount = useMemo(() => {
-    if (!project) return 0;
-    const parseAmt = (v) => {
-      const n = parseFloat(String(v || '').replace(',', '.'));
-      return isNaN(n) ? 0 : n;
-    };
-    if (isMultipleContractsForm(project.implementationForm)) {
-      return (project.contracts || []).reduce((s, c) => s + parseAmt(c?.apeAmount), 0);
-    }
-    return parseAmt(project.apeAmount);
-  }, [project]);
+  const totalApeAmount = useMemo(
+    () => (project ? getTotalApeAmountGross(project) : 0),
+    [project]
+  );
 
   const totalSupplementaryAmount = useMemo(() => {
     if (!project?.hasSupplementaryContracts || !Array.isArray(project.supplementaryContracts)) return 0;

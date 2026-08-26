@@ -17,9 +17,12 @@ import UserGuideModal from './UserGuideModal';
 import FileManager from './FileManager';
 import TaskAssignmentToastHost from './TaskAssignmentToastHost';
 import {
+  applyKhmdhsLiveSnapshotToResults,
   batchRunHasOutcome,
+  itemNeedsBatchFollowUp,
   mergeKhmdhsBatchResults,
   syncBatchReportWithProjects,
+  buildKhmdhsLiveRunSnapshot,
 } from '../utils/khmdhsBatchReportState';
 import { KHMDHS_FRESHNESS_YELLOW_DAYS } from '../utils/khmdhsChainRefresh';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
@@ -35,6 +38,7 @@ import {
   diffProjectsIndexEntries,
   collectIndexReloadTargets,
   runWithConcurrency,
+  shouldWarnRemoteSubprojectSave,
 } from '../utils/mergeLoadedSubproject';
 import {
   clearCornerClearance,
@@ -147,6 +151,9 @@ const KhmdhsBatchReportFab = lazy(() =>
 );
 const KhmdhsBatchReportModal = lazy(() =>
   import('./KhmdhsBatchRefreshWidget').then((m) => ({ default: m.KhmdhsBatchReportModal }))
+);
+const KhmdhsBatchLiveDock = lazy(() =>
+  import('./KhmdhsBatchRefreshWidget').then((m) => ({ default: m.KhmdhsBatchLiveDock }))
 );
 const MunicipalUnitsManager = lazy(() => import('./MunicipalUnitsManager'));
 const SubprojectExcelImportModal = lazy(() => import('./SubprojectExcelImportModal'));
@@ -2989,6 +2996,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   /** Επιστροφή στις σημειώσεις μετά από μετάβαση από chip συσχέτισης */
   const noteReturnRef = useRef(null);
   const meletaiReturnRef = useRef(null);
+  /** Η τελευταία δική μας αποθήκευση — ώστε το ξεκλείδωμα να μη θεωρηθεί «άλλος χρήστης». */
+  const recentLocalSaveRef = useRef({ subprojectId: '', updatedAt: '', until: 0 });
   // Separate monotonic counters for loadDataWithCache and loadProjects
   // Keeping them separate so one does not accidentally cancel the other
   const loadRequestIdRef = useRef(0);
@@ -3012,9 +3021,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     if (!loaded?.subprojectId) return;
     const sid = loaded.subprojectId;
     if (fromRemote && isFormOpenRef.current && editingProjectRef.current?.subprojectId === sid) {
-      const prevAt = String(editingProjectRef.current?.updatedAt || '');
-      const nextAt = String(loaded.updatedAt || '');
-      if (nextAt && nextAt !== prevAt) {
+      if (shouldWarnRemoteSubprojectSave({
+        previousUpdatedAt: editingProjectRef.current?.updatedAt,
+        loadedUpdatedAt: loaded.updatedAt,
+        loadedSubprojectId: sid,
+        recentLocalSave: recentLocalSaveRef.current,
+      })) {
         showToast(
           'Το υποέργο αποθηκεύτηκε από άλλον χρήστη. Κλείστε την επεξεργασία και ανοίξτε ξανά για να δείτε τις αλλαγές.',
           'warning'
@@ -3421,6 +3433,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [khmdhsOldestDays, setKhmdhsOldestDays] = useState(null);
   const [khmdhsLastRun, setKhmdhsLastRun] = useState(null);
   const [khmdhsBatchRunning, setKhmdhsBatchRunning] = useState(false);
+  const [khmdhsLiveSnapshot, setKhmdhsLiveSnapshot] = useState(null);
+  const [khmdhsLiveMinimized, setKhmdhsLiveMinimized] = useState(false);
+  const khmdhsLiveMinimizedRef = useRef(false);
+  const khmdhsWasRunningRef = useRef(false);
   const [khmdhsRetrySignal, setKhmdhsRetrySignal] = useState(null);
   const [khmdhsCancelSignal, setKhmdhsCancelSignal] = useState(null);
   const [khmdhsRetryLive, setKhmdhsRetryLive] = useState(null);
@@ -3515,6 +3531,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     // ευρήματα που ο χρήστης δεν πρόλαβε να δει.
     if (!batchRunHasOutcome(results)) {
       refreshKhmdhsStaleCount();
+      // Το παράθυρο άνοιξε για σάρωση χωρίς ουρά: κλείσ’ το, μην αφήνεις κενή εικόνα.
+      setIsBatchReportOpen(false);
+      khmdhsLiveMinimizedRef.current = false;
+      setKhmdhsLiveMinimized(false);
       return;
     }
 
@@ -3533,13 +3553,44 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
     setBatchReportResults(merged);
     setBatchPendingItems(pending);
-    setIsBatchReportOpen(true);
+    if (!khmdhsLiveMinimizedRef.current) setIsBatchReportOpen(true);
     setKhmdhsLastRun(lastRun);
     // Η αναφορά κρατιέται πάντα: αποτυχίες, σημεία προσοχής και εκκρεμείς ενέργειες
     // πρέπει να είναι διαθέσιμα και μετά το κλείσιμο της εφαρμογής.
     void persistKhmdhsBatchReport({ results: merged, pendingItems: pending, lastRun });
     refreshKhmdhsStaleCount();
   }, [refreshKhmdhsStaleCount, persistKhmdhsBatchReport]);
+
+  const handleLiveSnapshot = useCallback((snap) => {
+    setKhmdhsLiveSnapshot(snap || null);
+    if (!snap) return;
+    const next = applyKhmdhsLiveSnapshotToResults(batchReportResultsRef.current, snap);
+    if (next === batchReportResultsRef.current) return;
+    batchReportResultsRef.current = next;
+    setBatchReportResults(next);
+    setBatchPendingItems(next?.interventionItems || []);
+  }, []);
+
+  const restoreKhmdhsLiveView = useCallback(() => {
+    khmdhsLiveMinimizedRef.current = false;
+    setKhmdhsLiveMinimized(false);
+    setIsBatchReportOpen(true);
+  }, []);
+
+  const minimizeKhmdhsLiveView = useCallback(() => {
+    khmdhsLiveMinimizedRef.current = true;
+    setKhmdhsLiveMinimized(true);
+    setIsBatchReportOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (khmdhsBatchRunning && !khmdhsWasRunningRef.current) {
+      khmdhsLiveMinimizedRef.current = false;
+      setKhmdhsLiveMinimized(false);
+      setIsBatchReportOpen(true);
+    }
+    khmdhsWasRunningRef.current = khmdhsBatchRunning;
+  }, [khmdhsBatchRunning]);
 
   // Εκκρεμότητες αναφοράς κλείνουν όταν επιλυθούν στο υποέργο — σε idle ώστε
   // να μην «κλέβει» χρόνο από το άνοιγμα της σελίδας και τα πρώτα κλικ.
@@ -3568,11 +3619,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       });
       if (
         nextPending.length === 0
-        && !(synced.items || []).some((i) => (
-          i.status === 'refreshed'
-          && !i.followUpClearedAt
-          && (i.category === 'attention' || (i.actions?.length || 0) > 0)
-        ))
+        && !(synced.items || []).some((i) => itemNeedsBatchFollowUp(i))
         && cleared.length > 0
       ) {
         setTimeout(() => showToast('Όλες οι εκκρεμείς ενέργειες της αναφοράς ολοκληρώθηκαν.', 'success'), 1200);
@@ -3704,7 +3751,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           });
         });
         void runWithConcurrency(targets, INDEX_RELOAD_CONCURRENCY, async (p) => {
-          await fetchAndApplySubprojectRef.current?.(p.projectId, p.subprojectId, { fromRemote: true });
+          // Αλλαγή κλειδώματος ≠ αποθήκευση από άλλον. Η προειδοποίηση «άλλος χρήστης»
+          // έρχεται μόνο από το ευρετήριο (παρακάτω), όχι από το ξεκλείδωμα της δικής μας φόρμας.
+          await fetchAndApplySubprojectRef.current?.(p.projectId, p.subprojectId);
         });
       }, LOCK_DATA_RELOAD_DEBOUNCE_MS);
     };
@@ -4797,6 +4846,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         }
 
         const shouldKeepFormOpen = keepFormOpen === true;
+        const savedUpdatedAt = String(result.project?.updatedAt || '');
+        recentLocalSaveRef.current = {
+          subprojectId: result.subprojectId,
+          updatedAt: savedUpdatedAt,
+          until: Date.now() + 8000,
+        };
+        if (savedUpdatedAt && editingProjectRef.current?.subprojectId === result.subprojectId) {
+          editingProjectRef.current = {
+            ...editingProjectRef.current,
+            updatedAt: savedUpdatedAt,
+          };
+        }
 
         // Ξεκλείδωμα του έργου μετά την επιτυχή αποθήκευση (μόνο όταν κλείνει η φόρμα)
         if (!shouldKeepFormOpen && editingProject && editingProject.projectId) {
@@ -7566,7 +7627,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           isLiveOnPortal={portalLastExportedIds.has(selectedDetailProject.subprojectId)}
           onTogglePortal={handleTogglePortalSubproject}
           onRefreshProject={async () => {
-            await loadDataWithCache(true);
+            // silent: μην εμφανίζεται η οθόνη εκκίνησης πάνω από την ανοιχτή κάρτα
+            await loadDataWithCache(true, { silent: true });
             const refreshed = await ipcRenderer.invoke('load-all-projects');
             if (refreshed && Array.isArray(refreshed)) {
               const updated = refreshed.find(
@@ -8462,6 +8524,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         visible={(canManageAll || isEngineer || userRole === 'USER') && !isNotesOpen}
         canManageKhmdhs={khmdhsRefresh.showBatchRefreshButton(userRole)}
         khmdhsBatchRunning={khmdhsBatchRunning}
+        khmdhsLiveMinimized={khmdhsLiveMinimized}
+        onRestoreLive={restoreKhmdhsLiveView}
         staleCount={khmdhsStaleCount}
         oldestDays={khmdhsOldestDays}
         helpActive={guideModalOpen || guideTourActive || !!guideSpotSteps}
@@ -8485,7 +8549,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           },
           onBatchResults: handleBatchResults,
           onRunningChange: setKhmdhsBatchRunning,
-          onOpenReport: () => setIsBatchReportOpen(true),
+          onLiveSnapshot: handleLiveSnapshot,
+          onOpenReport: restoreKhmdhsLiveView,
           staleCount: khmdhsStaleCount,
           oldestDays: khmdhsOldestDays,
           lastRunInfo: khmdhsLastRun,
@@ -8522,18 +8587,42 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         }}
       />
 
-      {(batchPendingItems.length > 0 || khmdhsBatchRunning || !!batchReportResults || isBatchReportOpen) && (
+      {(batchPendingItems.length > 0 || khmdhsBatchRunning || !!batchReportResults || isBatchReportOpen || khmdhsLiveMinimized) && (
         <Suspense fallback={null}>
-          <KhmdhsBatchReportFab
-            pendingItems={batchPendingItems}
-            onClick={() => setIsBatchReportOpen(true)}
-            isRunning={khmdhsBatchRunning}
-            hasReport={!!batchReportResults}
+          {!khmdhsLiveMinimized && !khmdhsBatchRunning && (
+            <KhmdhsBatchReportFab
+              pendingItems={batchPendingItems}
+              onClick={() => setIsBatchReportOpen(true)}
+              isRunning={false}
+              hasReport={!!batchReportResults}
+            />
+          )}
+
+          <KhmdhsBatchLiveDock
+            visible={khmdhsLiveMinimized && (khmdhsBatchRunning || !!batchReportResults)}
+            live={khmdhsLiveSnapshot}
+            running={khmdhsBatchRunning}
+            onExpand={restoreKhmdhsLiveView}
+            onCancel={() => setKhmdhsCancelSignal(Date.now())}
           />
 
           <KhmdhsBatchReportModal
             isOpen={isBatchReportOpen}
-            onClose={() => setIsBatchReportOpen(false)}
+            onClose={() => {
+              if (khmdhsBatchRunning) {
+                minimizeKhmdhsLiveView();
+                return;
+              }
+              setIsBatchReportOpen(false);
+            }}
+            onMinimize={minimizeKhmdhsLiveView}
+            live={khmdhsBatchRunning
+              ? (khmdhsLiveSnapshot || buildKhmdhsLiveRunSnapshot({
+                running: true,
+                phase: 'scan',
+                stepMessage: 'Εντοπισμός υποέργων…',
+              }))
+              : null}
             results={batchReportResults}
             pendingItems={batchPendingItems}
             onNavigateToSubproject={(subprojectId) => {
@@ -8547,7 +8636,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             onCancelRetry={() => setKhmdhsCancelSignal(Date.now())}
             retryLive={khmdhsRetryLive}
             onDismiss={() => {
+              if (khmdhsBatchRunning) return;
               setIsBatchReportOpen(false);
+              khmdhsLiveMinimizedRef.current = false;
+              setKhmdhsLiveMinimized(false);
+              setKhmdhsLiveSnapshot(null);
               setBatchReportResults(null);
               setBatchPendingItems([]);
               void clearPersistedKhmdhsBatchReport();

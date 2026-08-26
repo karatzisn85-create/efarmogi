@@ -23,7 +23,7 @@ const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
  * Όταν η πύλη μας περιορίζει ρητά, η επόμενη προσπάθεια δεν έχει νόημα σε 1,5″:
  * τα όρια ρυθμού κρατούν συνήθως δεκάδες δευτερόλεπτα.
  */
-const SLOW_RETRY_STATUS_CODES = new Set([429, 503]);
+const SLOW_RETRY_STATUS_CODES = new Set([429, 502, 503, 504]);
 const SLOW_RETRY_DELAYS_MS = [5000, 15000, 30000];
 /** Ασφαλιστική δικλείδα: ποτέ αναμονή μεγαλύτερη από αυτό, ό,τι κι αν πει ο διακομιστής. */
 const MAX_RETRY_AFTER_MS = 60000;
@@ -34,7 +34,12 @@ const {
   noteKhmdhsThrottleSignal,
   noteKhmdhsTimeoutSignal,
 } = require('./khmdhsThrottleState');
-const { reportKhmdhsProgress } = require('./khmdhsFetchPool');
+const { reportKhmdhsProgress, cachedFetch } = require('./khmdhsFetchPool');
+
+function isSlowRetryTrigger(status) {
+  if (status === 'timeout') return true;
+  return SLOW_RETRY_STATUS_CODES.has(Number(status));
+}
 
 /**
  * Διαβάζει το `Retry-After` (δευτερόλεπτα ή ημερομηνία HTTP).
@@ -70,7 +75,7 @@ function readRetryAfterMs(res) {
  * Σεβόμαστε το `Retry-After` όταν ζητά περισσότερο από τον δικό μας κανόνα.
  */
 function computeRetryDelayMs(attempt, status, retryAfterMs) {
-  const base = SLOW_RETRY_STATUS_CODES.has(Number(status))
+  const base = isSlowRetryTrigger(status)
     ? (SLOW_RETRY_DELAYS_MS[attempt] || SLOW_RETRY_DELAYS_MS[SLOW_RETRY_DELAYS_MS.length - 1])
     : RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
   const requested = Math.min(Math.max(Number(retryAfterMs) || 0, 0), MAX_RETRY_AFTER_MS);
@@ -147,6 +152,7 @@ async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT, timeoutM
         // Διαφορετικά πρόκειται για λήξη χρόνου → θεωρείται προσωρινό σφάλμα (retry).
         noteKhmdhsTimeoutSignal();
         lastError = createTimeoutError();
+        retryStatus = 'timeout';
         if (attempt === maxRetries) throw lastError;
       } else {
         lastError = e;
@@ -468,6 +474,10 @@ async function fetchKhmdhsNoticeByAdam(adamRaw) {
         'Μη έγκυρος κωδικός ΑΔΑΜ. Χρησιμοποιήστε μορφή όπως 26PROC018492003 (έτος + PROC + 9 ψηφία).'
     };
   }
+  return cachedFetch('notice', adam, () => fetchKhmdhsNoticeByAdamFromNetwork(adam));
+}
+
+async function fetchKhmdhsNoticeByAdamFromNetwork(adam) {
   const url = `${KHMDHS_BASE}/khmdhs-opendata/notice?page=0`;
   const res = await fetchWithRetry(url, {
     method: 'POST',
@@ -596,6 +606,10 @@ async function fetchKhmdhsRequestByAdam(adamRaw) {
       error: 'Μη έγκυρος κωδικός ΑΔΑΜ αιτήματος (REQ).',
     };
   }
+  return cachedFetch('request', adam, () => fetchKhmdhsRequestByAdamFromNetwork(adam));
+}
+
+async function fetchKhmdhsRequestByAdamFromNetwork(adam) {
   const url = `${KHMDHS_BASE}/khmdhs-opendata/request?page=0`;
   const res = await fetchWithRetry(url, {
     method: 'POST',
@@ -818,6 +832,10 @@ async function fetchKhmdhsAuctionByAdam(adamRaw) {
   if (!adam) {
     return { success: false, error: 'Μη έγκυρος ΑΔΑΜ ανάθεσης (AWRD).' };
   }
+  return cachedFetch('auction', adam, () => fetchKhmdhsAuctionByAdamFromNetwork(adam));
+}
+
+async function fetchKhmdhsAuctionByAdamFromNetwork(adam) {
   const url = `${KHMDHS_BASE}/khmdhs-opendata/auction?page=0`;
   const res = await fetchWithRetry(url, {
     method: 'POST',
@@ -1292,6 +1310,14 @@ async function fetchKhmdhsAdamChain(adamRaw, opts = {}) {
   if (!adam) {
     return { success: false, error: 'Μη έγκυρος ΑΔΑΜ για αλυσίδα.' };
   }
+  const externalSignal = opts?.signal;
+  if (externalSignal?.aborted) {
+    return { success: false, error: 'Η διαδικασία ακυρώθηκε.', aborted: true };
+  }
+  return cachedFetch('chain', adam, () => fetchKhmdhsAdamChainFromNetwork(adam, opts));
+}
+
+async function fetchKhmdhsAdamChainFromNetwork(adam, opts = {}) {
   const externalSignal = opts?.signal;
   if (externalSignal?.aborted) {
     return { success: false, error: 'Η διαδικασία ακυρώθηκε.', aborted: true };

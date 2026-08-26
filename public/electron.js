@@ -3524,6 +3524,10 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (event, { subprojectId
     const chainSvc = require('./khmdhsAdamChainService');
     const sharedContractCache = new Map();
     const sharedPaymentCache = new Map();
+    const sharedChainCache = new Map();
+    const sharedRequestCache = new Map();
+    const sharedNoticeCache = new Map();
+    const sharedAuctionCache = new Map();
     const emitProgress = (payload) => {
       try {
         if (event?.sender && !event.sender.isDestroyed()) {
@@ -3542,24 +3546,29 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (event, { subprojectId
         project.khmdhsNoticeAdam,
         project.khmdhsNoticeSnapshot?.referenceNumber,
       ].filter(Boolean),
+      preferLightRefresh: true,
+      usesStitchPlan: !!seedPlan.usesStitchPlan,
+      storedChainMeta: project.khmdhsAdamChainMeta || null,
       contractCache: sharedContractCache,
       paymentCache: sharedPaymentCache,
+      chainCache: sharedChainCache,
+      requestCache: sharedRequestCache,
+      noticeCache: sharedNoticeCache,
+      auctionCache: sharedAuctionCache,
       onProgress: emitProgress,
     };
 
-    // Αν το ΚΗΜΔΗΣ έχει ήδη αρχίσει να απορρίπτει αιτήματα, αραιώνουμε μόνοι μας τα
-    // υποέργα αντί να επιμένουμε στον ίδιο ρυθμό και να μαζεύουμε αποτυχίες.
-    if (batchMode) {
-      const pacing = require('./khmdhsThrottleState').getKhmdhsPacing();
-      if (pacing.itemGapMs > 0) {
-        emitProgress({
-          phase: 'throttle',
-          message: 'Το ΚΗΜΔΗΣ δέχεται πολλά αιτήματα — μικρή αναμονή για να μη χαθούν δεδομένα…',
-        });
-        await sleepUnlessAborted(pacing.itemGapMs, localAbort?.signal);
-        if (localAbort?.signal?.aborted) {
-          return { success: false, aborted: true, error: 'Η διαδικασία ακυρώθηκε.' };
-        }
+    // Αν το ΚΗΜΔΗΣ έχει ήδη αρχίσει να απορρίπτει αιτήματα, αραιώνουμε μόνοι μας
+    // — και στη μαζική, και στην ανανέωση από την κάρτα του υποέργου.
+    const pacing = require('./khmdhsThrottleState').getKhmdhsPacing();
+    if (pacing.itemGapMs > 0) {
+      emitProgress({
+        phase: 'throttle',
+        message: 'Το ΚΗΜΔΗΣ δέχεται πολλά αιτήματα — μικρή αναμονή για να μη χαθούν δεδομένα…',
+      });
+      await sleepUnlessAborted(pacing.itemGapMs, localAbort?.signal);
+      if (localAbort?.signal?.aborted) {
+        return { success: false, aborted: true, error: 'Η διαδικασία ακυρώθηκε.' };
       }
     }
 

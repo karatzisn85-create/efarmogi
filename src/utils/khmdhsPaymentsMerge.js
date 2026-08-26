@@ -1,6 +1,7 @@
 /**
  * Συγχώνευση ενταλμάτων πληρωμής μετά ανάκτηση αλυσίδας ΚΗΜΔΗΣ.
  * Διατηρεί υπάρχοντα εντάλματα όταν το νέο fetch είναι ελλιπές ή αποτυγχάνει στις λεπτομέρειες.
+ * Αφαιρεί μόνο κρίκους με επιβεβαιωμένη ακύρωση στο ΚΗΜΔΗΣ ή ρητά άσχετα εντάλματα.
  */
 
 function normalizePaymentAdam(value) {
@@ -27,7 +28,7 @@ function carryUserFields(prev, incoming) {
 /**
  * @param {Array} prevPayments — αποθηκευμένα εντάλματα υποέργου
  * @param {Array} incomingPayments — αποτέλεσμα νέας ανάκτησης (chainRes.payments)
- * @param {{ skippedUnrelated?: Array<{ adam?: string }> }} [opts]
+ * @param {{ skippedUnrelated?: Array<{ adam?: string }>, cancelledAdams?: string[] }} [opts]
  * @returns {Array}
  */
 export function mergeKhmdhsPaymentsFromChain(prevPayments, incomingPayments, opts = {}) {
@@ -36,6 +37,11 @@ export function mergeKhmdhsPaymentsFromChain(prevPayments, incomingPayments, opt
   const unrelatedSet = new Set(
     (opts.skippedUnrelated || [])
       .map((e) => normalizePaymentAdam(e?.adam))
+      .filter(Boolean)
+  );
+  const cancelledSet = new Set(
+    (opts.cancelledAdams || [])
+      .map((a) => normalizePaymentAdam(a))
       .filter(Boolean)
   );
 
@@ -50,7 +56,11 @@ export function mergeKhmdhsPaymentsFromChain(prevPayments, incomingPayments, opt
 
   incoming.forEach((inc) => {
     const a = normalizePaymentAdam(inc?.adam);
-    if (!a || unrelatedSet.has(a)) return;
+    if (!a || unrelatedSet.has(a) || cancelledSet.has(a)) return;
+    if (inc?.snapshot?.cancelled === true) {
+      cancelledSet.add(a);
+      return;
+    }
     seen.add(a);
     const prev = prevByAdam.get(a);
 
@@ -77,10 +87,11 @@ export function mergeKhmdhsPaymentsFromChain(prevPayments, incomingPayments, opt
     }
   });
 
-  // Παλιά εντάλματα που λείπουν από το νέο fetch — διατήρηση (εκτός ρητά άσχετων)
+  // Παλιά εντάλματα που λείπουν από το νέο fetch — διατήρηση (εκτός ρητά άσχετων / ακυρωμένων)
   prevList.forEach((prev) => {
     const a = normalizePaymentAdam(prev?.adam);
-    if (!a || seen.has(a) || unrelatedSet.has(a)) return;
+    if (!a || seen.has(a) || unrelatedSet.has(a) || cancelledSet.has(a)) return;
+    if (prev?.snapshot?.cancelled === true) return;
     merged.push(prev);
   });
 

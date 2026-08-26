@@ -16,6 +16,7 @@ import {
   formatApeAmountDisplay,
   getApeKhmdhsReferenceAmountLabel,
   getLatestContractApeAmount,
+  getTotalApeAmountGross,
   isLatestContractApeEntry,
   listContractApeEntries,
   syncPreservedContractApeAmount,
@@ -214,6 +215,21 @@ describe('khmdhsApeEntry', () => {
     expect(getLatestContractApeAmount(project, 0)).toBe('1.600.000,00');
     expect(isLatestContractApeEntry(project, 0, entries[0].id)).toBe(false);
     expect(isLatestContractApeEntry(project, 0, entries[1].id)).toBe(true);
+  });
+
+  test('πλακίδιο ΑΠΕ διαβάζει ελληνικές χιλιάδες — όχι parseFloat που κόβει το 399.959,77 σε 399,96', () => {
+    const greek = '399.959,77';
+    expect(parseFloat(String(greek).replace(',', '.'))).toBeCloseTo(399.959, 3);
+    const project = {
+      implementationForm: 'Μια Σύμβαση',
+      apeAmount: greek,
+      apeEntries: [{
+        id: 'ape-1',
+        documentDate: '2025-10-27',
+        apeAmount: greek,
+      }],
+    };
+    expect(getTotalApeAmountGross(project)).toBeCloseTo(399959.77, 2);
   });
 
   test('όχι φανταστικός ΑΠΕ από γενικά σχόλια ή ετικέτα συμπληρωματικής', () => {
