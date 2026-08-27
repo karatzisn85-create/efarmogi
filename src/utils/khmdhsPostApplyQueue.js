@@ -159,6 +159,7 @@ export function buildPostApplyQueue({
       dismissed: formAfter?.khmdhsDocumentRegistryDismissed,
       chainFetchedAt: registryDefer.chainFetchedAt,
       chainRes: registryDefer.chainRes,
+      chainResList: registryDefer.chainResList || null,
     });
     if (offer) {
       tasks.push({

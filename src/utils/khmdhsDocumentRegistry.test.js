@@ -74,6 +74,26 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
     expect(secondEntry.title).toBe('ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ');
   });
 
+  it('uses fetched request snapshot for secondary REQ instead of omitting it', () => {
+    const secondReq = '24REQ015252599';
+    const chainResWithSecondReq = {
+      ...chainRes,
+      chainMeta: {
+        linkedAdams: { requests: ['21REQ009553549', secondReq] },
+        requestSnapshotsByAdam: {
+          [secondReq]: {
+            referenceNumber: secondReq,
+            title: 'Πρωτογενές αίτημα 2024',
+          },
+        },
+      },
+    };
+    const candidates = collectKhmdhsRegistryCandidatesFromChainRes(chainResWithSecondReq);
+    const secondEntry = candidates.find((c) => c.adam === secondReq);
+    expect(secondEntry).toBeTruthy();
+    expect(secondEntry.isStub).not.toBe(true);
+  });
+
   it('applyAutoDocumentRegistryFromChain προσθέτει δεύτερο PROC με τίτλο στα Αρχεία', () => {
     const secondNoticeAdam = '26PROC019569916';
     const project = {

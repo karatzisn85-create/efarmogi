@@ -10,6 +10,7 @@ import {
 import {
   buildKhmdhsRefreshChangeReport,
   KHMDHS_REFRESH_REPORT_NO_CHANGES,
+  splitKhmdhsRegistryChangeLines,
 } from '../utils/khmdhsChainRefresh';
 import khmdhsRefresh from '../../app/core/khmdhsRefresh';
 import {
@@ -1097,19 +1098,8 @@ const ErrorLine = styled.div`
   padding: 0.35rem 0 0;
 `;
 
-const BATCH_REGISTRY_PREFIX = 'Νέο έγγραφο στα Αρχεία Υποέργου:';
-
 function splitBatchChangeLines(changeLines) {
-  const other = [];
-  const registry = [];
-  (changeLines || []).forEach((line) => {
-    if (String(line || '').startsWith(BATCH_REGISTRY_PREFIX)) {
-      registry.push(String(line).slice(BATCH_REGISTRY_PREFIX.length).trim());
-    } else {
-      other.push(line);
-    }
-  });
-  return { other, registry };
+  return splitKhmdhsRegistryChangeLines(changeLines);
 }
 
 function summarizeAppliedChanges(appliedLines = []) {
@@ -2357,6 +2347,7 @@ export default function KhmdhsBatchRefreshWidget({
     setConfirmOpen(false);
 
     let idleArmed = false;
+    let refreshedForShutdown = 0;
     if (shutdownAfter) {
       try {
         const armRes = await ipcRenderer.invoke('arm-khmdhs-idle-shutdown', {
@@ -2841,6 +2832,9 @@ export default function KhmdhsBatchRefreshWidget({
               detail: applyResult.apeConflict.contractLabel
                 ? `Γραμμή: ${applyResult.apeConflict.contractLabel}. Κρατήστε την τρέχουσα τιμή ή δεχτείτε την πρόταση ΚΗΜΔΗΣ.`
                 : '',
+              suggested: applyResult.apeConflict.suggested,
+              current: applyResult.apeConflict.current,
+              contractIndex: applyResult.apeConflict.contractIndex,
             }));
           }
           const unresolvedReviewCount = getUnresolvedReviewItems(
@@ -3056,6 +3050,7 @@ export default function KhmdhsBatchRefreshWidget({
       }
 
       if (lastToast) {
+        refreshedForShutdown = Number(lastToast.refreshed) || 0;
         const {
           refreshed: doneCount, needsIntervention: needCount,
           failed: failCount, lockedCount, pendingCount, total: passTotal, remaining,
@@ -3118,6 +3113,7 @@ export default function KhmdhsBatchRefreshWidget({
           shutdownAfter: true,
           isRetry: !!retryItems,
           cancelled: !!cancelRef.current,
+          refreshedCount: refreshedForShutdown,
         });
         if (doCommit) {
           try {

@@ -1712,7 +1712,7 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
               if (res?.success === false && res?.error) safeAlert(res.error);
             }}
           >
-            Προβολή online
+            Προβολή
           </MiniBtn>
         )}
         {resolved && onRevoke && (
@@ -2395,7 +2395,7 @@ function ActionReviewCard({ item, formData, review, onResolve, stepIndex = null,
                 if (res?.success === false && res?.error) safeAlert(res.error);
               }}
             >
-              Προβολή online
+              Προβολή
             </MiniBtn>
           )}
         </EditorRow>

@@ -8,6 +8,8 @@
  */
 
 import { getUnresolvedReviewItems } from './khmdhsDataQualityReport';
+import { resolveStoredApeAmount } from './khmdhsFields';
+import { normalizeAmountForCompare } from './projectFormPhases';
 
 export const KHMDHS_FINDINGS_FIELD = 'khmdhsLastRefreshFindings';
 export const KHMDHS_FINDINGS_VERSION = 1;
@@ -215,12 +217,16 @@ export function getActionableRefreshAttentionLines(lines) {
 
 export function buildKhmdhsFindingAction(id, overrides = {}) {
   const preset = ACTION_PRESETS[id] || {};
-  return {
+  const action = {
     id,
     icon: overrides.icon || preset.icon || '⚠️',
     title: overrides.title || preset.title || 'Χρειάζεται ενέργεια',
     detail: overrides.detail || preset.detail || '',
   };
+  if (overrides.suggested) action.suggested = String(overrides.suggested);
+  if (overrides.current) action.current = String(overrides.current);
+  if (overrides.contractIndex != null) action.contractIndex = overrides.contractIndex;
+  return action;
 }
 
 /**
@@ -338,6 +344,19 @@ export function withAcknowledgedFindings(project, opts = {}) {
   return { ...project, [KHMDHS_FINDINGS_FIELD]: acknowledgeKhmdhsRefreshFindings(findings, opts) };
 }
 
+function projectApeMatchesSuggested(project, suggested) {
+  const want = normalizeAmountForCompare(suggested);
+  if (!want) return false;
+  const amounts = [
+    project?.apeAmount,
+    resolveStoredApeAmount(project, 0),
+    ...(Array.isArray(project?.contracts)
+      ? project.contracts.map((_, i) => resolveStoredApeAmount(project, i))
+      : []),
+  ];
+  return amounts.some((v) => v && normalizeAmountForCompare(v) === want);
+}
+
 /**
  * Μετά από επίλυση ελέγχου στοιχείων / κατανομής, αφαιρεί από τα ευρήματα
  * ενέργειες που δεν εκκρεμούν πια — ώστε να μην μένουν «νεκρές» επισημάνσεις.
@@ -355,6 +374,9 @@ export function reconcileKhmdhsFindingsWithProjectState(project, { by = '' } = {
       return !project.khmdhsSymvChainPlan?.items?.length;
     }
     if (action.id === KHMDHS_FINDING_ACTION.APE_CONFLICT) {
+      if (action.suggested && projectApeMatchesSuggested(project, action.suggested)) {
+        return false;
+      }
       return true;
     }
     if (action.id === KHMDHS_FINDING_ACTION.RETRY_FETCH) {
@@ -373,6 +395,33 @@ export function reconcileKhmdhsFindingsWithProjectState(project, { by = '' } = {
     return acknowledgeKhmdhsRefreshFindings(next, { by });
   }
   return next;
+}
+
+/**
+ * Αφαιρεί μία ενέργεια ευρημάτων (π.χ. ΑΠΕ μετά «κρατάω το τρέχον» ή αποδοχή).
+ * Αν δεν μένει τίποτα προς ενέργεια, κλείνει και τα ευρήματα.
+ */
+export function dropKhmdhsFindingAction(project, actionId, { by = '' } = {}) {
+  const findings = getKhmdhsRefreshFindings(project);
+  if (!findings) return project;
+  const prevActions = findings.actions || [];
+  const hadAction = prevActions.some((a) => a.id === actionId);
+  const nextActions = prevActions.filter((a) => a.id !== actionId);
+  let nextLines = Array.isArray(findings.attentionLines) ? findings.attentionLines : [];
+  if (actionId === KHMDHS_FINDING_ACTION.APE_CONFLICT) {
+    nextLines = nextLines.filter((l) => !/ΑΠΕ/.test(String(l || '')));
+  }
+  if (!hadAction && nextLines.length === (findings.attentionLines || []).length) {
+    return project;
+  }
+  let next = { ...findings, actions: nextActions, attentionLines: nextLines };
+  const stillNeeds = getActionableRefreshAttentionLines(next.attentionLines).length > 0
+    || nextActions.length > 0
+    || !!String(next.error || '').trim();
+  if (!stillNeeds) {
+    next = acknowledgeKhmdhsRefreshFindings(next, { by });
+  }
+  return { ...project, [KHMDHS_FINDINGS_FIELD]: next };
 }
 
 /**

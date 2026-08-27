@@ -35,6 +35,7 @@ import {
   filterChainResByStitchCovers,
   getStitchPlanSegmentForSeed,
 } from './khmdhsChainStitchPlan';
+import { filterUnrelatedPayments } from './khmdhsPaymentReconciliation';
 
 function sanitizeAdamInput(value) {
   return String(value || '')
@@ -95,6 +96,12 @@ function applyMergedCommitmentsToForm(next, merged) {
     next.khmdhsCommitmentSnapshot = null;
     next.khmdhsCommitmentFetchedAt = '';
   }
+}
+
+/** Κρατά εντάλματα μόνο για τις συμβάσεις της κάρτας και τα συνδεδεμένα πρωτογενή. */
+function retainRelatedPaymentsOnForm(next) {
+  if (!Array.isArray(next?.khmdhsPayments) || !next.khmdhsPayments.length) return;
+  next.khmdhsPayments = filterUnrelatedPayments(next.khmdhsPayments, next);
 }
 
 function mergeCommitmentAndPaymentsFromChain(next, chainRes, {
@@ -353,15 +360,15 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
     }
   }
 
-  // protect: ένωση meta (ώστε να μην χαθούν προσκλήσεις/αιτήματα του πρώτου πρωτογενούς)
+  // Ένωση meta ώστε να μην χαθούν προσκλήσεις/αιτήματα του προηγούμενου πρωτογενούς.
   if (chainRes.chainMeta) {
-    if (protect && next.khmdhsAdamChainMeta) {
+    if (next.khmdhsAdamChainMeta) {
       next.khmdhsAdamChainMeta = mergeKhmdhsChainMetaForStitch(
         next.khmdhsAdamChainMeta,
         chainRes.chainMeta,
         next
       );
-    } else if (!protect || !next.khmdhsAdamChainMeta) {
+    } else {
       next.khmdhsAdamChainMeta = chainRes.chainMeta;
     }
   }
@@ -369,13 +376,11 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
   if (chainRes.request && chainRes.request.snapshot) {
     const incomingR = sanitizeAdamInput(chainRes.request.adam);
     const existingR = sanitizeAdamInput(next.khmdhsRequestAdam);
-    if (!protect || !next.khmdhsRequestAdam) {
-      mergeRequestFromChain(next, chainRes, { protect: false });
-    } else {
+    if (existingR && incomingR && existingR !== incomingR) {
+      extraRequests.push({ adam: incomingR, snapshot: chainRes.request.snapshot });
       mergeRequestFromChain(next, chainRes, { protect: true });
-      if (incomingR && existingR && incomingR !== existingR) {
-        extraRequests.push({ adam: incomingR, snapshot: chainRes.request.snapshot });
-      }
+    } else {
+      mergeRequestFromChain(next, chainRes, { protect: false });
     }
   } else if (chainRes.request && !chainRes.request.snapshot) {
     // Μερική ανάκτηση REQ χωρίς snapshot — διατήρηση υπάρχοντος, χωρίς γυμνό stub.
@@ -426,7 +431,10 @@ function mergeDerivedSuppWithExisting(form, derivedSupp) {
 }
 
 export function applyChainCharacterizationToForm(form, review, { fullRecompute = false } = {}) {
-  if (form?.khmdhsSymvChainPlan?.items?.length) return form;
+  if (form?.khmdhsSymvChainPlan?.items?.length) {
+    // Η κατανομή κυβερνά ποσά/γραμμές — ενημερώνουμε μόνο ετικέτες ιστορικού από τον χαρακτηρισμό.
+    return syncChainHistoryWithReview(form, review);
+  }
   const multi = isMultipleContractsForm(form.implementationForm);
   const manualSupp = (form.supplementaryContracts || []).filter((c) => !c?.khmdhsDerived);
   let derivedSupp = [];
@@ -852,6 +860,7 @@ export function applyAdamChainResultStitch(prev, chainRes, {
     chainRes.chainMeta,
     next
   );
+  retainRelatedPaymentsOnForm(next);
 
   next.khmdhsDataQualityReview = mergeKhmdhsReviewAfterFetch(
     prev.khmdhsDataQualityReview,
@@ -1203,6 +1212,7 @@ export function applyAdamChainResultStitchMulti(prev, chainRes, {
     chainRes.chainMeta,
     next
   );
+  retainRelatedPaymentsOnForm(next);
 
   next.khmdhsDataQualityReview = mergeKhmdhsReviewAfterFetch(
     prev.khmdhsDataQualityReview,
@@ -1527,10 +1537,24 @@ export function applyAdamChainResult(prev, chainRes, {
     }
 
     if (chainRes.auction?.adam && chainRes.auction?.snapshot) {
-      next.khmdhsAwardAdam = chainRes.auction.adam;
-      next.khmdhsAwardSnapshot = chainRes.auction.snapshot;
-      if (chainRes.auction.fetchedAt) {
-        next.khmdhsAwardFetchedAt = chainRes.auction.fetchedAt;
+      const incomingA = sanitizeAdamInput(chainRes.auction.adam);
+      const existingA = sanitizeAdamInput(workingPrev.khmdhsAwardAdam);
+      if (existingA && incomingA && existingA !== incomingA) {
+        next.khmdhsAwardAdam = workingPrev.khmdhsAwardAdam || '';
+        next.khmdhsAwardSnapshot = workingPrev.khmdhsAwardSnapshot || null;
+        next.khmdhsAwardFetchedAt = workingPrev.khmdhsAwardFetchedAt || '';
+        appendLinkedStageSnapshot(next, {
+          linkedKey: 'auctions',
+          snapshotMapKey: 'awardSnapshotsByAdam',
+          adam: chainRes.auction.adam,
+          snapshot: chainRes.auction.snapshot,
+        });
+      } else {
+        next.khmdhsAwardAdam = chainRes.auction.adam;
+        next.khmdhsAwardSnapshot = chainRes.auction.snapshot;
+        if (chainRes.auction.fetchedAt) {
+          next.khmdhsAwardFetchedAt = chainRes.auction.fetchedAt;
+        }
       }
     } else if (prevHadStage.award) {
       // Η ανάθεση/κατακύρωση δεν ήρθε — διατηρούμε την προηγούμενη.
@@ -1541,7 +1565,21 @@ export function applyAdamChainResult(prev, chainRes, {
     }
 
     if (chainRes.request && chainRes.request.snapshot) {
-      mergeRequestFromChain(next, chainRes);
+      const incomingR = sanitizeAdamInput(chainRes.request.adam);
+      const existingR = sanitizeAdamInput(workingPrev.khmdhsRequestAdam);
+      if (existingR && incomingR && existingR !== incomingR) {
+        next.khmdhsRequestAdam = workingPrev.khmdhsRequestAdam || '';
+        next.khmdhsRequestSnapshot = workingPrev.khmdhsRequestSnapshot || null;
+        next.khmdhsRequestFetchedAt = workingPrev.khmdhsRequestFetchedAt || '';
+        appendLinkedStageSnapshot(next, {
+          linkedKey: 'requests',
+          snapshotMapKey: 'requestSnapshotsByAdam',
+          adam: chainRes.request.adam,
+          snapshot: chainRes.request.snapshot,
+        });
+      } else {
+        mergeRequestFromChain(next, chainRes);
+      }
     } else if (prevHadStage.request) {
       // Το πρωτογενές αίτημα δεν ήρθε — διατηρούμε το προηγούμενο.
       next.khmdhsRequestAdam = workingPrev.khmdhsRequestAdam || '';
@@ -1564,7 +1602,20 @@ export function applyAdamChainResult(prev, chainRes, {
       next.khmdhsContractChainHistory = chainRes.contractChainHistory || [];
       next.khmdhsContractAmendments = chainRes.contractAmendments || [];
     }
-    next.khmdhsAdamChainMeta = chainRes.chainMeta || workingPrev.khmdhsAdamChainMeta || null;
+    next.khmdhsAdamChainMeta = mergeKhmdhsChainMetaForStitch(
+      workingPrev.khmdhsAdamChainMeta,
+      chainRes.chainMeta,
+      next
+    );
+    if (noticeConflict && chainRes.notice?.adam && chainRes.notice?.snapshot) {
+      appendLinkedStageSnapshot(next, {
+        linkedKey: 'notices',
+        snapshotMapKey: 'noticeSnapshotsByAdam',
+        adam: chainRes.notice.adam,
+        snapshot: chainRes.notice.snapshot,
+      });
+    }
+    retainRelatedPaymentsOnForm(next);
     // Πρώτο πέρασμα: merge review χωρίς reconcile — το reconcile γίνεται ΜΕΤΑ
     // το applyUserEditsAfterKhmdhsFetch, ώστε τα protected πεδία (π.χ. assignmentProcedure)
     // να είναι ήδη επαναφερμένα όταν υπολογίζεται το hasActionRequired.
@@ -1756,6 +1807,7 @@ export function applyAdamChainResult(prev, chainRes, {
     ),
     khmdhsChainLastRefreshedAt: new Date().toISOString(),
   };
+  retainRelatedPaymentsOnForm(mergedForm);
   let nextForm = applyChainCharacterizationToForm(mergedForm, mergedForm.khmdhsDataQualityReview);
   nextForm = applyParallelContractAmountHints(nextForm, chainRes);
   nextForm = mergeKhmdhsSupplementaryIntoForm(nextForm);

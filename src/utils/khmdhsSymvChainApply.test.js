@@ -178,6 +178,63 @@ describe('applySymvChainPlanToForm stitch', () => {
     expect(form.khmdhsPayments.map((p) => p.adam)).not.toContain('24PAY099999999');
   });
 
+  test('Διατήρηση καθαρίζει ιστορικό αποκλεισμένων τμημάτων και τα εντάλματά τους', () => {
+    const prevWithHistory = {
+      ...prev,
+      implementationForm: 'Πολλές Συμβάσεις',
+      contracts: [{
+        khmdhsAdam: '25SYMV016948065',
+        khmdhsContractSnapshot: { referenceNumber: '25SYMV016948065' },
+        khmdhsContractChainHistory: [
+          { adam: '25SYMV016948065' },
+          { adam: '24SYMV999999999' },
+        ],
+      }],
+      khmdhsPayments: [
+        { adam: '25PAY000000001', snapshot: { referenceNumber: '25PAY000000001' } },
+        { adam: '24PAY099999999', snapshot: { contractRefNo: '24SYMV999999999' } },
+      ],
+    };
+    const { form } = applySymvChainPlanToForm(prevWithHistory, {
+      ...chainRes,
+      payments: [
+        {
+          adam: '25PAY000000002',
+          snapshot: { referenceNumber: '25PAY000000002', contractRefNo: '24SYMV015890933' },
+        },
+      ],
+    }, plan, {
+      seedAdam: '24REQ015252599',
+      applyMode: 'stitch',
+    });
+    const historyAdams = (form.contracts || []).flatMap((c) => (
+      (c.khmdhsContractChainHistory || []).map((h) => h.adam)
+    ));
+    expect(historyAdams).not.toContain('24SYMV999999999');
+    expect(form.khmdhsPayments.map((p) => p.adam)).not.toContain('24PAY099999999');
+  });
+
+  test('από την αρχή δεν κρατά εντάλματα τμημάτων που αποκλείστηκαν στην κατανομή', () => {
+    const { form } = applySymvChainPlanToForm(prev, {
+      ...chainRes,
+      payments: [
+        {
+          adam: '25PAY000000002',
+          snapshot: { referenceNumber: '25PAY000000002', contractRefNo: '24SYMV015890933' },
+        },
+        {
+          adam: '24PAY099999999',
+          snapshot: { referenceNumber: '24PAY099999999', contractRefNo: '24SYMV999999999' },
+        },
+      ],
+    }, plan, {
+      seedAdam: '24REQ015252599',
+      applyMode: 'replace',
+    });
+    expect(form.khmdhsPayments.map((p) => p.adam)).toEqual(['25PAY000000002']);
+    expect(form.khmdhsPayments.map((p) => p.adam)).not.toContain('24PAY099999999');
+  });
+
   test('από την αρχή αντικαθιστά την αλυσίδα με όσα ορίζει το σχέδιο', () => {
     const { form } = applySymvChainPlanToForm(prev, chainRes, plan, {
       seedAdam: '24REQ015252599',

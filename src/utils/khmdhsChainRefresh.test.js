@@ -5,7 +5,11 @@ import {
   buildKhmdhsRefreshChangeSummary,
   buildKhmdhsRefreshChangeReport,
   KHMDHS_REFRESH_REPORT_NO_CHANGES,
+  KHMDHS_REGISTRY_REPORT_PREFIX,
+  KHMDHS_REGISTRY_REPORT_PREFIX_LEGACY,
+  splitKhmdhsRegistryChangeLines,
 } from './khmdhsChainRefresh';
+import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
 
 describe('buildKhmdhsRefreshChangeSummary', () => {
   test('αναφέρει όταν δεν εντοπίστηκαν ουσιώδεις διαφορές', () => {
@@ -112,6 +116,24 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
     expect(lines.some((l) => l.includes('Νέα καταχώριση στην αλυσίδα') && l.includes('26SYMV999'))).toBe(true);
   });
 
+  test('δεν αναφέρει στην αλυσίδα σύμβαση που αποκλείστηκε στην κατανομή', () => {
+    const before = { khmdhsContractChainHistory: [{ adam: 'SYMV1' }] };
+    const after = {
+      khmdhsContractChainHistory: [
+        { adam: 'SYMV1' },
+        { adam: '26SYMV999', title: 'Άλλο τμήμα' },
+      ],
+      khmdhsSymvChainPlan: {
+        items: [
+          { adam: 'SYMV1', role: 'main' },
+          { adam: '26SYMV999', role: 'skip' },
+        ],
+      },
+    };
+    const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
+    expect(lines.some((l) => l.includes('26SYMV999'))).toBe(false);
+  });
+
   test('αναφέρει ημ. λήξης ως παλιά → νέα', () => {
     const before = { contractEndDate: '2025-01-01' };
     const after = { contractEndDate: '2025-06-30' };
@@ -155,6 +177,47 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
     };
     const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
     expect(lines.some((l) => l.includes('22PROC010072999'))).toBe(false);
+  });
+
+  test('νέο έγγραφο στο μητρώο αναφέρεται ως καταγραφή ΚΗΜΔΗΣ', () => {
+    const before = { khmdhsDocumentRegistry: [] };
+    const after = {
+      khmdhsDocumentRegistry: [
+        { adam: '22PROC010072999', title: 'Διακήρυξη' },
+      ],
+    };
+    const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
+    expect(lines.some((l) => (
+      l.startsWith(KHMDHS_REGISTRY_REPORT_PREFIX)
+      && l.includes('22PROC010072999')
+      && l.includes('Διακήρυξη')
+    ))).toBe(true);
+  });
+
+  test('παλιές γραμμές μητρώου ομαδοποιούνται μαζί με τις νέες', () => {
+    const { other, registry } = splitKhmdhsRegistryChangeLines([
+      'Νέα καταχώριση στην αλυσίδα: 25SYMV1',
+      `${KHMDHS_REGISTRY_REPORT_PREFIX} 25PROC000000001 — Διακήρυξη`,
+      `${KHMDHS_REGISTRY_REPORT_PREFIX_LEGACY} 24PROC000000002`,
+    ]);
+    expect(other).toEqual(['Νέα καταχώριση στην αλυσίδα: 25SYMV1']);
+    expect(registry).toEqual([
+      '25PROC000000001 — Διακήρυξη',
+      '24PROC000000002',
+    ]);
+  });
+
+  test('προειδοποίηση για ΑΔΑΜ που αποκλείστηκε στην κατανομή δεν εμφανίζεται', () => {
+    const after = {
+      khmdhsSymvChainPlan: {
+        items: [{ adam: '24SYMV999999999', role: SYMV_CHAIN_ROLE.SKIP }],
+      },
+    };
+    const report = buildKhmdhsRefreshChangeReport({}, after, {}, {
+      chainWarnings: ['Δεν ανακτήθηκε το ένταλμα πληρωμής της σύμβασης 24SYMV999999999'],
+    });
+    expect(report.attentionLines.some((l) => l.includes('24SYMV999999999'))).toBe(false);
+    expect(report.incompleteLines.some((l) => l.includes('24SYMV999999999'))).toBe(false);
   });
 
   test('σύγκρουση δημοσίευσης (noticeConflict) διατηρεί την κάρτα — δεν είναι ενέργεια', () => {

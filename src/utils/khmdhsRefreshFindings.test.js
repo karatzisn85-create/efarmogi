@@ -10,6 +10,7 @@ import {
   getKhmdhsSubprojectAttention,
   khmdhsFindingsNeedAttention,
   reconcileKhmdhsFindingsWithProjectState,
+  dropKhmdhsFindingAction,
   splitRefreshReportLineBuckets,
   describeKhmdhsIncompleteGroupLabel,
   KHMDHS_FINDING_ACTION,
@@ -170,6 +171,24 @@ describe('reconcileKhmdhsFindingsWithProjectState', () => {
     expect(next.acknowledgedAt).toBeTruthy();
     expect(next.acknowledgedBy).toBe('kostas');
   });
+
+  it('αφαιρεί διαφορά ΑΠΕ όταν το καταχωρημένο ποσό ταυτίζεται με την πρόταση', () => {
+    const findings = buildKhmdhsRefreshFindings({
+      outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
+      actions: [
+        buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.APE_CONFLICT, {
+          suggested: '52.000,00',
+          current: '50.000,00',
+        }),
+      ],
+    });
+    const next = reconcileKhmdhsFindingsWithProjectState({
+      khmdhsLastRefreshFindings: findings,
+      apeAmount: '52.000,00',
+    });
+    expect(next.actions).toEqual([]);
+    expect(next.acknowledgedAt).toBeTruthy();
+  });
 });
 
 describe('splitRefreshReportLineBuckets', () => {
@@ -258,5 +277,25 @@ describe('splitRefreshReportLineBuckets', () => {
     });
     expect(notice.attentionLines).toEqual([]);
     expect(notice.incompleteLines[0]).toMatch(/Διατηρήθηκε η κύρια/);
+  });
+});
+
+describe('dropKhmdhsFindingAction', () => {
+  it('κλείνει την ΑΠΕ όταν ο χρήστης κρατά το τρέχον ποσό', () => {
+    const findings = buildKhmdhsRefreshFindings({
+      outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
+      attentionLines: [
+        '⚠️ ΑΠΕ: η καταχωρημένη τιμή παραμένει «50.000», ενώ το ΚΗΜΔΗΣ δείχνει «52.000».',
+      ],
+      actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.APE_CONFLICT, { suggested: '52.000' })],
+    });
+    const next = dropKhmdhsFindingAction({
+      apeAmount: '50.000',
+      khmdhsLastRefreshFindings: findings,
+    }, KHMDHS_FINDING_ACTION.APE_CONFLICT, { by: 'kostas' });
+    expect(next.khmdhsLastRefreshFindings.actions).toEqual([]);
+    expect(next.khmdhsLastRefreshFindings.attentionLines.some((l) => /ΑΠΕ/.test(l))).toBe(false);
+    expect(khmdhsFindingsNeedAttention(next.khmdhsLastRefreshFindings)).toBe(false);
+    expect(next.khmdhsLastRefreshFindings.acknowledgedBy).toBe('kostas');
   });
 });

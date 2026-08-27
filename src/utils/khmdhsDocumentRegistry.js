@@ -279,8 +279,10 @@ function addLinkedAdamStubs(chainRes, map) {
   // καταχωρημένα στο ΚΗΜΔΗΣ ως ξεχωριστή πράξη από τη Διακήρυξη/Πρόσκληση. Όταν έχουν
   // ανακτηθεί πλήρη στοιχεία τους, τα χρησιμοποιούμε για πραγματικό τίτλο αντί για γυμνό ΑΔΑΜ.
   const noticeSnapshotsByAdam = chainRes?.chainMeta?.noticeSnapshotsByAdam || {};
+  const requestSnapshotsByAdam = chainRes?.chainMeta?.requestSnapshotsByAdam || {};
   const hasContractChainHistory = (chainRes.contractChainHistory || []).length > 0;
   const groups = [
+    { key: 'requests', stage: 'REQ', type: 'REQ' },
     { key: 'approvedRequests', stage: 'COMMIT', type: 'COMMIT' },
     { key: 'budgetCommitments', stage: 'COMMIT', type: 'COMMIT' },
     { key: 'notices', stage: 'PROC', type: 'PROC' },
@@ -300,6 +302,15 @@ function addLinkedAdamStubs(chainRes, map) {
         });
         if (entry) { pushUnique(map, entry); return; }
       }
+      if (key === 'requests' && requestSnapshotsByAdam[adam]) {
+        const entry = entryFromRequest({
+          adam,
+          snapshot: requestSnapshotsByAdam[adam],
+          fetchedAt: chainRes.chainMeta?.resolvedAt || '',
+        });
+        if (entry) { pushUnique(map, entry); return; }
+      }
+      if (key === 'requests') return;
       pushUnique(map, buildRegistryEntry({
         adam,
         stage,

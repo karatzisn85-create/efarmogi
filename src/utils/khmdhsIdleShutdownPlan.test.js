@@ -19,12 +19,25 @@ describe('khmdhsIdleShutdownPlan', () => {
     expect(KHMDHS_IDLE_SHUTDOWN_OS_DELAY_SEC).toBeGreaterThan(KHMDHS_IDLE_SHUTDOWN_DELAY_SEC);
   });
 
-  test('σβήνει μόνο μετά από πέρασμα που ζητήθηκε φεύγοντας', () => {
+  test('σβήνει μόνο μετά από πέρασμα που ζητήθηκε φεύγοντας και είχε επιτυχίες', () => {
     expect(shouldCommitKhmdhsIdleShutdown({
       shutdownAfter: true,
       isRetry: false,
       cancelled: false,
+      refreshedCount: 1,
     })).toBe(true);
+  });
+
+  test('κενή λίστα ή καμία επιτυχία δεν σβήνουν τον υπολογιστή', () => {
+    expect(shouldCommitKhmdhsIdleShutdown({
+      shutdownAfter: true,
+      isRetry: false,
+      cancelled: false,
+      refreshedCount: 0,
+    })).toBe(false);
+    expect(shouldCommitKhmdhsIdleShutdown({
+      shutdownAfter: true,
+    })).toBe(false);
   });
 
   test('ακύρωση ή επανάληψη δεν σβήνουν τον υπολογιστή', () => {

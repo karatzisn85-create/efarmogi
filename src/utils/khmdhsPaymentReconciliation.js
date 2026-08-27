@@ -9,6 +9,8 @@ import {
   readPaymentDocumentRoleFromPayment,
   readPaymentActualAmountFromPayment,
 } from './khmdhsPaymentDocumentRoles';
+import { collectKhmdhsRequestAdams } from './khmdhsRequestFields';
+import { isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
 
 export const PAYER_TYPE = {
   REGIONAL_FUND: 'regional_fund',
@@ -232,13 +234,30 @@ export function reconcileKhmdhsPayments(payments, opts = {}) {
   };
 }
 
+function parseKhmdhsProjectDate(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  let d;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const [dd, mm, yyyy] = s.split('/');
+    d = new Date(`${yyyy}-${mm}-${dd}`);
+  } else {
+    d = new Date(s);
+  }
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** Φιλτράρει εντάλματα που ανήκουν σε άσχετη αλυσίδα, χρησιμοποιώντας αποθηκευμένα
  *  στοιχεία REQ/SYMV του project. Χρησιμοποιείται για καθαρισμό ακόμα και σε αποθηκευμένα δεδομένα.
  */
 export function filterUnrelatedPayments(payments, project) {
-  // Γνωστές SYMV αλυσίδας
+  // Γνωστές SYMV αλυσίδας — όχι τμήματα που αποκλείστηκαν στην κατανομή.
   const knownContracts = new Set();
-  const addContract = (v) => { const s = String(v || '').trim().toUpperCase(); if (s) knownContracts.add(s); };
+  const addContract = (v) => {
+    const s = String(v || '').trim().toUpperCase();
+    if (!s || isAdamSkippedInSymvPlan(project, s)) return;
+    knownContracts.add(s);
+  };
 
   // Κύρια/παράλληλες συμβάσεις
   (Array.isArray(project?.contracts) ? project.contracts : []).forEach((c) => {
@@ -249,7 +268,7 @@ export function filterUnrelatedPayments(payments, project) {
     (Array.isArray(c?.khmdhsContractAmendments) ? c.khmdhsContractAmendments : []).forEach((h) => addContract(h?.adam));
   });
   const singleContract = String(project?.khmdhsAdam || project?.khmdhsContractSnapshot?.referenceNumber || '').trim().toUpperCase();
-  if (singleContract) knownContracts.add(singleContract);
+  if (singleContract) addContract(singleContract);
   // Ιστορικό αλυσίδας ενιαίας σύμβασης (τροποποιήσεις)
   (Array.isArray(project?.khmdhsContractChainHistory) ? project.khmdhsContractChainHistory : []).forEach((h) => addContract(h?.adam));
   (Array.isArray(project?.khmdhsContractAmendments) ? project.khmdhsContractAmendments : []).forEach((h) => addContract(h?.adam));
@@ -263,6 +282,7 @@ export function filterUnrelatedPayments(payments, project) {
   addReq(project?.khmdhsRequestAdam);
   addReq(project?.khmdhsRequestSnapshot?.referenceNumber);
   addReq(project?.khmdhsCommitmentSnapshot?.referenceNumber);
+  collectKhmdhsRequestAdams(project).forEach(addReq);
   // Από commitment decisions (πολλαπλές αποφάσεις ανάληψης)
   (Array.isArray(project?.khmdhsCommitmentDecisions) ? project.khmdhsCommitmentDecisions : []).forEach((d) => {
     addReq(d?.adam);
@@ -276,37 +296,16 @@ export function filterUnrelatedPayments(payments, project) {
     addReq(c?.khmdhsContractSnapshot?.requestRefNo);
   });
 
-  // Παλαιότερη ημ/νία σύμβασης από αποθηκευμένα στοιχεία (Phase A)
+  // Παλαιότερη ημ/νία από όλες τις συμβάσεις της κάρτας (όχι μόνο την πρώτη γραμμή).
   let earliestContractDate = null;
-  const contractDateStr = String(project?.contractDate || '').trim();
-  if (contractDateStr) {
-    // Υποστηρίζει dd/MM/yyyy (ελληνικό) ή ISO
-    let d;
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(contractDateStr)) {
-      const [dd, mm, yyyy] = contractDateStr.split('/');
-      d = new Date(`${yyyy}-${mm}-${dd}`);
-    } else {
-      d = new Date(contractDateStr);
-    }
-    if (!isNaN(d.getTime())) earliestContractDate = d;
-  }
-  // Fallback: ελέγχουμε και τα contracts array
-  if (!earliestContractDate) {
-    (Array.isArray(project?.contracts) ? project.contracts : []).forEach((c) => {
-      const s = String(c?.date || c?.contractDate || '').trim();
-      if (!s) return;
-      let d;
-      if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
-        const [dd, mm, yyyy] = s.split('/');
-        d = new Date(`${yyyy}-${mm}-${dd}`);
-      } else {
-        d = new Date(s);
-      }
-      if (!isNaN(d.getTime()) && (!earliestContractDate || d < earliestContractDate)) {
-        earliestContractDate = d;
-      }
-    });
-  }
+  const considerDate = (raw) => {
+    const d = parseKhmdhsProjectDate(raw);
+    if (d && (!earliestContractDate || d < earliestContractDate)) earliestContractDate = d;
+  };
+  considerDate(project?.contractDate);
+  (Array.isArray(project?.contracts) ? project.contracts : []).forEach((c) => {
+    considerDate(c?.date || c?.contractDate);
+  });
 
   return payments.filter((p) => {
     const snap = p?.snapshot;
@@ -318,8 +317,11 @@ export function filterUnrelatedPayments(payments, project) {
     if (payContract && knownContracts.size > 0 && !knownContracts.has(payContract)) return false;
     // Αν δεν έχει SYMV αλλά αναφέρει REQ εκτός αλυσίδας → άσχετο
     if (!payContract && payReq && knownReqs.size > 0 && !knownReqs.has(payReq)) return false;
-    // Ένταλμα ΠΡΙΝ τη σύμβαση = εξ ορισμού άσχετο
-    if (earliestContractDate) {
+    // Ένταλμα ΠΡΙΝ την παλαιότερη σύμβαση της κάρτας = άσχετο,
+    // εκτός αν ανήκει σε γνωστή σύμβαση ή γνωστό πρωτογενές (π.χ. δεύτερο έτος).
+    const ofKnownContract = !!(payContract && knownContracts.has(payContract));
+    const ofKnownReq = !!(payReq && knownReqs.has(payReq));
+    if (earliestContractDate && !ofKnownReq && !ofKnownContract) {
       const rawDate = snap.issueDate || snap.submissionDate || snap.publicationDate || '';
       if (rawDate) {
         const payD = new Date(rawDate);

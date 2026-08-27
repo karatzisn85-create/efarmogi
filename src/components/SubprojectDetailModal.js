@@ -74,6 +74,9 @@ function buildRefreshFindingsForProject({ report, applyResult, mergedProject, se
       detail: applyResult.apeConflict.contractLabel
         ? `Γραμμή: ${applyResult.apeConflict.contractLabel}.`
         : '',
+      suggested: applyResult.apeConflict.suggested,
+      current: applyResult.apeConflict.current,
+      contractIndex: applyResult.apeConflict.contractIndex,
     }));
   }
   const unresolved = getUnresolvedReviewItems(
@@ -1333,20 +1336,22 @@ function SubprojectDetailModal({
       }
       // Ίδιος κανόνας με τη μαζική: επαναχρησιμοποίηση κατανομής όταν τα νέα ΑΔΑΜ
       // είναι μόνο αυτόματα «Δεν καταχωρείται»· αλλιώς ξαναρωτάμε μόνο αν χρειάζεται απόφαση.
-      const existingSymvPlan = project.khmdhsSymvChainPlan;
+      const applyBase = res.projectSnapshot || project;
+      const existingSymvPlan = applyBase.khmdhsSymvChainPlan;
       const planChainRes = resolvePlanChainResForKhmdhsRefresh(res);
-      const reusableSymvPlan = resolveReusablePlanForKhmdhsRefresh(existingSymvPlan, res, { form: project });
-      if (needsSymvPlannerAfterKhmdhsRefresh(existingSymvPlan, res, { form: project })) {
+      const reusableSymvPlan = resolveReusablePlanForKhmdhsRefresh(existingSymvPlan, res, { form: applyBase });
+      if (needsSymvPlannerAfterKhmdhsRefresh(existingSymvPlan, res, { form: applyBase })) {
         setSymvPlannerState({
           open: true,
           chainRes: planChainRes || res.chainRes,
           seedAdam: res.seedAdam,
           seedLabel: res.seedLabel,
-          subprojectTitle: project.subprojectTitle || '',
+          subprojectTitle: applyBase.subprojectTitle || project.subprojectTitle || '',
           existingPlan: existingSymvPlan,
           usesStitchPlan: !!res.usesStitchPlan,
           stitchResults: Array.isArray(res.stitchResults) ? res.stitchResults : [],
           planChainRes: planChainRes || res.chainRes,
+          applyBase,
         });
         keepLock = true;
         return;
@@ -1355,7 +1360,7 @@ function SubprojectDetailModal({
       const registryChainResList = [];
       let applyResult;
       if (res.usesStitchPlan && Array.isArray(res.stitchResults) && res.stitchResults.length) {
-        applyResult = applyStitchRefreshResults(project, res.stitchResults, {
+        applyResult = applyStitchRefreshResults(applyBase, res.stitchResults, {
           fallbackChainRes: planChainRes || res.chainRes,
           fallbackSeedAdam: res.seedAdam,
           symvChainPlan: reusableSymvPlan,
@@ -1364,7 +1369,7 @@ function SubprojectDetailModal({
           if (item?.success && item.chainRes) registryChainResList.push(item.chainRes);
         });
       } else {
-        applyResult = applyAdamChainResult(project, res.chainRes, {
+        applyResult = applyAdamChainResult(applyBase, res.chainRes, {
           seedAdam: res.seedAdam,
           symvChainPlan: reusableSymvPlan,
           applyMode: 'stitch',
@@ -1377,22 +1382,23 @@ function SubprojectDetailModal({
           chainRes: planChainRes || res.chainRes,
           seedAdam: res.seedAdam,
           seedLabel: res.seedLabel,
-          subprojectTitle: project.subprojectTitle || '',
+          subprojectTitle: applyBase.subprojectTitle || project.subprojectTitle || '',
           existingPlan: existingSymvPlan || null,
           usesStitchPlan: !!res.usesStitchPlan,
           stitchResults: Array.isArray(res.stitchResults) ? res.stitchResults : [],
           planChainRes: planChainRes || res.chainRes,
+          applyBase,
         });
         keepLock = true;
         return;
       }
       const mergedProject = {
         ...applyResult.form,
-        projectId: project.projectId,
-        subprojectId: project.subprojectId,
+        projectId: applyBase.projectId,
+        subprojectId: applyBase.subprojectId,
         updatedAt: new Date().toISOString(),
         // Η έκδοση πάνω στην οποία δουλέψαμε — φρένο αν αλλάξει στο μεταξύ από αλλού.
-        __expectedUpdatedAt: project.updatedAt,
+        __expectedUpdatedAt: applyBase.updatedAt,
         ...(res.stitchPlanFormMismatch ? { khmdhsChainStitchPlan: null } : {}),
       };
       // Αυτόματη ενημέρωση Αρχείων Υποέργου κατά την ανανέωση ΚΗΜΔΗΣ — χωρίς να ζητείται
@@ -1401,7 +1407,7 @@ function SubprojectDetailModal({
         mergedProject,
         registryChainResList.length ? registryChainResList : [res.chainRes]
       );
-      const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
+      const report = buildKhmdhsRefreshChangeReport(applyBase, mergedProject, applyResult, {
         chainWarnings: (registryChainResList.length ? registryChainResList : [res.chainRes])
           .flatMap((cr) => cr?.warnings || []),
       });
@@ -1422,7 +1428,7 @@ function SubprojectDetailModal({
       });
       keepLock = true;
       const expiryAfterRefresh = evaluateKhmdhsContractExpiryPrompt(mergedProject, {
-        statusBeforeKhmdhsRefresh: project.projectStatus,
+        statusBeforeKhmdhsRefresh: applyBase.projectStatus,
       });
       if (expiryAfterRefresh) {
         window.setTimeout(() => setContractExpiryPrompt(expiryAfterRefresh), 350);
@@ -1458,12 +1464,14 @@ function SubprojectDetailModal({
       usesStitchPlan,
       stitchResults,
       planChainRes,
+      applyBase: plannerBase,
     } = symvPlannerState;
+    const applyBase = plannerBase || project;
     setSymvPlannerState(null);
     const registryChainResList = [];
     let applyResult;
     if (usesStitchPlan && Array.isArray(stitchResults) && stitchResults.length) {
-      applyResult = applyStitchRefreshResults(project, stitchResults, {
+      applyResult = applyStitchRefreshResults(applyBase, stitchResults, {
         fallbackChainRes: planChainRes || chainRes,
         fallbackSeedAdam: seedAdam,
         symvChainPlan: plan,
@@ -1472,7 +1480,7 @@ function SubprojectDetailModal({
         if (item?.success && item.chainRes) registryChainResList.push(item.chainRes);
       });
     } else {
-      applyResult = applyAdamChainResult(project, chainRes, {
+      applyResult = applyAdamChainResult(applyBase, chainRes, {
         seedAdam,
         symvChainPlan: plan,
         applyMode: 'stitch',
@@ -1481,18 +1489,18 @@ function SubprojectDetailModal({
     }
     const mergedProject = {
       ...applyResult.form,
-      projectId: project.projectId,
-      subprojectId: project.subprojectId,
+      projectId: applyBase.projectId,
+      subprojectId: applyBase.subprojectId,
       khmdhsSymvChainPlan: plan,
       khmdhsSymvPlanAppliedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      __expectedUpdatedAt: project.updatedAt,
+      __expectedUpdatedAt: applyBase.updatedAt,
     };
     mergedProject.khmdhsDocumentRegistry = applyAutoDocumentRegistryFromChain(
       mergedProject,
       registryChainResList.length ? registryChainResList : [chainRes]
     );
-    const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
+    const report = buildKhmdhsRefreshChangeReport(applyBase, mergedProject, applyResult, {
       chainWarnings: registryChainResList.flatMap((cr) => cr?.warnings || []),
     });
     mergedProject.khmdhsLastRefreshFindings = buildRefreshFindingsForProject({
@@ -1510,7 +1518,7 @@ function SubprojectDetailModal({
       chainRes,
     });
     const expiryAfterRefresh = evaluateKhmdhsContractExpiryPrompt(mergedProject, {
-      statusBeforeKhmdhsRefresh: project.projectStatus,
+      statusBeforeKhmdhsRefresh: applyBase.projectStatus,
     });
     if (expiryAfterRefresh) {
       window.setTimeout(() => setContractExpiryPrompt(expiryAfterRefresh), 350);
@@ -1527,7 +1535,7 @@ function SubprojectDetailModal({
       ...base,
       projectStatus: KHMDHS_COMPLETED_STATUS_SUGGESTION,
       updatedAt: new Date().toISOString(),
-      __expectedUpdatedAt: base.updatedAt || '',
+      __expectedUpdatedAt: base.__expectedUpdatedAt || base.updatedAt || '',
     };
     if (refreshDialog?.mergedProject) {
       setRefreshDialog({
@@ -1599,7 +1607,7 @@ function SubprojectDetailModal({
       ),
       ...(neverAsk ? { khmdhsDocumentRegistryDismissed: true } : {}),
       updatedAt: new Date().toISOString(),
-      __expectedUpdatedAt: base.updatedAt || '',
+      __expectedUpdatedAt: base.__expectedUpdatedAt || base.updatedAt || '',
     };
     try {
       const saveRes = await ipcRenderer.invoke('save-project-data', updated);
@@ -1618,9 +1626,29 @@ function SubprojectDetailModal({
     }
   }, [khmdhsRegistryModal, showToast, onRefreshProject]);
 
-  const handleKhmdhsRegistryDismiss = useCallback(() => {
+  const handleKhmdhsRegistryDismiss = useCallback(async (neverAsk) => {
+    const base = khmdhsRegistryModal?.baseProject;
     setKhmdhsRegistryModal(null);
-  }, []);
+    if (neverAsk !== true || !base) return;
+    const updated = {
+      ...base,
+      khmdhsDocumentRegistryDismissed: true,
+      updatedAt: new Date().toISOString(),
+      __expectedUpdatedAt: base.__expectedUpdatedAt || base.updatedAt || '',
+    };
+    try {
+      const saveRes = await ipcRenderer.invoke('save-project-data', updated);
+      if (!saveRes?.success) {
+        showToast(saveRes?.error || 'Αποτυχία αποθήκευσης.', 'error');
+        return;
+      }
+      if (typeof onRefreshProject === 'function') {
+        await onRefreshProject();
+      }
+    } catch (e) {
+      showToast(e?.message || 'Σφάλμα αποθήκευσης.', 'error');
+    }
+  }, [khmdhsRegistryModal, showToast, onRefreshProject]);
 
   const subprojectTitle = project?.subprojectTitle || project?.projectTitle || '';
 

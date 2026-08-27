@@ -3,6 +3,7 @@
  */
 import {
   applyAdamChainResult,
+  applyChainCharacterizationToForm,
   applyStitchRefreshResults,
   mergeSharedKhmdhsFromChain,
   mergeKhmdhsChainMetaForStitch,
@@ -92,6 +93,73 @@ describe('applyAdamChainResult payments merge', () => {
 
     expect(form.khmdhsPayments).toHaveLength(1);
     expect(form.khmdhsPayments[0].adam).toBe('26PAY000000001');
+  });
+
+  test('συρραφή κόβει εντάλματα άλλων συμβάσεων και κρατά όσα ανήκουν στο δεύτερο πρωτογενές', () => {
+    const prev = {
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: 'Έργο',
+      khmdhsAdam: '25SYMV016948065',
+      khmdhsContractSnapshot: {
+        referenceNumber: '25SYMV016948065',
+        requestRefNo: '25REQ016832258',
+      },
+      khmdhsRequestAdam: '25REQ016832258',
+      khmdhsRequestSnapshot: { referenceNumber: '25REQ016832258' },
+      khmdhsAdamChainMeta: {
+        linkedAdams: { requests: ['25REQ016832258'] },
+        requestSnapshotsByAdam: {
+          '25REQ016832258': { referenceNumber: '25REQ016832258' },
+        },
+      },
+      khmdhsPayments: [],
+    };
+    const chainRes = {
+      success: true,
+      request: {
+        adam: '24REQ015252599',
+        snapshot: { referenceNumber: '24REQ015252599' },
+      },
+      contract: {
+        adam: '25SYMV016948065',
+        snapshot: { referenceNumber: '25SYMV016948065', requestRefNo: '25REQ016832258' },
+        fetchedAt: '2026-08-01T00:00:00.000Z',
+        formFields: {},
+      },
+      payments: [
+        {
+          adam: '25PAY000000001',
+          snapshot: {
+            referenceNumber: '25PAY000000001',
+            contractRefNo: '25SYMV016948065',
+          },
+        },
+        {
+          adam: '24PAY099999999',
+          snapshot: {
+            referenceNumber: '24PAY099999999',
+            contractRefNo: '24SYMV999999999',
+          },
+        },
+        {
+          adam: '24PAY000000010',
+          snapshot: {
+            referenceNumber: '24PAY000000010',
+            requestRefNo: '24REQ015252599',
+          },
+        },
+      ],
+    };
+
+    const { form } = applyAdamChainResult(prev, chainRes, {
+      seedAdam: '24REQ015252599',
+      applyMode: 'stitch',
+    });
+
+    const adams = (form.khmdhsPayments || []).map((p) => p.adam);
+    expect(adams).toContain('25PAY000000001');
+    expect(adams).toContain('24PAY000000010');
+    expect(adams).not.toContain('24PAY099999999');
   });
 });
 
@@ -341,6 +409,39 @@ describe('applyAdamChainResult — Φάση Β: διατήρηση σταδίω�
     );
     expect(form.khmdhsAdamChainMeta?.noticeSnapshotsByAdam?.['24PROC999999999']?.referenceNumber)
       .toBe('24PROC999999999');
+  });
+
+  test('μερική αντικατάσταση ενώνει τις προηγούμενες προσκλήσεις στο meta αντί να τις σβήσει', () => {
+    const prev = {
+      ...basePrev,
+      khmdhsAdamChainMeta: {
+        linkedAdams: { notices: ['24PROC012345678', '25PROC000000002'] },
+        noticeSnapshotsByAdam: {
+          '25PROC000000002': { referenceNumber: '25PROC000000002', title: 'Πρόσκληση 2' },
+        },
+      },
+    };
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      notice: {
+        adam: '24PROC999999999',
+        snapshot: { referenceNumber: '24PROC999999999', title: 'Νέα διακήρυξη' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+      },
+    };
+    const { form } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+    expect(form.khmdhsNoticeAdam).toBe('24PROC012345678');
+    expect(form.khmdhsAdamChainMeta?.linkedAdams?.notices).toEqual(
+      expect.arrayContaining(['24PROC012345678', '25PROC000000002', '24PROC999999999'])
+    );
+    expect(form.khmdhsAdamChainMeta?.noticeSnapshotsByAdam?.['25PROC000000002']?.title)
+      .toBe('Πρόσκληση 2');
   });
 });
 
@@ -991,5 +1092,40 @@ describe('applyAdamChainResult stitch + κατανομή SYMV', () => {
     expect(stitched.form.contracts.map((c) => c.khmdhsAdam)).toEqual(
       expect.arrayContaining(['25SYMV016948065', '24SYMV015890933'])
     );
+  });
+});
+
+describe('applyChainCharacterizationToForm with SYMV plan', () => {
+  test('ενημερώνει ετικέτες κρίκων χωρίς να ξαναϋπολογίζει ποσά κατανομής', () => {
+    const form = {
+      implementationForm: 'Πολλές Συμβάσεις',
+      khmdhsSymvChainPlan: {
+        items: [{ adam: '24SYMV015890933', role: SYMV_CHAIN_ROLE.MAIN, amount: '10.000,00' }],
+      },
+      contracts: [{
+        amount: '10.000,00',
+        khmdhsAdam: '24SYMV015890933',
+        khmdhsContractChainHistory: [
+          { adam: '24SYMV015890933', isRoot: true, order: 0, contractAmount: '10.000,00' },
+          {
+            adam: '25SYMV016155296',
+            isRoot: false,
+            order: 1,
+            contractAmount: '2.313,00',
+            label: 'Ενδιάμεσος κρίκος',
+            kind: 'uncertain',
+          },
+        ],
+      }],
+    };
+    const review = {
+      resolutions: {
+        'chainKindReview::25SYMV016155296': { value: 'extension' },
+      },
+    };
+    const next = applyChainCharacterizationToForm(form, review, { fullRecompute: true });
+    expect(next.contracts[0].amount).toBe('10.000,00');
+    expect(next.contracts[0].khmdhsContractChainHistory[1].label).toBe('Παράταση');
+    expect(next.contracts[0].khmdhsContractChainHistory[1].effectiveKind).toBe('extension');
   });
 });

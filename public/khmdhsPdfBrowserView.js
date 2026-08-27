@@ -265,7 +265,17 @@ async function openKhmdhsPdfInBrowser(adamRaw, label = '') {
   if (!adam) return { success: false, error: 'Λείπει ΑΔΑΜ' };
 
   const pdfUrl = buildKhmdhsAttachmentUrl(adam);
-  if (!pdfUrl) return { success: false, error: 'Άγνωστος τύπος ΑΔΑΜ για προβολή PDF' };
+  if (!pdfUrl) {
+    const portalUrl = buildKhmdhsPortalViewUrl(adam);
+    await getShell().openExternal(portalUrl).catch((e) => {
+      throw new Error(`Αδυναμία ανοίγματος εγγράφου: ${e.message}`);
+    });
+    return {
+      success: true,
+      via: 'portal',
+      warning: 'Δεν υπάρχει αρχείο PDF για αυτόν τον τύπο πράξης — ανοίγει η σελίδα του ΚΗΜΔΗΣ.',
+    };
+  }
 
   if (readCachedPdfPath(adam)) {
     await openLocalCachedViewer(adam, label);

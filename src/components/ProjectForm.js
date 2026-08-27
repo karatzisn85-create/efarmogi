@@ -58,7 +58,9 @@ import KhmdhsPendingFab from './KhmdhsPendingFab';
 import KhmdhsRefreshFindingsPanel from './KhmdhsRefreshFindingsPanel';
 import {
   acknowledgeKhmdhsRefreshFindings,
+  dropKhmdhsFindingAction,
   getKhmdhsRefreshFindings,
+  KHMDHS_FINDING_ACTION,
   KHMDHS_FINDINGS_FIELD,
   reconcileKhmdhsFindingsWithProjectState,
 } from '../utils/khmdhsRefreshFindings';
@@ -148,6 +150,7 @@ import {
   mergeKhmdhsDocumentRegistry,
   shouldOfferRegistryAfterReview,
 } from '../utils/khmdhsDocumentRegistry';
+import { filterKhmdhsChainWarningsForDisplay } from '../utils/khmdhsChainRefresh';
 import {
   buildRelatedDocumentEntry,
   mergeKhmdhsRelatedDocuments,
@@ -4744,11 +4747,11 @@ function ProjectForm({
         protectedFieldCount = applyResult.protectedCount || 0;
         implementationFormAutoUpdated = applyResult.implementationFormAutoUpdated || null;
         let formAfter = applyResult.form;
-        if (stitchApplyMode === 'stitch') {
+        if (clearKhmdhsBeforeApply) {
+          khmdhsStitchChainResListRef.current = [res];
+        } else {
           const prevList = khmdhsStitchChainResListRef.current || [];
           khmdhsStitchChainResListRef.current = [...prevList.filter(Boolean), res];
-        } else {
-          khmdhsStitchChainResListRef.current = [res];
         }
         const chainResList = khmdhsStitchChainResListRef.current;
         formAfter = {
@@ -4888,7 +4891,7 @@ function ProjectForm({
         const reviewFormSnapshot = capturedFormAfterApply || formDataRef.current;
         const stitchPayloadForQueue = khmdhsPendingStitchPromptBRef.current;
         const chainFetchedAt = new Date().toISOString();
-        const registryDefer = (!suppressSituationModal && !skipSituationModal)
+        const registryDefer = !suppressSituationModal
           ? { chainFetchedAt, chainRes: res, chainResList: khmdhsStitchChainResListRef.current }
           : null;
         if (registryDefer) {
@@ -4957,7 +4960,8 @@ function ProjectForm({
         } else {
           setAdamInputDraft((prev) => ({ ...prev, chain: '' }));
         }
-        const warn = res.warnings?.length ? ` (${res.warnings[0]})` : '';
+        const displayWarnings = filterKhmdhsChainWarningsForDisplay(res.warnings, formAfter);
+        const warn = displayWarnings.length ? ` (${displayWarnings[0]})` : '';
         // Μήνυμα επιτυχίας: όχι όταν ανοίγει η λίστα εκκρεμοτήτων (θα δει το παράθυρο).
         const blocksSuccessToast = skipSuccessToast
           || (!usedSymvPlan && postUi.openPendingTasks);
@@ -5046,7 +5050,6 @@ function ProjectForm({
               skipSituationModal: true,
               skipSuccessToast: true,
             });
-            khmdhsDeferRegistryRef.current = null;
             khmdhsPendingDataReviewRef.current = false;
             setKhmdhsSituationModal({
               report: filteredReport,
@@ -5359,7 +5362,7 @@ function ProjectForm({
       dismissed: project?.khmdhsDocumentRegistryDismissed,
       chainFetchedAt: defer.chainFetchedAt,
       chainRes: defer.chainRes || khmdhsLastChainResRef.current,
-      chainResList: defer.chainResList || null,
+      chainResList: defer.chainResList || khmdhsStitchChainResListRef.current || null,
     })) {
       khmdhsDeferRegistryRef.current = null;
       return;
@@ -5368,22 +5371,11 @@ function ProjectForm({
       project,
       defer.chainFetchedAt,
       defer.chainRes || khmdhsLastChainResRef.current,
-      defer.chainResList || null
+      defer.chainResList || khmdhsStitchChainResListRef.current || null
     );
     khmdhsDeferRegistryRef.current = null;
     setKhmdhsRegistryModal(payload);
   }, []);
-
-  /** Μετά έλεγχο/κατάσταση: Ερώτηση Β συρραφής πριν το μητρώο εγγράφων. */
-  const flushPendingStitchPromptBOrContinue = useCallback(() => {
-    if (khmdhsPendingStitchPromptBRef.current) {
-      const payload = khmdhsPendingStitchPromptBRef.current;
-      khmdhsPendingStitchPromptBRef.current = null;
-      setStitchPromptB(payload);
-      return;
-    }
-    window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
-  }, [tryOpenKhmdhsRegistryModal]);
 
   const markPendingTaskComplete = useCallback((taskId) => {
     setCompletedPendingTaskIds((prev) => (
@@ -5398,8 +5390,28 @@ function ProjectForm({
       markPendingTaskComplete(POST_APPLY_TASK.REGISTRY);
       return;
     }
-    setPendingTasksOpen(false);
     const project = formDataRef.current;
+    const unresolvedChain = getUnresolvedReviewItems(project?.khmdhsDataQualityReview, project)
+      .some((i) => i.fieldId === 'chainKindReview');
+    if (unresolvedChain) {
+      showToast(
+        'Η καταγραφή εγγράφων θα προτείνεται αφού ολοκληρώσετε τους χαρακτηρισμούς.',
+        'info'
+      );
+      window.setTimeout(() => setPendingTasksOpen(true), 0);
+      return;
+    }
+    if (!shouldOfferRegistryAfterReview(project, {
+      dismissed: project?.khmdhsDocumentRegistryDismissed,
+      chainFetchedAt: defer.chainFetchedAt,
+      chainRes: defer.chainRes || khmdhsLastChainResRef.current,
+      chainResList: defer.chainResList || khmdhsStitchChainResListRef.current || null,
+    })) {
+      khmdhsDeferRegistryRef.current = null;
+      markPendingTaskComplete(POST_APPLY_TASK.REGISTRY);
+      return;
+    }
+    setPendingTasksOpen(false);
     setKhmdhsRegistryModal(
       buildRegistryModalPayloadAfterReview(
         project,
@@ -5409,7 +5421,7 @@ function ProjectForm({
       )
     );
     khmdhsDeferRegistryRef.current = null;
-  }, [markPendingTaskComplete]);
+  }, [markPendingTaskComplete, showToast]);
 
   /** Ξανάνοιγμα λίστας χωρίς να αφαιρεθεί ο υποχρεωτικός έλεγχος (DATA_REVIEW). */
   const openPendingKhmdhsReviewOrRegistry = useCallback(() => {
@@ -6821,15 +6833,27 @@ function ProjectForm({
     if (!apeConflictModal) return;
     const { suggested, contractIndex } = apeConflictModal;
     setFormData((prev) => {
+      let next = prev;
       if (contractIndex != null && contractIndex >= 0) {
         const contracts = [...(prev.contracts || [])];
         if (contracts[contractIndex]) {
           contracts[contractIndex] = { ...contracts[contractIndex], apeAmount: suggested };
         }
-        return { ...prev, contracts };
+        next = { ...prev, contracts };
+      } else {
+        next = { ...prev, apeAmount: suggested };
       }
-      return { ...prev, apeAmount: suggested };
+      return dropKhmdhsFindingAction(next, KHMDHS_FINDING_ACTION.APE_CONFLICT, {
+        by: currentUser?.username || '',
+      });
     });
+    setApeConflictModal(null);
+  };
+
+  const handleApeConflictKeep = () => {
+    setFormData((prev) => dropKhmdhsFindingAction(prev, KHMDHS_FINDING_ACTION.APE_CONFLICT, {
+      by: currentUser?.username || '',
+    }));
     setApeConflictModal(null);
   };
 
@@ -7092,7 +7116,10 @@ function ProjectForm({
     );
   };
 
-  const handleKhmdhsRegistryDismiss = () => {
+  const handleKhmdhsRegistryDismiss = (neverAsk) => {
+    if (neverAsk === true) {
+      setFormData((prev) => ({ ...prev, khmdhsDocumentRegistryDismissed: true }));
+    }
     setKhmdhsRegistryModal(null);
     setCompletedPendingTaskIds((prev) => (
       prev.includes(POST_APPLY_TASK.REGISTRY) ? prev : [...prev, POST_APPLY_TASK.REGISTRY]
@@ -8358,7 +8385,7 @@ function ProjectForm({
       khmdhsAmount={apeConflictModal?.suggested || ''}
       contractLabel={apeConflictModal?.contractLabel || ''}
       onAcceptKhmdhs={handleApeConflictAccept}
-      onKeepCurrent={() => setApeConflictModal(null)}
+      onKeepCurrent={handleApeConflictKeep}
       onClose={() => setApeConflictModal(null)}
     />
     <KhmdhsPreSaveOverridesModal
@@ -8692,6 +8719,10 @@ function ProjectForm({
           'Η συρραφή έμεινε μόνο για αυτή τη φορά. Οι επόμενες ανανεώσεις θα κοιτάνε έναν κωδικό — πείτε «Ναι» αν θέλετε να θυμάται και τους δύο.',
           'warning'
         );
+        const registryTask = (postApplyQueue?.tasks || []).find((t) => t.type === POST_APPLY_TASK.REGISTRY);
+        if (registryTask) {
+          window.setTimeout(() => openPendingRegistry(registryTask), 0);
+        }
       }}
       onOpenRegistry={(task) => openPendingRegistry(task)}
       onSkipRegistry={() => {
@@ -8703,20 +8734,28 @@ function ProjectForm({
         if (conflict) {
           const { suggested, contractIndex } = conflict;
           setFormData((prev) => {
+            let next = prev;
             if (contractIndex != null && contractIndex >= 0) {
               const contracts = [...(prev.contracts || [])];
               if (contracts[contractIndex]) {
                 contracts[contractIndex] = { ...contracts[contractIndex], apeAmount: suggested };
               }
-              return { ...prev, contracts };
+              next = { ...prev, contracts };
+            } else {
+              next = { ...prev, apeAmount: suggested };
             }
-            return { ...prev, apeAmount: suggested };
+            return dropKhmdhsFindingAction(next, KHMDHS_FINDING_ACTION.APE_CONFLICT, {
+              by: currentUser?.username || '',
+            });
           });
         }
         setApeConflictModal(null);
         markPendingTaskComplete(POST_APPLY_TASK.APE);
       }}
       onApeKeep={() => {
+        setFormData((prev) => dropKhmdhsFindingAction(prev, KHMDHS_FINDING_ACTION.APE_CONFLICT, {
+          by: currentUser?.username || '',
+        }));
         setApeConflictModal(null);
         markPendingTaskComplete(POST_APPLY_TASK.APE);
       }}

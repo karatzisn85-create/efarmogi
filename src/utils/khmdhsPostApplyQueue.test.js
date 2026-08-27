@@ -541,4 +541,43 @@ describe('situationContractIndex — πολλές συμβάσεις / RETRY_SEE
     const sit = merged.tasks.find((t) => t.type === POST_APPLY_TASK.SITUATION);
     expect(sit.contractIndex).toBe(2);
   });
+
+  test('προτείνει καταγραφή αρχείων όταν τα νέα έγγραφα φαίνονται μόνο στην ενωμένη λίστα ανακτήσεων', () => {
+    const first = {
+      success: true,
+      notice: {
+        adam: '25PROC000000001',
+        snapshot: { referenceNumber: '25PROC000000001', title: 'Πρόσκληση 2025' },
+      },
+    };
+    const later = {
+      success: true,
+      notice: {
+        adam: '24PROC000000099',
+        snapshot: { referenceNumber: '24PROC000000099', title: 'Διακήρυξη 2024' },
+      },
+    };
+    const formAfter = {
+      ...cleanForm,
+      khmdhsDocumentRegistry: [{ adam: '24PROC000000099', title: 'Διακήρυξη 2024' }],
+      khmdhsDocumentRegistryDismissed: true,
+    };
+    const withoutList = buildPostApplyQueue({
+      formAfter,
+      skipExpiry: true,
+      registryDefer: { chainFetchedAt: '2026-08-01T00:00:00.000Z', chainRes: later },
+    });
+    expect(withoutList.tasks.some((t) => t.type === POST_APPLY_TASK.REGISTRY)).toBe(false);
+
+    const withList = buildPostApplyQueue({
+      formAfter,
+      skipExpiry: true,
+      registryDefer: {
+        chainFetchedAt: '2026-08-01T00:00:00.000Z',
+        chainRes: later,
+        chainResList: [first, later],
+      },
+    });
+    expect(withList.tasks.some((t) => t.type === POST_APPLY_TASK.REGISTRY)).toBe(true);
+  });
 });

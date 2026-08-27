@@ -14,6 +14,7 @@ import {
   partitionKhmdhsBatchReportItems,
   pickKhmdhsBatchIncompleteRetryCandidates,
   pickKhmdhsBatchRetryCandidates,
+  isKhmdhsBatchActionStillPending,
   buildKhmdhsLiveRunSnapshot,
   formatKhmdhsLiveDockLine,
   formatKhmdhsLiveHeadline,
@@ -613,5 +614,23 @@ describe('applyKhmdhsLiveSnapshotToResults', () => {
     expect(next.items).toHaveLength(4);
     expect(next.items.find((i) => i.id === 'd').status).toBe('refreshed');
     expect(next.failed).toBe(0);
+  });
+});
+
+describe('isKhmdhsBatchActionStillPending APE', () => {
+  it('κλείνει όταν αφαιρεθεί η ενέργεια ή δηλωθεί ότι την είδε', () => {
+    const flagged = buildKhmdhsRefreshFindings({
+      outcome: KHMDHS_FINDING_OUTCOME.ATTENTION,
+      actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.APE_CONFLICT)],
+    });
+    expect(isKhmdhsBatchActionStillPending({
+      khmdhsLastRefreshFindings: flagged,
+    }, KHMDHS_FINDING_ACTION.APE_CONFLICT)).toBe(true);
+    expect(isKhmdhsBatchActionStillPending({
+      khmdhsLastRefreshFindings: acknowledgeKhmdhsRefreshFindings(flagged, { by: 'kostas' }),
+    }, KHMDHS_FINDING_ACTION.APE_CONFLICT)).toBe(false);
+    expect(isKhmdhsBatchActionStillPending({
+      khmdhsLastRefreshFindings: { ...flagged, actions: [] },
+    }, KHMDHS_FINDING_ACTION.APE_CONFLICT)).toBe(false);
   });
 });

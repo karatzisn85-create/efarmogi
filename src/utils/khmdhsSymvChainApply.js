@@ -25,7 +25,7 @@ import {
   mergeKhmdhsChainMetaForStitch,
   applyChainCharacterizationToForm,
 } from './khmdhsChainApply';
-import { SYMV_CHAIN_ROLE, expandSymvPlanWithFormContracts } from './khmdhsSymvChainPlanner';
+import { SYMV_CHAIN_ROLE, expandSymvPlanWithFormContracts, isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
 import { detectStagesCoveredByForm } from './khmdhsChainStitchPlan';
 import { filterUnrelatedPayments } from './khmdhsPaymentReconciliation';
 import { grossFromCostSnapshot } from './khmdhsVatHelper';
@@ -552,6 +552,43 @@ function collectSupplementaryAdams(form) {
   return out;
 }
 
+function filterHistoryWithoutSkippedAdams(history, project) {
+  if (!Array.isArray(history)) return history;
+  const next = history.filter((h) => {
+    const adam = String(h?.adam || '').trim();
+    return !adam || !isAdamSkippedInSymvPlan(project, adam);
+  });
+  return next.length === history.length ? history : next;
+}
+
+/** Καθαρίζει ιστορικό/τροποποιήσεις από ΑΔΑΜ που αποκλείστηκαν στην κατανομή. */
+function stripSkippedLotsFromFormHistories(form) {
+  if (!form) return form;
+  const nextHistory = filterHistoryWithoutSkippedAdams(form.khmdhsContractChainHistory, form);
+  const nextAmendments = filterHistoryWithoutSkippedAdams(form.khmdhsContractAmendments, form);
+  let contractsChanged = false;
+  const contracts = (Array.isArray(form.contracts) ? form.contracts : []).map((c) => {
+    const h = filterHistoryWithoutSkippedAdams(c?.khmdhsContractChainHistory, form);
+    const a = filterHistoryWithoutSkippedAdams(c?.khmdhsContractAmendments, form);
+    if (h === c?.khmdhsContractChainHistory && a === c?.khmdhsContractAmendments) return c;
+    contractsChanged = true;
+    return { ...c, khmdhsContractChainHistory: h, khmdhsContractAmendments: a };
+  });
+  if (
+    nextHistory === form.khmdhsContractChainHistory
+    && nextAmendments === form.khmdhsContractAmendments
+    && !contractsChanged
+  ) {
+    return form;
+  }
+  return {
+    ...form,
+    khmdhsContractChainHistory: nextHistory,
+    khmdhsContractAmendments: nextAmendments,
+    ...(contractsChanged ? { contracts } : {}),
+  };
+}
+
 function mergePaymentsAndCommitmentsForStitch(form, chainRes) {
   const payOnly = {
     payments: chainRes?.payments,
@@ -651,6 +688,7 @@ function applySymvChainPlanToFormStitch(prev, chainRes, plan, {
   }
 
   next.khmdhsSymvChainPlan = expandSymvPlanWithFormContracts(plan, next);
+  next = stripSkippedLotsFromFormHistories(next);
 
   const { next: shared, warnings: sharedWarnings } = mergeSharedKhmdhsFromChain(next, chainRes, { protect: true });
   next = mergePaymentsAndCommitmentsForStitch({ ...next, ...shared }, chainRes);
@@ -809,10 +847,14 @@ export function applySymvChainPlanToForm(prev, chainRes, plan, {
     buildSupplementaryRow(item.adam, item, chainRes, item.role)
   ));
   next.hasSupplementaryContracts = next.supplementaryContracts.length > 0;
+  next = stripSkippedLotsFromFormHistories(next);
 
   const { next: shared, warnings: sharedWarnings } = mergeSharedKhmdhsFromChain(next, chainRes, { protect: false });
   // shared πρέπει να «κερδίζει» τα κενά πεδία από emptyKhmdhsChainFields — αλλιώς χάνονται REQ/PROC/AWRD/PAY
   next = { ...next, ...shared, khmdhsChainSeedAdam: seedAdam || shared.khmdhsChainSeedAdam || '' };
+  if (Array.isArray(next.khmdhsPayments) && next.khmdhsPayments.length) {
+    next.khmdhsPayments = filterUnrelatedPayments(next.khmdhsPayments, next);
+  }
 
   const statusAutoUpdated = suggestProjectStatusAfterKhmdhsChain(prev.projectStatus, chainRes);
   if (statusAutoUpdated) next.projectStatus = statusAutoUpdated;

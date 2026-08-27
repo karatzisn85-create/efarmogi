@@ -170,7 +170,7 @@ function KhmdhsDocumentRegistryModal({
   return (
     <Overlay
       data-khmdhs-document-registry-modal
-      onClick={(e) => e.target === e.currentTarget && onDismiss?.()}
+      onClick={(e) => e.target === e.currentTarget && onDismiss?.(neverAsk)}
     >
       <Dialog onClick={(e) => e.stopPropagation()}>
         <Header>
@@ -206,7 +206,7 @@ function KhmdhsDocumentRegistryModal({
             </NeverAskLabel>
           </FooterLeft>
           <FooterRight>
-            <GhostBtn type="button" onClick={onDismiss}>Όχι τώρα</GhostBtn>
+            <GhostBtn type="button" onClick={() => onDismiss?.(neverAsk)}>Όχι τώρα</GhostBtn>
             <PrimaryBtn
               type="button"
               disabled={!selectedList.length}

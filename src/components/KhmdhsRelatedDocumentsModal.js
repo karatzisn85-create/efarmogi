@@ -310,7 +310,7 @@ export default function KhmdhsRelatedDocumentsModal({
                       />
                     </LabelField>
                     <ViewBtn type="button" onClick={() => handleView(candidate.adam)}>
-                      Προβολή online
+                      Προβολή
                     </ViewBtn>
                   </div>
                 </ItemTop>

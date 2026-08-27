@@ -15,11 +15,36 @@ import {
   getConfirmedStitchSeedAdams,
   stitchPlanConflictsWithImplementationForm,
 } from './khmdhsChainStitchPlan';
+import { isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
 import {
   getActionableRefreshAttentionLines,
   clarifyKhmdhsIncompleteLine,
   isIncompleteConfirmationLine,
 } from './khmdhsRefreshFindings';
+
+export const KHMDHS_REGISTRY_REPORT_PREFIX = 'Νέο έγγραφο ΚΗΜΔΗΣ στο μητρώο:';
+export const KHMDHS_REGISTRY_REPORT_PREFIX_LEGACY = 'Νέο έγγραφο στα Αρχεία Υποέργου:';
+
+const KHMDHS_REGISTRY_REPORT_PREFIXES = [
+  KHMDHS_REGISTRY_REPORT_PREFIX,
+  KHMDHS_REGISTRY_REPORT_PREFIX_LEGACY,
+];
+
+/** Χωρίζει γραμμές αναφοράς σε μητρώο / υπόλοιπες — και παλιό και νέο πρόθεμα. */
+export function splitKhmdhsRegistryChangeLines(changeLines) {
+  const other = [];
+  const registry = [];
+  (changeLines || []).forEach((line) => {
+    const text = String(line || '');
+    const prefix = KHMDHS_REGISTRY_REPORT_PREFIXES.find((p) => text.startsWith(p));
+    if (prefix) {
+      registry.push(text.slice(prefix.length).trim());
+    } else {
+      other.push(line);
+    }
+  });
+  return { other, registry };
+}
 
 export const KHMDHS_FRESHNESS_YELLOW_DAYS = 30;
 export const KHMDHS_FRESHNESS_YELLOW_MAX = 50;
@@ -237,15 +262,14 @@ function paymentAdams(project) {
 /** Όλα τα ΑΔΑΜ ιστορικού αλυσίδας σύμβασης (μονή ή πολλαπλές συμβάσεις) */
 function collectChainHistoryAdams(project) {
   const set = new Set();
-  (project?.khmdhsContractChainHistory || []).forEach((h) => {
-    const a = sanitizeAdam(h?.adam);
-    if (a) set.add(a);
-  });
+  const add = (adam) => {
+    const a = sanitizeAdam(adam);
+    if (!a || isAdamSkippedInSymvPlan(project, a)) return;
+    set.add(a);
+  };
+  (project?.khmdhsContractChainHistory || []).forEach((h) => add(h?.adam));
   (project?.contracts || []).forEach((c) => {
-    (c?.khmdhsContractChainHistory || []).forEach((h) => {
-      const a = sanitizeAdam(h?.adam);
-      if (a) set.add(a);
-    });
+    (c?.khmdhsContractChainHistory || []).forEach((h) => add(h?.adam));
   });
   return set;
 }
@@ -396,6 +420,19 @@ function isIncompleteFetchChainWarning(w) {
   if (!s || !isProblemChainWarning(s)) return false;
   return isIncompleteConfirmationLine(s)
     || /(δεν ανακτήθηκ|δεν επιβεβαι|προσωρινό πρόβλημα|μόνο το πρωτογενές αίτημα)/i.test(s);
+}
+
+const ADAM_IN_WARNING_RE = /\d{2}[A-Z]{3,4}\d{9}/g;
+
+function chainWarningMentionsSkippedAdam(text, project) {
+  const matches = String(text || '').toUpperCase().match(ADAM_IN_WARNING_RE) || [];
+  return matches.some((adam) => isAdamSkippedInSymvPlan(project, adam));
+}
+
+export function filterKhmdhsChainWarningsForDisplay(warnings, project) {
+  return (Array.isArray(warnings) ? warnings : []).filter(
+    (w) => !chainWarningMentionsSkippedAdam(w, project)
+  );
 }
 
 function describeUnconfirmedExisting(kind, adams) {
@@ -661,8 +698,8 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     const title = String(entry?.title || entry?.documentTitle || '').trim();
     appliedLines.push(
       title
-        ? `Νέο έγγραφο στα Αρχεία Υποέργου: ${adam} — ${title}`
-        : `Νέο έγγραφο στα Αρχεία Υποέργου: ${adam}`
+        ? `${KHMDHS_REGISTRY_REPORT_PREFIX} ${adam} — ${title}`
+        : `${KHMDHS_REGISTRY_REPORT_PREFIX} ${adam}`
     );
   });
 
@@ -747,6 +784,7 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
   chainWarnings.forEach((w) => {
     if (!isProblemChainWarning(w)) return;
     const raw = String(w).trim();
+    if (chainWarningMentionsSkippedAdam(raw, after)) return;
     const line = isIncompleteFetchChainWarning(raw) ? raw : `⚠️ ${raw}`;
     const key = normalizeReportLine(line);
     if (seenLines.has(key)) return;

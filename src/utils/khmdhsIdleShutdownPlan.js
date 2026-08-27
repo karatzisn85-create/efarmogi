@@ -34,13 +34,16 @@ export function buildKhmdhsIdleShutdownAbortArgv() {
 }
 
 /**
- * Σβήσιμο μόνο μετά από κανονικό πέρασμα που ο χρήστης ζήτησε φεύγοντας.
- * Ακύρωση ή επανάληψη από την αναφορά δεν σβήνουν τον υπολογιστή.
+ * Σβήσιμο μόνο μετά από κανονικό πέρασμα που ο χρήστης ζήτησε φεύγοντας
+ * και ολοκληρώθηκε με τουλάχιστον μία επιτυχημένη ανανέωση.
+ * Ακύρωση, επανάληψη, κενή λίστα ή όλες οι αποτυχίες δεν σβήνουν τον υπολογιστή.
  */
 export function shouldCommitKhmdhsIdleShutdown({
   shutdownAfter = false,
   isRetry = false,
   cancelled = false,
+  refreshedCount = 0,
 } = {}) {
-  return !!shutdownAfter && !isRetry && !cancelled;
+  if (!shutdownAfter || isRetry || cancelled) return false;
+  return Number(refreshedCount) > 0;
 }

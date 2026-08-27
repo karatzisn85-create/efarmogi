@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { isIncompleteConfirmationLine } from '../utils/khmdhsRefreshFindings';
+import { splitKhmdhsRegistryChangeLines } from '../utils/khmdhsChainRefresh';
 
 const Overlay = styled.div`
   position: fixed;
@@ -130,21 +131,6 @@ const ConfirmBtn = styled(Btn)`
   }
 `;
 
-const REGISTRY_PREFIX = 'Νέο έγγραφο στα Αρχεία Υποέργου:';
-
-function splitChangeLines(changeLines) {
-  const other = [];
-  const registry = [];
-  (changeLines || []).forEach((line) => {
-    if (String(line || '').startsWith(REGISTRY_PREFIX)) {
-      registry.push(String(line).slice(REGISTRY_PREFIX.length).trim());
-    } else {
-      other.push(line);
-    }
-  });
-  return { other, registry };
-}
-
 export default function KhmdhsChainRefreshDialog({
   isOpen,
   onClose,
@@ -155,7 +141,7 @@ export default function KhmdhsChainRefreshDialog({
   changeLines = [],
 }) {
   const [showAllRegistry, setShowAllRegistry] = useState(false);
-  const { other, registry } = useMemo(() => splitChangeLines(changeLines), [changeLines]);
+  const { other, registry } = useMemo(() => splitKhmdhsRegistryChangeLines(changeLines), [changeLines]);
 
   if (!isOpen) return null;
 
