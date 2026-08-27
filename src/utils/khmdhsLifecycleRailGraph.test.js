@@ -40,4 +40,31 @@ describe('khmdhsLifecycleRailGraph', () => {
 
     expect(countKhmdhsLifecycleRailNodes(columns)).toBeGreaterThan(columns.length);
   });
+
+  test('δύο πρωτογενή εμφανίζονται ως χωριστοί κρίκοι στο πλήρες γράφημα', () => {
+    const columns = buildKhmdhsLifecycleRailColumns({
+      implementationForm: 'Πολλές Συμβάσεις',
+      khmdhsRequestAdam: '25REQ016832258',
+      khmdhsRequestSnapshot: { referenceNumber: '25REQ016832258' },
+      khmdhsNoticeAdam: '25PROC001',
+      khmdhsNoticeSnapshot: { referenceNumber: '25PROC001' },
+      khmdhsAwardAdam: '25AWRD001',
+      khmdhsAwardSnapshot: { referenceNumber: '25AWRD001' },
+      khmdhsAdam: '25SYMV016948065',
+      khmdhsContractSnapshot: { referenceNumber: '25SYMV016948065' },
+      khmdhsChainStitchPlan: {
+        status: 'confirmed',
+        segments: [
+          { seedAdam: '25REQ016832258' },
+          { seedAdam: '24REQ015252599' },
+        ],
+      },
+    });
+    const reqCols = columns.filter((c) => c.primary.stageId === 'REQ');
+    expect(reqCols).toHaveLength(2);
+    expect(reqCols.map((c) => c.primary.adam)).toEqual([
+      '25REQ016832258',
+      '24REQ015252599',
+    ]);
+  });
 });

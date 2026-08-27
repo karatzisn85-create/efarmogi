@@ -23,6 +23,35 @@ export function projectHasKhmdhsRequestData(project) {
   return !!(adam || snap);
 }
 
+function isReqAdam(value) {
+  return /REQ/i.test(String(value || ''));
+}
+
+/**
+ * Μοναδικοί ΑΔΑΜ πρωτογενούς αιτήματος στην κάρτα:
+ * το πεδίο αιτήματος, η τεχνητή αλυσίδα, συνδεδεμένα REQ και τα requestRefNo των κρατημένων συμβάσεων.
+ */
+export function collectKhmdhsRequestAdams(project) {
+  const out = [];
+  const seen = new Set();
+  const add = (value) => {
+    const adam = String(value || '').trim().toUpperCase();
+    if (!adam || !isReqAdam(adam) || seen.has(adam)) return;
+    seen.add(adam);
+    out.push(adam);
+  };
+  add(project?.khmdhsRequestAdam);
+  add(project?.khmdhsRequestSnapshot?.referenceNumber);
+  (project?.khmdhsAdamChainMeta?.linkedAdams?.requests || []).forEach(add);
+  Object.keys(project?.khmdhsAdamChainMeta?.requestSnapshotsByAdam || {}).forEach(add);
+  (project?.khmdhsChainStitchPlan?.segments || []).forEach((segment) => add(segment?.seedAdam));
+  add(project?.khmdhsContractSnapshot?.requestRefNo);
+  (Array.isArray(project?.contracts) ? project.contracts : []).forEach((row) => {
+    add(row?.khmdhsContractSnapshot?.requestRefNo);
+  });
+  return out;
+}
+
 export function buildKhmdhsRequestCardSummary(snapshot) {
   const snap = pickKhmdhsRequestSnapshot(snapshot);
   if (!snap) return null;

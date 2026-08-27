@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification, powerSaveBlocker } = require('electron');
 const path = require('path');
 const os = require('os');
 const { safeWriteJSON, safeWriteJSONAsync } = require('./safeWrite');
@@ -217,6 +217,12 @@ let mainWindow = null;
 
 /** Όταν true, το κλείσιμο παραθύρου/έξοδος εμποδίζεται — ο χρήστης πρέπει να χρησιμοποιήσει «Αποσύνδεση» στο Dashboard. */
 let dashboardSessionActive = false;
+/** Windows: αποσύνδεση/σβήσιμο συστήματος — μην εμποδίζεις το κλείσιμο της εφαρμογής. */
+let systemSessionEnding = false;
+/** Επιτρέπει app.quit() μετά από μαζική ανανέωση όταν τα Windows αρνήθηκαν το shutdown.exe. */
+let allowAppQuit = false;
+/** Ελεγκτής «σβήσε τον υπολογιστή όταν τελειώσει η μαζική ανανέωση». */
+let khmdhsIdleShutdown = null;
 /** Συνδεδεμένος χρήστης — για έλεγχο ταυτότητας στις ενέργειες χώρου εργασίας. */
 let loggedInUsername = null;
 let heartbeatInterval = null;
@@ -357,6 +363,12 @@ function createWindow() {
   });
 
   mainWindow.on('close', (event) => {
+    if (allowAppQuit || systemSessionEnding) return;
+    if (khmdhsIdleShutdown && khmdhsIdleShutdown.isShutdownPending()) {
+      event.preventDefault();
+      khmdhsIdleShutdown.disarm().catch(() => { /* ignore */ });
+      return;
+    }
     if (dashboardSessionActive && mainWindow && !mainWindow.isDestroyed()) {
       event.preventDefault();
       try {
@@ -1055,7 +1067,18 @@ if (!gotSingleInstanceLock) {
   });
 }
 
+app.on('session-end', () => {
+  systemSessionEnding = true;
+});
+
 app.on('before-quit', (event) => {
+  if (allowAppQuit || systemSessionEnding) return;
+  if (khmdhsIdleShutdown && khmdhsIdleShutdown.isShutdownPending()) {
+    event.preventDefault();
+    khmdhsIdleShutdown.disarm().catch(() => { /* ignore */ });
+    return;
+  }
+  if (khmdhsIdleShutdown && khmdhsIdleShutdown.shouldAllowSystemQuit()) return;
   if (dashboardSessionActive) {
     event.preventDefault();
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -4040,6 +4063,77 @@ ipcMain.handle('end-khmdhs-batch-run', async (_event, { actingUsername } = {}) =
     return { success: true };
   } catch (e) {
     logger.error('end-khmdhs-batch-run error:', e.message);
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+const {
+  createKhmdhsIdleShutdown,
+  KHMDHS_IDLE_SHUTDOWN_DELAY_SEC,
+  KHMDHS_IDLE_SHUTDOWN_OS_DELAY_SEC,
+} = require('./khmdhsIdleShutdown');
+
+function getKhmdhsIdleShutdown() {
+  if (!khmdhsIdleShutdown) {
+    khmdhsIdleShutdown = createKhmdhsIdleShutdown({
+      powerSaveBlocker,
+      spawn,
+      platform: process.platform,
+      logger,
+      getMainWindow: () => mainWindow,
+      onFallbackQuit: () => {
+        allowAppQuit = true;
+        dashboardSessionActive = false;
+        app.quit();
+      },
+    });
+  }
+  return khmdhsIdleShutdown;
+}
+
+function requireKhmdhsIdleShutdownAccess(actingUsername) {
+  const session = String(loggedInUsername || '').trim();
+  const claimed = String(actingUsername || '').trim();
+  if (!session) return { ok: false, error: 'Δεν είστε συνδεδεμένοι στο σύστημα' };
+  if (!claimed || claimed.toLowerCase() !== session.toLowerCase()) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα' };
+  }
+  return requireKhmdhsBatchReportAccess(session);
+}
+
+ipcMain.handle('arm-khmdhs-idle-shutdown', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireKhmdhsIdleShutdownAccess(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    return getKhmdhsIdleShutdown().arm();
+  } catch (e) {
+    logger.error('arm-khmdhs-idle-shutdown', e.message || String(e));
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('disarm-khmdhs-idle-shutdown', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireKhmdhsIdleShutdownAccess(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!khmdhsIdleShutdown) return { success: true };
+    return await khmdhsIdleShutdown.disarm();
+  } catch (e) {
+    logger.error('disarm-khmdhs-idle-shutdown', e.message || String(e));
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('commit-khmdhs-idle-shutdown', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireKhmdhsIdleShutdownAccess(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    return await getKhmdhsIdleShutdown().commit({
+      delaySec: KHMDHS_IDLE_SHUTDOWN_DELAY_SEC,
+      osDelaySec: KHMDHS_IDLE_SHUTDOWN_OS_DELAY_SEC,
+    });
+  } catch (e) {
+    logger.error('commit-khmdhs-idle-shutdown', e.message || String(e));
     return { success: false, error: e.message || String(e) };
   }
 });

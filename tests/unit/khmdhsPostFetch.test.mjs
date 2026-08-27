@@ -13,7 +13,23 @@ test('πριν την ανάκτηση: λάθος ΑΔΑΜ, διπλό SYMV, σ
   assert.equal(pf.resolveFetchStartGate({ invalidAdam: true, duplicateSymv: true }).next, pf.FETCH_START.INVALID_ADAM);
 });
 
-test('πριν την εφαρμογή: σειρά κλάδος → σχεδιασμός → διπλό → συρραφή Α → αναβολή', () => {
+test('πριν την εφαρμογή: συρραφή Α πριν την κατανομή όταν υπάρχουν ήδη δεδομένα', () => {
+  assert.equal(pf.resolvePreApplyGate({
+    offerStitchA: true,
+    offerSymvPlanner: true,
+  }).next, pf.PRE_APPLY.STITCH_A);
+  assert.equal(pf.resolvePreApplyGate({
+    offerStitchA: true,
+    needsBranchPicker: true,
+  }).next, pf.PRE_APPLY.STITCH_A);
+  assert.equal(pf.resolvePreApplyGate({
+    offerStitchA: true,
+    skipStitchPromptA: true,
+    offerSymvPlanner: true,
+  }).next, pf.PRE_APPLY.SYMV_PLANNER);
+});
+
+test('πριν την εφαρμογή: σειρά κλάδος → σχεδιασμός → διπλό → αναβολή', () => {
   assert.equal(pf.resolvePreApplyGate({
     needsBranchPicker: true,
     offerSymvPlanner: true,
@@ -31,7 +47,7 @@ test('πριν την εφαρμογή: σειρά κλάδος → σχεδια
   }).next, pf.PRE_APPLY.STITCH_A);
   assert.equal(pf.resolvePreApplyGate({
     offerStitchA: true,
-    appliedSymvPlan: true,
+    skipStitchPromptA: true,
     deferCancelledSeed: true,
   }).next, pf.PRE_APPLY.DEFER_SITUATION);
   assert.equal(pf.resolvePreApplyGate({

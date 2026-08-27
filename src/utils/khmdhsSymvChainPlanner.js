@@ -282,12 +282,59 @@ export function mergeExistingSymvPlanOntoChain(existingPlan, chainRes) {
   };
 }
 
+/** ΑΔΑΜ συμβάσεων που ήδη υπάρχουν στην κάρτα (κύριες + συμπληρωματικές). */
+export function collectFormPlacedSymvAdams(form) {
+  const out = new Set();
+  const add = (value) => {
+    const n = normalizeAdam(value);
+    if (n) out.add(n);
+  };
+  add(form?.khmdhsAdam);
+  (form?.contracts || []).forEach((c) => add(c?.khmdhsAdam));
+  (form?.supplementaryContracts || []).forEach((s) => add(s?.khmdhsAdam));
+  return out;
+}
+
+/**
+ * Μετά από συρραφή δύο πρωτογενών: βάζει στο σχέδιο κατανομής και τις
+ * συμβάσεις που ήδη υπήρχαν στην κάρτα, ώστε η επόμενη ανανέωση να μην
+ * τις βλέπει ως «νέα ΑΔΑΜ» και να ξαναρωτά.
+ */
+export function expandSymvPlanWithFormContracts(plan, form) {
+  if (!plan?.items?.length || !form) return plan;
+  const items = [...plan.items];
+  const have = new Set(items.map((i) => normalizeAdam(i.adam)).filter(Boolean));
+  const push = (adam, role) => {
+    const n = normalizeAdam(adam);
+    if (!n || have.has(n)) return;
+    have.add(n);
+    items.push({ adam: n, role, date: '', amount: '' });
+  };
+  push(form.khmdhsAdam, SYMV_CHAIN_ROLE.PARALLEL);
+  (form.contracts || []).forEach((c) => push(c?.khmdhsAdam, SYMV_CHAIN_ROLE.PARALLEL));
+  (form.supplementaryContracts || []).forEach((s) => {
+    push(s?.khmdhsAdam, SYMV_CHAIN_ROLE.SUPPLEMENTARY);
+  });
+  return { ...plan, items };
+}
+
+function collectKnownPlanAdams(knownAdams, form) {
+  const out = new Set();
+  (Array.isArray(knownAdams) ? knownAdams : []).forEach((a) => {
+    const n = normalizeAdam(a);
+    if (n) out.add(n);
+  });
+  collectFormPlacedSymvAdams(form).forEach((a) => out.add(a));
+  return out;
+}
+
 /**
  * Σχέδιο έτοιμο για αυτόματη εφαρμογή μετά ανανέωση:
  * - ακριβές ταίριασμα, ή
  * - μερική συγχώνευση χωρίς νέα ΑΔΑΜ που χρειάζονται απόφαση χρήστη, και έγκυρο validate.
+ * already-on-card ΑΔΑΜ (form / knownAdams) δεν θεωρούνται νέα απόφαση.
  */
-export function resolveReusableSymvChainPlan(existingPlan, chainRes) {
+export function resolveReusableSymvChainPlan(existingPlan, chainRes, { knownAdams, form } = {}) {
   if (!existingPlan?.items?.length || !chainRes?.success) return null;
   if (symvPlanMatchesChain(existingPlan, chainRes)) return existingPlan;
 
@@ -295,10 +342,11 @@ export function resolveReusableSymvChainPlan(existingPlan, chainRes) {
   const prevAdams = new Set(
     existingPlan.items.map((i) => normalizeAdam(i.adam)).filter(Boolean)
   );
+  const placed = collectKnownPlanAdams(knownAdams, form);
   const docs = collectSymvChainDocuments(chainRes);
   const newDocsNeedUser = docs.some((doc) => {
     const adam = normalizeAdam(doc.adam);
-    if (!adam || prevAdams.has(adam)) return false;
+    if (!adam || prevAdams.has(adam) || placed.has(adam)) return false;
     const item = merged.items.find((i) => normalizeAdam(i.adam) === adam);
     return item && item.role !== SYMV_CHAIN_ROLE.SKIP;
   });
@@ -323,16 +371,17 @@ export function resolvePlanChainResForKhmdhsRefresh(refreshRes) {
 }
 
 /** Επαναχρησιμοποιήσιμο σχέδιο μετά ανανέωση (ίδιος κανόνας κάρτας και μαζικής). */
-export function resolveReusablePlanForKhmdhsRefresh(existingPlan, refreshRes) {
+export function resolveReusablePlanForKhmdhsRefresh(existingPlan, refreshRes, extra = {}) {
   return resolveReusableSymvChainPlan(
     existingPlan,
-    resolvePlanChainResForKhmdhsRefresh(refreshRes)
+    resolvePlanChainResForKhmdhsRefresh(refreshRes),
+    extra
   );
 }
 
 /** Νέα πραγματική σύμβαση (όχι auto-skip): η κάρτα ξαναρωτά κατανομή. */
-export function needsSymvPlannerAfterKhmdhsRefresh(existingPlan, refreshRes) {
-  const reusable = resolveReusablePlanForKhmdhsRefresh(existingPlan, refreshRes);
+export function needsSymvPlannerAfterKhmdhsRefresh(existingPlan, refreshRes, extra = {}) {
+  const reusable = resolveReusablePlanForKhmdhsRefresh(existingPlan, refreshRes, extra);
   if (reusable?.items?.length) return false;
   if (!existingPlan?.items?.length) return false;
   return shouldOfferSymvChainPlanner(resolvePlanChainResForKhmdhsRefresh(refreshRes));

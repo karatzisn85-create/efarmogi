@@ -128,3 +128,53 @@ describe('buildKhmdhsLifecycleStages — παρατάσεις vs συμπληρ�
     expect(ext?.shortLabel).toBe('Παράτ.');
   });
 });
+
+describe('buildKhmdhsLifecycleStages — δύο πρωτογενή στην τεχνητή αλυσίδα', () => {
+  test('κρίκος αιτήματος δείχνει 2× αίτημα από το σχέδιο συρραφής', () => {
+    const stages = buildKhmdhsLifecycleStages({
+      implementationForm: 'Πολλές Συμβάσεις',
+      khmdhsRequestAdam: '25REQ016832258',
+      khmdhsRequestSnapshot: { referenceNumber: '25REQ016832258' },
+      khmdhsNoticeAdam: '25PROC016847569',
+      khmdhsNoticeSnapshot: { referenceNumber: '25PROC016847569' },
+      khmdhsAwardAdam: '25AWRD016839985',
+      khmdhsAwardSnapshot: { referenceNumber: '25AWRD016839985' },
+      khmdhsAdam: '25SYMV016948065',
+      khmdhsContractSnapshot: { referenceNumber: '25SYMV016948065' },
+      khmdhsChainStitchPlan: {
+        status: 'confirmed',
+        segments: [
+          { seedAdam: '25REQ016832258', coversStages: ['REQ', 'PROC', 'AWRD', 'SYMV', 'PAY'] },
+          { seedAdam: '24REQ015252599', coversStages: ['REQ', 'SYMV', 'PAY'] },
+        ],
+      },
+    });
+    const req = stages.find((s) => s.id === 'REQ');
+    expect(req?.has).toBe(true);
+    expect(req?.adam).toBe('25REQ016832258');
+    expect(req?.extraLabel).toBe('2× αίτημα');
+  });
+
+  test('δύο δημοσιεύσεις εμφανίζονται ως 2× δημοσ.', () => {
+    const stages = buildKhmdhsLifecycleStages({
+      implementationForm: 'Πολλές Συμβάσεις',
+      khmdhsRequestAdam: '25REQ016832258',
+      khmdhsRequestSnapshot: { referenceNumber: '25REQ016832258' },
+      khmdhsNoticeAdam: '25PROC000000001',
+      khmdhsNoticeSnapshot: { referenceNumber: '25PROC000000001' },
+      khmdhsAwardAdam: '25AWRD001',
+      khmdhsAwardSnapshot: { referenceNumber: '25AWRD001' },
+      khmdhsAdam: '25SYMV016948065',
+      khmdhsContractSnapshot: { referenceNumber: '25SYMV016948065' },
+      khmdhsAdamChainMeta: {
+        linkedAdams: { notices: ['25PROC000000001', '24PROC000000099'] },
+        noticeSnapshotsByAdam: {
+          '24PROC000000099': { referenceNumber: '24PROC000000099' },
+        },
+      },
+    });
+    const proc = stages.find((s) => s.id === 'PROC');
+    expect(proc?.has).toBe(true);
+    expect(proc?.extraLabel).toBe('2× δημοσ.');
+  });
+});

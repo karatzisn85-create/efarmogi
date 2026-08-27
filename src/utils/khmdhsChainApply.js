@@ -8,6 +8,7 @@ import { shouldOfferSymvChainPlanner, resolveReusableSymvChainPlan, mergeStitchC
 import { applySymvChainPlanToForm } from './khmdhsSymvChainApply';
 import { normalizeAmountForCompare } from './projectFormPhases';
 import { prepareFormForInferredImplementationForm } from './khmdhsImplementationFormInference';
+import { migrateKhmdhsSingleToMultiForm } from './khmdhsImplementationFormMigration';
 import { suggestProjectStatusAfterKhmdhsChain } from './khmdhsAdamGuidance';
 import { mergeKhmdhsSupplementaryIntoForm } from './khmdhsChainDerivedFields';
 import { syncChainHistoryWithReview } from './khmdhsChainFormAccess';
@@ -247,9 +248,49 @@ export function preserveStitchedSharedKhmdhsFields(afterPlan, beforePlan) {
   return out;
 }
 
+function appendLinkedStageSnapshot(next, {
+  linkedKey,
+  snapshotMapKey,
+  adam,
+  snapshot,
+}) {
+  const a = sanitizeAdamInput(adam);
+  if (!a) return;
+  const meta = next.khmdhsAdamChainMeta && typeof next.khmdhsAdamChainMeta === 'object'
+    ? { ...next.khmdhsAdamChainMeta }
+    : {};
+  const linked = { ...(meta.linkedAdams || {}) };
+  const prevList = Array.isArray(linked[linkedKey]) ? linked[linkedKey] : [];
+  const seen = new Set(prevList.map((x) => sanitizeAdamInput(x)).filter(Boolean));
+  linked[linkedKey] = seen.has(a) ? prevList : [...prevList, a];
+  meta.linkedAdams = linked;
+  if (snapshot) {
+    meta[snapshotMapKey] = {
+      ...(meta[snapshotMapKey] || {}),
+      [a]: snapshot,
+    };
+  }
+  next.khmdhsAdamChainMeta = meta;
+}
+
+function unionSnapshotMaps(...maps) {
+  const out = {};
+  maps.forEach((m) => {
+    if (!m || typeof m !== 'object') return;
+    Object.entries(m).forEach(([key, snap]) => {
+      const adam = sanitizeAdamInput(key);
+      if (adam && snap) out[adam] = snap;
+    });
+  });
+  return out;
+}
+
 export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } = {}) {
   const warnings = [];
   const next = { ...prev };
+  const extraNotices = [];
+  const extraAwards = [];
+  const extraRequests = [];
 
   const prevHadNotice = !!(prev.khmdhsNoticeSnapshot || sanitizeAdamInput(prev.khmdhsNoticeAdam));
   const prevHadAward = !!(prev.khmdhsAwardSnapshot || sanitizeAdamInput(prev.khmdhsAwardAdam));
@@ -260,6 +301,7 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
     const existing = sanitizeAdamInput(prev.khmdhsNoticeAdam);
     if (existing && incoming && existing !== incoming) {
       warnings.push('noticeConflict');
+      extraNotices.push({ adam: incoming, snapshot: chainRes.notice.snapshot });
       // Σε σύγκρουση: κρατάμε παλιά PROC αλλά διασφαλίζουμε ότι τα procedure fields
       // αντικατοπτρίζουν το υπάρχον notice (όχι τιμές από προηγούμενη ξεχωριστή ανάκτηση)
       if (prev.khmdhsNoticeSnapshot?.mappedAssignmentProcedure) {
@@ -302,6 +344,8 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
       if (chainRes.auction.fetchedAt) {
         next.khmdhsAwardFetchedAt = chainRes.auction.fetchedAt;
       }
+    } else {
+      extraAwards.push({ adam: incomingA, snapshot: chainRes.auction.snapshot });
     }
   } else if (chainRes.auction && !chainRes.auction.snapshot) {
     if (prevHadAward) {
@@ -309,21 +353,55 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
     }
   }
 
-  // Αν protect=true (auto-fetch παράλληλης σύμβασης), το chainMeta γράφεται μόνο αν είναι κενό
+  // protect: ένωση meta (ώστε να μην χαθούν προσκλήσεις/αιτήματα του πρώτου πρωτογενούς)
   if (chainRes.chainMeta) {
-    if (!protect || !next.khmdhsAdamChainMeta) {
+    if (protect && next.khmdhsAdamChainMeta) {
+      next.khmdhsAdamChainMeta = mergeKhmdhsChainMetaForStitch(
+        next.khmdhsAdamChainMeta,
+        chainRes.chainMeta,
+        next
+      );
+    } else if (!protect || !next.khmdhsAdamChainMeta) {
       next.khmdhsAdamChainMeta = chainRes.chainMeta;
     }
   }
 
   if (chainRes.request && chainRes.request.snapshot) {
-    mergeRequestFromChain(next, chainRes, { protect });
+    const incomingR = sanitizeAdamInput(chainRes.request.adam);
+    const existingR = sanitizeAdamInput(next.khmdhsRequestAdam);
+    if (!protect || !next.khmdhsRequestAdam) {
+      mergeRequestFromChain(next, chainRes, { protect: false });
+    } else {
+      mergeRequestFromChain(next, chainRes, { protect: true });
+      if (incomingR && existingR && incomingR !== existingR) {
+        extraRequests.push({ adam: incomingR, snapshot: chainRes.request.snapshot });
+      }
+    }
   } else if (chainRes.request && !chainRes.request.snapshot) {
     // Μερική ανάκτηση REQ χωρίς snapshot — διατήρηση υπάρχοντος, χωρίς γυμνό stub.
     if (prevHadRequest) {
       warnings.push('stagePreserved:request');
     }
   }
+
+  extraNotices.forEach((row) => appendLinkedStageSnapshot(next, {
+    linkedKey: 'notices',
+    snapshotMapKey: 'noticeSnapshotsByAdam',
+    adam: row.adam,
+    snapshot: row.snapshot,
+  }));
+  extraAwards.forEach((row) => appendLinkedStageSnapshot(next, {
+    linkedKey: 'auctions',
+    snapshotMapKey: 'awardSnapshotsByAdam',
+    adam: row.adam,
+    snapshot: row.snapshot,
+  }));
+  extraRequests.forEach((row) => appendLinkedStageSnapshot(next, {
+    linkedKey: 'requests',
+    snapshotMapKey: 'requestSnapshotsByAdam',
+    adam: row.adam,
+    snapshot: row.snapshot,
+  }));
 
   mergeCommitmentAndPaymentsFromChain(next, chainRes, { protect });
 
@@ -511,6 +589,31 @@ export function mergeKhmdhsChainMetaForStitch(prevMeta, incomingMeta, formAfter)
     },
     stitchMerged: true,
     confirmedCancelledAdams,
+    noticeSnapshotsByAdam: unionSnapshotMaps(
+      prev.noticeSnapshotsByAdam,
+      inc.noticeSnapshotsByAdam,
+      formAfter?.khmdhsNoticeAdam && formAfter?.khmdhsNoticeSnapshot
+        ? { [sanitizeAdamInput(formAfter.khmdhsNoticeAdam)]: formAfter.khmdhsNoticeSnapshot }
+        : null
+    ),
+    awardSnapshotsByAdam: unionSnapshotMaps(
+      prev.awardSnapshotsByAdam,
+      inc.awardSnapshotsByAdam,
+      formAfter?.khmdhsAwardAdam && formAfter?.khmdhsAwardSnapshot
+        ? { [sanitizeAdamInput(formAfter.khmdhsAwardAdam)]: formAfter.khmdhsAwardSnapshot }
+        : null
+    ),
+    requestSnapshotsByAdam: unionSnapshotMaps(
+      prev.requestSnapshotsByAdam,
+      inc.requestSnapshotsByAdam,
+      formAfter?.khmdhsRequestAdam && formAfter?.khmdhsRequestSnapshot
+        ? { [sanitizeAdamInput(formAfter.khmdhsRequestAdam)]: formAfter.khmdhsRequestSnapshot }
+        : null
+    ),
+    contractSnapshotsByAdam: unionSnapshotMaps(
+      prev.contractSnapshotsByAdam,
+      inc.contractSnapshotsByAdam
+    ),
   };
 }
 
@@ -554,6 +657,29 @@ export function applyAdamChainResultStitch(prev, chainRes, {
 
   chainRes = filteredChainRes;
 
+  const existingSymv = sanitizeAdamInput(prev.khmdhsAdam)
+    || sanitizeAdamInput(prev.contracts?.[0]?.khmdhsAdam);
+  const incomingSymv = sanitizeAdamInput(chainRes.contract?.adam);
+  if (
+    existingSymv
+    && incomingSymv
+    && existingSymv !== incomingSymv
+    && chainRes.contract?.snapshot
+  ) {
+    const promoted = migrateKhmdhsSingleToMultiForm({
+      ...prev,
+      implementationForm: 'Πολλές Συμβάσεις',
+    });
+    promoted.implementationForm = 'Πολλές Συμβάσεις';
+    return applyAdamChainResultStitchMulti(promoted, chainRes, {
+      seedAdam,
+      branchAnchor,
+      suppressSituationModal,
+      userSelectedBranch,
+      stitchCoversStages,
+    });
+  }
+
   const prepared = prepareFormForInferredImplementationForm(prev, chainRes, {
     contractIndex: -1,
     userSelectedBranch,
@@ -591,6 +717,28 @@ export function applyAdamChainResultStitch(prev, chainRes, {
     }
     conflictStages.push(stageId);
     warnings.push(`stitchConflict:${stageId.toLowerCase()}`);
+    if (stageId === 'REQ') {
+      appendLinkedStageSnapshot(next, {
+        linkedKey: 'requests',
+        snapshotMapKey: 'requestSnapshotsByAdam',
+        adam: incoming.adam,
+        snapshot: incoming.snapshot,
+      });
+    } else if (stageId === 'PROC') {
+      appendLinkedStageSnapshot(next, {
+        linkedKey: 'notices',
+        snapshotMapKey: 'noticeSnapshotsByAdam',
+        adam: incoming.adam,
+        snapshot: incoming.snapshot,
+      });
+    } else if (stageId === 'AWRD') {
+      appendLinkedStageSnapshot(next, {
+        linkedKey: 'auctions',
+        snapshotMapKey: 'awardSnapshotsByAdam',
+        adam: incoming.adam,
+        snapshot: incoming.snapshot,
+      });
+    }
   };
 
   stitchScalarStage({
@@ -791,8 +939,8 @@ function contractRowLooksOccupied(row) {
 }
 
 /**
- * Δρομολόγηση SYMV σε γραμμή πολλών συμβάσεων: ίδιο ΑΔΑΜ → ενημέρωση· πραγματικά κενή γραμμή → γέμισμα·
- * αλλιώς καμία αντικατάσταση διαφορετικού ΑΔΑΜ / χειροκίνητης γραμμής.
+ * Δρομολόγηση SYMV σε γραμμή πολλών συμβάσεων: ίδιο ΑΔΑΜ → ενημέρωση·
+ * πραγματικά κενή γραμμή → γέμισμα· διαφορετικός ΑΔΑΜ → νέα γραμμή (όχι αντικατάσταση).
  */
 function resolveStitchMultiSymvRowIndex(contracts, incomingAdam) {
   const adam = sanitizeAdamInput(incomingAdam);
@@ -801,7 +949,7 @@ function resolveStitchMultiSymvRowIndex(contracts, incomingAdam) {
   if (matchIdx >= 0) return { idx: matchIdx, mode: 'match' };
   const emptyIdx = contracts.findIndex((c) => !contractRowLooksOccupied(c));
   if (emptyIdx >= 0) return { idx: emptyIdx, mode: 'empty' };
-  return { idx: -1, mode: 'none' };
+  return { idx: contracts.length, mode: 'append' };
 }
 
 /**
@@ -872,6 +1020,28 @@ export function applyAdamChainResultStitchMulti(prev, chainRes, {
     }
     conflictStages.push(stageId);
     warnings.push(`stitchConflict:${stageId.toLowerCase()}`);
+    if (stageId === 'REQ') {
+      appendLinkedStageSnapshot(next, {
+        linkedKey: 'requests',
+        snapshotMapKey: 'requestSnapshotsByAdam',
+        adam: incoming.adam,
+        snapshot: incoming.snapshot,
+      });
+    } else if (stageId === 'PROC') {
+      appendLinkedStageSnapshot(next, {
+        linkedKey: 'notices',
+        snapshotMapKey: 'noticeSnapshotsByAdam',
+        adam: incoming.adam,
+        snapshot: incoming.snapshot,
+      });
+    } else if (stageId === 'AWRD') {
+      appendLinkedStageSnapshot(next, {
+        linkedKey: 'auctions',
+        snapshotMapKey: 'awardSnapshotsByAdam',
+        adam: incoming.adam,
+        snapshot: incoming.snapshot,
+      });
+    }
   };
 
   stitchScalarStage({
@@ -919,10 +1089,25 @@ export function applyAdamChainResultStitchMulti(prev, chainRes, {
   });
 
   if (chainRes.contract?.snapshot && sanitizeAdamInput(chainRes.contract.adam)) {
-    const { idx, mode } = resolveStitchMultiSymvRowIndex(contracts, chainRes.contract.adam);
+    let { idx, mode } = resolveStitchMultiSymvRowIndex(contracts, chainRes.contract.adam);
+    if (mode === 'append') {
+      // Χειροκίνητη συρραφή (χωρίς φίλτρο σταδίων): νέα σύμβαση δίπλα στις υπάρχουσες.
+      // Ανανέωση τεχνητής αλυσίδας (με covers): μην προσθέτεις SKIP / ξένα SYMV.
+      const refreshingScoped = Array.isArray(stitchCoversStages) && stitchCoversStages.length > 0;
+      if (refreshingScoped) {
+        idx = -1;
+        mode = 'none';
+      } else {
+        contracts = [...contracts, createEmptyContractRow()];
+        idx = contracts.length - 1;
+        mode = 'empty';
+      }
+    }
     if (idx < 0 || mode === 'none') {
-      conflictStages.push('SYMV');
-      warnings.push('stitchConflict:symv');
+      if (!(Array.isArray(stitchCoversStages) && stitchCoversStages.length > 0)) {
+        conflictStages.push('SYMV');
+        warnings.push('stitchConflict:symv');
+      }
     } else {
       const prevRow = contracts[idx] || createEmptyContractRow();
       const ff = chainRes.contract.formFields || {};
@@ -1127,13 +1312,16 @@ export function applyStitchRefreshResults(project, stitchResults, {
     || fallbackChainRes;
   let planToApply = symvChainPlan?.items?.length ? symvChainPlan : null;
   if (!planToApply && project?.khmdhsSymvChainPlan?.items?.length && planChainRes) {
-    planToApply = resolveReusableSymvChainPlan(project.khmdhsSymvChainPlan, planChainRes);
+    planToApply = resolveReusableSymvChainPlan(project.khmdhsSymvChainPlan, planChainRes, {
+      form: project,
+    });
   }
 
   if (planToApply?.items?.length && planChainRes?.success) {
     const planned = applySymvChainPlanToForm(running, planChainRes, planToApply, {
       seedAdam: fallbackSeedAdam,
       suppressSituationModal: true,
+      applyMode: 'stitch',
     });
     return {
       ...planned,
@@ -1210,6 +1398,7 @@ export function applyAdamChainResult(prev, chainRes, {
       seedAdam,
       branchAnchor,
       suppressSituationModal,
+      applyMode,
     });
   }
 

@@ -104,8 +104,9 @@ export default function KhmdhsChainStitchPromptADialog({
         <Title id="khmdhs-stitch-a-title">Υπάρχουν ήδη δεδομένα ΚΗΜΔΗΣ</Title>
         <Body>
           Θα γίνει ανάκτηση με διαφορετικό ΑΔΑΜ από αυτόν που χρησιμοποιήθηκε πριν.
-          Μπορείτε να κρατήσετε όσα ήδη έχετε και να συμπληρωθούν τα κενά στάδια,
-          ή να ξεκινήσετε από την αρχή (διαγράφονται τα υπάρχοντα δεδομένα ΚΗΜΔΗΣ του υποέργου).
+          Κρατήστε όσα ήδη έχετε όταν το ίδιο υποέργο έχει δύο πρωτογενή στο ΚΗΜΔΗΣ
+          — π.χ. ένα τμήμα κρίθηκε άγονο και έγινε νέο αίτημα την επόμενη χρονιά.
+          Αλλιώς ξεκινήστε από την αρχή (διαγράφονται τα υπάρχοντα δεδομένα ΚΗΜΔΗΣ του υποέργου).
         </Body>
         {previousSeedAdam ? (
           <AdamLine>Προηγούμενος ΑΔΑΜ: {previousSeedAdam}</AdamLine>
@@ -119,7 +120,7 @@ export default function KhmdhsChainStitchPromptADialog({
         </Warn>
         <Actions>
           <KeepBtn type="button" onClick={onKeepAndUpdate}>
-            Διατήρηση και ενημέρωση — συμπλήρωση κενών κρίκων
+            Διατήρηση — να μείνουν και τα υπάρχοντα στην κάρτα
           </KeepBtn>
           <FreshBtn type="button" onClick={onStartFresh}>
             Από την αρχή — καθαρισμός και νέα ανάκτηση

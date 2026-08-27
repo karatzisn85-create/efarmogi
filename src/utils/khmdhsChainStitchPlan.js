@@ -328,6 +328,21 @@ export function shouldOfferStitchPromptB({
   const prevPays = Array.isArray(prevForm?.khmdhsPayments) ? prevForm.khmdhsPayments.length : 0;
   const nextPays = Array.isArray(nextForm?.khmdhsPayments) ? nextForm.khmdhsPayments.length : 0;
   if (prevPays === 0 && nextPays > 0) return true;
+  const prevAdams = new Set();
+  const nextAdams = new Set();
+  const collect = (form, into) => {
+    const add = (v) => {
+      const a = sanitizeAdam(v);
+      if (a) into.add(a);
+    };
+    add(form?.khmdhsAdam);
+    (form?.contracts || []).forEach((c) => add(c?.khmdhsAdam));
+  };
+  collect(prevForm, prevAdams);
+  collect(nextForm, nextAdams);
+  for (const adam of nextAdams) {
+    if (!prevAdams.has(adam)) return true;
+  }
   return false;
 }
 

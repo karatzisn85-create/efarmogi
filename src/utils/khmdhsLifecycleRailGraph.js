@@ -8,6 +8,9 @@ import {
   buildKhmdhsLifecycleStages,
 } from './khmdhsLifecycleStages';
 import { collectKhmdhsCommitmentDecisions, getKhmdhsPaymentEntries } from './khmdhsChainExtraFields';
+import { collectKhmdhsRequestAdams } from './khmdhsRequestFields';
+import { collectKhmdhsNoticeAdams } from './khmdhsNoticeFields';
+import { collectKhmdhsAwardAdams } from './khmdhsAwardFields';
 import {
   readPaymentDocumentLabelFromPayment,
 } from './khmdhsPaymentDocumentRoles';
@@ -180,6 +183,60 @@ export function buildKhmdhsLifecycleRailColumns(project) {
   };
 
   baseStages.forEach((stage) => {
+    if (stage.id === 'REQ' && stage.has) {
+      const requestAdams = collectKhmdhsRequestAdams(project);
+      if (requestAdams.length > 1) {
+        requestAdams.forEach((adam, i) => {
+          pushPrimary(makeNode({
+            key: `REQ-${i}`,
+            stageId: 'REQ',
+            label: `Αίτημα ${i + 1}`,
+            shortLabel: `Αίτημ. ${i + 1}`,
+            adam,
+            scrollId: 'stage-REQ',
+            status: nodeStatusFromBase(stage),
+          }));
+        });
+        return;
+      }
+    }
+
+    if (stage.id === 'PROC' && stage.has) {
+      const noticeAdams = collectKhmdhsNoticeAdams(project);
+      if (noticeAdams.length > 1) {
+        noticeAdams.forEach((adam, i) => {
+          pushPrimary(makeNode({
+            key: `PROC-${i}`,
+            stageId: 'PROC',
+            label: `Δημοσίευση ${i + 1}`,
+            shortLabel: `Δημ. ${i + 1}`,
+            adam,
+            scrollId: 'stage-PROC',
+            status: nodeStatusFromBase(stage),
+          }));
+        });
+        return;
+      }
+    }
+
+    if (stage.id === 'AWRD' && stage.has) {
+      const awardAdams = collectKhmdhsAwardAdams(project);
+      if (awardAdams.length > 1) {
+        awardAdams.forEach((adam, i) => {
+          pushPrimary(makeNode({
+            key: `AWRD-${i}`,
+            stageId: 'AWRD',
+            label: `Ανάθεση ${i + 1}`,
+            shortLabel: `Ανάθ. ${i + 1}`,
+            adam,
+            scrollId: 'stage-AWRD',
+            status: nodeStatusFromBase(stage),
+          }));
+        });
+        return;
+      }
+    }
+
     if (stage.id === 'COMMIT' && stage.has) {
       const decisions = collectKhmdhsCommitmentDecisions(project);
       if (decisions.length > 1) {

@@ -15,6 +15,28 @@ export function projectHasKhmdhsAwardData(project) {
   return !!(adam || snap);
 }
 
+function isAwrdAdam(value) {
+  return /AWRD/i.test(String(value || ''));
+}
+
+/** Μοναδικοί ΑΔΑΜ ανάθεσης — κύρια, συνδεδεμένα και τεχνητή αλυσίδα. */
+export function collectKhmdhsAwardAdams(project) {
+  const out = [];
+  const seen = new Set();
+  const add = (value) => {
+    const adam = String(value || '').trim().toUpperCase();
+    if (!adam || !isAwrdAdam(adam) || seen.has(adam)) return;
+    seen.add(adam);
+    out.push(adam);
+  };
+  add(project?.khmdhsAwardAdam);
+  add(project?.khmdhsAwardSnapshot?.referenceNumber);
+  (project?.khmdhsAdamChainMeta?.linkedAdams?.auctions || []).forEach(add);
+  Object.keys(project?.khmdhsAdamChainMeta?.awardSnapshotsByAdam || {}).forEach(add);
+  (project?.khmdhsChainStitchPlan?.segments || []).forEach((segment) => add(segment?.seedAdam));
+  return out;
+}
+
 function formatAwardAmount(snap) {
   return formatKhmdhsCostSnapshotGross(snap);
 }

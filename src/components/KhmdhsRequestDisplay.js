@@ -14,12 +14,13 @@ function formatFetchedAt(fetchedAt) {
 }
 
 /**
- * @param {{ project: object, variant?: 'detail'|'card', defaultExpanded?: boolean }} props
+ * @param {{ project: object, variant?: 'detail'|'card', defaultExpanded?: boolean, extraRequestAdams?: string[] }} props
  */
 export default function KhmdhsRequestDisplay({
   project,
   variant = 'detail',
   defaultExpanded = false,
+  extraRequestAdams = [],
 }) {
   const snapshot = useMemo(
     () => pickKhmdhsRequestSnapshot(project?.khmdhsRequestSnapshot),
@@ -31,6 +32,21 @@ export default function KhmdhsRequestDisplay({
   if (!projectHasKhmdhsRequestData(project) || !snapshot) return null;
 
   const adam = String(project.khmdhsRequestAdam || snapshot.referenceNumber || '').trim();
+  const extraAdams = (Array.isArray(extraRequestAdams) ? extraRequestAdams : [])
+    .map((value) => String(value || '').trim().toUpperCase())
+    .filter((value) => value && value !== String(adam).trim().toUpperCase());
+  const uniqueExtra = [...new Set(extraAdams)];
+  const groupsWithLinked = uniqueExtra.length
+    ? [
+      ...groups,
+      {
+        id: 'linked-requests',
+        title: 'Άλλα πρωτογενή του ίδιου υποέργου',
+        icon: '🔗',
+        rows: uniqueExtra.map((value) => ({ label: 'ΑΔΑΜ', value, badge: true })),
+      },
+    ]
+    : groups;
   const fetchedLabel = formatFetchedAt(project.khmdhsRequestFetchedAt);
   const subtitle = fetchedLabel ? `Τελευταία λήψη: ${fetchedLabel}` : '';
 
@@ -55,7 +71,7 @@ export default function KhmdhsRequestDisplay({
       adam={adam}
       subtitle={variant === 'detail' ? subtitle : undefined}
       cardSubtitle={summary?.title || ''}
-      groups={groups}
+      groups={groupsWithLinked}
       summaryChips={summaryChips}
       variant={variant}
       defaultExpanded={defaultExpanded}

@@ -50,6 +50,28 @@ export function projectHasKhmdhsNoticeData(project) {
   return !!(adam || snap);
 }
 
+function isProcAdam(value) {
+  return /PROC/i.test(String(value || ''));
+}
+
+/** Μοναδικοί ΑΔΑΜ δημοσίευσης / πρόσκλησης — κύρια, συνδεδεμένα και τεχνητή αλυσίδα. */
+export function collectKhmdhsNoticeAdams(project) {
+  const out = [];
+  const seen = new Set();
+  const add = (value) => {
+    const adam = String(value || '').trim().toUpperCase();
+    if (!adam || !isProcAdam(adam) || seen.has(adam)) return;
+    seen.add(adam);
+    out.push(adam);
+  };
+  add(project?.khmdhsNoticeAdam);
+  add(project?.khmdhsNoticeSnapshot?.referenceNumber);
+  (project?.khmdhsAdamChainMeta?.linkedAdams?.notices || []).forEach(add);
+  Object.keys(project?.khmdhsAdamChainMeta?.noticeSnapshotsByAdam || {}).forEach(add);
+  (project?.khmdhsChainStitchPlan?.segments || []).forEach((segment) => add(segment?.seedAdam));
+  return out;
+}
+
 export function noticeDrivesAssignmentProcedure(project) {
   return !!(String(project?.khmdhsNoticeAdam || '').trim()
     && pickKhmdhsNoticeSnapshot(project?.khmdhsNoticeSnapshot));

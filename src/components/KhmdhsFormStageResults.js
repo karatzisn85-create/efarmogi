@@ -16,6 +16,7 @@ import {
   projectHasKhmdhsRequestData,
   buildKhmdhsRequestCardSummary,
   pickKhmdhsRequestSnapshot,
+  collectKhmdhsRequestAdams,
 } from '../utils/khmdhsRequestFields';
 import { projectHasKhmdhsNoticeData, buildKhmdhsNoticeCardSummary, getProjectAssignmentProcedure } from '../utils/khmdhsNoticeFields';
 import {
@@ -265,6 +266,10 @@ export default function KhmdhsFormStageResults({
     () => collectKhmdhsCommitmentDecisions(project),
     [project]
   );
+  const requestAdams = useMemo(
+    () => collectKhmdhsRequestAdams(project),
+    [project]
+  );
 
   const stageCount = useMemo(() => {
     let n = 0;
@@ -302,15 +307,19 @@ export default function KhmdhsFormStageResults({
           <KhmdhsStageCard
             stageType="REQ"
             icon={LIFECYCLE_STAGE_META.REQ.icon}
-            title="Πρωτογενές αίτημα"
-            adam={project.khmdhsRequestAdam}
+            title={requestAdams.length > 1
+              ? `Πρωτογενή αιτήματα (${requestAdams.length})`
+              : 'Πρωτογενές αίτημα'}
+            adam={requestAdams.length === 1 ? (project.khmdhsRequestAdam || requestAdams[0] || '') : ''}
             stepNumber={nextStep()}
-            statusLabel={pickKhmdhsRequestSnapshot(project.khmdhsRequestSnapshot) ? 'Ανακτήθηκε' : undefined}
-            statusOk={!!pickKhmdhsRequestSnapshot(project.khmdhsRequestSnapshot)}
+            statusLabel={requestAdams.length > 1
+              ? `${requestAdams.length} πρωτογενή`
+              : (pickKhmdhsRequestSnapshot(project.khmdhsRequestSnapshot) ? 'Ανακτήθηκε' : undefined)}
+            statusOk={!!pickKhmdhsRequestSnapshot(project.khmdhsRequestSnapshot) || requestAdams.length > 1}
             summary={buildReqSummary(project)}
             scrollId="stage-REQ"
           >
-            <KhmdhsRequestDisplay project={project} variant="detail" />
+            <KhmdhsRequestDisplay project={project} variant="detail" extraRequestAdams={requestAdams} />
           </KhmdhsStageCard>
         )}
 

@@ -343,7 +343,7 @@ export default function KhmdhsPendingTasksModal({
                     {task.type === POST_APPLY_TASK.STITCH_B && (
                       <>
                         <Btn type="button" $variant="primary" onClick={() => onStitchConfirm?.(task)}>
-                          Ναι, καταχώρηση
+                          Ναι, να θυμάται και τους δύο
                         </Btn>
                         <Btn type="button" $variant="ghost" onClick={() => onStitchDecline?.(task)}>
                           Όχι για τώρα

@@ -219,6 +219,28 @@ describe('khmdhsChainStitchPlan helpers', () => {
     })).toBe(false);
   });
 
+  test('shouldOfferStitchPromptB: νέα σύμβαση δίπλα στην υπάρχουσα', () => {
+    expect(shouldOfferStitchPromptB({
+      stitchApplyMode: 'stitch',
+      stitchFilledStages: [],
+      prevForm: {
+        khmdhsRequestAdam: '25REQ016832258',
+        khmdhsAdam: '25SYMV016948065',
+        khmdhsContractSnapshot: { referenceNumber: '25SYMV016948065' },
+        khmdhsPayments: [{ adam: '25PAY1' }],
+      },
+      nextForm: {
+        implementationForm: 'Πολλές Συμβάσεις',
+        khmdhsRequestAdam: '25REQ016832258',
+        contracts: [
+          { khmdhsAdam: '25SYMV016948065' },
+          { khmdhsAdam: '24SYMV015890933' },
+        ],
+        khmdhsPayments: [{ adam: '25PAY1' }],
+      },
+    })).toBe(true);
+  });
+
   test('evaluateStitchRefreshCompleteness: ok χωρίς σχέδιο', () => {
     expect(evaluateStitchRefreshCompleteness({ success: true })).toEqual({ ok: true });
     expect(evaluateStitchRefreshCompleteness({
@@ -277,6 +299,21 @@ describe('getKhmdhsRefreshSeedAdams', () => {
     expect(r.usesStitchPlan).toBe(true);
     expect(r.adams).toEqual(['23REQ013047002', '24SYMV014193944']);
     expect(r.primary.adam).toBe('23REQ013047002');
+  });
+
+  test('χωρίς επιβεβαίωση Β: δύο συμβάσεις στην κάρτα δεν αρκούν — ένας σπόρος', () => {
+    const project = {
+      implementationForm: 'Πολλές Συμβάσεις',
+      khmdhsRequestAdam: '25REQ016832258',
+      khmdhsChainSeedAdam: '25REQ016832258',
+      contracts: [
+        { khmdhsAdam: '25SYMV016948065' },
+        { khmdhsAdam: '24SYMV015890933' },
+      ],
+    };
+    const r = getKhmdhsRefreshSeedAdams(project);
+    expect(r.usesStitchPlan).toBe(false);
+    expect(r.adams).toEqual(['25REQ016832258']);
   });
 });
 
@@ -621,7 +658,7 @@ describe('applyAdamChainResultStitchMulti — πολλές συμβάσεις', 
     expect(stitchUpdatedStages).toContain('SYMV');
   });
 
-  test('σύγκρουση SYMV όταν δεν υπάρχει κενή γραμμή για νέο ΑΔΑΜ', () => {
+  test('νέος ΑΔΑΜ χωρίς κενή γραμμή προστίθεται ως επιπλέον σύμβαση', () => {
     const prev = {
       ...multiPrev,
       contracts: [
@@ -637,7 +674,7 @@ describe('applyAdamChainResultStitchMulti — πολλές συμβάσεις', 
         },
       ],
     };
-    const { form, warnings, stitchConflictStages } = applyAdamChainResultStitchMulti(prev, {
+    const { form, warnings, stitchConflictStages, stitchFilledStages } = applyAdamChainResultStitchMulti(prev, {
       success: true,
       contract: {
         adam: '25SYMV000000099',
@@ -648,8 +685,10 @@ describe('applyAdamChainResultStitchMulti — πολλές συμβάσεις', 
     }, { seedAdam: '25SYMV000000099' });
     expect(form.contracts[0].khmdhsAdam).toBe('25SYMV000000001');
     expect(form.contracts[1].khmdhsAdam).toBe('25SYMV000000002');
-    expect(stitchConflictStages).toContain('SYMV');
-    expect(warnings).toContain('stitchConflict:symv');
+    expect(form.contracts[2].khmdhsAdam).toBe('25SYMV000000099');
+    expect(stitchConflictStages || []).not.toContain('SYMV');
+    expect(warnings || []).not.toContain('stitchConflict:symv');
+    expect(stitchFilledStages).toContain('SYMV');
   });
 
   test('σύγκρουση διαφορετικού PROC δεν αντικαθιστά', () => {
@@ -682,7 +721,41 @@ describe('applyAdamChainResultStitchMulti — πολλές συμβάσεις', 
     expect(stitchFilledStages).toContain('SYMV');
   });
 
-  test('χειροκίνητη γραμμή με ποσό δεν θεωρείται κενή για SYMV', () => {
+  test('ανανέωση με covers δεν προσθέτει ξένο SYMV ως νέα γραμμή', () => {
+    const prev = {
+      ...multiPrev,
+      contracts: [
+        {
+          khmdhsAdam: '25SYMV000000001',
+          khmdhsContractSnapshot: { referenceNumber: '25SYMV000000001' },
+          amount: '10.000,00',
+        },
+        {
+          khmdhsAdam: '25SYMV000000002',
+          khmdhsContractSnapshot: { referenceNumber: '25SYMV000000002' },
+          amount: '50.000,00',
+        },
+      ],
+    };
+    const { form, warnings, stitchConflictStages } = applyAdamChainResultStitchMulti(prev, {
+      success: true,
+      contract: {
+        adam: '25SYMV000000099',
+        snapshot: { referenceNumber: '25SYMV000000099', title: 'SKIPPED' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: { contractAmount: '1,00' },
+      },
+    }, { seedAdam: '25SYMV000000099', stitchCoversStages: ['SYMV'] });
+    expect(form.contracts).toHaveLength(2);
+    expect(form.contracts.map((c) => c.khmdhsAdam)).toEqual([
+      '25SYMV000000001',
+      '25SYMV000000002',
+    ]);
+    expect(stitchConflictStages || []).not.toContain('SYMV');
+    expect(warnings || []).not.toContain('stitchConflict:symv');
+  });
+
+  test('χειροκίνητη γραμμή με ποσό δεν αντικαθίσταται — η νέα σύμβαση μπαίνει δίπλα', () => {
     const prev = {
       ...multiPrev,
       contracts: [
@@ -690,7 +763,7 @@ describe('applyAdamChainResultStitchMulti — πολλές συμβάσεις', 
         multiPrev.contracts[1],
       ],
     };
-    const { form, warnings, stitchConflictStages } = applyAdamChainResultStitchMulti(prev, {
+    const { form, warnings, stitchConflictStages, stitchFilledStages } = applyAdamChainResultStitchMulti(prev, {
       success: true,
       contract: {
         adam: '25SYMV000000099',
@@ -701,8 +774,10 @@ describe('applyAdamChainResultStitchMulti — πολλές συμβάσεις', 
     }, { seedAdam: '25SYMV000000099' });
     expect(form.contracts[0].amount).toBe('10.000,00');
     expect(form.contracts[0].khmdhsAdam || '').toBe('');
-    expect(stitchConflictStages).toContain('SYMV');
-    expect(warnings).toContain('stitchConflict:symv');
+    expect(form.contracts[2].khmdhsAdam).toBe('25SYMV000000099');
+    expect(stitchConflictStages || []).not.toContain('SYMV');
+    expect(warnings || []).not.toContain('stitchConflict:symv');
+    expect(stitchFilledStages).toContain('SYMV');
   });
 });
 

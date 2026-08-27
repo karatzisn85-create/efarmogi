@@ -246,6 +246,94 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
     expect(filtered.map((c) => c.adam)).toEqual([kept]);
   });
 
+  it('δεν προτείνει εντάλματα άλλων τμημάτων όταν η κάρτα έχει συγκεκριμένες συμβάσεις', () => {
+    const keptSymv = '25SYMV016948065';
+    const skippedSymv = '24SYMV099999999';
+    const relatedPay = '25PAY016878905';
+    const foreignPay = '24PAY015900001';
+    const project = {
+      khmdhsAdam: keptSymv,
+      khmdhsContractSnapshot: { referenceNumber: keptSymv },
+      contracts: [{ khmdhsAdam: keptSymv, khmdhsContractSnapshot: { referenceNumber: keptSymv } }],
+      khmdhsSymvChainPlan: {
+        items: [
+          { adam: keptSymv, role: SYMV_CHAIN_ROLE.MAIN },
+          { adam: skippedSymv, role: SYMV_CHAIN_ROLE.SKIP },
+        ],
+      },
+    };
+    const chainResWithForeignPays = {
+      success: true,
+      request: { adam: '24REQ015252599', snapshot: { referenceNumber: '24REQ015252599' } },
+      contract: { adam: keptSymv, snapshot: { referenceNumber: keptSymv } },
+      payments: [
+        { adam: relatedPay, snapshot: { referenceNumber: relatedPay, contractRefNo: keptSymv } },
+        { adam: foreignPay, snapshot: { referenceNumber: foreignPay, contractRefNo: skippedSymv } },
+      ],
+    };
+    const fromChain = collectKhmdhsRegistryCandidatesFromChainRes(
+      chainResWithForeignPays,
+      null,
+      project
+    ).map((c) => c.adam);
+    expect(fromChain).toContain(relatedPay);
+    expect(fromChain).not.toContain(foreignPay);
+
+    const filtered = filterRegistryCandidatesBySymvPlan([
+      { adam: relatedPay, stage: 'PAY', snapshot: { contractRefNo: keptSymv } },
+      { adam: foreignPay, stage: 'PAY', snapshot: { contractRefNo: skippedSymv } },
+    ], project);
+    expect(filtered.map((c) => c.adam)).toEqual([relatedPay]);
+  });
+
+  it('κρατά τη δεύτερη πρόσκληση του πρώτου πρωτογενούς μετά από συρραφή', () => {
+    const firstProc = '25PROC000000001';
+    const secondProc = '25PROC000000002';
+    const project = {
+      khmdhsNoticeAdam: firstProc,
+      khmdhsNoticeSnapshot: { referenceNumber: firstProc, title: 'Πρόσκληση 1' },
+      khmdhsAdamChainMeta: {
+        linkedAdams: { notices: [firstProc, secondProc] },
+        noticeSnapshotsByAdam: {
+          [secondProc]: { referenceNumber: secondProc, title: 'Πρόσκληση 2' },
+        },
+      },
+    };
+    const fromProject = collectKhmdhsRegistryCandidatesFromProject(project).map((c) => c.adam);
+    expect(fromProject).toContain(firstProc);
+    expect(fromProject).toContain(secondProc);
+
+    const laterChain = {
+      success: true,
+      notice: {
+        adam: '24PROC000000099',
+        snapshot: { referenceNumber: '24PROC000000099', title: 'Διακήρυξη 2024' },
+      },
+    };
+    const { candidates } = buildRegistryModalPayloadAfterReview(
+      project,
+      '2026-01-01',
+      laterChain,
+      [{
+        success: true,
+        notice: {
+          adam: firstProc,
+          snapshot: { referenceNumber: firstProc, title: 'Πρόσκληση 1' },
+        },
+        chainMeta: {
+          linkedAdams: { notices: [firstProc, secondProc] },
+          noticeSnapshotsByAdam: {
+            [secondProc]: { referenceNumber: secondProc, title: 'Πρόσκληση 2' },
+          },
+        },
+      }, laterChain]
+    );
+    const adams = candidates.map((c) => c.adam);
+    expect(adams).toContain(firstProc);
+    expect(adams).toContain(secondProc);
+    expect(adams).toContain('24PROC000000099');
+  });
+
   it('shouldOfferRegistryAfterReview respects dismissed flag', () => {
     const project = {
       khmdhsAdam: rootAdam,

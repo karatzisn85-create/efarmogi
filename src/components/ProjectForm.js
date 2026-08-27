@@ -2737,6 +2737,7 @@ function ProjectForm({
   const khmdhsPendingExpiryOptionsRef = React.useRef(null);
   const khmdhsDeferRegistryRef = React.useRef(null);
   const khmdhsLastChainResRef = React.useRef(null);
+  const khmdhsStitchChainResListRef = React.useRef([]);
   const khmdhsChainInputRef = React.useRef(null);
   // Δείχνει πάντα αν υπάρχει ανοιχτό κάποιο παράθυρο της ροής ΚΗΜΔΗΣ — ώστε η προτροπή
   // λήξης σύμβασης να μην εμφανίζεται από πάνω τους, αλλά να περιμένει να κλείσουν όλα.
@@ -4601,7 +4602,7 @@ function ProjectForm({
         let appliedSymvPlan = symvChainPlan;
         const offerPlanner = shouldOfferSymvChainPlanner(res);
         const reusablePlan = (!appliedSymvPlan && contractIndex == null && offerPlanner)
-          ? resolveReusableSymvChainPlan(fetchFormData.khmdhsSymvChainPlan, res)
+          ? resolveReusableSymvChainPlan(fetchFormData.khmdhsSymvChainPlan, res, { form: fetchFormData })
           : null;
         if (reusablePlan?.items?.length) {
           appliedSymvPlan = reusablePlan;
@@ -4649,6 +4650,9 @@ function ProjectForm({
               contractIndex,
               suppressSituationModal,
               forceChainFetch,
+              skipStitchPromptA,
+              stitchApplyMode,
+              clearKhmdhsBeforeApply,
             },
           });
           return;
@@ -4676,6 +4680,9 @@ function ProjectForm({
               forceChainFetch,
               branchAnchor: branchAnchor || null,
               userSelectedBranch,
+              skipStitchPromptA,
+              stitchApplyMode,
+              clearKhmdhsBeforeApply,
             },
           });
           return;
@@ -4737,9 +4744,16 @@ function ProjectForm({
         protectedFieldCount = applyResult.protectedCount || 0;
         implementationFormAutoUpdated = applyResult.implementationFormAutoUpdated || null;
         let formAfter = applyResult.form;
+        if (stitchApplyMode === 'stitch') {
+          const prevList = khmdhsStitchChainResListRef.current || [];
+          khmdhsStitchChainResListRef.current = [...prevList.filter(Boolean), res];
+        } else {
+          khmdhsStitchChainResListRef.current = [res];
+        }
+        const chainResList = khmdhsStitchChainResListRef.current;
         formAfter = {
           ...formAfter,
-          khmdhsDocumentRegistry: applyAutoDocumentRegistryFromChain(formAfter, [res]),
+          khmdhsDocumentRegistry: applyAutoDocumentRegistryFromChain(formAfter, chainResList),
         };
         capturedMergedDQR = formAfter.khmdhsDataQualityReview || null;
         capturedFormAfterApply = formAfter;
@@ -4875,7 +4889,7 @@ function ProjectForm({
         const stitchPayloadForQueue = khmdhsPendingStitchPromptBRef.current;
         const chainFetchedAt = new Date().toISOString();
         const registryDefer = (!suppressSituationModal && !skipSituationModal)
-          ? { chainFetchedAt, chainRes: res }
+          ? { chainFetchedAt, chainRes: res, chainResList: khmdhsStitchChainResListRef.current }
           : null;
         if (registryDefer) {
           khmdhsDeferRegistryRef.current = registryDefer;
@@ -5006,13 +5020,14 @@ function ProjectForm({
               afterLegacyUpgrade,
               suppressSituationModal,
               forceChainFetch,
-              suppressBranchPicker: true,
               skipDuplicateCheck: true,
               followAllBranches,
               branchAnchor,
               userSelectedBranch: effectiveUserSelectedBranch,
               preloadedChainRes: res,
-              symvChainPlan: appliedSymvPlan,
+              // Μετά το «Διατήρηση» πρέπει να ξανατρέξει η κατανομή του ΝΕΟΥ σπόρου.
+              // Παλιό σχέδιο του άλλου πρωτογενούς δεν μπαίνει στο replay.
+              // Ο κλάδος δεν αποκλείεται εδώ: αν δεν ανοίξει κατανομή, πρέπει να εμφανιστεί επιλογή κλάδου.
             },
           });
           return;
@@ -5344,6 +5359,7 @@ function ProjectForm({
       dismissed: project?.khmdhsDocumentRegistryDismissed,
       chainFetchedAt: defer.chainFetchedAt,
       chainRes: defer.chainRes || khmdhsLastChainResRef.current,
+      chainResList: defer.chainResList || null,
     })) {
       khmdhsDeferRegistryRef.current = null;
       return;
@@ -5351,7 +5367,8 @@ function ProjectForm({
     const payload = buildRegistryModalPayloadAfterReview(
       project,
       defer.chainFetchedAt,
-      defer.chainRes || khmdhsLastChainResRef.current
+      defer.chainRes || khmdhsLastChainResRef.current,
+      defer.chainResList || null
     );
     khmdhsDeferRegistryRef.current = null;
     setKhmdhsRegistryModal(payload);
@@ -5374,6 +5391,25 @@ function ProjectForm({
     ));
     setPostApplyQueue((prev) => (prev ? removeTaskFromQueue(prev, taskId) : prev));
   }, []);
+
+  const openPendingRegistry = useCallback((task = null) => {
+    const defer = task?.defer || khmdhsDeferRegistryRef.current;
+    if (!defer) {
+      markPendingTaskComplete(POST_APPLY_TASK.REGISTRY);
+      return;
+    }
+    setPendingTasksOpen(false);
+    const project = formDataRef.current;
+    setKhmdhsRegistryModal(
+      buildRegistryModalPayloadAfterReview(
+        project,
+        defer.chainFetchedAt,
+        defer.chainRes || khmdhsLastChainResRef.current,
+        defer.chainResList || khmdhsStitchChainResListRef.current || null
+      )
+    );
+    khmdhsDeferRegistryRef.current = null;
+  }, [markPendingTaskComplete]);
 
   /** Ξανάνοιγμα λίστας χωρίς να αφαιρεθεί ο υποχρεωτικός έλεγχος (DATA_REVIEW). */
   const openPendingKhmdhsReviewOrRegistry = useCallback(() => {
@@ -5658,6 +5694,7 @@ function ProjectForm({
     setKhmdhsHighlightField(null);
     setPreSaveOverridesOpen(false);
     khmdhsPendingApplyRef.current = null;
+    khmdhsStitchChainResListRef.current = [];
     khmdhsDeferRegistryRef.current = null;
     khmdhsPendingDataReviewRef.current = false;
     khmdhsPendingStitchPromptBRef.current = null;
@@ -5835,8 +5872,8 @@ function ProjectForm({
             <DropdownHint>
               {hasChain
                 ? (formData.khmdhsAdam || formData.khmdhsContractSnapshot
-                  ? 'Δώστε REQ, PROC, AWRD ή SYMV. Αν δώσετε νέο SYMV ενώ υπάρχει ήδη κύρια σύμβαση, προστίθεται ως συμπληρωματική — η κύρια δεν αντικαθίσταται.'
-                  : 'Δώστε νέο ΑΔΑΜ (π.χ. της σύμβασης) για να συμπληρωθεί η αλυσίδα. Η εφαρμογή θα σας ρωτήσει αν θέλετε να διατηρηθούν τα υπάρχοντα στοιχεία.')
+                  ? 'Για δεύτερο πρωτογενές του ίδιου υποέργου (π.χ. άγονο τμήμα που ξαναβγήκε) δώστε τον ΑΔΑΜ του άλλου αιτήματος (REQ) — θα σας ρωτήσει αν θα κρατηθούν τα υπάρχοντα. Νέο SYMV με υπάρχουσα κύρια σύμβαση προστίθεται ως συμπληρωματική, όχι ως νέα παράλληλη.'
+                  : 'Δώστε νέο ΑΔΑΜ (π.χ. της σύμβασης ή άλλου πρωτογενούς) για να συμπληρωθεί η αλυσίδα. Η εφαρμογή θα σας ρωτήσει αν θέλετε να διατηρηθούν τα υπάρχοντα στοιχεία.')
                 : (isMulti
                   ? 'Δώστε οποιονδήποτε ΑΔΑΜ (REQ, PROC, AWRD ή SYMV) — η εφαρμογή εντοπίζει αυτόματα όλες τις συμβάσεις της πράξης.'
                   : (guidance?.chainPanelHint || 'Δώστε τον κωδικό ΑΔΑΜ του πρωτογενούς αιτήματος, δημοσίευσης, ανάθεσης ή σύμβασης.'))}
@@ -8418,6 +8455,9 @@ function ProjectForm({
           userSelectedBranch: opts.userSelectedBranch,
           symvChainPlan: plan,
           preloadedChainRes: payload.seedChainRes,
+          skipStitchPromptA: opts.skipStitchPromptA,
+          stitchApplyMode: opts.stitchApplyMode || 'replace',
+          clearKhmdhsBeforeApply: !!opts.clearKhmdhsBeforeApply,
         });
       }}
     />
@@ -8447,6 +8487,9 @@ function ProjectForm({
             suppressBranchPicker: true,
             followAllBranches: true,
             userSelectedBranch: false,
+            skipStitchPromptA: opts.skipStitchPromptA,
+            stitchApplyMode: opts.stitchApplyMode || 'replace',
+            clearKhmdhsBeforeApply: !!opts.clearKhmdhsBeforeApply,
           });
           return;
         }
@@ -8472,6 +8515,9 @@ function ProjectForm({
           suppressBranchPicker: true,
           branchAnchor: selected,
           userSelectedBranch: true,
+          skipStitchPromptA: opts.skipStitchPromptA,
+          stitchApplyMode: opts.stitchApplyMode || 'replace',
+          clearKhmdhsBeforeApply: !!opts.clearKhmdhsBeforeApply,
         });
         if (rejected.length > 0) {
           setRelatedDocsModal({ candidates: rejected, seedChainRes, previews: meta.previews || {} });
@@ -8575,6 +8621,10 @@ function ProjectForm({
       }}
       onDecline={() => {
         setStitchPromptB(null);
+        showToast(
+          'Η συρραφή έμεινε μόνο για αυτή τη φορά. Οι επόμενες ανανεώσεις θα κοιτάνε έναν κωδικό — πείτε «Ναι» αν θέλετε να θυμάται και τους δύο.',
+          'warning'
+        );
         window.setTimeout(() => tryOpenKhmdhsRegistryModal(), 0);
       }}
     />
@@ -8627,33 +8677,23 @@ function ProjectForm({
             formDataRef.current = next;
             return next;
           });
-          showToast(
-            'Καταχωρήθηκε στη φόρμα ως τεχνητή αλυσίδα. Αποθηκεύστε το υποέργο για να οριστικοποιηθεί στις επόμενες ανανεώσεις.',
-            'warning'
-          );
+          // Το κίτρινο μήνυμα αποθήκευσης φαίνεται ήδη στη φόρμα·
+          // toast πίσω από τις εκκρεμότητες δεν διαβάζεται.
         }
         markPendingTaskComplete(POST_APPLY_TASK.STITCH_B);
+        const registryTask = (postApplyQueue?.tasks || []).find((t) => t.type === POST_APPLY_TASK.REGISTRY);
+        if (registryTask) {
+          window.setTimeout(() => openPendingRegistry(registryTask), 0);
+        }
       }}
       onStitchDecline={() => {
         markPendingTaskComplete(POST_APPLY_TASK.STITCH_B);
-      }}
-      onOpenRegistry={(task) => {
-        const defer = task?.defer || khmdhsDeferRegistryRef.current;
-        if (!defer) {
-          markPendingTaskComplete(POST_APPLY_TASK.REGISTRY);
-          return;
-        }
-        setPendingTasksOpen(false);
-        const project = formDataRef.current;
-        setKhmdhsRegistryModal(
-          buildRegistryModalPayloadAfterReview(
-            project,
-            defer.chainFetchedAt,
-            defer.chainRes || khmdhsLastChainResRef.current
-          )
+        showToast(
+          'Η συρραφή έμεινε μόνο για αυτή τη φορά. Οι επόμενες ανανεώσεις θα κοιτάνε έναν κωδικό — πείτε «Ναι» αν θέλετε να θυμάται και τους δύο.',
+          'warning'
         );
-        khmdhsDeferRegistryRef.current = null;
       }}
+      onOpenRegistry={(task) => openPendingRegistry(task)}
       onSkipRegistry={() => {
         khmdhsDeferRegistryRef.current = null;
         markPendingTaskComplete(POST_APPLY_TASK.REGISTRY);

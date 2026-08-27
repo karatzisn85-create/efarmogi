@@ -29,6 +29,11 @@ import {
   KHMDHS_FINDING_ACTION,
   KHMDHS_FINDING_OUTCOME,
 } from '../utils/khmdhsRefreshFindings';
+import { showConfirm } from '../utils/confirmModal';
+import {
+  KHMDHS_IDLE_SHUTDOWN_DELAY_SEC,
+  shouldCommitKhmdhsIdleShutdown,
+} from '../utils/khmdhsIdleShutdownPlan';
 import {
   KHMDHS_RETRY_ITEM_GAP_MS,
   KHMDHS_RETRY_MAX_ROUNDS,
@@ -351,10 +356,16 @@ const ConfirmOverlay = styled.div`
   padding: 1rem;
 `;
 
+/* Πάνω από την αναφορά μαζικής ανανέωσης (12000) και τις σημειώσεις (13000). */
+const IdleCountdownOverlay = styled(ConfirmOverlay)`
+  z-index: 50000;
+  background: rgba(15, 23, 42, 0.72);
+`;
+
 const ConfirmBox = styled.div`
   background: #fff;
   border-radius: 16px;
-  width: min(480px, 100%);
+  width: min(520px, 100%);
   padding: 1.5rem;
   box-shadow: 0 20px 60px rgba(0,0,0,0.15);
   animation: ${scaleIn} 0.2s ease;
@@ -427,6 +438,54 @@ const ConfirmActions = styled.div`
   gap: 0.7rem;
 `;
 
+const ConfirmChoiceStack = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+`;
+
+const ConfirmChoiceBtn = styled.button`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  border: none;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+`;
+
+const ConfirmStayBtn = styled(ConfirmChoiceBtn)`
+  background: linear-gradient(135deg, #0d9488, #14b8a6);
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.3);
+  &:hover:not(:disabled) { box-shadow: 0 4px 14px rgba(13, 148, 136, 0.4); }
+`;
+
+const ConfirmLeaveBtn = styled(ConfirmChoiceBtn)`
+  background: linear-gradient(135deg, #b45309, #d97706);
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.28);
+  &:hover:not(:disabled) { box-shadow: 0 4px 14px rgba(217, 119, 6, 0.4); }
+`;
+
+const ConfirmChoiceTitle = styled.span`
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.3;
+`;
+
+const ConfirmChoiceHint = styled.span`
+  margin-top: 0.2rem;
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1.4;
+  opacity: 0.92;
+`;
+
 const ConfirmCancel = styled.button`
   padding: 0.5rem 1.2rem;
   border-radius: 8px;
@@ -437,20 +496,6 @@ const ConfirmCancel = styled.button`
   font-weight: 600;
   cursor: pointer;
   &:hover { background: #f1f5f9; }
-`;
-
-const ConfirmProceed = styled.button`
-  padding: 0.5rem 1.2rem;
-  border-radius: 8px;
-  border: none;
-  background: linear-gradient(135deg, #0d9488, #14b8a6);
-  color: #fff;
-  font-size: 0.74rem;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.3);
-  &:hover:not(:disabled) { box-shadow: 0 4px 14px rgba(13, 148, 136, 0.4); }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
 const ConfirmRefresh = styled.button`
@@ -464,6 +509,30 @@ const ConfirmRefresh = styled.button`
   cursor: pointer;
   &:hover:not(:disabled) { background: #ccfbf1; }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
+`;
+
+const ConfirmIdleBtn = styled.button`
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 1.2rem;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, #b45309, #d97706);
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.28);
+  &:hover:not(:disabled) { box-shadow: 0 4px 14px rgba(217, 119, 6, 0.4); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+`;
+
+const IdleCountdownNumber = styled.div`
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: #9a3412;
+  letter-spacing: -0.03em;
+  margin: 0.35rem 0 0.5rem;
 `;
 
 /**
@@ -2160,7 +2229,10 @@ export default function KhmdhsBatchRefreshWidget({
   const eligiblePreviewAtRef = useRef(0);
   const [batchScope, setBatchScope] = useState('stale'); // 'stale' | 'all'
   const cancelRef = useRef(false);
+  const batchInFlightRef = useRef(false);
   const [cancelRequested, setCancelRequested] = useState(false);
+  const [idleShutdownArmed, setIdleShutdownArmed] = useState(false);
+  const [idleCountdown, setIdleCountdown] = useState(null);
   const liveItemsRef = useRef([]);
   const liveIsRetryRef = useRef(false);
   const onLiveSnapshotRef = useRef(onLiveSnapshot);
@@ -2254,6 +2326,11 @@ export default function KhmdhsBatchRefreshWidget({
     return () => { cancelled = true; clearInterval(id); };
   }, [confirmOpen, currentUser?.username]);
 
+  const startDisabled = eligibleLoading
+    || eligiblePreview == null
+    || !selectedCount
+    || (otherRun?.running && !otherRun.mine);
+
   /** Γράφει τα ευρήματα μέσα στο υποέργο, όταν δεν γίνεται κανονική αποθήκευση δεδομένων. */
   const persistItemFindings = useCallback(async (subprojectId, findings) => {
     try {
@@ -2266,13 +2343,39 @@ export default function KhmdhsBatchRefreshWidget({
   }, [currentUser]);
 
   const handleBatchRefresh = useCallback(async (opts = {}) => {
+    if (batchInFlightRef.current) return;
+    batchInFlightRef.current = true;
+    try {
     // Λίστα συγκεκριμένων υποέργων για «Επανάληψη» (failed/κλειδωμένα) — παρακάμπτει
     // τον εντοπισμό επιλεξιμότητας και το φιλτράρισμα εμβέλειας.
     const retryItems = Array.isArray(opts.retryItems) ? opts.retryItems : null;
+    const shutdownAfter = !!opts.shutdownAfter && !retryItems;
+    if (shutdownAfter) cancelRef.current = false;
     const scope = batchScope;
     const runId = `batch-${Date.now()}`;
     const runStartedAt = new Date().toISOString();
     setConfirmOpen(false);
+
+    let idleArmed = false;
+    if (shutdownAfter) {
+      try {
+        const armRes = await ipcRenderer.invoke('arm-khmdhs-idle-shutdown', {
+          actingUsername: currentUser?.username,
+        });
+        if (!armRes?.success) {
+          showToast(
+            armRes?.error || 'Δεν ήταν δυνατή η λειτουργία «σβήσιμο όταν τελειώσει».',
+            'error'
+          );
+          return;
+        }
+        idleArmed = true;
+        setIdleShutdownArmed(true);
+      } catch (err) {
+        showToast(err?.message || 'Δεν ήταν δυνατή η λειτουργία «σβήσιμο όταν τελειώσει».', 'error');
+        return;
+      }
+    }
 
     // Μία μαζική ανανέωση τη φορά σε όλο τον δήμο: δύο ταυτόχρονες θα «τσακώνονταν» για τα
     // ίδια υποέργα και θα έδιναν δύο μισές αναφορές.
@@ -2288,6 +2391,12 @@ export default function KhmdhsBatchRefreshWidget({
             : (startRes?.error || 'Δεν ήταν δυνατή η εκκίνηση της μαζικής ανανέωσης.'),
           'warning'
         );
+        if (idleArmed) {
+          setIdleShutdownArmed(false);
+          await ipcRenderer.invoke('disarm-khmdhs-idle-shutdown', {
+            actingUsername: currentUser?.username,
+          }).catch(() => {});
+        }
         return;
       }
       runMarked = true;
@@ -2661,7 +2770,7 @@ export default function KhmdhsBatchRefreshWidget({
           const project = res.projectSnapshot;
           const existingPlan = project?.khmdhsSymvChainPlan;
           const planChainRes = resolvePlanChainResForKhmdhsRefresh(res);
-          const reusablePlan = resolveReusablePlanForKhmdhsRefresh(existingPlan, res);
+          const reusablePlan = resolveReusablePlanForKhmdhsRefresh(existingPlan, res, { form: project });
 
           // Τεχνητή αλυσίδα / ανανέωση σε επίπεδο υποέργου: πάντα stitch (όχι replace στη γραμμή 0).
           const registryChainResList = [];
@@ -3004,6 +3113,45 @@ export default function KhmdhsBatchRefreshWidget({
           actingUsername: currentUser?.username,
         }).catch(() => { /* η σήμανση λήγει μόνη της χωρίς σφυγμό */ });
       }
+      if (idleArmed) {
+        const doCommit = shouldCommitKhmdhsIdleShutdown({
+          shutdownAfter: true,
+          isRetry: !!retryItems,
+          cancelled: !!cancelRef.current,
+        });
+        if (doCommit) {
+          try {
+            const committed = await ipcRenderer.invoke('commit-khmdhs-idle-shutdown', {
+              actingUsername: currentUser?.username,
+            });
+            if (committed?.success) {
+              setIdleCountdown({
+                remainingSec: committed.delaySec || KHMDHS_IDLE_SHUTDOWN_DELAY_SEC,
+                shutdownScheduled: !!committed.shutdownScheduled,
+                fallbackQuit: !!committed.fallbackQuit,
+              });
+            } else {
+              showToast(
+                committed?.error || 'Δεν προγραμματίστηκε το σβήσιμο του υπολογιστή. Ο υπολογιστής μένει ανοιχτός.',
+                'warning'
+              );
+              await ipcRenderer.invoke('disarm-khmdhs-idle-shutdown', {
+                actingUsername: currentUser?.username,
+              }).catch(() => {});
+            }
+          } catch (err) {
+            showToast(err?.message || 'Δεν προγραμματίστηκε το σβήσιμο του υπολογιστή.', 'warning');
+            await ipcRenderer.invoke('disarm-khmdhs-idle-shutdown', {
+              actingUsername: currentUser?.username,
+            }).catch(() => {});
+          }
+        } else {
+          await ipcRenderer.invoke('disarm-khmdhs-idle-shutdown', {
+            actingUsername: currentUser?.username,
+          }).catch(() => {});
+        }
+        setIdleShutdownArmed(false);
+      }
       setCancelRequested(false);
       setRunning(false);
       if (typeof onRetryLiveChange === 'function') onRetryLiveChange(null);
@@ -3018,6 +3166,9 @@ export default function KhmdhsBatchRefreshWidget({
           cancelRequested: cancelRef.current,
         }));
       }
+    }
+    } finally {
+      batchInFlightRef.current = false;
     }
   }, [
     batchScope, currentUser, showToast, onRefreshComplete, onBatchResults, onRetryLiveChange,
@@ -3035,6 +3186,51 @@ export default function KhmdhsBatchRefreshWidget({
       }).catch(() => {});
     }
   }, [cancelRequested, currentUser, addLog]);
+
+  const handleConfirmIdleShutdown = useCallback(async () => {
+    const ok = await showConfirm({
+      title: 'Ο υπολογιστής θα σβήσει μόνος του',
+      message: 'Πρώτα αποθηκεύστε και κλείστε ό,τι άλλο έχετε ανοιχτό (Word, Excel κ.λπ.). Μετά επιβεβαιώστε και φύγετε. Μην πατήσετε το κουμπί λειτουργίας και μην κλείσετε τα Windows μόνοι σας.',
+      detail: 'Η ανανέωση θα τρέξει στον υπολογιστή. Όταν τελειώσει, σβήνει μόνος του — και ό,τι μείνει ανοιχτό κλείνει χωρίς αποθήκευση. Αν είστε ακόμα εδώ στο τέλος, έχετε ένα λεπτό να ακυρώσετε το σβήσιμο. Το πρωί ανοίγετε τον υπολογιστή, μπαίνετε στην εφαρμογή και βλέπετε την αναφορά.',
+      confirmLabel: 'Ξεκινήστε — σβήνει στο τέλος',
+      cancelLabel: 'Άκυρο',
+      danger: true,
+      icon: '⏻',
+    });
+    if (!ok) return;
+    await handleBatchRefresh({ shutdownAfter: true });
+  }, [handleBatchRefresh]);
+
+  const handleAbortIdleShutdown = useCallback(async () => {
+    try {
+      await ipcRenderer.invoke('disarm-khmdhs-idle-shutdown', {
+        actingUsername: currentUser?.username,
+      });
+    } catch { /* ignore */ }
+    setIdleCountdown(null);
+    setIdleShutdownArmed(false);
+    showToast('Το σβήσιμο ακυρώθηκε. Ο υπολογιστής μένει ανοιχτός.', 'info');
+  }, [currentUser, showToast]);
+
+  useEffect(() => {
+    if (!ipcRenderer?.on) return undefined;
+    const unsubTick = ipcRenderer.on('khmdhs-idle-shutdown-tick', (payload) => {
+      if (!payload) return;
+      setIdleCountdown({
+        remainingSec: Number(payload.remainingSec) || 0,
+        shutdownScheduled: !!payload.shutdownScheduled,
+        fallbackQuit: !!payload.fallbackQuit,
+      });
+    });
+    const unsubAbort = ipcRenderer.on('khmdhs-idle-shutdown-aborted', () => {
+      setIdleCountdown(null);
+      setIdleShutdownArmed(false);
+    });
+    return () => {
+      if (typeof unsubTick === 'function') unsubTick();
+      if (typeof unsubAbort === 'function') unsubAbort();
+    };
+  }, []);
 
   const lastRetryTokenRef = useRef(null);
   const lastCancelTokenRef = useRef(null);
@@ -3063,9 +3259,14 @@ export default function KhmdhsBatchRefreshWidget({
     }
     // Αν τρέχει ακόμα η προηγούμενη μαζική, μην κάψεις το σήμα — ξαναδοκίμασε όταν ελευθερωθεί.
     if (running) return;
+    // Κατά τη μέτρηση σβησίματος μην ξεκινήσεις επανάληψη — και μην την αφήσεις να φύγει μόνη της μετά.
+    if (idleCountdown) {
+      lastRetryTokenRef.current = retrySignal.token;
+      return;
+    }
     lastRetryTokenRef.current = retrySignal.token;
     void handleBatchRefresh({ retryItems: items });
-  }, [retrySignal, running, handleBatchRefresh]);
+  }, [retrySignal, running, idleCountdown, handleBatchRefresh]);
 
   if (!canUse) return null;
 
@@ -3145,6 +3346,11 @@ export default function KhmdhsBatchRefreshWidget({
                 Άνοιγμα πλήρους εικόνας
               </ReportLinkBtn>
             )}
+            {idleShutdownArmed && (
+              <StatusText style={{ marginTop: '0.45rem', fontWeight: 700 }}>
+                Μην πατήσετε το κουμπί λειτουργίας. Όταν τελειώσει, ο υπολογιστής σβήνει μόνος του.
+              </StatusText>
+            )}
           </RunPanel>
         )}
       </Container>
@@ -3204,11 +3410,40 @@ export default function KhmdhsBatchRefreshWidget({
               </ScopeOptions>
             )}
 
-            <ConfirmDesc style={{ marginBottom: '1.1rem', fontSize: '0.68rem' }}>
+            <ConfirmDesc style={{ marginBottom: '0.85rem', fontSize: '0.68rem' }}>
               Τα υποέργα που χρειάζονται χαρακτηρισμό εγγράφων δεν θα πειραχτούν — θα εμφανιστούν σε λίστα
               και θα σημανθούν μέσα στο υποέργο. Όσο το παράθυρο μένει ανοιχτό, η λίστα ανανεώνεται
               αυτόματα κάθε 2 λεπτά.
             </ConfirmDesc>
+
+            <ConfirmChoiceStack>
+              <ConfirmStayBtn
+                type="button"
+                onClick={() => handleBatchRefresh()}
+                disabled={startDisabled}
+              >
+                <ConfirmChoiceTitle>
+                  {eligibleLoading && eligiblePreview == null
+                    ? 'Εντοπισμός…'
+                    : `Εκκίνηση τώρα (${selectedCount || 0} υποέργα)`}
+                </ConfirmChoiceTitle>
+                <ConfirmChoiceHint>
+                  Καθίστε στον υπολογιστή. Στο τέλος μένετε στην εφαρμογή και βλέπετε την αναφορά.
+                </ConfirmChoiceHint>
+              </ConfirmStayBtn>
+              <ConfirmLeaveBtn
+                type="button"
+                onClick={handleConfirmIdleShutdown}
+                disabled={startDisabled}
+              >
+                <ConfirmChoiceTitle>
+                  Εκκίνηση και σβήσιμο υπολογιστή
+                </ConfirmChoiceTitle>
+                <ConfirmChoiceHint>
+                  Αποθηκεύστε τα έγγραφά σας, πατήστε εδώ και φύγετε. Μην σβήσετε τον υπολογιστή από το κουμπί — θα σβήσει μόνος του όταν τελειώσει.
+                </ConfirmChoiceHint>
+              </ConfirmLeaveBtn>
+            </ConfirmChoiceStack>
 
             <ConfirmActions>
               <ConfirmCancel type="button" onClick={() => setConfirmOpen(false)}>Ακύρωση</ConfirmCancel>
@@ -3219,17 +3454,37 @@ export default function KhmdhsBatchRefreshWidget({
               >
                 {eligibleLoading ? 'Ανανέωση…' : 'Ανανέωση λίστας'}
               </ConfirmRefresh>
-              <ConfirmProceed
-                onClick={() => handleBatchRefresh()}
-                disabled={eligibleLoading || eligiblePreview == null || !selectedCount}
-              >
-                {eligibleLoading && eligiblePreview == null
-                  ? 'Εντοπισμός…'
-                  : `Εκκίνηση (${selectedCount || 0} υποέργα)`}
-              </ConfirmProceed>
             </ConfirmActions>
           </ConfirmBox>
         </ConfirmOverlay>,
+        document.body
+      )}
+
+      {idleCountdown && createPortal(
+        <IdleCountdownOverlay>
+          <ConfirmBox onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, 100%)' }}>
+            <ConfirmTitle>
+              {idleCountdown.shutdownScheduled
+                ? 'Ο υπολογιστής θα σβήσει'
+                : 'Η εφαρμογή θα κλείσει'}
+            </ConfirmTitle>
+            <IdleCountdownNumber>
+              {Math.max(0, idleCountdown.remainingSec)}″
+            </IdleCountdownNumber>
+            <ConfirmDesc>
+              {idleCountdown.shutdownScheduled
+                ? (idleCountdown.remainingSec > 0
+                  ? 'Η ανανέωση τελείωσε. Σε λίγο σβήνει ο υπολογιστής. Πατήστε το κουμπί αν θέλετε να μείνει ανοιχτός.'
+                  : 'Ο υπολογιστής ετοιμάζεται να σβήσει. Πατήστε το κουμπί αν θέλετε να μείνει ανοιχτός.')
+                : 'Δεν έγινε σβήσιμο του υπολογιστή. Η εφαρμογή θα κλείσει μόνη της.'}
+            </ConfirmDesc>
+            <ConfirmActions>
+              <ConfirmIdleBtn type="button" onClick={handleAbortIdleShutdown}>
+                Να μείνει ανοιχτός ο υπολογιστής
+              </ConfirmIdleBtn>
+            </ConfirmActions>
+          </ConfirmBox>
+        </IdleCountdownOverlay>,
         document.body
       )}
     </>

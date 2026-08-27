@@ -23,6 +23,7 @@ import {
   readPaymentActualAmountFromPayment,
   mergePaymentAmountsFromProject,
 } from './khmdhsPaymentDocumentRoles';
+import { filterUnrelatedPayments } from './khmdhsPaymentReconciliation';
 
 export const KHMDHS_REGISTRY_STAGE_ORDER = ['REQ', 'COMMIT', 'PROC', 'AWRD', 'SYMV', 'EXT', 'APE', 'PAY', 'RELATED'];
 
@@ -363,7 +364,11 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = n
     }));
   });
 
-  (chainRes.payments || []).forEach((p) => {
+  const paymentRows = Array.isArray(chainRes.payments) ? chainRes.payments : [];
+  const paymentsForRegistry = project
+    ? filterUnrelatedPayments(paymentRows, project)
+    : paymentRows;
+  paymentsForRegistry.forEach((p) => {
     const adam = normalizeAdam(p?.adam || p?.snapshot?.referenceNumber);
     const fromProject = (project?.khmdhsPayments || []).find(
       (row) => normalizeAdam(row?.adam || row?.snapshot?.referenceNumber) === adam
@@ -402,8 +407,16 @@ export function shouldIncludeChainHistoryInRegistry(h, review, project = null) {
 }
 
 export function filterRegistryCandidatesBySymvPlan(candidates, project) {
-  if (!project?.khmdhsSymvChainPlan?.items?.length) return candidates || [];
-  return (candidates || []).filter((c) => !isAdamSkippedInSymvPlan(project, c.adam));
+  const list = (candidates || []).filter((c) => !isAdamSkippedInSymvPlan(project, c.adam));
+  if (!project) return list;
+  return list.filter((c) => {
+    const isPay = c.stage === 'PAY' || c.type === 'PAY';
+    if (!isPay) return true;
+    return filterUnrelatedPayments([{
+      adam: c.adam,
+      snapshot: c.snapshot,
+    }], project).length > 0;
+  });
 }
 
 function buildRegistrySuppAmountDateLookup(project) {
@@ -484,6 +497,42 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
       fetchedAt: project.khmdhsAwardFetchedAt,
     }));
   }
+
+  const meta = project.khmdhsAdamChainMeta || {};
+  const linked = meta.linkedAdams || {};
+  const requestSnaps = meta.requestSnapshotsByAdam || {};
+  const noticeSnaps = meta.noticeSnapshotsByAdam || {};
+  const awardSnaps = meta.awardSnapshotsByAdam || {};
+  (linked.requests || []).forEach((adamRaw) => {
+    const adam = normalizeAdam(adamRaw);
+    if (!adam || map.has(adam)) return;
+    const snap = requestSnaps[adam];
+    if (snap) pushUnique(map, entryFromRequest({ adam, snapshot: snap }));
+  });
+  Object.entries(requestSnaps).forEach(([adamRaw, snap]) => {
+    const adam = normalizeAdam(adamRaw);
+    if (adam && snap) pushUnique(map, entryFromRequest({ adam, snapshot: snap }));
+  });
+  (linked.notices || []).forEach((adamRaw) => {
+    const adam = normalizeAdam(adamRaw);
+    if (!adam || map.has(adam)) return;
+    const snap = noticeSnaps[adam];
+    if (snap) pushUnique(map, entryFromNotice({ adam, snapshot: snap }));
+  });
+  Object.entries(noticeSnaps).forEach(([adamRaw, snap]) => {
+    const adam = normalizeAdam(adamRaw);
+    if (adam && snap) pushUnique(map, entryFromNotice({ adam, snapshot: snap }));
+  });
+  (linked.auctions || []).forEach((adamRaw) => {
+    const adam = normalizeAdam(adamRaw);
+    if (!adam || map.has(adam)) return;
+    const snap = awardSnaps[adam];
+    if (snap) pushUnique(map, entryFromAward({ adam, snapshot: snap }));
+  });
+  Object.entries(awardSnaps).forEach(([adamRaw, snap]) => {
+    const adam = normalizeAdam(adamRaw);
+    if (adam && snap) pushUnique(map, entryFromAward({ adam, snapshot: snap }));
+  });
 
   const allDisplayEntries = getKhmdhsDisplayEntries(project);
 
@@ -1068,10 +1117,20 @@ export function applyAutoDocumentRegistryFromChain(project, chainResList, { nowI
     : resyncedRegistry;
 }
 
-export function buildRegistryModalPayloadAfterReview(project, chainFetchedAt = '', chainRes = null) {
-  const fromChain = chainRes?.success
-    ? collectKhmdhsRegistryCandidatesFromChainRes(chainRes, project?.khmdhsDataQualityReview, project)
-    : [];
+export function buildRegistryModalPayloadAfterReview(project, chainFetchedAt = '', chainRes = null, chainResList = null) {
+  const list = [];
+  if (Array.isArray(chainResList)) {
+    chainResList.forEach((cr) => { if (cr) list.push(cr); });
+  }
+  if (chainRes && !list.includes(chainRes)) list.push(chainRes);
+  let fromChain = [];
+  list.forEach((cr) => {
+    if (!cr?.success) return;
+    fromChain = mergeRegistryCandidateLists(
+      fromChain,
+      collectKhmdhsRegistryCandidatesFromChainRes(cr, project?.khmdhsDataQualityReview, project)
+    );
+  });
   const fromProject = collectKhmdhsRegistryCandidatesFromProject(project);
   const candidates = filterRegistryCandidatesBySymvPlan(
     fromChain.length
@@ -1087,8 +1146,18 @@ export function buildRegistryModalPayloadAfterReview(project, chainFetchedAt = '
   };
 }
 
-export function shouldOfferRegistryAfterReview(project, { dismissed, chainFetchedAt = '', chainRes = null } = {}) {
-  const { candidates, existing } = buildRegistryModalPayloadAfterReview(project, chainFetchedAt, chainRes);
+export function shouldOfferRegistryAfterReview(project, {
+  dismissed,
+  chainFetchedAt = '',
+  chainRes = null,
+  chainResList = null,
+} = {}) {
+  const { candidates, existing } = buildRegistryModalPayloadAfterReview(
+    project,
+    chainFetchedAt,
+    chainRes,
+    chainResList
+  );
   if (!candidates.length) return false;
   const hasNew = candidates.some((c) => !registryEntryIsAlreadyRecorded(c, existing));
   const isDismissed = dismissed ?? !!project?.khmdhsDocumentRegistryDismissed;

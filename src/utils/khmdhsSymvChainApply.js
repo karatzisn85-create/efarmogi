@@ -22,9 +22,12 @@ import { KHMDHS_SITUATION_ID_PARALLEL_CONTRACTS } from './khmdhsSituationActions
 import {
   emptyKhmdhsChainFields,
   mergeSharedKhmdhsFromChain,
+  mergeKhmdhsChainMetaForStitch,
   applyChainCharacterizationToForm,
 } from './khmdhsChainApply';
-import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
+import { SYMV_CHAIN_ROLE, expandSymvPlanWithFormContracts } from './khmdhsSymvChainPlanner';
+import { detectStagesCoveredByForm } from './khmdhsChainStitchPlan';
+import { filterUnrelatedPayments } from './khmdhsPaymentReconciliation';
 import { grossFromCostSnapshot } from './khmdhsVatHelper';
 import { normalizeProjectAmountForStorage } from './projectAmountUtils';
 import { stripPhantomContractApeFromForm } from './khmdhsApeEntry';
@@ -529,11 +532,226 @@ export function mergeSymvChainPlanIntoDataQualityReview(review, plan, form) {
   };
 }
 
+function collectFormContractAdams(form) {
+  const out = new Set();
+  const add = (value) => {
+    const n = normalizeAdam(value);
+    if (n) out.add(n);
+  };
+  add(form?.khmdhsAdam);
+  (form?.contracts || []).forEach((c) => add(c?.khmdhsAdam));
+  return out;
+}
+
+function collectSupplementaryAdams(form) {
+  const out = new Set();
+  (form?.supplementaryContracts || []).forEach((s) => {
+    const n = normalizeAdam(s?.khmdhsAdam);
+    if (n) out.add(n);
+  });
+  return out;
+}
+
+function mergePaymentsAndCommitmentsForStitch(form, chainRes) {
+  const payOnly = {
+    payments: chainRes?.payments,
+    skippedUnrelatedPayments: chainRes?.skippedUnrelatedPayments,
+    commitmentDecisions: chainRes?.commitmentDecisions,
+    commitmentDecision: chainRes?.commitmentDecision,
+    skipCommitmentMerge: false,
+    skipPaymentMerge: false,
+  };
+  const { next } = mergeSharedKhmdhsFromChain(form, payOnly, { protect: false });
+  const mergedPayments = Array.isArray(next.khmdhsPayments) ? next.khmdhsPayments : [];
+  if (!mergedPayments.length) return next;
+  return {
+    ...next,
+    khmdhsPayments: filterUnrelatedPayments(mergedPayments, next),
+  };
+}
+
+/**
+ * Κατανομή SYMV με «Διατήρηση»: δεν αδειάζει την υπάρχουσα αλυσίδα.
+ * Προσθέτει MAIN/PARALLEL που λείπουν και ενώνει εντάλματα/δεσμεύσεις.
+ */
+function applySymvChainPlanToFormStitch(prev, chainRes, plan, {
+  seedAdam = '',
+  branchAnchor = null,
+} = {}) {
+  const active = (plan?.items || []).filter((i) => i?.adam && i.role !== SYMV_CHAIN_ROLE.SKIP);
+  const mains = active.filter((i) => i.role === SYMV_CHAIN_ROLE.MAIN);
+  const parallels = active.filter((i) => i.role === SYMV_CHAIN_ROLE.PARALLEL);
+  const supplements = active.filter((i) => i.role === SYMV_CHAIN_ROLE.SUPPLEMENTARY || i.role === SYMV_CHAIN_ROLE.EXTENSION);
+  const contractLike = [...mains, ...parallels];
+  const existingAdams = collectFormContractAdams(prev);
+  const newContractLike = contractLike.filter((item) => !existingAdams.has(normalizeAdam(item.adam)));
+  const filledStages = [];
+  const fullHistory = buildContractChainHistoryFromSymvPlan(chainRes, plan);
+
+  let next = {
+    ...prev,
+    khmdhsSymvChainPlan: plan,
+    khmdhsSymvPlanAppliedAt: new Date().toISOString(),
+  };
+
+  const totalAfter = existingAdams.size + newContractLike.length;
+  if (totalAfter > 1 && !isMultipleContractsForm(next.implementationForm)) {
+    next = migrateKhmdhsSingleToMultiForm(next);
+    next.implementationForm = 'Πολλές Συμβάσεις';
+  }
+
+  if (isMultipleContractsForm(next.implementationForm) || totalAfter > 1) {
+    next.implementationForm = 'Πολλές Συμβάσεις';
+    const rows = [...(next.contracts || [])];
+    newContractLike.forEach((item) => {
+      const isMain = item.role === SYMV_CHAIN_ROLE.MAIN;
+      const roleLabel = isMain
+        ? (chainRes.contract?.roleLabel || 'Κύρια σύμβαση')
+        : `Παράλληλη σύμβαση ${Math.max(0, parallels.indexOf(item)) + 1}`;
+      rows.push(buildContractRow(item.adam, item, chainRes, {
+        roleLabel,
+        chainHistory: isMain ? fullHistory : [],
+      }));
+    });
+    next.contracts = rows;
+    if (newContractLike.length) filledStages.push('SYMV');
+  } else if (newContractLike.length === 1 && existingAdams.size === 0) {
+    const mainItem = newContractLike[0];
+    const row = buildContractRow(
+      mainItem.adam,
+      mainItem,
+      chainRes,
+      {
+        roleLabel: chainRes.contract?.roleLabel || 'Κύρια σύμβαση',
+        chainHistory: fullHistory,
+      }
+    );
+    next.khmdhsAdam = row.khmdhsAdam;
+    next.khmdhsContractSnapshot = row.khmdhsContractSnapshot;
+    next.khmdhsContractFetchedAt = row.khmdhsContractFetchedAt;
+    next.khmdhsContractRoleLabel = row.khmdhsContractRoleLabel;
+    next.contractDate = row.date;
+    next.contractAmount = row.amount;
+    next.contractEndDate = row.contractEndDate;
+    next.khmdhsContractChainHistory = fullHistory;
+    filledStages.push('SYMV');
+  }
+
+  const alreadyOnCard = new Set([
+    ...collectFormContractAdams(next),
+    ...collectSupplementaryAdams(next),
+  ]);
+  const extraSupp = supplements.filter((item) => !alreadyOnCard.has(normalizeAdam(item.adam)));
+  if (extraSupp.length) {
+    next.supplementaryContracts = [
+      ...(Array.isArray(next.supplementaryContracts) ? next.supplementaryContracts : []),
+      ...extraSupp.map((item) => buildSupplementaryRow(item.adam, item, chainRes, item.role)),
+    ];
+    next.hasSupplementaryContracts = next.supplementaryContracts.length > 0;
+  }
+
+  next.khmdhsSymvChainPlan = expandSymvPlanWithFormContracts(plan, next);
+
+  const { next: shared, warnings: sharedWarnings } = mergeSharedKhmdhsFromChain(next, chainRes, { protect: true });
+  next = mergePaymentsAndCommitmentsForStitch({ ...next, ...shared }, chainRes);
+
+  const prevStages = detectStagesCoveredByForm(prev);
+  detectStagesCoveredByForm(next).forEach((stage) => {
+    if (!prevStages.includes(stage)) filledStages.push(stage);
+  });
+  if ((Array.isArray(next.khmdhsPayments) ? next.khmdhsPayments.length : 0)
+    > (Array.isArray(prev.khmdhsPayments) ? prev.khmdhsPayments.length : 0)) {
+    filledStages.push('PAY');
+  }
+  if ((Array.isArray(next.khmdhsCommitmentDecisions) ? next.khmdhsCommitmentDecisions.length : 0)
+    > (Array.isArray(prev.khmdhsCommitmentDecisions) ? prev.khmdhsCommitmentDecisions.length : 0)) {
+    filledStages.push('COMMIT');
+  }
+
+  next.khmdhsChainSeedAdam = prev.khmdhsChainSeedAdam || seedAdam || next.khmdhsChainSeedAdam || '';
+  next.khmdhsAdamChainMeta = mergeKhmdhsChainMetaForStitch(
+    prev.khmdhsAdamChainMeta,
+    chainRes.chainMeta,
+    next
+  );
+  if (prev.khmdhsChainStitchPlan) {
+    next.khmdhsChainStitchPlan = prev.khmdhsChainStitchPlan;
+  }
+
+  const statusAutoUpdated = suggestProjectStatusAfterKhmdhsChain(prev.projectStatus, chainRes);
+  if (statusAutoUpdated) next.projectStatus = statusAutoUpdated;
+
+  const multi = isMultipleContractsForm(next.implementationForm);
+  next.khmdhsDataQualityReview = reconcileReviewState(
+    mergeSymvChainPlanIntoDataQualityReview(
+      mergeKhmdhsReviewAfterFetch(
+        prev.khmdhsDataQualityReview,
+        chainRes.dataQualityReport,
+        next,
+        multi ? { contractIndex: 0 } : { singleContractRefresh: true }
+      ),
+      plan,
+      next
+    ),
+    next
+  );
+
+  next.khmdhsAcknowledgedSituationIds = [
+    ...new Set([
+      ...(prev.khmdhsAcknowledgedSituationIds || []),
+      KHMDHS_SITUATION_ID_PARALLEL_CONTRACTS,
+    ]),
+  ];
+
+  next = applyChainCharacterizationToForm(next, next.khmdhsDataQualityReview);
+  next.khmdhsDataQualityReview = reconcileReviewState(next.khmdhsDataQualityReview, next);
+  next.khmdhsChainLastRefreshedAt = new Date().toISOString();
+
+  const resolvedAnchor = resolveBranchAnchorFromChain(chainRes, seedAdam, branchAnchor);
+  next = mergeBranchAnchorFields(next, {
+    anchorAdam: prev.khmdhsBranchAnchorAdam || prev.khmdhsRequestAdam || resolvedAnchor.adam,
+    anchorType: prev.khmdhsBranchAnchorType || resolvedAnchor.type,
+    actRootReqAdam: prev.khmdhsActRootReqAdam
+      || prev.khmdhsRequestAdam
+      || inferActRootReqAdam(chainRes, seedAdam),
+  });
+
+  const {
+    form: protectedForm,
+    protectedCount,
+    protectedFields = [],
+  } = applyUserEditsAfterKhmdhsFetch(prev, next);
+
+  const cleanedForm = stripPhantomContractApeFromForm(protectedForm, prev);
+  const implementationFormAutoUpdated = prev.implementationForm !== cleanedForm.implementationForm
+    ? cleanedForm.implementationForm
+    : null;
+
+  return {
+    form: cleanedForm,
+    warnings: sharedWarnings,
+    apeConflict: null,
+    statusAutoUpdated,
+    protectedCount,
+    protectedFields,
+    implementationFormAutoUpdated,
+    stitchFilledStages: [...new Set(filledStages)],
+  };
+}
+
 export function applySymvChainPlanToForm(prev, chainRes, plan, {
   seedAdam = '',
   branchAnchor = null,
   suppressSituationModal = false,
+  applyMode = 'replace',
 } = {}) {
+  if (applyMode === 'stitch') {
+    return applySymvChainPlanToFormStitch(prev, chainRes, plan, {
+      seedAdam,
+      branchAnchor,
+      suppressSituationModal,
+    });
+  }
   const active = (plan?.items || []).filter((i) => i?.adam && i.role !== SYMV_CHAIN_ROLE.SKIP);
   const mains = active.filter((i) => i.role === SYMV_CHAIN_ROLE.MAIN);
   const parallels = active.filter((i) => i.role === SYMV_CHAIN_ROLE.PARALLEL);

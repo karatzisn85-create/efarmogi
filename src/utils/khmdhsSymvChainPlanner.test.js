@@ -275,6 +275,59 @@ describe('khmdhsSymvChainPlanner', () => {
     }, combined)).toBeNull();
   });
 
+  it('refresh after stitch does not re-ask for a contract already on the card', () => {
+    const existingPlan = {
+      items: [
+        { adam: '24SYMV015890933', role: SYMV_CHAIN_ROLE.MAIN, date: '2025-01-15', amount: '10000' },
+        { adam: '25SYMV016155296', role: SYMV_CHAIN_ROLE.PARALLEL, date: '2025-02-15', amount: '2313,20' },
+        { adam: '24SYMV999999999', role: SYMV_CHAIN_ROLE.SKIP },
+      ],
+    };
+    const form = {
+      implementationForm: 'Πολλές Συμβάσεις',
+      khmdhsAdam: '',
+      contracts: [
+        { khmdhsAdam: '25SYMV016948065' },
+        { khmdhsAdam: '24SYMV015890933' },
+        { khmdhsAdam: '25SYMV016155296' },
+      ],
+    };
+    const combined = {
+      success: true,
+      contract: { adam: '24SYMV015890933', snapshot: { referenceNumber: '24SYMV015890933' } },
+      contractChainHistory: [
+        { adam: '24SYMV015890933', isRoot: true },
+        { adam: '25SYMV016155296' },
+        { adam: '24SYMV999999999' },
+        { adam: '25SYMV016948065' },
+      ],
+      chainMeta: {
+        contractSnapshotsByAdam: {
+          '24SYMV015890933': { referenceNumber: '24SYMV015890933', contractSignedDate: '2025-01-15' },
+          '25SYMV016155296': { referenceNumber: '25SYMV016155296', contractSignedDate: '2025-02-15' },
+          '24SYMV999999999': { referenceNumber: '24SYMV999999999', title: 'ΑΛΛΟ ΤΜΗΜΑ' },
+          '25SYMV016948065': { referenceNumber: '25SYMV016948065', contractSignedDate: '2025-06-01' },
+        },
+        parallelContractCandidates: [
+          '24SYMV015890933',
+          '25SYMV016155296',
+          '24SYMV999999999',
+          '25SYMV016948065',
+        ],
+      },
+    };
+    const reusable = resolveReusableSymvChainPlan(existingPlan, combined, { form });
+    expect(reusable).not.toBeNull();
+    expect(needsSymvPlannerAfterKhmdhsRefresh(existingPlan, {
+      success: true,
+      usesStitchPlan: true,
+      chainRes: combined,
+      stitchResults: [
+        { success: true, seedAdam: '25REQ016832258', chainRes: combined },
+      ],
+    }, { form })).toBe(false);
+  });
+
   it('card refresh does not re-ask when only auto-skipped docs appear', () => {
     const existingPlan = {
       items: [

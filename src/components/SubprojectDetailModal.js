@@ -1335,8 +1335,8 @@ function SubprojectDetailModal({
       // είναι μόνο αυτόματα «Δεν καταχωρείται»· αλλιώς ξαναρωτάμε μόνο αν χρειάζεται απόφαση.
       const existingSymvPlan = project.khmdhsSymvChainPlan;
       const planChainRes = resolvePlanChainResForKhmdhsRefresh(res);
-      const reusableSymvPlan = resolveReusablePlanForKhmdhsRefresh(existingSymvPlan, res);
-      if (needsSymvPlannerAfterKhmdhsRefresh(existingSymvPlan, res)) {
+      const reusableSymvPlan = resolveReusablePlanForKhmdhsRefresh(existingSymvPlan, res, { form: project });
+      if (needsSymvPlannerAfterKhmdhsRefresh(existingSymvPlan, res, { form: project })) {
         setSymvPlannerState({
           open: true,
           chainRes: planChainRes || res.chainRes,
@@ -1344,6 +1344,9 @@ function SubprojectDetailModal({
           seedLabel: res.seedLabel,
           subprojectTitle: project.subprojectTitle || '',
           existingPlan: existingSymvPlan,
+          usesStitchPlan: !!res.usesStitchPlan,
+          stitchResults: Array.isArray(res.stitchResults) ? res.stitchResults : [],
+          planChainRes: planChainRes || res.chainRes,
         });
         keepLock = true;
         return;
@@ -1376,6 +1379,9 @@ function SubprojectDetailModal({
           seedLabel: res.seedLabel,
           subprojectTitle: project.subprojectTitle || '',
           existingPlan: existingSymvPlan || null,
+          usesStitchPlan: !!res.usesStitchPlan,
+          stitchResults: Array.isArray(res.stitchResults) ? res.stitchResults : [],
+          planChainRes: planChainRes || res.chainRes,
         });
         keepLock = true;
         return;
@@ -1445,12 +1451,34 @@ function SubprojectDetailModal({
       void releaseKhmdhsRefreshLock();
       return;
     }
-    const { chainRes, seedAdam } = symvPlannerState;
-    setSymvPlannerState(null);
-    const applyResult = applyAdamChainResult(project, chainRes, {
+    const {
+      chainRes,
       seedAdam,
-      symvChainPlan: plan,
-    });
+      seedLabel,
+      usesStitchPlan,
+      stitchResults,
+      planChainRes,
+    } = symvPlannerState;
+    setSymvPlannerState(null);
+    const registryChainResList = [];
+    let applyResult;
+    if (usesStitchPlan && Array.isArray(stitchResults) && stitchResults.length) {
+      applyResult = applyStitchRefreshResults(project, stitchResults, {
+        fallbackChainRes: planChainRes || chainRes,
+        fallbackSeedAdam: seedAdam,
+        symvChainPlan: plan,
+      });
+      stitchResults.forEach((item) => {
+        if (item?.success && item.chainRes) registryChainResList.push(item.chainRes);
+      });
+    } else {
+      applyResult = applyAdamChainResult(project, chainRes, {
+        seedAdam,
+        symvChainPlan: plan,
+        applyMode: 'stitch',
+      });
+      if (chainRes) registryChainResList.push(chainRes);
+    }
     const mergedProject = {
       ...applyResult.form,
       projectId: project.projectId,
@@ -1462,10 +1490,10 @@ function SubprojectDetailModal({
     };
     mergedProject.khmdhsDocumentRegistry = applyAutoDocumentRegistryFromChain(
       mergedProject,
-      [chainRes]
+      registryChainResList.length ? registryChainResList : [chainRes]
     );
     const report = buildKhmdhsRefreshChangeReport(project, mergedProject, applyResult, {
-      chainWarnings: chainRes?.warnings || [],
+      chainWarnings: registryChainResList.flatMap((cr) => cr?.warnings || []),
     });
     mergedProject.khmdhsLastRefreshFindings = buildRefreshFindingsForProject({
       report,
@@ -1476,7 +1504,7 @@ function SubprojectDetailModal({
     });
     setRefreshDialog({
       seedAdam,
-      seedLabel: symvPlannerState.seedLabel,
+      seedLabel,
       changeLines: report.lines,
       mergedProject,
       chainRes,

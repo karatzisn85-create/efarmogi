@@ -6,9 +6,9 @@ import {
   PROJECT_STATUS_CONTRACT_PROCESS,
 } from '../data/formOptions';
 import { getKhmdhsDisplayEntries } from './khmdhsFields';
-import { pickKhmdhsNoticeSnapshot, projectHasKhmdhsNoticeData } from './khmdhsNoticeFields';
-import { pickKhmdhsRequestSnapshot, projectHasKhmdhsRequestData } from './khmdhsRequestFields';
-import { pickKhmdhsAwardSnapshot, projectHasKhmdhsAwardData } from './khmdhsAwardFields';
+import { pickKhmdhsNoticeSnapshot, projectHasKhmdhsNoticeData, collectKhmdhsNoticeAdams } from './khmdhsNoticeFields';
+import { pickKhmdhsRequestSnapshot, projectHasKhmdhsRequestData, collectKhmdhsRequestAdams } from './khmdhsRequestFields';
+import { pickKhmdhsAwardSnapshot, projectHasKhmdhsAwardData, collectKhmdhsAwardAdams } from './khmdhsAwardFields';
 import { getProjectAssignmentProcedure } from './khmdhsNoticeFields';
 import { filterUnrelatedPayments } from './khmdhsPaymentReconciliation';
 import { collectKhmdhsCommitmentDecisions } from './khmdhsChainExtraFields';
@@ -135,8 +135,54 @@ export function awardIndicatesNoPriorNotice(project) {
 
 function isProcStageNotApplicable(project) {
   if (projectHasKhmdhsNoticeData(project)) return false;
+  if (collectKhmdhsNoticeAdams(project).length > 0) return false;
   if (!projectHasKhmdhsAwardData(project) && !getSymvStageInfo(project).has) return false;
   return awardIndicatesNoPriorNotice(project);
+}
+
+function getRequestStageInfo(project) {
+  const reqSnap = pickKhmdhsRequestSnapshot(project?.khmdhsRequestSnapshot);
+  const adams = collectKhmdhsRequestAdams(project);
+  const adam = String(project?.khmdhsRequestAdam || reqSnap?.referenceNumber || adams[0] || '').trim();
+  if (!projectHasKhmdhsRequestData(project) && adams.length === 0) {
+    return { has: false, adam: '', cancelled: false, extraLabel: null };
+  }
+  return {
+    has: true,
+    adam,
+    cancelled: !!reqSnap?.cancelled,
+    extraLabel: adams.length > 1 ? `${adams.length}× αίτημα` : null,
+  };
+}
+
+function getNoticeStageInfo(project) {
+  const procSnap = pickKhmdhsNoticeSnapshot(project?.khmdhsNoticeSnapshot);
+  const adams = collectKhmdhsNoticeAdams(project);
+  const adam = String(project?.khmdhsNoticeAdam || procSnap?.referenceNumber || adams[0] || '').trim();
+  if (!projectHasKhmdhsNoticeData(project) && adams.length === 0) {
+    return { has: false, adam: '', cancelled: false, extraLabel: null };
+  }
+  return {
+    has: true,
+    adam,
+    cancelled: !!procSnap?.cancelled,
+    extraLabel: adams.length > 1 ? `${adams.length}× δημοσ.` : null,
+  };
+}
+
+function getAwardStageInfo(project) {
+  const awrdSnap = pickKhmdhsAwardSnapshot(project?.khmdhsAwardSnapshot);
+  const adams = collectKhmdhsAwardAdams(project);
+  const adam = String(project?.khmdhsAwardAdam || awrdSnap?.referenceNumber || adams[0] || '').trim();
+  if (!projectHasKhmdhsAwardData(project) && adams.length === 0) {
+    return { has: false, adam: '', cancelled: false, extraLabel: null };
+  }
+  return {
+    has: true,
+    adam,
+    cancelled: !!awrdSnap?.cancelled,
+    extraLabel: adams.length > 1 ? `${adams.length}× ανάθεση` : null,
+  };
 }
 
 function getCommitmentStageInfo(project) {
@@ -274,9 +320,9 @@ function inferCurrentStageIndex(project, raw) {
 }
 
 export function buildKhmdhsLifecycleStages(project) {
-  const reqSnap = pickKhmdhsRequestSnapshot(project?.khmdhsRequestSnapshot);
-  const procSnap = pickKhmdhsNoticeSnapshot(project?.khmdhsNoticeSnapshot);
-  const awrdSnap = pickKhmdhsAwardSnapshot(project?.khmdhsAwardSnapshot);
+  const req = getRequestStageInfo(project);
+  const proc = getNoticeStageInfo(project);
+  const awrd = getAwardStageInfo(project);
   const symv = getSymvStageInfo(project);
 
   const raw = STAGE_ORDER.map((id) => {
@@ -284,28 +330,28 @@ export function buildKhmdhsLifecycleStages(project) {
     if (id === 'REQ') {
       return {
         ...meta,
-        has: projectHasKhmdhsRequestData(project),
-        adam: String(project?.khmdhsRequestAdam || reqSnap?.referenceNumber || '').trim(),
-        cancelled: !!reqSnap?.cancelled,
-        extraLabel: null,
+        has: req.has,
+        adam: req.adam,
+        cancelled: req.cancelled,
+        extraLabel: req.extraLabel,
       };
     }
     if (id === 'PROC') {
       return {
         ...meta,
-        has: projectHasKhmdhsNoticeData(project),
-        adam: String(project?.khmdhsNoticeAdam || procSnap?.referenceNumber || '').trim(),
-        cancelled: !!procSnap?.cancelled,
-        extraLabel: null,
+        has: proc.has,
+        adam: proc.adam,
+        cancelled: proc.cancelled,
+        extraLabel: proc.extraLabel,
       };
     }
     if (id === 'AWRD') {
       return {
         ...meta,
-        has: projectHasKhmdhsAwardData(project),
-        adam: String(project?.khmdhsAwardAdam || awrdSnap?.referenceNumber || '').trim(),
-        cancelled: !!awrdSnap?.cancelled,
-        extraLabel: null,
+        has: awrd.has,
+        adam: awrd.adam,
+        cancelled: awrd.cancelled,
+        extraLabel: awrd.extraLabel,
       };
     }
     return {

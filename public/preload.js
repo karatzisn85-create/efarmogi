@@ -45,6 +45,9 @@ const ALLOWED_INVOKE = new Set([
   'check-khmdhs-batch-run',
   'start-khmdhs-batch-run',
   'end-khmdhs-batch-run',
+  'arm-khmdhs-idle-shutdown',
+  'disarm-khmdhs-idle-shutdown',
+  'commit-khmdhs-idle-shutdown',
   'restore-khmdhs-refresh-snapshot',
   'get-khmdhs-refresh-snapshot-info',
   'khmdhs-fetch-supplementary-contract',
@@ -142,6 +145,8 @@ const ALLOWED_RECEIVE = new Set([
   'update-available','update-downloaded','update-download-progress','update-installed',
   'task-notification',
   'khmdhs-refresh-progress',
+  'khmdhs-idle-shutdown-tick',
+  'khmdhs-idle-shutdown-aborted',
 ]);
 
 contextBridge.exposeInMainWorld('electronAPI', {

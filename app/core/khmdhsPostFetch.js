@@ -220,10 +220,20 @@
 
   /**
    * Σειρά όπως στη φόρμα μετά επιτυχή ανάκτηση, πριν την εφαρμογή.
+   * Αν υπάρχει ήδη αλυσίδα και μπαίνει άλλος ΑΔΑΜ, η συρραφή Α προηγείται
+   * (κρατάμε ή καθαρίζουμε) — μετά κατανομή συμβάσεων / κλάδος.
    */
   function resolvePreApplyGate(input) {
     var opts = input || {};
     var scoped = opts.contractIndex != null;
+    if (
+      opts.offerStitchA
+      && !opts.skipStitchPromptA
+      && !opts.afterLegacyUpgrade
+      && !scoped
+    ) {
+      return { next: PRE_APPLY.STITCH_A };
+    }
     if (
       opts.needsBranchPicker
       && !opts.suppressBranchPicker
@@ -244,15 +254,6 @@
     }
     if (opts.hasDuplicateConflict && !opts.skipDuplicateCheck && !scoped) {
       return { next: PRE_APPLY.DUPLICATE_ANCHOR };
-    }
-    if (
-      opts.offerStitchA
-      && !opts.skipStitchPromptA
-      && !opts.afterLegacyUpgrade
-      && !opts.appliedSymvPlan
-      && !scoped
-    ) {
-      return { next: PRE_APPLY.STITCH_A };
     }
     if (opts.deferCancelledSeed && !opts.suppressSituationModal) {
       return { next: PRE_APPLY.DEFER_SITUATION };
