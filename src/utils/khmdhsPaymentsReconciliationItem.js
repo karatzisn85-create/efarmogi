@@ -165,7 +165,8 @@ function buildPaymentsReconciliationItem(payments, ctx) {
 
   if (recon.needsClassification) {
     status = STATUS.NEEDS_REVIEW;
-    message = `Το άθροισμα των εγγράφων πληρωμής (${formatDisplayAmount(recon.rawTotalGross)}) υπερβαίνει ${refAmountDesc}.`
+    message = `Το άθροισμα όπως το δήλωσε το ΚΗΜΔΗΣ στους κωδικούς PAY (${formatDisplayAmount(recon.rawTotalGross)}) υπερβαίνει ${refAmountDesc}.`
+      + ' Αυτό το σύνολο προσθέτει τα ποσά της πύλης — όχι τα ποσά που γράφουν τα εντάλματα.'
       + classifyHint;
     if (recon.coFinancingPattern) {
       message += ' Εντοπίστηκε πιθανό μοτίβο συγχρηματοδότησης (Δήμος + Περιφερειακό Ταμείο) — επιβεβαιώστε ποιο έγγραφο είναι πραγματική πληρωμή και ποιο αποζημίωση ή ενημερωτικό.';
@@ -175,7 +176,7 @@ function buildPaymentsReconciliationItem(payments, ctx) {
     message += apeHint;
     displayValue = formatDisplayAmount(recon.rawTotalGross);
   } else if (recon.coFinancingPattern && !recon.hasUserClassification) {
-    message = `Βρέθηκαν ${recon.activeCount} έγγραφα με ακατέργαστο άθροισμα ${formatDisplayAmount(recon.rawTotalGross)} — υπερβαίνει ${refAmountDesc}. `
+    message = `Βρέθηκαν ${recon.activeCount} έγγραφα. Άθροισμα όπως το δήλωσε το ΚΗΜΔΗΣ: ${formatDisplayAmount(recon.rawTotalGross)} — υπερβαίνει ${refAmountDesc}. `
       + 'Εντοπίστηκε τυπικό μοτίβο συγχρηματοδότησης: ένταλμα από Περιφερειακό Ταμείο/ΠΕΠΑΚ και ένταλμα από Δήμο/αναθέτουσα αρχή για το ίδιο ποσό. '
       + 'Συνήθως το Ταμείο αποζημιώνει τον Δήμο — η εκτιμώμενη πληρωμή προς εργολάβο είναι μία φορά το ποσό της σύμβασης, όχι το άθροισμα των δύο ενταλμάτων.';
     if (recon.estimatedExceedsContract) {
@@ -183,7 +184,7 @@ function buildPaymentsReconciliationItem(payments, ctx) {
       message += ` Ωστόσο, ακόμη και μετά τον έλεγχο, το εκτιμώμενο ποσό υπερβαίνει ${refAmountDesc} — απαιτείται χειροκίνητος έλεγχος.${apeHint}`;
     }
   } else if (recon.hasUserClassification) {
-    message = `Χαρακτηρίστηκαν ${recon.activeCount} έγγραφα πληρωμής. Μετρούν στο άθροισμα: ${formatDisplayAmount(recon.countableTotalGross)} (ακατέργαστο: ${formatDisplayAmount(recon.rawTotalGross)}).`;
+    message = `Χαρακτηρίστηκαν ${recon.activeCount} έγγραφα πληρωμής. Μετρούν στο άθροισμα: ${formatDisplayAmount(recon.countableTotalGross)} (όπως το δήλωσε το ΚΗΜΔΗΣ: ${formatDisplayAmount(recon.rawTotalGross)}).`;
     if (recon.countableExceedsContract) {
       status = STATUS.NEEDS_REVIEW;
       message += ` Το ποσό που μετράει ακόμη υπερβαίνει ${refAmountDesc} — ελέγξτε ξανά τους χαρακτηρισμούς.${apeHint}`;
@@ -212,7 +213,7 @@ function buildPaymentsReconciliationItem(payments, ctx) {
   }
 
   const relatedInfo = refs(
-    ref('Ακατέργαστο άθροισμα (με ΦΠΑ)', formatDisplayAmount(recon.rawTotalGross)),
+    ref('Άθροισμα όπως το δήλωσε το ΚΗΜΔΗΣ (με ΦΠΑ)', formatDisplayAmount(recon.rawTotalGross)),
     recon.coFinancingPattern
       ? ref('Εκτιμώμενη πληρωμή εργολάβου (με ΦΠΑ)', formatDisplayAmount(recon.estimatedContractorPaymentGross))
       : null,

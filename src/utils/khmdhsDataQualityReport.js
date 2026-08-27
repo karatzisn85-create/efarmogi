@@ -801,7 +801,7 @@ export function getReviewItemUserGuide(item) {
   if (item.fieldId === 'paymentsReconciliation') {
     return {
       title: 'Έλεγχος ενταλμάτων πληρωμής',
-      hint: 'Συγκρίνετε το άθροισμα με το συμβατικό ποσό — επιβεβαιώστε αν είναι σωστό',
+      hint: 'Το ΚΗΜΔΗΣ δηλώνει ποσά στους κωδικούς PAY που μπορεί να μην είναι τα ποσά των ενταλμάτων. Ελέγξτε κάθε έγγραφο.',
       cta: 'Έλεγχος',
       priority: 4,
       icon: '💳',

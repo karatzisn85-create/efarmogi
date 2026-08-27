@@ -77,6 +77,16 @@ export function pickKhmdhsBatchRetryCandidates(items = []) {
     .map((i) => ({ id: i.id, label: i.label || i.id }));
 }
 
+/**
+ * Ξεχωριστή ουρά: το ΚΗΜΔΗΣ δεν επιβεβαίωσε κρίκους — η κάρτα έμεινε, αξίζει νέο fetch.
+ * Όχι τα υποέργα που θέλουν ενέργεια ανθρώπου (ΑΠΕ, χαρακτηρισμός, έλεγχος στοιχείων).
+ */
+export function pickKhmdhsBatchIncompleteRetryCandidates(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((i) => i?.id && itemHasIncompleteConfirmation(i) && !itemNeedsBatchFollowUp(i))
+    .map((i) => ({ id: i.id, label: i.label || i.id }));
+}
+
 /** Παύση πριν την επόμενη αυτόματη προσπάθεια (1 = πρώτη παύση μετά το αρχικό πέρασμα). */
 export function nextKhmdhsRetryDelayMs(roundAfterFirst) {
   const n = Math.max(1, Number(roundAfterFirst) || 1);
@@ -275,6 +285,7 @@ export function itemNeedsBatchFollowUp(item) {
 /**
  * Ομαδοποίηση ενοτήτων της αναφοράς μαζικής ανανέωσης.
  * Η ανεπιβεβαίωση ΚΗΜΔΗΣ είναι δική της ενότητα και δεν μετρά ως «χρειάζονται ενέργεια».
+ * Υποέργο με νέους κρίκους ΚΑΙ ανεπιβεβαίωση εμφανίζεται και στις δύο λίστες.
  */
 export function partitionKhmdhsBatchReportItems(items = [], pendingItems) {
   const list = Array.isArray(items) ? items : [];
@@ -292,18 +303,15 @@ export function partitionKhmdhsBatchReportItems(items = [], pendingItems) {
     : intervenedFromItems;
 
   const followUpItems = list.filter((i) => itemNeedsBatchFollowUp(i));
-  const followUpIds = new Set(followUpItems.map((i) => i.id));
-  const incompleteItems = list.filter((i) => (
-    itemHasIncompleteConfirmation(i) && !itemNeedsBatchFollowUp(i)
-  ));
-  const incompleteIds = new Set(incompleteItems.map((i) => i.id));
-  const refreshedOnly = refreshedItems.filter((i) => (
-    !followUpIds.has(i.id)
-    && !incompleteIds.has(i.id)
+  const incompleteItems = list.filter((i) => itemHasIncompleteConfirmation(i));
+  const refreshedOnly = list.filter((i) => (
+    i.status === 'refreshed'
     && splitRefreshReportLineBuckets(i).appliedLines.length > 0
   ));
   const unchangedOnly = unchangedItems.filter((i) => (
-    !followUpIds.has(i.id) && !incompleteIds.has(i.id)
+    !itemNeedsBatchFollowUp(i)
+    && !itemHasIncompleteConfirmation(i)
+    && splitRefreshReportLineBuckets(i).appliedLines.length === 0
   ));
 
   return {
@@ -319,6 +327,59 @@ export function partitionKhmdhsBatchReportItems(items = [], pendingItems) {
     refreshedOnly,
     unchangedOnly,
   };
+}
+
+/** Μία σαφής γραμμή κατάστασης για την κάρτα της αναφοράς. */
+export function describeKhmdhsBatchCardMeta(item, kind) {
+  const buckets = splitRefreshReportLineBuckets(item || {});
+  if (kind === 'applied') {
+    const n = buckets.appliedLines.length;
+    if (n <= 1) return 'Μπήκε νέο στοιχείο στην κάρτα από το ΚΗΜΔΗΣ.';
+    return `Μπήκαν ${n} νέα στοιχεία στην κάρτα από το ΚΗΜΔΗΣ.`;
+  }
+  if (kind === 'incomplete') {
+    if (buckets.appliedLines.length) {
+      return 'Μπήκαν νέα στοιχεία, αλλά το ΚΗΜΔΗΣ δεν επιβεβαίωσε όλους τους παλιούς κρίκους. Ό,τι ήδη είχατε έμεινε.';
+    }
+    return 'Η κάρτα έμεινε όπως ήταν. Η ανάκτηση δεν ολοκληρώθηκε πλήρως — δεν διαγράφηκε τίποτα.';
+  }
+  if (kind === 'attention') {
+    const action = Array.isArray(item?.actions) && item.actions[0];
+    if (action?.title) {
+      return `Σας περιμένει ενέργεια στο υποέργο: ${action.title}. Τα υπάρχοντα στοιχεία διατηρήθηκαν.`;
+    }
+    return 'Υπάρχει σημείο προς έλεγχο στην κάρτα. Τα υπάρχοντα στοιχεία διατηρήθηκαν.';
+  }
+  if (kind === 'unchanged') {
+    return 'Ελέγχθηκε στο ΚΗΜΔΗΣ — τα δεδομένα ήταν ήδη ενημερωμένα. Δεν άλλαξε τίποτα στην κάρτα.';
+  }
+  return '';
+}
+
+/** Ανάλυση του σωρού «εκτός ελέγχου» σε κατανοητούς λόγους. */
+export function summarizeKhmdhsSkippedReasons(items = []) {
+  const counts = {
+    noAdam: 0,
+    completed: 0,
+    locked: 0,
+    fresh: 0,
+    other: 0,
+  };
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const r = String(item?.reason || '');
+    if (/χωρίς αδαμ/i.test(r)) counts.noAdam += 1;
+    else if (/ολοκληρωμ/i.test(r)) counts.completed += 1;
+    else if (/κλειδωμ/i.test(r)) counts.locked += 1;
+    else if (/πρόσφατα ανανεωμ/i.test(r) || /εκτός επιλογής/i.test(r)) counts.fresh += 1;
+    else counts.other += 1;
+  });
+  const parts = [];
+  if (counts.noAdam) parts.push(`${counts.noAdam} χωρίς ΑΔΑΜ`);
+  if (counts.completed) parts.push(`${counts.completed} ολοκληρωμένα`);
+  if (counts.locked) parts.push(`${counts.locked} κλειδωμένα`);
+  if (counts.fresh) parts.push(`${counts.fresh} πρόσφατα ανανεωμένα (εκτός επιλογής)`);
+  if (counts.other) parts.push(`${counts.other} άλλος λόγος`);
+  return { ...counts, parts, total: Array.isArray(items) ? items.length : 0 };
 }
 
 export function summarizeKhmdhsBatchLiveItems(items = []) {

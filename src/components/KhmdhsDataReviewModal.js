@@ -53,6 +53,10 @@ import {
   mergePaymentAmountsFromProject,
   suggestPaymentActualAmount,
   suggestPaymentDuplicateTitlePlan,
+  collectKhmdhsPortalPaymentAmountIssues,
+  describeKhmdhsPortalPaymentAmountIssue,
+  detectKhmdhsPortalPaymentAmountIssue,
+  extractXeRefFromPaymentTitle,
   paymentRoleCountsTowardTotal,
   validatePaymentRoleDraft,
 } from '../utils/khmdhsPaymentDocumentRoles';
@@ -352,21 +356,41 @@ const PaymentPreviewList = styled.div`
 const PaymentPreviewRow = styled.div`
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: ${(p) => (p.$mismatch ? 'stretch' : 'center')};
+  flex-direction: ${(p) => (p.$mismatch ? 'column' : 'row')};
   justify-content: space-between;
   gap: 0.45rem 0.65rem;
   padding: 0.5rem 0.65rem;
   border-radius: 10px;
-  background: #f0fdfa;
-  border: 1px solid rgba(13, 148, 136, 0.25);
+  background: ${(p) => (p.$mismatch ? '#fff7ed' : '#f0fdfa')};
+  border: 1px solid ${(p) => (p.$mismatch ? '#fdba74' : 'rgba(13, 148, 136, 0.25)')};
   font-size: 0.8rem;
-  color: #0f766e;
+  color: ${(p) => (p.$mismatch ? '#9a3412' : '#0f766e')};
 
   code {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-weight: 700;
     color: #0f172a;
   }
+`;
+
+const PaymentPortalWarn = styled.div`
+  margin-top: 0.15rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+`;
+
+const PaymentKhmdhsAmountLine = styled.div`
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: ${(p) => (p.$warn ? '#9a3412' : '#0f766e')};
 `;
 
 const PaymentRoleSelect = styled.select`
@@ -414,14 +438,19 @@ const PaymentAmountInput = styled.input`
 `;
 
 const PaymentClassSummary = styled.div`
-  padding: 0.5rem 0.65rem;
+  padding: 0.55rem 0.7rem;
   border-radius: 10px;
   background: #fffbeb;
   border: 1px solid #fcd34d;
   color: #92400e;
   font-size: 0.76rem;
   line-height: 1.45;
-  font-weight: 600;
+  font-weight: 500;
+`;
+
+const PaymentClassSummaryTitle = styled.div`
+  font-weight: 800;
+  margin-bottom: 0.2rem;
 `;
 
 const GuideStepsTitle = styled.div`
@@ -1914,6 +1943,14 @@ function PaymentClassificationCard({
   const payable = recon.contractAmountGross;
   const exceedsAfterClassify = payable != null && countableTotal > payable + 0.5;
   const collapsed = buildReviewItemCollapsedView(item, { review });
+  const portalIssues = collectKhmdhsPortalPaymentAmountIssues(activeEntries, {
+    contractAmountGross: payable,
+    getTitle: (e) => {
+      const adam = String(e.adam || '').trim().toUpperCase();
+      return paymentSnapshots.get(adam)?.title || e?.snapshot?.title || '';
+    },
+  });
+  const portalIssueByAdam = new Map(portalIssues.map((issue) => [issue.adam, issue]));
 
   const buildAmountsMeta = () => {
     const out = {};
@@ -1984,22 +2021,46 @@ function PaymentClassificationCard({
       extraMore={null}
     >
       <PaymentClassSummary>
-        Ακατέργαστο άθροισμα: {formatKhmdhsEuro(recon.rawTotalGross)}
-        {payable != null && (
-          <> · Μετά τους χαρακτηρισμούς: {formatKhmdhsEuro(countableTotal)} / {formatKhmdhsEuro(payable)}</>
+        <PaymentClassSummaryTitle>
+          Άθροισμα όπως το δήλωσε το ΚΗΜΔΗΣ: {formatKhmdhsEuro(recon.rawTotalGross)}
+        </PaymentClassSummaryTitle>
+        <div>
+          Προσθέτει τα ποσά που έχει καταχωρήσει η πύλη σε κάθε κωδικό PAY — όχι τα ποσά που γράφει το ένταλμα (π.χ. XE).
+          Αν η πύλη έχει βάλει λάθος ή φουσκωμένο ποσό σε έναν κωδικό, φουσκώνει και αυτό το σύνολο.
+          Δεν είναι υπολογισμός της εφαρμογής.
+        </div>
+        {portalIssues.length > 0 && (
+          <PaymentPortalWarn style={{ marginTop: '0.45rem' }}>
+            {portalIssues.map((issue) => (
+              <div key={issue.adam} style={{ marginBottom: portalIssues.length > 1 ? '0.35rem' : 0 }}>
+                {describeKhmdhsPortalPaymentAmountIssue(issue)}
+              </div>
+            ))}
+          </PaymentPortalWarn>
         )}
-        {exceedsAfterClassify && ' — το ποσό που μετράει ακόμη υπερβαίνει το τελικό πληρωτέο.'}
+        {payable != null && (
+          <div style={{ marginTop: '0.4rem', fontWeight: 700 }}>
+            Ό,τι μετράει μετά τον δικό σας έλεγχο: {formatKhmdhsEuro(countableTotal)}
+            {' · '}
+            Πληρωτέο σύμβασης: {formatKhmdhsEuro(payable)}
+          </div>
+        )}
+        {exceedsAfterClassify && (
+          <div style={{ marginTop: '0.25rem', fontWeight: 700 }}>
+            Το ποσό που μετράει ακόμη υπερβαίνει το τελικό πληρωτέο.
+          </div>
+        )}
         {autoPlan && !exceedsAfterClassify && (
-          <div style={{ marginTop: '0.35rem' }}>
+          <div style={{ marginTop: '0.35rem', fontWeight: 600 }}>
             Εντοπίστηκε εντολή πληρωμής με το ίδιο ποσό όπως ένα ένταλμα. Η εντολή προτείνεται
             ως ενημερωτική· τα ποσά των δόσεων πάρθηκαν από τους τίτλους. Ελέγξτε και πατήστε
             ολοκλήρωση.
           </div>
         )}
         <div style={{ marginTop: '0.35rem', fontWeight: 600 }}>
-          Αν ένα ένταλμα πληρώνει μόνο μέρος του ποσού (π.χ. το καθαρό στον ανάδοχο ή μόνο τις
-          κρατήσεις), γράψτε το πραγματικό ποσό στο αντίστοιχο πεδίο. Όπου βρέθηκε ποσό μέσα στον τίτλο,
-          έχει προσυμπληρωθεί — ελέγξτε το. Αφήστε το κενό για να μετρήσει το ποσό του ΚΗΜΔΗΣ.
+          Στο πεδίο «Πραγματικό ποσό εντάλματος» γράψτε ό,τι πληρώνει το ένταλμα.
+          Όπου βρέθηκε ποσό μέσα στον τίτλο, έχει προσυμπληρωθεί — ελέγξτε το.
+          Αφήστε το κενό μόνο αν συμφωνείτε με το ποσό της πύλης.
         </div>
       </PaymentClassSummary>
 
@@ -2008,14 +2069,29 @@ function PaymentClassificationCard({
           const adam = String(entry.adam || '').trim().toUpperCase();
           const snap = paymentSnapshots.get(adam);
           const title = snap?.title || '';
+          const portalIssue = portalIssueByAdam.get(adam);
+          const xeRef = portalIssue?.xeRef || extractXeRefFromPaymentTitle(title);
           return (
-            <PaymentPreviewRow key={adam}>
+            <PaymentPreviewRow key={adam} $mismatch={!!portalIssue}>
               <div style={{ flex: '1 1 240px', minWidth: 0 }}>
                 <strong>Έγγραφο {idx + 1}</strong>
                 {' · '}
                 <code>{adam}</code>
                 {entry.payer?.shortLabel ? ` · ${entry.payer.shortLabel}` : ''}
-                {entry.gross != null ? ` · ${formatKhmdhsEuro(entry.gross)}` : ''}
+                {xeRef ? (
+                  <div style={{ marginTop: '0.15rem', fontWeight: 700 }}>Ένταλμα {xeRef}</div>
+                ) : null}
+                {portalIssue ? (
+                  <PaymentPortalWarn>
+                    {describeKhmdhsPortalPaymentAmountIssue(portalIssue)}
+                  </PaymentPortalWarn>
+                ) : (
+                  entry.gross != null && (
+                    <PaymentKhmdhsAmountLine>
+                      Δηλωμένο στο ΚΗΜΔΗΣ (πύλη): {formatKhmdhsEuro(entry.gross)}
+                    </PaymentKhmdhsAmountLine>
+                  )
+                )}
                 {title ? (
                   <div style={{ marginTop: '0.25rem', color: '#475569', fontSize: '0.72rem' }}>
                     {title}
@@ -2037,7 +2113,7 @@ function PaymentClassificationCard({
                 placeholder="Δική σας ονομασία (προαιρετικά)"
               />
               <PaymentAmountField>
-                Πραγματικό ποσό (με ΦΠΑ)
+                Πραγματικό ποσό εντάλματος (με ΦΠΑ)
                 <PaymentAmountInput
                   type="text"
                   inputMode="decimal"
@@ -2056,7 +2132,7 @@ function PaymentClassificationCard({
                     (next) => setAmountDraft((prev) => ({ ...prev, [adam]: next })),
                   )}
                   placeholder={entry.gross != null ? formatAmountInput(entry.gross) : 'π.χ. 27.836,89'}
-                  title="Αφήστε το κενό για να μετρήσει το ποσό του ΚΗΜΔΗΣ. Συμπληρώστε το όταν το ένταλμα πληρώνει μέρος του ποσού (π.χ. καθαρό ή μόνο κρατήσεις)."
+                  title="Γράψτε το ποσό του εντάλματος. Αφήστε κενό μόνο αν συμφωνείτε με το ποσό που δήλωσε το ΚΗΜΔΗΣ στην πύλη."
                 />
               </PaymentAmountField>
               <MiniBtn
@@ -2130,15 +2206,28 @@ function PaymentClassificationResolvedCard({ item, review, formData, onRevoke })
           const actual = amounts[adam];
           const hasActual = actual != null && Math.abs(actual - (entry.gross || 0)) > 0.5;
           const roleLabel = PAYMENT_DOCUMENT_ROLE_LABELS[role] || role || '—';
+          const portalIssue = detectKhmdhsPortalPaymentAmountIssue({
+            ...entry,
+            userActualAmount: actual,
+          }, {
+            contractAmountGross: item?.paymentsReconciliation?.contractAmountGross,
+            title: entry?.snapshot?.title || '',
+            userActualAmount: actual,
+          });
           return (
-            <PaymentPreviewRow key={adam}>
+            <PaymentPreviewRow key={adam} $mismatch={!!portalIssue}>
               <span>
                 <strong>Έγγραφο {idx + 1}</strong> · <code>{adam}</code>
-                {entry.gross != null ? ` · ${formatKhmdhsEuro(entry.gross)}` : ''}
-                {hasActual ? ` · πραγματικό: ${formatKhmdhsEuro(actual)}` : ''}
+                {entry.gross != null ? ` · ΚΗΜΔΗΣ (πύλη): ${formatKhmdhsEuro(entry.gross)}` : ''}
+                {hasActual ? ` · ένταλμα: ${formatKhmdhsEuro(actual)}` : ''}
                 <div style={{ marginTop: '0.2rem', color: '#475569' }}>
                   {custom ? `Ονομασία: ${custom}` : roleLabel}
                 </div>
+                {portalIssue ? (
+                  <PaymentPortalWarn>
+                    {describeKhmdhsPortalPaymentAmountIssue(portalIssue)}
+                  </PaymentPortalWarn>
+                ) : null}
               </span>
             </PaymentPreviewRow>
           );

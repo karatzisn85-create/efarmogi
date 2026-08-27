@@ -10,6 +10,9 @@ import {
   paymentRoleCountsTowardTotal,
   mergePaymentAmountsFromProject,
   buildDefaultPaymentRoleDraft,
+  detectKhmdhsPortalPaymentAmountIssue,
+  describeKhmdhsPortalPaymentAmountIssue,
+  collectKhmdhsPortalPaymentAmountIssues,
 } from './khmdhsPaymentDocumentRoles';
 import { reconcileKhmdhsPayments } from './khmdhsPaymentReconciliation';
 import {
@@ -335,5 +338,77 @@ describe('khmdhsPaymentDocumentRoles', () => {
     expect(plan.roles['26PAY000000072']).toBe(PAYMENT_DOCUMENT_ROLE.PAYMENT_ORDER);
     expect(plan.roles['26PAY000000074']).toBe(PAYMENT_DOCUMENT_ROLE.PAYMENT_ORDER);
     expect(plan.countableTotalGross).toBe(33888.7);
+  });
+});
+
+describe('detectKhmdhsPortalPaymentAmountIssue', () => {
+  test('κωδικός PAY με ποσό σύμβασης ενώ στον τίτλο είναι η δόση — είναι καταχώριση ΚΗΜΔΗΣ', () => {
+    const issue = detectKhmdhsPortalPaymentAmountIssue({
+      adam: '25PAY017890052',
+      gross: 3676368.6,
+      snapshot: {
+        title: 'XE 01865 πληρωμή ποσού 126.170,53 ευρώ',
+        totalCostWithVAT: 3676368.6,
+      },
+    }, { contractAmountGross: 3676368.6 });
+    expect(issue).toBeTruthy();
+    expect(issue.equalsContract).toBe(true);
+    expect(issue.titleAmount).toBe(126170.53);
+    expect(issue.xeRef).toMatch(/XE 01865/i);
+    expect(issue.amountFromTitle).toBe(true);
+    const text = describeKhmdhsPortalPaymentAmountIssue(issue);
+    expect(text).toMatch(/25PAY017890052/);
+    expect(text).toMatch(/ΚΗΜΔΗΣ/);
+    expect(text).toMatch(/όχι υπολογισμός της εφαρμογής/);
+    expect(text).toMatch(/Δεν υπάρχει ένταλμα με το ποσό της πύλης/);
+    expect(text).not.toMatch(/εντάλμα με αναφορά/);
+  });
+
+  test('ίδιο ποσό πύλης και τίτλου δεν είναι πρόβλημα πύλης', () => {
+    expect(detectKhmdhsPortalPaymentAmountIssue({
+      adam: '26PAY019474073',
+      gross: 33414,
+      snapshot: { title: 'XE 01261 ποσού 33.414,00 ευρώ', totalCostWithVAT: 33414 },
+    }, { contractAmountGross: 3676368.6 })).toBeNull();
+  });
+
+  test('διαφορά ΦΠΑ / καθαρού (~24%) δεν είναι λάθος πύλης', () => {
+    expect(detectKhmdhsPortalPaymentAmountIssue({
+      adam: '26PAY000000001',
+      gross: 124000,
+      snapshot: { title: 'πληρωμή ποσού 100.000,00 ευρώ', totalCostWithVAT: 124000 },
+    }, { contractAmountGross: 124000 })).toBeNull();
+  });
+
+  test('μικρό ποσό ενώ πληκτρολογεί δεν αρκεί χωρίς τίτλο', () => {
+    expect(detectKhmdhsPortalPaymentAmountIssue({
+      adam: '26PAY000000002',
+      gross: 33414,
+      snapshot: { title: 'XE 01261 ένταλμα πληρωμής', totalCostWithVAT: 33414 },
+    }, { userActualAmount: 3 })).toBeNull();
+  });
+
+  test('collect βρίσκει το πρόβλημα από τον τίτλο χωρίς πρόχειρο ποσό', () => {
+    const issues = collectKhmdhsPortalPaymentAmountIssues([{
+      adam: '25PAY017890052',
+      gross: 3676368.6,
+      snapshot: {
+        title: 'XE 01865 πληρωμή ποσού 126.170,53 ευρώ',
+        totalCostWithVAT: 3676368.6,
+      },
+    }], { contractAmountGross: 3676368.6 });
+    expect(issues).toHaveLength(1);
+    expect(issues[0].amountFromTitle).toBe(true);
+  });
+
+  test('αποθηκευμένο πραγματικό ποσό χωρίς ποσό στον τίτλο', () => {
+    const issue = detectKhmdhsPortalPaymentAmountIssue({
+      adam: '25PAY017890052',
+      gross: 3676368.6,
+      snapshot: { title: 'XE 01865 ένταλμα πληρωμής', totalCostWithVAT: 3676368.6 },
+    }, { userActualAmount: 126170.53, contractAmountGross: 3676368.6 });
+    expect(issue).toBeTruthy();
+    expect(issue.amountFromTitle).toBe(false);
+    expect(describeKhmdhsPortalPaymentAmountIssue(issue)).toMatch(/Το ποσό του εντάλματος είναι/);
   });
 });

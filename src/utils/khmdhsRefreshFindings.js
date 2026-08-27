@@ -97,7 +97,23 @@ export function isIncompleteConfirmationLine(line) {
   if (/Τα υπάρχοντα διατηρούνται|Οι υπάρχουσες διατηρούνται/i.test(s)) return true;
   if (/Δεν διαγράφηκε τίποτα|Δεν αφαιρέθηκε/i.test(s) && /ΚΗΜΔΗΣ/i.test(s)) return true;
   if (/αφαιρέθηκαν ως άσχετα/i.test(s)) return true;
-  if (/από\s+\d+\s*→\s*\d+/i.test(s) && /(ανάληψ|ένταλμ)/i.test(s)) return true;
+  if (isKhmdhsCountDecreaseLine(s)) return true;
+  if (/πλήρης ηλεκτρονική αλυσίδα/i.test(s) && /πρωτογενές αίτημα/i.test(s)) return true;
+  if (/ανακτήθηκε μόνο το πρωτογενές αίτημα/i.test(s)) return true;
+  if (/δεν βρέθηκε πλήρης/i.test(s) && /αλυσίδ/i.test(s)) return true;
+  if (/ανακτήθηκε μόνο η σύμβαση/i.test(s) && /χωρίς ηλεκτρονικ/i.test(s)) return true;
+  if (/διαφορετική δημοσίευση/i.test(s) && /διατηρήθηκε/i.test(s)) return true;
+  return false;
+}
+
+/** Πτώση πλήθους ανάληψεων/ενταλμάτων (π.χ. 3 → 2) — όχι αύξηση που είναι πραγματική αλλαγή. */
+function isKhmdhsCountDecreaseLine(s) {
+  const text = String(s || '');
+  if (!/(ανάληψ|ένταλμ)/i.test(text)) return false;
+  const arrow = /από\s+(\d+)\s*→\s*(\d+)/i.exec(text);
+  if (arrow) return Number(arrow[1]) > Number(arrow[2]);
+  const shown = /εμφανίζονται\s+(\d+)\s+από\s+(\d+)/i.exec(text);
+  if (shown) return Number(shown[1]) < Number(shown[2]);
   return false;
 }
 
@@ -105,16 +121,31 @@ export function isIncompleteConfirmationLine(line) {
 export function clarifyKhmdhsIncompleteLine(line) {
   const s = stripReportLinePrefix(line);
   if (!s) return '';
-  if (/Αποφάσεις ανάληψης υποχρέωσης:\s*από\s*\d+\s*→\s*\d+/i.test(s)
-    || (/εμφανίζονται\s+\d+\s+από\s+\d+/i.test(s) && /ανάληψ/i.test(s))) {
+  if (isKhmdhsCountDecreaseLine(s) && /ανάληψ/i.test(s)) {
     return 'Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε όλες τις αποφάσεις ανάληψης που ήδη έχετε στην κάρτα. '
       + 'Δεν διαγράφηκε τίποτα — παραμένουν όπως ήταν. Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
   }
-  if (/Εντάλματα πληρωμής:\s*από\s*\d+\s*→\s*\d+/i.test(s)
-    || /αφαιρέθηκαν ως άσχετα/i.test(s)
-    || (/εμφανίζονται\s+\d+\s+από\s+\d+/i.test(s) && /ένταλμ/i.test(s))) {
+  if (/αφαιρέθηκαν ως άσχετα/i.test(s)
+    || (isKhmdhsCountDecreaseLine(s) && /ένταλμ/i.test(s))) {
     return 'Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε όλα τα εντάλματα πληρωμής που ήδη έχετε στην κάρτα. '
       + 'Δεν διαγράφηκε τίποτα — παραμένουν όπως ήταν. Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
+  }
+  if ((/πλήρης ηλεκτρονική αλυσίδα/i.test(s) && /πρωτογενές αίτημα/i.test(s))
+    || /ανακτήθηκε μόνο το πρωτογενές αίτημα/i.test(s)
+    || (/δεν βρέθηκε πλήρης/i.test(s) && /αλυσίδ/i.test(s))) {
+    return 'Η ανάκτηση δεν ολοκληρώθηκε πλήρως — το ΚΗΜΔΗΣ επέστρεψε μόνο το πρωτογενές αίτημα, '
+      + 'χωρίς δημοσίευση, ανάθεση ή σύμβαση. Η κάρτα έμεινε όπως ήταν· δεν διαγράφηκε τίποτα. '
+      + 'Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
+  }
+  if (/ανακτήθηκε μόνο η σύμβαση/i.test(s) && /χωρίς ηλεκτρονικ/i.test(s)) {
+    return 'Η ανάκτηση δεν ολοκληρώθηκε πλήρως — το ΚΗΜΔΗΣ επέστρεψε μόνο τη σύμβαση, '
+      + 'χωρίς συνδεδεμένο αίτημα, δημοσίευση ή ανάθεση. Η κάρτα έμεινε όπως ήταν· δεν διαγράφηκε τίποτα. '
+      + 'Ξαναδοκιμάστε όταν η υπηρεσία ανταποκρίνεται κανονικά.';
+  }
+  if (/διαφορετική δημοσίευση/i.test(s) && /διατηρήθηκε/i.test(s)) {
+    return 'Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση από την ήδη καταγεγραμμένη. '
+      + 'Διατηρήθηκε η κύρια στην κάρτα — δεν διαγράφηκε τίποτα. '
+      + 'Τυχόν επιπλέον πράξη φαίνεται στα Αρχεία Υποέργου.';
   }
   return s;
 }
@@ -166,6 +197,13 @@ export function splitRefreshReportLineBuckets(item = {}) {
     attentionLines,
     incompleteLines: uniqueIncompleteLines([...storedIncomplete, ...extractedIncomplete]),
   };
+}
+
+/** Ετικέτα ομάδας ανεπιβεβαίωσης: μην λέμε «η κάρτα έμεινε» αν μπήκαν και νέα στοιχεία. */
+export function describeKhmdhsIncompleteGroupLabel(hasAppliedChanges) {
+  return hasAppliedChanges
+    ? 'Δεν επιβεβαιώθηκαν όλοι οι παλιοί κρίκοι — δεν διαγράφηκε τίποτα'
+    : 'Η κάρτα έμεινε όπως ήταν — δεν επιβεβαιώθηκαν όλα';
 }
 
 export function getActionableRefreshAttentionLines(lines) {

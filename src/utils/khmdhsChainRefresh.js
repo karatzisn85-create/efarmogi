@@ -17,6 +17,7 @@ import {
 } from './khmdhsChainStitchPlan';
 import {
   getActionableRefreshAttentionLines,
+  clarifyKhmdhsIncompleteLine,
   isIncompleteConfirmationLine,
 } from './khmdhsRefreshFindings';
 
@@ -394,7 +395,7 @@ function isIncompleteFetchChainWarning(w) {
   const s = String(w || '').trim();
   if (!s || !isProblemChainWarning(s)) return false;
   return isIncompleteConfirmationLine(s)
-    || /(δεν ανακτήθηκ|δεν επιβεβαι|προσωρινό πρόβλημα)/i.test(s);
+    || /(δεν ανακτήθηκ|δεν επιβεβαι|προσωρινό πρόβλημα|μόνο το πρωτογενές αίτημα)/i.test(s);
 }
 
 function describeUnconfirmedExisting(kind, adams) {
@@ -702,7 +703,7 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
   }
 
   // #12 — Σύγκρουση δημοσίευσης: το ΚΗΜΔΗΣ επέστρεψε διαφορετική διακήρυξη/πρόσκληση από
-  // την ήδη καταγεγραμμένη και κρατήθηκε η προηγούμενη. Χωρίς μήνυμα η αλλαγή ήταν αόρατη.
+  // την ήδη καταγεγραμμένη και κρατήθηκε η προηγούμενη. Δεν είναι ενέργεια στο υποέργο.
   if (
     Array.isArray(applyWarnings)
     && (
@@ -710,10 +711,10 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
       || applyWarnings.includes('stitchConflict:proc')
     )
   ) {
-    attentionLines.push(
-      '⚠️ Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση από την ήδη καταγεγραμμένη —'
-      + ' διατηρήθηκε η κύρια «Δημοσίευση» στην αλυσίδα. Αν πρόκειται για επιπλέον πράξη'
-      + ' (π.χ. Τεύχη Δημοπράτησης), εμφανίζεται στα Αρχεία Υποέργου, όχι ως νέο στάδιο Ανάθεσης/Σύμβασης.'
+    incompleteLines.push(
+      'Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση από την ήδη καταγεγραμμένη. '
+      + 'Διατηρήθηκε η κύρια στην κάρτα — δεν διαγράφηκε τίποτα. '
+      + 'Τυχόν επιπλέον πράξη φαίνεται στα Αρχεία Υποέργου, όχι ως νέο στάδιο Ανάθεσης/Σύμβασης.'
     );
   }
 
@@ -750,8 +751,11 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     const key = normalizeReportLine(line);
     if (seenLines.has(key)) return;
     seenLines.add(key);
-    if (isIncompleteFetchChainWarning(raw)) incompleteLines.push(line);
-    else attentionLines.push(line);
+    if (isIncompleteFetchChainWarning(raw)) {
+      incompleteLines.push(clarifyKhmdhsIncompleteLine(raw) || raw);
+    } else {
+      attentionLines.push(line);
+    }
   });
 
   const lines = [...appliedLines, ...incompleteLines, ...attentionLines];

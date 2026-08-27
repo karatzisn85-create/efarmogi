@@ -4,6 +4,7 @@
 import {
   applyKhmdhsLiveSnapshotToResults,
   batchRunHasOutcome,
+  describeKhmdhsBatchCardMeta,
   isKhmdhsCharacterizationPending,
   isKhmdhsCharacterizationResolved,
   itemNeedsBatchFollowUp,
@@ -11,10 +12,12 @@ import {
   mergeKhmdhsBatchResults,
   nextKhmdhsRetryDelayMs,
   partitionKhmdhsBatchReportItems,
+  pickKhmdhsBatchIncompleteRetryCandidates,
   pickKhmdhsBatchRetryCandidates,
   buildKhmdhsLiveRunSnapshot,
   formatKhmdhsLiveDockLine,
   formatKhmdhsLiveHeadline,
+  summarizeKhmdhsSkippedReasons,
   syncBatchReportWithProjects,
 } from './khmdhsBatchReportState';
 import {
@@ -96,6 +99,30 @@ describe('pickKhmdhsBatchRetryCandidates', () => {
       { id: 'a', label: 'Α' },
       { id: 'c', label: 'Γ' },
       { id: 'd', label: 'Δ' },
+    ]);
+  });
+});
+
+describe('pickKhmdhsBatchIncompleteRetryCandidates', () => {
+  it('παίρνει μόνο ανεπιβεβαίωση χωρίς ενέργεια ανθρώπου', () => {
+    const items = [
+      {
+        status: 'refreshed',
+        id: 'inc',
+        label: 'Ανεπιβεβαίωτο',
+        incompleteLines: ['Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε το ένταλμα πληρωμής 26PAY1 που ήδη υπάρχει στην κάρτα.'],
+      },
+      {
+        status: 'refreshed',
+        id: 'act',
+        label: 'Ενέργεια',
+        incompleteLines: ['Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε το ένταλμα πληρωμής 26PAY1 που ήδη υπάρχει στην κάρτα.'],
+        actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.APE_CONFLICT)],
+      },
+      { status: 'failed', id: 'fail', label: 'Αποτυχία' },
+    ];
+    expect(pickKhmdhsBatchIncompleteRetryCandidates(items)).toEqual([
+      { id: 'inc', label: 'Ανεπιβεβαίωτο' },
     ]);
   });
 });
@@ -423,6 +450,77 @@ describe('partitionKhmdhsBatchReportItems', () => {
     ], []);
     expect(followUpItems).toHaveLength(1);
     expect(incompleteItems).toHaveLength(0);
+  });
+
+  it('υποέργο με νέο κρίκο και ανεπιβεβαίωση φαίνεται και στις δύο λίστες', () => {
+    const { followUpItems, incompleteItems, refreshedOnly } = partitionKhmdhsBatchReportItems([
+      {
+        status: 'refreshed',
+        id: 'sp1',
+        label: 'Υποέργο Α',
+        category: 'applied',
+        appliedLines: ['Νέο ένταλμα πληρωμής: 26PAY000000099 — 1.000,00 €'],
+        incompleteLines: [
+          'Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε το ένταλμα πληρωμής 26PAY000000001 που ήδη υπάρχει στην κάρτα. '
+          + 'Δεν διαγράφηκε τίποτα — παραμένει όπως ήταν.',
+        ],
+      },
+    ], []);
+    expect(followUpItems).toHaveLength(0);
+    expect(incompleteItems.map((i) => i.id)).toEqual(['sp1']);
+    expect(refreshedOnly.map((i) => i.id)).toEqual(['sp1']);
+    expect(describeKhmdhsBatchCardMeta(incompleteItems[0], 'incomplete')).toMatch(/Μπήκαν νέα στοιχεία/i);
+    expect(describeKhmdhsBatchCardMeta(incompleteItems[0], 'incomplete')).not.toMatch(/έμεινε όπως ήταν/i);
+  });
+
+  it('«μόνο πρωτογενές αίτημα» πάει στην ανεπιβεβαίωση, όχι στην ενέργεια', () => {
+    const { followUpItems, incompleteItems } = partitionKhmdhsBatchReportItems([
+      {
+        status: 'refreshed',
+        id: 'sp1',
+        label: 'Υποέργο Α',
+        category: 'attention',
+        attentionLines: [
+          '⚠️ Δεν βρέθηκε πλήρης ηλεκτρονική αλυσίδα ΑΔΑΜ — ανακτήθηκε μόνο το πρωτογενές αίτημα.',
+        ],
+      },
+    ], []);
+    expect(followUpItems).toHaveLength(0);
+    expect(incompleteItems).toHaveLength(1);
+    expect(describeKhmdhsBatchCardMeta(incompleteItems[0], 'incomplete')).toMatch(/έμεινε όπως ήταν/i);
+  });
+
+  it('διαφορετική δημοσίευση που διατηρήθηκε δεν μετρά ως ενέργεια', () => {
+    const { followUpItems, incompleteItems } = partitionKhmdhsBatchReportItems([
+      {
+        status: 'refreshed',
+        id: 'sp1',
+        label: 'Υποέργο Α',
+        category: 'attention',
+        attentionLines: [
+          '⚠️ Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση από την ήδη καταγεγραμμένη — διατηρήθηκε η κύρια «Δημοσίευση» στην αλυσίδα.',
+        ],
+      },
+    ], []);
+    expect(followUpItems).toHaveLength(0);
+    expect(incompleteItems).toHaveLength(1);
+  });
+});
+
+describe('summarizeKhmdhsSkippedReasons', () => {
+  it('χωρίζει χωρίς ΑΔΑΜ, ολοκληρωμένα και πρόσφατα', () => {
+    const summary = summarizeKhmdhsSkippedReasons([
+      { reason: 'Χωρίς ΑΔΑΜ' },
+      { reason: 'Χωρίς ΑΔΑΜ' },
+      { reason: 'Ολοκληρωμένο' },
+      { reason: 'Πρόσφατα ανανεωμένο (3 ημ.) — εκτός επιλογής' },
+      { reason: 'Κλειδωμένο' },
+    ]);
+    expect(summary.noAdam).toBe(2);
+    expect(summary.completed).toBe(1);
+    expect(summary.fresh).toBe(1);
+    expect(summary.locked).toBe(1);
+    expect(summary.parts.join(' · ')).toMatch(/2 χωρίς ΑΔΑΜ/);
   });
 });
 

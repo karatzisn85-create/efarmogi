@@ -11,6 +11,7 @@ import {
   khmdhsFindingsNeedAttention,
   reconcileKhmdhsFindingsWithProjectState,
   splitRefreshReportLineBuckets,
+  describeKhmdhsIncompleteGroupLabel,
   KHMDHS_FINDING_ACTION,
   KHMDHS_FINDING_OUTCOME,
 } from './khmdhsRefreshFindings';
@@ -124,6 +125,19 @@ describe('getKhmdhsSubprojectAttention', () => {
     expect(getKhmdhsSubprojectAttention(project).level).toBe('none');
     expect(project.khmdhsLastRefreshFindings.outcome).toBe(KHMDHS_FINDING_OUTCOME.INCOMPLETE);
   });
+
+  it('«μόνο πρωτογενές αίτημα» δεν ανοίγει badge ενέργειας στην κάρτα', () => {
+    const project = {
+      khmdhsLastRefreshFindings: buildKhmdhsRefreshFindings({
+        attentionLines: [
+          '⚠️ Δεν βρέθηκε πλήρης ηλεκτρονική αλυσίδα ΑΔΑΜ — ανακτήθηκε μόνο το πρωτογενές αίτημα.',
+        ],
+      }),
+    };
+    expect(khmdhsFindingsNeedAttention(project.khmdhsLastRefreshFindings)).toBe(false);
+    expect(getKhmdhsSubprojectAttention(project).level).toBe('none');
+    expect(project.khmdhsLastRefreshFindings.outcome).toBe(KHMDHS_FINDING_OUTCOME.INCOMPLETE);
+  });
 });
 
 describe('reconcileKhmdhsFindingsWithProjectState', () => {
@@ -181,6 +195,18 @@ describe('splitRefreshReportLineBuckets', () => {
     expect(buckets.incompleteLines[0]).toMatch(/Δεν διαγράφηκε τίποτα/);
   });
 
+  it('«μόνο πρωτογενές αίτημα» είναι ανεπιβεβαίωση, όχι ενέργεια', () => {
+    const buckets = splitRefreshReportLineBuckets({
+      category: 'attention',
+      attentionLines: [
+        '⚠️ Δεν βρέθηκε πλήρης ηλεκτρονική αλυσίδα ΑΔΑΜ — ανακτήθηκε μόνο το πρωτογενές αίτημα.',
+      ],
+    });
+    expect(buckets.attentionLines).toEqual([]);
+    expect(buckets.incompleteLines[0]).toMatch(/Η κάρτα έμεινε όπως ήταν/);
+    expect(buckets.incompleteLines[0]).toMatch(/μόνο το πρωτογενές αίτημα/);
+  });
+
   it('δεν μπερδεύει πραγματική αλλαγή ποσού με ανεπιβεβαίωση', () => {
     expect(clarifyKhmdhsIncompleteLine('Ποσό σύμβασης: 100.000,00 → 120.000,00 €'))
       .toBe('Ποσό σύμβασης: 100.000,00 → 120.000,00 €');
@@ -189,5 +215,48 @@ describe('splitRefreshReportLineBuckets', () => {
     });
     expect(buckets.appliedLines).toHaveLength(1);
     expect(buckets.incompleteLines).toHaveLength(0);
+  });
+
+  it('αύξηση πλήθους ανάληψεων (2 → 3) μένει πραγματική αλλαγή, όχι ανεπιβεβαίωση', () => {
+    const buckets = splitRefreshReportLineBuckets({
+      appliedLines: ['Αποφάσεις ανάληψης υποχρέωσης: από 2 → 3'],
+    });
+    expect(buckets.appliedLines).toEqual(['Αποφάσεις ανάληψης υποχρέωσης: από 2 → 3']);
+    expect(buckets.incompleteLines).toHaveLength(0);
+    expect(clarifyKhmdhsIncompleteLine('Αποφάσεις ανάληψης υποχρέωσης: από 2 → 3'))
+      .toBe('Αποφάσεις ανάληψης υποχρέωσης: από 2 → 3');
+  });
+
+  it('η ετικέτα ανεπιβεβαίωσης δεν λέει «η κάρτα έμεινε» όταν μπήκαν νέα στοιχεία', () => {
+    expect(describeKhmdhsIncompleteGroupLabel(false)).toMatch(/έμεινε όπως ήταν/i);
+    expect(describeKhmdhsIncompleteGroupLabel(true)).not.toMatch(/έμεινε όπως ήταν/i);
+    expect(describeKhmdhsIncompleteGroupLabel(true)).toMatch(/δεν διαγράφηκε τίποτα/i);
+  });
+
+  it('δεν ξαναγράφει ένταλμα που δεν επιβεβαιώθηκε σε «μόνο πρωτογενές αίτημα»', () => {
+    const line = 'Το ΚΗΜΔΗΣ αυτή τη φορά δεν επιβεβαίωσε το ένταλμα πληρωμής 26PAY000000001 που ήδη υπάρχει στην κάρτα. '
+      + 'Δεν διαγράφηκε τίποτα — παραμένει όπως ήταν.';
+    expect(clarifyKhmdhsIncompleteLine(line)).toBe(line);
+  });
+
+  it('«μόνο σύμβαση χωρίς αλυσίδα» και «διαφορετική δημοσίευση που διατηρήθηκε» είναι ανεπιβεβαίωση', () => {
+    const onlySymv = splitRefreshReportLineBuckets({
+      category: 'attention',
+      attentionLines: [
+        '⚠️ Ανακτήθηκε μόνο η σύμβαση χωρίς ηλεκτρονικά συνδεδεμένη αλυσίδα — ελέγξτε χειροκίνητα αν λείπουν δημοσίευση/ανάθεση.',
+      ],
+    });
+    expect(onlySymv.attentionLines).toEqual([]);
+    expect(onlySymv.incompleteLines[0]).toMatch(/μόνο τη σύμβαση/);
+    expect(onlySymv.incompleteLines[0]).toMatch(/Η κάρτα έμεινε όπως ήταν/);
+
+    const notice = splitRefreshReportLineBuckets({
+      category: 'attention',
+      attentionLines: [
+        '⚠️ Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση από την ήδη καταγεγραμμένη — διατηρήθηκε η κύρια «Δημοσίευση» στην αλυσίδα.',
+      ],
+    });
+    expect(notice.attentionLines).toEqual([]);
+    expect(notice.incompleteLines[0]).toMatch(/Διατηρήθηκε η κύρια/);
   });
 });

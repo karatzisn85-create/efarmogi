@@ -5,6 +5,7 @@ import {
   KHMDHS_FINDING_OUTCOME,
   khmdhsFindingsNeedAttention,
   splitRefreshReportLineBuckets,
+  describeKhmdhsIncompleteGroupLabel,
 } from '../utils/khmdhsRefreshFindings';
 
 const fadeIn = keyframes`
@@ -206,7 +207,7 @@ const AckBtn = styled.button`
   [KHMDHS_FINDING_OUTCOME.APPLIED]: { icon: '✅', title: 'Η τελευταία ανανέωση ενημέρωσε στοιχεία' },
   [KHMDHS_FINDING_OUTCOME.ATTENTION]: { icon: '📌', title: 'Η τελευταία ανανέωση άφησε σημεία προς έλεγχο' },
   [KHMDHS_FINDING_OUTCOME.UNCHANGED]: { icon: '➖', title: 'Η τελευταία ανανέωση δεν βρήκε διαφορές' },
-  [KHMDHS_FINDING_OUTCOME.INCOMPLETE]: { icon: '◐', title: 'Η τελευταία ανανέωση δεν επιβεβαίωσε τα πάντα — τίποτα δεν διαγράφηκε' },
+  [KHMDHS_FINDING_OUTCOME.INCOMPLETE]: { icon: '◐', title: 'Η τελευταία ανανέωση δεν ολοκληρώθηκε πλήρως — η κάρτα έμεινε όπως ήταν' },
   [KHMDHS_FINDING_OUTCOME.INTERVENED]: { icon: '⚠️', title: 'Η μαζική ανανέωση σταμάτησε εδώ και περιμένει εσάς' },
   [KHMDHS_FINDING_OUTCOME.FAILED]: { icon: '❌', title: 'Η τελευταία ανανέωση δεν ολοκληρώθηκε' },
 };
@@ -251,7 +252,11 @@ export default function KhmdhsRefreshFindingsPanel({
   const summaryParts = [];
   if (actions.length) summaryParts.push(`${actions.length} ενέργει${actions.length === 1 ? 'α' : 'ες'} για εσάς`);
   if (attention.length) summaryParts.push(`${attention.length} σημεί${attention.length === 1 ? 'ο' : 'α'} προσοχής`);
-  if (incomplete.length) summaryParts.push('δεν επιβεβαιώθηκαν όλα · δεν διαγράφηκε τίποτα');
+  if (incomplete.length) {
+    summaryParts.push(applied.length
+      ? 'κάποιοι παλιοί κρίκοι δεν επιβεβαιώθηκαν · δεν διαγράφηκε τίποτα'
+      : 'η κάρτα έμεινε όπως ήταν · δεν διαγράφηκε τίποτα');
+  }
   if (applied.length) summaryParts.push(`${applied.length} αλλαγ${applied.length === 1 ? 'ή' : 'ές'}`);
 
   return (
@@ -304,7 +309,9 @@ export default function KhmdhsRefreshFindingsPanel({
 
           {incomplete.length > 0 && (
             <>
-              <GroupLabel $color="#3730a3">Δεν επιβεβαιώθηκαν — δεν διαγράφηκε τίποτα</GroupLabel>
+              <GroupLabel $color="#3730a3">
+                {describeKhmdhsIncompleteGroupLabel(applied.length > 0)}
+              </GroupLabel>
               {incomplete.map((line, idx) => (
                 <Line key={`inc-${idx}`} style={{ color: '#3730a3' }}>{line}</Line>
               ))}

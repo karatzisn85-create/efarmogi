@@ -142,6 +142,91 @@ function amountsNear(a, b) {
   return Math.abs(Number(a) - Number(b)) <= AMOUNT_TOLERANCE;
 }
 
+function formatEuroEl(n) {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return '';
+  return `${num.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+}
+
+/** Αριθμός εντάλματος (XE …) από τον τίτλο πράξης ΚΗΜΔΗΣ. */
+export function extractXeRefFromPaymentTitle(title) {
+  const m = String(title || '').match(/\bXE[\s\-]*\d+\b/i);
+  return m ? m[0].replace(/[\s\-]+/g, ' ').toUpperCase() : '';
+}
+
+/**
+ * Η πύλη ΚΗΜΔΗΣ έχει στο πεδίο ποσού του κωδικού PAY κάτι που δεν είναι το ποσό του εντάλματος
+ * (π.χ. ολόκληρη τη σύμβαση, ενώ στον τίτλο υπάρχει η δόση).
+ */
+export function detectKhmdhsPortalPaymentAmountIssue(entry = {}, opts = {}) {
+  const snap = entry?.snapshot || {};
+  const title = String(opts.title || snap.title || entry?.title || '');
+  const gross = Number(entry?.gross ?? snap.totalCostWithVAT);
+  if (!Number.isFinite(gross) || gross <= 0) return null;
+
+  const titleAmount = suggestPaymentActualAmount(title, gross);
+  const userActual = opts.userActualAmount != null
+    ? Number(opts.userActualAmount)
+    : readPaymentActualAmountFromPayment(entry);
+  const fromTitle = titleAmount != null;
+  const documentAmount = fromTitle
+    ? titleAmount
+    : (Number.isFinite(userActual) && userActual > 0 ? userActual : null);
+  if (documentAmount == null) return null;
+  // Χωρίς ποσό στον τίτλο, αγνόησε μισογραμμένα ψηφία (πληκτρολόγηση).
+  if (!fromTitle && documentAmount < 100) return null;
+
+  const payable = Number(opts.contractAmountGross);
+  const hasPayable = Number.isFinite(payable) && payable > 0;
+  const drop = gross - documentAmount;
+  // ΦΠΑ / κρατήσεις είναι ~10–24%. Κάτω από το διπλάσιο είναι συνηθισμένη διαφορά τίτλου vs πύλης.
+  if (drop < 1000 || documentAmount + 0.5 >= gross) return null;
+  if (gross < documentAmount * 2) return null;
+
+  return {
+    adam: normalizeAdam(entry.adam || snap.referenceNumber),
+    khmdhsGross: gross,
+    titleAmount: documentAmount,
+    xeRef: extractXeRefFromPaymentTitle(title),
+    equalsContract: hasPayable && amountsNear(gross, payable),
+    amountFromTitle: fromTitle,
+  };
+}
+
+export function collectKhmdhsPortalPaymentAmountIssues(entries = [], opts = {}) {
+  return (Array.isArray(entries) ? entries : [])
+    .filter((e) => e && e.active !== false)
+    .map((e) => detectKhmdhsPortalPaymentAmountIssue(e, {
+      title: typeof opts.getTitle === 'function' ? opts.getTitle(e) : '',
+      contractAmountGross: opts.contractAmountGross,
+      userActualAmount: typeof opts.getUserActual === 'function'
+        ? opts.getUserActual(e)
+        : e?.userActualAmount,
+    }))
+    .filter(Boolean);
+}
+
+/** Κείμενο για τον χρήστη: το ποσό είναι της πύλης, όχι της εφαρμογής. */
+export function describeKhmdhsPortalPaymentAmountIssue(issue) {
+  if (!issue) return '';
+  const portal = formatEuroEl(issue.khmdhsGross);
+  const seen = issue.titleAmount != null ? formatEuroEl(issue.titleAmount) : '';
+  const xe = issue.xeRef ? ` του εντάλματος ${issue.xeRef}` : ' του εντάλματος';
+  const contractNote = issue.equalsContract
+    ? ' (έβαλε ολόκληρο το ποσό της σύμβασης σε αυτόν τον κωδικό)'
+    : '';
+  let s = `Στον κωδικό ${issue.adam} το ΚΗΜΔΗΣ έχει καταχωρήσει ${portal}${contractNote}. `;
+  if (seen) {
+    if (issue.amountFromTitle !== false) {
+      s += `Στο κείμενο του εγγράφου${xe} φαίνεται ${seen}. `;
+    } else {
+      s += `Το ποσό του εντάλματος είναι ${seen}. `;
+    }
+  }
+  s += 'Δεν υπάρχει ένταλμα με το ποσό της πύλης — είναι καταχώριση του ΚΗΜΔΗΣ, όχι υπολογισμός της εφαρμογής.';
+  return s;
+}
+
 function paymentTitleKind(title) {
   const u = String(title || '').toUpperCase();
   if (/ΕΝΤΟΛ/.test(u)) return 'instruction';

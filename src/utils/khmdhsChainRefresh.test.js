@@ -157,11 +157,12 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
     expect(lines.some((l) => l.includes('22PROC010072999'))).toBe(false);
   });
 
-  test('σύγκρουση δημοσίευσης (noticeConflict) εμφανίζεται ως προσοχή', () => {
+  test('σύγκρουση δημοσίευσης (noticeConflict) διατηρεί την κάρτα — δεν είναι ενέργεια', () => {
     const report = buildKhmdhsRefreshChangeReport({}, {}, { warnings: ['noticeConflict'] });
-    expect(report.category).toBe('attention');
-    expect(report.attentionLines.some((l) => l.includes('διαφορετική δημοσίευση'))).toBe(true);
-    expect(report.attentionLines.some((l) => /Τεύχη Δημοπράτησης|Αρχεία Υποέργου/i.test(l))).toBe(true);
+    expect(report.category).toBe('unchanged');
+    expect(report.attentionLines.some((l) => l.includes('διαφορετική δημοσίευση'))).toBe(false);
+    expect(report.incompleteLines.some((l) => l.includes('διαφορετική δημοσίευση'))).toBe(true);
+    expect(report.incompleteLines.some((l) => /Διατηρήθηκε η κύρια|δεν διαγράφηκε τίποτα/i.test(l))).toBe(true);
   });
 
   test('νέα απόφαση ανάληψης χωρίς λεπτομέρειες → προσοχή, όχι καθαρή επιτυχία', () => {
@@ -229,6 +230,30 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
     });
     expect(report.category).toBe('unchanged');
     expect(report.attentionLines.some((l) => l.includes('ακυρωμένες'))).toBe(false);
+  });
+
+  test('μόνο πρωτογενές αίτημα είναι ανεπιβεβαίωση — η κάρτα έμεινε', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, {}, {
+      chainWarnings: [
+        'Δεν βρέθηκε πλήρης ηλεκτρονική αλυσίδα ΑΔΑΜ — ανακτήθηκε μόνο το πρωτογενές αίτημα.',
+      ],
+    });
+    expect(report.category).toBe('unchanged');
+    expect(report.attentionLines).toHaveLength(0);
+    expect(report.incompleteLines.some((l) => (
+      l.includes('μόνο το πρωτογενές αίτημα') && l.includes('Η κάρτα έμεινε όπως ήταν')
+    ))).toBe(true);
+  });
+
+  test('μόνο σύμβαση χωρίς αλυσίδα είναι ανεπιβεβαίωση, όχι ενέργεια', () => {
+    const report = buildKhmdhsRefreshChangeReport({}, {}, {}, {
+      chainWarnings: [
+        'Ανακτήθηκε μόνο η σύμβαση χωρίς ηλεκτρονικά συνδεδεμένη αλυσίδα — ελέγξτε χειροκίνητα αν λείπουν δημοσίευση/ανάθεση.',
+      ],
+    });
+    expect(report.category).toBe('unchanged');
+    expect(report.attentionLines).toHaveLength(0);
+    expect(report.incompleteLines.some((l) => l.includes('μόνο τη σύμβαση'))).toBe(true);
   });
 
   test('αναφέρει ρητά αφαίρεση ακυρωμένης ανάληψης και όχι γενικό «από N → M»', () => {

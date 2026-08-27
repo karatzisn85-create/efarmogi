@@ -25,6 +25,7 @@ import {
   buildKhmdhsRefreshFindings,
   buildKhmdhsFindingAction,
   splitRefreshReportLineBuckets,
+  describeKhmdhsIncompleteGroupLabel,
   KHMDHS_FINDING_ACTION,
   KHMDHS_FINDING_OUTCOME,
 } from '../utils/khmdhsRefreshFindings';
@@ -37,6 +38,9 @@ import {
   nextKhmdhsRetryDelayMs,
   partitionKhmdhsBatchReportItems,
   pickKhmdhsBatchRetryCandidates,
+  pickKhmdhsBatchIncompleteRetryCandidates,
+  describeKhmdhsBatchCardMeta,
+  summarizeKhmdhsSkippedReasons,
 } from '../utils/khmdhsBatchReportState';
 
 async function waitKhmdhsRetryPause(ms, cancelRef, onTick) {
@@ -1127,16 +1131,9 @@ const HeroSub = styled.div`
 const HeroStatGrid = styled.div`
   position: relative;
   display: grid;
-  grid-template-columns: repeat(${(p) => (p.$cols === 4 ? 4 : 3)}, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(8.6rem, 1fr));
   gap: 0.55rem;
   margin-top: 0.95rem;
-
-  @media (max-width: 720px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  @media (max-width: 560px) {
-    grid-template-columns: 1fr;
-  }
 `;
 
 const HeroStatCard = styled.div`
@@ -1183,13 +1180,13 @@ const RetryBar = styled.div`
   margin: 0.2rem 0 0.9rem;
   padding: 0.7rem 0.85rem;
   border-radius: 12px;
-  background: #f0fdfa;
-  border: 1px solid #99f6e4;
+  background: ${(p) => (p.$tone === 'incomplete' ? '#eef2ff' : '#f0fdfa')};
+  border: 1px solid ${(p) => (p.$tone === 'incomplete' ? '#c7d2fe' : '#99f6e4')};
 `;
 
 const RetryText = styled.div`
   font-size: 0.78rem;
-  color: #0f766e;
+  color: ${(p) => (p.$tone === 'incomplete' ? '#3730a3' : '#0f766e')};
   font-weight: 600;
   line-height: 1.45;
 `;
@@ -1207,15 +1204,21 @@ const RetryButton = styled.button`
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   background: ${(p) => (p.$tone === 'stop'
     ? 'linear-gradient(135deg, #b91c1c, #dc2626)'
-    : 'linear-gradient(135deg, #0d9488, #14b8a6)')};
+    : p.$tone === 'incomplete'
+      ? 'linear-gradient(135deg, #4338ca, #6366f1)'
+      : 'linear-gradient(135deg, #0d9488, #14b8a6)')};
   box-shadow: ${(p) => (p.$tone === 'stop'
     ? '0 3px 10px rgba(185, 28, 28, 0.28)'
-    : '0 3px 10px rgba(13, 148, 136, 0.3)')};
+    : p.$tone === 'incomplete'
+      ? '0 3px 10px rgba(67, 56, 202, 0.28)'
+      : '0 3px 10px rgba(13, 148, 136, 0.3)')};
   &:hover:not(:disabled) {
     transform: translateY(-1px);
     box-shadow: ${(p) => (p.$tone === 'stop'
       ? '0 5px 16px rgba(185, 28, 28, 0.38)'
-      : '0 5px 16px rgba(13, 148, 136, 0.4)')};
+      : p.$tone === 'incomplete'
+        ? '0 5px 16px rgba(67, 56, 202, 0.38)'
+        : '0 5px 16px rgba(13, 148, 136, 0.4)')};
   }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
@@ -1436,7 +1439,7 @@ function ReportItemCard({
           {!isUnchanged && incompleteLines.length > 0 && (
             <>
               <ChangeGroupLabel style={{ color: '#3730a3' }}>
-                Δεν επιβεβαιώθηκαν — δεν διαγράφηκε τίποτα
+                {describeKhmdhsIncompleteGroupLabel(appliedLines.length > 0)}
               </ChangeGroupLabel>
               {incompleteLines.map((line, idx) => (
                 <ChangeLineIncomplete key={`inc-${idx}`}>{line}</ChangeLineIncomplete>
@@ -1545,7 +1548,7 @@ export function KhmdhsBatchReportModal({
     later: true,
     incomplete: true,
     attention: true,
-    refreshed: false,
+    refreshed: true,
     unchanged: false,
     skipped: false,
   });
@@ -1582,8 +1585,18 @@ export function KhmdhsBatchReportModal({
   const retryCandidates = [...failedItems, ...laterItems]
     .filter((i) => i.id)
     .map((i) => ({ id: i.id, label: i.label }));
+  const incompleteRetryCandidates = pickKhmdhsBatchIncompleteRetryCandidates(items);
+  const skippedReasonSummary = summarizeKhmdhsSkippedReasons(skippedItems);
+  const incompleteKeptCard = incompleteItems.every((item) => (
+    splitRefreshReportLineBuckets(item).appliedLines.length === 0
+  ));
+  const incompleteRetryKeptCard = incompleteRetryCandidates.every((cand) => {
+    const item = items.find((i) => i.id === cand.id);
+    return splitRefreshReportLineBuckets(item || {}).appliedLines.length === 0;
+  });
 
-  const okCount = refreshedOnly.length + unchangedOnly.length;
+  const appliedCount = refreshedOnly.length;
+  const unchangedCount = unchangedOnly.length;
   const needsActionCount = interventionList.length + followUpItems.length;
   const incompleteCount = incompleteItems.length;
   const heroTone = liveMode
@@ -1592,9 +1605,11 @@ export function KhmdhsBatchReportModal({
       ? 'error'
       : needsActionCount > 0
         ? 'attention'
-        : incompleteCount > 0
-          ? 'incomplete'
-          : 'ok';
+        : appliedCount > 0
+          ? 'ok'
+          : incompleteCount > 0
+            ? 'incomplete'
+            : 'ok';
   const heroVerdict = liveMode
     ? (live?.cancelRequested ? 'Ακύρωση σε εξέλιξη…' : 'Ανανέωση σε εξέλιξη')
     : heroTone === 'error'
@@ -1603,19 +1618,28 @@ export function KhmdhsBatchReportModal({
         ? 'Σχεδόν έτοιμο — μένουν λίγες ενέργειες'
         : heroTone === 'incomplete'
           ? 'Ολοκληρώθηκε — κάποια δεν επιβεβαιώθηκαν πλήρως'
-          : 'Όλα ενημερωμένα';
+          : appliedCount > 0
+            ? `Ολοκληρώθηκε — ${appliedCount} υποέργ${appliedCount === 1 ? 'ο πήρε' : 'α πήραν'} νέα στοιχεία`
+            : 'Όλα ενημερωμένα — χωρίς νέους κρίκους';
   const heroParts = [];
   if (liveMode && live?.total) {
     heroParts.push(`${Math.min(live.current, live.total)} από ${live.total} στη σειρά`);
   }
+  if (appliedCount) {
+    heroParts.push(liveMode
+      ? `${appliedCount} με νέα στοιχεία ως τώρα`
+      : `${appliedCount} με νέους κρίκους ή έγγραφα`);
+  } else if (!liveMode) {
+    heroParts.push('κανένα νέο κρίκο ή έγγραφο');
+  }
+  if (unchangedCount) heroParts.push(`${unchangedCount} ήδη ενημερωμένα`);
   if (needsActionCount) heroParts.push(`${needsActionCount} ζητούν ενέργεια`);
   if (failedItems.length) heroParts.push(`${failedItems.length} απέτυχαν`);
   if (laterItems.length) heroParts.push(`${laterItems.length} για αργότερα`);
-  if (incompleteCount) heroParts.push(`${incompleteCount} δεν επιβεβαιώθηκαν πλήρως (δεν διαγράφηκε τίποτα)`);
-  if (okCount) {
-    heroParts.push(liveMode
-      ? `${okCount} ολοκληρώθηκαν ως τώρα χωρίς εκκρεμότητα`
-      : `${okCount} ολοκληρώθηκαν χωρίς εκκρεμότητα`);
+  if (incompleteCount) {
+    heroParts.push(incompleteKeptCard
+      ? `${incompleteCount} δεν επιβεβαιώθηκαν πλήρως (η κάρτα έμεινε)`
+      : `${incompleteCount} δεν επιβεβαιώθηκαν πλήρως (δεν διαγράφηκε τίποτα)`);
   }
   if (skippedItems.length) heroParts.push(`${skippedItems.length} εκτός ελέγχου`);
   const heroSub = liveMode
@@ -1649,6 +1673,12 @@ export function KhmdhsBatchReportModal({
     if (retryLive?.active) return;
     if (typeof onRetry === 'function' && retryCandidates.length) {
       onRetry(retryCandidates);
+    }
+  };
+  const handleIncompleteRetry = () => {
+    if (retryLive?.active) return;
+    if (typeof onRetry === 'function' && incompleteRetryCandidates.length) {
+      onRetry(incompleteRetryCandidates);
     }
   };
 
@@ -1718,7 +1748,18 @@ export function KhmdhsBatchReportModal({
             <HeroGlow />
             <HeroVerdict>{heroVerdict}</HeroVerdict>
             <HeroSub>{heroSub}</HeroSub>
-            <HeroStatGrid $cols={incompleteCount > 0 ? 4 : 3}>
+            <HeroStatGrid>
+              <HeroStatCard>
+                <HeroStatNumber>{appliedCount}</HeroStatNumber>
+                <HeroStatLabel>Νέοι κρίκοι / έγγραφα</HeroStatLabel>
+                {appliedCount === 0 && (
+                  <HeroStatHint>Κανένα σε αυτή την εκτέλεση</HeroStatHint>
+                )}
+              </HeroStatCard>
+              <HeroStatCard>
+                <HeroStatNumber>{unchangedCount}</HeroStatNumber>
+                <HeroStatLabel>Ήδη ενημερωμένα</HeroStatLabel>
+              </HeroStatCard>
               <HeroStatCard>
                 <HeroStatNumber>{needsActionCount}</HeroStatNumber>
                 <HeroStatLabel>Χρειάζονται ενέργεια</HeroStatLabel>
@@ -1734,13 +1775,11 @@ export function KhmdhsBatchReportModal({
                 <HeroStatCard>
                   <HeroStatNumber>{incompleteCount}</HeroStatNumber>
                   <HeroStatLabel>Δεν επιβεβαιώθηκαν πλήρως</HeroStatLabel>
-                  <HeroStatHint>Δεν διαγράφηκε τίποτα</HeroStatHint>
+                  <HeroStatHint>
+                    {incompleteKeptCard ? 'Η κάρτα έμεινε όπως ήταν' : 'Δεν διαγράφηκε τίποτα'}
+                  </HeroStatHint>
                 </HeroStatCard>
               )}
-              <HeroStatCard>
-                <HeroStatNumber>{okCount}</HeroStatNumber>
-                <HeroStatLabel>{liveMode ? 'Ολοκληρώθηκαν ως τώρα' : 'Έγιναν καλά'}</HeroStatLabel>
-              </HeroStatCard>
             </HeroStatGrid>
           </ReportHero>
 
@@ -1783,6 +1822,55 @@ export function KhmdhsBatchReportModal({
                 Επανάληψη ({retryCandidates.length})
               </RetryButton>
             </RetryBar>
+          )}
+
+          {!retrying && !liveMode && typeof onRetry === 'function' && incompleteRetryCandidates.length > 0 && (
+            <RetryBar $tone="incomplete">
+              <RetryText $tone="incomplete">
+                {incompleteRetryCandidates.length === 1
+                  ? (incompleteRetryKeptCard
+                    ? '1 υποέργο δεν επιβεβαιώθηκε πλήρως. Η κάρτα έμεινε όπως ήταν.'
+                    : '1 υποέργο δεν επιβεβαιώθηκε πλήρως. Ό,τι ήδη είχατε έμεινε.')
+                  : `${incompleteRetryCandidates.length} υποέργα δεν επιβεβαιώθηκαν πλήρως. ${
+                    incompleteRetryKeptCard
+                      ? 'Οι κάρτες έμειναν όπως ήταν.'
+                      : 'Ό,τι ήδη είχατε έμεινε.'
+                  }`}
+                {' '}Ξανατρέχουμε μόνο αυτά — όχι όσα θέλουν ενέργεια μέσα στο υποέργο.
+              </RetryText>
+              <RetryButton type="button" onClick={handleIncompleteRetry} $tone="incomplete">
+                Ξαναδοκίμασε τα μη επιβεβαιωμένα ({incompleteRetryCandidates.length})
+              </RetryButton>
+            </RetryBar>
+          )}
+
+          {refreshedOnly.length > 0 && (
+            <>
+              <SectionHeader $color="#065f46" onClick={() => toggleSection('refreshed')}>
+                <SectionChevron $open={openSections.refreshed}>▶</SectionChevron>
+                Νέοι κρίκοι ή έγγραφα ({refreshedOnly.length})
+              </SectionHeader>
+              {openSections.refreshed && (
+                <>
+                  <SectionBlurb $bg="#f0fdf4" $border="#bbf7d0" $color="#065f46">
+                    Σε αυτά τα υποέργα η ανανέωση ανακάλυψε και κατέγραψε νέα στοιχεία (κρίκοι, εντάλματα, έγγραφα, ποσά).
+                  </SectionBlurb>
+                  {refreshedOnly.map((item) => (
+                    <ReportItemCard
+                      key={`app-${item.id}`}
+                      item={item}
+                      open={isItemOpen(`app-${item.id}`, false)}
+                      onToggle={() => toggleItem(`app-${item.id}`, false)}
+                      border="#6ee7b7"
+                      bg="#f0fdf4"
+                      meta={describeKhmdhsBatchCardMeta(item, 'applied')}
+                      onNavigate={goTo}
+                      defaultShowAllRegistry
+                    />
+                  ))}
+                </>
+              )}
+            </>
           )}
 
           {interventionList.length > 0 && (
@@ -1875,13 +1963,19 @@ export function KhmdhsBatchReportModal({
             <>
               <SectionHeader $color="#4338ca" onClick={() => toggleSection('incomplete')}>
                 <SectionChevron $open={openSections.incomplete}>▶</SectionChevron>
-                Δεν επιβεβαιώθηκαν όλα — τα υπάρχοντα έμειναν ({incompleteItems.length})
+                Δεν επιβεβαιώθηκαν όλα
+                {incompleteKeptCard ? ' — η κάρτα έμεινε όπως ήταν' : ''}
+                {' '}({incompleteItems.length})
               </SectionHeader>
               {openSections.incomplete && (
                 <>
                   <SectionBlurb>
-                    Το ΚΗΜΔΗΣ ήταν φορτωμένο ή απάντησε ελλιπώς σε αυτά τα υποέργα.
-                    Δεν αφαιρέθηκε τίποτα από τις κάρτες. Μπορείτε να τα ξανατρέξετε όταν η υπηρεσία ηρεμήσει.
+                    Η ανάκτηση δεν ολοκληρώθηκε πλήρως για αυτά τα υποέργα.
+                    Ό,τι ήδη υπήρχε στην κάρτα διατηρήθηκε — δεν διαγράφηκε τίποτα.
+                    {incompleteKeptCard
+                      ? ''
+                      : ' Αν μπήκαν και νέα στοιχεία, τα βλέπετε και στην ενότητα «Νέοι κρίκοι ή έγγραφα».'}
+                    {' '}Μπορείτε να τα ξανατρέξετε με το κουμπί επάνω, όταν το ΚΗΜΔΗΣ ηρεμήσει.
                   </SectionBlurb>
                   {incompleteItems.map((item) => (
                     <ReportItemCard
@@ -1891,7 +1985,7 @@ export function KhmdhsBatchReportModal({
                       onToggle={() => toggleItem(`inc-${item.id}`, true)}
                       border="#c7d2fe"
                       bg="#eef2ff"
-                      meta="Το ΚΗΜΔΗΣ δεν επιβεβαίωσε κρίκο που ήδη υπάρχει — δεν διαγράφηκε τίποτα."
+                      meta={describeKhmdhsBatchCardMeta(item, 'incomplete')}
                       onNavigate={goTo}
                     />
                   ))}
@@ -1904,44 +1998,28 @@ export function KhmdhsBatchReportModal({
             <>
               <SectionHeader $color="#9a3412" onClick={() => toggleSection('attention')}>
                 <SectionChevron $open={openSections.attention}>▶</SectionChevron>
-                Χρειάζονται προσοχή ή ενέργεια στο υποέργο ({followUpItems.length})
+                Χρειάζονται ενέργεια στο υποέργο ({followUpItems.length})
               </SectionHeader>
-              {openSections.attention && followUpItems.map((item) => (
-                <ReportItemCard
-                  key={item.id}
-                  item={item}
-                  open={isItemOpen(item.id, true)}
-                  onToggle={() => toggleItem(item.id, true)}
-                  border="#fed7aa"
-                  bg="#fff7ed"
-                  meta={item.category === 'attention'
-                    ? 'Ελέγχθηκε — υπάρχουν σημεία προς προσοχή ή χειροκίνητες τιμές που διατηρήθηκαν.'
-                    : 'Ενημερώθηκε — μένουν ενέργειες μέσα στην επεξεργασία του υποέργου.'}
-                  onNavigate={goTo}
-                />
-              ))}
-            </>
-          )}
-
-          {refreshedOnly.length > 0 && (
-            <>
-              <SectionHeader $color="#065f46" onClick={() => toggleSection('refreshed')}>
-                <SectionChevron $open={openSections.refreshed}>▶</SectionChevron>
-                Ενημερώθηκαν με αλλαγές ({refreshedOnly.length})
-              </SectionHeader>
-              {openSections.refreshed && refreshedOnly.map((item) => (
-                <ReportItemCard
-                  key={item.id}
-                  item={item}
-                  open={isItemOpen(item.id, false)}
-                  onToggle={() => toggleItem(item.id, false)}
-                  border="#6ee7b7"
-                  bg="#f0fdf4"
-                  meta={summarizeAppliedChanges(item.appliedLines?.length ? item.appliedLines : item.changeLines)}
-                  onNavigate={goTo}
-                  defaultShowAllRegistry
-                />
-              ))}
+              {openSections.attention && (
+                <>
+                  <SectionBlurb $bg="#fff7ed" $border="#fed7aa" $color="#9a3412">
+                    Εδώ είναι μόνο ενέργειες που γίνονται μέσα στην επεξεργασία (έλεγχος στοιχείων, ποσό ΑΠΕ, χαρακτηρισμός συμβάσεων).
+                    Τα υπάρχοντα στοιχεία της κάρτας διατηρήθηκαν.
+                  </SectionBlurb>
+                  {followUpItems.map((item) => (
+                    <ReportItemCard
+                      key={`att-${item.id}`}
+                      item={item}
+                      open={isItemOpen(`att-${item.id}`, true)}
+                      onToggle={() => toggleItem(`att-${item.id}`, true)}
+                      border="#fed7aa"
+                      bg="#fff7ed"
+                      meta={describeKhmdhsBatchCardMeta(item, 'attention')}
+                      onNavigate={goTo}
+                    />
+                  ))}
+                </>
+              )}
             </>
           )}
 
@@ -1949,17 +2027,17 @@ export function KhmdhsBatchReportModal({
             <>
               <SectionHeader $color="#64748b" onClick={() => toggleSection('unchanged')}>
                 <SectionChevron $open={openSections.unchanged}>▶</SectionChevron>
-                Χωρίς ουσιώδεις διαφορές ({unchangedOnly.length})
+                Ήδη ενημερωμένα ({unchangedOnly.length})
               </SectionHeader>
               {openSections.unchanged && unchangedOnly.map((item) => (
                 <ReportItemCard
-                  key={item.id}
+                  key={`ok-${item.id}`}
                   item={item}
-                  open={!!openItems[item.id]}
-                  onToggle={() => toggleItem(item.id)}
+                  open={!!openItems[`ok-${item.id}`]}
+                  onToggle={() => toggleItem(`ok-${item.id}`)}
                   border="#e2e8f0"
                   bg="#f8fafc"
-                  meta="Ελέγχθηκε στο ΚΗΜΔΗΣ — τα δεδομένα ήταν ήδη ενημερωμένα"
+                  meta={describeKhmdhsBatchCardMeta(item, 'unchanged')}
                   onNavigate={goTo}
                 />
               ))}
@@ -1975,7 +2053,9 @@ export function KhmdhsBatchReportModal({
               {openSections.skipped && (
                 <>
                   <SkippedList style={{ marginBottom: '0.4rem' }}>
-                    Δεν πληρούσαν τις προϋποθέσεις μαζικής ανανέωσης (χωρίς ΑΔΑΜ, ολοκληρωμένα ή κλειδωμένα).
+                    {skippedReasonSummary.parts.length
+                      ? skippedReasonSummary.parts.join(' · ')
+                      : 'Δεν πληρούσαν τις προϋποθέσεις μαζικής ανανέωσης.'}
                   </SkippedList>
                   {skippedItems.map((item) => (
                     <ReportItemCard
@@ -2714,6 +2794,7 @@ export default function KhmdhsBatchRefreshWidget({
                   : '➖';
             const logText = report.category === 'applied'
               ? `${item.label} — ${summarizeAppliedChanges(report.appliedLines)}`
+                + (hasIncomplete ? ' · κάποιοι παλιοί κρίκοι δεν επιβεβαιώθηκαν' : '')
               : report.category === 'attention'
                 ? `${item.label} — Ελέγχθηκε — χρειάζεται προσοχή`
                 : hasIncomplete

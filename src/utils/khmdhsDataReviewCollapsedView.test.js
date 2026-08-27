@@ -62,7 +62,7 @@ describe('buildReviewItemCollapsedView — μία ερώτηση + Περισσ�
       paymentsReconciliation: { entries: [] },
     };
     const view = buildReviewItemCollapsedView(item);
-    expect(view.question).toMatch(/άθροισμα|συμβατικό/i);
+    expect(view.question).toMatch(/ΚΗΜΔΗΣ|ενταλμ/i);
     expect(view.primaryCta).toBe('Αποθήκευση χαρακτηρισμών');
     expect(view.icon).toBeTruthy();
   });

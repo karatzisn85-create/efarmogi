@@ -15,6 +15,8 @@ import {
   readPaymentDocumentLabelFromPayment,
   readPaymentDocumentRoleFromPayment,
   paymentRoleCountsTowardTotal,
+  detectKhmdhsPortalPaymentAmountIssue,
+  describeKhmdhsPortalPaymentAmountIssue,
 } from '../utils/khmdhsPaymentDocumentRoles';
 
 const Stack = styled.div`
@@ -85,11 +87,21 @@ const ErrorRow = styled.div`
 export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
   const entries = useMemo(() => getKhmdhsPaymentEntries(project), [project]);
   const totals = useMemo(() => buildKhmdhsPaymentsTotals(project), [project]);
+  const refAmount = resolveEffectivePayableAmountGrossForPayments(project);
+  const portalIssues = useMemo(() => (
+    entries
+      .map((entry) => detectKhmdhsPortalPaymentAmountIssue({
+        ...entry,
+        gross: Number(entry?.snapshot?.totalCostWithVAT ?? entry?.gross),
+      }, {
+        contractAmountGross: refAmount,
+        title: entry?.snapshot?.title || '',
+      }))
+      .filter(Boolean)
+  ), [entries, refAmount]);
 
   if (!projectHasKhmdhsPaymentData(project) || entries.length === 0) return null;
 
-  const refAmount = resolveEffectivePayableAmountGrossForPayments(project);
-  const hasPayableRef = refAmount != null && refAmount > 0;
   const refLabel = 'τελικό πληρωτέο ποσό';
 
   const compareAmount = totals.hasUserClassification
@@ -139,7 +151,7 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
         ) : totals.coFinancingPattern ? (
           <>
             <TotalChip>
-              <TotalLabel>Άθροισμα ενταλμάτων (με ΦΠΑ)</TotalLabel>
+              <TotalLabel>Άθροισμα όπως το δήλωσε το ΚΗΜΔΗΣ (πύλη)</TotalLabel>
               <TotalValue>{formatKhmdhsEuro(totals.rawTotalGross)}</TotalValue>
             </TotalChip>
             <TotalChip>
@@ -149,7 +161,7 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
           </>
         ) : (
           <TotalChip>
-            <TotalLabel>Σύνολο πληρωμών (με ΦΠΑ)</TotalLabel>
+            <TotalLabel>Άθροισμα όπως το δήλωσε το ΚΗΜΔΗΣ (πύλη)</TotalLabel>
             <TotalValue>{formatKhmdhsEuro(totals.rawTotalGross)}</TotalValue>
           </TotalChip>
         )}
@@ -169,6 +181,11 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
             {compare.over || totals.needsReview
               ? `Υπερβαίνει το ${refLabel} (${compare.pct}%) — απαιτείται έλεγχος`
               : `${compare.pct}% του ${refLabel}`}
+          </CompareNote>
+        )}
+        {portalIssues.length > 0 && (
+          <CompareNote $warn>
+            {portalIssues.map((issue) => describeKhmdhsPortalPaymentAmountIssue(issue)).join(' ')}
           </CompareNote>
         )}
         {totals.needsReview && !totals.hasUserClassification && !totals.coFinancingPattern && (
@@ -226,15 +243,16 @@ export default function KhmdhsPaymentsDisplay({ project, variant = 'detail' }) {
           && Math.abs(entry.userActualAmount - Number(entry.snapshot.totalCostWithVAT || 0)) > 0.5;
         if (amount) {
           summaryChips.push({
-            label: hasActualOverride ? 'Δηλωμένο ΚΗΜΔΗΣ (με ΦΠΑ)' : 'Ποσό (με ΦΠΑ)',
+            label: 'Δηλωμένο στο ΚΗΜΔΗΣ (πύλη)',
             value: amount,
             strong: true,
             highlight: !hasActualOverride,
+            warn: hasActualOverride,
           });
         }
         if (hasActualOverride) {
           summaryChips.push({
-            label: 'Πραγματικό ποσό που πληρώνει',
+            label: 'Πραγματικό ποσό εντάλματος',
             value: formatKhmdhsEuro(entry.userActualAmount),
             strong: true,
             highlight: true,

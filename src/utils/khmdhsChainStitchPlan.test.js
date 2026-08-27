@@ -805,12 +805,13 @@ describe('stitch hardenings — γνωστοί ΑΔΑΜ, covers filter, refresh 
     expect(warnings).not.toContain('stitchConflict:symv');
   });
 
-  test('αναφορά: stitchConflict:proc εμφανίζεται ως προσοχή', () => {
+  test('αναφορά: stitchConflict:proc διατηρεί την κάρτα — δεν είναι ενέργεια', () => {
     const report = buildKhmdhsRefreshChangeReport({}, {}, {
       warnings: ['stitchConflict:proc'],
     });
-    expect(report.category).toBe('attention');
-    expect(report.attentionLines.some((l) => l.includes('δημοσίευση'))).toBe(true);
+    expect(report.category).toBe('unchanged');
+    expect(report.attentionLines.some((l) => l.includes('δημοσίευση'))).toBe(false);
+    expect(report.incompleteLines.some((l) => l.includes('δημοσίευση'))).toBe(true);
   });
 
   test('buildConfirmed πάντα γράφει implementationFormAtConfirm', () => {
