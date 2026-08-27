@@ -1791,6 +1791,52 @@ function findFileInDirectoryTree(dir, fileName) {
 }
 
 // IPC Handlers για διαχείριση αρχείων
+async function maybeNotifyFirstSupervisorCharge(previousProject, nextProject) {
+  const empty = { attempted: false, sentNames: [], skippedNoEmailNames: [], failedNames: [] };
+  try {
+    const greeting = require('./supervisorChargeGreetingEmail');
+    const plan = greeting.shouldSendChargeGreetingEmail(true, previousProject, nextProject);
+    if (!plan.notify) return empty;
+
+    const users = loadUsers();
+    const actor = findUserByUsername(loggedInUsername);
+    let municipalityName = 'Δήμος Αρχανών-Αστερούσιων';
+    try {
+      const cfg = loadConfig();
+      municipalityName = String(cfg?.organizationFullName || cfg?.organizationName || municipalityName).trim()
+        || municipalityName;
+    } catch (_) { /* προεπιλογή δήμου */ }
+
+    const result = await greeting.notifyFirstSupervisorCharge({
+      previousProject,
+      nextProject,
+      users,
+      actor,
+      dataDir,
+      municipalityName,
+    });
+
+    if (result?.attempted && Array.isArray(result.sentNames) && result.sentNames.length > 0) {
+      try {
+        const { appendEmailHistory } = require('./procurementCalendarReminderService');
+        appendEmailHistory(dataDir, {
+          category: 'charge',
+          type: 'supervisor_charge_greeting',
+          toNames: result.sentNames,
+          projectTitle: String(nextProject?.projectTitle || '').trim(),
+          subprojectTitle: String(nextProject?.subprojectTitle || '').trim(),
+        });
+      } catch (histErr) {
+        logger.error('charge greeting history failed', histErr);
+      }
+    }
+    return result || empty;
+  } catch (e) {
+    logger.error('maybeNotifyFirstSupervisorCharge failed', e);
+    return empty;
+  }
+}
+
 async function handleSaveProjectData(event, projectData) {
   try {
     if (writesBlockedByMandatoryUpdate()) {
@@ -1803,6 +1849,8 @@ async function handleSaveProjectData(event, projectData) {
     // βασίστηκε. Γίνεται ΠΡΙΝ από οποιαδήποτε αλλαγή στον δίσκο, ώστε να μη μείνει τίποτα μισό.
     const expectedUpdatedAt = projectData.__expectedUpdatedAt;
     delete projectData.__expectedUpdatedAt;
+    const sendChargeGreetingRequested = projectData.__sendChargeGreetingEmail === true;
+    delete projectData.__sendChargeGreetingEmail;
     if (expectedUpdatedAt && projectData.subprojectId) {
       let currentUpdatedAt = '';
       try {
@@ -2068,6 +2116,17 @@ async function handleSaveProjectData(event, projectData) {
     safeWriteJSON(finalJsonPath, dataToSave);
     console.log('Project data saved successfully to:', finalJsonPath);
 
+    let chargeGreeting = { attempted: false, sentNames: [], skippedNoEmailNames: [], failedNames: [] };
+    try {
+      // Μαζική εισαγωγή Excel καλεί την αποθήκευση χωρίς event — χωρίς email χρέωσης.
+      // Email μόνο αν ο χρήστης τικάρισε το κουτάκι στη φόρμα (και είναι πρώτη χρέωση).
+      if (event != null && sendChargeGreetingRequested) {
+        chargeGreeting = await maybeNotifyFirstSupervisorCharge(existingData, dataToSave);
+      }
+    } catch (greetErr) {
+      logger.error('charge greeting after save-project-data failed', greetErr);
+    }
+
     // Αν άλλαξε το projectTitle, ενημέρωσε όλα τα σχετικά δεδομένα
     if (projectTitleChanged) {
       console.log(`Project title changed from "${oldProjectTitle}" to "${newProjectTitle}". Updating related data...`);
@@ -2113,7 +2172,7 @@ async function handleSaveProjectData(event, projectData) {
     } catch (idxErr) {
       console.error('projectsIndex upsert after save failed:', idxErr?.message || idxErr);
     }
-    return { success: true, projectId: finalProjectId, subprojectId, project: dataToSave };
+    return { success: true, projectId: finalProjectId, subprojectId, project: dataToSave, chargeGreeting };
   } catch (error) {
     console.error('Error saving project data:', error);
     return { success: false, error: error.message };

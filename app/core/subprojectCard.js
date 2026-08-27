@@ -424,6 +424,8 @@
     applyChargeRulesOnPersist(data);
     stripLegacySupervisorField(data);
     normalizeProjectTypeField(data);
+    delete data.__sendChargeGreetingEmail;
+    delete data.__expectedUpdatedAt;
     return data;
   }
 

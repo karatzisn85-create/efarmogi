@@ -56,6 +56,21 @@ test('sanitize: projectId/subprojectId/createdAt δεν αλλάζουν', () =>
   assert.deepEqual(saved.supervisorEngineerIds, ['user:nikos']);
 });
 
+test('sanitize: δεν αποθηκεύει το κουτάκι αποστολής email χρέωσης', () => {
+  const saved = core.sanitizeSubprojectForPersist(
+    {
+      projectTitle: 'Πλατεία',
+      supervisorEngineerIds: ['user:maria'],
+      __sendChargeGreetingEmail: true,
+      __expectedUpdatedAt: '2026-01-01T00:00:00.000Z',
+    },
+    {},
+    { projectId: 'p', subprojectId: 's', nowIso: '2026-08-22T10:00:00.000Z' }
+  );
+  assert.equal(Object.prototype.hasOwnProperty.call(saved, '__sendChargeGreetingEmail'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(saved, '__expectedUpdatedAt'), false);
+});
+
 test('regression: παλιός επιβλέπων δεν χάνεται στην αποθήκευση', () => {
   const existing = {
     projectId: 'p',

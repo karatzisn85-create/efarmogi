@@ -8,6 +8,7 @@ import {
   buildProjectFormFingerprint,
   hasUnsavedProjectFormChanges,
 } from '../utils/projectFormUnsaved';
+import { shouldRequestChargeGreetingOnSave } from '../utils/supervisorChargeGreetingGate';
 import subprojectCard from '../../app/core/subprojectCard';
 import subprojectLifecycle from '../../app/core/subprojectLifecycle';
 import subprojectFiles from '../../app/core/subprojectFiles';
@@ -2582,6 +2583,12 @@ const KhmdhsLockedPanel = styled.div`
  * Ξαναϋπολογίζει συμπληρωματικές, και (μόνο όταν ορθή επανάληψη διορθώνει) ποσό/ημ/νία.
  */
 
+function catalogChargeIdList(ids) {
+  return (Array.isArray(ids) ? ids : [])
+    .map((x) => String(x || '').trim())
+    .filter((id) => /^user:/i.test(id));
+}
+
 function ProjectForm({
   isOpen,
   onClose,
@@ -2689,6 +2696,8 @@ function ProjectForm({
   const savedFormFingerprintRef = React.useRef(null);
   const [unsavedCloseModalOpen, setUnsavedCloseModalOpen] = useState(false);
   const [registeredEngineers, setRegisteredEngineers] = useState([]);
+  const [sendChargeGreetingOnSave, setSendChargeGreetingOnSave] = useState(false);
+  const [chargeGreetingFirstChargeEligible, setChargeGreetingFirstChargeEligible] = useState(true);
   const [auxPickerKey, setAuxPickerKey] = useState(0);
   const [khmdhsChainFetchTarget, setKhmdhsChainFetchTarget] = useState(null);
 
@@ -2897,12 +2906,14 @@ function ProjectForm({
       setPostApplyQueue(null);
       setPendingTasksOpen(false);
       setCompletedPendingTaskIds([]);
+      setSendChargeGreetingOnSave(false);
       return;
     }
     if (wasOpenRef.current) {
       return;
     }
     wasOpenRef.current = true;
+    setSendChargeGreetingOnSave(false);
 
     if (editingProject) {
       // Backward compatibility: μετατροπή aleCode string σε aleCodes array
@@ -2933,6 +2944,7 @@ function ProjectForm({
         supervisorChargeFreePrimary: loadedChargeFreePrimary,
         supervisorChargeFreeParticipants: loadedChargeFreeParticipants,
       } = subprojectCard.loadChargeFieldsFromProject(editingProject);
+      setChargeGreetingFirstChargeEligible(catalogChargeIdList(supervisorEngineerIds).length === 0);
 
       const { supervisor: _legacySupervisor, ...editingRest } = editingProject;
       const loadedForm = mergeKhmdhsSupplementaryIntoForm(
@@ -3030,6 +3042,7 @@ function ProjectForm({
     } else {
       // Reset form for new project
       setActivePhaseTab('A');
+      setChargeGreetingFirstChargeEligible(true);
       const emptyNewForm = {
         projectTitle: '',
         subprojectTitle: '',
@@ -6228,6 +6241,15 @@ function ProjectForm({
         fileGroups: saveFormData.fileGroups || [],
         keepFormOpen: isPhaseASaveOnly,
       };
+      if (shouldRequestChargeGreetingOnSave({
+        checkboxOn: sendChargeGreetingOnSave,
+        firstChargeEligible: chargeGreetingFirstChargeEligible,
+        outsideCatalog: outside,
+        hasCatalogEngineer: catalogChargeIdList(supervisorEngineerIds).length > 0,
+        phaseASaveOnly: isPhaseASaveOnly,
+      })) {
+        projectData.__sendChargeGreetingEmail = true;
+      }
 
       if (editingProject) {
         const originalProjectTitle = editingProject.projectTitle;
@@ -6368,6 +6390,13 @@ function ProjectForm({
       const saveResult = await onSave(projectData);
       if (!saveResult?.success) return;
 
+      if (!isPhaseASaveOnly) {
+        setSendChargeGreetingOnSave(false);
+      }
+      if (Array.isArray(saveResult.chargeGreeting?.sentNames) && saveResult.chargeGreeting.sentNames.length > 0) {
+        setChargeGreetingFirstChargeEligible(false);
+      }
+
       setPhaseBResetUnsaved(false);
       setSelectedFiles([]);
 
@@ -6399,7 +6428,12 @@ function ProjectForm({
             return next;
           });
         }
-        showToast('Η Φάση Α αποθηκεύτηκε. Η Φάση Β ξεκλειδώθηκε.', 'success');
+        showToast(
+          sendChargeGreetingOnSave
+            ? 'Η Φάση Α αποθηκεύτηκε. Η Φάση Β ξεκλειδώθηκε. Η ενημέρωση χρέωσης θα σταλεί όταν αποθηκεύσετε τη Φάση Β.'
+            : 'Η Φάση Α αποθηκεύτηκε. Η Φάση Β ξεκλειδώθηκε.',
+          'success'
+        );
       }
 
       console.log('Project saved successfully');
@@ -6687,6 +6721,15 @@ function ProjectForm({
   const primaryEngineerId = (formData.supervisorEngineerIds || [])[0] || '';
   const auxiliaryEngineerIds = (formData.supervisorEngineerIds || []).slice(1);
   const auxiliaryEngineerOptions = (registeredEngineers || []).filter((e) => e.id && e.id !== primaryEngineerId);
+  const hasCatalogEngineerSelected = catalogChargeIdList(formData.supervisorEngineerIds).length > 0;
+  const chargeGreetingCheckboxEnabled = chargeGreetingFirstChargeEligible && hasCatalogEngineerSelected;
+  const chargeGreetingHint = !chargeGreetingFirstChargeEligible
+    ? 'Η ενημέρωση με email ισχύει μόνο στην πρώτη χρέωση νέου ή μέχρι τότε αχρέωτου υποέργου.'
+    : !hasCatalogEngineerSelected
+      ? 'Επιλέξτε επιβλέποντα από τον κατάλογο. Το κουτάκι είναι αποεπιλεγμένο από προεπιλογή.'
+      : sendChargeGreetingOnSave
+        ? 'Θα σταλεί όταν αποθηκεύσετε τη Φάση Β, ώστε να περιλαμβάνει τα στοιχεία του υποέργου που υπάρχουν τότε.'
+        : 'Αποεπιλεγμένο από προεπιλογή. Αν το τικάρετε, η ενημέρωση θα σταλεί με την αποθήκευση της Φάσης Β.';
 
   const toggleAuxiliaryEngineer = (engineerId) => {
     const sid = String(engineerId || '').trim();
@@ -7647,6 +7690,7 @@ function ProjectForm({
                     onChange={(e) => {
                       const on = e.target.checked;
                       setFormData((prev) => subprojectCard.applyOutsideChargeToggle(prev, on));
+                      if (on) setSendChargeGreetingOnSave(false);
                     }}
                   />
                   <CheckboxLabel htmlFor="supervisorChargeOutsideEngineers">Χρέωση εκτός καταλόγου χρηστών</CheckboxLabel>
@@ -7738,6 +7782,28 @@ function ProjectForm({
                     </EngineerPickGrid>
                     <FieldHint style={{ marginTop: '0.5rem' }}>
                       Επιβλέπων/επιβλέπουσα από το αριστερό πεδίο· συμμετέχοντες με προσθήκη από τη λίστα. Για χρέωση σε άλλη υπηρεσία, τικάρετε «Χρέωση εκτός καταλόγου χρηστών».
+                    </FieldHint>
+                    <CheckboxContainer style={{
+                      marginTop: '0.75rem',
+                      marginBottom: 0,
+                      opacity: chargeGreetingCheckboxEnabled ? 1 : 0.7,
+                    }}>
+                      <Checkbox
+                        type="checkbox"
+                        id="sendChargeGreetingOnSave"
+                        checked={sendChargeGreetingOnSave && chargeGreetingCheckboxEnabled}
+                        disabled={!chargeGreetingCheckboxEnabled}
+                        onChange={(e) => setSendChargeGreetingOnSave(e.target.checked)}
+                      />
+                      <CheckboxLabel
+                        htmlFor="sendChargeGreetingOnSave"
+                        style={chargeGreetingCheckboxEnabled ? undefined : { cursor: 'default' }}
+                      >
+                        Αποστολή ενημέρωσης χρέωσης με email
+                      </CheckboxLabel>
+                    </CheckboxContainer>
+                    <FieldHint style={{ marginTop: '0.4rem' }}>
+                      {chargeGreetingHint}
                     </FieldHint>
                   </>
                 ) : (

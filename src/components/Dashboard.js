@@ -4918,6 +4918,33 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           );
         }
 
+        const greeting = result.chargeGreeting;
+        if (greeting?.attempted) {
+          if (greeting.reason === 'not_configured') {
+            showToast(
+              'Η χρέωση καταχωρήθηκε. Δεν στάλθηκε ενημέρωση — δεν έχουν ρυθμιστεί τα στοιχεία αποστολής email.',
+              'warning'
+            );
+          } else {
+            const parts = [];
+            if (Array.isArray(greeting.sentNames) && greeting.sentNames.length) {
+              parts.push(`Στάλθηκε ενημέρωση χρέωσης σε ${greeting.sentNames.join(', ')}.`);
+            }
+            if (Array.isArray(greeting.skippedNoEmailNames) && greeting.skippedNoEmailNames.length) {
+              parts.push(`Δεν στάλθηκε ενημέρωση σε ${greeting.skippedNoEmailNames.join(', ')} (ανενεργός λογαριασμός ή χωρίς email).`);
+            }
+            if (Array.isArray(greeting.failedNames) && greeting.failedNames.length) {
+              parts.push(`Αποτυχία αποστολής: ${greeting.failedNames.join(', ')}.`);
+            }
+            if (parts.length) {
+              const allOk = greeting.sentNames?.length
+                && !greeting.skippedNoEmailNames?.length
+                && !greeting.failedNames?.length;
+              showToast(parts.join(' '), allOk ? 'success' : 'warning');
+            }
+          }
+        }
+
         if (shouldKeepFormOpen) {
           let canonical = result.project
             ? {
@@ -4950,12 +4977,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             projectId: result.projectId,
             subprojectId: result.subprojectId,
             filesSaveFailed,
+            chargeGreeting: result.chargeGreeting,
           };
         }
 
         setIsFormOpen(false);
         setEditingProject(null);
-        return { success: true, projectId: result.projectId, subprojectId: result.subprojectId, filesSaveFailed };
+        return { success: true, projectId: result.projectId, subprojectId: result.subprojectId, filesSaveFailed, chargeGreeting: result.chargeGreeting };
       } else {
         console.error('Error saving project:', result.error);
         showToast('Σφάλμα αποθήκευσης: ' + result.error, 'error');
