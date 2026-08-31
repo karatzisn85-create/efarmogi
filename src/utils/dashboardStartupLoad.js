@@ -28,3 +28,20 @@ export function getDashboardStartupLoadSteps() {
     clearAllLocksOnceOnSessionStart: true,
   };
 }
+
+/**
+ * Η οθόνη εκκίνησης είναι μόνο για το πρώτο άνοιγμα της αρχικής.
+ * Αν είναι ήδη ανοιχτό overlay (Αρχεία Υποέργου, κάρτα, φόρμα),
+ * η εμφάνισή της πίσω από το παράθυρο παγώνει την εφαρμογή.
+ */
+export function shouldShowStartupSplash({ loading, overlayOpen } = {}) {
+  return Boolean(loading) && !overlayOpen;
+}
+
+/**
+ * Ανανέωση δεδομένων με ανοιχτό overlay: χωρίς οθόνη εκκίνησης.
+ * Πλήρες reload του χαρτοφυλακίου δεν χρειάζεται όταν άλλαξε μόνο ένα υποέργο.
+ */
+export function shouldFullReloadPortfolioAfterSubprojectFileUpload() {
+  return false;
+}

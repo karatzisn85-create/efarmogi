@@ -4824,7 +4824,7 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
 });
 
 ipcMain.handle('open-file-dialog', async () => {
-  const result = await dialog.showOpenDialog({
+  const opts = {
     properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'Όλα τα Αρχεία', extensions: ['pdf', 'doc', 'docx'] },
@@ -4832,8 +4832,10 @@ ipcMain.handle('open-file-dialog', async () => {
       { name: 'Word Documents', extensions: ['doc', 'docx'] },
       { name: 'All Files', extensions: ['*'] }
     ]
-  });
-  
+  };
+  const result = (mainWindow && !mainWindow.isDestroyed())
+    ? await dialog.showOpenDialog(mainWindow, opts)
+    : await dialog.showOpenDialog(opts);
   return result;
 });
 

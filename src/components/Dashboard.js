@@ -96,6 +96,8 @@ import { showConfirm } from '../utils/confirmModal';
 import {
   shouldClearAllLocksOnProjectListLoad,
   getDashboardStartupLoadSteps,
+  shouldShowStartupSplash,
+  shouldFullReloadPortfolioAfterSubprojectFileUpload,
 } from '../utils/dashboardStartupLoad';
 import { exportSubprojectReport } from '../utils/subprojectReportExport';
 import PostSetupChecklistBanner from './PostSetupChecklistBanner';
@@ -5383,7 +5385,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   const refreshAfterSubprojectUpload = async (projectId, subprojectId, count, groupTitle) => {
     invalidateCache();
-    await loadDataWithCache(true);
+    // Μην ξαναδείξεις την οθόνη εκκίνησης πίσω από τα Αρχεία Υποέργου.
+    if (shouldFullReloadPortfolioAfterSubprojectFileUpload()) {
+      await loadDataWithCache(true, { silent: true });
+    } else {
+      await fetchAndApplySubproject(projectId, subprojectId);
+    }
 
     if (
       fileManager.isOpen &&
@@ -6809,7 +6816,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   return (
     <DashboardContainer ref={dashboardScrollRef}>
-      {loading && (
+      {shouldShowStartupSplash({
+        loading,
+        overlayOpen: fileManager.isOpen || !!selectedDetailProject || isFormOpen,
+      }) && (
         <SplashScreen
           isLoading
           organizationName={appConfig.organizationFullName}
