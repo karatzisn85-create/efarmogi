@@ -36,6 +36,10 @@ import {
   getStitchPlanSegmentForSeed,
 } from './khmdhsChainStitchPlan';
 import { filterUnrelatedPayments } from './khmdhsPaymentReconciliation';
+import {
+  confirmedCancelledAdamSet,
+  stripConfirmedCancelledChainLinks,
+} from './khmdhsCancelledLinkStrip';
 
 function sanitizeAdamInput(value) {
   return String(value || '')
@@ -292,12 +296,30 @@ function unionSnapshotMaps(...maps) {
   return out;
 }
 
+function filterSnapshotMapExcludingCancelled(map, cancelledSet) {
+  const out = {};
+  Object.entries(map || {}).forEach(([key, snap]) => {
+    const adam = sanitizeAdamInput(key);
+    if (!adam || !snap || cancelledSet.has(adam)) return;
+    if (snap.cancelled === true) return;
+    out[adam] = snap;
+  });
+  return out;
+}
+
+function applyCancelledLinkCleanup(form, chainRes, _prevForm) {
+  const cancelled = confirmedCancelledAdamSet(chainRes);
+  if (!cancelled.size) return form;
+  return stripConfirmedCancelledChainLinks(form, cancelled).form;
+}
+
 export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } = {}) {
   const warnings = [];
   const next = { ...prev };
   const extraNotices = [];
   const extraAwards = [];
   const extraRequests = [];
+  const cancelledSet = confirmedCancelledAdamSet(chainRes, prev);
 
   const prevHadNotice = !!(prev.khmdhsNoticeSnapshot || sanitizeAdamInput(prev.khmdhsNoticeAdam));
   const prevHadAward = !!(prev.khmdhsAwardSnapshot || sanitizeAdamInput(prev.khmdhsAwardAdam));
@@ -306,7 +328,7 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
   if (chainRes.notice && chainRes.notice.snapshot) {
     const incoming = sanitizeAdamInput(chainRes.notice.adam);
     const existing = sanitizeAdamInput(prev.khmdhsNoticeAdam);
-    if (existing && incoming && existing !== incoming) {
+    if (existing && incoming && existing !== incoming && !cancelledSet.has(existing)) {
       warnings.push('noticeConflict');
       extraNotices.push({ adam: incoming, snapshot: chainRes.notice.snapshot });
       // Σε σύγκρουση: κρατάμε παλιά PROC αλλά διασφαλίζουμε ότι τα procedure fields
@@ -334,7 +356,7 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
     }
   } else if (chainRes.notice && !chainRes.notice.snapshot) {
     // Μερική ανάκτηση: ADAM χωρίς στοιχεία — δεν γράφουμε γυμνό stub πάνω σε καλά δεδομένα.
-    if (prevHadNotice) {
+    if (prevHadNotice && !cancelledSet.has(sanitizeAdamInput(prev.khmdhsNoticeAdam))) {
       warnings.push('stagePreserved:notice');
     }
     // Αν δεν υπήρχε τίποτα πριν, απλώς αγνοούμε το stub (next μένει όπως το prev).
@@ -345,7 +367,7 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
   if (chainRes.auction?.adam && chainRes.auction?.snapshot) {
     const incomingA = sanitizeAdamInput(chainRes.auction.adam);
     const existingA = sanitizeAdamInput(prev.khmdhsAwardAdam);
-    if (!existingA || existingA === incomingA) {
+    if (!existingA || existingA === incomingA || cancelledSet.has(existingA)) {
       next.khmdhsAwardAdam = chainRes.auction.adam;
       next.khmdhsAwardSnapshot = chainRes.auction.snapshot;
       if (chainRes.auction.fetchedAt) {
@@ -355,7 +377,7 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
       extraAwards.push({ adam: incomingA, snapshot: chainRes.auction.snapshot });
     }
   } else if (chainRes.auction && !chainRes.auction.snapshot) {
-    if (prevHadAward) {
+    if (prevHadAward && !cancelledSet.has(sanitizeAdamInput(prev.khmdhsAwardAdam))) {
       warnings.push('stagePreserved:award');
     }
   }
@@ -376,15 +398,14 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
   if (chainRes.request && chainRes.request.snapshot) {
     const incomingR = sanitizeAdamInput(chainRes.request.adam);
     const existingR = sanitizeAdamInput(next.khmdhsRequestAdam);
-    if (existingR && incomingR && existingR !== incomingR) {
+    if (existingR && incomingR && existingR !== incomingR && !cancelledSet.has(existingR)) {
       extraRequests.push({ adam: incomingR, snapshot: chainRes.request.snapshot });
       mergeRequestFromChain(next, chainRes, { protect: true });
     } else {
       mergeRequestFromChain(next, chainRes, { protect: false });
     }
   } else if (chainRes.request && !chainRes.request.snapshot) {
-    // Μερική ανάκτηση REQ χωρίς snapshot — διατήρηση υπάρχοντος, χωρίς γυμνό stub.
-    if (prevHadRequest) {
+    if (prevHadRequest && !cancelledSet.has(sanitizeAdamInput(next.khmdhsRequestAdam))) {
       warnings.push('stagePreserved:request');
     }
   }
@@ -410,7 +431,7 @@ export function mergeSharedKhmdhsFromChain(prev, chainRes, { protect = false } =
 
   mergeCommitmentAndPaymentsFromChain(next, chainRes, { protect });
 
-  return { next, warnings };
+  return { next: applyCancelledLinkCleanup(next, chainRes, prev), warnings };
 }
 
 /** Διατηρεί χειροκίνητα ποσά/ημ/νίες σε derived γραμμές όταν η αλυσίδα δεν έχει τιμή. */
@@ -517,20 +538,29 @@ function unionAdamLists(...lists) {
 export function mergeKhmdhsChainMetaForStitch(prevMeta, incomingMeta, formAfter) {
   const prev = prevMeta && typeof prevMeta === 'object' ? prevMeta : {};
   const inc = incomingMeta && typeof incomingMeta === 'object' ? incomingMeta : {};
+  const thisRefreshCancelled = [...new Set(
+    (Array.isArray(inc.confirmedCancelledAdams) ? inc.confirmedCancelledAdams : [])
+      .map((a) => sanitizeAdamInput(a))
+      .filter(Boolean)
+  )];
   const confirmedCancelledAdams = [...new Set(
     [
       ...(Array.isArray(prev.confirmedCancelledAdams) ? prev.confirmedCancelledAdams : []),
-      ...(Array.isArray(inc.confirmedCancelledAdams) ? inc.confirmedCancelledAdams : []),
+      ...thisRefreshCancelled,
     ].map((a) => sanitizeAdamInput(a)).filter(Boolean)
   )];
-  const cancelledSet = new Set(confirmedCancelledAdams);
+  const cancelledSet = new Set(thisRefreshCancelled);
   const withoutCancelled = (list) => unionAdamLists(list)
     .filter((a) => !cancelledSet.has(a));
   const prevLinked = prev.linkedAdams || {};
   const incLinked = inc.linkedAdams || {};
   const linkedAdams = {
-    requests: unionAdamLists(prevLinked.requests, incLinked.requests, formAfter?.khmdhsRequestAdam),
-    approvedRequests: unionAdamLists(prevLinked.approvedRequests, incLinked.approvedRequests),
+    requests: withoutCancelled(unionAdamLists(
+      prevLinked.requests, incLinked.requests, formAfter?.khmdhsRequestAdam
+    )),
+    approvedRequests: withoutCancelled(unionAdamLists(
+      prevLinked.approvedRequests, incLinked.approvedRequests
+    )),
     budgetCommitments: withoutCancelled(unionAdamLists(
       prevLinked.budgetCommitments,
       incLinked.budgetCommitments,
@@ -539,9 +569,15 @@ export function mergeKhmdhsChainMetaForStitch(prevMeta, incomingMeta, formAfter)
         ? formAfter.khmdhsCommitmentDecisions.map((d) => d?.adam)
         : [])
     )),
-    notices: unionAdamLists(prevLinked.notices, incLinked.notices, formAfter?.khmdhsNoticeAdam),
-    auctions: unionAdamLists(prevLinked.auctions, incLinked.auctions, formAfter?.khmdhsAwardAdam),
-    contracts: unionAdamLists(prevLinked.contracts, incLinked.contracts, formAfter?.khmdhsAdam),
+    notices: withoutCancelled(unionAdamLists(
+      prevLinked.notices, incLinked.notices, formAfter?.khmdhsNoticeAdam
+    )),
+    auctions: withoutCancelled(unionAdamLists(
+      prevLinked.auctions, incLinked.auctions, formAfter?.khmdhsAwardAdam
+    )),
+    contracts: withoutCancelled(unionAdamLists(
+      prevLinked.contracts, incLinked.contracts, formAfter?.khmdhsAdam
+    )),
     payments: withoutCancelled(unionAdamLists(
       prevLinked.payments,
       incLinked.payments,
@@ -597,31 +633,31 @@ export function mergeKhmdhsChainMetaForStitch(prevMeta, incomingMeta, formAfter)
     },
     stitchMerged: true,
     confirmedCancelledAdams,
-    noticeSnapshotsByAdam: unionSnapshotMaps(
+    noticeSnapshotsByAdam: filterSnapshotMapExcludingCancelled(unionSnapshotMaps(
       prev.noticeSnapshotsByAdam,
       inc.noticeSnapshotsByAdam,
       formAfter?.khmdhsNoticeAdam && formAfter?.khmdhsNoticeSnapshot
         ? { [sanitizeAdamInput(formAfter.khmdhsNoticeAdam)]: formAfter.khmdhsNoticeSnapshot }
         : null
-    ),
-    awardSnapshotsByAdam: unionSnapshotMaps(
+    ), cancelledSet),
+    awardSnapshotsByAdam: filterSnapshotMapExcludingCancelled(unionSnapshotMaps(
       prev.awardSnapshotsByAdam,
       inc.awardSnapshotsByAdam,
       formAfter?.khmdhsAwardAdam && formAfter?.khmdhsAwardSnapshot
         ? { [sanitizeAdamInput(formAfter.khmdhsAwardAdam)]: formAfter.khmdhsAwardSnapshot }
         : null
-    ),
-    requestSnapshotsByAdam: unionSnapshotMaps(
+    ), cancelledSet),
+    requestSnapshotsByAdam: filterSnapshotMapExcludingCancelled(unionSnapshotMaps(
       prev.requestSnapshotsByAdam,
       inc.requestSnapshotsByAdam,
       formAfter?.khmdhsRequestAdam && formAfter?.khmdhsRequestSnapshot
         ? { [sanitizeAdamInput(formAfter.khmdhsRequestAdam)]: formAfter.khmdhsRequestSnapshot }
         : null
-    ),
-    contractSnapshotsByAdam: unionSnapshotMaps(
+    ), cancelledSet),
+    contractSnapshotsByAdam: filterSnapshotMapExcludingCancelled(unionSnapshotMaps(
       prev.contractSnapshotsByAdam,
       inc.contractSnapshotsByAdam
-    ),
+    ), cancelledSet),
   };
 }
 
@@ -701,6 +737,7 @@ export function applyAdamChainResultStitch(prev, chainRes, {
   const updatedStages = [];
   const conflictStages = [];
   const warnings = [];
+  const cancelledSet = confirmedCancelledAdamSet(chainRes, workingPrev);
 
   const stitchScalarStage = ({
     stageId,
@@ -713,7 +750,7 @@ export function applyAdamChainResultStitch(prev, chainRes, {
     if (!incoming?.snapshot || !sanitizeAdamInput(incoming.adam)) return;
     const ex = sanitizeAdamInput(existingAdam);
     const inc = sanitizeAdamInput(incoming.adam);
-    if (!ex) {
+    if (!ex || cancelledSet.has(ex)) {
       applyIncoming(incoming);
       filledStages.push(stageId);
       return;
@@ -907,6 +944,8 @@ export function applyAdamChainResultStitch(prev, chainRes, {
     next.khmdhsChainStitchPlan = workingPrev.khmdhsChainStitchPlan;
   }
 
+  next = applyCancelledLinkCleanup(next, chainRes, workingPrev);
+
   const {
     form: protectedForm,
     protectedCount,
@@ -1007,6 +1046,7 @@ export function applyAdamChainResultStitchMulti(prev, chainRes, {
   const warnings = [];
   let apeConflict = null;
   let appliedSymvSnapshot = false;
+  const cancelledSet = confirmedCancelledAdamSet(chainRes, workingPrev);
 
   const stitchScalarStage = ({
     stageId,
@@ -1017,7 +1057,7 @@ export function applyAdamChainResultStitchMulti(prev, chainRes, {
     if (!incoming?.snapshot || !sanitizeAdamInput(incoming.adam)) return;
     const ex = sanitizeAdamInput(existingAdam);
     const inc = sanitizeAdamInput(incoming.adam);
-    if (!ex) {
+    if (!ex || cancelledSet.has(ex)) {
       applyIncoming(incoming);
       filledStages.push(stageId);
       return;
@@ -1246,6 +1286,8 @@ export function applyAdamChainResultStitchMulti(prev, chainRes, {
     next.khmdhsChainStitchPlan = workingPrev.khmdhsChainStitchPlan;
   }
 
+  next = applyCancelledLinkCleanup(next, chainRes, workingPrev);
+
   const {
     form: protectedForm,
     protectedCount,
@@ -1463,6 +1505,7 @@ export function applyAdamChainResult(prev, chainRes, {
     };
     const preservedStages = [];
     let noticeConflict = false;
+    const cancelledSet = confirmedCancelledAdamSet(chainRes, workingPrev);
 
     if (chainRes.contract && chainRes.contract.snapshot) {
       const ff = chainRes.contract.formFields || {};
@@ -1482,7 +1525,10 @@ export function applyAdamChainResult(prev, chainRes, {
       // Αν το ΚΗΜΔΗΣ δεν δίνει ούτε ημερομηνία ούτε ποσό, τα πεδία του χρήστη
       // (workingPrev.contractDate, workingPrev.contractAmount κ.λπ.) παραμένουν
       // από το ...workingPrev παραπάνω — χωρίς να χρειάζεται επιπλέον κώδικας.
-    } else if (prevHadStage.contract) {
+    } else if (
+      prevHadStage.contract
+      && !cancelledSet.has(sanitizeAdamInput(workingPrev.khmdhsAdam))
+    ) {
       // Η σύμβαση δεν ήρθε (ή ήρθε χωρίς στοιχεία) — διατηρούμε την προηγούμενη.
       next.khmdhsAdam = workingPrev.khmdhsAdam || '';
       next.khmdhsContractSnapshot = workingPrev.khmdhsContractSnapshot || null;
@@ -1494,7 +1540,7 @@ export function applyAdamChainResult(prev, chainRes, {
     if (chainRes.notice && chainRes.notice.snapshot) {
       const incoming = sanitizeAdamInput(chainRes.notice.adam);
       const existing = sanitizeAdamInput(workingPrev.khmdhsNoticeAdam);
-      if (existing && incoming && existing !== incoming) {
+      if (existing && incoming && existing !== incoming && !cancelledSet.has(existing)) {
         // Ίδια πολιτική με το μονοπάτι πολλαπλών συμβάσεων: κράτα την παλιά δημοσίευση.
         noticeConflict = true;
         next.khmdhsNoticeAdam = workingPrev.khmdhsNoticeAdam || '';
@@ -1524,7 +1570,10 @@ export function applyAdamChainResult(prev, chainRes, {
           next.contractProcessStartDate = chainRes.contractProcessStartDate;
         }
       }
-    } else if (prevHadStage.notice) {
+    } else if (
+      prevHadStage.notice
+      && !cancelledSet.has(sanitizeAdamInput(workingPrev.khmdhsNoticeAdam))
+    ) {
       // Η δημοσίευση δεν ήρθε — διατηρούμε την προηγούμενη.
       next.khmdhsNoticeAdam = workingPrev.khmdhsNoticeAdam || '';
       next.khmdhsNoticeSnapshot = workingPrev.khmdhsNoticeSnapshot || null;
@@ -1539,7 +1588,7 @@ export function applyAdamChainResult(prev, chainRes, {
     if (chainRes.auction?.adam && chainRes.auction?.snapshot) {
       const incomingA = sanitizeAdamInput(chainRes.auction.adam);
       const existingA = sanitizeAdamInput(workingPrev.khmdhsAwardAdam);
-      if (existingA && incomingA && existingA !== incomingA) {
+      if (existingA && incomingA && existingA !== incomingA && !cancelledSet.has(existingA)) {
         next.khmdhsAwardAdam = workingPrev.khmdhsAwardAdam || '';
         next.khmdhsAwardSnapshot = workingPrev.khmdhsAwardSnapshot || null;
         next.khmdhsAwardFetchedAt = workingPrev.khmdhsAwardFetchedAt || '';
@@ -1556,7 +1605,10 @@ export function applyAdamChainResult(prev, chainRes, {
           next.khmdhsAwardFetchedAt = chainRes.auction.fetchedAt;
         }
       }
-    } else if (prevHadStage.award) {
+    } else if (
+      prevHadStage.award
+      && !cancelledSet.has(sanitizeAdamInput(workingPrev.khmdhsAwardAdam))
+    ) {
       // Η ανάθεση/κατακύρωση δεν ήρθε — διατηρούμε την προηγούμενη.
       next.khmdhsAwardAdam = workingPrev.khmdhsAwardAdam || '';
       next.khmdhsAwardSnapshot = workingPrev.khmdhsAwardSnapshot || null;
@@ -1567,7 +1619,7 @@ export function applyAdamChainResult(prev, chainRes, {
     if (chainRes.request && chainRes.request.snapshot) {
       const incomingR = sanitizeAdamInput(chainRes.request.adam);
       const existingR = sanitizeAdamInput(workingPrev.khmdhsRequestAdam);
-      if (existingR && incomingR && existingR !== incomingR) {
+      if (existingR && incomingR && existingR !== incomingR && !cancelledSet.has(existingR)) {
         next.khmdhsRequestAdam = workingPrev.khmdhsRequestAdam || '';
         next.khmdhsRequestSnapshot = workingPrev.khmdhsRequestSnapshot || null;
         next.khmdhsRequestFetchedAt = workingPrev.khmdhsRequestFetchedAt || '';
@@ -1580,7 +1632,10 @@ export function applyAdamChainResult(prev, chainRes, {
       } else {
         mergeRequestFromChain(next, chainRes);
       }
-    } else if (prevHadStage.request) {
+    } else if (
+      prevHadStage.request
+      && !cancelledSet.has(sanitizeAdamInput(workingPrev.khmdhsRequestAdam))
+    ) {
       // Το πρωτογενές αίτημα δεν ήρθε — διατηρούμε το προηγούμενο.
       next.khmdhsRequestAdam = workingPrev.khmdhsRequestAdam || '';
       next.khmdhsRequestSnapshot = workingPrev.khmdhsRequestSnapshot || null;
@@ -1656,6 +1711,8 @@ export function applyAdamChainResult(prev, chainRes, {
       anchorType: resolvedAnchor.type,
       actRootReqAdam: inferActRootReqAdam(chainRes, seedAdam),
     });
+
+    next = applyCancelledLinkCleanup(next, chainRes, workingPrev);
 
     // Επαναφορά protected πεδίων (π.χ. assignmentProcedure από fieldOverrides)
     const {
@@ -1817,6 +1874,7 @@ export function applyAdamChainResult(prev, chainRes, {
     anchorType: resolvedAnchor.type,
     actRootReqAdam: inferActRootReqAdam(chainRes, seedAdam),
   });
+  nextForm = applyCancelledLinkCleanup(nextForm, chainRes, workingPrev);
   // Επαναφορά protected πεδίων πρώτα, μετά reconcile για σωστό hasActionRequired
   const {
     form: protectedForm,

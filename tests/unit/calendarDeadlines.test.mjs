@@ -83,6 +83,79 @@ test('καταληκτική ΚΗΜΔΗΣ: ενεργή προκήρυξη, όχ
   }), []);
 });
 
+test('επανέκδοση κρίκου: νεότερη ενεργή δημοσίευση υπερισχύει της παλιάς προθεσμίας', () => {
+  const base = {
+    subprojectId: 'sub-reissue',
+    projectStatus: 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
+    subprojectTitle: 'Επαναδημοσίευση',
+    khmdhsNoticeAdam: '26PROC_OLD',
+    khmdhsNoticeSnapshot: {
+      title: 'Παλιά προκήρυξη',
+      referenceNumber: '26PROC_OLD',
+      noticeType: 'Προκήρυξη',
+      signedDate: '2026-08-10T00:00:00',
+      finalSubmissionDate: '2026-09-07T14:00:00',
+      cancelled: false,
+    },
+    khmdhsAdamChainMeta: {
+      noticeSnapshotsByAdam: {
+        '26PROC_NEW': {
+          title: 'Νέα επανέκδοση',
+          referenceNumber: '26PROC_NEW',
+          noticeType: 'Διακήρυξη',
+          signedDate: '2026-08-25T00:00:00',
+          finalSubmissionDate: '2026-09-14T14:00:00',
+          cancelled: false,
+        },
+      },
+    },
+  };
+
+  // Η κύρια δημοσίευση παραμένει η παλιά (7/9), αλλά η ισχύουσα προθεσμία ακολουθεί
+  // τη νεότερη ενεργή επανέκδοση (14/9) — χωρίς να χρειάζεται ακύρωση της παλιάς.
+  const eff = cal.resolveEffectiveNoticeSnapshot(base);
+  assert.equal(eff.referenceNumber, '26PROC_NEW');
+  const deadline = cal.buildNoticeDeadlineCalendarEvents(base)
+    .find((e) => e.type === cal.CALENDAR_EVENT_TYPES.DEADLINE);
+  assert.equal(deadline.dateIso, '2026-09-14T14:00:00');
+
+  const onlyInMap = {
+    subprojectId: 'sub-map',
+    projectStatus: 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
+    subprojectTitle: 'Μόνο στον χάρτη',
+    khmdhsNoticeAdam: '',
+    khmdhsNoticeSnapshot: null,
+    khmdhsAdamChainMeta: {
+      noticeSnapshotsByAdam: {
+        '26PROC_NEW': {
+          title: 'Νέα επανέκδοση',
+          referenceNumber: '26PROC_NEW',
+          signedDate: '2026-08-25T00:00:00',
+          finalSubmissionDate: '2026-09-14T14:00:00',
+          cancelled: false,
+        },
+      },
+    },
+  };
+  assert.equal(cal.isActiveProcurementProject(onlyInMap), true);
+  assert.equal(
+    cal.buildNoticeDeadlineCalendarEvents(onlyInMap)
+      .find((e) => e.type === cal.CALENDAR_EVENT_TYPES.DEADLINE).dateIso,
+    '2026-09-14T14:00:00'
+  );
+
+  // Αν η νεότερη επανέκδοση ματαιωθεί, επιστρέφουμε στην παλιά ενεργή προθεσμία.
+  const withCancelledReissue = {
+    ...base,
+    khmdhsAdamChainMeta: {
+      noticeSnapshotsByAdam: {
+        '26PROC_NEW': { ...base.khmdhsAdamChainMeta.noticeSnapshotsByAdam['26PROC_NEW'], cancelled: true },
+      },
+    },
+  };
+  assert.equal(cal.resolveEffectiveNoticeSnapshot(withCancelledReissue).referenceNumber, '26PROC_OLD');
+});
+
 test('λήξη σύμβασης: χρειάζεται ποσό· χωρίς ποσό δεν μπαίνει', () => {
   const signed = {
     subprojectId: 'sub-signed',

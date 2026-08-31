@@ -524,6 +524,64 @@
     return snapshot;
   }
 
+  // Συγκεντρώνει όλες τις καταγεγραμμένες δημοσιεύσεις του υποέργου (κύρια +
+  // συνδεδεμένες που κρατά η αλυσίδα ΚΗΜΔΗΣ), χωρίς διπλότυπα ΑΔΑΜ.
+  function collectProjectNoticeSnapshots(project) {
+    var out = [];
+    var seen = {};
+    var add = function (raw) {
+      var s = pickKhmdhsNoticeSnapshot(raw);
+      if (!s) return;
+      var key = String(s.referenceNumber != null ? s.referenceNumber : '').trim().toUpperCase();
+      if (key) {
+        if (seen[key]) return;
+        seen[key] = true;
+      }
+      out.push(s);
+    };
+    if (project) {
+      add(project.khmdhsNoticeSnapshot);
+      var meta = project.khmdhsAdamChainMeta;
+      var map = meta && meta.noticeSnapshotsByAdam;
+      if (map && typeof map === 'object') {
+        Object.keys(map).forEach(function (k) { add(map[k]); });
+      }
+    }
+    return out;
+  }
+
+  // Χρόνος «έκδοσης» δημοσίευσης — για να ξεχωρίσουμε ποια είναι η πιο πρόσφατη.
+  function noticeSnapshotPublishTime(snap) {
+    if (!snap) return -Infinity;
+    var raw = snap.signedDate || snap.finalSubmissionDate || '';
+    var t = raw ? Date.parse(String(raw)) : NaN;
+    return isNaN(t) ? -Infinity : t;
+  }
+
+  // Η «ισχύουσα» δημοσίευση για τις προθεσμίες: η πιο πρόσφατη ΕΝΕΡΓΗ (μη ματαιωμένη)
+  // δημοσίευση που έχει καταληκτική υποβολής προσφορών, ανάμεσα σε όλες τις
+  // καταγεγραμμένες (κύρια + συνδεδεμένες). Έτσι, όταν ένας κρίκος ξανα-εκδοθεί με
+  // νέα προθεσμία χωρίς να ακυρωθεί ο προηγούμενος, το ημερολόγιο και τα emails
+  // ακολουθούν αυτόματα τη νέα προθεσμία, όποιο κι αν είναι το «κύριο» ΑΔΑΜ.
+  function resolveEffectiveNoticeSnapshot(project) {
+    var snaps = collectProjectNoticeSnapshots(project);
+    var candidates = snaps.filter(function (s) {
+      return s && s.finalSubmissionDate && !s.cancelled;
+    });
+    if (candidates.length) {
+      candidates.sort(function (a, b) {
+        var diff = noticeSnapshotPublishTime(b) - noticeSnapshotPublishTime(a);
+        if (diff !== 0) return diff;
+        var fa = Date.parse(String(a.finalSubmissionDate || '')) || 0;
+        var fb = Date.parse(String(b.finalSubmissionDate || '')) || 0;
+        if (fb !== fa) return fb - fa;
+        return String(b.referenceNumber || '').localeCompare(String(a.referenceNumber || ''));
+      });
+      return candidates[0];
+    }
+    return pickKhmdhsNoticeSnapshot(project && project.khmdhsNoticeSnapshot);
+  }
+
   function projectHasKhmdhsNoticeData(project) {
     var adam = String((project && project.khmdhsNoticeAdam) || '').trim();
     var snap = pickKhmdhsNoticeSnapshot(project && project.khmdhsNoticeSnapshot);
@@ -566,9 +624,8 @@
     var concluded = opts.phaseConcluded;
     if (concluded == null) concluded = projectProcurementPhaseConcluded(project);
     if (concluded) return false;
-    if (!projectHasKhmdhsNoticeData(project)) return false;
-    var snap = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
-    return !!(snap && !snap.cancelled);
+    var snap = resolveEffectiveNoticeSnapshot(project);
+    return !!(snap && snap.finalSubmissionDate && !snap.cancelled);
   }
 
   /**
@@ -623,7 +680,7 @@
 
   function buildNoticeDeadlineCalendarEvents(project, options) {
     if (!isActiveProcurementProject(project, options)) return [];
-    var snap = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
+    var snap = resolveEffectiveNoticeSnapshot(project);
     if (!snap || !snap.finalSubmissionDate) return [];
     var events = [];
     events.push(mapNoticeDeadlineRow(
@@ -776,6 +833,8 @@
     PROJECT_STATUS_CONTRACT_PROCESS: PROJECT_STATUS_CONTRACT_PROCESS,
     STATUSES_WITH_KHMDHS_ADAM: STATUSES_WITH_KHMDHS_ADAM,
     pickKhmdhsNoticeSnapshot: pickKhmdhsNoticeSnapshot,
+    collectProjectNoticeSnapshots: collectProjectNoticeSnapshots,
+    resolveEffectiveNoticeSnapshot: resolveEffectiveNoticeSnapshot,
     projectHasKhmdhsNoticeData: projectHasKhmdhsNoticeData,
     projectHasSignedContractStatus: projectHasSignedContractStatus,
     projectProcurementPhaseConcluded: projectProcurementPhaseConcluded,

@@ -8,8 +8,6 @@ import {
 import { getTotalContractAmount } from './khmdhsFields';
 import {
   formatKhmdhsEuro,
-  pickKhmdhsNoticeSnapshot,
-  projectHasKhmdhsNoticeData
 } from './khmdhsNoticeFields';
 import { grossFromCostSnapshot } from './khmdhsVatHelper';
 import { parseAppDate } from './dateFormat';
@@ -38,7 +36,7 @@ export function getProcurementDeadlineInfo(project) {
     return { kind: 'none' };
   }
 
-  const snap = pickKhmdhsNoticeSnapshot(project?.khmdhsNoticeSnapshot);
+  const snap = calendarDeadlines.resolveEffectiveNoticeSnapshot(project);
   if (!snap?.finalSubmissionDate) {
     return { kind: 'none' };
   }
@@ -104,10 +102,9 @@ export function isExpiredWithoutContract(project) {
 
 export function matchesKhmdhsDeadlineFilter(project, filterKey, windowDays = 30) {
   if (!filterKey) return true;
-  if (!projectHasKhmdhsNoticeData(project)) return false;
 
   const info = getProcurementDeadlineInfo(project);
-  const snap = pickKhmdhsNoticeSnapshot(project?.khmdhsNoticeSnapshot);
+  const effective = calendarDeadlines.resolveEffectiveNoticeSnapshot(project);
 
   switch (filterKey) {
     case 'upcoming30':
@@ -118,7 +115,7 @@ export function matchesKhmdhsDeadlineFilter(project, filterKey, windowDays = 30)
     case 'expiredNoContract':
       return isExpiredWithoutContract(project);
     case 'cancelled':
-      return !!(snap?.cancelled || info.kind === 'cancelled');
+      return info.kind === 'cancelled' || !!(effective?.cancelled);
     default:
       return true;
   }

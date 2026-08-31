@@ -43,6 +43,30 @@ function normalizeAdam(adam) {
   return String(adam || '').trim().toUpperCase().replace(/\*+$/, '');
 }
 
+function collectCancelledAdamsForRegistry(project, chainRes, chainResList) {
+  const set = new Set();
+  const add = (list) => {
+    (Array.isArray(list) ? list : []).forEach((raw) => {
+      const adam = normalizeAdam(raw);
+      if (adam) set.add(adam);
+    });
+  };
+  add(project?.khmdhsAdamChainMeta?.confirmedCancelledAdams);
+  add(chainRes?.chainMeta?.confirmedCancelledAdams);
+  (Array.isArray(chainResList) ? chainResList : []).forEach((cr) => {
+    add(cr?.chainMeta?.confirmedCancelledAdams);
+  });
+  return set;
+}
+
+function dropCancelledRegistryEntries(entries, cancelledSet) {
+  if (!cancelledSet?.size) return Array.isArray(entries) ? entries : [];
+  return (Array.isArray(entries) ? entries : []).filter((e) => {
+    const adam = normalizeAdam(e?.adam);
+    return !adam || !cancelledSet.has(adam);
+  });
+}
+
 function adamTypeCode(adam) {
   const m = /^(\d{2})([A-Z]{3,4})(\d{9})$/i.exec(normalizeAdam(adam));
   return m ? m[2].toUpperCase() : '';
@@ -396,7 +420,10 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = n
 
   addLinkedAdamStubs(chainRes, map);
 
-  return annotateRegistryLinkLabels([...map.values()]);
+  const cancelledSet = collectCancelledAdamsForRegistry(project, chainRes);
+  return annotateRegistryLinkLabels(
+    dropCancelledRegistryEntries([...map.values()], cancelledSet)
+  );
 }
 
 /**
@@ -1112,11 +1139,13 @@ export function applyAutoDocumentRegistryFromChain(project, chainResList, { nowI
     ),
     project
   );
-  const existing = project?.khmdhsDocumentRegistry || [];
-  if (!freshRegistryCandidates.length) return existing;
+  const cancelledSet = collectCancelledAdamsForRegistry(project, null, chainResList);
+  const existing = dropCancelledRegistryEntries(project?.khmdhsDocumentRegistry || [], cancelledSet);
+  const freshFiltered = dropCancelledRegistryEntries(freshRegistryCandidates, cancelledSet);
+  if (!freshFiltered.length) return existing;
 
-  const resyncedRegistry = resyncRegistryEntryTitles(existing, freshRegistryCandidates);
-  const newRegistryCandidates = freshRegistryCandidates.filter(
+  const resyncedRegistry = resyncRegistryEntryTitles(existing, freshFiltered);
+  const newRegistryCandidates = freshFiltered.filter(
     (c) => !c.isStub && !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
   );
   return newRegistryCandidates.length

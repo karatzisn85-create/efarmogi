@@ -389,11 +389,59 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
     expect(report.appliedLines.some((l) => l.includes('άσχετα'))).toBe(false);
   });
 
+  test('αναφέρει αφαίρεση ακυρωμένης δημοσίευσης και ποια ισχύει πλέον', () => {
+    const before = {
+      khmdhsNoticeAdam: '26PROC000000001',
+      khmdhsNoticeSnapshot: {
+        referenceNumber: '26PROC000000001',
+        finalSubmissionDate: '2026-09-07T14:00:00',
+      },
+      khmdhsAdamChainMeta: {
+        linkedAdams: { notices: ['26PROC000000001', '26PROC000000002'] },
+      },
+    };
+    const after = {
+      khmdhsNoticeAdam: '26PROC000000002',
+      khmdhsNoticeSnapshot: {
+        referenceNumber: '26PROC000000002',
+        finalSubmissionDate: '2026-09-14T14:00:00',
+      },
+      khmdhsAdamChainMeta: {
+        linkedAdams: { notices: ['26PROC000000002'] },
+        confirmedCancelledAdams: ['26PROC000000001'],
+      },
+    };
+    const report = buildKhmdhsRefreshChangeReport(before, after, {});
+    expect(report.category).toBe('applied');
+    expect(report.appliedLines.some((l) => (
+      l.includes('26PROC000000001')
+      && l.includes('ακυρωμένη δημοσίευση')
+      && l.includes('Ισχύει πλέον η 26PROC000000002')
+    ))).toBe(true);
+    expect(report.incompleteLines.some((l) => l.includes('διατηρήθηκε η κύρια'))).toBe(false);
+  });
+
+  test('αναφέρει αφαίρεση ακυρωμένης ανάθεσης', () => {
+    const before = {
+      khmdhsAwardAdam: '26AWRD000000001',
+      khmdhsAwardSnapshot: { referenceNumber: '26AWRD000000001' },
+    };
+    const after = {
+      khmdhsAwardAdam: '',
+      khmdhsAwardSnapshot: null,
+      khmdhsAdamChainMeta: { confirmedCancelledAdams: ['26AWRD000000001'] },
+    };
+    const report = buildKhmdhsRefreshChangeReport(before, after, {});
+    expect(report.appliedLines.some((l) => (
+      l.includes('26AWRD000000001') && l.includes('ακυρωμένη ανάθεση')
+    ))).toBe(true);
+  });
+
   test('προειδοποίηση ενημέρωσης κάρτας για ακύρωση δεν μετράει ως προσοχή', () => {
     const report = buildKhmdhsRefreshChangeReport({}, {}, {}, {
       chainWarnings: [
         'Το ΚΗΜΔΗΣ έχει ακυρώσει/ματαιώσει 1 πράξη/εις της αλυσίδας (25REQ016195999). '
-        + 'Η κάρτα του υποέργου ενημερώνεται χωρίς τους ακυρωμένους κρίκους (ανάληψη ή ένταλμα).',
+        + 'Η κάρτα του υποέργου ενημερώνεται χωρίς τους ακυρωμένους κρίκους — αφαιρούνται από την αλυσίδα και δεν χρησιμοποιούνται στις προθεσμίες.',
       ],
     });
     expect(report.category).toBe('unchanged');

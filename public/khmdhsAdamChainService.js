@@ -2674,7 +2674,16 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
 
   chainMeta.confirmedCancelledAdams = collectConfirmedCancelledAdams({
     skippedCancelled,
-    extraAdams: [...commitCancelledAdams, ...payCancelledAdams],
+    extraAdams: [
+      ...commitCancelledAdams,
+      ...payCancelledAdams,
+      notice?.snapshot?.cancelled ? notice.adam : '',
+      request?.snapshot?.cancelled ? request.adam : '',
+      auction?.snapshot?.cancelled ? auction.adam : '',
+      ...(notice?.otherNoticeRecords || [])
+        .filter((r) => r?.snapshot?.cancelled)
+        .map((r) => r.adam),
+    ],
   });
   if (chainMeta.confirmedCancelledAdams.length) {
     const shown = chainMeta.confirmedCancelledAdams.slice(0, 4).join(', ');
@@ -2683,7 +2692,7 @@ async function resolveKhmdhsAdamChainInner(seedNorm, opts, abortSignal) {
       : '';
     warnings.push(
       `Το ΚΗΜΔΗΣ έχει ακυρώσει/ματαιώσει ${chainMeta.confirmedCancelledAdams.length} πράξη/εις της αλυσίδας (${shown}${more}). `
-      + 'Η κάρτα του υποέργου ενημερώνεται χωρίς τους ακυρωμένους κρίκους (ανάληψη ή ένταλμα).'
+      + 'Η κάρτα του υποέργου ενημερώνεται χωρίς τους ακυρωμένους κρίκους — αφαιρούνται από την αλυσίδα και δεν χρησιμοποιούνται στις προθεσμίες.'
     );
   }
 

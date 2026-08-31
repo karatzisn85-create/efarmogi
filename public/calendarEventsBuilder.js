@@ -350,7 +350,7 @@ function collectProcurementItems(projects) {
     if (isAbandoned(project)) continue;
 
     if (isActiveProcurementProject(project)) {
-      const snap = pickKhmdhsNoticeSnapshot(project.khmdhsNoticeSnapshot);
+      const snap = calendarDeadlinesCore.resolveEffectiveNoticeSnapshot(project);
       const base = {
         project,
         subprojectId: project.subprojectId,

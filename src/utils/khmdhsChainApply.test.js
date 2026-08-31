@@ -411,6 +411,145 @@ describe('applyAdamChainResult — Φάση Β: διατήρηση σταδίω�
       .toBe('24PROC999999999');
   });
 
+  test('ακυρωμένη κύρια δημοσίευση αντικαθίσταται από τη νέα — χωρίς noticeConflict', () => {
+    const prev = {
+      ...basePrev,
+      khmdhsAdamChainMeta: {
+        linkedAdams: { notices: ['24PROC012345678'] },
+        noticeSnapshotsByAdam: {},
+        confirmedCancelledAdams: [],
+      },
+    };
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      notice: {
+        adam: '26PROC000000002',
+        snapshot: {
+          referenceNumber: '26PROC000000002',
+          title: 'Επανέκδοση',
+          finalSubmissionDate: '2026-09-14T14:00:00',
+        },
+        fetchedAt: '2026-08-27T00:00:00.000Z',
+      },
+      chainMeta: {
+        confirmedCancelledAdams: ['24PROC012345678'],
+        linkedAdams: { notices: ['26PROC000000002'] },
+      },
+    };
+    const { form, warnings } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+    expect(warnings).not.toContain('noticeConflict');
+    expect(warnings).not.toContain('stagePreserved:notice');
+    expect(form.khmdhsNoticeAdam).toBe('26PROC000000002');
+    expect(form.khmdhsAdamChainMeta?.linkedAdams?.notices).not.toContain('24PROC012345678');
+    expect(form.khmdhsAdamChainMeta?.noticeSnapshotsByAdam?.['24PROC012345678']).toBeUndefined();
+  });
+
+  test('ακυρωμένη κύρια χωρίς νέα ανάκτηση προάγει άλλη ενεργή δημοσίευση του χάρτη', () => {
+    const prev = {
+      ...basePrev,
+      khmdhsAdamChainMeta: {
+        linkedAdams: { notices: ['24PROC012345678', '26PROC000000002'] },
+        noticeSnapshotsByAdam: {
+          '26PROC000000002': {
+            referenceNumber: '26PROC000000002',
+            title: 'Επανέκδοση',
+            finalSubmissionDate: '2026-09-14T14:00:00',
+          },
+        },
+      },
+    };
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      chainMeta: {
+        confirmedCancelledAdams: ['24PROC012345678'],
+        linkedAdams: { notices: ['26PROC000000002'] },
+        noticeSnapshotsByAdam: {
+          '26PROC000000002': {
+            referenceNumber: '26PROC000000002',
+            title: 'Επανέκδοση',
+            finalSubmissionDate: '2026-09-14T14:00:00',
+          },
+        },
+      },
+    };
+    const { form, warnings } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+    expect(warnings).not.toContain('stagePreserved:notice');
+    expect(form.khmdhsNoticeAdam).toBe('26PROC000000002');
+    expect(form.khmdhsNoticeSnapshot.finalSubmissionDate).toBe('2026-09-14T14:00:00');
+  });
+
+  test('παλιά ακύρωση στο meta δεν αντικαθιστά ενεργή δημοσίευση αυτής της ανάκτησης', () => {
+    const prev = {
+      ...basePrev,
+      khmdhsNoticeAdam: '24PROC012345678',
+      khmdhsNoticeSnapshot: { referenceNumber: '24PROC012345678', title: 'Ενεργή' },
+      khmdhsAdamChainMeta: {
+        confirmedCancelledAdams: ['24PROC012345678'],
+        linkedAdams: { notices: ['24PROC012345678'] },
+      },
+    };
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      notice: {
+        adam: '24PROC012345678',
+        snapshot: { referenceNumber: '24PROC012345678', title: 'Ενεργή' },
+        fetchedAt: '2026-08-01T00:00:00.000Z',
+      },
+      chainMeta: {
+        confirmedCancelledAdams: [],
+        linkedAdams: { notices: ['24PROC012345678'] },
+      },
+    };
+    const { form } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+    expect(form.khmdhsNoticeAdam).toBe('24PROC012345678');
+    expect(form.khmdhsNoticeSnapshot?.title).toBe('Ενεργή');
+  });
+
+  test('ακυρωμένη δημοσίευση χωρίς νέα ανάκτηση αφαιρείται αντί να διατηρηθεί', () => {
+    const prev = {
+      ...basePrev,
+      khmdhsAdamChainMeta: {
+        linkedAdams: { notices: ['24PROC012345678'] },
+      },
+    };
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV000000001',
+        snapshot: { referenceNumber: '25SYMV000000001' },
+        fetchedAt: '2026-07-01T00:00:00.000Z',
+        formFields: {},
+      },
+      chainMeta: {
+        confirmedCancelledAdams: ['24PROC012345678'],
+        linkedAdams: { notices: [] },
+      },
+    };
+    const { form, warnings } = applyAdamChainResult(prev, chainRes, { seedAdam: '25SYMV000000001' });
+    expect(warnings).not.toContain('stagePreserved:notice');
+    expect(form.khmdhsNoticeAdam).toBe('');
+    expect(form.khmdhsNoticeSnapshot).toBeNull();
+    expect(form.khmdhsAdamChainMeta?.linkedAdams?.notices || []).not.toContain('24PROC012345678');
+  });
+
   test('μερική αντικατάσταση ενώνει τις προηγούμενες προσκλήσεις στο meta αντί να τις σβήσει', () => {
     const prev = {
       ...basePrev,

@@ -21,6 +21,10 @@ import {
   clarifyKhmdhsIncompleteLine,
   isIncompleteConfirmationLine,
 } from './khmdhsRefreshFindings';
+import {
+  collectRecordedLinkAdamsByStage,
+  describeCancelledLinkRemoval,
+} from './khmdhsCancelledLinkStrip';
 
 export const KHMDHS_REGISTRY_REPORT_PREFIX = 'Νέο έγγραφο ΚΗΜΔΗΣ στο μητρώο:';
 export const KHMDHS_REGISTRY_REPORT_PREFIX_LEGACY = 'Νέο έγγραφο στα Αρχεία Υποέργου:';
@@ -625,6 +629,30 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
     incompleteLines.push(describeUnconfirmedExisting('commitment', missingCommitAdams));
   }
 
+  const beforeLinks = collectRecordedLinkAdamsByStage(before);
+  const afterLinks = collectRecordedLinkAdamsByStage(after);
+  const emptySnapMap = new Map();
+  const cancelledStageSpecs = [
+    { stage: 'notice', beforePrimary: sanitizeAdam(before?.khmdhsNoticeAdam), afterPrimary: sanitizeAdam(after?.khmdhsNoticeAdam) },
+    { stage: 'award', beforePrimary: sanitizeAdam(before?.khmdhsAwardAdam), afterPrimary: sanitizeAdam(after?.khmdhsAwardAdam) },
+    { stage: 'request', beforePrimary: sanitizeAdam(before?.khmdhsRequestAdam), afterPrimary: sanitizeAdam(after?.khmdhsRequestAdam) },
+    { stage: 'contract', beforePrimary: sanitizeAdam(before?.khmdhsAdam), afterPrimary: sanitizeAdam(after?.khmdhsAdam) },
+  ];
+  cancelledStageSpecs.forEach(({ stage, beforePrimary, afterPrimary }) => {
+    const removed = listRemovedCancelledAdams(
+      beforeLinks[stage],
+      afterLinks[stage],
+      cancelledAdamSet,
+      emptySnapMap
+    );
+    removed.forEach((adam) => {
+      const replacement = (adam === beforePrimary && afterPrimary && afterPrimary !== adam)
+        ? afterPrimary
+        : '';
+      appliedLines.push(describeCancelledLinkRemoval(stage, adam, replacement));
+    });
+  });
+
   // Νέες γραμμές σύμβασης (πολλές συμβάσεις) ή πρώτη κύρια σύμβαση — πριν το ιστορικό,
   // ώστε η ίδια SYMV να μην εμφανιστεί δύο φορές.
   const beforeContractAdams = collectContractRowAdams(before);
@@ -748,11 +776,19 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
       || applyWarnings.includes('stitchConflict:proc')
     )
   ) {
-    incompleteLines.push(
-      'Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση από την ήδη καταγεγραμμένη. '
-      + 'Διατηρήθηκε η κύρια στην κάρτα — δεν διαγράφηκε τίποτα. '
-      + 'Τυχόν επιπλέον πράξη φαίνεται στα Αρχεία Υποέργου, όχι ως νέο στάδιο Ανάθεσης/Σύμβασης.'
-    );
+    const beforeNotice = sanitizeAdam(before?.khmdhsNoticeAdam);
+    const afterNotice = sanitizeAdam(after?.khmdhsNoticeAdam);
+    const cancelledPrimaryReplaced = beforeNotice
+      && cancelledAdamSet.has(beforeNotice)
+      && afterNotice
+      && afterNotice !== beforeNotice;
+    if (!cancelledPrimaryReplaced) {
+      incompleteLines.push(
+        'Το ΚΗΜΔΗΣ έδειξε διαφορετική δημοσίευση από την ήδη καταγεγραμμένη. '
+        + 'Διατηρήθηκε η κύρια στην κάρτα — δεν διαγράφηκε τίποτα. '
+        + 'Τυχόν επιπλέον πράξη φαίνεται στα Αρχεία Υποέργου, όχι ως νέο στάδιο Ανάθεσης/Σύμβασης.'
+      );
+    }
   }
 
   // Γραμμή πολλαπλών συμβάσεων χωρίς ηλεκτρονική σύμβαση στην αλυσίδα.

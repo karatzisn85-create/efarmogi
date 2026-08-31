@@ -31,6 +31,10 @@ import { filterUnrelatedPayments } from './khmdhsPaymentReconciliation';
 import { grossFromCostSnapshot } from './khmdhsVatHelper';
 import { normalizeProjectAmountForStorage } from './projectAmountUtils';
 import { stripPhantomContractApeFromForm } from './khmdhsApeEntry';
+import {
+  confirmedCancelledAdamSet,
+  stripConfirmedCancelledChainLinks,
+} from './khmdhsCancelledLinkStrip';
 
 function normalizeAdam(adam) {
   return String(adam || '').trim().toUpperCase().replace(/\*+$/, '').replace(/\s+/g, '');
@@ -890,6 +894,8 @@ export function applySymvChainPlanToForm(prev, chainRes, plan, {
     anchorType: resolvedAnchor.type,
     actRootReqAdam: inferActRootReqAdam(chainRes, seedAdam),
   });
+
+  next = stripConfirmedCancelledChainLinks(next, confirmedCancelledAdamSet(chainRes, prev)).form;
 
   const {
     form: protectedForm,
