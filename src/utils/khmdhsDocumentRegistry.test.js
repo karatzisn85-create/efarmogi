@@ -17,6 +17,7 @@ import {
   shouldShowRegistryEntryTitle,
   resyncRegistryEntryTitles,
   mergeRegistryCandidateLists,
+  resolveKhmdhsRegistryChainResList,
 } from './khmdhsDocumentRegistry';
 import { CHAIN_KIND } from './khmdhsChainActions';
 import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
@@ -124,6 +125,166 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
     const second = next.find((e) => e.adam === secondNoticeAdam);
     expect(second).toBeTruthy();
     expect(second.title).toMatch(/ΤΕΥΧΗ/i);
+  });
+
+  it('applyAutoDocumentRegistryFromChain με addNew:false ανανεώνει τίτλους χωρίς νέα έγγραφα', () => {
+    const secondNoticeAdam = '26PROC019569916';
+    const project = {
+      khmdhsNoticeAdam: '22PROC010072052',
+      khmdhsDocumentRegistry: [
+        { adam: '22PROC010072052', title: 'Παλιός τίτλος', stage: 'PROC' },
+      ],
+    };
+    const chainResWithSecondNotice = {
+      ...chainRes,
+      notice: {
+        adam: '22PROC010072052',
+        snapshot: { referenceNumber: '22PROC010072052', title: 'Πρόσκληση' },
+      },
+      chainMeta: {
+        linkedAdams: { notices: ['22PROC010072052', secondNoticeAdam] },
+        noticeSnapshotsByAdam: {
+          [secondNoticeAdam]: {
+            referenceNumber: secondNoticeAdam,
+            title: 'ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ ΕΡΓΟΥ',
+          },
+        },
+      },
+    };
+    const next = applyAutoDocumentRegistryFromChain(project, [chainResWithSecondNotice], {
+      nowIso: '2026-08-07T10:00:00.000Z',
+      addNew: false,
+    });
+    expect(next.find((e) => e.adam === secondNoticeAdam)).toBeFalsy();
+    expect(next.find((e) => e.adam === '22PROC010072052')?.title).toBe('Πρόσκληση');
+  });
+
+  it('ανανέωση αφαιρεί Αρχεία άλλου υποέργου και προσθέτει τα σωστά της αλυσίδας', () => {
+    const leakedReq = '21REQ009553549';
+    const leakedSymv = '22SYMV011799800';
+    const ownSymv = '25SYMV016638674';
+    const relatedAdam = '24SYMV015000001';
+    const project = {
+      khmdhsRequestAdam: '25REQ016832258',
+      khmdhsRequestSnapshot: { referenceNumber: '25REQ016832258', title: 'Αίτημα Β' },
+      khmdhsNoticeAdam: '25PROC016000001',
+      khmdhsNoticeSnapshot: { referenceNumber: '25PROC016000001', title: 'Πρόσκληση Β' },
+      khmdhsAdam: ownSymv,
+      khmdhsContractSnapshot: { referenceNumber: ownSymv, title: 'Σύμβαση Β' },
+      khmdhsDocumentRegistry: [
+        { adam: leakedReq, title: 'Αίτημα Α', stage: 'REQ' },
+        { adam: leakedSymv, title: 'Σύμβαση Α', stage: 'SYMV' },
+        { adam: ownSymv, title: 'Παλιά σύμβαση Β', stage: 'SYMV' },
+        { adam: relatedAdam, title: 'Σχετικό τμήμα', stage: 'RELATED', isRelated: true },
+        {
+          adam: 'ΡΩΕΚΩΨΜ-Σ0Υ',
+          title: 'ΑΠΕ Διαύγεια',
+          stage: 'APE',
+          source: 'diavgeia',
+          apeLinkKey: 'ape:contract:0',
+        },
+        {
+          adam: 'ΩΨΜΡΩΕ-123',
+          title: 'Παράταση Διαύγεια',
+          stage: 'EXT',
+          source: 'diavgeia',
+          apeLinkKey: 'ext:contract:0:x',
+        },
+      ],
+    };
+    const chainB = {
+      success: true,
+      fetchedAt: '2026-02-01T00:00:00.000Z',
+      request: {
+        adam: '25REQ016832258',
+        snapshot: { referenceNumber: '25REQ016832258', title: 'Αίτημα Β' },
+      },
+      notice: {
+        adam: '25PROC016000001',
+        snapshot: { referenceNumber: '25PROC016000001', title: 'Πρόσκληση Β' },
+      },
+      contract: {
+        adam: ownSymv,
+        snapshot: { referenceNumber: ownSymv, title: 'Σύμβαση Β' },
+      },
+    };
+    const next = applyAutoDocumentRegistryFromChain(project, [chainB], {
+      nowIso: '2026-08-07T10:00:00.000Z',
+    });
+    const adams = next.map((e) => e.adam);
+    expect(adams).not.toContain(leakedReq);
+    expect(adams).not.toContain(leakedSymv);
+    expect(adams).toContain(ownSymv);
+    expect(adams).toContain('25REQ016832258');
+    expect(adams).toContain(relatedAdam);
+    expect(adams).toContain('ΡΩΕΚΩΨΜ-Σ0Υ');
+    expect(adams).toContain('ΩΨΜΡΩΕ-123');
+  });
+
+  it('ανανέωση κρατά ένταλμα της κάρτας ακόμα κι αν δεν ήρθε σε αυτό το fetch', () => {
+    const ownSymv = '25SYMV016638674';
+    const ownPay = '25PAY016000010';
+    const leakedPay = '21PAY009553549';
+    const project = {
+      khmdhsAdam: ownSymv,
+      khmdhsContractSnapshot: { referenceNumber: ownSymv, title: 'Σύμβαση Β' },
+      khmdhsPayments: [{
+        adam: ownPay,
+        snapshot: { referenceNumber: ownPay, contractRefNo: ownSymv, title: 'Ένταλμα κάρτας' },
+      }],
+      khmdhsDocumentRegistry: [
+        { adam: ownPay, title: 'Ένταλμα κάρτας', stage: 'PAY' },
+        { adam: leakedPay, title: 'Ένταλμα άλλου υποέργου', stage: 'PAY' },
+      ],
+    };
+    const chainB = {
+      success: true,
+      contract: {
+        adam: ownSymv,
+        snapshot: { referenceNumber: ownSymv, title: 'Σύμβαση Β' },
+      },
+      payments: [],
+    };
+    const next = applyAutoDocumentRegistryFromChain(project, [chainB]);
+    const adams = next.map((e) => e.adam);
+    expect(adams).toContain(ownPay);
+    expect(adams).not.toContain(leakedPay);
+  });
+
+  it('addNew:false δεν αφαιρεί ξένα Αρχεία — μόνο ανανέωση κάρτας/μαζική', () => {
+    const leaked = '21REQ009553549';
+    const own = '22PROC010072052';
+    const project = {
+      khmdhsNoticeAdam: own,
+      khmdhsDocumentRegistry: [
+        { adam: own, title: 'Παλιός τίτλος', stage: 'PROC' },
+        { adam: leaked, title: 'Αίτημα Α', stage: 'REQ' },
+      ],
+    };
+    const next = applyAutoDocumentRegistryFromChain(project, [chainRes], { addNew: false });
+    expect(next.find((e) => e.adam === leaked)).toBeTruthy();
+    expect(next.find((e) => e.adam === own)).toBeTruthy();
+  });
+
+  it('δεν προτείνει γυμνούς κρίκους SYMV/AWRD άλλων τμημάτων από linkedAdams', () => {
+    const siblingSymv = '25SYMV099999999';
+    const siblingAward = '25AWRD099999999';
+    const siblingCommit = '25COMMIT099999999';
+    const withSiblings = {
+      ...chainRes,
+      chainMeta: {
+        linkedAdams: {
+          contracts: [rootAdam, siblingSymv],
+          auctions: [siblingAward],
+          budgetCommitments: [siblingCommit],
+        },
+      },
+    };
+    const adams = collectKhmdhsRegistryCandidatesFromChainRes(withSiblings).map((c) => c.adam);
+    expect(adams).toContain(rootAdam);
+    expect(adams).not.toContain(siblingSymv);
+    expect(adams).not.toContain(siblingAward);
+    expect(adams).not.toContain(siblingCommit);
   });
 
   it('δεν καταχωρεί REQ/PROC/AWRD χωρίς snapshot από το κύριο αποτέλεσμα αλυσίδας', () => {
@@ -304,6 +465,52 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
       { adam: foreignPay, stage: 'PAY', snapshot: { contractRefNo: skippedSymv } },
     ], project);
     expect(filtered.map((c) => c.adam)).toEqual([relatedPay]);
+  });
+
+  it('δεν προτείνει ένταλμα χωρίς SYMV όταν η ανάκτηση δείχνει συμβάσεις άλλων τμημάτων', () => {
+    const keptSymv = '25SYMV016948065';
+    const siblingSymv = '25SYMV099999999';
+    const ownPay = '25PAY016878905';
+    const orphanPay = '25PAY016878999';
+    const project = {
+      khmdhsAdam: keptSymv,
+      khmdhsContractSnapshot: { referenceNumber: keptSymv },
+      khmdhsRequestAdam: '25REQ016832258',
+    };
+    const chainRes = {
+      success: true,
+      contract: { adam: keptSymv, snapshot: { referenceNumber: keptSymv } },
+      chainMeta: {
+        parallelContracts: [keptSymv, siblingSymv],
+        linkedAdams: { contracts: [keptSymv, siblingSymv] },
+      },
+      payments: [
+        { adam: ownPay, snapshot: { referenceNumber: ownPay, contractRefNo: keptSymv } },
+        { adam: orphanPay, snapshot: { referenceNumber: orphanPay, requestRefNo: '25REQ016832258' } },
+      ],
+    };
+    const adams = collectKhmdhsRegistryCandidatesFromChainRes(chainRes, null, project).map((c) => c.adam);
+    expect(adams).toContain(ownPay);
+    expect(adams).not.toContain(orphanPay);
+  });
+
+  it('δεν προτείνει κατακύρωση άλλου τμήματος από awardSnapshotsByAdam', () => {
+    const ownAward = '22AWRD011136485';
+    const siblingAward = '25AWRD099999999';
+    const project = {
+      khmdhsAwardAdam: ownAward,
+      khmdhsAwardSnapshot: { referenceNumber: ownAward, title: 'Κατακύρωση κάρτας' },
+      khmdhsAdamChainMeta: {
+        linkedAdams: { auctions: [ownAward, siblingAward] },
+        awardSnapshotsByAdam: {
+          [ownAward]: { referenceNumber: ownAward, title: 'Κατακύρωση κάρτας' },
+          [siblingAward]: { referenceNumber: siblingAward, title: 'Κατακύρωση άλλου τμήματος' },
+        },
+      },
+    };
+    const adams = collectKhmdhsRegistryCandidatesFromProject(project).map((c) => c.adam);
+    expect(adams).toContain(ownAward);
+    expect(adams).not.toContain(siblingAward);
   });
 
   it('κρατά τη δεύτερη πρόσκληση του πρώτου πρωτογενούς μετά από συρραφή', () => {
@@ -691,5 +898,111 @@ describe('khmdhsDocumentRegistry deferred flow', () => {
       const candidates = [{ adam: '23PROC013450673', title: 'Άσχετο έγγραφο' }];
       expect(resyncRegistryEntryTitles(existing, candidates)).toEqual(existing);
     });
+  });
+});
+
+describe('λίστα αλυσίδων για Αρχεία μεταξύ υποέργων', () => {
+  const chainA = {
+    success: true,
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+    request: {
+      adam: '21REQ009553549',
+      snapshot: { referenceNumber: '21REQ009553549', title: 'Αίτημα Α' },
+    },
+    notice: {
+      adam: '22PROC010072052',
+      snapshot: { referenceNumber: '22PROC010072052', title: 'Πρόσκληση Α' },
+    },
+    auction: {
+      adam: '22AWRD011136485',
+      snapshot: { referenceNumber: '22AWRD011136485', title: 'Ανάθεση Α' },
+    },
+    contract: {
+      adam: '22SYMV011799800',
+      snapshot: { referenceNumber: '22SYMV011799800', title: 'Σύμβαση Α' },
+    },
+  };
+  const chainB = {
+    success: true,
+    fetchedAt: '2026-02-01T00:00:00.000Z',
+    request: {
+      adam: '25REQ016832258',
+      snapshot: { referenceNumber: '25REQ016832258', title: 'Αίτημα Β' },
+    },
+    notice: {
+      adam: '25PROC016000001',
+      snapshot: { referenceNumber: '25PROC016000001', title: 'Πρόσκληση Β' },
+    },
+    auction: {
+      adam: '25AWRD016000001',
+      snapshot: { referenceNumber: '25AWRD016000001', title: 'Ανάθεση Β' },
+    },
+    contract: {
+      adam: '25SYMV016638674',
+      snapshot: { referenceNumber: '25SYMV016638674', title: 'Σύμβαση Β' },
+    },
+  };
+
+  it('αν μείνει η προηγούμενη ανάκτηση στη λίστα, τα Αρχεία παίρνουν και τα δύο υποέργα', () => {
+    const leaked = applyAutoDocumentRegistryFromChain({ khmdhsDocumentRegistry: [] }, [chainA, chainB]);
+    const adams = leaked.map((e) => e.adam);
+    expect(adams).toEqual(expect.arrayContaining([
+      '21REQ009553549',
+      '22SYMV011799800',
+      '25REQ016832258',
+      '25SYMV016638674',
+    ]));
+  });
+
+  it('νέο υποέργο κρατά μόνο την τρέχουσα ανάκτηση', () => {
+    const next = resolveKhmdhsRegistryChainResList([chainA], chainB, { resetSession: true });
+    expect(next).toEqual([chainB]);
+    const registry = applyAutoDocumentRegistryFromChain({ khmdhsDocumentRegistry: [] }, next);
+    const adams = registry.map((e) => e.adam);
+    expect(adams).toEqual(expect.arrayContaining(['25REQ016832258', '25SYMV016638674']));
+    expect(adams).not.toContain('21REQ009553549');
+    expect(adams).not.toContain('22SYMV011799800');
+  });
+
+  it('το παράθυρο καταγραφής με συσσωρευμένη λίστα δείχνει και τα δύο υποέργα', () => {
+    const leaked = buildRegistryModalPayloadAfterReview(
+      { khmdhsDocumentRegistry: [] },
+      '2026-02-01T00:00:00.000Z',
+      chainB,
+      [chainA, chainB]
+    );
+    const adams = leaked.candidates.map((c) => c.adam);
+    expect(adams).toEqual(expect.arrayContaining([
+      '21REQ009553549',
+      '22PROC010072052',
+      '25REQ016832258',
+      '25PROC016000001',
+    ]));
+  });
+
+  it('το παράθυρο καταγραφής μετά από reset δείχνει μόνο το τρέχον υποέργο', () => {
+    const next = resolveKhmdhsRegistryChainResList([chainA], chainB, { resetSession: true });
+    const payload = buildRegistryModalPayloadAfterReview(
+      { khmdhsDocumentRegistry: [] },
+      '2026-02-01T00:00:00.000Z',
+      chainB,
+      next
+    );
+    const adams = payload.candidates.map((c) => c.adam);
+    expect(adams).toEqual(expect.arrayContaining(['25REQ016832258', '25PROC016000001', '25SYMV016638674']));
+    expect(adams).not.toContain('21REQ009553549');
+    expect(adams).not.toContain('22PROC010072052');
+    expect(adams).not.toContain('22SYMV011799800');
+  });
+
+  it('ρητό καθάρισμα κρατά μόνο την τρέχουσα ανάκτηση', () => {
+    const next = resolveKhmdhsRegistryChainResList([chainA], chainB, { clearBefore: true });
+    expect(next).toEqual([chainB]);
+  });
+
+  it('συρραφή στο ίδιο υποέργο συνεχίζει να στοιβάζει', () => {
+    const first = resolveKhmdhsRegistryChainResList([], chainA, { clearBefore: false });
+    const second = resolveKhmdhsRegistryChainResList(first, chainB, { clearBefore: false });
+    expect(second).toEqual([chainA, chainB]);
   });
 });

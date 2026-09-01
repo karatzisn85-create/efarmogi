@@ -139,3 +139,16 @@ test('P4-75 κατανομή: κύρια + παράταση προθεσμίας
   expect(/EXTENSION|ΠΑΡΑΤΑΣ|ΠΡΟΘΕΣΜ/i.test(blob)).toBeTruthy();
   await closeRead(window);
 });
+
+test('P4-76 προβολή εγγράφου: το κουμπί περιμένει το αρχείο και δεν μένει σε φόρτωση', async ({ app }) => {
+  const { window } = app;
+  await fetchAsphaltPlanner(window, { leavePlannerOpen: true });
+  const modal = window.locator('[data-khmdhs-symv-planner-modal]').filter({
+    has: window.getByRole('button', { name: 'Εφαρμογή κατανομής' }),
+  });
+  const viewBtn = modal.getByTestId(`khmdhs-symv-view-${SYMV_A}`);
+  await expect(viewBtn).toBeVisible();
+  await viewBtn.click();
+  await expect(viewBtn).toContainText('Προβολή εγγράφου', { timeout: 130000 });
+  await modal.getByRole('button', { name: 'Κλείσιμο' }).click();
+});

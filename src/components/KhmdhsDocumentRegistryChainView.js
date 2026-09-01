@@ -177,7 +177,7 @@ function KhmdhsDocumentRegistryChainView({
                     showToast(res.error, 'error');
                   }
                 }}
-                title="Προβολή εγγράφου στον browser"
+                title="Άνοιγμα PDF"
               >
                 Προβολή
               </ViewBtn>

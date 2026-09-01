@@ -429,10 +429,24 @@ function mergeKhmdhsNoticeFieldsForSave(projectData, existingData) {
   const adam = adamIncoming || (retain ? adamExisting : '');
 
   let snapshot = pickKhmdhsNoticeSnapshot(incoming.khmdhsNoticeSnapshot);
-  if (!snapshot && adam) snapshot = pickKhmdhsNoticeSnapshot(existing.khmdhsNoticeSnapshot);
+  if (
+    !snapshot
+    && adam
+    && existingSnapshotReusableForAdam(adamIncoming, adamExisting, normalizeNoticeAdam)
+  ) {
+    snapshot = pickKhmdhsNoticeSnapshot(existing.khmdhsNoticeSnapshot);
+  }
 
   const fetchedAt = adam
-    ? String(incoming.khmdhsNoticeFetchedAt || existing.khmdhsNoticeFetchedAt || '')
+    ? String(
+      incoming.khmdhsNoticeFetchedAt
+      || (
+        existingSnapshotReusableForAdam(adamIncoming, adamExisting, normalizeNoticeAdam)
+          ? existing.khmdhsNoticeFetchedAt
+          : ''
+      )
+      || ''
+    )
     : '';
 
   if (!adam) {
@@ -1032,6 +1046,14 @@ function applyContractAmountResolution(record, context = {}) {
   };
 }
 
+function existingSnapshotReusableForAdam(incomingAdam, existingAdam, normalizeFn) {
+  const norm = typeof normalizeFn === 'function' ? normalizeFn : normalizeAdam;
+  const inc = norm(incomingAdam) || '';
+  const ex = norm(existingAdam) || '';
+  if (!inc) return true;
+  return !!ex && inc === ex;
+}
+
 function mergeContractKhmdhsRow(incomingRow, existingRow, requires) {
   const inc = incomingRow && typeof incomingRow === 'object' ? incomingRow : {};
   const ex = existingRow && typeof existingRow === 'object' ? existingRow : {};
@@ -1039,9 +1061,15 @@ function mergeContractKhmdhsRow(incomingRow, existingRow, requires) {
   const adamExisting = normalizeAdam(ex.khmdhsAdam) || '';
   const adam = adamIncoming || (requires ? adamExisting : '');
   let snapshot = pickKhmdhsSnapshot(inc.khmdhsContractSnapshot);
-  if (!snapshot && adam) snapshot = pickKhmdhsSnapshot(ex.khmdhsContractSnapshot);
+  if (!snapshot && adam && existingSnapshotReusableForAdam(adamIncoming, adamExisting)) {
+    snapshot = pickKhmdhsSnapshot(ex.khmdhsContractSnapshot);
+  }
   const fetchedAt = adam
-    ? String(inc.khmdhsContractFetchedAt || ex.khmdhsContractFetchedAt || '')
+    ? String(
+      inc.khmdhsContractFetchedAt
+      || (existingSnapshotReusableForAdam(adamIncoming, adamExisting) ? ex.khmdhsContractFetchedAt : '')
+      || ''
+    )
     : '';
   if (!adam) {
     return { ...inc, khmdhsAdam: '', khmdhsContractSnapshot: null, khmdhsContractFetchedAt: '' };
@@ -1052,6 +1080,23 @@ function mergeContractKhmdhsRow(incomingRow, existingRow, requires) {
     khmdhsContractSnapshot: snapshot,
     khmdhsContractFetchedAt: fetchedAt
   };
+}
+
+function mergeIncomingContractsByAdam(incContracts, exContracts, requires) {
+  const unused = Array.isArray(exContracts) ? [...exContracts] : [];
+  return (Array.isArray(incContracts) ? incContracts : []).map((row) => {
+    const adam = normalizeAdam(row?.khmdhsAdam) || '';
+    let matchIdx = -1;
+    if (adam) {
+      matchIdx = unused.findIndex((ex) => normalizeAdam(ex?.khmdhsAdam) === adam);
+    }
+    let existingRow = {};
+    if (matchIdx >= 0) {
+      existingRow = unused[matchIdx] || {};
+      unused.splice(matchIdx, 1);
+    }
+    return mergeContractKhmdhsRow(row, existingRow, requires);
+  });
 }
 
 function isMultipleContractsForm(implementationForm) {
@@ -1070,7 +1115,7 @@ function mergeKhmdhsFieldsForSave(projectData, existingData) {
   if (isMultipleContractsForm(impl)) {
     const incContracts = Array.isArray(incoming.contracts) ? incoming.contracts : [];
     const exContracts = Array.isArray(existing.contracts) ? existing.contracts : [];
-    const contracts = incContracts.map((row, i) => mergeContractKhmdhsRow(row, exContracts[i], requires));
+    const contracts = mergeIncomingContractsByAdam(incContracts, exContracts, requires);
     return {
       contracts,
       khmdhsAdam: '',
@@ -1085,10 +1130,16 @@ function mergeKhmdhsFieldsForSave(projectData, existingData) {
   const adam = adamIncoming || (requires ? adamExisting : '');
 
   let snapshot = pickKhmdhsSnapshot(incoming.khmdhsContractSnapshot);
-  if (!snapshot && adam) snapshot = pickKhmdhsSnapshot(existing.khmdhsContractSnapshot);
+  if (!snapshot && adam && existingSnapshotReusableForAdam(adamIncoming, adamExisting)) {
+    snapshot = pickKhmdhsSnapshot(existing.khmdhsContractSnapshot);
+  }
 
   const fetchedAt = adam
-    ? String(incoming.khmdhsContractFetchedAt || existing.khmdhsContractFetchedAt || '')
+    ? String(
+      incoming.khmdhsContractFetchedAt
+      || (existingSnapshotReusableForAdam(adamIncoming, adamExisting) ? existing.khmdhsContractFetchedAt : '')
+      || ''
+    )
     : '';
 
   const clearedContracts = Array.isArray(incoming.contracts)

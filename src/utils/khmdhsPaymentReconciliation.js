@@ -307,6 +307,20 @@ export function filterUnrelatedPayments(payments, project) {
     considerDate(c?.date || c?.contractDate);
   });
 
+  const considerOffCardSibling = (v) => {
+    const s = String(v || '').trim().toUpperCase();
+    if (!s || isAdamSkippedInSymvPlan(project, s)) return false;
+    return !knownContracts.has(s);
+  };
+  const hasOffCardSiblingContracts = [
+    ...(Array.isArray(project?.khmdhsAdamChainMeta?.parallelContracts)
+      ? project.khmdhsAdamChainMeta.parallelContracts
+      : []),
+    ...(Array.isArray(project?.khmdhsAdamChainMeta?.linkedAdams?.contracts)
+      ? project.khmdhsAdamChainMeta.linkedAdams.contracts
+      : []),
+  ].some(considerOffCardSibling);
+
   return payments.filter((p) => {
     const snap = p?.snapshot;
     if (!snap) return true;
@@ -315,8 +329,9 @@ export function filterUnrelatedPayments(payments, project) {
 
     // Αν αναφέρει SYMV εκτός αλυσίδας → άσχετο
     if (payContract && knownContracts.size > 0 && !knownContracts.has(payContract)) return false;
-    // Αν δεν έχει SYMV αλλά αναφέρει REQ εκτός αλυσίδας → άσχετο
     if (!payContract && payReq && knownReqs.size > 0 && !knownReqs.has(payReq)) return false;
+    // Άλλες συμβάσεις της ίδιας πράξης εκτός κάρτας: ένταλμα χωρίς SYMV δεν δένεται με ασφάλεια.
+    if (!payContract && hasOffCardSiblingContracts && knownContracts.size > 0) return false;
     // Ένταλμα ΠΡΙΝ την παλαιότερη σύμβαση της κάρτας = άσχετο,
     // εκτός αν ανήκει σε γνωστή σύμβαση ή γνωστό πρωτογενές (π.χ. δεύτερο έτος).
     const ofKnownContract = !!(payContract && knownContracts.has(payContract));

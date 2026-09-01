@@ -299,6 +299,9 @@ function seedProskliseis(dataDir) {
       status: 'Υπό Υποβολή',
       code: 'PSK-100',
       axis: 'Εκπαίδευση',
+      fundingSource: 'ΕΣΠΑ 2021-2027',
+      budgetRange: '100.000 - 200.000',
+      diavgeiaAda: 'Ψ1234ΩΞΞ-ΑΑΑ',
       linkedProjects: [{ title: 'Οδικό δίκτυο Αρχανών', projectId: 'proj-road' }],
     },
     {
@@ -308,6 +311,8 @@ function seedProskliseis(dataDir) {
       status: 'Υπό Υποβολή',
       code: 'PSK-200',
       axis: 'Υποδομές',
+      fundingSource: 'ΠΔΕ',
+      budgetRange: '50.000',
     },
     {
       prosklisiId: 'psk-expired',
@@ -362,6 +367,7 @@ function seedEntaxeis(dataDir) {
       subject: 'Ανάπλαση γέφυρας',
       projectTitle: 'Οδικό δίκτυο Αρχανών',
       initialAmount: '100.000,00',
+      prosklisiId: 'psk-schools',
       subprojectIds: ['sub-bridge'],
     },
     {

@@ -7,6 +7,7 @@ import {
   KHMDHS_REFRESH_REPORT_NO_CHANGES,
   KHMDHS_REGISTRY_REPORT_PREFIX,
   KHMDHS_REGISTRY_REPORT_PREFIX_LEGACY,
+  KHMDHS_REGISTRY_REMOVED_PREFIX,
   splitKhmdhsRegistryChangeLines,
 } from './khmdhsChainRefresh';
 import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
@@ -205,6 +206,29 @@ describe('buildKhmdhsRefreshChangeSummary', () => {
       '25PROC000000001 — Διακήρυξη',
       '24PROC000000002',
     ]);
+  });
+
+  test('αφαίρεση ξένου εγγράφου από τα Αρχεία αναφέρεται χωριστά', () => {
+    const before = {
+      khmdhsDocumentRegistry: [
+        { adam: '22SYMV011799800', title: 'Σύμβαση Α' },
+        { adam: '25SYMV016638674', title: 'Σύμβαση Β' },
+      ],
+    };
+    const after = {
+      khmdhsDocumentRegistry: [
+        { adam: '25SYMV016638674', title: 'Σύμβαση Β' },
+      ],
+    };
+    const lines = buildKhmdhsRefreshChangeSummary(before, after, {});
+    expect(lines.some((l) => (
+      l.startsWith(KHMDHS_REGISTRY_REMOVED_PREFIX)
+      && l.includes('22SYMV011799800')
+    ))).toBe(true);
+    const { other, registry, removed } = splitKhmdhsRegistryChangeLines(lines);
+    expect(registry).toEqual([]);
+    expect(removed.some((l) => l.includes('22SYMV011799800'))).toBe(true);
+    expect(other.some((l) => l.includes('22SYMV011799800'))).toBe(false);
   });
 
   test('προειδοποίηση για ΑΔΑΜ που αποκλείστηκε στην κατανομή δεν εμφανίζεται', () => {

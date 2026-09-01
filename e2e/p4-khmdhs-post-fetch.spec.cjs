@@ -7,6 +7,7 @@ const {
   runKhmdhsAdamFetch,
   dismissKhmdhsDialogs,
   discardEdit,
+  discardEditWithoutDismissingKhmdhs,
 } = require('./helpers/actions.cjs');
 const { REAL } = require('./helpers/laptop-data.cjs');
 
@@ -71,6 +72,18 @@ test('P4-17 ακυρωμένο πρωτογενές προειδοποιεί π�
   await openPhaseBEdit(window, 'sub-legacy');
   await runKhmdhsAdamFetch(window, '24REQ000000088');
   await expect(window.getByRole('heading', { name: /ΚΗΜΔΗΣ — Τι συνέβη/ })).toBeVisible({ timeout: 40000 });
+});
+
+test('P4-77 κλείσιμο με ανοιχτό παράθυρο ΚΗΜΔΗΣ δεν το μεταφέρει στο επόμενο υποέργο', async ({ app }) => {
+  const { window } = app;
+  await openPhaseBEdit(window, 'sub-legacy');
+  await runKhmdhsAdamFetch(window, '24REQ000000088');
+  await expect(window.getByRole('heading', { name: /ΚΗΜΔΗΣ — Τι συνέβη/ })).toBeVisible({ timeout: 40000 });
+  await discardEditWithoutDismissingKhmdhs(window);
+  await openPhaseBEdit(window, 'sub-bridge');
+  await expect(window.getByRole('heading', { name: /ΚΗΜΔΗΣ — Τι συνέβη/ })).toHaveCount(0);
+  await expect(window.locator('[data-khmdhs-situation-modal]')).toHaveCount(0);
+  await discardEdit(window);
 });
 
 test('P4-18 άγνωστος ΑΔΑΜ από το απομονωμένο ΚΗΜΔΗΣ δεν εφαρμόζει αλυσίδα', async ({ app }) => {

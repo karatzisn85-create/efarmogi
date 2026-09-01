@@ -150,6 +150,7 @@ import {
   buildRegistryModalPayloadAfterReview,
   mergeKhmdhsDocumentRegistry,
   shouldOfferRegistryAfterReview,
+  resolveKhmdhsRegistryChainResList,
 } from '../utils/khmdhsDocumentRegistry';
 import { filterKhmdhsChainWarningsForDisplay } from '../utils/khmdhsChainRefresh';
 import {
@@ -2750,6 +2751,40 @@ function ProjectForm({
   const khmdhsDeferRegistryRef = React.useRef(null);
   const khmdhsLastChainResRef = React.useRef(null);
   const khmdhsStitchChainResListRef = React.useRef([]);
+  const khmdhsRegistrySessionSubprojectRef = React.useRef('');
+  const clearKhmdhsRegistrySession = React.useCallback((nextSubprojectId = '') => {
+    khmdhsLastChainResRef.current = null;
+    khmdhsStitchChainResListRef.current = [];
+    khmdhsDeferRegistryRef.current = null;
+    khmdhsPendingApplyRef.current = null;
+    khmdhsPendingDataReviewRef.current = false;
+    khmdhsPendingStitchPromptBRef.current = null;
+    khmdhsPendingExpiryFormRef.current = null;
+    khmdhsPendingExpiryOptionsRef.current = null;
+    khmdhsRegistrySessionSubprojectRef.current = String(nextSubprojectId || '').trim();
+    setKhmdhsRegistryModal(null);
+    setKhmdhsSituationModal(null);
+    setBranchPickerState(null);
+    setStitchPromptA(null);
+    setStitchPromptB(null);
+    setApeConflictModal(null);
+    setRelatedDocsModal(null);
+    setSupplementaryConfirm(null);
+    setDuplicateAnchorModal(null);
+    setDataReviewModalOpen(false);
+    setReviewFocusItemKey(null);
+    setSymvChainPlannerState(null);
+    setApeEntryTarget(null);
+    setManualExtensionTarget(null);
+    setStatusCleanupModal(null);
+    setPreSaveOverridesOpen(false);
+    setKhmdhsHighlightField(null);
+    setStripDropdown(null);
+    setContractExpiryPrompt(null);
+    setPostApplyQueue(null);
+    setPendingTasksOpen(false);
+    setCompletedPendingTaskIds([]);
+  }, []);
   const khmdhsChainInputRef = React.useRef(null);
   // Δείχνει πάντα αν υπάρχει ανοιχτό κάποιο παράθυρο της ροής ΚΗΜΔΗΣ — ώστε η προτροπή
   // λήξης σύμβασης να μην εμφανίζεται από πάνω τους, αλλά να περιμένει να κλείσουν όλα.
@@ -2901,19 +2936,24 @@ function ProjectForm({
   useEffect(() => {
     if (!isOpen) {
       wasOpenRef.current = false;
-      setContractExpiryPrompt(null);
-      khmdhsPendingExpiryFormRef.current = null;
-      setPostApplyQueue(null);
-      setPendingTasksOpen(false);
-      setCompletedPendingTaskIds([]);
       setSendChargeGreetingOnSave(false);
+      clearKhmdhsRegistrySession('');
       return;
+    }
+    const currentSubId = String(editingProject?.subprojectId || editingProject?.id || '').trim();
+    if (
+      khmdhsRegistrySessionSubprojectRef.current
+      && currentSubId
+      && khmdhsRegistrySessionSubprojectRef.current !== currentSubId
+    ) {
+      clearKhmdhsRegistrySession(currentSubId);
     }
     if (wasOpenRef.current) {
       return;
     }
     wasOpenRef.current = true;
     setSendChargeGreetingOnSave(false);
+    clearKhmdhsRegistrySession(currentSubId);
 
     if (editingProject) {
       // Backward compatibility: μετατροπή aleCode string σε aleCodes array
@@ -3117,7 +3157,7 @@ function ProjectForm({
     setAdamInputDraft({ chain: '', contracts: {} });
     setPhaseBResetUnsaved(false);
     setUnsavedCloseModalOpen(false);
-  }, [editingProject, isOpen]);
+  }, [editingProject, isOpen, clearKhmdhsRegistrySession]);
 
   const validateKACode = subprojectLifecycle.validateKACode;
 
@@ -4553,6 +4593,10 @@ function ProjectForm({
     // Χρησιμοποιούμε το ref για να διαβάσουμε το πιο πρόσφατο formData
     // και να αποφύγουμε stale closures σε rapid/auto-fetches
     const currentFormData = formDataRef.current;
+    const sessionId = String(currentFormData?.subprojectId || currentFormData?.id || '').trim();
+    if (sessionId && sessionId !== String(khmdhsRegistrySessionSubprojectRef.current || '')) {
+      clearKhmdhsRegistrySession(sessionId);
+    }
     const multi = isMultipleContractsForm(currentFormData.implementationForm);
     // Duplicate check μόνο για SYMV ADAMs — REQ/PROC/AWRD είναι κοινοί
     // κωδικοί αλυσίδας και δεν αποθηκεύονται ανά γραμμή σύμβασης.
@@ -4707,6 +4751,13 @@ function ProjectForm({
         const effectiveUserSelectedBranch = followAllBranches ? false : userSelectedBranch;
 
         const finishApply = ({ skipSituationModal = false, skipSuccessToast = false } = {}) => {
+        if (gen !== khmdhsChainFetchGenRef.current[genKey]) return;
+        const liveId = String(formDataRef.current?.subprojectId || formDataRef.current?.id || '').trim();
+        const fetchId = String(fetchFormData?.subprojectId || fetchFormData?.id || '').trim();
+        const sessionId = String(khmdhsRegistrySessionSubprojectRef.current || '').trim();
+        if (fetchId && liveId && fetchId !== liveId) return;
+        if (sessionId && fetchId && sessionId !== fetchId) return;
+        if (sessionId && liveId && sessionId !== liveId) return;
         const usedSymvPlan = !!(appliedSymvPlan?.items?.length);
         let applyWarnings = [];
         let pendingApeConflict = null;
@@ -4760,16 +4811,24 @@ function ProjectForm({
         protectedFieldCount = applyResult.protectedCount || 0;
         implementationFormAutoUpdated = applyResult.implementationFormAutoUpdated || null;
         let formAfter = applyResult.form;
-        if (clearKhmdhsBeforeApply) {
-          khmdhsStitchChainResListRef.current = [res];
-        } else {
-          const prevList = khmdhsStitchChainResListRef.current || [];
-          khmdhsStitchChainResListRef.current = [...prevList.filter(Boolean), res];
+        const registrySessionId = String(formAfter.subprojectId || formDataRef.current?.subprojectId || '').trim();
+        const resetRegistrySession = !!registrySessionId
+          && registrySessionId !== String(khmdhsRegistrySessionSubprojectRef.current || '');
+        if (resetRegistrySession) {
+          khmdhsDeferRegistryRef.current = null;
+          khmdhsRegistrySessionSubprojectRef.current = registrySessionId;
         }
+        khmdhsStitchChainResListRef.current = resolveKhmdhsRegistryChainResList(
+          khmdhsStitchChainResListRef.current,
+          res,
+          { resetSession: resetRegistrySession, clearBefore: clearKhmdhsBeforeApply }
+        );
         const chainResList = khmdhsStitchChainResListRef.current;
         formAfter = {
           ...formAfter,
-          khmdhsDocumentRegistry: applyAutoDocumentRegistryFromChain(formAfter, chainResList),
+          khmdhsDocumentRegistry: applyAutoDocumentRegistryFromChain(formAfter, chainResList, {
+            addNew: false,
+          }),
         };
         capturedMergedDQR = formAfter.khmdhsDataQualityReview || null;
         capturedFormAfterApply = formAfter;
@@ -6463,12 +6522,14 @@ function ProjectForm({
 
   const handleRequestClose = useCallback(() => {
     if (isSaving) return;
+    cancelKhmdhsFetch();
+    clearKhmdhsRegistrySession('');
     if (!formHasUnsavedChanges()) {
       onClose();
       return;
     }
     setUnsavedCloseModalOpen(true);
-  }, [formHasUnsavedChanges, onClose, isSaving]);
+  }, [formHasUnsavedChanges, onClose, isSaving, cancelKhmdhsFetch, clearKhmdhsRegistrySession]);
 
   const handleUnsavedCloseCancel = useCallback(() => {
     setUnsavedCloseModalOpen(false);

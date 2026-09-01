@@ -360,6 +360,21 @@ function findIndexedSubprojectPath(dataDir, subprojectId) {
   return fs.existsSync(abs) ? abs : null;
 }
 
+/** Το data.json ανήκει στο ζητούμενο υποέργο (όχι ξεπερασμένη εγγραφή ευρετηρίου). */
+function jsonFileBelongsToSubproject(jsonPath, subprojectId) {
+  const sid = String(subprojectId || '').trim();
+  if (!sid || !jsonPath) return false;
+  try {
+    if (!fs.existsSync(jsonPath)) return false;
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    const fileId = String(data?.subprojectId || '').trim();
+    if (fileId) return fileId === sid;
+    return path.basename(path.dirname(jsonPath)) === sid;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   INDEX_FILE_NAME,
   INDEX_LOCK_FILE_NAME,
@@ -376,6 +391,7 @@ module.exports = {
   invalidateProjectsIndex,
   loadProjectsViaIndex,
   findIndexedSubprojectPath,
+  jsonFileBelongsToSubproject,
   entryFromDisk,
   looksLikeProjectDir,
   clearMissingProjectsCheckCache,

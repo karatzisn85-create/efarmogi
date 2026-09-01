@@ -1,5 +1,5 @@
 /**
- * Προβολή εγγράφου ΚΗΜΔΗΣ στον προεπιλεγμένο browser (inline PDF, όχι λήψη).
+ * Προβολή εγγράφου ΚΗΜΔΗΣ ως PDF στον προεπιλεγμένο αναγνώστη.
  */
 export async function openKhmdhsActOnline(adamRaw, { label = '' } = {}) {
   const adam = String(adamRaw || '').trim().toUpperCase();

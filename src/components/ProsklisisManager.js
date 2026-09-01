@@ -7,7 +7,6 @@ import ProsklisisFileManager from './ProsklisisFileManager';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
 import ProsklisisExportDialog from './ProsklisisExportDialog';
 import { formatDateEl } from '../utils/dateFormat';
-import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import { showConfirm } from '../utils/confirmModal';
 import {
@@ -23,8 +22,16 @@ import {
   partitionProskliseisByViewTab,
   PROSKLISI_VIEW_TABS,
   applyProsklisiDailyFilters,
+  applyProsklisiAdvancedFilters,
+  uniqueLinkedProjectTitles,
   showNewProsklisiButton,
   evaluateProsklisiDelete,
+  uniqueSortedProsklisiFieldValues,
+  statusesForProsklisiViewTab,
+  collectProsklisiFilterChips,
+  countProsklisiActiveFilters,
+  buildProsklisiExportRecord,
+  getProsklisiDiavgeiaAdaText,
 } from '../utils/prosklisiDeadlineUtils';
 
 const ipcRenderer = window.electronAPI;
@@ -259,11 +266,34 @@ const SearchStats = styled.div`
   .stat-number { color: #4f46e5; font-weight: 700; }
   .stat-label { color: #64748b; font-weight: 500; }
   .filters-badge {
-    background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;
+    background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;
     padding: 0.12rem 0.45rem; border-radius: 999px; font-size: 0.65rem;
     font-weight: 600; display: flex; align-items: center; gap: 0.2rem;
   }
   .filter-icon { font-size: 0.68rem; }
+`;
+
+const FilterChipRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.45rem;
+`;
+
+const FilterChip = styled.button`
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  &:hover { background: #e0e7ff; border-color: #a5b4fc; }
 `;
 
 const SearchBar = styled.div`
@@ -1175,11 +1205,13 @@ function ProsklisisManager({
 
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState({
-    axis: '', fundingSource: '', status: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: ''
+    axis: '', fundingSource: '', linkedProject: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: '',
+    diavgeiaAda: '', relatedEntaxi: ''
   });
   const [quickSearchStatus, setQuickSearchStatus] = useState('');
   const [showExpiringSoonOnly, setShowExpiringSoonOnly] = useState(false);
   const [showUnlinkedOnly, setShowUnlinkedOnly] = useState(false);
+  const [showWithModificationsOnly, setShowWithModificationsOnly] = useState(false);
   const [sortByDeadline, setSortByDeadline] = useState(false);
   const [viewTab, setViewTab] = useState(PROSKLISI_VIEW_TABS.ACTIVE);
   const focusTabAppliedRef = useRef(null);
@@ -1288,7 +1320,7 @@ function ProsklisisManager({
 
   useEffect(() => {
     filterProskliseis();
-  }, [proskliseis, prosklisiModifications, searchTerm, projectFilter, quickSearchStatus, advancedFilters, selectedProsklisiId, showExpiringSoonOnly, showUnlinkedOnly, sortByDeadline]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [proskliseis, prosklisiModifications, relatedEntaxeisByProsklisi, searchTerm, projectFilter, quickSearchStatus, advancedFilters, selectedProsklisiId, showExpiringSoonOnly, showUnlinkedOnly, showWithModificationsOnly, sortByDeadline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1397,59 +1429,33 @@ function ProsklisisManager({
   /* ── Filtering ── */
 
   const filterProskliseis = () => {
-    let filtered = [...proskliseis];
-    if (projectFilter) filtered = filtered.filter(p => p.title === projectFilter);
-    if (advancedFilters.axis) filtered = filtered.filter(p => containsSearchTerm(p.axis, advancedFilters.axis));
-    if (advancedFilters.fundingSource) filtered = filtered.filter(p => containsSearchTerm(p.fundingSource, advancedFilters.fundingSource));
-    if (advancedFilters.status) filtered = filtered.filter(p => p.status === advancedFilters.status);
-
-    if (advancedFilters.minBudget) {
-      const minBudget = parseFloat(advancedFilters.minBudget.replace(/[^\d.,]/g, '').replace(',', '.'));
-      filtered = filtered.filter(p => {
-        if (!p.budgetRange) return false;
-        const m = p.budgetRange.match(/(\d+(?:[.,]\d+)?)/g);
-        if (!m) return false;
-        return parseFloat(m[0].replace(',', '.')) >= minBudget;
-      });
-    }
-    if (advancedFilters.maxBudget) {
-      const maxBudget = parseFloat(advancedFilters.maxBudget.replace(/[^\d.,]/g, '').replace(',', '.'));
-      filtered = filtered.filter(p => {
-        if (!p.budgetRange) return false;
-        const m = p.budgetRange.match(/(\d+(?:[.,]\d+)?)/g);
-        if (!m) return false;
-        return parseFloat(m[m.length - 1].replace(',', '.')) <= maxBudget;
-      });
-    }
-
-    const parseDate = (dateString) => {
-      if (!dateString) return null;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return new Date(dateString + 'T00:00:00');
-      if (/^\d{2}-\d{2}-\d{4}$/.test(dateString)) { const [d, m, y] = dateString.split('-'); return new Date(`${y}-${m}-${d}T00:00:00`); }
-      const parsed = new Date(dateString);
-      return isNaN(parsed.getTime()) ? null : parsed;
-    };
-    const compareDatesOnly = (d1, d2) => {
-      const a = parseDate(d1); const b = parseDate(d2);
-      if (!a || !b) return null;
-      a.setHours(0, 0, 0, 0); b.setHours(0, 0, 0, 0);
-      return a.getTime() - b.getTime();
-    };
-
-    const deadlineOf = (p) => getEffectiveProsklisiDeadline(p, prosklisiModifications[p.prosklisiId] || []);
-
-    if (advancedFilters.dateFrom) filtered = filtered.filter(p => { const dl = deadlineOf(p); if (!dl) return false; const c = compareDatesOnly(dl, advancedFilters.dateFrom); return c !== null && c >= 0; });
-    if (advancedFilters.dateTo) filtered = filtered.filter(p => { const dl = deadlineOf(p); if (!dl) return false; const c = compareDatesOnly(dl, advancedFilters.dateTo); return c !== null && c <= 0; });
-    if (selectedProsklisiId) filtered = filtered.filter(p => p.prosklisiId === selectedProsklisiId);
     const diavgeiaAdaById = {};
-    filtered.forEach((p) => {
-      if (p?.prosklisiId) diavgeiaAdaById[p.prosklisiId] = getProsklisiDiavgeiaEntry(p)?.ada || '';
+    proskliseis.forEach((p) => {
+      if (p?.prosklisiId) {
+        diavgeiaAdaById[p.prosklisiId] = getProsklisiDiavgeiaAdaText(
+          p,
+          prosklisiModifications[p.prosklisiId] || []
+        );
+      }
+    });
+    const relatedEntaxiCountById = {};
+    Object.keys(relatedEntaxeisByProsklisi || {}).forEach((id) => {
+      relatedEntaxiCountById[id] = (relatedEntaxeisByProsklisi[id] || []).length;
+    });
+    let filtered = applyProsklisiAdvancedFilters(proskliseis, {
+      projectFilter,
+      advancedFilters,
+      modificationsById: prosklisiModifications,
+      selectedProsklisiId,
+      diavgeiaAdaById,
+      relatedEntaxiCountById,
     });
     filtered = applyProsklisiDailyFilters(filtered, {
       searchTerm,
       quickSearchStatus,
       showExpiringSoonOnly,
       showUnlinkedOnly,
+      showWithModificationsOnly,
       sortByDeadline,
       modificationsById: prosklisiModifications,
       diavgeiaAdaById,
@@ -1670,15 +1676,59 @@ function ProsklisisManager({
     return labels[field] || field;
   };
 
-  const getUniqueStatuses = () => [...new Set(proskliseis.map(p => p.status).filter(Boolean))].sort();
+  const getUniqueStatuses = () => uniqueSortedProsklisiFieldValues(proskliseis, 'status');
+  const axisOptions = uniqueSortedProsklisiFieldValues(proskliseis, 'axis');
+  const fundingOptions = uniqueSortedProsklisiFieldValues(proskliseis, 'fundingSource');
+  const linkedProjectOptions = uniqueLinkedProjectTitles(proskliseis);
+  const statusOptions = useMemo(() => {
+    const forTab = statusesForProsklisiViewTab(getUniqueStatuses(), viewTab);
+    if (quickSearchStatus && !forTab.includes(quickSearchStatus)) {
+      return [quickSearchStatus, ...forTab];
+    }
+    return forTab;
+  }, [proskliseis, viewTab, quickSearchStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filterChipState = {
+    searchTerm,
+    quickSearchStatus,
+    showExpiringSoonOnly,
+    showUnlinkedOnly,
+    showWithModificationsOnly,
+    sortByDeadline,
+    advancedFilters,
+  };
+  const filterChips = collectProsklisiFilterChips(filterChipState);
+
+  const clearFilterChip = (chipId) => {
+    if (chipId === 'search') setSearchTerm('');
+    else if (chipId === 'status') setQuickSearchStatus('');
+    else if (chipId === 'expiringSoon') setShowExpiringSoonOnly(false);
+    else if (chipId === 'unlinked') setShowUnlinkedOnly(false);
+    else if (chipId === 'withModifications') setShowWithModificationsOnly(false);
+    else if (['axis', 'fundingSource', 'linkedProject', 'minBudget', 'maxBudget', 'dateFrom', 'dateTo', 'diavgeiaAda', 'relatedEntaxi'].includes(chipId)) {
+      handleAdvancedFilterChange(chipId, '');
+    }
+  };
+
+  const handleViewTabChange = (tabId) => {
+    setViewTab(tabId);
+    if (quickSearchStatus) {
+      const allowed = statusesForProsklisiViewTab([quickSearchStatus], tabId);
+      if (!allowed.length) setQuickSearchStatus('');
+    }
+  };
 
   const handleClearFilters = () => {
     setSearchTerm('');
     setQuickSearchStatus('');
     setShowExpiringSoonOnly(false);
     setShowUnlinkedOnly(false);
+    setShowWithModificationsOnly(false);
     setSortByDeadline(false);
-    setAdvancedFilters({ axis: '', fundingSource: '', status: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: '' });
+    setAdvancedFilters({
+      axis: '', fundingSource: '', linkedProject: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: '',
+      diavgeiaAda: '', relatedEntaxi: ''
+    });
     setShowAdvancedFilters(false);
   };
 
@@ -1796,25 +1846,35 @@ function ProsklisisManager({
     focusTabAppliedRef.current = focusKey;
   }, [isOpen, selectedProsklisiId, projectFilter, proskliseis, prosklisiModifications]);
 
-  const handleAdvancedFilterChange = (field, value) => setAdvancedFilters(prev => ({ ...prev, [field]: value }));
-
-  const getActiveFiltersCount = () => {
-    let n = 0;
-    if (searchTerm.trim()) n++; if (quickSearchStatus) n++;
-    if (showExpiringSoonOnly) n++;
-    if (showUnlinkedOnly) n++;
-    if (sortByDeadline) n++;
-    Object.values(advancedFilters).forEach(v => { if (typeof v === 'string' && v.trim()) n++; });
-    return n;
+  const handleAdvancedFilterChange = (field, value) => {
+    setAdvancedFilters((prev) => ({ ...prev, [field]: value }));
+    if (field === 'linkedProject' && String(value || '').trim()) {
+      setShowUnlinkedOnly(false);
+    }
   };
+
+  const getActiveFiltersCount = () => countProsklisiActiveFilters(filterChipState);
 
   const hasAnyActiveFilters = getActiveFiltersCount() > 0;
 
-  const getStatistics = () => ({
-    total: proskliseis.length,
-    filtered: filteredProskliseis.length,
-    withModifications: proskliseis.filter(p => prosklisiModifications[p.prosklisiId]?.length > 0).length
+  const mapProsklisiForExport = (p) => buildProsklisiExportRecord(p, {
+    modifications: prosklisiModifications[p.prosklisiId] || [],
+    diavgeiaAda: getProsklisiDiavgeiaAdaText(p, prosklisiModifications[p.prosklisiId] || [])
+      || getProsklisiDiavgeiaEntry(p)?.ada
+      || '',
+    linkedProjectsLabel: getLinkedProjectLabels(p).join(' · '),
+    relatedEntaxeisCount: (relatedEntaxeisByProsklisi[p.prosklisiId] || []).length,
   });
+
+  const getStatistics = () => {
+    const visible = (tabPartition[viewTab] || []).length;
+    return {
+      total: proskliseis.length,
+      visible,
+      filteredAll: filteredProskliseis.length,
+      withModifications: proskliseis.filter(p => prosklisiModifications[p.prosklisiId]?.length > 0).length
+    };
+  };
 
   if (!isOpen) return null;
 
@@ -1835,8 +1895,8 @@ function ProsklisisManager({
                 Νέα Πρόσκληση
               </ToolbarActionButton>
             )}
-            <PanelExportButton type="button" onClick={() => setIsExportDialogOpen(true)}>
-              Εξαγωγή σε Excel
+            <PanelExportButton type="button" data-testid="btn-export-proskliseis" onClick={() => setIsExportDialogOpen(true)}>
+              Εξαγωγή
             </PanelExportButton>
             <ToolbarQuickInput
               type="text"
@@ -1844,25 +1904,46 @@ function ProsklisisManager({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-            <ToolbarFilterSelect value={quickSearchStatus} onChange={(e) => setQuickSearchStatus(e.target.value)}>
+            <ToolbarFilterSelect
+              data-testid="psk-filter-status"
+              value={quickSearchStatus}
+              onChange={(e) => setQuickSearchStatus(e.target.value)}
+            >
               <option value="">Όλες οι καταστάσεις</option>
-              {getUniqueStatuses().map(s => <option key={s} value={s}>{s}</option>)}
+              {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
             </ToolbarFilterSelect>
             <ToolbarToggleButton
               type="button"
               $active={showExpiringSoonOnly}
               onClick={() => setShowExpiringSoonOnly((v) => !v)}
-              title="Ληγμένες ή με λήξη εντός 30 ημερών"
+              title="Με λήξη εντός 30 ημερών, όχι ήδη ληγμένες"
             >
               Λήγουν σύντομα
             </ToolbarToggleButton>
             <ToolbarToggleButton
               type="button"
               $active={showUnlinkedOnly}
-              onClick={() => setShowUnlinkedOnly((v) => !v)}
+              onClick={() => {
+                setShowUnlinkedOnly((v) => {
+                  const next = !v;
+                  if (next) {
+                    setAdvancedFilters((prev) => ({ ...prev, linkedProject: '' }));
+                  }
+                  return next;
+                });
+              }}
               title="Προσκλήσεις χωρίς συσχέτιση με έργο"
             >
               Χωρίς έργο
+            </ToolbarToggleButton>
+            <ToolbarToggleButton
+              type="button"
+              data-testid="psk-filter-with-modifications"
+              $active={showWithModificationsOnly}
+              onClick={() => setShowWithModificationsOnly((v) => !v)}
+              title="Προσκλήσεις με τουλάχιστον μία τροποποίηση"
+            >
+              Με τροποποιήσεις
             </ToolbarToggleButton>
             <ToolbarToggleButton
               type="button"
@@ -1888,8 +1969,11 @@ function ProsklisisManager({
                 const stats = getStatistics();
                 return (
                   <>
-                    <div className="stat-item"><span className="stat-label">Σύνολο:</span><span className="stat-number">{stats.total}</span></div>
-                    <div className="stat-item"><span className="stat-label">Εμφανιζόμενα:</span><span className="stat-number">{stats.filtered}</span></div>
+                    <div className="stat-item"><span className="stat-label">Σύνολο:</span><span className="stat-number" data-testid="psk-stat-total">{stats.total}</span></div>
+                    <div className="stat-item"><span className="stat-label">Σε αυτή την καρτέλα:</span><span className="stat-number" data-testid="psk-stat-visible">{stats.visible}</span></div>
+                    {hasAnyActiveFilters && stats.filteredAll !== stats.visible && (
+                      <div className="stat-item"><span className="stat-label">Στα φίλτρα (όλα τα tabs):</span><span className="stat-number" data-testid="psk-stat-filtered-all">{stats.filteredAll}</span></div>
+                    )}
                     <div className="stat-item"><span className="stat-label">Με τροποποιήσεις:</span><span className="stat-number">{stats.withModifications}</span></div>
                   </>
                 );
@@ -1897,10 +1981,27 @@ function ProsklisisManager({
             </div>
             <div>
               {hasAnyActiveFilters && (
-                <div className="filters-badge"><span>Ενεργά φίλτρα: {getActiveFiltersCount()}</span></div>
+                <div className="filters-badge" data-testid="psk-filters-badge"><span>Ενεργά φίλτρα: {getActiveFiltersCount()}</span></div>
               )}
             </div>
           </SearchStats>
+
+          {filterChips.length > 0 && (
+            <FilterChipRow data-testid="psk-filter-chips">
+              {filterChips.map((chip) => (
+                <FilterChip
+                  key={chip.id}
+                  type="button"
+                  data-testid={`psk-filter-chip-${chip.id}`}
+                  onClick={() => clearFilterChip(chip.id)}
+                  title="Αφαίρεση φίλτρου"
+                >
+                  {chip.label}
+                  <span aria-hidden="true">×</span>
+                </FilterChip>
+              ))}
+            </FilterChipRow>
+          )}
 
           <ViewTabBar role="tablist" aria-label="Κατηγορίες προσκλήσεων">
             {[PROSKLISI_VIEW_TABS.ACTIVE, PROSKLISI_VIEW_TABS.EXPIRED, PROSKLISI_VIEW_TABS.SUBMITTED].map((tabId) => {
@@ -1915,7 +2016,7 @@ function ProsklisisManager({
                   aria-selected={active}
                   $active={active}
                   $activeColor={meta.activeColor}
-                  onClick={() => setViewTab(tabId)}
+                  onClick={() => handleViewTabChange(tabId)}
                 >
                   <span>{meta.icon}</span>
                   <span>{meta.label}</span>
@@ -1939,20 +2040,64 @@ function ProsklisisManager({
           )}
 
           {showAdvancedFilters && (
-            <SearchBar>
+            <SearchBar data-testid="psk-advanced-filters">
               <SearchRow>
-                <AdvSearchInput type="text" placeholder="Άξονας / Δράση..." value={advancedFilters.axis} onChange={(e) => handleAdvancedFilterChange('axis', e.target.value)} />
-                <AdvSearchInput type="text" placeholder="Πηγή χρηματοδότησης..." value={advancedFilters.fundingSource} onChange={(e) => handleAdvancedFilterChange('fundingSource', e.target.value)} />
-                <AdvFilterSelect value={advancedFilters.status} onChange={(e) => handleAdvancedFilterChange('status', e.target.value)}>
-                  <option value="">Κατάσταση (επιπλέον φίλτρο)</option>
-                  {getUniqueStatuses().map(s => <option key={s} value={s}>{s}</option>)}
+                <AdvFilterSelect
+                  data-testid="psk-filter-axis"
+                  value={advancedFilters.axis}
+                  onChange={(e) => handleAdvancedFilterChange('axis', e.target.value)}
+                >
+                  <option value="">Όλοι οι άξονες</option>
+                  {axisOptions.map((axis) => (
+                    <option key={axis} value={axis}>{axis}</option>
+                  ))}
+                </AdvFilterSelect>
+                <AdvFilterSelect
+                  data-testid="psk-filter-funding"
+                  value={advancedFilters.fundingSource}
+                  onChange={(e) => handleAdvancedFilterChange('fundingSource', e.target.value)}
+                >
+                  <option value="">Όλες οι πηγές</option>
+                  {fundingOptions.map((src) => (
+                    <option key={src} value={src}>{src}</option>
+                  ))}
+                </AdvFilterSelect>
+                <AdvFilterSelect
+                  data-testid="psk-filter-linked-project"
+                  value={advancedFilters.linkedProject}
+                  onChange={(e) => handleAdvancedFilterChange('linkedProject', e.target.value)}
+                >
+                  <option value="">Όλα τα συσχετισμένα έργα</option>
+                  {linkedProjectOptions.map((title) => (
+                    <option key={title} value={title}>{title}</option>
+                  ))}
                 </AdvFilterSelect>
               </SearchRow>
               <SearchRow>
-                <AdvSearchInput type="text" placeholder="Ελάχιστος προϋπολογισμός (€)..." value={advancedFilters.minBudget} onChange={(e) => handleAdvancedFilterChange('minBudget', e.target.value)} />
-                <AdvSearchInput type="text" placeholder="Μέγιστος προϋπολογισμός (€)..." value={advancedFilters.maxBudget} onChange={(e) => handleAdvancedFilterChange('maxBudget', e.target.value)} />
+                <AdvSearchInput data-testid="psk-filter-min-budget" type="text" placeholder="Ελάχιστος προϋπολογισμός (€)..." value={advancedFilters.minBudget} onChange={(e) => handleAdvancedFilterChange('minBudget', e.target.value)} />
+                <AdvSearchInput data-testid="psk-filter-max-budget" type="text" placeholder="Μέγιστος προϋπολογισμός (€)..." value={advancedFilters.maxBudget} onChange={(e) => handleAdvancedFilterChange('maxBudget', e.target.value)} />
                 <AdvDateInput type="date" value={advancedFilters.dateFrom} onChange={(e) => handleAdvancedFilterChange('dateFrom', e.target.value)} title="Από ημερομηνία λήξης υποβολής" />
                 <AdvDateInput type="date" value={advancedFilters.dateTo} onChange={(e) => handleAdvancedFilterChange('dateTo', e.target.value)} title="Έως ημερομηνία λήξης υποβολής" />
+              </SearchRow>
+              <SearchRow>
+                <AdvFilterSelect
+                  data-testid="psk-filter-diavgeia"
+                  value={advancedFilters.diavgeiaAda}
+                  onChange={(e) => handleAdvancedFilterChange('diavgeiaAda', e.target.value)}
+                >
+                  <option value="">ΑΔΑ Διαύγειας (όλα)</option>
+                  <option value="yes">Με ΑΔΑ Διαύγειας</option>
+                  <option value="no">Χωρίς ΑΔΑ Διαύγειας</option>
+                </AdvFilterSelect>
+                <AdvFilterSelect
+                  data-testid="psk-filter-related-entaxi"
+                  value={advancedFilters.relatedEntaxi}
+                  onChange={(e) => handleAdvancedFilterChange('relatedEntaxi', e.target.value)}
+                >
+                  <option value="">Σχετικές εντάξεις (όλα)</option>
+                  <option value="yes">Με σχετική ένταξη</option>
+                  <option value="no">Χωρίς σχετική ένταξη</option>
+                </AdvFilterSelect>
               </SearchRow>
             </SearchBar>
           )}
@@ -2351,14 +2496,11 @@ function ProsklisisManager({
       <ProsklisisExportDialog
         isOpen={isExportDialogOpen}
         onClose={() => setIsExportDialogOpen(false)}
-        proskliseis={filteredProskliseis.map((p) => ({
-          ...p,
-          modificationsCount: (prosklisiModifications[p.prosklisiId] || []).length,
-          diavgeiaAda: getProsklisiDiavgeiaEntry(p)?.ada || '',
-          linkedProjectsLabel: getLinkedProjectLabels(p).join(' · '),
-          relatedEntaxeisCount: (relatedEntaxeisByProsklisi[p.prosklisiId] || []).length
-        }))}
+        visibleProskliseis={(tabPartition[viewTab] || []).map((p) => mapProsklisiForExport(p))}
+        allFilteredProskliseis={filteredProskliseis.map((p) => mapProsklisiForExport(p))}
         totalProskliseis={proskliseis.length}
+        viewTabLabel={VIEW_TAB_META[viewTab]?.label || ''}
+        filterSummary={filterChips.map((c) => c.label)}
         organizationName={organizationName}
       />
     </ModalOverlay>

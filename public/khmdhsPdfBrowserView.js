@@ -111,92 +111,18 @@ function fetchUrlBuffer(url, { redirects = 0, timeoutMs = 120000 } = {}) {
   });
 }
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+function getShell() {
+  return require('electron').shell;
 }
 
-function writeViewerHtml(adam, label) {
-  const { dir, pdfPath, htmlPath } = cachePaths(adam);
-  fs.mkdirSync(dir, { recursive: true });
-  const title = escapeHtml(label || `ΚΗΜΔΗΣ — ${adam}`);
-  const html = `<!DOCTYPE html>
-<html lang="el">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${title}</title>
-  <style>
-    html, body { margin: 0; height: 100%; background: #525659; overflow: hidden; }
-    embed { width: 100%; height: 100%; border: 0; display: block; }
-  </style>
-</head>
-<body>
-  <embed src="${path.basename(pdfPath)}" type="application/pdf" />
-</body>
-</html>`;
-  fs.writeFileSync(htmlPath, html, 'utf8');
-  return htmlPath;
-}
-
-function writeLoadingViewerHtml(adam, label) {
-  const { dir, htmlPath } = cachePaths(adam);
-  fs.mkdirSync(dir, { recursive: true });
-  const title = escapeHtml(label || `ΚΗΜΔΗΣ — ${adam}`);
-  const html = `<!DOCTYPE html>
-<html lang="el">
-<head>
-  <meta charset="utf-8" />
-  <meta http-equiv="refresh" content="2" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${title}</title>
-  <style>
-    html, body { margin: 0; height: 100%; background: #f8fafc; font-family: Segoe UI, sans-serif; }
-    .box { display: flex; flex-direction: column; align-items: center; justify-content: center;
-      height: 100%; color: #334155; gap: 0.6rem; text-align: center; padding: 1.5rem; }
-    .box strong { font-size: 1.05rem; }
-    .box span { font-size: 0.88rem; color: #64748b; }
-  </style>
-</head>
-<body>
-  <div class="box">
-    <strong>Φόρτωση εγγράφου…</strong>
-    <span>Το αρχείο ανοίγει στον browser μόλις έρθει από το ΚΗΜΔΗΣ.</span>
-  </div>
-</body>
-</html>`;
-  fs.writeFileSync(htmlPath, html, 'utf8');
-  return htmlPath;
-}
-
-function writeErrorViewerHtml(adam, label, message) {
-  const { dir, htmlPath } = cachePaths(adam);
-  fs.mkdirSync(dir, { recursive: true });
-  const title = escapeHtml(label || `ΚΗΜΔΗΣ — ${adam}`);
-  const html = `<!DOCTYPE html>
-<html lang="el">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${title}</title>
-  <style>
-    html, body { margin: 0; height: 100%; background: #f8fafc; font-family: Segoe UI, sans-serif; }
-    .box { display: flex; flex-direction: column; align-items: center; justify-content: center;
-      height: 100%; color: #334155; gap: 0.55rem; text-align: center; padding: 1.5rem; }
-  </style>
-</head>
-<body>
-  <div class="box">
-    <strong>Δεν άνοιξε το αρχείο</strong>
-    <span>${escapeHtml(message || 'Δοκιμάστε ξανά σε λίγο.')}</span>
-  </div>
-</body>
-</html>`;
-  fs.writeFileSync(htmlPath, html, 'utf8');
-  return htmlPath;
+async function openLocalPdf(pdfPath) {
+  const resolved = path.resolve(pdfPath);
+  cleanupOldCache([path.basename(resolved)]);
+  const openErr = await getShell().openPath(resolved);
+  if (!openErr) return;
+  await getShell().openExternal(pathToFileURL(resolved).href).catch((e) => {
+    throw new Error(`Αδυναμία ανοίγματος εγγράφου: ${e.message || openErr}`);
+  });
 }
 
 function cleanupOldCache(keepBasenames) {
@@ -214,19 +140,6 @@ function cleanupOldCache(keepBasenames) {
       } catch { /* αγνοούμε σφάλματα ανά αρχείο */ }
     }
   } catch { /* αγνοούμε αν το directory δεν είναι προσβάσιμο */ }
-}
-
-function getShell() {
-  return require('electron').shell;
-}
-
-async function openLocalCachedViewer(adam, label) {
-  const { pdfPath, htmlPath } = cachePaths(adam);
-  const html = writeViewerHtml(adam, label);
-  cleanupOldCache([path.basename(pdfPath), path.basename(htmlPath)]);
-  await getShell().openExternal(pathToFileURL(html).href).catch((e) => {
-    throw new Error(`Αδυναμία ανοίγματος εγγράφου: ${e.message}`);
-  });
 }
 
 async function downloadKhmdhsPdfToCache(adamRaw) {
@@ -277,29 +190,50 @@ async function openKhmdhsPdfInBrowser(adamRaw, label = '') {
     };
   }
 
-  if (readCachedPdfPath(adam)) {
-    await openLocalCachedViewer(adam, label);
-    return { success: true, cached: true };
+  try {
+    const cachedBefore = !!readCachedPdfPath(adam);
+    const pdfPath = await downloadKhmdhsPdfToCache(adam);
+    await openLocalPdf(pdfPath);
+    return { success: true, via: 'pdf', cached: cachedBefore };
+  } catch (e) {
+    return {
+      success: false,
+      error: e?.message || 'Δεν ήταν δυνατή η προβολή του εγγράφου.',
+    };
   }
+}
 
-  const html = writeLoadingViewerHtml(adam, label);
-  const { pdfPath, htmlPath } = cachePaths(adam);
-  cleanupOldCache([path.basename(pdfPath), path.basename(htmlPath)]);
-  await getShell().openExternal(pathToFileURL(html).href).catch((e) => {
-    throw new Error(`Αδυναμία ανοίγματος εγγράφου: ${e.message}`);
+async function prefetchKhmdhsPdfs(adamList) {
+  try {
+    const { isE2EProcess } = require('./e2eMode');
+    if (isE2EProcess()) {
+      return { success: true, queued: 0, ready: 0 };
+    }
+  } catch { /* χωρίς e2e stub συνεχίζουμε κανονικά */ }
+  const seen = new Set();
+  const adams = [];
+  (Array.isArray(adamList) ? adamList : []).forEach((raw) => {
+    const adam = normalizeAdam(raw);
+    if (!adam || seen.has(adam) || !buildKhmdhsAttachmentUrl(adam)) return;
+    seen.add(adam);
+    adams.push(adam);
   });
-
-  downloadKhmdhsPdfToCache(adam).then(() => {
-    writeViewerHtml(adam, label);
-  }).catch((e) => {
-    writeErrorViewerHtml(adam, label, e?.message || 'Δοκιμάστε ξανά σε λίγο.');
-  });
-
-  return { success: true, via: 'pdf' };
+  const queued = adams.slice(0, 12);
+  let ready = 0;
+  for (const adam of queued) {
+    try {
+      await downloadKhmdhsPdfToCache(adam);
+      ready += 1;
+    } catch {
+      /* η προετοιμασία είναι καλύτερη προσπάθεια — το κλικ θα ξαναδοκιμάσει */
+    }
+  }
+  return { success: true, queued: queued.length, ready };
 }
 
 module.exports = {
   openKhmdhsPdfInBrowser,
+  prefetchKhmdhsPdfs,
   buildKhmdhsAttachmentUrl,
   buildKhmdhsPortalViewUrl,
   readCachedPdfPath,

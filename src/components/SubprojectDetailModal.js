@@ -1139,6 +1139,9 @@ function SubprojectDetailModal({
   useEffect(() => {
     contractExpiryCheckedRef.current = false;
     setContractExpiryPrompt(null);
+    setRefreshDialog(null);
+    setSymvPlannerState(null);
+    setKhmdhsRegistryModal(null);
   }, [project?.subprojectId]);
 
   useEffect(() => {
@@ -1564,6 +1567,15 @@ function SubprojectDetailModal({
 
   const handleConfirmKhmdhsRefresh = useCallback(async () => {
     if (!refreshDialog?.mergedProject) return;
+    if (
+      project?.subprojectId
+      && refreshDialog.mergedProject.subprojectId
+      && String(refreshDialog.mergedProject.subprojectId) !== String(project.subprojectId)
+    ) {
+      setRefreshDialog(null);
+      void releaseKhmdhsRefreshLock();
+      return;
+    }
     setRefreshLoading(true);
     try {
       await ipcRenderer.invoke('create-khmdhs-refresh-snapshot', {
@@ -1592,7 +1604,7 @@ function SubprojectDetailModal({
       setRefreshLoading(false);
       await releaseKhmdhsRefreshLock();
     }
-  }, [refreshDialog, showToast, onRefreshProject, requestingUsername, releaseKhmdhsRefreshLock]);
+  }, [refreshDialog, project, showToast, onRefreshProject, requestingUsername, releaseKhmdhsRefreshLock]);
 
   const handleKhmdhsRegistryConfirm = useCallback(async (selectedList, neverAsk) => {
     const base = khmdhsRegistryModal?.baseProject;

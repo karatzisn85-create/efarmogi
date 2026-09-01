@@ -3512,7 +3512,7 @@ ipcMain.handle('khmdhs-resolve-adam-chain', async (_event, { adam, apeAmount }) 
 });
 
 /** Ακύρωση in-flight μαζικής ανανέωσης ΚΗΜΔΗΣ (διακόπτει το τρέχον δίκτυο). */
-let khmdhsBatchRefreshAbortController = null;
+const khmdhsBatchRefreshAborts = new Set();
 
 ipcMain.handle('cancel-khmdhs-batch-refresh', async (_event, { actingUsername } = {}) => {
   try {
@@ -3524,13 +3524,13 @@ ipcMain.handle('cancel-khmdhs-batch-refresh', async (_event, { actingUsername } 
     if (!user || user.active === false || user.approved === false) {
       return { success: false, error: 'Δεν έχετε δικαίωμα' };
     }
-    if (khmdhsBatchRefreshAbortController) {
+    khmdhsBatchRefreshAborts.forEach((controller) => {
       try {
-        khmdhsBatchRefreshAbortController.abort();
+        controller.abort();
       } catch {
         /* ignore */
       }
-    }
+    });
     return { success: true };
   } catch (e) {
     logger.error('cancel-khmdhs-batch-refresh error:', e.message);
@@ -3612,7 +3612,7 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (event, { subprojectId
 
     if (batchMode) {
       localAbort = new AbortController();
-      khmdhsBatchRefreshAbortController = localAbort;
+      khmdhsBatchRefreshAborts.add(localAbort);
     }
 
     const chainSvc = require('./khmdhsAdamChainService');
@@ -3752,9 +3752,7 @@ ipcMain.handle('preview-subproject-khmdhs-refresh', async (event, { subprojectId
     logger.error('preview-subproject-khmdhs-refresh error:', e.message);
     return { success: false, error: e.message || String(e) };
   } finally {
-    if (localAbort && khmdhsBatchRefreshAbortController === localAbort) {
-      khmdhsBatchRefreshAbortController = null;
-    }
+    if (localAbort) khmdhsBatchRefreshAborts.delete(localAbort);
   }
 });
 
@@ -4217,10 +4215,14 @@ function findSubprojectDataJsonPath(subprojectId) {
   let hadIndex = false;
   try {
     const indexed = projectsIndex.findIndexedSubprojectPath(dataDir, sid);
-    if (indexed) return indexed;
-    // Μόνο όταν αποτύχει το ευρετήριο μας ενδιαφέρει αν υπήρχε — η μαζική ανανέωση καλεί
-    // αυτή τη συνάρτηση εκατοντάδες φορές και δεν θέλουμε διπλό διάβασμα κάθε φορά.
-    hadIndex = !!projectsIndex.readProjectsIndex(dataDir);
+    if (indexed && projectsIndex.jsonFileBelongsToSubproject(indexed, sid)) return indexed;
+    if (indexed) {
+      hadIndex = true;
+    } else {
+      // Μόνο όταν αποτύχει το ευρετήριο μας ενδιαφέρει αν υπήρχε — η μαζική ανανέωση καλεί
+      // αυτή τη συνάρτηση εκατοντάδες φορές και δεν θέλουμε διπλό διάβασμα κάθε φορά.
+      hadIndex = !!projectsIndex.readProjectsIndex(dataDir);
+    }
   } catch { /* πέφτουμε στην πλήρη σάρωση */ }
 
   // Αν το υποέργο υπάρχει στον δίσκο αλλά έλειπε από το ευρετήριο, συμπληρώνουμε την εγγραφή
@@ -4249,7 +4251,9 @@ function findSubprojectDataJsonPath(subprojectId) {
       const projectPath = path.join(dataDir, dir);
       try { if (!fs.statSync(projectPath).isDirectory()) continue; } catch { continue; }
       const directJson = path.join(projectPath, sid, 'data.json');
-      if (fs.existsSync(directJson)) return healIndexIfStale(directJson);
+      if (fs.existsSync(directJson) && projectsIndex.jsonFileBelongsToSubproject(directJson, sid)) {
+        return healIndexIfStale(directJson);
+      }
       let subDirs = [];
       try { subDirs = fs.readdirSync(projectPath); } catch { continue; }
       for (const sub of subDirs) {
@@ -4435,6 +4439,10 @@ ipcMain.handle('save-khmdhs-refresh-findings', async (_event, { subprojectId, ac
     } catch {
       return { success: false, error: 'Δεν ήταν δυνατή η ανάγνωση του υποέργου' };
     }
+    const fileId = String(data?.subprojectId || '').trim();
+    if (fileId && fileId !== String(subprojectId || '').trim()) {
+      return { success: false, error: 'Δεν βρέθηκε το υποέργο' };
+    }
     if (findings && typeof findings === 'object') {
       data.khmdhsLastRefreshFindings = findings;
     } else {
@@ -4470,6 +4478,16 @@ ipcMain.handle('open-khmdhs-act-view', async (_event, { adam, label } = {}) => {
     return await openKhmdhsPdfInBrowser(adam, label);
   } catch (error) {
     logger.error('open-khmdhs-act-view:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('prefetch-khmdhs-act-pdfs', async (_event, { adams } = {}) => {
+  try {
+    const { prefetchKhmdhsPdfs } = require('./khmdhsPdfBrowserView');
+    return await prefetchKhmdhsPdfs(adams);
+  } catch (error) {
+    logger.error('prefetch-khmdhs-act-pdfs:', error);
     return { success: false, error: error.message || String(error) };
   }
 });
@@ -7364,6 +7382,75 @@ async function loadAllProskliseis(options = {}) {
 
 // Load all proskliseis
 ipcMain.handle('load-all-proskliseis', async (_event, options) => loadAllProskliseis(options || {}));
+
+ipcMain.handle('export-proskliseis-excel', async (_event, payload = {}) => {
+  try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
+    const content = typeof payload.content === 'string' ? payload.content : '';
+    if (!content.trim()) {
+      return { success: false, error: 'Δεν υπάρχουν δεδομένα για εξαγωγή' };
+    }
+    const defaultName = String(payload.defaultName || 'Προσκλήσεις.xls').replace(/[<>:"/\\|?*]/g, '_');
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση προσκλήσεων σε Excel',
+      defaultPath: defaultName,
+      filters: [
+        { name: 'Excel', extensions: ['xls'] },
+        { name: 'Όλα τα αρχεία', extensions: ['*'] },
+      ],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    let resolved = path.resolve(pick.filePath);
+    if (/\.xlsx$/i.test(resolved)) {
+      resolved = resolved.replace(/\.xlsx$/i, '.xls');
+    } else if (!/\.xls$/i.test(resolved)) {
+      resolved = `${resolved}.xls`;
+    }
+    fs.writeFileSync(resolved, `\uFEFF${content}`, 'utf8');
+    return { success: true, path: resolved };
+  } catch (e) {
+    console.error('export-proskliseis-excel failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('export-proskliseis-pdf', async (_event, payload = {}) => {
+  try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
+    const columns = Array.isArray(payload.columns) ? payload.columns.slice(0, 40) : [];
+    const rows = Array.isArray(payload.rows) ? payload.rows.slice(0, 5000) : [];
+    if (!columns.length) return { success: false, error: 'Απαιτείται τουλάχιστον μία στήλη' };
+    if (!rows.length) return { success: false, error: 'Δεν υπάρχουν προσκλήσεις για εξαγωγή' };
+    const defaultName = String(payload.defaultName || 'Προσκλήσεις.pdf').replace(/[<>:"/\\|?*]/g, '_');
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση προσκλήσεων σε PDF',
+      defaultPath: defaultName,
+      filters: [
+        { name: 'PDF', extensions: ['pdf'] },
+        { name: 'Όλα τα αρχεία', extensions: ['*'] },
+      ],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    let resolved = path.resolve(pick.filePath);
+    if (!/\.pdf$/i.test(resolved)) resolved = `${resolved}.pdf`;
+    const catalog = require('../app/core/prosklisiCatalog');
+    const html = catalog.buildProsklisiExportHtml({
+      columns,
+      rows,
+      meta: payload.meta || {},
+    });
+    const { exportHtmlToPdf } = require('./htmlPdfExportHelper');
+    await exportHtmlToPdf(html, resolved, { landscape: true });
+    return { success: true, path: resolved };
+  } catch (e) {
+    console.error('export-proskliseis-pdf failed', e);
+    return { success: false, error: e.message };
+  }
+});
 
 // Save prosklisi
 ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {

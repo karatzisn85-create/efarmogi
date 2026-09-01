@@ -171,6 +171,18 @@ async function discardEdit(window) {
   }
 }
 
+async function discardEditWithoutDismissingKhmdhs(window) {
+  await window.getByTestId('btn-discard').evaluate((el) => el.click());
+  const confirm = window.getByTestId('unsaved-discard');
+  try {
+    await confirm.waitFor({ timeout: 8000 });
+    await confirm.click({ force: true });
+  } catch {
+    /* χωρίς μη αποθηκευμένες αλλαγές */
+  }
+  await window.getByTestId('edit-panel').waitFor({ state: 'hidden', timeout: 20000 });
+}
+
 async function setPrimaryCharge(window, engineerId) {
   await window.getByTestId('edit-primary').selectOption(engineerId);
 }
@@ -377,6 +389,7 @@ module.exports = {
   enterEdit,
   saveEdit,
   discardEdit,
+  discardEditWithoutDismissingKhmdhs,
   setPrimaryCharge,
   setOutsideCharge,
   openCreate,

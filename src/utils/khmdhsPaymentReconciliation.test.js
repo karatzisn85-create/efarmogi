@@ -102,4 +102,48 @@ describe('filterUnrelatedPayments', () => {
     ], project).map((p) => p.adam);
     expect(kept).toEqual(['24PAY10']);
   });
+
+  test('κόβει ένταλμα χωρίς SYMV όταν υπάρχουν συμβάσεις άλλων τμημάτων εκτός κάρτας', () => {
+    const project = {
+      khmdhsAdam: '25SYMV016948065',
+      khmdhsContractSnapshot: { referenceNumber: '25SYMV016948065' },
+      khmdhsRequestAdam: '25REQ016832258',
+      khmdhsAdamChainMeta: {
+        parallelContracts: ['25SYMV016948065', '25SYMV099999999'],
+        linkedAdams: { contracts: ['25SYMV016948065', '25SYMV099999999'] },
+      },
+    };
+    const kept = filterUnrelatedPayments([
+      { adam: '25PAY1', snapshot: { contractRefNo: '25SYMV016948065' } },
+      { adam: '25PAYX', snapshot: { requestRefNo: '25REQ016832258' } },
+    ], project).map((p) => p.adam);
+    expect(kept).toEqual(['25PAY1']);
+  });
+
+  test('δεν θεωρεί αποκλεισμένη σύμβαση ως τμήμα εκτός κάρτας για ένταλμα χωρίς SYMV', () => {
+    const project = {
+      khmdhsAdam: '25SYMV016948065',
+      khmdhsContractSnapshot: { referenceNumber: '25SYMV016948065' },
+      khmdhsRequestAdam: '25REQ016832258',
+      khmdhsAdamChainMeta: {
+        linkedAdams: {
+          requests: ['24REQ015252599'],
+          contracts: ['25SYMV016948065', '24SYMV099999999'],
+        },
+        requestSnapshotsByAdam: {
+          '24REQ015252599': { referenceNumber: '24REQ015252599' },
+        },
+      },
+      khmdhsSymvChainPlan: {
+        items: [
+          { adam: '25SYMV016948065', role: 'main' },
+          { adam: '24SYMV099999999', role: 'skip' },
+        ],
+      },
+    };
+    const kept = filterUnrelatedPayments([
+      { adam: '24PAY10', snapshot: { requestRefNo: '24REQ015252599' } },
+    ], project).map((p) => p.adam);
+    expect(kept).toEqual(['24PAY10']);
+  });
 });

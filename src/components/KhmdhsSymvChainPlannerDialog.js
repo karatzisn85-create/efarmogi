@@ -530,6 +530,15 @@ export default function KhmdhsSymvChainPlannerDialog({
   const bodyScrollRef = useRef(null);
 
   useEffect(() => {
+    if (!isOpen || !docs.length) return undefined;
+    const ipcRenderer = window.electronAPI;
+    if (!ipcRenderer?.invoke) return undefined;
+    const adams = docs.map((d) => d.adam).filter(Boolean);
+    ipcRenderer.invoke('prefetch-khmdhs-act-pdfs', { adams }).catch(() => {});
+    return undefined;
+  }, [isOpen, docs]);
+
+  useEffect(() => {
     if (!isOpen || !chainRes) return;
     setPlan((prev) => {
       if (prev?.items?.length && symvPlanMatchesChain(prev, chainRes)) return prev;
@@ -648,7 +657,7 @@ export default function KhmdhsSymvChainPlannerDialog({
         <Body ref={bodyScrollRef} data-khmdhs-symv-planner-scroll>
           <Intro>
             Για κάθε ΑΔΑΜ επιλέξτε ρόλο. Χρησιμοποιήστε <strong>«Προβολή εγγράφου»</strong> για
-            να δείτε το PDF στον browser πριν αποφασίσετε. Για έγγραφα που δεν είναι σύμβαση αλλά
+            να ανοίξετε το PDF πριν αποφασίσετε. Για έγγραφα που δεν είναι σύμβαση αλλά
             ανήκουν στη ροή (π.χ. απόφαση, διακήρυξη), επιλέξτε
             <strong> «Ενδιάμεσος κρίκος»</strong> — η ημερομηνία εγγράφου καθορίζει τη θέση στην αλυσίδα.
             <br />
@@ -706,7 +715,8 @@ export default function KhmdhsSymvChainPlannerDialog({
                       type="button"
                       disabled={isViewing}
                       onClick={() => handleViewDocument(doc.adam, doc.title)}
-                      title="Άνοιγμα PDF στον browser"
+                      data-testid={`khmdhs-symv-view-${doc.adam}`}
+                      title="Άνοιγμα PDF"
                     >
                       <span aria-hidden>{isViewing ? '⏳' : '👁'}</span>
                       {isViewing ? 'Φόρτωση…' : 'Προβολή εγγράφου'}

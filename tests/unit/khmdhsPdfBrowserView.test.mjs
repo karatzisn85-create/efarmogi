@@ -22,3 +22,16 @@ test('πύλη ΚΗΜΔΗΣ έχει URL με τον ΑΔΑΜ — δεν χρη�
   assert.match(url, /upgkimdis\/unprotected\/home\.xhtml/);
   assert.match(url, /referenceNumber=24SYMV015882030/);
 });
+
+test('προετοιμασία PDF αγνοεί άκυρους κωδικούς χωρίς να καλεί το ΚΗΜΔΗΣ', async () => {
+  const out = await pdf.prefetchKhmdhsPdfs(['', 'όχι-αδαμ', null, 'bad']);
+  assert.equal(out.success, true);
+  assert.equal(out.queued, 0);
+  assert.equal(out.ready, 0);
+});
+
+test('χωρίς ΑΔΑΜ η προβολή αποτυγχάνει πριν ανοίξει αρχείο', async () => {
+  const out = await pdf.openKhmdhsPdfInBrowser('');
+  assert.equal(out.success, false);
+  assert.match(String(out.error || ''), /ΑΔΑΜ/);
+});

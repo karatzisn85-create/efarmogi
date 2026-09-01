@@ -32,6 +32,7 @@ const {
   invalidateProjectsIndex,
   loadProjectsViaIndex,
   findIndexedSubprojectPath,
+  jsonFileBelongsToSubproject,
   MTIME_TOLERANCE_MS,
   MISSING_CHECK_TTL_MS,
   writeProjectsIndex,
@@ -302,6 +303,19 @@ describe('projectsIndex', () => {
     expect(findIndexedSubprojectPath(dataDir, SUB_1)).toContain('data.json');
     invalidateProjectsIndex(dataDir);
     expect(readProjectsIndex(dataDir)).toBeNull();
+  });
+
+  test('jsonFileBelongsToSubproject απορρίπτει αρχείο άλλου υποέργου', () => {
+    writeSubproject(dataDir, PROJECT_B, SUB_9, {
+      projectId: PROJECT_B,
+      subprojectId: SUB_9,
+      projectTitle: 'Έργο Β',
+      subprojectTitle: 'Υποέργο 9',
+    });
+    const own = path.join(dataDir, PROJECT_A, SUB_1, 'data.json');
+    const other = path.join(dataDir, PROJECT_B, SUB_9, 'data.json');
+    expect(jsonFileBelongsToSubproject(own, SUB_1)).toBe(true);
+    expect(jsonFileBelongsToSubproject(other, SUB_1)).toBe(false);
   });
 
   test('αρνητικός έλεγχος ελλείψεων μπαίνει σε TTL — αποφεύγει επαναλαμβανόμενο readdir', () => {

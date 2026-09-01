@@ -28,18 +28,24 @@ import {
 
 export const KHMDHS_REGISTRY_REPORT_PREFIX = 'Νέο έγγραφο ΚΗΜΔΗΣ στο μητρώο:';
 export const KHMDHS_REGISTRY_REPORT_PREFIX_LEGACY = 'Νέο έγγραφο στα Αρχεία Υποέργου:';
+export const KHMDHS_REGISTRY_REMOVED_PREFIX = 'Αφαιρέθηκε έγγραφο ΚΗΜΔΗΣ από τα Αρχεία:';
 
 const KHMDHS_REGISTRY_REPORT_PREFIXES = [
   KHMDHS_REGISTRY_REPORT_PREFIX,
   KHMDHS_REGISTRY_REPORT_PREFIX_LEGACY,
 ];
 
-/** Χωρίζει γραμμές αναφοράς σε μητρώο / υπόλοιπες — και παλιό και νέο πρόθεμα. */
+/** Χωρίζει γραμμές αναφοράς σε μητρώο / αφαιρέσεις / υπόλοιπες — και παλιό και νέο πρόθεμα. */
 export function splitKhmdhsRegistryChangeLines(changeLines) {
   const other = [];
   const registry = [];
-  (changeLines || []).forEach((line) => {
+  const removed = [];
+  (Array.isArray(changeLines) ? changeLines : []).forEach((line) => {
     const text = String(line || '');
+    if (text.startsWith(KHMDHS_REGISTRY_REMOVED_PREFIX)) {
+      removed.push(text.slice(KHMDHS_REGISTRY_REMOVED_PREFIX.length).trim());
+      return;
+    }
     const prefix = KHMDHS_REGISTRY_REPORT_PREFIXES.find((p) => text.startsWith(p));
     if (prefix) {
       registry.push(text.slice(prefix.length).trim());
@@ -47,7 +53,7 @@ export function splitKhmdhsRegistryChangeLines(changeLines) {
       other.push(line);
     }
   });
-  return { other, registry };
+  return { other, registry, removed };
 }
 
 export const KHMDHS_FRESHNESS_YELLOW_DAYS = 30;
@@ -717,6 +723,11 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
       .filter((e) => e?.adam)
       .map((e) => [String(e.adam).toUpperCase(), e])
   );
+  const afterRegistryByAdam = new Map(
+    (after?.khmdhsDocumentRegistry || [])
+      .filter((e) => e?.adam)
+      .map((e) => [String(e.adam).toUpperCase(), e])
+  );
   (after?.khmdhsDocumentRegistry || []).forEach((entry) => {
     const adam = String(entry?.adam || '').toUpperCase();
     if (!adam || beforeRegistryByAdam.has(adam)) return;
@@ -728,6 +739,19 @@ export function buildKhmdhsRefreshChangeReport(before, after, applyResult = {}, 
       title
         ? `${KHMDHS_REGISTRY_REPORT_PREFIX} ${adam} — ${title}`
         : `${KHMDHS_REGISTRY_REPORT_PREFIX} ${adam}`
+    );
+  });
+  (before?.khmdhsDocumentRegistry || []).forEach((entry) => {
+    const adam = String(entry?.adam || '').toUpperCase();
+    if (!adam || afterRegistryByAdam.has(adam)) return;
+    if (entry?.isRelated || entry?.stage === 'RELATED' || entry?.stage === 'APE') return;
+    if (String(entry?.source || '').toLowerCase() === 'diavgeia') return;
+    if (String(entry?.type || '').toUpperCase() === 'DIAV') return;
+    const title = String(entry?.title || entry?.documentTitle || '').trim();
+    appliedLines.push(
+      title
+        ? `${KHMDHS_REGISTRY_REMOVED_PREFIX} ${adam} — ${title}`
+        : `${KHMDHS_REGISTRY_REMOVED_PREFIX} ${adam}`
     );
   });
 

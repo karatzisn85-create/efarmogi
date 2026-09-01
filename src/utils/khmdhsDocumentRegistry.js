@@ -67,6 +67,40 @@ function dropCancelledRegistryEntries(entries, cancelledSet) {
   });
 }
 
+function isProtectedFromRefreshPrune(entry) {
+  if (!entry) return false;
+  if (entry.isRelated || entry.stage === 'RELATED') return true;
+  // ΑΠΕ και χειροκίνητες παρατάσεις (Διαύγεια) δεν προέρχονται από την αλυσίδα ΚΗΜΔΗΣ.
+  if (entry.stage === 'APE') return true;
+  if (String(entry.source || '').toLowerCase() === 'diavgeia') return true;
+  if (String(entry.type || '').toUpperCase() === 'DIAV') return true;
+  const linkKey = String(entry.apeLinkKey || '');
+  return linkKey.startsWith('ape:') || linkKey.startsWith('ext:');
+}
+
+function knownAdamsFromCandidates(candidates) {
+  const set = new Set();
+  (candidates || []).forEach((c) => {
+    const adam = normalizeAdam(c?.adam);
+    if (adam) set.add(adam);
+  });
+  return set;
+}
+
+/** Κρατά καταγραφές της τρέχουσας αλυσίδας· πετάει ΑΔΑΜ που δεν της ανήκουν (π.χ. διαρροή άλλου υποέργου). */
+export function pruneDocumentRegistryToKnownAdams(existing, knownAdams) {
+  const allowed = knownAdams instanceof Set
+    ? knownAdams
+    : new Set([...(knownAdams || [])].map((a) => normalizeAdam(a)).filter(Boolean));
+  if (!allowed.size) return Array.isArray(existing) ? existing : [];
+  return (Array.isArray(existing) ? existing : []).filter((e) => {
+    if (isProtectedFromRefreshPrune(e)) return true;
+    const adam = normalizeAdam(e?.adam);
+    if (!adam) return true;
+    return allowed.has(adam);
+  });
+}
+
 function adamTypeCode(adam) {
   const m = /^(\d{2})([A-Z]{3,4})(\d{9})$/i.exec(normalizeAdam(adam));
   return m ? m[2].toUpperCase() : '';
@@ -297,6 +331,27 @@ function entryFromPayment(block, amountLookup = null) {
   });
 }
 
+function projectWithChainMetaForPayments(project, chainRes) {
+  if (!project) return project;
+  const inc = chainRes?.chainMeta;
+  if (!inc) return project;
+  const prev = project.khmdhsAdamChainMeta || {};
+  const prevLinked = prev.linkedAdams || {};
+  const incLinked = inc.linkedAdams || {};
+  return {
+    ...project,
+    khmdhsAdamChainMeta: {
+      ...prev,
+      ...inc,
+      linkedAdams: { ...prevLinked, ...incLinked },
+      parallelContracts: [...new Set([
+        ...(Array.isArray(prev.parallelContracts) ? prev.parallelContracts : []),
+        ...(Array.isArray(inc.parallelContracts) ? inc.parallelContracts : []),
+      ].filter(Boolean))],
+    },
+  };
+}
+
 function addLinkedAdamStubs(chainRes, map) {
   const linked = chainRes?.chainMeta?.linkedAdams || {};
   // Δημοσιεύσεις (PROC) της αλυσίδας πέρα από την «κύρια» — π.χ. Τεύχη Δημοπράτησης
@@ -304,17 +359,11 @@ function addLinkedAdamStubs(chainRes, map) {
   // ανακτηθεί πλήρη στοιχεία τους, τα χρησιμοποιούμε για πραγματικό τίτλο αντί για γυμνό ΑΔΑΜ.
   const noticeSnapshotsByAdam = chainRes?.chainMeta?.noticeSnapshotsByAdam || {};
   const requestSnapshotsByAdam = chainRes?.chainMeta?.requestSnapshotsByAdam || {};
-  const hasContractChainHistory = (chainRes.contractChainHistory || []).length > 0;
   const groups = [
     { key: 'requests', stage: 'REQ', type: 'REQ' },
-    { key: 'approvedRequests', stage: 'COMMIT', type: 'COMMIT' },
-    { key: 'budgetCommitments', stage: 'COMMIT', type: 'COMMIT' },
     { key: 'notices', stage: 'PROC', type: 'PROC' },
-    { key: 'auctions', stage: 'AWRD', type: 'AWRD' },
-    { key: 'contracts', stage: 'SYMV', type: 'SYMV' },
   ];
   groups.forEach(({ key, stage, type }) => {
-    if (key === 'contracts' && hasContractChainHistory) return;
     (linked[key] || []).forEach((adamRaw) => {
       const adam = normalizeAdam(adamRaw);
       if (!adam || map.has(adam)) return;
@@ -401,7 +450,7 @@ export function collectKhmdhsRegistryCandidatesFromChainRes(chainRes, review = n
 
   const paymentRows = Array.isArray(chainRes.payments) ? chainRes.payments : [];
   const paymentsForRegistry = project
-    ? filterUnrelatedPayments(paymentRows, project)
+    ? filterUnrelatedPayments(paymentRows, projectWithChainMetaForPayments(project, chainRes))
     : paymentRows;
   paymentsForRegistry.forEach((p) => {
     const adam = normalizeAdam(p?.adam || p?.snapshot?.referenceNumber);
@@ -561,15 +610,19 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
     const adam = normalizeAdam(adamRaw);
     if (adam && snap) pushUnique(map, entryFromNotice({ adam, snapshot: snap }));
   });
+  const ownAward = normalizeAdam(project.khmdhsAwardAdam);
   (linked.auctions || []).forEach((adamRaw) => {
     const adam = normalizeAdam(adamRaw);
     if (!adam || map.has(adam)) return;
+    if (!ownAward || adam !== ownAward) return;
     const snap = awardSnaps[adam];
     if (snap) pushUnique(map, entryFromAward({ adam, snapshot: snap }));
   });
   Object.entries(awardSnaps).forEach(([adamRaw, snap]) => {
     const adam = normalizeAdam(adamRaw);
-    if (adam && snap) pushUnique(map, entryFromAward({ adam, snapshot: snap }));
+    if (!adam || !snap) return;
+    if (!ownAward || adam !== ownAward) return;
+    pushUnique(map, entryFromAward({ adam, snapshot: snap }));
   });
 
   const allDisplayEntries = getKhmdhsDisplayEntries(project);
@@ -1116,10 +1169,17 @@ export function mergeRegistryCandidateLists(...lists) {
 /**
  * Αυτόματη ενημέρωση μητρώου εγγράφων από αποτέλεσμα(τα) αλυσίδας:
  * - ανανέωση τίτλων υπαρχόντων
- * - προσθήκη νέων πλήρων εγγραφών (όχι γυμνά stubs)
- * Χρησιμοποιείται στην ανανέωση κάρτας και στη χειροκίνητη ανάκτηση (διατήρηση).
+ * - προσθήκη νέων πλήρων εγγραφών (όχι γυμνά stubs), εκτός αν addNew=false
+ *   (χειροκίνητη ανάκτηση: τα νέα μπαίνουν μόνο με «Καταγραφή»)
+ * - αφαίρεση ΑΔΑΜ που δεν ανήκουν στην τρέχουσα αλυσίδα/κάρτα (pruneUnknown, προεπιλογή μαζί με addNew)
+ * Χρησιμοποιείται στην ανανέωση κάρτας / μαζική ανανέωση και στη χειροκίνητη ανάκτηση (διατήρηση).
  */
-export function applyAutoDocumentRegistryFromChain(project, chainResList, { nowIso } = {}) {
+export function applyAutoDocumentRegistryFromChain(project, chainResList, {
+  nowIso,
+  addNew = true,
+  pruneUnknown,
+} = {}) {
+  const shouldPrune = pruneUnknown !== undefined ? pruneUnknown : addNew;
   let chainRegistryCandidates = [];
   (Array.isArray(chainResList) ? chainResList : []).forEach((cr) => {
     if (!cr) return;
@@ -1144,7 +1204,11 @@ export function applyAutoDocumentRegistryFromChain(project, chainResList, { nowI
   const freshFiltered = dropCancelledRegistryEntries(freshRegistryCandidates, cancelledSet);
   if (!freshFiltered.length) return existing;
 
-  const resyncedRegistry = resyncRegistryEntryTitles(existing, freshFiltered);
+  const existingForResync = shouldPrune
+    ? pruneDocumentRegistryToKnownAdams(existing, knownAdamsFromCandidates(freshFiltered))
+    : existing;
+  const resyncedRegistry = resyncRegistryEntryTitles(existingForResync, freshFiltered);
+  if (!addNew) return resyncedRegistry;
   const newRegistryCandidates = freshFiltered.filter(
     (c) => !c.isStub && !registryEntryIsAlreadyRecorded(c, resyncedRegistry)
   );
@@ -1184,6 +1248,23 @@ export function buildRegistryModalPayloadAfterReview(project, chainFetchedAt = '
     existing,
     chainFetchedAt: chainFetchedAt || new Date().toISOString(),
   };
+}
+
+/**
+ * Ποια αποτελέσματα ανάκτησης μπαίνουν στα Αρχεία.
+ * Μέσα στο ίδιο υποέργο η συρραφή κρατά όλες τις ανακτήσεις της συνεδρίας.
+ * Άλλο υποέργο ή ρητό καθάρισμα → μόνο η τρέχουσα ανάκτηση, αλλιώς τα έγγραφα
+ * του προηγούμενου υποέργου «κολλάνε» στα Αρχεία ενώ η αλυσίδα φαίνεται σωστή.
+ */
+export function resolveKhmdhsRegistryChainResList(previousList, incomingRes, options) {
+  const opts = options || {};
+  if (!incomingRes) {
+    if (opts.resetSession || opts.clearBefore) return [];
+    return Array.isArray(previousList) ? previousList.filter(Boolean) : [];
+  }
+  if (opts.resetSession || opts.clearBefore) return [incomingRes];
+  const prev = Array.isArray(previousList) ? previousList.filter(Boolean) : [];
+  return prev.concat([incomingRes]);
 }
 
 export function shouldOfferRegistryAfterReview(project, {

@@ -1469,11 +1469,16 @@ function ReportItemCard({
     && (allLines.length === 1 && allLines[0] === KHMDHS_REFRESH_REPORT_NO_CHANGES);
 
   const appliedSplit = splitBatchChangeLines(appliedLines);
+  const removedLines = appliedSplit.removed || [];
   const registryPreviewLimit = 8;
   const registryVisible = showAllRegistry
     ? appliedSplit.registry
     : appliedSplit.registry.slice(0, registryPreviewLimit);
   const hasMoreRegistry = appliedSplit.registry.length > registryPreviewLimit;
+  const removedVisible = showAllRegistry
+    ? removedLines
+    : removedLines.slice(0, registryPreviewLimit);
+  const hasMoreRemoved = removedLines.length > registryPreviewLimit;
 
   return (
     <DetailCard $border={border} $bg={bg}>
@@ -1506,7 +1511,7 @@ function ReportItemCard({
             </>
           )}
 
-          {!isUnchanged && (appliedSplit.other.length > 0 || appliedSplit.registry.length > 0) && (
+          {!isUnchanged && (appliedSplit.other.length > 0 || appliedSplit.registry.length > 0 || removedLines.length > 0) && (
             <>
               <ChangeGroupLabel>Τι προστέθηκε ή άλλαξε</ChangeGroupLabel>
               {appliedSplit.other.map((line, idx) => (
@@ -1535,6 +1540,35 @@ function ReportItemCard({
                     {!showAllRegistry && hasMoreRegistry && (
                       <li style={{ listStyle: 'none', marginLeft: '-1rem', color: '#64748b', fontWeight: 600 }}>
                         …και άλλα {appliedSplit.registry.length - registryPreviewLimit}. Κλικ για πλήρη λίστα.
+                      </li>
+                    )}
+                  </RegistryList>
+                </RegistryBlock>
+              )}
+              {removedLines.length > 0 && (
+                <RegistryBlock>
+                  <RegistryToggle
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (hasMoreRemoved) setShowAllRegistry((v) => !v);
+                    }}
+                    style={{ cursor: hasMoreRemoved ? 'pointer' : 'default' }}
+                  >
+                    <span>
+                      {removedLines.length} αφαιρέθηκ
+                      {removedLines.length === 1 ? 'ε' : 'αν'} από τα Αρχεία Υποέργου
+                      {' '}(δεν ανήκουν σε αυτή την αλυσίδα)
+                    </span>
+                    {hasMoreRemoved && <span>{showAllRegistry ? '▲' : '▼'}</span>}
+                  </RegistryToggle>
+                  <RegistryList>
+                    {removedVisible.map((line, i) => (
+                      <li key={`rm-${i}`}>{line}</li>
+                    ))}
+                    {!showAllRegistry && hasMoreRemoved && (
+                      <li style={{ listStyle: 'none', marginLeft: '-1rem', color: '#64748b', fontWeight: 600 }}>
+                        …και άλλα {removedLines.length - registryPreviewLimit}. Κλικ για πλήρη λίστα.
                       </li>
                     )}
                   </RegistryList>

@@ -161,6 +161,46 @@ describe('applyAdamChainResult payments merge', () => {
     expect(adams).toContain('24PAY000000010');
     expect(adams).not.toContain('24PAY099999999');
   });
+
+  test('κόβει ένταλμα χωρίς SYMV όταν υπάρχουν παράλληλες συμβάσεις εκτός κάρτας', () => {
+    const prev = {
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: 'Έργο',
+      khmdhsAdam: '25SYMV016948065',
+      khmdhsContractSnapshot: { referenceNumber: '25SYMV016948065' },
+      khmdhsRequestAdam: '25REQ016832258',
+    };
+    const chainRes = {
+      success: true,
+      contract: {
+        adam: '25SYMV016948065',
+        snapshot: { referenceNumber: '25SYMV016948065' },
+        fetchedAt: '2026-08-01T00:00:00.000Z',
+        formFields: {},
+      },
+      chainMeta: {
+        parallelContracts: ['25SYMV016948065', '25SYMV099999999'],
+        linkedAdams: { contracts: ['25SYMV016948065', '25SYMV099999999'] },
+      },
+      payments: [
+        {
+          adam: '25PAY000000001',
+          snapshot: { referenceNumber: '25PAY000000001', contractRefNo: '25SYMV016948065' },
+        },
+        {
+          adam: '25PAY000000099',
+          snapshot: { referenceNumber: '25PAY000000099', requestRefNo: '25REQ016832258' },
+        },
+      ],
+    };
+    const { form } = applyAdamChainResult(prev, chainRes, {
+      seedAdam: '25SYMV016948065',
+      applyMode: 'stitch',
+    });
+    const adams = (form.khmdhsPayments || []).map((p) => p.adam);
+    expect(adams).toContain('25PAY000000001');
+    expect(adams).not.toContain('25PAY000000099');
+  });
 });
 
 describe('mergeSharedKhmdhsFromChain', () => {

@@ -141,13 +141,18 @@ export default function KhmdhsChainRefreshDialog({
   changeLines = [],
 }) {
   const [showAllRegistry, setShowAllRegistry] = useState(false);
-  const { other, registry } = useMemo(() => splitKhmdhsRegistryChangeLines(changeLines), [changeLines]);
+  const { other, registry, removed = [] } = useMemo(
+    () => splitKhmdhsRegistryChangeLines(changeLines),
+    [changeLines]
+  );
 
   if (!isOpen) return null;
 
   const registryPreviewLimit = 5;
   const registryVisible = showAllRegistry ? registry : registry.slice(0, registryPreviewLimit);
   const hasMoreRegistry = registry.length > registryPreviewLimit;
+  const removedVisible = showAllRegistry ? removed : removed.slice(0, registryPreviewLimit);
+  const hasMoreRemoved = removed.length > registryPreviewLimit;
 
   return (
     <Overlay onClick={onClose}>
@@ -206,7 +211,34 @@ export default function KhmdhsChainRefreshDialog({
             </RegistryBlock>
           )}
 
-          {!other.length && !registry.length && (
+          {removed.length > 0 && (
+            <RegistryBlock>
+              <RegistryToggle
+                type="button"
+                onClick={() => hasMoreRemoved && setShowAllRegistry((v) => !v)}
+                style={{ cursor: hasMoreRemoved ? 'pointer' : 'default' }}
+              >
+                <span>
+                  {removed.length} έγγραφ{removed.length === 1 ? 'ο' : 'α'} θα αφαιρεθ
+                  {removed.length === 1 ? 'εί' : 'ούν'} από τα Αρχεία Υποέργου
+                  {' '}(δεν ανήκουν σε αυτή την αλυσίδα)
+                </span>
+                {hasMoreRemoved && <span>{showAllRegistry ? '▲' : '▼'}</span>}
+              </RegistryToggle>
+              <RegistryList>
+                {removedVisible.map((line, i) => (
+                  <li key={`rm-${i}`}>{line}</li>
+                ))}
+                {!showAllRegistry && hasMoreRemoved && (
+                  <li style={{ listStyle: 'none', marginLeft: '-1rem', color: '#64748b', fontWeight: 600 }}>
+                    …και άλλα {removed.length - registryPreviewLimit}. Κλικ επάνω για πλήρη λίστα.
+                  </li>
+                )}
+              </RegistryList>
+            </RegistryBlock>
+          )}
+
+          {!other.length && !registry.length && !removed.length && (
             <Sub>Δεν εντοπίστηκαν ουσιώδεις διαφορές.</Sub>
           )}
         </Body>
