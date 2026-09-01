@@ -5,6 +5,7 @@ import {
   KHMDHS_IDLE_SHUTDOWN_DELAY_SEC,
   KHMDHS_IDLE_SHUTDOWN_OS_DELAY_SEC,
   KHMDHS_IDLE_SHUTDOWN_COMMENT,
+  KHMDHS_SHUTDOWN_RETRY_MAX_ROUNDS,
   buildKhmdhsIdleShutdownAbortArgv,
   buildKhmdhsIdleShutdownArgv,
   clampKhmdhsIdleShutdownDelaySec,
@@ -17,6 +18,7 @@ describe('khmdhsIdleShutdownPlan', () => {
     expect(KHMDHS_IDLE_SHUTDOWN_DELAY_SEC).toBe(60);
     expect(KHMDHS_IDLE_SHUTDOWN_OS_DELAY_SEC).toBe(75);
     expect(KHMDHS_IDLE_SHUTDOWN_OS_DELAY_SEC).toBeGreaterThan(KHMDHS_IDLE_SHUTDOWN_DELAY_SEC);
+    expect(KHMDHS_SHUTDOWN_RETRY_MAX_ROUNDS).toBeGreaterThan(1);
   });
 
   test('σβήνει μόνο μετά από πέρασμα που ζητήθηκε φεύγοντας και είχε επιτυχίες', () => {
@@ -25,6 +27,21 @@ describe('khmdhsIdleShutdownPlan', () => {
       isRetry: false,
       cancelled: false,
       refreshedCount: 1,
+    })).toBe(true);
+  });
+
+  test('δεν σβήνει όσο μένουν αποτυχίες προς επανάληψη', () => {
+    expect(shouldCommitKhmdhsIdleShutdown({
+      shutdownAfter: true,
+      isRetry: false,
+      cancelled: false,
+      refreshedCount: 12,
+      remainingRetryCount: 3,
+    })).toBe(false);
+    expect(shouldCommitKhmdhsIdleShutdown({
+      shutdownAfter: true,
+      refreshedCount: 12,
+      remainingRetryCount: 0,
     })).toBe(true);
   });
 

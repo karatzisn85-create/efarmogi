@@ -33,6 +33,7 @@ import {
 import { showConfirm } from '../utils/confirmModal';
 import {
   KHMDHS_IDLE_SHUTDOWN_DELAY_SEC,
+  KHMDHS_SHUTDOWN_RETRY_MAX_ROUNDS,
   shouldCommitKhmdhsIdleShutdown,
 } from '../utils/khmdhsIdleShutdownPlan';
 import {
@@ -2382,6 +2383,7 @@ export default function KhmdhsBatchRefreshWidget({
 
     let idleArmed = false;
     let refreshedForShutdown = 0;
+    let lastToast = null;
     if (shutdownAfter) {
       try {
         const armRes = await ipcRenderer.invoke('arm-khmdhs-idle-shutdown', {
@@ -2550,13 +2552,15 @@ export default function KhmdhsBatchRefreshWidget({
       }
 
       const isRetryRun = !!retryItems;
-      const maxRounds = isRetryRun ? KHMDHS_RETRY_MAX_ROUNDS : 1;
+      const autoRetryUntilClear = shutdownAfter && !isRetryRun;
+      const maxRounds = isRetryRun
+        ? KHMDHS_RETRY_MAX_ROUNDS
+        : (autoRetryUntilClear ? KHMDHS_SHUTDOWN_RETRY_MAX_ROUNDS : 1);
       const sessionLatest = new Map();
       let queue = eligible;
-      let lastToast = null;
 
       const publishRetryLive = (payload) => {
-        if (!isRetryRun || typeof onRetryLiveChange !== 'function') return;
+        if ((!isRetryRun && !autoRetryUntilClear) || typeof onRetryLiveChange !== 'function') return;
         onRetryLiveChange(payload);
       };
 
@@ -2607,6 +2611,7 @@ export default function KhmdhsBatchRefreshWidget({
 
         eligible = queue;
         const total = eligible.length;
+        liveIsRetryRef.current = isRetryRun || (autoRetryUntilClear && round > 0);
         let refreshed = 0;
         let needsIntervention = 0;
         let failed = 0;
@@ -2623,19 +2628,27 @@ export default function KhmdhsBatchRefreshWidget({
           stepMessage: `Έναρξη — ${total} υποέργα`,
           reset: !isRetryRun && round === 0,
         });
-        if (round === 0 && !isRetryRun) {
+        if (round === 0 && !isRetryRun && !autoRetryUntilClear) {
           addLog(
             '🔍',
             scope === 'stale'
               ? `Θα ανανεωθούν ${total} παλαιά υποέργα (>${STALE_BATCH_DAYS} ημ. ή χωρίς ανανέωση)`
               : `Θα ανανεωθούν όλα τα ${total} επιλέξιμα υποέργα`
           );
-        } else if (isRetryRun) {
+        } else if (round === 0 && autoRetryUntilClear) {
+          addLog(
+            '🔍',
+            (scope === 'stale'
+              ? `Θα ανανεωθούν ${total} παλαιά υποέργα (>${STALE_BATCH_DAYS} ημ. ή χωρίς ανανέωση)`
+              : `Θα ανανεωθούν όλα τα ${total} επιλέξιμα υποέργα`)
+            + ' — όσα αποτύχουν θα ξανατρέξουν μέχρι να πετύχουν, πριν σβήσει ο υπολογιστής'
+          );
+        } else if (isRetryRun || autoRetryUntilClear) {
           addLog(
             '🔁',
             round === 0
               ? `Ξανατρέχουμε μόνο ${total} υποέργα που δεν ολοκληρώθηκαν`
-              : `Προσπάθεια ${round + 1} από ${maxRounds} — ${total} υποέργα`
+              : `Προσπάθεια ${round + 1} από ${maxRounds} — ${total} υποέργα που απέτυχαν`
           );
         }
 
@@ -3002,7 +3015,9 @@ export default function KhmdhsBatchRefreshWidget({
           });
         }
 
-        await new Promise((r) => setTimeout(r, isRetryRun ? KHMDHS_RETRY_ITEM_GAP_MS : 300));
+        await new Promise((r) => setTimeout(r, (isRetryRun || (autoRetryUntilClear && round > 0))
+          ? KHMDHS_RETRY_ITEM_GAP_MS
+          : 300));
       }
 
       // Ό,τι δεν προλάβαμε (ακύρωση ή διακοπή) μένει για συνέχιση με την «Επανάληψη»,
@@ -3033,19 +3048,21 @@ export default function KhmdhsBatchRefreshWidget({
         if (entry?.id) sessionLatest.set(entry.id, entry);
       }
 
-      const resultItems = isRetryRun ? [...sessionLatest.values()] : detailItems;
+      const resultItems = (isRetryRun || autoRetryUntilClear)
+        ? [...sessionLatest.values()]
+        : detailItems;
       const batchResults = {
-        refreshed: isRetryRun
+        refreshed: (isRetryRun || autoRetryUntilClear)
           ? resultItems.filter((i) => i.status === 'refreshed').length
           : refreshed,
-        needsIntervention: isRetryRun
+        needsIntervention: (isRetryRun || autoRetryUntilClear)
           ? resultItems.filter((i) => i.status === 'intervened').length
           : needsIntervention,
-        failed: isRetryRun
+        failed: (isRetryRun || autoRetryUntilClear)
           ? resultItems.filter((i) => i.status === 'failed').length
           : failed,
         skipped: isRetryRun ? 0 : skippedItems.length,
-        interventionItems: isRetryRun
+        interventionItems: (isRetryRun || autoRetryUntilClear)
           ? resultItems
             .filter((i) => i.status === 'intervened' && i.id)
             .map((i) => ({ id: i.id, label: i.label }))
@@ -3070,17 +3087,19 @@ export default function KhmdhsBatchRefreshWidget({
       lastToast = {
         isRetryRun,
         cancelled: !!cancelRef.current,
-        refreshed: isRetryRun ? resultItems.filter((i) => i.status === 'refreshed').length : refreshed,
+        refreshed: (isRetryRun || autoRetryUntilClear)
+          ? resultItems.filter((i) => i.status === 'refreshed').length
+          : refreshed,
         needsIntervention: batchResults.needsIntervention,
         failed: batchResults.failed,
         lockedCount,
         pendingCount,
         total,
-        remaining: pickKhmdhsBatchRetryCandidates(detailItems).length,
+        remaining: pickKhmdhsBatchRetryCandidates(resultItems).length,
       };
 
-      queue = pickKhmdhsBatchRetryCandidates(detailItems);
-      if (!isRetryRun) break;
+      queue = pickKhmdhsBatchRetryCandidates(resultItems);
+      if (!isRetryRun && !autoRetryUntilClear) break;
       }
 
       if (lastToast) {
@@ -3104,6 +3123,13 @@ export default function KhmdhsBatchRefreshWidget({
           showToast(
             `Η επανάληψη σταμάτησε με ${remaining} ακόμα εκκρεμή. Ξαναπατήστε «Επανάληψη» όταν το ΚΗΜΔΗΣ ηρεμήσει.` +
             (doneCount ? ` Ολοκληρώθηκαν ${doneCount}.` : ''),
+            'warning'
+          );
+        } else if (!wasRetry && remaining > 0) {
+          showToast(
+            `Κάποια υποέργα δεν ανανεώθηκαν (${remaining}). Ο υπολογιστής μένει ανοιχτός.` +
+            (doneCount ? ` Ενημερώθηκαν ${doneCount}.` : '') +
+            ' Δείτε την αναφορά και πατήστε «Επανάληψη» όταν το ΚΗΜΔΗΣ ηρεμήσει.',
             'warning'
           );
         } else {
@@ -3148,6 +3174,7 @@ export default function KhmdhsBatchRefreshWidget({
           isRetry: !!retryItems,
           cancelled: !!cancelRef.current,
           refreshedCount: refreshedForShutdown,
+          remainingRetryCount: Number(lastToast?.remaining) || 0,
         });
         if (doCommit) {
           try {
@@ -3221,7 +3248,7 @@ export default function KhmdhsBatchRefreshWidget({
     const ok = await showConfirm({
       title: 'Ο υπολογιστής θα σβήσει μόνος του',
       message: 'Πρώτα αποθηκεύστε και κλείστε ό,τι άλλο έχετε ανοιχτό (Word, Excel κ.λπ.). Μετά επιβεβαιώστε και φύγετε. Μην πατήσετε το κουμπί λειτουργίας και μην κλείσετε τα Windows μόνοι σας.',
-      detail: 'Η ανανέωση θα τρέξει στον υπολογιστή. Όταν τελειώσει, σβήνει μόνος του — και ό,τι μείνει ανοιχτό κλείνει χωρίς αποθήκευση. Αν είστε ακόμα εδώ στο τέλος, έχετε ένα λεπτό να ακυρώσετε το σβήσιμο. Το πρωί ανοίγετε τον υπολογιστή, μπαίνετε στην εφαρμογή και βλέπετε την αναφορά.',
+      detail: 'Η ανανέωση θα τρέξει στον υπολογιστή. Αν κάποια υποέργα αποτύχουν, ξανατρέχουν μόνα τους μέχρι να πετύχουν. Μόνο τότε σβήνει ο υπολογιστής — και ό,τι μείνει ανοιχτό κλείνει χωρίς αποθήκευση. Αν είστε ακόμα εδώ στο τέλος, έχετε ένα λεπτό να ακυρώσετε το σβήσιμο. Το πρωί ανοίγετε τον υπολογιστή, μπαίνετε στην εφαρμογή και βλέπετε την αναφορά.',
       confirmLabel: 'Ξεκινήστε — σβήνει στο τέλος',
       cancelLabel: 'Άκυρο',
       danger: true,
@@ -3470,7 +3497,7 @@ export default function KhmdhsBatchRefreshWidget({
                   Εκκίνηση και σβήσιμο υπολογιστή
                 </ConfirmChoiceTitle>
                 <ConfirmChoiceHint>
-                  Αποθηκεύστε τα έγγραφά σας, πατήστε εδώ και φύγετε. Μην σβήσετε τον υπολογιστή από το κουμπί — θα σβήσει μόνος του όταν τελειώσει.
+                  Αποθηκεύστε τα έγγραφά σας, πατήστε εδώ και φύγετε. Αν κάποια αποτύχουν, ξανατρέχουν μέχρι να πετύχουν — τότε σβήνει μόνος του. Μην σβήσετε από το κουμπί.
                 </ConfirmChoiceHint>
               </ConfirmLeaveBtn>
             </ConfirmChoiceStack>

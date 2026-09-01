@@ -34,16 +34,24 @@ export function buildKhmdhsIdleShutdownAbortArgv() {
 }
 
 /**
- * Σβήσιμο μόνο μετά από κανονικό πέρασμα που ο χρήστης ζήτησε φεύγοντας
- * και ολοκληρώθηκε με τουλάχιστον μία επιτυχημένη ανανέωση.
- * Ακύρωση, επανάληψη, κενή λίστα ή όλες οι αποτυχίες δεν σβήνουν τον υπολογιστή.
+ * Σβήσιμο μόνο μετά από κανονικό πέρασμα που ο χρήστης ζήτησε φεύγοντας,
+ * ολοκληρώθηκε χωρίς ακύρωση, και δεν έμεινε αποτυχία / κλείδωμα / εκκρεμές fetch.
+ * Ακύρωση, χειροκίνητη επανάληψη, κενή λίστα ή εναπομείνασες αποτυχίες δεν σβήνουν τον υπολογιστή.
  */
 export function shouldCommitKhmdhsIdleShutdown({
   shutdownAfter = false,
   isRetry = false,
   cancelled = false,
   refreshedCount = 0,
+  remainingRetryCount = 0,
 } = {}) {
   if (!shutdownAfter || isRetry || cancelled) return false;
+  if (Number(remainingRetryCount) > 0) return false;
   return Number(refreshedCount) > 0;
 }
+
+/**
+ * Επιπλέον αυτόματα περάσματα όταν ο χρήστης ζήτησε σβήσιμο:
+ * ξανατρέχουν μόνο όσα απέτυχαν, μέχρι να αδειάσει η ουρά ή να εξαντληθούν τα περάσματα.
+ */
+export const KHMDHS_SHUTDOWN_RETRY_MAX_ROUNDS = 80;
