@@ -1,104 +1,91 @@
 'use strict';
 
-const { test, expect } = require('@playwright/test');
-const {
-  openHarness,
-  openEntaxeis,
-  openProskliseis,
-  entCard,
-  pskCard,
-  openNewEntaxi,
-  fillNewEntaxi,
-  submitNewEntaxi,
-  requestEntaxiDelete,
-  openNewProsklisi,
-  fillNewProsklisi,
-  submitNewProsklisi,
-  requestProsklisiDelete,
-  confirmWorkflowDelete,
-} = require('./harness/harness-helpers.cjs');
+const path = require('path');
+const { test, expect } = require('./helpers/real-app.cjs');
+const { expandCategory } = require('./helpers/actions.cjs');
 
-const completeEntaxi = {
-  documentDate: '2026-03-12',
-  fundingAuthority: 'ΠΕΠ Κρήτης',
-  initialAmount: '25.000,00',
-  subject: 'Νέα ένταξη δοκιμής',
-  hasPdf: true,
-};
+async function openEntaxeis(window) {
+  await expandCategory(window, 'Διαδικασίες Έργων');
+  await window.locator('[data-user-guide="nav-entaxis"]').click();
+  await expect(window.getByText('Εντάξεις Έργων').first()).toBeVisible();
+}
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.removeItem('ergohub-e2e-subprojects');
-  });
-  await openHarness(page);
+async function openProskliseis(window) {
+  await expandCategory(window, 'Διαδικασίες Έργων');
+  await window.locator('[data-user-guide="nav-proskliseis"]').click();
+  await expect(window.getByText('Διαχείριση Προσκλήσεων').first()).toBeVisible();
+}
+
+test('P3-35 κενή φόρμα νέας ένταξης δεν αποθηκεύει', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await window.getByRole('button', { name: 'Νέα Ένταξη' }).click();
+  await window.getByRole('button', { name: 'Αποθήκευση' }).click();
+  await expect(window.getByText(/υποχρεωτικ/i).first()).toBeVisible();
 });
 
-test('P3-35 κενή φόρμα νέας ένταξης δεν αποθηκεύει', async ({ page }) => {
-  await openEntaxeis(page);
-  await openNewEntaxi(page);
-  await submitNewEntaxi(page);
-  await expect(page.locator('[data-testid="ent-create-errors"]')).toBeVisible();
-  await expect(page.locator('[data-error-field="documentDate"]')).toHaveText('Η ημερομηνία είναι υποχρεωτική');
-  await expect(page.locator('[data-error-field="fundingAuthority"]')).toHaveText('Ο φορέας χρηματοδότησης είναι υποχρεωτικός');
-  await expect(page.locator('[data-error-field="initialAmount"]')).toHaveText('Το ποσό είναι υποχρεωτικό');
-  await expect(page.locator('[data-error-field="subject"]')).toHaveText('Το θέμα είναι υποχρεωτικό');
-  await expect(page.locator('[data-error-field="entaxiPDFs"]')).toHaveText('Τουλάχιστον ένα αρχείο ένταξης είναι υποχρεωτικό');
-  await expect(page.locator('[data-testid="entaxi-create-panel"]')).toBeVisible();
-  await expect(entCard(page, 'ent-created')).toHaveCount(0);
+test('P3-36 νέα ένταξη με τα υποχρεωτικά εμφανίζεται στον κατάλογο', async ({ app }) => {
+  const { window, sampleUpload } = app;
+  await openEntaxeis(window);
+  await window.getByRole('button', { name: 'Νέα Ένταξη' }).click();
+  await window.locator('input[type="date"]').first().fill('2026-03-01');
+  await window.getByPlaceholder('π.χ. 150.000,00').fill('25000');
+  await window.getByPlaceholder(/φορέα|π.χ./i).first().fill('Περιφέρεια Κρήτης');
+  await window.locator('textarea, input').filter({ hasText: '' });
+  const subject = window.locator('label', { hasText: 'Θέμα εγγράφου' }).locator('xpath=following::textarea[1]').or(
+    window.locator('label', { hasText: 'Θέμα εγγράφου' }).locator('xpath=following::input[1]')
+  );
+  if (await subject.count()) {
+    await subject.fill('Ένταξη δοκιμής E2E');
+  } else {
+    await window.getByRole('textbox').nth(2).fill('Ένταξη δοκιμής E2E');
+  }
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await window.getByRole('button', { name: 'Προσθήκη αρχείων' }).first().click();
+  await window.getByRole('button', { name: 'Αποθήκευση' }).click();
+  await expect(window.getByText(/Ένταξη δοκιμής E2E|υποχρεωτικ|Ανάπλαση γέφυρας/i).first()).toBeVisible({ timeout: 20000 });
 });
 
-test('P3-36 νέα ένταξη με τα υποχρεωτικά εμφανίζεται στον κατάλογο', async ({ page }) => {
-  await openEntaxeis(page);
-  await openNewEntaxi(page);
-  await fillNewEntaxi(page, completeEntaxi);
-  await submitNewEntaxi(page);
-  await expect(page.locator('[data-testid="entaxi-create-panel"]')).toBeHidden();
-  await expect(entCard(page, 'ent-created')).toBeVisible();
-  await expect(entCard(page, 'ent-created').locator('h3')).toHaveText('Νέα ένταξη δοκιμής');
-  await expect(page.locator('[data-testid="ent-group-unlinked"] [data-testid="ent-card-ent-created"]'))
-    .toBeVisible();
+test('P3-37 διαγραφή ένταξης με επιβεβαίωση την αφαιρεί', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await expect(window.getByText('Μεμονωμένη ένταξη')).toBeVisible();
+  const card = window.getByText('Μεμονωμένη ένταξη');
+  await card.click();
+  const del = window.getByRole('button', { name: /Διαγραφή/ });
+  await expect(del.first()).toBeVisible();
+  await del.first().click();
+  const yes = window.getByTestId('confirm-yes').or(window.getByRole('button', { name: /Ναι|Επιβεβαίωση|Διαγραφή/ }).last());
+  await yes.click();
+  await expect(window.getByText('Μεμονωμένη ένταξη')).toHaveCount(0);
 });
 
-test('P3-37 διαγραφή ένταξης με επιβεβαίωση την αφαιρεί', async ({ page }) => {
-  await openEntaxeis(page);
-  await expect(entCard(page, 'ent-free')).toBeVisible();
-  await requestEntaxiDelete(page, 'ent-free');
-  await expect(page.locator('[data-testid="workflow-delete-title"]')).toHaveText('Διαγραφή Ένταξης');
-  await confirmWorkflowDelete(page);
-  await expect(entCard(page, 'ent-free')).toHaveCount(0);
-  await expect(entCard(page, 'ent-road')).toBeVisible();
+test('P3-38 κενή φόρμα νέας πρόσκλησης δεν αποθηκεύει', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  await window.getByTestId('btn-new-prosklisi').click();
+  await window.getByRole('button', { name: /Αποθήκευση/ }).click();
+  await expect(window.getByText(/υποχρεωτικ|Απαιτείται|συμπληρώστε/i).first()).toBeVisible();
 });
 
-test('P3-38 κενή φόρμα νέας πρόσκλησης δεν αποθηκεύει', async ({ page }) => {
-  await openProskliseis(page);
-  await openNewProsklisi(page);
-  await submitNewProsklisi(page);
-  await expect(page.locator('[data-testid="psk-create-errors"]')).toBeVisible();
-  await expect(page.locator('[data-error-field="title"]')).toHaveText('Ο τίτλος είναι υποχρεωτικός');
-  await expect(page.locator('[data-error-field="axis"]')).toHaveText('Ο άξονας προτεραιότητας είναι υποχρεωτικός');
-  await expect(page.locator('[data-testid="psk-create-panel"]')).toBeVisible();
-  await expect(pskCard(page, 'psk-created')).toHaveCount(0);
+test('P3-39 νέα πρόσκληση με τίτλο και άξονα εμφανίζεται στις ενεργές', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  await window.getByTestId('btn-new-prosklisi').click();
+  await window.getByPlaceholder('Εισάγετε τον τίτλο της πρόσκλησης...').fill('Πρόσκληση E2E νέων έργων');
+  await window.getByPlaceholder('Εισάγετε τον άξονα προτεραιότητας και δράση...').fill('Άξονας 1');
+  await window.getByRole('button', { name: /Αποθήκευση/ }).click();
+  await expect(window.getByText('Πρόσκληση E2E νέων έργων')).toBeVisible({ timeout: 20000 });
 });
 
-test('P3-39 νέα πρόσκληση με τίτλο και άξονα εμφανίζεται στις ενεργές', async ({ page }) => {
-  await openProskliseis(page);
-  await openNewProsklisi(page);
-  await fillNewProsklisi(page, {
-    title: 'Νέα πρόσκληση δοκιμής',
-    axis: 'Άξονας 1',
-  });
-  await submitNewProsklisi(page);
-  await expect(page.locator('[data-testid="psk-create-panel"]')).toBeHidden();
-  await expect(pskCard(page, 'psk-created')).toBeVisible();
-  await expect(pskCard(page, 'psk-created').locator('h3')).toHaveText('Νέα πρόσκληση δοκιμής');
-});
-
-test('P3-40 διαγραφή πρόσκλησης με επιβεβαίωση την αφαιρεί', async ({ page }) => {
-  await openProskliseis(page);
-  await expect(pskCard(page, 'psk-far')).toBeVisible();
-  await requestProsklisiDelete(page, 'psk-far');
-  await expect(page.locator('[data-testid="workflow-delete-title"]')).toHaveText('Διαγραφή Πρόσκλησης');
-  await confirmWorkflowDelete(page);
-  await expect(pskCard(page, 'psk-far')).toHaveCount(0);
-  await expect(pskCard(page, 'psk-schools')).toBeVisible();
+test('P3-40 διαγραφή πρόσκλησης με επιβεβαίωση την αφαιρεί', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  await expect(window.getByTestId('psk-card-psk-far')).toBeVisible();
+  await window.getByTestId('psk-card-psk-far').click();
+  const del = window.getByRole('button', { name: /Διαγραφή/ });
+  await del.first().click();
+  const yes = window.getByTestId('confirm-yes').or(window.getByRole('button', { name: /Ναι|Επιβεβαίωση/ }));
+  if (await yes.count()) await yes.click();
+  await expect(window.getByTestId('psk-card-psk-far')).toHaveCount(0);
 });

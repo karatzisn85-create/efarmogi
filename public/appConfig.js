@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { safeWriteJSON } = require('./safeWrite');
+const { isE2EProcess } = require('./e2eMode');
 
 const CONFIG_FILENAME = 'app-config.json';
 const POINTER_FILENAME = 'data-dir.json';
@@ -65,6 +66,7 @@ function setActiveDataDir(dir) {
 }
 
 function writeDataDirPointer(dir) {
+  if (isE2EProcess()) return;
   const pointerPath = getBootstrapPointerPath();
   if (!pointerPath || !dir) return;
   try {

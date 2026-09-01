@@ -3,6 +3,18 @@ const path = require('path');
 const os = require('os');
 const { safeWriteJSON, safeWriteJSONAsync } = require('./safeWrite');
 const { bootstrapConfig, setActiveDataDir, loadConfig, saveConfig } = require('./appConfig');
+const {
+  isE2EProcess,
+  queueE2EOpenFiles,
+  takeE2EOpenFiles,
+  queueE2EFolderPick,
+  takeE2EFolderPick,
+  queueE2ESavePath,
+  queueE2EKhmdhsFixtures,
+  setE2EKhmdhsLive,
+  installE2EDialogHooks,
+} = require('./e2eMode');
+installE2EDialogHooks(dialog);
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { exec, spawn } = require('child_process');
@@ -363,7 +375,7 @@ function createWindow() {
   });
 
   mainWindow.on('close', (event) => {
-    if (allowAppQuit || systemSessionEnding) return;
+    if (isE2EProcess() || allowAppQuit || systemSessionEnding) return;
     if (khmdhsIdleShutdown && khmdhsIdleShutdown.isShutdownPending()) {
       event.preventDefault();
       khmdhsIdleShutdown.disarm().catch(() => { /* ignore */ });
@@ -1072,7 +1084,7 @@ app.on('session-end', () => {
 });
 
 app.on('before-quit', (event) => {
-  if (allowAppQuit || systemSessionEnding) return;
+  if (isE2EProcess() || allowAppQuit || systemSessionEnding) return;
   if (khmdhsIdleShutdown && khmdhsIdleShutdown.isShutdownPending()) {
     event.preventDefault();
     khmdhsIdleShutdown.disarm().catch(() => { /* ignore */ });
@@ -4823,7 +4835,41 @@ ipcMain.handle('delete-subproject', async (event, projectId, subprojectId) => {
   }
 });
 
+ipcMain.handle('e2e-queue-open-files', (_event, filePaths) => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  queueE2EOpenFiles(filePaths);
+  return { success: true };
+});
+
+ipcMain.handle('e2e-queue-folder-pick', (_event, payload) => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  queueE2EFolderPick(payload);
+  return { success: true };
+});
+
+ipcMain.handle('e2e-queue-save-path', (_event, filePath) => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  queueE2ESavePath(filePath);
+  return { success: true };
+});
+
+ipcMain.handle('e2e-queue-khmdhs-fixtures', (_event, byAdam) => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  queueE2EKhmdhsFixtures(byAdam);
+  return { success: true };
+});
+
+ipcMain.handle('e2e-set-khmdhs-live', (_event, enabled) => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  setE2EKhmdhsLive(enabled);
+  return { success: true };
+});
+
 ipcMain.handle('open-file-dialog', async () => {
+  const queued = takeE2EOpenFiles();
+  if (queued) {
+    return { canceled: queued.length === 0, filePaths: queued };
+  }
   const opts = {
     properties: ['openFile', 'multiSelections'],
     filters: [
@@ -6264,6 +6310,10 @@ function collectFilesRecursive(dirPath, collected = []) {
 /** Επιλογή ενός φακέλου — όλα τα αρχεία (υποφάκελοι) για ανέβασμα σε χώρο εργασίας */
 ipcMain.handle('select-folder-files-flat', async (_event, arg = {}) => {
   try {
+    const queued = takeE2EFolderPick();
+    if (queued) {
+      return queued;
+    }
     const title = typeof arg === 'string' ? arg : (arg?.title || 'Επιλογή φακέλου');
     const result = await dialog.showOpenDialog({
       title,

@@ -44,7 +44,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
         Επιλέξατε ${fileCount} αρχείο(α). Πώς θέλετε να τα οργανώσετε;
       </p>
       <div style="display: grid; gap: 1rem; margin-bottom: 1.5rem;">
-        <button id="newGroupBtn" type="button" style="
+        <button id="newGroupBtn" type="button" data-testid="file-choice-new" style="
           padding: 0.8rem 1.5rem;
           background: #28a745;
           color: white;
@@ -56,7 +56,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           text-align: left;
         ">🆕 Νέα Ομάδα</button>
         ${existingGroups.length > 0 ? `
-        <button id="existingGroupBtn" type="button" style="
+        <button id="existingGroupBtn" type="button" data-testid="file-choice-existing" style="
           padding: 0.8rem 1.5rem;
           background: #007bff;
           color: white;
@@ -68,7 +68,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           text-align: left;
         ">📂 Προσθήκη σε Υπάρχουσα Ομάδα</button>
         ` : ''}
-        <button id="noGroupBtn" type="button" style="
+        <button id="noGroupBtn" type="button" data-testid="file-choice-none" style="
           padding: 0.8rem 1.5rem;
           background: #6c757d;
           color: white;
@@ -79,7 +79,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           font-weight: 500;
           text-align: left;
         ">📄 Χωρίς Ομαδοποίηση</button>
-        <button id="abortUploadBtn" type="button" style="
+        <button id="abortUploadBtn" type="button" data-testid="file-choice-cancel" style="
           padding: 0.8rem 1.5rem;
           background: #dc3545;
           color: white;
@@ -98,6 +98,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
         <input
           type="text"
           id="newGroupTitle"
+          data-testid="file-new-title"
           placeholder="π.χ. Αρχεία Σύμβασης, Τεχνικά Σχέδια"
           style="
             width: 100%;
@@ -110,7 +111,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           "
         />
         <div style="display: flex; gap: 1rem;">
-          <button id="confirmNewBtn" type="button" style="
+          <button id="confirmNewBtn" type="button" data-testid="file-confirm-new" style="
             flex: 1;
             padding: 0.8rem 1.5rem;
             background: #28a745;
@@ -140,6 +141,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
         </label>
         <select
           id="existingGroupSelect"
+          data-testid="file-existing-select"
           style="
             width: 100%;
             padding: 0.8rem;
@@ -154,7 +156,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           ${existingGroupsOptions}
         </select>
         <div style="display: flex; gap: 1rem;">
-          <button id="confirmExistingBtn" type="button" style="
+          <button id="confirmExistingBtn" type="button" data-testid="file-confirm-existing" style="
             flex: 1;
             padding: 0.8rem 1.5rem;
             background: #007bff;

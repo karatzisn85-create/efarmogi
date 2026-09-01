@@ -1361,6 +1361,7 @@ function ProjectCard({
       onClick={handleCardClick}
       $abandoned={isAbandoned}
       data-user-guide="subproject-card"
+      data-testid={`card-${project.subprojectId}`}
     >
       {isAbandoned && <AbandonedRibbon>Απενταγμένο</AbandonedRibbon>}
       {linkedNotes.length > 0 && (
@@ -1391,7 +1392,7 @@ function ProjectCard({
       <CardHeader>
         <CardKindLabel>Υποέργο</CardKindLabel>
         <HeaderTopRow>
-          <SubprojectTitle>{project.subprojectTitle}</SubprojectTitle>
+          <SubprojectTitle data-field="subproject-title">{project.subprojectTitle}</SubprojectTitle>
           {chainFreshness.level !== 'none' && (
             <KhmdhsFreshnessBadge
               freshness={chainFreshness}
@@ -1407,7 +1408,7 @@ function ProjectCard({
               <ChargeHeaderLine>
                 <span aria-hidden style={{ fontSize: '0.9rem', lineHeight: 1.2 }}>👷</span>
                 <ChargeHeaderRole>Επιβλέπων</ChargeHeaderRole>
-                <ChargeHeaderName>{displayChargePrimary}</ChargeHeaderName>
+                <ChargeHeaderName data-field="charge">{displayChargePrimary}</ChargeHeaderName>
               </ChargeHeaderLine>
             )}
             {displayChargeParticipants && (
@@ -1605,7 +1606,7 @@ function ProjectCard({
           )}
         </TopButtonsContainer>
         <BottomButtonContainer>
-          <MainFilesButton type="button" onClick={handleToggleFiles}>
+          <MainFilesButton type="button" data-testid={`btn-files-${project.subprojectId}`} onClick={handleToggleFiles}>
             <IconFolder />
             Αρχεία Υποέργου
           </MainFilesButton>

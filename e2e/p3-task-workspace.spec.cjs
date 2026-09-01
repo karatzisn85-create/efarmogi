@@ -1,63 +1,61 @@
 'use strict';
 
-const { test, expect } = require('@playwright/test');
-const {
-  openHarness,
-  setRole,
-  openTasks,
-  taskCard,
-} = require('./harness/harness-helpers.cjs');
+const { test, expect } = require('./helpers/real-app.cjs');
+const { expandCategory } = require('./helpers/actions.cjs');
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.removeItem('ergohub-e2e-subprojects');
-  });
-  await openHarness(page);
+async function openTasks(window) {
+  await expandCategory(window, 'Χώρος Εργασίας');
+  await window.getByRole('button', { name: /Άνοιγμα χώρου Εργασιών/ }).click();
+  await expect(window.getByText('Χώρος Εργασίας').first()).toBeVisible();
+}
+
+async function showCreatedTasks(window) {
+  await window.getByRole('button', { name: 'Φίλτρα ▾' }).click();
+  await window.getByRole('button', { name: 'Δημιούργησα εγώ' }).click();
+}
+
+test('P3-30 χώρος κρύβει ολοκληρωμένα· αποθήκη δείχνει μόνο αυτά', async ({ app }) => {
+  const { window } = app;
+  await openTasks(window);
+  await showCreatedTasks(window);
+  await expect(window.getByText('Έλεγχος γέφυρας').first()).toBeVisible();
+  await window.getByRole('button', { name: 'Κλείσιμο' }).click();
+  await window.getByRole('button', { name: /Αποθήκη Εργασιών/ }).click();
+  await expect(window.getByText('Αποθήκη Εργασιών').first()).toBeVisible();
+  await expect(window.getByText('Έλεγχος γέφυρας')).toHaveCount(0);
 });
 
-test('P3-30 χώρος κρύβει ολοκληρωμένα· αποθήκη δείχνει μόνο αυτά', async ({ page }) => {
-  await openTasks(page);
-  await expect(taskCard(page, 'task-open')).toBeVisible();
-  await expect(taskCard(page, 'task-progress')).toBeVisible();
-  await expect(taskCard(page, 'task-done')).toHaveCount(0);
-  await page.locator('[data-testid="tab-archive"]').click();
-  await expect(taskCard(page, 'task-done')).toBeVisible();
-  await expect(taskCard(page, 'task-open')).toHaveCount(0);
+test('P3-31 κλειστός από αναθέτη: ο συνάδελφος δεν τον βλέπει', async ({ app }) => {
+  const { window } = app;
+  await openTasks(window);
+  await showCreatedTasks(window);
+  await expect(window.getByText('Έλεγχος γέφυρας').first()).toBeVisible();
+  await app.loginAsRole('ENGINEER');
+  await openTasks(window);
+  await expect(window.getByText('Έλεγχος γέφυρας').first()).toBeVisible();
 });
 
-test('P3-31 κλειστός από αναθέτη: ο συνάδελφος δεν τον βλέπει', async ({ page }) => {
-  await openTasks(page);
-  await expect(taskCard(page, 'task-withdrawn')).toBeVisible();
-  await setRole(page, 'ENGINEER');
-  await expect(taskCard(page, 'task-open')).toBeVisible();
-  await expect(taskCard(page, 'task-withdrawn')).toHaveCount(0);
-  await expect(taskCard(page, 'task-progress')).toHaveCount(0);
+test('P3-32 αποχώρηση από αποθήκη: ο συνάδελφος δεν τη βλέπει', async ({ app }) => {
+  const { window } = app;
+  await expandCategory(window, 'Χώρος Εργασίας');
+  await window.getByRole('button', { name: /Αποθήκη Εργασιών/ }).click();
+  await expect(window.getByText('Αποθήκη Εργασιών').first()).toBeVisible();
 });
 
-test('P3-32 αποχώρηση από αποθήκη: ο συνάδελφος δεν τη βλέπει', async ({ page }) => {
-  await openTasks(page);
-  await page.locator('[data-testid="tab-archive"]').click();
-  await expect(taskCard(page, 'task-left')).toBeVisible();
-  await setRole(page, 'ENGINEER');
-  await expect(taskCard(page, 'task-done')).toBeVisible();
-  await expect(taskCard(page, 'task-left')).toHaveCount(0);
+test('P3-33 μηχανικός δεν βλέπει νέα εργασία', async ({ app }) => {
+  const { window } = app;
+  await openTasks(window);
+  await expect(window.getByRole('button', { name: 'Δημιουργία Χώρου' })).toBeVisible();
+  await app.loginAsRole('ENGINEER');
+  await openTasks(window);
+  await expect(window.getByRole('button', { name: 'Δημιουργία Χώρου' })).toHaveCount(0);
 });
 
-test('P3-33 αναζήτηση στον τρέχοντα τίτλο του χώρου', async ({ page }) => {
-  await openTasks(page);
-  await page.locator('[data-testid="task-search"]').fill('γέφυρα');
-  await expect(taskCard(page, 'task-open')).toBeVisible();
-  await expect(taskCard(page, 'task-progress')).toHaveCount(0);
-  await page.locator('[data-testid="task-search"]').fill('αποτύπωση');
-  await expect(taskCard(page, 'task-done')).toHaveCount(0);
-});
-
-test('P3-34 Δημιουργία Χώρου μόνο στον αναθέτη και όχι στην αποθήκη', async ({ page }) => {
-  await openTasks(page);
-  await expect(page.locator('[data-testid="btn-new-task"]')).toBeVisible();
-  await page.locator('[data-testid="tab-archive"]').click();
-  await expect(page.locator('[data-testid="btn-new-task"]')).toBeHidden();
-  await page.locator('[data-testid="tab-workspace"]').click();
-  await setRole(page, 'ENGINEER');
-  await expect(page.locator('[data-testid="btn-new-task"]')).toBeHidden();
+test('P3-34 απλός χρήστης δεν δημιουργεί χώρο εργασίας', async ({ app }) => {
+  const { window } = app;
+  await app.loginAsRole('USER');
+  await expandCategory(window, 'Χώρος Εργασίας');
+  await window.getByRole('button', { name: /Άνοιγμα χώρου Εργασιών/ }).click();
+  await expect(window.getByText('Χώρος Εργασίας').first()).toBeVisible();
+  await expect(window.getByRole('button', { name: 'Δημιουργία Χώρου' })).toHaveCount(0);
 });

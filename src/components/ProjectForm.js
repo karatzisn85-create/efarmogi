@@ -6318,7 +6318,7 @@ function ProjectForm({
                         Θέλετε να προσθέσετε το νέο υποέργο στο υπάρχον έργο;
                       </p>
                       <div style="display: flex; gap: 1rem;">
-                        <button id="yesBtn" style="
+                        <button id="yesBtn" data-testid="attach-yes" style="
                           flex: 1;
                           padding: 0.8rem 1.5rem;
                           background: #28a745;
@@ -6329,7 +6329,7 @@ function ProjectForm({
                           cursor: pointer;
                           font-weight: 500;
                         ">ΝΑΙ - Προσθήκη στο Υπάρχον</button>
-                        <button id="noBtn" style="
+                        <button id="noBtn" data-testid="attach-no" style="
                           flex: 1;
                           padding: 0.8rem 1.5rem;
                           background: #007bff;
@@ -7207,9 +7207,13 @@ function ProjectForm({
     <FormOverlay
       ref={formOverlayRef}
       data-project-form-modal
+      data-testid="edit-panel"
+      data-form-mode={editingProject ? 'edit' : 'create'}
       onClick={(e) => e.target === e.currentTarget && handleRequestClose()}
     >
       <FormContainer>
+        <span data-testid="edit-project-id" style={{ display: 'none' }}>{formData.projectId || editingProject?.projectId || ''}</span>
+        <span data-testid="edit-subproject-id" style={{ display: 'none' }}>{formData.subprojectId || editingProject?.subprojectId || ''}</span>
         {isSaving && (
           <FormProcessingOverlay>
             <KhmdhsFetchOverlayCard>
@@ -7313,6 +7317,7 @@ function ProjectForm({
                 <Label>Τίτλος Έργου / Τίτλος Πράξης *</Label>
                 <Input
                   type="text"
+                  data-testid="edit-project-title"
                   value={formData.projectTitle}
                   onChange={(e) => handleInputChange('projectTitle', e.target.value)}
                   placeholder="Εισάγετε τίτλο έργου ή πράξης"
@@ -7323,6 +7328,7 @@ function ProjectForm({
                 <Label>Τίτλος Υποέργου *</Label>
                 <Input
                   type="text"
+                  data-testid="edit-subproject-title"
                   value={formData.subprojectTitle}
                   onChange={(e) => handleInputChange('subprojectTitle', e.target.value)}
                   placeholder="Εισάγετε τίτλο υποέργου"
@@ -7346,6 +7352,7 @@ function ProjectForm({
                     : ''}
                 </Label>
                 <Select
+                  data-testid="edit-implementation"
                   value={formData.implementationForm}
                   onChange={(e) => handleInputChange('implementationForm', e.target.value)}
                 >
@@ -7366,6 +7373,7 @@ function ProjectForm({
                 <Label>Κωδικός ΚΑ (προαιρετικό)</Label>
                 <Input
                   type="text"
+                  data-testid="edit-ka"
                   value={formData.kaCode}
                   onChange={(e) => handleInputChange('kaCode', e.target.value)}
                   onBlur={() => handleFieldBlur('kaCode')}
@@ -7441,6 +7449,7 @@ function ProjectForm({
               <FormGroup>
                 <Label>Είδος *</Label>
                 <Select
+                  data-testid="edit-type"
                   value={formData.projectType}
                   onChange={(e) => handleInputChange('projectType', e.target.value)}
                 >
@@ -7483,6 +7492,7 @@ function ProjectForm({
                       )}
                     </Label>
                     <Select
+                      data-testid="edit-funding-source"
                       value={formData.fundingSource}
                       onChange={(e) => handleFundingSourceChange(e.target.value)}
                     >
@@ -7509,6 +7519,7 @@ function ProjectForm({
                       )}
                     </Label>
                     <Select
+                      data-testid="edit-funding-details"
                       value={formData.fundingDetails}
                       onChange={(e) => handleInputChange('fundingDetails', e.target.value)}
                       disabled={!formData.fundingSource}
@@ -7525,6 +7536,7 @@ function ProjectForm({
                     <Label>Εγκεκριμένο Ποσό *</Label>
                     <Input
                       type="text"
+                      data-testid="edit-approved-amount"
                       value={formData.approvedAmount}
                       onChange={(e) => handleInputChange('approvedAmount', e.target.value)}
                       onBlur={() => { handleAmountBlur('approvedAmount'); handleFieldBlur('approvedAmount'); }}
@@ -7686,6 +7698,7 @@ function ProjectForm({
                   <Checkbox
                     type="checkbox"
                     id="supervisorChargeOutsideEngineers"
+                    data-testid="edit-outside"
                     checked={!!formData.supervisorChargeOutsideEngineers}
                     onChange={(e) => {
                       const on = e.target.checked;
@@ -7702,6 +7715,7 @@ function ProjectForm({
                       <EngineerPickCard>
                         <EngineerPickCardTitle>Επιβλέπων / Επιβλέπουσα (κατάλογος)</EngineerPickCardTitle>
                         <Select
+                          data-testid="edit-primary"
                           value={primaryEngineerId}
                           onChange={(e) => {
                             const newPrimary = e.target.value;
@@ -7810,6 +7824,7 @@ function ProjectForm({
                   <>
                     <Label>Χρέωση (ελεύθερο κείμενο)</Label>
                     <TextArea
+                      data-testid="edit-free"
                       value={formData.supervisorChargeFreePrimary}
                       onChange={(e) => handleInputChange('supervisorChargeFreePrimary', e.target.value)}
                       placeholder="π.χ. Υπηρεσία, υπεύθυνος από άλλη υπηρεσία..."
@@ -7829,6 +7844,7 @@ function ProjectForm({
               <FormGroup>
                 <Label>Κατάσταση Έργου *</Label>
                 <Select
+                  data-testid="edit-status"
                   value={formData.projectStatus}
                   onChange={(e) => handleInputChange('projectStatus', e.target.value)}
                 >
@@ -7841,7 +7857,7 @@ function ProjectForm({
               </FormGroup>
               {phaseADirty && manualPhaseSavedOnce && (
                 <FormGroup>
-                  <PhaseLockedBanner style={{ marginTop: '1.5rem' }}>
+                  <PhaseLockedBanner data-testid="unsaved-hint" style={{ marginTop: '1.5rem' }}>
                     ⚠️ Υπάρχουν μη αποθηκευμένες αλλαγές στη Φάση Α. Αποθηκεύστε για να επεξεργαστείτε τη Φάση Β.
                   </PhaseLockedBanner>
                 </FormGroup>
@@ -8402,10 +8418,10 @@ function ProjectForm({
           </div>
         )}
         <StickyFooter $slim={activePhaseTab === 'B'}>
-          <CancelButton type="button" onClick={handleRequestClose} disabled={isSaving}>
+          <CancelButton type="button" data-testid="btn-discard" onClick={handleRequestClose} disabled={isSaving}>
             Ακύρωση
           </CancelButton>
-          <SaveButton type="button" onClick={() => handleSave()} disabled={isSaving}>
+          <SaveButton type="button" data-testid="btn-save" onClick={() => handleSave()} disabled={isSaving}>
             {isSaving
               ? 'Αποθήκευση…'
               : (manualPhaseSavedOnce && !isPhaseADirty(formData, manualPhaseBaseline))
@@ -8428,6 +8444,7 @@ function ProjectForm({
           {subprojectLifecycle.showDeleteOnForm(formData) && onDelete && (
             <DeleteFormButton
               type="button"
+              data-testid="btn-delete"
               onClick={() => onDelete(formData.projectId, formData.subprojectId)}
             >
               Διαγραφή

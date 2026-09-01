@@ -543,6 +543,7 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
                 <FilterLabel>👷 Χρεωμένο σε</FilterLabel>
                 <FilterSelect
                   multiple
+                  data-testid="filter-charge"
                   value={filters.supervisor}
                   onChange={(e) => handleMultiSelectChange('supervisor', e)}
                   onFocus={loadChargeFilterOptions}
@@ -969,7 +970,7 @@ function AdvancedFilters({ isOpen, onClose, onApplyFilters, currentFilters = {},
         </ContentArea>
 
         <ButtonContainer>
-          <ApplyButton onClick={handleApplyFilters}>
+          <ApplyButton data-testid="filter-apply" onClick={handleApplyFilters}>
             Εφαρμογή Φίλτρων
           </ApplyButton>
           <ClearButton onClick={handleClearFilters}>

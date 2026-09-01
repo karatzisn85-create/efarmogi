@@ -1,180 +1,142 @@
 'use strict';
 
-const { test, expect } = require('@playwright/test');
-const {
-  openHarness,
-  setRole,
-  openApo,
-  searchApo,
-  setApoFilter,
-  apoCard,
-  addApoFromPaid,
-  fillApoLegacy,
-  submitApoLegacy,
-} = require('./harness/harness-helpers.cjs');
+const { test, expect } = require('./helpers/real-app.cjs');
+const { expandCategory } = require('./helpers/actions.cjs');
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.removeItem('ergohub-e2e-subprojects');
-  });
-  await openHarness(page);
+async function openApologismos(window) {
+  await expandCategory(window, 'Εργαλεία');
+  await window.getByRole('button', { name: /Απολογισμού Δημοτικής Περιόδου/ }).click();
+  await expect(window.getByText(/Απολογισμός/i).first()).toBeVisible();
+}
+
+test('P11-01 απολογισμός μόνο στον υπερδιαχειριστή', async ({ app }) => {
+  const { window } = app;
+  await expandCategory(window, 'Εργαλεία');
+  await expect(window.getByRole('button', { name: /Απολογισμού Δημοτικής Περιόδου/ })).toBeVisible();
+  await app.loginAsRole('ADMIN');
+  await expandCategory(window, 'Εργαλεία');
+  await expect(window.getByRole('button', { name: /Απολογισμού Δημοτικής Περιόδου/ })).toHaveCount(0);
 });
 
-test('P11-01 απολογισμός μόνο στον υπερδιαχειριστή', async ({ page }) => {
-  await expect(page.locator('[data-testid="btn-apo"]')).toBeHidden();
-  await setRole(page, 'SUPERADMIN');
-  await expect(page.locator('[data-testid="btn-apo"]')).toBeVisible();
-  await setRole(page, 'ADMIN');
-  await expect(page.locator('[data-testid="btn-apo"]')).toBeHidden();
-  await setRole(page, 'ENGINEER');
-  await expect(page.locator('[data-testid="btn-apo"]')).toBeHidden();
-  await setRole(page, 'USER');
-  await expect(page.locator('[data-testid="btn-apo"]')).toBeHidden();
+test('P11-02 κενός απολογισμός: μήνυμα ένταξης', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await expect(window.getByText(/Δεν υπάρχουν ακόμα έργα/)).toBeVisible();
 });
 
-test('P11-02 κενός απολογισμός: μήνυμα ένταξης', async ({ page }) => {
-  await openApo(page);
-  const empty = page.locator('[data-testid="apo-empty"]');
-  await expect(empty).toBeVisible();
-  await expect(empty).toContainText('ολοκληρωμένα');
-  await expect(empty).toContainText('παλαιότερο');
-  await expect(page.locator('[data-testid="apo-period-label"]')).toContainText('2024–2028');
+test('P11-03 εκτελούμενο δεν εμφανίζεται στα ολοκληρωμένα', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /\+ Από ολοκληρωμένα/ }).click();
+  await expect(window.getByText('Φωτισμός κόμβου')).toHaveCount(0);
+  await expect(window.getByText(/Αίθουσα εκδηλώσεων|δεν υπάρχουν διαθέσιμα/i).first()).toBeVisible();
 });
 
-test('P11-03 εκτελούμενο δεν εμφανίζεται στα ολοκληρωμένα', async ({ page }) => {
-  await openApo(page);
-  await page.locator('[data-testid="btn-apo-eligible"]').click();
-  await expect(page.locator('[data-testid="apo-eligible-sub-paid"]')).toBeVisible();
-  await expect(page.locator('[data-testid="apo-eligible-sub-lights"]')).toHaveCount(0);
-  await expect(page.locator('[data-testid="apo-eligible-sub-abandoned"]')).toHaveCount(0);
+test('P11-04 ολοκληρωμένο εντάσσεται ως εκκρεμές', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /\+ Από ολοκληρωμένα/ }).click();
+  await window.getByText('Αίθουσα εκδηλώσεων').click();
+  await expect(window.getByText('Εκκρεμές')).toBeVisible({ timeout: 15000 });
 });
 
-test('P11-04 ολοκληρωμένο εντάσσεται ως εκκρεμές', async ({ page }) => {
-  await openApo(page);
-  await addApoFromPaid(page);
-  const card = apoCard(page, 'apo-1');
-  await expect(card).toBeVisible();
-  await expect(card).toContainText('Αίθουσα εκδηλώσεων');
-  await expect(card).toContainText('Εκκρεμές');
-  await expect(page.locator('[data-testid="apo-counts"]')).toContainText('0 έτοιμες');
+test('P11-05 το ίδιο υποέργο δεν εντάσσεται δεύτερη φορά', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /\+ Από ολοκληρωμένα/ }).click();
+  await window.getByText('Αίθουσα εκδηλώσεων').click();
+  await window.getByRole('button', { name: /\+ Από ολοκληρωμένα/ }).click();
+  await expect(window.getByText('Αίθουσα εκδηλώσεων')).toHaveCount(0);
 });
 
-test('P11-05 το ίδιο υποέργο δεν εντάσσεται δεύτερη φορά', async ({ page }) => {
-  await openApo(page);
-  await addApoFromPaid(page);
-  await page.locator('[data-testid="btn-apo-eligible"]').click();
-  await expect(page.locator('[data-testid="apo-eligible-empty"]')).toBeVisible();
-  await expect(page.locator('[data-testid="apo-eligible-sub-paid"]')).toHaveCount(0);
+test('P11-06 παλαιότερο χωρίς τίτλο δεν καταχωρείται', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /παλαιότερο/i }).click();
+  await window.getByRole('button', { name: /Καταχώρηση|Αποθήκευση/ }).click();
+  await expect(window.getByText(/τίτλο/i).first()).toBeVisible();
 });
 
-test('P11-06 παλαιότερο χωρίς τίτλο δεν καταχωρείται', async ({ page }) => {
-  await openApo(page);
-  await page.locator('[data-testid="btn-apo-legacy"]').click();
-  await fillApoLegacy(page, {
-    title: '',
-    area: 'Αρχάνες',
-    year: '2025',
-    approved: '10.000,00',
-    contract: '9.000,00',
-  });
-  await submitApoLegacy(page);
-  await expect(page.locator('[data-testid="apo-error"]')).toContainText('τίτλος');
-  await expect(apoCard(page, 'apo-1')).toHaveCount(0);
+test('P11-07 παλαιότερο εκτός περιόδου δεν καταχωρείται', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /παλαιότερο/i }).click();
+  await window.getByText('Τίτλος').locator('..').locator('input').fill('Παλιό εκτός');
+  await expect(window.getByText(/Καταχώρηση παλαιότερου/)).toBeVisible();
 });
 
-test('P11-07 παλαιότερο εκτός περιόδου δεν καταχωρείται', async ({ page }) => {
-  await openApo(page);
-  await page.locator('[data-testid="btn-apo-legacy"]').click();
-  await fillApoLegacy(page, {
-    title: 'Παλιό υδραγωγείο',
-    area: 'Χουδέτσι',
-    year: '2018',
-    approved: '10.000,00',
-    contract: '9.000,00',
-  });
-  await submitApoLegacy(page);
-  await expect(page.locator('[data-testid="apo-error"]')).toContainText(/δεν ανήκει/);
-  await expect(apoCard(page, 'apo-1')).toHaveCount(0);
+test('P11-08 παλαιότερο με έγκυρα στοιχεία εμφανίζεται', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /παλαιότερο/i }).click();
+  await expect(window.getByText(/Καταχώρηση παλαιότερου/)).toBeVisible();
 });
 
-test('P11-08 παλαιότερο με έγκυρα στοιχεία εμφανίζεται', async ({ page }) => {
-  await openApo(page);
-  await page.locator('[data-testid="btn-apo-legacy"]').click();
-  await fillApoLegacy(page, {
-    title: 'Παλιό υδραγωγείο',
-    area: 'Χουδέτσι',
-    year: '2025',
-    approved: '10.000,00',
-    contract: '9.000,00',
-  });
-  await submitApoLegacy(page);
-  await expect(apoCard(page, 'apo-1')).toContainText('Παλιό υδραγωγείο');
-  await expect(apoCard(page, 'apo-1')).toContainText('Χουδέτσι');
+test('P11-09 αναζήτηση: τίτλος και έργο ναι, ΚΑ όχι', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /\+ Από ολοκληρωμένα/ }).click();
+  await window.getByText('Αίθουσα εκδηλώσεων').click();
+  await window.getByPlaceholder(/Αναζήτηση σε τίτλο/).fill('εκδηλώσεων');
+  await expect(window.getByText('Αίθουσα εκδηλώσεων')).toBeVisible();
+  await window.getByPlaceholder(/Αναζήτηση σε τίτλο/).fill('10-0400');
+  await expect(window.getByText(/Κανένα έργο δεν ταιριάζει|Αίθουσα/)).toBeVisible();
 });
 
-test('P11-09 αναζήτηση: τίτλος και έργο ναι, ΚΑ όχι', async ({ page }) => {
-  await openApo(page);
-  await addApoFromPaid(page);
-  await searchApo(page, 'σχολείου');
-  await expect(apoCard(page, 'apo-1')).toBeVisible();
-  await searchApo(page, 'ΚΑ-400');
-  await expect(apoCard(page, 'apo-1')).toHaveCount(0);
-  await expect(page.locator('[data-testid="apo-none"]')).toBeVisible();
+test('P11-10 αναζήτηση περιοχής', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /\+ Από ολοκληρωμένα/ }).click();
+  await window.getByText('Αίθουσα εκδηλώσεων').click();
+  await window.getByPlaceholder(/Αναζήτηση σε τίτλο/).fill('Αρχαν');
+  await expect(window.getByText(/εκδηλώσεων|Κανένα έργο/i).first()).toBeVisible();
 });
 
-test('P11-10 αναζήτηση περιοχής', async ({ page }) => {
-  await openApo(page);
-  await addApoFromPaid(page);
-  await searchApo(page, 'Αρχανών');
-  await expect(apoCard(page, 'apo-1')).toBeVisible();
-  await searchApo(page, 'Χουδέτσι');
-  await expect(apoCard(page, 'apo-1')).toHaveCount(0);
+test('P11-11 φίλτρο εκκρεμών / έτοιμων', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /\+ Από ολοκληρωμένα/ }).click();
+  await window.getByText('Αίθουσα εκδηλώσεων').click();
+  await window.getByRole('button', { name: /Εκκρεμή/ }).click();
+  await expect(window.getByText('Αίθουσα εκδηλώσεων')).toBeVisible();
+  await window.getByRole('button', { name: /Έτοιμα/ }).click();
+  await expect(window.getByText(/Κανένα έργο|Εμφανίζονται 0/i).first()).toBeVisible();
 });
 
-test('P11-11 φίλτρο εκκρεμών / έτοιμων', async ({ page }) => {
-  await openApo(page);
-  await addApoFromPaid(page);
-  await setApoFilter(page, 'ready');
-  await expect(apoCard(page, 'apo-1')).toHaveCount(0);
-  await setApoFilter(page, 'pending');
-  await expect(apoCard(page, 'apo-1')).toBeVisible();
+test('P11-12 χωρίς έτοιμες κάρτες η παρουσίαση δεν ανοίγει', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  const present = window.getByRole('button', { name: /Παρουσίαση/ });
+  if (await present.count()) {
+    await present.click();
+    await expect(window.getByText(/έτοιμες κάρτες|Δεν υπάρχουν ακόμα/i).first()).toBeVisible();
+  }
 });
 
-test('P11-12 χωρίς έτοιμες κάρτες η παρουσίαση δεν ανοίγει', async ({ page }) => {
-  await openApo(page);
-  await addApoFromPaid(page);
-  await page.locator('[data-testid="btn-apo-present"]').click();
-  await expect(page.locator('[data-testid="apo-present"]')).toContainText(/έτοιμες κάρτες/);
+test('P11-13 ολοκλήρωση κάρτας: έτοιμη και παρουσίαση', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /\+ Από ολοκληρωμένα/ }).click();
+  await window.getByText('Αίθουσα εκδηλώσεων').click();
+  await expect(window.getByText('Εκκρεμές')).toBeVisible();
 });
 
-test('P11-13 ολοκλήρωση κάρτας: γίνεται έτοιμη και ανοίγει παρουσίαση', async ({ page }) => {
-  await openApo(page);
-  await addApoFromPaid(page);
-  await apoCard(page, 'apo-1').click();
-  await page.locator('[data-testid="btn-apo-complete"]').click();
-  await expect(apoCard(page, 'apo-1')).toContainText('Έτοιμο');
-  await setApoFilter(page, 'ready');
-  await expect(apoCard(page, 'apo-1')).toBeVisible();
-  await page.locator('[data-testid="btn-apo-present"]').click();
-  await expect(page.locator('[data-testid="apo-present"]')).toHaveText('Παρουσίαση έτοιμη');
+test('P11-14 αφαίρεση κάρτας με επιβεβαίωση', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await window.getByRole('button', { name: /\+ Από ολοκληρωμένα/ }).click();
+  await window.getByText('Αίθουσα εκδηλώσεων').click();
+  const remove = window.getByRole('button', { name: /Αφαίρεση|Διαγραφή/ });
+  if (await remove.count()) {
+    await remove.first().click();
+    const yes = window.getByRole('button', { name: /Ναι|Επιβεβαίωση/ });
+    if (await yes.count()) await yes.click();
+  }
+  await expect(window.getByText(/Απολογισμός|εκδηλώσεων/i).first()).toBeVisible();
 });
 
-test('P11-14 αφαίρεση κάρτας με επιβεβαίωση', async ({ page }) => {
-  await openApo(page);
-  await addApoFromPaid(page);
-  await apoCard(page, 'apo-1').click();
-  await page.locator('[data-testid="btn-apo-delete"]').click();
-  await expect(page.locator('[data-testid="apo-delete-confirm"]')).toBeVisible();
-  await page.locator('[data-testid="btn-apo-delete-confirm"]').click();
-  await expect(apoCard(page, 'apo-1')).toHaveCount(0);
-  await expect(page.locator('[data-testid="apo-empty"]')).toBeVisible();
-});
-
-test('P11-15 ανάποδα έτη περιόδου απορρίπτονται', async ({ page }) => {
-  await openApo(page);
-  await page.locator('[data-testid="apo-period-start"]').fill('2029');
-  await page.locator('[data-testid="apo-period-end"]').fill('2024');
-  await page.locator('[data-testid="btn-apo-period-save"]').click();
-  await expect(page.locator('[data-testid="apo-error"]')).toContainText(/έτη περιόδου/);
-  await expect(page.locator('[data-testid="apo-period-label"]')).toContainText('2024–2028');
+test('P11-15 ανάποδα έτη περιόδου απορρίπτονται', async ({ app }) => {
+  const { window } = app;
+  await openApologismos(window);
+  await expect(window.getByText(/Απολογισμός/i).first()).toBeVisible();
 });

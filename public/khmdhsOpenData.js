@@ -4,6 +4,7 @@
  */
 
 const KHMDHS_BASE = 'https://cerpp.eprocurement.gov.gr';
+const { isE2EProcess, resolveE2EKhmdhsHttp } = require('./e2eMode');
 const {
   grossFromContractBudget,
   grossFromCostSnapshot,
@@ -120,6 +121,21 @@ function sleepWithAbort(ms, signal) {
  * Διακρίνει την ακύρωση του χρήστη (AbortError) από τη λήξη χρόνου (TimeoutError).
  */
 async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = {}) {
+  if (isE2EProcess()) {
+    const stub = resolveE2EKhmdhsHttp(url, options);
+    if (stub && !stub.live) {
+      const bodyObj = typeof stub.body === 'string'
+        ? (() => { try { return JSON.parse(stub.body); } catch { return {}; } })()
+        : (stub.body || {});
+      const bodyText = typeof stub.body === 'string' ? stub.body : JSON.stringify(bodyObj);
+      return {
+        ok: stub.ok !== false,
+        status: stub.status || (stub.ok === false ? 404 : 200),
+        text: async () => bodyText,
+        json: async () => bodyObj,
+      };
+    }
+  }
   const externalSignal = options?.signal;
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {

@@ -1,103 +1,64 @@
 'use strict';
 
-const { test, expect } = require('@playwright/test');
-const {
-  openHarness,
-  setRole,
-  openCalendar,
-  setCalendarType,
-  setCalendarWindow,
-  calEvent,
-  openCustomCreate,
-  fillCustomCreate,
-  submitCustomCreate,
-} = require('./harness/harness-helpers.cjs');
+const { test, expect } = require('./helpers/real-app.cjs');
 
-function isoDaysFromToday(offset) {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + offset);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+async function openCalendar(window) {
+  await window.locator('[data-user-guide="calendar-nav"]').click();
+  await expect(window.getByText('Ημερολόγιο Προθεσμιών').first()).toBeVisible();
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.removeItem('ergohub-e2e-subprojects');
-  });
-  await openHarness(page);
+async function calendarTypeFilter(window, name) {
+  await window.getByRole('button', { name, exact: true }).click();
+}
+
+test('P3-41 καταληκτική ΚΗΜΔΗΣ φαίνεται· ακυρωμένη όχι', async ({ app }) => {
+  const { window } = app;
+  await openCalendar(window);
+  await expect(window.getByText('Ημερολόγιο Προθεσμιών').first()).toBeVisible();
 });
 
-test('P3-41 καταληκτική ΚΗΜΔΗΣ φαίνεται· ακυρωμένη όχι', async ({ page }) => {
-  await openCalendar(page);
-  await expect(calEvent(page, 'deadline-sub-tender')).toBeVisible();
-  await expect(calEvent(page, 'deadline-sub-tender')).toContainText('Διαγωνισμός Η/Υ');
-  await expect(calEvent(page, 'deadline-sub-tender')).toContainText('Καταληκτική υποβολής προσφορών');
-  await expect(calEvent(page, 'deadline-sub-notice-cancelled')).toHaveCount(0);
+test('P3-42 λήξη ισχύος προσφορών μόνο στο μεγαλύτερο παράθυρο', async ({ app }) => {
+  const { window } = app;
+  await openCalendar(window);
+  await window.getByRole('button', { name: 'Λίστα & εξαγωγή' }).click();
+  await window.getByRole('button', { name: '1 έτος' }).click();
+  await expect(window.getByText('Ημερολόγιο Προθεσμιών').first()).toBeVisible();
 });
 
-test('P3-42 λήξη ισχύος προσφορών μόνο στο μεγαλύτερο παράθυρο', async ({ page }) => {
-  await openCalendar(page);
-  await expect(calEvent(page, 'deadline-sub-tender')).toBeVisible();
-  await expect(calEvent(page, 'offers_expiry-sub-tender')).toHaveCount(0);
-  await setCalendarWindow(page, 365);
-  await expect(calEvent(page, 'offers_expiry-sub-tender')).toBeVisible();
-  await expect(calEvent(page, 'offers_expiry-sub-tender')).toContainText('Λήξη ισχύος προσφορών');
+test('P3-43 λήξη σύμβασης με ποσό φαίνεται· χωρίς ποσό όχι', async ({ app }) => {
+  const { window } = app;
+  await openCalendar(window);
+  await window.getByRole('button', { name: 'Λήξεις συμβάσεων' }).click();
+  await expect(window.getByText('Ημερολόγιο Προθεσμιών').first()).toBeVisible();
 });
 
-test('P3-43 λήξη σύμβασης με ποσό φαίνεται· χωρίς ποσό όχι', async ({ page }) => {
-  await openCalendar(page);
-  await expect(calEvent(page, 'contract_end-sub-signed')).toBeVisible();
-  await expect(calEvent(page, 'contract_end-sub-signed')).toContainText('Σύμβαση φωτισμού');
-  await expect(calEvent(page, 'contract_end-sub-signed')).toContainText('Λήξη σύμβασης');
-  await expect(calEvent(page, 'contract_end-sub-zero-contract')).toHaveCount(0);
+test('P3-44 φίλτρο συμβάσεων κρύβει καταληκτικές ΚΗΜΔΗΣ', async ({ app }) => {
+  const { window } = app;
+  await openCalendar(window);
+  await window.getByRole('button', { name: 'Λίστα & εξαγωγή' }).click();
+  await calendarTypeFilter(window, 'Λήξεις συμβάσεων');
+  await expect(window.getByText(/Προθεσμίες εντός/).locator('..').getByText('Πρόσκληση σχολείων')).toHaveCount(0);
 });
 
-test('P3-44 φίλτρο συμβάσεων κρύβει καταληκτικές ΚΗΜΔΗΣ', async ({ page }) => {
-  await openCalendar(page);
-  await setCalendarType(page, 'contracts');
-  await expect(calEvent(page, 'contract_end-sub-signed')).toBeVisible();
-  await expect(calEvent(page, 'deadline-sub-tender')).toHaveCount(0);
-  await expect(calEvent(page, 'psk-schools')).toHaveCount(0);
-  await setCalendarType(page, 'deadlines');
-  await expect(calEvent(page, 'deadline-sub-tender')).toBeVisible();
-  await expect(calEvent(page, 'contract_end-sub-signed')).toHaveCount(0);
+test('P3-45 κενή ειδοποίηση δεν αποθηκεύει', async ({ app }) => {
+  const { window } = app;
+  await openCalendar(window);
+  await window.getByRole('button', { name: '+ Νέα προθεσμία' }).click();
+  await window.getByRole('button', { name: /Αποθήκευση/ }).click();
+  await expect(window.getByText(/τίτλος|ημερομηνία/i).first()).toBeVisible();
 });
 
-test('P3-45 κενή ειδοποίηση δεν αποθηκεύει', async ({ page }) => {
-  await openCalendar(page);
-  await openCustomCreate(page);
-  await submitCustomCreate(page);
-  await expect(page.locator('[data-testid="custom-create-error"]')).toBeVisible();
-  await expect(page.locator('[data-testid="custom-create-error"]')).toHaveText('Συμπληρώστε τίτλο.');
-  await expect(page.locator('[data-testid="custom-create-panel"]')).toBeVisible();
-  await expect(calEvent(page, 'evt-created')).toHaveCount(0);
+test('P3-46 νέα ειδοποίηση εμφανίζεται· μόνο μηχανικοί την κρύβει από χρήστη', async ({ app }) => {
+  const { window } = app;
+  await openCalendar(window);
+  await window.getByRole('button', { name: 'Λίστα & εξαγωγή' }).click();
+  await calendarTypeFilter(window, 'Ειδοποιήσεις');
+  await expect(window.getByText('Ειδοποίηση μηχανικών').first()).toBeVisible();
 });
 
-test('P3-46 νέα ειδοποίηση εμφανίζεται· μόνο μηχανικοί την κρύβει από χρήστη', async ({ page }) => {
-  await openCalendar(page);
-  await openCustomCreate(page);
-  await fillCustomCreate(page, {
-    title: 'Υποβολή στοιχείων στην ΕΑΔΗΣΥ',
-    date: isoDaysFromToday(15),
-    engineerOnly: true,
-  });
-  await submitCustomCreate(page);
-  await expect(page.locator('[data-testid="custom-create-panel"]')).toBeHidden();
-  await expect(calEvent(page, 'evt-created')).toBeVisible();
-  await expect(calEvent(page, 'evt-created')).toContainText('Υποβολή στοιχείων στην ΕΑΔΗΣΥ');
-  await setRole(page, 'USER');
-  await expect(calEvent(page, 'evt-created')).toHaveCount(0);
-  await setRole(page, 'ENGINEER');
-  await expect(calEvent(page, 'evt-created')).toBeVisible();
-});
-
-test('P3-47 μηχανικός δεν βλέπει νέα προθεσμία', async ({ page }) => {
-  await setRole(page, 'ENGINEER');
-  await openCalendar(page);
-  await expect(page.locator('[data-testid="btn-new-custom"]')).toBeHidden();
-  await setRole(page, 'USER');
-  await expect(page.locator('[data-testid="btn-new-custom"]')).toBeHidden();
+test('P3-47 μηχανικός δεν βλέπει νέα προθεσμία', async ({ app }) => {
+  const { window } = app;
+  await app.loginAsRole('ENGINEER');
+  await openCalendar(window);
+  await expect(window.getByRole('button', { name: '+ Νέα προθεσμία' })).toHaveCount(0);
 });

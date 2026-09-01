@@ -185,10 +185,10 @@ export default function ProjectFormUnsavedModal({
             : 'Αποθηκεύστε για να εφαρμοστούν οι αλλαγές, ή απορρίψτε για να κλείσετε τη φόρμα χωρίς να τροποποιηθεί το υποέργο.'}
         </Detail>
         <Footer>
-          <CancelBtn type="button" onClick={onCancel}>
+          <CancelBtn type="button" data-testid="unsaved-stay" onClick={onCancel}>
             Συνέχεια επεξεργασίας
           </CancelBtn>
-          <DiscardBtn type="button" onClick={onDiscard}>
+          <DiscardBtn type="button" data-testid="unsaved-discard" onClick={onDiscard}>
             Απόρριψη αλλαγών
           </DiscardBtn>
           <SaveBtn type="button" onClick={onSave}>

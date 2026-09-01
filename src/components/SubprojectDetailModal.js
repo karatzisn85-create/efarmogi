@@ -2113,14 +2113,14 @@ function SubprojectDetailModal({
   };
 
   return (
-    <Overlay data-subproject-detail-modal onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <Overlay data-subproject-detail-modal data-testid="read-panel" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <Modal>
         {/* Header */}
         <ModalHeader>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem', width: '100%' }}>
             <HeaderLeft>
-              <ProjectTitleSmall>📁 {project.projectTitle}</ProjectTitleSmall>
-              <SubprojectTitleLarge>{project.subprojectTitle}</SubprojectTitleLarge>
+              <ProjectTitleSmall data-testid="read-project-title">📁 {project.projectTitle}</ProjectTitleSmall>
+              <SubprojectTitleLarge data-testid="read-subproject-title">{project.subprojectTitle}</SubprojectTitleLarge>
               <HeaderBadges>
                 {project.implementationForm && (
                   <HeaderMetaBadge>{project.implementationForm}</HeaderMetaBadge>
@@ -2139,6 +2139,7 @@ function SubprojectDetailModal({
               {userRole !== 'USER' && (
                 <HeaderEditBtn
                   type="button"
+                  data-testid="btn-edit"
                   disabled={isLocked}
                   title={isLocked ? (lockedBy ? `Κλειδωμένο από: ${lockedBy}` : 'Κλειδωμένο') : 'Επεξεργασία υποέργου'}
                   onClick={() => { onClose(); onEdit(project); }}
@@ -2255,7 +2256,7 @@ function SubprojectDetailModal({
                 {displayChargePrimary && (
                   <Field>
                     <FieldLabel>Επιβλέπων</FieldLabel>
-                    <FieldValue style={{ fontWeight: 700, color: '#4338ca', whiteSpace: 'pre-wrap' }}>
+                    <FieldValue data-testid="read-charge" style={{ fontWeight: 700, color: '#4338ca', whiteSpace: 'pre-wrap' }}>
                       {displayChargePrimary}
                     </FieldValue>
                   </Field>
@@ -2284,7 +2285,7 @@ function SubprojectDetailModal({
             <FieldGrid>
               <Field>
                 <FieldLabel>Κωδικός ΚΑ</FieldLabel>
-                <FieldValue>
+                <FieldValue data-testid="read-ka">
                   {val(project.kaCode)
                     ? <CodePill>{project.kaCode}</CodePill>
                     : <EmptyValue>—</EmptyValue>}

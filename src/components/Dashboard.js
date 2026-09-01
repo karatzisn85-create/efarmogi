@@ -6840,7 +6840,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           <LogoutButton onClick={() => setIsMyNotifPrefsOpen(true)} style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', marginRight: 6 }}>
             🔔 Ειδοποιήσεις
           </LogoutButton>
-          <LogoutButton onClick={onLogout}>
+          <LogoutButton onClick={onLogout} data-testid="btn-logout">
             Αποσύνδεση
           </LogoutButton>
           <VersionText>
@@ -7096,7 +7096,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                   const projectLinkedNotes = getEntityLinkedNotes(linkedNotesMap, projectId);
                   const isGroupCollapsed = collapsedGroups.has(projectId);
                   return (
-                  <ProjectGroup key={projectId} data-user-guide="act-group">
+                  <ProjectGroup key={projectId} data-user-guide="act-group" data-testid={`group-${projectId}`}>
                     <ProjectGroupHeaderBand>
                       <ProjectGroupHeaderTop>
                         <ProjectKindLabel>Πράξη</ProjectKindLabel>
@@ -7110,7 +7110,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                       </ProjectGroupHeaderTop>
                       <ProjectGroupTitle>
                         <GroupHeaderWrap onClick={() => toggleGroupCollapse(projectId)}>
-                          <ProjectGroupTitleText>{projectTitle}</ProjectGroupTitleText>
+                          <ProjectGroupTitleText data-testid={`group-title-${projectId}`}>{projectTitle}</ProjectGroupTitleText>
                           <GroupSubCount>{subprojects.length} {subprojects.length === 1 ? 'υποέργο' : 'υποέργα'}</GroupSubCount>
                           {totalEntaxiAmount > 0 && (
                             <EntaxiAmountChip onClick={(e) => e.stopPropagation()}>
@@ -7246,7 +7246,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         </SidebarBrand>
 
         <SidebarPinnedStack>
-          <PinnedNavButton type="button" $tone="filters" onClick={() => setIsFiltersOpen(true)}>
+          <PinnedNavButton type="button" $tone="filters" data-testid="btn-filters" onClick={() => setIsFiltersOpen(true)}>
             <PinnedNavIcon $tone="filters">🔍</PinnedNavIcon>
             Αναζήτηση &amp; Φίλτρα
           </PinnedNavButton>
@@ -7261,6 +7261,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 ref={quickSearchInputRef}
                 type="text"
                 placeholder="Έργο, υποέργο, ΚΑ..."
+                data-testid="quick-search"
                 value={quickSearchText}
                 onChange={(e) => {
                   setQuickSearchText(e.target.value);
@@ -7274,6 +7275,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             <SearchInputContainer>
               <SearchLabel>Κατάσταση</SearchLabel>
               <SearchSelect
+                data-testid="quick-status"
                 value={quickSearchStatus}
                 onChange={(e) => setQuickSearchStatus(e.target.value)}
               >
@@ -7287,6 +7289,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             <SearchInputContainer>
               <SearchLabel>Είδος</SearchLabel>
               <SearchSelect
+                data-testid="quick-type"
                 value={quickSearchType}
                 onChange={(e) => setQuickSearchType(e.target.value)}
               >
@@ -7325,6 +7328,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               type="button"
               $tone="create"
               data-user-guide="create-nav"
+              data-testid="btn-new"
               onClick={() => {
                 captureDashboardScrollForForm();
                 setEditingProject(null);
@@ -7340,6 +7344,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             type="button"
             $tone="archive"
             data-user-guide="archive-nav"
+            data-testid="btn-archived"
             $active={showArchivedProjects}
             aria-pressed={showArchivedProjects}
             title={showArchivedProjects
@@ -7522,7 +7527,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             </CategoryHeader>
             <CategoryBody $open={expandedCategories.tools}>
               {auditCatalog.showAuditLogButton(userRole) && (
-                <AdminButton onClick={() => setIsAuditLogOpen(true)}>
+                <AdminButton data-testid="btn-audit" onClick={() => setIsAuditLogOpen(true)}>
                   <AdminButtonIcon>📋</AdminButtonIcon>
                   Ιστορικό Ενεργειών
                 </AdminButton>
@@ -7576,25 +7581,25 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               </AdminButton>
               )}
               {emailCatalog.canOpenNotificationCenter(userRole) && (
-              <AdminButton data-user-guide="nav-notifications" onClick={() => setIsCalendarSettingsOpen(true)}>
+              <AdminButton data-user-guide="nav-notifications" data-testid="btn-notify-center" onClick={() => setIsCalendarSettingsOpen(true)}>
                 <AdminButtonIcon>🔔</AdminButtonIcon>
                 Κέντρο Ειδοποιήσεων
               </AdminButton>
               )}
               {emailCatalog.canOpenEmailHistory(userRole) && (
-              <AdminButton onClick={() => setIsEmailHistoryOpen(true)}>
+              <AdminButton data-testid="btn-email-history" onClick={() => setIsEmailHistoryOpen(true)}>
                 <AdminButtonIcon>📬</AdminButtonIcon>
                 Ιστορικό Email
               </AdminButton>
               )}
               {userCatalog.showUserManagementButton(userRole) && (
                 <>
-                  <AdminButton onClick={() => setIsUserManagementOpen(true)}>
+                  <AdminButton data-testid="btn-users" onClick={() => setIsUserManagementOpen(true)}>
                     <AdminButtonIcon>👥</AdminButtonIcon>
                     Διαχείριση Χρηστών
                   </AdminButton>
                   {emailCatalog.showEmailSettingsButton(userRole) && (
-                  <AdminButton onClick={() => setIsEmailSettingsOpen(true)}>
+                  <AdminButton data-testid="btn-email-settings" onClick={() => setIsEmailSettingsOpen(true)}>
                     <AdminButtonIcon>✉</AdminButtonIcon>
                     Ρυθμίσεις Email
                   </AdminButton>

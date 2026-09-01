@@ -8,11 +8,12 @@ module.exports = defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  use: {
-    baseURL: 'http://127.0.0.1:4173',
-    headless: true,
-    locale: 'el-GR',
-  },
-  timeout: 30000,
+  workers: 1,
+  timeout: 120000,
+  expect: { timeout: 20000 },
   reporter: 'list',
+  use: {
+    locale: 'el-GR',
+    trace: 'on-first-retry',
+  },
 });

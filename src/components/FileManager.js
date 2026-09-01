@@ -743,10 +743,10 @@ function FileManager({
   const isAdmin  = userRole !== 'USER';
 
   /* Render a single file row — shared between groups and ungrouped */
-  const renderFileItem = (fileName, key) => {
+  const renderFileItem = (fileName, key, extraTestId) => {
     const { label, bg } = getFileTypeStyle(fileName);
     return (
-      <FileItem key={key}>
+      <FileItem key={key} data-testid={extraTestId || `file-row-${fileName}`}>
         <FileInfo>
           {isAdmin && (
             <input
@@ -776,6 +776,7 @@ function FileManager({
           {isAdmin && (
             <DeleteIconBtn
               title="Διαγραφή"
+              data-testid={`file-remove-${key}`}
               onClick={() => requestDeleteFile(fileName)}
             >
               ✕
@@ -789,6 +790,7 @@ function FileManager({
   return (
     <FileManagerOverlay
       data-file-manager-modal
+      data-testid="file-manager"
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={{ paddingTop: `${Math.max(50, window.innerHeight * 0.08)}px` }}
     >
@@ -899,6 +901,7 @@ function FileManager({
               <UploadBtn
                 type="button"
                 $variant="ghost"
+                data-testid="btn-add-files"
                 onClick={onUploadFiles}
                 disabled={isUploading}
               >
@@ -907,6 +910,7 @@ function FileManager({
               <UploadBtn
                 type="button"
                 $variant="teal"
+                data-testid="btn-add-folder"
                 onClick={onUploadFolder}
                 disabled={isUploading}
               >
@@ -933,11 +937,11 @@ function FileManager({
               </EmptyText>
             </EmptyState>
           ) : hasPhysicalFiles ? (
-            <FilesList>
+            <FilesList data-testid="file-list">
 
               {/* File Groups */}
               {fileGroups.map((group) => (
-                <GroupSection key={group.id}>
+                <GroupSection key={group.id} data-testid={`file-group-${group.id}`}>
                   <GroupHeader>
                     <GroupIcon>📁</GroupIcon>
                     <GroupLabel>{group.title}</GroupLabel>
@@ -958,7 +962,7 @@ function FileManager({
                     <GroupLabel>Αρχεία Χωρίς Ομαδοποίηση</GroupLabel>
                     <GroupCount>{files.length} αρχείο{files.length !== 1 ? '(α)' : ''}</GroupCount>
                   </UngroupedHeader>
-                  {files.map((fileName, i) => renderFileItem(fileName, `ungrouped-${i}`))}
+                  {files.map((fileName, i) => renderFileItem(fileName, `ungrouped-${i}`, `file-ungrouped-${fileName}`))}
                 </GroupSection>
               )}
 

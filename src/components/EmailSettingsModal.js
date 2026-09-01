@@ -302,6 +302,7 @@ function EmailSettingsModal({ onClose, currentUser }) {
             <Label>Gmail διεύθυνση</Label>
             <Input
               type="email"
+              data-testid="email-gmail"
               value={gmailUser}
               onChange={e => setGmailUser(e.target.value)}
               onBlur={() => {
@@ -317,13 +318,14 @@ function EmailSettingsModal({ onClose, currentUser }) {
             <Label>
               App Password
               {appPasswordSet && (
-                <span style={{ marginLeft: 8, fontWeight: 400, color: '#16a34a' }}>
+                <span data-testid="email-password-set" style={{ marginLeft: 8, fontWeight: 400, color: '#16a34a' }}>
                   <StatusDot $active /> Ρυθμισμένο
                 </span>
               )}
             </Label>
             <Input
               type="password"
+              data-testid="email-password"
               value={appPassword}
               onChange={e => setAppPassword(e.target.value)}
               placeholder={appPasswordSet ? '(κενό = χωρίς αλλαγή)' : 'Εισάγετε Google App Password'}
@@ -365,14 +367,14 @@ function EmailSettingsModal({ onClose, currentUser }) {
         </Section>
 
         {message && (
-          <Message $error={message.error} $warn={message.warn}>{message.text}</Message>
+          <Message data-testid="email-error" $error={message.error} $warn={message.warn}>{message.text}</Message>
         )}
 
         <BtnRow>
-          <PrimaryBtn onClick={handleSave} disabled={saving || testing}>
+          <PrimaryBtn data-testid="btn-email-save" onClick={handleSave} disabled={saving || testing}>
             {saving ? 'Αποθήκευση...' : 'Αποθήκευση'}
           </PrimaryBtn>
-          <TestBtn onClick={handleTest} disabled={saving || testing || !appPasswordSet}>
+          <TestBtn data-testid="btn-email-test" onClick={handleTest} disabled={saving || testing || !appPasswordSet}>
             {testing ? 'Αποστολή...' : 'Δοκιμαστικό email'}
           </TestBtn>
           <SecondaryBtn onClick={onClose} disabled={saving || testing}>

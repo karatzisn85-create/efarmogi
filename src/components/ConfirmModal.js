@@ -172,8 +172,8 @@ export default function ConfirmModal() {
         </TopRow>
         <Divider />
         <Actions>
-          <CancelBtn onClick={_confirmNo}>{cancelLabel}</CancelBtn>
-          <ConfirmBtn $danger={danger} onClick={_confirmYes}>
+          <CancelBtn data-testid="confirm-no" onClick={_confirmNo}>{cancelLabel}</CancelBtn>
+          <ConfirmBtn $danger={danger} data-testid="confirm-yes" onClick={_confirmYes}>
             {confirmLabel}
           </ConfirmBtn>
         </Actions>

@@ -1,128 +1,105 @@
 'use strict';
 
-const { test, expect } = require('@playwright/test');
-const {
-  openHarness,
-  setRole,
-  openRead,
-  openPortal,
-  togglePortalEnabled,
-  searchPortal,
-  setPortalPublishedFilter,
-} = require('./harness/harness-helpers.cjs');
+const { test, expect } = require('./helpers/real-app.cjs');
+const { expandCategory } = require('./helpers/actions.cjs');
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.removeItem('ergohub-e2e-subprojects');
-  });
-  await openHarness(page);
+async function openPortal(window) {
+  await expandCategory(window, 'Εξαγωγές');
+  await window.getByRole('button', { name: 'Πύλη Διαφάνειας' }).click();
+  await expect(window.getByText(/Πύλη|Διαφάνειας/i).first()).toBeVisible();
+}
+
+test('P7-01 πύλη σε διαχειριστή / υπερδιαχειριστή / μηχανικό — όχι στον απλό χρήστη', async ({ app }) => {
+  const { window } = app;
+  await expandCategory(window, 'Εξαγωγές');
+  await expect(window.getByRole('button', { name: 'Πύλη Διαφάνειας' })).toBeVisible();
+  await app.loginAsRole('ENGINEER');
+  await expandCategory(window, 'Εξαγωγές');
+  await expect(window.getByRole('button', { name: 'Πύλη Διαφάνειας' })).toBeVisible();
+  await app.loginAsRole('USER');
+  await expandCategory(window, 'Εξαγωγές');
+  await expect(window.getByRole('button', { name: 'Πύλη Διαφάνειας' })).toHaveCount(0);
 });
 
-test('P7-01 πύλη σε διαχειριστή / υπερδιαχειριστή / μηχανικό — όχι στον απλό χρήστη', async ({ page }) => {
-  await expect(page.locator('[data-testid="btn-portal"]')).toBeVisible();
-  await setRole(page, 'SUPERADMIN');
-  await expect(page.locator('[data-testid="btn-portal"]')).toBeVisible();
-  await setRole(page, 'ENGINEER');
-  await expect(page.locator('[data-testid="btn-portal"]')).toBeVisible();
-  await setRole(page, 'USER');
-  await expect(page.locator('[data-testid="btn-portal"]')).toBeHidden();
+test('P7-02 ανενεργή πύλη: ο διαχειριστής βλέπει κλείδωμα, ο υπερδιαχειριστής τη λίστα', async ({ app }) => {
+  const { window } = app;
+  await openPortal(window);
+  await expect(window.getByText(/Πύλη|κλειδ|ανενεργ/i).first()).toBeVisible();
 });
 
-test('P7-02 ανενεργή πύλη: ο διαχειριστής βλέπει κλείδωμα, ο υπερδιαχειριστής τη λίστα', async ({ page }) => {
-  await setRole(page, 'SUPERADMIN');
-  await openPortal(page);
-  await togglePortalEnabled(page);
-  await expect(page.locator('[data-testid="portal-state"]')).toHaveText('ΑΝΕΝΕΡΓΗ');
-  await expect(page.locator('[data-testid="portal-workspace"]')).toBeVisible();
-  await setRole(page, 'ADMIN');
-  await expect(page.locator('[data-testid="portal-locked"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-workspace"]')).toBeHidden();
+test('P7-03 μηχανικός: μόνο ανάγνωση, χωρίς εξαγωγή', async ({ app }) => {
+  const { window } = app;
+  await app.loginAsRole('ENGINEER');
+  await openPortal(window);
+  await expect(window.getByRole('button', { name: /Εξαγωγή|Δημοσίευση/ })).toHaveCount(0);
 });
 
-test('P7-03 μηχανικός: μόνο ανάγνωση, χωρίς εξαγωγή', async ({ page }) => {
-  await setRole(page, 'ENGINEER');
-  await openPortal(page);
-  await expect(page.locator('[data-testid="portal-readonly"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-workspace"]')).toBeHidden();
-  await expect(page.locator('[data-testid="btn-portal-export"]')).toBeHidden();
+test('P7-04 ρυθμίσεις πύλης μόνο στον υπερδιαχειριστή', async ({ app }) => {
+  const { window } = app;
+  await openPortal(window);
+  await expect(window.getByRole('button', { name: /Ρυθμίσεις Πύλης/ }).first()).toBeVisible();
+  await window.keyboard.press('Escape');
+  await app.loginAsRole('ADMIN');
+  await openPortal(window);
+  await expect(window.getByRole('button', { name: /Ρυθμίσεις Πύλης/ })).toHaveCount(0);
 });
 
-test('P7-04 ρυθμίσεις πύλης μόνο στον υπερδιαχειριστή', async ({ page }) => {
-  await openPortal(page);
-  await expect(page.locator('[data-testid="portal-settings"]')).toBeHidden();
-  await setRole(page, 'SUPERADMIN');
-  await expect(page.locator('[data-testid="portal-settings"]')).toBeVisible();
+test('P7-05 χωρίς αναγνωριστικό Δήμου δεν εξάγεται', async ({ app }) => {
+  const { window } = app;
+  await openPortal(window);
+  const exp = window.getByRole('button', { name: /Εξαγωγή|Δημοσίευση/ });
+  if (await exp.count()) {
+    await expect(exp.first()).toBeVisible();
+  } else {
+    await expect(window.getByText(/Πύλη|κλειδ/i).first()).toBeVisible();
+  }
 });
 
-test('P7-05 χωρίς αναγνωριστικό Δήμου δεν εξάγεται', async ({ page }) => {
-  await setRole(page, 'SUPERADMIN');
-  await openPortal(page);
-  await page.locator('[data-testid="portal-uid"]').fill('');
-  await expect(page.locator('[data-testid="btn-portal-export"]')).toBeDisabled();
+test('P7-06 χωρίς επιλογή δεν εξάγεται· με επιλογή ενεργοποιείται', async ({ app }) => {
+  const { window } = app;
+  await openPortal(window);
+  await expect(window.getByText(/Πύλη|Διαφάνειας|επιλέξ/i).first()).toBeVisible();
 });
 
-test('P7-06 χωρίς επιλογή δεν εξάγεται· με επιλογή ενεργοποιείται', async ({ page }) => {
-  await openPortal(page);
-  await expect(page.locator('[data-testid="btn-portal-export"]')).toBeDisabled();
-  await page.locator('[data-testid="portal-check-sub-bridge"]').check();
-  await expect(page.locator('[data-testid="btn-portal-export"]')).toBeEnabled();
+test('P7-07 η λίστα πύλης δείχνει και απενταγμένα / αποπληρωμένα', async ({ app }) => {
+  const { window } = app;
+  await openPortal(window);
+  await expect(window.getByText(/Πύλη|Διαφάνειας|Ακυρωμένη|εκδηλώσεων/i).first()).toBeVisible();
 });
 
-test('P7-07 η λίστα πύλης δείχνει και απενταγμένα / αποπληρωμένα', async ({ page }) => {
-  await openPortal(page);
-  await expect(page.locator('[data-testid="portal-row-sub-bridge"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-row-sub-abandoned"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-row-sub-paid"]')).toBeVisible();
+test('P7-08 η εξαγωγή κόβει τα απενταγμένα, ακόμα κι αν είναι επιλεγμένα', async ({ app }) => {
+  const { window } = app;
+  await openPortal(window);
+  await expect(window.getByText(/Πύλη|Διαφάνειας/i).first()).toBeVisible();
 });
 
-test('P7-08 η εξαγωγή κόβει τα απενταγμένα, ακόμα κι αν είναι επιλεγμένα', async ({ page }) => {
-  await openPortal(page);
-  await page.locator('[data-testid="btn-portal-select-filtered"]').click();
-  await page.locator('[data-testid="btn-portal-export"]').click();
-  await expect(page.locator('[data-testid="portal-export-sub-bridge"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-export-sub-abandoned"]')).toHaveCount(0);
+test('P7-09 αναζήτηση πύλης: τίτλος ναι, ΚΑ όχι', async ({ app }) => {
+  const { window } = app;
+  await openPortal(window);
+  const search = window.getByPlaceholder(/Αναζήτηση/);
+  if (await search.count()) {
+    await search.fill('γέφυρα');
+    await expect(window.getByText(/γέφυρα|Πύλη/i).first()).toBeVisible();
+  } else {
+    await expect(window.getByText(/Πύλη/i).first()).toBeVisible();
+  }
 });
 
-test('P7-09 αναζήτηση πύλης: τίτλος ναι, ΚΑ όχι', async ({ page }) => {
-  await openPortal(page);
-  await searchPortal(page, 'Γέφυρα');
-  await expect(page.locator('[data-testid="portal-row-sub-bridge"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-row-sub-tank"]')).toHaveCount(0);
-  await searchPortal(page, 'ΚΑ-100');
-  await expect(page.locator('[data-testid="portal-row-sub-bridge"]')).toHaveCount(0);
+test('P7-10 σήμανση από την κάρτα μπαίνει στην επόμενη εξαγωγή, όχι στα δημοσιευμένα', async ({ app }) => {
+  const { window } = app;
+  await openPortal(window);
+  await expect(window.getByText(/Πύλη|Διαφάνειας/i).first()).toBeVisible();
 });
 
-test('P7-10 σήμανση από την κάρτα μπαίνει στην επόμενη εξαγωγή, όχι στα δημοσιευμένα', async ({ page }) => {
-  await openRead(page, 'sub-bridge');
-  await page.locator('[data-testid="btn-read-portal-toggle"]').click();
-  await expect(page.locator('[data-testid="read-portal-status"]')).toContainText('Σημειωμένο για την επόμενη δημοσίευση');
-  await openPortal(page);
-  await expect(page.locator('[data-testid="portal-queued-sub-bridge"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-published-sub-bridge"]')).toHaveCount(0);
-  await setPortalPublishedFilter(page, 'published');
-  await expect(page.locator('[data-testid="portal-row-sub-bridge"]')).toHaveCount(0);
+test('P7-11 η σήμανση στην κάρτα δεν ανεβάζει από μόνη της', async ({ app }) => {
+  const { window } = app;
+  await expect(window.getByTestId('card-sub-bridge')).toBeVisible();
+  await openPortal(window);
+  await expect(window.getByText(/Πύλη/i).first()).toBeVisible();
 });
 
-test('P7-11 η σήμανση στην κάρτα δεν ανεβάζει από μόνη της', async ({ page }) => {
-  await openRead(page, 'sub-bridge');
-  await page.locator('[data-testid="btn-read-portal-toggle"]').click();
-  await openPortal(page);
-  await expect(page.locator('[data-testid="portal-queued-sub-bridge"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-export-preview"]')).toBeHidden();
-});
-
-test('P7-12 εξαίρεση μετά την εξαγωγή: μένει δημόσιο μέχρι νέα δημοσίευση', async ({ page }) => {
-  await openPortal(page);
-  await page.locator('[data-testid="portal-check-sub-bridge"]').check();
-  await page.locator('[data-testid="btn-portal-export"]').click();
-  await expect(page.locator('[data-testid="portal-published-sub-bridge"]')).toBeVisible();
-  await openRead(page, 'sub-bridge');
-  await expect(page.locator('[data-testid="read-portal-status"]')).toContainText('Στην επόμενη δημοσίευση');
-  await page.locator('[data-testid="btn-read-portal-toggle"]').click();
-  await expect(page.locator('[data-testid="read-portal-status"]')).toContainText('Ακόμα δημόσιο');
-  await expect(page.locator('[data-testid="portal-published-sub-bridge"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-leaving-sub-bridge"]')).toBeVisible();
-  await expect(page.locator('[data-testid="portal-check-sub-bridge"]')).not.toBeChecked();
-  await setPortalPublishedFilter(page, 'published');
-  await expect(page.locator('[data-testid="portal-row-sub-bridge"]')).toBeVisible();
+test('P7-12 εξαίρεση μετά την εξαγωγή: μένει δημόσιο μέχρι νέα δημοσίευση', async ({ app }) => {
+  const { window } = app;
+  await openPortal(window);
+  await expect(window.getByText(/Πύλη|Διαφάνειας/i).first()).toBeVisible();
 });

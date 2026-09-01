@@ -144,6 +144,7 @@ export default function KhmdhsRefreshActionButton({
       )}
       <Btn
         type="button"
+        data-testid="btn-khmdhs-refresh"
         onClick={onClick}
         disabled={disabled || loading}
         $urgent={urgent && !loading}

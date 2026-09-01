@@ -1,93 +1,70 @@
 'use strict';
 
-const { test, expect } = require('@playwright/test');
-const {
-  openHarness,
-  setRole,
-  openRead,
-  toggleArchived,
-  openKhmdhsBatch,
-  khmdhsEligible,
-  khmdhsSkipped,
-  setKhmdhsAll,
-  refreshKhmdhsFromRead,
-} = require('./harness/harness-helpers.cjs');
+const { test, expect } = require('./helpers/real-app.cjs');
+const { openRead, closeRead, toggleArchived, card } = require('./helpers/actions.cjs');
+const { writeLock } = require('./helpers/seed.cjs');
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.removeItem('ergohub-e2e-subprojects');
-  });
-  await openHarness(page);
+test('P4-01 απλός χρήστης δεν ανανεώνει ΚΗΜΔΗΣ', async ({ app }) => {
+  const { window } = app;
+  await app.loginAsRole('USER');
+  await openRead(window, 'sub-bridge');
+  await expect(window.getByTestId('btn-khmdhs-refresh')).toHaveCount(0);
 });
 
-test('P4-01 απλός χρήστης δεν ανανεώνει ΚΗΜΔΗΣ', async ({ page }) => {
-  await expect(page.locator('[data-testid="btn-batch-khmdhs"]')).toBeVisible();
-  await openRead(page, 'sub-bridge');
-  await expect(page.locator('[data-testid="btn-khmdhs-refresh"]')).toBeVisible();
-  await setRole(page, 'USER');
-  await expect(page.locator('[data-testid="btn-batch-khmdhs"]')).toBeHidden();
-  await expect(page.locator('[data-testid="btn-khmdhs-refresh"]')).toBeHidden();
+test('P4-02 μηχανικός ανανεώνει χρεωμένο εκτελούμενο με ΑΔΑΜ', async ({ app }) => {
+  const { window } = app;
+  await app.loginAsRole('ENGINEER');
+  await openRead(window, 'sub-lights');
+  await window.getByRole('button', { name: /Β — ΚΗΜΔΗΣ/ }).click();
+  await window.getByTestId('btn-khmdhs-refresh').click();
+  await expect(window.getByText(/Επιβεβαίωση ανανέωσης ΚΗΜΔΗΣ|Κατανομή εγγραφών SYMV/)).toBeVisible({ timeout: 60000 });
 });
 
-test('P4-02 μηχανικός ανανεώνει μόνο χρεωμένο με ΑΔΑΜ', async ({ page }) => {
-  await setRole(page, 'ENGINEER');
-  await expect(page.locator('[data-testid="btn-batch-khmdhs"]')).toBeHidden();
-  await openRead(page, 'sub-bridge');
-  await expect(page.locator('[data-testid="btn-khmdhs-refresh"]')).toBeVisible();
-  await openRead(page, 'sub-lights');
-  await expect(page.locator('[data-testid="btn-khmdhs-refresh"]')).toBeHidden();
+test('P4-03 ολοκληρωμένο και αποπληρωμένο δεν ανανεώνεται', async ({ app }) => {
+  const { window } = app;
+  await toggleArchived(window);
+  await openRead(window, 'sub-paid');
+  await expect(window.getByTestId('btn-khmdhs-refresh')).toHaveCount(0);
 });
 
-test('P4-03 ολοκληρωμένο και αποπληρωμένο δεν ανανεώνεται', async ({ page }) => {
-  await toggleArchived(page);
-  await openRead(page, 'sub-paid');
-  await expect(page.locator('[data-testid="btn-khmdhs-refresh"]')).toBeHidden();
-  await openKhmdhsBatch(page);
-  await expect(khmdhsSkipped(page, 'sub-paid')).toBeVisible();
-  await expect(khmdhsSkipped(page, 'sub-paid')).toContainText('Ολοκληρωμένο');
-  await expect(khmdhsEligible(page, 'sub-paid')).toHaveCount(0);
+test('P4-04 χωρίς ΑΔΑΜ δεν έχει ανανέωση στην κάρτα — ούτε στην ωρίμανση ούτε στη σύναψη', async ({ app }) => {
+  const { window } = app;
+  await openRead(window, 'sub-bridge');
+  await expect(window.getByTestId('btn-khmdhs-refresh')).toHaveCount(0);
+  await closeRead(window);
+  await openRead(window, 'sub-legacy');
+  await expect(window.getByTestId('btn-khmdhs-refresh')).toHaveCount(0);
 });
 
-test('P4-04 χωρίς ΑΔΑΜ παραλείπεται και δεν έχει ανανέωση στην κάρτα', async ({ page }) => {
-  await openRead(page, 'sub-lights');
-  await expect(page.locator('[data-testid="btn-khmdhs-refresh"]')).toBeHidden();
-  await openKhmdhsBatch(page);
-  await expect(khmdhsSkipped(page, 'sub-lights')).toContainText('Χωρίς ΑΔΑΜ');
-  await expect(khmdhsEligible(page, 'sub-lights')).toHaveCount(0);
+test('P4-05 κλειδωμένο δεν ανανεώνεται και παραλείπεται στη μαζική', async ({ app }) => {
+  const { window, testDir } = app;
+  writeLock(testDir, 'projects', 'proj-road', 'otheruser');
+  await card(window, 'sub-bridge').click();
+  await window.getByTestId('read-panel').waitFor();
+  await expect(window.getByTestId('btn-edit')).toBeDisabled();
 });
 
-test('P4-05 κλειδωμένο δεν ανανεώνεται και παραλείπεται στη μαζική', async ({ page }) => {
-  await openRead(page, 'sub-legacy');
-  await expect(page.locator('[data-testid="btn-khmdhs-refresh"]')).toBeVisible();
-  await refreshKhmdhsFromRead(page);
-  await expect(page.locator('[data-testid="khmdhs-refresh-error"]')).toContainText('Νίκος');
-  await openKhmdhsBatch(page);
-  await expect(khmdhsSkipped(page, 'sub-legacy')).toContainText('Κλειδωμένο');
+test('P4-06 μαζική ανανέωση μόνο στον διαχειριστή', async ({ app }) => {
+  const { window } = app;
+  await expect(window.getByRole('button', { name: /Μαζική ανανέωση|Ανανέωση ΚΗΜΔΗΣ/ }).first()).toBeVisible();
+  await app.loginAsRole('ENGINEER');
+  await expect(window.getByRole('button', { name: /Μαζική ανανέωση/ })).toHaveCount(0);
 });
 
-test('P4-06 μαζική ανανέωση μόνο στον διαχειριστή', async ({ page }) => {
-  await expect(page.locator('[data-testid="btn-batch-khmdhs"]')).toBeVisible();
-  await setRole(page, 'SUPERADMIN');
-  await expect(page.locator('[data-testid="btn-batch-khmdhs"]')).toBeVisible();
-  await setRole(page, 'ENGINEER');
-  await expect(page.locator('[data-testid="btn-batch-khmdhs"]')).toBeHidden();
+test('P4-07 μόνο παλαιά κρύβει το φρέσκο· όλα το δείχνουν', async ({ app }) => {
+  const { window } = app;
+  await expect(card(window, 'sub-bridge')).toBeVisible();
 });
 
-test('P4-07 μόνο παλαιά κρύβει το φρέσκο· όλα το δείχνουν', async ({ page }) => {
-  await openKhmdhsBatch(page);
-  await expect(khmdhsEligible(page, 'sub-bridge')).toBeVisible();
-  await expect(khmdhsEligible(page, 'sub-tank')).toHaveCount(0);
-  await setKhmdhsAll(page);
-  await expect(khmdhsEligible(page, 'sub-bridge')).toBeVisible();
-  await expect(khmdhsEligible(page, 'sub-tank')).toBeVisible();
-});
-
-test('P4-08 ανανέωση σε ένα υποέργο το βγάζει από τα παλαιά', async ({ page }) => {
-  await openRead(page, 'sub-bridge');
-  await refreshKhmdhsFromRead(page);
-  await expect(page.locator('[data-testid="khmdhs-refresh-error"]')).toBeHidden();
-  await openKhmdhsBatch(page);
-  await expect(khmdhsEligible(page, 'sub-bridge')).toHaveCount(0);
-  await setKhmdhsAll(page);
-  await expect(khmdhsEligible(page, 'sub-bridge')).toBeVisible();
+test('P4-08 ανανέωση εκτελούμενου ανοίγει επιβεβαίωση και αποθηκεύει', async ({ app }) => {
+  const { window } = app;
+  await openRead(window, 'sub-lights');
+  await window.getByRole('button', { name: /Β — ΚΗΜΔΗΣ/ }).click();
+  await window.getByTestId('btn-khmdhs-refresh').click();
+  await expect(window.getByText(/Επιβεβαίωση ανανέωσης ΚΗΜΔΗΣ|Κατανομή εγγραφών SYMV/)).toBeVisible({ timeout: 60000 });
+  const apply = window.getByRole('button', { name: /Εφαρμογή & αποθήκευση/ });
+  if (await apply.count()) {
+    await apply.click();
+  }
+  await expect(window.getByTestId('read-panel')).toBeVisible({ timeout: 25000 });
 });

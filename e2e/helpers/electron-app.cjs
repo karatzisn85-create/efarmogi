@@ -1,0 +1,161 @@
+'use strict';
+
+const { _electron: electron } = require('@playwright/test');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { seedTestDir, USERS } = require('./seed.cjs');
+const { buildKhmdhsFixtures } = require('./laptop-data.cjs');
+
+const ROOT = path.resolve(__dirname, '../..');
+const MAIN_JS = path.join(ROOT, 'public', 'electron.js');
+
+async function launchIsolatedApp() {
+  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-e2e-'));
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-e2e-ud-'));
+  const seeded = seedTestDir(testDir);
+
+  const electronApp = await electron.launch({
+    args: [MAIN_JS, `--user-data-dir=${userDataDir}`],
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      DATA_DIR: testDir,
+      ERGOHUB_E2E: '1',
+      NODE_ENV: 'test',
+      ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+    },
+    timeout: 90000,
+  });
+
+  const window = await electronApp.firstWindow();
+  await window.waitForLoadState('domcontentloaded');
+  await queueKhmdhsFixtures(window, buildKhmdhsFixtures());
+  return {
+    electronApp,
+    window,
+    testDir,
+    userDataDir,
+    users: seeded.users,
+    sampleUpload: seeded.sampleUpload,
+  };
+}
+
+async function dismissTour(window) {
+  const skip = window.getByRole('button', { name: 'Θα το δω αργότερα' });
+  try {
+    await skip.waitFor({ timeout: 4000 });
+    await skip.click();
+  } catch {
+    /* η ξενάγηση δεν εμφανίστηκε */
+  }
+}
+
+async function dismissSetupBanner(window) {
+  const hide = window.getByRole('button', { name: 'Απόκρυψη για τώρα' });
+  if (await hide.isVisible()) {
+    await hide.click();
+  }
+}
+
+async function loginAs(window, user) {
+  const u = user || USERS.admin;
+  await window.getByTestId('login-username').waitFor({ timeout: 45000 });
+  await window.getByTestId('login-username').fill(u.username);
+  await window.getByTestId('login-password').fill(u.password);
+  await window.getByTestId('login-submit').click();
+  await window.getByTestId('quick-search').waitFor({ timeout: 45000 });
+  await dismissTour(window);
+  await dismissSetupBanner(window);
+}
+
+async function logout(window) {
+  const closers = [
+    window.getByRole('button', { name: 'Κλείσιμο' }),
+    window.getByRole('button', { name: '✕' }),
+  ];
+  for (const loc of closers) {
+    if (await loc.count()) {
+      try {
+        await loc.first().click({ timeout: 2500 });
+      } catch {
+        /* το παράθυρο δεν έκλεισε με αυτό το κουμπί */
+      }
+    }
+  }
+  await window.keyboard.press('Escape');
+  const btn = window.getByTestId('btn-logout');
+  if ((await btn.count()) === 0) return;
+  await btn.click();
+  await window.getByTestId('login-submit').waitFor({ timeout: 20000 });
+}
+
+async function loginAsRole(window, users, role) {
+  const map = {
+    SUPERADMIN: users.superadmin,
+    ADMIN: users.manager,
+    ENGINEER: users.maria,
+    USER: users.viewer,
+  };
+  await logout(window);
+  await loginAs(window, map[role] || users.superadmin);
+}
+
+async function closeIsolatedApp(ctx) {
+  if (!ctx?.electronApp) return;
+  const proc = typeof ctx.electronApp.process === 'function' ? ctx.electronApp.process() : null;
+  try {
+    await Promise.race([
+      ctx.electronApp.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('electron close timeout')), 12000)),
+    ]);
+  } catch {
+    if (proc && !proc.killed) {
+      try { proc.kill(); } catch { /* already gone */ }
+    }
+  }
+}
+
+async function queueOpenFiles(window, filePaths) {
+  await window.evaluate(async (paths) => {
+    await window.electronAPI.invoke('e2e-queue-open-files', paths);
+  }, filePaths);
+}
+
+async function queueSavePath(window, filePath) {
+  await window.evaluate(async (dest) => {
+    await window.electronAPI.invoke('e2e-queue-save-path', dest);
+  }, filePath);
+}
+
+async function queueKhmdhsFixtures(window, byAdam) {
+  await window.evaluate(async (map) => {
+    await window.electronAPI.invoke('e2e-queue-khmdhs-fixtures', map);
+  }, byAdam);
+}
+
+async function setKhmdhsLive(window, enabled) {
+  await window.evaluate(async (on) => {
+    await window.electronAPI.invoke('e2e-set-khmdhs-live', on);
+  }, !!enabled);
+}
+
+async function queueFolderPick(window, payload) {
+  await window.evaluate(async (body) => {
+    await window.electronAPI.invoke('e2e-queue-folder-pick', body);
+  }, payload);
+}
+
+module.exports = {
+  launchIsolatedApp,
+  loginAs,
+  logout,
+  loginAsRole,
+  closeIsolatedApp,
+  queueOpenFiles,
+  queueSavePath,
+  queueKhmdhsFixtures,
+  setKhmdhsLive,
+  queueFolderPick,
+  USERS,
+};

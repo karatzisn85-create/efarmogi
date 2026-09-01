@@ -1831,7 +1831,7 @@ function ProsklisisManager({
 
           <ActionsBar>
             {canManageWorkflow && (
-              <ToolbarActionButton type="button" primary onClick={() => { captureListScroll(); setEditingProsklisi(null); setIsFormOpen(true); }}>
+              <ToolbarActionButton type="button" primary data-testid="btn-new-prosklisi" onClick={() => { captureListScroll(); setEditingProsklisi(null); setIsFormOpen(true); }}>
                 Νέα Πρόσκληση
               </ToolbarActionButton>
             )}
@@ -2013,6 +2013,7 @@ function ProsklisisManager({
                         return (
                           <ProsklisisItem
                             key={prosklisi.prosklisiId}
+                            data-testid={`psk-card-${prosklisi.prosklisiId}`}
                             $isLocked={isLocked}
                             $status={prosklisi.status}
                             $muted={isExpiredTab}

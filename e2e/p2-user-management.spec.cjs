@@ -1,96 +1,72 @@
 'use strict';
 
-const { test, expect } = require('@playwright/test');
-const {
-  openHarness,
-  setRole,
-  openUsers,
-  userCard,
-  userPending,
-  openNewUser,
-  fillNewUser,
-  submitNewUser,
-  approveUser,
-  requestUserDelete,
-  confirmWorkflowDelete,
-} = require('./harness/harness-helpers.cjs');
+const { test, expect } = require('./helpers/real-app.cjs');
+const { expandCategory, openSystemItem } = require('./helpers/actions.cjs');
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.removeItem('ergohub-e2e-subprojects');
-  });
-  await openHarness(page);
+test('P2-09 διαχείριση χρηστών μόνο στον υπερδιαχειριστή', async ({ app }) => {
+  const { window } = app;
+  await app.loginAsRole('ADMIN');
+  await expandCategory(window, 'Σύστημα');
+  await expect(window.getByTestId('btn-users')).toHaveCount(0);
+  await app.loginAsRole('ENGINEER');
+  await expect(window.getByTestId('btn-users')).toHaveCount(0);
+  await app.loginAsRole('USER');
+  await expect(window.getByTestId('btn-users')).toHaveCount(0);
+  await app.loginAsRole('SUPERADMIN');
+  await expandCategory(window, 'Σύστημα');
+  await expect(window.getByTestId('btn-users')).toBeVisible();
 });
 
-test('P2-09 διαχείριση χρηστών μόνο στον υπερδιαχειριστή', async ({ page }) => {
-  await expect(page.locator('[data-testid="btn-users"]')).toBeHidden();
-  await setRole(page, 'ENGINEER');
-  await expect(page.locator('[data-testid="btn-users"]')).toBeHidden();
-  await setRole(page, 'USER');
-  await expect(page.locator('[data-testid="btn-users"]')).toBeHidden();
-  await setRole(page, 'SUPERADMIN');
-  await expect(page.locator('[data-testid="btn-users"]')).toBeVisible();
+test('P2-10 κενή φόρμα νέου χρήστη δεν αποθηκεύει', async ({ app }) => {
+  const { window } = app;
+  await openSystemItem(window, 'btn-users');
+  await window.getByTestId('btn-new-user').click();
+  await window.getByTestId('btn-user-save').click();
+  await expect(window.getByTestId('user-create-error')).toHaveText('Εισάγετε όνομα χρήστη');
+  await expect(window.getByTestId('user-pending-giorgos')).toHaveCount(0);
 });
 
-test('P2-10 κενή φόρμα νέου χρήστη δεν αποθηκεύει', async ({ page }) => {
-  await setRole(page, 'SUPERADMIN');
-  await openUsers(page);
-  await openNewUser(page);
-  await submitNewUser(page);
-  await expect(page.locator('[data-testid="user-create-error"]')).toBeVisible();
-  await expect(page.locator('[data-testid="user-create-error"]')).toHaveText('Εισάγετε όνομα χρήστη');
-  await expect(page.locator('[data-testid="user-create-panel"]')).toBeVisible();
-  await expect(userPending(page, 'giorgos')).toHaveCount(0);
+test('P2-11 νέος χρήστης εμφανίζεται στα αιτήματα, όχι στους ενεργούς', async ({ app }) => {
+  const { window } = app;
+  await openSystemItem(window, 'btn-users');
+  await window.getByTestId('btn-new-user').click();
+  await window.getByTestId('user-username').fill('giorgos');
+  await window.getByTestId('user-fullname').fill('Γιώργος Νικολάου');
+  await window.getByTestId('user-password').fill('TestPass12!');
+  await window.getByTestId('user-role').selectOption('USER');
+  await window.getByTestId('btn-user-save').click();
+  await expect(window.getByTestId('user-pending-giorgos')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('user-pending-giorgos')).toContainText('Γιώργος Νικολάου');
+  await expect(window.getByTestId('user-card-giorgos')).toHaveCount(0);
 });
 
-test('P2-11 νέος χρήστης εμφανίζεται στα αιτήματα, όχι στους ενεργούς', async ({ page }) => {
-  await setRole(page, 'SUPERADMIN');
-  await openUsers(page);
-  await openNewUser(page);
-  await fillNewUser(page, {
-    username: 'giorgos',
-    fullName: 'Γιώργος Νικολάου',
-    code: 'secret123',
-    role: 'USER',
-  });
-  await submitNewUser(page);
-  await expect(page.locator('[data-testid="user-create-panel"]')).toBeHidden();
-  await expect(userPending(page, 'giorgos')).toBeVisible();
-  await expect(userPending(page, 'giorgos')).toContainText('Γιώργος Νικολάου');
-  await expect(userCard(page, 'giorgos')).toHaveCount(0);
+test('P2-12 έγκριση μεταφέρει τον χρήστη στους ενεργούς', async ({ app }) => {
+  const { window } = app;
+  await openSystemItem(window, 'btn-users');
+  await expect(window.getByTestId('user-pending-pending')).toBeVisible();
+  await window.getByTestId('user-approve-pending').click();
+  await expect(window.getByTestId('user-pending-pending')).toHaveCount(0);
+  await expect(window.getByTestId('user-card-pending')).toBeVisible();
 });
 
-test('P2-12 έγκριση μεταφέρει τον χρήστη στους ενεργούς', async ({ page }) => {
-  await setRole(page, 'SUPERADMIN');
-  await openUsers(page);
-  await expect(userPending(page, 'pending')).toBeVisible();
-  await approveUser(page, 'pending');
-  await expect(userPending(page, 'pending')).toHaveCount(0);
-  await expect(userCard(page, 'pending')).toBeVisible();
+test('P2-13 διαγραφή άλλου χρήστη με επιβεβαίωση τον αφαιρεί', async ({ app }) => {
+  const { window } = app;
+  await openSystemItem(window, 'btn-users');
+  await expect(window.getByTestId('user-card-viewer')).toBeVisible();
+  await window.getByTestId('user-delete-viewer').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(window.getByTestId('user-card-viewer')).toHaveCount(0);
+  await expect(window.getByTestId('user-card-e2eadmin')).toBeVisible();
+  await expect(window.getByTestId('user-delete-e2eadmin')).toHaveCount(0);
 });
 
-test('P2-13 διαγραφή άλλου χρήστη με επιβεβαίωση τον αφαιρεί', async ({ page }) => {
-  await setRole(page, 'SUPERADMIN');
-  await openUsers(page);
-  await expect(userCard(page, 'admin')).toBeVisible();
-  await requestUserDelete(page, 'admin');
-  await expect(page.locator('[data-testid="workflow-delete-title"]')).toHaveText('Διαγραφή Χρήστη');
-  await confirmWorkflowDelete(page);
-  await expect(userCard(page, 'admin')).toHaveCount(0);
-  await expect(userCard(page, 'superadmin')).toBeVisible();
-  await expect(userCard(page, 'superadmin').locator('[data-testid="user-delete-superadmin"]')).toHaveCount(0);
-});
-
-test('P2-14 ίδιο όνομα χρήστη δεν ξαναδημιουργείται', async ({ page }) => {
-  await setRole(page, 'SUPERADMIN');
-  await openUsers(page);
-  await openNewUser(page);
-  await fillNewUser(page, {
-    username: 'Admin',
-    code: 'secret123',
-    role: 'USER',
-  });
-  await submitNewUser(page);
-  await expect(page.locator('[data-testid="user-create-error"]')).toHaveText('Το όνομα χρήστη υπάρχει ήδη');
-  await expect(page.locator('[data-testid="user-create-panel"]')).toBeVisible();
+test('P2-14 ίδιο όνομα χρήστη δεν ξαναδημιουργείται', async ({ app }) => {
+  const { window } = app;
+  await openSystemItem(window, 'btn-users');
+  await window.getByTestId('btn-new-user').click();
+  await window.getByTestId('user-username').fill('maria');
+  await window.getByTestId('user-password').fill('TestPass12!');
+  await window.getByTestId('user-role').selectOption('USER');
+  await window.getByTestId('btn-user-save').click();
+  await expect(window.getByTestId('user-create-error')).toHaveText('Το όνομα χρήστη υπάρχει ήδη');
 });

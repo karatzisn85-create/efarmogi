@@ -796,7 +796,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
               </thead>
               <tbody>
                 {pendingUsers.map(u => (
-                  <tr key={u.username}>
+                  <tr key={u.username} data-testid={`user-pending-${u.username}`}>
                     <td><strong>{u.username}</strong></td>
                     <td>{u.fullName}</td>
                     <td><RoleBadge role={u.role}>{ROLE_LABELS[u.role] || u.role}</RoleBadge></td>
@@ -804,7 +804,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                       {u.createdAt ? formatDateEl(u.createdAt, '-') : '-'}
                     </td>
                     <td>
-                      <ActionBtn className="approve" onClick={() => handleApprove(u)}>Έγκριση</ActionBtn>
+                      <ActionBtn className="approve" data-testid={`user-approve-${u.username}`} onClick={() => handleApprove(u)}>Έγκριση</ActionBtn>
                       <ActionBtn className="reject" onClick={() => handleReject(u)}>Απόρριψη</ActionBtn>
                     </td>
                   </tr>
@@ -831,7 +831,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
               <EmptyRow><td colSpan="6">Δεν υπάρχουν εγκεκριμένοι χρήστες</td></EmptyRow>
             ) : (
               approvedUsers.map(u => (
-                <tr key={u.username}>
+                <tr key={u.username} data-testid={`user-card-${u.username}`}>
                   <td>
                     <StatusDot $online={onlineUsers.includes(u.username)} $active={u.active} />
                     <StatusLabel $online={onlineUsers.includes(u.username)} $active={u.active}>
@@ -851,7 +851,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                         <ActionBtn onClick={() => handleToggleActive(u)}>
                           {u.active ? 'Απενεργοποίηση' : 'Ενεργοποίηση'}
                         </ActionBtn>
-                        <ActionBtn className="danger" onClick={() => handleDelete(u)}>Διαγραφή</ActionBtn>
+                        <ActionBtn className="danger" data-testid={`user-delete-${u.username}`} onClick={() => handleDelete(u)}>Διαγραφή</ActionBtn>
                       </>
                     )}
                   </td>
@@ -862,7 +862,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
         </Table>
 
         {!showForm ? (
-          <PrimaryBtn onClick={openCreateForm}>
+          <PrimaryBtn data-testid="btn-new-user" onClick={openCreateForm}>
             + Νέος Χρήστης
           </PrimaryBtn>
         ) : (
@@ -880,6 +880,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
               <FieldGroup>
                 <Label>Όνομα χρήστη</Label>
                 <Input
+                  data-testid="user-username"
                   value={formData.username}
                   onChange={e => setFormData(f => ({ ...f, username: e.target.value }))}
                   disabled={!!editingUser}
@@ -889,6 +890,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
               <FieldGroup>
                 <Label>Ονοματεπώνυμο</Label>
                 <Input
+                  data-testid="user-fullname"
                   value={formData.fullName}
                   onChange={e => setFormData(f => ({ ...f, fullName: e.target.value }))}
                   placeholder="π.χ. Γιάννης Παπαδόπουλος"
@@ -901,6 +903,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
                 <Label>{editingUser ? 'Νέος κωδικός (κενό = χωρίς αλλαγή)' : 'Κωδικός'}</Label>
                 <Input
                   type="password"
+                  data-testid="user-password"
                   value={formData.password}
                   onChange={e => setFormData(f => ({ ...f, password: e.target.value }))}
                   placeholder={editingUser ? '(χωρίς αλλαγή)' : 'Τουλάχιστον 4 χαρακτήρες'}
@@ -921,6 +924,7 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
               <FieldGroup>
                 <Label>Ρόλος</Label>
                 <Select
+                  data-testid="user-role"
                   value={formData.role}
                   onChange={(e) => {
                     const role = e.target.value;
@@ -1033,10 +1037,10 @@ function UserManagement({ onClose, currentUser, onUsersChanged, onSyncCurrentUse
               </TaskPermSection>
             )}
 
-            {message && <Message error={message.error}>{message.text}</Message>}
+            {message && <Message data-testid="user-create-error" error={message.error}>{message.text}</Message>}
 
             <BtnRow>
-              <PrimaryBtn onClick={handleSubmit}>
+              <PrimaryBtn data-testid="btn-user-save" onClick={handleSubmit}>
                 {editingUser ? 'Αποθήκευση' : 'Δημιουργία'}
               </PrimaryBtn>
               <SecondaryBtn onClick={resetForm}>Ακύρωση</SecondaryBtn>
