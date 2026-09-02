@@ -2,6 +2,7 @@
 
 import { formatKhmdhsDateOnly, formatKhmdhsDateTime, formatKhmdhsDurationLabel, formatKhmdhsEuro } from './khmdhsNoticeFields';
 import { formatKhmdhsCostSnapshotGross, applyKhmdhsVat24 } from './khmdhsVatHelper';
+import { awardBelongsToThisCard, normalizeChainMembershipAdam } from './khmdhsChainMembership';
 
 export function pickKhmdhsAwardSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== 'object') return null;
@@ -12,20 +13,22 @@ export function pickKhmdhsAwardSnapshot(snapshot) {
 export function projectHasKhmdhsAwardData(project) {
   const adam = String(project?.khmdhsAwardAdam || '').trim();
   const snap = pickKhmdhsAwardSnapshot(project?.khmdhsAwardSnapshot);
-  return !!(adam || snap);
+  if (adam || snap) return true;
+  return collectKhmdhsAwardAdams(project).length > 0;
 }
 
 function isAwrdAdam(value) {
   return /AWRD/i.test(String(value || ''));
 }
 
-/** Μοναδικοί ΑΔΑΜ ανάθεσης — κύρια, συνδεδεμένα και τεχνητή αλυσίδα. */
+/** Μοναδικοί ΑΔΑΜ ανάθεσης που ανήκουν σε αυτή την κάρτα — όχι τμήμα άλλου υποέργου. */
 export function collectKhmdhsAwardAdams(project) {
   const out = [];
   const seen = new Set();
   const add = (value) => {
     const adam = String(value || '').trim().toUpperCase();
     if (!adam || !isAwrdAdam(adam) || seen.has(adam)) return;
+    if (!awardBelongsToThisCard(project, adam)) return;
     seen.add(adam);
     out.push(adam);
   };
@@ -34,7 +37,48 @@ export function collectKhmdhsAwardAdams(project) {
   (project?.khmdhsAdamChainMeta?.linkedAdams?.auctions || []).forEach(add);
   Object.keys(project?.khmdhsAdamChainMeta?.awardSnapshotsByAdam || {}).forEach(add);
   (project?.khmdhsChainStitchPlan?.segments || []).forEach((segment) => add(segment?.seedAdam));
+  (project?.khmdhsSymvChainPlan?.items || []).forEach((item) => {
+    if (item?.role && item.role !== 'skip') add(item.adam);
+  });
   return out;
+}
+
+function awardSnapshotForAdam(project, adam) {
+  const n = normalizeChainMembershipAdam(adam);
+  if (!n) return null;
+  const snaps = project?.khmdhsAdamChainMeta?.awardSnapshotsByAdam || {};
+  if (snaps[n]) return snaps[n];
+  if (normalizeChainMembershipAdam(project?.khmdhsAwardAdam) === n) {
+    return project?.khmdhsAwardSnapshot || null;
+  }
+  if (normalizeChainMembershipAdam(project?.khmdhsAwardSnapshot?.referenceNumber) === n) {
+    return project?.khmdhsAwardSnapshot || null;
+  }
+  return null;
+}
+
+/** Κατακυρώσεις της κάρτας με snapshot (αν υπάρχει) — για λεπτομέρειες / αποτελέσματα. */
+export function collectKhmdhsAwardEntries(project) {
+  return collectKhmdhsAwardAdams(project).map((adam) => {
+    const snapshot = pickKhmdhsAwardSnapshot(awardSnapshotForAdam(project, adam));
+    const fetchedAt = (
+      (normalizeChainMembershipAdam(project?.khmdhsAwardAdam) === normalizeChainMembershipAdam(adam)
+        ? project?.khmdhsAwardFetchedAt
+        : '')
+      || project?.khmdhsAdamChainMeta?.resolvedAt
+      || ''
+    );
+    const registry = (Array.isArray(project?.khmdhsDocumentRegistry)
+      ? project.khmdhsDocumentRegistry
+      : []
+    ).find((e) => normalizeChainMembershipAdam(e?.adam) === normalizeChainMembershipAdam(adam));
+    return {
+      adam,
+      snapshot,
+      fetchedAt,
+      title: snapshot?.title || registry?.title || '',
+    };
+  });
 }
 
 function formatAwardAmount(snap) {

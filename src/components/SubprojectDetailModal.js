@@ -2895,6 +2895,7 @@ function SubprojectDetailModal({
         chainRes={symvPlannerState?.chainRes || null}
         subprojectTitle={symvPlannerState?.subprojectTitle || ''}
         existingPlan={symvPlannerState?.existingPlan || null}
+        project={symvPlannerState?.applyBase || project}
         onDismiss={() => {
           setSymvPlannerState(null);
           void releaseKhmdhsRefreshLock();

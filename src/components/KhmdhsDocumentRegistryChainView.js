@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { openKhmdhsActOnline } from '../utils/openKhmdhsActOnline';
 import {
@@ -115,8 +115,13 @@ const ViewBtn = styled.button`
   white-space: nowrap;
   font-family: inherit;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: #eef2ff;
+  }
+
+  &:disabled {
+    opacity: 0.7;
+    cursor: wait;
   }
 `;
 
@@ -130,6 +135,7 @@ function KhmdhsDocumentRegistryChainView({
   headerTitle = 'Αλυσίδα ΚΗΜΔΗΣ',
 }) {
   const { showToast } = useToast();
+  const [viewingAdam, setViewingAdam] = useState('');
   const labeled = useMemo(() => annotateRegistryLinkLabels(entries), [entries]);
 
   if (!labeled.length) return null;
@@ -166,20 +172,28 @@ function KhmdhsDocumentRegistryChainView({
               </LinkLabelCol>
               <ViewBtn
                 type="button"
+                data-testid={`khmdhs-registry-view-${entry.adam}`}
+                disabled={!!viewingAdam}
                 onClick={async () => {
                   if (entry.source === 'diavgeia' && entry.openUrl) {
                     const res = await window.electronAPI.invoke('open-external-url', { url: entry.openUrl });
                     if (res?.success === false && res?.error) showToast(res.error, 'error');
                     return;
                   }
-                  const res = await openKhmdhsActOnline(entry.adam, { label });
-                  if (res?.success === false && res?.error) {
-                    showToast(res.error, 'error');
+                  const adam = String(entry.adam || '').trim();
+                  setViewingAdam(adam);
+                  try {
+                    const res = await openKhmdhsActOnline(adam, { label });
+                    if (res?.success === false && res?.error) {
+                      showToast(res.error, 'error');
+                    }
+                  } finally {
+                    setViewingAdam('');
                   }
                 }}
-                title="Άνοιγμα PDF"
+                title="Άνοιγμα PDF από ΚΗΜΔΗΣ"
               >
-                Προβολή
+                {viewingAdam === String(entry.adam || '').trim() ? 'Αναμονή…' : 'Προβολή'}
               </ViewBtn>
             </NodeRow>
           );

@@ -3,12 +3,13 @@ import styled, { css, keyframes } from 'styled-components';
 import {
   SYMV_CHAIN_ROLE,
   SYMV_CHAIN_ROLE_LABELS,
-  collectSymvChainDocuments,
+  collectPlannerChainDocuments,
   buildDefaultSymvChainPlan,
   validateSymvChainPlan,
   symvPlanMatchesChain,
   mergeExistingSymvPlanOntoChain,
 } from '../utils/khmdhsSymvChainPlanner';
+import { CHAIN_LINK_STAGE, planItemStage } from '../utils/khmdhsChainMembership';
 import { openKhmdhsActOnline } from '../utils/openKhmdhsActOnline';
 import { useToast } from './ToastProvider';
 
@@ -24,6 +25,13 @@ const ROLE_VISUAL = {
     badgeBg: '#e2e8f0',
     badgeColor: '#64748b',
     selectBorder: '#cbd5e1',
+  },
+  [SYMV_CHAIN_ROLE.KEEP]: {
+    border: '#818cf8',
+    bg: 'linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%)',
+    badgeBg: '#4f46e5',
+    badgeColor: '#fff',
+    selectBorder: '#6366f1',
   },
   [SYMV_CHAIN_ROLE.MAIN]: {
     border: '#818cf8',
@@ -472,10 +480,25 @@ const ROLE_OPTIONS = [
   SYMV_CHAIN_ROLE.INTERMEDIATE,
 ];
 
+const LINK_ROLE_OPTIONS = [
+  SYMV_CHAIN_ROLE.SKIP,
+  SYMV_CHAIN_ROLE.KEEP,
+];
+
+function isExtraLinkDoc(doc, item) {
+  const stage = doc?.stage || planItemStage(item) || planItemStage(doc);
+  return stage === CHAIN_LINK_STAGE.AWRD || stage === CHAIN_LINK_STAGE.PAY;
+}
+
+function roleOptionsForDoc(doc, item) {
+  return isExtraLinkDoc(doc, item) ? LINK_ROLE_OPTIONS : ROLE_OPTIONS;
+}
+
 function planItemMap(plan) {
   const map = new Map();
   (plan?.items || []).forEach((item) => {
-    if (item?.adam) map.set(item.adam, item);
+    const adam = String(item?.adam || '').trim().toUpperCase().replace(/\*+$/, '');
+    if (adam) map.set(adam, item);
   });
   return map;
 }
@@ -516,13 +539,14 @@ export default function KhmdhsSymvChainPlannerDialog({
   chainRes = null,
   subprojectTitle = '',
   existingPlan = null,
+  project = null,
   onDismiss,
   onConfirm,
 }) {
   const { showToast } = useToast();
   const docs = useMemo(
-    () => (isOpen && chainRes ? collectSymvChainDocuments(chainRes) : []),
-    [isOpen, chainRes]
+    () => (isOpen && chainRes ? collectPlannerChainDocuments(chainRes, project) : []),
+    [isOpen, chainRes, project]
   );
   const [plan, setPlan] = useState(null);
   const [error, setError] = useState('');
@@ -541,18 +565,18 @@ export default function KhmdhsSymvChainPlannerDialog({
   useEffect(() => {
     if (!isOpen || !chainRes) return;
     setPlan((prev) => {
-      if (prev?.items?.length && symvPlanMatchesChain(prev, chainRes)) return prev;
-      if (existingPlan?.items?.length && symvPlanMatchesChain(existingPlan, chainRes)) {
+      if (prev?.items?.length && symvPlanMatchesChain(prev, chainRes, project)) return prev;
+      if (existingPlan?.items?.length && symvPlanMatchesChain(existingPlan, chainRes, project)) {
         return existingPlan;
       }
       if (existingPlan?.items?.length) {
-        return mergeExistingSymvPlanOntoChain(existingPlan, chainRes);
+        return mergeExistingSymvPlanOntoChain(existingPlan, chainRes, project);
       }
-      return buildDefaultSymvChainPlan(chainRes);
+      return buildDefaultSymvChainPlan(chainRes, project);
     });
     setError('');
     setViewingAdam('');
-  }, [isOpen, chainRes, existingPlan]);
+  }, [isOpen, chainRes, existingPlan, project]);
 
   useEffect(() => {
     const el = bodyScrollRef.current;
@@ -579,6 +603,7 @@ export default function KhmdhsSymvChainPlannerDialog({
     setViewingAdam(norm);
     try {
       const res = await openKhmdhsActOnline(norm, { label: title });
+      if (res?.cancelled) return;
       if (!res?.success) {
         showToast(res?.error || 'Δεν ήταν δυνατή η προβολή του εγγράφου.', 'error');
       }
@@ -648,7 +673,7 @@ export default function KhmdhsSymvChainPlannerDialog({
               <Title>Κατανομή εγγραφών SYMV</Title>
               <Sub>
                 {subprojectTitle ? `«${subprojectTitle}» — ` : ''}
-                ορίστε τι είναι το καθένα πριν την εφαρμογή στην αλυσίδα.
+                ορίστε τι ανήκει σε αυτό το υποέργο πριν την εφαρμογή στην αλυσίδα.
               </Sub>
             </div>
             <CountPill>{docs.length} εγγραφές</CountPill>
@@ -656,9 +681,11 @@ export default function KhmdhsSymvChainPlannerDialog({
         </Header>
         <Body ref={bodyScrollRef} data-khmdhs-symv-planner-scroll>
           <Intro>
-            Για κάθε ΑΔΑΜ επιλέξτε ρόλο. Χρησιμοποιήστε <strong>«Προβολή εγγράφου»</strong> για
-            να ανοίξετε το PDF πριν αποφασίσετε. Για έγγραφα που δεν είναι σύμβαση αλλά
-            ανήκουν στη ροή (π.χ. απόφαση, διακήρυξη), επιλέξτε
+            Για κάθε σύμβαση επιλέξτε ρόλο. Για κατακυρώσεις και εντάλματα του ίδιου
+            διαγωνισμού επιλέξτε αν <strong>ανήκουν σε αυτό το υποέργο</strong> ή
+            <strong> «Δεν καταχωρείται»</strong> (άλλο υποέργο / άλλη χρηματοδότηση).
+            Χρησιμοποιήστε <strong>«Προβολή εγγράφου»</strong> για να ανοίξετε το PDF πριν αποφασίσετε.
+            Για έγγραφα που δεν είναι σύμβαση αλλά ανήκουν στη ροή (π.χ. απόφαση, διακήρυξη), επιλέξτε
             <strong> «Ενδιάμεσος κρίκος»</strong> — η ημερομηνία εγγράφου καθορίζει τη θέση στην αλυσίδα.
             <br />
             <strong>Έντονα μαύρα</strong> = δική σας εισαγωγή.
@@ -668,17 +695,22 @@ export default function KhmdhsSymvChainPlannerDialog({
             = ενδεικτική τιμή από ΚΗΜΔΗΣ — επιβεβαιώστε ή διορθώστε.
           </Intro>
           {docs.map((doc, idx) => {
-            const item = itemByAdam.get(doc.adam) || {
+            const item = itemByAdam.get(String(doc.adam || '').trim().toUpperCase().replace(/\*+$/, '')) || {
               adam: doc.adam,
               role: SYMV_CHAIN_ROLE.SKIP,
               date: '',
               amount: '',
               label: '',
             };
-            const role = item.role;
+            const extraLink = isExtraLinkDoc(doc, item);
+            const role = extraLink
+              && item.role !== SYMV_CHAIN_ROLE.SKIP
+              && item.role !== SYMV_CHAIN_ROLE.KEEP
+              ? SYMV_CHAIN_ROLE.KEEP
+              : item.role;
             const visual = ROLE_VISUAL[role] || ROLE_VISUAL[SYMV_CHAIN_ROLE.SKIP];
             const skipped = role === SYMV_CHAIN_ROLE.SKIP;
-            const showFields = !skipped;
+            const showFields = !skipped && !extraLink;
             const showAmount = showFields && roleNeedsAmount(role);
             const showCharacterization = showFields && roleNeedsCharacterization(role);
             const isViewing = viewingAdam === doc.adam;
@@ -739,7 +771,7 @@ export default function KhmdhsSymvChainPlannerDialog({
                     }}
                     aria-label={`Ρόλος για ${doc.adam}`}
                   >
-                    {ROLE_OPTIONS.map((opt) => (
+                    {roleOptionsForDoc(doc, item).map((opt) => (
                       <option key={opt} value={opt}>{SYMV_CHAIN_ROLE_LABELS[opt]}</option>
                     ))}
                   </RoleSelect>
@@ -808,6 +840,7 @@ export default function KhmdhsSymvChainPlannerDialog({
             Επιλέχθηκαν <strong>{activeCount}</strong> εγγραφές για καταχώριση.
             {' '}Μία κύρια + συμπληρωματική = «Μια Σύμβαση». Δύο ή περισσότερες κύριες/παράλληλες = «Πολλές Συμβάσεις».
             {' '}Οι <strong>ενδιάμεσοι κρίκοι</strong> μπαίνουν στο ιστορικό αλυσίδας ταξινομημένοι κατά ημερομηνία εγγράφου.
+            {' '}Ό,τι σημείωσε «Δεν καταχωρείται» δεν μπαίνει στην αλυσίδα αυτής της κάρτας — ούτε στις επόμενες ανανεώσεις.
           </SummaryBar>
         </Body>
         <Footer>

@@ -31,9 +31,9 @@ import {
   buildKhmdhsRequestCardSummary,
 } from './khmdhsRequestFields';
 import {
-  projectHasKhmdhsAwardData,
   pickKhmdhsAwardSnapshot,
   buildKhmdhsAwardCardSummary,
+  collectKhmdhsAwardEntries,
 } from './khmdhsAwardFields';
 import {
   collectKhmdhsCommitmentDecisions,
@@ -132,23 +132,29 @@ function buildKhmdhsChainForReport(project) {
   }
 
   // AWRD — Κατακύρωση
-  if (projectHasKhmdhsAwardData(project)) {
-    const snap = pickKhmdhsAwardSnapshot(project.khmdhsAwardSnapshot);
-    const summary = buildKhmdhsAwardCardSummary(snap);
-    const contractors = Array.isArray(snap?.contractors) && snap.contractors.length
-      ? snap.contractors.map((c) => [c.name, c.vat ? `ΑΦΜ ${c.vat}` : ''].filter(Boolean).join(' ')).join(' · ')
-      : snap?.anadoxosName || '';
-    chain.awrd = {
-      adam: String(project.khmdhsAwardAdam || snap?.referenceNumber || '').trim(),
-      title: snap?.title || '',
-      amount: summary?.amount || '',
-      contractor: contractors,
-      contractorVat: snap?.anadoxosVat || '',
-      organization: snap?.organization || '',
-      awardDate: summary?.awardDate || '',
-      cancelled: !!snap?.cancelled,
-      fetchedAt: project.khmdhsAwardFetchedAt ? formatKhmdhsDateTime(project.khmdhsAwardFetchedAt) : '',
-    };
+  const awardEntries = collectKhmdhsAwardEntries(project);
+  if (awardEntries.length > 0) {
+    chain.awrd = awardEntries.map((entry) => {
+      const snap = pickKhmdhsAwardSnapshot(entry.snapshot) || entry.snapshot;
+      const summary = buildKhmdhsAwardCardSummary(snap);
+      const contractors = Array.isArray(snap?.contractors) && snap.contractors.length
+        ? snap.contractors.map((c) => [c.name, c.vat ? `ΑΦΜ ${c.vat}` : ''].filter(Boolean).join(' ')).join(' · ')
+        : snap?.anadoxosName || '';
+      return {
+        adam: entry.adam || '',
+        title: snap?.title || entry.title || '',
+        amount: summary?.amount || '',
+        contractor: contractors,
+        contractorVat: snap?.anadoxosVat || '',
+        organization: snap?.organization || '',
+        awardDate: summary?.awardDate || '',
+        cancelled: !!snap?.cancelled,
+        fetchedAt: entry.fetchedAt ? formatKhmdhsDateTime(entry.fetchedAt) : '',
+      };
+    });
+    if (chain.awrd.length === 1) {
+      chain.awrd = chain.awrd[0];
+    }
   }
 
   // PAY — Εντάλματα πληρωμής

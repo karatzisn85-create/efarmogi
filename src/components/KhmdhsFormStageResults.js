@@ -23,6 +23,7 @@ import {
   projectHasKhmdhsAwardData,
   buildKhmdhsAwardCardSummary,
   pickKhmdhsAwardSnapshot,
+  collectKhmdhsAwardEntries,
 } from '../utils/khmdhsAwardFields';
 import {
   projectHasKhmdhsCommitmentData,
@@ -105,14 +106,12 @@ function buildProcSummary(project) {
   return parts.join(' · ');
 }
 
-function buildAwrdSummary(project) {
-  const snap = pickKhmdhsAwardSnapshot
-    ? pickKhmdhsAwardSnapshot(project?.khmdhsAwardSnapshot)
-    : project?.khmdhsAwardSnapshot;
+function buildAwrdSummary(project, entry = null) {
+  const snap = pickKhmdhsAwardSnapshot(entry?.snapshot || project?.khmdhsAwardSnapshot);
   const s = buildKhmdhsAwardCardSummary(snap);
-  if (!s) return '';
+  if (!s) return entry?.title || entry?.adam || '';
   const parts = [s.contractor, s.amount, s.awardDate].filter(Boolean);
-  return parts.join(' · ');
+  return parts.join(' · ') || entry?.title || '';
 }
 
 function buildSymvSummary(entry, project, arrayIndex) {
@@ -270,18 +269,22 @@ export default function KhmdhsFormStageResults({
     () => collectKhmdhsRequestAdams(project),
     [project]
   );
+  const awardEntries = useMemo(
+    () => collectKhmdhsAwardEntries(project),
+    [project]
+  );
 
   const stageCount = useMemo(() => {
     let n = 0;
     if (projectHasKhmdhsRequestData(project)) n += 1;
     if (commitDecisions.length > 0) n += 1;
     if (projectHasKhmdhsNoticeData(project)) n += 1;
-    if (projectHasKhmdhsAwardData(project)) n += 1;
+    n += Math.max(awardEntries.length, projectHasKhmdhsAwardData(project) ? 1 : 0);
     n += contractEntries.length;
     n += supplementaryEntries.length;
     if (projectHasKhmdhsPaymentData(project)) n += 1;
     return n;
-  }, [project, commitDecisions, contractEntries, supplementaryEntries]);
+  }, [project, commitDecisions, contractEntries, supplementaryEntries, awardEntries]);
 
   if (!hasResults) return null;
 
@@ -360,21 +363,22 @@ export default function KhmdhsFormStageResults({
         )}
 
         {/* ── AWRD — Ανάθεση ────────────────────────────────────────── */}
-        {projectHasKhmdhsAwardData(project) && (
+        {awardEntries.map((entry, idx) => (
           <KhmdhsStageCard
+            key={entry.adam || `awrd-${idx}`}
             stageType="AWRD"
             icon={LIFECYCLE_STAGE_META.AWRD.icon}
-            title="Ανάθεση"
-            adam={project.khmdhsAwardAdam}
+            title={awardEntries.length > 1 ? `Ανάθεση ${idx + 1}` : 'Ανάθεση'}
+            adam={entry.adam}
             stepNumber={nextStep()}
-            statusLabel="Ανακτήθηκε"
-            statusOk
-            summary={buildAwrdSummary(project)}
-            scrollId="stage-AWRD"
+            statusLabel={entry.snapshot ? 'Ανακτήθηκε' : 'ΑΔΑΜ αλυσίδας'}
+            statusOk={!!entry.snapshot}
+            summary={buildAwrdSummary(project, entry)}
+            scrollId={idx === 0 ? 'stage-AWRD' : `stage-AWRD-${idx}`}
           >
-            <KhmdhsAwardDisplay project={project} variant="detail" />
+            <KhmdhsAwardDisplay project={project} entry={entry} variant="detail" />
           </KhmdhsStageCard>
-        )}
+        ))}
 
         {/* ── SYMV — Σύμβαση / Συμβάσεις ───────────────────────────── */}
         {contractEntries.map((entry, idx) => {

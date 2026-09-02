@@ -11,6 +11,7 @@ import {
   reconcileKhmdhsPaymentsFromProject,
   filterUnrelatedPayments,
 } from './khmdhsPaymentReconciliation';
+import { paymentAdamBelongsToThisCard, normalizeChainMembershipAdam } from './khmdhsChainMembership';
 import {
   pickKhmdhsRequestSnapshot,
   buildKhmdhsRequestDisplayGroups,
@@ -152,8 +153,27 @@ export function pickKhmdhsPaymentSnapshot(snapshot) {
 /** Επιστρέφει τα εντάλματα του έργου ως λίστα { adam, snapshot, error } */
 export function getKhmdhsPaymentEntries(project) {
   const rawList = Array.isArray(project?.khmdhsPayments) ? project.khmdhsPayments : [];
-  // Φιλτράρισμα άσχετων ενταλμάτων — λειτουργεί και σε ήδη αποθηκευμένα δεδομένα
-  const list = filterUnrelatedPayments(rawList, project);
+  const fromRegistry = [];
+  const seenRaw = new Set(
+    rawList.map((p) => normalizeChainMembershipAdam(p?.adam || p?.snapshot?.referenceNumber)).filter(Boolean)
+  );
+  (Array.isArray(project?.khmdhsDocumentRegistry) ? project.khmdhsDocumentRegistry : []).forEach((entry) => {
+    const adam = normalizeChainMembershipAdam(entry?.adam);
+    if (!adam || seenRaw.has(adam)) return;
+    if (String(entry?.stage || entry?.type || '').toUpperCase() !== 'PAY' && !/PAY/.test(adam)) return;
+    if (!paymentAdamBelongsToThisCard(project, adam, entry?.snapshot)) return;
+    seenRaw.add(adam);
+    fromRegistry.push({
+      adam,
+      snapshot: entry.snapshot || {
+        referenceNumber: adam,
+        title: entry.title || '',
+      },
+      userDocumentRole: entry.userDocumentRole || '',
+      userDocumentLabel: entry.roleLabel || entry.userDocumentLabel || '',
+    });
+  });
+  const list = filterUnrelatedPayments([...rawList, ...fromRegistry], project);
   const contractingOrg = project?.khmdhsAwardSnapshot?.organization
     || project?.khmdhsContractSnapshot?.organization
     || '';

@@ -11,6 +11,7 @@ import {
 } from './khmdhsPaymentDocumentRoles';
 import { collectKhmdhsRequestAdams } from './khmdhsRequestFields';
 import { isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
+import { isAdamKeptInChainPlan, paymentAdamBelongsToThisCard, graphHasOtherLotContract } from './khmdhsChainMembership';
 
 export const PAYER_TYPE = {
   REGIONAL_FUND: 'regional_fund',
@@ -307,9 +308,18 @@ export function filterUnrelatedPayments(payments, project) {
     considerDate(c?.date || c?.contractDate);
   });
 
+  const cancelledContracts = new Set(
+    (Array.isArray(project?.khmdhsAdamChainMeta?.confirmedCancelledAdams)
+      ? project.khmdhsAdamChainMeta.confirmedCancelledAdams
+      : [])
+      .map((a) => String(a || '').trim().toUpperCase().replace(/\*+$/, ''))
+      .filter(Boolean)
+  );
+
   const considerOffCardSibling = (v) => {
     const s = String(v || '').trim().toUpperCase();
     if (!s || isAdamSkippedInSymvPlan(project, s)) return false;
+    if (cancelledContracts.has(s)) return false;
     return !knownContracts.has(s);
   };
   const hasOffCardSiblingContracts = [
@@ -322,16 +332,28 @@ export function filterUnrelatedPayments(payments, project) {
   ].some(considerOffCardSibling);
 
   return payments.filter((p) => {
+    const payAdam = String(p?.adam || p?.snapshot?.referenceNumber || '').trim().toUpperCase();
+    if (payAdam && isAdamSkippedInSymvPlan(project, payAdam)) return false;
+    if (payAdam && isAdamKeptInChainPlan(project, payAdam)) return true;
+
     const snap = p?.snapshot;
-    if (!snap) return true;
-    const payContract = String(snap.contractRefNo || '').trim().toUpperCase();
+    if (!snap) {
+      if (payAdam && isAdamSkippedInSymvPlan(project, payAdam)) return false;
+      return true;
+    }
+    let payContract = String(snap.contractRefNo || '').trim().toUpperCase();
+    if (payContract && cancelledContracts.has(payContract)) payContract = '';
     const payReq = String(snap.requestRefNo || '').trim().toUpperCase();
 
     // Αν αναφέρει SYMV εκτός αλυσίδας → άσχετο
     if (payContract && knownContracts.size > 0 && !knownContracts.has(payContract)) return false;
     if (!payContract && payReq && knownReqs.size > 0 && !knownReqs.has(payReq)) return false;
-    // Άλλες συμβάσεις της ίδιας πράξης εκτός κάρτας: ένταλμα χωρίς SYMV δεν δένεται με ασφάλεια.
-    if (!payContract && hasOffCardSiblingContracts && knownContracts.size > 0) return false;
+    // Άλλες πραγματικές συμβάσεις της ίδιας πράξης εκτός κάρτας: ένταλμα χωρίς SYMV δεν δένεται με ασφάλεια.
+    if (!payContract && knownContracts.size > 0 && (
+      hasOffCardSiblingContracts || graphHasOtherLotContract(project)
+    )) {
+      return !!(payAdam && paymentAdamBelongsToThisCard(project, payAdam, snap));
+    }
     // Ένταλμα ΠΡΙΝ την παλαιότερη σύμβαση της κάρτας = άσχετο,
     // εκτός αν ανήκει σε γνωστή σύμβαση ή γνωστό πρωτογενές (π.χ. δεύτερο έτος).
     const ofKnownContract = !!(payContract && knownContracts.has(payContract));

@@ -4482,6 +4482,16 @@ ipcMain.handle('open-khmdhs-act-view', async (_event, { adam, label } = {}) => {
   }
 });
 
+ipcMain.handle('cancel-khmdhs-act-view', async (_event, { adam } = {}) => {
+  try {
+    const { cancelKhmdhsPdfView } = require('./khmdhsPdfBrowserView');
+    return cancelKhmdhsPdfView(adam);
+  } catch (error) {
+    logger.error('cancel-khmdhs-act-view:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
 ipcMain.handle('prefetch-khmdhs-act-pdfs', async (_event, { adams } = {}) => {
   try {
     const { prefetchKhmdhsPdfs } = require('./khmdhsPdfBrowserView');

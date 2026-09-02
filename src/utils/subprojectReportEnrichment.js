@@ -327,22 +327,26 @@ export function buildChronologicalChainTimeline(khmdhsChain, khmdhsNotice, basic
   }
 
   if (chain.awrd) {
-    const a = chain.awrd;
-    items.push(timelineItem({
-      type: 'awrd',
-      stageName: CHAIN_STAGE_LABELS.awrd,
-      title: a.title,
-      adam: a.adam,
-      dateLabel: a.awardDate,
-      fallbackDate: a.fetchedAt,
-      cancelled: a.cancelled,
-      themeKey: 'awrd',
-      fields: [
-        { label: 'Ανάδοχος', value: a.contractor },
-        { label: 'Ποσό κατακύρωσης', value: a.amount },
-        { label: 'Τελ. λήψη', value: a.fetchedAt },
-      ],
-    }));
+    const awards = Array.isArray(chain.awrd) ? chain.awrd : [chain.awrd];
+    awards.forEach((a, i) => {
+      items.push(timelineItem({
+        type: 'awrd',
+        stageName: awards.length > 1
+          ? `${CHAIN_STAGE_LABELS.awrd} (${i + 1}/${awards.length})`
+          : CHAIN_STAGE_LABELS.awrd,
+        title: a.title,
+        adam: a.adam,
+        dateLabel: a.awardDate,
+        fallbackDate: a.fetchedAt,
+        cancelled: a.cancelled,
+        themeKey: 'awrd',
+        fields: [
+          { label: 'Ανάδοχος', value: a.contractor },
+          { label: 'Ποσό κατακύρωσης', value: a.amount },
+          { label: 'Τελ. λήψη', value: a.fetchedAt },
+        ],
+      }));
+    });
   }
 
   if (basic?.isMultipleContracts) {

@@ -19,22 +19,27 @@ function formatFetchedAt(fetchedAt) {
  */
 export default function KhmdhsAwardDisplay({
   project,
+  entry = null,
   variant = 'detail',
   defaultExpanded = false,
 }) {
   const snapshot = useMemo(
-    () => pickKhmdhsAwardSnapshot(project?.khmdhsAwardSnapshot),
-    [project?.khmdhsAwardSnapshot]
+    () => pickKhmdhsAwardSnapshot(entry?.snapshot || project?.khmdhsAwardSnapshot),
+    [entry?.snapshot, project?.khmdhsAwardSnapshot]
   );
   const groups = useMemo(() => buildKhmdhsAwardDisplayGroups(snapshot), [snapshot]);
   const summary = useMemo(() => buildKhmdhsAwardCardSummary(snapshot), [snapshot]);
   const legacySnapshot = useMemo(() => isLegacyKhmdhsAwardSnapshot(snapshot), [snapshot]);
 
-  if (!projectHasKhmdhsAwardData(project) || !snapshot) return null;
+  const adam = String(
+    entry?.adam || project?.khmdhsAwardAdam || snapshot?.referenceNumber || ''
+  ).trim();
+  if (!adam && !snapshot) return null;
+  if (!entry && !projectHasKhmdhsAwardData(project)) return null;
 
-  const adam = String(project.khmdhsAwardAdam || snapshot.referenceNumber || '').trim();
-  const fetchedLabel = formatFetchedAt(project.khmdhsAwardFetchedAt);
+  const fetchedLabel = formatFetchedAt(entry?.fetchedAt || project?.khmdhsAwardFetchedAt);
   const subtitleParts = [
+    !snapshot ? 'Χωρίς λεπτομέρειες από ΚΗΜΔΗΣ — ο κωδικός ανήκει στην αλυσίδα αυτού του υποέργου' : '',
     legacySnapshot ? 'Παλιό snapshot — κάντε ξανά ανάκτηση ΚΗΜΔΗΣ για πλήρη στοιχεία' : '',
     fetchedLabel ? `Τελευταία λήψη: ${fetchedLabel}` : '',
   ].filter(Boolean);
@@ -50,7 +55,7 @@ export default function KhmdhsAwardDisplay({
   if (summary?.awardDate) {
     summaryChips.push({ label: 'Ημ. ανάθεσης', value: summary.awardDate, strong: true });
   }
-  if (snapshot.noticeReferenceNumber || (snapshot.noticeRefNos && snapshot.noticeRefNos[0])) {
+  if (snapshot?.noticeReferenceNumber || (snapshot?.noticeRefNos && snapshot.noticeRefNos[0])) {
     summaryChips.push({
       label: 'ΑΔΑΜ δημοσίευσης',
       value: snapshot.noticeReferenceNumber || snapshot.noticeRefNos[0],
@@ -66,7 +71,7 @@ export default function KhmdhsAwardDisplay({
       title="🏆 Ανάθεση (ΚΗΜΔΗΣ)"
       adam={adam}
       subtitle={variant === 'detail' ? subtitle : undefined}
-      cardSubtitle={snapshot.title || ''}
+      cardSubtitle={snapshot?.title || entry?.title || ''}
       groups={groups}
       summaryChips={summaryChips}
       variant={variant}

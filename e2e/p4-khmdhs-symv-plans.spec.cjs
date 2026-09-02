@@ -149,6 +149,26 @@ test('P4-76 προβολή εγγράφου: το κουμπί περιμένε�
   const viewBtn = modal.getByTestId(`khmdhs-symv-view-${SYMV_A}`);
   await expect(viewBtn).toBeVisible();
   await viewBtn.click();
+  await expect(window.getByTestId('khmdhs-act-view-wait')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('khmdhs-act-view-wait')).toContainText(/ΚΗΜΔΗΣ/);
+  await expect(window.getByTestId('khmdhs-act-view-wait')).toContainText(/μητρώο του Δημοσίου|αργεί/i);
   await expect(viewBtn).toContainText('Προβολή εγγράφου', { timeout: 130000 });
+  await expect(window.getByTestId('khmdhs-act-view-wait')).toHaveCount(0);
+  await modal.getByRole('button', { name: 'Κλείσιμο' }).click();
+});
+
+test('P4-77 προβολή εγγράφου: ακύρωση αναμονής κλείνει την κάρτα', async ({ app }) => {
+  const { window } = app;
+  await fetchAsphaltPlanner(window, { leavePlannerOpen: true });
+  const modal = window.locator('[data-khmdhs-symv-planner-modal]').filter({
+    has: window.getByRole('button', { name: 'Εφαρμογή κατανομής' }),
+  });
+  const viewBtn = modal.getByTestId(`khmdhs-symv-view-${SYMV_A}`);
+  await expect(viewBtn).toBeVisible();
+  await viewBtn.click();
+  await expect(window.getByTestId('khmdhs-act-view-wait')).toBeVisible({ timeout: 15000 });
+  await window.getByTestId('khmdhs-act-view-wait-cancel').click();
+  await expect(window.getByTestId('khmdhs-act-view-wait')).toHaveCount(0);
+  await expect(modal.getByRole('button', { name: 'Εφαρμογή κατανομής' })).toBeVisible();
   await modal.getByRole('button', { name: 'Κλείσιμο' }).click();
 });

@@ -8593,6 +8593,7 @@ function ProjectForm({
       isOpen={!!symvChainPlannerState?.open}
       chainRes={symvChainPlannerState?.seedChainRes || null}
       subprojectTitle={symvChainPlannerState?.subprojectTitle || ''}
+      project={formData}
       existingPlan={
         symvChainPlannerState?.draftPlan
         || symvChainPlannerState?.existingPlan

@@ -4,9 +4,17 @@
 
 import { isSubstantiveContractSymvSnapshot, nonContractSymvReason } from './khmdhsSubstantiveContractSymv';
 import { grossFromContractBudget, grossFromContractRecord } from './khmdhsVatHelper';
+import {
+  CHAIN_LINK_STAGE,
+  collectExtraChainLinkDocuments,
+  extraLinkNeedsUserDecision,
+  inferExtraLinkDefaultRole,
+  planItemStage,
+} from './khmdhsChainMembership';
 
 export const SYMV_CHAIN_ROLE = {
   SKIP: 'skip',
+  KEEP: 'keep',
   MAIN: 'main',
   PARALLEL: 'parallel',
   SUPPLEMENTARY: 'supplementary',
@@ -16,6 +24,7 @@ export const SYMV_CHAIN_ROLE = {
 
 export const SYMV_CHAIN_ROLE_LABELS = {
   [SYMV_CHAIN_ROLE.SKIP]: '— Δεν καταχωρείται',
+  [SYMV_CHAIN_ROLE.KEEP]: 'Ανήκει σε αυτό το υποέργο',
   [SYMV_CHAIN_ROLE.MAIN]: 'Κύρια σύμβαση',
   [SYMV_CHAIN_ROLE.PARALLEL]: 'Παράλληλη σύμβαση',
   [SYMV_CHAIN_ROLE.SUPPLEMENTARY]: 'Συμπληρωματική σύμβαση',
@@ -165,10 +174,29 @@ export function inferDefaultSymvRole(doc, chainRes) {
   return SYMV_CHAIN_ROLE.SKIP;
 }
 
-export function buildDefaultSymvChainPlan(chainRes) {
-  const docs = collectSymvChainDocuments(chainRes);
+export function collectPlannerChainDocuments(chainRes, project = null) {
+  const symv = collectSymvChainDocuments(chainRes).map((doc) => ({
+    ...doc,
+    stage: CHAIN_LINK_STAGE.SYMV,
+  }));
+  const extras = collectExtraChainLinkDocuments(chainRes, project);
+  const seen = new Set(symv.map((d) => normalizeAdam(d.adam)));
+  extras.forEach((doc) => {
+    const adam = normalizeAdam(doc.adam);
+    if (!adam || seen.has(adam)) return;
+    seen.add(adam);
+    symv.push(doc);
+  });
+  return symv;
+}
+
+export function buildDefaultSymvChainPlan(chainRes, project = null) {
+  const docs = collectPlannerChainDocuments(chainRes, project);
   let mainAssigned = false;
-  const items = docs.map((doc) => {
+  const items = [];
+  docs.forEach((doc) => {
+    const stage = doc.stage || planItemStage(doc) || CHAIN_LINK_STAGE.SYMV;
+    if (stage === CHAIN_LINK_STAGE.AWRD || stage === CHAIN_LINK_STAGE.PAY) return;
     let role = inferDefaultSymvRole(doc, chainRes);
     if (role === SYMV_CHAIN_ROLE.MAIN) {
       if (mainAssigned) role = SYMV_CHAIN_ROLE.SKIP;
@@ -177,8 +205,9 @@ export function buildDefaultSymvChainPlan(chainRes) {
     if (role === SYMV_CHAIN_ROLE.PARALLEL && !doc.defaultAmount && !doc.contractor) {
       role = SYMV_CHAIN_ROLE.SKIP;
     }
-    return {
+    items.push({
       adam: doc.adam,
+      stage: CHAIN_LINK_STAGE.SYMV,
       role,
       date: doc.defaultDate || '',
       amount: role === SYMV_CHAIN_ROLE.SKIP
@@ -187,13 +216,40 @@ export function buildDefaultSymvChainPlan(chainRes) {
         ? ''
         : (doc.defaultAmount || ''),
       label: '',
-    };
+    });
+  });
+  const ctx = {
+    ...(project || {}),
+    khmdhsSymvChainPlan: { items },
+  };
+  docs.forEach((doc) => {
+    const stage = doc.stage || planItemStage(doc) || CHAIN_LINK_STAGE.SYMV;
+    if (stage !== CHAIN_LINK_STAGE.AWRD && stage !== CHAIN_LINK_STAGE.PAY) return;
+    items.push({
+      adam: doc.adam,
+      stage,
+      role: inferExtraLinkDefaultRole(doc, ctx),
+      date: doc.defaultDate || '',
+      amount: '',
+      label: '',
+    });
   });
   return { items, createdAt: new Date().toISOString() };
 }
 
+function isSymvContractPlanItem(item) {
+  if (!item?.adam) return false;
+  const stage = planItemStage(item);
+  if (stage === CHAIN_LINK_STAGE.AWRD || stage === CHAIN_LINK_STAGE.PAY) return false;
+  return true;
+}
+
 export function validateSymvChainPlan(plan) {
-  const items = (plan?.items || []).filter((i) => i?.adam && i.role !== SYMV_CHAIN_ROLE.SKIP);
+  const items = (plan?.items || []).filter((i) => (
+    i?.adam
+    && i.role !== SYMV_CHAIN_ROLE.SKIP
+    && isSymvContractPlanItem(i)
+  ));
   const mains = items.filter((i) => i.role === SYMV_CHAIN_ROLE.MAIN);
   const parallels = items.filter((i) => i.role === SYMV_CHAIN_ROLE.PARALLEL);
   const contractLike = [...mains, ...parallels];
@@ -217,8 +273,8 @@ export function validateSymvChainPlan(plan) {
   return { ok: true, contractCount: contractLike.length };
 }
 
-export function symvPlanMatchesChain(plan, chainRes) {
-  const docs = collectSymvChainDocuments(chainRes);
+export function symvPlanMatchesChain(plan, chainRes, project = null) {
+  const docs = collectPlannerChainDocuments(chainRes, project);
   if (!docs.length || !plan?.items?.length) return false;
   const docAdams = new Set(docs.map((d) => normalizeAdam(d.adam)));
   const planAdams = new Set(
@@ -236,8 +292,11 @@ export function symvPlanMatchesChain(plan, chainRes) {
  * να υπάρχουν· για νέα ΑΔΑΜ χρησιμοποιεί την αυτόματη πρόταση.
  * Έτσι τα «Δεν καταχωρείται» δεν χάνονται όταν η αλυσίδα μεγαλώσει κατά 1 έγγραφο.
  */
-export function mergeExistingSymvPlanOntoChain(existingPlan, chainRes) {
-  const base = buildDefaultSymvChainPlan(chainRes);
+export function mergeExistingSymvPlanOntoChain(existingPlan, chainRes, project = null) {
+  const ctx = project
+    ? { ...project, khmdhsSymvChainPlan: existingPlan }
+    : { khmdhsSymvChainPlan: existingPlan };
+  const base = buildDefaultSymvChainPlan(chainRes, ctx);
   if (!existingPlan?.items?.length) return base;
 
   const prevByAdam = new Map();
@@ -252,7 +311,8 @@ export function mergeExistingSymvPlanOntoChain(existingPlan, chainRes) {
     const role = prev.role;
     const keepAmount = role !== SYMV_CHAIN_ROLE.SKIP
       && role !== SYMV_CHAIN_ROLE.EXTENSION
-      && role !== SYMV_CHAIN_ROLE.INTERMEDIATE;
+      && role !== SYMV_CHAIN_ROLE.INTERMEDIATE
+      && role !== SYMV_CHAIN_ROLE.KEEP;
     return {
       ...item,
       role,
@@ -336,9 +396,9 @@ function collectKnownPlanAdams(knownAdams, form) {
  */
 export function resolveReusableSymvChainPlan(existingPlan, chainRes, { knownAdams, form } = {}) {
   if (!existingPlan?.items?.length || !chainRes?.success) return null;
-  if (symvPlanMatchesChain(existingPlan, chainRes)) return existingPlan;
+  if (symvPlanMatchesChain(existingPlan, chainRes, form)) return existingPlan;
 
-  const merged = mergeExistingSymvPlanOntoChain(existingPlan, chainRes);
+  const merged = mergeExistingSymvPlanOntoChain(existingPlan, chainRes, form);
   const prevAdams = new Set(
     existingPlan.items.map((i) => normalizeAdam(i.adam)).filter(Boolean)
   );
@@ -351,6 +411,11 @@ export function resolveReusableSymvChainPlan(existingPlan, chainRes, { knownAdam
     return item && item.role !== SYMV_CHAIN_ROLE.SKIP;
   });
   if (newDocsNeedUser) return null;
+  const ctx = { ...(form || {}), khmdhsSymvChainPlan: merged };
+  const extrasNeedUser = collectExtraChainLinkDocuments(chainRes, ctx).some((doc) => (
+    extraLinkNeedsUserDecision(doc, ctx, prevAdams, chainRes)
+  ));
+  if (extrasNeedUser) return null;
   if (!validateSymvChainPlan(merged).ok) return null;
   return merged;
 }
@@ -398,6 +463,7 @@ export function mergeStitchChainResForSymvPlan(primaryChainRes, stitchResults) {
   if (segments.length <= 1) return primaryChainRes;
 
   const snapshots = { ...(primaryChainRes.chainMeta?.contractSnapshotsByAdam || {}) };
+  const awardSnaps = { ...(primaryChainRes.chainMeta?.awardSnapshotsByAdam || {}) };
   const history = [...(primaryChainRes.contractChainHistory || [])];
   const seenHistory = new Set(history.map((h) => normalizeAdam(h?.adam)).filter(Boolean));
   const parallelCandidates = new Set(
@@ -406,10 +472,18 @@ export function mergeStitchChainResForSymvPlan(primaryChainRes, stitchResults) {
   const parallelContracts = new Set(
     (primaryChainRes.chainMeta?.parallelContracts || []).map(normalizeAdam).filter(Boolean)
   );
+  const linked = {
+    requests: new Set((primaryChainRes.chainMeta?.linkedAdams?.requests || []).map(normalizeAdam).filter(Boolean)),
+    notices: new Set((primaryChainRes.chainMeta?.linkedAdams?.notices || []).map(normalizeAdam).filter(Boolean)),
+    auctions: new Set((primaryChainRes.chainMeta?.linkedAdams?.auctions || []).map(normalizeAdam).filter(Boolean)),
+    payments: new Set((primaryChainRes.chainMeta?.linkedAdams?.payments || []).map(normalizeAdam).filter(Boolean)),
+    contracts: new Set((primaryChainRes.chainMeta?.linkedAdams?.contracts || []).map(normalizeAdam).filter(Boolean)),
+  };
 
   segments.forEach((seg) => {
     const cr = seg.chainRes;
     Object.assign(snapshots, cr.chainMeta?.contractSnapshotsByAdam || {});
+    Object.assign(awardSnaps, cr.chainMeta?.awardSnapshotsByAdam || {});
     (cr.contractChainHistory || []).forEach((h) => {
       const adam = normalizeAdam(h?.adam);
       if (!adam || seenHistory.has(adam)) return;
@@ -424,6 +498,12 @@ export function mergeStitchChainResForSymvPlan(primaryChainRes, stitchResults) {
       const n = normalizeAdam(a);
       if (n) parallelContracts.add(n);
     });
+    const segLinked = cr.chainMeta?.linkedAdams || {};
+    (segLinked.requests || []).forEach((a) => { const n = normalizeAdam(a); if (n) linked.requests.add(n); });
+    (segLinked.notices || []).forEach((a) => { const n = normalizeAdam(a); if (n) linked.notices.add(n); });
+    (segLinked.auctions || []).forEach((a) => { const n = normalizeAdam(a); if (n) linked.auctions.add(n); });
+    (segLinked.payments || []).forEach((a) => { const n = normalizeAdam(a); if (n) linked.payments.add(n); });
+    (segLinked.contracts || []).forEach((a) => { const n = normalizeAdam(a); if (n) linked.contracts.add(n); });
   });
 
   return {
@@ -433,8 +513,17 @@ export function mergeStitchChainResForSymvPlan(primaryChainRes, stitchResults) {
     chainMeta: {
       ...(primaryChainRes.chainMeta || {}),
       contractSnapshotsByAdam: snapshots,
+      awardSnapshotsByAdam: awardSnaps,
       parallelContractCandidates: [...parallelCandidates],
       parallelContracts: [...parallelContracts],
+      linkedAdams: {
+        ...(primaryChainRes.chainMeta?.linkedAdams || {}),
+        requests: [...linked.requests],
+        notices: [...linked.notices],
+        auctions: [...linked.auctions],
+        payments: [...linked.payments],
+        contracts: [...linked.contracts],
+      },
     },
   };
 }

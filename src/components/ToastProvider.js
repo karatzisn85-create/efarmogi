@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import styled, { keyframes, css } from 'styled-components';
+import KhmdhsActViewWaitOverlay from './KhmdhsActViewWaitOverlay';
 
 const ToastContext = createContext(null);
 
@@ -176,6 +177,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
+      <KhmdhsActViewWaitOverlay />
       <ToastContainer>
         {toasts.map((toast) => (
           <ToastItem key={toast.id} $type={toast.type} $leaving={toast.leaving}>

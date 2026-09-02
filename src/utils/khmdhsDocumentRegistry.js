@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { buildKhmdhsOpenUrl } from './khmdhsPortalLinks';
 import { buildKhmdhsRequestCardSummary } from './khmdhsRequestFields';
 import { buildKhmdhsNoticeCardSummary } from './khmdhsNoticeFields';
-import { buildKhmdhsAwardCardSummary } from './khmdhsAwardFields';
+import { buildKhmdhsAwardCardSummary, collectKhmdhsAwardAdams } from './khmdhsAwardFields';
 import { buildKhmdhsContractCardSummary } from './khmdhsContractDisplayFields';
 import {
   collectKhmdhsCommitmentDecisions,
@@ -17,6 +17,11 @@ import { getKhmdhsDisplayEntries, parseGreekAmountString } from './khmdhsFields'
 import { getChainKindChoice, enrichChainHistoryWithReview, CHAIN_KIND_LABEL } from './khmdhsChainActions';
 import { getKhmdhsSupplementaryStageEntries } from './khmdhsSupplementaryStageEntries';
 import { getSymvPlanCustomLabel, overlaySymvPlanLabelsOnChainHistory, SYMV_CHAIN_ROLE, isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
+import {
+  awardBelongsToThisCard,
+  isAdamSkippedInChainPlan,
+  paymentAdamBelongsToThisCard,
+} from './khmdhsChainMembership';
 import { normalizeSearchText } from './searchUtils';
 import { compareKhmdhsDocumentsByDateAsc } from './khmdhsDocumentChronology';
 import {
@@ -88,10 +93,23 @@ function knownAdamsFromCandidates(candidates) {
 }
 
 /** Κρατά καταγραφές της τρέχουσας αλυσίδας· πετάει ΑΔΑΜ που δεν της ανήκουν (π.χ. διαρροή άλλου υποέργου). */
-export function pruneDocumentRegistryToKnownAdams(existing, knownAdams) {
+export function pruneDocumentRegistryToKnownAdams(existing, knownAdams, project = null) {
   const allowed = knownAdams instanceof Set
     ? knownAdams
     : new Set([...(knownAdams || [])].map((a) => normalizeAdam(a)).filter(Boolean));
+  if (project) {
+    (Array.isArray(existing) ? existing : []).forEach((e) => {
+      const adam = normalizeAdam(e?.adam);
+      if (!adam || isAdamSkippedInChainPlan(project, adam)) return;
+      const stage = String(e?.stage || e?.type || '').toUpperCase();
+      if (stage === 'AWRD' || /AWRD/.test(adam)) {
+        if (awardBelongsToThisCard(project, adam)) allowed.add(adam);
+      }
+      if (stage === 'PAY' || /PAY/.test(adam)) {
+        if (paymentAdamBelongsToThisCard(project, adam, e?.snapshot)) allowed.add(adam);
+      }
+    });
+  }
   if (!allowed.size) return Array.isArray(existing) ? existing : [];
   return (Array.isArray(existing) ? existing : []).filter((e) => {
     if (isProtectedFromRefreshPrune(e)) return true;
@@ -610,19 +628,20 @@ export function collectKhmdhsRegistryCandidatesFromProject(project) {
     const adam = normalizeAdam(adamRaw);
     if (adam && snap) pushUnique(map, entryFromNotice({ adam, snapshot: snap }));
   });
-  const ownAward = normalizeAdam(project.khmdhsAwardAdam);
-  (linked.auctions || []).forEach((adamRaw) => {
+  collectKhmdhsAwardAdams(project).forEach((adamRaw) => {
     const adam = normalizeAdam(adamRaw);
     if (!adam || map.has(adam)) return;
-    if (!ownAward || adam !== ownAward) return;
-    const snap = awardSnaps[adam];
-    if (snap) pushUnique(map, entryFromAward({ adam, snapshot: snap }));
-  });
-  Object.entries(awardSnaps).forEach(([adamRaw, snap]) => {
-    const adam = normalizeAdam(adamRaw);
-    if (!adam || !snap) return;
-    if (!ownAward || adam !== ownAward) return;
-    pushUnique(map, entryFromAward({ adam, snapshot: snap }));
+    const snap = awardSnaps[adam]
+      || (adam === normalizeAdam(project.khmdhsAwardAdam) ? project.khmdhsAwardSnapshot : null);
+    if (snap) {
+      pushUnique(map, entryFromAward({
+        adam,
+        snapshot: snap,
+        fetchedAt: adam === normalizeAdam(project.khmdhsAwardAdam)
+          ? project.khmdhsAwardFetchedAt
+          : '',
+      }));
+    }
   });
 
   const allDisplayEntries = getKhmdhsDisplayEntries(project);
@@ -1205,7 +1224,7 @@ export function applyAutoDocumentRegistryFromChain(project, chainResList, {
   if (!freshFiltered.length) return existing;
 
   const existingForResync = shouldPrune
-    ? pruneDocumentRegistryToKnownAdams(existing, knownAdamsFromCandidates(freshFiltered))
+    ? pruneDocumentRegistryToKnownAdams(existing, knownAdamsFromCandidates(freshFiltered), project)
     : existing;
   const resyncedRegistry = resyncRegistryEntryTitles(existingForResync, freshFiltered);
   if (!addNew) return resyncedRegistry;
