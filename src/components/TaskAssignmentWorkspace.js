@@ -12,6 +12,7 @@ import {
   formatDepartedAssigneeDisplayNames,
   getArchiveReadonlyMessage
 } from '../utils/taskAssignmentDisplay';
+import taskWorkspace from '../../app/core/taskWorkspace';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
 
 const ipcRenderer = window.electronAPI;
@@ -58,33 +59,26 @@ const TaskTitle = styled.h2`
   font-weight: 700;
 `;
 
-const ParticipantDetails = styled.details`
-  margin-top: 0.15rem;
-  font-size: 0.84rem;
+const ParticipantDetails = styled.div`
+  margin-top: 0.28rem;
+  font-size: 0.82rem;
   color: #475569;
-  line-height: 1.5;
-`;
-
-const ParticipantSummary = styled.summary`
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.8rem;
-  color: #64748b;
-  user-select: none;
-  &:hover {
-    color: #475569;
-  }
-`;
-
-const ParticipantPanel = styled.div`
-  margin-top: 0.45rem;
-  padding: 0.45rem 0.65rem;
-  border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
-  font-size: 0.84rem;
   line-height: 1.45;
-  color: #334155;
+`;
+
+const ParticipantStrip = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.65rem;
+  color: #475569;
+`;
+
+const ParticipantExtra = styled.div`
+  margin-top: 0.2rem;
+  color: #b45309;
+  font-weight: 600;
+  font-size: 0.78rem;
 `;
 
 const MetaRow = styled.div`
@@ -142,9 +136,9 @@ const ActionToolbar = styled.div`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.45rem 0.85rem;
-  padding: 0.42rem 0.85rem;
+  justify-content: flex-start;
+  gap: 0.4rem 0.55rem;
+  padding: 0.38rem 0.85rem;
   border-bottom: 1px solid #e8edf5;
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 `;
@@ -208,6 +202,42 @@ const ActionBtn = styled.button`
     opacity: 0.55;
     cursor: not-allowed;
   }
+`;
+
+const InviteAssigneeGrid = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  border: 1px solid #e8eef7;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+`;
+
+const InviteAssigneeCard = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.42rem 0.55rem;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  border: 1px solid transparent;
+  &:hover {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+  }
+`;
+
+const InviteAssigneeCheck = styled.input`
+  width: 17px;
+  height: 17px;
+  accent-color: #4f46e5;
+  flex-shrink: 0;
 `;
 
 const MainStage = styled.div`
@@ -1215,6 +1245,17 @@ const DepartModalHint = styled.p`
   color: #64748b;
 `;
 
+const InviteModalError = styled.p`
+  margin: 0 0 0.85rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.45;
+`;
+
 const DepartModalLabel = styled.label`
   display: block;
   font-size: 0.78rem;
@@ -1720,13 +1761,17 @@ function TaskAssignmentWorkspace({
   onDelete,
   isSuperAdmin = false,
   workArchiveMode = false,
-  onLeaveArchive
+  onLeaveArchive,
+  canAssign = false,
+  assignableUsers = []
 }) {
   const [comment, setComment] = useState('');
   const [departNote, setDepartNote] = useState('');
   const [departModalOpen, setDepartModalOpen] = useState(false);
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [leaveArchiveModalOpen, setLeaveArchiveModalOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [invitePick, setInvitePick] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -1844,6 +1889,18 @@ function TaskAssignmentWorkspace({
     task.status === 'completed' &&
     !hasLeftWorkArchive(task, actingUsername);
   const sc = TASK_STATUS_COLORS[task.status] || {};
+  const canInviteAssignees = taskWorkspace.canInviteAssigneesToTask(task, actingUsername, {
+    canAssign,
+    isSuperAdmin
+  });
+  const inviteCandidates = useMemo(() => {
+    const taken = new Set(
+      (task.assignees || []).map((a) => String(a || '').toLowerCase())
+    );
+    taken.add(String(actingUsername || '').toLowerCase());
+    return (assignableUsers || []).filter((u) => !taken.has(String(u.username || '').toLowerCase()));
+  }, [assignableUsers, task.assignees, actingUsername]);
+  const showAddAssigneesBtn = canInviteAssignees && inviteCandidates.length > 0 && !isArchivedReadOnly;
 
   const showEmailToggle = isAssigner && systemEmailConfigured;
   const showDepartBtn = workflowOpen && isAssignee && !isAssigner && ['pending', 'in_progress'].includes(task.status);
@@ -1855,7 +1912,7 @@ function TaskAssignmentWorkspace({
   );
   const showWithdrawBtn = workflowOpen && isAssigner && canEditAsAssigner && task.status !== 'completed';
   const showDeleteBtn = Boolean(onDelete && isAssigner && canEditAsAssigner);
-  const showPrimaryToolbar = showEmailToggle || showDepartBtn || showEditBtn || showLeaveArchiveBtn;
+  const showPrimaryToolbar = showEmailToggle || showDepartBtn || showEditBtn || showLeaveArchiveBtn || showAddAssigneesBtn;
   const showDangerToolbar = showWithdrawBtn || showDeleteBtn;
   const showActionToolbar = showPrimaryToolbar || showDangerToolbar;
 
@@ -1891,21 +1948,24 @@ function TaskAssignmentWorkspace({
     setDepartModalOpen(false);
     setWithdrawModalOpen(false);
     setLeaveArchiveModalOpen(false);
+    setInviteModalOpen(false);
+    setInvitePick([]);
     setDepartNote('');
   }, [task.id]);
 
   useEffect(() => {
-    if (!departModalOpen && !withdrawModalOpen && !deleteConfirmModal) return undefined;
+    if (!departModalOpen && !withdrawModalOpen && !deleteConfirmModal && !inviteModalOpen) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape' && !busy) {
         setDepartModalOpen(false);
         setWithdrawModalOpen(false);
         setDeleteConfirmModal(null);
+        setInviteModalOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [departModalOpen, withdrawModalOpen, deleteConfirmModal, busy]);
+  }, [departModalOpen, withdrawModalOpen, deleteConfirmModal, inviteModalOpen, busy]);
 
   useEffect(() => {
     if (prevDepartModalRef.current && !departModalOpen) {
@@ -2169,6 +2229,42 @@ function TaskAssignmentWorkspace({
     }
   };
 
+  const toggleInvitePick = (username) => {
+    setInvitePick((prev) => (
+      prev.some((a) => a.toLowerCase() === username.toLowerCase())
+        ? prev.filter((a) => a.toLowerCase() !== username.toLowerCase())
+        : [...prev, username]
+    ));
+  };
+
+  const runInviteAssignees = async () => {
+    if (!invitePick.length) {
+      setError('Επιλέξτε τουλάχιστον έναν συνάδελφο');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const res = await ipcRenderer.invoke('add-task-assignment-assignees', {
+        actingUsername,
+        taskId: task.id,
+        usernames: invitePick
+      });
+      scheduleDocumentInteractionRecovery({ lockScroll: true });
+      if (res?.success) {
+        setInviteModalOpen(false);
+        setInvitePick([]);
+        onUpdated(res.task);
+      } else {
+        setError(res?.error || 'Σφάλμα');
+      }
+    } catch (err) {
+      setError(err.message || 'Σφάλμα');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submitComment = async () => {
     if (isArchivedReadOnly) {
       notifyArchiveReadonly();
@@ -2298,26 +2394,24 @@ function TaskAssignmentWorkspace({
             </MetaRow>
           </HeadTitleRow>
           <ParticipantDetails>
-            <ParticipantSummary>Συμμετέχοντες</ParticipantSummary>
-            <ParticipantPanel>
-              <div>
-                <strong>Δημιουργός</strong> · {usersMap[task.createdBy]?.fullName || task.createdBy}{' '}
-                <span style={{ color: '#94a3b8', fontWeight: 600 }}>({task.createdBy})</span>
-              </div>
-              <div style={{ marginTop: '0.45rem' }}>
+            <ParticipantStrip>
+              <span data-testid="workspace-created-by">
+                <strong>Δημιουργός</strong> · {usersMap[task.createdBy]?.fullName || task.createdBy}
+              </span>
+              <span data-testid="workspace-assignees">
                 <strong>Συνάδελφοι</strong> · {assigneeNames || '—'}
-              </div>
-              {departedNames ? (
-                <div style={{ marginTop: '0.35rem', color: '#b45309', fontWeight: 600 }}>
-                  <strong>Αποχώρησαν από τον χώρο</strong> · {departedNames}
-                </div>
-              ) : null}
-              {leftArchiveNames ? (
-                <div style={{ marginTop: '0.35rem', color: '#b45309', fontWeight: 600 }}>
-                  <strong>Αποχώρησαν από αποθήκη</strong> · {leftArchiveNames}
-                </div>
-              ) : null}
-            </ParticipantPanel>
+              </span>
+            </ParticipantStrip>
+            {departedNames ? (
+              <ParticipantExtra>
+                Αποχώρησαν από τον χώρο · {departedNames}
+              </ParticipantExtra>
+            ) : null}
+            {leftArchiveNames ? (
+              <ParticipantExtra>
+                Αποχώρησαν από αποθήκη · {leftArchiveNames}
+              </ParticipantExtra>
+            ) : null}
           </ParticipantDetails>
         </HeadMain>
       </TopBar>
@@ -2339,6 +2433,20 @@ function TaskAssignmentWorkspace({
             {showEditBtn && (
               <ActionBtn type="button" disabled={busy} onClick={onEdit}>
                 Επεξεργασία
+              </ActionBtn>
+            )}
+            {showAddAssigneesBtn && (
+              <ActionBtn
+                type="button"
+                disabled={busy}
+                data-testid="workspace-add-assignees"
+                onClick={() => {
+                  setInvitePick([]);
+                  setError('');
+                  setInviteModalOpen(true);
+                }}
+              >
+                Προσθήκη συναδέλφων
               </ActionBtn>
             )}
             {showDepartBtn && (
@@ -2377,6 +2485,65 @@ function TaskAssignmentWorkspace({
             </>
           )}
         </ActionToolbar>
+      )}
+
+      {inviteModalOpen && showAddAssigneesBtn && (
+        <DepartModalBackdrop
+          role="presentation"
+          onClick={() => {
+            if (!busy) setInviteModalOpen(false);
+          }}
+        >
+          <DepartModalCard
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="invite-modal-title"
+            data-testid="workspace-invite-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <DepartModalHero>
+              <DepartModalEyebrow>Χώρος Εργασίας</DepartModalEyebrow>
+              <DepartModalTitle id="invite-modal-title">Προσθήκη συναδέλφων</DepartModalTitle>
+              <DepartModalTaskName>«{task.title}»</DepartModalTaskName>
+            </DepartModalHero>
+            <DepartModalBody>
+              <DepartModalHint>
+                Οι συνάδελφοι μπαίνουν στον ίδιο χώρο. Ο δημιουργός παραμένει {usersMap[task.createdBy]?.fullName || task.createdBy}.
+              </DepartModalHint>
+              {error ? <InviteModalError>{error}</InviteModalError> : null}
+              <InviteAssigneeGrid>
+                {inviteCandidates.map((u) => {
+                  const on = invitePick.some((a) => a.toLowerCase() === u.username.toLowerCase());
+                  return (
+                    <InviteAssigneeCard key={u.username}>
+                      <InviteAssigneeCheck
+                        type="checkbox"
+                        checked={on}
+                        data-testid={`invite-assignee-${u.username}`}
+                        onChange={() => toggleInvitePick(u.username)}
+                      />
+                      <span style={{ fontWeight: 700, color: '#0f172a' }}>{u.fullName || u.username}</span>
+                      <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: '0.84rem' }}>({u.username})</span>
+                    </InviteAssigneeCard>
+                  );
+                })}
+              </InviteAssigneeGrid>
+            </DepartModalBody>
+            <DepartModalFooter>
+              <DepartModalCancelBtn type="button" disabled={busy} onClick={() => setInviteModalOpen(false)}>
+                Πίσω
+              </DepartModalCancelBtn>
+              <DepartModalConfirmBtn
+                type="button"
+                disabled={busy || !invitePick.length}
+                data-testid="workspace-invite-submit"
+                onClick={runInviteAssignees}
+              >
+                {busy ? 'Γίνεται προσθήκη…' : 'Προσθήκη'}
+              </DepartModalConfirmBtn>
+            </DepartModalFooter>
+          </DepartModalCard>
+        </DepartModalBackdrop>
       )}
 
       {departModalOpen && workflowOpen && isAssignee && !isAssigner && ['pending', 'in_progress'].includes(task.status) && (

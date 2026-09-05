@@ -512,30 +512,52 @@ function seedTasks(dataDir) {
     createdAt: '2026-08-20T10:00:00.000Z',
     updatedAt: '2026-08-20T10:00:00.000Z',
   };
+  const group = {
+    ...task,
+    id: 'task-group',
+    title: 'Προσφυγή αυθαίρετου',
+    description: 'Κοινός φάκελος',
+    assignees: ['maria', 'nikos'],
+    createdAt: '2026-08-21T10:00:00.000Z',
+    updatedAt: '2026-08-21T10:00:00.000Z',
+  };
+  const done = {
+    ...task,
+    id: 'task-done',
+    title: 'Απολογισμός δαπανών',
+    description: 'Έκλεισε',
+    status: 'completed',
+    assignees: ['maria'],
+    createdAt: '2026-08-19T10:00:00.000Z',
+    updatedAt: '2026-08-22T10:00:00.000Z',
+  };
   writeJson(path.join(dataDir, 'ANATHESEIS_ERGASION', 'task-open', 'data.json'), task);
   fs.mkdirSync(path.join(dataDir, 'ANATHESEIS_ERGASION', 'task-open', 'ARXEIA'), { recursive: true });
+  writeJson(path.join(dataDir, 'ANATHESEIS_ERGASION', 'task-group', 'data.json'), group);
+  fs.mkdirSync(path.join(dataDir, 'ANATHESEIS_ERGASION', 'task-group', 'ARXEIA'), { recursive: true });
+  writeJson(path.join(dataDir, 'ANATHESEIS_ERGASION', 'task-done', 'data.json'), done);
+  fs.mkdirSync(path.join(dataDir, 'ANATHESEIS_ERGASION', 'task-done', 'ARXEIA'), { recursive: true });
+  const toIndex = (row) => ({
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    priority: row.priority,
+    assignees: row.assignees,
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    withdrawnByAssigner: false,
+    leftArchiveBy: [],
+  });
   writeJson(path.join(dataDir, 'ANATHESEIS_ERGASION', 'index.json'), {
     version: 1,
-    tasks: [
-      {
-        id: task.id,
-        title: task.title,
-        status: task.status,
-        priority: task.priority,
-        assignees: task.assignees,
-        createdBy: task.createdBy,
-        createdAt: task.createdAt,
-        updatedAt: task.updatedAt,
-        withdrawnByAssigner: false,
-        leftArchiveBy: [],
-      },
-    ],
-    updatedAt: task.updatedAt,
+    tasks: [toIndex(task), toIndex(group), toIndex(done)],
+    updatedAt: done.updatedAt,
   });
   writeJson(path.join(dataDir, 'ANATHESEIS_ERGASION', 'notifications.json'), {
     version: 1,
     items: [],
-    updatedAt: task.updatedAt,
+    updatedAt: group.updatedAt,
   });
 }
 

@@ -74,6 +74,12 @@ test('ο χώρος εργασιών καλεί τον κοινό πυρήνα',
   assert.match(service, /require\('\.\.\/app\/core\/taskWorkspace'\)/);
   assert.match(service, /listTasksForView/);
   assert.match(service, /canAccessTask/);
+  assert.match(service, /canInviteAssigneesToTask/);
+  assert.match(service, /addAssignees/);
+  const preload = read('public/preload.js');
+  assert.match(preload, /add-task-assignment-assignees/);
+  const electron = read('public/electron.js');
+  assert.match(electron, /add-task-assignment-assignees/);
 });
 
 test('τα αρχεία υποέργου καλούν τον κοινό πυρήνα', () => {

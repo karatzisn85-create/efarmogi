@@ -18,6 +18,11 @@ describe('parseGreekAmountString', () => {
   test('ακέραια χωρίς διαχωριστικά', () => {
     expect(parseGreekAmountString('256680')).toBe(256680);
   });
+
+  test('μοναδική τελεία με 3 ψηφία είναι χιλιάδες, όχι δεκαδικό', () => {
+    expect(parseGreekAmountString('162.000')).toBe(162000);
+    expect(parseGreekAmountString('1.234')).toBe(1234);
+  });
 });
 
 describe('sumNonExtensionSupplementaryGross — πλακίδιο κάρτας', () => {

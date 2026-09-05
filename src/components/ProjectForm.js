@@ -131,7 +131,7 @@ import {
   listContractExtensionEntries,
   buildDefaultExtensionFileName,
 } from '../utils/khmdhsManualContractExtension';
-import { getKhmdhsAmountSanityReference } from '../utils/projectAmountUtils';
+import { formatTypedAmountOnBlur, getKhmdhsAmountSanityReference } from '../utils/projectAmountUtils';
 import KhmdhsSituationModal from './KhmdhsSituationModal';
 import KhmdhsBranchPickerDialog from './KhmdhsBranchPickerDialog';
 import KhmdhsDuplicateAnchorDialog from './KhmdhsDuplicateAnchorDialog';
@@ -3267,79 +3267,7 @@ function ProjectForm({
     return cleaned;
   };
 
-  const formatAmountOnBlur = (value) => {
-    if (!value) return '';
-    
-    // Επιτρέπω πλην στην αρχή (για αρνητικούς αριθμούς)
-    const hasMinusAtStart = value.trim().startsWith('-');
-    // Αφαίρεση όλων των χαρακτήρων εκτός από ψηφία, κόμματα και τελείες
-    let cleaned = value.replace(/[^\d,.]/g, '');
-    
-    if (!/\d/.test(cleaned)) return '';
-    
-    let integerPart = '';
-    let decimalPart = '';
-    
-    // Αφαίρεση πλην προσωρινά για processing
-    const isNegative = cleaned.startsWith('-');
-    if (isNegative) {
-      cleaned = cleaned.substring(1);
-    }
-    
-    // Αναγνώριση του τρόπου εισαγωγής και μετατροπή σε ευρωπαϊκή μορφή
-    if (cleaned.includes('.') && cleaned.includes(',')) {
-      if (cleaned.indexOf(',') < cleaned.lastIndexOf('.')) {
-        // Αμερικανική μορφή (25,254.25)
-        let parts = cleaned.split('.');
-        integerPart = parts[0].replace(/,/g, '');
-        decimalPart = parts[parts.length - 1].slice(0, 2);
-      } else {
-        // Ευρωπαϊκή μορφή (25.254,25)
-        let parts = cleaned.split(',');
-        integerPart = parts[0].replace(/\./g, '');
-        decimalPart = parts[parts.length - 1].slice(0, 2);
-      }
-    } else if (cleaned.includes(',')) {
-      let parts = cleaned.split(',');
-      integerPart = parts[0];
-      decimalPart = parts[1] ? parts[1].slice(0, 2) : '';
-    } else if (cleaned.includes('.')) {
-      let parts = cleaned.split('.');
-      if (parts[0].length <= 3 && parts[1]) {
-        integerPart = parts[0];
-        decimalPart = parts[1].slice(0, 2);
-      } else {
-        integerPart = cleaned.replace(/\./g, '');
-      }
-    } else {
-      integerPart = cleaned;
-    }
-    
-    // Μορφοποίηση του ακέραιου μέρους με τελείες για χιλιάδες
-    let formattedInteger = '';
-    if (integerPart.length > 3) {
-      for (let i = integerPart.length - 1, count = 0; i >= 0; i--, count++) {
-        if (count > 0 && count % 3 === 0) {
-          formattedInteger = '.' + formattedInteger;
-        }
-        formattedInteger = integerPart[i] + formattedInteger;
-      }
-    } else {
-      formattedInteger = integerPart;
-    }
-    
-    let result = formattedInteger;
-    if (decimalPart) {
-      result += ',' + decimalPart;
-    }
-    
-    // Προσθήκη πλην αν υπήρχε στην αρχή
-    if (hasMinusAtStart) {
-      result = '-' + result;
-    }
-    
-    return result;
-  };
+  const formatAmountOnBlur = (value) => formatTypedAmountOnBlur(value);
 
   // ALE Codes management
   const handleAddAleCode = () => {

@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const ALLOWED_INVOKE = new Set([
-  'add-document-category','add-files-to-group','add-task-assignment-comment','add-task-assignment-files','authenticate',
+  'add-document-category','add-files-to-group','add-task-assignment-assignees','add-task-assignment-comment','add-task-assignment-files','authenticate',
   'change-password','check-data-dir-exists','check-file-exists',
   'check-entity-lock','check-folder-has-config','check-for-updates',
   'check-project-lock','check-projects-locks-bulk','clean-entaxi-modification-file','cleanup-duplicate-files',

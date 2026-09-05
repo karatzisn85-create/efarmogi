@@ -426,6 +426,9 @@ function createTaskAssignmentService(deps) {
       (task.assignees || []).forEach((u) => recipients.add(u));
     } else if (type === 'assignment_updated') {
       (task.assignees || []).forEach((u) => recipients.add(u));
+    } else if (type === 'assignees_added') {
+      extraUsernames.forEach((u) => recipients.add(u));
+      if (task.createdBy) recipients.add(task.createdBy);
     } else if (
       type === 'status_changed' ||
       type === 'assignment_completed' ||
@@ -840,6 +843,102 @@ function createTaskAssignmentService(deps) {
       return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης χώρου στον δίσκο' };
     }
     safeNotifyTaskEvent(task, 'assignment_updated', `Ενημέρωση χώρου: ${task.title}`);
+    return { success: true, task };
+  }
+
+  function addAssignees({ actingUsername, taskId, usernames }) {
+    const users = loadUsers();
+    const existing = readTask(taskId);
+    if (!existing) return { success: false, error: 'Ο χώρος δεν βρέθηκε' };
+
+    const actor = findUser(users, actingUsername);
+    if (!actor) return { success: false, error: 'Άγνωστος χρήστης' };
+    const isSA = isSuperAdmin(users, actingUsername);
+    const ta = normalizeTaskAssignment(actor.taskAssignment);
+    const canAssign = ta.canAssign || isSA;
+
+    if (!canAccessTask(users, existing, actingUsername)) {
+      return { success: false, error: 'Δεν έχετε πρόσβαση σε αυτόν τον χώρο' };
+    }
+    if (!taskWorkspace.canInviteAssigneesToTask(existing, actingUsername, { canAssign, isSuperAdmin: isSA })) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα να προσθέσετε συναδέλφους σε αυτόν τον χώρο' };
+    }
+
+    const merged = taskWorkspace.mergeAddedAssignees(existing, usernames);
+    if (!merged.added.length) {
+      return { success: false, error: 'Επιλέξτε τουλάχιστον έναν νέο συνάδελφο' };
+    }
+
+    const assignCheck = canUserAssignTo(users, actingUsername, merged.added);
+    if (!assignCheck.ok) return { success: false, error: assignCheck.error };
+
+    const createdBy = existing.createdBy;
+    const now = new Date().toISOString();
+    const added = assignCheck.assignees;
+    const assignees = taskWorkspace.mergeAddedAssignees(existing, added).assignees;
+    const activeSet = new Set(assignees.map((a) => String(a).toLowerCase()));
+    const prevDeparted = Array.isArray(existing.departedAssignees) ? existing.departedAssignees : [];
+    const rejoined = prevDeparted.filter((d) => activeSet.has(String(d.username || '').toLowerCase()));
+    const departedAssignees = prevDeparted.filter(
+      (d) => !activeSet.has(String(d.username || '').toLowerCase())
+    );
+    let statusHistory = Array.isArray(existing.statusHistory) ? [...existing.statusHistory] : [];
+    const addedLabels = added.map((username) => {
+      const u = findUser(users, username);
+      return u?.fullName ? `${u.fullName} (${username})` : username;
+    });
+    statusHistory.push({
+      status: existing.status,
+      at: now,
+      by: actingUsername,
+      note: `Προσθήκη συναδέλφων: ${addedLabels.join(', ')}`,
+      event: 'assignees_added'
+    });
+    rejoined.forEach((d) => {
+      const u = findUser(users, d.username);
+      const name = u?.fullName ? `${u.fullName} (${d.username})` : d.username;
+      statusHistory.push({
+        status: existing.status,
+        at: now,
+        by: actingUsername,
+        note: `Επαναπρόσκληση συνάδελφου: ${name}`,
+        event: 'assignee_rejoined'
+      });
+    });
+
+    const task = {
+      ...existing,
+      createdBy,
+      assignees,
+      departedAssignees,
+      statusHistory,
+      updatedAt: now
+    };
+    try {
+      writeTask(task);
+    } catch (err) {
+      return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης χώρου στον δίσκο' };
+    }
+
+    const byLabel = actor.fullName ? `${actor.fullName} (${actingUsername})` : actingUsername;
+    const creatorLower = String(createdBy || '').toLowerCase();
+    const creatorWasAdded = added.some((u) => String(u || '').toLowerCase() === creatorLower);
+    safeNotifyTaskEvent(
+      task,
+      'assignees_added',
+      `Ο/Η ${byLabel} σας πρόσθεσε στον χώρο «${task.title}».`,
+      added,
+      { excludeUsernames: creatorWasAdded ? [actingUsername] : [actingUsername, createdBy] }
+    );
+    if (createdBy && creatorLower !== String(actingUsername || '').toLowerCase() && !creatorWasAdded) {
+      safeNotifyTaskEvent(
+        task,
+        'assignees_added',
+        `Ο/Η ${byLabel} πρόσθεσε συναδέλφους στον χώρο «${task.title}».`,
+        [],
+        { excludeUsernames: [actingUsername] }
+      );
+    }
     return { success: true, task };
   }
 
@@ -1665,6 +1764,7 @@ function createTaskAssignmentService(deps) {
     getTask,
     createTask,
     updateTask,
+    addAssignees,
     deleteTask,
     updateStatus,
     leaveWorkspace,

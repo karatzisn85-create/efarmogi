@@ -2949,10 +2949,14 @@ ipcMain.handle('load-task-assignments', async (_event, { actingUsername, view, l
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)', tasks: [] };
+    const requestedView = view || 'asAssignee';
+    const requestedScope = listScope === 'workArchive'
+      ? 'workArchive'
+      : (listScope === 'assignerAll' && requestedView === 'asAssigner' ? 'assignerAll' : 'default');
     return svc.loadAssignments({
       actingUsername: auth.username,
-      view: view || 'asAssignee',
-      listScope: listScope === 'workArchive' ? 'workArchive' : 'default'
+      view: requestedView,
+      listScope: requestedScope
     });
   } catch (error) {
     return { success: false, error: error.message, tasks: [] };
@@ -3039,6 +3043,18 @@ ipcMain.handle('update-task-assignment', async (_event, { actingUsername, taskId
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     return svc.updateTask({ actingUsername: auth.username, taskId, payload, newFiles: newFiles || [] });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('add-task-assignment-assignees', async (_event, { actingUsername, taskId, usernames }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
+  try {
+    const svc = getTaskAssignmentService();
+    if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
+    return svc.addAssignees({ actingUsername: auth.username, taskId, usernames: usernames || [] });
   } catch (error) {
     return { success: false, error: error.message };
   }

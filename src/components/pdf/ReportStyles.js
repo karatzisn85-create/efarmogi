@@ -3,6 +3,7 @@ import {
   APOLOGISMOS_PDF_FONT_FAMILY,
   resolveApologismosFontUrl,
 } from '../../utils/apologismosFonts';
+import { formatEuroAmountLabel } from '../../utils/projectAmountUtils';
 
 /** Sync εγγραφή — χωρίς async race σε οποιοδήποτε PDF που κάνει import το ReportStyles. */
 Font.register({
@@ -220,15 +221,7 @@ export const S = StyleSheet.create({
 
 export function formatAmount(val) {
   // Μηδενικό ποσό είναι έγκυρο — μην το εμφανίζεις ως παύλα
-  if (val == null || val === '') return '—';
-  const num = parseFloat(String(val).replace(/[.,]/g, (m, i, s) => {
-    const lastDot = s.lastIndexOf('.');
-    const lastComma = s.lastIndexOf(',');
-    if (lastComma > lastDot) return m === ',' ? '.' : '';
-    return m === '.' ? '.' : '';
-  }));
-  if (isNaN(num)) return String(val);
-  return num.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  return formatEuroAmountLabel(val);
 }
 
 export function formatDate(dateStr) {
