@@ -566,6 +566,37 @@ function isSuperAdminOrAdminUser(username) {
   return !!(u && (u.role === 'SUPERADMIN' || u.role === 'ADMIN'));
 }
 
+function loadSubprojectRecordById(subprojectId) {
+  const jsonPath = findSubprojectDataJsonPath(subprojectId);
+  if (!jsonPath || !fs.existsSync(jsonPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** Διαχειριστής: πάντα. Μηχανικός: μόνο χρεωμένο υποέργο (ΚΗΜΔΗΣ / αρχεία). Όχι κοινοποίηση με σημείωση. */
+function assertCanWriteChargedOrAdminSubproject(subprojectId) {
+  if (isSuperAdminOrAdminUser(loggedInUsername)) return { ok: true };
+  const user = findUserByUsername(loggedInUsername);
+  if (!user || String(user.role || '').toUpperCase() !== 'ENGINEER') {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα' };
+  }
+  const sid = String(subprojectId || '').trim();
+  if (!sid) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα δημιουργίας υποέργου' };
+  }
+  const project = loadSubprojectRecordById(sid);
+  if (!project) return { ok: false, error: 'Το υποέργο δεν βρέθηκε' };
+  const extra = Array.isArray(user.assignedSupervisors) ? user.assignedSupervisors : [];
+  const ctx = subprojectCardCore.buildEngineerVisibilityContext(user, extra);
+  if (!subprojectCardCore.projectVisibleToAssignedEngineer(project, ctx)) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα αλλαγής σε υποέργο που δεν σας έχει χρεωθεί' };
+  }
+  return { ok: true };
+}
+
 let taskAssignmentService = null;
 
 function getTaskAssignmentService() {
@@ -1578,6 +1609,9 @@ ipcMain.handle('check-entity-lock', async (event, entityType, entityId) => {
 // Το subprojectId είναι προαιρετικό: όταν δίνεται, δεν ανοίγουμε για επεξεργασία υποέργο
 // που κρατά εκείνη τη στιγμή μια ανανέωση ΚΗΜΔΗΣ (κλειδώνει ανά υποέργο, όχι ανά έργο).
 ipcMain.handle('create-project-lock', async (event, projectId, username, subprojectId) => {
+  if (!isSuperAdminOrAdminUser(loggedInUsername)) {
+    return { success: false, error: 'Δεν έχετε δικαίωμα επεξεργασίας υποέργου' };
+  }
   const sid = String(subprojectId || '').trim();
   if (sid) {
     const busy = isEntityLocked('projects', sid);
@@ -1853,6 +1887,11 @@ async function handleSaveProjectData(event, projectData) {
   try {
     if (writesBlockedByMandatoryUpdate()) {
       return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
+    if (event) {
+      const sid = String((projectData && projectData.subprojectId) || '').trim();
+      const writeGate = assertCanWriteChargedOrAdminSubproject(sid);
+      if (!writeGate.ok) return { success: false, error: writeGate.error };
     }
     // Η χρέωση επιβλέποντα μπορεί να άλλαξε — η μνήμη ορατότητας του ημερολογίου
     // δεν πρέπει να κρατά παλιά εικόνα.
@@ -4291,6 +4330,8 @@ const KHMDHS_SNAPSHOT_KEEP_DAYS = 30;
 
 ipcMain.handle('create-khmdhs-refresh-snapshot', async (_event, { subprojectId, actingUsername }) => {
   try {
+    const writeGate = assertCanWriteChargedOrAdminSubproject(subprojectId);
+    if (!writeGate.ok) return { success: false, error: writeGate.error };
     const username = String(actingUsername || '').trim();
     if (username) {
       const user = findUserByUsername(username);
@@ -4934,6 +4975,8 @@ ipcMain.handle('save-files', async (event, files, projectId, subprojectId) => {
     if (writesBlockedByMandatoryUpdate()) {
       return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
     }
+    const writeGate = assertCanWriteChargedOrAdminSubproject(subprojectId);
+    if (!writeGate.ok) return { success: false, error: writeGate.error };
     const filesDir = path.join(dataDir, projectId, subprojectId, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ');
     
     if (!fs.existsSync(filesDir)) {
@@ -5130,6 +5173,8 @@ function removeFileFromSubprojectData(data, fileName) {
 
 ipcMain.handle('delete-file', async (event, projectId, subprojectId, fileName) => {
   try {
+    const writeGate = assertCanWriteChargedOrAdminSubproject(subprojectId);
+    if (!writeGate.ok) return { success: false, error: writeGate.error };
     const filePath = path.join(dataDir, projectId, subprojectId, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ', fileName);
 
     if (fs.existsSync(filePath)) {
@@ -5167,6 +5212,8 @@ ipcMain.handle('delete-files', async (_event, { projectId, subprojectId, fileNam
     if (!projectId || !subprojectId) {
       return { success: false, error: 'Απαιτούνται projectId και subprojectId' };
     }
+    const writeGate = assertCanWriteChargedOrAdminSubproject(subprojectId);
+    if (!writeGate.ok) return { success: false, error: writeGate.error };
     const names = [...new Set(
       (Array.isArray(fileNames) ? fileNames : [])
         .map((f) => String(f || '').trim())
@@ -5476,6 +5523,8 @@ ipcMain.handle('download-subproject-file', async (event, projectId, subprojectId
 // IPC Handler για δημιουργία ομάδας αρχείων υποέργου
 ipcMain.handle('create-file-group', async (event, projectId, subprojectId, groupTitle, filesToGroup) => {
   try {
+    const writeGate = assertCanWriteChargedOrAdminSubproject(subprojectId);
+    if (!writeGate.ok) return { success: false, error: writeGate.error };
     console.log('Creating file group:', { projectId, subprojectId, groupTitle, filesToGroup });
     
     const projectDir = path.join(dataDir, projectId);
@@ -5550,6 +5599,8 @@ ipcMain.handle('create-file-group', async (event, projectId, subprojectId, group
 // IPC Handler για προσθήκη αρχείων σε υπάρχουσα ομάδα
 ipcMain.handle('add-files-to-group', async (event, projectId, subprojectId, groupId, filesToAdd) => {
   try {
+    const writeGate = assertCanWriteChargedOrAdminSubproject(subprojectId);
+    if (!writeGate.ok) return { success: false, error: writeGate.error };
     console.log('Adding files to group:', { projectId, subprojectId, groupId, filesToAdd });
     
     const projectDir = path.join(dataDir, projectId);

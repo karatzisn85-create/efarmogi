@@ -88,6 +88,37 @@ test('P0-06 μηχανικός βλέπει μόνο τα υποέργα που 
   await expect(card(window, 'sub-legacy')).toHaveCount(0);
 });
 
+test('P0-08 σημείωση ανοίγει μη χρεωμένο υποέργο μόνο για ανάγνωση', async ({ app }) => {
+  const { window } = app;
+  await app.loginAsRole('ENGINEER');
+  await expect(card(window, 'sub-tank')).toHaveCount(0);
+  await window.getByTestId('btn-notes').click({ force: true });
+  await window.getByTestId('note-item-note-share-tank').click();
+  await window.getByTestId('note-linked-subproject-sub-tank').click();
+  await expect(window.getByTestId('read-panel')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('read-subproject-title')).toHaveText('Δεξαμενή Παρανύμφων');
+  await expect(window.getByTestId('btn-edit')).toHaveCount(0);
+  await expect(window.getByTestId('shared-readonly-banner')).toBeVisible();
+  await window.locator('[data-testid="read-panel"] button[aria-label="Κλείσιμο"]').click();
+  await expect(card(window, 'sub-tank')).toHaveCount(0);
+  await expect(card(window, 'sub-bridge')).toBeVisible();
+});
+
+test('P0-09 μηχανικός καρφιτσώνει μόνο χρεωμένα έργα/υποέργα· ένταξη όλες', async ({ app }) => {
+  const { window } = app;
+  await app.loginAsRole('ENGINEER');
+  await window.getByTestId('btn-notes').click({ force: true });
+  await window.getByTestId('btn-new-note').click();
+  const search = window.getByTestId('note-link-search');
+  await search.fill('Παρανύμφων');
+  await expect(window.getByTestId('note-link-result-entaxi-ent-water')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('note-link-result-subproject-sub-tank')).toHaveCount(0);
+  await search.fill('Γέφυρα');
+  await expect(window.getByTestId('note-link-result-subproject-sub-bridge')).toBeVisible();
+  await search.fill('Αστερουσίων');
+  await expect(window.getByTestId('note-link-result-project-proj-water')).toHaveCount(0);
+});
+
 test('P0-07 δεύτερη αλλαγή χρέωσης — φαίνεται ο τελευταίος, τα ids ίδια', async ({ app }) => {
   const { window, testDir } = app;
   await enterEdit(window, 'sub-bridge');

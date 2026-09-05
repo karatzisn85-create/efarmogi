@@ -490,6 +490,57 @@
     return list.filter(function (p) { return projectVisibleToAssignedEngineer(p, ctx); });
   }
 
+  /** Φόρμα κάρτας υποέργου: μόνο διαχειριστές. Ο μηχανικός δεν επεξεργάζεται — ούτε χρεωμένο. */
+  function canEditSubprojectCard(role) {
+    var r = String(role || '').toUpperCase();
+    return r === 'ADMIN' || r === 'SUPERADMIN';
+  }
+
+  /**
+   * Άνοιγμα από σημείωση (ή άλλο σύνδεσμο) χωρίς χρέωση: ανάγνωση μόνο.
+   * Δεν μπαίνει στον κατάλογο του μηχανικού.
+   */
+  function isSharedReadOnlySubprojectView(role, project, engineerContext) {
+    if (String(role || '').toUpperCase() !== 'ENGINEER') return false;
+    return !projectVisibleToAssignedEngineer(project, engineerContext);
+  }
+
+  /**
+   * Αρχεία υποέργου (προσθήκη/διαγραφή): διαχειριστές πάντα· μηχανικός μόνο αν του έχει χρεωθεί.
+   * Κοινοποίηση με σημείωση δεν ανοίγει πίσω πόρτα αλλαγής αρχείων.
+   */
+  function canMutateSubprojectFiles(role, project, engineerContext) {
+    var r = String(role || '').toUpperCase();
+    if (r === 'ADMIN' || r === 'SUPERADMIN') return true;
+    if (r !== 'ENGINEER') return false;
+    return projectVisibleToAssignedEngineer(project, engineerContext);
+  }
+
+  /**
+   * Επιλογές καρφιτσώματος σημείωσης: μηχανικός βλέπει μόνο χρεωμένα έργα/υποέργα.
+   * Εντάξεις, προσκλήσεις, εγκρίσεις, μελέτες μένουν όλες (ίδια εικόνα με τον κατάλογο-viewer).
+   */
+  function filterNoteLinkEntitiesForRole(entities, role, allowedProjectIds, allowedSubprojectIds) {
+    var list = Array.isArray(entities) ? entities : [];
+    if (String(role || '').toUpperCase() !== 'ENGINEER') return list.slice();
+    var proj = {};
+    var sub = {};
+    (Array.isArray(allowedProjectIds) ? allowedProjectIds : []).forEach(function (id) {
+      var k = String(id || '').trim();
+      if (k) proj[k] = true;
+    });
+    (Array.isArray(allowedSubprojectIds) ? allowedSubprojectIds : []).forEach(function (id) {
+      var k = String(id || '').trim();
+      if (k) sub[k] = true;
+    });
+    return list.filter(function (e) {
+      if (!e) return false;
+      if (e.type === 'project') return !!proj[String(e.id || '').trim()];
+      if (e.type === 'subproject') return !!sub[String(e.id || '').trim()];
+      return true;
+    });
+  }
+
   return {
     engineerChargeFilterKey: engineerChargeFilterKey,
     freeChargeFilterKey: freeChargeFilterKey,
@@ -515,6 +566,10 @@
     normalizeSearchText: normalizeSearchText,
     containsSearchTerm: containsSearchTerm,
     subprojectMatchesQuickSearch: subprojectMatchesQuickSearch,
-    filterProjectsForRole: filterProjectsForRole
+    filterProjectsForRole: filterProjectsForRole,
+    canEditSubprojectCard: canEditSubprojectCard,
+    isSharedReadOnlySubprojectView: isSharedReadOnlySubprojectView,
+    canMutateSubprojectFiles: canMutateSubprojectFiles,
+    filterNoteLinkEntitiesForRole: filterNoteLinkEntitiesForRole
   };
 });

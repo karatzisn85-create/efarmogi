@@ -25,6 +25,7 @@ import KhmdhsLifecycleRail from './KhmdhsLifecycleRail';
 import KhmdhsRefreshActionButton from './KhmdhsRefreshActionButton';
 import khmdhsRefresh from '../../app/core/khmdhsRefresh';
 import portalCatalog from '../../app/core/portalCatalog';
+import subprojectCard from '../../app/core/subprojectCard';
 import KhmdhsFormStageResults, { projectHasKhmdhsFormResults } from './KhmdhsFormStageResults';
 import KhmdhsChainRefreshDialog from './KhmdhsChainRefreshDialog';
 import KhmdhsContractExpiryPromptDialog from './KhmdhsContractExpiryPromptDialog';
@@ -613,6 +614,29 @@ const AlertBannerItem = styled.div`
   &:not(:last-child) {
     margin-bottom: 0.4rem;
   }
+`;
+
+const SharedReadBanner = styled.div`
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.1);
+  flex-shrink: 0;
+  width: 100%;
+`;
+
+const SharedReadBannerTitle = styled.div`
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #3730a3;
+  margin-bottom: 0.35rem;
+`;
+
+const SharedReadBannerText = styled.div`
+  font-size: 0.82rem;
+  color: #4338ca;
+  line-height: 1.55;
 `;
 
 const TextBlock = styled.div`
@@ -1221,6 +1245,13 @@ function SubprojectDetailModal({
       engineerCatalog,
     }),
     [userRole, currentUser, project, engineerVisibilityContext, engineerCatalog]
+  );
+
+  const canEditCard = subprojectCard.canEditSubprojectCard(userRole);
+  const sharedReadOnly = subprojectCard.isSharedReadOnlySubprojectView(
+    userRole,
+    project,
+    engineerVisibilityContext
   );
 
   // Κρατάμε το υποέργο πιασμένο από την ανάκτηση μέχρι την αποθήκευση ή την ακύρωση,
@@ -2148,7 +2179,7 @@ function SubprojectDetailModal({
               </HeaderBadges>
             </HeaderLeft>
             <HeaderActions>
-              {userRole !== 'USER' && (
+              {canEditCard && (
                 <HeaderEditBtn
                   type="button"
                   data-testid="btn-edit"
@@ -2198,6 +2229,16 @@ function SubprojectDetailModal({
 
         <ModalBody $phaseB={activePhaseTab === 'B'}>
         <ModalBodyInner $phaseB={activePhaseTab === 'B'}>
+
+          {sharedReadOnly && (
+            <SharedReadBanner data-testid="shared-readonly-banner">
+              <SharedReadBannerTitle>Μόνο ανάγνωση</SharedReadBannerTitle>
+              <SharedReadBannerText>
+                Το υποέργο σας κοινοποιήθηκε (π.χ. με σημείωση). Δεν σας έχει χρεωθεί,
+                γι’ αυτό βλέπετε την κάρτα χωρίς δικαίωμα επεξεργασίας και χωρίς να εμφανίζεται στη λίστα σας.
+              </SharedReadBannerText>
+            </SharedReadBanner>
+          )}
 
           {directAssignmentViolations.length > 0 && (
             <AlertBanner>

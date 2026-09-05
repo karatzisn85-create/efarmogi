@@ -25,7 +25,7 @@ function readPersisted(testDir, projectId, subprojectId) {
   const skip = new Set([
     'entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ',
     'ANATHESEIS_ERGASION', 'ΑΠΟΛΟΓΙΣΜΟΣ', 'locks', 'config', '_e2e_uploads',
-    'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΜΕΛΕΤΕΣ', 'backups',
+    'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΜΕΛΕΤΕΣ', 'backups', 'ΣΗΜΕΙΩΣΕΙΣ',
   ]);
   const newest = { mtime: 0, data: null };
   for (const projectDir of fs.readdirSync(testDir)) {
@@ -83,7 +83,7 @@ function subprojectExists(testDir, subprojectId) {
   const skip = new Set([
     'entaxeis', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ',
     'ANATHESEIS_ERGASION', 'ΑΠΟΛΟΓΙΣΜΟΣ', 'locks', 'config', '_e2e_uploads',
-    'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΜΕΛΕΤΕΣ', 'backups',
+    'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΜΕΛΕΤΕΣ', 'backups', 'ΣΗΜΕΙΩΣΕΙΣ',
   ]);
   for (const projectDir of fs.readdirSync(testDir)) {
     if (skip.has(projectDir) || projectDir.startsWith('.')) continue;

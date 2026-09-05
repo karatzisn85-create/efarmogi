@@ -2443,7 +2443,15 @@ const ROLE_OPTIONS = [
   { key: 'USER', label: 'Χρήστης' }
 ];
 
-const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel, currentUser }) {
+const NoteEditModal = React.memo(function NoteEditModal({
+  note,
+  onSave,
+  onCancel,
+  currentUser,
+  userRole,
+  allowedProjectIds = [],
+  allowedSubprojectIds = [],
+}) {
   const [title, setTitle] = useState(note?.title || '');
   const [content, setContent] = useState(note?.content || '');
   const [reminderDate, setReminderDate] = useState(note?.reminderDate || '');
@@ -2538,10 +2546,20 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
     setLinkedEntities(prev => prev.filter(e => !(e.id === entityId && e.type === entityType)));
   }, []);
 
+  const pickableEntities = useMemo(
+    () => subprojectCard.filterNoteLinkEntitiesForRole(
+      allEntities,
+      userRole,
+      allowedProjectIds,
+      allowedSubprojectIds
+    ),
+    [allEntities, userRole, allowedProjectIds, allowedSubprojectIds]
+  );
+
   const filteredEntities = useMemo(() => {
     const term = linkSearch.trim();
     if (!term || term.length < 2) return [];
-    return allEntities.filter(e => {
+    return pickableEntities.filter(e => {
       if (linkTypeFilter !== 'all' && e.type !== linkTypeFilter) return false;
       if (linkedEntities.some(l => l.id === e.id && l.type === e.type)) return false;
       if (e.type === 'egkrisi' && linkTypeFilter === 'egkrisi') {
@@ -2550,7 +2568,7 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
       }
       return containsSearchTerm(e.title, term) || containsSearchTerm(e.parentTitle, term);
     }).slice(0, 30);
-  }, [allEntities, linkSearch, linkTypeFilter, linkedEntities, egkrisiSearchBy]);
+  }, [pickableEntities, linkSearch, linkTypeFilter, linkedEntities, egkrisiSearchBy]);
 
   const isEntityOrphan = useCallback((ent) => {
     if (allEntities.length === 0) return false;
@@ -2774,6 +2792,7 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
         <LinkPickerWrap>
           <LinkPickerLabel>🔗 Συσχέτιση με Έργο / Υποέργο / Ένταξη / Πρόσκληση / Έγκριση</LinkPickerLabel>
           {linkedEntities.length > 0 && (
+            <>
             <LinkedChipsWrap style={{ marginBottom: '8px' }}>
               {linkedEntities.map(ent => {
                 const meta = ENTITY_TYPE_META[ent.type] || { icon: '🔗', label: ent.type };
@@ -2787,6 +2806,22 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
                 );
               })}
             </LinkedChipsWrap>
+            {linkedEntities.some((ent) => ent.type === 'subproject') && (
+              <div style={{
+                marginBottom: '8px',
+                padding: '8px 10px',
+                background: '#eef2ff',
+                border: '1px solid #c7d2fe',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                color: '#3730a3',
+                lineHeight: 1.45,
+              }}>
+                Αν η σημείωση φανεί σε μηχανικό που δεν επιβλέπει αυτό το υποέργο, θα ανοίξει την κάρτα μόνο για ανάγνωση.
+                Δεν μπαίνει στη λίστα του και δεν την επεξεργάζεται.
+              </div>
+            )}
+            </>
           )}
           <LinkTypeTabs>
             {[{ key: 'all', label: 'Όλα' }, { key: 'project', label: '🏗 Έργα' }, { key: 'subproject', label: '📦 Υποέργα' }, { key: 'entaxi', label: '📋 Εντάξεις' }, { key: 'prosklisi', label: '📢 Προσκλήσεις' }, { key: 'egkrisi', label: '💰 Εγκρίσεις' }, { key: 'meleti', label: '📐 Μελέτες' }].map(tab => (
@@ -2811,6 +2846,7 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
           <div style={{ position: 'relative' }}>
             <LinkSearchInput
               type="text"
+              data-testid="note-link-search"
               placeholder={linkTypeFilter === 'egkrisi' ? (egkrisiSearchBy === 'project' ? 'Αναζήτηση βάσει τίτλου Έργου...' : 'Αναζήτηση βάσει τίτλου Υποέργου...') : 'Πληκτρολογήστε για αναζήτηση...'}
               value={linkSearch}
               onChange={(e) => setLinkSearch(e.target.value)}
@@ -2825,7 +2861,11 @@ const NoteEditModal = React.memo(function NoteEditModal({ note, onSave, onCancel
                   filteredEntities.map(ent => {
                     const meta = ENTITY_TYPE_META[ent.type] || { icon: '🔗', label: ent.type };
                     return (
-                      <LinkResultItem key={`${ent.type}-${ent.id}`} onClick={() => { handleAddLink(ent); setLinkSearch(''); }}>
+                      <LinkResultItem
+                        key={`${ent.type}-${ent.id}`}
+                        data-testid={`note-link-result-${ent.type}-${ent.id}`}
+                        onClick={() => { handleAddLink(ent); setLinkSearch(''); }}
+                      >
                         <span className="type-icon">{meta.icon}</span>
                         {ent.title}
                         {ent.parentTitle && <span className="parent-hint">{ent.parentTitle}</span>}
@@ -3344,6 +3384,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       projectVisibleToAssignedEngineer(project, engineerVisibilityContext, engineerCatalogForCards)
     );
   }, [projects, isEngineer, engineerVisibilityContext, engineerCatalogForCards]);
+
+  const noteLinkAllowedProjectIds = useMemo(
+    () => [...new Set(visibleProjects.map((p) => p.projectId).filter(Boolean))],
+    [visibleProjects]
+  );
+  const noteLinkAllowedSubprojectIds = useMemo(
+    () => visibleProjects.map((p) => p.subprojectId).filter(Boolean),
+    [visibleProjects]
+  );
 
   const canOpenProcurementCalendar = true;
 
@@ -5188,6 +5237,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   const handleEditProject = async (project) => {
     captureDashboardScrollForForm();
+    if (!subprojectCard.canEditSubprojectCard(userRole)) {
+      showToast('Δεν έχετε δικαίωμα επεξεργασίας υποέργου.', 'error');
+      return;
+    }
     try {
       // Έλεγχος αν το έργο είναι ήδη κλειδωμένο
       const lockStatus = await ipcRenderer.invoke('check-project-lock', project.projectId);
@@ -5313,6 +5366,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   };
 
   const handleDeleteFile = async (projectId, subprojectId, fileName) => {
+    const project = findSubprojectByIds(projectId, subprojectId);
+    if (!subprojectCard.canMutateSubprojectFiles(userRole, project, engineerVisibilityContext)) {
+      showToast('Δεν έχετε δικαίωμα διαγραφής αρχείων.', 'warning');
+      return;
+    }
     try {
       const result = await ipcRenderer.invoke('delete-file', projectId, subprojectId, fileName);
       if (result.success) {
@@ -5332,6 +5390,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const handleDeleteFiles = async (projectId, subprojectId, fileNames) => {
     const names = (Array.isArray(fileNames) ? fileNames : []).filter(Boolean);
     if (!names.length) return;
+    const project = findSubprojectByIds(projectId, subprojectId);
+    if (!subprojectCard.canMutateSubprojectFiles(userRole, project, engineerVisibilityContext)) {
+      showToast('Δεν έχετε δικαίωμα διαγραφής αρχείων.', 'warning');
+      return;
+    }
     try {
       const result = await ipcRenderer.invoke('delete-files', { projectId, subprojectId, fileNames: names });
       if (result.success) {
@@ -5371,6 +5434,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     projects.find((p) => p.projectId === projectId && p.subprojectId === subprojectId) || null;
 
   const assertSubprojectUploadAllowed = (project) => {
+    if (!subprojectCard.canMutateSubprojectFiles(userRole, project, engineerVisibilityContext)) {
+      showToast('Δεν έχετε δικαίωμα προσθήκης αρχείων.', 'warning');
+      return false;
+    }
     if (subprojectFiles.isSubprojectFileUploadBlocked(project, userRole)) {
       if (!subprojectFiles.showSubprojectFileUpload(userRole)) {
         showToast('Δεν έχετε δικαίωμα προσθήκης αρχείων.', 'warning');
@@ -5509,6 +5576,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const handleGroupFiles = async (filesToGroup, existingGroups = []) => {
     if (!filesToGroup || filesToGroup.length === 0) {
       showToast('Δεν υπάρχουν αρχεία για ομαδοποίηση', 'warning');
+      return;
+    }
+    const groupedProject = findSubprojectByIds(fileManager.projectId, fileManager.subprojectId);
+    if (!subprojectCard.canMutateSubprojectFiles(userRole, groupedProject, engineerVisibilityContext)) {
+      showToast('Δεν έχετε δικαίωμα αλλαγής αρχείων.', 'warning');
       return;
     }
 
@@ -6162,18 +6234,51 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     if (!entity) return;
 
     const { type, id, title } = entity;
-    const opensModal = type === 'subproject' || type === 'entaxi' || type === 'prosklisi' || type === 'egkrisi' || type === 'meleti';
+
+    if (type === 'subproject') {
+      const found = projects.find((p) => p.subprojectId === id);
+      if (!found) {
+        showToast('Το υποέργο δεν βρέθηκε.', 'warning');
+        return;
+      }
+      captureNoteReturnContext();
+      setIsNotesOpen(false);
+      setEditingNote(null);
+      openSubprojectDetail(found);
+      return;
+    }
+
+    if (type === 'project') {
+      const inCatalog = visibleProjects.filter((p) =>
+        (id && p.projectId === id) || (title && p.projectTitle === title)
+      );
+      if (inCatalog.length > 0) {
+        setIsNotesOpen(false);
+        setEditingNote(null);
+        setQuickSearchText(title || inCatalog[0].projectTitle || '');
+        return;
+      }
+      const any = projects.filter((p) =>
+        (id && p.projectId === id) || (title && p.projectTitle === title)
+      );
+      if (any.length > 0) {
+        captureNoteReturnContext();
+        setIsNotesOpen(false);
+        setEditingNote(null);
+        openSubprojectDetail(any[0]);
+        return;
+      }
+      showToast('Το έργο δεν βρέθηκε.', 'warning');
+      return;
+    }
+
+    const opensModal = type === 'entaxi' || type === 'prosklisi' || type === 'egkrisi' || type === 'meleti';
     if (opensModal) captureNoteReturnContext();
 
     setIsNotesOpen(false);
     setEditingNote(null);
 
-    if (type === 'project') {
-      setQuickSearchText(title || '');
-    } else if (type === 'subproject') {
-      const found = projects.find(p => p.subprojectId === id);
-      if (found) openSubprojectDetail(found);
-    } else if (type === 'entaxi') {
+    if (type === 'entaxi') {
       setEntaxisProjectFilter(null);
       setSelectedEntaxiId(id);
       setIsEntaxisOpen(true);
@@ -6193,7 +6298,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       setSelectedMeletiId(id);
       setIsMeletaiOpen(true);
     }
-  }, [projects, captureNoteReturnContext, openSubprojectDetail]);
+  }, [projects, visibleProjects, captureNoteReturnContext, openSubprojectDetail, showToast]);
 
   const refreshTaskAccessRef = useRef(null);
   const refreshTaskAccess = useCallback(async () => {
@@ -7764,7 +7869,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           khmdhsDocumentRegistry={fileManager.khmdhsDocumentRegistry}
           khmdhsRelatedDocuments={fileManager.khmdhsRelatedDocuments}
           userRole={userRole}
-          canUpload={subprojectFiles.showSubprojectFileUpload(userRole)}
+          canUpload={
+            subprojectCard.canMutateSubprojectFiles(
+              userRole,
+              findSubprojectByIds(fileManager.projectId, fileManager.subprojectId),
+              engineerVisibilityContext
+            ) && !subprojectFiles.isSubprojectFileUploadBlocked(
+              findSubprojectByIds(fileManager.projectId, fileManager.subprojectId),
+              userRole
+            )
+          }
           isUploading={fileManagerUploading}
           onUploadFiles={handleUploadSubprojectFilesFromManager}
           onUploadFolder={() => handleUploadSubprojectFolder(fileManager.projectId, fileManager.subprojectId)}
@@ -8108,7 +8222,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               <NotesHeader>
                 <h2>Γρήγορες Σημειώσεις</h2>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <NewNoteBtn type="button" onClick={() => { setEditingNote({}); }} style={{ padding: '8px 14px', fontSize: '0.8rem' }}>
+                  <NewNoteBtn type="button" data-testid="btn-new-note" onClick={() => { setEditingNote({}); }} style={{ padding: '8px 14px', fontSize: '0.8rem' }}>
                     + Νέα Σημείωση
                   </NewNoteBtn>
                   <NotesCloseBtn onClick={handleCloseNotes}>✕</NotesCloseBtn>
@@ -8131,6 +8245,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                         return (
                           <NoteItem
                             key={note.id}
+                            data-testid={`note-item-${note.id}`}
                             onClick={() => setSelectedNoteId(note.id)}
                             style={{
                               cursor: 'pointer',
@@ -8229,7 +8344,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                             {selNote.linkedEntities.map(ent => {
                               const meta = ENTITY_TYPE_META[ent.type] || { icon: '🔗', label: ent.type };
                               return (
-                                <NoteLinkedChipPreview key={`${ent.type}-${ent.id}`} title={`Μετάβαση σε: ${meta.label} — ${ent.title}`} onClick={() => handleNavigateToLinkedEntity(ent)}>
+                                <NoteLinkedChipPreview
+                                  key={`${ent.type}-${ent.id}`}
+                                  data-testid={`note-linked-${ent.type}-${ent.id}`}
+                                  title={`Μετάβαση σε: ${meta.label} — ${ent.title}`}
+                                  onClick={() => handleNavigateToLinkedEntity(ent)}
+                                >
                                   <span>{meta.icon}</span>
                                   <span className="chip-title">{ent.title}</span>
                                 </NoteLinkedChipPreview>
@@ -8276,6 +8396,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 onSave={handleSaveNote}
                 onCancel={handleCancelEdit}
                 currentUser={currentUser}
+                userRole={userRole}
+                allowedProjectIds={noteLinkAllowedProjectIds}
+                allowedSubprojectIds={noteLinkAllowedSubprojectIds}
               />
             )}
           </NotesOverlay>
@@ -8558,7 +8681,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
 
       {(canManageAll || isEngineer) && !isNotesOpen && (
-        <NotesFab data-user-guide="notes-fab" onClick={handleOpenNotes} title="Γρήγορες Σημειώσεις">
+        <NotesFab data-testid="btn-notes" data-user-guide="notes-fab" onClick={handleOpenNotes} title="Γρήγορες Σημειώσεις">
           📝
         </NotesFab>
       )}

@@ -642,7 +642,7 @@ function FileManager({
   fileGroups = [],
   khmdhsDocumentRegistry = [],
   khmdhsRelatedDocuments = [],
-  userRole,
+  userRole: _userRole,
   canUpload = false,
   isUploading = false,
   onUploadFiles,
@@ -740,7 +740,7 @@ function FileManager({
   const hasKhmdhsRelated = (khmdhsRelatedDocuments || []).length > 0;
   const hasPhysicalFiles = files.length > 0 || fileGroups.some((g) => g.files.length > 0);
   const hasFiles = hasKhmdhsRegistry || hasKhmdhsRelated || hasPhysicalFiles;
-  const isAdmin  = userRole !== 'USER';
+  const canMutate = canUpload;
 
   /* Render a single file row — shared between groups and ungrouped */
   const renderFileItem = (fileName, key, extraTestId) => {
@@ -748,7 +748,7 @@ function FileManager({
     return (
       <FileItem key={key} data-testid={extraTestId || `file-row-${fileName}`}>
         <FileInfo>
-          {isAdmin && (
+          {canMutate && (
             <input
               type="checkbox"
               checked={selectedFiles.has(fileName)}
@@ -773,7 +773,7 @@ function FileManager({
           >
             ⬇
           </DownloadIconBtn>
-          {isAdmin && (
+          {canMutate && (
             <DeleteIconBtn
               title="Διαγραφή"
               data-testid={`file-remove-${key}`}
@@ -867,7 +867,7 @@ function FileManager({
             </TitleGroup>
 
             <HeaderActions>
-              {isAdmin && hasPhysicalFiles && (
+              {canMutate && hasPhysicalFiles && (
                 <>
                   {selectedFiles.size > 0 && (
                     <>

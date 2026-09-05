@@ -116,6 +116,47 @@ test('μηχανικός βλέπει μόνο χρεωμένα σε αυτόν'
   assert.deepEqual(visible.map((p) => p.subprojectId), ['a']);
 });
 
+test('φόρμα κάρτας μόνο σε διαχειριστή· σημείωση χωρίς χρέωση = ανάγνωση', () => {
+  assert.equal(core.canEditSubprojectCard('SUPERADMIN'), true);
+  assert.equal(core.canEditSubprojectCard('ADMIN'), true);
+  assert.equal(core.canEditSubprojectCard('ENGINEER'), false);
+  assert.equal(core.canEditSubprojectCard('USER'), false);
+
+  const charged = { subprojectId: 'a', supervisorEngineerIds: ['user:maria'] };
+  const other = { subprojectId: 'b', supervisorEngineerIds: ['user:nikos'] };
+  const ctx = core.buildEngineerVisibilityContext({ username: 'maria' });
+
+  assert.equal(core.isSharedReadOnlySubprojectView('ENGINEER', other, ctx), true);
+  assert.equal(core.isSharedReadOnlySubprojectView('ENGINEER', charged, ctx), false);
+  assert.equal(core.isSharedReadOnlySubprojectView('ADMIN', other, ctx), false);
+
+  assert.equal(core.canMutateSubprojectFiles('ENGINEER', charged, ctx), true);
+  assert.equal(core.canMutateSubprojectFiles('ENGINEER', other, ctx), false);
+  assert.equal(core.canMutateSubprojectFiles('ADMIN', other, ctx), true);
+  assert.equal(core.canMutateSubprojectFiles('USER', charged, ctx), false);
+});
+
+test('σημείωση μηχανικού: έργα/υποέργα μόνο χρεωμένα· εντάξεις όλες', () => {
+  const entities = [
+    { type: 'project', id: 'proj-road', title: 'Οδικό' },
+    { type: 'project', id: 'proj-water', title: 'Ύδρευση' },
+    { type: 'subproject', id: 'sub-bridge', title: 'Γέφυρα' },
+    { type: 'subproject', id: 'sub-tank', title: 'Δεξαμενή' },
+    { type: 'entaxi', id: 'ent-water', title: 'Δεξαμενή Παρανύμφων' },
+    { type: 'prosklisi', id: 'psk-1', title: 'Πρόσκληση' },
+    { type: 'egkrisi', id: 'eg-1', title: 'Έγκριση' },
+  ];
+  const picked = core.filterNoteLinkEntitiesForRole(
+    entities,
+    'ENGINEER',
+    ['proj-road'],
+    ['sub-bridge']
+  );
+  assert.deepEqual(picked.map((e) => e.id), ['proj-road', 'sub-bridge', 'ent-water', 'psk-1', 'eg-1']);
+  const adminAll = core.filterNoteLinkEntitiesForRole(entities, 'ADMIN', [], []);
+  assert.equal(adminAll.length, entities.length);
+});
+
 test('applyOutsideChargeToggle καθαρίζει την άλλη πλευρά', () => {
   const on = core.applyOutsideChargeToggle({
     supervisorEngineerIds: ['user:maria'],

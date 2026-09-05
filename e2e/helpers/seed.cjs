@@ -561,6 +561,32 @@ function seedTasks(dataDir) {
   });
 }
 
+function seedNotes(dataDir) {
+  writeJson(path.join(dataDir, 'ΣΗΜΕΙΩΣΕΙΣ', 'notes_data.json'), {
+    groups: [{
+      id: 'general-notes',
+      name: 'Γενικές Σημειώσεις',
+      color: '#6366f1',
+    }],
+    notes: [{
+      id: 'note-share-tank',
+      title: 'Σημείωση για δεξαμενή',
+      content: 'Δείτε την κάρτα της δεξαμενής',
+      visibility: 'users',
+      visibleToRoles: [],
+      visibleToUsers: ['maria'],
+      createdBy: 'e2eadmin',
+      linkedEntities: [{
+        type: 'subproject',
+        id: 'sub-tank',
+        title: 'Δεξαμενή Παρανύμφων',
+      }],
+      createdAt: '2024-06-01T08:00:00.000Z',
+      updatedAt: '2024-06-01T08:00:00.000Z',
+    }],
+  });
+}
+
 function writeLock(dataDir, entityType, entityId, username) {
   writeJson(path.join(dataDir, 'locks', entityType, `${entityId}.lock`), {
     hostname: 'OTHER-PC',
@@ -643,6 +669,7 @@ function seedTestDir(dataDir) {
     'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ',
     'ΜΕΛΕΤΕΣ',
     'backups',
+    'ΣΗΜΕΙΩΣΕΙΣ',
   ].forEach((sub) => fs.mkdirSync(path.join(dataDir, sub), { recursive: true }));
 
   buildSubprojects().forEach((p) => writeSubproject(dataDir, p));
@@ -653,6 +680,7 @@ function seedTestDir(dataDir) {
   seedOrimanthi(dataDir);
   seedMeletai(dataDir);
   seedTasks(dataDir);
+  seedNotes(dataDir);
 
   const sampleUpload = path.join(dataDir, '_e2e_uploads');
   fs.mkdirSync(sampleUpload, { recursive: true });

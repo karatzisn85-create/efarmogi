@@ -1426,10 +1426,18 @@ function ProjectCard({
             <AttentionTag
               type="button"
               $blocking={khmdhsAttention.level === 'blocking'}
-              title={`Ανοίξτε την επεξεργασία του υποέργου:\n• ${khmdhsAttention.reasons.join('\n• ')}`}
+              title={
+                (userRole === 'ADMIN' || userRole === 'SUPERADMIN')
+                  ? `Ανοίξτε την επεξεργασία του υποέργου:\n• ${khmdhsAttention.reasons.join('\n• ')}`
+                  : `Ανοίξτε την κάρτα του υποέργου:\n• ${khmdhsAttention.reasons.join('\n• ')}`
+              }
               onClick={(e) => {
                 e.stopPropagation();
-                if (typeof onEdit === 'function') onEdit(project);
+                if (userRole === 'ADMIN' || userRole === 'SUPERADMIN') {
+                  if (typeof onEdit === 'function') onEdit(project);
+                } else if (typeof onViewDetails === 'function') {
+                  onViewDetails(project);
+                }
               }}
             >
               <span aria-hidden>📌</span>

@@ -14,3 +14,7 @@ export const collectChargeFilterOptions = subprojectCard.collectChargeFilterOpti
 export const getProjectChargeSearchText = subprojectCard.getProjectChargeSearchText;
 export const projectVisibleToAssignedEngineer = subprojectCard.projectVisibleToAssignedEngineer;
 export const buildEngineerVisibilityContext = subprojectCard.buildEngineerVisibilityContext;
+export const canEditSubprojectCard = subprojectCard.canEditSubprojectCard;
+export const isSharedReadOnlySubprojectView = subprojectCard.isSharedReadOnlySubprojectView;
+export const canMutateSubprojectFiles = subprojectCard.canMutateSubprojectFiles;
+export const filterNoteLinkEntitiesForRole = subprojectCard.filterNoteLinkEntitiesForRole;
