@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification, powerSaveBlocker, Menu } = require('electron');
 const path = require('path');
 const os = require('os');
 const { safeWriteJSON, safeWriteJSONAsync } = require('./safeWrite');
@@ -15,6 +15,8 @@ const {
   installE2EDialogHooks,
 } = require('./e2eMode');
 installE2EDialogHooks(dialog);
+const { attachEditContextMenu, getLastBuiltEditMenu } = require('./editContextMenu');
+const { enableGreekSpellcheck, getGreekSpellcheckStatus } = require('./greekSpellcheck');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { exec, spawn } = require('child_process');
@@ -321,7 +323,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false
+      webSecurity: false,
+      spellcheck: true
     },
     icon: path.join(__dirname, 'assets', 'icons', 'icon.ico'),
     show: false,
@@ -336,6 +339,19 @@ function createWindow() {
   console.log('Loading file:', indexPath);
   mainWindow.loadFile(indexPath).catch(err => {
     console.error('Error loading file:', err);
+  });
+
+  enableGreekSpellcheck(mainWindow.webContents.session, {
+    userDataPath: app.getPath('userData'),
+  });
+  mainWindow.webContents.once('did-finish-load', () => {
+    enableGreekSpellcheck(mainWindow.webContents.session, {
+      userDataPath: app.getPath('userData'),
+    });
+  });
+  attachEditContextMenu(mainWindow, {
+    Menu,
+    popup: !isE2EProcess(),
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -4948,6 +4964,23 @@ ipcMain.handle('e2e-set-khmdhs-live', (_event, enabled) => {
   if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
   setE2EKhmdhsLive(enabled);
   return { success: true };
+});
+
+ipcMain.handle('e2e-last-edit-menu', () => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  const template = getLastBuiltEditMenu();
+  return {
+    success: true,
+    labels: (template || []).filter((row) => row.label).map((row) => row.label),
+  };
+});
+
+ipcMain.handle('e2e-spellcheck-status', () => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  return {
+    success: true,
+    ...getGreekSpellcheckStatus(mainWindow && mainWindow.webContents && mainWindow.webContents.session, app.getPath('userData')),
+  };
 });
 
 ipcMain.handle('open-file-dialog', async () => {
@@ -18628,8 +18661,8 @@ function buildSubprojectAmountMap() {
   try {
     projectDirs = fs.readdirSync(dataDir).filter((f) => {
       try {
-        return fs.statSync(path.join(dataDir, f)).isDirectory()
-          && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(f);
+        if (DATA_DIR_SKIP_ROOT_DIRS.has(f)) return false;
+        return fs.statSync(path.join(dataDir, f)).isDirectory();
       } catch (_) {
         return false;
       }
@@ -18643,8 +18676,7 @@ function buildSubprojectAmountMap() {
     try {
       subDirs = fs.readdirSync(projectPath).filter((f) => {
         try {
-          return fs.statSync(path.join(projectPath, f)).isDirectory()
-            && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(f);
+          return fs.statSync(path.join(projectPath, f)).isDirectory();
         } catch (_) {
           return false;
         }

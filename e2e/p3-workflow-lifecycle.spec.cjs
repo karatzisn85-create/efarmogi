@@ -31,15 +31,7 @@ test('P3-36 νέα ένταξη με τα υποχρεωτικά εμφανίζ�
   await window.locator('input[type="date"]').first().fill('2026-03-01');
   await window.getByPlaceholder('π.χ. 150.000,00').fill('25000');
   await window.getByPlaceholder(/φορέα|π.χ./i).first().fill('Περιφέρεια Κρήτης');
-  await window.locator('textarea, input').filter({ hasText: '' });
-  const subject = window.locator('label', { hasText: 'Θέμα εγγράφου' }).locator('xpath=following::textarea[1]').or(
-    window.locator('label', { hasText: 'Θέμα εγγράφου' }).locator('xpath=following::input[1]')
-  );
-  if (await subject.count()) {
-    await subject.fill('Ένταξη δοκιμής E2E');
-  } else {
-    await window.getByRole('textbox').nth(2).fill('Ένταξη δοκιμής E2E');
-  }
+  await window.getByPlaceholder(/Ένταξη της Πράξης/).fill('Ένταξη δοκιμής E2E');
   await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
   await window.getByRole('button', { name: 'Προσθήκη αρχείων' }).first().click();
   await window.getByRole('button', { name: 'Αποθήκευση' }).click();
@@ -49,14 +41,11 @@ test('P3-36 νέα ένταξη με τα υποχρεωτικά εμφανίζ�
 test('P3-37 διαγραφή ένταξης με επιβεβαίωση την αφαιρεί', async ({ app }) => {
   const { window } = app;
   await openEntaxeis(window);
-  await expect(window.getByText('Μεμονωμένη ένταξη')).toBeVisible();
-  const card = window.getByText('Μεμονωμένη ένταξη');
-  await card.click();
-  const del = window.getByRole('button', { name: /Διαγραφή/ });
-  await expect(del.first()).toBeVisible();
-  await del.first().click();
-  const yes = window.getByTestId('confirm-yes').or(window.getByRole('button', { name: /Ναι|Επιβεβαίωση|Διαγραφή/ }).last());
-  await yes.click();
+  const card = window.locator('[data-entaxi-id="ent-free"]');
+  await expect(card.getByText('Μεμονωμένη ένταξη')).toBeVisible();
+  await card.getByTitle('Ενέργειες').click();
+  await window.getByRole('button', { name: '🗑️ Διαγραφή ένταξης' }).click();
+  await window.getByTestId('confirm-yes').click();
   await expect(window.getByText('Μεμονωμένη ένταξη')).toHaveCount(0);
 });
 
@@ -81,11 +70,11 @@ test('P3-39 νέα πρόσκληση με τίτλο και άξονα εμφα
 test('P3-40 διαγραφή πρόσκλησης με επιβεβαίωση την αφαιρεί', async ({ app }) => {
   const { window } = app;
   await openProskliseis(window);
-  await expect(window.getByTestId('psk-card-psk-far')).toBeVisible();
-  await window.getByTestId('psk-card-psk-far').click();
-  const del = window.getByRole('button', { name: /Διαγραφή/ });
-  await del.first().click();
-  const yes = window.getByTestId('confirm-yes').or(window.getByRole('button', { name: /Ναι|Επιβεβαίωση/ }));
+  const card = window.getByTestId('psk-card-psk-far');
+  await expect(card).toBeVisible();
+  await card.getByTitle('Ενέργειες').click();
+  await window.getByRole('button', { name: 'Διαγραφή πρόσκλησης' }).click();
+  const yes = window.getByTestId('confirm-yes').or(window.getByRole('button', { name: /^Διαγραφή$/ }));
   if (await yes.count()) await yes.click();
   await expect(window.getByTestId('psk-card-psk-far')).toHaveCount(0);
 });

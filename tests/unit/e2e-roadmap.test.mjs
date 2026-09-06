@@ -19,12 +19,15 @@ function specIds(specDir) {
   const files = readdirSync(specDir).filter((f) => f.endsWith('.spec.cjs') && /^(p\d+-)/i.test(f));
   files.forEach((file) => {
     const text = readFileSync(join(specDir, file), 'utf8');
-    const re = /test\('((?:P\d+-\d+)[^']*)'/g;
-    let m;
-    while ((m = re.exec(text))) {
-      const id = m[1].match(/P\d+-\d+/);
+    const add = (raw) => {
+      const id = String(raw || '').match(/P\d+-\d+/);
       if (id) found.add(id[0]);
-    }
+    };
+    let m;
+    const reTest = /test\(['`]((?:P\d+-\d+)[^'`]*)['`]/g;
+    while ((m = reTest.exec(text))) add(m[1]);
+    const rePair = /\[\s*['"](P\d+-\d+)['"]\s*,/g;
+    while ((m = rePair.exec(text))) add(m[1]);
   });
   return { files, ids: found };
 }
@@ -34,30 +37,28 @@ test('κάθε id του ROADMAP που λέει καλύφθηκε υπάρχε
   const covered = coveredIdsFromRoadmap(roadmap);
   assert.ok(covered.length > 0, 'το ROADMAP πρέπει να έχει τουλάχιστον ένα καλύφθηκε id');
   const { ids } = specIds(join(root, 'e2e'));
-  covered.forEach((id) => {
-    assert.ok(ids.has(id), `λείπει spec για ${id}`);
-  });
+  const missing = covered.filter((id) => !ids.has(id));
+  assert.deepEqual(missing, [], `λείπουν specs: ${missing.join(', ')}`);
 });
 
-// Τα σταθερά specs τρέχουν πάνω στο harness, ποτέ πάνω στην πραγματική εφαρμογή.
-// Ελέγχουμε τα πραγματικά σημάδια εξάρτησης — όχι λέξεις όπως «login», που ανήκουν
-// κανονικά στο λεξιλόγιο των σεναρίων (π.χ. προσομοιωμένη οθόνη σύνδεσης του harness).
-const REAL_APP_SIGNALS = [
-  { re: /electron/i, why: 'δεν πρέπει να αναφέρει Electron' },
-  { re: /passwordAuth|hashPassword|passwordHash|users\.json/i, why: 'δεν πρέπει να αγγίζει τον πραγματικό μηχανισμό κωδικών' },
-  { re: /require\(\s*['"](?:fs|path|os|child_process)['"]\s*\)/, why: 'δεν πρέπει να αγγίζει το σύστημα αρχείων' }
-];
-
-test('τα σταθερά specs τρέχουν μόνο πάνω στο harness', () => {
+// Τα σταθερά specs ανοίγουν την πραγματική εφαρμογή σε προσωρινό φάκελο (real-app),
+// όχι το παλιό harness στο πρόγραμμα περιήγησης.
+test('τα σταθερά specs τρέχουν πάνω στην πραγματική εφαρμογή', () => {
   const { files } = specIds(join(root, 'e2e'));
   assert.ok(files.length > 0);
   files.forEach((file) => {
     const text = readFileSync(join(root, 'e2e', file), 'utf8');
-    REAL_APP_SIGNALS.forEach(({ re, why }) => {
-      assert.equal(re.test(text), false, `${file} ${why}`);
-    });
+    assert.match(
+      text,
+      /require\('\.\/helpers\/real-app\.cjs'\)/,
+      `${file} πρέπει να ανοίγει την πραγματική εφαρμογή`
+    );
     (text.match(/page\.goto\(\s*['"][^'"]*['"]/g) || []).forEach((call) => {
-      assert.match(call, /\/e2e\/harness\//, `${file} επιτρέπεται να ανοίγει μόνο σελίδες του harness`);
+      assert.doesNotMatch(
+        call,
+        /\/e2e\/harness\//,
+        `${file} δεν πρέπει να ανοίγει σελίδες του παλιού harness`
+      );
     });
   });
 });

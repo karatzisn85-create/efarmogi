@@ -7,7 +7,14 @@ const { expandCategory } = require('./helpers/actions.cjs');
 async function openPdf(window) {
   await expandCategory(window, 'Εξαγωγές');
   await window.getByRole('button', { name: 'Αναφορές σε PDF' }).click();
-  await expect(window.getByText(/Αναφορές ERGOHUB|Αναφορές/i).first()).toBeVisible();
+  await expect(window.getByText('Αναφορές ERGOHUB')).toBeVisible();
+}
+
+async function clickPdfTab(window, name) {
+  const modal = window.getByText('Αναφορές ERGOHUB').locator('xpath=../..');
+  const tab = modal.getByRole('button', { name });
+  await expect(tab).toBeEnabled({ timeout: 45000 });
+  await tab.click();
 }
 
 test('P6-01 αναφορές PDF σε όλους τους ρόλους', async ({ app }) => {
@@ -29,12 +36,12 @@ test('P6-02 προεπιλογή: χωρίς απενταγμένα / αποπλ
 test('P6-03 καρτέλες υποέργων / εντάξεων / προσκλήσεων / εγκρίσεων', async ({ app }) => {
   const { window } = app;
   await openPdf(window);
-  await window.getByText('Εντάξεις', { exact: true }).click();
-  await expect(window.getByText(/Εντάξεις/i).first()).toBeVisible();
-  await window.getByText('Προσκλήσεις', { exact: true }).click();
-  await expect(window.getByText(/Προσκλήσεις/i).first()).toBeVisible();
-  await window.getByText('Εγκρίσεις', { exact: true }).click();
-  await expect(window.getByText(/Εγκρίσεις/i).first()).toBeVisible();
+  await clickPdfTab(window, '📋 Εντάξεις');
+  await expect(window.getByText('Αναφορά Εντάξεων')).toBeVisible({ timeout: 45000 });
+  await clickPdfTab(window, '📢 Προσκλήσεις');
+  await expect(window.getByText('Αναφορά Προσκλήσεων')).toBeVisible({ timeout: 45000 });
+  await clickPdfTab(window, '✅ Εγκρίσεις');
+  await expect(window.getByText(/Αναφορά Εγκρίσεων/)).toBeVisible({ timeout: 45000 });
 });
 
 test('P6-04 αποθήκευση ενεργή όταν η προεπισκόπηση είναι έτοιμη', async ({ app }) => {
@@ -62,15 +69,15 @@ test('P6-06 κουμπί αναφοράς κάρτας στα εμφανιζόμ
 test('P6-07 αναφορά κάρτας: μόνο συνδεδεμένη πρόσκληση', async ({ app }) => {
   const { window } = app;
   await openPdf(window);
-  await window.getByText('Προσκλήσεις', { exact: true }).click();
-  await expect(window.getByText(/Προσκλήσεις|PSK/i).first()).toBeVisible();
+  await clickPdfTab(window, '📢 Προσκλήσεις');
+  await expect(window.getByText('Αναφορά Προσκλήσεων')).toBeVisible({ timeout: 45000 });
 });
 
 test('P6-08 αναφορά κάρτας: μόνο ένταξη του υποέργου', async ({ app }) => {
   const { window } = app;
   await openPdf(window);
-  await window.getByText('Εντάξεις', { exact: true }).click();
-  await expect(window.getByText(/Εντάξεις|γέφυρας/i).first()).toBeVisible();
+  await clickPdfTab(window, '📋 Εντάξεις');
+  await expect(window.getByText('Αναφορά Εντάξεων')).toBeVisible({ timeout: 45000 });
 });
 
 test('P6-09 ρητό φίλτρο απενταγμένου τα βάζει στην αναφορά', async ({ app }) => {

@@ -70,23 +70,26 @@ async function loginAs(window, user) {
 }
 
 async function logout(window) {
-  const closers = [
-    window.getByRole('button', { name: 'Κλείσιμο' }),
-    window.getByRole('button', { name: '✕' }),
-  ];
-  for (const loc of closers) {
-    if (await loc.count()) {
-      try {
-        await loc.first().click({ timeout: 2500 });
-      } catch {
-        /* το παράθυρο δεν έκλεισε με αυτό το κουμπί */
+  for (let i = 0; i < 8; i += 1) {
+    const closers = [
+      window.getByTitle('Κλείσιμο (Esc)'),
+      window.getByRole('button', { name: /^Κλείσιμο$/ }),
+      window.getByRole('button', { name: '✕' }),
+      window.getByRole('button', { name: /^Ακύρωση$/ }),
+    ];
+    let closed = false;
+    for (const loc of closers) {
+      if (await loc.count()) {
+        await loc.last().click({ force: true, timeout: 2000 }).catch(() => {});
+        closed = true;
+        break;
       }
     }
+    if (!closed) await window.keyboard.press('Escape');
   }
-  await window.keyboard.press('Escape');
   const btn = window.getByTestId('btn-logout');
   if ((await btn.count()) === 0) return;
-  await btn.click();
+  await btn.click({ force: true, timeout: 15000 });
   await window.getByTestId('login-submit').waitFor({ timeout: 20000 });
 }
 

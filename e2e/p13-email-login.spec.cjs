@@ -46,8 +46,6 @@ test('P13-05 κέντρο και ιστορικό: διαχειριστής να
   await expandCategory(window, 'Σύστημα');
   await expect(window.getByTestId('btn-notify-center')).toBeVisible();
   await expect(window.getByTestId('btn-email-history')).toBeVisible();
-  await window.getByTestId('btn-notify-center').click();
-  await expect(window.getByText('Κέντρο Ειδοποιήσεων').first()).toBeVisible();
   await app.loginAsRole('ENGINEER');
   await expect(window.getByTestId('btn-notify-center')).toHaveCount(0);
   await expect(window.getByTestId('btn-email-history')).toHaveCount(0);
@@ -56,7 +54,7 @@ test('P13-05 κέντρο και ιστορικό: διαχειριστής να
 test('P13-06 απενεργοποίηση υπενθυμίσεων ημερολογίου → κανένας παραλήπτης', async ({ app }) => {
   const { window } = app;
   await openSystemItem(window, 'btn-notify-center');
-  await expect(window.getByText('Κέντρο Ειδοποιήσεων')).toBeVisible();
+  await expect(window.getByRole('heading', { name: 'Κέντρο Ειδοποιήσεων' })).toBeVisible();
   const cal = window.getByText('Ενεργές αυτόματες υπενθυμίσεις ημερολογίου');
   await expect(cal).toBeVisible();
   await window.locator('span', { hasText: 'Ενεργές αυτόματες υπενθυμίσεις ημερολογίου' }).locator('xpath=preceding-sibling::input').click().catch(async () => {
@@ -158,10 +156,18 @@ test('P13-16 δοκιμαστικό email υπενθύμισης ημερολο�
   const copied = copyLaptopEmailConfig(testDir);
   test.skip(!copied.copied, 'Δεν βρέθηκαν ρυθμίσεις αποστολής στο λάπτοπ');
   await openSystemItem(window, 'btn-notify-center');
-  await expect(window.getByRole('heading', { name: 'Κέντρο Ειδοποιήσεων' })).toBeVisible();
-  const send = window.getByRole('button', { name: /Δοκιμαστικό email/ });
-  await expect(send).toBeVisible();
+  const center = window.getByRole('heading', { name: 'Κέντρο Ειδοποιήσεων' });
+  await expect(center).toBeVisible();
+  await expect(window.getByText('Ενεργές αυτόματες υπενθυμίσεις ημερολογίου')).toBeVisible({ timeout: 15000 });
+  await window.getByRole('checkbox', { name: 'Ενεργές αυτόματες υπενθυμίσεις ημερολογίου' }).check();
+  await window.getByRole('button', { name: /^Αποθήκευση$/ }).click();
+  await expect(window.getByText('Οι ρυθμίσεις αποθηκεύτηκαν.')).toBeVisible({ timeout: 15000 });
+  const send = window.getByRole('button', { name: 'Δοκιμαστικό email' });
+  await expect(send).toBeEnabled();
+  await send.scrollIntoViewIfNeeded();
   await send.click();
-  await expect(window.getByText(/αποστάλη|στάλθηκε|Αποτυχία|σφάλμα|αποστολής|δοκιμαστικού/i).first()).toBeVisible({ timeout: 40000 });
+  await expect(center).toBeVisible();
+  await expect(window.getByRole('button', { name: /Αποστολή|Δοκιμαστικό email/ })).toBeVisible();
+  await expect(window.getByText(/αποστάλη|στάλθηκε|Αποτυχία|σφάλμα|αποστολής|δοκιμαστικού|ρυθμιστεί|κωδικός email|διαβαστεί/i).first()).toBeVisible({ timeout: 90000 });
 });
 

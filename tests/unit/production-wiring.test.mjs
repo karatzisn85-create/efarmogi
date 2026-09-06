@@ -579,3 +579,20 @@ test('δημιουργία και διαγραφή υποέργου καλούν
   assert.match(merge, /from '\.\.\/\.\.\/app\/core\/subprojectLifecycle'/);
   assert.match(merge, /removeSubprojectFromList/);
 });
+
+test('το δεξί κλικ αντιγραφής / επικόλλησης συνδέεται στο κύριο παράθυρο', () => {
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\/editContextMenu'\)/);
+  assert.match(electron, /attachEditContextMenu/);
+  assert.match(electron, /require\('\.\/greekSpellcheck'\)/);
+  assert.match(electron, /enableGreekSpellcheck/);
+  assert.match(electron, /spellcheck:\s*true/);
+  const preload = read('public/preload.js');
+  assert.match(preload, /e2e-last-edit-menu/);
+  assert.match(preload, /e2e-spellcheck-status/);
+  const pkg = JSON.parse(read('package.json'));
+  assert.ok(
+    (pkg.build.files || []).some((entry) => String(entry).includes('dictionaries')),
+    'το ελληνικό λεξικό πρέπει να μπαίνει στην εγκατάσταση'
+  );
+});

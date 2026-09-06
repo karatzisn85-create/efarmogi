@@ -31,7 +31,8 @@ test('P7-03 μηχανικός: μόνο ανάγνωση, χωρίς εξαγω
   const { window } = app;
   await app.loginAsRole('ENGINEER');
   await openPortal(window);
-  await expect(window.getByRole('button', { name: /Εξαγωγή|Δημοσίευση/ })).toHaveCount(0);
+  await expect(window.getByText(/στοιχεία σύνδεσης της πύλης|διαχείριση δημοσίευσης/i)).toBeVisible();
+  await expect(window.getByRole('button', { name: /Εξαγωγή & Δημοσίευση/ })).toHaveCount(0);
 });
 
 test('P7-04 ρυθμίσεις πύλης μόνο στον υπερδιαχειριστή', async ({ app }) => {

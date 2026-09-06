@@ -1,6 +1,6 @@
 {
   "name": "efarmogi-app",
-  "version": "1.4.99",
+  "version": "1.4.100",
   "description": "Desktop εφαρμογή διαχείρισης έργων",
   "author": "Δήμος Αρχανών-Αστερούσιων",
   "main": "public/electron.js",
@@ -113,12 +113,17 @@
       "public/**/*.js",
       "public/**/*.json",
       "public/fonts/**/*",
+      "public/dictionaries/**/*",
       "app/core/**/*.js",
       "apply_excel_validations.py",
       "verify_export.py"
     ],
     "extraFiles": [],
     "extraResources": [
+      {
+        "from": "public/dictionaries",
+        "to": "dictionaries"
+      },
       {
         "from": "apply_excel_validations.py",
         "to": "apply_excel_validations.py"

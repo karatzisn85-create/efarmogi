@@ -9,6 +9,20 @@ async function openBackups(window) {
   await expect(window.getByText(/Αντίγραφα|Backups/i).first()).toBeVisible();
 }
 
+function historyButton(window) {
+  return window.locator('button').filter({ hasText: 'Ιστορικό' }).filter({ hasText: 'Αντιγράφων' });
+}
+
+function createBackupButton(window) {
+  return window.locator('button').filter({ hasText: 'Δημιουργία' }).filter({ hasText: 'Νέου Αντιγράφου' });
+}
+
+async function createBackupUntilHistory(window) {
+  await createBackupButton(window).click();
+  await window.getByRole('button', { name: 'Δημιουργία Αντιγράφου' }).click();
+  await expect(window.getByText('Ιστορικό Backups')).toBeVisible({ timeout: 90000 });
+}
+
 test('P12-01 αντίγραφα μόνο σε διαχειριστή / υπερδιαχειριστή', async ({ app }) => {
   const { window } = app;
   await expandCategory(window, 'Σύστημα');
@@ -26,16 +40,15 @@ test('P12-02 χωρίς αντίγραφο: υπενθύμιση «Χωρίς α
 test('P12-05 δημιουργία εμφανίζεται στο ιστορικό', async ({ app }) => {
   const { window } = app;
   await openBackups(window);
-  await window.getByText(/Δημιουργία/).first().click();
-  await window.getByRole('button', { name: 'Δημιουργία Αντιγράφου' }).click();
-  await expect(window.getByText(/ολοκληρ|ιστορικ|επιτυχ|αντίγραφο/i).first()).toBeVisible({ timeout: 90000 });
+  await createBackupUntilHistory(window);
+  await expect(window.getByRole('button', { name: '🔄 Επαναφορά' })).toBeVisible();
 });
 
 test('P12-06 κενό ιστορικό', async ({ app }) => {
   const { window } = app;
   await openBackups(window);
-  await window.getByText(/Ιστορικό/).first().click();
-  await expect(window.getByText(/Ιστορικό/i).first()).toBeVisible();
+  await historyButton(window).click();
+  await expect(window.getByText('Δεν υπάρχουν backups')).toBeVisible();
 });
 
 test('P12-07 διαγραφή μόνο υπερδιαχειριστής, με επιβεβαίωση', async ({ app }) => {
@@ -54,7 +67,8 @@ test('P12-08 διαχειριστής δεν βλέπει διαγραφή / ε�
 test('P12-09 επαναφορά μόνο υπερδιαχειριστής', async ({ app }) => {
   const { window } = app;
   await openBackups(window);
-  await expect(window.getByText(/Επαναφορά/i).first()).toBeVisible();
+  await historyButton(window).click();
+  await expect(window.getByText('Ιστορικό Backups')).toBeVisible();
 });
 
 test('P12-10 θέση φακέλου μόνο υπερδιαχειριστής', async ({ app }) => {
@@ -84,13 +98,19 @@ test('P12-11 δημιουργία ενώ τρέχει άλλο → απόρρι�
 test('P12-13 μία επιλογή επαναφοράς, χωρίς επιλογή / συγχώνευση', async ({ app }) => {
   const { window } = app;
   await openBackups(window);
-  await expect(window.getByText(/Επαναφορά όλων των δεδομένων|Επαναφορά δεδομένων/i).first()).toBeVisible();
+  await createBackupUntilHistory(window);
+  await window.getByRole('button', { name: '🔄 Επαναφορά' }).click();
+  await expect(window.getByText('Επαναφορά δεδομένων')).toBeVisible();
+  await expect(window.getByRole('button', { name: 'Επαναφορά όλων των δεδομένων' })).toBeVisible();
+  await expect(window.getByText(/συγχώνευση|επιλογή τομέα/i)).toHaveCount(0);
 });
 
 test('P12-14 η επιβεβαίωση αναφέρει χρήστες και κωδικούς', async ({ app }) => {
   const { window } = app;
   await openBackups(window);
-  await expect(window.getByText(/Επαναφορά/i).first()).toBeVisible();
+  await createBackupUntilHistory(window);
+  await window.getByRole('button', { name: '🔄 Επαναφορά' }).click();
+  await expect(window.getByText(/χρήστες και οι κωδικοί/)).toBeVisible();
 });
 
 test('P12-15 χωρίς επιβεβαίωση τα δεδομένα δεν αλλάζουν', async ({ app }) => {

@@ -4,6 +4,10 @@ const path = require('path');
 const { test, expect } = require('./helpers/real-app.cjs');
 const { expandCategory, search } = require('./helpers/actions.cjs');
 
+async function selectTechnicalYear(window, year) {
+  await window.getByText('📅 Έτος Εξαγωγής').locator('xpath=following::select[1]').selectOption(String(year));
+}
+
 test('P5-01 στατιστικά εμφανίζονται σε όλους τους ρόλους', async ({ app }) => {
   const { window } = app;
   await window.getByRole('button', { name: /Στατιστικά & Αναφορές/ }).click();
@@ -55,34 +59,29 @@ test('P5-07 τεχνικό 2026: μόνο υπόλοιπο του έτους', a
   const { window } = app;
   await expandCategory(window, 'Εξαγωγές');
   await window.getByRole('button', { name: 'Τεχνικό Πρόγραμμα' }).click();
-  await expect(window.getByText(/Τεχνικό Πρόγραμμα/i).first()).toBeVisible();
-  const year = window.getByRole('spinbutton').or(window.locator('input[type="number"]')).first();
-  if (await year.count()) {
-    await year.fill('2026');
-  }
-  await expect(window.getByText(/2026|υπόλοιπο|15.000/i).first()).toBeVisible();
+  await expect(window.getByText('📅 Έτος Εξαγωγής')).toBeVisible();
+  await selectTechnicalYear(window, '2026');
+  await expect(window.getByText('Γραμμές 2026')).toBeVisible();
+  await expect(window.getByRole('button', { name: /Εξαγωγή σε Excel \(1 / })).toBeVisible();
 });
 
 test('P5-08 τεχνικό 2025: άλλο υπόλοιπο', async ({ app }) => {
   const { window } = app;
   await expandCategory(window, 'Εξαγωγές');
   await window.getByRole('button', { name: 'Τεχνικό Πρόγραμμα' }).click();
-  const year = window.locator('input[type="number"]').first();
-  if (await year.count()) {
-    await year.fill('2025');
-  }
-  await expect(window.getByText(/2025|υπόλοιπο|8000/i).first()).toBeVisible();
+  await expect(window.getByText('📅 Έτος Εξαγωγής')).toBeVisible();
+  await selectTechnicalYear(window, '2025');
+  await expect(window.getByText('Γραμμές 2025')).toBeVisible();
+  await expect(window.getByRole('button', { name: /Εξαγωγή σε Excel \(1 / })).toBeVisible();
 });
 
 test('P5-09 έτος χωρίς υπόλοιπα δεν εξάγεται', async ({ app }) => {
   const { window } = app;
   await expandCategory(window, 'Εξαγωγές');
   await window.getByRole('button', { name: 'Τεχνικό Πρόγραμμα' }).click();
-  const year = window.locator('input[type="number"]').first();
-  if (await year.count()) {
-    await year.fill('2010');
-  }
-  await expect(window.getByText(/Τεχνικό Πρόγραμμα|δεν|υπόλοιπ/i).first()).toBeVisible();
+  await expect(window.getByText('📅 Έτος Εξαγωγής')).toBeVisible();
+  await selectTechnicalYear(window, '2020');
+  await expect(window.getByRole('button', { name: /Εξαγωγή σε Excel \(0 / })).toBeVisible();
 });
 
 test('P5-10 εξαγωγή δεδομένων σε όλους τους ρόλους', async ({ app }) => {

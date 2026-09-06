@@ -58,6 +58,15 @@ test('P4-16 νέος ΑΔΑΜ σε υποέργο με αλυσίδα ρωτά �
   await discardEdit(window);
 });
 
+test('P4-12 δύο κλάδοι ανοίγουν επιλογή πριν την εφαρμογή', async ({ app }) => {
+  const { window } = app;
+  await openPhaseBEdit(window, 'sub-legacy');
+  await runKhmdhsAdamFetch(window, '24REQ000000010');
+  await expect(window.getByText(/Κατανομή εγγραφών SYMV|Ποιο τμήμα αφορά αυτό το υποέργο/)).toBeVisible({ timeout: 40000 });
+  await dismissKhmdhsDialogs(window);
+  await discardEdit(window);
+});
+
 test('P4-13 δύο συμβάσεις στην ίδια πράξη ανοίγουν κατανομή πριν την εφαρμογή', async ({ app }) => {
   const { window } = app;
   await openPhaseBEdit(window, 'sub-legacy');

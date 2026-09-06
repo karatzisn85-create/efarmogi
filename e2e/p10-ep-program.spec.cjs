@@ -11,7 +11,7 @@ async function openEp(window) {
 
 async function openImport(window) {
   await openEp(window);
-  await window.getByRole('button', { name: /Νέα Εισαγωγή Excel|Εισαγωγή από Excel/ }).click();
+  await window.getByRole('button', { name: '📥 Νέα Εισαγωγή Excel' }).click();
   await expect(window.getByText(/Εισαγωγή Επιχειρησιακού/)).toBeVisible();
 }
 
@@ -50,8 +50,8 @@ test('P10-04 έτος έναρξης συμπληρώνει λήξη +4', async 
 test('P10-16 κενό πρόγραμμα: εισαγωγή ναι, νέα δράση όχι', async ({ app }) => {
   const { window } = app;
   await openEp(window);
-  await expect(window.getByRole('button', { name: /Νέα Εισαγωγή Excel|Εισαγωγή από Excel/ })).toBeVisible();
-  await expect(window.getByRole('button', { name: /^Νέα δράση$/ })).toHaveCount(0);
+  await expect(window.getByRole('button', { name: '📥 Νέα Εισαγωγή Excel' })).toBeVisible();
+  await expect(window.getByRole('button', { name: '➕ Νέα Δράση' })).toHaveCount(0);
 });
 
 test('P10-22 κατέβασμα προτύπου ζητά πενταετία ή τετραετία', async ({ app }) => {
@@ -75,14 +75,13 @@ test('P10-24 οδηγός εισαγωγής: η περίοδος εξηγεί �
 
 test('P10-27 χωρίς έτη το πρότυπο δεν κατεβαίνει', async ({ app }) => {
   const { window } = app;
-  await openImport(window);
-  const tpl = window.getByRole('button', { name: /Πρότυπο|Κατέβασμα/ });
-  if (await tpl.count()) {
-    await tpl.click();
-    await expect(window.getByText(/έτος|Περίοδος/i).first()).toBeVisible();
-  } else {
-    await expect(window.getByText(/Έτος Έναρξης/)).toBeVisible();
-  }
+  await openEp(window);
+  await window.getByRole('button', { name: '📄 Πρότυπο Excel' }).click();
+  await expect(window.getByText('📄 Περίοδος προτύπου Excel')).toBeVisible();
+  await window.getByPlaceholder('π.χ. 2024').fill('');
+  await window.getByPlaceholder('π.χ. 2028').fill('');
+  await window.getByRole('button', { name: '📄 Κατέβασμα προτύπου' }).last().click();
+  await expect(window.getByText('Συμπληρώστε έτος έναρξης και λήξης')).toBeVisible();
 });
 
 test('P10-31 τριετία στο πρότυπο απορρίπτεται', async ({ app }) => {
