@@ -969,7 +969,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
                     {' '}Η διαδρομή είναι ορατή μόνο σε εσάς.
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <SmallButton onClick={handleChangeLocation} disabled={savingLocation}>
+                    <SmallButton data-testid="backup-change-location" onClick={handleChangeLocation} disabled={savingLocation}>
                       Αλλαγή θέσης…
                     </SmallButton>
                     {!location.isDefault && (
@@ -1051,6 +1051,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
                   {isBackupInProgress ? 'Ακύρωση διαδικασίας' : 'Πίσω'}
                 </SecondaryButton>
                 <PrimaryButton
+                  data-testid="backup-create-confirm"
                   onClick={handleCreateBackup}
                   disabled={isBackupInProgress}
                 >
@@ -1099,7 +1100,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
                         {backup.status === 'success' && (
                           <>
                             {canRestore && (
-                              <SmallButton success onClick={() => handleStartRestore(backup)}>
+                              <SmallButton success data-testid="backup-restore" onClick={() => handleStartRestore(backup)}>
                                 🔄 Επαναφορά
                               </SmallButton>
                             )}
@@ -1176,7 +1177,7 @@ function BackupManager({ isOpen, onClose, currentUser }) {
                 );
               })()}
               {restoreReport && (
-                <div style={{
+                <div data-testid="backup-restore-done" style={{
                   padding: '1rem',
                   borderRadius: 10,
                   marginBottom: '1rem',
@@ -1205,11 +1206,11 @@ function BackupManager({ isOpen, onClose, currentUser }) {
                   Άκυρο
                 </SecondaryButton>
                 {restoreReport && restoreReport.ok ? (
-                  <PrimaryButton onClick={() => ipcRenderer.send('restart-app')}>
+                  <PrimaryButton data-testid="backup-restart" onClick={() => ipcRenderer.send('restart-app')}>
                     Επανεκκίνηση τώρα
                   </PrimaryButton>
                 ) : (
-                  <PrimaryButton onClick={handleConfirmRestore} disabled={loading || restoreInProgress || !!restoreReport}>
+                  <PrimaryButton data-testid="backup-restore-all" onClick={handleConfirmRestore} disabled={loading || restoreInProgress || !!restoreReport}>
                     {loading || restoreInProgress ? 'Σε εξέλιξη...' : 'Επαναφορά όλων των δεδομένων'}
                   </PrimaryButton>
                 )}

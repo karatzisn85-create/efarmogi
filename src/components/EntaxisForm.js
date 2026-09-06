@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import { safeFileDialog } from '../utils/safeDialogs';
+import { showFileConflictDialog } from '../utils/fileConflictDialog';
 import { useToast } from './ToastProvider';
 import entaxiCatalog from '../../app/core/entaxiCatalog';
+import managedFiles from '../../app/core/managedFiles';
 
 const ipcRenderer = window.electronAPI;
 
@@ -804,34 +806,36 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
     try {
       const result = await safeFileDialog('select-multiple-files', title);
       if (result.success && !result.canceled && result.files && result.files.length > 0) {
-        console.log(`📁 Selected ${result.files.length} file(s) for ${field}`);
-        
-        // Create unique IDs for each file using timestamp, index, and random string
+        const currentFiles = formData[field] || [];
+        const existingNames = currentFiles.map((f) => f.fileName).filter(Boolean);
+        const incoming = result.files.map((f) => f.fileName);
+        const { conflicts } = managedFiles.findNameConflicts(incoming, existingNames);
+        let policy = 'keep-both';
+        if (conflicts.length) {
+          policy = await showFileConflictDialog({ fileNames: conflicts });
+          if (!policy) return;
+        }
+        const planned = managedFiles.applyConflictPolicy(incoming, existingNames, policy);
         const timestamp = Date.now();
-        const newFiles = result.files.map((file, index) => ({
-          fileName: file.fileName,
-          filePath: file.filePath,
-          tempId: `${timestamp}_${index}_${Math.random().toString(36).substr(2, 9)}_${field}` // More unique ID with field name
-        }));
-        
-        console.log(`✅ Adding files to ${field}:`, newFiles.map(f => f.fileName));
-        
-        // Update state immediately using functional update to ensure we get the latest state
-        setFormData(prev => {
-          const currentFiles = prev[field] || [];
-          const updated = {
-            ...prev,
-            [field]: [...currentFiles, ...newFiles]
+        const newFiles = result.files.map((file, index) => {
+          const plan = planned[index] || { dest: file.fileName, replace: false };
+          return {
+            fileName: plan.dest || file.fileName,
+            filePath: file.filePath,
+            tempId: `${timestamp}_${index}_${Math.random().toString(36).substr(2, 9)}_${field}`
           };
-          console.log(`📊 Updated ${field} array: ${currentFiles.length} -> ${updated[field].length} files`);
-          
-          // Force a re-render by updating the trigger
-          setTimeout(() => {
-            setFileUpdateTrigger(prev => prev + 1);
-          }, 0);
-          
-          return updated;
         });
+        const replacedKeys = new Set(
+          planned.filter((row) => row.replace).map((row) => String(row.dest || row.original || '').toLowerCase())
+        );
+        setFormData(prev => {
+          const current = prev[field] || [];
+          const kept = policy === 'replace'
+            ? current.filter((f) => !replacedKeys.has(String(f.fileName || '').toLowerCase()))
+            : current;
+          return { ...prev, [field]: [...kept, ...newFiles] };
+        });
+        setTimeout(() => setFileUpdateTrigger(prev => prev + 1), 0);
       }
     } catch (error) {
       console.error('Error selecting files:', error);

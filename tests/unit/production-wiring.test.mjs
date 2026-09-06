@@ -596,3 +596,35 @@ test('το δεξί κλικ αντιγραφής / επικόλλησης συ�
     'το ελληνικό λεξικό πρέπει να μπαίνει στην εγκατάσταση'
   );
 });
+
+test('μετονομασία αρχείων και αφύπνιση μαζικής ανανέωσης περνούν από τον κοινό πυρήνα', () => {
+  const electron = read('public/electron.js');
+  assert.match(electron, /require\('\.\.\/app\/core\/managedFiles'\)/);
+  assert.match(electron, /rename-subproject-file/);
+  assert.match(electron, /rename-prosklisi-file/);
+  assert.match(electron, /rename-entaxi-file/);
+  assert.match(electron, /holdBatchAwake/);
+  assert.match(electron, /releaseBatchAwake/);
+  const preload = read('public/preload.js');
+  assert.match(preload, /rename-subproject-file/);
+  assert.match(preload, /rename-prosklisi-file/);
+  assert.match(preload, /rename-entaxi-file/);
+  const openData = read('public/khmdhsOpenData.js');
+  assert.match(openData, /friendlyKhmdhsOfflineError/);
+  const upload = read('src/utils/uploadSubprojectFiles.js');
+  assert.match(upload, /showFileConflictDialog/);
+  assert.match(upload, /conflictPolicy/);
+  const fetchIdx = openData.indexOf('async function fetchWithRetry');
+  assert.ok(fetchIdx >= 0);
+  const fetchSlice = openData.slice(fetchIdx, fetchIdx + 2200);
+  const e2eAt = fetchSlice.indexOf('isE2EProcess()');
+  const offlineAt = fetchSlice.indexOf('isHostOffline()');
+  assert.ok(e2eAt >= 0 && e2eAt < offlineAt, 'τα E2E stubs προηγούνται του ελέγχου offline');
+  const endIdx = electron.indexOf("ipcMain.handle('end-khmdhs-batch-run'");
+  assert.ok(endIdx >= 0);
+  const endSlice = electron.slice(endIdx, electron.indexOf("ipcMain.handle('arm-khmdhs-idle-shutdown'"));
+  assert.match(endSlice, /finally/);
+  assert.match(endSlice, /releaseBatchAwake/);
+  assert.doesNotMatch(endSlice, /if \(!dataDir \|\| !fs.existsSync\(filePath\)\) return \{ success: true \}/);
+  assert.doesNotMatch(electron, /destByOriginal/);
+});

@@ -138,6 +138,31 @@ test('P13-14 αποσύνδεση επιστρέφει στην οθόνη σύ�
   await expect(window.getByTestId('login-submit')).toBeVisible();
 });
 
+test('P13-17 μετά την αποσύνδεση μένει το όνομα του τελευταίου χρήστη', async ({ app }) => {
+  const { window, users } = app;
+  await window.getByTestId('btn-logout').click();
+  await expect(window.getByTestId('login-submit')).toBeVisible();
+  await expect(window.getByTestId('login-username')).toHaveValue(users.admin.username);
+  await expect(window.getByTestId('login-password')).toHaveValue('');
+  await app.loginAsRole('ENGINEER');
+  await window.getByTestId('btn-logout').click();
+  await expect(window.getByTestId('login-username')).toHaveValue(users.maria.username);
+  await expect(window.getByTestId('login-password')).toHaveValue('');
+});
+
+test('P13-18 ενεργό Caps Lock εμφανίζει προειδοποίηση στην είσοδο', async ({ appRaw }) => {
+  const { window } = appRaw;
+  await window.getByTestId('login-password').waitFor({ timeout: 45000 });
+  await expect(window.getByTestId('login-caps-lock')).toHaveCount(0);
+  await window.evaluate(() => {
+    const ev = new KeyboardEvent('keydown', { key: 'A', bubbles: true });
+    Object.defineProperty(ev, 'getModifierState', { value: (mod) => mod === 'CapsLock' });
+    window.dispatchEvent(ev);
+  });
+  await expect(window.getByTestId('login-caps-lock')).toBeVisible();
+  await expect(window.getByTestId('login-caps-lock')).toContainText('Caps Lock');
+});
+
 const { copyLaptopEmailConfig } = require('./helpers/laptop-data.cjs');
 
 test('P13-15 δοκιμαστικό email ρυθμίσεων φτάνει στο Gmail της εφαρμογής', async ({ app }) => {

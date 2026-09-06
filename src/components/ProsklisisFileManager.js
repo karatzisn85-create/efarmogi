@@ -3,6 +3,9 @@ import styled from 'styled-components';
 import { safeConfirm, safeFileDialog } from '../utils/safeDialogs';
 import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
+import { showFileConflictDialog } from '../utils/fileConflictDialog';
+import FileRenameModal from './FileRenameModal';
+import managedFiles from '../../app/core/managedFiles';
 import KhmdhsDocumentRegistryPanel from './KhmdhsDocumentRegistryPanel';
 import { collectProsklisiRegistryEntries } from '../utils/prosklisiDiavgeiaRegistry';
 
@@ -253,6 +256,9 @@ const DownloadIconBtn = styled(IconActionBtn)`
 const DeleteIconBtn = styled(IconActionBtn)`
   &:hover { background: #fee2e2; color: ${C.red}; border-color: #fecaca; }
 `;
+const RenameIconBtn = styled(IconActionBtn)`
+  &:hover { background: ${C.indigoLight}; color: ${C.indigo}; border-color: #c7d2fe; }
+`;
 const FolderOpenBtn = styled(IconActionBtn)`
   &:hover { background: #fef3c7; color: #92400e; border-color: #fde68a; }
 `;
@@ -321,6 +327,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     modifications: [],
   });
   const [loading, setLoading] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(null);
   const [uploading, setUploading] = useState(false);
 
   const registryEntries = useMemo(
@@ -389,11 +396,23 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         if (result.error) showToast('Σφάλμα επιλογής αρχείου: ' + result.error, 'error');
         return;
       }
+      const existing = managedFiles.collectExistingFileNames(
+        [...(files.attachments || []), ...(files.main || [])],
+        fileGroups
+      );
+      const incoming = pickedFiles.map((f) => f.fileName || f.filePath);
+      const { conflicts } = managedFiles.findNameConflicts(incoming, existing);
+      let policy = 'keep-both';
+      if (conflicts.length) {
+        policy = await showFileConflictDialog({ fileNames: conflicts });
+        if (!policy) return;
+      }
       setUploading(true);
       const uploadResult = await ipcRenderer.invoke('upload-prosklisi-files', {
         prosklisiId,
         files: pickedFiles,
         targetFolder: 'attachments',
+        conflictPolicy: policy,
       });
       if (uploadResult?.success) {
         showToast(
@@ -431,11 +450,26 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         return;
       }
 
+      const existing = managedFiles.collectExistingFileNames(
+        [...(files.attachments || []), ...(files.main || [])],
+        fileGroups
+      );
+      const { conflicts } = managedFiles.findNameConflicts(
+        pickedFiles.map((f) => f.fileName),
+        existing
+      );
+      let policy = 'keep-both';
+      if (conflicts.length) {
+        policy = await showFileConflictDialog({ fileNames: conflicts });
+        if (!policy) return;
+      }
+
       setUploading(true);
       const uploadResult = await ipcRenderer.invoke('upload-prosklisi-files', {
         prosklisiId,
         files: pickedFiles,
         targetFolder: 'attachments',
+        conflictPolicy: policy,
       });
       if (!uploadResult?.success) {
         showToast('Σφάλμα προσθήκης αρχείων φακέλου: ' + (uploadResult?.error || 'Άγνωστο'), 'error');
@@ -481,6 +515,22 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       console.error('Error downloading file:', error);
       showToast('Σφάλμα λήψης αρχείου: ' + error.message, 'error');
     }
+  };
+
+  const handleRenameFile = async (fileName, targetFolder, typedName) => {
+    const result = await ipcRenderer.invoke('rename-prosklisi-file', {
+      prosklisiId,
+      oldName: fileName,
+      newName: typedName,
+      targetFolder,
+    });
+    if (!result?.success) {
+      showToast(result?.error || 'Αποτυχία μετονομασίας', 'error');
+      return result;
+    }
+    showToast('Το αρχείο μετονομάστηκε', 'success');
+    await loadFiles();
+    return result;
   };
 
   const handleDeleteFile = async (fileName, targetFolder) => {
@@ -924,6 +974,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   if (!isOpen) return null;
 
   return (
+    <>
     <Overlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <Modal>
         <Header>
@@ -1001,6 +1052,15 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                           <FileActions>
                             <ViewIconBtn title="Προβολή" onClick={() => handleViewFile(file.fileName, 'attachments')}>👁</ViewIconBtn>
                             <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFile(file.fileName, 'attachments')}>⬇</DownloadIconBtn>
+                            {canManageWorkflow && (
+                              <RenameIconBtn
+                                title="Μετονομασία"
+                                data-testid={`file-rename-${file.fileName}`}
+                                onClick={() => setRenameTarget({ fileName: file.fileName, targetFolder: 'attachments' })}
+                              >
+                                ✎
+                              </RenameIconBtn>
+                            )}
                             {canManageWorkflow && (
                               <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(file.fileName, 'attachments')}>✕</DeleteIconBtn>
                             )}
@@ -1081,6 +1141,15 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                                   <ViewIconBtn title="Προβολή" onClick={() => handleViewFile(file.fileName, 'attachments')}>👁</ViewIconBtn>
                                   <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFile(file.fileName, 'attachments')}>⬇</DownloadIconBtn>
                                   {canManageWorkflow && (
+                                    <RenameIconBtn
+                                      title="Μετονομασία"
+                                      data-testid={`file-rename-${file.fileName}`}
+                                      onClick={() => setRenameTarget({ fileName: file.fileName, targetFolder: 'attachments' })}
+                                    >
+                                      ✎
+                                    </RenameIconBtn>
+                                  )}
+                                  {canManageWorkflow && (
                                     <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(file.fileName, 'attachments')}>✕</DeleteIconBtn>
                                   )}
                                 </FileActions>
@@ -1103,6 +1172,21 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         </Content>
       </Modal>
     </Overlay>
+    {renameTarget && (
+      <FileRenameModal
+        currentName={renameTarget.fileName}
+        onClose={() => setRenameTarget(null)}
+        onSave={async (typed) => {
+          try {
+            const res = await handleRenameFile(renameTarget.fileName, renameTarget.targetFolder, typed);
+            if (res?.success) setRenameTarget(null);
+          } catch {
+            /* το μήνυμα εμφανίζεται από handleRenameFile */
+          }
+        }}
+      />
+    )}
+    </>
   );
 }
 

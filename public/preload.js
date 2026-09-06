@@ -87,7 +87,7 @@ const ALLOWED_INVOKE = new Set([
   'toggle-workspace-email-notifications',
   'get-my-notification-preferences','save-my-notification-preferences',
   'get-task-assignments-summary',
-  'write-debug-log','restart-app','rename-user',
+  'write-debug-log','restart-app','rename-user','rename-subproject-file','rename-prosklisi-file','rename-entaxi-file',
   'export-portal-data','load-portal-published','save-portal-published',
   'refocus-window',
   'load-funding-options','save-funding-options',

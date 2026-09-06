@@ -58,6 +58,8 @@ const projectsIndex = require('./projectsIndex');
 const concurrencyGuards = require('./concurrencyGuards');
 const { mergeFileGroupsForSave, mergeEgkriseisForSave } = require('./subprojectSaveMerge');
 const subprojectCardCore = require('../app/core/subprojectCard');
+const managedFilesCore = require('../app/core/managedFiles');
+const managedFileRename = require('./managedFileRename');
 const subprojectLifecycleCore = require('../app/core/subprojectLifecycle');
 const entaxiCatalogCore = require('../app/core/entaxiCatalog');
 const prosklisiCatalogCore = require('../app/core/prosklisiCatalog');
@@ -477,8 +479,9 @@ ipcMain.handle('save-app-config', async (_event, newConfig) => {
     }
   }
 
-  // Relaunch μόνο όταν ολοκληρώνεται η αρχική ρύθμιση — όχι σε ενδιάμεση αποθήκευση dataDir
-  if (newConfig.setupCompleted === true) {
+  // Στην πραγματική χρήση ξανανοίγει η εφαρμογή. Στους ελέγχους ροής το παράθυρο
+  // μένει ανοιχτό — αλλιώς χάνεται η σύνδεση με το προσωρινό σενάριο.
+  if (newConfig.setupCompleted === true && !isE2EProcess()) {
     setTimeout(() => {
       app.relaunch();
       app.exit(0);
@@ -4182,6 +4185,7 @@ ipcMain.handle('start-khmdhs-batch-run', async (_event, { actingUsername, heartb
       heartbeatAt: new Date().toISOString(),
       progress: progress || null,
     });
+    try { getKhmdhsIdleShutdown().holdBatchAwake(); } catch { /* ο ύπνος δεν πρέπει να εμποδίσει την εκκίνηση */ }
     return { success: true };
   } catch (e) {
     logger.error('start-khmdhs-batch-run error:', e.message);
@@ -4191,19 +4195,30 @@ ipcMain.handle('start-khmdhs-batch-run', async (_event, { actingUsername, heartb
 
 /** Ελευθερώνει τη σήμανση — μόνο ο ίδιος ο χρήστης που την κρατά. */
 ipcMain.handle('end-khmdhs-batch-run', async (_event, { actingUsername } = {}) => {
+  let mayReleaseAwake = true;
   try {
     const me = String(actingUsername || '').trim();
     const filePath = getKhmdhsBatchRunPath();
-    if (!dataDir || !fs.existsSync(filePath)) return { success: true };
-    const active = readActiveKhmdhsBatchRun();
+    const active = (dataDir && filePath && fs.existsSync(filePath))
+      ? readActiveKhmdhsBatchRun()
+      : null;
     if (active && active.username !== me) {
+      mayReleaseAwake = false;
       return { success: false, error: 'Η εκτέλεση ανήκει σε άλλον χρήστη' };
     }
-    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    if (dataDir && filePath && fs.existsSync(filePath)) {
+      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    }
     return { success: true };
   } catch (e) {
     logger.error('end-khmdhs-batch-run error:', e.message);
     return { success: false, error: e.message || String(e) };
+  } finally {
+    // Το εμπόδιο ύπνου είναι τοπικό στη διεργασία — το αφήνουμε ακόμα κι αν
+    // το αρχείο σήμανσης έχει ήδη σβηστεί (heartbeat / δεύτερο κλείσιμο).
+    if (mayReleaseAwake) {
+      try { getKhmdhsIdleShutdown().releaseBatchAwake(); } catch { /* ignore */ }
+    }
   }
 });
 
@@ -5003,7 +5018,7 @@ ipcMain.handle('open-file-dialog', async () => {
   return result;
 });
 
-ipcMain.handle('save-files', async (event, files, projectId, subprojectId) => {
+ipcMain.handle('save-files', async (event, files, projectId, subprojectId, options = {}) => {
   try {
     if (writesBlockedByMandatoryUpdate()) {
       return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
@@ -5015,25 +5030,30 @@ ipcMain.handle('save-files', async (event, files, projectId, subprojectId) => {
     if (!fs.existsSync(filesDir)) {
       fs.mkdirSync(filesDir, { recursive: true });
     }
+
+    const policy = options && options.conflictPolicy === 'replace' ? 'replace' : 'keep-both';
+    const existingOnDisk = fs.readdirSync(filesDir);
+    if (!Array.isArray(files) || files.length === 0) {
+      return { success: false, error: 'Δεν επιλέχθηκαν αρχεία' };
+    }
+    const incomingNames = files.map((file) => path.basename(file.name || file.path || ''));
+    const planned = managedFilesCore.applyConflictPolicy(incomingNames, existingOnDisk, policy);
     
     const savedFiles = [];
     
-    for (const file of files) {
-      let fileName = path.basename(file.name || file.path || '');
-      if (!fileName) continue;
-
-      let destPath = path.join(filesDir, fileName);
-      let counter = 1;
-      while (fs.existsSync(destPath)) {
-        const ext = path.extname(fileName);
-        const stem = path.basename(fileName, ext);
-        fileName = `${stem}_${counter}${ext}`;
-        destPath = path.join(filesDir, fileName);
-        counter += 1;
-      }
-
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const plan = planned[i] || { dest: path.basename(file.name || file.path || ''), replace: false };
+      if (!plan.dest) continue;
+      const destPath = managedFileRename.resolveInside(filesDir, plan.dest);
+      if (!destPath) continue;
+      if (!file?.path || !fs.existsSync(file.path)) continue;
       fs.copyFileSync(file.path, destPath);
-      savedFiles.push(fileName);
+      savedFiles.push(plan.dest);
+    }
+
+    if (!savedFiles.length) {
+      return { success: false, error: 'Δεν προστέθηκαν αρχεία' };
     }
     
     const dataPath = path.join(dataDir, projectId, subprojectId, 'data.json');
@@ -5043,10 +5063,14 @@ ipcMain.handle('save-files', async (event, files, projectId, subprojectId) => {
         if (!Array.isArray(data.files)) {
           data.files = [];
         }
+        const known = new Set(
+          managedFilesCore.collectExistingFileNames(data.files, data.fileGroups)
+            .map((n) => String(n).toLowerCase())
+        );
         savedFiles.forEach((fileName) => {
-          if (!data.files.includes(fileName)) {
-            data.files.push(fileName);
-          }
+          if (known.has(String(fileName).toLowerCase())) return;
+          data.files.push(fileName);
+          known.add(String(fileName).toLowerCase());
         });
         data.updatedAt = new Date().toISOString();
         safeWriteJSON(dataPath, data);
@@ -5292,6 +5316,44 @@ ipcMain.handle('delete-files', async (_event, { projectId, subprojectId, fileNam
     return { success: true, deletedCount: names.length };
   } catch (error) {
     console.error('Error deleting files:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('rename-subproject-file', async (_event, {
+  projectId, subprojectId, oldName, newName,
+} = {}) => {
+  try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
+    const writeGate = assertCanWriteChargedOrAdminSubproject(subprojectId);
+    if (!writeGate.ok) return { success: false, error: writeGate.error };
+    const planned = managedFilesCore.buildRenamedFileName(oldName, newName);
+    if (!planned.ok) return { success: false, error: planned.error };
+    if (planned.newName === path.basename(String(oldName || ''))) {
+      return { success: true, newName: planned.newName };
+    }
+    const filesDir = path.join(dataDir, projectId, subprojectId, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ');
+    const renamed = managedFileRename.renamePhysicalFile(filesDir, oldName, planned.newName);
+    if (!renamed.ok) return { success: false, error: renamed.error };
+    const dataPath = path.join(dataDir, projectId, subprojectId, 'data.json');
+    if (fs.existsSync(dataPath)) {
+      const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+      managedFilesCore.renameFileInSubprojectData(data, path.basename(String(oldName || '')), renamed.newName);
+      data.updatedAt = new Date().toISOString();
+      safeWriteJSON(dataPath, data);
+    }
+    logAuditAction({
+      type: 'update',
+      entityType: 'file',
+      entityId: subprojectId,
+      entityTitle: renamed.newName,
+      details: `Μετονομασία αρχείου υποέργου από ${oldName} σε ${renamed.newName}`,
+    });
+    return { success: true, newName: renamed.newName };
+  } catch (error) {
+    logger.error('rename-subproject-file', error.message);
     return { success: false, error: error.message };
   }
 });
@@ -5588,14 +5650,23 @@ ipcMain.handle('create-file-group', async (event, projectId, subprojectId, group
     }
     
     // Δημιουργούμε τη νέα ομάδα
+    const namesToGroup = [...new Set((filesToGroup || []).filter(Boolean))];
     const newGroup = {
       id: uuidv4(),
       title: groupTitle,
-      files: filesToGroup.map(fileName => ({
+      files: namesToGroup.map(fileName => ({
         name: fileName,
         path: path.join(subprojectDir, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ', fileName)
       }))
     };
+    
+    // Αν το αρχείο ήταν ήδη σε άλλη ομάδα, μεταφέρεται εδώ (όχι διπλή εμφάνιση).
+    projectData.fileGroups.forEach((group) => {
+      group.files = (group.files || []).filter((file) => {
+        const fileName = typeof file === 'string' ? file : file.name;
+        return !namesToGroup.includes(fileName);
+      });
+    });
     
     // Προσθέτουμε την ομάδα στα δεδομένα
     projectData.fileGroups.push(newGroup);
@@ -5604,7 +5675,7 @@ ipcMain.handle('create-file-group', async (event, projectId, subprojectId, group
     if (projectData.files) {
       projectData.files = projectData.files.filter(file => {
         const fileName = typeof file === 'string' ? file : file.name;
-        return !filesToGroup.includes(fileName);
+        return !namesToGroup.includes(fileName);
       });
     }
     
@@ -7160,6 +7231,47 @@ ipcMain.handle('delete-entaxi-file', async (event, entaxiId, fileName, isModific
   }
 });
 
+ipcMain.handle('rename-entaxi-file', async (_event, { entaxiId, oldName, newName } = {}) => {
+  try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
+    if (!isSuperAdminOrAdminUser(loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const planned = managedFilesCore.buildRenamedFileName(oldName, newName);
+    if (!planned.ok) return { success: false, error: planned.error };
+    const oldBase = path.basename(String(oldName || ''));
+    if (planned.newName === oldBase) return { success: true, newName: planned.newName };
+
+    const filesDir = path.join(entaxisDir, entaxiId, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ');
+    const renamed = managedFileRename.renameFoundFile(filesDir, oldBase, planned.newName);
+    if (!renamed.ok) return { success: false, error: renamed.error };
+
+    const dataFile = path.join(entaxisDir, entaxiId, 'data.json');
+    if (fs.existsSync(dataFile)) {
+      const data = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+      data.entaxiPDFs = managedFilesCore.renameFileInStringList(data.entaxiPDFs, oldBase, renamed.newName);
+      data.approvalPDFs = managedFilesCore.renameFileInStringList(data.approvalPDFs, oldBase, renamed.newName);
+      if (data.entaxiPDF === oldBase) data.entaxiPDF = renamed.newName;
+      if (data.approvalPDF === oldBase) data.approvalPDF = renamed.newName;
+      data.updatedAt = new Date().toISOString();
+      safeWriteJSON(dataFile, data);
+    }
+    logAuditAction({
+      type: 'update',
+      entityType: 'entaxi',
+      entityId: entaxiId,
+      entityTitle: renamed.newName,
+      details: `Μετονομασία αρχείου ένταξης από ${oldBase} σε ${renamed.newName}`,
+    });
+    return { success: true, newName: renamed.newName };
+  } catch (error) {
+    logger.error('rename-entaxi-file', error.message);
+    return { success: false, error: error.message };
+  }
+});
+
 // Delete entaxi modification
 ipcMain.handle('delete-entaxi-modification', async (event, entaxiId, modificationId) => {
   try {
@@ -8650,7 +8762,9 @@ ipcMain.handle('download-prosklisi-file', async (event, prosklisiId, fileName, t
 });
 
 // Delete prosklisi file  
-ipcMain.handle('upload-prosklisi-files', async (_event, { prosklisiId, files, targetFolder = 'attachments' }) => {
+ipcMain.handle('upload-prosklisi-files', async (_event, {
+  prosklisiId, files, targetFolder = 'attachments', conflictPolicy = 'keep-both',
+} = {}) => {
   try {
     if (!prosklisiId) return { success: false, error: 'Απαιτείται prosklisiId' };
     if (!Array.isArray(files) || files.length === 0) {
@@ -8671,24 +8785,43 @@ ipcMain.handle('upload-prosklisi-files', async (_event, { prosklisiId, files, ta
     const targetDir = targetFolder === 'main' ? mainFilesDir : attachmentsDir;
     const data = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
     const prosklisiFiles = [...(data.prosklisiFiles || [])];
+    const existingNames = [
+      ...prosklisiFiles.map((f) => f.fileName).filter(Boolean),
+      ...(fs.existsSync(targetDir) ? fs.readdirSync(targetDir).filter((n) => {
+        try { return fs.statSync(path.join(targetDir, n)).isFile(); } catch { return false; }
+      }) : []),
+    ];
+    const incomingNames = files.map((file) => path.basename(file.fileName || file.filePath || ''));
+    const planned = managedFilesCore.applyConflictPolicy(
+      incomingNames,
+      existingNames,
+      conflictPolicy === 'replace' ? 'replace' : 'keep-both'
+    );
     const added = [];
 
-    for (const file of files) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       if (!file?.filePath || !fs.existsSync(file.filePath)) continue;
-      const originalFileName = path.basename(file.fileName || file.filePath);
-      if (prosklisiFiles.some((f) => f.fileName === originalFileName)) continue;
-      const destPath = path.join(targetDir, originalFileName);
+      const plan = planned[i] || {
+        dest: path.basename(file.fileName || file.filePath),
+        replace: false,
+      };
+      if (!plan.dest) continue;
+      const destPath = managedFileRename.resolveInside(targetDir, plan.dest);
+      if (!destPath) continue;
       fs.copyFileSync(file.filePath, destPath);
-      prosklisiFiles.push({
-        fileName: originalFileName,
-        originalName: file.fileName,
-        targetFolder: targetFolder === 'main' ? 'main' : 'attachments',
-      });
-      added.push(originalFileName);
+      if (!plan.replace) {
+        prosklisiFiles.push({
+          fileName: plan.dest,
+          originalName: file.fileName,
+          targetFolder: targetFolder === 'main' ? 'main' : 'attachments',
+        });
+      }
+      added.push(plan.dest);
     }
 
     if (!added.length) {
-      return { success: false, error: 'Δεν προστέθηκαν νέα αρχεία (ίσως υπάρχουν ήδη)' };
+      return { success: false, error: 'Δεν προστέθηκαν νέα αρχεία' };
     }
 
     data.prosklisiFiles = prosklisiFiles;
@@ -8713,6 +8846,65 @@ ipcMain.handle('upload-prosklisi-files', async (_event, { prosklisiId, files, ta
     return { success: true, addedCount: added.length, added };
   } catch (error) {
     console.error('Error uploading prosklisi files:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('rename-prosklisi-file', async (_event, {
+  prosklisiId, oldName, newName, targetFolder = 'attachments',
+} = {}) => {
+  try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
+    if (!isSuperAdminOrAdminUser(loggedInUsername)) {
+      return { success: false, error: 'Δεν έχετε δικαίωμα' };
+    }
+    const planned = managedFilesCore.buildRenamedFileName(oldName, newName);
+    if (!planned.ok) return { success: false, error: planned.error };
+    const oldBase = path.basename(String(oldName || ''));
+    if (planned.newName === oldBase) return { success: true, newName: planned.newName };
+
+    const prosklisiDir = path.join(proskliseisDir, prosklisiId);
+    const dataFilePath = path.join(prosklisiDir, 'data.json');
+    if (!fs.existsSync(dataFilePath)) {
+      return { success: false, error: 'Η πρόσκληση δεν βρέθηκε' };
+    }
+    const mainFilesDir = path.join(prosklisiDir, 'ΑΡΧΕΙΑ_ΠΡΟΣΚΛΗΣΗΣ');
+    const attachmentsDir = path.join(mainFilesDir, 'Επισυναπτόμενα Αρχεία Υποβολής');
+    const searchRoot = targetFolder === 'main' ? mainFilesDir : attachmentsDir;
+    const renamed = managedFileRename.renameFoundFile(searchRoot, oldBase, planned.newName);
+    if (!renamed.ok) return { success: false, error: renamed.error };
+
+    const data = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
+    const rewrite = (entry) => {
+      if (!entry || typeof entry !== 'object') return entry;
+      const next = { ...entry };
+      if (next.fileName === oldBase) next.fileName = renamed.newName;
+      if (next.originalName === oldBase) next.originalName = renamed.newName;
+      return next;
+    };
+    if (Array.isArray(data.prosklisiFiles)) {
+      data.prosklisiFiles = data.prosklisiFiles.map(rewrite);
+    }
+    if (Array.isArray(data.fileGroups)) {
+      data.fileGroups = data.fileGroups.map((g) => ({
+        ...g,
+        files: (g.files || []).map(rewrite),
+      }));
+    }
+    data.updatedAt = new Date().toISOString();
+    safeWriteJSON(dataFilePath, data);
+    logAuditAction({
+      type: 'update',
+      entityType: 'prosklisi',
+      entityId: prosklisiId,
+      entityTitle: data.title || prosklisiId,
+      details: `Μετονομασία αρχείου πρόσκλησης από ${oldBase} σε ${renamed.newName}`,
+    });
+    return { success: true, newName: renamed.newName };
+  } catch (error) {
+    logger.error('rename-prosklisi-file', error.message);
     return { success: false, error: error.message };
   }
 });

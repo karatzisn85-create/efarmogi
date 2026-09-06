@@ -71,4 +71,52 @@ test('P3-29 απλός χρήστης δεν βλέπει προσθήκη αρ�
   await expect(window.getByTestId('file-row-σύμβαση.pdf')).toBeVisible();
   await expect(window.getByTestId('btn-add-files')).toHaveCount(0);
   await expect(window.getByTestId('btn-add-folder')).toHaveCount(0);
+  await expect(window.getByTestId('file-rename-σύμβαση.pdf')).toHaveCount(0);
+});
+
+test('P3-51 μετονομασία αρχείου υποέργου', async ({ app }) => {
+  const { window } = app;
+  await openFiles(window, 'sub-bridge');
+  await window.getByTestId('file-rename-σύμβαση.pdf').click();
+  await expect(window.getByTestId('file-rename-modal')).toBeVisible();
+  await window.getByTestId('file-rename-input').fill('σύμβαση-νέα');
+  await window.getByTestId('file-rename-save').click();
+  await expect(window.getByTestId('file-row-σύμβαση-νέα.pdf')).toBeVisible();
+  await expect(window.getByTestId('file-row-σύμβαση.pdf')).toHaveCount(0);
+});
+
+test('P3-52 μηχανικός μετονομάζει αρχείο χρεωμένου υποέργου', async ({ app }) => {
+  const { window } = app;
+  await app.loginAsRole('ENGINEER');
+  await openFiles(window, 'sub-bridge');
+  await window.getByTestId('file-rename-σύμβαση.pdf').click();
+  await window.getByTestId('file-rename-input').fill('σύμβαση-μηχανικού');
+  await window.getByTestId('file-rename-save').click();
+  await expect(window.getByTestId('file-row-σύμβαση-μηχανικού.pdf')).toBeVisible();
+});
+
+test('P3-53 ίδιο όνομα: κράτα και τα δύο', async ({ app }) => {
+  const { window, sampleUpload } = app;
+  const dup = path.join(sampleUpload, 'σύμβαση.pdf');
+  require('fs').writeFileSync(dup, '%PDF-1.4 e2e dup\n');
+  await openFiles(window, 'sub-bridge');
+  await startAddFiles(window, dup);
+  await expect(window.getByTestId('file-conflict-modal')).toBeVisible();
+  await window.getByTestId('file-conflict-keep-both').click();
+  await window.getByTestId('file-choice-none').click();
+  await expect(window.getByTestId('file-row-σύμβαση.pdf')).toBeVisible();
+  await expect(window.getByTestId('file-ungrouped-σύμβαση (1).pdf')).toBeVisible();
+});
+
+test('P3-54 ίδιο όνομα: αντικατάσταση', async ({ app }) => {
+  const { window, sampleUpload } = app;
+  const dup = path.join(sampleUpload, 'σύμβαση.pdf');
+  require('fs').writeFileSync(dup, '%PDF-1.4 e2e replace\n');
+  await openFiles(window, 'sub-bridge');
+  await startAddFiles(window, dup);
+  await expect(window.getByTestId('file-conflict-modal')).toBeVisible();
+  await window.getByTestId('file-conflict-replace').click();
+  await window.getByTestId('file-choice-none').click();
+  await expect(window.getByTestId('file-row-σύμβαση.pdf')).toBeVisible();
+  await expect(window.getByTestId('file-row-σύμβαση (1).pdf')).toHaveCount(0);
 });

@@ -7886,6 +7886,21 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           onDownloadFile={(fileName) => handleDownloadFile(fileManager.projectId, fileManager.subprojectId, fileName)}
           onDeleteFile={(fileName) => handleDeleteFile(fileManager.projectId, fileManager.subprojectId, fileName)}
           onDeleteFiles={(fileNames) => handleDeleteFiles(fileManager.projectId, fileManager.subprojectId, fileNames)}
+          onRenameFile={async (oldName, typedName) => {
+            const result = await ipcRenderer.invoke('rename-subproject-file', {
+              projectId: fileManager.projectId,
+              subprojectId: fileManager.subprojectId,
+              oldName,
+              newName: typedName,
+            });
+            if (!result?.success) {
+              showToast(result?.error || 'Αποτυχία μετονομασίας', 'error');
+              return result;
+            }
+            showToast('Το αρχείο μετονομάστηκε', 'success');
+            handleOpenFileManager(fileManager.projectId, fileManager.subprojectId);
+            return result;
+          }}
           onClose={handleCloseFileManager}
           onRefresh={() => handleOpenFileManager(fileManager.projectId, fileManager.subprojectId)}
           onGroupFiles={handleGroupFiles}

@@ -615,7 +615,7 @@ const SetupWizard = ({ onComplete }) => {
               </FeatureRow>
             </FeatureList>
 
-            <StartButton onClick={() => setStep(1)}>
+            <StartButton data-testid="setup-start" onClick={() => setStep(1)}>
               Ξεκινήστε τη Ρύθμιση →
             </StartButton>
           </WelcomeWrap>
@@ -721,6 +721,7 @@ const SetupWizard = ({ onComplete }) => {
                     </SecondaryBtn>
                   )}
                   <PrimaryBtn
+                    data-testid="setup-folder-next"
                     onClick={() => {
                       if (skipOrg && skipSuperadmin) handleFinish();
                       else if (skipOrg) setStep(3);
@@ -763,6 +764,7 @@ const SetupWizard = ({ onComplete }) => {
                     <RequiredMark>*</RequiredMark>
                   </Label>
                   <Input
+                    data-testid="setup-org-name"
                     value={orgName}
                     onChange={e => setOrgName(e.target.value)}
                     placeholder={orgType === 'Δήμος' ? 'π.χ. Αρχανών Αστερουσίων' : 'π.χ. Κρήτης'}
@@ -784,6 +786,7 @@ const SetupWizard = ({ onComplete }) => {
                 <ButtonRow>
                   <SecondaryBtn onClick={() => setStep(1)}>Πίσω</SecondaryBtn>
                   <PrimaryBtn
+                    data-testid="setup-org-next"
                     onClick={() => { skipSuperadmin ? handleFinish() : setStep(3); }}
                     disabled={!canOrg || (skipSuperadmin && saving)}
                   >
@@ -807,6 +810,7 @@ const SetupWizard = ({ onComplete }) => {
                     <RequiredMark>*</RequiredMark>
                   </Label>
                   <Input
+                    data-testid="setup-admin-username"
                     value={adminUser}
                     onChange={e => setAdminUser(e.target.value)}
                     placeholder="π.χ. superadmin"
@@ -819,6 +823,7 @@ const SetupWizard = ({ onComplete }) => {
                     <RequiredMark>*</RequiredMark>
                   </Label>
                   <Input
+                    data-testid="setup-admin-fullname"
                     value={adminFullName}
                     onChange={e => setAdminFullName(e.target.value)}
                     placeholder="π.χ. Νίκος Παπαδόπουλος"
@@ -840,6 +845,7 @@ const SetupWizard = ({ onComplete }) => {
                     <RequiredMark>*</RequiredMark>
                   </Label>
                   <Input
+                    data-testid="setup-admin-email"
                     type="email"
                     value={adminEmail}
                     onChange={e => setAdminEmail(e.target.value)}
@@ -858,6 +864,7 @@ const SetupWizard = ({ onComplete }) => {
                     <RequiredMark>*</RequiredMark>
                   </Label>
                   <Input
+                    data-testid="setup-admin-password"
                     type="password"
                     value={adminPass}
                     onChange={e => setAdminPass(e.target.value)}
@@ -893,6 +900,7 @@ const SetupWizard = ({ onComplete }) => {
                     <RequiredMark>*</RequiredMark>
                   </Label>
                   <Input
+                    data-testid="setup-admin-password-confirm"
                     type="password"
                     value={adminPassConfirm}
                     onChange={e => setAdminPassConfirm(e.target.value)}
@@ -927,7 +935,7 @@ const SetupWizard = ({ onComplete }) => {
                     </PathDisplay>
                   )}
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <SecondaryBtn type="button" onClick={handleBrowseBackup}>
+                    <SecondaryBtn type="button" data-testid="setup-browse-backup" onClick={handleBrowseBackup}>
                       {backupLocation ? 'Αλλαγή φακέλου…' : 'Επιλογή φακέλου…'}
                     </SecondaryBtn>
                     {backupLocation && (
@@ -942,7 +950,7 @@ const SetupWizard = ({ onComplete }) => {
 
                 <ButtonRow>
                   <SecondaryBtn onClick={() => setStep(2)}>Πίσω</SecondaryBtn>
-                  <PrimaryBtn onClick={handleFinish} disabled={!canFinish || saving}>
+                  <PrimaryBtn data-testid="setup-finish" onClick={handleFinish} disabled={!canFinish || saving}>
                     {saving ? 'Αποθήκευση...' : 'Ολοκλήρωση'}
                   </PrimaryBtn>
                 </ButtonRow>

@@ -4,6 +4,7 @@ import styled from 'styled-components';
 import { useToast } from './ToastProvider';
 import KhmdhsDocumentRegistryPanel from './KhmdhsDocumentRegistryPanel';
 import { KHMDHS_RELATED_DOCS_SECTION_TITLE } from '../utils/khmdhsRelatedDocuments';
+import FileRenameModal from './FileRenameModal';
 
 /* ─── Design tokens (app palette) ──────────────────────────────────────── */
 const C = {
@@ -425,6 +426,14 @@ const DeleteIconBtn = styled(IconActionBtn)`
   }
 `;
 
+const RenameIconBtn = styled(IconActionBtn)`
+  &:hover {
+    background: ${C.indigoLight};
+    color: ${C.indigo};
+    border-color: #c7d2fe;
+  }
+`;
+
 /* ─── Ungrouped files section header ────────────────────────────────────── */
 const UngroupedHeader = styled(GroupHeader)`
   margin-top: ${(p) => (p.$hasGroups ? '1.5rem' : '0')};
@@ -651,6 +660,7 @@ function FileManager({
   onDownloadFile,
   onDeleteFile,
   onDeleteFiles,
+  onRenameFile,
   onClose,
   onRefresh,
   onGroupFiles
@@ -658,6 +668,7 @@ function FileManager({
   const { showToast } = useToast();
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, fileNames: [] });
+  const [renameTarget, setRenameTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingCount, setDeletingCount] = useState(0);
 
@@ -665,6 +676,18 @@ function FileManager({
     lockBodyScroll('filemanager');
     return () => unlockBodyScroll('filemanager');
   }, []);
+
+  useEffect(() => {
+    if (!canUpload || !onRenameFile) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'F2' || renameTarget) return;
+      if (selectedFiles.size !== 1) return;
+      e.preventDefault();
+      setRenameTarget(Array.from(selectedFiles)[0]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canUpload, onRenameFile, selectedFiles, renameTarget]);
 
   const handleToggleFileSelection = (fileName) => {
     setSelectedFiles(prev => {
@@ -773,6 +796,15 @@ function FileManager({
           >
             ⬇
           </DownloadIconBtn>
+          {canMutate && onRenameFile && (
+            <RenameIconBtn
+              title="Μετονομασία (F2)"
+              data-testid={`file-rename-${fileName}`}
+              onClick={() => setRenameTarget(fileName)}
+            >
+              ✎
+            </RenameIconBtn>
+          )}
           {canMutate && (
             <DeleteIconBtn
               title="Διαγραφή"
@@ -971,6 +1003,20 @@ function FileManager({
         </Body>
 
       </FileManagerContainer>
+      {renameTarget && onRenameFile && (
+        <FileRenameModal
+          currentName={renameTarget}
+          onClose={() => setRenameTarget(null)}
+          onSave={async (typed) => {
+            try {
+              const res = await onRenameFile(renameTarget, typed);
+              if (res?.success) setRenameTarget(null);
+            } catch {
+              /* το μήνυμα εμφανίζεται από τον γονέα */
+            }
+          }}
+        />
+      )}
     </FileManagerOverlay>
   );
 }

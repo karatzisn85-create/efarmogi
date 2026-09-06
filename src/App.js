@@ -11,6 +11,7 @@ import { resetDocumentInteractionState, isInteractionLockAllowed } from './utils
 import { getHolderCount } from './utils/bodyScrollLock';
 import InteractionGuard from './components/InteractionGuard';
 import ConfirmModal from './components/ConfirmModal';
+import FileConflictModal from './components/FileConflictModal';
 import SavePdfDialog from './components/SavePdfDialog';
 
 const UserSelection = lazy(() => import('./components/UserSelection'));
@@ -420,6 +421,7 @@ function App() {
       </AppContainer>
       <InteractionGuard />
       <ConfirmModal />
+      <FileConflictModal />
       <SavePdfDialog />
     </ToastProvider>
   );

@@ -17,7 +17,7 @@ const CAUSE_SUMMARY = {
   [KHMDHS_FAILURE_CAUSES.LOCKED]: 'Κλειδωμένο από άλλον χρήστη',
   [KHMDHS_FAILURE_CAUSES.NOT_AVAILABLE]: 'Ο ΑΔΑΜ δεν είναι ακόμα διαθέσιμος — δοκιμάστε αργότερα',
   [KHMDHS_FAILURE_CAUSES.INVALID_ADAM]: 'Μη έγκυρος ΑΔΑΜ — ελέγξτε τον κωδικό',
-  [KHMDHS_FAILURE_CAUSES.CONNECTION]: 'Πρόβλημα σύνδεσης — ελέγξτε το δίκτυο',
+  [KHMDHS_FAILURE_CAUSES.CONNECTION]: 'Δεν υπάρχει σύνδεση στο διαδίκτυο',
   [KHMDHS_FAILURE_CAUSES.BUSY]: 'Προσωρινό πρόβλημα στο ΚΗΜΔΗΣ — δοκιμάστε ξανά',
   [KHMDHS_FAILURE_CAUSES.OTHER]: 'Δεν ολοκληρώθηκε η ανανέωση',
 };
@@ -27,7 +27,7 @@ const CAUSE_EXPLANATION = {
   [KHMDHS_FAILURE_CAUSES.LOCKED]: 'κλειδωμένα από άλλον χρήστη',
   [KHMDHS_FAILURE_CAUSES.NOT_AVAILABLE]: 'δεν έχουν περάσει ακόμη στα ανοικτά δεδομένα του ΚΗΜΔΗΣ',
   [KHMDHS_FAILURE_CAUSES.INVALID_ADAM]: 'με λανθασμένο ή ελλιπή ΑΔΑΜ στο υποέργο',
-  [KHMDHS_FAILURE_CAUSES.CONNECTION]: 'με πρόβλημα σύνδεσης στο δίκτυο',
+  [KHMDHS_FAILURE_CAUSES.CONNECTION]: 'δεν υπάρχει σύνδεση στο διαδίκτυο',
   [KHMDHS_FAILURE_CAUSES.BUSY]: 'λόγω φόρτου ή καθυστέρησης του ΚΗΜΔΗΣ',
   [KHMDHS_FAILURE_CAUSES.OTHER]: 'από άλλη αιτία',
 };
@@ -37,7 +37,7 @@ const CAUSE_ADVICE = {
   [KHMDHS_FAILURE_CAUSES.LOCKED]: 'Δοκιμάστε ξανά όταν ελευθερωθούν.',
   [KHMDHS_FAILURE_CAUSES.NOT_AVAILABLE]: 'Η επανάληψη τώρα δεν βοηθά — χρειάζονται ώρες ή η επόμενη εργάσιμη.',
   [KHMDHS_FAILURE_CAUSES.INVALID_ADAM]: 'Χρειάζεται έλεγχος του κωδικού στην καρτέλα του υποέργου.',
-  [KHMDHS_FAILURE_CAUSES.CONNECTION]: 'Ελέγξτε τη σύνδεση και δοκιμάστε ξανά.',
+  [KHMDHS_FAILURE_CAUSES.CONNECTION]: 'Ελέγξτε το δίκτυο και δοκιμάστε ξανά — δεν φταίει ο ΑΔΑΜ.',
   [KHMDHS_FAILURE_CAUSES.BUSY]: 'Η «Επανάληψη» συνήθως τα μαζεύει.',
   [KHMDHS_FAILURE_CAUSES.OTHER]: '',
 };
@@ -55,10 +55,10 @@ export function classifyKhmdhsFailure(errorText) {
     return KHMDHS_FAILURE_CAUSES.NOT_AVAILABLE;
   }
   if (/μη έγκυρος|μορφή/i.test(raw)) return KHMDHS_FAILURE_CAUSES.INVALID_ADAM;
-  if (/πολλά αιτήματα|προσωριν|διήρκεσε πάρα πολύ|υπερφορτ/i.test(raw)) {
+  if (/πολλά αιτήματα|προσωριν|διήρκεσε πάρα πολύ|υπερφορτ|ETIMEDOUT|TimeoutError/i.test(raw)) {
     return KHMDHS_FAILURE_CAUSES.BUSY;
   }
-  if (/σύνδεσ|δικτύ|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|socket hang up/i.test(raw)) {
+  if (/σύνδεσ|δικτύ|fetch failed|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|socket hang up|δεν υπάρχει σύνδεση στο διαδίκτυο/i.test(raw)) {
     return KHMDHS_FAILURE_CAUSES.CONNECTION;
   }
   return KHMDHS_FAILURE_CAUSES.OTHER;

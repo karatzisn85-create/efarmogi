@@ -3,6 +3,8 @@
  */
 const {
   friendlyKhmdhsAdamNotFoundError,
+  friendlyKhmdhsOfflineError,
+  isKhmdhsNetworkError,
   summarizeKhmdhsFetchFailure,
   friendlyKhmdhsTransientHttpError,
   friendlyKhmdhsInvalidResponseError,
@@ -42,5 +44,17 @@ describe('khmdhsHttpErrors', () => {
   test('summarizeKhmdhsFetchFailure shortens not-found for report header', () => {
     const full = friendlyKhmdhsAdamNotFoundError({ adam: '26REQ019495415' });
     expect(summarizeKhmdhsFetchFailure(full)).toMatch(/δεν είναι ακόμα διαθέσιμος/i);
+  });
+
+  test('χωρίς διαδίκτυο δεν μοιάζει με αποτυχία ΚΗΜΔΗΣ', () => {
+    expect(isKhmdhsNetworkError({ code: 'ENOTFOUND', message: 'getaddrinfo' })).toBe(true);
+    expect(friendlyKhmdhsOfflineError()).toMatch(/δεν υπάρχει σύνδεση στο διαδίκτυο/i);
+    expect(friendlyKhmdhsOfflineError()).not.toMatch(/ΑΔΑΜ/i);
+    expect(summarizeKhmdhsFetchFailure(friendlyKhmdhsOfflineError())).toMatch(/διαδίκτυο/i);
+  });
+
+  test('λήξη χρόνου δεν εμφανίζεται ως «χωρίς διαδίκτυο»', () => {
+    expect(summarizeKhmdhsFetchFailure('connect ETIMEDOUT')).toMatch(/προσωρινό πρόβλημα/i);
+    expect(summarizeKhmdhsFetchFailure('connect ETIMEDOUT')).not.toMatch(/διαδίκτυο/i);
   });
 });

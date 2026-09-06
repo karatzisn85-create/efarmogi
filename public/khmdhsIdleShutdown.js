@@ -80,6 +80,7 @@ function createKhmdhsIdleShutdown({
   onFallbackQuit,
 } = {}) {
   let sleepBlockerId = null;
+  let batchAwakeIds = [];
   let armed = false;
   let shutdownScheduled = false;
   let tickTimer = null;
@@ -125,6 +126,38 @@ function createKhmdhsIdleShutdown({
     }
   };
 
+  const startBatchAwake = () => {
+    if (batchAwakeIds.length) return { success: true, held: true };
+    if (!powerSaveBlocker || typeof powerSaveBlocker.start !== 'function') {
+      return { success: true, held: false };
+    }
+    const ids = [];
+    ['prevent-app-suspension', 'prevent-display-sleep'].forEach((type) => {
+      try {
+        ids.push(powerSaveBlocker.start(type));
+      } catch (err) {
+        log('batch-awake failed', `${type} ${err?.message || ''}`);
+      }
+    });
+    batchAwakeIds = ids;
+    log('batch awake held');
+    return { success: true, held: ids.length > 0 };
+  };
+
+  const stopBatchAwake = () => {
+    if (!batchAwakeIds.length) return { success: true };
+    batchAwakeIds.forEach((id) => {
+      try {
+        if (powerSaveBlocker && powerSaveBlocker.isStarted(id)) {
+          powerSaveBlocker.stop(id);
+        }
+      } catch { /* ignore */ }
+    });
+    batchAwakeIds = [];
+    log('batch awake released');
+    return { success: true };
+  };
+
   const startTicks = (delaySec) => {
     stopTicks();
     remainingSec = delaySec;
@@ -153,6 +186,9 @@ function createKhmdhsIdleShutdown({
 
   return {
     isArmed() { return armed; },
+    isBatchAwakeHeld() { return batchAwakeIds.length > 0; },
+    holdBatchAwake() { return startBatchAwake(); },
+    releaseBatchAwake() { return stopBatchAwake(); },
     /** Ακύρωση από το Χ του παραθύρου μόνο όσο μετράει ο χρήστης — όχι όταν κλείνουν τα Windows. */
     isShutdownPending() {
       return remainingSec > 0 && (shutdownScheduled || fallbackQuit);

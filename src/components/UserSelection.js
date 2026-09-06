@@ -1,7 +1,12 @@
-import React, { useState, useLayoutEffect } from 'react';
+import React, { useState, useLayoutEffect, useEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import ergohubLogo from '../assets/ergohub-logo.svg';
 import { resetDocumentInteractionState } from '../utils/documentInteractionReset';
+import {
+  readLastLoginUsername,
+  saveLastLoginUsername,
+  isCapsLockOn,
+} from '../utils/loginScreenPrefs';
 
 const ipcRenderer = window.electronAPI;
 
@@ -252,14 +257,33 @@ const VersionText = styled.div`
 
 function UserSelection({ onUserSelect, appConfig = {} }) {
   const [mode, setMode] = useState('login');
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState(() => readLastLoginUsername());
   const [password, setPassword] = useState('');
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useLayoutEffect(() => {
     resetDocumentInteractionState();
     return () => resetDocumentInteractionState();
+  }, []);
+
+  useEffect(() => {
+    const onMod = (e) => {
+      const on = isCapsLockOn(e);
+      setCapsLockOn((prev) => (prev === on ? prev : on));
+    };
+    window.addEventListener('keydown', onMod);
+    window.addEventListener('keyup', onMod);
+    // Το Caps Lock μπορεί να είναι ήδη ενεργό πριν πατηθεί πλήκτρο.
+    window.addEventListener('mousemove', onMod);
+    window.addEventListener('mousedown', onMod);
+    return () => {
+      window.removeEventListener('keydown', onMod);
+      window.removeEventListener('keyup', onMod);
+      window.removeEventListener('mousemove', onMod);
+      window.removeEventListener('mousedown', onMod);
+    };
   }, []);
 
   const [regUsername, setRegUsername] = useState('');
@@ -281,6 +305,7 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
     try {
       const result = await ipcRenderer.invoke('authenticate', { username: username.trim(), password });
       if (result.success) {
+        saveLastLoginUsername(result.user.username);
         try {
           await ipcRenderer.invoke('set-dashboard-session-active', {
             active: true,
@@ -358,7 +383,8 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
             <FormGroup>
               <Label>Όνομα χρήστη</Label>
               <Input type="text" value={username} onChange={e => setUsername(e.target.value)}
-                onKeyDown={e => handleKeyDown(e, handleLogin)} placeholder="Εισάγετε το όνομα χρήστη" autoFocus
+                onKeyDown={e => handleKeyDown(e, handleLogin)} placeholder="Εισάγετε το όνομα χρήστη"
+                autoFocus={!username}
                 aria-label="Όνομα χρήστη" data-testid="login-username" />
             </FormGroup>
 
@@ -366,8 +392,14 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
               <Label>Κωδικός</Label>
               <Input type="password" value={password} onChange={e => setPassword(e.target.value)}
                 onKeyDown={e => handleKeyDown(e, handleLogin)} placeholder="Εισάγετε τον κωδικό"
+                autoFocus={!!username}
                 aria-label="Κωδικός πρόσβασης" data-testid="login-password" />
             </FormGroup>
+            {capsLockOn && (
+              <NoticeBox data-testid="login-caps-lock">
+                Το Caps Lock είναι ενεργό — ο κωδικός γράφεται με κεφαλαία.
+              </NoticeBox>
+            )}
 
             <PrimaryButton onClick={handleLogin} disabled={loading} data-testid="login-submit">
               {loading ? 'Σύνδεση...' : 'Είσοδος'}

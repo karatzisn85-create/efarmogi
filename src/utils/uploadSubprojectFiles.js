@@ -1,6 +1,8 @@
 import { safeFileDialog } from './safeDialogs';
 import { showSubprojectFileGroupingModal } from './subprojectFileGroupingModal';
+import { showFileConflictDialog } from './fileConflictDialog';
 import subprojectFiles from '../../app/core/subprojectFiles';
+import managedFiles from '../../app/core/managedFiles';
 
 const ipcRenderer = window.electronAPI;
 
@@ -48,6 +50,12 @@ async function applyGroupingChoice(groupingChoice, projectId, subprojectId, file
   return { success: true };
 }
 
+async function resolveConflictPolicy(incomingNames, existingNames) {
+  const { conflicts } = managedFiles.findNameConflicts(incomingNames, existingNames);
+  if (!conflicts.length) return 'keep-both';
+  return showFileConflictDialog({ fileNames: conflicts });
+}
+
 /**
  * Ανέβασμα μεμονωμένων αρχείων σε υποέργο (ίδια ροή με την επεξεργασία φόρμας).
  */
@@ -62,7 +70,14 @@ export async function uploadSubprojectFiles({ projectId, subprojectId }) {
     name: basenameFromPath(filePath)
   }));
 
-  const filesMeta = await ipcRenderer.invoke('get-subproject-files', projectId, subprojectId);
+  const filesMeta = await ipcRenderer.invoke('get-subproject-files', projectId, subprojectId) || {};
+  const existingNames = managedFiles.collectExistingFileNames(
+    filesMeta.files || [],
+    filesMeta.fileGroups || []
+  );
+  const policy = await resolveConflictPolicy(newFiles.map((f) => f.name), existingNames);
+  if (!policy) return { cancelled: true };
+
   const groupingChoice = await showSubprojectFileGroupingModal(
     newFiles.length,
     filesMeta.fileGroups || []
@@ -72,7 +87,9 @@ export async function uploadSubprojectFiles({ projectId, subprojectId }) {
     return { cancelled: true };
   }
 
-  const saveResult = await ipcRenderer.invoke('save-files', newFiles, projectId, subprojectId);
+  const saveResult = await ipcRenderer.invoke('save-files', newFiles, projectId, subprojectId, {
+    conflictPolicy: policy,
+  });
   if (!saveResult.success) {
     return { success: false, error: saveResult.error || 'Αποτυχία αποθήκευσης αρχείων' };
   }
@@ -107,7 +124,17 @@ export async function uploadSubprojectFolder({ projectId, subprojectId }) {
     return { success: false, error: 'Ο φάκελος δεν περιέχει αρχεία' };
   }
 
-  const saveResult = await ipcRenderer.invoke('save-files', newFiles, projectId, subprojectId);
+  const filesMeta = await ipcRenderer.invoke('get-subproject-files', projectId, subprojectId) || {};
+  const existingNames = managedFiles.collectExistingFileNames(
+    filesMeta.files || [],
+    filesMeta.fileGroups || []
+  );
+  const policy = await resolveConflictPolicy(newFiles.map((f) => f.name), existingNames);
+  if (!policy) return { cancelled: true };
+
+  const saveResult = await ipcRenderer.invoke('save-files', newFiles, projectId, subprojectId, {
+    conflictPolicy: policy,
+  });
   if (!saveResult.success) {
     return { success: false, error: saveResult.error || 'Αποτυχία αποθήκευσης αρχείων φακέλου' };
   }

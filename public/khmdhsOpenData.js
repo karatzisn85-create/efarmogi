@@ -13,7 +13,9 @@ const {
 const {
   friendlyKhmdhsAdamNotFoundError,
   friendlyKhmdhsInvalidResponseError,
+  friendlyKhmdhsOfflineError,
   friendlyKhmdhsTransientHttpError,
+  isKhmdhsNetworkError,
   resolveKhmdhsHttpError,
 } = require('./khmdhsHttpErrors');
 
@@ -113,6 +115,26 @@ function sleepWithAbort(ms, signal) {
   });
 }
 
+function isHostOffline() {
+  try {
+    const electron = require('electron');
+    const net = electron && electron.net;
+    if (net && typeof net.isOnline === 'function' && net.isOnline() === false) return true;
+  } catch {
+    /* unit tests χωρίς Electron */
+  }
+  return false;
+}
+
+function wrapNetworkError(err) {
+  if (!isKhmdhsNetworkError(err) && !isHostOffline()) return err;
+  const wrapped = new Error(friendlyKhmdhsOfflineError());
+  wrapped.name = 'NetworkError';
+  wrapped.code = err && err.code;
+  wrapped.cause = err;
+  return wrapped;
+}
+
 /**
  * Εκτελεί fetch με:
  *  - ανώτατο χρονικό όριο ανά προσπάθεια (αποφυγή «κολλήματος» σε αργό/χαμένο δίκτυο),
@@ -121,6 +143,8 @@ function sleepWithAbort(ms, signal) {
  * Διακρίνει την ακύρωση του χρήστη (AbortError) από τη λήξη χρόνου (TimeoutError).
  */
 async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = {}) {
+  // Τα E2E stubs πρέπει να προηγούνται του ελέγχου δικτύου: το Chromium
+  // μπορεί να πει «offline» ενώ τα σκηνικά ΚΗΜΔΗΣ πρέπει να απαντούν.
   if (isE2EProcess()) {
     const stub = resolveE2EKhmdhsHttp(url, options);
     if (stub && !stub.live) {
@@ -135,6 +159,8 @@ async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT, timeoutM
         json: async () => bodyObj,
       };
     }
+  } else if (isHostOffline()) {
+    throw wrapNetworkError(new Error('offline'));
   }
   const externalSignal = options?.signal;
   let lastError;
@@ -171,8 +197,8 @@ async function fetchWithRetry(url, options, { maxRetries = RETRY_COUNT, timeoutM
         retryStatus = 'timeout';
         if (attempt === maxRetries) throw lastError;
       } else {
-        lastError = e;
-        if (attempt === maxRetries) throw e;
+        lastError = wrapNetworkError(e);
+        if (attempt === maxRetries) throw lastError;
       }
     }
 
@@ -1406,6 +1432,9 @@ async function fetchKhmdhsAdamChainFromNetwork(adam, opts = {}) {
         success: false,
         error: 'Η ανάκτηση της αλυσίδας ΑΔΑΜ διήρκεσε πάρα πολύ. Δοκιμάστε αργότερα.',
       };
+    }
+    if (isKhmdhsNetworkError(e) || e.name === 'NetworkError') {
+      return { success: false, error: friendlyKhmdhsOfflineError() };
     }
     return { success: false, error: e.message || 'Σφάλμα σύνδεσης με ΚΗΜΔΗΣ.' };
   }

@@ -10,17 +10,19 @@ const { buildKhmdhsFixtures } = require('./laptop-data.cjs');
 const ROOT = path.resolve(__dirname, '../..');
 const MAIN_JS = path.join(ROOT, 'public', 'electron.js');
 
-async function launchIsolatedApp() {
-  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-e2e-'));
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-e2e-ud-'));
-  const seeded = seedTestDir(testDir);
+async function launchAppAt({ testDir, userDataDir, seed = false } = {}) {
+  const dataDir = testDir || fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-e2e-'));
+  const udDir = userDataDir || fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-e2e-ud-'));
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(udDir, { recursive: true });
+  const seeded = seed ? seedTestDir(dataDir) : { users: USERS, sampleUpload: null };
 
   const electronApp = await electron.launch({
-    args: [MAIN_JS, `--user-data-dir=${userDataDir}`],
+    args: [MAIN_JS, `--user-data-dir=${udDir}`],
     cwd: ROOT,
     env: {
       ...process.env,
-      DATA_DIR: testDir,
+      DATA_DIR: dataDir,
       ERGOHUB_E2E: '1',
       NODE_ENV: 'test',
       ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
@@ -34,11 +36,15 @@ async function launchIsolatedApp() {
   return {
     electronApp,
     window,
-    testDir,
-    userDataDir,
+    testDir: dataDir,
+    userDataDir: udDir,
     users: seeded.users,
     sampleUpload: seeded.sampleUpload,
   };
+}
+
+async function launchIsolatedApp() {
+  return launchAppAt({ seed: true });
 }
 
 async function dismissTour(window) {
@@ -151,6 +157,7 @@ async function queueFolderPick(window, payload) {
 
 module.exports = {
   launchIsolatedApp,
+  launchAppAt,
   loginAs,
   logout,
   loginAsRole,

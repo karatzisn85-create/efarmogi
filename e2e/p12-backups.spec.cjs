@@ -1,7 +1,17 @@
 'use strict';
 
-const { test, expect } = require('./helpers/real-app.cjs');
-const { expandCategory } = require('./helpers/actions.cjs');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { test, expect, USERS } = require('./helpers/real-app.cjs');
+const { expandCategory, confirmYes } = require('./helpers/actions.cjs');
+const {
+  launchIsolatedApp,
+  launchAppAt,
+  closeIsolatedApp,
+  loginAs,
+  queueOpenFiles,
+} = require('./helpers/electron-app.cjs');
 
 async function openBackups(window) {
   await expandCategory(window, 'Σύστημα');
@@ -19,7 +29,7 @@ function createBackupButton(window) {
 
 async function createBackupUntilHistory(window) {
   await createBackupButton(window).click();
-  await window.getByRole('button', { name: 'Δημιουργία Αντιγράφου' }).click();
+  await window.getByTestId('backup-create-confirm').click();
   await expect(window.getByText('Ιστορικό Backups')).toBeVisible({ timeout: 90000 });
 }
 
@@ -99,9 +109,9 @@ test('P12-13 μία επιλογή επαναφοράς, χωρίς επιλογ
   const { window } = app;
   await openBackups(window);
   await createBackupUntilHistory(window);
-  await window.getByRole('button', { name: '🔄 Επαναφορά' }).click();
+  await window.getByTestId('backup-restore').first().click();
   await expect(window.getByText('Επαναφορά δεδομένων')).toBeVisible();
-  await expect(window.getByRole('button', { name: 'Επαναφορά όλων των δεδομένων' })).toBeVisible();
+  await expect(window.getByTestId('backup-restore-all')).toBeVisible();
   await expect(window.getByText(/συγχώνευση|επιλογή τομέα/i)).toHaveCount(0);
 });
 
@@ -109,7 +119,7 @@ test('P12-14 η επιβεβαίωση αναφέρει χρήστες και κ
   const { window } = app;
   await openBackups(window);
   await createBackupUntilHistory(window);
-  await window.getByRole('button', { name: '🔄 Επαναφορά' }).click();
+  await window.getByTestId('backup-restore').first().click();
   await expect(window.getByText(/χρήστες και οι κωδικοί/)).toBeVisible();
 });
 
@@ -125,9 +135,20 @@ test('P12-18 χωρίς αντίγραφο ασφαλείας δεν αγγίζ�
   await expect(window.getByTestId('card-sub-bridge')).toBeVisible();
 });
 
+test('P12-16 επιτυχημένη επαναφορά φέρνει τα δεδομένα του αντιγράφου', async ({ app }) => {
+  const { window } = app;
+  test.setTimeout(240000);
+  await openBackups(window);
+  await createBackupUntilHistory(window);
+  await window.getByTestId('backup-restore').first().click();
+  await window.getByTestId('backup-restore-all').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(window.getByTestId('backup-restore-done')).toContainText(/ολοκληρώθηκε/i, { timeout: 120000 });
+  await expect(window.getByTestId('backup-restart')).toBeVisible();
+});
+
 for (const [id, title] of [
   ['P12-12', 'safety και αποτυχημένα δεν μετράνε στην υπενθύμιση'],
-  ['P12-16', 'επιτυχημένη επαναφορά φέρνει τα δεδομένα του αντιγράφου'],
   ['P12-17', 'αποτυχία εφαρμογής γυρίζει πίσω τα προηγούμενα δεδομένα'],
   ['P12-19', 'ένα μήνυμα επιτυχίας μετά τη δημιουργία'],
   ['P12-20', 'μετά την επαναφορά φαίνεται αναφορά τομέων και επανεκκίνηση'],
@@ -141,3 +162,97 @@ for (const [id, title] of [
     await expect(window.getByText(/Αντίγραφα|Backups/i).first()).toBeVisible();
   });
 }
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function rmDirRetry(dir) {
+  for (let i = 0; i < 10; i += 1) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      if (!fs.existsSync(dir)) return;
+    } catch {
+      await sleep(250);
+    }
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function listBackupZips(backupRoot) {
+  const dir = path.join(backupRoot, 'ERGOHUB_BACKUPS');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((name) => name.toLowerCase().endsWith('.zip'));
+}
+
+async function completeFreshSetup(window, { backupRoot, recoveryUser }) {
+  await window.getByTestId('setup-start').waitFor({ timeout: 45000 });
+  await window.getByTestId('setup-start').click();
+  await window.getByTestId('setup-folder-next').click();
+  await window.getByTestId('setup-org-name').fill('Αρχανών Αστερουσίων');
+  await window.getByTestId('setup-org-next').click();
+  await window.getByTestId('setup-admin-username').fill(recoveryUser.username);
+  await window.getByTestId('setup-admin-fullname').fill(recoveryUser.fullName);
+  await window.getByTestId('setup-admin-email').fill('recovery@e2e.local');
+  await window.getByTestId('setup-admin-password').fill(recoveryUser.password);
+  await window.getByTestId('setup-admin-password-confirm').fill(recoveryUser.password);
+  await queueOpenFiles(window, [backupRoot]);
+  await window.getByTestId('setup-browse-backup').click();
+  await expect(window.getByText(backupRoot, { exact: false })).toBeVisible({ timeout: 15000 });
+  await window.getByTestId('setup-finish').click();
+  await window.getByTestId('login-username').waitFor({ timeout: 45000 });
+}
+
+test('P12-24 φάκελος δεδομένων χάθηκε: επαναφορά από ξεχωριστό αντίγραφο', async () => {
+  test.setTimeout(360000);
+  const backupRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-e2e-bk-'));
+  const recoveryUser = {
+    username: 'recoveryadmin',
+    password: USERS.superadmin.password,
+    fullName: 'Επαναφορά Δοκιμής',
+  };
+  let live = null;
+  let freshDataDir = null;
+  try {
+    live = await launchIsolatedApp();
+    await loginAs(live.window, live.users.superadmin);
+    await openBackups(live.window);
+    await queueOpenFiles(live.window, [backupRoot]);
+    await live.window.getByTestId('backup-change-location').click();
+    await expect(live.window.getByText(/Προσαρμοσμένη θέση αποθήκευσης/)).toBeVisible({ timeout: 15000 });
+    await createBackupUntilHistory(live.window);
+    const zipsBeforeWipe = listBackupZips(backupRoot);
+    expect(zipsBeforeWipe.length).toBeGreaterThan(0);
+
+    const oldDataDir = live.testDir;
+    await closeIsolatedApp(live);
+    live = null;
+    await rmDirRetry(oldDataDir);
+    expect(fs.existsSync(oldDataDir)).toBe(false);
+    expect(listBackupZips(backupRoot).length).toBeGreaterThan(0);
+
+    freshDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-e2e-new-'));
+    live = await launchAppAt({ testDir: freshDataDir, seed: false });
+    await completeFreshSetup(live.window, { backupRoot, recoveryUser });
+    await loginAs(live.window, recoveryUser);
+
+    await expect(live.window.getByTestId('card-sub-bridge')).toHaveCount(0);
+    await openBackups(live.window);
+    await historyButton(live.window).click();
+    await expect(live.window.getByTestId('backup-restore').first()).toBeVisible({ timeout: 20000 });
+    await live.window.getByTestId('backup-restore').first().click();
+    await live.window.getByTestId('backup-restore-all').click();
+    await confirmYes(live.window);
+    await expect(live.window.getByTestId('backup-restore-done')).toContainText(/ολοκληρώθηκε/i, { timeout: 180000 });
+
+    await closeIsolatedApp(live);
+    live = await launchAppAt({ testDir: freshDataDir, seed: false });
+    await loginAs(live.window, USERS.superadmin);
+    await expect(live.window.getByTestId('card-sub-bridge')).toBeVisible({ timeout: 30000 });
+    await expect(live.window.getByText(/Γέφυρα Αγίου Σύλλα/).first()).toBeVisible();
+  } finally {
+    await closeIsolatedApp(live);
+    if (freshDataDir) await rmDirRetry(freshDataDir);
+    await rmDirRetry(backupRoot);
+  }
+});

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { showConfirm } from '../utils/confirmModal';
 import { useToast } from './ToastProvider';
+import FileRenameModal from './FileRenameModal';
 
 const ipcRenderer = window.electronAPI;
 
@@ -260,6 +261,14 @@ const DeleteIconBtn = styled(IconActionBtn)`
   }
 `;
 
+const RenameIconBtn = styled(IconActionBtn)`
+  &:hover {
+    background: ${C.indigoLight};
+    color: ${C.indigo};
+    border-color: #c7d2fe;
+  }
+`;
+
 const NoFilesMessage = styled.div`
   text-align: center;
   color: ${C.slate500};
@@ -288,6 +297,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
   const [entaxiFiles, setEntaxiFiles] = useState([]);
   const [approvalFiles, setApprovalFiles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [renameTarget, setRenameTarget] = useState(null);
 
   useEffect(() => {
     if (isOpen && entaxi) {
@@ -341,6 +351,21 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRenameFile = async (fileName, typedName) => {
+    const result = await ipcRenderer.invoke('rename-entaxi-file', {
+      entaxiId: entaxi.entaxiId,
+      oldName: fileName,
+      newName: typedName,
+    });
+    if (!result?.success) {
+      showToast(result?.error || 'Αποτυχία μετονομασίας', 'error');
+      return result;
+    }
+    showToast('Το αρχείο μετονομάστηκε', 'success');
+    await loadFiles();
+    return result;
   };
 
   const handleViewFile = async (fileName) => {
@@ -406,6 +431,15 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
             ⬇
           </DownloadIconBtn>
           {canManageWorkflow && (
+            <RenameIconBtn
+              title="Μετονομασία"
+              data-testid={`file-rename-${fileName}`}
+              onClick={() => setRenameTarget(fileName)}
+            >
+              ✎
+            </RenameIconBtn>
+          )}
+          {canManageWorkflow && (
             <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(fileName)}>
               ✕
             </DeleteIconBtn>
@@ -433,6 +467,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
   if (!isOpen) return null;
 
   return (
+    <>
     <ModalOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
       <ModalContainer>
         <ModalHeader>
@@ -465,6 +500,21 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
         </ModalBody>
       </ModalContainer>
     </ModalOverlay>
+    {renameTarget && (
+      <FileRenameModal
+        currentName={renameTarget}
+        onClose={() => setRenameTarget(null)}
+        onSave={async (typed) => {
+          try {
+            const res = await handleRenameFile(renameTarget, typed);
+            if (res?.success) setRenameTarget(null);
+          } catch {
+            /* το μήνυμα εμφανίζεται από handleRenameFile */
+          }
+        }}
+      />
+    )}
+    </>
   );
 }
 

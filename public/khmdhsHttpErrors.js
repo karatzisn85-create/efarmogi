@@ -47,6 +47,17 @@ function friendlyKhmdhsAdamNotFoundError(opts = {}) {
   );
 }
 
+function friendlyKhmdhsOfflineError() {
+  return 'Δεν υπάρχει σύνδεση στο διαδίκτυο. Ελέγξτε το δίκτυο και δοκιμάστε ξανά — δεν είναι πρόβλημα του ΚΗΜΔΗΣ.';
+}
+
+function isKhmdhsNetworkError(err) {
+  if (!err) return false;
+  const code = String(err.code || '');
+  const raw = `${err.name || ''} ${err.message || ''} ${code} ${typeof err === 'string' ? err : ''}`;
+  return /ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|ENOTCONN|ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED|ERR_NAME_NOT_RESOLVED|Failed to fetch|fetch failed|getaddrinfo|offline|δεν υπάρχει σύνδεση στο διαδίκτυο/i.test(raw);
+}
+
 /** Σύντομη επικεφαλίδα για αναφορά μαζικής ανανέωσης (όχι το πλήρες κείμενο). */
 function summarizeKhmdhsFetchFailure(errorText) {
   const raw = String(errorText || '').trim();
@@ -56,8 +67,11 @@ function summarizeKhmdhsFetchFailure(errorText) {
     return 'Ο ΑΔΑΜ δεν είναι ακόμα διαθέσιμος — δοκιμάστε αργότερα';
   }
   if (/μη έγκυρος|μορφή/i.test(raw)) return 'Μη έγκυρος ΑΔΑΜ — ελέγξτε τον κωδικό';
-  if (/πολλά αιτήματα|προσωριν|διήρκεσε πάρα πολύ|υπερφορτ/i.test(raw)) {
+  if (/πολλά αιτήματα|προσωριν|διήρκεσε πάρα πολύ|υπερφορτ|ETIMEDOUT|TimeoutError/i.test(raw)) {
     return 'Προσωρινό πρόβλημα στο ΚΗΜΔΗΣ — δοκιμάστε ξανά';
+  }
+  if (/σύνδεσ|δικτύ|fetch failed|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|socket hang up|δεν υπάρχει σύνδεση στο διαδίκτυο/i.test(raw)) {
+    return 'Δεν υπάρχει σύνδεση στο διαδίκτυο';
   }
   return 'Δεν ολοκληρώθηκε η ανανέωση';
 }
@@ -99,6 +113,8 @@ function resolveKhmdhsHttpError(message, httpStatus, fallback) {
 
 module.exports = {
   friendlyKhmdhsAdamNotFoundError,
+  friendlyKhmdhsOfflineError,
+  isKhmdhsNetworkError,
   summarizeKhmdhsFetchFailure,
   friendlyKhmdhsTransientHttpError,
   friendlyKhmdhsInvalidResponseError,

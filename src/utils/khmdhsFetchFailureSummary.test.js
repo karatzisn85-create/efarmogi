@@ -43,11 +43,14 @@ describe('classifyKhmdhsFailure', () => {
     expect(classifyKhmdhsFailure(
       'Η ανάκτηση της αλυσίδας ΑΔΑΜ διήρκεσε πάρα πολύ. Δοκιμάστε αργότερα.'
     )).toBe(KHMDHS_FAILURE_CAUSES.BUSY);
+    expect(classifyKhmdhsFailure('connect ETIMEDOUT')).toBe(KHMDHS_FAILURE_CAUSES.BUSY);
   });
 
   test('πρόβλημα δικτύου ξεχωρίζει από πρόβλημα ΚΗΜΔΗΣ', () => {
     expect(classifyKhmdhsFailure('fetch failed')).toBe(KHMDHS_FAILURE_CAUSES.CONNECTION);
     expect(classifyKhmdhsFailure('getaddrinfo ENOTFOUND cerpp.eprocurement.gov.gr'))
+      .toBe(KHMDHS_FAILURE_CAUSES.CONNECTION);
+    expect(classifyKhmdhsFailure('Δεν υπάρχει σύνδεση στο διαδίκτυο. Ελέγξτε το δίκτυο'))
       .toBe(KHMDHS_FAILURE_CAUSES.CONNECTION);
   });
 
