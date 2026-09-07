@@ -702,6 +702,20 @@ const HeaderGhostBtn = styled.button`
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
+const HeaderLockBtn = styled.button`
+  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  font-size: 0.74rem;
+  font-weight: 800;
+  font-family: inherit;
+  color: #4338ca;
+  cursor: pointer;
+  padding: 0.34rem 0.8rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+  &:hover { background: #eef2ff; }
+`;
+
 const ModalTitle = styled.h3`
   margin: 0;
   font-size: 0.9rem;
@@ -824,6 +838,42 @@ const DismissBtn = styled.button`
   cursor: pointer;
   &:hover:not(:disabled) { background: #f1f5f9; }
   &:disabled { opacity: 0.45; cursor: not-allowed; }
+`;
+
+const FooterActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+`;
+
+const LockFooterBtn = styled.button`
+  flex-shrink: 0;
+  padding: 0.55rem 1.15rem;
+  border-radius: 9px;
+  border: none;
+  background: linear-gradient(135deg, #4338ca, #6366f1);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.28);
+  &:hover { box-shadow: 0 5px 16px rgba(67, 56, 202, 0.38); transform: translateY(-1px); }
+`;
+
+const AutoLockBanner = styled.div`
+  margin: 0 0 0.85rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #3730a3;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.45;
 `;
 
 const SectionHeader = styled.button`
@@ -1635,6 +1685,9 @@ export function KhmdhsBatchReportModal({
   onDismiss,
   live = null,
   onMinimize,
+  allowSessionLock = false,
+  autoLockSecLeft = null,
+  onLockSession,
 }) {
   const [openSections, setOpenSections] = useState({
     intervened: true,
@@ -1799,6 +1852,15 @@ export function KhmdhsBatchReportModal({
               {liveMode ? 'Μαζική ανανέωση ΚΗΜΔΗΣ σε εξέλιξη' : 'Αναφορά μαζικής ανανέωσης ΚΗΜΔΗΣ'}
             </ModalTitle>
             <HeaderActions>
+              {allowSessionLock && typeof onLockSession === 'function' && (
+                <HeaderLockBtn
+                  type="button"
+                  onClick={onLockSession}
+                  data-testid="khmdhs-session-lock-btn"
+                >
+                  Κλείδωμα εφαρμογής
+                </HeaderLockBtn>
+              )}
               {liveMode && typeof onMinimize === 'function' && (
                 <HeaderGhostBtn type="button" onClick={onMinimize}>
                   Σμίκρυνση
@@ -1831,6 +1893,14 @@ export function KhmdhsBatchReportModal({
           )}
         </ModalHeader>
         <ModalBody>
+          {allowSessionLock && typeof onLockSession === 'function' && (
+            <AutoLockBanner data-testid="khmdhs-session-lock-banner">
+              Κλειδώστε την εφαρμογή πριν φύγετε — αλλιώς κανείς στο γραφείο δεν μπορεί να ακυρώσει ή να ανοίξει υποέργο.
+              {autoLockSecLeft != null && autoLockSecLeft > 0
+                ? ` Θα κλειδώσει μόνη της σε ${autoLockSecLeft}″.`
+                : ''}
+            </AutoLockBanner>
+          )}
           {liveMode && live?.itemLabel && (
             <LiveNowBox>
               <LiveNowKicker>Τώρα</LiveNowKicker>
@@ -2186,14 +2256,26 @@ export function KhmdhsBatchReportModal({
         {liveMode ? (
           <ModalFooter>
             <FooterHint>
-              Μπορείτε να σμικρύνετε το παράθυρο και να συνεχίσετε την εργασία σας.
-              Η μαζική ανανέωση συνεχίζεται και η ένδειξη μένει ορατή μέχρι να τελειώσει.
+              {allowSessionLock
+                ? 'Κλειδώστε την εφαρμογή πριν φύγετε. Η ανανέωση συνεχίζεται και στο τέλος σβήνει ο υπολογιστής.'
+                : 'Μπορείτε να σμικρύνετε το παράθυρο και να συνεχίσετε την εργασία σας. Η μαζική ανανέωση συνεχίζεται και η ένδειξη μένει ορατή μέχρι να τελειώσει.'}
             </FooterHint>
-            {typeof onMinimize === 'function' && (
-              <DismissBtn type="button" onClick={onMinimize}>
-                Σμίκρυνση — συνεχίζω εργασία
-              </DismissBtn>
-            )}
+            <FooterActions>
+              {typeof onMinimize === 'function' && (
+                <DismissBtn type="button" onClick={onMinimize}>
+                  {allowSessionLock ? 'Σμίκρυνση' : 'Σμίκρυνση — συνεχίζω εργασία'}
+                </DismissBtn>
+              )}
+              {allowSessionLock && typeof onLockSession === 'function' && (
+                <LockFooterBtn
+                  type="button"
+                  onClick={onLockSession}
+                  data-testid="khmdhs-session-lock-btn-footer"
+                >
+                  Κλείδωμα εφαρμογής
+                </LockFooterBtn>
+              )}
+            </FooterActions>
           </ModalFooter>
         ) : typeof onDismiss === 'function' && (
           <ModalFooter>
@@ -2242,6 +2324,8 @@ export default function KhmdhsBatchRefreshWidget({
   cancelSignal = null,
   compact = false,
   embedded = false,
+  onIdleShutdownArmedChange,
+  sessionLocked = false,
 }) {
   const { showToast } = useToast();
   const [running, setRunning] = useState(false);
@@ -2275,6 +2359,12 @@ export default function KhmdhsBatchRefreshWidget({
   useEffect(() => {
     if (typeof onRunningChange === 'function') onRunningChange(running);
   }, [running, onRunningChange]);
+
+  useEffect(() => {
+    if (typeof onIdleShutdownArmedChange === 'function') {
+      onIdleShutdownArmedChange(!!idleShutdownArmed);
+    }
+  }, [idleShutdownArmed, onIdleShutdownArmedChange]);
 
   const addLog = useCallback((icon, text) => {
     setLogEntries((prev) => [...prev.slice(-30), { icon, text, ts: Date.now() }]);
@@ -3195,19 +3285,21 @@ export default function KhmdhsBatchRefreshWidget({
               await ipcRenderer.invoke('disarm-khmdhs-idle-shutdown', {
                 actingUsername: currentUser?.username,
               }).catch(() => {});
+              setIdleShutdownArmed(false);
             }
           } catch (err) {
             showToast(err?.message || 'Δεν προγραμματίστηκε το σβήσιμο του υπολογιστή.', 'warning');
             await ipcRenderer.invoke('disarm-khmdhs-idle-shutdown', {
               actingUsername: currentUser?.username,
             }).catch(() => {});
+            setIdleShutdownArmed(false);
           }
         } else {
           await ipcRenderer.invoke('disarm-khmdhs-idle-shutdown', {
             actingUsername: currentUser?.username,
           }).catch(() => {});
+          setIdleShutdownArmed(false);
         }
-        setIdleShutdownArmed(false);
       }
       setCancelRequested(false);
       setRunning(false);
@@ -3233,7 +3325,7 @@ export default function KhmdhsBatchRefreshWidget({
   ]);
 
   const handleCancelBatch = useCallback(() => {
-    if (cancelRequested) return;
+    if (sessionLocked || cancelRequested) return;
     cancelRef.current = true;
     setCancelRequested(true);
     addLog('⛔', 'Ακύρωση σε εξέλιξη… διακοπή σύνδεσης με ΚΗΜΔΗΣ');
@@ -3242,7 +3334,7 @@ export default function KhmdhsBatchRefreshWidget({
         actingUsername: currentUser?.username,
       }).catch(() => {});
     }
-  }, [cancelRequested, currentUser, addLog]);
+  }, [sessionLocked, cancelRequested, currentUser, addLog]);
 
   const handleConfirmIdleShutdown = useCallback(async () => {
     const ok = await showConfirm({
@@ -3259,6 +3351,7 @@ export default function KhmdhsBatchRefreshWidget({
   }, [handleBatchRefresh]);
 
   const handleAbortIdleShutdown = useCallback(async () => {
+    if (sessionLocked) return;
     try {
       await ipcRenderer.invoke('disarm-khmdhs-idle-shutdown', {
         actingUsername: currentUser?.username,
@@ -3267,7 +3360,7 @@ export default function KhmdhsBatchRefreshWidget({
     setIdleCountdown(null);
     setIdleShutdownArmed(false);
     showToast('Το σβήσιμο ακυρώθηκε. Ο υπολογιστής μένει ανοιχτός.', 'info');
-  }, [currentUser, showToast]);
+  }, [sessionLocked, currentUser, showToast]);
 
   useEffect(() => {
     if (!ipcRenderer?.on) return undefined;
@@ -3294,6 +3387,7 @@ export default function KhmdhsBatchRefreshWidget({
 
   useEffect(() => {
     if (!cancelSignal) return;
+    if (sessionLocked) return;
     if (lastCancelTokenRef.current === cancelSignal) return;
     lastCancelTokenRef.current = cancelSignal;
     cancelRef.current = true;
@@ -3304,7 +3398,7 @@ export default function KhmdhsBatchRefreshWidget({
         actingUsername: currentUser?.username,
       }).catch(() => {});
     }
-  }, [cancelSignal, currentUser, addLog]);
+  }, [cancelSignal, sessionLocked, currentUser, addLog]);
 
   useEffect(() => {
     if (!retrySignal || !retrySignal.token) return;
@@ -3365,7 +3459,7 @@ export default function KhmdhsBatchRefreshWidget({
               <CancelBtn
                 type="button"
                 onClick={handleCancelBatch}
-                disabled={cancelRequested}
+                disabled={sessionLocked || cancelRequested}
               >
                 {cancelRequested ? 'Ακύρωση…' : 'Ακύρωση'}
               </CancelBtn>
@@ -3536,7 +3630,11 @@ export default function KhmdhsBatchRefreshWidget({
                 : 'Δεν έγινε σβήσιμο του υπολογιστή. Η εφαρμογή θα κλείσει μόνη της.'}
             </ConfirmDesc>
             <ConfirmActions>
-              <ConfirmIdleBtn type="button" onClick={handleAbortIdleShutdown}>
+              <ConfirmIdleBtn
+                type="button"
+                onClick={handleAbortIdleShutdown}
+                disabled={sessionLocked}
+              >
                 Να μείνει ανοιχτός ο υπολογιστής
               </ConfirmIdleBtn>
             </ConfirmActions>

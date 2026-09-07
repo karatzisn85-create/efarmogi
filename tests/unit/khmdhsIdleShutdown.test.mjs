@@ -27,3 +27,22 @@ test('η μαζική ανανέωση κρατά τον υπολογιστή ξ
   assert.equal(svc.isBatchAwakeHeld(), false);
   assert.equal(stopped.length, 2);
 });
+
+test('στους αυτόματους ελέγχους δεν καλείται shutdown.exe', async () => {
+  let spawned = 0;
+  const spawn = () => {
+    spawned += 1;
+    return { on() {} };
+  };
+  const svc = createKhmdhsIdleShutdown({
+    platform: 'win32',
+    spawn,
+    skipOsShutdown: true,
+  });
+  svc.arm();
+  const result = await svc.commit({ delaySec: 2, osDelaySec: 3 });
+  assert.equal(result.success, true);
+  assert.equal(result.shutdownScheduled, false);
+  assert.equal(spawned, 0);
+  await svc.disarm();
+});

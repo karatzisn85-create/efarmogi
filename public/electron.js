@@ -239,6 +239,8 @@ let systemSessionEnding = false;
 let allowAppQuit = false;
 /** Ελεγκτής «σβήσε τον υπολογιστή όταν τελειώσει η μαζική ανανέωση». */
 let khmdhsIdleShutdown = null;
+/** Κλείδωμα οθόνης όσο τρέχει μαζική ανανέωση με σβήσιμο — χωρίς αποσύνδεση. */
+let khmdhsSessionLocked = false;
 /** Συνδεδεμένος χρήστης — για έλεγχο ταυτότητας στις ενέργειες χώρου εργασίας. */
 let loggedInUsername = null;
 let heartbeatInterval = null;
@@ -392,11 +394,25 @@ function createWindow() {
     console.log('Window became responsive again');
   });
 
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (!khmdhsSessionLocked) return;
+    const key = String(input.key || '').toLowerCase();
+    if (key === 'f5') {
+      event.preventDefault();
+      return;
+    }
+    if ((input.control || input.meta) && key === 'r') {
+      event.preventDefault();
+    }
+  });
+
   mainWindow.on('close', (event) => {
     if (isE2EProcess() || allowAppQuit || systemSessionEnding) return;
     if (khmdhsIdleShutdown && khmdhsIdleShutdown.isShutdownPending()) {
       event.preventDefault();
-      khmdhsIdleShutdown.disarm().catch(() => { /* ignore */ });
+      if (!khmdhsSessionLocked) {
+        khmdhsIdleShutdown.disarm().catch(() => { /* ignore */ });
+      }
       return;
     }
     if (dashboardSessionActive && mainWindow && !mainWindow.isDestroyed()) {
@@ -1137,7 +1153,9 @@ app.on('before-quit', (event) => {
   if (isE2EProcess() || allowAppQuit || systemSessionEnding) return;
   if (khmdhsIdleShutdown && khmdhsIdleShutdown.isShutdownPending()) {
     event.preventDefault();
-    khmdhsIdleShutdown.disarm().catch(() => { /* ignore */ });
+    if (!khmdhsSessionLocked) {
+      khmdhsIdleShutdown.disarm().catch(() => { /* ignore */ });
+    }
     return;
   }
   if (khmdhsIdleShutdown && khmdhsIdleShutdown.shouldAllowSystemQuit()) return;
@@ -3590,6 +3608,9 @@ const khmdhsBatchRefreshAborts = new Set();
 
 ipcMain.handle('cancel-khmdhs-batch-refresh', async (_event, { actingUsername } = {}) => {
   try {
+    if (khmdhsSessionLocked) {
+      return { success: false, error: 'Η εφαρμογή είναι κλειδωμένη. Συνδεθείτε ξανά για να συνεχίσετε.' };
+    }
     const username = String(actingUsername || '').trim();
     if (!username) {
       return { success: false, error: 'Απαιτείται ταυτοποίηση χρήστη' };
@@ -4235,6 +4256,7 @@ function getKhmdhsIdleShutdown() {
       spawn,
       platform: process.platform,
       logger,
+      skipOsShutdown: isE2EProcess(),
       getMainWindow: () => mainWindow,
       onFallbackQuit: () => {
         allowAppQuit = true;
@@ -4271,6 +4293,9 @@ ipcMain.handle('disarm-khmdhs-idle-shutdown', async (_event, { actingUsername } 
   try {
     const auth = requireKhmdhsIdleShutdownAccess(actingUsername);
     if (!auth.ok) return { success: false, error: auth.error };
+    if (khmdhsSessionLocked && khmdhsIdleShutdown && khmdhsIdleShutdown.isShutdownPending()) {
+      return { success: false, error: 'Η εφαρμογή είναι κλειδωμένη. Συνδεθείτε ξανά για να συνεχίσετε.' };
+    }
     if (!khmdhsIdleShutdown) return { success: true };
     return await khmdhsIdleShutdown.disarm();
   } catch (e) {
@@ -4289,6 +4314,49 @@ ipcMain.handle('commit-khmdhs-idle-shutdown', async (_event, { actingUsername } 
     });
   } catch (e) {
     logger.error('commit-khmdhs-idle-shutdown', e.message || String(e));
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('get-khmdhs-session-lock', async () => ({
+  success: true,
+  locked: !!khmdhsSessionLocked,
+}));
+
+ipcMain.handle('lock-khmdhs-session', async (_event, { actingUsername } = {}) => {
+  try {
+    const auth = requireKhmdhsIdleShutdownAccess(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!getKhmdhsIdleShutdown().isArmed()) {
+      return { success: false, error: 'Το κλείδωμα ισχύει μόνο όταν η ανανέωση θα σβήσει τον υπολογιστή.' };
+    }
+    khmdhsSessionLocked = true;
+    return { success: true, locked: true };
+  } catch (e) {
+    logger.error('lock-khmdhs-session', e.message || String(e));
+    return { success: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('unlock-khmdhs-session', async (_event, { username, password } = {}) => {
+  try {
+    const session = String(loggedInUsername || '').trim();
+    if (!session) return { success: false, error: 'Δεν είστε συνδεδεμένοι στο σύστημα' };
+    const attempt = String(username || '').trim();
+    if (!attempt || attempt.toLowerCase() !== session.toLowerCase()) {
+      return { success: false, error: 'Λάθος όνομα χρήστη ή κωδικός' };
+    }
+    const user = findUserByUsername(session);
+    if (!user || user.active === false || user.approved === false) {
+      return { success: false, error: 'Λάθος όνομα χρήστη ή κωδικός' };
+    }
+    if (!password || !verifyPassword(password, user.passwordHash)) {
+      return { success: false, error: 'Λάθος όνομα χρήστη ή κωδικός' };
+    }
+    khmdhsSessionLocked = false;
+    return { success: true, locked: false };
+  } catch (e) {
+    logger.error('unlock-khmdhs-session', e.message || String(e));
     return { success: false, error: e.message || String(e) };
   }
 });

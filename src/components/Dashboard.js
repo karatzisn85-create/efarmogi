@@ -24,6 +24,13 @@ import {
   syncBatchReportWithProjects,
   buildKhmdhsLiveRunSnapshot,
 } from '../utils/khmdhsBatchReportState';
+import {
+  KHMDHS_SESSION_AUTO_LOCK_SEC,
+  shouldShowKhmdhsSessionLock,
+  shouldStartKhmdhsAutoLock,
+  applyPendingIdleShutdownArmedOff,
+} from '../utils/khmdhsSessionLock';
+import KhmdhsSessionLockOverlay from './KhmdhsSessionLockOverlay';
 import { KHMDHS_FRESHNESS_YELLOW_DAYS } from '../utils/khmdhsChainRefresh';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import {
@@ -3491,6 +3498,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [khmdhsRetrySignal, setKhmdhsRetrySignal] = useState(null);
   const [khmdhsCancelSignal, setKhmdhsCancelSignal] = useState(null);
   const [khmdhsRetryLive, setKhmdhsRetryLive] = useState(null);
+  const [khmdhsIdleShutdownArmed, setKhmdhsIdleShutdownArmed] = useState(false);
+  const [khmdhsSessionLocked, setKhmdhsSessionLocked] = useState(false);
+  const [khmdhsAutoLockLeft, setKhmdhsAutoLockLeft] = useState(null);
+  const khmdhsAutoLockDoneRef = useRef(false);
+  const khmdhsSessionLockedRef = useRef(false);
+  const khmdhsPendingArmedOffRef = useRef(false);
   const [notes, setNotes] = useState([]);
   const [notesSearch, setNotesSearch] = useState('');
   const [editingNote, setEditingNote] = useState(null);
@@ -3582,10 +3595,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     // ευρήματα που ο χρήστης δεν πρόλαβε να δει.
     if (!batchRunHasOutcome(results)) {
       refreshKhmdhsStaleCount();
-      // Το παράθυρο άνοιξε για σάρωση χωρίς ουρά: κλείσ’ το, μην αφήνεις κενή εικόνα.
-      setIsBatchReportOpen(false);
-      khmdhsLiveMinimizedRef.current = false;
-      setKhmdhsLiveMinimized(false);
+      if (!khmdhsSessionLockedRef.current) {
+        setIsBatchReportOpen(false);
+        khmdhsLiveMinimizedRef.current = false;
+        setKhmdhsLiveMinimized(false);
+      }
       return;
     }
 
@@ -3629,10 +3643,91 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, []);
 
   const minimizeKhmdhsLiveView = useCallback(() => {
+    if (khmdhsSessionLocked) return;
     khmdhsLiveMinimizedRef.current = true;
     setKhmdhsLiveMinimized(true);
     setIsBatchReportOpen(false);
+  }, [khmdhsSessionLocked]);
+
+  const requestKhmdhsCancel = useCallback(() => {
+    if (khmdhsSessionLocked) return;
+    setKhmdhsCancelSignal(Date.now());
+  }, [khmdhsSessionLocked]);
+
+  const lockKhmdhsSession = useCallback(async () => {
+    try {
+      const res = await ipcRenderer.invoke('lock-khmdhs-session', {
+        actingUsername: currentUser?.username,
+      });
+      if (!res?.success) {
+        khmdhsAutoLockDoneRef.current = true;
+        setKhmdhsAutoLockLeft(null);
+        return;
+      }
+    } catch (_err) {
+      khmdhsAutoLockDoneRef.current = true;
+      setKhmdhsAutoLockLeft(null);
+      return;
+    }
+    khmdhsAutoLockDoneRef.current = true;
+    khmdhsLiveMinimizedRef.current = false;
+    setKhmdhsLiveMinimized(false);
+    setIsBatchReportOpen(true);
+    khmdhsSessionLockedRef.current = true;
+    setKhmdhsSessionLocked(true);
+    setKhmdhsAutoLockLeft(null);
+  }, [currentUser?.username]);
+
+  const unlockKhmdhsSession = useCallback(() => {
+    khmdhsAutoLockDoneRef.current = true;
+    khmdhsSessionLockedRef.current = false;
+    setKhmdhsSessionLocked(false);
+    const pending = applyPendingIdleShutdownArmedOff({
+      sessionLocked: false,
+      pendingArmedOff: khmdhsPendingArmedOffRef.current,
+    });
+    khmdhsPendingArmedOffRef.current = pending.keepPending;
+    if (pending.accept) setKhmdhsIdleShutdownArmed(false);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    ipcRenderer.invoke('get-khmdhs-session-lock').then((res) => {
+      if (cancelled || !res?.locked) return;
+      khmdhsSessionLockedRef.current = true;
+      khmdhsAutoLockDoneRef.current = true;
+      setKhmdhsSessionLocked(true);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!khmdhsIdleShutdownArmed) {
+      khmdhsAutoLockDoneRef.current = false;
+      setKhmdhsAutoLockLeft(null);
+      return undefined;
+    }
+    if (!shouldStartKhmdhsAutoLock({
+      idleShutdownArmed: khmdhsIdleShutdownArmed,
+      sessionLocked: khmdhsSessionLocked,
+      alreadyAutoLocked: khmdhsAutoLockDoneRef.current,
+    })) {
+      if (khmdhsSessionLocked) setKhmdhsAutoLockLeft(null);
+      return undefined;
+    }
+    const startedAt = Date.now();
+    const tick = () => {
+      const left = Math.max(
+        0,
+        KHMDHS_SESSION_AUTO_LOCK_SEC - Math.floor((Date.now() - startedAt) / 1000)
+      );
+      setKhmdhsAutoLockLeft(left);
+      if (left <= 0) void lockKhmdhsSession();
+    };
+    tick();
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [khmdhsIdleShutdownArmed, khmdhsSessionLocked, lockKhmdhsSession]);
 
   useEffect(() => {
     if (khmdhsBatchRunning && !khmdhsWasRunningRef.current) {
@@ -8703,6 +8798,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
       <DashboardOpsFabStack
         visible={(canManageAll || isEngineer || userRole === 'USER') && !isNotesOpen}
+        keepMounted={khmdhsIdleShutdownArmed || khmdhsSessionLocked}
         canManageKhmdhs={khmdhsRefresh.showBatchRefreshButton(userRole)}
         khmdhsBatchRunning={khmdhsBatchRunning}
         khmdhsLiveMinimized={khmdhsLiveMinimized}
@@ -8739,6 +8835,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           retrySignal: khmdhsRetrySignal,
           cancelSignal: khmdhsCancelSignal,
           onRetryLiveChange: setKhmdhsRetryLive,
+          onIdleShutdownArmedChange: (armed) => {
+            if (!armed && khmdhsSessionLockedRef.current) {
+              khmdhsPendingArmedOffRef.current = true;
+              return;
+            }
+            khmdhsPendingArmedOffRef.current = false;
+            setKhmdhsIdleShutdownArmed(!!armed);
+          },
+          sessionLocked: khmdhsSessionLocked,
         }}
         deadlineWidgetProps={{
           projects: visibleProjects,
@@ -8784,12 +8889,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             live={khmdhsLiveSnapshot}
             running={khmdhsBatchRunning}
             onExpand={restoreKhmdhsLiveView}
-            onCancel={() => setKhmdhsCancelSignal(Date.now())}
+            onCancel={requestKhmdhsCancel}
           />
 
           <KhmdhsBatchReportModal
             isOpen={isBatchReportOpen}
             onClose={() => {
+              if (khmdhsSessionLocked) return;
               if (khmdhsBatchRunning) {
                 minimizeKhmdhsLiveView();
                 return;
@@ -8797,6 +8903,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               setIsBatchReportOpen(false);
             }}
             onMinimize={minimizeKhmdhsLiveView}
+            allowSessionLock={shouldShowKhmdhsSessionLock({
+              idleShutdownArmed: khmdhsIdleShutdownArmed,
+              sessionLocked: khmdhsSessionLocked,
+            })}
+            autoLockSecLeft={khmdhsAutoLockLeft}
+            onLockSession={lockKhmdhsSession}
             live={khmdhsBatchRunning
               ? (khmdhsLiveSnapshot || buildKhmdhsLiveRunSnapshot({
                 running: true,
@@ -8807,17 +8919,19 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             results={batchReportResults}
             pendingItems={batchPendingItems}
             onNavigateToSubproject={(subprojectId) => {
+              if (khmdhsSessionLocked) return;
               const p = projects.find((row) => row.subprojectId === subprojectId);
               if (p) openSubprojectDetail(p);
             }}
             onRetry={(retryItems) => {
+              if (khmdhsSessionLocked) return;
               if (!Array.isArray(retryItems) || !retryItems.length) return;
               setKhmdhsRetrySignal({ items: retryItems, token: Date.now() });
             }}
-            onCancelRetry={() => setKhmdhsCancelSignal(Date.now())}
+            onCancelRetry={requestKhmdhsCancel}
             retryLive={khmdhsRetryLive}
             onDismiss={() => {
-              if (khmdhsBatchRunning) return;
+              if (khmdhsSessionLocked || khmdhsBatchRunning) return;
               setIsBatchReportOpen(false);
               khmdhsLiveMinimizedRef.current = false;
               setKhmdhsLiveMinimized(false);
@@ -8829,6 +8943,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           />
         </Suspense>
       )}
+
+      <KhmdhsSessionLockOverlay
+        open={khmdhsSessionLocked}
+        username={currentUser?.username}
+        running={khmdhsBatchRunning}
+        live={khmdhsLiveSnapshot}
+        onUnlocked={unlockKhmdhsSession}
+      />
 
       <UserGuideModal
         open={guideModalOpen}

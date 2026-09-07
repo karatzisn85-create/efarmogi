@@ -317,6 +317,7 @@ export default function DashboardOpsFabStack({
   helpActive = false,
   onOpenHelp,
   onRestoreLive,
+  keepMounted = false,
 }) {
   const [khmdhsOpen, setKhmdhsOpen] = useState(false);
   const [deadlineOpen, setDeadlineOpen] = useState(false);
@@ -333,7 +334,7 @@ export default function DashboardOpsFabStack({
     }
   }, [visible, khmdhsBatchRunning]);
 
-  const showUi = visible || khmdhsBatchRunning;
+  const showUi = visible || khmdhsBatchRunning || keepMounted;
   if (!showUi) return null;
 
   const showStack = visible;

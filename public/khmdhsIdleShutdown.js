@@ -78,6 +78,7 @@ function createKhmdhsIdleShutdown({
   logger,
   getMainWindow,
   onFallbackQuit,
+  skipOsShutdown = false,
 } = {}) {
   let sleepBlockerId = null;
   let batchAwakeIds = [];
@@ -231,7 +232,7 @@ function createKhmdhsIdleShutdown({
       const osT = clampDelaySec(osDelaySec, KHMDHS_IDLE_SHUTDOWN_OS_DELAY_SEC);
 
       let osOk = false;
-      if (platform === 'win32' && typeof spawn === 'function') {
+      if (!skipOsShutdown && platform === 'win32' && typeof spawn === 'function') {
         const result = await runShutdownExe(
           spawn,
           exe,
@@ -239,6 +240,8 @@ function createKhmdhsIdleShutdown({
         );
         osOk = !!result.ok;
         if (!osOk) log('shutdown.exe failed', result.error || `code ${result.code}`);
+      } else if (skipOsShutdown) {
+        log('os shutdown skipped');
       }
 
       shutdownScheduled = osOk;
