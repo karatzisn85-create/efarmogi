@@ -49,6 +49,7 @@ test('email χώρου και παραλήπτες υπενθυμίσεων', ()
   assert.equal(em.showWorkspaceEmailToggle({ isAssigner: false, config: cfg }), false);
   assert.equal(em.evaluateWorkspaceCreatedEmail({ config: cfg, emailEnabled: false }).send, false);
   assert.equal(em.evaluateWorkspaceCreatedEmail({ config: cfg, emailEnabled: true }).send, true);
+  assert.equal(em.evaluateWorkspaceCreatedEmail({ config: cfg }).send, false);
   const users = [
     { username: 's', role: 'SUPERADMIN', approved: true, notificationPreferences: {} },
     { username: 'a', role: 'ADMIN', approved: true, notificationPreferences: { aepoEmail: false } },
@@ -58,4 +59,54 @@ test('email χώρου και παραλήπτες υπενθυμίσεων', ()
   assert.equal(em.evaluateCalendarReminderRecipients({ calendarRemindersEnabled: true, users }).length, 3);
   const aepo = em.evaluateAepoReminderRecipients({ users });
   assert.deepEqual(aepo.map((u) => u.username), ['s']);
+});
+
+test('πρόσκληση χώρου: παραλήπτες με email, χωρίς τον δημιουργό', () => {
+  const cfg = { gmail: { user: 'a@gmail.com', appPasswordSet: true } };
+  const task = {
+    createdBy: 'boss',
+    assignees: ['maria', 'nikos', 'boss'],
+    title: 'Δοκιμή'
+  };
+  const users = [
+    { username: 'boss', email: 'boss@gmail.com' },
+    { username: 'maria', email: 'maria@gmail.com' },
+    { username: 'nikos', fullName: 'Νίκος' },
+    { username: 'elena', email: 'elena@gmail.com' }
+  ];
+  assert.deepEqual(
+    em.getWorkspaceRecipientEmails(task, users, { excludeUsernames: ['boss'] }),
+    ['maria@gmail.com']
+  );
+  const off = em.planWorkspaceCreatedEmail({ config: cfg, emailEnabled: false, task, users });
+  assert.equal(off.send, false);
+  assert.equal(off.reason, 'workspace-off');
+  const planned = em.planWorkspaceCreatedEmail({ config: cfg, emailEnabled: true, task, users });
+  assert.equal(planned.send, true);
+  assert.deepEqual(planned.recipients, ['maria@gmail.com']);
+  const none = em.planWorkspaceCreatedEmail({
+    config: cfg,
+    emailEnabled: true,
+    task: { createdBy: 'boss', assignees: ['nikos'] },
+    users
+  });
+  assert.equal(none.send, false);
+  assert.equal(none.reason, 'no-recipients');
+  const added = em.getWorkspaceRecipientEmails(task, users, {
+    onlyUsernames: ['elena'],
+    excludeUsernames: ['boss']
+  });
+  assert.deepEqual(added, ['elena@gmail.com']);
+});
+
+test('μήνυμα προς τον δημιουργό μετά την αποστολή', () => {
+  const ok = em.workspaceEmailUserMessage({ success: true, sentTo: ['a@x.gr', 'b@x.gr'] }, 'created');
+  assert.equal(ok.type, 'success');
+  assert.match(ok.text, /2 συναδέλφους/);
+  const missing = em.workspaceEmailUserMessage({ skipped: true, reason: 'Δεν βρέθηκαν email παραληπτών' }, 'created');
+  assert.equal(missing.type, 'warning');
+  assert.match(missing.text, /δεν έχει email/);
+  const fail = em.workspaceEmailUserMessage({ success: false, error: 'EMAIL_DECRYPT_FAILED' }, 'created');
+  assert.equal(fail.type, 'warning');
+  assert.match(fail.text, /κωδικό/);
 });

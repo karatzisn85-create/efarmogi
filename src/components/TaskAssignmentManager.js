@@ -26,18 +26,11 @@ function defaultPersonTaskMode(person) {
 }
 
 function pickRosterPersonUsername(task, actingUsername) {
-  const self = String(actingUsername || '').toLowerCase();
-  const found = (task?.assignees || []).find((a) => String(a || '').toLowerCase() !== self);
-  return found || '';
+  return taskWorkspace.pickRosterPersonUsername(task, actingUsername);
 }
 
 function personModeForTask(task) {
   return task?.status === 'completed' ? 'completed' : 'open';
-}
-
-function personAllTasks(person) {
-  if (!person) return [];
-  return (person.openTasks || []).concat(person.completedTasks || [], person.closedTasks || []);
 }
 
 /** Πλήρης οθόνη εντός της εφαρμογής — χωρίς σκοτεινό υπόβαθρο / ελαστικό modal. */
@@ -510,18 +503,135 @@ const ViewSwitch = styled.div`
   display: inline-flex;
   align-items: stretch;
   border: 1px solid #c7d2fe;
-  border-radius: 12px;
+  border-radius: 14px;
   background: #fff;
   overflow: hidden;
   flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(49, 46, 129, 0.06);
 `;
 
 const ViewSwitchBtn = styled(TabBtn)`
   border: none;
   border-radius: 0;
+  min-width: 10.25rem;
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  padding: 0.5rem 1.05rem;
+  ${(p) =>
+    p.$kind === 'assigned' && p.$active
+      ? css`
+          background: linear-gradient(180deg, rgba(99, 102, 241, 0.2), rgba(99, 102, 241, 0.1));
+          color: #312e81;
+          box-shadow: inset 0 -3px 0 #4f46e5;
+        `
+      : ''}
+  ${(p) =>
+    p.$kind === 'created' && p.$active
+      ? css`
+          background: linear-gradient(180deg, rgba(139, 92, 246, 0.22), rgba(139, 92, 246, 0.1));
+          color: #4c1d95;
+          box-shadow: inset 0 -3px 0 #7c3aed;
+        `
+      : ''}
+  ${(p) =>
+    !p.$active
+      ? css`
+          background: #fff;
+          color: #1e1b4b;
+        `
+      : ''}
   & + & {
     border-left: 1px solid #c7d2fe;
   }
+`;
+
+const ChooserWrap = styled.div`
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 2rem 1.5rem 2.5rem;
+  background:
+    radial-gradient(1200px 420px at 50% -10%, rgba(99, 102, 241, 0.14), transparent 60%),
+    #f8fafc;
+`;
+
+const ChooserInner = styled.div`
+  width: 100%;
+  max-width: 52rem;
+`;
+
+const ChooserTitle = styled.h3`
+  margin: 0 0 0.55rem;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  letter-spacing: -0.02em;
+`;
+
+const ChooserIntro = styled.p`
+  margin: 0 0 1.35rem;
+  font-size: 0.98rem;
+  line-height: 1.55;
+  color: #475569;
+  font-weight: 500;
+  max-width: 40rem;
+`;
+
+const ChooserGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+`;
+
+const ChooserCard = styled.button`
+  text-align: left;
+  border-radius: 16px;
+  padding: 1.25rem 1.3rem 1.35rem;
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border: 1px solid ${(p) => (p.$kind === 'created' ? '#ddd6fe' : '#c7d2fe')};
+  background: ${(p) =>
+    p.$kind === 'created'
+      ? 'linear-gradient(180deg, #faf5ff 0%, #fff 55%)'
+      : 'linear-gradient(180deg, #eef2ff 0%, #fff 55%)'};
+  box-shadow: 0 8px 28px rgba(49, 46, 129, 0.08);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  &:hover {
+    transform: translateY(-2px);
+    border-color: ${(p) => (p.$kind === 'created' ? '#a78bfa' : '#818cf8')};
+    box-shadow: 0 12px 32px rgba(49, 46, 129, 0.14);
+  }
+`;
+
+const ChooserKicker = styled.span`
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: ${(p) => (p.$kind === 'created' ? '#7c3aed' : '#4f46e5')};
+`;
+
+const ChooserName = styled.span`
+  font-size: 1.28rem;
+  font-weight: 800;
+  color: ${(p) => (p.$kind === 'created' ? '#4c1d95' : '#312e81')};
+  letter-spacing: -0.02em;
+`;
+
+const ChooserText = styled.span`
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #475569;
+  font-weight: 500;
 `;
 
 const Body = styled.div`
@@ -959,9 +1069,9 @@ function TaskAssignmentManager({
   const actingUsername = currentUser?.username || '';
   const canAssign = currentUser?.taskAssignment?.canAssign || isSuperAdmin;
 
-  /** Όποιος αναθέτει ανοίγει ανά άτομο· «Συμμετέχω» μένει ένα κλικ δίπλα για χώρους που σας πρόσθεσαν άλλοι. */
+  /** Καμία όψη μέχρι να διαλέξει ο χρήστης (όποιος αναθέτει). Οι υπόλοιποι μπαίνουν στο «Συμμετέχω». */
   const [tab, setTab] = useState(() => (
-    (currentUser?.taskAssignment?.canAssign || isSuperAdmin) ? 'asAssigner' : 'asAssignee'
+    (currentUser?.taskAssignment?.canAssign || isSuperAdmin) ? 'choose' : 'asAssignee'
   ));
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
@@ -998,6 +1108,7 @@ function TaskAssignmentManager({
   const selectedIdRef = useRef(selectedId);
   const managerWasOpenRef = useRef(false);
   const focusTaskHandledRef = useRef(null);
+  const rosterIntentRef = useRef('');
   const onAccessRefreshRef = useRef(onAccessRefresh);
   onAccessRefreshRef.current = onAccessRefresh;
 
@@ -1021,8 +1132,13 @@ function TaskAssignmentManager({
   }, [actingUsername, canAssign]);
 
   const loadTasks = useCallback(async ({ silent = false, viewOverride } = {}) => {
-    if (!silent) setLoading(true);
     const activeTab = viewOverride ?? tab;
+    if (activeTab === 'choose') {
+      if (!silent) setLoading(false);
+      if (!selectedIdRef.current && !rosterIntentRef.current) setTasks([]);
+      return;
+    }
+    if (!silent) setLoading(true);
     const view = activeTab === 'all' ? 'all' : activeTab;
     const res = await ipcRenderer.invoke('load-task-assignments', {
       actingUsername,
@@ -1137,13 +1253,18 @@ function TaskAssignmentManager({
     if (justOpened) {
       setScreen(initialScreen);
       prevScreenRef.current = initialScreen;
-      const openingTab = canAssign && initialScreen !== 'workArchive' ? 'asAssigner' : 'asAssignee';
+      const openingTab = canAssign && initialScreen !== 'workArchive' ? 'choose' : 'asAssignee';
       setTab(openingTab);
       setSelectedId(null);
       setSelectedTask(null);
       setSelectedPersonUsername('');
       setPersonTaskMode('open');
-      loadTasks({ silent: false, viewOverride: openingTab });
+      if (openingTab !== 'choose') {
+        loadTasks({ silent: false, viewOverride: openingTab });
+      } else {
+        setLoading(false);
+        setTasks([]);
+      }
       onAccessRefreshRef.current?.();
     }
   }, [isOpen, initialScreen, canAssign, loadUsers, loadAssignable, loadNotifications, loadTasks]); // loadTasks: initial fetch on open
@@ -1188,7 +1309,7 @@ function TaskAssignmentManager({
   useEffect(() => {
     const tid = selectedTask?.id;
     if (!isOpen || !tid) return undefined;
-    ipcRenderer.invoke('watch-task-file', { taskId: tid }).catch(() => {});
+    ipcRenderer.invoke('watch-task-file', { taskId: tid, actingUsername }).catch(() => {});
     const unsub = ipcRenderer.on('task-data-changed', (payload) => {
       if (payload?.taskId === selectedIdRef.current) refreshSelectedTask();
     });
@@ -1196,11 +1317,11 @@ function TaskAssignmentManager({
       ipcRenderer.invoke('unwatch-task-file').catch(() => {});
       if (typeof unsub === 'function') unsub();
     };
-  }, [isOpen, selectedTask?.id, refreshSelectedTask]);
+  }, [isOpen, selectedTask?.id, actingUsername, refreshSelectedTask]);
 
   useEffect(() => {
     if (!isOpen) return;
-    if (!canAssign && tab === 'asAssigner') setTab('asAssignee');
+    if (!canAssign && (tab === 'asAssigner' || tab === 'choose')) setTab('asAssignee');
   }, [isOpen, canAssign, tab]);
 
   /** Εναλλαγή Χώρος Εργασίας ↔ Αποθήκη — καθαρισμός επιλογής μόνο όταν αλλάζει η οθόνη. */
@@ -1222,6 +1343,13 @@ function TaskAssignmentManager({
   }, [tab, isOpen, loadTasks]);
 
   const isWorkArchive = screen === 'workArchive';
+  const isChoosingView = taskWorkspace.needsWorkspaceViewChooser({
+    canAssign,
+    isWorkArchive,
+    viewChosen: tab === 'asAssignee' || tab === 'asAssigner' || tab === 'all',
+    hasFocusTask: !!focusTaskId
+  });
+  const chooserCopy = taskWorkspace.workspaceViewChooserCopy();
   const isAssignerRoster = canAssign && tab === 'asAssigner' && !isWorkArchive;
 
   const filtered = useMemo(() => {
@@ -1286,6 +1414,19 @@ function TaskAssignmentManager({
 
   useEffect(() => {
     if (!isOpen || !isAssignerRoster) return;
+    if (selectedTask) return;
+    const intended = rosterIntentRef.current;
+    if (intended) {
+      const hasIntended = assignerRoster.people.some(
+        (p) => String(p.username || '').toLowerCase() === String(intended || '').toLowerCase()
+      );
+      if (hasIntended) {
+        if (String(selectedPersonUsername || '').toLowerCase() !== String(intended).toLowerCase()) {
+          setSelectedPersonUsername(intended);
+        }
+        return;
+      }
+    }
     const still = assignerRoster.people.some(
       (p) => String(p.username || '').toLowerCase() === String(selectedPersonUsername || '').toLowerCase()
     );
@@ -1293,25 +1434,36 @@ function TaskAssignmentManager({
     const first = assignerRoster.people.find((p) => p.openCount > 0) || assignerRoster.people[0];
     setSelectedPersonUsername(first?.username || '');
     setPersonTaskMode(defaultPersonTaskMode(first));
-  }, [isOpen, isAssignerRoster, assignerRoster.people, selectedPersonUsername]);
+  }, [isOpen, isAssignerRoster, assignerRoster.people, selectedPersonUsername, selectedTask]);
 
   useEffect(() => {
     if (!isAssignerRoster || !selectedTask) return;
-    if (!selectedPerson) {
-      setSelectedTask(null);
-      setSelectedId(null);
-      return;
+    const resolved = taskWorkspace.resolveAssignerRosterForOpenTask({
+      task: selectedTask,
+      actingUsername,
+      selectedPersonUsername,
+      intendedPersonUsername: rosterIntentRef.current
+    });
+    if (
+      resolved.personUsername &&
+      String(resolved.personUsername).toLowerCase() !== String(selectedPersonUsername || '').toLowerCase()
+    ) {
+      setSelectedPersonUsername(resolved.personUsername);
+      setPersonTaskMode(personModeForTask(selectedTask));
     }
-    const belongs = personAllTasks(selectedPerson).some((t) => t.id === selectedTask.id);
-    if (!belongs) {
-      setSelectedTask(null);
-      setSelectedId(null);
+    if (
+      rosterIntentRef.current &&
+      String(resolved.personUsername || '').toLowerCase() === String(rosterIntentRef.current).toLowerCase()
+    ) {
+      rosterIntentRef.current = '';
     }
-  }, [isAssignerRoster, selectedPerson, selectedTask]);
+  }, [isAssignerRoster, selectedTask, actingUsername, selectedPersonUsername]);
 
   useEffect(() => {
     if (!selectedTask || loading) return;
+    if (rosterIntentRef.current) return;
     const pool = isAssignerRoster ? tasks : filtered;
+    if (isAssignerRoster && tasks.length === 0) return;
     const stillVisible = pool.some((t) => t.id === selectedTask.id);
     if (!stillVisible) {
       setSelectedTask(null);
@@ -1336,7 +1488,7 @@ function TaskAssignmentManager({
   const showSidebar = true;
   const focusMode = !!selectedTask;
   const sidebarMode = selectedTask ? 'full' : (isAssignerRoster ? 'roster' : 'browse');
-  const showFilterButton = !isWorkArchive && (!isAssignerRoster || isSuperAdmin);
+  const showFilterButton = !isChoosingView && !isWorkArchive && (!isAssignerRoster || isSuperAdmin);
 
   useEffect(() => {
     if (!showFilterButton) setFilterMenuOpen(false);
@@ -1381,6 +1533,10 @@ function TaskAssignmentManager({
       setListError('');
       setSelectedId(taskId);
       setSelectedTask(res.task);
+      if (canAssign && res.task) {
+        const pick = pickRosterPersonUsername(res.task, actingUsername);
+        if (pick) rosterIntentRef.current = pick;
+      }
       const isCompleted = res.task.status === 'completed';
       if (!(isCompleted && stayInWorkspace)) {
         const nextScreen = isCompleted ? 'workArchive' : 'workspace';
@@ -1395,7 +1551,7 @@ function TaskAssignmentManager({
       }
       return true;
     },
-    [actingUsername]
+    [actingUsername, canAssign]
   );
 
   const openTask = useCallback(
@@ -1410,16 +1566,36 @@ function TaskAssignmentManager({
     [revealTask, loadNotifications, loadTasks]
   );
 
+  const selectWorkspaceView = useCallback((nextTab) => {
+    setTab(nextTab);
+    setFilterMenuOpen(false);
+    setSelectedId(null);
+    setSelectedTask(null);
+    setSelectedPersonUsername('');
+  }, []);
+
   useEffect(() => {
     if (!isOpen || !focusTaskId || !actingUsername) return undefined;
     if (focusTaskHandledRef.current === focusTaskId) return undefined;
     let cancelled = false;
     (async () => {
-      setTab('asAssignee');
-      const ok = await revealTask(focusTaskId);
+      const peeked = await ipcRenderer.invoke('get-task-assignment', { actingUsername, taskId: focusTaskId });
+      const focusTab = taskWorkspace.resolveWorkspaceFocusTab(peeked?.task, {
+        canAssign,
+        actingUsername
+      });
+      setTab(focusTab);
+      if (focusTab === 'asAssigner' && peeked?.task) {
+        const pick = pickRosterPersonUsername(peeked.task, actingUsername);
+        if (pick) setSelectedPersonUsername(pick);
+        setPersonTaskMode(personModeForTask(peeked.task));
+      }
+      const ok = await revealTask(focusTaskId, {
+        stayInWorkspace: focusTab === 'asAssigner' && peeked?.task?.status !== 'completed'
+      });
       if (!cancelled && ok) {
         focusTaskHandledRef.current = focusTaskId;
-        await loadTasks({ silent: true, viewOverride: 'asAssignee' });
+        await loadTasks({ silent: true, viewOverride: focusTab });
         await loadNotifications();
       }
       if (!cancelled) onFocusTaskConsumed?.();
@@ -1427,7 +1603,7 @@ function TaskAssignmentManager({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, focusTaskId, actingUsername, revealTask, loadTasks, loadNotifications, onFocusTaskConsumed]);
+  }, [isOpen, focusTaskId, actingUsername, canAssign, revealTask, loadTasks, loadNotifications, onFocusTaskConsumed]);
 
   useEffect(() => {
     if (!isOpen) focusTaskHandledRef.current = null;
@@ -1569,7 +1745,9 @@ function TaskAssignmentManager({
                 <ScreenSubtitle $compact={focusMode}>
                   {isWorkArchive
                     ? 'Εδώ εμφανίζονται μόνο οι ολοκληρωμένες εργασίες — χώροι με κατάσταση «Ολοκληρώθηκε».'
-                    : isAssignerRoster
+                    : isChoosingView
+                      ? 'Πρώτα επιλέξτε όψη: Συμμετέχω ή Δημιούργησα εγώ.'
+                      : isAssignerRoster
                       ? 'Δημιούργησα εγώ — όσα χρεώσατε, ανά συνάδελφο.'
                       : canAssign
                         ? 'Συμμετέχω — μόνο χώροι που σας ανέθεσαν άλλοι.'
@@ -1580,7 +1758,7 @@ function TaskAssignmentManager({
                     Εμφάνιση βοήθειας
                   </ArchiveHelpTrigger>
                 ) : null}
-                {canAssign && !isWorkArchive && viewHelpDismissed ? (
+                {canAssign && !isWorkArchive && viewHelpDismissed && !isChoosingView ? (
                   <ViewHelpTrigger type="button" $compact={focusMode} onClick={showViewHelp}>
                     Εμφάνιση βοήθειας
                   </ViewHelpTrigger>
@@ -1612,6 +1790,7 @@ function TaskAssignmentManager({
                   type="button"
                   onClick={() => {
                     setScreen('workArchive');
+                    if (tab === 'choose') setTab('asAssigner');
                     setSelectedId(null);
                     setSelectedTask(null);
                     setFilterMenuOpen(false);
@@ -1624,14 +1803,15 @@ function TaskAssignmentManager({
                 <ViewSwitch role="group" aria-label="Προβολή χώρων">
                   <ViewSwitchBtn
                     type="button"
+                    $kind="assigned"
                     $active={tab === 'asAssignee'}
+                    aria-pressed={tab === 'asAssignee'}
                     data-testid="workspace-view-assigned"
                     title={isWorkArchive
                       ? 'Ολοκληρωμένοι χώροι όπου σας έβαλαν συνάδελφοι'
                       : 'Χώροι όπου σας έβαλαν συνάδελφοι'}
                     onClick={() => {
-                      setTab('asAssignee');
-                      setFilterMenuOpen(false);
+                      selectWorkspaceView('asAssignee');
                       if (selectedTask && taskWorkspace.isTaskAssigner(selectedTask, actingUsername)) {
                         setSelectedId(null);
                         setSelectedTask(null);
@@ -1643,14 +1823,15 @@ function TaskAssignmentManager({
                   </ViewSwitchBtn>
                   <ViewSwitchBtn
                     type="button"
+                    $kind="created"
                     $active={tab === 'asAssigner'}
+                    aria-pressed={tab === 'asAssigner'}
                     data-testid="workspace-view-created"
                     title={isWorkArchive
                       ? 'Ολοκληρωμένοι χώροι που δημιουργήσατε'
                       : 'Όσα χρεώσατε εσείς, ανά συνάδελφο'}
                     onClick={() => {
-                      setTab('asAssigner');
-                      setFilterMenuOpen(false);
+                      selectWorkspaceView('asAssigner');
                       if (selectedTask) {
                         const pick = pickRosterPersonUsername(selectedTask, actingUsername);
                         if (pick) setSelectedPersonUsername(pick);
@@ -1679,7 +1860,7 @@ function TaskAssignmentManager({
                 Φίλτρα {filterMenuOpen ? '▴' : '▾'}
               </TabBtn>
               ) : null}
-              {!focusMode ? (
+              {!focusMode && !isChoosingView ? (
               <ToolbarSearch
                 $dense={focusMode}
                 placeholder="Αναζήτηση..."
@@ -1803,7 +1984,7 @@ function TaskAssignmentManager({
           )}
         </Top>
 
-        {canAssign && !isWorkArchive && !selectedTask && !viewHelpDismissed && (
+        {canAssign && !isWorkArchive && !selectedTask && !viewHelpDismissed && !isChoosingView && (
           <ViewHelpBanner role="note" data-testid="workspace-view-help">
             <ArchiveInfoRow>
               <ArchiveInfoText>
@@ -1868,6 +2049,37 @@ function TaskAssignmentManager({
         )}
 
         <Body>
+          {isChoosingView ? (
+            <ChooserWrap data-testid="workspace-view-chooser">
+              <ChooserInner>
+                <ChooserTitle>{chooserCopy.title}</ChooserTitle>
+                <ChooserIntro>{chooserCopy.intro}</ChooserIntro>
+                <ChooserGrid>
+                  <ChooserCard
+                    type="button"
+                    $kind="assigned"
+                    data-testid="workspace-choose-assigned"
+                    onClick={() => selectWorkspaceView('asAssignee')}
+                  >
+                    <ChooserKicker $kind="assigned">{chooserCopy.assigned.kicker}</ChooserKicker>
+                    <ChooserName $kind="assigned">{chooserCopy.assigned.title}</ChooserName>
+                    <ChooserText>{chooserCopy.assigned.text}</ChooserText>
+                  </ChooserCard>
+                  <ChooserCard
+                    type="button"
+                    $kind="created"
+                    data-testid="workspace-choose-created"
+                    onClick={() => selectWorkspaceView('asAssigner')}
+                  >
+                    <ChooserKicker $kind="created">{chooserCopy.created.kicker}</ChooserKicker>
+                    <ChooserName $kind="created">{chooserCopy.created.title}</ChooserName>
+                    <ChooserText>{chooserCopy.created.text}</ChooserText>
+                  </ChooserCard>
+                </ChooserGrid>
+              </ChooserInner>
+            </ChooserWrap>
+          ) : (
+            <>
           <Sidebar $hidden={!showSidebar} $mode={sidebarMode}>
             <SidebarScroll>
               {listError ? (
@@ -2058,12 +2270,14 @@ function TaskAssignmentManager({
                         ? (search.trim()
                           ? 'Δεν βρέθηκε συνάδελφος ή χώρος με αυτό τον όρο.'
                           : 'Δεν υπάρχουν χρεώσεις σε συναδέλφους από εσάς ακόμα. Δημιουργήστε χώρο και επιλέξτε σε ποιον ανατίθεται.')
-                        : 'Κάθε φορά που ανοίγετε τον Χώρο Εργασίας, η προβολή ξεκινά κενή. Κάντε κλικ σε έναν χώρο στη λίστα στα αριστερά για να εμφανιστεί εδώ η περιγραφή, τα αρχεία και η ροή συνομιλίας. Οι ολοκληρωμένες εργασίες μεταφέρονται στην Αποθήκη Εργασιών.'}
+                        : 'Κάντε κλικ σε έναν χώρο στη λίστα στα αριστερά για να εμφανιστεί εδώ η περιγραφή, τα αρχεία και η ροή συνομιλίας. Οι ολοκληρωμένες εργασίες μεταφέρονται στην Αποθήκη Εργασιών.'}
                   </EmptyText>
                 </EmptyPanel>
               </EmptyWorkspace>
             )}
           </WorkspaceArea>
+            </>
+          )}
         </Body>
       </Container>
 
@@ -2084,21 +2298,15 @@ function TaskAssignmentManager({
           assignableUsers={assignableUsers}
           onSaved={async (task) => {
             const nextTab = canAssign ? 'asAssigner' : 'asAssignee';
+            const pick = canAssign ? pickRosterPersonUsername(task, actingUsername) : '';
+            if (pick) {
+              rosterIntentRef.current = pick;
+              setSelectedPersonUsername(pick);
+              setPersonTaskMode('open');
+            }
             setTab(nextTab);
             await loadTasks({ silent: true, viewOverride: nextTab });
             loadNotifications();
-            if (canAssign && Array.isArray(task?.assignees)) {
-              const stillSelected = task.assignees.some(
-                (a) => String(a || '').toLowerCase() === String(selectedPersonUsername || '').toLowerCase()
-              );
-              const pick = stillSelected
-                ? selectedPersonUsername
-                : pickRosterPersonUsername(task, actingUsername);
-              if (pick) {
-                setSelectedPersonUsername(pick);
-                setPersonTaskMode('open');
-              }
-            }
             if (task?.id) await openTask(task.id, { forceTab: nextTab });
             onAccessRefreshRef.current?.();
           }}

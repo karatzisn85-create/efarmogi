@@ -66,13 +66,20 @@ function canUserAssignTo(users, assignerUsername, assigneeUsernames) {
   if (targets.length === 0) return { ok: false, error: 'Επιλέξτε τουλάχιστον έναν συνάδελφο' };
 
   if (isSuperAdminRole(users, assignerUsername)) {
-    const assignees = [...new Set(
-      targets.map((t) => {
-        const u = findUser(users, t);
-        return u ? u.username : t;
-      })
-    )];
-    return { ok: true, assignees };
+    const assignees = [];
+    const invalid = [];
+    targets.forEach((t) => {
+      const u = findUser(users, t);
+      if (!u || !isActiveApprovedUser(u)) {
+        invalid.push(t);
+        return;
+      }
+      assignees.push(u.username);
+    });
+    if (invalid.length > 0) {
+      return { ok: false, error: `Μη επιτρεπτοί συνάδελφοι: ${invalid.join(', ')}` };
+    }
+    return { ok: true, assignees: [...new Set(assignees)] };
   }
 
   const ta = normalizeTaskAssignment(assigner.taskAssignment);
@@ -685,7 +692,7 @@ function createTaskAssignmentService(deps) {
     const userDetails = targets
       .map((username) => {
         const u = findUser(users, username);
-        return u ? { username: u.username, fullName: u.fullName, role: u.role } : null;
+        return u ? { username: u.username, fullName: u.fullName, role: u.role, hasEmail: !!(u.email && String(u.email).includes('@')) } : null;
       })
       .filter(Boolean);
     return { success: true, users: userDetails };
@@ -736,6 +743,7 @@ function createTaskAssignmentService(deps) {
         }];
         const { saved, failed } = copyFilesToTask(task.id, newFiles, actingUsername, { batchId });
         if (failed.length > 0) {
+          deleteTaskFromDisk(task.id);
           return {
             success: false,
             error: failed.length === newFiles.length
@@ -747,6 +755,7 @@ function createTaskAssignmentService(deps) {
       }
       writeTask(task);
     } catch (err) {
+      try { deleteTaskFromDisk(task.id); } catch { /* ignore */ }
       return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης χώρου στον δίσκο' };
     }
 
@@ -828,6 +837,8 @@ function createTaskAssignmentService(deps) {
         });
       });
     }
+    const prevAssigneeSet = new Set((existing.assignees || []).map((a) => String(a).toLowerCase()));
+    const added = newAssignees.filter((a) => !prevAssigneeSet.has(String(a).toLowerCase()));
     const task = {
       ...existing,
       ...norm,
@@ -840,10 +851,16 @@ function createTaskAssignmentService(deps) {
     try {
       writeTask(task);
     } catch (err) {
+      copied.forEach((f) => {
+        try { if (f.path && fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch { /* ignore */ }
+      });
       return { success: false, error: err?.message || 'Αποτυχία αποθήκευσης χώρου στον δίσκο' };
     }
     safeNotifyTaskEvent(task, 'assignment_updated', `Ενημέρωση χώρου: ${task.title}`);
-    return { success: true, task };
+    const fileWarning = copied.length && newFiles.length > copied.length
+      ? `Αποθηκεύτηκαν ${copied.length} από ${newFiles.length} αρχεία`
+      : null;
+    return { success: true, task, added, warning: fileWarning };
   }
 
   function addAssignees({ actingUsername, taskId, usernames }) {
@@ -939,7 +956,7 @@ function createTaskAssignmentService(deps) {
         { excludeUsernames: [actingUsername] }
       );
     }
-    return { success: true, task };
+    return { success: true, task, added };
   }
 
   function deleteTask({ actingUsername, taskId }) {
@@ -980,6 +997,13 @@ function createTaskAssignmentService(deps) {
 
     if (status === 'cancelled' && !isAssignerUser && !isSA) {
       return { success: false, error: 'Μόνο ο αναθέτων μπορεί να κλείσει τον χώρο' };
+    }
+
+    /** Κλειστός χώρος: μόνο ο αναθέτης (ή SA) μπορεί να τον επαναφέρει. */
+    if (task.status === 'cancelled' && status !== 'cancelled') {
+      if (!isAssignerUser && !isSA) {
+        return { success: false, error: 'Μόνο ο αναθέτης μπορεί να επαναφέρει κλειστό χώρο' };
+      }
     }
 
     /** Ολοκληρωμένος χώρος στην αποθήκη: μόνο ο αναθέτης (ή SA) μπορεί να τον επαναφέρει σε ενεργή κατάσταση. */
@@ -1311,6 +1335,9 @@ function createTaskAssignmentService(deps) {
       try {
         writeTask(updated, { skipLock: true });
       } catch (err) {
+        (copied || []).forEach((f) => {
+          try { if (f.path && fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch { /* ignore */ }
+        });
         result = { success: false, error: err?.message || 'Αποτυχία αποθήκευσης αρχείων' };
         return;
       }
@@ -1318,6 +1345,7 @@ function createTaskAssignmentService(deps) {
       result = {
         success: true,
         task: updated,
+        savedNames: copied.map((f) => f.name),
         warning: failed.length > 0
           ? `Αποθηκεύτηκαν ${copied.length} από ${newFiles.length} αρχεία. Δεν προστέθηκαν: ${failed.map((f) => f.name).join(', ')}`
           : null

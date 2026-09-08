@@ -42,6 +42,46 @@ test('Δημιουργία Χώρου μόνο εκτός αποθήκης κα�
   assert.equal(tw.showCreateTaskButton(false, false), false);
 });
 
+test('οθόνη επιλογής όψης: μόνο όποιος αναθέτει, στον ενεργό χώρο, πριν διαλέξει', () => {
+  assert.equal(tw.needsWorkspaceViewChooser({ canAssign: true, isWorkArchive: false, viewChosen: false }), true);
+  assert.equal(tw.needsWorkspaceViewChooser({ canAssign: true, isWorkArchive: false, viewChosen: true }), false);
+  assert.equal(tw.needsWorkspaceViewChooser({ canAssign: false, isWorkArchive: false, viewChosen: false }), false);
+  assert.equal(tw.needsWorkspaceViewChooser({ canAssign: true, isWorkArchive: true, viewChosen: false }), false);
+  assert.equal(tw.needsWorkspaceViewChooser({ canAssign: true, hasFocusTask: true, viewChosen: false }), false);
+  const copy = tw.workspaceViewChooserCopy();
+  assert.match(copy.title, /Πώς θέλετε/);
+  assert.equal(copy.assigned.title, 'Συμμετέχω');
+  assert.equal(copy.created.title, 'Δημιούργησα εγώ');
+});
+
+test('ανοιχτός χώρος δεν κλείνει επειδή πρόλαβε άλλη συνάδελφος στο roster', () => {
+  const task = { id: 'new', assignees: ['manager'], createdBy: 'admin' };
+  assert.equal(tw.pickRosterPersonUsername(task, 'admin'), 'manager');
+  assert.equal(tw.pickRosterPersonUsername({ assignees: ['admin'] }, 'admin'), 'admin');
+  const switched = tw.resolveAssignerRosterForOpenTask({
+    task,
+    actingUsername: 'admin',
+    selectedPersonUsername: 'maria',
+    intendedPersonUsername: 'manager'
+  });
+  assert.equal(switched.keepTask, true);
+  assert.equal(switched.personUsername, 'manager');
+  const keepCurrent = tw.resolveAssignerRosterForOpenTask({
+    task,
+    actingUsername: 'admin',
+    selectedPersonUsername: 'manager'
+  });
+  assert.equal(keepCurrent.personUsername, 'manager');
+});
+
+test('άνοιγμα από ειδοποίηση: ο δημιουργός μπαίνει στο Δημιούργησα εγώ', () => {
+  const mine = { createdBy: 'admin', assignees: ['maria'] };
+  assert.equal(tw.resolveWorkspaceFocusTab(mine, { canAssign: true, actingUsername: 'admin' }), 'asAssigner');
+  assert.equal(tw.resolveWorkspaceFocusTab(mine, { canAssign: true, actingUsername: 'maria' }), 'asAssignee');
+  assert.equal(tw.resolveWorkspaceFocusTab(mine, { canAssign: false, actingUsername: 'admin' }), 'asAssignee');
+  assert.equal(tw.resolveWorkspaceFocusTab(null, { canAssign: true, actingUsername: 'admin' }), 'asAssignee');
+});
+
 const usersMap = {
   maria: { username: 'maria', fullName: 'Μαρία Κοντού' },
   kostas: { username: 'kostas', fullName: 'Κώστας Λαμπράκης' },

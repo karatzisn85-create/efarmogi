@@ -218,7 +218,7 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
       restoringScrollRef.current = false;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isOpen, formData, diavgeiaMeta, diavgeiaPreview, loading]);
+  }, [isOpen, loading, diavgeiaMeta, diavgeiaPreview]);
 
   const formatAmountOnBlur = (value) => {
     if (!value) return '';
@@ -519,7 +519,7 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
               {isEditMode ? 'Επεξεργασία τροποποίησης ένταξης' : 'Νέα τροποποίηση ένταξης'}
             </FormTitle>
           </HeroText>
-          <CloseButton type="button" onClick={onClose}>Κλείσιμο</CloseButton>
+          <CloseButton type="button" data-testid="ent-mod-form-close" onClick={onClose}>Κλείσιμο</CloseButton>
         </FormHero>
 
         <FormBody>

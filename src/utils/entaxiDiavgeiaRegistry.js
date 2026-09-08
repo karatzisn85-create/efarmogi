@@ -61,6 +61,7 @@ export function getEntaxiDiavgeiaAdaText(entaxi) {
   return normalizeDiavgeiaAda(
     entaxi.diavgeiaAda
     || entaxi.diavgeiaMeta?.ada
+    || entaxi.diavgeiaDocument?.ada
     || ''
   );
 }

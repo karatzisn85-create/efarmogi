@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { showConfirm } from '../utils/confirmModal';
 import { useToast } from './ToastProvider';
 import FileRenameModal from './FileRenameModal';
+import entaxiCatalog from '../../app/core/entaxiCatalog';
 
 const ipcRenderer = window.electronAPI;
 
@@ -487,8 +488,8 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
                   {entaxi.subject && (
                     <InfoRow><strong>Θέμα:</strong> {entaxi.subject}</InfoRow>
                   )}
-                  {entaxi.projectTitle && (
-                    <InfoRow><strong>Έργο:</strong> {entaxi.projectTitle}</InfoRow>
+                  {entaxiCatalog.formatEntaxiProjectTitles(entaxi) && (
+                    <InfoRow><strong>Έργο:</strong> {entaxiCatalog.formatEntaxiProjectTitles(entaxi)}</InfoRow>
                   )}
                 </InfoBox>
               )}

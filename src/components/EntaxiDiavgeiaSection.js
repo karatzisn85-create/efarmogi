@@ -259,6 +259,15 @@ function EntaxiDiavgeiaSection({
     }
   }, [adaInput, mode]);
 
+  const handleAdaKeyDown = useCallback((e) => {
+    if (e.isComposing || (e.nativeEvent && e.nativeEvent.isComposing) || e.keyCode === 229) return;
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (loading) return;
+    handleFetch();
+  }, [handleFetch, loading]);
+
   const handleApply = useCallback(async () => {
     if (!previewPayload?.decision) return;
     const mapped = mapDiavgeiaDecisionToEntaxiFields(
@@ -319,6 +328,7 @@ function EntaxiDiavgeiaSection({
           type="text"
           value={adaInput}
           onChange={(e) => setAdaInput(e.target.value)}
+          onKeyDown={handleAdaKeyDown}
           placeholder="π.χ. ΨΩΚΖ7ΛΚ-8ΦΤ"
           data-testid="ent-diavgeia-ada"
         />

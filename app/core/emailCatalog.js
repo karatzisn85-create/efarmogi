@@ -95,15 +95,102 @@
     return !!(opts.isAssigner && isEmailConfigured(opts.config));
   }
 
+  function userHasUsableEmail(user) {
+    var email = user && user.email ? String(user.email).trim() : '';
+    return email.indexOf('@') !== -1;
+  }
+
+  function getWorkspaceRecipientEmails(task, allUsers, options) {
+    var opts = options || {};
+    var exclude = {};
+    (opts.excludeUsernames || []).forEach(function (x) {
+      exclude[String(x || '').toLowerCase()] = true;
+    });
+    var names = opts.onlyUsernames
+      ? (opts.onlyUsernames || [])
+      : [task && task.createdBy].concat((task && task.assignees) || []);
+    var emails = [];
+    var seen = {};
+    (names || []).forEach(function (username) {
+      var key = String(username || '').toLowerCase();
+      if (!key || exclude[key]) return;
+      var user = (allUsers || []).find(function (u) {
+        return u && String(u.username || '').toLowerCase() === key;
+      });
+      if (!userHasUsableEmail(user)) return;
+      var email = String(user.email).trim();
+      var ek = email.toLowerCase();
+      if (seen[ek]) return;
+      seen[ek] = true;
+      emails.push(email);
+    });
+    return emails;
+  }
+
   function evaluateWorkspaceCreatedEmail(input) {
     var opts = input || {};
     if (!isEmailConfigured(opts.config)) {
       return { send: false, reason: 'not-configured' };
     }
-    if (opts.emailEnabled === false) {
+    if (opts.emailEnabled !== true) {
       return { send: false, reason: 'workspace-off' };
     }
     return { send: true };
+  }
+
+  function planWorkspaceCreatedEmail(input) {
+    var opts = input || {};
+    var gate = evaluateWorkspaceCreatedEmail(opts);
+    if (!gate.send) return gate;
+    var exclude = opts.excludeUsernames;
+    if (!exclude || !exclude.length) {
+      exclude = opts.task && opts.task.createdBy ? [opts.task.createdBy] : [];
+    }
+    var recipients = getWorkspaceRecipientEmails(opts.task || {}, opts.users || [], {
+      excludeUsernames: exclude,
+      onlyUsernames: opts.onlyUsernames
+    });
+    if (!recipients.length) {
+      return { send: false, reason: 'no-recipients', recipients: [] };
+    }
+    return { send: true, recipients: recipients };
+  }
+
+  function workspaceEmailUserMessage(result, kind) {
+    var k = kind || 'created';
+    var savedWord = k === 'invite' ? 'Οι συνάδελφοι προστέθηκαν' : 'Ο χώρος αποθηκεύτηκε';
+    if (!result) return null;
+    if (result.skipped) {
+      var reason = String(result.reason || '');
+      if (/ανενεργές|workspace-off/i.test(reason)) {
+        return { type: 'info', text: savedWord + ' χωρίς αποστολή email (οι ειδοποιήσεις είναι κλειστές).' };
+      }
+      if (/ρυθμιστεί|not-configured/i.test(reason)) {
+        return { type: 'warning', text: savedWord + ', αλλά το email του συστήματος δεν είναι ρυθμισμένο.' };
+      }
+      if (/παραληπτ|no-recipients/i.test(reason)) {
+        return {
+          type: 'warning',
+          text: savedWord + ', αλλά κανείς από τους συναδέλφους δεν έχει email στο προφίλ του.'
+        };
+      }
+      if (/Rate limit/i.test(reason)) return null;
+      return { type: 'warning', text: savedWord + '. Το email δεν στάλθηκε.' };
+    }
+    if (result.success) {
+      var n = typeof result.sentCount === 'number' ? result.sentCount : (result.sentTo || []).length;
+      if (n <= 1) return { type: 'success', text: 'Στάλθηκε email στον συνάδελφο.' };
+      return { type: 'success', text: 'Στάλθηκε email σε ' + n + ' συναδέλφους.' };
+    }
+    var err = String(result.error || '').trim();
+    var fail = savedWord + ', αλλά η αποστολή email απέτυχε.';
+    if (/διαβαστεί|DECRYPT/i.test(err)) {
+      return {
+        type: 'warning',
+        text: fail + ' Ξαναεισάγετε τον κωδικό στις ρυθμίσεις email.'
+      };
+    }
+    return { type: 'warning', text: fail };
   }
 
   function evaluateCalendarReminderRecipients(input) {
@@ -139,7 +226,11 @@
     evaluateSaveEmailConfig: evaluateSaveEmailConfig,
     evaluateTestEmail: evaluateTestEmail,
     showWorkspaceEmailToggle: showWorkspaceEmailToggle,
+    userHasUsableEmail: userHasUsableEmail,
+    getWorkspaceRecipientEmails: getWorkspaceRecipientEmails,
     evaluateWorkspaceCreatedEmail: evaluateWorkspaceCreatedEmail,
+    planWorkspaceCreatedEmail: planWorkspaceCreatedEmail,
+    workspaceEmailUserMessage: workspaceEmailUserMessage,
     evaluateCalendarReminderRecipients: evaluateCalendarReminderRecipients,
     evaluateAepoReminderRecipients: evaluateAepoReminderRecipients
   };

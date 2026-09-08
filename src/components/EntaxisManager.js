@@ -10,6 +10,7 @@ import { formatDateEl } from '../utils/dateFormat';
 import ModificationForm from './ModificationForm';
 import EntaxisExportDialog from './EntaxisExportDialog';
 import EntaxisFileViewer from './EntaxisFileViewer';
+import EntaxiDetailModal from './EntaxiDetailModal';
 import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import {
@@ -89,6 +90,7 @@ const EntaxisContainer = styled.div`
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
   box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(226, 232, 240, 0.8);
   border: 1px solid rgba(226, 232, 240, 0.95);
   margin-top: 0.35rem;
@@ -547,6 +549,7 @@ const EntaxisItem = styled.div`
   box-shadow: ${(p) => (p.$highlighted
     ? '0 0 0 2px rgba(99, 102, 241, 0.2), 0 6px 20px rgba(79, 70, 229, 0.14)'
     : '0 1px 3px rgba(15, 23, 42, 0.05)')};
+  cursor: pointer;
   transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 
   &:hover {
@@ -1417,7 +1420,7 @@ window.fixAllEntaxeis = async () => {
   }
 };
 
-function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, onClearFocus = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '' }) {
+function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, onClearFocus = null, onDataChange, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '', appConfig = {}, appVersion = '' }) {
   const { showToast } = useToast();
   const canManageWorkflow = entaxiCatalog.showNewEntaxiButton(userRole);
   const [entaxeis, setEntaxeis] = useState([]);
@@ -1434,6 +1437,8 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   const [entaxisLocks, setEntaxisLocks] = useState({});
   const [fileViewerOpen, setFileViewerOpen] = useState(false);
   const [selectedEntaxiForViewer, setSelectedEntaxiForViewer] = useState(null);
+  const [selectedDetailEntaxi, setSelectedDetailEntaxi] = useState(null);
+  const entaxeisRef = useRef([]);
   
   // Search state
   const [searchFilters, setSearchFilters] = useState({
@@ -1511,13 +1516,16 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   };
 
   const tryAcquireEntaxiLock = async (entaxi) => {
+    const lockOwner = currentUser?.fullName || currentUser?.username || '';
     const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'entaxeis', entaxi.entaxiId);
     if (lockStatus.locked) {
-      const who = lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή';
-      showToast(`Η ένταξη είναι υπό επεξεργασία από ${who}.`, 'warning');
-      return false;
+      const who = String(lockStatus.lockedBy || '').trim();
+      const isOwnLock = who && (who === lockOwner || who === currentUser?.username || who === currentUser?.fullName);
+      if (!isOwnLock) {
+        showToast(`Η ένταξη είναι υπό επεξεργασία από ${who ? `«${who}»` : 'άλλον διαχειριστή'}.`, 'warning');
+        return false;
+      }
     }
-    const lockOwner = currentUser?.fullName || currentUser?.username || '';
     const lockResult = await ipcRenderer.invoke('create-entity-lock', 'entaxeis', entaxi.entaxiId, lockOwner);
     if (!lockResult.success) {
       const who = lockResult.lockedBy ? `«${lockResult.lockedBy}»` : 'άλλον χρήστη';
@@ -1528,8 +1536,20 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     return true;
   };
 
+  const releaseEntaxiLock = (entaxiId) => {
+    if (!entaxiId) return;
+    ipcRenderer.invoke('remove-entity-lock', 'entaxeis', entaxiId)
+      .then(() => {
+        setEntaxisLocks((prev) => ({ ...prev, [entaxiId]: false }));
+      })
+      .catch((err) => {
+        console.error('Error removing lock:', err);
+      });
+  };
+
   const handleNewModification = async (entaxi) => {
     setMenuContext(null);
+    setSelectedDetailEntaxi(null);
     if (!(await tryAcquireEntaxiLock(entaxi))) return;
     setSelectedEntaxiForMod(entaxi);
     setIsModificationFormOpen(true);
@@ -1537,10 +1557,16 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
   const handleEditEntaxi = async (entaxi) => {
     setMenuContext(null);
+    setSelectedDetailEntaxi(null);
     if (!(await tryAcquireEntaxiLock(entaxi))) return;
     captureListScroll();
     setEditingEntaxi(entaxi);
     setIsFormOpen(true);
+  };
+
+  const openEntaxiDetail = (entaxi) => {
+    setMenuContext(null);
+    setSelectedDetailEntaxi(entaxi);
   };
 
   useEffect(() => {
@@ -1558,117 +1584,106 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   }, [entaxeis, searchFilters, projectFilter, quickSearchTerm, selectedEntaxiId, prosklisiIdFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (entaxeis.length > 0) {
-      loadEntaxisLocks();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    entaxeisRef.current = entaxeis;
   }, [entaxeis]);
 
-  // Realtime lock monitoring για entaxeis - αθόρυβο με βελτιστοποίηση
+  const refreshEntaxisLocks = useCallback(async (list) => {
+    const source = Array.isArray(list) ? list : entaxeisRef.current;
+    if (!source.length) return;
+    try {
+      const entries = await Promise.all(source.map(async (entaxi) => {
+        try {
+          const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'entaxeis', entaxi.entaxiId);
+          return [entaxi.entaxiId, lockStatus.locked || false];
+        } catch {
+          return [entaxi.entaxiId, false];
+        }
+      }));
+      setEntaxisLocks(Object.fromEntries(entries));
+    } catch (error) {
+      console.error('Error loading entaxis locks:', error);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
 
     let isActive = true;
-    
+
     const checkLocks = async () => {
       if (!isActive) return;
-      
-      setEntaxeis(currentEntaxeis => {
-        if (!currentEntaxeis || currentEntaxeis.length === 0) return currentEntaxeis;
-        
-        const BATCH_SIZE = 10;
-        const batches = [];
-        for (let i = 0; i < currentEntaxeis.length; i += BATCH_SIZE) {
-          batches.push(currentEntaxeis.slice(i, i + BATCH_SIZE));
-        }
-        
-        Promise.all(
-          batches.map(async (batch, batchIndex) => {
-            if (batchIndex > 0) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            
-            const batchLocks = {};
-            await Promise.all(
-              batch.map(async (entaxi) => {
-                try {
-                  const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'entaxeis', entaxi.entaxiId);
-                  batchLocks[entaxi.entaxiId] = lockStatus.locked;
-                } catch (error) {
-                  setEntaxisLocks(prevLocks => {
-                    batchLocks[entaxi.entaxiId] = prevLocks[entaxi.entaxiId] || false;
-                    return prevLocks;
-                  });
-                }
-              })
-            );
-            return batchLocks;
-          })
-        ).then(batchResults => {
+      const currentEntaxeis = entaxeisRef.current;
+      if (!currentEntaxeis.length) return;
+
+      const BATCH_SIZE = 10;
+      const batches = [];
+      for (let i = 0; i < currentEntaxeis.length; i += BATCH_SIZE) {
+        batches.push(currentEntaxeis.slice(i, i + BATCH_SIZE));
+      }
+
+      try {
+        const batchResults = [];
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
           if (!isActive) return;
-          
-          const newLocks = Object.assign({}, ...batchResults);
-          setEntaxisLocks(prevLocks => {
-            const hasChanges = Object.keys(newLocks).some(id => 
-              newLocks[id] !== prevLocks[id]
-            );
-            
-            if (hasChanges) {
-              console.log('Entaxi lock changes detected, updating silently...');
-              return newLocks;
+          if (batchIndex > 0) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+          const batchLocks = {};
+          await Promise.all(batches[batchIndex].map(async (entaxi) => {
+            try {
+              const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'entaxeis', entaxi.entaxiId);
+              batchLocks[entaxi.entaxiId] = lockStatus.locked;
+            } catch {
+              batchLocks[entaxi.entaxiId] = false;
             }
-            return prevLocks;
-          });
-        }).catch(error => {
-          console.error('Error checking entaxi locks:', error);
+          }));
+          batchResults.push(batchLocks);
+        }
+        if (!isActive) return;
+        const newLocks = Object.assign({}, ...batchResults);
+        setEntaxisLocks((prevLocks) => {
+          const hasChanges = Object.keys(newLocks).some((id) => newLocks[id] !== prevLocks[id]);
+          return hasChanges ? newLocks : prevLocks;
         });
-        
-        return currentEntaxeis;
-      });
+      } catch (error) {
+        console.error('Error checking entaxi locks:', error);
+      }
     };
-    
+
     let intervalId = null;
     const timeoutId = setTimeout(() => {
       checkLocks();
-      
       intervalId = setInterval(() => {
-        if (isActive) {
-          checkLocks();
-        }
+        if (isActive) checkLocks();
       }, 8000);
     }, 2000);
-    
+
     return () => {
       isActive = false;
-      if (timeoutId) clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
-  const loadEntaxeis = async () => {
+  const loadEntaxeis = async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const loadedEntaxeis = await ipcRenderer.invoke('load-all-entaxeis');
-      console.log('Loaded entaxeis:', loadedEntaxeis); // Debug log
-      setEntaxeis(loadedEntaxeis || []);
+      const next = loadedEntaxeis || [];
+      entaxeisRef.current = next;
+      setEntaxeis(next);
+      setSelectedDetailEntaxi((prev) => {
+        if (!prev) return null;
+        return next.find((e) => e.entaxiId === prev.entaxiId) || null;
+      });
+      if (!silent) await refreshEntaxisLocks(next);
     } catch (error) {
       console.error('Error loading entaxeis:', error);
-      setEntaxeis([]); // Set empty array on error
+      entaxeisRef.current = [];
+      setEntaxeis([]);
+      setSelectedDetailEntaxi(null);
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadEntaxisLocks = async () => {
-    try {
-      const locks = {};
-      for (const entaxi of entaxeis) {
-        const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'entaxeis', entaxi.entaxiId);
-        locks[entaxi.entaxiId] = lockStatus.locked || false;
-      }
-      setEntaxisLocks(locks);
-    } catch (error) {
-      console.error('Error loading entaxis locks:', error);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -1687,8 +1702,8 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
     // Project filter (if provided)
     if (projectFilter) {
-      filtered = filtered.filter(entaxi => 
-        entaxi.projectTitle === projectFilter
+      filtered = filtered.filter((entaxi) =>
+        entaxiCatalog.entaxiLinksProjectTitle(entaxi, projectFilter)
       );
     }
 
@@ -1711,7 +1726,8 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
     if (searchFilters.projectTitle) {
       filtered = filtered.filter(entaxi => 
-        containsSearchTerm(entaxi.projectTitle, searchFilters.projectTitle)
+        containsSearchTerm(entaxiCatalog.formatEntaxiProjectTitles(entaxi), searchFilters.projectTitle)
+          || containsSearchTerm(entaxi.projectTitle, searchFilters.projectTitle)
       );
     }
 
@@ -1769,8 +1785,9 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
   // Συνάρτηση για κλείσιμο του modal με καθαρισμό φίλτρων
   const handleClose = () => {
-    clearFilters(); // Καθαρισμός όλων των φίλτρων
-    onClose(); // Κλείσιμο του modal
+    clearFilters();
+    setSelectedDetailEntaxi(null);
+    onClose();
   };
 
   const getActiveFiltersCount = () => {
@@ -1784,52 +1801,39 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
   const handleSaveEntaxi = async (entaxiData) => {
     try {
-      await ipcRenderer.invoke('save-entaxi', entaxiData);
-      
-      await loadEntaxeis();
+      const result = await ipcRenderer.invoke('save-entaxi', entaxiData);
+      if (result && result.success === false) {
+        showToast('Σφάλμα αποθήκευσης ένταξης: ' + (result.error || 'άγνωστο σφάλμα'), 'error');
+        return;
+      }
+      const savedId = editingEntaxi?.entaxiId || entaxiData?.entaxiId;
       setIsFormOpen(false);
       setEditingEntaxi(null);
       requestListScrollRestore();
-      if (onDataChange) {
-        onDataChange();
-      }
+      releaseEntaxiLock(savedId);
+      await loadEntaxeis({ silent: true });
+      if (onDataChange) onDataChange();
     } catch (error) {
       console.error('Error saving entaxi:', error);
       showToast('Σφάλμα αποθήκευσης ένταξης: ' + error.message, 'error');
-    } finally {
-      if (editingEntaxi && editingEntaxi.entaxiId) {
-        try {
-          await ipcRenderer.invoke('remove-entity-lock', 'entaxeis', editingEntaxi.entaxiId);
-          setEntaxisLocks(prev => ({
-            ...prev,
-            [editingEntaxi.entaxiId]: false
-          }));
-        } catch (lockErr) {
-          console.error('Error removing lock:', lockErr);
-        }
-      }
     }
   };
 
   const handleSaveModification = async (modificationData) => {
     try {
-      await ipcRenderer.invoke('save-modification', selectedEntaxiForMod.entaxiId, modificationData);
-      
-      // Ξεκλείδωμα της ένταξης μετά την αποθήκευση τροποποίησης
-      if (selectedEntaxiForMod && selectedEntaxiForMod.entaxiId) {
-        await ipcRenderer.invoke('remove-entity-lock', 'entaxeis', selectedEntaxiForMod.entaxiId);
-        // Άμεση ενημέρωση του UI
-        setEntaxisLocks(prev => ({
-          ...prev,
-          [selectedEntaxiForMod.entaxiId]: false
-        }));
+      const result = await ipcRenderer.invoke('save-modification', selectedEntaxiForMod.entaxiId, modificationData);
+      if (result && result.success === false) {
+        showToast('Σφάλμα αποθήκευσης τροποποίησης: ' + (result.error || 'άγνωστο σφάλμα'), 'error');
+        return;
       }
-      
-      await loadEntaxeis();
+      const savedId = selectedEntaxiForMod?.entaxiId;
       setIsModificationFormOpen(false);
       setSelectedEntaxiForMod(null);
+      releaseEntaxiLock(savedId);
+      await loadEntaxeis({ silent: true });
     } catch (error) {
       console.error('Error saving modification:', error);
+      showToast('Σφάλμα αποθήκευσης τροποποίησης: ' + error.message, 'error');
     }
   };
 
@@ -1838,14 +1842,19 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     if (!decision.ok) return;
     if (await showConfirm({ title: 'Διαγραφή Ένταξης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την ένταξη;', detail: 'Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
-        await ipcRenderer.invoke('delete-entaxi', entaxiId);
-        await loadEntaxeis();
-        // Ανανέωση των κυρίως έργων στο Dashboard
+        const result = await ipcRenderer.invoke('delete-entaxi', entaxiId);
+        if (result && result.success === false) {
+          showToast('Σφάλμα διαγραφής ένταξης: ' + (result.error || 'άγνωστο σφάλμα'), 'error');
+          return;
+        }
+        setSelectedDetailEntaxi((prev) => (prev?.entaxiId === entaxiId ? null : prev));
+        await loadEntaxeis({ silent: true });
         if (onDataChange) {
           onDataChange();
         }
       } catch (error) {
         console.error('Error deleting entaxi:', error);
+        showToast('Σφάλμα διαγραφής ένταξης: ' + error.message, 'error');
       }
     }
   };
@@ -1903,7 +1912,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       console.log('🔧 Fix result:', fixResult);
       
       // Reload entaxeis to get the fixed data
-      await loadEntaxeis();
+      await loadEntaxeis({ silent: true });
       
       // Extract filename from object for display
       actualFileName = fileName.fileName || fileName.name || path.basename(fileName.filePath || '');
@@ -1931,7 +1940,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
         
         if (result.success) {
           console.log('✅ Delete successful, reloading entaxeis...');
-          await loadEntaxeis(); // Reload to update UI
+          await loadEntaxeis({ silent: true }); // Reload to update UI
           console.log('✅ Entaxeis reloaded');
           showToast('Το αρχείο διαγράφηκε επιτυχώς!', 'success');
         } else {
@@ -1945,7 +1954,10 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     }
   };
 
-  const handleEditModification = (modification, parentEntaxi) => {
+  const handleEditModification = async (modification, parentEntaxi) => {
+    setMenuContext(null);
+    setSelectedDetailEntaxi(null);
+    if (!(await tryAcquireEntaxiLock(parentEntaxi))) return;
     setEditingModification({
       ...modification,
       entaxiId: parentEntaxi.entaxiId,
@@ -1954,14 +1966,17 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       initialAmount: parentEntaxi.initialAmount,
       modifications: parentEntaxi.modifications || []
     });
-    setIsModificationFormOpen(true);
   };
 
   const handleDeleteModification = async (entaxiId, modificationId) => {
     if (await showConfirm({ title: 'Διαγραφή Τροποποίησης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την τροποποίηση;', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
-        await ipcRenderer.invoke('delete-entaxi-modification', entaxiId, modificationId);
-        await loadEntaxeis(); // Reload to update UI
+        const result = await ipcRenderer.invoke('delete-entaxi-modification', entaxiId, modificationId);
+        if (result && result.success === false) {
+          showToast('Σφάλμα διαγραφής τροποποίησης: ' + (result.error || 'άγνωστο σφάλμα'), 'error');
+          return;
+        }
+        await loadEntaxeis({ silent: true });
         showToast('Η τροποποίηση διαγράφηκε επιτυχώς', 'success');
       } catch (error) {
         console.error('Error deleting modification:', error);
@@ -1972,21 +1987,16 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
   const handleSaveModificationEdit = async (modificationData) => {
     try {
-      await ipcRenderer.invoke('update-entaxi-modification', modificationData);
-      
-      // Ξεκλείδωμα της ένταξης μετά την ενημέρωση τροποποίησης
-      if (editingModification && editingModification.entaxiId) {
-        await ipcRenderer.invoke('remove-entity-lock', 'entaxeis', editingModification.entaxiId);
-        // Άμεση ενημέρωση του UI
-        setEntaxisLocks(prev => ({
-          ...prev,
-          [editingModification.entaxiId]: false
-        }));
+      const result = await ipcRenderer.invoke('update-entaxi-modification', modificationData);
+      if (result && result.success === false) {
+        showToast('Σφάλμα ενημέρωσης τροποποίησης: ' + (result.error || 'άγνωστο σφάλμα'), 'error');
+        return;
       }
-      
-      await loadEntaxeis(); // Reload to update UI
+      const savedId = editingModification?.entaxiId;
       setEditingModification(null);
       setIsModificationFormOpen(false);
+      releaseEntaxiLock(savedId);
+      await loadEntaxeis({ silent: true });
     } catch (error) {
       console.error('Error updating modification:', error);
       showToast('Σφάλμα ενημέρωσης τροποποίησης: ' + error.message, 'error');
@@ -2060,7 +2070,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   }, [isFormOpen, listScrollRestoreTick, loading, filteredEntaxeis.length]);
 
   // Group filtered entaxeis by project
-  const groupedEntaxeis = entaxiCatalog.groupEntaxeisByProjectTitle(filteredEntaxeis);
+  const groupedEntaxeis = entaxiCatalog.groupEntaxeisByProjectTitle(filteredEntaxeis, projectFilter);
 
   if (!isOpen) return null;
 
@@ -2081,6 +2091,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
               data-testid="btn-ent-new"
               onClick={() => {
                 captureListScroll();
+                setSelectedDetailEntaxi(null);
                 setEditingEntaxi(null);
                 setIsFormOpen(true);
               }}
@@ -2126,12 +2137,12 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
             <div className="stat-item">
               <span className="stat-icon">🔗</span>
               <span className="stat-label">Συσχετισμένες:</span>
-              <span className="stat-number">{entaxeis.filter(e => e.projectTitle && e.projectTitle.trim() !== '').length}</span>
+              <span className="stat-number">{entaxeis.filter((e) => !entaxiCatalog.isEntaxiUnlinked(e)).length}</span>
             </div>
             <div className="stat-item">
               <span className="stat-icon">❌</span>
               <span className="stat-label">Μη συσχετισμένες:</span>
-              <span className="stat-number">{entaxeis.filter(e => !e.projectTitle || e.projectTitle.trim() === '').length}</span>
+              <span className="stat-number">{entaxeis.filter((e) => entaxiCatalog.isEntaxiUnlinked(e)).length}</span>
             </div>
             <div className="stat-item">
               <span className="stat-icon">📅</span>
@@ -2268,8 +2279,11 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                     <EntaxisItem
                       key={entaxi.entaxiId}
                       data-entaxi-id={entaxi.entaxiId}
+                      data-testid={`ent-card-${entaxi.entaxiId}`}
                       isLocked={entaxisLocks[entaxi.entaxiId]}
                       $highlighted={isHighlighted}
+                      title="Άνοιγμα λεπτομερειών ένταξης"
+                      onClick={() => openEntaxiDetail(entaxi)}
                     >
                       <CardTopRightCluster>
                         <LockIndicator isLocked={entaxisLocks[entaxi.entaxiId]}>
@@ -2305,6 +2319,11 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                                 {truncateText(entaxi.fundingAuthority, 42)}
                               </MetaChip>
                             )}
+                            {entaxiCatalog.getEntaxiLinkedProjects(entaxi).length > 1 && (
+                              <MetaChip title={entaxiCatalog.formatEntaxiProjectTitles(entaxi)}>
+                                {entaxiCatalog.getEntaxiLinkedProjects(entaxi).length} έργα
+                              </MetaChip>
+                            )}
                             {entaxi.endDate && (
                               <MetaChip title="Λήξη πράξης">Λήξη {formatDate(entaxi.endDate)}</MetaChip>
                             )}
@@ -2313,10 +2332,13 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                           {hasSecondaryDetails && (
                             <DetailsToggle
                               type="button"
-                              onClick={() => setExpandedDetails((prev) => ({
-                                ...prev,
-                                [entaxi.entaxiId]: !prev[entaxi.entaxiId]
-                              }))}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedDetails((prev) => ({
+                                  ...prev,
+                                  [entaxi.entaxiId]: !prev[entaxi.entaxiId]
+                                }));
+                              }}
                             >
                               {detailsOpen ? 'Λιγότερα στοιχεία' : 'Περισσότερα στοιχεία'}
                             </DetailsToggle>
@@ -2404,7 +2426,10 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                             $open={modsOpen}
                             aria-expanded={modsOpen}
                             title={modsOpen ? 'Απόκρυψη τροποποιήσεων' : 'Εμφάνιση τροποποιήσεων'}
-                            onClick={() => toggleModsExpanded(entaxi.entaxiId, modCount)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleModsExpanded(entaxi.entaxiId, modCount);
+                            }}
                           >
                             <ModsToggleLeft>
                               <ModsToggleIcon aria-hidden>📋</ModsToggleIcon>
@@ -2419,7 +2444,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                       )}
 
                       {modsOpen && modCount > 0 && (
-                        <ModificationsPanel>
+                        <ModificationsPanel onClick={(e) => e.stopPropagation()}>
                           <ModsSectionHeader>Τροποποιήσεις Ένταξης</ModsSectionHeader>
                           <ModTableHead>
                             <span>#</span>
@@ -2544,42 +2569,26 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
         {/* Entaxi Form Modal */}
         <EntaxisForm
           isOpen={isFormOpen}
-          onClose={async () => {
-            // Ξεκλείδωμα της συγκεκριμένης ένταξης
-            if (editingEntaxi) {
-              await ipcRenderer.invoke('remove-entity-lock', 'entaxeis', editingEntaxi.entaxiId);
-              // Άμεση ενημέρωση του UI
-              setEntaxisLocks(prev => ({
-                ...prev,
-                [editingEntaxi.entaxiId]: false
-              }));
-            }
+          onClose={() => {
+            const id = editingEntaxi?.entaxiId;
             setIsFormOpen(false);
             setEditingEntaxi(null);
-            await loadEntaxeis();
             requestListScrollRestore();
+            releaseEntaxiLock(id);
           }}
           onSave={handleSaveEntaxi}
           editingEntaxi={editingEntaxi}
+          catalogProskliseis={proskliseis}
         />
 
         {/* Modification Form Modal */}
         <ModificationForm
           isOpen={isModificationFormOpen}
-          onClose={async () => {
-            // Ξεκλείδωμα της συγκεκριμένης ένταξης
-            if (selectedEntaxiForMod) {
-              await ipcRenderer.invoke('remove-entity-lock', 'entaxeis', selectedEntaxiForMod.entaxiId);
-              // Άμεση ενημέρωση του UI
-              setEntaxisLocks(prev => ({
-                ...prev,
-                [selectedEntaxiForMod.entaxiId]: false
-              }));
-            }
+          onClose={() => {
+            const id = selectedEntaxiForMod?.entaxiId;
             setIsModificationFormOpen(false);
             setSelectedEntaxiForMod(null);
-            // Ανανέωση για να ενημερωθεί το lock status
-            await loadEntaxeis();
+            releaseEntaxiLock(id);
           }}
           onSave={handleSaveModification}
           entaxi={selectedEntaxiForMod}
@@ -2589,12 +2598,10 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
         {editingModification && (
           <ModificationForm
             isOpen={!!editingModification}
-            onClose={async () => {
-              // Καθάρισε όλα τα locks όταν κλείνει η φόρμα επεξεργασίας τροποποίησης
-              await ipcRenderer.invoke('clear-all-locks');
+            onClose={() => {
+              const entaxiId = editingModification?.entaxiId;
               setEditingModification(null);
-              // Ανανέωση για να ενημερωθεί το lock status
-              await loadEntaxeis();
+              releaseEntaxiLock(entaxiId);
             }}
             onSave={handleSaveModificationEdit}
             entaxi={editingModification}
@@ -2641,6 +2648,32 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
               <CommentsModalBody>{textDetailModal.text}</CommentsModalBody>
             </CommentsModalPanel>
           </CommentsModalOverlay>
+        )}
+
+        {selectedDetailEntaxi && (
+          <EntaxiDetailModal
+            entaxi={selectedDetailEntaxi}
+            onClose={() => setSelectedDetailEntaxi(null)}
+            onEdit={handleEditEntaxi}
+            onNewModification={handleNewModification}
+            onOpenFiles={handleOpenFileViewer}
+            onOpenProsklisi={handleOpenProsklisi
+              ? (prosklisiId) => {
+                onClose();
+                setTimeout(() => handleOpenProsklisi(prosklisiId), 300);
+              }
+              : null}
+            onOpenNote={onOpenNoteFromEntity}
+            canManageWorkflow={canManageWorkflow}
+            isLocked={!!entaxisLocks[selectedDetailEntaxi.entaxiId]}
+            proskliseis={proskliseis}
+            linkedNotesMap={linkedNotesMap}
+            notes={notes}
+            appConfig={appConfig}
+            appVersion={appVersion}
+            organizationName={organizationName}
+            blockEscape={fileViewerOpen}
+          />
         )}
       </EntaxisContainer>
 

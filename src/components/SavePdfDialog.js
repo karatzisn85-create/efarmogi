@@ -363,7 +363,7 @@ export default function SavePdfDialog() {
 
   return (
     <Overlay onClick={() => !busy && _savePdfDialogCancel()}>
-      <Shell onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="save-pdf-title">
+      <Shell onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="save-pdf-title" data-testid="save-pdf-dialog">
         <Header>
           <HeaderTop>
             <HeaderIcon aria-hidden>📄</HeaderIcon>
@@ -392,8 +392,8 @@ export default function SavePdfDialog() {
               <Field>
                 <Label>Φάκελος αποθήκευσης</Label>
                 <FolderRow>
-                  <FolderPath title={folder}>{folder || '—'}</FolderPath>
-                  <BrowseBtn type="button" onClick={handleBrowse} disabled={busy}>
+                  <FolderPath data-testid="save-pdf-folder" title={folder}>{folder || '—'}</FolderPath>
+                  <BrowseBtn type="button" data-testid="save-pdf-browse" onClick={handleBrowse} disabled={busy}>
                     Αναζήτηση
                   </BrowseBtn>
                 </FolderRow>
@@ -430,7 +430,7 @@ export default function SavePdfDialog() {
               <CancelBtn type="button" onClick={_savePdfDialogCancel} disabled={busy}>
                 Άκυρο
               </CancelBtn>
-              <PrimaryBtn type="button" onClick={handleSave} disabled={busy || !folder?.trim()}>
+              <PrimaryBtn type="button" data-testid="save-pdf-confirm" onClick={handleSave} disabled={busy || !folder?.trim()}>
                 {busy ? 'Έλεγχος…' : 'Αποθήκευση'}
               </PrimaryBtn>
             </>

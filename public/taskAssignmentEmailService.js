@@ -7,6 +7,7 @@
 const path = require('path');
 const fs = require('fs');
 const { safeWriteJSON } = require('./safeWrite');
+const emailCatalog = require('../app/core/emailCatalog');
 
 const CONFIG_DIR = 'config';
 const CONFIG_FILE = 'email-config.json';
@@ -285,19 +286,7 @@ function getAppDisplayName(emailConfig) {
 }
 
 function getRecipientEmails(task, allUsers, options = {}) {
-  const exclude = new Set(
-    (options.excludeUsernames || []).map((x) => String(x || '').toLowerCase())
-  );
-  const participants = new Set([task.createdBy, ...(task.assignees || [])]);
-  const emails = [];
-  for (const username of participants) {
-    if (exclude.has(String(username || '').toLowerCase())) continue;
-    const user = allUsers.find((u) => u.username?.toLowerCase() === username?.toLowerCase());
-    if (user?.email && user.email.includes('@')) {
-      emails.push(user.email.trim());
-    }
-  }
-  return [...new Set(emails)];
+  return emailCatalog.getWorkspaceRecipientEmails(task, allUsers, options);
 }
 
 function formatUserLabel(allUsers, username) {
@@ -399,17 +388,36 @@ function buildSubject(appName, kind, workspaceTitle) {
   return `${prefix} · Δοκιμαστική ειδοποίηση`;
 }
 
+function planWorkspaceSend(task, allUsers, emailConfig, options = {}) {
+  if (!isConfigured(emailConfig)) return { send: false, reason: 'Email δεν έχει ρυθμιστεί' };
+  if (!task.emailNotifications) return { send: false, reason: 'Ειδοποιήσεις email ανενεργές για αυτόν τον χώρο' };
+  const recipients = getRecipientEmails(task, allUsers, {
+    excludeUsernames: options.excludeUsernames || [task.createdBy],
+    onlyUsernames: options.onlyUsernames
+  });
+  if (!recipients.length) return { send: false, reason: 'Δεν βρέθηκαν email παραληπτών' };
+  return { send: true, recipients };
+}
+
+function emailResultForClient(result) {
+  if (!result) return null;
+  return {
+    skipped: !!result.skipped,
+    success: !!result.success,
+    reason: result.reason || '',
+    error: result.error || '',
+    sentCount: Array.isArray(result.sentTo) ? result.sentTo.length : 0,
+  };
+}
+
 /**
  * Αποστολή email κατά τη δημιουργία νέου χώρου εργασίας.
  */
 async function sendWorkspaceCreatedEmail(task, allUsers, emailConfig) {
-  if (!isConfigured(emailConfig)) return { skipped: true, reason: 'Email δεν έχει ρυθμιστεί' };
-  if (!task.emailNotifications) return { skipped: true, reason: 'Ειδοποιήσεις email ανενεργές για αυτόν τον χώρο' };
-
-  const recipients = getRecipientEmails(task, allUsers, {
+  const plan = planWorkspaceSend(task, allUsers, emailConfig, {
     excludeUsernames: [task.createdBy]
   });
-  if (!recipients.length) return { skipped: true, reason: 'Δεν βρέθηκαν email παραληπτών' };
+  if (!plan.send) return { skipped: true, reason: plan.reason };
 
   const appName = getAppDisplayName(emailConfig);
   const rows = [
@@ -432,12 +440,49 @@ async function sendWorkspaceCreatedEmail(task, allUsers, emailConfig) {
     useCidLogo: true
   });
 
-  return sendToAll(
-    recipients,
+  const result = await sendToAll(
+    plan.recipients,
     buildSubject(appName, 'created', task.title),
     html,
     emailConfig
   );
+  if (!result.success) return result;
+  return { ...result, updatedLastEmailSentAt: new Date().toISOString() };
+}
+
+/**
+ * Αποστολή σε συναδέλφους που προστέθηκαν μετά τη δημιουργία (ή όταν ανοίγει το Email ON).
+ */
+async function sendWorkspaceInviteEmail(task, allUsers, emailConfig, options = {}) {
+  const plan = planWorkspaceSend(task, allUsers, emailConfig, {
+    excludeUsernames: options.excludeUsernames || [task.createdBy],
+    onlyUsernames: options.onlyUsernames
+  });
+  if (!plan.send) return { skipped: true, reason: plan.reason };
+
+  const actorLabel = options.actorUsername
+    ? formatUserLabel(allUsers, options.actorUsername)
+    : formatUserLabel(allUsers, task.createdBy);
+  const appName = getAppDisplayName(emailConfig);
+  const html = buildEmailHtml({
+    appName,
+    badgeLabel: 'Πρόσκληση',
+    badgeColor: '#059669',
+    headline: 'Προσκλήθηκες σε χώρο εργασίας',
+    workspaceTitle: task.title,
+    rows: [{ label: 'Από', value: actorLabel }],
+    footnote: 'Στον χώρο εργασίας θα βρείτε λεπτομέρειες και μπορείτε να συνεργαστείτε με την ομάδα.',
+    useCidLogo: true
+  });
+
+  const result = await sendToAll(
+    plan.recipients,
+    buildSubject(appName, 'created', task.title),
+    html,
+    emailConfig
+  );
+  if (!result.success) return result;
+  return { ...result, updatedLastEmailSentAt: new Date().toISOString() };
 }
 
 /**
@@ -490,6 +535,8 @@ async function sendWorkspaceActivityEmail(task, actor, messageText, allUsers, em
     emailConfig
   );
 
+  if (!result.success) return result;
+  if (Array.isArray(result.errors) && result.errors.length) return result;
   return { ...result, updatedLastEmailSentAt: new Date().toISOString() };
 }
 
@@ -581,6 +628,10 @@ module.exports = {
   buildAppOpenPromptHtml,
   greekUpperNoTonos,
   sendWorkspaceCreatedEmail,
+  sendWorkspaceInviteEmail,
   sendWorkspaceActivityEmail,
-  sendTestEmail
+  sendTestEmail,
+  planWorkspaceSend,
+  emailResultForClient,
+  getRecipientEmails
 };

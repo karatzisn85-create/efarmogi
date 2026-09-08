@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
@@ -10,6 +10,7 @@ import managedFiles from '../../app/core/managedFiles';
 import EntaxiDiavgeiaSection from './EntaxiDiavgeiaSection';
 import { buildEntaxiDiavgeiaRegistryEntry } from '../utils/entaxiDiavgeiaRegistry';
 import { mergeDiavgeiaFormFields } from '../utils/entaxiDiavgeiaFetch';
+import { toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
 
 const ipcRenderer = window.electronAPI;
 
@@ -378,7 +379,7 @@ const MultiSelect = styled.div`
   border: 1px solid #e8eef7;
   border-radius: 12px;
   padding: 0.45rem 0.55rem;
-  min-height: 90px;
+  min-height: 72px;
   max-height: 160px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -390,6 +391,30 @@ const MultiSelect = styled.div`
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+`;
+
+const LinkedProjectBlock = styled.div`
+  margin-top: 0.65rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem 0.55rem;
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.05) 0%, #f8fafc 40%);
+`;
+
+const LinkedProjectHead = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+`;
+
+const LinkedProjectTitle = styled.div`
+  font-size: 0.82rem;
+  font-weight: 750;
+  color: #312e81;
+  min-width: 0;
+  line-height: 1.35;
 `;
 
 const CheckboxItem = styled.label`
@@ -540,6 +565,7 @@ const EMPTY_ENTAXI_FORM = {
   subject: '',
   projectId: '',
   projectTitle: '',
+  linkedProjects: [],
   subprojectIds: [],
   prosklisiId: '',
   comments: '',
@@ -554,7 +580,7 @@ const EMPTY_ENTAXI_FORM = {
   diavgeiaMeta: null,
 };
 
-function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
+function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProskliseis = [] }) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState({ ...EMPTY_ENTAXI_FORM });
   const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
@@ -562,7 +588,6 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
   const [diavgeiaAutoFilled, setDiavgeiaAutoFilled] = useState(() => new Set());
 
   const [projects, setProjects] = useState([]);
-  const [subprojects, setSubprojects] = useState([]);
   const [proskliseis, setProskliseis] = useState([]);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -582,17 +607,23 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
   useEffect(() => {
     if (isOpen) {
       loadProjects();
-      loadProskliseis();
+      if (Array.isArray(catalogProskliseis) && catalogProskliseis.length > 0) {
+        setProskliseis(catalogProskliseis);
+      } else {
+        loadProskliseis();
+      }
       if (editingEntaxi) {
+        const linkSnap = entaxiCatalog.buildEntaxiLinkSnapshot(
+          entaxiCatalog.getEntaxiLinkedProjects(editingEntaxi),
+          editingEntaxi.subprojectIds || []
+        );
         setFormData({
           ...EMPTY_ENTAXI_FORM,
           documentDate: editingEntaxi.documentDate || '',
           fundingAuthority: editingEntaxi.fundingAuthority || '',
           initialAmount: editingEntaxi.initialAmount || '',
           subject: editingEntaxi.subject || '',
-          projectId: editingEntaxi.projectId || '',
-          projectTitle: editingEntaxi.projectTitle || '',
-          subprojectIds: editingEntaxi.subprojectIds || [],
+          ...linkSnap,
           prosklisiId: editingEntaxi.prosklisiId || '',
           comments: editingEntaxi.comments || '',
           opsCode: editingEntaxi.opsCode || '',
@@ -602,14 +633,13 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
           beneficiary: editingEntaxi.beneficiary || '',
           diavgeiaAda: editingEntaxi.diavgeiaAda || editingEntaxi.diavgeiaMeta?.ada || '',
           diavgeiaMeta: editingEntaxi.diavgeiaMeta || null,
-          entaxiPDFs: [],
-          approvalPDFs: []
+          entaxiPDFs: toExistingEntaxiFileObjects(editingEntaxi.entaxiPDFs),
+          approvalPDFs: toExistingEntaxiFileObjects(editingEntaxi.approvalPDFs)
         });
         setDiavgeiaMeta(editingEntaxi.diavgeiaMeta || null);
         setDiavgeiaPreview(null);
         setDiavgeiaAutoFilled(new Set());
-        setProjectSearchTerm(editingEntaxi.projectTitle || '');
-        loadExistingFiles(editingEntaxi.entaxiId);
+        setProjectSearchTerm('');
       } else {
         setFormData({ ...EMPTY_ENTAXI_FORM });
         setDiavgeiaMeta(null);
@@ -624,20 +654,22 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
       overlayScrollRef.current = 0;
       formHydratedRef.current = false;
     }
+    // catalogProskliseis: μόνο στο άνοιγμα· όχι σε κάθε ανανέωση της λίστας όσο γράφει ο χρήστης
   }, [isOpen, editingEntaxi]);
 
-  useEffect(() => {
-    if (!formData.projectId) {
-      setSubprojects([]);
-      return;
-    }
-    const selectedProject = projects.find((p) => p.projectId === formData.projectId);
-    if (selectedProject && Array.isArray(selectedProject.subprojects)) {
-      setSubprojects(selectedProject.subprojects);
-    } else {
-      setSubprojects([]);
-    }
-  }, [formData.projectId, projects]);
+  const linkedProjectBlocks = useMemo(() => {
+    return (formData.linkedProjects || []).map((link) => {
+      const group = projects.find((p) => (
+        (link.projectId && p.projectId === link.projectId)
+        || (link.projectTitle && p.projectTitle === link.projectTitle)
+      ));
+      return {
+        projectId: link.projectId || group?.projectId || '',
+        projectTitle: link.projectTitle || group?.projectTitle || '',
+        subprojects: Array.isArray(group?.subprojects) ? group.subprojects : [],
+      };
+    });
+  }, [formData.linkedProjects, projects]);
 
   useLayoutEffect(() => {
     if (!isOpen || !formHydratedRef.current) return undefined;
@@ -657,7 +689,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
       restoringScrollRef.current = false;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isOpen, formData, diavgeiaMeta, diavgeiaPreview, loading]);
+  }, [isOpen, loading, diavgeiaMeta, diavgeiaPreview]);
 
   useEffect(() => {
     if (projectSearchTerm) {
@@ -699,49 +731,6 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
       setProskliseis(loadedProskliseis || []);
     } catch (error) {
       console.error('Error loading proskliseis:', error);
-    }
-  };
-
-  const loadExistingFiles = async (entaxiId) => {
-    try {
-      console.log('🔄 Loading existing files for entaxi:', entaxiId);
-      
-      // Load the entaxi data from JSON to get file arrays
-      const entaxiData = await ipcRenderer.invoke('load-entaxi-data', entaxiId);
-      if (entaxiData) {
-        console.log('📂 Loaded entaxi data:', entaxiData);
-        
-        // Convert file names to file objects for the form
-        const entaxiFileObjects = (entaxiData.entaxiPDFs || []).map(fileName => ({
-          fileName: fileName,
-          originalName: fileName,
-          isExisting: true // Mark as existing file
-        }));
-        
-        const approvalFileObjects = (entaxiData.approvalPDFs || []).map(fileName => ({
-          fileName: fileName,
-          originalName: fileName,
-          isExisting: true // Mark as existing file
-        }));
-        
-        console.log('✅ Converted to file objects:', { entaxiFileObjects, approvalFileObjects });
-        
-        setFormData((prevData) => {
-          const keepNew = (list) => (list || []).filter((f) => (
-            f?.fromDiavgeia || (f?.filePath && !f.isExisting)
-          ));
-          const existingEntaxiNames = new Set(entaxiFileObjects.map((f) => f.fileName));
-          const extraEntaxi = keepNew(prevData.entaxiPDFs)
-            .filter((f) => !existingEntaxiNames.has(f.fileName));
-          return {
-            ...prevData,
-            entaxiPDFs: [...entaxiFileObjects, ...extraEntaxi],
-            approvalPDFs: [...approvalFileObjects, ...keepNew(prevData.approvalPDFs)],
-          };
-        });
-      }
-    } catch (error) {
-      console.error('Error loading existing files:', error);
     }
   };
 
@@ -858,26 +847,12 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
   }, []);
 
   const handleInputChange = useCallback((field, value) => {
-    // ΑΠΑΓΟΡΕΥΟΥΜΕ ΟΠΟΙΑΔΗΠΟΤΕ ΝORMALIZATION/TRIM ΚΑΤΑ ΤΗΝ ΠΛΗΚΤΡΟΛΟΓΗΣΗ
-    // Το value περνάει ως έχει, χωρίς μετατροπές
-    
-    if (field === 'projectId' && value) {
-      const selectedProject = projects.find(p => p.projectId === value);
-      setFormData(prev => ({
-        ...prev,
-        [field]: value,
-        projectTitle: selectedProject ? selectedProject.projectTitle : '',
-        subprojectIds: [] // Reset subproject selection
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [field]: value
-      }));
-    }
-    
-    // Clear error when user starts typing
-    setErrors(prev => {
+    setFormData((prev) => ({
+      ...prev,
+      [field]: value
+    }));
+
+    setErrors((prev) => {
       if (prev[field]) {
         return {
           ...prev,
@@ -886,7 +861,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
       }
       return prev;
     });
-  }, [projects]);
+  }, []);
 
   const handleAmountBlur = (field, value) => {
     const formatted = formatAmountOnBlur(value);
@@ -965,26 +940,49 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
   const handleProjectSearch = (value) => {
     setProjectSearchTerm(value);
     setShowProjectDropdown(true);
-    
-    // If exact match, auto-select
-    const exactMatch = projects.find((project) =>
-      (project.projectTitle || '').toLowerCase() === value.toLowerCase()
-    );
-    if (exactMatch) {
-      handleInputChange('projectId', exactMatch.projectId);
-      handleInputChange('projectTitle', exactMatch.projectTitle);
-    } else {
-      // Clear selection if no exact match
-      handleInputChange('projectId', '');
-      handleInputChange('projectTitle', value);
-    }
+  };
+
+  const handleAddLinkedProject = (project) => {
+    setFormData((prev) => {
+      const current = prev.linkedProjects || [];
+      const already = current.some((p) => (
+        (project.projectId && p.projectId === project.projectId)
+        || p.projectTitle === project.projectTitle
+      ));
+      if (already) return prev;
+      const nextLinks = [...current, {
+        projectId: project.projectId,
+        projectTitle: project.projectTitle
+      }];
+      return {
+        ...prev,
+        ...entaxiCatalog.buildEntaxiLinkSnapshot(nextLinks, prev.subprojectIds)
+      };
+    });
+    setProjectSearchTerm('');
+    setShowProjectDropdown(false);
+  };
+
+  const handleRemoveLinkedProject = (project) => {
+    setFormData((prev) => {
+      const idsToDrop = new Set(
+        (project.subprojects || []).map((s) => s.subprojectId).filter(Boolean)
+      );
+      const nextLinks = (prev.linkedProjects || []).filter((p) => (
+        !entaxiCatalog.isSameEntaxiLinkedProject(p, project)
+      ));
+      const nextIds = nextLinks.length
+        ? (prev.subprojectIds || []).filter((id) => !idsToDrop.has(id))
+        : [];
+      return {
+        ...prev,
+        ...entaxiCatalog.buildEntaxiLinkSnapshot(nextLinks, nextIds)
+      };
+    });
   };
 
   const handleProjectSelect = (project) => {
-    setProjectSearchTerm(project.projectTitle);
-    setShowProjectDropdown(false);
-    handleInputChange('projectId', project.projectId);
-    handleInputChange('projectTitle', project.projectTitle);
+    handleAddLinkedProject(project);
   };
 
   const handleInputFocus = () => {
@@ -1023,16 +1021,18 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
       
       const newApprovalFiles = (formData.approvalPDFs || []).filter(file => file.filePath);
       const existingApprovalFiles = (formData.approvalPDFs || []).filter(file => file.isExisting);
-      
-      console.log('📂 File categorization for save:', {
-        newEntaxiFiles: newEntaxiFiles.length,
-        existingEntaxiFiles: existingEntaxiFiles.length,
-        newApprovalFiles: newApprovalFiles.length,
-        existingApprovalFiles: existingApprovalFiles.length
-      });
-      
+
+      const linkSnap = entaxiCatalog.pruneEntaxiLinkSnapshot(
+        linkedProjectBlocks.map((block) => ({
+          projectId: block.projectId,
+          projectTitle: block.projectTitle,
+          subprojectIds: (block.subprojects || []).map((s) => s.subprojectId).filter(Boolean),
+        })),
+        formData.subprojectIds
+      );
       const entaxiData = {
         ...formData,
+        ...linkSnap,
         entaxiId: editingEntaxi ? editingEntaxi.entaxiId : uuidv4(),
         createdAt: editingEntaxi ? editingEntaxi.createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1071,10 +1071,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
 
   if (!isOpen) return null;
 
-  const handleDismiss = async () => {
-    if (editingEntaxi && editingEntaxi.entaxiId) {
-      await ipcRenderer.invoke('remove-entity-lock', 'entaxeis', editingEntaxi.entaxiId);
-    }
+  const handleDismiss = () => {
     onClose();
   };
 
@@ -1085,9 +1082,9 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
         if (restoringScrollRef.current) return;
         overlayScrollRef.current = overlayRef.current?.scrollTop || 0;
       }}
-      onClick={async (e) => {
+      onClick={(e) => {
         if (e.target === e.currentTarget) {
-          await handleDismiss();
+          handleDismiss();
         }
       }}
     >
@@ -1104,7 +1101,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
                 : 'Καταχωρίστε τα βασικά στοιχεία της ένταξης και συνδέστε την με έργο ή πρόσκληση αν χρειάζεται.'}
             </HeroSubtitle>
           </HeroText>
-          <CloseButton type="button" onClick={handleDismiss}>
+          <CloseButton type="button" data-testid="ent-form-close" onClick={handleDismiss}>
             Κλείσιμο
           </CloseButton>
         </FormHero>
@@ -1261,8 +1258,8 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
                 <SectionHint>Προαιρετικά</SectionHint>
               </SectionHead>
               <FormGrid>
-                <FormGroup>
-                  <Label>Συσχέτιση με έργο</Label>
+                <FormGroup fullWidth>
+                  <Label>Συσχέτιση με έργα</Label>
                   <SearchableDropdownContainer>
                     <SearchInput
                       type="text"
@@ -1270,13 +1267,21 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
                       onChange={(e) => handleProjectSearch(e.target.value)}
                       onFocus={handleInputFocus}
                       onBlur={handleInputBlur}
-                      placeholder="Αναζητήστε ή επιλέξτε έργο..."
+                      placeholder="Αναζητήστε και προσθέστε έργο..."
+                      data-testid="ent-link-project-search"
                     />
                     {showProjectDropdown && filteredProjects.length > 0 && (
                       <DropdownList>
-                        {filteredProjects.map((project) => (
+                        {filteredProjects
+                          .filter((project) => !(formData.linkedProjects || []).some((p) => (
+                            (project.projectId && p.projectId === project.projectId)
+                            || p.projectTitle === project.projectTitle
+                          )))
+                          .map((project) => (
                           <DropdownItem
                             key={project.projectId}
+                            data-testid={`ent-link-option-${project.projectId}`}
+                            onMouseDown={(e) => e.preventDefault()}
                             onClick={() => handleProjectSelect(project)}
                           >
                             {project.projectTitle}
@@ -1285,6 +1290,45 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
                       </DropdownList>
                     )}
                   </SearchableDropdownContainer>
+                  <FieldHint>
+                    Μπορείτε να συνδέσετε περισσότερα του ενός έργα και να επιλέξετε υποέργα από το καθένα.
+                  </FieldHint>
+                  {linkedProjectBlocks.map((block) => (
+                    <LinkedProjectBlock
+                      key={block.projectId || block.projectTitle}
+                      data-testid={`ent-linked-project-${block.projectId || 'title'}`}
+                    >
+                      <LinkedProjectHead>
+                        <LinkedProjectTitle>{block.projectTitle}</LinkedProjectTitle>
+                        <RemoveFileButton
+                          type="button"
+                          data-testid={`ent-unlink-project-${block.projectId || 'title'}`}
+                          onClick={() => handleRemoveLinkedProject(block)}
+                        >
+                          Αφαίρεση
+                        </RemoveFileButton>
+                      </LinkedProjectHead>
+                      {block.subprojects.length > 0 ? (
+                        <MultiSelect>
+                          {block.subprojects.map((subproject) => (
+                            <CheckboxItem key={subproject.subprojectId}>
+                              <Checkbox
+                                type="checkbox"
+                                data-testid={`ent-sub-${subproject.subprojectId}`}
+                                checked={(formData.subprojectIds || []).includes(subproject.subprojectId)}
+                                onChange={(e) =>
+                                  handleSubprojectChange(subproject.subprojectId, e.target.checked)
+                                }
+                              />
+                              <span>{subproject.subprojectTitle}</span>
+                            </CheckboxItem>
+                          ))}
+                        </MultiSelect>
+                      ) : (
+                        <FieldHint>Δεν βρέθηκαν υποέργα για αυτό το έργο.</FieldHint>
+                      )}
+                    </LinkedProjectBlock>
+                  ))}
                 </FormGroup>
 
                 <FormGroup>
@@ -1304,26 +1348,6 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
                     Η σύνδεση με πρόσκληση εμφανίζει σχετικό κουμπί στις κάρτες των υποέργων.
                   </FieldHint>
                 </FormGroup>
-
-                {subprojects.length > 0 && (
-                  <FormGroup fullWidth>
-                    <Label>Συσχετισμένα υποέργα</Label>
-                    <MultiSelect>
-                      {subprojects.map((subproject) => (
-                        <CheckboxItem key={subproject.subprojectId}>
-                          <Checkbox
-                            type="checkbox"
-                            checked={formData.subprojectIds.includes(subproject.subprojectId)}
-                            onChange={(e) =>
-                              handleSubprojectChange(subproject.subprojectId, e.target.checked)
-                            }
-                          />
-                          <span>{subproject.subprojectTitle}</span>
-                        </CheckboxItem>
-                      ))}
-                    </MultiSelect>
-                  </FormGroup>
-                )}
               </FormGrid>
             </Section>
 

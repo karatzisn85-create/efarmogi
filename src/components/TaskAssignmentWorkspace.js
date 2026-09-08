@@ -13,7 +13,9 @@ import {
   getArchiveReadonlyMessage
 } from '../utils/taskAssignmentDisplay';
 import taskWorkspace from '../../app/core/taskWorkspace';
+import emailCatalog from '../../app/core/emailCatalog';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
+import { useToast } from './ToastProvider';
 
 const ipcRenderer = window.electronAPI;
 
@@ -1765,6 +1767,7 @@ function TaskAssignmentWorkspace({
   canAssign = false,
   assignableUsers = []
 }) {
+  const { showToast } = useToast();
   const [comment, setComment] = useState('');
   const [departNote, setDepartNote] = useState('');
   const [departModalOpen, setDepartModalOpen] = useState(false);
@@ -1853,12 +1856,15 @@ function TaskAssignmentWorkspace({
         enabled: newVal
       });
       if (result.success && onUpdated) onUpdated(result.task);
+      else if (result?.error) setError(result.error);
+      const feedback = emailCatalog.workspaceEmailUserMessage(result.email, 'invite');
+      if (feedback) showToast(feedback.text, feedback.type);
     } catch (e) {
       console.error('[workspace] toggle email notifications error:', e);
     } finally {
       setEmailNotifBusy(false);
     }
-  }, [task, actingUsername, emailNotifBusy, systemEmailConfigured, onUpdated]);
+  }, [task, actingUsername, emailNotifBusy, systemEmailConfigured, onUpdated, showToast]);
 
   const isAssigner = task.createdBy?.toLowerCase() === actingUsername?.toLowerCase();
   const isAssignee = (task.assignees || []).some(
@@ -2255,6 +2261,8 @@ function TaskAssignmentWorkspace({
         setInviteModalOpen(false);
         setInvitePick([]);
         onUpdated(res.task);
+        const feedback = emailCatalog.workspaceEmailUserMessage(res.email, 'invite');
+        if (feedback) showToast(feedback.text, feedback.type);
       } else {
         setError(res?.error || 'Σφάλμα');
       }
@@ -2930,7 +2938,7 @@ function TaskAssignmentWorkspace({
                     setAttachMenuOpen((o) => !o);
                     setEmojiPickerOpen(false);
                   }}
-                  disabled={busy || (!chatAllowed && !isArchivedReadOnly)}
+                  disabled={busy || !chatAllowed}
                   title={
                     isArchivedReadOnly
                       ? 'Η αποθήκη είναι μόνο για προβολή'
@@ -2954,7 +2962,7 @@ function TaskAssignmentWorkspace({
                 <IconBtn
                   type="button"
                   onClick={() => setEmojiPickerOpen((o) => !o)}
-                  disabled={busy || (!chatAllowed && !isArchivedReadOnly)}
+                  disabled={busy || !chatAllowed}
                   title="Εισαγωγή emoji"
                   style={{ fontSize: '1.15rem' }}
                 >
@@ -2990,12 +2998,12 @@ function TaskAssignmentWorkspace({
                     ? 'Μόνο προβολή — αλλάξτε κατάσταση για νέα σχόλια'
                     : 'Σχόλιο ή συνημμένο — Ctrl+Enter για αποστολή'
                 }
-                disabled={busy || (!chatAllowed && !isArchivedReadOnly)}
+                disabled={busy || !chatAllowed}
               />
               <SendBtn
                 type="button"
                 onClick={submitComment}
-                disabled={busy || (!isArchivedReadOnly && (!comment.trim() || !chatAllowed))}
+                disabled={busy || isArchivedReadOnly || !comment.trim() || !chatAllowed}
                 title={isArchivedReadOnly ? 'Η αποθήκη είναι μόνο για προβολή' : undefined}
               >
                 Αποστολή

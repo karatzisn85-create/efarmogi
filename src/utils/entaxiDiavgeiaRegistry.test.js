@@ -4,6 +4,7 @@
 import {
   getEntaxiDiavgeiaOpenUrl,
   getEntaxiDiavgeiaViewUrl,
+  getEntaxiDiavgeiaAdaText,
 } from './entaxiDiavgeiaRegistry';
 
 describe('entaxiDiavgeiaRegistry', () => {
@@ -16,5 +17,11 @@ describe('entaxiDiavgeiaRegistry', () => {
     expect(url).toBe(`https://diavgeia.gov.gr/decision/view/${encodeURIComponent(ada)}`);
     expect(url).not.toContain('/doc/');
     expect(getEntaxiDiavgeiaOpenUrl({ ada })).toBe(url);
+  });
+
+  it('διαβάζει ΑΔΑ και από το καταχωρημένο έγγραφο Διαύγειας', () => {
+    expect(getEntaxiDiavgeiaAdaText({
+      diavgeiaDocument: { ada: 'Ψ84Ρ7ΛΚ-ΑΨΝ' },
+    })).toBe('Ψ84Ρ7ΛΚ-ΑΨΝ');
   });
 });

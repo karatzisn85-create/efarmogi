@@ -83,14 +83,146 @@
   }
 
   function isEntaxiUnlinked(entaxi) {
-    return !entaxi || !entaxi.projectTitle || entaxi.projectTitle === ''
-      || !entaxi.subprojectIds || entaxi.subprojectIds.length === 0;
+    var titles = getEntaxiLinkedProjects(entaxi).filter(function (p) {
+      return p.projectTitle;
+    });
+    return !titles.length || !entaxi || !entaxi.subprojectIds || entaxi.subprojectIds.length === 0;
   }
 
-  function groupEntaxeisByProjectTitle(entaxeis) {
+  function normalizeLinkedProject(item) {
+    if (!item || typeof item !== 'object') return null;
+    var title = String(item.projectTitle || item.title || '').trim();
+    var id = String(item.projectId || item.id || '').trim();
+    if (!title && !id) return null;
+    return { projectId: id, projectTitle: title };
+  }
+
+  function getEntaxiLinkedProjects(entaxi) {
+    var e = entaxi || {};
+    if (Array.isArray(e.linkedProjects) && e.linkedProjects.length) {
+      var out = [];
+      var seen = {};
+      e.linkedProjects.forEach(function (item) {
+        var n = normalizeLinkedProject(item);
+        if (!n) return;
+        var key = n.projectId || n.projectTitle;
+        if (!key || seen[key]) return;
+        seen[key] = true;
+        out.push(n);
+      });
+      if (out.length) return out;
+    }
+    var legacyTitle = String(e.projectTitle || '').trim();
+    if (!legacyTitle) return [];
+    return [{ projectId: String(e.projectId || '').trim(), projectTitle: legacyTitle }];
+  }
+
+  function formatEntaxiProjectTitles(entaxi) {
+    return getEntaxiLinkedProjects(entaxi)
+      .map(function (p) { return p.projectTitle; })
+      .filter(Boolean)
+      .join(' · ');
+  }
+
+  function entaxiLinksProjectTitle(entaxi, projectTitle) {
+    var needle = String(projectTitle || '').trim();
+    if (!needle) return true;
+    return getEntaxiLinkedProjects(entaxi).some(function (p) {
+      return p.projectTitle === needle;
+    });
+  }
+
+  function isSameEntaxiLinkedProject(a, b) {
+    var na = normalizeLinkedProject(a);
+    var nb = normalizeLinkedProject(b);
+    if (!na || !nb) return false;
+    if (na.projectId && nb.projectId && na.projectId === nb.projectId) return true;
+    if (na.projectTitle && nb.projectTitle && na.projectTitle === nb.projectTitle) return true;
+    return false;
+  }
+
+  function pruneEntaxiLinkSnapshot(projectBlocks, selectedSubprojectIds) {
+    var blocks = projectBlocks || [];
+    var catalogReady = false;
+    blocks.forEach(function (block) {
+      var rowIds = [];
+      if (Array.isArray(block.subprojectIds) && block.subprojectIds.length) {
+        rowIds = block.subprojectIds;
+      } else if (Array.isArray(block.subprojects) && block.subprojects.length) {
+        rowIds = block.subprojects.map(function (s) { return s && s.subprojectId; }).filter(Boolean);
+      }
+      if (rowIds.length) catalogReady = true;
+    });
+    if (!catalogReady) {
+      return buildEntaxiLinkSnapshot(blocks, selectedSubprojectIds);
+    }
+    var selected = {};
+    (selectedSubprojectIds || []).forEach(function (id) {
+      if (id) selected[String(id)] = true;
+    });
+    var keptLinks = [];
+    var keptIds = [];
+    var seenId = {};
+    blocks.forEach(function (block) {
+      var link = normalizeLinkedProject(block);
+      if (!link) return;
+      var rowIds = [];
+      if (Array.isArray(block.subprojectIds)) {
+        rowIds = block.subprojectIds;
+      } else if (Array.isArray(block.subprojects)) {
+        rowIds = block.subprojects.map(function (s) { return s && s.subprojectId; }).filter(Boolean);
+      }
+      var matched = rowIds.filter(function (id) { return selected[String(id)]; });
+      if (!matched.length) return;
+      keptLinks.push(link);
+      matched.forEach(function (id) {
+        var sid = String(id);
+        if (seenId[sid]) return;
+        seenId[sid] = true;
+        keptIds.push(sid);
+      });
+    });
+    return buildEntaxiLinkSnapshot(keptLinks, keptIds);
+  }
+
+  function buildEntaxiLinkSnapshot(linkedProjects, subprojectIds) {
+    var links = [];
+    var seen = {};
+    (linkedProjects || []).forEach(function (item) {
+      var n = normalizeLinkedProject(item);
+      if (!n) return;
+      var key = n.projectId || n.projectTitle;
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      links.push(n);
+    });
+    var titles = links.map(function (p) { return p.projectTitle; }).filter(Boolean);
+    return {
+      linkedProjects: links,
+      projectTitle: titles.length <= 1 ? (titles[0] || '') : titles.join(' · '),
+      projectId: (links[0] && links[0].projectId) || '',
+      subprojectIds: Array.isArray(subprojectIds) ? subprojectIds.slice() : []
+    };
+  }
+
+  function groupEntaxeisByProjectTitle(entaxeis, preferredTitle) {
+    var prefer = String(preferredTitle || '').trim();
     var groups = {};
     (entaxeis || []).forEach(function (entaxi) {
-      var key = (entaxi && entaxi.projectTitle) || UNLINKED_GROUP_TITLE;
+      var linked = getEntaxiLinkedProjects(entaxi).filter(function (p) { return p.projectTitle; });
+      if (!linked.length) {
+        if (!groups[UNLINKED_GROUP_TITLE]) groups[UNLINKED_GROUP_TITLE] = [];
+        groups[UNLINKED_GROUP_TITLE].push(entaxi);
+        return;
+      }
+      var key = linked[0].projectTitle;
+      if (prefer) {
+        var match = null;
+        linked.forEach(function (p) {
+          if (!match && p.projectTitle === prefer) match = p;
+        });
+        if (match) key = match.projectTitle;
+      }
       if (!groups[key]) groups[key] = [];
       groups[key].push(entaxi);
     });
@@ -104,6 +236,7 @@
     var contains = card.containsSearchTerm || function () { return false; };
     var e = entaxi || {};
     return contains(e.subject, q)
+      || contains(formatEntaxiProjectTitles(e), q)
       || contains(e.projectTitle, q)
       || contains(e.opsCode, q)
       || contains(e.diavgeiaAda, q)
@@ -172,7 +305,7 @@
       list = list.filter(function (e) { return e.prosklisiId === opts.prosklisiIdFilter; });
     }
     if (opts.projectFilter) {
-      list = list.filter(function (e) { return e.projectTitle === opts.projectFilter; });
+      list = list.filter(function (e) { return entaxiLinksProjectTitle(e, opts.projectFilter); });
     }
     if (opts.quickSearchTerm) {
       list = list.filter(function (e) { return entaxiMatchesQuickSearch(e, opts.quickSearchTerm); });
@@ -189,6 +322,12 @@
     getEntaxiCurrentTotal: getEntaxiCurrentTotal,
     formatEntaxiAmount: formatEntaxiAmount,
     isEntaxiUnlinked: isEntaxiUnlinked,
+    getEntaxiLinkedProjects: getEntaxiLinkedProjects,
+    formatEntaxiProjectTitles: formatEntaxiProjectTitles,
+    entaxiLinksProjectTitle: entaxiLinksProjectTitle,
+    isSameEntaxiLinkedProject: isSameEntaxiLinkedProject,
+    pruneEntaxiLinkSnapshot: pruneEntaxiLinkSnapshot,
+    buildEntaxiLinkSnapshot: buildEntaxiLinkSnapshot,
     groupEntaxeisByProjectTitle: groupEntaxeisByProjectTitle,
     entaxiMatchesQuickSearch: entaxiMatchesQuickSearch,
     showNewEntaxiButton: showNewEntaxiButton,

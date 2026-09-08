@@ -40,8 +40,10 @@ const {
   saveEmailConfig,
   isConfigured,
   sendWorkspaceCreatedEmail,
+  sendWorkspaceInviteEmail,
   sendWorkspaceActivityEmail,
   sendTestEmail,
+  emailResultForClient,
   buildLogoAttachment,
   buildAppOpenPromptHtml,
   getAppDisplayName,
@@ -1727,8 +1729,27 @@ async function updateRelatedDataAfterProjectTitleChange(projectId, oldProjectTit
           if (fs.existsSync(dataFile)) {
             try {
               const entaxiData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+              let changed = false;
               if (entaxiData.projectTitle === oldProjectTitle) {
                 entaxiData.projectTitle = newProjectTitle;
+                changed = true;
+              }
+              if (Array.isArray(entaxiData.linkedProjects) && entaxiData.linkedProjects.length) {
+                entaxiData.linkedProjects = entaxiData.linkedProjects.map((linkedProject) => {
+                  const title = linkedProject.projectTitle || linkedProject.title;
+                  if (title === oldProjectTitle) {
+                    changed = true;
+                    return { ...linkedProject, projectTitle: newProjectTitle, title: newProjectTitle };
+                  }
+                  return linkedProject;
+                });
+              }
+              if (changed) {
+                const snap = entaxiCatalogCore.buildEntaxiLinkSnapshot(
+                  entaxiCatalogCore.getEntaxiLinkedProjects(entaxiData),
+                  entaxiData.subprojectIds
+                );
+                Object.assign(entaxiData, snap);
                 entaxiData.updatedAt = new Date().toISOString();
                 safeWriteJSON(dataFile, entaxiData);
                 console.log(`Updated entaxi ${entaxiDir} with new project title`);
@@ -3087,6 +3108,98 @@ ipcMain.handle('get-task-assignment', async (_event, { actingUsername, taskId })
   }
 });
 
+function recordWorkspaceEmailHistory(result, { type, title, logSkip = true }) {
+  if (!dataDir || !result) return;
+  if (result.skipped && !logSkip) return;
+  try {
+    const { appendEmailHistory } = require('./procurementCalendarReminderService');
+    const titleSafe = title || 'Χώρος εργασίας';
+    if (result.skipped) {
+      appendEmailHistory(dataDir, {
+        category: 'workspace',
+        type,
+        recipientEmail: '',
+        recipientName: result.reason || 'Παράλειψη',
+        itemCount: 0,
+        items: [{ title: titleSafe }],
+        status: 'skipped',
+      });
+      return;
+    }
+    const sentTo = result.sentTo || [];
+    if (result.success && sentTo.length) {
+      sentTo.forEach((to) => {
+        appendEmailHistory(dataDir, {
+          category: 'workspace',
+          type,
+          recipientEmail: to,
+          recipientName: to,
+          itemCount: 1,
+          items: [{ title: titleSafe }],
+          status: 'sent',
+        });
+      });
+      return;
+    }
+    const failTo = result.errors && result.errors[0] ? result.errors[0].to : '';
+    const failErr = result.error || (result.errors && result.errors[0] && result.errors[0].error) || 'Αποτυχία αποστολής';
+    appendEmailHistory(dataDir, {
+      category: 'workspace',
+      type,
+      recipientEmail: failTo || '',
+      recipientName: failErr,
+      itemCount: 0,
+      items: [{ title: titleSafe }],
+      status: 'failed',
+    });
+  } catch (e) {
+    console.error('[email] workspace history log failed:', e.message);
+  }
+}
+
+function liveWorkspaceTask(actingUsername, taskId) {
+  try {
+    const svc = getTaskAssignmentService();
+    if (!svc || !taskId) return null;
+    const res = svc.getTask({ actingUsername, taskId });
+    return res?.success ? res.task : null;
+  } catch {
+    return null;
+  }
+}
+
+async function dispatchWorkspaceInvite(taskId, actingUsername, addedUsernames, fallbackTask) {
+  const live = liveWorkspaceTask(actingUsername, taskId) || fallbackTask;
+  if (!live || !live.emailNotifications) {
+    return { skipped: true, reason: 'Ειδοποιήσεις email ανενεργές για αυτόν τον χώρο' };
+  }
+  const emailConfig = loadEmailConfig(dataDir);
+  return sendWorkspaceInviteEmail(live, loadUsers(), emailConfig, {
+    onlyUsernames: addedUsernames,
+    excludeUsernames: [actingUsername],
+    actorUsername: actingUsername
+  });
+}
+
+function applyWorkspaceEmailStamp(taskId, emailResult) {
+  if (!emailResult || !emailResult.updatedLastEmailSentAt || !taskId) return;
+  try {
+    const svc = getTaskAssignmentService();
+    if (svc) svc.updateLastEmailSentAt({ taskId, timestamp: emailResult.updatedLastEmailSentAt });
+  } catch (_e) { /* ignore */ }
+}
+
+function logWorkspaceEmailOutcome(kind, emailResult) {
+  if (!emailResult) return;
+  if (emailResult.skipped) {
+    console.log(`[email] ${kind} skipped: ${emailResult.reason}`);
+  } else if (emailResult.success) {
+    console.log(`[email] ${kind} sent to: ${(emailResult.sentTo || []).join(', ')}`);
+  } else {
+    console.error(`[email] ${kind} failed: ${emailResult.error || JSON.stringify(emailResult.errors || [])}`);
+  }
+}
+
 ipcMain.handle('create-task-assignment', async (_event, { actingUsername, payload, newFiles }) => {
   const auth = resolveTaskActingUser(actingUsername);
   if (!auth.ok) return { success: false, error: auth.error };
@@ -3095,16 +3208,19 @@ ipcMain.handle('create-task-assignment', async (_event, { actingUsername, payloa
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     const result = svc.createTask({ actingUsername: auth.username, payload, newFiles: newFiles || [] });
     if (result.success && result.task) {
-      const emailConfig = loadEmailConfig(dataDir);
-      sendWorkspaceCreatedEmail(result.task, loadUsers(), emailConfig)
-        .then(emailResult => {
-          if (emailResult.skipped) {
-            console.log(`[email] created email skipped: ${emailResult.reason}`);
-          } else if (emailResult.success) {
-            console.log(`[email] created email sent to: ${(emailResult.sentTo || []).join(', ')}`);
-          }
-        })
-        .catch(e => console.error('[email] sendWorkspaceCreatedEmail error:', e.message));
+      try {
+        const emailConfig = loadEmailConfig(dataDir);
+        const emailResult = await sendWorkspaceCreatedEmail(result.task, loadUsers(), emailConfig);
+        recordWorkspaceEmailHistory(emailResult, { type: 'created', title: result.task.title });
+        applyWorkspaceEmailStamp(result.task.id, emailResult);
+        logWorkspaceEmailOutcome('created', emailResult);
+        result.email = emailResultForClient(emailResult);
+      } catch (e) {
+        console.error('[email] sendWorkspaceCreatedEmail error:', e.message);
+        const failed = { success: false, error: e.message };
+        recordWorkspaceEmailHistory(failed, { type: 'created', title: result.task.title });
+        result.email = emailResultForClient(failed);
+      }
     }
     return result;
   } catch (error) {
@@ -3118,7 +3234,20 @@ ipcMain.handle('update-task-assignment', async (_event, { actingUsername, taskId
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
-    return svc.updateTask({ actingUsername: auth.username, taskId, payload, newFiles: newFiles || [] });
+    const result = svc.updateTask({ actingUsername: auth.username, taskId, payload, newFiles: newFiles || [] });
+    if (result.success && result.task && Array.isArray(result.added) && result.added.length) {
+      try {
+        const emailResult = await dispatchWorkspaceInvite(taskId, auth.username, result.added, result.task);
+        recordWorkspaceEmailHistory(emailResult, { type: 'invite', title: result.task.title });
+        applyWorkspaceEmailStamp(taskId, emailResult);
+        logWorkspaceEmailOutcome('invite', emailResult);
+        result.email = emailResultForClient(emailResult);
+      } catch (e) {
+        console.error('[email] update invite error:', e.message);
+        result.email = emailResultForClient({ success: false, error: e.message });
+      }
+    }
+    return result;
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -3130,7 +3259,22 @@ ipcMain.handle('add-task-assignment-assignees', async (_event, { actingUsername,
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
-    return svc.addAssignees({ actingUsername: auth.username, taskId, usernames: usernames || [] });
+    const result = svc.addAssignees({ actingUsername: auth.username, taskId, usernames: usernames || [] });
+    if (result.success && result.task && Array.isArray(result.added) && result.added.length) {
+      try {
+        const emailResult = await dispatchWorkspaceInvite(taskId, auth.username, result.added, result.task);
+        recordWorkspaceEmailHistory(emailResult, { type: 'invite', title: result.task.title });
+        applyWorkspaceEmailStamp(taskId, emailResult);
+        logWorkspaceEmailOutcome('invite', emailResult);
+        result.email = emailResultForClient(emailResult);
+      } catch (e) {
+        console.error('[email] sendWorkspaceInviteEmail error:', e.message);
+        const failed = { success: false, error: e.message };
+        recordWorkspaceEmailHistory(failed, { type: 'invite', title: result.task.title });
+        result.email = emailResultForClient(failed);
+      }
+    }
+    return result;
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -3174,19 +3318,19 @@ ipcMain.handle('add-task-assignment-comment', async (_event, { actingUsername, t
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
     const result = svc.addComment({ actingUsername: auth.username, taskId, text });
     if (result.success && result.task) {
-      const emailConfig = loadEmailConfig(dataDir);
-      sendWorkspaceActivityEmail(result.task, auth.username, text, loadUsers(), emailConfig)
-        .then(emailResult => {
-          if (emailResult.skipped) {
-            console.log(`[email] comment email skipped: ${emailResult.reason}`);
-          } else if (emailResult.success) {
-            console.log(`[email] comment email sent to: ${(emailResult.sentTo || []).join(', ')}`);
-          }
-          if (emailResult.updatedLastEmailSentAt) {
-            svc.updateLastEmailSentAt({ taskId, timestamp: emailResult.updatedLastEmailSentAt });
-          }
-        })
-        .catch(e => console.error('[email] sendWorkspaceActivityEmail error:', e.message));
+      const live = liveWorkspaceTask(auth.username, taskId) || result.task;
+      if (live.emailNotifications) {
+        const emailConfig = loadEmailConfig(dataDir);
+        sendWorkspaceActivityEmail(live, auth.username, text, loadUsers(), emailConfig)
+          .then(emailResult => {
+            recordWorkspaceEmailHistory(emailResult, { type: 'activity', title: live.title, logSkip: false });
+            logWorkspaceEmailOutcome('comment', emailResult);
+            if (emailResult.updatedLastEmailSentAt) {
+              svc.updateLastEmailSentAt({ taskId, timestamp: emailResult.updatedLastEmailSentAt });
+            }
+          })
+          .catch(e => console.error('[email] sendWorkspaceActivityEmail error:', e.message));
+      }
     }
     return result;
   } catch (error) {
@@ -3207,21 +3351,23 @@ ipcMain.handle('add-task-assignment-files', async (_event, { actingUsername, tas
       batch: batch || null
     });
     if (result.success && result.task) {
-      const fileNames = (result.task.files || []).slice(-newFiles.length).map(f => f.name).join(', ');
-      const msgText = `Νέα αρχεία: ${fileNames}`;
-      const emailConfig = loadEmailConfig(dataDir);
-      sendWorkspaceActivityEmail(result.task, auth.username, msgText, loadUsers(), emailConfig)
-        .then(emailResult => {
-          if (emailResult.skipped) {
-            console.log(`[email] files email skipped: ${emailResult.reason}`);
-          } else if (emailResult.success) {
-            console.log(`[email] files email sent to: ${(emailResult.sentTo || []).join(', ')}`);
-          }
-          if (emailResult.updatedLastEmailSentAt) {
-            svc.updateLastEmailSentAt({ taskId, timestamp: emailResult.updatedLastEmailSentAt });
-          }
-        })
-        .catch(e => console.error('[email] sendWorkspaceActivityEmail (files) error:', e.message));
+      const names = Array.isArray(result.savedNames) && result.savedNames.length
+        ? result.savedNames
+        : (result.task.files || []).slice(-((newFiles || []).length)).map((f) => f.name);
+      const msgText = `Νέα αρχεία: ${names.join(', ')}`;
+      const live = liveWorkspaceTask(auth.username, taskId) || result.task;
+      if (live.emailNotifications) {
+        const emailConfig = loadEmailConfig(dataDir);
+        sendWorkspaceActivityEmail(live, auth.username, msgText, loadUsers(), emailConfig)
+          .then(emailResult => {
+            recordWorkspaceEmailHistory(emailResult, { type: 'activity', title: live.title, logSkip: false });
+            logWorkspaceEmailOutcome('files', emailResult);
+            if (emailResult.updatedLastEmailSentAt) {
+              svc.updateLastEmailSentAt({ taskId, timestamp: emailResult.updatedLastEmailSentAt });
+            }
+          })
+          .catch(e => console.error('[email] sendWorkspaceActivityEmail (files) error:', e.message));
+      }
     }
     return result;
   } catch (error) {
@@ -3484,7 +3630,20 @@ ipcMain.handle('toggle-workspace-email-notifications', async (_event, { actingUs
   try {
     const svc = getTaskAssignmentService();
     if (!svc) return { success: false, error: 'Δεν είναι διαθέσιμος φάκελος δεδομένων (dataDir)' };
-    return svc.toggleEmailNotifications({ actingUsername: auth.username, taskId, enabled });
+    const result = svc.toggleEmailNotifications({ actingUsername: auth.username, taskId, enabled });
+    if (result.success && result.task && result.task.emailNotifications) {
+      try {
+        const emailResult = await dispatchWorkspaceInvite(taskId, auth.username, undefined, result.task);
+        recordWorkspaceEmailHistory(emailResult, { type: 'invite', title: result.task.title });
+        applyWorkspaceEmailStamp(taskId, emailResult);
+        logWorkspaceEmailOutcome('toggle-on', emailResult);
+        result.email = emailResultForClient(emailResult);
+      } catch (e) {
+        console.error('[email] toggle-on invite error:', e.message);
+        result.email = emailResultForClient({ success: false, error: e.message });
+      }
+    }
+    return result;
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -3494,11 +3653,15 @@ ipcMain.handle('toggle-workspace-email-notifications', async (_event, { actingUs
 let activeTaskWatcher = null;
 let activeTaskWatcherId = null;
 
-ipcMain.handle('watch-task-file', (_event, { taskId }) => {
+ipcMain.handle('watch-task-file', (_event, { taskId, actingUsername }) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return;
   if (activeTaskWatcher) { activeTaskWatcher.close(); activeTaskWatcher = null; }
   activeTaskWatcherId = null;
   const svc = getTaskAssignmentService();
   if (!svc || !taskId) return;
+  const access = svc.getTask({ actingUsername: auth.username, taskId });
+  if (!access?.success) return;
   const filePath = svc.getTaskDataPath(taskId);
   if (!fs.existsSync(filePath)) return;
   activeTaskWatcherId = taskId;
@@ -15219,6 +15382,11 @@ ipcMain.handle('get-user-downloads-path', async () => {
 
 ipcMain.handle('pick-save-folder', async (_event, { defaultPath } = {}) => {
   try {
+    const queued = takeE2EFolderPick();
+    if (queued) {
+      if (queued.canceled) return { canceled: true };
+      if (queued.path) return { success: true, path: queued.path };
+    }
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory', 'createDirectory'],
       defaultPath: defaultPath || app.getPath('downloads'),

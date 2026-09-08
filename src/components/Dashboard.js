@@ -6511,9 +6511,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const handleOpenSpecificEntaxi = (subprojectId) => {
     const entaxi = getEntaxiForSubproject(subprojectId);
     if (entaxi) {
-      setEntaxisProjectFilter(entaxi.projectTitle);
+      setSelectedEntaxiId(entaxi.entaxiId);
+      setEntaxisProjectFilter(null);
       setIsEntaxisOpen(true);
-      // TODO: Highlight the specific entaxi when the modal opens
     }
   };
 
@@ -8121,6 +8121,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         notes={notes}
         onOpenNoteFromEntity={handleOpenNoteFromEntity}
         organizationName={appConfig?.organizationFullName || ''}
+        appConfig={appConfig}
+        appVersion={appVersion}
       />
       </Suspense>
       ) : null}

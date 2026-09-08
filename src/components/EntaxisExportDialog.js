@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { useToast } from './ToastProvider';
 import { formatDateEl } from '../utils/dateFormat';
 import { formatEntaxiAmount, getEntaxiCurrentTotal } from '../utils/entaxiAmountUtils';
+import entaxiCatalog from '../../app/core/entaxiCatalog';
 
 const ExportOverlay = styled.div`
   position: fixed;
@@ -536,6 +537,8 @@ function EntaxisExportDialog({ isOpen, onClose, entaxeis, totalEntaxeis, organiz
             const modIndex = parseInt(field.id.replace('modificationComments', '')) - 1;
             const modification = entaxi.modifications && entaxi.modifications[modIndex];
             value = modification ? (modification.comments || '') : '';
+          } else if (field.id === 'projectTitle') {
+            value = entaxiCatalog.formatEntaxiProjectTitles(entaxi) || entaxi.projectTitle || '';
           } else {
             value = entaxi[field.id] || '';
             

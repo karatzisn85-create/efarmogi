@@ -220,3 +220,40 @@ test('P13-19 υπερδιαχειριστής ορίζει παραλήπτες 
   expect(cfg.eventTypeSettings.entaxi_node_deadline.recipientUsernames).toEqual(['manager']);
 });
 
+test('P13-20 νέος χώρος με Email ON επιχειρεί αποστολή και το καταγράφει', async ({ app }) => {
+  const { window, testDir } = app;
+  await openSystemItem(window, 'btn-email-settings');
+  await window.getByTestId('email-gmail').fill('ergohubapp@gmail.com');
+  await window.getByTestId('email-password').fill('abcd efgh ijkl mnop');
+  await window.getByTestId('btn-email-save').click();
+  await expect(window.getByTestId('email-password-set')).toBeVisible();
+  await window.keyboard.press('Escape');
+
+  await expandCategory(window, 'Χώρος Εργασίας');
+  await window.getByRole('button', { name: /Άνοιγμα χώρου Εργασιών/ }).click();
+  const help = window.getByTestId('workspace-view-help-dismiss');
+  if (await help.count()) await help.click();
+  await window.getByRole('button', { name: /Δημιουργία Χώρου/ }).click();
+  await expect(window.getByTestId('workspace-email-on')).toBeVisible({ timeout: 15000 });
+  await window.getByPlaceholder('Σύντομος τίτλος θέματος').fill('Χώρος με email ON');
+  await window.getByText('Διαχειριστής Δοκιμών').click();
+  await window.getByRole('button', { name: 'Αποθήκευση' }).click();
+  await expect(window.getByText(/Στάλθηκε email|αποστολή email απέτυχε|δεν έχει email|δεν είναι ρυθμισμένο/i).first()).toBeVisible({ timeout: 60000 });
+
+  const tasksRoot = path.join(testDir, 'ANATHESEIS_ERGASION');
+  const ids = fs.existsSync(tasksRoot) ? fs.readdirSync(tasksRoot) : [];
+  const tasks = ids.map((id) => {
+    const p = path.join(tasksRoot, id, 'data.json');
+    return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
+  }).filter(Boolean);
+  const created = tasks.find((t) => t.title === 'Χώρος με email ON');
+  expect(created).toBeTruthy();
+  expect(created.emailNotifications).toBe(true);
+
+  const histPath = path.join(testDir, 'config', 'email-send-history.json');
+  expect(fs.existsSync(histPath)).toBe(true);
+  const hist = JSON.parse(fs.readFileSync(histPath, 'utf8'));
+  const entries = hist.entries || hist || [];
+  expect(entries.some((e) => e.category === 'workspace' && e.type === 'created')).toBe(true);
+});
+

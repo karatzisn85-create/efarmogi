@@ -375,6 +375,15 @@ function seedEntaxeis(dataDir) {
       endDate: dateKeyFromToday(18),
       documentDate: '2024-11-28',
       fundingAuthority: 'ΠΕΡΙΦΕΡΕΙΑ ΚΡΗΤΗΣ',
+      modifications: [
+        {
+          modificationId: 'mod-ent-road-1',
+          date: '2025-02-15',
+          changeAmount: true,
+          amount: '120.000,00',
+          comments: 'Αύξηση προϋπολογισμού γέφυρας',
+        },
+      ],
     },
     {
       entaxiId: 'ent-water',

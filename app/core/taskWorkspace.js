@@ -69,6 +69,85 @@
     return !!canAssign && !isWorkArchive;
   }
 
+  function sameWorkspaceUser(a, b) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  }
+
+  function taskHasAssignee(task, username) {
+    if (!task || !username) return false;
+    return (task.assignees || []).some(function (a) {
+      return sameWorkspaceUser(a, username);
+    });
+  }
+
+  /** Άτομο στο roster για ανοιχτό χώρο: άλλος συνάδελφος, αλλιώς ο πρώτος στη λίστα. */
+  function pickRosterPersonUsername(task, actingUsername) {
+    var self = String(actingUsername || '').trim().toLowerCase();
+    var assignees = (task && task.assignees) || [];
+    var found = assignees.find(function (a) {
+      return String(a || '').trim().toLowerCase() !== self;
+    });
+    if (found) return found;
+    return assignees[0] || '';
+  }
+
+  /**
+   * Ανοιχτός χώρος στην όψη «Δημιούργησα εγώ»: κρατάμε τον χώρο και αλλάζουμε άτομο.
+   * Δεν κλείνουμε τον χώρο επειδή πρόλαβε να διαλεχτεί άλλη συνάδελφος.
+   */
+  function resolveAssignerRosterForOpenTask(opts) {
+    var o = opts || {};
+    var task = o.task;
+    if (!task) return { personUsername: o.selectedPersonUsername || '', keepTask: false };
+    var intended = o.intendedPersonUsername || '';
+    if (intended && taskHasAssignee(task, intended)) {
+      return { personUsername: intended, keepTask: true };
+    }
+    var selected = o.selectedPersonUsername || '';
+    if (selected && taskHasAssignee(task, selected)) {
+      return { personUsername: selected, keepTask: true };
+    }
+    return {
+      personUsername: pickRosterPersonUsername(task, o.actingUsername),
+      keepTask: true
+    };
+  }
+
+  function resolveWorkspaceFocusTab(task, opts) {
+    var o = opts || {};
+    if (!task) return 'asAssignee';
+    if (o.canAssign && sameWorkspaceUser(task.createdBy, o.actingUsername)) {
+      return 'asAssigner';
+    }
+    return 'asAssignee';
+  }
+
+  function needsWorkspaceViewChooser(opts) {
+    var o = opts || {};
+    if (!o.canAssign) return false;
+    if (o.isWorkArchive) return false;
+    if (o.hasFocusTask) return false;
+    if (o.viewChosen) return false;
+    return true;
+  }
+
+  function workspaceViewChooserCopy() {
+    return {
+      title: 'Πώς θέλετε να δείτε τους χώρους;',
+      intro: 'Ο χώρος εργασίας έχει δύο ξεχωριστές όψεις. Δεν ανοίγει καμία από μόνη της — πατήστε αυτή που σας αφορά.',
+      assigned: {
+        title: 'Συμμετέχω',
+        kicker: 'Μου ανέθεσαν συνάδελφοι',
+        text: 'Μόνο χώροι όπου σας έβαλαν άλλοι. Όσα ανοίξατε εσείς δεν εμφανίζονται εδώ.'
+      },
+      created: {
+        title: 'Δημιούργησα εγώ',
+        kicker: 'Χρέωσα εγώ, ανά άτομο',
+        text: 'Όσα δημιουργήσατε εσείς. Πρώτα επιλέγετε συνάδελφο και μετά τον χώρο.'
+      }
+    };
+  }
+
   function taskMatchesQuickSearch(task, searchTerm) {
     if (!searchTerm) return true;
     var card = cardApi();
@@ -340,6 +419,12 @@
     isTaskHiddenFromPureAssignee: isTaskHiddenFromPureAssignee,
     canAccessTask: canAccessTask,
     showCreateTaskButton: showCreateTaskButton,
+    needsWorkspaceViewChooser: needsWorkspaceViewChooser,
+    workspaceViewChooserCopy: workspaceViewChooserCopy,
+    resolveWorkspaceFocusTab: resolveWorkspaceFocusTab,
+    taskHasAssignee: taskHasAssignee,
+    pickRosterPersonUsername: pickRosterPersonUsername,
+    resolveAssignerRosterForOpenTask: resolveAssignerRosterForOpenTask,
     taskMatchesQuickSearch: taskMatchesQuickSearch,
     applyTaskDailyFilters: applyTaskDailyFilters,
     listTasksForView: listTasksForView,

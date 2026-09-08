@@ -143,6 +143,9 @@ function getTypeLabel(type) {
   if (type === 'threshold') return 'Υπενθύμιση';
   if (type === 'urgent') return 'Επείγον';
   if (type === 'compliance') return 'Συμμόρφωση';
+  if (type === 'created') return 'Νέος χώρος';
+  if (type === 'invite') return 'Πρόσκληση';
+  if (type === 'activity') return 'Δραστηριότητα';
   return type || '';
 }
 
@@ -193,7 +196,7 @@ export default function EmailSendHistory({ onClose, currentUser }) {
             <CloseBtn type="button" onClick={onClose} aria-label="Κλείσιμο">×</CloseBtn>
           </TitleRow>
           <Subtitle>
-            Τα τελευταία 200 email υπενθυμίσεων που αποστάλθηκαν από το σύστημα.
+            Τα τελευταία 200 email που αποστάλθηκαν από το σύστημα (υπενθυμίσεις και χώρος εργασίας).
           </Subtitle>
         </Header>
 

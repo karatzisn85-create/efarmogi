@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect, useEffect, useRef } from 'react';
+import React, { useState, useLayoutEffect, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import {
@@ -6,6 +6,8 @@ import {
   resetDocumentInteractionState,
   scheduleDocumentInteractionRecovery
 } from '../utils/documentInteractionReset';
+import { useToast } from './ToastProvider';
+import emailCatalog from '../../app/core/emailCatalog';
 
 const ipcRenderer = window.electronAPI;
 
@@ -315,6 +317,7 @@ const EmailToggleChoice = styled.button`
 `;
 
 function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = null, assignableUsers = [] }) {
+  const { showToast } = useToast();
   const titleRef = useRef(null);
   const errorRef = useRef(null);
   const [title, setTitle] = useState('');
@@ -324,7 +327,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [systemEmailConfigured, setSystemEmailConfigured] = useState(false);
-  const [emailNotifications, setEmailNotifications] = useState(false);
+  const [emailNotifications, setEmailNotifications] = useState(true);
 
   useLayoutEffect(() => {
     resetDocumentInteractionState();
@@ -353,7 +356,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
     setPendingFiles([]);
     setError('');
     setSaving(false);
-    setEmailNotifications(false);
+    setEmailNotifications(!editingTask);
   }, [editingTask]);
 
   useEffect(() => {
@@ -370,6 +373,14 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
     })();
     return () => { cancelled = true; };
   }, [actingUsername]);
+
+  const selectedMissingEmail = useMemo(
+    () => (assignableUsers || []).filter((u) => {
+      if (u.hasEmail !== false) return false;
+      return assignees.some((a) => String(a).toLowerCase() === String(u.username || '').toLowerCase());
+    }),
+    [assignableUsers, assignees]
+  );
 
   const toggleAssignee = (username) => {
     setAssignees((prev) => {
@@ -441,9 +452,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
       title: title.trim(),
       description: description.trim(),
       assignees,
-      ...(!editingTask && systemEmailConfigured
-        ? { emailNotifications: !!emailNotifications }
-        : {}),
+      ...(!editingTask ? { emailNotifications: !!emailNotifications } : {}),
     };
     try {
       let result;
@@ -462,6 +471,12 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
         });
       }
       if (result?.success) {
+        const feedback = emailCatalog.workspaceEmailUserMessage(
+          result.email,
+          editingTask ? 'invite' : 'created'
+        );
+        if (feedback) showToast(feedback.text, feedback.type);
+        if (result.warning) showToast(result.warning, 'warning');
         await onSaved(result.task);
         onClose();
       } else {
@@ -537,6 +552,9 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
                       <AssigneeCheck type="checkbox" checked={on} onChange={() => toggleAssignee(u.username)} />
                       <span style={{ fontWeight: 700, color: '#0f172a' }}>{u.fullName || u.username}</span>
                       <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: '0.84rem' }}>({u.username})</span>
+                      {u.hasEmail === false ? (
+                        <span style={{ color: '#b45309', fontWeight: 600, fontSize: '0.78rem' }}>χωρίς email στο προφίλ</span>
+                      ) : null}
                     </AssigneeCard>
                   );
                 })
@@ -548,19 +566,26 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
             <Section>
               <SectionHead>
                 <SectionTitle>Ειδοποιήσεις email</SectionTitle>
-                <SectionHint>προαιρετικό</SectionHint>
+                <SectionHint>προεπιλογή ON</SectionHint>
               </SectionHead>
               <EmailOptionCard>
                 <EmailOptionText>
                   <EmailOptionTitle>Email ειδοποιήσεις για αυτόν τον χώρο</EmailOptionTitle>
                   <EmailOptionHint>
-                    Αν είναι ON, οι συμμετέχοντες λαμβάνουν email για δημιουργία και σημαντική δραστηριότητα
-                    στον χώρο. Μπορείτε να το αλλάξετε και αργότερα μέσα στον χώρο.
+                    Με ON, οι συνάδελφοι παίρνουν email μόλις δημιουργηθεί ο χώρος, όταν προστεθούν αργότερα,
+                    και για νέα σχόλια ή αρχεία. Μπορείτε να το κλείσετε οποιαδήποτε στιγμή μέσα στον χώρο.
                   </EmailOptionHint>
+                  {emailNotifications && selectedMissingEmail.length > 0 ? (
+                    <EmailOptionHint data-testid="workspace-email-missing" style={{ color: '#b45309', marginTop: '0.35rem' }}>
+                      Χωρίς email στο προφίλ — δεν θα λάβουν μήνυμα:{' '}
+                      {selectedMissingEmail.map((u) => u.fullName || u.username).join(', ')}
+                    </EmailOptionHint>
+                  ) : null}
                 </EmailOptionText>
                 <EmailToggleGroup role="group" aria-label="Ειδοποιήσεις email">
                   <EmailToggleChoice
                     type="button"
+                    data-testid="workspace-email-off"
                     $active={!emailNotifications}
                     $on={false}
                     onClick={() => setEmailNotifications(false)}
@@ -569,6 +594,7 @@ function TaskAssignmentForm({ onClose, onSaved, actingUsername, editingTask = nu
                   </EmailToggleChoice>
                   <EmailToggleChoice
                     type="button"
+                    data-testid="workspace-email-on"
                     $active={emailNotifications}
                     $on
                     onClick={() => setEmailNotifications(true)}

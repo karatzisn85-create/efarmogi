@@ -63,18 +63,19 @@ test('P3-34 απλός χρήστης δεν δημιουργεί χώρο ερ�
 test('P3-48 προϊστάμενος βλέπει χρεώσεις ανά άτομο· ομαδικός χώρος και στους δύο', async ({ app }) => {
   const { window } = app;
   await openTasks(window);
-  await expect(window.getByTestId('workspace-view-help')).toBeVisible();
-  await window.getByTestId('workspace-view-help-dismiss').click();
-  await expect(window.getByTestId('workspace-view-help')).toHaveCount(0);
+  await expect(window.getByTestId('workspace-view-chooser')).toBeVisible();
+  await expect(window.getByTestId('workspace-choose-assigned')).toBeVisible();
+  await expect(window.getByTestId('workspace-choose-created')).toBeVisible();
+  await window.getByTestId('workspace-choose-created').click();
+  await expect(window.getByTestId('workspace-view-chooser')).toHaveCount(0);
+  const help = window.getByTestId('workspace-view-help-dismiss');
+  if (await help.count()) await help.click();
   await window.getByRole('button', { name: 'Κλείσιμο' }).click();
   await expect(window.getByTestId('workspace-view-created')).toHaveCount(0);
   await window.getByRole('button', { name: /Άνοιγμα χώρου Εργασιών/ }).click();
   await expect(window.getByText('Χώρος Εργασίας').first()).toBeVisible();
-  await expect(window.getByTestId('workspace-view-help')).toHaveCount(0);
-  await window.getByRole('button', { name: 'Εμφάνιση βοήθειας' }).click();
-  await expect(window.getByTestId('workspace-view-help')).toBeVisible();
-  await window.getByTestId('workspace-view-help-dismiss').click();
-  await showCreatedTasks(window);
+  await expect(window.getByTestId('workspace-view-chooser')).toBeVisible();
+  await window.getByTestId('workspace-choose-created').click();
   await expect(window.getByTestId('assigner-roster-summary')).toContainText('2 ανοιχτοί χώροι');
   await expect(window.getByTestId('assigner-person-maria')).toBeVisible();
   await expect(window.getByTestId('assigner-person-nikos')).toBeVisible();
@@ -143,4 +144,23 @@ test('P3-50 συμμετέχων προσθέτει συναδέλφους· ο 
   await window.locator('[data-testid^="task-card-"]').filter({ hasText: 'Χρέωση τμήματος έργων' }).click();
   await expect(window.getByTestId('workspace-add-assignees')).toHaveCount(0);
   await expect(window.getByTestId('workspace-created-by')).toContainText('E2E Υπερδιαχειριστής');
+});
+
+test('P3-51 άνοιγμα χώρου ζητά επιλογή όψης· καμία καρτέλα προεπιλεγμένη', async ({ app }) => {
+  const { window } = app;
+  await openTasks(window);
+  await expect(window.getByTestId('workspace-view-chooser')).toBeVisible();
+  await expect(window.getByText('Πώς θέλετε να δείτε τους χώρους;')).toBeVisible();
+  await expect(window.getByTestId('workspace-view-assigned')).toHaveAttribute('aria-pressed', 'false');
+  await expect(window.getByTestId('workspace-view-created')).toHaveAttribute('aria-pressed', 'false');
+  await window.getByTestId('workspace-choose-assigned').click();
+  await expect(window.getByTestId('workspace-view-chooser')).toHaveCount(0);
+  await expect(window.getByTestId('workspace-view-assigned')).toHaveAttribute('aria-pressed', 'true');
+  await window.getByRole('button', { name: 'Κλείσιμο' }).click();
+  await window.getByRole('button', { name: /Άνοιγμα χώρου Εργασιών/ }).click();
+  await expect(window.getByTestId('workspace-view-chooser')).toBeVisible();
+  await app.loginAsRole('ENGINEER');
+  await openTasks(window);
+  await expect(window.getByTestId('workspace-view-chooser')).toHaveCount(0);
+  await expect(window.getByTestId('workspace-view-created')).toHaveCount(0);
 });

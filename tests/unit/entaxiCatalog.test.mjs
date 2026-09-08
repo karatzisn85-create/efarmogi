@@ -23,6 +23,11 @@ test('χωρίς έργο: κενός τίτλος ή κενά υποέργα', 
   assert.equal(ent.isEntaxiUnlinked({ projectTitle: '', subprojectIds: [] }), true);
   assert.equal(ent.isEntaxiUnlinked({ projectTitle: 'Οδικό', subprojectIds: [] }), true);
   assert.equal(ent.isEntaxiUnlinked({ projectTitle: 'Οδικό', subprojectIds: ['sub-1'] }), false);
+  assert.equal(ent.isEntaxiUnlinked({
+    projectTitle: '',
+    linkedProjects: [{ projectId: 'p1', projectTitle: 'Οδικό' }, { projectId: 'p2', projectTitle: 'Ύδρευση' }],
+    subprojectIds: ['sub-1', 'sub-2'],
+  }), false);
 });
 
 test('ομαδοποίηση με κενό τίτλο πάει στις μη συσχετισμένες', () => {
@@ -32,6 +37,65 @@ test('ομαδοποίηση με κενό τίτλο πάει στις μη σ�
   ]);
   assert.equal(groups['Οδικό δίκτυο Αρχανών'].length, 1);
   assert.equal(groups[ent.UNLINKED_GROUP_TITLE][0].entaxiId, 'b');
+});
+
+test('πολλά έργα: μία κάρτα στην πρώτη ομάδα, φίλτρο έργου τη βρίσκει', () => {
+  const row = {
+    entaxiId: 'multi',
+    linkedProjects: [
+      { projectId: 'p1', projectTitle: 'Οδικό δίκτυο Αρχανών' },
+      { projectId: 'p2', projectTitle: 'Ύδρευση Αστερουσίων' },
+    ],
+    subprojectIds: ['sub-bridge', 'sub-tank'],
+  };
+  const groups = ent.groupEntaxeisByProjectTitle([row]);
+  assert.equal(groups['Οδικό δίκτυο Αρχανών'][0].entaxiId, 'multi');
+  assert.equal(groups['Ύδρευση Αστερουσίων'], undefined);
+  const filtered = ent.groupEntaxeisByProjectTitle([row], 'Ύδρευση Αστερουσίων');
+  assert.equal(filtered['Ύδρευση Αστερουσίων'][0].entaxiId, 'multi');
+  assert.equal(ent.entaxiLinksProjectTitle(row, 'Ύδρευση Αστερουσίων'), true);
+  assert.equal(ent.entaxiLinksProjectTitle(row, 'Άλλο'), false);
+  assert.equal(ent.formatEntaxiProjectTitles(row), 'Οδικό δίκτυο Αρχανών · Ύδρευση Αστερουσίων');
+  const snap = ent.buildEntaxiLinkSnapshot(row.linkedProjects, row.subprojectIds);
+  assert.equal(snap.projectTitle, 'Οδικό δίκτυο Αρχανών · Ύδρευση Αστερουσίων');
+  assert.equal(snap.projectId, 'p1');
+  assert.deepEqual(snap.subprojectIds, ['sub-bridge', 'sub-tank']);
+});
+
+test('αποθήκευση κρατά μόνο έργα με επιλεγμένα υποέργα', () => {
+  const blocks = [
+    { projectId: 'p1', projectTitle: 'Οδικό', subprojectIds: ['sub-bridge', 'sub-light'] },
+    { projectId: 'p2', projectTitle: 'Ύδρευση', subprojectIds: ['sub-tank'] },
+  ];
+  const pruned = ent.pruneEntaxiLinkSnapshot(blocks, ['sub-bridge']);
+  assert.equal(pruned.linkedProjects.length, 1);
+  assert.equal(pruned.linkedProjects[0].projectId, 'p1');
+  assert.deepEqual(pruned.subprojectIds, ['sub-bridge']);
+  assert.equal(pruned.projectTitle, 'Οδικό');
+  const both = ent.pruneEntaxiLinkSnapshot(blocks, ['sub-bridge', 'sub-tank']);
+  assert.equal(both.linkedProjects.length, 2);
+  assert.equal(both.projectTitle, 'Οδικό · Ύδρευση');
+  const notReady = ent.pruneEntaxiLinkSnapshot(
+    [{ projectId: 'p1', projectTitle: 'Οδικό', subprojectIds: [] }],
+    ['sub-bridge']
+  );
+  assert.deepEqual(notReady.subprojectIds, ['sub-bridge']);
+  assert.equal(notReady.linkedProjects[0].projectTitle, 'Οδικό');
+});
+
+test('ίδιο έργο: ταυτίζεται με κωδικό ή τίτλο, όχι με κενό κωδικό', () => {
+  assert.equal(ent.isSameEntaxiLinkedProject(
+    { projectId: '', projectTitle: 'Οδικό' },
+    { projectId: '', projectTitle: 'Ύδρευση' }
+  ), false);
+  assert.equal(ent.isSameEntaxiLinkedProject(
+    { projectId: '', projectTitle: 'Οδικό' },
+    { projectId: 'p1', projectTitle: 'Οδικό' }
+  ), true);
+  assert.equal(ent.isSameEntaxiLinkedProject(
+    { projectId: 'p1', projectTitle: 'Οδικό' },
+    { projectId: 'p1', projectTitle: 'Άλλο' }
+  ), true);
 });
 
 test('Νέα Ένταξη μόνο για διαχειριστή', () => {
