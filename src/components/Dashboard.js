@@ -3051,6 +3051,30 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   // Keeping them separate so one does not accidentally cancel the other
   const loadRequestIdRef = useRef(0);
   const loadProjectsRequestIdRef = useRef(0);
+  const projectCardActionsRef = useRef({});
+  const projectCardActions = useMemo(() => ({
+    onEdit: (project) => projectCardActionsRef.current.onEdit(project),
+    onViewFile: (projectId, subprojectId, fileName) => projectCardActionsRef.current.onViewFile(projectId, subprojectId, fileName),
+    onDownloadFile: (projectId, subprojectId, fileName) => projectCardActionsRef.current.onDownloadFile(projectId, subprojectId, fileName),
+    onDeleteFile: (projectId, subprojectId, fileName) => projectCardActionsRef.current.onDeleteFile(projectId, subprojectId, fileName),
+    onOpenFileManager: (projectId, subprojectId) => projectCardActionsRef.current.onOpenFileManager(projectId, subprojectId),
+    onOpenEntaxis: (projectTitle) => projectCardActionsRef.current.onOpenEntaxis(projectTitle),
+    onOpenEgkriseis: (projectTitle, subprojectTitle, subprojectId) => (
+      projectCardActionsRef.current.onOpenEgkriseis(projectTitle, subprojectTitle, subprojectId)
+    ),
+    onOpenLinkedProsklisi: (prosklisiId) => projectCardActionsRef.current.onOpenLinkedProsklisi(prosklisiId),
+    onOpenSpecificEntaxi: (subprojectId) => projectCardActionsRef.current.onOpenSpecificEntaxi(subprojectId),
+    onOpenSpecificProsklisi: (projectTitle, projectId) => (
+      projectCardActionsRef.current.onOpenSpecificProsklisi(projectTitle, projectId)
+    ),
+    onOpenSpecificMeleti: (subprojectId) => projectCardActionsRef.current.onOpenSpecificMeleti(subprojectId),
+    onViewDetails: (project) => projectCardActionsRef.current.onViewDetails(project),
+    onOpenNoteFromEntity: (noteId) => projectCardActionsRef.current.onOpenNoteFromEntity(noteId),
+    onExportReport: (project) => projectCardActionsRef.current.onExportReport(project),
+    onOpenContractorRegistry: (payload) => projectCardActionsRef.current.onOpenContractorRegistry?.(payload),
+    onContractExpiryAccept: (project) => projectCardActionsRef.current.onContractExpiryAccept?.(project),
+    onOpenSiteDiary: (project) => projectCardActionsRef.current.onOpenSiteDiary?.(project),
+  }), []);
 
   const mainHeaderRef = useRef(null);
   const [mainHeaderOffsetPx, setMainHeaderOffsetPx] = useState(88);
@@ -4587,7 +4611,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         if (!silent) {
           setLoading(false);
         }
-        return;
+        return dataCache.projects;
       }
       
       console.log('🔄 Cache miss or expired - loading fresh data...');
@@ -4719,7 +4743,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       if (!silent) {
         setLoading(false);
       }
-      
+      return sortedProjects;
     } catch (error) {
       console.error('Error in loadDataWithCache:', error);
       if (!silent) {
@@ -4843,6 +4867,30 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       
       if (result.success && result.data) {
         setLinkedEgkriseis(result.data);
+        const linkedIds = new Set();
+        Object.values(result.data).forEach((link) => {
+          if (link?.subprojectId) linkedIds.add(link.subprojectId);
+        });
+        const applyEgkrisiFlags = (list) => {
+          if (!Array.isArray(list)) return { next: list, changed: false };
+          let changed = false;
+          const next = list.map((p) => {
+            const flag = linkedIds.has(p.subprojectId);
+            if (!!p.hasEgkrisiLink === flag) return p;
+            changed = true;
+            return { ...p, hasEgkrisiLink: flag };
+          });
+          return { next: changed ? next : list, changed };
+        };
+        setProjects((prev) => applyEgkrisiFlags(prev).next);
+        setDataCache((prev) => {
+          const applied = applyEgkrisiFlags(prev.projects);
+          return {
+            ...prev,
+            projects: applied.changed ? applied.next : prev.projects,
+            linkedEgkriseis: result.data,
+          };
+        });
       }
     } catch (error) {
       console.error('Error loading linked egkriseis:', error);
@@ -4914,7 +4962,34 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const loadEntaxeis = async () => {
     try {
       const loadedEntaxeis = await ipcRenderer.invoke('load-all-entaxeis');
-      setEntaxeis(loadedEntaxeis || []);
+      const loadedList = Array.isArray(loadedEntaxeis) ? loadedEntaxeis : [];
+      setEntaxeis(loadedList);
+      const linkedIds = new Set();
+      loadedList.forEach((entaxi) => {
+        (entaxi.subprojectIds || []).forEach((id) => {
+          if (id) linkedIds.add(id);
+        });
+      });
+      const applyEntaxiFlags = (list) => {
+        if (!Array.isArray(list)) return { list, changed: false };
+        let changed = false;
+        const mapped = list.map((p) => {
+          const flag = linkedIds.has(p.subprojectId);
+          if (!!p.hasEntaxiLink === flag) return p;
+          changed = true;
+          return { ...p, hasEntaxiLink: flag };
+        });
+        return { list: changed ? mapped : list, changed };
+      };
+      setProjects((prev) => applyEntaxiFlags(prev).list);
+      setDataCache((prev) => {
+        const applied = applyEntaxiFlags(prev.projects);
+        return {
+          ...prev,
+          projects: applied.changed ? applied.list : prev.projects,
+          entaxeis: loadedList,
+        };
+      });
     } catch (error) {
       console.error('Error loading entaxeis:', error);
     }
@@ -7014,6 +7089,26 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const activeGuideStepIndex = guideSpotSteps ? 0 : guideTourStep;
   const guideOverlayActive = guideTourActive || !!guideSpotSteps;
 
+  projectCardActionsRef.current = {
+    onEdit: handleEditProject,
+    onViewFile: handleViewFile,
+    onDownloadFile: handleDownloadFile,
+    onDeleteFile: handleDeleteFile,
+    onOpenFileManager: handleOpenFileManager,
+    onOpenEntaxis: handleOpenEntaxis,
+    onOpenEgkriseis: handleOpenEgkriseis,
+    onOpenLinkedProsklisi: handleOpenLinkedProsklisi,
+    onOpenSpecificEntaxi: handleOpenSpecificEntaxi,
+    onOpenSpecificProsklisi: handleOpenSpecificProsklisi,
+    onOpenSpecificMeleti: handleOpenSpecificMeleti,
+    onViewDetails: openSubprojectDetail,
+    onOpenNoteFromEntity: handleOpenNoteFromEntity,
+    onExportReport: handleExportSubprojectReport,
+    onOpenContractorRegistry: openContractorRegistryCard,
+    onContractExpiryAccept: handleContractExpiryAccept,
+    onOpenSiteDiary: handleOpenSiteDiaryForSubproject,
+  };
+
   return (
     <DashboardContainer ref={dashboardScrollRef}>
       {shouldShowStartupSplash({
@@ -7335,43 +7430,43 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                                 key={project.subprojectId}
                                 project={project}
                                 userRole={userRole}
-                                onEdit={handleEditProject}
-                                onViewFile={handleViewFile}
-                                onDownloadFile={handleDownloadFile}
-                                onDeleteFile={handleDeleteFile}
-                                onOpenFileManager={handleOpenFileManager}
-                                onOpenEntaxis={handleOpenEntaxis}
-                                onOpenEgkriseis={handleOpenEgkriseis}
+                                onEdit={projectCardActions.onEdit}
+                                onViewFile={projectCardActions.onViewFile}
+                                onDownloadFile={projectCardActions.onDownloadFile}
+                                onDeleteFile={projectCardActions.onDeleteFile}
+                                onOpenFileManager={projectCardActions.onOpenFileManager}
+                                onOpenEntaxis={projectCardActions.onOpenEntaxis}
+                                onOpenEgkriseis={projectCardActions.onOpenEgkriseis}
                                 hasCreditApproval={hasCreditApproval(project.projectTitle, project.subprojectTitle, project.subprojectId)}
                                 hasLinkedEgkrisi={hasLinkedEgkrisi(project.subprojectId)}
                                 linkedProsklisi={linkedProsklisi}
-                                onOpenLinkedProsklisi={handleOpenLinkedProsklisi}
+                                onOpenLinkedProsklisi={projectCardActions.onOpenLinkedProsklisi}
                                 isLocked={isLocked}
                                 hasEntaxi={hasEntaxiForSubproject(project.subprojectId)}
-                                onOpenSpecificEntaxi={handleOpenSpecificEntaxi}
+                                onOpenSpecificEntaxi={projectCardActions.onOpenSpecificEntaxi}
                                 hasProsklisi={hasProsklisiForProject(project.projectTitle, project.projectId)}
-                                onOpenSpecificProsklisi={handleOpenSpecificProsklisi}
+                                onOpenSpecificProsklisi={projectCardActions.onOpenSpecificProsklisi}
                                 hasMeleti={hasMeletiForSubproject(project.subprojectId)}
-                                onOpenSpecificMeleti={handleOpenSpecificMeleti}
-                                onViewDetails={openSubprojectDetail}
+                                onOpenSpecificMeleti={projectCardActions.onOpenSpecificMeleti}
+                                onViewDetails={projectCardActions.onViewDetails}
                                 engineerCatalog={engineerCatalogForCards}
                                 linkedNotesMap={linkedNotesMap}
                                 notes={notes}
-                                onOpenNoteFromEntity={handleOpenNoteFromEntity}
+                                onOpenNoteFromEntity={projectCardActions.onOpenNoteFromEntity}
                                 portalEnabled={portalEnabled}
                                 isPublishedToPortal={publishedSubprojectIds.has(project.subprojectId)}
                                 hasDirectAssignmentViolation={directAssignmentViolationSubprojectIds.has(project.subprojectId)}
-                                onExportReport={handleExportSubprojectReport}
+                                onExportReport={projectCardActions.onExportReport}
                                 onOpenContractorRegistry={
                                   contractorRegistry.showContractorRegistryButton(userRole)
-                                    ? openContractorRegistryCard
+                                    ? projectCardActions.onOpenContractorRegistry
                                     : undefined
                                 }
                                 actRootSiblingsIndex={actRootSiblingsIndex}
-                                onContractExpiryAccept={canManageWorkflow ? handleContractExpiryAccept : undefined}
+                                onContractExpiryAccept={canManageWorkflow ? projectCardActions.onContractExpiryAccept : undefined}
                                 siteDiaryEntryCount={siteDiaryCounts[project.subprojectId] || 0}
                                 siteDiaryVisibleSubprojectIds={engineerVisibleSubprojectIds}
-                                onOpenSiteDiary={canSeeSiteDiary ? handleOpenSiteDiaryForSubproject : undefined}
+                                onOpenSiteDiary={canSeeSiteDiary ? projectCardActions.onOpenSiteDiary : undefined}
                               />
                             );
                           })}
@@ -7871,13 +7966,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           onTogglePortal={handleTogglePortalSubproject}
           onRefreshProject={async () => {
             // silent: μην εμφανίζεται η οθόνη εκκίνησης πάνω από την ανοιχτή κάρτα
-            await loadDataWithCache(true, { silent: true });
-            const refreshed = await ipcRenderer.invoke('load-all-projects');
-            if (refreshed && Array.isArray(refreshed)) {
-              const updated = refreshed.find(
-                (p) => p.subprojectId === selectedDetailProject.subprojectId
-              );
-              if (updated) setSelectedDetailProject(updated);
+            const sid = selectedDetailProject.subprojectId;
+            const pid = selectedDetailProject.projectId;
+            const refreshed = await loadDataWithCache(true, { silent: true });
+            const updated = Array.isArray(refreshed)
+              ? refreshed.find((p) => p.subprojectId === sid)
+              : null;
+            if (updated) {
+              if (selectedDetailRef.current?.subprojectId === sid) {
+                setSelectedDetailProject(updated);
+              }
+            } else if (pid && sid) {
+              await fetchAndApplySubproject(pid, sid);
             }
             refreshKhmdhsStaleCount();
           }}
@@ -8087,13 +8187,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           setEntaxisProjectFilter(null);
           setEntaxisProsklisiIdFilter(null);
         }}
-        onClose={async () => {
-          await ipcRenderer.invoke('clear-all-locks');
+        onClose={async (dataChanged) => {
           setIsEntaxisOpen(false);
           setEntaxisProjectFilter(null);
           setSelectedEntaxiId(null);
           setEntaxisProsklisiIdFilter(null);
-          await loadProjects();
+          if (dataChanged) {
+            await loadEntaxeis();
+          }
           setTimeout(() => {
             if (dashboardScrollRef.current) {
               dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
@@ -8102,9 +8203,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           restoreNoteReturnContext();
         }}
         onDataChange={async () => {
-          await loadProjects();
           await loadEntaxeis();
-        }} // Callback για ανανέωση όταν αλλάζουν δεδομένα
+        }}
         userRole={userRoleForWorkflowModals}
         currentUser={currentUser}
         projectFilter={entaxisProjectFilter}
@@ -8301,12 +8401,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       <Suspense fallback={<LazyChunkFallback>Φόρτωση φόρμας…</LazyChunkFallback>}>
       <EgkriseisForm
         isOpen={isEgkriseisFormOpen}
-        onClose={async () => {
-          await ipcRenderer.invoke('clear-all-locks');
+        onClose={() => {
           setIsEgkriseisFormOpen(false);
-          // Reload projects and linked egkriseis to update any changes
-          await loadProjects();
-          await loadLinkedEgkriseis();
         }}
         onSave={async () => {
           // Reload projects and linked egkriseis to update any changes
@@ -8522,12 +8618,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       <Suspense fallback={<LazyChunkFallback>Φόρτωση εγκρίσεων…</LazyChunkFallback>}>
       <EgkriseisManager
         isOpen
-        onClose={async () => {
-          await ipcRenderer.invoke('clear-all-locks');
+        onClose={async (dataChanged) => {
           setIsEgkriseisFormOpen(false);
           setIsEgkriseisManagerOnly(false);
           setEgkriseisInitialSearch('');
-          await loadLinkedEgkriseis();
+          if (dataChanged) {
+            await loadLinkedEgkriseis();
+          }
           scheduleDocumentInteractionRecovery();
         }}
         onLinkCreated={async () => {

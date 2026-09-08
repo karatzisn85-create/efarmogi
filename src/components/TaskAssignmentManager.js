@@ -1109,6 +1109,7 @@ function TaskAssignmentManager({
   const managerWasOpenRef = useRef(false);
   const focusTaskHandledRef = useRef(null);
   const rosterIntentRef = useRef('');
+  const skipTabTaskLoadRef = useRef(false);
   const onAccessRefreshRef = useRef(onAccessRefresh);
   onAccessRefreshRef.current = onAccessRefresh;
 
@@ -1243,31 +1244,34 @@ function TaskAssignmentManager({
   useEffect(() => {
     if (!isOpen) {
       managerWasOpenRef.current = false;
+      skipTabTaskLoadRef.current = false;
       return;
     }
     const justOpened = !managerWasOpenRef.current;
     managerWasOpenRef.current = true;
+    if (!justOpened) return;
     loadUsers();
     loadAssignable();
     loadNotifications();
-    if (justOpened) {
-      setScreen(initialScreen);
-      prevScreenRef.current = initialScreen;
-      const openingTab = canAssign && initialScreen !== 'workArchive' ? 'choose' : 'asAssignee';
-      setTab(openingTab);
-      setSelectedId(null);
-      setSelectedTask(null);
-      setSelectedPersonUsername('');
-      setPersonTaskMode('open');
-      if (openingTab !== 'choose') {
-        loadTasks({ silent: false, viewOverride: openingTab });
-      } else {
-        setLoading(false);
-        setTasks([]);
-      }
-      onAccessRefreshRef.current?.();
+    setScreen(initialScreen);
+    prevScreenRef.current = initialScreen;
+    const openingTab = canAssign && initialScreen !== 'workArchive' ? 'choose' : 'asAssignee';
+    setTab(openingTab);
+    setSelectedId(null);
+    setSelectedTask(null);
+    setSelectedPersonUsername('');
+    setPersonTaskMode('open');
+    if (openingTab !== 'choose') {
+      skipTabTaskLoadRef.current = openingTab;
+      loadTasks({ silent: false, viewOverride: openingTab });
+    } else {
+      setLoading(false);
+      setTasks([]);
     }
-  }, [isOpen, initialScreen, canAssign, loadUsers, loadAssignable, loadNotifications, loadTasks]); // loadTasks: initial fetch on open
+    onAccessRefreshRef.current?.();
+    // Μόνο στο άνοιγμα — όχι σε κάθε αλλαγή όψης / ταυτότητας loadTasks
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialScreen, canAssign]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1339,8 +1343,16 @@ function TaskAssignmentManager({
 
   useEffect(() => {
     if (!isOpen) return;
-    loadTasks({ silent: true });
-  }, [tab, isOpen, loadTasks]);
+    if (tab === 'choose') return;
+    if (skipTabTaskLoadRef.current === tab) {
+      skipTabTaskLoadRef.current = false;
+      return;
+    }
+    skipTabTaskLoadRef.current = false;
+    loadTasks({ silent: true, viewOverride: tab });
+    // viewOverride κρατά σταθερό το αίτημα· δεν ξανατρέχουμε όταν αλλάζει μόνο η ταυτότητα loadTasks
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, isOpen]);
 
   const isWorkArchive = screen === 'workArchive';
   const isChoosingView = taskWorkspace.needsWorkspaceViewChooser({

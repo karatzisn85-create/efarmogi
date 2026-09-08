@@ -1458,6 +1458,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   const [expandedDetails, setExpandedDetails] = useState({});
   const [menuContext, setMenuContext] = useState(null);
   const [textDetailModal, setTextDetailModal] = useState(null);
+  const catalogDirtyRef = useRef(false);
   const focusScrollKeyRef = useRef(null);
   const listScrollRef = useRef(null);
   const savedListScroll = useRef(0);
@@ -1571,6 +1572,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
   useEffect(() => {
     if (isOpen) {
+      catalogDirtyRef.current = false;
       loadEntaxeis();
       lockBodyScroll('entaxis');
     }
@@ -1784,10 +1786,19 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   };
 
   // Συνάρτηση για κλείσιμο του modal με καθαρισμό φίλτρων
+  const markCatalogDirty = () => {
+    catalogDirtyRef.current = true;
+  };
+
   const handleClose = () => {
+    releaseEntaxiLock(editingEntaxi?.entaxiId);
+    releaseEntaxiLock(selectedEntaxiForMod?.entaxiId);
+    releaseEntaxiLock(editingModification?.entaxiId);
     clearFilters();
     setSelectedDetailEntaxi(null);
-    onClose();
+    const dataChanged = catalogDirtyRef.current;
+    catalogDirtyRef.current = false;
+    onClose(dataChanged);
   };
 
   const getActiveFiltersCount = () => {
@@ -1811,6 +1822,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       setEditingEntaxi(null);
       requestListScrollRestore();
       releaseEntaxiLock(savedId);
+      markCatalogDirty();
       await loadEntaxeis({ silent: true });
       if (onDataChange) onDataChange();
     } catch (error) {
@@ -1830,7 +1842,9 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       setIsModificationFormOpen(false);
       setSelectedEntaxiForMod(null);
       releaseEntaxiLock(savedId);
+      markCatalogDirty();
       await loadEntaxeis({ silent: true });
+      if (onDataChange) onDataChange();
     } catch (error) {
       console.error('Error saving modification:', error);
       showToast('Σφάλμα αποθήκευσης τροποποίησης: ' + error.message, 'error');
@@ -1848,6 +1862,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
           return;
         }
         setSelectedDetailEntaxi((prev) => (prev?.entaxiId === entaxiId ? null : prev));
+        markCatalogDirty();
         await loadEntaxeis({ silent: true });
         if (onDataChange) {
           onDataChange();
@@ -1940,6 +1955,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
         
         if (result.success) {
           console.log('✅ Delete successful, reloading entaxeis...');
+          markCatalogDirty();
           await loadEntaxeis({ silent: true }); // Reload to update UI
           console.log('✅ Entaxeis reloaded');
           showToast('Το αρχείο διαγράφηκε επιτυχώς!', 'success');
@@ -1976,7 +1992,9 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
           showToast('Σφάλμα διαγραφής τροποποίησης: ' + (result.error || 'άγνωστο σφάλμα'), 'error');
           return;
         }
+        markCatalogDirty();
         await loadEntaxeis({ silent: true });
+        if (onDataChange) onDataChange();
         showToast('Η τροποποίηση διαγράφηκε επιτυχώς', 'success');
       } catch (error) {
         console.error('Error deleting modification:', error);
@@ -1996,7 +2014,9 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       setEditingModification(null);
       setIsModificationFormOpen(false);
       releaseEntaxiLock(savedId);
+      markCatalogDirty();
       await loadEntaxeis({ silent: true });
+      if (onDataChange) onDataChange();
     } catch (error) {
       console.error('Error updating modification:', error);
       showToast('Σφάλμα ενημέρωσης τροποποίησης: ' + error.message, 'error');
@@ -2374,7 +2394,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (handleOpenProsklisi) {
-                                    onClose();
+                                    handleClose();
                                     setTimeout(() => handleOpenProsklisi(entaxi.prosklisiId), 300);
                                   }
                                 }}
@@ -2659,7 +2679,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
             onOpenFiles={handleOpenFileViewer}
             onOpenProsklisi={handleOpenProsklisi
               ? (prosklisiId) => {
-                onClose();
+                handleClose();
                 setTimeout(() => handleOpenProsklisi(prosklisiId), 300);
               }
               : null}

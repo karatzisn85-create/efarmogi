@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import EgkrisiForm from './EgkrisiForm';
 import EgkriseisStructureViewer from './EgkriseisStructureViewer';
@@ -428,6 +428,17 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
   const [currentLinkingEgkrisi, setCurrentLinkingEgkrisi] = useState(null);
   const [linkedSubprojects, setLinkedSubprojects] = useState({});
   const [egkriseisLocks, setEgkriseisLocks] = useState({});
+  const catalogDirtyRef = useRef(false);
+
+  const handleCloseCatalog = () => {
+    if (currentLinkingEgkrisi) {
+      const egkrisiId = `egkrisi_${currentLinkingEgkrisi.projectKey}_${currentLinkingEgkrisi.subprojectKey}`;
+      ipcRenderer.invoke('remove-entity-lock', 'egkriseis', egkrisiId).catch(() => {});
+    }
+    const dataChanged = catalogDirtyRef.current;
+    catalogDirtyRef.current = false;
+    onClose(dataChanged);
+  };
 
   useEffect(() => {
     if (isOpen && initialSearchTerm) {
@@ -445,6 +456,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
   // Load egkriseis for all projects
   useEffect(() => {
     if (isOpen) {
+      catalogDirtyRef.current = false;
       loadAllEgkriseis();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -619,19 +631,25 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
         return;
       }
 
+      const projectIds = [];
+      const seenIds = new Set();
       for (const project of projects) {
         if (!project || !Array.isArray(project)) continue;
-        
-        const uniqueProjects = [...new Set(project.map(p => p.projectId))];
-        
-        for (const projectId of uniqueProjects) {
-          const result = await ipcRenderer.invoke('load-project-egkriseis', projectId);
-          
-          if (result.success && result.egkriseis.length > 0) {
-            allEgkriseis[projectId] = result.egkriseis;
-          }
+        for (const projectId of [...new Set(project.map((p) => p.projectId))]) {
+          if (!projectId || seenIds.has(projectId)) continue;
+          seenIds.add(projectId);
+          projectIds.push(projectId);
         }
       }
+      const loaded = await Promise.all(
+        projectIds.map((projectId) => ipcRenderer.invoke('load-project-egkriseis', projectId)
+          .catch(() => ({ success: false, egkriseis: [] })))
+      );
+      loaded.forEach((result, index) => {
+        if (result?.success && Array.isArray(result.egkriseis) && result.egkriseis.length > 0) {
+          allEgkriseis[projectIds[index]] = result.egkriseis;
+        }
+      });
 
       // Also load from standalone egkriseis-data.json
       try {
@@ -702,6 +720,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
       const result = await ipcRenderer.invoke('delete-egkrisi-file', projectId, subprojectId, egkrisiId);
       
       if (result.success) {
+        catalogDirtyRef.current = true;
         loadAllEgkriseis();
       } else {
         showToast('Σφάλμα κατά τη διαγραφή: ' + result.error, 'error');
@@ -762,6 +781,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
         await loadEgkrisiLinks();
         
         // Notify parent component about the new link
+        catalogDirtyRef.current = true;
         if (onLinkCreated) {
           onLinkCreated();
         }
@@ -822,7 +842,7 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
 
       if (result.success) {
         showToast('Η έγκριση διαθέσεως πίστωσης δημιουργήθηκε επιτυχώς!', 'success');
-        // Refresh data
+        catalogDirtyRef.current = true;
         loadAllEgkriseis();
       } else {
         showToast('Σφάλμα κατά τη δημιουργία έγκρισης: ' + result.error, 'error');
@@ -844,12 +864,12 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
   if (!isOpen) return null;
 
   return (
-    <ModalOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <ModalOverlay onClick={(e) => e.target === e.currentTarget && handleCloseCatalog()}>
       <ModalContainer onClick={(e) => e.stopPropagation()}>
         <ModalTopSection>
           <PanelHeader>
             <PanelTitle>Εγκρίσεις Διάθεσης Πίστωσης</PanelTitle>
-            <PanelCloseButton type="button" onClick={onClose}>
+            <PanelCloseButton type="button" onClick={handleCloseCatalog}>
               Κλείσιμο
             </PanelCloseButton>
           </PanelHeader>
@@ -1040,10 +1060,9 @@ function EgkriseisManager({ isOpen, onClose, projects, userRole, currentUser, on
             projects={projects}
             selectedProject={selectedProject}
             onClose={async () => {
-              // Καθάρισε όλα τα locks όταν κλείνει η φόρμα έγκρισης
-              await ipcRenderer.invoke('clear-all-locks');
               setShowEgkrisiForm(false);
               setSelectedProject(null);
+              catalogDirtyRef.current = true;
               await loadAllEgkriseis();
             }}
           />
