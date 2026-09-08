@@ -183,7 +183,7 @@ const InfoBox = styled.div`
 `;
 
 const UserList = styled.div`
-  max-height: 120px;
+  max-height: 180px;
   overflow-y: auto;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -262,8 +262,33 @@ const REMINDER_EVENT_TYPES = [
   CALENDAR_EVENT_TYPES.COMPLIANCE_12M,
   CALENDAR_EVENT_TYPES.CUSTOM,
   CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
+  CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE,
+  CALENDAR_EVENT_TYPES.ENTAXI_END_DATE,
   CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY,
 ];
+
+const RECIPIENT_ROLES = ['SUPERADMIN', 'ADMIN', 'ENGINEER', 'USER'];
+
+const ROLE_LABELS = {
+  SUPERADMIN: 'Υπερδιαχειριστής',
+  ADMIN: 'Διαχειριστές',
+  ENGINEER: 'Μηχανικοί',
+  USER: 'Χρήστες',
+};
+
+const USER_ROLE_LABELS = {
+  SUPERADMIN: 'Υπερδιαχειριστής',
+  ADMIN: 'Διαχειριστής',
+  ENGINEER: 'Μηχανικός',
+  USER: 'Χρήστης',
+};
+
+function eventTypeLabel(eventType) {
+  if (eventType === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY) {
+    return 'Λήξη εγγυητικής ή χρόνου εγγύησης';
+  }
+  return CALENDAR_EVENT_LABELS[eventType] || eventType;
+}
 
 function makeDefaultTypeSetting() {
   return {
@@ -298,7 +323,7 @@ function loadEventTypeSettingsFromConfig(cfg = {}) {
     const row = src?.[type];
     if (row && typeof row === 'object') {
       const roles = Array.isArray(row.recipientRoles)
-        ? row.recipientRoles.filter((r) => ['ADMIN', 'ENGINEER', 'USER'].includes(r))
+        ? row.recipientRoles.filter((r) => RECIPIENT_ROLES.includes(r))
         : [];
       out[type] = {
         enabled: row.enabled !== false,
@@ -387,7 +412,7 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
       if (userRows.length) {
         setUsers(
           userRows
-            .filter((u) => u.active && u.approved && String(u.email || '').includes('@'))
+            .filter((u) => u.active !== false && u.approved !== false && String(u.email || '').includes('@'))
             .sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username, 'el'))
         );
       }
@@ -609,52 +634,81 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
         {REMINDER_EVENT_TYPES.map((eventType) => {
           const row = eventTypeSettings[eventType] || makeDefaultTypeSetting();
           const roles = row.recipientRoles || [];
+          const isNode = eventType === CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE;
+          const isEntaxiEnd = eventType === CALENDAR_EVENT_TYPES.ENTAXI_END_DATE;
+          const showUserRole = eventType !== CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY;
           return (
-            <TypeCard key={eventType} $enabled={row.enabled === true}>
+            <TypeCard
+              key={eventType}
+              $enabled={row.enabled === true}
+              data-testid={`notify-type-${eventType}`}
+            >
               <CheckRow>
                 <input
                   type="checkbox"
                   checked={row.enabled === true}
                   onChange={(e) => updateTypeSetting(eventType, { enabled: e.target.checked })}
+                  data-testid={`notify-type-${eventType}-enabled`}
                 />
-                <span style={{ fontWeight: 700 }}>
-                  {eventType === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY
-                    ? 'Λήξη εγγυητικής ή χρόνου εγγύησης'
-                    : (CALENDAR_EVENT_LABELS[eventType] || eventType)}
-                </span>
+                <span style={{ fontWeight: 700 }}>{eventTypeLabel(eventType)}</span>
               </CheckRow>
+              {isNode && (
+                <HelpText>
+                  Email όταν πλησιάζει η προθεσμία νομικής δέσμευσης μιας ένταξης.
+                  Επιλέξτε ρόλους ή συγκεκριμένα άτομα. Το κουτάκι «Διαχειριστές»
+                  περιλαμβάνει και τον υπερδιαχειριστή· για να σταλεί μόνο σε
+                  αυτόν, αποεπιλέξτε τους Διαχειριστές και τικάρετε Υπερδιαχειριστής.
+                </HelpText>
+              )}
+              {isEntaxiEnd && (
+                <HelpText>
+                  Email όταν πλησιάζει η ημερομηνία λήξης της πράξης στην απόφαση ένταξης.
+                </HelpText>
+              )}
               {row.enabled === true && (
                 <TypeCardBody>
                   <TypeCardRoles>
                     <CheckRow>
                       <input
                         type="checkbox"
+                        checked={roles.includes('SUPERADMIN')}
+                        onChange={() => toggleTypeRole(eventType, 'SUPERADMIN')}
+                        data-testid={`notify-type-${eventType}-role-SUPERADMIN`}
+                      />
+                      <span>{ROLE_LABELS.SUPERADMIN}</span>
+                    </CheckRow>
+                    <CheckRow>
+                      <input
+                        type="checkbox"
                         checked={roles.includes('ADMIN')}
                         onChange={() => toggleTypeRole(eventType, 'ADMIN')}
+                        data-testid={`notify-type-${eventType}-role-ADMIN`}
                       />
-                      <span>Διαχειριστές</span>
+                      <span>{ROLE_LABELS.ADMIN}</span>
                     </CheckRow>
                     <CheckRow>
                       <input
                         type="checkbox"
                         checked={roles.includes('ENGINEER')}
                         onChange={() => toggleTypeRole(eventType, 'ENGINEER')}
+                        data-testid={`notify-type-${eventType}-role-ENGINEER`}
                       />
-                      <span>Μηχανικοί</span>
+                      <span>{ROLE_LABELS.ENGINEER}</span>
                     </CheckRow>
-                    {eventType !== CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY && (
+                    {showUserRole && (
                     <CheckRow>
                       <input
                         type="checkbox"
                         checked={roles.includes('USER')}
                         onChange={() => toggleTypeRole(eventType, 'USER')}
+                        data-testid={`notify-type-${eventType}-role-USER`}
                       />
-                      <span>Χρήστες</span>
+                      <span>{ROLE_LABELS.USER}</span>
                     </CheckRow>
                     )}
                   </TypeCardRoles>
                   <FieldGroup style={{ marginBottom: 0 }}>
-                    <Label>Επιπλέον συγκεκριμένοι χρήστες</Label>
+                    <Label>Συγκεκριμένα άτομα (προαιρετικά)</Label>
                     <UserList>
                       {users.length === 0 && <HelpText>Δεν βρέθηκαν ενεργοί χρήστες με email.</HelpText>}
                       {users.map((u) => (
@@ -663,8 +717,13 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
                             type="checkbox"
                             checked={(row.recipientUsernames || []).includes(String(u.username).toLowerCase())}
                             onChange={() => toggleTypeUsername(eventType, u.username)}
+                            data-testid={`notify-type-${eventType}-user-${String(u.username).toLowerCase()}`}
                           />
-                          <span>{u.fullName || u.username} ({u.role})</span>
+                          <span>
+                            {u.fullName || u.username}
+                            {' '}
+                            ({USER_ROLE_LABELS[u.role] || u.role})
+                          </span>
                         </CheckRow>
                       ))}
                     </UserList>
@@ -675,9 +734,9 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
           );
         })}
         <HelpText>
-          Π.χ. οι λήξεις συμβάσεων μόνο στους διαχειριστές, οι προθεσμίες
-          προσφορών και στους μηχανικούς. Οι λήξεις εγγυητικών και χρόνου
-          εγγύησης αφορούν το μητρώο αναδόχων — όχι τους χρήστες ανάγνωσης.
+          Π.χ. οι λήξεις συμβάσεων μόνο στους διαχειριστές, η προθεσμία ΝοΔε
+          μόνο στον υπερδιαχειριστή ή σε συγκεκριμένα άτομα. Οι λήξεις
+          εγγυητικών αφορούν το μητρώο αναδόχων — όχι τους χρήστες ανάγνωσης.
           Οι μηχανικοί βλέπουν μόνο υποέργα που τους αφορούν.
         </HelpText>
       </Section>
@@ -825,7 +884,7 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
 
   return (
     <Overlay onClick={onClose}>
-      <Panel onClick={(e) => e.stopPropagation()}>
+      <Panel data-testid="notify-center-panel" onClick={(e) => e.stopPropagation()}>
         <HeaderBar>
           <TitleRow>
             <Title>Κέντρο Ειδοποιήσεων</Title>
@@ -867,7 +926,7 @@ export default function NotificationSettingsCenter({ onClose, currentUser }) {
                     {testing ? 'Αποστολή…' : 'Δοκιμαστικό email'}
                   </SecondaryBtn>
                 )}
-                <SecondaryBtn type="button" onClick={onClose}>Κλείσιμο</SecondaryBtn>
+                <SecondaryBtn type="button" onClick={onClose} data-testid="notify-center-close">Κλείσιμο</SecondaryBtn>
               </BtnRow>
 
               {status && <StatusMsg $error={statusError}>{status}</StatusMsg>}

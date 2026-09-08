@@ -22,6 +22,7 @@ import {
 } from '../utils/customCalendarEvents';
 import { buildAepoCalendarEvents } from '../utils/aepoCalendarEvents';
 import { buildProsklisiCalendarEvents } from '../utils/prosklisiCalendarEvents';
+import { buildEntaxiCalendarEvents } from '../utils/entaxiCalendarEvents';
 import { buildContractorRadarCalendarEvents } from '../utils/contractorRadarCalendarEvents';
 import { CALENDAR_TIME_WINDOWS, getCalendarWindowLabel } from '../utils/calendarAlerts';
 import { exportCalendarEventsToExcel } from '../utils/calendarExport';
@@ -203,6 +204,8 @@ const EventPill = styled.button`
   color: #fff;
   background: ${(p) => {
     if (p.$type === CALENDAR_EVENT_TYPES.CUSTOM) return '#4f46e5';
+    if (p.$type === CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE) return '#4f46e5';
+    if (p.$type === CALENDAR_EVENT_TYPES.ENTAXI_END_DATE) return '#6366f1';
     if (p.$type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M) return '#b45309';
     if (p.$type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY) return '#1d4ed8';
     if (p.$type === CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY) return '#7c3aed';
@@ -324,6 +327,7 @@ const TYPE_FILTER_LABELS = {
   compliance: 'Παράβαση 12μ.',
   aepo: 'ΑΕΠΟ',
   proskliseis: 'Προσκλήσεις',
+  entaxeis: 'Εντάξεις',
   contractors: 'Ανάδοχοι',
 };
 
@@ -356,11 +360,13 @@ export default function ProcurementCalendar({
   onClose,
   projects = [],
   proskliseis = [],
+  entaxeis = [],
   userRole = 'USER',
   currentUser = null,
   engineerCatalog = [],
   onViewSubproject,
   onOpenProsklisi,
+  onOpenEntaxi,
   onCalendarDataChanged,
   initialCustomEventId = null,
   includeAepo = false,
@@ -469,6 +475,11 @@ export default function ProcurementCalendar({
     [proskliseis]
   );
 
+  const entaxiEvents = useMemo(
+    () => buildEntaxiCalendarEvents(entaxeis),
+    [entaxeis]
+  );
+
   const contractorEvents = useMemo(
     () => buildContractorRadarCalendarEvents({
       projects,
@@ -487,9 +498,10 @@ export default function ProcurementCalendar({
       customEvents,
       buildAepoCalendarEvents(aepoAlertsRaw),
       prosklisiEvents,
+      entaxiEvents,
       contractorEvents
     ),
-    [procurementEvents, customEvents, aepoAlertsRaw, prosklisiEvents, contractorEvents]
+    [procurementEvents, customEvents, aepoAlertsRaw, prosklisiEvents, entaxiEvents, contractorEvents]
   );
 
   const filteredEvents = useMemo(
@@ -598,6 +610,10 @@ export default function ProcurementCalendar({
       onOpenProsklisi?.(ev.prosklisiId);
       return;
     }
+    if (ev.entaxiId) {
+      onOpenEntaxi?.(ev.entaxiId);
+      return;
+    }
     if (ev.subprojectId) onViewSubproject?.(ev.subprojectId);
   };
 
@@ -659,6 +675,9 @@ export default function ProcurementCalendar({
           <TabBtn type="button" $active={typeFilter === 'compliance'} onClick={() => setTypeFilter('compliance')}>
             Παράβαση 12μ.
           </TabBtn>
+          <TabBtn type="button" $active={typeFilter === 'entaxeis'} onClick={() => setTypeFilter('entaxeis')}>
+            Εντάξεις
+          </TabBtn>
           <TabBtn type="button" $active={typeFilter === 'proskliseis'} onClick={() => setTypeFilter('proskliseis')}>
             Προσκλήσεις
           </TabBtn>
@@ -711,6 +730,8 @@ export default function ProcurementCalendar({
                             : ev.type === CALENDAR_EVENT_TYPES.CONTRACT_END ? '📋'
                             : ev.type === CALENDAR_EVENT_TYPES.CUSTOM ? '📌'
                             : ev.type === CALENDAR_EVENT_TYPES.COMPLIANCE_12M ? '⚠'
+                            : ev.type === CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE ? '📑'
+                            : ev.type === CALENDAR_EVENT_TYPES.ENTAXI_END_DATE ? '📌'
                             : ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY ? '🏦'
                             : ev.type === CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY ? '📄' : '•'}{' '}
                           {(ev.subprojectTitle || '').slice(0, 18)}

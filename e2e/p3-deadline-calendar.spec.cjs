@@ -51,6 +51,16 @@ test('P3-04 χρήστης δεν βλέπει ειδοποίηση μόνο γ�
   await expect(window.getByText('Ειδοποίηση μηχανικών').first()).toBeVisible();
 });
 
+test('P3-05β φίλτρο εντάξεων δείχνει ΝοΔε και λήξη πράξης', async ({ app }) => {
+  const { window } = app;
+  await openCalendarList(window);
+  await calendarTypeFilter(window, 'Εντάξεις');
+  await expect(window.getByText('Ανάπλαση γέφυρας').first()).toBeVisible();
+  await expect(window.getByText('Προθεσμία νομικής δέσμευσης (NoΔε)').first()).toBeVisible();
+  await expect(window.getByText('Λήξη πράξης ένταξης').first()).toBeVisible();
+  await expect(window.getByText(/Προθεσμίες εντός/).locator('..').getByText('Πρόσκληση σχολείων')).toHaveCount(0);
+});
+
 test('P3-05 φίλτρο προσκλήσεων δείχνει μόνο προσκλήσεις', async ({ app }) => {
   const { window } = app;
   await openCalendarList(window);

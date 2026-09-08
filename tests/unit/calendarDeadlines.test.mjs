@@ -218,3 +218,14 @@ test('ραντάρ αναδόχου: έληξε η ενεργή εγγυητικ
   assert.equal(cal.filterCalendarEventsByType([mapped], 'contractors').length, 1);
   assert.equal(cal.eventsWithinDays([mapped], 30, { includePastDeadlines: false }).length, 1);
 });
+
+test('λήξη πράξης ένταξης μπαίνει στο φίλτρο εντάξεων', () => {
+  const events = cal.buildEntaxiCalendarEvents([{
+    entaxiId: 'ent-end',
+    subject: 'ΚΗΦΗ',
+    endDate: isoDaysFromToday(20),
+  }]);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, cal.CALENDAR_EVENT_TYPES.ENTAXI_END_DATE);
+  assert.equal(cal.filterCalendarEventsByType(events, 'entaxeis').length, 1);
+});

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
@@ -7,6 +7,9 @@ import { showFileConflictDialog } from '../utils/fileConflictDialog';
 import { useToast } from './ToastProvider';
 import entaxiCatalog from '../../app/core/entaxiCatalog';
 import managedFiles from '../../app/core/managedFiles';
+import EntaxiDiavgeiaSection from './EntaxiDiavgeiaSection';
+import { buildEntaxiDiavgeiaRegistryEntry } from '../utils/entaxiDiavgeiaRegistry';
+import { mergeDiavgeiaFormFields } from '../utils/entaxiDiavgeiaFetch';
 
 const ipcRenderer = window.electronAPI;
 
@@ -30,7 +33,7 @@ const FormContainer = styled.div`
   border-radius: 18px;
   max-width: min(920px, calc(100vw - 2rem));
   width: 100%;
-  margin: auto 0;
+  margin: 0 auto;
   flex-shrink: 0;
   box-shadow:
     0 4px 6px rgba(15, 23, 42, 0.06),
@@ -530,21 +533,33 @@ const DropdownItem = styled.li`
   }
 `;
 
+const EMPTY_ENTAXI_FORM = {
+  documentDate: '',
+  fundingAuthority: '',
+  initialAmount: '',
+  subject: '',
+  projectId: '',
+  projectTitle: '',
+  subprojectIds: [],
+  prosklisiId: '',
+  comments: '',
+  entaxiPDFs: [],
+  approvalPDFs: [],
+  opsCode: '',
+  legalCommitmentDeadline: '',
+  startDate: '',
+  endDate: '',
+  beneficiary: '',
+  diavgeiaAda: '',
+  diavgeiaMeta: null,
+};
+
 function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
   const { showToast } = useToast();
-  const [formData, setFormData] = useState({
-    documentDate: '',
-    fundingAuthority: '',
-    initialAmount: '',
-    subject: '',
-    projectId: '',
-    projectTitle: '',
-    subprojectIds: [],
-    prosklisiId: '', // New field for linking to prosklisi
-    comments: '',
-    entaxiPDFs: [], // Changed to array for multiple files
-    approvalPDFs: [] // Changed to array for multiple files
-  });
+  const [formData, setFormData] = useState({ ...EMPTY_ENTAXI_FORM });
+  const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
+  const [diavgeiaPreview, setDiavgeiaPreview] = useState(null);
+  const [diavgeiaAutoFilled, setDiavgeiaAutoFilled] = useState(() => new Set());
 
   const [projects, setProjects] = useState([]);
   const [subprojects, setSubprojects] = useState([]);
@@ -557,12 +572,20 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
   // eslint-disable-next-line no-unused-vars
   const [_fileUpdateTrigger, setFileUpdateTrigger] = useState(0);
 
+  const overlayRef = useRef(null);
+  const formBoxRef = useRef(null);
+  const frozenOffsetRef = useRef(null);
+  const overlayScrollRef = useRef(0);
+  const restoringScrollRef = useRef(false);
+  const formHydratedRef = useRef(false);
+
   useEffect(() => {
     if (isOpen) {
       loadProjects();
       loadProskliseis();
       if (editingEntaxi) {
         setFormData({
+          ...EMPTY_ENTAXI_FORM,
           documentDate: editingEntaxi.documentDate || '',
           fundingAuthority: editingEntaxi.fundingAuthority || '',
           initialAmount: editingEntaxi.initialAmount || '',
@@ -572,30 +595,34 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
           subprojectIds: editingEntaxi.subprojectIds || [],
           prosklisiId: editingEntaxi.prosklisiId || '',
           comments: editingEntaxi.comments || '',
-          entaxiPDFs: [], // Will be loaded from existing files
-          approvalPDFs: [] // Will be loaded from existing files
-        });
-        setProjectSearchTerm(editingEntaxi.projectTitle || '');
-        
-        // Load existing files from the entaxi
-        loadExistingFiles(editingEntaxi.entaxiId);
-      } else {
-        setFormData({
-          documentDate: '',
-          fundingAuthority: '',
-          initialAmount: '',
-          subject: '',
-          projectId: '',
-          projectTitle: '',
-          subprojectIds: [],
-          prosklisiId: '',
-          comments: '',
+          opsCode: editingEntaxi.opsCode || '',
+          legalCommitmentDeadline: editingEntaxi.legalCommitmentDeadline || '',
+          startDate: editingEntaxi.startDate || '',
+          endDate: editingEntaxi.endDate || '',
+          beneficiary: editingEntaxi.beneficiary || '',
+          diavgeiaAda: editingEntaxi.diavgeiaAda || editingEntaxi.diavgeiaMeta?.ada || '',
+          diavgeiaMeta: editingEntaxi.diavgeiaMeta || null,
           entaxiPDFs: [],
           approvalPDFs: []
         });
+        setDiavgeiaMeta(editingEntaxi.diavgeiaMeta || null);
+        setDiavgeiaPreview(null);
+        setDiavgeiaAutoFilled(new Set());
+        setProjectSearchTerm(editingEntaxi.projectTitle || '');
+        loadExistingFiles(editingEntaxi.entaxiId);
+      } else {
+        setFormData({ ...EMPTY_ENTAXI_FORM });
+        setDiavgeiaMeta(null);
+        setDiavgeiaPreview(null);
+        setDiavgeiaAutoFilled(new Set());
         setProjectSearchTerm('');
       }
       setErrors({});
+      formHydratedRef.current = true;
+    } else {
+      frozenOffsetRef.current = null;
+      overlayScrollRef.current = 0;
+      formHydratedRef.current = false;
     }
   }, [isOpen, editingEntaxi]);
 
@@ -611,6 +638,26 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
       setSubprojects([]);
     }
   }, [formData.projectId, projects]);
+
+  useLayoutEffect(() => {
+    if (!isOpen || !formHydratedRef.current) return undefined;
+    const overlay = overlayRef.current;
+    const box = formBoxRef.current;
+    if (!overlay || !box) return undefined;
+
+    if (frozenOffsetRef.current == null) {
+      const extra = overlay.clientHeight - box.offsetHeight;
+      frozenOffsetRef.current = extra > 64 ? Math.floor(extra / 2) : 0;
+    }
+    box.style.marginTop = frozenOffsetRef.current ? `${frozenOffsetRef.current}px` : '0px';
+
+    restoringScrollRef.current = true;
+    overlay.scrollTop = overlayScrollRef.current;
+    const frame = window.requestAnimationFrame(() => {
+      restoringScrollRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen, formData, diavgeiaMeta, diavgeiaPreview, loading]);
 
   useEffect(() => {
     if (projectSearchTerm) {
@@ -679,12 +726,19 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
         
         console.log('✅ Converted to file objects:', { entaxiFileObjects, approvalFileObjects });
         
-        // Update the form data with existing files
-        setFormData(prevData => ({
-          ...prevData,
-          entaxiPDFs: entaxiFileObjects,
-          approvalPDFs: approvalFileObjects
-        }));
+        setFormData((prevData) => {
+          const keepNew = (list) => (list || []).filter((f) => (
+            f?.fromDiavgeia || (f?.filePath && !f.isExisting)
+          ));
+          const existingEntaxiNames = new Set(entaxiFileObjects.map((f) => f.fileName));
+          const extraEntaxi = keepNew(prevData.entaxiPDFs)
+            .filter((f) => !existingEntaxiNames.has(f.fileName));
+          return {
+            ...prevData,
+            entaxiPDFs: [...entaxiFileObjects, ...extraEntaxi],
+            approvalPDFs: [...approvalFileObjects, ...keepNew(prevData.approvalPDFs)],
+          };
+        });
       }
     } catch (error) {
       console.error('Error loading existing files:', error);
@@ -744,6 +798,64 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
     }
     return result;
   };
+
+  const diavgeiaFieldStyle = useCallback((field) => (
+    diavgeiaAutoFilled.has(field)
+      ? { borderColor: '#0d9488', background: '#f0fdfa' }
+      : undefined
+  ), [diavgeiaAutoFilled]);
+
+  const handleDiavgeiaApply = useCallback(({
+    fields,
+    autoFilledKeys,
+    diavgeiaMeta: meta,
+    preview,
+    pdf,
+    pdfError,
+    extracted,
+  }) => {
+    setFormData((prev) => {
+      const next = mergeDiavgeiaFormFields(prev, fields, diavgeiaAutoFilled, extracted);
+      next.diavgeiaAda = meta?.ada || '';
+      next.diavgeiaMeta = meta || null;
+      if (pdf?.path) {
+        const already = (prev.entaxiPDFs || []).some((f) => (
+          f.filePath === pdf.path || f.fileName === pdf.fileName
+        ));
+        if (!already) {
+          next.entaxiPDFs = [
+            ...(prev.entaxiPDFs || []),
+            {
+              fileName: pdf.fileName,
+              filePath: pdf.path,
+              tempId: `diavgeia_${Date.now()}`,
+              fromDiavgeia: true,
+            },
+          ];
+        }
+      }
+      return next;
+    });
+    setDiavgeiaAutoFilled(new Set(autoFilledKeys || []));
+    setDiavgeiaMeta(meta || null);
+    setDiavgeiaPreview(preview || null);
+    showToast('Τα στοιχεία από τη Διαύγεια εφαρμόστηκαν στη φόρμα. Ελέγξτε τα πριν την αποθήκευση.', 'success');
+    if (pdfError) {
+      showToast(pdfError, 'error');
+    }
+  }, [showToast, diavgeiaAutoFilled]);
+
+  const handleDiavgeiaClear = useCallback(() => {
+    setDiavgeiaMeta(null);
+    setDiavgeiaPreview(null);
+    setDiavgeiaAutoFilled(new Set());
+    setFormData((prev) => ({
+      ...prev,
+      diavgeiaAda: '',
+      diavgeiaMeta: null,
+      entaxiPDFs: (prev.entaxiPDFs || []).filter((f) => !f.fromDiavgeia),
+    }));
+  }, []);
 
   const handleInputChange = useCallback((field, value) => {
     // ΑΠΑΓΟΡΕΥΟΥΜΕ ΟΠΟΙΑΔΗΠΟΤΕ ΝORMALIZATION/TRIM ΚΑΤΑ ΤΗΝ ΠΛΗΚΤΡΟΛΟΓΗΣΗ
@@ -931,8 +1043,22 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
         // Send existing files as file names list for preservation
         existingEntaxiFiles: existingEntaxiFiles.map(f => f.fileName),
         existingApprovalFiles: existingApprovalFiles.map(f => f.fileName),
-        // Ensure prosklisiId is included
-        prosklisiId: formData.prosklisiId || null
+        prosklisiId: formData.prosklisiId || null,
+        opsCode: formData.opsCode || '',
+        legalCommitmentDeadline: formData.legalCommitmentDeadline || '',
+        startDate: formData.startDate || '',
+        endDate: formData.endDate || '',
+        beneficiary: formData.beneficiary || '',
+        diavgeiaAda: diavgeiaMeta?.ada || formData.diavgeiaAda || '',
+        diavgeiaMeta: diavgeiaMeta || null,
+        documentRegistry: (() => {
+          const existingRegistry = editingEntaxi?.documentRegistry || [];
+          const nonDiavgeia = existingRegistry.filter((e) => e?.source !== 'diavgeia');
+          const entry = diavgeiaMeta?.ada
+            ? buildEntaxiDiavgeiaRegistryEntry(diavgeiaPreview || diavgeiaMeta, { roleLabel: 'Ένταξη' })
+            : null;
+          return entry ? [...nonDiavgeia, entry] : nonDiavgeia;
+        })(),
       };
 
       await onSave(entaxiData);
@@ -954,13 +1080,18 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
 
   return createPortal(
     <FormOverlay
+      ref={overlayRef}
+      onScroll={() => {
+        if (restoringScrollRef.current) return;
+        overlayScrollRef.current = overlayRef.current?.scrollTop || 0;
+      }}
       onClick={async (e) => {
         if (e.target === e.currentTarget) {
           await handleDismiss();
         }
       }}
     >
-      <FormContainer>
+      <FormContainer ref={formBoxRef}>
         <FormHero>
           <HeroText>
             <HeroEyebrow>Εντάξεις έργων</HeroEyebrow>
@@ -980,6 +1111,13 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
 
         <FormBody>
           <TheForm onSubmit={handleSubmit}>
+            <EntaxiDiavgeiaSection
+              mode="new"
+              initialAda={diavgeiaMeta?.ada || formData.diavgeiaAda || ''}
+              initialConfirmedMeta={diavgeiaMeta}
+              onApply={handleDiavgeiaApply}
+              onClear={handleDiavgeiaClear}
+            />
             <Section>
               <SectionHead>
                 <SectionTitle>Βασικά στοιχεία</SectionTitle>
@@ -995,6 +1133,8 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
                     type="date"
                     value={formData.documentDate}
                     onChange={(e) => handleInputChange('documentDate', e.target.value)}
+                    style={diavgeiaFieldStyle('documentDate')}
+                    data-testid="ent-field-documentDate"
                   />
                   {errors.documentDate && <ErrorMessage>{errors.documentDate}</ErrorMessage>}
                 </FormGroup>
@@ -1010,6 +1150,8 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
                     onChange={(e) => handleInputChange('initialAmount', e.target.value)}
                     onBlur={(e) => handleAmountBlur('initialAmount', e.target.value)}
                     placeholder="π.χ. 150.000,00"
+                    style={diavgeiaFieldStyle('initialAmount')}
+                    data-testid="ent-field-initialAmount"
                   />
                   {errors.initialAmount && <ErrorMessage>{errors.initialAmount}</ErrorMessage>}
                 </FormGroup>
@@ -1024,6 +1166,8 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
                     value={formData.fundingAuthority}
                     onChange={(e) => handleInputChange('fundingAuthority', e.target.value)}
                     placeholder="π.χ. ΕΣΠΑ 2021-2027"
+                    style={diavgeiaFieldStyle('fundingAuthority')}
+                    data-testid="ent-field-fundingAuthority"
                   />
                   {errors.fundingAuthority && <ErrorMessage>{errors.fundingAuthority}</ErrorMessage>}
                 </FormGroup>
@@ -1038,8 +1182,75 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
                     onChange={(e) => handleInputChange('subject', e.target.value)}
                     placeholder="Ένταξη της Πράξης «...» με Κωδικό ΟΠΣ ... στο «...»"
                     rows={4}
+                    style={diavgeiaFieldStyle('subject')}
+                    data-testid="ent-field-subject"
                   />
                   {errors.subject && <ErrorMessage>{errors.subject}</ErrorMessage>}
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>Κωδικός ΟΠΣ</Label>
+                  <Input
+                    type="text"
+                    value={formData.opsCode}
+                    onChange={(e) => handleInputChange('opsCode', e.target.value)}
+                    placeholder="π.χ. 5225302"
+                    style={diavgeiaFieldStyle('opsCode')}
+                    data-testid="ent-field-opsCode"
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>Προθεσμία νομικής δέσμευσης (NoΔε)</Label>
+                  <Input
+                    type="date"
+                    value={formData.legalCommitmentDeadline}
+                    onChange={(e) => handleInputChange('legalCommitmentDeadline', e.target.value)}
+                    style={diavgeiaFieldStyle('legalCommitmentDeadline')}
+                    data-testid="ent-field-legalCommitmentDeadline"
+                  />
+                  <FieldHint>
+                    Μέχρι αυτή την ημερομηνία πρέπει να έχει γίνει σύμβαση για τα υποέργα της ένταξης.
+                    {diavgeiaMeta && !formData.legalCommitmentDeadline
+                      ? (diavgeiaMeta.extracted?.noObligationDeadline
+                        ? ' Στο έγγραφο της Διαύγειας αναφέρεται ότι δεν υπάρχει τέτοια προθεσμία.'
+                        : ' Στο κείμενο του αρχείου δεν βρέθηκε ημερομηνία ΝοΔε — συμπληρώστε την χειροκίνητα αν υπάρχει.')
+                      : ''}
+                  </FieldHint>
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>Έναρξη πράξης</Label>
+                  <Input
+                    type="date"
+                    value={formData.startDate}
+                    onChange={(e) => handleInputChange('startDate', e.target.value)}
+                    style={diavgeiaFieldStyle('startDate')}
+                    data-testid="ent-field-startDate"
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>Λήξη πράξης</Label>
+                  <Input
+                    type="date"
+                    value={formData.endDate}
+                    onChange={(e) => handleInputChange('endDate', e.target.value)}
+                    style={diavgeiaFieldStyle('endDate')}
+                    data-testid="ent-field-endDate"
+                  />
+                </FormGroup>
+
+                <FormGroup fullWidth>
+                  <Label>Δικαιούχος</Label>
+                  <Input
+                    type="text"
+                    value={formData.beneficiary}
+                    onChange={(e) => handleInputChange('beneficiary', e.target.value)}
+                    placeholder="π.χ. Δήμος Αρχανών–Αστερουσίων"
+                    style={diavgeiaFieldStyle('beneficiary')}
+                    data-testid="ent-field-beneficiary"
+                  />
                 </FormGroup>
               </FormGrid>
             </Section>
@@ -1231,7 +1442,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi }) {
               <Button type="button" onClick={handleDismiss} disabled={loading}>
                 Ακύρωση
               </Button>
-              <Button type="submit" primary disabled={loading}>
+              <Button type="submit" primary disabled={loading} data-testid="ent-form-save">
                 {loading ? 'Αποθήκευση...' : 'Αποθήκευση'}
               </Button>
             </ButtonContainer>

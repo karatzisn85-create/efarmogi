@@ -414,11 +414,34 @@ function loadContractorRecords(dataDir) {
   }
 }
 
+function loadEntaxeis(dataDir) {
+  if (!dataDir) return [];
+  const root = path.join(dataDir, 'entaxeis');
+  if (!fs.existsSync(root)) return [];
+  const out = [];
+  try {
+    for (const name of fs.readdirSync(root)) {
+      const jsonPath = path.join(root, name, 'data.json');
+      if (!fs.existsSync(jsonPath)) continue;
+      try {
+        const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        if (data && data.entaxiId) out.push(data);
+      } catch {
+        /* ignore broken record */
+      }
+    }
+  } catch {
+    return [];
+  }
+  return out;
+}
+
 function collectReminderItems({ dataDir, projects, proskliseis }) {
   return calendarEventsBuilder.collectAllCalendarReminderItems({
     dataDir,
     projects,
     proskliseis,
+    entaxeis: loadEntaxeis(dataDir),
     contractorRecords: loadContractorRecords(dataDir),
   });
 }

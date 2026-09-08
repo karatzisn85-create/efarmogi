@@ -13,7 +13,7 @@ const { safeWriteJSON } = require('./safeWrite');
 const CONFIG_DIR = 'config';
 const CONFIG_FILE = 'calendar_config.json';
 
-const ALLOWED_ROLES = ['ADMIN', 'ENGINEER', 'USER'];
+const ALLOWED_ROLES = ['SUPERADMIN', 'ADMIN', 'ENGINEER', 'USER'];
 
 const NOTIFY_EVENT_TYPES = {
   DEADLINE: 'deadline',
@@ -22,6 +22,8 @@ const NOTIFY_EVENT_TYPES = {
   COMPLIANCE_12M: 'compliance_12m',
   CUSTOM: 'custom',
   PROSKLISI_DEADLINE: 'prosklisi_deadline',
+  ENTAXI_NODE_DEADLINE: 'entaxi_node_deadline',
+  ENTAXI_END_DATE: 'entaxi_end_date',
   CONTRACTOR_REGISTRY: 'contractor_registry',
 };
 
@@ -34,6 +36,8 @@ const NOTIFY_EVENT_TYPE_LABELS = {
   [NOTIFY_EVENT_TYPES.COMPLIANCE_12M]: 'Παράβαση κανόνα 12 μηνών',
   [NOTIFY_EVENT_TYPES.CUSTOM]: 'Ειδοποίηση ημερολογίου',
   [NOTIFY_EVENT_TYPES.PROSKLISI_DEADLINE]: 'Λήξη υποβολής πρόσκλησης',
+  [NOTIFY_EVENT_TYPES.ENTAXI_NODE_DEADLINE]: 'Προθεσμία νομικής δέσμευσης (NoΔε)',
+  [NOTIFY_EVENT_TYPES.ENTAXI_END_DATE]: 'Λήξη πράξης ένταξης',
   [NOTIFY_EVENT_TYPES.CONTRACTOR_REGISTRY]: 'Λήξη εγγυητικής ή χρόνου εγγύησης',
 };
 
@@ -178,7 +182,7 @@ function isNotifyEventTypeEnabled(config, eventType) {
 function roleMatchesRecipientRoles(role, recipientRoles) {
   const r = String(role || '').trim().toUpperCase();
   const roles = new Set((recipientRoles || []).map((x) => String(x || '').trim().toUpperCase()));
-  if (r === 'SUPERADMIN') return roles.has('ADMIN');
+  if (r === 'SUPERADMIN') return roles.has('SUPERADMIN') || roles.has('ADMIN');
   return roles.has(r);
 }
 

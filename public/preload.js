@@ -31,6 +31,7 @@ const ALLOWED_INVOKE = new Set([
   'khmdhs-fetch-notice-by-adam',
   'diavgeia-fetch-decision-by-ada',
   'diavgeia-download-decision-pdf',
+  'diavgeia-fetch-entaxi-by-ada',
   'khmdhs-resolve-adam-chain',
   'preview-subproject-khmdhs-refresh',
   'cancel-khmdhs-batch-refresh',

@@ -21,6 +21,8 @@ const EVENT_TYPES = {
   COMPLIANCE_12M: 'compliance_12m',
   CUSTOM: 'custom',
   PROSKLISI_DEADLINE: 'prosklisi_deadline',
+  ENTAXI_NODE_DEADLINE: 'entaxi_node_deadline',
+  ENTAXI_END_DATE: 'entaxi_end_date',
   CONTRACTOR_REGISTRY: 'contractor_registry',
 };
 
@@ -31,6 +33,8 @@ const EVENT_LABELS = {
   [EVENT_TYPES.COMPLIANCE_12M]: 'Παράβαση κανόνα 12 μηνών',
   [EVENT_TYPES.CUSTOM]: 'Ειδοποίηση ημερολογίου',
   [EVENT_TYPES.PROSKLISI_DEADLINE]: 'Λήξη υποβολής πρόσκλησης',
+  [EVENT_TYPES.ENTAXI_NODE_DEADLINE]: 'Προθεσμία νομικής δέσμευσης (NoΔε)',
+  [EVENT_TYPES.ENTAXI_END_DATE]: 'Λήξη πράξης ένταξης',
   [EVENT_TYPES.CONTRACTOR_REGISTRY]: 'Λήξη εγγυητικής ή χρόνου εγγύησης',
 };
 
@@ -276,6 +280,7 @@ function makeItem({
   subprojectId = '',
   customEventId = '',
   prosklisiId = '',
+  entaxiId = '',
   project = null,
   customEvent = null,
   subprojectTitle,
@@ -292,6 +297,7 @@ function makeItem({
     subprojectId,
     customEventId,
     prosklisiId,
+    entaxiId,
     project,
     customEvent,
     subprojectTitle: subprojectTitle || '(Χωρίς τίτλο)',
@@ -332,6 +338,39 @@ function collectProsklisiItems(proskliseis) {
       deadlineIso,
     });
     if (row) items.push(row);
+  }
+  return items;
+}
+
+function collectEntaxiItems(entaxeis) {
+  const items = [];
+  const seen = new Set();
+  const nodeParse = require('../app/core/entaxiDiavgeiaParse');
+
+  const pushEntaxi = (entaxi, eventType, deadlineIso) => {
+    const entaxiId = entaxi?.entaxiId;
+    if (!entaxiId || !deadlineIso) return;
+    const itemKey = `${eventType}:${entaxiId}:${deadlineIso}`;
+    if (seen.has(itemKey)) return;
+    seen.add(itemKey);
+    const row = makeItem({
+      itemKey,
+      eventType,
+      entaxiId,
+      subprojectId: '',
+      subprojectTitle: entaxi.subject || entaxi.projectTitle || '(Χωρίς τίτλο)',
+      projectTitle: entaxi.projectTitle || '',
+      adam: entaxi.diavgeiaAda || '',
+      label: EVENT_LABELS[eventType],
+      deadlineIso,
+    });
+    if (row) items.push(row);
+  };
+
+  for (const entaxi of entaxeis || []) {
+    if (!entaxi?.entaxiId) continue;
+    pushEntaxi(entaxi, EVENT_TYPES.ENTAXI_NODE_DEADLINE, nodeParse.getEffectiveEntaxiNodeDeadline(entaxi));
+    pushEntaxi(entaxi, EVENT_TYPES.ENTAXI_END_DATE, nodeParse.getEffectiveEntaxiEndDate(entaxi));
   }
   return items;
 }
@@ -521,12 +560,13 @@ function collectGuaranteeReminderItems(records, projects) {
   return items;
 }
 
-function collectAllCalendarReminderItems({ dataDir, projects, proskliseis, contractorRecords }) {
+function collectAllCalendarReminderItems({ dataDir, projects, proskliseis, entaxeis, contractorRecords }) {
   const procurement = collectProcurementItems(projects);
   const custom = collectCustomItems(dataDir);
   const prosklisiItems = collectProsklisiItems(proskliseis);
+  const entaxiItems = collectEntaxiItems(entaxeis);
   const guaranteeItems = collectGuaranteeReminderItems(contractorRecords, projects);
-  const merged = [...procurement, ...custom, ...prosklisiItems, ...guaranteeItems];
+  const merged = [...procurement, ...custom, ...prosklisiItems, ...entaxiItems, ...guaranteeItems];
   merged.sort(
     (a, b) => (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999)
       || (a.subprojectTitle || '').localeCompare(b.subprojectTitle || '', 'el', { sensitivity: 'base' })
@@ -547,7 +587,9 @@ function itemVisibleToRecipient(item, recipient) {
   }
 
   // Προσκλήσεις: ορατές σε όσους έχουν επιλεγεί ως παραλήπτες (ρόλος/χρήστης στο κέντρο ειδοποιήσεων)
-  if (item.eventType === EVENT_TYPES.PROSKLISI_DEADLINE) {
+  if (item.eventType === EVENT_TYPES.PROSKLISI_DEADLINE
+    || item.eventType === EVENT_TYPES.ENTAXI_NODE_DEADLINE
+    || item.eventType === EVENT_TYPES.ENTAXI_END_DATE) {
     return role === 'ADMIN' || role === 'SUPERADMIN' || role === 'USER' || role === 'ENGINEER';
   }
 
@@ -577,6 +619,7 @@ module.exports = {
   collectAllCalendarReminderItems,
   collectProcurementItems,
   collectProsklisiItems,
+  collectEntaxiItems,
   collectGuaranteeReminderItems,
   filterItemsForRecipient,
   itemVisibleToRecipient,

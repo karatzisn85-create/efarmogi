@@ -8589,6 +8589,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             onCalendarDataChanged={() => setCalendarRefreshKey((k) => k + 1)}
             projects={projects}
             proskliseis={proskliseis}
+            entaxeis={entaxeis}
             userRole={userRole}
             currentUser={currentUser}
             engineerCatalog={engineerCatalogForCards}
@@ -8603,6 +8604,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             onOpenProsklisi={(prosklisiId) => {
               setIsProcurementCalendarOpen(false);
               handleOpenLinkedProsklisi(prosklisiId);
+            }}
+            onOpenEntaxi={(entaxiId) => {
+              setIsProcurementCalendarOpen(false);
+              handleOpenEntaxiFromProsklisi(entaxiId);
             }}
             onViewSubproject={(subprojectId) => {
               setIsProcurementCalendarOpen(false);
@@ -8848,6 +8853,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         deadlineWidgetProps={{
           projects: visibleProjects,
           proskliseis,
+          entaxeis,
           userRole,
           currentUser,
           engineerCatalog: engineerCatalogForCards,
@@ -8860,6 +8866,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           refreshKey: calendarRefreshKey,
           onOpenOrimanthi: () => setIsOrimanthiOpen(true),
           onOpenProsklisi: (prosklisiId) => handleOpenLinkedProsklisi(prosklisiId),
+          onOpenEntaxi: (entaxiId) => handleOpenEntaxiFromProsklisi(entaxiId),
           onOpenCalendar: (opts) => {
             if (opts?.customEventId) setCalendarFocusCustomEventId(opts.customEventId);
             setIsProcurementCalendarOpen(true);

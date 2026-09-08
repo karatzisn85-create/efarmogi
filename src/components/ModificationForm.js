@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,6 +9,10 @@ import {
   getEntaxiCurrentTotal
 } from '../utils/entaxiAmountUtils';
 import { parseGreekAmountString } from '../utils/khmdhsFields';
+import { useToast } from './ToastProvider';
+import EntaxiDiavgeiaSection from './EntaxiDiavgeiaSection';
+import { buildEntaxiDiavgeiaRegistryEntry } from '../utils/entaxiDiavgeiaRegistry';
+import { mergeDiavgeiaFormFields } from '../utils/entaxiDiavgeiaFetch';
 import {
   FormOverlay as ChromeFormOverlay,
   FormContainer as ChromeFormContainer,
@@ -124,17 +128,31 @@ const SelectedFileNote = styled.div`
 `;
 
 function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false }) {
+  const { showToast } = useToast();
+  const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
+  const [diavgeiaPreview, setDiavgeiaPreview] = useState(null);
+  const [diavgeiaAutoFilled, setDiavgeiaAutoFilled] = useState(() => new Set());
   const [formData, setFormData] = useState({
     date: '',
     changeAmount: false, // Checkbox για αλλαγή ποσού
     amount: '',
     comments: '', // Σχόλια τροποποίησης
     modificationPDF: null,
-    approvalPDF: null
+    approvalPDF: null,
+    legalCommitmentDeadline: '',
+    endDate: '',
+    diavgeiaAda: '',
+    diavgeiaMeta: null
   });
 
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const overlayRef = useRef(null);
+  const formBoxRef = useRef(null);
+  const frozenOffsetRef = useRef(null);
+  const overlayScrollRef = useRef(0);
+  const restoringScrollRef = useRef(false);
+  const formHydratedRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -146,8 +164,15 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
           amount: entaxi.amount || '',
           comments: entaxi.comments || '',
           modificationPDF: entaxi.modificationPDF || null,
-          approvalPDF: entaxi.approvalPDF || null
+          approvalPDF: entaxi.approvalPDF || null,
+          legalCommitmentDeadline: entaxi.legalCommitmentDeadline || '',
+          endDate: entaxi.endDate || '',
+          diavgeiaAda: entaxi.diavgeiaAda || entaxi.diavgeiaMeta?.ada || '',
+          diavgeiaMeta: entaxi.diavgeiaMeta || null
         });
+        setDiavgeiaMeta(entaxi.diavgeiaMeta || null);
+        setDiavgeiaPreview(null);
+        setDiavgeiaAutoFilled(new Set());
       } else {
         // Create mode: load default values
         setFormData({
@@ -156,12 +181,44 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
           amount: '',
           comments: '',
           modificationPDF: null,
-          approvalPDF: null
+          approvalPDF: null,
+          legalCommitmentDeadline: '',
+          endDate: '',
+          diavgeiaAda: '',
+          diavgeiaMeta: null
         });
+        setDiavgeiaMeta(null);
+        setDiavgeiaPreview(null);
+        setDiavgeiaAutoFilled(new Set());
       }
       setErrors({});
+      formHydratedRef.current = true;
+    } else {
+      frozenOffsetRef.current = null;
+      overlayScrollRef.current = 0;
+      formHydratedRef.current = false;
     }
   }, [isOpen, isEditMode, entaxi]);
+
+  useLayoutEffect(() => {
+    if (!isOpen || !formHydratedRef.current) return undefined;
+    const overlay = overlayRef.current;
+    const box = formBoxRef.current;
+    if (!overlay || !box) return undefined;
+
+    if (frozenOffsetRef.current == null) {
+      const extra = overlay.clientHeight - box.offsetHeight;
+      frozenOffsetRef.current = extra > 64 ? Math.floor(extra / 2) : 0;
+    }
+    box.style.marginTop = frozenOffsetRef.current ? `${frozenOffsetRef.current}px` : '0px';
+
+    restoringScrollRef.current = true;
+    overlay.scrollTop = overlayScrollRef.current;
+    const frame = window.requestAnimationFrame(() => {
+      restoringScrollRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen, formData, diavgeiaMeta, diavgeiaPreview, loading]);
 
   const formatAmountOnBlur = (value) => {
     if (!value) return '';
@@ -249,6 +306,48 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
       delta
     };
   };
+
+  const handleDiavgeiaApply = useCallback(({
+    fields,
+    autoFilledKeys,
+    diavgeiaMeta: meta,
+    preview,
+    pdf,
+    pdfError,
+    extracted,
+  }) => {
+    setFormData((prev) => {
+      const next = mergeDiavgeiaFormFields(prev, fields, diavgeiaAutoFilled, extracted);
+      next.diavgeiaAda = meta?.ada || '';
+      next.diavgeiaMeta = meta || null;
+      if (fields.changeAmount) next.changeAmount = true;
+      if (pdf?.path) {
+        next.modificationPDF = {
+          fileName: pdf.fileName,
+          filePath: pdf.path,
+          fromDiavgeia: true,
+        };
+      }
+      return next;
+    });
+    setDiavgeiaAutoFilled(new Set(autoFilledKeys || []));
+    setDiavgeiaMeta(meta || null);
+    setDiavgeiaPreview(preview || null);
+    showToast('Τα στοιχεία της τροποποίησης από τη Διαύγεια εφαρμόστηκαν στη φόρμα.', 'success');
+    if (pdfError) showToast(pdfError, 'error');
+  }, [showToast, diavgeiaAutoFilled]);
+
+  const handleDiavgeiaClear = useCallback(() => {
+    setDiavgeiaMeta(null);
+    setDiavgeiaPreview(null);
+    setDiavgeiaAutoFilled(new Set());
+    setFormData((prev) => ({
+      ...prev,
+      diavgeiaAda: '',
+      diavgeiaMeta: null,
+      modificationPDF: prev.modificationPDF?.fromDiavgeia ? null : prev.modificationPDF,
+    }));
+  }, []);
 
   const handleInputChange = useCallback((field, value) => {
     // ΑΠΑΓΟΡΕΥΟΥΜΕ ΟΠΟΙΑΔΗΠΟΤΕ ΝORMALIZATION/TRIM ΚΑΤΑ ΤΗΝ ΠΛΗΚΤΡΟΛΟΓΗΣΗ
@@ -379,6 +478,13 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
         // File data is already in the correct format from handleFileSelect
         modificationPDF: formData.modificationPDF || null,
         approvalPDF: formData.approvalPDF || null,
+        legalCommitmentDeadline: formData.legalCommitmentDeadline || '',
+        endDate: formData.endDate || '',
+        diavgeiaAda: diavgeiaMeta?.ada || formData.diavgeiaAda || '',
+        diavgeiaMeta: diavgeiaMeta || null,
+        diavgeiaDocument: diavgeiaMeta?.ada
+          ? buildEntaxiDiavgeiaRegistryEntry(diavgeiaPreview || diavgeiaMeta, { roleLabel: 'Τροποποίηση' })
+          : null,
         createdAt: isEditMode ? entaxi.createdAt : new Date().toISOString(),
         updatedAt: isEditMode ? new Date().toISOString() : undefined,
         cumulativeAmount: formatEntaxiAmount(absoluteNewTotal)
@@ -397,8 +503,15 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
   const newAmountCalc = calculateNewAmount();
 
   return createPortal(
-    <FormOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <FormContainer>
+    <FormOverlay
+      ref={overlayRef}
+      onScroll={() => {
+        if (restoringScrollRef.current) return;
+        overlayScrollRef.current = overlayRef.current?.scrollTop || 0;
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <FormContainer ref={formBoxRef}>
         <FormHero>
           <HeroText>
             <HeroEyebrow>Εντάξεις</HeroEyebrow>
@@ -423,6 +536,13 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
         </EntaxiInfo>
 
         <form onSubmit={handleSubmit}>
+          <EntaxiDiavgeiaSection
+            mode="modification"
+            initialAda={diavgeiaMeta?.ada || formData.diavgeiaAda || ''}
+            initialConfirmedMeta={diavgeiaMeta}
+            onApply={handleDiavgeiaApply}
+            onClear={handleDiavgeiaClear}
+          />
           <FormGrid>
             <FormGroup>
               <Label>Ημερομηνία Τροποποίησης *</Label>
@@ -474,13 +594,33 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
               )}
             </FormGroup>
 
+            <FormGroup>
+              <Label>Νέα προθεσμία ΝοΔε</Label>
+              <Input
+                type="date"
+                value={formData.legalCommitmentDeadline}
+                onChange={(e) => handleInputChange('legalCommitmentDeadline', e.target.value)}
+                data-testid="ent-mod-field-node"
+              />
+            </FormGroup>
+
+            <FormGroup>
+              <Label>Νέα λήξη πράξης</Label>
+              <Input
+                type="date"
+                value={formData.endDate}
+                onChange={(e) => handleInputChange('endDate', e.target.value)}
+                data-testid="ent-mod-field-endDate"
+              />
+            </FormGroup>
+
             <FormGroup fullWidth>
               <Label>Σχόλια Τροποποίησης *</Label>
               <TextArea
                 value={formData.comments}
                 onChange={(e) => handleInputChange('comments', e.target.value)}
                 placeholder="Περιγράψτε τις τροποποιήσεις που έχουν γίνει πέραν του αρχικού ποσού της ένταξης..."
-                rows={3}
+                rows={5}
               />
               {errors.comments && <ErrorMessage>{errors.comments}</ErrorMessage>}
             </FormGroup>

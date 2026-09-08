@@ -103,7 +103,13 @@
     var card = cardApi();
     var contains = card.containsSearchTerm || function () { return false; };
     var e = entaxi || {};
-    return contains(e.subject, q) || contains(e.projectTitle, q);
+    return contains(e.subject, q)
+      || contains(e.projectTitle, q)
+      || contains(e.opsCode, q)
+      || contains(e.diavgeiaAda, q)
+      || contains(e.diavgeiaMeta && e.diavgeiaMeta.ada, q)
+      || contains(e.beneficiary, q)
+      || contains(e.fundingAuthority, q);
   }
 
   function showNewEntaxiButton(userRole) {

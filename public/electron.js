@@ -3569,6 +3569,16 @@ ipcMain.handle('diavgeia-download-decision-pdf', async (_event, { ada, documentU
   }
 });
 
+ipcMain.handle('diavgeia-fetch-entaxi-by-ada', async (_event, { ada, mode }) => {
+  try {
+    const service = require('./entaxiDiavgeiaService');
+    return await service.fetchEntaxiByAda(ada, { mode: mode === 'modification' ? 'modification' : 'new' });
+  } catch (error) {
+    console.error('diavgeia-fetch-entaxi-by-ada:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
 ipcMain.handle('khmdhs-fetch-notice-by-adam', async (_event, { adam }) => {
   try {
     const kh = require('./khmdhsOpenData');
@@ -6211,6 +6221,18 @@ ipcMain.handle('download-entaxi-file', async (event, entaxiId, fileName) => {
   }
 });
 
+function applyEntaxiDeadlineRollup(existingData) {
+  try {
+    const nodeParse = require('../app/core/entaxiDiavgeiaParse');
+    const endDate = nodeParse.getEffectiveEntaxiEndDate(existingData);
+    if (endDate) existingData.endDate = endDate;
+    const nodeDeadline = nodeParse.getEffectiveEntaxiNodeDeadline(existingData);
+    if (nodeDeadline) existingData.legalCommitmentDeadline = nodeDeadline;
+  } catch (_e) {
+    /* keep stored dates */
+  }
+}
+
 // Save modification - ASYNC VERSION (Non-blocking)
 ipcMain.handle('save-modification', async (event, entaxiId, modificationData) => {
   try {
@@ -6294,6 +6316,7 @@ ipcMain.handle('save-modification', async (event, entaxiId, modificationData) =>
     
     // Update timestamp
     existingData.updatedAt = new Date().toISOString();
+    applyEntaxiDeadlineRollup(existingData);
     
     // Save updated data - ASYNC
     await safeWriteJSONAsync(dataFile, existingData);
@@ -7515,6 +7538,7 @@ ipcMain.handle('update-entaxi-modification', async (event, modificationData) => 
 
     // Update timestamp
     existingData.updatedAt = new Date().toISOString();
+    applyEntaxiDeadlineRollup(existingData);
 
     // Save updated data
     safeWriteJSON(dataFile, existingData);

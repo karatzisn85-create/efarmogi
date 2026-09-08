@@ -369,6 +369,12 @@ function seedEntaxeis(dataDir) {
       initialAmount: '100.000,00',
       prosklisiId: 'psk-schools',
       subprojectIds: ['sub-bridge'],
+      opsCode: '5225302',
+      diavgeiaAda: 'ΨΩΚΖ7ΛΚ-8ΦΤ',
+      legalCommitmentDeadline: dateKeyFromToday(12),
+      endDate: dateKeyFromToday(18),
+      documentDate: '2024-11-28',
+      fundingAuthority: 'ΠΕΡΙΦΕΡΕΙΑ ΚΡΗΤΗΣ',
     },
     {
       entaxiId: 'ent-water',

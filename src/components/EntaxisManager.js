@@ -1454,6 +1454,21 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   const [menuContext, setMenuContext] = useState(null);
   const [textDetailModal, setTextDetailModal] = useState(null);
   const focusScrollKeyRef = useRef(null);
+  const listScrollRef = useRef(null);
+  const savedListScroll = useRef(0);
+  const shouldRestoreListScroll = useRef(false);
+  const [listScrollRestoreTick, setListScrollRestoreTick] = useState(0);
+
+  const captureListScroll = useCallback(() => {
+    if (listScrollRef.current) {
+      savedListScroll.current = listScrollRef.current.scrollTop;
+    }
+  }, []);
+
+  const requestListScrollRestore = useCallback(() => {
+    shouldRestoreListScroll.current = true;
+    setListScrollRestoreTick((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     if (!menuContext) return undefined;
@@ -1523,6 +1538,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   const handleEditEntaxi = async (entaxi) => {
     setMenuContext(null);
     if (!(await tryAcquireEntaxiLock(entaxi))) return;
+    captureListScroll();
     setEditingEntaxi(entaxi);
     setIsFormOpen(true);
   };
@@ -1773,6 +1789,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       await loadEntaxeis();
       setIsFormOpen(false);
       setEditingEntaxi(null);
+      requestListScrollRestore();
       if (onDataChange) {
         onDataChange();
       }
@@ -2022,13 +2039,33 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     focusScrollKeyRef.current = key;
   }, [isOpen, selectedEntaxiId, loading, filteredEntaxeis]);
 
+  useEffect(() => {
+    if (!shouldRestoreListScroll.current || isFormOpen) return undefined;
+    const el = listScrollRef.current;
+    if (!el) return undefined;
+    const y = savedListScroll.current;
+    const apply = () => { el.scrollTop = y; };
+    apply();
+    const t1 = setTimeout(apply, 50);
+    const t2 = setTimeout(apply, 200);
+    const t3 = setTimeout(() => {
+      apply();
+      shouldRestoreListScroll.current = false;
+    }, 420);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [isFormOpen, listScrollRestoreTick, loading, filteredEntaxeis.length]);
+
   // Group filtered entaxeis by project
   const groupedEntaxeis = entaxiCatalog.groupEntaxeisByProjectTitle(filteredEntaxeis);
 
   if (!isOpen) return null;
 
   return (
-    <EntaxisOverlay onClick={(e) => e.target === e.currentTarget && handleClose()}>
+    <EntaxisOverlay data-testid="entaxeis-window" onClick={(e) => e.target === e.currentTarget && handleClose()}>
       <EntaxisContainer>
         <EntaxisTopSection>
         <Header>
@@ -2041,7 +2078,9 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
             <ActionButton
               type="button"
               primary
+              data-testid="btn-ent-new"
               onClick={() => {
+                captureListScroll();
                 setEditingEntaxi(null);
                 setIsFormOpen(true);
               }}
@@ -2180,7 +2219,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
         )}
         </EntaxisTopSection>
 
-        <EntaxisContent>
+        <EntaxisContent ref={listScrollRef}>
           {loading ? (
             <NoEntaxisMessage>
               Φόρτωση εντάξεων...
@@ -2265,6 +2304,9 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                               <MetaChip $accent title={entaxi.fundingAuthority}>
                                 {truncateText(entaxi.fundingAuthority, 42)}
                               </MetaChip>
+                            )}
+                            {entaxi.endDate && (
+                              <MetaChip title="Λήξη πράξης">Λήξη {formatDate(entaxi.endDate)}</MetaChip>
                             )}
                           </MetaChipsRow>
 
@@ -2514,8 +2556,8 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
             }
             setIsFormOpen(false);
             setEditingEntaxi(null);
-            // Ανανέωση για να ενημερωθεί το lock status
             await loadEntaxeis();
+            requestListScrollRestore();
           }}
           onSave={handleSaveEntaxi}
           editingEntaxi={editingEntaxi}

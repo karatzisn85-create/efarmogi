@@ -65,6 +65,18 @@ test('νέα ένταξη: ημερομηνία, φορέας, ποσό, θέμ�
   assert.equal(spaces.subject, undefined);
 });
 
+test('γρήγορη αναζήτηση βρίσκει ΑΔΑ και ΟΠΣ', () => {
+  const row = {
+    subject: 'Μελέτη ανάπλασης',
+    projectTitle: 'Αρχάνες',
+    opsCode: '5225302',
+    diavgeiaAda: 'ΨΩΚΖ7ΛΚ-8ΦΤ',
+  };
+  assert.equal(ent.entaxiMatchesQuickSearch(row, '5225302'), true);
+  assert.equal(ent.entaxiMatchesQuickSearch(row, 'ΨΩΚΖ7ΛΚ-8ΦΤ'), true);
+  assert.equal(ent.entaxiMatchesQuickSearch(row, 'γέφυρα'), false);
+});
+
 test('διαγραφή ένταξης χρειάζεται ταυτότητα και αφαιρεί μόνο αυτή', () => {
   assert.equal(ent.evaluateEntaxiDelete('').ok, false);
   assert.equal(ent.evaluateEntaxiDelete('ent-1').ok, true);

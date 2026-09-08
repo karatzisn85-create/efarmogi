@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { test, expect } = require('./helpers/real-app.cjs');
 const { expandCategory, openSystemItem } = require('./helpers/actions.cjs');
 
@@ -194,5 +196,27 @@ test('P13-16 δοκιμαστικό email υπενθύμισης ημερολο�
   await expect(center).toBeVisible();
   await expect(window.getByRole('button', { name: /Αποστολή|Δοκιμαστικό email/ })).toBeVisible();
   await expect(window.getByText(/αποστάλη|στάλθηκε|Αποτυχία|σφάλμα|αποστολής|δοκιμαστικού|ρυθμιστεί|κωδικός email|διαβαστεί/i).first()).toBeVisible({ timeout: 90000 });
+});
+
+test('P13-19 υπερδιαχειριστής ορίζει παραλήπτες για προθεσμία ΝοΔε', async ({ app }) => {
+  const { window, testDir } = app;
+  await openSystemItem(window, 'btn-notify-center');
+  const panel = window.getByTestId('notify-center-panel');
+  await expect(panel.getByRole('heading', { name: 'Κέντρο Ειδοποιήσεων' })).toBeVisible();
+  const card = panel.getByTestId('notify-type-entaxi_node_deadline');
+  await expect(card.getByText('Προθεσμία νομικής δέσμευσης (NoΔε)')).toBeVisible();
+  await card.scrollIntoViewIfNeeded();
+  await card.getByTestId('notify-type-entaxi_node_deadline-enabled').check();
+  await card.getByTestId('notify-type-entaxi_node_deadline-role-ADMIN').uncheck();
+  await card.getByTestId('notify-type-entaxi_node_deadline-role-ENGINEER').uncheck();
+  await card.getByTestId('notify-type-entaxi_node_deadline-role-USER').uncheck();
+  await card.getByTestId('notify-type-entaxi_node_deadline-role-SUPERADMIN').check();
+  await card.getByTestId('notify-type-entaxi_node_deadline-user-manager').check();
+  await panel.getByRole('button', { name: /^Αποθήκευση$/ }).click();
+  await expect(panel.getByText('Οι ρυθμίσεις αποθηκεύτηκαν.')).toBeVisible({ timeout: 15000 });
+  const cfg = JSON.parse(fs.readFileSync(path.join(testDir, 'config', 'calendar_config.json'), 'utf8'));
+  expect(cfg.eventTypeSettings.entaxi_node_deadline.enabled).toBe(true);
+  expect(cfg.eventTypeSettings.entaxi_node_deadline.recipientRoles).toEqual(['SUPERADMIN']);
+  expect(cfg.eventTypeSettings.entaxi_node_deadline.recipientUsernames).toEqual(['manager']);
 });
 

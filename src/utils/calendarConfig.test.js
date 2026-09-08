@@ -134,6 +134,62 @@ describe('calendarConfigService', () => {
     expect(normalized.notifyEventTypes).toContain('contractor_registry');
   });
 
+  test('νέος τύπος ΝοΔε ενεργοποιείται όταν λείπει από παλιές ρυθμίσεις ανά τύπο', () => {
+    const normalized = normalizeConfig({
+      eventTypeSettings: {
+        deadline: {
+          enabled: true,
+          recipientRoles: ['ADMIN'],
+          recipientUsernames: [],
+        },
+      },
+    });
+    expect(normalized.eventTypeSettings.entaxi_node_deadline.enabled).toBe(true);
+    expect(normalized.eventTypeSettings.entaxi_node_deadline.recipientRoles).toEqual(['ADMIN', 'ENGINEER']);
+    expect(normalized.notifyEventTypes).toContain('entaxi_node_deadline');
+    expect(normalized.eventTypeSettings.entaxi_end_date.enabled).toBe(true);
+    expect(normalized.notifyEventTypes).toContain('entaxi_end_date');
+  });
+
+  test('ΝοΔε μπορεί να σταλεί μόνο στον υπερδιαχειριστή ή σε συγκεκριμένο άτομο', () => {
+    const onlySuper = normalizeConfig({
+      eventTypeSettings: {
+        entaxi_node_deadline: {
+          enabled: true,
+          recipientRoles: ['SUPERADMIN'],
+          recipientUsernames: [],
+        },
+      },
+    });
+    expect(onlySuper.eventTypeSettings.entaxi_node_deadline.recipientRoles).toEqual(['SUPERADMIN']);
+    expect(userMatchesEventTypeRecipients(
+      { username: 'boss', role: 'SUPERADMIN' },
+      onlySuper.eventTypeSettings.entaxi_node_deadline
+    )).toBe(true);
+    expect(userMatchesEventTypeRecipients(
+      { username: 'admin1', role: 'ADMIN' },
+      onlySuper.eventTypeSettings.entaxi_node_deadline
+    )).toBe(false);
+
+    const namedOnly = normalizeConfig({
+      eventTypeSettings: {
+        entaxi_node_deadline: {
+          enabled: true,
+          recipientRoles: [],
+          recipientUsernames: ['manager'],
+        },
+      },
+    });
+    expect(userMatchesEventTypeRecipients(
+      { username: 'manager', role: 'ADMIN' },
+      namedOnly.eventTypeSettings.entaxi_node_deadline
+    )).toBe(true);
+    expect(userMatchesEventTypeRecipients(
+      { username: 'boss', role: 'SUPERADMIN' },
+      namedOnly.eventTypeSettings.entaxi_node_deadline
+    )).toBe(false);
+  });
+
   test('userMatchesEventTypeRecipients checks role and explicit username', () => {
     const setting = getEventTypeSetting(
       {
@@ -154,6 +210,18 @@ describe('calendarConfigService', () => {
     expect(userMatchesEventTypeRecipients(
       { username: 'boss', role: 'SUPERADMIN' },
       setting
+    )).toBe(true);
+    expect(userMatchesEventTypeRecipients(
+      { username: 'boss', role: 'SUPERADMIN' },
+      getEventTypeSetting({
+        eventTypeSettings: {
+          entaxi_node_deadline: {
+            enabled: true,
+            recipientRoles: ['SUPERADMIN'],
+            recipientUsernames: [],
+          },
+        },
+      }, 'entaxi_node_deadline')
     )).toBe(true);
     expect(userMatchesEventTypeRecipients(
       { username: 'eng1', role: 'ENGINEER' },

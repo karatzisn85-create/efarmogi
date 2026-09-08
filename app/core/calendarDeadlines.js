@@ -21,6 +21,8 @@
     CUSTOM: 'custom',
     AEPO_RENEWAL: 'aepo_renewal',
     PROSKLISI_DEADLINE: 'prosklisi_deadline',
+    ENTAXI_NODE_DEADLINE: 'entaxi_node_deadline',
+    ENTAXI_END_DATE: 'entaxi_end_date',
     CONTRACTOR_REGISTRY: 'contractor_registry',
     GUARANTEE_EXPIRY: 'guarantee_expiry'
   };
@@ -33,6 +35,8 @@
   CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.CUSTOM] = 'Ειδοποίηση ημερολογίου';
   CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.AEPO_RENEWAL] = 'Ανανέωση ΑΕΠΟ';
   CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE] = 'Λήξη υποβολής πρόσκλησης';
+  CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE] = 'Προθεσμία νομικής δέσμευσης (NoΔε)';
+  CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.ENTAXI_END_DATE] = 'Λήξη πράξης ένταξης';
   CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY] = 'Μητρώο αναδόχων';
   CALENDAR_EVENT_LABELS[CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY] = 'Λήξη εγγυητικής';
 
@@ -47,6 +51,8 @@
     CALENDAR_EVENT_TYPES.CUSTOM,
     CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
     CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
+    CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE,
+    CALENDAR_EVENT_TYPES.ENTAXI_END_DATE,
     CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY,
     CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY
   ]);
@@ -65,6 +71,8 @@
     CALENDAR_EVENT_TYPES.CUSTOM,
     CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
     CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
+    CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE,
+    CALENDAR_EVENT_TYPES.ENTAXI_END_DATE,
     CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY,
     CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY
   ];
@@ -145,6 +153,15 @@
     return 'normal';
   }
 
+  function isEntaxiCalendarEvent(ev) {
+    return !!(ev && (
+      ev.isEntaxiNodeDeadline
+      || ev.isEntaxiEndDate
+      || ev.type === CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE
+      || ev.type === CALENDAR_EVENT_TYPES.ENTAXI_END_DATE
+    ));
+  }
+
   function isContractorCalendarEvent(ev) {
     return !!(ev && (ev.isContractorRegistry || ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY || ev.type === CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY));
   }
@@ -159,6 +176,9 @@
     }
     if (ev && ev.prosklisiId) {
       return prefix + ev.type + '-' + ev.prosklisiId + '-' + ev.dateKey;
+    }
+    if (ev && ev.entaxiId) {
+      return prefix + ev.type + '-' + ev.entaxiId + '-' + ev.dateKey;
     }
     if (isContractorCalendarEvent(ev)) {
       var contractorPart = (ev && (ev.guaranteeId || ev.acceptanceId || ev.contractorRowKey)) || 'x';
@@ -211,6 +231,9 @@
     if (filterKey === 'proskliseis') {
       return list.filter(function (e) { return e.type === CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE; });
     }
+    if (filterKey === 'entaxeis') {
+      return list.filter(isEntaxiCalendarEvent);
+    }
     if (filterKey === 'contractors') {
       return list.filter(isContractorCalendarEvent);
     }
@@ -260,11 +283,14 @@
       description: ev.description || ev.complianceSummary || '',
       orimanthiProposalId: ev.orimanthiProposalId || '',
       prosklisiId: ev.prosklisiId || '',
+      entaxiId: ev.entaxiId || '',
       contractorRowKey: ev.contractorRowKey || '',
       isContractorRegistry: isContractorCalendarEvent(ev),
       isCustom: !!ev.isCustom || ev.type === CALENDAR_EVENT_TYPES.CUSTOM,
       isOrimanthiAepo: !!ev.isOrimanthiAepo || ev.type === CALENDAR_EVENT_TYPES.AEPO_RENEWAL,
-      isProsklisiDeadline: !!ev.isProsklisiDeadline || ev.type === CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE
+      isProsklisiDeadline: !!ev.isProsklisiDeadline || ev.type === CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE,
+      isEntaxiNodeDeadline: !!ev.isEntaxiNodeDeadline || ev.type === CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE,
+      isEntaxiEndDate: !!ev.isEntaxiEndDate || ev.type === CALENDAR_EVENT_TYPES.ENTAXI_END_DATE
     };
   }
 
@@ -509,6 +535,79 @@
 
   function buildProsklisiCalendarEvents(proskliseis) {
     return (proskliseis || []).map(mapProsklisiToCalendarRow).filter(Boolean);
+  }
+
+  function entaxiParseApi() {
+    try {
+      if (typeof require === 'function') return require('./entaxiDiavgeiaParse');
+    } catch (e) { /* browser harness */ }
+    return (root && root.ErgoHubEntaxiDiavgeiaParse) || {};
+  }
+
+  function mapEntaxiDeadlineToCalendarRow(entaxi, type, dateIso, flags) {
+    if (!entaxi || !entaxi.entaxiId || !dateIso) return null;
+    var daysLeft = daysUntilDate(dateIso);
+    var ops = String(entaxi.opsCode || '').trim();
+    return {
+      type: type,
+      entaxiId: entaxi.entaxiId,
+      label: CALENDAR_EVENT_LABELS[type],
+      subprojectTitle: entaxi.subject || entaxi.projectTitle || '(Χωρίς τίτλο)',
+      projectTitle: entaxi.projectTitle || '',
+      description: [
+        ops ? 'ΟΠΣ: ' + ops : '',
+        entaxi.beneficiary ? 'Δικαιούχος: ' + entaxi.beneficiary : '',
+        entaxi.diavgeiaAda ? 'ΑΔΑ: ' + entaxi.diavgeiaAda : ''
+      ].filter(Boolean).join(' · '),
+      dateIso: dateIso,
+      dateKey: toDateKey(dateIso),
+      daysLeft: daysLeft,
+      urgency: urgencyFromDaysLeft(daysLeft),
+      priority: daysLeft != null && daysLeft <= 30 ? 'high' : 'medium',
+      isEntaxiNodeDeadline: !!(flags && flags.isEntaxiNodeDeadline),
+      isEntaxiEndDate: !!(flags && flags.isEntaxiEndDate)
+    };
+  }
+
+  function mapEntaxiToCalendarRow(entaxi) {
+    if (!entaxi || !entaxi.entaxiId) return null;
+    var parseApi = entaxiParseApi();
+    var dateIso = parseApi.getEffectiveEntaxiNodeDeadline
+      ? parseApi.getEffectiveEntaxiNodeDeadline(entaxi)
+      : '';
+    return mapEntaxiDeadlineToCalendarRow(
+      entaxi,
+      CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE,
+      dateIso,
+      { isEntaxiNodeDeadline: true }
+    );
+  }
+
+  function mapEntaxiEndDateToCalendarRow(entaxi) {
+    if (!entaxi || !entaxi.entaxiId) return null;
+    var parseApi = entaxiParseApi();
+    var dateIso = parseApi.getEffectiveEntaxiEndDate
+      ? parseApi.getEffectiveEntaxiEndDate(entaxi)
+      : '';
+    return mapEntaxiDeadlineToCalendarRow(
+      entaxi,
+      CALENDAR_EVENT_TYPES.ENTAXI_END_DATE,
+      dateIso,
+      { isEntaxiEndDate: true }
+    );
+  }
+
+  function mapEntaxiToCalendarRows(entaxi) {
+    return [mapEntaxiToCalendarRow(entaxi), mapEntaxiEndDateToCalendarRow(entaxi)].filter(Boolean);
+  }
+
+  function buildEntaxiCalendarEvents(entaxeis) {
+    var out = [];
+    (entaxeis || []).forEach(function (entaxi) {
+      var rows = mapEntaxiToCalendarRows(entaxi);
+      for (var i = 0; i < rows.length; i += 1) out.push(rows[i]);
+    });
+    return out;
   }
 
   function visibleCustomEventsForUser(customEvents, user) {
@@ -829,6 +928,10 @@
     prosklisiDeadlineToIsoDate: prosklisiDeadlineToIsoDate,
     mapProsklisiToCalendarRow: mapProsklisiToCalendarRow,
     buildProsklisiCalendarEvents: buildProsklisiCalendarEvents,
+    mapEntaxiToCalendarRow: mapEntaxiToCalendarRow,
+    mapEntaxiEndDateToCalendarRow: mapEntaxiEndDateToCalendarRow,
+    mapEntaxiToCalendarRows: mapEntaxiToCalendarRows,
+    buildEntaxiCalendarEvents: buildEntaxiCalendarEvents,
     visibleCustomEventsForUser: visibleCustomEventsForUser,
     PROJECT_STATUS_CONTRACT_PROCESS: PROJECT_STATUS_CONTRACT_PROCESS,
     STATUSES_WITH_KHMDHS_ADAM: STATUSES_WITH_KHMDHS_ADAM,

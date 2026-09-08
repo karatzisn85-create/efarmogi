@@ -335,6 +335,8 @@ const EVENT_TYPE_RANK = {
   [CALENDAR_EVENT_TYPES.OFFERS_EXPIRY]: 4,
   [CALENDAR_EVENT_TYPES.CONTRACT_END]: 5,
   [CALENDAR_EVENT_TYPES.AEPO_RENEWAL]: 6,
+  [CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE]: 7,
+  [CALENDAR_EVENT_TYPES.ENTAXI_END_DATE]: 8,
 };
 
 export function dedupeEventsForMonthDay(events) {
@@ -346,6 +348,8 @@ export function dedupeEventsForMonthDay(events) {
       bucketKey = `custom|${ev.customEventId}|${ev.dateKey}`;
     } else if (ev.type === CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE || ev.prosklisiId) {
       bucketKey = `prosklisi|${ev.prosklisiId}|${ev.dateKey}`;
+    } else if (ev.entaxiId) {
+      bucketKey = `entaxi|${ev.entaxiId}|${ev.type}|${ev.dateKey}`;
     } else if (ev.type === CALENDAR_EVENT_TYPES.AEPO_RENEWAL || ev.orimanthiProposalId) {
       bucketKey = `aepo|${ev.orimanthiProposalId}|${ev.dateKey}`;
     } else if (ev.type === CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY || ev.isContractorRegistry) {

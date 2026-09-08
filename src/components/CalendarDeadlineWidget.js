@@ -10,6 +10,7 @@ import {
 } from '../utils/customCalendarEvents';
 import { buildAepoCalendarEvents } from '../utils/aepoCalendarEvents';
 import { buildProsklisiCalendarEvents } from '../utils/prosklisiCalendarEvents';
+import { buildEntaxiCalendarEvents } from '../utils/entaxiCalendarEvents';
 import { buildContractorRadarCalendarEvents } from '../utils/contractorRadarCalendarEvents';
 import {
   buildCalendarDeadlineAlerts,
@@ -357,6 +358,10 @@ function typeVisual(type) {
       return { icon: '🌿', bg: 'rgba(99, 102, 241, 0.25)' };
     case CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE:
       return { icon: '📢', bg: 'rgba(14, 165, 233, 0.22)' };
+    case CALENDAR_EVENT_TYPES.ENTAXI_NODE_DEADLINE:
+      return { icon: '📑', bg: 'rgba(79, 70, 229, 0.22)' };
+    case CALENDAR_EVENT_TYPES.ENTAXI_END_DATE:
+      return { icon: '📌', bg: 'rgba(99, 102, 241, 0.22)' };
     case CALENDAR_EVENT_TYPES.CONTRACTOR_REGISTRY:
       return { icon: '🏦', bg: 'rgba(29, 78, 216, 0.22)' };
     case CALENDAR_EVENT_TYPES.GUARANTEE_EXPIRY:
@@ -370,11 +375,13 @@ function typeVisual(type) {
 export default function CalendarDeadlineWidget({
   projects = [],
   proskliseis = [],
+  entaxeis = [],
   userRole = 'USER',
   currentUser = null,
   engineerCatalog = [],
   onViewSubproject,
   onOpenProsklisi,
+  onOpenEntaxi,
   onOpenCalendar,
   onOpenOrimanthi,
   onOpenContractorRegistry,
@@ -459,6 +466,7 @@ export default function CalendarDeadlineWidget({
     const custom = buildCustomCalendarEvents(customEventsRaw);
     const aepo = buildAepoCalendarEvents(aepoAlertsRaw);
     const prosklisiEv = buildProsklisiCalendarEvents(proskliseis);
+    const entaxiEv = buildEntaxiCalendarEvents(entaxeis);
     const contractorEv = buildContractorRadarCalendarEvents({
       projects,
       records: contractorRecords,
@@ -467,8 +475,8 @@ export default function CalendarDeadlineWidget({
       warnDays: maxDays,
       urgentDays: 7,
     });
-    return mergeCalendarEventLists(procurement, custom, aepo, prosklisiEv, contractorEv);
-  }, [projects, proskliseis, userRole, currentUser, engineerCatalog, customEventsRaw, aepoAlertsRaw, contractorRecords, visibleSubprojectIds, maxDays]);
+    return mergeCalendarEventLists(procurement, custom, aepo, prosklisiEv, entaxiEv, contractorEv);
+  }, [projects, proskliseis, entaxeis, userRole, currentUser, engineerCatalog, customEventsRaw, aepoAlertsRaw, contractorRecords, visibleSubprojectIds, maxDays]);
 
   const { alerts, totalCount } = useMemo(
     () => buildCalendarDeadlineAlerts(allEvents, { maxDays, limit: 0 }),
@@ -510,6 +518,10 @@ export default function CalendarDeadlineWidget({
     }
     if (row.prosklisiId && onOpenProsklisi) {
       onOpenProsklisi(row.prosklisiId);
+      return;
+    }
+    if (row.entaxiId && onOpenEntaxi) {
+      onOpenEntaxi(row.entaxiId);
       return;
     }
     if (row.customEventId && onOpenCalendar) {
