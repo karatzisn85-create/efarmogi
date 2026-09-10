@@ -87,6 +87,13 @@ describe('userGuide', () => {
     expect(isTourDone('maria', store)).toBe(true);
     expect(shouldAutoStartTour({ username: 'maria', role: 'ADMIN', loading: false, storage: store })).toBe(false);
     expect(shouldAutoStartTour({ username: 'giorgos', role: 'ENGINEER', loading: false, storage: store })).toBe(true);
+    expect(shouldAutoStartTour({
+      username: 'giorgos',
+      role: 'ENGINEER',
+      loading: false,
+      storage: store,
+      overlayBusy: true,
+    })).toBe(false);
   });
 
   test('η κύλιση φέρνει το στοιχείο μέσα στο ορατό παράθυρο, χωρίς να κρύβεται κάτω από καπέλο ή κάρτα οδηγού', () => {

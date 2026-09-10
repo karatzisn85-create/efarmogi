@@ -324,8 +324,8 @@ export function markTourDone(username, storage = null) {
   }
 }
 
-export function shouldAutoStartTour({ username, role, loading, storage } = {}) {
-  if (loading) return false;
+export function shouldAutoStartTour({ username, role, loading, storage, overlayBusy } = {}) {
+  if (loading || overlayBusy) return false;
   if (!username) return false;
   if (!TOUR_AUTO_ROLES.includes(role)) return false;
   return !isTourDone(username, storage);

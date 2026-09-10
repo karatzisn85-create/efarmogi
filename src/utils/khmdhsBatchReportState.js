@@ -63,6 +63,37 @@ export function mergeKhmdhsBatchResults(previous, next) {
   return recount({ ...previous, ...next }, [...kept, ...nextItems]);
 }
 
+/**
+ * Απόφαση για σήμα «Επανάληψη»: το ίδιο token δεν ξαναξεκινά μαζική
+ * (π.χ. αν ξαναστηθεί το πάνελ επειδή έκλεισαν οι σημειώσεις).
+ * `start` = ξεκίνα τώρα. `consume` = σημείωσέ το χωρίς εκτέλεση.
+ * `ignore` = ήδη χρησιμοποιημένο ή κενό. Ο καλών δεν καταναλώνει όταν τρέχει ήδη εκτέλεση.
+ */
+export function inspectKhmdhsRetrySignal(retrySignal, consumedToken, options = {}) {
+  if (!retrySignal || !retrySignal.token) {
+    return { action: 'ignore', token: consumedToken || null, items: [] };
+  }
+  if (consumedToken === retrySignal.token) {
+    return { action: 'ignore', token: consumedToken, items: [] };
+  }
+  const items = Array.isArray(retrySignal.items)
+    ? retrySignal.items.filter((it) => it && it.id)
+    : [];
+  if (!items.length) {
+    return { action: 'consume', token: retrySignal.token, items: [] };
+  }
+  // Ανοιχτές σημειώσεις: καίμε το σήμα χωρίς εκτέλεση — αλλιώς ξαναρχίζει μόλις κλείσουν.
+  if (options.suspended) {
+    return { action: 'consume', token: retrySignal.token, items };
+  }
+  return { action: 'start', token: retrySignal.token, items };
+}
+
+/** Ακύρωση / ένα token: το ίδιο σήμα δεν εφαρμόζεται δεύτερη φορά μετά από ξαναστήσιμο. */
+export function isFreshOneShotToken(token, consumedToken) {
+  return token != null && token !== '' && token !== consumedToken;
+}
+
 /** Μέγιστες αυτόματες στροφές μετά το κλικ «Επανάληψη» — μετά μένει το κουμπί για νέα προσπάθεια. */
 export const KHMDHS_RETRY_MAX_ROUNDS = 8;
 /** Παύση ανάμεσα σε υποέργα στην επανάληψη, ώστε να μην πνίγεται το ΚΗΜΔΗΣ. */

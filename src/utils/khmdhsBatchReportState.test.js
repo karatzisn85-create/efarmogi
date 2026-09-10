@@ -11,6 +11,8 @@ import {
   markBatchItemsResolved,
   mergeKhmdhsBatchResults,
   nextKhmdhsRetryDelayMs,
+  inspectKhmdhsRetrySignal,
+  isFreshOneShotToken,
   partitionKhmdhsBatchReportItems,
   pickKhmdhsBatchIncompleteRetryCandidates,
   pickKhmdhsBatchRetryCandidates,
@@ -614,6 +616,46 @@ describe('applyKhmdhsLiveSnapshotToResults', () => {
     expect(next.items).toHaveLength(4);
     expect(next.items.find((i) => i.id === 'd').status).toBe('refreshed');
     expect(next.failed).toBe(0);
+  });
+});
+
+describe('inspectKhmdhsRetrySignal', () => {
+  const signal = { token: 1700000000000, items: [{ id: 'sub-other', label: 'Άλλο υποέργο' }] };
+
+  it('το ίδιο σήμα μετά από ξαναστήσιμο πάνελ δεν ξαναξεκινά μαζική', () => {
+    const first = inspectKhmdhsRetrySignal(signal, null);
+    expect(first.action).toBe('start');
+    expect(first.items).toEqual([{ id: 'sub-other', label: 'Άλλο υποέργο' }]);
+    const afterRemount = inspectKhmdhsRetrySignal(signal, first.token);
+    expect(afterRemount.action).toBe('ignore');
+    expect(afterRemount.items).toEqual([]);
+  });
+
+  it('κενή λίστα καταναλώνεται χωρίς εκτέλεση', () => {
+    expect(inspectKhmdhsRetrySignal({ token: 1, items: [] }, null)).toEqual({
+      action: 'consume',
+      token: 1,
+      items: [],
+    });
+  });
+
+  it('χωρίς σήμα δεν κάνει τίποτα', () => {
+    expect(inspectKhmdhsRetrySignal(null, null).action).toBe('ignore');
+  });
+
+  it('με ανοιχτές σημειώσεις καίει το σήμα χωρίς να ξεκινήσει μαζική', () => {
+    const decision = inspectKhmdhsRetrySignal(signal, null, { suspended: true });
+    expect(decision.action).toBe('consume');
+    expect(inspectKhmdhsRetrySignal(signal, decision.token, { suspended: false }).action).toBe('ignore');
+  });
+});
+
+describe('isFreshOneShotToken', () => {
+  it('παλιά ακύρωση μετά από ξαναστήσιμο πάνελ δεν ξαναπαίζει', () => {
+    expect(isFreshOneShotToken(99, null)).toBe(true);
+    expect(isFreshOneShotToken(99, 99)).toBe(false);
+    expect(isFreshOneShotToken(100, 99)).toBe(true);
+    expect(isFreshOneShotToken(null, 99)).toBe(false);
   });
 });
 

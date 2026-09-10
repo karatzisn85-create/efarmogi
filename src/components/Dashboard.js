@@ -1676,7 +1676,7 @@ const NotesOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 12000;
+  z-index: 13000;
   padding: 24px;
   animation: notesFadeIn 0.25s ease-out;
 
@@ -1684,6 +1684,12 @@ const NotesOverlay = styled.div`
     from { opacity: 0; }
     to   { opacity: 1; }
   }
+`;
+
+const NotesClickShield = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 15000;
 `;
 
 const NotesPanel = styled.div`
@@ -2022,7 +2028,7 @@ const NoteEditOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 13000;
+  z-index: 14000;
   padding: 24px;
   animation: notesFadeIn 0.2s ease-out;
 `;
@@ -2386,7 +2392,9 @@ const LinkedChipRemove = styled.button`
   &:hover { color: #991b1b; }
 `;
 
-const NoteLinkedChipPreview = styled.div`
+const NoteLinkedChipPreview = styled.button`
+  appearance: none;
+  font: inherit;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2626,7 +2634,12 @@ const NoteEditModal = React.memo(function NoteEditModal({
   const superAdminName = emailStatus?.superAdminFullName;
 
   return (
-    <NoteEditOverlay onClick={(e) => e.target === e.currentTarget && onCancel()}>
+    <NoteEditOverlay
+      onClick={(e) => {
+        if (e.target !== e.currentTarget) return;
+        window.setTimeout(() => onCancel(), 0);
+      }}
+    >
       <NoteEditPanel onClick={(e) => e.stopPropagation()}>
         <h3>{isExisting ? 'Επεξεργασία Σημείωσης' : 'Νέα Σημείωση'}</h3>
         <NoteEditInput
@@ -3508,6 +3521,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   const [isDocumentTemplatesOpen, setIsDocumentTemplatesOpen] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
+  const [notesClickShield, setNotesClickShield] = useState(false);
+  const notesClickShieldTimerRef = useRef(null);
   const [batchReportResults, setBatchReportResults] = useState(null);
   const [batchPendingItems, setBatchPendingItems] = useState([]);
   const [isBatchReportOpen, setIsBatchReportOpen] = useState(false);
@@ -3519,8 +3534,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [khmdhsLiveMinimized, setKhmdhsLiveMinimized] = useState(false);
   const khmdhsLiveMinimizedRef = useRef(false);
   const khmdhsWasRunningRef = useRef(false);
+  const isNotesOpenRef = useRef(false);
+  isNotesOpenRef.current = isNotesOpen;
+  const khmdhsPointerGuardUntilRef = useRef(0);
   const [khmdhsRetrySignal, setKhmdhsRetrySignal] = useState(null);
+  const khmdhsRetryConsumedTokenRef = useRef(null);
   const [khmdhsCancelSignal, setKhmdhsCancelSignal] = useState(null);
+  const khmdhsCancelConsumedTokenRef = useRef(null);
   const [khmdhsRetryLive, setKhmdhsRetryLive] = useState(null);
   const [khmdhsIdleShutdownArmed, setKhmdhsIdleShutdownArmed] = useState(false);
   const [khmdhsSessionLocked, setKhmdhsSessionLocked] = useState(false);
@@ -3660,11 +3680,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     setBatchPendingItems(next?.interventionItems || []);
   }, []);
 
+  const isKhmdhsPointerGuarded = useCallback(
+    () => Date.now() < khmdhsPointerGuardUntilRef.current,
+    []
+  );
+
   const restoreKhmdhsLiveView = useCallback(() => {
+    if (isKhmdhsPointerGuarded()) return;
     khmdhsLiveMinimizedRef.current = false;
     setKhmdhsLiveMinimized(false);
     setIsBatchReportOpen(true);
-  }, []);
+  }, [isKhmdhsPointerGuarded]);
 
   const minimizeKhmdhsLiveView = useCallback(() => {
     if (khmdhsSessionLocked) return;
@@ -3674,9 +3700,106 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, [khmdhsSessionLocked]);
 
   const requestKhmdhsCancel = useCallback(() => {
-    if (khmdhsSessionLocked) return;
+    if (khmdhsSessionLocked || isKhmdhsPointerGuarded()) return;
     setKhmdhsCancelSignal(Date.now());
-  }, [khmdhsSessionLocked]);
+  }, [khmdhsSessionLocked, isKhmdhsPointerGuarded]);
+
+  const clearKhmdhsRetrySignal = useCallback(() => {
+    setKhmdhsRetrySignal(null);
+  }, []);
+
+  const clearKhmdhsCancelSignal = useCallback(() => {
+    setKhmdhsCancelSignal(null);
+  }, []);
+
+  const tuckKhmdhsUiForNotes = useCallback(() => {
+    if (khmdhsSessionLocked) return;
+    if (khmdhsBatchRunning) {
+      minimizeKhmdhsLiveView();
+      return;
+    }
+    setIsBatchReportOpen(false);
+  }, [khmdhsSessionLocked, khmdhsBatchRunning, minimizeKhmdhsLiveView]);
+
+  const armNotesClickShield = useCallback(() => {
+    khmdhsPointerGuardUntilRef.current = Date.now() + 250;
+    setNotesClickShield(true);
+    if (notesClickShieldTimerRef.current) {
+      window.clearTimeout(notesClickShieldTimerRef.current);
+    }
+    notesClickShieldTimerRef.current = window.setTimeout(() => {
+      setNotesClickShield(false);
+      notesClickShieldTimerRef.current = null;
+    }, 250);
+  }, []);
+
+  const closeNotesAfterPointer = useCallback((afterClose) => {
+    khmdhsPointerGuardUntilRef.current = Date.now() + 250;
+    window.setTimeout(() => {
+      setIsNotesOpen(false);
+      setEditingNote(null);
+      armNotesClickShield();
+      if (typeof afterClose === 'function') afterClose();
+    }, 0);
+  }, [armNotesClickShield]);
+
+  const heavyDashboardOverlayOpen = !!(
+    isNotesOpen
+    || isFormOpen
+    || selectedDetailProject
+    || fileManager.isOpen
+    || pdfViewer.isOpen
+    || isFiltersOpen
+    || isTaskAssignmentsOpen
+    || isEntaxisOpen
+    || isProsklisisOpen
+    || isProcurementCalendarOpen
+    || isOrimanthiOpen
+    || isContractorRegistryOpen
+    || isApologismosOpen
+    || isCreditApprovalsOpen
+    || isEgkriseisFormOpen
+    || isEgkriseisManagerOnly
+    || isSiteDiaryOpen
+    || isMeletaiOpen
+    || isStatisticsModalOpen
+    || isBackupManagerOpen
+    || isDocumentTemplatesOpen
+    || isUserManagementOpen
+    || isReportsOpen
+    || isPortalHubOpen
+    || isEpProgramOpen
+    || isExcelImportOpen
+    || isTechnicalProgramOpen
+    || isAuditLogOpen
+    || isEmailSettingsOpen
+    || isCalendarSettingsOpen
+    || isExportOpen
+    || isInvestExportOpen
+    || isPortalExportOpen
+    || isPortalSettingsOpen
+    || isMunicipalUnitsOpen
+    || isMyNotifPrefsOpen
+    || isEmailHistoryOpen
+  );
+
+  const prevHeavyDashboardOverlayRef = useRef(false);
+  const heavyDashboardOverlayOpenRef = useRef(false);
+  heavyDashboardOverlayOpenRef.current = heavyDashboardOverlayOpen;
+  useEffect(() => {
+    if (heavyDashboardOverlayOpen) tuckKhmdhsUiForNotes();
+  }, [heavyDashboardOverlayOpen, tuckKhmdhsUiForNotes]);
+  useEffect(() => {
+    const wasOpen = prevHeavyDashboardOverlayRef.current;
+    prevHeavyDashboardOverlayRef.current = heavyDashboardOverlayOpen;
+    if (wasOpen && !heavyDashboardOverlayOpen) armNotesClickShield();
+  }, [heavyDashboardOverlayOpen, armNotesClickShield]);
+
+  useEffect(() => () => {
+    if (notesClickShieldTimerRef.current) {
+      window.clearTimeout(notesClickShieldTimerRef.current);
+    }
+  }, []);
 
   const lockKhmdhsSession = useCallback(async () => {
     try {
@@ -3755,9 +3878,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   useEffect(() => {
     if (khmdhsBatchRunning && !khmdhsWasRunningRef.current) {
-      khmdhsLiveMinimizedRef.current = false;
-      setKhmdhsLiveMinimized(false);
-      setIsBatchReportOpen(true);
+      if (heavyDashboardOverlayOpenRef.current) {
+        khmdhsLiveMinimizedRef.current = true;
+        setKhmdhsLiveMinimized(true);
+        setIsBatchReportOpen(false);
+      } else {
+        khmdhsLiveMinimizedRef.current = false;
+        setKhmdhsLiveMinimized(false);
+        setIsBatchReportOpen(true);
+      }
     }
     khmdhsWasRunningRef.current = khmdhsBatchRunning;
   }, [khmdhsBatchRunning]);
@@ -6361,6 +6490,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     const ctx = noteReturnRef.current;
     if (!ctx?.noteId) return false;
     noteReturnRef.current = null;
+    tuckKhmdhsUiForNotes();
     setIsNotesOpen(true);
     setNotesSearch('');
     setSelectedNoteId(ctx.noteId);
@@ -6375,30 +6505,31 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       .then((res) => { if (res?.files) setPreviewFiles(res.files); })
       .catch(() => {});
     return true;
-  }, [notes, loadNoteFileCounts]);
+  }, [notes, loadNoteFileCounts, tuckKhmdhsUiForNotes]);
 
   const handleOpenNotes = useCallback(() => {
     clearNoteReturnContext();
+    tuckKhmdhsUiForNotes();
     setIsNotesOpen(true);
     setNotesSearch('');
     setEditingNote(null);
     loadNoteFileCounts();
-  }, [clearNoteReturnContext, loadNoteFileCounts]);
+  }, [clearNoteReturnContext, loadNoteFileCounts, tuckKhmdhsUiForNotes]);
 
   const handleCloseNotes = useCallback(() => {
     clearNoteReturnContext();
-    setIsNotesOpen(false);
-    setEditingNote(null);
-  }, [clearNoteReturnContext]);
+    closeNotesAfterPointer();
+  }, [clearNoteReturnContext, closeNotesAfterPointer]);
 
   const handleOpenNoteFromEntity = useCallback((noteId) => {
     clearNoteReturnContext();
+    tuckKhmdhsUiForNotes();
     setIsNotesOpen(true);
     setNotesSearch('');
     setEditingNote(null);
     setSelectedNoteId(noteId);
     loadNoteFileCounts();
-  }, [clearNoteReturnContext, loadNoteFileCounts]);
+  }, [clearNoteReturnContext, loadNoteFileCounts, tuckKhmdhsUiForNotes]);
 
   const handleNavigateToLinkedEntity = useCallback((entity) => {
     if (!entity) return;
@@ -6412,9 +6543,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         return;
       }
       captureNoteReturnContext();
-      setIsNotesOpen(false);
-      setEditingNote(null);
-      openSubprojectDetail(found);
+      closeNotesAfterPointer(() => openSubprojectDetail(found));
       return;
     }
 
@@ -6423,9 +6552,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         (id && p.projectId === id) || (title && p.projectTitle === title)
       );
       if (inCatalog.length > 0) {
-        setIsNotesOpen(false);
-        setEditingNote(null);
-        setQuickSearchText(title || inCatalog[0].projectTitle || '');
+        closeNotesAfterPointer(() => {
+          setQuickSearchText(title || inCatalog[0].projectTitle || '');
+        });
         return;
       }
       const any = projects.filter((p) =>
@@ -6433,9 +6562,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       );
       if (any.length > 0) {
         captureNoteReturnContext();
-        setIsNotesOpen(false);
-        setEditingNote(null);
-        openSubprojectDetail(any[0]);
+        closeNotesAfterPointer(() => openSubprojectDetail(any[0]));
         return;
       }
       showToast('Το έργο δεν βρέθηκε.', 'warning');
@@ -6445,30 +6572,29 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     const opensModal = type === 'entaxi' || type === 'prosklisi' || type === 'egkrisi' || type === 'meleti';
     if (opensModal) captureNoteReturnContext();
 
-    setIsNotesOpen(false);
-    setEditingNote(null);
-
-    if (type === 'entaxi') {
-      setEntaxisProjectFilter(null);
-      setSelectedEntaxiId(id);
-      setIsEntaxisOpen(true);
-    } else if (type === 'prosklisi') {
-      setProsklisiProjectFilter(null);
-      setSelectedProsklisiId(id);
-      setIsProsklisisOpen(true);
-    } else if (type === 'egkrisi') {
-      setHighlightProject({
-        projectTitle: null,
-        subprojectTitle: title || null,
-        projectKey: null,
-        subprojectKey: null
-      });
-      setIsCreditApprovalsOpen(true);
-    } else if (type === 'meleti') {
-      setSelectedMeletiId(id);
-      setIsMeletaiOpen(true);
-    }
-  }, [projects, visibleProjects, captureNoteReturnContext, openSubprojectDetail, showToast]);
+    closeNotesAfterPointer(() => {
+      if (type === 'entaxi') {
+        setEntaxisProjectFilter(null);
+        setSelectedEntaxiId(id);
+        setIsEntaxisOpen(true);
+      } else if (type === 'prosklisi') {
+        setProsklisiProjectFilter(null);
+        setSelectedProsklisiId(id);
+        setIsProsklisisOpen(true);
+      } else if (type === 'egkrisi') {
+        setHighlightProject({
+          projectTitle: null,
+          subprojectTitle: title || null,
+          projectKey: null,
+          subprojectKey: null
+        });
+        setIsCreditApprovalsOpen(true);
+      } else if (type === 'meleti') {
+        setSelectedMeletiId(id);
+        setIsMeletaiOpen(true);
+      }
+    });
+  }, [projects, visibleProjects, captureNoteReturnContext, openSubprojectDetail, showToast, closeNotesAfterPointer]);
 
   const refreshTaskAccessRef = useRef(null);
   const refreshTaskAccess = useCallback(async () => {
@@ -7007,10 +7133,25 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   useEffect(() => {
     if (loading || autoTourStartedRef.current) return undefined;
     if (isNotesOpen || isFormOpen || selectedDetailProject || guideModalOpen || guideSpotSteps) return undefined;
+    if (
+      isTaskAssignmentsOpen
+      || isEntaxisOpen
+      || isProsklisisOpen
+      || isProcurementCalendarOpen
+      || isOrimanthiOpen
+      || isContractorRegistryOpen
+      || isApologismosOpen
+      || isCreditApprovalsOpen
+      || isEgkriseisFormOpen
+      || isSiteDiaryOpen
+      || isMeletaiOpen
+      || isStatisticsModalOpen
+    ) return undefined;
     if (!shouldAutoStartTour({
       username: currentUser?.username,
       role: userRole,
       loading,
+      overlayBusy: !!(isBatchReportOpen || khmdhsBatchRunning || khmdhsSessionLocked || khmdhsLiveMinimized),
     })) return undefined;
     const t = window.setTimeout(() => {
       if (autoTourStartedRef.current) return;
@@ -7029,6 +7170,22 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     selectedDetailProject,
     guideModalOpen,
     guideSpotSteps,
+    isTaskAssignmentsOpen,
+    isEntaxisOpen,
+    isProsklisisOpen,
+    isProcurementCalendarOpen,
+    isOrimanthiOpen,
+    isContractorRegistryOpen,
+    isApologismosOpen,
+    isCreditApprovalsOpen,
+    isEgkriseisFormOpen,
+    isSiteDiaryOpen,
+    isMeletaiOpen,
+    isStatisticsModalOpen,
+    isBatchReportOpen,
+    khmdhsBatchRunning,
+    khmdhsSessionLocked,
+    khmdhsLiveMinimized,
   ]);
 
   const handleGuideNext = useCallback(() => {
@@ -8433,7 +8590,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                   <NewNoteBtn type="button" data-testid="btn-new-note" onClick={() => { setEditingNote({}); }} style={{ padding: '8px 14px', fontSize: '0.8rem' }}>
                     + Νέα Σημείωση
                   </NewNoteBtn>
-                  <NotesCloseBtn onClick={handleCloseNotes}>✕</NotesCloseBtn>
+                  <NotesCloseBtn type="button" data-testid="btn-notes-close" onClick={handleCloseNotes}>✕</NotesCloseBtn>
                 </div>
               </NotesHeader>
               <NotesLayout>
@@ -8553,10 +8710,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                               const meta = ENTITY_TYPE_META[ent.type] || { icon: '🔗', label: ent.type };
                               return (
                                 <NoteLinkedChipPreview
+                                  type="button"
                                   key={`${ent.type}-${ent.id}`}
                                   data-testid={`note-linked-${ent.type}-${ent.id}`}
                                   title={`Μετάβαση σε: ${meta.label} — ${ent.title}`}
-                                  onClick={() => handleNavigateToLinkedEntity(ent)}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleNavigateToLinkedEntity(ent);
+                                  }}
                                 >
                                   <span>{meta.icon}</span>
                                   <span className="chip-title">{ent.title}</span>
@@ -8907,6 +9069,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         khmdhsBatchRunning={khmdhsBatchRunning}
         khmdhsLiveMinimized={khmdhsLiveMinimized}
         onRestoreLive={restoreKhmdhsLiveView}
+        isPointerGuarded={isKhmdhsPointerGuarded}
         staleCount={khmdhsStaleCount}
         oldestDays={khmdhsOldestDays}
         helpActive={guideModalOpen || guideTourActive || !!guideSpotSteps}
@@ -8937,7 +9100,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           lastRunInfo: khmdhsLastRun,
           hasReport: !!batchReportResults,
           retrySignal: khmdhsRetrySignal,
+          retryConsumedTokenRef: khmdhsRetryConsumedTokenRef,
+          onRetrySignalConsumed: clearKhmdhsRetrySignal,
           cancelSignal: khmdhsCancelSignal,
+          cancelConsumedTokenRef: khmdhsCancelConsumedTokenRef,
+          onCancelSignalConsumed: clearKhmdhsCancelSignal,
           onRetryLiveChange: setKhmdhsRetryLive,
           onIdleShutdownArmedChange: (armed) => {
             if (!armed && khmdhsSessionLockedRef.current) {
@@ -8981,17 +9148,20 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
       {(batchPendingItems.length > 0 || khmdhsBatchRunning || !!batchReportResults || isBatchReportOpen || khmdhsLiveMinimized) && (
         <Suspense fallback={null}>
-          {!khmdhsLiveMinimized && !khmdhsBatchRunning && (
+          {!heavyDashboardOverlayOpen && !khmdhsLiveMinimized && !khmdhsBatchRunning && (
             <KhmdhsBatchReportFab
               pendingItems={batchPendingItems}
-              onClick={() => setIsBatchReportOpen(true)}
+              onClick={() => {
+                if (isKhmdhsPointerGuarded()) return;
+                setIsBatchReportOpen(true);
+              }}
               isRunning={false}
               hasReport={!!batchReportResults}
             />
           )}
 
           <KhmdhsBatchLiveDock
-            visible={khmdhsLiveMinimized && (khmdhsBatchRunning || !!batchReportResults)}
+            visible={!heavyDashboardOverlayOpen && khmdhsLiveMinimized && (khmdhsBatchRunning || !!batchReportResults)}
             live={khmdhsLiveSnapshot}
             running={khmdhsBatchRunning}
             onExpand={restoreKhmdhsLiveView}
@@ -9002,13 +9172,23 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             isOpen={isBatchReportOpen}
             onClose={() => {
               if (khmdhsSessionLocked) return;
-              if (khmdhsBatchRunning) {
-                minimizeKhmdhsLiveView();
-                return;
-              }
-              setIsBatchReportOpen(false);
+              khmdhsPointerGuardUntilRef.current = Date.now() + 250;
+              const shouldMinimize = khmdhsBatchRunning;
+              window.setTimeout(() => {
+                if (khmdhsSessionLockedRef.current) return;
+                if (shouldMinimize) {
+                  minimizeKhmdhsLiveView();
+                  return;
+                }
+                setIsBatchReportOpen(false);
+              }, 0);
             }}
-            onMinimize={minimizeKhmdhsLiveView}
+            onMinimize={() => {
+              khmdhsPointerGuardUntilRef.current = Date.now() + 250;
+              window.setTimeout(() => {
+                minimizeKhmdhsLiveView();
+              }, 0);
+            }}
             allowSessionLock={shouldShowKhmdhsSessionLock({
               idleShutdownArmed: khmdhsIdleShutdownArmed,
               sessionLocked: khmdhsSessionLocked,
@@ -9025,12 +9205,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             results={batchReportResults}
             pendingItems={batchPendingItems}
             onNavigateToSubproject={(subprojectId) => {
-              if (khmdhsSessionLocked) return;
+              if (khmdhsSessionLocked || isKhmdhsPointerGuarded()) return;
               const p = projects.find((row) => row.subprojectId === subprojectId);
               if (p) openSubprojectDetail(p);
             }}
             onRetry={(retryItems) => {
-              if (khmdhsSessionLocked) return;
+              if (khmdhsSessionLocked || isKhmdhsPointerGuarded()) return;
               if (!Array.isArray(retryItems) || !retryItems.length) return;
               setKhmdhsRetrySignal({ items: retryItems, token: Date.now() });
             }}
@@ -9049,6 +9229,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           />
         </Suspense>
       )}
+
+      {notesClickShield && <NotesClickShield aria-hidden />}
 
       <KhmdhsSessionLockOverlay
         open={khmdhsSessionLocked}

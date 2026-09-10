@@ -44,6 +44,8 @@ import {
   formatKhmdhsLiveHeadline,
   nextKhmdhsRetryDelayMs,
   partitionKhmdhsBatchReportItems,
+  inspectKhmdhsRetrySignal,
+  isFreshOneShotToken,
   pickKhmdhsBatchRetryCandidates,
   pickKhmdhsBatchIncompleteRetryCandidates,
   describeKhmdhsBatchCardMeta,
@@ -358,7 +360,7 @@ const ConfirmOverlay = styled.div`
   padding: 1rem;
 `;
 
-/* Πάνω από την αναφορά μαζικής ανανέωσης (12000) και τις σημειώσεις (13000). */
+/* Πάνω από την αναφορά μαζικής (12000) και τις σημειώσεις (13000) / επεξεργασία (14000). */
 const IdleCountdownOverlay = styled(ConfirmOverlay)`
   z-index: 50000;
   background: rgba(15, 23, 42, 0.72);
@@ -1337,7 +1339,7 @@ const LiveDock = styled.div`
   position: fixed;
   right: 24px;
   bottom: 154px;
-  z-index: 9100;
+  z-index: 11000;
   width: min(420px, calc(100vw - 110px));
   display: flex;
   flex-direction: column;
@@ -2321,9 +2323,14 @@ export default function KhmdhsBatchRefreshWidget({
   lastRunInfo = null,
   hasReport = false,
   retrySignal = null,
+  retryConsumedTokenRef = null,
+  onRetrySignalConsumed,
   cancelSignal = null,
+  cancelConsumedTokenRef = null,
+  onCancelSignalConsumed,
   compact = false,
   embedded = false,
+  uiSuspended = false,
   onIdleShutdownArmedChange,
   sessionLocked = false,
 }) {
@@ -2365,6 +2372,10 @@ export default function KhmdhsBatchRefreshWidget({
       onIdleShutdownArmedChange(!!idleShutdownArmed);
     }
   }, [idleShutdownArmed, onIdleShutdownArmedChange]);
+
+  useEffect(() => {
+    if (uiSuspended) setConfirmOpen(false);
+  }, [uiSuspended]);
 
   const addLog = useCallback((icon, text) => {
     setLogEntries((prev) => [...prev.slice(-30), { icon, text, ts: Date.now() }]);
@@ -3386,10 +3397,12 @@ export default function KhmdhsBatchRefreshWidget({
   const lastCancelTokenRef = useRef(null);
 
   useEffect(() => {
-    if (!cancelSignal) return;
-    if (sessionLocked) return;
-    if (lastCancelTokenRef.current === cancelSignal) return;
+    const already = cancelConsumedTokenRef?.current ?? lastCancelTokenRef.current;
+    if (!isFreshOneShotToken(cancelSignal, already)) return;
     lastCancelTokenRef.current = cancelSignal;
+    if (cancelConsumedTokenRef) cancelConsumedTokenRef.current = cancelSignal;
+    if (typeof onCancelSignalConsumed === 'function') onCancelSignalConsumed();
+    if (sessionLocked || uiSuspended) return;
     cancelRef.current = true;
     setCancelRequested(true);
     addLog('⛔', 'Ακύρωση από την αναφορά…');
@@ -3398,26 +3411,36 @@ export default function KhmdhsBatchRefreshWidget({
         actingUsername: currentUser?.username,
       }).catch(() => {});
     }
-  }, [cancelSignal, sessionLocked, currentUser, addLog]);
+  }, [cancelSignal, sessionLocked, uiSuspended, currentUser, addLog, cancelConsumedTokenRef, onCancelSignalConsumed]);
 
   useEffect(() => {
-    if (!retrySignal || !retrySignal.token) return;
-    if (lastRetryTokenRef.current === retrySignal.token) return;
-    const items = Array.isArray(retrySignal.items) ? retrySignal.items : [];
-    if (!items.length) {
-      lastRetryTokenRef.current = retrySignal.token;
+    const already = retryConsumedTokenRef?.current ?? lastRetryTokenRef.current;
+    const decision = inspectKhmdhsRetrySignal(retrySignal, already, { suspended: uiSuspended });
+    if (decision.action === 'ignore') return;
+
+    const markConsumed = () => {
+      lastRetryTokenRef.current = decision.token;
+      if (retryConsumedTokenRef) retryConsumedTokenRef.current = decision.token;
+      if (typeof onRetrySignalConsumed === 'function') onRetrySignalConsumed();
+    };
+
+    if (decision.action === 'consume') {
+      markConsumed();
       return;
     }
     // Αν τρέχει ακόμα η προηγούμενη μαζική, μην κάψεις το σήμα — ξαναδοκίμασε όταν ελευθερωθεί.
     if (running) return;
     // Κατά τη μέτρηση σβησίματος μην ξεκινήσεις επανάληψη — και μην την αφήσεις να φύγει μόνη της μετά.
     if (idleCountdown) {
-      lastRetryTokenRef.current = retrySignal.token;
+      markConsumed();
       return;
     }
-    lastRetryTokenRef.current = retrySignal.token;
-    void handleBatchRefresh({ retryItems: items });
-  }, [retrySignal, running, idleCountdown, handleBatchRefresh]);
+    markConsumed();
+    void handleBatchRefresh({ retryItems: decision.items });
+  }, [
+    retrySignal, running, idleCountdown, handleBatchRefresh,
+    retryConsumedTokenRef, onRetrySignalConsumed, uiSuspended,
+  ]);
 
   if (!canUse) return null;
 

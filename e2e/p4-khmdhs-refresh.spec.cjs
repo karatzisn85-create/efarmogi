@@ -68,3 +68,26 @@ test('P4-08 ανανέωση εκτελούμενου ανοίγει επιβε�
   }
   await expect(window.getByTestId('read-panel')).toBeVisible({ timeout: 25000 });
 });
+
+test('P4-100 κλείσιμο σημειώσεων δεν ξεκινά μαζική ανανέωση', async ({ app }) => {
+  const { window } = app;
+  await window.getByTestId('btn-notes').click({ force: true });
+  await expect(window.getByRole('heading', { name: 'Γρήγορες Σημειώσεις' })).toBeVisible();
+  await window.getByTestId('btn-notes-close').click();
+  await expect(window.getByRole('heading', { name: 'Γρήγορες Σημειώσεις' })).toHaveCount(0);
+  await expect(window.getByText('Μαζική ανανέωση ΚΗΜΔΗΣ σε εξέλιξη')).toHaveCount(0);
+  await expect(window.getByText('Εκκίνηση μαζικής ανανέωσης ΚΗΜΔΗΣ')).toHaveCount(0);
+  await expect(window.getByRole('dialog', { name: 'Μαζική ανανέωση ΚΗΜΔΗΣ' })).toHaveCount(0);
+});
+
+test('P4-101 σημείωση ανοίγει υποέργο χωρίς μαζική ανανέωση', async ({ app }) => {
+  const { window } = app;
+  await window.getByTestId('btn-notes').click({ force: true });
+  await window.getByTestId('note-item-note-share-tank').click();
+  await window.getByTestId('note-linked-subproject-sub-tank').click();
+  await expect(window.getByTestId('read-panel')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('read-subproject-title')).toHaveText('Δεξαμενή Παρανύμφων');
+  await expect(window.getByText('Μαζική ανανέωση ΚΗΜΔΗΣ σε εξέλιξη')).toHaveCount(0);
+  await expect(window.getByText('Εκκίνηση μαζικής ανανέωσης ΚΗΜΔΗΣ')).toHaveCount(0);
+  await expect(window.getByRole('dialog', { name: 'Μαζική ανανέωση ΚΗΜΔΗΣ' })).toHaveCount(0);
+});

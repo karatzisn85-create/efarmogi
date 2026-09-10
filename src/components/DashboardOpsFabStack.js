@@ -318,6 +318,7 @@ export default function DashboardOpsFabStack({
   onOpenHelp,
   onRestoreLive,
   keepMounted = false,
+  isPointerGuarded = null,
 }) {
   const [khmdhsOpen, setKhmdhsOpen] = useState(false);
   const [deadlineOpen, setDeadlineOpen] = useState(false);
@@ -335,9 +336,14 @@ export default function DashboardOpsFabStack({
   }, [visible, khmdhsBatchRunning]);
 
   const showUi = visible || khmdhsBatchRunning || keepMounted;
-  if (!showUi) return null;
+  // Οι σημειώσεις κρύβουν τα κουμπιά, αλλά ο μηχανισμός μαζικής πρέπει να μείνει
+  // στη θέση του — αλλιώς μια παλιά «Επανάληψη» ξανατρέχει μόνη της στο ξαναστήσιμο.
+  const keepKhmdhsEngine = canManageKhmdhs && !!KhmdhsBatchRefreshWidget;
+  const keepDeadlineEngine = !!CalendarDeadlineWidget;
+  if (!showUi && !keepKhmdhsEngine && !keepDeadlineEngine) return null;
 
   const showStack = visible;
+  const pointerBlockedNow = () => typeof isPointerGuarded === 'function' && isPointerGuarded();
   const khmdhsAlert = !khmdhsBatchRunning && staleCount > 0;
   const deadlineBadge = deadlineSummary.totalCount > 0 ? deadlineSummary.totalCount : null;
 
@@ -353,7 +359,7 @@ export default function DashboardOpsFabStack({
     ? `Ραντάρ προθεσμιών — ${deadlineSummary.totalCount} λήξεις${deadlineSummary.hasUrgent ? ' · επείγουσες' : ''}`
     : 'Ραντάρ προθεσμιών';
 
-  const khmdhsPanelOpen = khmdhsOpen && !khmdhsBatchRunning;
+  const khmdhsPanelOpen = showUi && khmdhsOpen && !khmdhsBatchRunning;
   const deadlinePanelOpen = showStack && deadlineOpen;
 
   return (
@@ -368,6 +374,7 @@ export default function DashboardOpsFabStack({
               $alert={!!deadlineSummary.hasUrgent}
               $active={deadlineOpen}
               onClick={() => {
+                if (pointerBlockedNow()) return;
                 setDeadlineOpen((v) => !v);
                 setKhmdhsOpen(false);
               }}
@@ -389,6 +396,7 @@ export default function DashboardOpsFabStack({
                 $running={khmdhsBatchRunning}
                 $active={khmdhsOpen && !khmdhsBatchRunning}
                 onClick={() => {
+                  if (pointerBlockedNow()) return;
                   if ((khmdhsBatchRunning || khmdhsLiveMinimized) && typeof onRestoreLive === 'function') {
                     onRestoreLive();
                     setKhmdhsOpen(false);
@@ -418,6 +426,7 @@ export default function DashboardOpsFabStack({
                 data-user-guide="help-fab"
                 $active={helpActive}
                 onClick={() => {
+                  if (pointerBlockedNow()) return;
                   setDeadlineOpen(false);
                   setKhmdhsOpen(false);
                   onOpenHelp();
@@ -436,9 +445,10 @@ export default function DashboardOpsFabStack({
         </Stack>
       )}
 
-      {/* Πάνελ προθεσμιών — πάντα mounted όσο φαίνεται η στοίβα, για ενημέρωση σήματος */}
-      {showStack && CalendarDeadlineWidget && (
-        <Panel $open={deadlinePanelOpen} role="dialog" aria-label="Ραντάρ προθεσμιών" aria-hidden={!deadlinePanelOpen}>
+      {/* Πάνελ προθεσμιών — μένει στη θέση του και με κρυμμένα κουμπιά (σημειώσεις),
+          ώστε να μην ξαναφορτώνει και να μην χάνει ένδειξη. */}
+      {keepDeadlineEngine && (
+        <Panel $open={showStack && deadlinePanelOpen} role="dialog" aria-label="Ραντάρ προθεσμιών" aria-hidden={!deadlinePanelOpen}>
           <PanelHead>
             <PanelTitle>Ραντάρ προθεσμιών</PanelTitle>
             <PanelClose type="button" onClick={() => setDeadlineOpen(false)} aria-label="Κλείσιμο">✕</PanelClose>
@@ -478,6 +488,7 @@ export default function DashboardOpsFabStack({
               <KhmdhsBatchRefreshWidget
                 {...khmdhsWidgetProps}
                 compact
+                uiSuspended={!visible}
               />
             </Suspense>
           </PanelBody>
