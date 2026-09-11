@@ -1,18 +1,18 @@
 /**
  * orimanthiExportHandler.js
- * Εξαγωγή έργου ωρίμανσης: φάκελος κατηγοριών + Word (.doc HTML) με σημειώσεις/εκκρεμότητες.
+ * Εξαγωγή έργου ωρίμανσης: φάκελος κατηγοριών + Word (.doc HTML) με σημειώσεις.
  * Μορφή Word HTML για συμβατότητα με Word 2007+.
  */
 const fs = require('fs');
 const path = require('path');
 const fse = require('fs-extra');
-const XLSX = require('xlsx-js-style');
 const { exportHtmlToPdf } = require('./htmlPdfExportHelper');
 const { buildHubReportHtml } = require('./orimanthiReportHtml');
+const { writeHubExcelWorkbook } = require('./orimanthiHubExcel');
 
 const APP_NAME = 'ERGOHUB';
 const APP_TAGLINE = 'Σύστημα Διαχείρισης Έργων Δήμου';
-const WORD_FILE_NAME = 'Σημειώσεις_και_Εκκρεμότητες.doc';
+const WORD_FILE_NAME = 'Σημειώσεις.doc';
 
 const PROPOSAL_STATUS_LABELS = {
   draft: 'Αρχική καταγραφή',
@@ -98,34 +98,6 @@ function infoRow(label, value) {
   </tr>`;
 }
 
-function buildPendingHtml(pendingItems) {
-  if (!pendingItems.length) {
-    return '<p class="muted"><em>Δεν έχουν καταχωρηθεί εκκρεμότητες.</em></p>';
-  }
-
-  const openItems = pendingItems.filter((item) => !item.done);
-  const doneItems = pendingItems.filter((item) => item.done);
-  let html = '';
-
-  if (openItems.length) {
-    html += `<p class="pending-open"><strong>Ανοιχτές εκκρεμότητες (${openItems.length})</strong></p><ul class="pending-list">`;
-    openItems.forEach((item, index) => {
-      html += `<li><strong>${index + 1}.</strong> [ ] ${htmlLines(item.text || '')}</li>`;
-    });
-    html += '</ul>';
-  }
-
-  if (doneItems.length) {
-    html += `<p class="pending-done"><strong>Ολοκληρωμένες (${doneItems.length})</strong></p><ul class="pending-list done">`;
-    doneItems.forEach((item, index) => {
-      html += `<li><strong>${index + 1}.</strong> [x] <span class="strike">${htmlLines(item.text || '')}</span></li>`;
-    });
-    html += '</ul>';
-  }
-
-  return html;
-}
-
 function buildCategoryExportHtml(categorySummary) {
   if (!categorySummary?.length) return '';
 
@@ -203,7 +175,6 @@ function formatAepoDateExport(value) {
 function buildProposalWordDocument({ proposal, appVersion, exportedBy, categorySummary }) {
   const statusLabel = PROPOSAL_STATUS_LABELS[proposal.status] || proposal.status || '-';
   const exportDate = formatDateGreek(new Date().toISOString());
-  const pendingItems = Array.isArray(proposal.pendingItems) ? proposal.pendingItems : [];
   const title = escapeHtml(proposal.title || 'Άτιτλο έργου');
 
   const categoryHtml = buildCategoryExportHtml(categorySummary);
@@ -283,11 +254,6 @@ function buildProposalWordDocument({ proposal, appVersion, exportedBy, categoryS
     padding: 10pt 12pt;
     margin-bottom: 12pt;
   }
-  .pending-open { color: #B45309; margin: 0 0 6pt 0; }
-  .pending-done { color: #059669; margin: 12pt 0 6pt 0; }
-  ul.pending-list { margin: 0 0 10pt 18pt; padding: 0; }
-  ul.pending-list.done { color: #64748B; }
-  .strike { text-decoration: line-through; }
   .category-section {
     font-size: 11pt;
     font-weight: bold;
@@ -379,9 +345,6 @@ function buildProposalWordDocument({ proposal, appVersion, exportedBy, categoryS
 
   <h2>Σημειώσεις</h2>
   <div class="notes">${htmlLines(proposal.notes)}</div>
-
-  <h2>Εκκρεμότητες</h2>
-  ${buildPendingHtml(pendingItems)}
 
   ${categoryHtml}
 
@@ -564,18 +527,6 @@ function countProposalFilesForExport(project) {
   }, 0);
 }
 
-function summarizePendingItems(project) {
-  const items = project?.pendingItems || [];
-  const open = items.filter((i) => !i.done);
-  if (!items.length) return '—';
-  const openTexts = open.map((i) => i.text).filter(Boolean);
-  const doneCount = items.length - open.length;
-  const summary = openTexts.length
-    ? openTexts.slice(0, 8).join('; ') + (openTexts.length > 8 ? '…' : '')
-    : 'Όλες ολοκληρωμένες';
-  return `${open.length} ανοιχτές / ${items.length} (${summary})`;
-}
-
 function buildHubReportRows(proposals) {
   return (proposals || []).map((p) => ({
     title: p.title || '(Χωρίς τίτλο)',
@@ -588,147 +539,21 @@ function buildHubReportRows(proposals) {
     municipalUnit: p.municipalUnit || '—',
     settlement: p.settlement || '—',
     aepo: p.aepoRenewalDate ? formatAepoDateExport(p.aepoRenewalDate) : '—',
-    pending: summarizePendingItems(p),
     files: countProposalFilesForExport(p),
     updatedAt: p.updatedAt ? formatDateGreek(p.updatedAt) : '—',
   }));
 }
 
-function borderAll(color) {
-  const c = { style: 'thin', color: { rgb: color } };
-  return { top: c, bottom: c, left: c, right: c };
-}
-
-const EXCEL_STYLES = {
-  title: {
-    font: { bold: true, sz: 16, color: { rgb: 'FFFFFF' } },
-    fill: { fgColor: { rgb: '4338CA' } },
-    alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
-    border: borderAll('4338CA'),
-  },
-  metaLabel: {
-    font: { bold: true, sz: 10, color: { rgb: '475569' } },
-    fill: { fgColor: { rgb: 'F1F5F9' } },
-    alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
-    border: borderAll('CBD5E1'),
-  },
-  metaValue: {
-    font: { sz: 10, color: { rgb: '1E293B' } },
-    alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
-    border: borderAll('CBD5E1'),
-  },
-  header: {
-    font: { bold: true, sz: 10, color: { rgb: '3730A3' } },
-    fill: { fgColor: { rgb: 'E0E7FF' } },
-    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-    border: borderAll('A5B4FC'),
-  },
-  cell: {
-    alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
-    border: borderAll('E2E8F0'),
-  },
-  cellAlt: {
-    alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
-    fill: { fgColor: { rgb: 'F8FAFC' } },
-    border: borderAll('E2E8F0'),
-  },
-  cellCenter: {
-    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-    border: borderAll('E2E8F0'),
-  },
-  cellNumber: {
-    font: { bold: true, sz: 10, color: { rgb: '4338CA' } },
-    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-    border: borderAll('E2E8F0'),
-  },
-};
-
-function applyDataSheetFormatting(sheet, { headerRow = 0, numberCols = [] } = {}) {
-  if (!sheet['!ref']) return;
-  const range = XLSX.utils.decode_range(sheet['!ref']);
-  for (let R = range.s.r; R <= range.e.r; R += 1) {
-    for (let C = range.s.c; C <= range.e.c; C += 1) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C });
-      if (!sheet[addr]) sheet[addr] = { t: 's', v: '' };
-      if (R === headerRow) {
-        sheet[addr].s = EXCEL_STYLES.header;
-      } else if (numberCols.includes(C)) {
-        sheet[addr].s = EXCEL_STYLES.cellNumber;
-      } else if (R % 2 === 0) {
-        sheet[addr].s = EXCEL_STYLES.cellAlt;
-      } else {
-        sheet[addr].s = EXCEL_STYLES.cell;
-      }
-    }
-  }
-  sheet['!rows'] = sheet['!rows'] || [];
-  for (let R = range.s.r; R <= range.e.r; R += 1) {
-    sheet['!rows'][R] = { hpt: R === headerRow ? 28 : 22 };
-  }
-}
-
-function applyMetaSheetFormatting(sheet) {
-  if (!sheet['!ref']) return;
-  const range = XLSX.utils.decode_range(sheet['!ref']);
-  for (let R = range.s.r; R <= range.e.r; R += 1) {
-    for (let C = range.s.c; C <= range.e.c; C += 1) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C });
-      if (!sheet[addr]) continue;
-      if (R === 0 && C === 0) {
-        sheet[addr].s = EXCEL_STYLES.title;
-      } else if (C === 0) {
-        sheet[addr].s = EXCEL_STYLES.metaLabel;
-      } else {
-        sheet[addr].s = EXCEL_STYLES.metaValue;
-      }
-    }
-  }
-  if (sheet['A1']) {
-    sheet['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
-  }
-  sheet['!cols'] = [{ wch: 28 }, { wch: 52 }];
-}
-
-async function exportHubReportExcel({ proposals, destFilePath, exportedBy, appVersion }) {
-  const rows = buildHubReportRows(proposals);
+async function exportHubReportExcel({ proposals, destFilePath, exportedBy, appVersion, excelOptions }) {
   const exportedAt = formatDateGreek(new Date().toISOString());
-  const header = ['Τίτλος', 'Κατάσταση', 'Κατηγορία', 'Δημ. Ενότητα', 'Οικισμός', 'ΑΕΠΟ', 'Εκκρεμότητες', 'Αρχεία', 'Τελευταία ενημέρωση'];
-  const data = [
-    header,
-    ...rows.map((r) => [r.title, r.status, r.category, r.municipalUnit, r.settlement, r.aepo, r.pending, r.files, r.updatedAt]),
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [
-    { wch: 42 }, { wch: 22 }, { wch: 28 }, { wch: 22 }, { wch: 20 }, { wch: 14 }, { wch: 48 }, { wch: 10 }, { wch: 18 },
-  ];
-  applyDataSheetFormatting(ws, { headerRow: 0, numberCols: [7] });
-  ws['!autofilter'] = { ref: `A1:I${Math.max(1, data.length)}` };
-  ws['!views'] = [{ state: 'frozen', ySplit: 1, activeCell: 'A2' }];
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Έργα Ωρίμανσης');
-
-  const totalFiles = rows.reduce((sum, r) => sum + (Number(r.files) || 0), 0);
-  const meta = [
-    [`${APP_NAME} — Αναφορά Hub Ωρίμανσης Έργων`],
-    ['Ημερομηνία εξαγωγής', exportedAt],
-    ['Εξαγωγή από', exportedBy || '—'],
-    ['Έκδοση εφαρμογής', appVersion || '—'],
-    ['Σύνολο έργων', rows.length],
-    ['Σύνολο αρχείων', totalFiles],
-  ];
-  const metaWs = XLSX.utils.aoa_to_sheet(meta);
-  applyMetaSheetFormatting(metaWs);
-  XLSX.utils.book_append_sheet(wb, metaWs, 'Πληροφορίες');
-  XLSX.writeFile(wb, destFilePath);
-  return {
-    success: true,
-    filePath: destFilePath,
-    rowCount: rows.length,
-    sheetCount: wb.SheetNames.length,
+  return writeHubExcelWorkbook({
+    proposals,
+    destFilePath,
+    exportedBy,
+    appVersion,
     exportedAt,
-    format: 'excel',
-  };
+    excelOptions,
+  });
 }
 
 async function exportHubReportHtml({ proposals, destFilePath, exportedBy, appVersion }) {
@@ -773,10 +598,10 @@ async function exportHubReportPdf({ proposals, destFilePath, exportedBy, appVers
   }
 }
 
-async function exportHubReport({ proposals, format, destFilePath, exportedBy, appVersion }) {
+async function exportHubReport({ proposals, format, destFilePath, exportedBy, appVersion, excelOptions }) {
   if (!destFilePath) return { success: false, error: 'Δεν δόθηκε path εξαγωγής' };
   if (format === 'excel') {
-    return exportHubReportExcel({ proposals, destFilePath, exportedBy, appVersion });
+    return exportHubReportExcel({ proposals, destFilePath, exportedBy, appVersion, excelOptions });
   }
   if (format === 'pdf') {
     return exportHubReportPdf({ proposals, destFilePath, exportedBy, appVersion });

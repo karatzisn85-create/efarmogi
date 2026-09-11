@@ -13,6 +13,8 @@ async function openOrimanthi(window) {
 test('P8-01 ωρίμανση σε όλους τους ρόλους', async ({ app }) => {
   const { window } = app;
   await openOrimanthi(window);
+  await window.getByTitle('Κλείσιμο και επιστροφή στο Dashboard').click();
+  await expect(window.getByTitle('Κλείσιμο και επιστροφή στο Dashboard')).toHaveCount(0);
   await app.loginAsRole('USER');
   await openOrimanthi(window);
 });
@@ -95,7 +97,7 @@ test('P8-10 αναζήτηση τίτλου και δημοτικής ενότη
   await expect(window.getByText(/Δεν βρέθηκαν έργα με τα τρέχοντα κριτήρια/)).toBeVisible();
 });
 
-test('P8-11 αναζήτηση κειμένου εκκρεμότητας', async ({ app }) => {
+test('P8-11 αναζήτηση κειμένου στις σημειώσεις', async ({ app }) => {
   const { window } = app;
   await openOrimanthi(window);
   await window.getByPlaceholder(/Αναζήτηση έργου/).fill('Αρχαιολογική');
@@ -129,11 +131,89 @@ test('P8-14 ΑΕΠΟ που λήγει σύντομα περιλαμβάνει �
   }
 });
 
-test('P8-15 φίλτρο ανοιχτών εκκρεμοτήτων', async ({ app }) => {
+test('P8-15 σήμανση ότι η άδεια εκδόθηκε', async ({ app }) => {
   const { window } = app;
   await openOrimanthi(window);
-  await window.getByRole('button', { name: 'Με εκκρεμότητες', exact: true }).click();
-  await expect(window.getByText('Ανακατασκευή οδού Αρχανών').first()).toBeVisible();
+  const row = window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first();
+  await expect(row).toBeVisible();
+  await row.click();
+  await window.getByTestId('orimanthi-tab-notes').click();
+  const notes = window.getByTestId('orimanthi-notes');
+  await expect(notes).toBeVisible();
+  await notes.fill('Αναμονή αρχαιολογικής έγκρισης. Πρόσθετη σημείωση ελέγχου.');
+  await window.getByTestId('orimanthi-tab-files').click();
+  await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Εκκρεμεί η άδεια/);
+  await window.getByTestId('orimanthi-permit-issued-fg-permit-arch').click();
+  await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Η άδεια εκδόθηκε/);
+  await expect(window.getByText(/Μη επιτρεπτή καταγραφή/)).toHaveCount(0);
+  await window.getByTestId('orimanthi-tab-notes').click();
+  await expect(window.getByTestId('orimanthi-notes')).toHaveValue(/Πρόσθετη σημείωση ελέγχου/);
+});
+
+test('P8-18 εξαγωγή Excel καρτελών ανά έργο', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const XLSX = require('xlsx-js-style');
+  const { window } = app;
+  await openOrimanthi(window);
+  const dest = path.join(app.testDir, 'ωρίμανση-καρτέλες.xlsx');
+  await window.getByTestId('orimanthi-hub-export-excel').click();
+  await expect(window.getByTestId('orimanthi-hub-excel-modal')).toBeVisible();
+  await app.queueSavePath(dest);
+  await window.getByTestId('orimanthi-hub-excel-confirm').click();
+  await expect.poll(() => fs.existsSync(dest), { timeout: 20000 }).toBe(true);
+  const wb = XLSX.readFile(dest);
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const text = XLSX.utils.sheet_to_csv(sheet);
+  expect(text).toContain('ΑΝΑΦΟΡΑ ΩΡΙΜΑΝΣΗΣ ΕΡΓΩΝ');
+  expect(text).toContain('Α/Α');
+  expect(text).toContain('ERGOHUB');
+  expect(text).toContain('Το παρόν εξήχθη από την εφαρμογή ERGOHUB');
+  expect(text).toContain('Ανακατασκευή οδού Αρχανών');
+  expect(text).toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
+  expect(text).toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
+  expect(text).not.toContain('Εκκρεμότητες');
+});
+
+test('P8-20 Excel: επιλογή στηλών και μόνο μελέτες', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const XLSX = require('xlsx-js-style');
+  const { window } = app;
+  await openOrimanthi(window);
+  const dest = path.join(app.testDir, 'ωρίμανση-μελέτες.xlsx');
+  await window.getByTestId('orimanthi-hub-export-excel').click();
+  await expect(window.getByTestId('orimanthi-hub-excel-modal')).toBeVisible();
+  await window.getByTestId('orimanthi-hub-excel-col-settlement').click();
+  await window.getByTestId('orimanthi-hub-excel-block-permits').click();
+  await app.queueSavePath(dest);
+  await window.getByTestId('orimanthi-hub-excel-confirm').click();
+  await expect.poll(() => fs.existsSync(dest), { timeout: 20000 }).toBe(true);
+  const wb = XLSX.readFile(dest);
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const text = XLSX.utils.sheet_to_csv(sheet);
+  expect(text).toContain('ΑΝΑΦΟΡΑ ΩΡΙΜΑΝΣΗΣ ΕΡΓΩΝ');
+  expect(text).toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
+  expect(text).toContain('Κατάσταση');
+  expect(text).not.toContain('Οικισμός');
+  expect(text).not.toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
+});
+
+test('P8-19 μεταφορά αρχείου σε νέα κατηγορία αδειοδότησης', async ({ app }) => {
+  const { window } = app;
+  await openOrimanthi(window);
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-files').click();
+  await window.getByText('ΤΟΠΟΓΡΑΦΙΚΑ', { exact: true }).click();
+  await window.getByTestId('orimanthi-move-τοπογραφικο.pdf').click();
+  await window.getByRole('button', { name: 'Νέα κατηγορία' }).click();
+  await window.getByTestId('orimanthi-file-root-adeiodotiseis').click();
+  await window.getByRole('button', { name: 'ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ' }).click();
+  await window.getByTestId('orimanthi-move-confirm').click();
+  await expect(window.getByText(/Μεταφέρθηκε/)).toBeVisible();
+  await expect(window.getByText('ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ').first()).toBeVisible();
+  await expect(window.getByText(/Η άδεια εκδόθηκε|Εκκρεμεί η άδεια/).first()).toBeVisible();
 });
 
 test('P8-16 διαγραφή μόνο με δικαίωμα επεξεργασίας', async ({ app }) => {

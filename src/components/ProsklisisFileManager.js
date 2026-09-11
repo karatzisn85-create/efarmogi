@@ -343,6 +343,22 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, prosklisiId]);
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (renameTarget) return;
+      if (document.querySelector('[data-testid="confirm-yes"]')) return;
+      if (typeof window.cleanupFolderModal === 'function' || typeof window.cleanupSubfolderModal === 'function') {
+        return;
+      }
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose, renameTarget]);
+
   const loadFiles = async () => {
     setLoading(true);
     try {
@@ -975,7 +991,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
 
   return (
     <>
-    <Overlay onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <Overlay data-testid="psk-files-modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <Modal>
         <Header>
           <Title>📁 Αρχεία Πρόσκλησης: {prosklisiTitle}</Title>

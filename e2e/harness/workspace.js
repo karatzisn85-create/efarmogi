@@ -566,7 +566,7 @@
         settlement: 'Χουδέτσι',
         status: 'maturing',
         description: 'Αντικατάσταση δικτύου',
-        notes: '',
+        notes: 'Αρχαιολογική έκθεση σε αναμονή',
         aepoRenewalDate: isoDaysFromToday(20),
         pendingItems: [{ text: 'Αρχαιολογική έκθεση', done: false }],
         fileGroups: [{ files: [{ name: 'ΚΑ-888-σύμβαση.pdf' }] }]

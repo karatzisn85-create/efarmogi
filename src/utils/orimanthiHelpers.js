@@ -103,8 +103,6 @@ export function proposalPersistFingerprint(proposal) {
     aepoRenewalDate: proposal.aepoRenewalDate || '',
     description: proposal.description || '',
     notes: proposal.notes || '',
-    pendingItems: proposal.pendingItems || [],
-    pendingTemplateCategory: proposal.pendingTemplateCategory || '',
     fileGroups: proposal.fileGroups || [],
   });
 }
@@ -149,15 +147,12 @@ export function computeExtendedHubStats(proposals, statusDefs) {
   const byMunicipalUnit = {};
   const bySettlement = {};
   let totalFiles = 0;
-  let totalPending = 0;
-  let totalPendingOpen = 0;
   let withAepo = 0;
   let aepoDueSoon = 0;
   let withNotes = 0;
   let withMunicipalUnit = 0;
   let withSettlement = 0;
   const aepoSoonList = [];
-  const topPending = [];
   const recentlyUpdated = [];
   const soonLimit = new Date();
   soonLimit.setDate(soonLimit.getDate() + 60);
@@ -185,11 +180,6 @@ export function computeExtendedHubStats(proposals, statusDefs) {
 
     totalFiles += countProposalFiles(p);
 
-    const pending = p.pendingItems || [];
-    const openPending = pending.filter((i) => !i.done).length;
-    totalPending += pending.length;
-    totalPendingOpen += openPending;
-
     if (String(p.notes || '').trim()) withNotes += 1;
 
     if (p.aepoRenewalDate) {
@@ -208,15 +198,6 @@ export function computeExtendedHubStats(proposals, statusDefs) {
       }
     }
 
-    if (openPending > 0) {
-      topPending.push({
-        id: p.id,
-        title: p.title || '(Χωρίς τίτλο)',
-        open: openPending,
-        total: pending.length,
-      });
-    }
-
     recentlyUpdated.push({
       id: p.id,
       title: p.title || '(Χωρίς τίτλο)',
@@ -225,7 +206,6 @@ export function computeExtendedHubStats(proposals, statusDefs) {
   });
 
   aepoSoonList.sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  topPending.sort((a, b) => b.open - a.open || b.total - a.total);
   recentlyUpdated.sort((a, b) =>
     String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
   );
@@ -274,8 +254,6 @@ export function computeExtendedHubStats(proposals, statusDefs) {
     byMunicipalUnit,
     bySettlement,
     totalFiles,
-    totalPending,
-    totalPendingOpen,
     withAepo,
     aepoDueSoon,
     withNotes,
@@ -287,7 +265,6 @@ export function computeExtendedHubStats(proposals, statusDefs) {
     submitted: proposals.filter((p) => p.status === 'submitted').length,
     rejected: proposals.filter((p) => p.status === 'rejected').length,
     aepoSoonList,
-    topPending: topPending.slice(0, 8),
     recentlyUpdated: recentlyUpdated.slice(0, 8),
     statusDonut,
     categoryDonut,

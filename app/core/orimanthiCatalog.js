@@ -106,10 +106,6 @@
   function parseProjectSearch(project, query) {
     var q = String(query || '').trim().toLowerCase();
     if (!q) return true;
-    var pendingText = ((project && project.pendingItems) || [])
-      .map(function (item) { return item && item.text; })
-      .filter(Boolean)
-      .join(' ');
     var haystack = [
       project && project.title,
       project && project.projectCategory,
@@ -117,16 +113,9 @@
       project && project.municipalUnit,
       project && project.settlement,
       project && project.description,
-      project && project.notes,
-      pendingText
+      project && project.notes
     ].filter(Boolean).join(' ').toLowerCase();
     return haystack.indexOf(q) !== -1;
-  }
-
-  function getProjectPendingOpen(project) {
-    return ((project && project.pendingItems) || []).filter(function (item) {
-      return item && !item.done;
-    }).length;
   }
 
   function parseAepoDate(value) {
@@ -156,8 +145,6 @@
         return project.status === 'approved';
       case 'aepo_soon':
         return isAepoDueSoon(project);
-      case 'pending':
-        return getProjectPendingOpen(project) > 0;
       default:
         return true;
     }
@@ -209,7 +196,6 @@
     evaluateNewProposal: evaluateNewProposal,
     evaluateProposalDelete: evaluateProposalDelete,
     parseProjectSearch: parseProjectSearch,
-    getProjectPendingOpen: getProjectPendingOpen,
     isAepoDueSoon: isAepoDueSoon,
     matchesHubQuickFilter: matchesHubQuickFilter,
     matchesHubFilters: matchesHubFilters,

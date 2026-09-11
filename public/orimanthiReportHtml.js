@@ -180,7 +180,6 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
   border: 1px solid;
   white-space: nowrap;
 }
-.pending-cell { font-size: 9.5px; color: var(--slate600); max-width: 220px; }
 .empty-msg {
   text-align: center;
   color: var(--slate500);
@@ -253,11 +252,10 @@ function buildHubReportHtml({ rows, exportedAt, exportedBy, appVersion }) {
         <td>${escapeHtml(r.municipalUnit)}</td>
         <td>${escapeHtml(r.settlement)}</td>
         <td>${escapeHtml(r.aepo)}</td>
-        <td class="pending-cell">${escapeHtml(String(r.pending))}</td>
         <td class="num-cell">${r.files}</td>
         <td>${escapeHtml(r.updatedAt)}</td>
       </tr>`).join('')
-    : `<tr><td colspan="9" class="empty-msg">Δεν υπάρχουν έργα προς εμφάνιση</td></tr>`;
+    : `<tr><td colspan="8" class="empty-msg">Δεν υπάρχουν έργα προς εμφάνιση</td></tr>`;
 
   const totalFiles = rows.reduce((sum, r) => sum + (Number(r.files) || 0), 0);
 
@@ -277,7 +275,6 @@ function buildHubReportHtml({ rows, exportedAt, exportedBy, appVersion }) {
             <th>Δημ. Ενότητα</th>
             <th>Οικισμός</th>
             <th>ΑΕΠΟ</th>
-            <th>Εκκρεμότητες</th>
             <th>Αρχεία</th>
             <th>Ενημέρωση</th>
           </tr>

@@ -65,22 +65,23 @@ test('νέο έργο: τίτλος, κατηγορία, εξειδίκευση 
   }).ok, true);
 });
 
-test('αναζήτηση: τίτλος και εκκρεμότητα ναι, όνομα αρχείου όχι', () => {
+test('αναζήτηση: τίτλος και σημειώσεις ναι, όνομα αρχείου όχι', () => {
   const row = {
     title: 'Ύδρευση Χουδετσίου',
     projectCategory: 'ΥΔΡΑΥΛΙΚΑ',
     settlement: 'Χουδέτσι',
-    notes: 'αναμονή τοπογραφικού',
-    pendingItems: [{ text: 'Αρχαιολογική έκθεση', done: false }],
+    notes: 'αναμονή τοπογραφικού — αρχαιολογική έγκριση',
+    pendingItems: [{ text: 'Αυτό δεν αναζητείται πια', done: false }],
     fileGroups: [{ files: [{ name: 'ΚΑ-888-σύμβαση.pdf' }] }],
   };
   assert.equal(ori.parseProjectSearch(row, 'Χουδέτσι'), true);
-  assert.equal(ori.parseProjectSearch(row, 'Αρχαιολογική'), true);
+  assert.equal(ori.parseProjectSearch(row, 'αρχαιολογική'), true);
   assert.equal(ori.parseProjectSearch(row, 'τοπογραφικού'), true);
+  assert.equal(ori.parseProjectSearch(row, 'δεν αναζητείται'), false);
   assert.equal(ori.parseProjectSearch(row, 'ΚΑ-888'), false);
 });
 
-test('φίλτρα: κατάσταση, χωρίς κατηγορία, ΑΕΠΟ σύντομα, εκκρεμότητες', () => {
+test('φίλτρα: κατάσταση, χωρίς κατηγορία, ΑΕΠΟ σύντομα', () => {
   const rows = [
     {
       id: 'a',
@@ -88,7 +89,6 @@ test('φίλτρα: κατάσταση, χωρίς κατηγορία, ΑΕΠΟ 
       projectCategory: 'ΟΔΟΠΟΙΙΑ',
       status: 'ready',
       aepoRenewalDate: daysFromToday(200),
-      pendingItems: [],
     },
     {
       id: 'b',
@@ -96,7 +96,6 @@ test('φίλτρα: κατάσταση, χωρίς κατηγορία, ΑΕΠΟ 
       projectCategory: '',
       status: 'draft',
       aepoRenewalDate: daysFromToday(20),
-      pendingItems: [{ text: 'Άδεια', done: false }],
     },
     {
       id: 'c',
@@ -104,7 +103,6 @@ test('φίλτρα: κατάσταση, χωρίς κατηγορία, ΑΕΠΟ 
       projectCategory: 'ΚΤΙΡΙΑΚΑ',
       status: 'approved',
       aepoRenewalDate: daysFromToday(-10),
-      pendingItems: [{ text: 'Έγινε', done: true }],
     },
   ];
   assert.deepEqual(ori.filterOrimanthiHub(rows, { statusFilter: 'ready' }).map((p) => p.id), ['a']);
@@ -115,10 +113,6 @@ test('φίλτρα: κατάσταση, χωρίς κατηγορία, ΑΕΠΟ 
   assert.deepEqual(
     ori.filterOrimanthiHub(rows, { quickFilter: 'aepo_soon' }).map((p) => p.id),
     ['b', 'c']
-  );
-  assert.deepEqual(
-    ori.filterOrimanthiHub(rows, { quickFilter: 'pending' }).map((p) => p.id),
-    ['b']
   );
   assert.deepEqual(
     ori.filterOrimanthiHub(rows, { quickFilter: 'maturing' }).map((p) => p.id),

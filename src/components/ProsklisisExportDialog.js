@@ -260,6 +260,7 @@ const EXPORT_FIELDS_ORDER = [
   { id: 'status', label: 'Κατάσταση', width: 18 },
   { id: 'diavgeiaAda', label: 'ΑΔΑ Διαύγειας', width: 18 },
   { id: 'linkedProjectsLabel', label: 'Συσχετισμένα Έργα', width: 40 },
+  { id: 'linkedOrimanthiLabel', label: 'Έργα ωρίμανσης', width: 40 },
   { id: 'relatedEntaxeisCount', label: 'Σχετικές Εντάξεις', width: 16 },
   { id: 'createdAt', label: 'Ημερομηνία Δημιουργίας', width: 18 },
   { id: 'updatedAt', label: 'Τελευταία Ενημέρωση', width: 18 },
@@ -285,6 +286,7 @@ const EXPORT_FIELDS = {
       { id: 'fundingSource', label: 'Πηγή Χρηματοδότησης', width: 40 },
       { id: 'budgetRange', label: 'Εύρος Προϋπολογισμού', width: 20 },
       { id: 'linkedProjectsLabel', label: 'Συσχετισμένα Έργα', width: 40 },
+      { id: 'linkedOrimanthiLabel', label: 'Έργα ωρίμανσης', width: 40 },
       { id: 'relatedEntaxeisCount', label: 'Σχετικές Εντάξεις', width: 16 }
     ]
   },
@@ -330,6 +332,16 @@ function getProsklisiExportCellValue(prosklisi, field, index, formatDate) {
     }
     return '';
   }
+  if (field.id === 'linkedOrimanthiLabel') {
+    if (prosklisi.linkedOrimanthiLabel) return prosklisi.linkedOrimanthiLabel;
+    if (Array.isArray(prosklisi.linkedOrimanthiProposals)) {
+      return prosklisi.linkedOrimanthiProposals
+        .map((row) => (typeof row === 'string' ? row : (row?.title || '')))
+        .filter(Boolean)
+        .join(' · ');
+    }
+    return '';
+  }
   if (field.id === 'relatedEntaxeisCount') {
     return Number.isFinite(prosklisi.relatedEntaxeisCount) ? prosklisi.relatedEntaxeisCount : 0;
   }
@@ -352,7 +364,7 @@ function ProsklisisExportDialog({
   const [exporting, setExporting] = useState(false);
   const [selectedFields, setSelectedFields] = useState([
     'rowNumber', 'title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status',
-    'diavgeiaAda', 'linkedProjectsLabel', 'modificationsCount', 'originalDeadline', 'lastModificationDate'
+    'diavgeiaAda', 'linkedProjectsLabel', 'linkedOrimanthiLabel', 'modificationsCount', 'originalDeadline', 'lastModificationDate'
   ]);
 
   const visibleRows = visibleProskliseis;

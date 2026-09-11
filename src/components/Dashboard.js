@@ -3058,6 +3058,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   /** Επιστροφή στις σημειώσεις μετά από μετάβαση από chip συσχέτισης */
   const noteReturnRef = useRef(null);
   const meletaiReturnRef = useRef(null);
+  const prosklisiReturnRef = useRef(null);
   /** Η τελευταία δική μας αποθήκευση — ώστε το ξεκλείδωμα να μη θεωρηθεί «άλλος χρήστης». */
   const recentLocalSaveRef = useRef({ subprojectId: '', updatedAt: '', until: 0 });
   // Separate monotonic counters for loadDataWithCache and loadProjects
@@ -3459,6 +3460,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isEpProgramOpen, setIsEpProgramOpen] = useState(false);
   const [isApologismosOpen, setIsApologismosOpen] = useState(false);
   const [isOrimanthiOpen, setIsOrimanthiOpen] = useState(false);
+  const [selectedOrimanthiId, setSelectedOrimanthiId] = useState(null);
+  const [prosklisiReturnId, setProsklisiReturnId] = useState(null);
   const [isMeletaiOpen, setIsMeletaiOpen] = useState(false);
   const [isContractorRegistryOpen, setIsContractorRegistryOpen] = useState(false);
   const [contractorRegistryFocusKey, setContractorRegistryFocusKey] = useState(null);
@@ -5859,6 +5862,86 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     setIsEntaxisOpen(true);
   }, []);
 
+  const captureProsklisiReturnContext = useCallback((prosklisiId) => {
+    const id = String(prosklisiId || '').trim();
+    if (!id) return;
+    prosklisiReturnRef.current = { prosklisiId: id };
+    setProsklisiReturnId(id);
+  }, []);
+
+  const clearProsklisiReturnContext = useCallback(() => {
+    prosklisiReturnRef.current = null;
+    setProsklisiReturnId(null);
+  }, []);
+
+  const restoreProsklisiReturnContext = useCallback(() => {
+    const id = prosklisiReturnRef.current?.prosklisiId || prosklisiReturnId;
+    prosklisiReturnRef.current = null;
+    setProsklisiReturnId(null);
+    if (!id) return false;
+    setSelectedProsklisiId(id);
+    setProsklisiProjectFilter(null);
+    setIsProsklisisOpen(true);
+    return true;
+  }, [prosklisiReturnId]);
+
+  const handleOpenAssociationFromProsklisi = useCallback((payload) => {
+    const kind = payload?.kind;
+    const prosklisiId = payload?.prosklisiId;
+    captureProsklisiReturnContext(prosklisiId);
+    setIsProsklisisOpen(false);
+    setProsklisiProjectFilter(null);
+    setSelectedProsklisiId(null);
+    if (payload?.dataChanged) {
+      loadProjects();
+      loadProskliseis();
+    }
+
+    if (kind === 'entaxi') {
+      const entaxiId = payload.id || payload.entaxi?.entaxiId;
+      setEntaxisProjectFilter(null);
+      if (entaxiId) {
+        setSelectedEntaxiId(entaxiId);
+        setEntaxisProsklisiIdFilter(null);
+      } else if (prosklisiId) {
+        setSelectedEntaxiId(null);
+        setEntaxisProsklisiIdFilter(prosklisiId);
+      }
+      setIsEntaxisOpen(true);
+      return;
+    }
+
+    if (kind === 'orimanthi') {
+      if (!payload.id) {
+        showToast('Δεν βρέθηκε το έργο ωρίμανσης.', 'warning');
+        restoreProsklisiReturnContext();
+        return;
+      }
+      setSelectedOrimanthiId(payload.id);
+      setIsOrimanthiOpen(true);
+      return;
+    }
+
+    if (kind === 'project') {
+      const projectId = payload.id;
+      const title = payload.title;
+      const found = (projects || []).find((p) =>
+        (projectId && (p.projectId === projectId || p.projectId === payload.id))
+        || (title && normalizeText(p.projectTitle) === normalizeText(title))
+      );
+      if (!found) {
+        showToast('Το έργο δεν βρέθηκε στο χαρτοφυλάκιο.', 'warning');
+        restoreProsklisiReturnContext();
+        return;
+      }
+      openSubprojectDetail(found);
+      return;
+    }
+
+    showToast('Δεν είναι δυνατή η μετάβαση σε αυτή τη συσχέτιση.', 'warning');
+    restoreProsklisiReturnContext();
+  }, [captureProsklisiReturnContext, projects, openSubprojectDetail, showToast, restoreProsklisiReturnContext]);
+
   const handleCloseFileManager = () => {
     setFileManager({
       isOpen: false,
@@ -6747,6 +6830,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       if (Array.isArray(prosklisi.linkedProjects)) {
         prosklisi.linkedProjects.forEach((linkedProject) => {
           if (linkedProject.id) byProjectId.add(linkedProject.id);
+          if (linkedProject.projectId) byProjectId.add(linkedProject.projectId);
           if (linkedProject.title) byNormTitle.add(normalizeText(linkedProject.title));
         });
       }
@@ -6767,7 +6851,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       if (normalizeText(prosklisi.title) === normTitle) return true;
       if (prosklisi.linkedProjects && Array.isArray(prosklisi.linkedProjects)) {
         return prosklisi.linkedProjects.some(linkedProject =>
-          linkedProject.id === projectId || normalizeText(linkedProject.title) === normTitle
+          linkedProject.id === projectId
+          || linkedProject.projectId === projectId
+          || normalizeText(linkedProject.title) === normTitle
         );
       }
       return false;
@@ -7850,7 +7936,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 Εγκρίσεις Διάθεσης Πίστωσης
               </AdminButton>
               {orimanthiCatalog.showOrimanthiButton(userRole) && (
-              <AdminButton data-user-guide="nav-orimanthi" onClick={() => setIsOrimanthiOpen(true)} title="Βάση Δεδομένων — καταγραφή ωρίμανσης έργων">
+              <AdminButton data-user-guide="nav-orimanthi" onClick={() => {
+                setSelectedOrimanthiId(null);
+                setIsOrimanthiOpen(true);
+              }} title="Βάση Δεδομένων — καταγραφή ωρίμανσης έργων">
                 <AdminButtonIcon>🌱</AdminButtonIcon>
                 Ωρίμανση Έργων
               </AdminButton>
@@ -8103,7 +8192,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           engineerVisibilityContext={engineerVisibilityContext}
           onClose={() => {
             setSelectedDetailProject(null);
-            if (!restoreMeletiReturnContext()) {
+            if (!restoreProsklisiReturnContext() && !restoreMeletiReturnContext()) {
               restoreNoteReturnContext();
             }
           }}
@@ -8357,7 +8446,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
             }
           }, 100);
-          restoreNoteReturnContext();
+          if (!restoreProsklisiReturnContext()) {
+            restoreNoteReturnContext();
+          }
         }}
         onDataChange={async () => {
           await loadEntaxeis();
@@ -8447,10 +8538,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       {isOrimanthiOpen ? (
         <Suspense fallback={<LazyChunkFallback>Φόρτωση Ωρίμανσης Έργων…</LazyChunkFallback>}>
           <OrimanthiManager
-            onClose={() => setIsOrimanthiOpen(false)}
+            onClose={() => {
+              setIsOrimanthiOpen(false);
+              setSelectedOrimanthiId(null);
+              if (!restoreProsklisiReturnContext()) {
+                restoreNoteReturnContext();
+              }
+            }}
             loggedInUsername={currentUser?.username || ''}
             userRole={userRole}
             orimanthiCanEdit={!!currentUser?.orimanthiCanEdit}
+            initialProposalId={selectedOrimanthiId}
           />
         </Suspense>
       ) : null}
@@ -8526,6 +8624,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       <ProsklisisManager
         isOpen={isProsklisisOpen}
         onClose={(dataChanged) => {
+          clearProsklisiReturnContext();
           setIsProsklisisOpen(false);
           setProsklisiProjectFilter(null);
           setSelectedProsklisiId(null);
@@ -8537,6 +8636,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           restoreNoteReturnContext();
           if (dataChanged) {
             loadProjects();
+            loadProskliseis();
           }
         }}
         userRole={userRoleForWorkflowModals}
@@ -8548,6 +8648,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         onOpenNoteFromEntity={handleOpenNoteFromEntity}
         organizationName={appConfig?.organizationFullName || ''}
         onOpenRelatedEntaxi={handleOpenEntaxiFromProsklisi}
+        onOpenAssociation={handleOpenAssociationFromProsklisi}
       />
       </Suspense>
       ) : null}
@@ -8860,6 +8961,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             })}
             onOpenOrimanthi={() => {
               setIsProcurementCalendarOpen(false);
+              setSelectedOrimanthiId(null);
               setIsOrimanthiOpen(true);
             }}
             onOpenProsklisi={(prosklisiId) => {
@@ -9130,7 +9232,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           maxDays: 30,
           limit: 8,
           refreshKey: calendarRefreshKey,
-          onOpenOrimanthi: () => setIsOrimanthiOpen(true),
+          onOpenOrimanthi: () => {
+            setSelectedOrimanthiId(null);
+            setIsOrimanthiOpen(true);
+          },
           onOpenProsklisi: (prosklisiId) => handleOpenLinkedProsklisi(prosklisiId),
           onOpenEntaxi: (entaxiId) => handleOpenEntaxiFromProsklisi(entaxiId),
           onOpenCalendar: (opts) => {

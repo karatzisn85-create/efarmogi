@@ -250,6 +250,7 @@ function OrimanthiFileCategoryPicker({
               <RootCard
                 key={rootId}
                 type="button"
+                data-testid={`orimanthi-file-root-${rootId}`}
                 $gradient={root.gradient}
                 $shadow={`${root.accent}44`}
                 onClick={() => handlePickRoot(rootId)}

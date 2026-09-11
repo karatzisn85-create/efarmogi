@@ -71,6 +71,7 @@ const khmdhsRefreshCore = require('../app/core/khmdhsRefresh');
 const excelImportCore = require('../app/core/excelImport');
 const portalCatalogCore = require('../app/core/portalCatalog');
 const orimanthiCatalogCore = require('../app/core/orimanthiCatalog');
+const orimanthiFileChecklistCore = require('../app/core/orimanthiFileChecklist');
 const meletaiCatalogCore = require('../app/core/meletaiCatalog');
 const contractorRegistryCore = require('../app/core/contractorRegistry');
 const epProgramCatalogCore = require('../app/core/epProgramCatalog');
@@ -7841,6 +7842,7 @@ async function loadAllProskliseis(options = {}) {
       if (!fs.existsSync(dataFilePath)) continue;
       try {
         const raw = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
+        raw.linkedProjects = prosklisiCatalogCore.normalizeLinkedProjects(raw.linkedProjects);
         // Ισχύουσα λήξη από τροποποιήσεις (μόνο στη μνήμη — χωρίς εγγραφή στο hot path φόρτωσης)
         proskliseis.push(applyEffectiveDeadlineToProsklisi(raw, folderPath, {
           persist: false,
@@ -8167,7 +8169,17 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
       fileGroups: savedData.fileGroups ?? existingOnDisk.fileGroups ?? [],
       prosklisiFiles: savedData.prosklisiFiles ?? existingOnDisk.prosklisiFiles ?? [],
       prosklisiFolders: savedData.prosklisiFolders ?? existingOnDisk.prosklisiFolders ?? [],
-      documentRegistry: savedData.documentRegistry ?? existingOnDisk.documentRegistry
+      documentRegistry: savedData.documentRegistry ?? existingOnDisk.documentRegistry,
+      linkedOrimanthiProposals: prosklisiCatalogCore.normalizeLinkedOrimanthiProposals(
+        savedData.linkedOrimanthiProposals != null
+          ? savedData.linkedOrimanthiProposals
+          : existingOnDisk.linkedOrimanthiProposals
+      ),
+      linkedProjects: prosklisiCatalogCore.normalizeLinkedProjects(
+        savedData.linkedProjects != null
+          ? savedData.linkedProjects
+          : existingOnDisk.linkedProjects
+      ),
     };
     delete finalData.modifications;
 
@@ -8219,6 +8231,9 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
 // Delete prosklisi
 ipcMain.handle('delete-prosklisi', async (event, prosklisiId) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const decision = prosklisiCatalogCore.evaluateProsklisiDelete(prosklisiId);
     if (!decision.ok) {
       return { success: false, error: 'Λείπει η ταυτότητα της πρόσκλησης' };
@@ -10791,6 +10806,43 @@ ipcMain.handle('load-prosklisi-modifications', async (event, prosklisiId) => {
 });
 
 // IPC handler για αποθήκευση τροποποίησης πρόσκλησης
+function copyProsklisiModificationAttachment(prosklisiDir, modificationId, uploaded) {
+  const src = uploaded && uploaded.filePath;
+  if (!src || !fs.existsSync(src)) return null;
+  const extRaw = String(path.extname(uploaded.fileName || src || '') || '').toLowerCase();
+  const safeExt = ['.pdf', '.doc', '.docx'].includes(extRaw) ? extRaw : '.pdf';
+  const destDir = path.join(prosklisiDir, 'modification_files');
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true });
+  }
+  const destName = `modification_${modificationId}${safeExt}`;
+  const dest = path.join(destDir, destName);
+  fs.copyFileSync(src, dest);
+  return {
+    fileName: uploaded.fileName || destName,
+    filePath: dest,
+    savedPath: destName,
+  };
+}
+
+function resolveProsklisiModificationAttachmentPath(prosklisiDir, modification) {
+  const filesDir = path.join(prosklisiDir, 'modification_files');
+  const stored = modification && modification.modificationPDF
+    ? (modification.modificationPDF.filePath || modification.modificationPDF.savedPath)
+    : '';
+  if (stored) {
+    const abs = path.isAbsolute(stored) ? stored : path.join(filesDir, stored);
+    const resolved = path.resolve(abs);
+    if (resolved.startsWith(path.resolve(prosklisiDir)) && fs.existsSync(resolved)) {
+      return resolved;
+    }
+  }
+  const id = modification && modification.modificationId;
+  if (!id) return null;
+  const candidates = ['.pdf', '.docx', '.doc'].map((ext) => path.join(filesDir, `modification_${id}${ext}`));
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
 ipcMain.handle('save-prosklisi-modification', async (event, modificationData) => {
   try {
     if (writesBlockedByMandatoryUpdate()) {
@@ -10812,29 +10864,15 @@ ipcMain.handle('save-prosklisi-modification', async (event, modificationData) =>
       modifications = JSON.parse(data);
     }
     
-    // Χειρισμός PDF αρχείου αν υπάρχει
     if (modificationData.modificationPDF && modificationData.modificationPDF.filePath) {
       try {
-        const pdfDir = path.join(prosklisiDir, 'modification_files');
-        if (!fs.existsSync(pdfDir)) {
-          fs.mkdirSync(pdfDir, { recursive: true });
-        }
-        
-        const pdfFileName = `modification_${modificationData.modificationId}.pdf`;
-        const pdfDestination = path.join(pdfDir, pdfFileName);
-        
-        // Αντιγραφή PDF αρχείου
-        fs.copyFileSync(modificationData.modificationPDF.filePath, pdfDestination);
-        
-        // Ενημέρωση του modificationData με το νέο path
-        modificationData.modificationPDF = {
-          fileName: modificationData.modificationPDF.fileName,
-          filePath: pdfDestination,
-          savedPath: pdfFileName
-        };
+        modificationData.modificationPDF = copyProsklisiModificationAttachment(
+          prosklisiDir,
+          modificationData.modificationId,
+          modificationData.modificationPDF
+        );
       } catch (pdfError) {
         console.error('Error saving modification PDF:', pdfError);
-        // Συνεχίζουμε χωρίς το PDF
         modificationData.modificationPDF = null;
       }
     }
@@ -10869,16 +10907,20 @@ ipcMain.handle('save-prosklisi-modification', async (event, modificationData) =>
 ipcMain.handle('view-modification-pdf', async (event, prosklisiId, modificationId) => {
   try {
     const prosklisiDir = path.join(proskliseisDir, prosklisiId);
-    const pdfPath = path.join(prosklisiDir, 'modification_files', `modification_${modificationId}.pdf`);
-    
-    if (!fs.existsSync(pdfPath)) {
+    const modificationsPath = path.join(prosklisiDir, 'modifications.json');
+    let modification = { modificationId };
+    if (fs.existsSync(modificationsPath)) {
+      try {
+        const modifications = JSON.parse(fs.readFileSync(modificationsPath, 'utf8'));
+        modification = (modifications || []).find((mod) => mod.modificationId === modificationId) || modification;
+      } catch (_e) { /* ignore */ }
+    }
+    const filePath = resolveProsklisiModificationAttachmentPath(prosklisiDir, modification);
+    if (!filePath) {
       return { success: false, error: 'PDF file not found' };
     }
-    
-    // Άνοιγμα PDF με το default viewer
-    shell.openPath(pdfPath);
-    
-    return { success: true, filePath: pdfPath };
+    shell.openPath(filePath);
+    return { success: true, filePath };
   } catch (error) {
     console.error('Error viewing modification PDF:', error);
     return { success: false, error: error.message };
@@ -10888,6 +10930,9 @@ ipcMain.handle('view-modification-pdf', async (event, prosklisiId, modificationI
 // IPC handler για ενημέρωση τροποποίησης
 ipcMain.handle('update-prosklisi-modification', async (event, modificationData) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const { originalProsklisiId, modificationId } = modificationData;
     const prosklisiDir = path.join(proskliseisDir, originalProsklisiId);
     const modificationsPath = path.join(prosklisiDir, 'modifications.json');
@@ -10907,29 +10952,16 @@ ipcMain.handle('update-prosklisi-modification', async (event, modificationData) 
       return { success: false, error: 'Modification not found' };
     }
     
-    // Χειρισμός PDF αρχείου αν υπάρχει
     if (modificationData.modificationPDF && modificationData.modificationPDF.filePath) {
       try {
-        const pdfDir = path.join(prosklisiDir, 'modification_files');
-        if (!fs.existsSync(pdfDir)) {
-          fs.mkdirSync(pdfDir, { recursive: true });
-        }
-        
-        const pdfFileName = `modification_${modificationId}.pdf`;
-        const pdfDestination = path.join(pdfDir, pdfFileName);
-        
-        // Αντιγραφή PDF αρχείου
-        fs.copyFileSync(modificationData.modificationPDF.filePath, pdfDestination);
-        
-        // Ενημέρωση του modificationData με το νέο path
-        modificationData.modificationPDF = {
-          fileName: modificationData.modificationPDF.fileName,
-          filePath: pdfDestination,
-          savedPath: pdfFileName
-        };
+        const copied = copyProsklisiModificationAttachment(
+          prosklisiDir,
+          modificationId,
+          modificationData.modificationPDF
+        );
+        if (copied) modificationData.modificationPDF = copied;
       } catch (pdfError) {
         console.error('Error saving modification PDF:', pdfError);
-        // Συνεχίζουμε χωρίς το PDF
         modificationData.modificationPDF = modifications[modificationIndex].modificationPDF;
       }
     }
@@ -10962,6 +10994,9 @@ ipcMain.handle('update-prosklisi-modification', async (event, modificationData) 
 // IPC handler για διαγραφή τροποποίησης
 ipcMain.handle('delete-prosklisi-modification', async (event, prosklisiId, modificationId) => {
   try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
     const prosklisiDir = path.join(proskliseisDir, prosklisiId);
     const modificationsPath = path.join(prosklisiDir, 'modifications.json');
     
@@ -10980,29 +11015,18 @@ ipcMain.handle('delete-prosklisi-modification', async (event, prosklisiId, modif
       return { success: false, error: 'Modification not found' };
     }
     
-    // Διαγραφή ολόκληρου φακέλου τροποποίησης
     const modification = modifications[modificationIndex];
     try {
+      const attachmentPath = resolveProsklisiModificationAttachmentPath(prosklisiDir, modification);
+      if (attachmentPath && fs.existsSync(attachmentPath) && fs.statSync(attachmentPath).isFile()) {
+        fs.unlinkSync(attachmentPath);
+      }
       const modificationDir = path.join(prosklisiDir, 'modification_files');
-      if (fs.existsSync(modificationDir)) {
-        // Διαγραφή όλων των αρχείων στο φάκελο
-        const files = fs.readdirSync(modificationDir);
-        files.forEach(file => {
-          const filePath = path.join(modificationDir, file);
-          if (fs.statSync(filePath).isFile()) {
-            fs.unlinkSync(filePath);
-          }
-        });
-        
-        // Διαγραφή του φακέλου αν είναι άδειος
-        const remainingFiles = fs.readdirSync(modificationDir);
-        if (remainingFiles.length === 0) {
-          fs.rmdirSync(modificationDir);
-        }
+      if (fs.existsSync(modificationDir) && fs.readdirSync(modificationDir).length === 0) {
+        fs.rmdirSync(modificationDir);
       }
     } catch (dirError) {
-      console.error('Error deleting modification directory:', dirError);
-      // Συνεχίζουμε με τη διαγραφή της τροποποίησης
+      console.error('Error deleting modification file:', dirError);
     }
     
     // Διαγραφή της τροποποίησης
@@ -16426,6 +16450,77 @@ function getProposalDir(proposalId) {
   return path.join(ensureOrimanthiDir(), proposalId);
 }
 
+function writeProsklisiLinkFile(dataFile, prosklisiData) {
+  safeWriteJSON(dataFile, prosklisiData);
+  const sidecar = path.join(path.dirname(dataFile), 'prosklisi_data.json');
+  if (!fs.existsSync(sidecar)) return;
+  try {
+    const existing = JSON.parse(fs.readFileSync(sidecar, 'utf8'));
+    safeWriteJSON(sidecar, {
+      ...existing,
+      linkedOrimanthiProposals: prosklisiData.linkedOrimanthiProposals,
+      updatedAt: prosklisiData.updatedAt,
+    });
+  } catch (err) {
+    logger.error('sync orimanthi sidecar on prosklisi failed', err && err.message);
+  }
+}
+
+function syncOrimanthiSnapshotsOnProskliseis(proposalId, snapshot) {
+  const proskliseisDir = path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ');
+  if (!proposalId || !dataDir || !fs.existsSync(proskliseisDir)) return;
+  for (const name of fs.readdirSync(proskliseisDir)) {
+    const dataFile = path.join(proskliseisDir, name, 'data.json');
+    if (!fs.existsSync(dataFile)) continue;
+    try {
+      const prosklisiData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+      const links = prosklisiCatalogCore.normalizeLinkedOrimanthiProposals(
+        prosklisiData.linkedOrimanthiProposals
+      );
+      if (!links.length) continue;
+      let updated = false;
+      prosklisiData.linkedOrimanthiProposals = links.map((link) => {
+        if (!link || link.id !== proposalId) return link;
+        updated = true;
+        return {
+          id: proposalId,
+          title: snapshot.title || '',
+          projectCategory: snapshot.projectCategory || '',
+          status: snapshot.status || '',
+          municipalUnit: snapshot.municipalUnit || '',
+        };
+      });
+      if (updated) {
+        prosklisiData.updatedAt = new Date().toISOString();
+        writeProsklisiLinkFile(dataFile, prosklisiData);
+      }
+    } catch (err) {
+      logger.error('sync orimanthi snapshots on prosklisi failed', err && err.message);
+    }
+  }
+}
+
+function removeOrimanthiLinksFromProskliseis(proposalId) {
+  const proskliseisDir = path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ');
+  if (!proposalId || !dataDir || !fs.existsSync(proskliseisDir)) return;
+  for (const name of fs.readdirSync(proskliseisDir)) {
+    const dataFile = path.join(proskliseisDir, name, 'data.json');
+    if (!fs.existsSync(dataFile)) continue;
+    try {
+      const prosklisiData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+      const before = prosklisiData.linkedOrimanthiProposals;
+      if (!Array.isArray(before) || !before.length) continue;
+      const next = prosklisiCatalogCore.detachOrimanthiProposal(prosklisiData, proposalId);
+      if (next.length === before.length) continue;
+      prosklisiData.linkedOrimanthiProposals = next;
+      prosklisiData.updatedAt = new Date().toISOString();
+      writeProsklisiLinkFile(dataFile, prosklisiData);
+    } catch (err) {
+      logger.error('remove orimanthi links from prosklisi failed', err && err.message);
+    }
+  }
+}
+
 function getProposalDataPath(proposalId) {
   return path.join(getProposalDir(proposalId), 'data.json');
 }
@@ -16447,6 +16542,8 @@ const ALLOWED_CLIENT_PROPOSAL_ACTIVITY = [
   /^Ολοκλήρωση εκκρεμότητας:/,
   /^Επανάνοιγμα εκκρεμότητας:/,
   /^Διαγραφή εκκρεμότητας:/,
+  /^Σημείωση: η άδεια εκδόθηκε/,
+  /^Σημείωση: εκκρεμεί η άδεια/,
 ];
 
 const proposalUploadQueues = new Map();
@@ -16743,62 +16840,77 @@ ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipA
     const idCheck = assertValidProposalId(proposal.id);
     if (!idCheck.ok) return { success: false, error: idCheck.error };
 
-    const proposalDir = getProposalDir(idCheck.id);
-    const dataPath = getProposalDataPath(idCheck.id);
-    const existedBefore = fs.existsSync(dataPath);
-    const existing = existedBefore ? loadProposal(idCheck.id) : null;
+    return enqueueProposalUpload(idCheck.id, async () => {
+      const proposalDir = getProposalDir(idCheck.id);
+      const dataPath = getProposalDataPath(idCheck.id);
+      const existedBefore = fs.existsSync(dataPath);
+      const existing = existedBefore ? loadProposal(idCheck.id) : null;
 
-    if (existing && expectedUpdatedAt && existing.updatedAt !== expectedUpdatedAt) {
-      return {
-        success: false,
-        conflict: true,
-        error: 'Το έργο τροποποιήθηκε από άλλη ενέργεια. Φορτώστε ξανά και επαναλάβετε.',
-        proposal: existing,
-      };
-    }
+      if (existing && expectedUpdatedAt && existing.updatedAt !== expectedUpdatedAt) {
+        return {
+          success: false,
+          conflict: true,
+          error: 'Το έργο τροποποιήθηκε από άλλη ενέργεια. Φορτώστε ξανά και επαναλάβετε.',
+          proposal: existing,
+        };
+      }
 
-    const orimanthiCfg = orimanthiConfigService.loadOrimanthiConfig(dataDir);
-    const categoryValidation = orimanthiProjectCategoriesHelper.validateProposalCategoryFields(
-      proposal,
-      orimanthiCfg.customCategorySpecializations
-    );
-    if (!categoryValidation.ok) {
-      return { success: false, error: categoryValidation.error };
-    }
+      const orimanthiCfg = orimanthiConfigService.loadOrimanthiConfig(dataDir);
+      const categoryValidation = orimanthiProjectCategoriesHelper.validateProposalCategoryFields(
+        proposal,
+        orimanthiCfg.customCategorySpecializations
+      );
+      if (!categoryValidation.ok) {
+        return { success: false, error: categoryValidation.error };
+      }
 
-    if (!fs.existsSync(proposalDir)) fs.mkdirSync(proposalDir, { recursive: true });
-    const toSave = { ...proposal, id: idCheck.id, updatedAt: new Date().toISOString() };
-    if (existing?.createdAt && !toSave.createdAt) toSave.createdAt = existing.createdAt;
+      if (!fs.existsSync(proposalDir)) fs.mkdirSync(proposalDir, { recursive: true });
+      const toSave = { ...proposal, id: idCheck.id, updatedAt: new Date().toISOString() };
+      if (existing?.createdAt && !toSave.createdAt) toSave.createdAt = existing.createdAt;
 
-    const mustAudit = !skipAudit || (existing && proposalAuditedFieldsChanged(existing, toSave));
-    safeWriteJSON(dataPath, toSave);
-
-    if (mustAudit) {
-      const actor = getOrimanthiAuditActor(auth.username);
-      if (!existedBefore) {
-        logAuditAction({
-          type: 'create',
-          entityType: 'proposal',
-          entityId: idCheck.id,
-          entityTitle: proposal.title || '',
-          userFullName: actor.fullName,
-          userRole: actor.role,
-          details: 'Δημιουργία νέου έργου ωρίμανσης',
-        });
-      } else {
-        logAuditAction({
-          type: 'update',
-          entityType: 'proposal',
-          entityId: idCheck.id,
-          entityTitle: proposal.title || '',
-          userFullName: actor.fullName,
-          userRole: actor.role,
-          oldValue: pickProposalAuditSnapshot(existing),
-          newValue: pickProposalAuditSnapshot(toSave),
+      const mustAudit = !skipAudit || (existing && proposalAuditedFieldsChanged(existing, toSave));
+      safeWriteJSON(dataPath, toSave);
+      if (existing && (
+        String(existing.title || '') !== String(toSave.title || '')
+        || String(existing.projectCategory || '') !== String(toSave.projectCategory || '')
+        || String(existing.status || '') !== String(toSave.status || '')
+        || String(existing.municipalUnit || '') !== String(toSave.municipalUnit || '')
+      )) {
+        syncOrimanthiSnapshotsOnProskliseis(idCheck.id, {
+          title: toSave.title || '',
+          projectCategory: toSave.projectCategory || '',
+          status: toSave.status || '',
+          municipalUnit: toSave.municipalUnit || '',
         });
       }
-    }
-    return { success: true, proposal: toSave };
+
+      if (mustAudit) {
+        const actor = getOrimanthiAuditActor(auth.username);
+        if (!existedBefore) {
+          logAuditAction({
+            type: 'create',
+            entityType: 'proposal',
+            entityId: idCheck.id,
+            entityTitle: proposal.title || '',
+            userFullName: actor.fullName,
+            userRole: actor.role,
+            details: 'Δημιουργία νέου έργου ωρίμανσης',
+          });
+        } else {
+          logAuditAction({
+            type: 'update',
+            entityType: 'proposal',
+            entityId: idCheck.id,
+            entityTitle: proposal.title || '',
+            userFullName: actor.fullName,
+            userRole: actor.role,
+            oldValue: pickProposalAuditSnapshot(existing),
+            newValue: pickProposalAuditSnapshot(toSave),
+          });
+        }
+      }
+      return { success: true, proposal: toSave };
+    });
   } catch (e) {
     logger.error('save-proposal error:', e.message);
     return { success: false, error: e.message };
@@ -16818,6 +16930,7 @@ ipcMain.handle('delete-proposal', async (_event, { proposalId, actingUsername } 
     }
     const proposal = loadProposal(idCheck.id);
     if (fs.existsSync(resolved)) fs.rmSync(resolved, { recursive: true, force: true });
+    removeOrimanthiLinksFromProskliseis(idCheck.id);
     const actor = getOrimanthiAuditActor(auth.username);
     logAuditAction({
       type: 'delete',
@@ -16896,6 +17009,54 @@ ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, fi
     });
   } catch (e) {
     logger.error('upload-proposal-files error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('set-proposal-group-permit-issued', async (_event, { proposalId, groupId, permitIssued, actingUsername } = {}) => {
+  try {
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    if (!groupId) return { success: false, error: 'Απαιτείται κατηγορία' };
+
+    return enqueueProposalUpload(idCheck.id, async () => {
+      const proposal = loadProposal(idCheck.id);
+      if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
+      const group = (proposal.fileGroups || []).find((g) => g.id === groupId);
+      if (!group) return { success: false, error: 'Η κατηγορία δεν βρέθηκε στο έργο' };
+      if (!orimanthiFileChecklistCore.isAdeiodotiseisGroup(group)) {
+        return { success: false, error: 'Η σήμανση άδειας ισχύει μόνο για αδειοδοτήσεις' };
+      }
+      const nextFileGroups = orimanthiFileChecklistCore.setGroupPermitIssued(
+        proposal.fileGroups,
+        groupId,
+        permitIssued
+      );
+      const toSave = {
+        ...proposal,
+        fileGroups: nextFileGroups,
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        safeWriteJSON(getProposalDataPath(idCheck.id), toSave);
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+      const spec = group.fileCategorySpec || group.label || 'αδειοδότηση';
+      logProposalActivity(
+        idCheck.id,
+        'update',
+        permitIssued
+          ? `Σημείωση: η άδεια εκδόθηκε («${spec}»)`
+          : `Σημείωση: εκκρεμεί η άδεια («${spec}»)`,
+        auth.username
+      );
+      return { success: true, proposal: loadProposal(idCheck.id) };
+    });
+  } catch (e) {
+    logger.error('set-proposal-group-permit-issued error:', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -17992,98 +18153,10 @@ ipcMain.handle('save-orimanthi-config', async (_event, { config, actingUsername 
   }
 });
 
-ipcMain.handle('apply-orimanthi-pending-template', async (_event, {
-  proposalId, category, actingUsername, action = 'apply',
-} = {}) => {
-  try {
-    const auth = requireOrimanthiManage(actingUsername);
-    if (!auth.ok) return { success: false, error: auth.error };
-    const idCheck = assertValidProposalId(proposalId);
-    if (!idCheck.ok) return { success: false, error: idCheck.error };
-    const proposal = loadProposal(idCheck.id);
-    if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
-    const config = orimanthiConfigService.loadOrimanthiConfig(dataDir);
-    const cat = String(category || proposal.projectCategory || '').trim();
-    const templateTexts = orimanthiConfigService.getPendingTemplateForCategory(config, cat);
-    if (!templateTexts.length) {
-      return { success: false, error: `Δεν υπάρχει πρότυπο εκκρεμοτήτων για την κατηγορία «${cat || '—'}»` };
-    }
-
-    if (action === 'remove') {
-      const beforeCount = (proposal.pendingItems || []).length;
-      const pendingItems = orimanthiConfigService.removePendingTemplateItems(
-        proposal.pendingItems || [],
-        cat
-      );
-      const removedCount = beforeCount - pendingItems.length;
-      const toSave = {
-        ...proposal,
-        pendingItems,
-        pendingTemplateCategory: orimanthiProjectCategoriesHelper.categoriesAreEquivalent(
-          proposal.pendingTemplateCategory,
-          cat
-        ) ? '' : (proposal.pendingTemplateCategory || ''),
-        updatedAt: new Date().toISOString(),
-      };
-      safeWriteJSON(getProposalDataPath(idCheck.id), toSave);
-      const actor = getOrimanthiAuditActor(auth.username);
-      logAuditAction({
-        type: 'update',
-        entityType: 'proposal',
-        entityId: idCheck.id,
-        entityTitle: proposal.title || '',
-        userFullName: actor.fullName,
-        userRole: actor.role,
-        details: removedCount > 0
-          ? `Αφαίρεση προτύπου εκκρεμοτήτων (${cat}) — ${removedCount} στοιχεία`
-          : `Αφαίρεση προτύπου εκκρεμοτήτων (${cat}) — καμία αλλαγή`,
-      });
-      return { success: true, proposal: toSave, removedCount, action: 'remove' };
-    }
-
-    const pendingItems = orimanthiConfigService.mergePendingTemplateItems(
-      proposal.pendingItems || [],
-      templateTexts,
-      cat
-    );
-    const addedCount = pendingItems.length - (proposal.pendingItems || []).length;
-    const finalItems = addedCount === 0
-      ? orimanthiConfigService.reTagExistingTemplateItems(pendingItems, cat, templateTexts)
-      : pendingItems;
-    const toSave = {
-      ...proposal,
-      pendingItems: finalItems,
-      pendingTemplateCategory: cat,
-      updatedAt: new Date().toISOString(),
-    };
-    if (addedCount === 0 && !orimanthiConfigService.isPendingTemplateApplied(proposal, cat, templateTexts)) {
-      return {
-        success: true,
-        proposal,
-        addedCount: 0,
-        action: 'apply',
-        message: 'Δεν βρέθηκαν νέες εκκρεμότητες προς προσθήκη από το πρότυπο',
-      };
-    }
-    safeWriteJSON(getProposalDataPath(idCheck.id), toSave);
-    const actor = getOrimanthiAuditActor(auth.username);
-    logAuditAction({
-      type: 'update',
-      entityType: 'proposal',
-      entityId: idCheck.id,
-      entityTitle: proposal.title || '',
-      userFullName: actor.fullName,
-      userRole: actor.role,
-      details: addedCount > 0
-        ? `Εφαρμογή προτύπου εκκρεμοτήτων (${cat}) — ${addedCount} νέα στοιχεία`
-        : `Εφαρμογή προτύπου εκκρεμοτήτων (${cat})`,
-    });
-    return { success: true, proposal: toSave, addedCount, action: 'apply' };
-  } catch (e) {
-    logger.error('apply-orimanthi-pending-template error:', e.message);
-    return { success: false, error: e.message };
-  }
-});
+ipcMain.handle('apply-orimanthi-pending-template', async () => ({
+  success: false,
+  error: 'Οι εκκρεμότητες ωρίμανσης έχουν καταργηθεί. Γράψτε ό,τι εκκρεμεί στις Σημειώσεις.',
+}));
 
 ipcMain.handle('get-orimanthi-aepo-alerts', async (_event, { limit = 5, maxDays = 90 } = {}) => {
   try {
@@ -18096,7 +18169,7 @@ ipcMain.handle('get-orimanthi-aepo-alerts', async (_event, { limit = 5, maxDays 
   }
 });
 
-ipcMain.handle('export-orimanthi-hub-report', async (_event, { format, actingUsername, proposalIds } = {}) => {
+ipcMain.handle('export-orimanthi-hub-report', async (_event, { format, actingUsername, proposalIds, excelOptions } = {}) => {
   try {
     const auth = requireOrimanthiManage(actingUsername);
     if (!auth.ok) return { success: false, error: auth.error };
@@ -18126,6 +18199,7 @@ ipcMain.handle('export-orimanthi-hub-report', async (_event, { format, actingUse
       destFilePath: pick.filePath,
       exportedBy: actor.fullName || auth.username,
       appVersion: app.getVersion(),
+      excelOptions: fmt === 'excel' ? excelOptions : undefined,
     });
     if (result.success) {
       logAuditAction({

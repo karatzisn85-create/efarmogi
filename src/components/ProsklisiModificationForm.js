@@ -5,6 +5,12 @@ import { v4 as uuidv4 } from 'uuid';
 import ProsklisiDiavgeiaSection from './ProsklisiDiavgeiaSection';
 import { safeFileDialog } from '../utils/safeDialogs';
 import { buildProsklisiDiavgeiaRegistryEntry } from '../utils/prosklisiDiavgeiaRegistry';
+import {
+  resolveProsklisiModificationFormValues,
+  sameProsklisiFormValue,
+  toProsklisiDateInputValue,
+  formatProsklisiChangeValue,
+} from '../utils/prosklisiDeadlineUtils';
 import { useToast } from './ToastProvider';
 import {
   FormOverlay as ChromeFormOverlay,
@@ -103,7 +109,8 @@ const SelectedFile = styled.div`
 // Constants
 const STATUS_OPTIONS = [
   'Υπό Ωρίμανση',
-  'Υπό Υποβολή', 
+  'Υπό Υποβολή',
+  'Υποβληθέν',
   'Υποβληθέν ΤΔΠ'
 ];
 
@@ -132,31 +139,32 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
   useEffect(() => {
     if (originalProsklisi) {
       if (isEditMode) {
-        // Edit mode: load modification data
+        const invitation = originalProsklisi.originalProsklisiData || {};
+        const resolved = resolveProsklisiModificationFormValues(originalProsklisi, invitation);
         setFormData({
-          title: originalProsklisi.modifiedData?.title || originalProsklisi.title || '',
-          axis: originalProsklisi.modifiedData?.axis || originalProsklisi.axis || '',
-          fundingSource: originalProsklisi.modifiedData?.fundingSource || originalProsklisi.fundingSource || '',
-          code: originalProsklisi.modifiedData?.code || originalProsklisi.code || '',
-          deadline: originalProsklisi.modifiedData?.deadline || originalProsklisi.deadline || '',
-          budgetRange: originalProsklisi.modifiedData?.budgetRange || originalProsklisi.budgetRange || '',
-          status: originalProsklisi.modifiedData?.status || originalProsklisi.status || 'Υπό Ωρίμανση',
+          title: resolved.title || '',
+          axis: resolved.axis || '',
+          fundingSource: resolved.fundingSource || '',
+          code: resolved.code || '',
+          deadline: resolved.deadline || '',
+          budgetRange: resolved.budgetRange || '',
+          status: resolved.status || 'Υπό Ωρίμανση',
           modificationDescription: originalProsklisi.modificationDescription || '',
           modificationPDF: originalProsklisi.modificationPDF || null,
-          modificationDocumentDate: (originalProsklisi.modificationDocumentDate
-            ? originalProsklisi.modificationDocumentDate
-            : (originalProsklisi.createdAt ? new Date(originalProsklisi.createdAt).toISOString().slice(0,10) : ''))
+          modificationDocumentDate: toProsklisiDateInputValue(
+            originalProsklisi.modificationDocumentDate || originalProsklisi.createdAt
+          )
         });
       } else {
-        // Create mode: load original prosklisi data
+        const resolved = resolveProsklisiModificationFormValues({}, originalProsklisi);
         setFormData({
-          title: originalProsklisi.title || '',
-          axis: originalProsklisi.axis || '',
-          fundingSource: originalProsklisi.fundingSource || '',
-          code: originalProsklisi.code || '',
-          deadline: originalProsklisi.deadline || '',
-          budgetRange: originalProsklisi.budgetRange || '',
-          status: originalProsklisi.status || 'Υπό Ωρίμανση',
+          title: resolved.title || '',
+          axis: resolved.axis || '',
+          fundingSource: resolved.fundingSource || '',
+          code: resolved.code || '',
+          deadline: resolved.deadline || '',
+          budgetRange: resolved.budgetRange || '',
+          status: resolved.status || 'Υπό Ωρίμανση',
           modificationDescription: '',
           modificationPDF: null,
           modificationDocumentDate: ''
@@ -169,6 +177,18 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
     setErrors({});
     setChanges({});
   }, [originalProsklisi, isOpen, isEditMode]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (document.querySelector('[data-testid="confirm-yes"]')) return;
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   // Track changes
   useEffect(() => {
@@ -193,7 +213,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
           originalValue = originalProsklisi[key] || '';
         }
 
-        if (originalValue !== formData[key]) {
+        if (!sameProsklisiFormValue(key, originalValue, formData[key])) {
           newChanges[key] = {
             original: originalValue,
             current: formData[key] || ''
@@ -335,7 +355,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
     try {
       const modificationData = {
         modificationId: isEditMode ? originalProsklisi.modificationId : uuidv4(),
-        originalProsklisiId: originalProsklisi.prosklisiId || originalProsklisi.id,
+        originalProsklisiId: originalProsklisi.originalProsklisiId || originalProsklisi.prosklisiId,
         modifiedData: { ...formData },
         changes: changes,
         modificationDescription: formData.modificationDescription,
@@ -350,7 +370,8 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
         updatedAt: isEditMode ? new Date().toISOString() : undefined
       };
 
-      await onSave(modificationData);
+      const saved = await onSave(modificationData);
+      if (saved === false) return;
     } catch (error) {
       console.error('Error saving modification:', error);
     } finally {
@@ -363,7 +384,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
   const hasChanges = Object.keys(changes).length > 0;
 
   return createPortal(
-    <FormOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <FormOverlay data-testid="psk-mod-form" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <FormContainer>
         <FormHero>
           <HeroText>
@@ -378,11 +399,14 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
 
         <FormBody>
           {hasChanges && (
-            <ChangesSummary>
+            <ChangesSummary data-testid="psk-mod-changes">
               <ChangesTitle>Αλλαγές που εντοπίστηκαν</ChangesTitle>
               {Object.entries(changes).map(([field, change]) => (
-                <ChangeItem key={field}>
-                <strong>{getFieldLabel(field)}:</strong> "{change.original}" → "{change.current}"
+                <ChangeItem key={field} data-testid={`psk-mod-change-${field}`}>
+                  <strong>{getFieldLabel(field)}:</strong>{' '}
+                  {formatProsklisiChangeValue(field, change.original)}
+                  {' → '}
+                  {formatProsklisiChangeValue(field, change.current)}
                 </ChangeItem>
               ))}
             </ChangesSummary>
@@ -405,6 +429,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                 <Label changed={!!changes.title}>Τίτλος Πρόσκλησης *</Label>
                 <Input
                   type="text"
+                  data-testid="psk-mod-title"
                   value={formData.title}
                   onChange={(e) => handleInputChange('title', e.target.value)}
                   changed={!!changes.title}
@@ -457,6 +482,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                 <Label changed={!!changes.deadline}>Ημερομηνία Λήξης *</Label>
                 <Input
                   type="date"
+                  data-testid="psk-mod-deadline"
                   value={formData.deadline}
                   onChange={(e) => handleInputChange('deadline', e.target.value)}
                   changed={!!changes.deadline}
@@ -468,6 +494,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
                 <Label>Ημερομηνία Εγγράφου Τροποποίησης *</Label>
                 <Input
                   type="date"
+                  data-testid="psk-mod-doc-date"
                   value={formData.modificationDocumentDate}
                   onChange={(e) => handleInputChange('modificationDocumentDate', e.target.value)}
                   style={diavgeiaFieldStyle('modificationDocumentDate')}
@@ -476,9 +503,10 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
               </FormGroup>
 
               <FormGroup>
-                <Label changed={!!changes.budgetRange}>Έύρος Προϋπολογισμού *</Label>
+                <Label changed={!!changes.budgetRange}>Εύρος Προϋπολογισμού *</Label>
                 <Input
                   type="text"
+                  data-testid="psk-mod-budget"
                   value={formData.budgetRange}
                   onChange={(e) => handleInputChange('budgetRange', e.target.value)}
                   changed={!!changes.budgetRange}
@@ -504,6 +532,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
               <ModificationDescriptionGroup>
                 <Label>Περιγραφή Τροποποίησης *</Label>
                 <ModificationDescription
+                  data-testid="psk-mod-description"
                   value={formData.modificationDescription}
                   onChange={(e) => handleInputChange('modificationDescription', e.target.value)}
                   placeholder="Περιγράψτε αναλυτικά τι τροποποιήθηκε στην πρόσκληση..."

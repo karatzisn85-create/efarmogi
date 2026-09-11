@@ -43,6 +43,75 @@
     return !!s && s !== '-';
   }
 
+  function toProsklisiDateInputValue(value) {
+    if (!isUsableDeadlineValue(value)) return '';
+    var raw = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+    var parsed = parseProsklisiDeadline(value);
+    if (parsed && !Number.isNaN(parsed.getTime())) {
+      var y = parsed.getFullYear();
+      var m = String(parsed.getMonth() + 1).padStart(2, '0');
+      var d = String(parsed.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + d;
+    }
+    return '';
+  }
+
+  function resolveProsklisiModificationFormValue(modification, field, invitation) {
+    var sources = [
+      modification && modification.modifiedData ? modification.modifiedData[field] : undefined,
+      modification && modification.changes && modification.changes[field]
+        ? modification.changes[field].current
+        : undefined,
+      modification ? modification[field] : undefined,
+      invitation ? invitation[field] : undefined
+    ];
+    for (var i = 0; i < sources.length; i += 1) {
+      if (!isUsableDeadlineValue(sources[i])) continue;
+      if (field === 'deadline' || field === 'modificationDocumentDate') {
+        return toProsklisiDateInputValue(sources[i]) || String(sources[i]).trim();
+      }
+      return sources[i];
+    }
+    return '';
+  }
+
+  function resolveProsklisiModificationFormValues(modification, invitation) {
+    var fields = ['title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status'];
+    var out = {};
+    for (var i = 0; i < fields.length; i += 1) {
+      out[fields[i]] = resolveProsklisiModificationFormValue(modification, fields[i], invitation);
+    }
+    if (!out.status) out.status = 'Υπό Ωρίμανση';
+    return out;
+  }
+
+  function sameProsklisiFormValue(field, left, right) {
+    if (field === 'deadline' || field === 'modificationDocumentDate') {
+      return toProsklisiDateInputValue(left) === toProsklisiDateInputValue(right);
+    }
+    return String(left || '') === String(right || '');
+  }
+
+  function formatProsklisiChangeValue(field, value, formatDateFn) {
+    var raw = value == null ? '' : String(value).trim();
+    if (!raw || raw === '-') return '(κενό)';
+    if (field === 'deadline' || field === 'modificationDocumentDate') {
+      if (typeof formatDateFn === 'function') {
+        var formatted = formatDateFn(value);
+        if (formatted != null && String(formatted).trim() && String(formatted).trim() !== '-') {
+          return String(formatted);
+        }
+      }
+      var input = toProsklisiDateInputValue(value);
+      if (input && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
+        return input.slice(8, 10) + '/' + input.slice(5, 7) + '/' + input.slice(0, 4);
+      }
+      return raw;
+    }
+    return String(value);
+  }
+
   function modificationTimeMs(mod) {
     var candidates = [mod && mod.modificationDocumentDate, mod && mod.createdAt, mod && mod.updatedAt];
     for (var i = 0; i < candidates.length; i += 1) {
@@ -77,18 +146,30 @@
     return (prosklisi && prosklisi.deadline) || '';
   }
 
+  function modificationDeadlineCurrent(mod) {
+    if (isUsableDeadlineValue(mod && mod.changes && mod.changes.deadline && mod.changes.deadline.current)) {
+      return mod.changes.deadline.current;
+    }
+    if (isUsableDeadlineValue(mod && mod.modifiedData && mod.modifiedData.deadline)) {
+      return mod.modifiedData.deadline;
+    }
+    return '';
+  }
+
   function getEffectiveProsklisiDeadline(prosklisi, modifications) {
     var mods = sortModificationsChronologically(modifications || []);
     var deadlineChanges = mods.filter(function (m) {
-      return isUsableDeadlineValue(m && m.changes && m.changes.deadline && m.changes.deadline.current);
+      return isUsableDeadlineValue(modificationDeadlineCurrent(m));
     });
     if (deadlineChanges.length > 0) {
-      var deadline = deadlineChanges[0].changes.deadline.original;
+      var deadline = deadlineChanges[0].changes && deadlineChanges[0].changes.deadline
+        ? deadlineChanges[0].changes.deadline.original
+        : '';
       if (!isUsableDeadlineValue(deadline)) {
         deadline = (prosklisi && prosklisi.deadline) || '';
       }
       for (var i = 0; i < deadlineChanges.length; i += 1) {
-        deadline = deadlineChanges[i].changes.deadline.current;
+        deadline = modificationDeadlineCurrent(deadlineChanges[i]);
       }
       return deadline;
     }
@@ -266,8 +347,42 @@
     return out;
   }
 
+  function normalizeLinkedOrimanthiProposals(list) {
+    if (!Array.isArray(list)) return [];
+    var seen = {};
+    var out = [];
+    list.forEach(function (item) {
+      if (!item) return;
+      var id = String(item.id || item.proposalId || '').trim();
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      out.push({
+        id: id,
+        title: String(item.title || '').trim(),
+        projectCategory: String(item.projectCategory || '').trim(),
+        status: String(item.status || '').trim(),
+        municipalUnit: String(item.municipalUnit || '').trim()
+      });
+    });
+    return out;
+  }
+
+  function linkedOrimanthiTitlesOf(prosklisi) {
+    return normalizeLinkedOrimanthiProposals(prosklisi && prosklisi.linkedOrimanthiProposals)
+      .map(function (row) { return row.title; })
+      .filter(Boolean);
+  }
+
+  function detachOrimanthiProposal(prosklisi, proposalId) {
+    var id = String(proposalId || '').trim();
+    return normalizeLinkedOrimanthiProposals(prosklisi && prosklisi.linkedOrimanthiProposals)
+      .filter(function (row) { return row.id !== id; });
+  }
+
   function linkedTitlesText(prosklisi) {
-    return linkedProjectTitlesOf(prosklisi).join(' ');
+    return [linkedProjectTitlesOf(prosklisi).join(' '), linkedOrimanthiTitlesOf(prosklisi).join(' ')]
+      .filter(Boolean)
+      .join(' ');
   }
 
   function isProsklisiUnlinked(prosklisi) {
@@ -390,6 +505,39 @@
       if (Number.isFinite(maxQ) && range.max - 0.001 > maxQ) return false;
     }
     return true;
+  }
+
+  function linkedProjectIdentity(project) {
+    if (!project) return '';
+    if (typeof project === 'string') return String(project).trim();
+    return String(project.id || project.projectId || '').trim();
+  }
+
+  function normalizeLinkedProjects(list) {
+    if (!Array.isArray(list)) return [];
+    var seen = {};
+    var out = [];
+    list.forEach(function (item) {
+      if (!item) return;
+      if (typeof item === 'string') {
+        var asText = String(item).trim();
+        if (!asText || seen[asText]) return;
+        seen[asText] = true;
+        out.push({ id: asText, projectId: asText, title: asText });
+        return;
+      }
+      var id = linkedProjectIdentity(item);
+      var title = String(item.title || item.projectTitle || '').trim();
+      var key = id || title;
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      out.push({
+        id: id || title,
+        projectId: String(item.projectId || item.id || id || title).trim(),
+        title: title || id
+      });
+    });
+    return out;
   }
 
   function linkedProjectTitlesOf(prosklisi) {
@@ -621,6 +769,8 @@
       ? extras.diavgeiaAda
       : getProsklisiDiavgeiaAdaText(p, mods);
     if (extras.linkedProjectsLabel != null) record.linkedProjectsLabel = extras.linkedProjectsLabel;
+    if (extras.linkedOrimanthiLabel != null) record.linkedOrimanthiLabel = extras.linkedOrimanthiLabel;
+    else record.linkedOrimanthiLabel = linkedOrimanthiTitlesOf(p).join(' · ');
     if (extras.relatedEntaxeisCount != null) record.relatedEntaxeisCount = extras.relatedEntaxeisCount;
     return record;
   }
@@ -737,6 +887,10 @@
     getLatestProsklisiModificationDate: getLatestProsklisiModificationDate,
     prosklisiHasModifications: prosklisiHasModifications,
     getProsklisiDiavgeiaAdaText: getProsklisiDiavgeiaAdaText,
+    toProsklisiDateInputValue: toProsklisiDateInputValue,
+    resolveProsklisiModificationFormValues: resolveProsklisiModificationFormValues,
+    sameProsklisiFormValue: sameProsklisiFormValue,
+    formatProsklisiChangeValue: formatProsklisiChangeValue,
     prosklisiHasDiavgeiaAda: prosklisiHasDiavgeiaAda,
     prosklisiHasRelatedEntaxi: prosklisiHasRelatedEntaxi,
     isProsklisiSubmittedStatus: isProsklisiSubmittedStatus,
@@ -759,7 +913,12 @@
     parseProsklisiBudgetRange: parseProsklisiBudgetRange,
     prosklisiMatchesBudgetWindow: prosklisiMatchesBudgetWindow,
     uniqueLinkedProjectTitles: uniqueLinkedProjectTitles,
+    linkedProjectIdentity: linkedProjectIdentity,
+    normalizeLinkedProjects: normalizeLinkedProjects,
     prosklisiLinksProjectTitle: prosklisiLinksProjectTitle,
+    normalizeLinkedOrimanthiProposals: normalizeLinkedOrimanthiProposals,
+    linkedOrimanthiTitlesOf: linkedOrimanthiTitlesOf,
+    detachOrimanthiProposal: detachOrimanthiProposal,
     PROSKLISI_EXPORT_SCOPE: PROSKLISI_EXPORT_SCOPE,
     PROSKLISI_EXPORT_FORMAT: PROSKLISI_EXPORT_FORMAT,
     uniqueSortedProsklisiFieldValues: uniqueSortedProsklisiFieldValues,

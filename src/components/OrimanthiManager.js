@@ -49,14 +49,13 @@ import {
   getCustomSpecsForCategory,
   getCategoriesWithCustomSpecs,
   resolveCategoryLabel,
-  categoriesAreEquivalent,
-  reconcilePendingTemplateCategory,
   validateProposalCategoryFields,
   shouldShowSpecializationField,
   LS_CUSTOM_CATEGORIES,
   LS_CUSTOM_CATEGORY_SPECS,
 } from '../utils/orimanthiProjectCategories';
 import orimanthiCatalog from '../../app/core/orimanthiCatalog';
+import orimanthiFileChecklist from '../../app/core/orimanthiFileChecklist';
 
 /* ─── Tokens ─────────────────────────────────────────────────────────────── */
 const C = {
@@ -136,10 +135,6 @@ function getProjectFileCount(project) {
   return countProposalFiles(project);
 }
 
-function getProjectPendingOpen(project) {
-  return (project.pendingItems || []).filter((i) => !i.done).length;
-}
-
 const HUB_UNCategorized_FILTER = '__uncategorized__';
 const HUB_NO_MUNICIPAL_FILTER = '__no_municipal_unit__';
 const HUB_NO_SETTLEMENT_FILTER = '__no_settlement__';
@@ -155,7 +150,6 @@ const HUB_SORT_OPTIONS = [
   { value: 'status', label: 'Κατάσταση ωρίμανσης' },
   { value: 'files_desc', label: 'Περισσότερα αρχεία' },
   { value: 'aepo_asc', label: 'ΑΕΠΟ (επόμενες)' },
-  { value: 'pending_desc', label: 'Περισσότερες εκκρεμότητες' },
 ];
 
 function sortHubProjects(list, sortBy) {
@@ -186,8 +180,6 @@ function sortHubProjects(list, sortBy) {
         const db = b.aepoRenewalDate || '9999-12-31';
         return da.localeCompare(db);
       }
-      case 'pending_desc':
-        return getProjectPendingOpen(b) - getProjectPendingOpen(a);
       case 'created_desc':
       default:
         return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
@@ -276,6 +268,33 @@ function renderFileGroupTitle(group) {
     );
   }
   return <span>{group.label || 'Κατηγορία'}</span>;
+}
+
+function isAdeiodotiseisGroup(group) {
+  return getFileGroupIdentity(group).rootId === FILE_CATEGORY_ROOT_ADEIODOTISEIS;
+}
+
+function renderPermitIssuedChip({ group, disabled, onToggle }) {
+  if (!isAdeiodotiseisGroup(group)) return null;
+  const issued = !!group.permitIssued;
+  return (
+    <PermitIssuedChip
+      type="button"
+      $issued={issued}
+      $disabled={disabled}
+      aria-disabled={disabled || undefined}
+      data-testid={`orimanthi-permit-issued-${group.id}`}
+      title={issued ? 'Η άδεια εκδόθηκε' : 'Εκκρεμεί η άδεια'}
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!disabled) onToggle(group.id);
+      }}
+    >
+      <PermitIssuedBox $issued={issued}>{issued ? '✓' : ''}</PermitIssuedBox>
+      {issued ? 'Η άδεια εκδόθηκε' : 'Εκκρεμεί η άδεια'}
+    </PermitIssuedChip>
+  );
 }
 
 /* ─── Animations ─────────────────────────────────────────────────────────── */
@@ -2430,6 +2449,41 @@ const GroupCount = styled.span`
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
 `;
+const PermitIssuedChip = styled.button`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  padding: 0.14rem 0.48rem;
+  border-radius: 999px;
+  border: 1px solid ${(p) => (p.$issued ? '#6ee7b7' : C.slate200)};
+  background: ${(p) => (p.$issued ? '#ecfdf5' : C.slate100)};
+  color: ${(p) => (p.$issued ? '#047857' : C.slate600)};
+  cursor: ${(p) => (p.$disabled ? 'default' : 'pointer')};
+  pointer-events: auto;
+  line-height: 1.2;
+  &:hover {
+    ${(p) => !p.$disabled && (p.$issued
+      ? 'background: #d1fae5;'
+      : `background: ${C.slate50};`)}
+  }
+`;
+const PermitIssuedBox = styled.span`
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 3px;
+  border: 1.5px solid ${(p) => (p.$issued ? '#059669' : C.slate400)};
+  background: ${(p) => (p.$issued ? '#10b981' : C.white)};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: ${C.white};
+  font-size: 0.55rem;
+  font-weight: 900;
+`;
 const GroupActions = styled.div`
   display: flex; gap: 0.3rem; align-items: center;
 `;
@@ -2686,47 +2740,6 @@ const NotesTextarea = styled.textarea`
   &::placeholder { color: ${C.slate300}; }
 `;
 
-/* ── Pending items tab ── */
-const PendingList = styled.div`
-  display: flex; flex-direction: column; gap: 0.55rem; margin-bottom: 1rem;
-`;
-const PendingItem = styled.div`
-  display: flex; align-items: center; gap: 0.65rem;
-  padding: 0.7rem 0.85rem;
-  background: ${(p) => p.$done ? C.slate50 : C.white};
-  border: 1px solid ${(p) => p.$done ? C.slate200 : C.slate200};
-  border-left: 3px solid ${(p) => p.$done ? C.emerald : C.amber};
-  border-radius: 10px;
-  transition: all 0.2s;
-  animation: ${fadeIn} 0.3s ease;
-`;
-const PendingCheckbox = styled.input`
-  width: 16px; height: 16px; margin-top: 0.1rem; cursor: pointer; flex-shrink: 0;
-  accent-color: ${C.emerald};
-`;
-const PendingText = styled.div`
-  flex: 1;
-  font-size: 0.82rem; font-weight: 600;
-  color: ${(p) => p.$done ? C.slate400 : C.slate700};
-  text-decoration: ${(p) => p.$done ? 'line-through' : 'none'};
-  word-break: break-word;
-`;
-const PendingDeleteBtn = styled(DeleteIconBtn)`
-  color: ${C.rose};
-  border-color: #fecaca;
-  background: #fff1f2;
-  font-size: 0.82rem;
-  font-weight: 800;
-  &:hover {
-    background: #fee2e2;
-    color: #b91c1c;
-    border-color: #fca5a5;
-    box-shadow: 0 2px 8px rgba(244, 63, 94, 0.25);
-  }
-`;
-const AddPendingRow = styled.div`
-  display: flex; gap: 0.5rem; min-width: 0;
-`;
 const AddPendingInput = styled.input`
   flex: 1; min-width: 0;
   padding: 0.55rem 0.8rem;
@@ -2821,6 +2834,86 @@ const ExportOptionRow = styled.label`
   input { margin-top: 0.15rem; accent-color: ${C.indigo}; flex-shrink: 0; }
 `;
 
+const ExcelColGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+`;
+
+const ExcelColChip = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0.55rem 0.45rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  text-align: center;
+  line-height: 1.25;
+  color: ${(p) => (p.$on ? '#fff' : C.slate500)};
+  background: ${(p) => (p.$on ? '#4338CA' : C.slate100)};
+  box-shadow: ${(p) => (p.$on ? 'inset 0 0 0 1px #3730A3' : 'inset 0 0 0 1px ' + C.slate200)};
+  transition: all 0.15s;
+  &:hover {
+    background: ${(p) => (p.$on ? '#4F46E5' : C.indigoLight)};
+    color: ${(p) => (p.$on ? '#fff' : C.indigoDark)};
+  }
+`;
+
+const ExcelBlockRow = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 8px;
+`;
+
+const ExcelBlockBtn = styled.button`
+  min-height: 48px;
+  padding: 0.7rem 0.5rem;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  color: ${(p) => (p.$on ? '#fff' : C.slate500)};
+  background: ${(p) => {
+    if (!p.$on) return C.slate200;
+    return p.$tone === 'teal' ? '#0D9488' : '#4F46E5';
+  }};
+  transition: all 0.15s;
+  &:hover {
+    filter: ${(p) => (p.$on ? 'brightness(1.06)' : 'none')};
+    background: ${(p) => {
+      if (p.$on) return p.$tone === 'teal' ? '#0F766E' : '#4338CA';
+      return C.slate300;
+    }};
+    color: ${(p) => (p.$on ? '#fff' : C.slate700)};
+  }
+`;
+
+const DEFAULT_HUB_EXCEL_OPTIONS = {
+  columns: {
+    status: true,
+    municipal: true,
+    settlement: true,
+    category: true,
+  },
+  includeStudies: true,
+  includePermits: true,
+};
+
+const HUB_EXCEL_COLUMN_CHOICES = [
+  { key: 'status', label: 'Κατάσταση' },
+  { key: 'municipal', label: 'Δημοτική ενότητα' },
+  { key: 'settlement', label: 'Οικισμός' },
+  { key: 'category', label: 'Κατηγορία / Εξειδίκευση' },
+];
+
 const ExportSuccessOverlay = styled(FolderModalOverlay)`
   z-index: 10060;
 `;
@@ -2856,13 +2949,20 @@ const OpenFolderBtn = styled.button`
 `;
 
 /* ─── Main Component ─────────────────────────────────────────────────────── */
-export default function OrimanthiManager({ onClose, loggedInUsername, userRole, orimanthiCanEdit = false }) {
+export default function OrimanthiManager({
+  onClose,
+  loggedInUsername,
+  userRole,
+  orimanthiCanEdit = false,
+  initialProposalId = null,
+}) {
   const { showToast } = useToast();
 
   const isReadOnly = orimanthiCatalog.isOrimanthiReadOnly({ role: userRole, orimanthiCanEdit });
 
+  const focusProposalId = String(initialProposalId || '').trim() || null;
   const [proposals, setProposals] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(focusProposalId);
   const [activeTab, setActiveTab] = useState('files');
   const [search, setSearch] = useState('');
   const [hubCategoryFilter, setHubCategoryFilter] = useState('');
@@ -2925,9 +3025,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   // Add group UI
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
-  // Pending item input
-  const [pendingInput, setPendingInput] = useState('');
-
   // Drag state / folder expansion
   const [expandedFolderKeys, setExpandedFolderKeys] = useState({});
   const [folderFilesCache, setFolderFilesCache] = useState({});
@@ -2953,7 +3050,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const [orimanthiListsSynced, setOrimanthiListsSynced] = useState(false);
   const [municipalUnits, setMunicipalUnits] = useState([]);
   const [hubReportExporting, setHubReportExporting] = useState(false);
-  const [applyingPendingTemplate, setApplyingPendingTemplate] = useState(false);
+  const [showHubExcelModal, setShowHubExcelModal] = useState(false);
+  const [hubExcelOptions, setHubExcelOptions] = useState(DEFAULT_HUB_EXCEL_OPTIONS);
 
   const saveTimerRef = useRef(null);
   const pendingSaveProjectIdRef = useRef(null);
@@ -2967,6 +3065,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const fileSearchTimerRef = useRef(null);
   const persistedSnapshotsRef = useRef({});
   const lockedProposalIdRef = useRef(null);
+  const permitToggleInFlightRef = useRef(null);
+  const creatingProjectRef = useRef(false);
   // Ref που κρατά πάντα το τελευταίο state proposals χωρίς να δημιουργεί νέα closure
   const proposalsRef = useRef([]);
 
@@ -2999,6 +3099,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       }
     })();
   }, [showToast]);
+
+  useEffect(() => {
+    if (focusProposalId) setSelectedId(focusProposalId);
+  }, [focusProposalId]);
 
   useEffect(() => {
     (async () => {
@@ -3101,9 +3205,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
 
   useEffect(() => {
     if (!selectedId || isReadOnly) return undefined;
+    const projectId = selectedId;
     let cancelled = false;
     (async () => {
-      const status = await window.electronAPI.invoke('check-entity-lock', 'orimanthi', selectedId);
+      const status = await window.electronAPI.invoke('check-entity-lock', 'orimanthi', projectId);
       if (cancelled) return;
       if (status.locked) {
         showToast(`Το έργο είναι ανοιχτό από ${status.lockedBy || 'άλλο χρήστη'}`, 'warning');
@@ -3113,19 +3218,30 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       const res = await window.electronAPI.invoke(
         'create-entity-lock',
         'orimanthi',
-        selectedId,
+        projectId,
         loggedInUsername || ''
       );
-      if (cancelled) return;
+      if (cancelled) {
+        if (res?.success) {
+          await window.electronAPI.invoke('remove-entity-lock', 'orimanthi', projectId);
+        }
+        return;
+      }
       if (!res.success) {
         const who = res.lockedBy || res.error || 'άλλο χρήστη';
         showToast(`Δεν ήταν δυνατό το άνοιγμα — ανοιχτό από ${who}`, 'warning');
         setSelectedId(null);
         return;
       }
-      lockedProposalIdRef.current = selectedId;
+      lockedProposalIdRef.current = projectId;
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (lockedProposalIdRef.current === projectId) {
+        window.electronAPI.invoke('remove-entity-lock', 'orimanthi', projectId);
+        lockedProposalIdRef.current = null;
+      }
+    };
   }, [selectedId, isReadOnly, loggedInUsername, showToast]);
 
   useEffect(() => () => {
@@ -3234,6 +3350,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   }, [userRole, selectedId, clearingHistory, loggedInUsername, showToast]);
 
   useEffect(() => {
+    if (activeTab === 'pending') setActiveTab('files');
+  }, [activeTab]);
+
+  useEffect(() => {
     if (activeTab === 'history' && selectedId) {
       loadProjectHistory(selectedId);
     }
@@ -3260,6 +3380,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     setExpandedFolderKeys({});
     setFolderFilesCache({});
     setNestedFileHighlight(null);
+    setDetailShowSpecializationField(false);
   }, [selectedId]);
 
   useEffect(() => () => {
@@ -3307,8 +3428,12 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   /* ── Auto-save — skipAudit=true για να μη γεμίζει το audit log με κάθε keystroke ── */
   const mergeSavedProposal = useCallback((saved) => {
     if (!saved?.id) return;
-    setProposals((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)));
-    proposalsRef.current = proposalsRef.current.map((p) => (p.id === saved.id ? { ...p, ...saved } : p));
+    setProposals((prev) => prev.map((p) => (
+      p.id === saved.id ? orimanthiFileChecklist.mergeProposalFromDisk(p, saved) : p
+    )));
+    proposalsRef.current = proposalsRef.current.map((p) => (
+      p.id === saved.id ? orimanthiFileChecklist.mergeProposalFromDisk(p, saved) : p
+    ));
   }, []);
 
   const markProposalPersisted = useCallback((proposal) => {
@@ -3504,16 +3629,20 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   }, []);
 
   const flushProposalSaveById = useCallback(async (projectId, { forceAudit = false } = {}) => {
-    if (!projectId || isReadOnly || blockedProposalSavesRef.current === projectId) return;
-    if (pendingSaveProjectIdRef.current !== projectId) return;
+    if (!projectId || isReadOnly || blockedProposalSavesRef.current === projectId) {
+      return { success: true, skipped: true };
+    }
+    if (pendingSaveProjectIdRef.current !== projectId) {
+      return { success: true, skipped: true };
+    }
     clearPendingSaveTimer();
     const audited = forceAudit || pendingSaveAuditedRef.current;
     pendingSaveProjectIdRef.current = null;
     pendingSaveAuditedRef.current = false;
     const latest = proposalsRef.current.find((p) => p.id === projectId);
-    if (!latest) return;
-    if (audited) await saveProposalAudited(latest);
-    else await saveProposal(latest, { skipAudit: true });
+    if (!latest) return { success: false, error: 'Το έργο δεν βρέθηκε' };
+    if (audited) return saveProposalAudited(latest);
+    return saveProposal(latest, { skipAudit: true });
   }, [isReadOnly, clearPendingSaveTimer, saveProposal, saveProposalAudited]);
 
   const scheduleDebouncedSave = useCallback((projectId, audited) => {
@@ -3995,19 +4124,13 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
         if (!exists) files = [...files, res.folder];
       }
 
-      fileGroups.push({
-        id: groupId,
-        label: group.label,
-        fileCategoryRoot: group.fileCategoryRoot,
-        fileCategorySpec: group.fileCategorySpec,
-        files,
-      });
+      fileGroups.push(orimanthiFileChecklist.buildPersistedFileGroupFromStaged(group, files));
     }
     return fileGroups;
   }, [loggedInUsername]);
 
   const handleConfirmNewProject = async () => {
-    if (isReadOnly || creatingProject) return;
+    if (isReadOnly || creatingProject || creatingProjectRef.current) return;
     const title = newProjectDraft.title.trim();
     const createGate = orimanthiCatalog.evaluateNewProposal(newProjectDraft, {
       categoryHasSpecializations: (category, specMap) => categoryHasSpecializations(category, specMap),
@@ -4043,11 +4166,13 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
           label: g.label,
           fileCategoryRoot: g.fileCategoryRoot,
           fileCategorySpec: g.fileCategorySpec,
+          permitIssued: !!g.permitIssued,
           files: [],
         }))
         : [],
     };
 
+    creatingProjectRef.current = true;
     setCreatingProject(true);
     let createdProposalId = null;
     try {
@@ -4095,6 +4220,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       }
       showToast(err.message || 'Σφάλμα δημιουργίας έργου', 'error');
     } finally {
+      creatingProjectRef.current = false;
       setCreatingProject(false);
     }
   };
@@ -4193,7 +4319,8 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     const group = { id: uuidv4(), ...payload, files: [] };
     updateProposal({ fileGroups: [...(selectedProposal.fileGroups || []), group] });
     setShowCategoryPicker(false);
-  }, [isReadOnly, selectedProposal, showToast, updateProposal]);
+    void flushProposalSaveById(selectedProposal.id);
+  }, [isReadOnly, selectedProposal, showToast, updateProposal, flushProposalSaveById]);
 
   const handleOpenCategoryPicker = () => {
     setShowCategoryPicker(true);
@@ -4244,6 +4371,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       showToast('Περιμένετε να ολοκληρωθεί το τρέχον ανέβασμα', 'warning');
       return;
     }
+    if (pendingSaveProjectIdRef.current === selectedId) {
+      const flushRes = await flushProposalSaveById(selectedId);
+      if (flushRes && flushRes.success === false) return;
+    }
     setUploadingGroupId(groupId);
     try {
       const files = filePaths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() }));
@@ -4264,13 +4395,17 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     } finally {
       setUploadingGroupId(null);
     }
-  }, [selectedId, uploadingGroupId, showToast, loggedInUsername, mergeSavedProposal, refreshHistoryIfVisible, refreshExpandedFoldersInGroup]);
+  }, [selectedId, uploadingGroupId, showToast, loggedInUsername, mergeSavedProposal, refreshHistoryIfVisible, refreshExpandedFoldersInGroup, flushProposalSaveById]);
 
   const uploadFolderToGroup = useCallback(async (groupId, picked) => {
     if (!picked?.files?.length || !selectedId) return;
     if (uploadingGroupId) {
       showToast('Περιμένετε να ολοκληρωθεί το τρέχον ανέβασμα', 'warning');
       return;
+    }
+    if (pendingSaveProjectIdRef.current === selectedId) {
+      const flushRes = await flushProposalSaveById(selectedId);
+      if (flushRes && flushRes.success === false) return;
     }
     setUploadingGroupId(groupId);
     try {
@@ -4300,7 +4435,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     } finally {
       setUploadingGroupId(null);
     }
-  }, [selectedId, uploadingGroupId, showToast, loggedInUsername, mergeSavedProposal, refreshHistoryIfVisible, expandedFolderKeys, loadFolderFiles]);
+  }, [selectedId, uploadingGroupId, showToast, loggedInUsername, mergeSavedProposal, refreshHistoryIfVisible, expandedFolderKeys, loadFolderFiles, flushProposalSaveById]);
 
   const handleSelectFiles = async (groupId) => {
     if (isReadOnly) return;
@@ -4445,7 +4580,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       entry,
       targetGroupId: otherGroups[0]?.id || '',
       targetMode: otherGroups.length ? 'existing' : 'new',
-      newCategoryName: '',
+      newGroupPick: null,
     });
   };
 
@@ -4457,19 +4592,23 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     let fileGroups = [...(selectedProposal.fileGroups || [])];
 
     if (moveModal.targetMode === 'new') {
-      targetLabel = moveModal.newCategoryName.trim();
-      if (!targetLabel) {
-        showToast('Δώστε όνομα για τη νέα κατηγορία', 'error');
+      const pick = moveModal.newGroupPick;
+      if (!pick?.rootId || !pick?.spec) {
+        showToast('Επιλέξτε κατηγορία προορισμού', 'error');
         return;
       }
-      const existing = fileGroups.find(
-        (g) => g.label.trim().toLowerCase() === targetLabel.toLowerCase()
-      );
+      const existing = fileGroups.find((g) => {
+        const id = getFileGroupIdentity(g);
+        return id.rootId === pick.rootId && String(id.spec || '').toLowerCase() === String(pick.spec).toLowerCase();
+      });
       if (existing) {
         targetGroupId = existing.id;
+        targetLabel = existing.label || pick.label;
       } else {
+        const payload = buildFileGroupPayload(pick.rootId, pick.spec);
         targetGroupId = uuidv4();
-        fileGroups = [...fileGroups, { id: targetGroupId, label: targetLabel, files: [] }];
+        targetLabel = payload.label;
+        fileGroups = [...fileGroups, { id: targetGroupId, ...payload, files: [] }];
       }
     } else if (!targetGroupId) {
       showToast('Επιλέξτε κατηγορία προορισμού', 'error');
@@ -4672,49 +4811,93 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     if (paths.length) await uploadToGroup(groupId, paths);
   }, [uploadToGroup, isReadOnly, uploadingGroupId, showToast]);
 
-  /* ── Pending items ── */
-  const addPendingItem = () => {
-    if (isReadOnly || !pendingInput.trim()) return;
-    const text = pendingInput.trim();
-    const item = { id: uuidv4(), text, done: false, createdAt: new Date().toISOString() };
-    const nextItems = [...(selectedProposal.pendingItems || []), item];
-    updateProposal({ pendingItems: nextItems });
-    setPendingInput('');
-    logProposalActivityClient(`Προστέθηκε εκκρεμότητα: «${text}»`);
-  };
-
-  const togglePendingItem = (itemId) => {
-    if (isReadOnly) return;
-    const item = (selectedProposal.pendingItems || []).find((it) => it.id === itemId);
-    const nextItems = (selectedProposal.pendingItems || []).map((it) =>
-      it.id === itemId ? { ...it, done: !it.done } : it
-    );
-    updateProposal({ pendingItems: nextItems });
-    if (item) {
-      logProposalActivityClient(
-        item.done
-          ? `Επανάνοιγμα εκκρεμότητας: «${item.text}»`
-          : `Ολοκλήρωση εκκρεμότητας: «${item.text}»`
+  const togglePermitIssued = async (groupId) => {
+    if (isReadOnly || !selectedId) return;
+    if (permitToggleInFlightRef.current) return;
+    permitToggleInFlightRef.current = groupId;
+    try {
+      await saveChainRef.current.catch(() => {});
+      if (pendingSaveProjectIdRef.current === selectedId) {
+        const flushRes = await flushProposalSaveById(selectedId);
+        if (flushRes && flushRes.success === false) return;
+      }
+      await saveChainRef.current.catch(() => {});
+      const current = proposalsRef.current.find((p) => p.id === selectedId);
+      const group = (current?.fileGroups || []).find((g) => g.id === groupId);
+      if (!group) return;
+      const nextIssued = !group.permitIssued;
+      const nextFileGroups = (current.fileGroups || []).map((g) => (
+        g.id === groupId ? { ...g, permitIssued: nextIssued } : g
+      ));
+      setProposals((prev) => {
+        const next = prev.map((p) => (p.id === selectedId ? { ...p, fileGroups: nextFileGroups } : p));
+        proposalsRef.current = next;
+        return next;
+      });
+      const res = await window.electronAPI.invoke('set-proposal-group-permit-issued', {
+        proposalId: selectedId,
+        groupId,
+        permitIssued: nextIssued,
+        actingUsername: loggedInUsername,
+      });
+      const applyPermitOnly = (base, saved, issuedFallback) => (
+        orimanthiFileChecklist.applyPermitIssuedFromSaved(base, saved, groupId)
+        || (base
+          ? {
+            ...base,
+            fileGroups: (base.fileGroups || []).map((g) => (
+              g.id === groupId ? { ...g, permitIssued: issuedFallback } : g
+            )),
+          }
+          : base)
       );
+      if (!res.success) {
+        setProposals((prev) => {
+          const next = prev.map((p) => (
+            p.id === selectedId
+              ? {
+                ...p,
+                fileGroups: (p.fileGroups || []).map((g) => (
+                  g.id === groupId ? { ...g, permitIssued: !nextIssued } : g
+                )),
+              }
+              : p
+          ));
+          proposalsRef.current = next;
+          return next;
+        });
+        showToast(res.error || 'Δεν αποθηκεύτηκε η σήμανση της άδειας', 'error');
+        return;
+      }
+      setProposals((prev) => {
+        const next = prev.map((p) => (
+          p.id === selectedId ? applyPermitOnly(p, res.proposal, nextIssued) : p
+        ));
+        proposalsRef.current = next;
+        return next;
+      });
+      const after = proposalsRef.current.find((p) => p.id === selectedId);
+      if (after) markProposalPersisted(after);
+      refreshHistoryIfVisible(selectedId);
+    } finally {
+      permitToggleInFlightRef.current = null;
     }
   };
 
-  const deletePendingItem = (itemId) => {
-    if (isReadOnly) return;
-    const item = (selectedProposal.pendingItems || []).find((it) => it.id === itemId);
-    updateProposal({
-      pendingItems: (selectedProposal.pendingItems || []).filter((it) => it.id !== itemId)
-    });
-    if (item) logProposalActivityClient(`Διαγραφή εκκρεμότητας: «${item.text}»`);
+  const toggleNewProjectPermitIssued = (groupId) => {
+    setNewProjectStagedGroups((prev) => prev.map((g) => (
+      g.id === groupId ? { ...g, permitIssued: !g.permitIssued } : g
+    )));
   };
 
   const persistProjectSnapshot = useCallback(async (projectId) => {
-    if (!projectId || isReadOnly) return;
+    if (!projectId || isReadOnly) return { success: false };
     clearPendingSaveTimer();
     pendingSaveProjectIdRef.current = null;
     pendingSaveAuditedRef.current = false;
     const latest = proposalsRef.current.find((p) => p.id === projectId);
-    if (latest) await saveProposalAudited(latest);
+    if (!latest) return { success: false, error: 'Το έργο δεν βρέθηκε' };
+    return saveProposalAudited(latest);
   }, [isReadOnly, clearPendingSaveTimer, saveProposalAudited]);
 
   const flushProposalSave = useCallback(async () => {
@@ -4738,7 +4921,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       return;
     }
     if (action === 'save') {
-      await persistProjectSnapshot(currentId);
+      const res = await persistProjectSnapshot(currentId);
+      if (!res?.success) {
+        resolve(false);
+        return;
+      }
       const latest = proposalsRef.current.find((p) => p.id === currentId);
       if (latest) markProposalPersisted(latest);
     } else if (action === 'discard') {
@@ -5051,101 +5238,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
     });
   }, [requestSelectProposal]);
 
-  const applyPendingTemplate = useCallback(async () => {
-    if (isReadOnly || !selectedId || !selectedProposal) return;
-    if (!selectedProposal.projectCategory) {
-      showToast('Ορίστε κατηγορία έργου στα Στοιχεία', 'warning');
-      setActiveTab('details');
-      return;
-    }
-    setApplyingPendingTemplate(true);
-    try {
-      const res = await window.electronAPI.invoke('apply-orimanthi-pending-template', {
-        proposalId: selectedId,
-        category: selectedProposal.projectCategory,
-        actingUsername: loggedInUsername,
-        action: 'apply',
-      });
-      if (!res.success) {
-        showToast(res.error || 'Σφάλμα εφαρμογής προτύπου', 'error');
-        return;
-      }
-      if (res.proposal) {
-        mergeSavedProposal(res.proposal);
-        markProposalPersisted(res.proposal);
-      }
-      if (res.addedCount > 0) {
-        showToast(`Προστέθηκαν ${res.addedCount} εκκρεμότητες από πρότυπο`, 'success');
-        setActiveTab('pending');
-      } else {
-        showToast(res.message || 'Το πρότυπο εφαρμόστηκε', 'success');
-      }
-    } finally {
-      setApplyingPendingTemplate(false);
-    }
-  }, [
-    isReadOnly,
-    selectedId,
-    selectedProposal,
-    loggedInUsername,
-    showToast,
-    mergeSavedProposal,
-    markProposalPersisted,
-  ]);
-
-  const removePendingTemplate = useCallback(async () => {
-    if (isReadOnly || !selectedId || !selectedProposal?.projectCategory) return;
-    if (!await showConfirm({
-      title: 'Αφαίρεση προτύπου',
-      message: 'Να αφαιρεθούν όλες οι εκκρεμότητες που προστέθηκαν από το πρότυπο;',
-      detail: 'Οι χειροκίνητα προστεθείσες εκκρεμότητες δεν επηρεάζονται.',
-      confirmLabel: 'Αφαίρεση',
-      icon: '↩',
-      danger: true,
-    })) return;
-
-    setApplyingPendingTemplate(true);
-    try {
-      const res = await window.electronAPI.invoke('apply-orimanthi-pending-template', {
-        proposalId: selectedId,
-        category: selectedProposal.projectCategory,
-        actingUsername: loggedInUsername,
-        action: 'remove',
-      });
-      if (!res.success) {
-        showToast(res.error || 'Σφάλμα αφαίρεσης προτύπου', 'error');
-        return;
-      }
-      if (res.proposal) {
-        mergeSavedProposal(res.proposal);
-        markProposalPersisted(res.proposal);
-      }
-      if (res.removedCount > 0) {
-        showToast(`Αφαιρέθηκαν ${res.removedCount} εκκρεμότητες του προτύπου`, 'success');
-      } else {
-        showToast('Το πρότυπο αφαιρέθηκε', 'info');
-      }
-      logProposalActivityClient(`Αφαίρεση προτύπου εκκρεμοτήτων (${selectedProposal.projectCategory})`);
-    } finally {
-      setApplyingPendingTemplate(false);
-    }
-  }, [
-    isReadOnly,
-    selectedId,
-    selectedProposal,
-    loggedInUsername,
-    showToast,
-    mergeSavedProposal,
-    markProposalPersisted,
-    logProposalActivityClient,
-  ]);
-
-  const isPendingTemplateActive = selectedProposal?.pendingTemplateCategory
-    && categoriesAreEquivalent(
-      selectedProposal.pendingTemplateCategory,
-      selectedProposal.projectCategory
-    );
-
   const showDetailSpecialization = selectedProposal?.projectCategory
     && shouldShowSpecializationField(
       selectedProposal.projectCategory,
@@ -5166,7 +5258,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
       }
     );
 
-  const handleHubReportExport = useCallback(async (format) => {
+  const handleHubReportExport = useCallback(async (format, excelOptions) => {
     if (hubReportExporting || isReadOnly) return;
     setHubReportExporting(true);
     try {
@@ -5176,6 +5268,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
         proposalIds: hubHasActiveFilters
           ? hubFilteredProposals.map((p) => p.id)
           : undefined,
+        excelOptions: format === 'excel' ? excelOptions : undefined,
       });
       if (res.canceled) return;
       if (!res.success) showToast(res.error || 'Σφάλμα εξαγωγής αναφοράς', 'error');
@@ -5215,8 +5308,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const renderFormalHubCard = (p) => {
     const st = getStatusStyle(p.status);
     const fileCount = getProjectFileCount(p);
-    const pendingTotal = (p.pendingItems || []).length;
-    const pendingOpen = getProjectPendingOpen(p);
     const categoryLine = [
       p.projectCategory,
       p.infrastructureSpecialization || '',
@@ -5262,21 +5353,20 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
         <HubCardFooter>
           <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
             <HubCardStat>{fileCount} αρχεία</HubCardStat>
-            {pendingTotal > 0 && (
-              <HubCardStat>{pendingOpen} ανοιχτές / {pendingTotal}</HubCardStat>
-            )}
             <HubCardStat>Ενημ.: {formatShortDateEl(p.updatedAt || p.createdAt)}</HubCardStat>
           </div>
           <div style={{ display: 'flex', gap: '0.35rem' }}>
             <HubRowBtn type="button" $primary onClick={openProject}>Άνοιγμα</HubRowBtn>
-            <HubRowBtn
-              type="button"
-              title="Εξαγωγή έργου"
-              disabled={exporting || isReadOnly}
-              onClick={(e) => handleOpenExportFromHub(e, p)}
-            >
-              Εξαγωγή
-            </HubRowBtn>
+            {!isReadOnly && (
+              <HubRowBtn
+                type="button"
+                title="Εξαγωγή έργου"
+                disabled={exporting}
+                onClick={(e) => handleOpenExportFromHub(e, p)}
+              >
+                Εξαγωγή
+              </HubRowBtn>
+            )}
           </div>
         </HubCardFooter>
       </HubCard>
@@ -5321,13 +5411,15 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
         <HubListCell>{formatShortDateEl(p.updatedAt || p.createdAt)}</HubListCell>
         <HubRowActions>
           <HubRowBtn type="button" $primary onClick={openProject}>Άνοιγμα</HubRowBtn>
-          <HubRowBtn
-            type="button"
-            disabled={exporting || isReadOnly}
-            onClick={(e) => handleOpenExportFromHub(e, p)}
-          >
-            Εξαγωγή
-          </HubRowBtn>
+          {!isReadOnly && (
+            <HubRowBtn
+              type="button"
+              disabled={exporting}
+              onClick={(e) => handleOpenExportFromHub(e, p)}
+            >
+              Εξαγωγή
+            </HubRowBtn>
+          )}
         </HubRowActions>
       </HubListRow>
     );
@@ -5356,14 +5448,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
   const statusStyle = selectedProposal ? getStatusStyle(selectedProposal.status) : null;
 
   const totalFiles = selectedProposal ? countProposalFiles(selectedProposal) : 0;
-  const doneItems = selectedProposal
-    ? (selectedProposal.pendingItems || []).filter((i) => i.done).length
-    : 0;
-  const totalItems = selectedProposal ? (selectedProposal.pendingItems || []).length : 0;
   const hasNotes = selectedProposal ? hasProposalNotes(selectedProposal.notes) : false;
 
   return (
-    <Overlay onClick={(e) => { if (e.target === e.currentTarget) void handleClose(); }}>
+    <Overlay data-testid="orimanthi-window" onClick={(e) => { if (e.target === e.currentTarget) void handleClose(); }}>
       <Modal onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <ModalHeader $formal={!selectedProposal}>
@@ -5401,7 +5489,14 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                 {exporting ? '⏳ Εξαγωγή…' : '📤 Εξαγωγή'}
               </HeaderActionBtn>
             )}
-            <CloseBtn onClick={() => void handleClose()} title="Κλείσιμο και επιστροφή στο Dashboard">✕</CloseBtn>
+            <CloseBtn
+              type="button"
+              data-testid="orimanthi-close"
+              onClick={() => void handleClose()}
+              title="Κλείσιμο και επιστροφή στο Dashboard"
+            >
+              ✕
+            </CloseBtn>
           </div>
         </ModalHeader>
 
@@ -5432,9 +5527,10 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                       <>
                         <HubStatsBtn
                           type="button"
+                          data-testid="orimanthi-hub-export-excel"
                           disabled={hubReportExporting}
-                          onClick={() => handleHubReportExport('excel')}
-                          title="Εξαγωγή λίστας έργων σε Excel"
+                          onClick={() => setShowHubExcelModal(true)}
+                          title="Εξαγωγή καρτελών έργων σε Excel"
                         >
                           {hubReportExporting ? '⏳ …' : '📗 Excel'}
                         </HubStatsBtn>
@@ -5578,7 +5674,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                           { value: 'ready', label: 'Ώριμα' },
                           { value: 'approved', label: 'Εγκεκριμένα' },
                           { value: 'aepo_soon', label: 'ΑΕΠΟ ≤60 ημέρες' },
-                          { value: 'pending', label: 'Με εκκρεμότητες' },
                         ].map((pill) => (
                           <HubQuickFilterPill
                             key={pill.value || 'all'}
@@ -5712,7 +5807,17 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
           ) : (
             <MainContent>
               <DetailTopBar>
-                <BackToHubBtn type="button" onClick={() => void requestSelectProposal(null)}>
+                <BackToHubBtn
+                  type="button"
+                  data-testid="orimanthi-back"
+                  onClick={() => {
+                    if (focusProposalId) {
+                      void handleClose();
+                      return;
+                    }
+                    void requestSelectProposal(null);
+                  }}
+                >
                   <BackToHubIcon>←</BackToHubIcon>
                   Επιστροφή στη λίστα
                 </BackToHubBtn>
@@ -5744,13 +5849,15 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                   <Tab $active={activeTab === 'details'} onClick={() => setActiveTab('details')}>
                     Στοιχεία
                   </Tab>
-                  <Tab $active={activeTab === 'files'} onClick={() => setActiveTab('files')}>
+                  <Tab
+                    data-testid="orimanthi-tab-files"
+                    $active={activeTab === 'files'}
+                    onClick={() => setActiveTab('files')}
+                  >
                     Αρχεία ({totalFiles})
                   </Tab>
-                  <Tab $active={activeTab === 'pending'} onClick={() => setActiveTab('pending')}>
-                    Εκκρεμ. ({doneItems}/{totalItems})
-                  </Tab>
                   <Tab
+                    data-testid="orimanthi-tab-notes"
                     $active={activeTab === 'notes'}
                     $hasContent={hasNotes && activeTab !== 'notes'}
                     onClick={() => setActiveTab('notes')}
@@ -5823,11 +5930,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                               );
                               updateProposalAudited({
                                 projectCategory: val,
-                                pendingTemplateCategory: reconcilePendingTemplateCategory(
-                                  selectedProposal.projectCategory,
-                                  val,
-                                  selectedProposal.pendingTemplateCategory
-                                ),
                                 infrastructureSpecialization: keepSpecializationForCategory(
                                   val,
                                   selectedProposal.infrastructureSpecialization,
@@ -6129,6 +6231,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                             >
                               <GroupName>
                                 {renderFileGroupTitle(group)}
+                                {renderPermitIssuedChip({
+                                  group,
+                                  disabled: isReadOnly,
+                                  onToggle: togglePermitIssued,
+                                })}
                                 <GroupCount $hasFiles={countGroupFileEntries(group) > 0}>
                                   {countGroupFileEntries(group)}
                                 </GroupCount>
@@ -6210,6 +6317,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                                                   <>
                                                     <MoveIconBtn
                                                       title="Μεταφορά σε άλλη κατηγορία"
+                                                      data-testid={`orimanthi-move-${entry.id || entry.name}`}
                                                       onClick={() => handleOpenMove(group.id, entry)}
                                                     >
                                                       ⇄
@@ -6331,6 +6439,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                                                 </RenameIconBtn>
                                                 <MoveIconBtn
                                                   title="Μεταφορά σε άλλη κατηγορία"
+                                                  data-testid={`orimanthi-move-${entry.name}`}
                                                   onClick={() => handleOpenMove(group.id, entry)}
                                                 >
                                                   ⇄
@@ -6368,90 +6477,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                     </FilesTabLayout>
                   )}
 
-                  {/* Tab: Pending */}
-                  {activeTab === 'pending' && (
-                    <>
-                      <SectionLabel>Εκκρεμότητες &amp; Ενέργειες</SectionLabel>
-                      {!isReadOnly && selectedProposal?.projectCategory && (
-                        <div style={{ marginBottom: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.45rem', alignItems: 'center' }}>
-                          {isPendingTemplateActive ? (
-                            <>
-                              <span style={{
-                                fontSize: '0.72rem',
-                                fontWeight: 700,
-                                color: C.amber,
-                                background: '#fffbeb',
-                                border: `1px solid ${C.amber}44`,
-                                borderRadius: 999,
-                                padding: '0.2rem 0.55rem',
-                              }}>
-                                📋 Πρότυπο ενεργό
-                              </span>
-                              <Btn
-                                $sm
-                                $variant="ghost"
-                                disabled={applyingPendingTemplate}
-                                onClick={() => void removePendingTemplate()}
-                                title={`Αφαίρεση προτύπου «${selectedProposal.projectCategory}»`}
-                              >
-                                {applyingPendingTemplate ? '⏳ …' : '↩ Αφαίρεση προτύπου'}
-                              </Btn>
-                            </>
-                          ) : (
-                            <Btn
-                              $sm
-                              $variant="teal"
-                              disabled={applyingPendingTemplate}
-                              onClick={() => void applyPendingTemplate()}
-                              title={`Πρότυπο για «${selectedProposal.projectCategory}»`}
-                            >
-                              {applyingPendingTemplate ? '⏳ …' : '📋 Εφαρμογή προτύπου εκκρεμοτήτων'}
-                            </Btn>
-                          )}
-                        </div>
-                      )}
-                      <PendingList>
-                        {(selectedProposal.pendingItems || []).length === 0 && (
-                          <div style={{ color: C.slate400, fontSize: '0.8rem', fontStyle: 'italic' }}>
-                            Δεν υπάρχουν εκκρεμότητες. Προσθέστε παρακάτω.
-                          </div>
-                        )}
-                        {(selectedProposal.pendingItems || []).map((item) => (
-                          <PendingItem key={item.id} $done={item.done}>
-                            <PendingCheckbox
-                              type="checkbox"
-                              checked={item.done}
-                              disabled={isReadOnly}
-                              onChange={() => togglePendingItem(item.id)}
-                            />
-                            <PendingText $done={item.done}>{item.text}</PendingText>
-                            {!isReadOnly && (
-                              <PendingDeleteBtn
-                                type="button"
-                                onClick={() => deletePendingItem(item.id)}
-                                title="Διαγραφή εκκρεμότητας"
-                                aria-label={`Διαγραφή: ${item.text}`}
-                              >
-                                ✕
-                              </PendingDeleteBtn>
-                            )}
-                          </PendingItem>
-                        ))}
-                      </PendingList>
-                      {!isReadOnly && (
-                        <AddPendingRow>
-                          <AddPendingInput
-                            placeholder="Νέα εκκρεμότητα ή ενέργεια… (π.χ. Αναμονή αρχαιολογικής έκθεσης)"
-                            value={pendingInput}
-                            onChange={(e) => setPendingInput(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && addPendingItem()}
-                          />
-                          <Btn $variant="primary" onClick={addPendingItem}>+ Προσθήκη</Btn>
-                        </AddPendingRow>
-                      )}
-                    </>
-                  )}
-
                   {/* Tab: Notes */}
                   {activeTab === 'notes' && (
                     <>
@@ -6461,6 +6486,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                       )}
                       {!isReadOnly ? (
                         <NotesTextarea
+                          data-testid="orimanthi-notes"
                           placeholder="Ελεύθερες σημειώσεις για το έργο… (κατάσταση αδειοδοτήσεων, επαφές, χρονοδιάγραμμα κ.ά.)"
                           value={selectedProposal.notes}
                           onChange={(e) => updateProposal({ notes: e.target.value })}
@@ -6833,6 +6859,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                           >
                             <GroupName>
                               {renderFileGroupTitle(group)}
+                              {renderPermitIssuedChip({
+                                group,
+                                disabled: false,
+                                onToggle: toggleNewProjectPermitIssued,
+                              })}
                               <GroupCount $hasFiles={itemCount > 0}>{itemCount}</GroupCount>
                             </GroupName>
                             <GroupActions onClick={(e) => e.stopPropagation()}>
@@ -6961,7 +6992,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
         const entryKindLabel = isProposalFolder(moveModal.entry) ? 'φάκελος' : 'αρχείο';
         return (
           <FolderModalOverlay onClick={() => setMoveModal(null)}>
-            <FolderModalCard onClick={(e) => e.stopPropagation()}>
+            <FolderModalCard onClick={(e) => e.stopPropagation()} style={{ maxWidth: '620px' }}>
               <FolderModalHeader>
                 <FolderModalTitle>⇄ Μεταφορά {entryKindLabel}</FolderModalTitle>
                 <FolderModalSub>
@@ -6985,7 +7016,11 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                     <Btn
                       $sm
                       $variant={moveModal.targetMode === 'new' ? 'primary' : 'ghost'}
-                      onClick={() => setMoveModal((m) => ({ ...m, targetMode: 'new' }))}
+                      onClick={() => setMoveModal((m) => ({
+                        ...m,
+                        targetMode: 'new',
+                        newGroupPick: null,
+                      }))}
                     >
                       Νέα κατηγορία
                     </Btn>
@@ -7009,22 +7044,43 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                     ))}
                   </MoveTargetList>
                 ) : (
-                  <MetaField>
-                    <MetaLabel htmlFor="move-new-category">Όνομα νέας κατηγορίας</MetaLabel>
-                    <AddPendingInput
-                      id="move-new-category"
-                      placeholder="π.χ. Περιβαλλοντικά"
-                      value={moveModal.newCategoryName}
-                      onChange={(e) => setMoveModal((m) => ({ ...m, newCategoryName: e.target.value }))}
-                      onKeyDown={(e) => e.key === 'Enter' && handleConfirmMove()}
-                      autoFocus
+                  <>
+                    <OrimanthiFileCategoryPicker
+                      existingGroups={selectedProposal.fileGroups || []}
+                      customMeletesSpecs={customMeletesFileSpecs}
+                      customAdeiodotiseisSpecs={customAdeiodotiseisFileSpecs}
+                      onSelect={(pick) => setMoveModal((m) => ({ ...m, newGroupPick: pick }))}
+                      onCancel={() => setMoveModal((m) => (
+                        otherGroups.length
+                          ? { ...m, targetMode: 'existing', newGroupPick: null }
+                          : m
+                      ))}
+                      onAddCustomSpec={(rootId, spec) => addCustomFileSpec(rootId, spec)}
                     />
-                  </MetaField>
+                    {moveModal.newGroupPick?.label ? (
+                      <div style={{
+                        marginTop: '0.65rem',
+                        fontSize: '0.8rem',
+                        fontWeight: 700,
+                        color: '#4338ca',
+                      }}
+                      >
+                        Προορισμός: {moveModal.newGroupPick.label}
+                      </div>
+                    ) : null}
+                  </>
                 )}
               </FolderModalBody>
               <FolderModalFooter>
                 <Btn $sm $variant="ghost" onClick={() => setMoveModal(null)}>Ακύρωση</Btn>
-                <Btn $sm $variant="primary" onClick={handleConfirmMove}>Μεταφορά</Btn>
+                <Btn
+                  $sm
+                  $variant="primary"
+                  data-testid="orimanthi-move-confirm"
+                  onClick={handleConfirmMove}
+                >
+                  Μεταφορά
+                </Btn>
               </FolderModalFooter>
             </FolderModalCard>
           </FolderModalOverlay>
@@ -7190,7 +7246,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
             <FolderModalHeader>
               <FolderModalTitle>Στατιστικά ωρίμανσης έργων</FolderModalTitle>
               <FolderModalSub>
-                Πλήρης επισκόπηση {formatProjectCount(richHubStats.total)} · {richHubStats.totalFiles} αρχεία · {richHubStats.totalPendingOpen} ανοιχτές εκκρεμότητες
+                Πλήρης επισκόπηση {formatProjectCount(richHubStats.total)} · {richHubStats.totalFiles} αρχεία
               </FolderModalSub>
             </FolderModalHeader>
             <FolderModalBody style={{ maxHeight: '75vh', overflowY: 'auto' }}>
@@ -7202,10 +7258,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                 <StatsCard>
                   <StatsCardValue>{richHubStats.totalFiles}</StatsCardValue>
                   <StatsCardLabel>Συνολικά αρχεία</StatsCardLabel>
-                </StatsCard>
-                <StatsCard>
-                  <StatsCardValue>{richHubStats.totalPendingOpen}</StatsCardValue>
-                  <StatsCardLabel>Ανοιχτές εκκρεμότητες</StatsCardLabel>
                 </StatsCard>
                 <StatsCard>
                   <StatsCardValue>{richHubStats.withAepo}</StatsCardValue>
@@ -7353,31 +7405,6 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
                 </>
               )}
 
-              {richHubStats.topPending.length > 0 && (
-                <>
-                  <StatsSectionTitle>Περισσότερες ανοιχτές εκκρεμότητες</StatsSectionTitle>
-                  <StatsInsightList>
-                    {richHubStats.topPending.map((row) => (
-                      <StatsInsightRow
-                        key={row.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedId(row.id);
-                          setActiveTab('pending');
-                          setShowHubStatsModal(false);
-                        }}
-                      >
-                        <div>
-                          <StatsInsightMain>{row.title}</StatsInsightMain>
-                          <StatsInsightSub>{row.open} ανοιχτές από {row.total}</StatsInsightSub>
-                        </div>
-                        <StatsBreakdownCount>{row.open}</StatsBreakdownCount>
-                      </StatsInsightRow>
-                    ))}
-                  </StatsInsightList>
-                </>
-              )}
-
               {richHubStats.recentlyUpdated.length > 0 && (
                 <>
                   <StatsSectionTitle>Πρόσφατη ενημέρωση</StatsSectionTitle>
@@ -7488,6 +7515,96 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
         </FolderModalOverlay>
       )}
 
+      {showHubExcelModal && (
+        <FolderModalOverlay
+          data-testid="orimanthi-hub-excel-modal"
+          onClick={() => !hubReportExporting && setShowHubExcelModal(false)}
+        >
+          <FolderModalCard
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(560px, 96vw)', maxHeight: 'min(82vh, 720px)' }}
+          >
+            <FolderModalHeader>
+              <FolderModalTitle>📗 Εξαγωγή Excel</FolderModalTitle>
+              <FolderModalSub>
+                Επιλέξτε στήλες και κατηγορίες για τις καρτέλες των έργων
+              </FolderModalSub>
+            </FolderModalHeader>
+            <FolderModalBody>
+              <p style={{ margin: '0 0 0.85rem', fontSize: '0.8rem', color: C.slate600, lineHeight: 1.5 }}>
+                Ο Α/Α και ο τίτλος έργου εξάγονται πάντα. Τις υπόλοιπες στήλες τις διαλέγετε εσείς.
+              </p>
+              <SectionLabel>Στήλες έργου</SectionLabel>
+              <ExcelColGrid style={{ marginBottom: '1.05rem' }}>
+                {HUB_EXCEL_COLUMN_CHOICES.map((col) => (
+                  <ExcelColChip
+                    key={col.key}
+                    type="button"
+                    $on={hubExcelOptions.columns[col.key]}
+                    data-testid={`orimanthi-hub-excel-col-${col.key}`}
+                    onClick={() => setHubExcelOptions((prev) => ({
+                      ...prev,
+                      columns: { ...prev.columns, [col.key]: !prev.columns[col.key] },
+                    }))}
+                  >
+                    {col.label}
+                  </ExcelColChip>
+                ))}
+              </ExcelColGrid>
+              <SectionLabel>Κατηγορίες καρτέλας</SectionLabel>
+              <ExcelBlockRow>
+                <ExcelBlockBtn
+                  type="button"
+                  $on={hubExcelOptions.includeStudies}
+                  data-testid="orimanthi-hub-excel-block-studies"
+                  onClick={() => setHubExcelOptions((prev) => ({
+                    ...prev,
+                    includeStudies: !prev.includeStudies,
+                  }))}
+                >
+                  ΜΕΛΕΤΕΣ ΕΡΓΟΥ
+                </ExcelBlockBtn>
+                <ExcelBlockBtn
+                  type="button"
+                  $tone="teal"
+                  $on={hubExcelOptions.includePermits}
+                  data-testid="orimanthi-hub-excel-block-permits"
+                  onClick={() => setHubExcelOptions((prev) => ({
+                    ...prev,
+                    includePermits: !prev.includePermits,
+                  }))}
+                >
+                  ΑΔΕΙΟΔΟΤΗΣΕΙΣ
+                </ExcelBlockBtn>
+              </ExcelBlockRow>
+            </FolderModalBody>
+            <FolderModalFooter>
+              <Btn
+                $sm
+                $variant="ghost"
+                data-testid="orimanthi-hub-excel-cancel"
+                onClick={() => setShowHubExcelModal(false)}
+                disabled={hubReportExporting}
+              >
+                Ακύρωση
+              </Btn>
+              <Btn
+                $sm
+                $variant="primary"
+                data-testid="orimanthi-hub-excel-confirm"
+                disabled={hubReportExporting}
+                onClick={() => {
+                  setShowHubExcelModal(false);
+                  void handleHubReportExport('excel', hubExcelOptions);
+                }}
+              >
+                {hubReportExporting ? '⏳ Εξαγωγή…' : 'Εξαγωγή Excel'}
+              </Btn>
+            </FolderModalFooter>
+          </FolderModalCard>
+        </FolderModalOverlay>
+      )}
+
       {showExportDialog && exportDialogProposal && (
         <FolderModalOverlay onClick={closeExportDialog}>
           <FolderModalCard onClick={(e) => e.stopPropagation()}>
@@ -7500,7 +7617,7 @@ export default function OrimanthiManager({ onClose, loggedInUsername, userRole, 
             <FolderModalBody>
               <p style={{ margin: '0 0 0.85rem', fontSize: '0.8rem', color: C.slate600, lineHeight: 1.5 }}>
                 Θα δημιουργηθεί φάκελος με το όνομα του έργου, υποφάκελοι ανά κατηγορία αρχείων
-                και Word με σημειώσεις και εκκρεμότητες (με επωνυμία ERGOHUB).
+                και Word με σημειώσεις (με επωνυμία ERGOHUB).
               </p>
               <ExportOptionRow>
                 <input

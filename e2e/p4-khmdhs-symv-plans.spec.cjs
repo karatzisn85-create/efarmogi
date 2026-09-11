@@ -26,7 +26,7 @@ test('P4-70 κατανομή: λάθος ρόλοι δεν εφαρμόζοντ�
   await fetchAsphaltPlanner(window, { leavePlannerOpen: true });
   const modal = window.locator('[data-khmdhs-symv-planner-modal]').filter({
     has: window.getByRole('button', { name: 'Εφαρμογή κατανομής' }),
-  });
+  }).last();
   await expect(modal.getByText('Κατανομή εγγραφών SYMV')).toBeVisible();
 
   await setSymvPlanRoles(window, ['skip', 'skip']);
@@ -145,7 +145,7 @@ test('P4-76 προβολή εγγράφου: το κουμπί περιμένε�
   await fetchAsphaltPlanner(window, { leavePlannerOpen: true });
   const modal = window.locator('[data-khmdhs-symv-planner-modal]').filter({
     has: window.getByRole('button', { name: 'Εφαρμογή κατανομής' }),
-  });
+  }).last();
   const viewBtn = modal.getByTestId(`khmdhs-symv-view-${SYMV_A}`);
   await expect(viewBtn).toBeVisible();
   await viewBtn.click();
@@ -162,7 +162,7 @@ test('P4-77 προβολή εγγράφου: ακύρωση αναμονής κ�
   await fetchAsphaltPlanner(window, { leavePlannerOpen: true });
   const modal = window.locator('[data-khmdhs-symv-planner-modal]').filter({
     has: window.getByRole('button', { name: 'Εφαρμογή κατανομής' }),
-  });
+  }).last();
   const viewBtn = modal.getByTestId(`khmdhs-symv-view-${SYMV_A}`);
   await expect(viewBtn).toBeVisible();
   await viewBtn.click();

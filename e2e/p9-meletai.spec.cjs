@@ -13,6 +13,8 @@ async function openMeletai(window) {
 test('P9-01 μητρώο μελετών σε όλους τους ρόλους', async ({ app }) => {
   const { window } = app;
   await openMeletai(window);
+  await window.getByTitle('Κλείσιμο').click();
+  await expect(window.getByTitle('Κλείσιμο')).toHaveCount(0);
   await app.loginAsRole('USER');
   await openMeletai(window);
 });

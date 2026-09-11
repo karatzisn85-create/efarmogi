@@ -6,6 +6,7 @@ import ProsklisisForm from './ProsklisisForm';
 import ProsklisisFileManager from './ProsklisisFileManager';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
 import ProsklisisExportDialog from './ProsklisisExportDialog';
+import ProsklisiDetailModal from './ProsklisiDetailModal';
 import { formatDateEl } from '../utils/dateFormat';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import { showConfirm } from '../utils/confirmModal';
@@ -24,6 +25,9 @@ import {
   applyProsklisiDailyFilters,
   applyProsklisiAdvancedFilters,
   uniqueLinkedProjectTitles,
+  linkedOrimanthiTitlesOf,
+  normalizeLinkedOrimanthiProposals,
+  normalizeLinkedProjects,
   showNewProsklisiButton,
   evaluateProsklisiDelete,
   uniqueSortedProsklisiFieldValues,
@@ -32,6 +36,7 @@ import {
   countProsklisiActiveFilters,
   buildProsklisiExportRecord,
   getProsklisiDiavgeiaAdaText,
+  formatProsklisiChangeValue,
 } from '../utils/prosklisiDeadlineUtils';
 
 const ipcRenderer = window.electronAPI;
@@ -85,6 +90,7 @@ const ModalOverlay = styled.div`
 `;
 
 const ModalContainer = styled.div`
+  position: relative;
   background: rgba(255, 255, 255, 0.98);
   backdrop-filter: blur(12px);
   border-radius: 16px;
@@ -511,6 +517,7 @@ const ProsklisisItem = styled.div`
   position: relative;
   opacity: ${(p) => (p.$isLocked ? 0.72 : (p.$muted ? 0.88 : 1))};
   filter: ${(p) => (p.$muted ? 'saturate(0.78)' : 'none')};
+  cursor: pointer;
   box-shadow: 0 3px 12px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.05);
   transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s ease;
   &:hover {
@@ -1185,7 +1192,8 @@ function ProsklisisManager({
   notes = [],
   onOpenNoteFromEntity,
   organizationName = '',
-  onOpenRelatedEntaxi = null
+  onOpenRelatedEntaxi = null,
+  onOpenAssociation = null,
 }) {
   const { showToast } = useToast();
   const canManageWorkflow = showNewProsklisiButton(userRole);
@@ -1202,6 +1210,7 @@ function ProsklisisManager({
   const [prosklisiLocks, setProsklisiLocks] = useState({});
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [relatedEntaxeisByProsklisi, setRelatedEntaxeisByProsklisi] = useState({});
+  const [selectedDetailProsklisi, setSelectedDetailProsklisi] = useState(null);
 
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState({
@@ -1271,6 +1280,17 @@ function ProsklisisManager({
     setTextDetailModal(null);
     requestListScrollRestore();
   }, [requestListScrollRestore]);
+
+  useEffect(() => {
+    if (!textDetailModal) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      closeTextDetailModal();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [textDetailModal, closeTextDetailModal]);
 
   const toggleModsExpanded = useCallback((prosklisiId, count) => {
     setModsExpanded((prev) => {
@@ -1385,8 +1405,8 @@ function ProsklisisManager({
     }
   };
 
-  const loadProskliseis = async () => {
-    setLoading(true);
+  const loadProskliseis = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const data = await ipcRenderer.invoke('load-all-proskliseis', { includeModifications: true });
       const list = data || [];
@@ -1398,14 +1418,19 @@ function ProsklisisManager({
       });
       setProskliseis(list);
       setProsklisiModifications(modifications);
+      setSelectedDetailProsklisi((prev) => {
+        if (!prev) return null;
+        return list.find((p) => p.prosklisiId === prev.prosklisiId) || null;
+      });
       loadRelatedEntaxeis();
       loadProsklisiLocks(list);
     } catch (error) {
       console.error('Error loading proskliseis:', error);
       setProskliseis([]);
       setProsklisiModifications({});
+      setSelectedDetailProsklisi(null);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -1415,7 +1440,9 @@ function ProsklisisManager({
       await Promise.all((list || []).map(async (prosklisi) => {
         try {
           const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'proskliseis', prosklisi.prosklisiId);
-          locks[prosklisi.prosklisiId] = lockStatus.locked || false;
+          locks[prosklisi.prosklisiId] = lockStatus.locked
+            ? (lockStatus.lockedBy || true)
+            : false;
         } catch {
           locks[prosklisi.prosklisiId] = false;
         }
@@ -1467,60 +1494,94 @@ function ProsklisisManager({
 
   const handleSaveProsklisi = async (prosklisiData) => {
     try {
-      await ipcRenderer.invoke('save-prosklisi', prosklisiData);
+      const result = await ipcRenderer.invoke('save-prosklisi', prosklisiData);
+      if (!result?.success) {
+        showToast(result?.error || 'Σφάλμα αποθήκευσης πρόσκλησης', 'error');
+        return false;
+      }
       catalogDirtyRef.current = true;
       await loadProskliseis();
       setIsFormOpen(false);
       setEditingProsklisi(null);
       requestListScrollRestore();
+      if (prosklisiData.prosklisiId) {
+        try {
+          await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', prosklisiData.prosklisiId);
+          setProsklisiLocks((prev) => ({ ...prev, [prosklisiData.prosklisiId]: false }));
+        } catch (lockErr) { console.error('Error removing lock:', lockErr); }
+      }
+      return true;
     } catch (error) {
       console.error('Error saving prosklisi:', error);
       showToast('Σφάλμα αποθήκευσης πρόσκλησης: ' + error.message, 'error');
-    } finally {
-      if (editingProsklisi && editingProsklisi.prosklisiId) {
-        try {
-          await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
-          setProsklisiLocks(prev => ({ ...prev, [editingProsklisi.prosklisiId]: false }));
-        } catch (lockErr) { console.error('Error removing lock:', lockErr); }
-      }
+      return false;
     }
   };
 
+  const lockOwnerName = currentUser?.fullName || currentUser?.username || '';
+  const isOwnProsklisiLockHolder = (lockedBy) => {
+    const who = String(lockedBy === true ? lockOwnerName : lockedBy || '').trim();
+    if (!who) return false;
+    return who === lockOwnerName || who === currentUser?.username || who === currentUser?.fullName;
+  };
+
   const tryAcquireProsklisiLock = async (prosklisi) => {
+    const lockOwner = lockOwnerName;
     const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'proskliseis', prosklisi.prosklisiId);
-    if (lockStatus.locked) {
+    if (lockStatus.locked && !isOwnProsklisiLockHolder(lockStatus.lockedBy)) {
       showToast(`Η πρόσκληση είναι υπό επεξεργασία από ${lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή'}.`, 'warning');
       return false;
     }
-    const lockOwner = currentUser?.fullName || currentUser?.username || '';
     const lockResult = await ipcRenderer.invoke('create-entity-lock', 'proskliseis', prosklisi.prosklisiId, lockOwner);
     if (!lockResult.success) {
       showToast(`Δεν είναι δυνατή η επεξεργασία. Ανοιχτό από ${lockResult.lockedBy ? `«${lockResult.lockedBy}»` : 'άλλον χρήστη'}.`, 'warning');
       return false;
     }
-    setProsklisiLocks((prev) => ({ ...prev, [prosklisi.prosklisiId]: true }));
+    setProsklisiLocks((prev) => ({ ...prev, [prosklisi.prosklisiId]: lockOwner || true }));
+    return true;
+  };
+
+  const assertProsklisiUnlockedForDelete = async (prosklisiId) => {
+    const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'proskliseis', prosklisiId);
+    if (!lockStatus?.locked) return true;
+    if (isOwnProsklisiLockHolder(lockStatus.lockedBy)) {
+      showToast('Κλείστε πρώτα την επεξεργασία πριν διαγράψετε.', 'warning');
+      return false;
+    }
+    showToast(`Η πρόσκληση είναι υπό επεξεργασία από ${lockStatus.lockedBy ? `«${lockStatus.lockedBy}»` : 'άλλον διαχειριστή'}.`, 'warning');
+    return false;
+  };
+
+  const saveProsklisiFieldPatch = async (prosklisiId, fields, fallbackError) => {
+    if (!prosklisiId || !fields || Object.keys(fields).length === 0) return true;
+    const payload = { prosklisiId, updatedAt: new Date().toISOString() };
+    Object.keys(fields).forEach((key) => {
+      if (fields[key] !== undefined) payload[key] = fields[key];
+    });
+    const syncResult = await ipcRenderer.invoke('save-prosklisi', payload);
+    if (!syncResult?.success) {
+      showToast(syncResult?.error || fallbackError, 'error');
+      return false;
+    }
     return true;
   };
 
   const syncProsklisiFieldsFromModification = async (modificationData) => {
     if (!modificationData?.originalProsklisiId) return;
     if (!modificationData.changes || Object.keys(modificationData.changes).length === 0) return;
-    const baseProsklisi = proskliseis.find(
-      (p) => p.prosklisiId === modificationData.originalProsklisiId
-    ) || {};
-    const updatedProsklisiData = {
-      ...baseProsklisi,
-      prosklisiId: modificationData.originalProsklisiId,
-      title: modificationData.modifiedData?.title ?? baseProsklisi.title,
-      axis: modificationData.modifiedData?.axis ?? baseProsklisi.axis,
-      fundingSource: modificationData.modifiedData?.fundingSource ?? baseProsklisi.fundingSource,
-      code: modificationData.modifiedData?.code ?? baseProsklisi.code,
-      deadline: modificationData.modifiedData?.deadline ?? baseProsklisi.deadline,
-      budgetRange: modificationData.modifiedData?.budgetRange ?? baseProsklisi.budgetRange,
-      status: modificationData.modifiedData?.status ?? baseProsklisi.status,
-      updatedAt: new Date().toISOString()
-    };
-    await ipcRenderer.invoke('save-prosklisi', updatedProsklisiData);
+    const fieldKeys = ['title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status'];
+    const fields = {};
+    fieldKeys.forEach((key) => {
+      const fromMod = modificationData.modifiedData?.[key];
+      const fromChange = modificationData.changes?.[key]?.current;
+      const value = fromMod !== undefined && fromMod !== null ? fromMod : fromChange;
+      if (value !== undefined && value !== null) fields[key] = value;
+    });
+    return saveProsklisiFieldPatch(
+      modificationData.originalProsklisiId,
+      fields,
+      'Η τροποποίηση αποθηκεύτηκε, αλλά τα στοιχεία της πρόσκλησης δεν ενημερώθηκαν'
+    );
   };
 
   const syncProsklisiDeadlineFromMods = async (prosklisiId, modifications) => {
@@ -1528,38 +1589,50 @@ function ProsklisisManager({
     if (!baseProsklisi) return;
     const effective = getEffectiveProsklisiDeadline(baseProsklisi, modifications || []);
     if (String(effective || '') === String(baseProsklisi.deadline || '')) return;
-    await ipcRenderer.invoke('save-prosklisi', {
-      ...baseProsklisi,
-      deadline: effective,
-      updatedAt: new Date().toISOString()
-    });
+    await saveProsklisiFieldPatch(
+      prosklisiId,
+      { deadline: effective },
+      'Η τροποποίηση αποθηκεύτηκε, αλλά η λήξη δεν ενημερώθηκε'
+    );
   };
 
   const handleSaveModification = async (modificationData) => {
     try {
-      await ipcRenderer.invoke('save-prosklisi-modification', modificationData);
-      await syncProsklisiFieldsFromModification(modificationData);
+      const result = await ipcRenderer.invoke('save-prosklisi-modification', modificationData);
+      if (!result?.success) {
+        showToast(result?.error || 'Σφάλμα αποθήκευσης τροποποίησης', 'error');
+        return false;
+      }
+      const synced = await syncProsklisiFieldsFromModification(modificationData);
+      if (synced === false) return false;
       catalogDirtyRef.current = true;
       await loadProskliseis();
       setEditingModification(null);
       setIsModificationFormOpen(false);
       requestListScrollRestore();
-    } catch (error) {
-      console.error('Error saving modification:', error);
-      showToast('Σφάλμα αποθήκευσης τροποποίησης: ' + error.message, 'error');
-    } finally {
       if (modificationData.originalProsklisiId) {
         try {
           await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', modificationData.originalProsklisiId);
-          setProsklisiLocks(prev => ({ ...prev, [modificationData.originalProsklisiId]: false }));
+          setProsklisiLocks((prev) => ({ ...prev, [modificationData.originalProsklisiId]: false }));
         } catch (lockErr) { console.error('Error removing lock:', lockErr); }
       }
+      return true;
+    } catch (error) {
+      console.error('Error saving modification:', error);
+      showToast('Σφάλμα αποθήκευσης τροποποίησης: ' + error.message, 'error');
+      return false;
     }
+  };
+
+  const openProsklisiDetail = (prosklisi) => {
+    closeMenu();
+    setSelectedDetailProsklisi(prosklisi);
   };
 
   const handleEditProsklisi = async (prosklisi) => {
     closeMenu();
     if (!(await tryAcquireProsklisiLock(prosklisi))) return;
+    setSelectedDetailProsklisi(null);
     captureListScroll();
     setEditingProsklisi(prosklisi);
     setIsFormOpen(true);
@@ -1569,11 +1642,13 @@ function ProsklisisManager({
     closeMenu();
     const decision = evaluateProsklisiDelete(prosklisiId);
     if (!decision.ok) return;
+    if (!(await assertProsklisiUnlockedForDelete(prosklisiId))) return;
     if (await showConfirm({ title: 'Διαγραφή Πρόσκλησης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την πρόσκληση;', detail: 'Θα διαγραφούν επίσης όλα τα αρχεία της. Η ενέργεια είναι μη αναστρέψιμη.', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi', prosklisiId);
         if (result.success) {
           catalogDirtyRef.current = true;
+          setSelectedDetailProsklisi((prev) => (prev?.prosklisiId === prosklisiId ? null : prev));
           await loadProskliseis();
         }
         else showToast('Σφάλμα διαγραφής πρόσκλησης: ' + result.error, 'error');
@@ -1586,6 +1661,11 @@ function ProsklisisManager({
     if (!prosklisi) { showToast('Δεν βρέθηκε η πρόσκληση', 'error'); return; }
     captureListScroll();
     setFileManagerOpen({ isOpen: true, prosklisiId, prosklisiTitle: prosklisi.title });
+  };
+
+  const handleViewFilesFromDetail = (prosklisi) => {
+    if (!prosklisi?.prosklisiId) return;
+    handleViewFiles(prosklisi.prosklisiId);
   };
 
   const handleViewModificationPDF = async (prosklisiId, modificationId) => {
@@ -1602,25 +1682,31 @@ function ProsklisisManager({
       return;
     }
     if (!(await tryAcquireProsklisiLock(prosklisi))) return;
+    setSelectedDetailProsklisi(null);
     captureListScroll();
     setEditingModification({ ...modification, prosklisiId, originalProsklisiData: prosklisi });
     setIsModificationFormOpen(true);
   };
 
   const handleDeleteModification = async (prosklisiId, modificationId) => {
+    if (!(await assertProsklisiUnlockedForDelete(prosklisiId))) return;
     if (await showConfirm({ title: 'Διαγραφή Τροποποίησης', message: 'Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή την τροποποίηση;', confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const allMods = prosklisiModifications[prosklisiId] || [];
         const deleted = allMods.find((m) => m.modificationId === modificationId);
         const remaining = allMods.filter((m) => m.modificationId !== modificationId);
-        await ipcRenderer.invoke('delete-prosklisi-modification', prosklisiId, modificationId);
+        const result = await ipcRenderer.invoke('delete-prosklisi-modification', prosklisiId, modificationId);
+        if (!result?.success) {
+          showToast(result?.error || 'Σφάλμα διαγραφής τροποποίησης', 'error');
+          return;
+        }
         catalogDirtyRef.current = true;
         const baseProsklisi = proskliseis.find((p) => p.prosklisiId === prosklisiId);
         if (baseProsklisi) {
           let baseline = baseProsklisi;
           // Αν διαγράφεται η μόνη τροποποίηση που άλλαξε λήξη, επαναφέρουμε το «πριν»
           const remainingDeadlineChanges = remaining.some((m) => {
-            const cur = m?.changes?.deadline?.current;
+            const cur = m?.changes?.deadline?.current || m?.modifiedData?.deadline;
             return cur != null && String(cur).trim() !== '' && String(cur).trim() !== '-';
           });
           if (deleted?.changes?.deadline && !remainingDeadlineChanges) {
@@ -1631,37 +1717,47 @@ function ProsklisisManager({
           }
           const effective = getEffectiveProsklisiDeadline(baseline, remaining);
           if (String(effective || '') !== String(baseProsklisi.deadline || '')) {
-            await ipcRenderer.invoke('save-prosklisi', {
-              ...baseProsklisi,
-              deadline: effective,
-              updatedAt: new Date().toISOString(),
-            });
+            await saveProsklisiFieldPatch(
+              prosklisiId,
+              { deadline: effective },
+              'Η τροποποίηση διαγράφηκε, αλλά η λήξη δεν ενημερώθηκε'
+            );
           }
         }
-        await loadProskliseis();
+        await loadProskliseis({ silent: true });
       } catch (error) { showToast('Σφάλμα διαγραφής τροποποίησης: ' + error.message, 'error'); }
     }
   };
 
   const handleSaveModificationEdit = async (modificationData) => {
     try {
-      await ipcRenderer.invoke('update-prosklisi-modification', modificationData);
-      await syncProsklisiFieldsFromModification(modificationData);
+      const result = await ipcRenderer.invoke('update-prosklisi-modification', modificationData);
+      if (!result?.success) {
+        showToast(result?.error || 'Σφάλμα ενημέρωσης τροποποίησης', 'error');
+        return false;
+      }
+      const synced = await syncProsklisiFieldsFromModification(modificationData);
+      if (synced === false) return false;
       catalogDirtyRef.current = true;
       if (editingModification && editingModification.prosklisiId) {
         await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingModification.prosklisiId);
-        setProsklisiLocks(prev => ({ ...prev, [editingModification.prosklisiId]: false }));
+        setProsklisiLocks((prev) => ({ ...prev, [editingModification.prosklisiId]: false }));
       }
       await loadProskliseis();
       setEditingModification(null);
       setIsModificationFormOpen(false);
       requestListScrollRestore();
-    } catch (error) { showToast('Σφάλμα ενημέρωσης τροποποίησης: ' + error.message, 'error'); }
+      return true;
+    } catch (error) {
+      showToast('Σφάλμα ενημέρωσης τροποποίησης: ' + error.message, 'error');
+      return false;
+    }
   };
 
   const handleNewModification = async (prosklisi) => {
     closeMenu();
     if (!(await tryAcquireProsklisiLock(prosklisi))) return;
+    setSelectedDetailProsklisi(null);
     captureListScroll();
     setEditingModification(prosklisi);
     setIsModificationFormOpen(true);
@@ -1742,17 +1838,62 @@ function ProsklisisManager({
       .filter(Boolean);
   };
 
-  const handleOpenRelatedEntaxi = (entaxiOrFilter) => {
-    if (!entaxiOrFilter) return;
-    if (typeof onOpenRelatedEntaxi === 'function') {
-      onOpenRelatedEntaxi(entaxiOrFilter);
+  const getLinkedOrimanthiLabels = (prosklisi) =>
+    linkedOrimanthiTitlesOf(prosklisi);
+
+  const navigateToAssociation = (payload) => {
+    if (!payload) return;
+    const prosklisiId = payload.prosklisiId
+      || selectedDetailProsklisi?.prosklisiId
+      || payload.entaxi?.prosklisiId;
+    if (typeof onOpenAssociation === 'function') {
+      const dataChanged = catalogDirtyRef.current;
+      catalogDirtyRef.current = false;
+      setSelectedDetailProsklisi(null);
+      onOpenAssociation({ ...payload, prosklisiId, dataChanged });
       return;
     }
-    showToast('Δεν είναι δυνατή η μετάβαση στις εντάξεις από εδώ.', 'info');
+    if (payload.kind === 'entaxi' && typeof onOpenRelatedEntaxi === 'function') {
+      handleClose();
+      onOpenRelatedEntaxi(payload.entaxi || payload);
+      return;
+    }
+    showToast('Δεν είναι δυνατή η μετάβαση από εδώ.', 'info');
+  };
+
+  const handleOpenRelatedEntaxi = (entaxiOrFilter, prosklisiId) => {
+    if (!entaxiOrFilter) return;
+    navigateToAssociation({
+      kind: 'entaxi',
+      id: typeof entaxiOrFilter === 'string' ? entaxiOrFilter : entaxiOrFilter.entaxiId,
+      prosklisiId,
+      entaxi: typeof entaxiOrFilter === 'object' ? entaxiOrFilter : { entaxiId: entaxiOrFilter, prosklisiId },
+    });
+  };
+
+  const handleOpenLinkedProject = (project, prosklisiId) => {
+    if (!project) return;
+    navigateToAssociation({
+      kind: 'project',
+      id: project.id || project.projectId,
+      title: project.title || project.projectTitle,
+      prosklisiId,
+    });
+  };
+
+  const handleOpenLinkedOrimanthi = (row, prosklisiId) => {
+    if (!row?.id) return;
+    navigateToAssociation({
+      kind: 'orimanthi',
+      id: row.id,
+      title: row.title,
+      prosklisiId,
+    });
   };
 
   const handleClose = () => {
     handleClearFilters();
+    setSelectedDetailProsklisi(null);
     const dataChanged = catalogDirtyRef.current;
     catalogDirtyRef.current = false;
     onClose(dataChanged);
@@ -1843,6 +1984,9 @@ function ProsklisisManager({
 
     const tab = getProsklisiViewTab(target, prosklisiModifications[target.prosklisiId] || []);
     setViewTab(tab);
+    if (selectedProsklisiId) {
+      setSelectedDetailProsklisi(target);
+    }
     focusTabAppliedRef.current = focusKey;
   }, [isOpen, selectedProsklisiId, projectFilter, proskliseis, prosklisiModifications]);
 
@@ -1863,6 +2007,7 @@ function ProsklisisManager({
       || getProsklisiDiavgeiaEntry(p)?.ada
       || '',
     linkedProjectsLabel: getLinkedProjectLabels(p).join(' · '),
+    linkedOrimanthiLabel: getLinkedOrimanthiLabels(p).join(' · '),
     relatedEntaxeisCount: (relatedEntaxeisByProsklisi[p.prosklisiId] || []).length,
   });
 
@@ -2153,6 +2298,7 @@ function ProsklisisManager({
                         const effectiveDeadline = getEffectiveProsklisiDeadline(prosklisi, mods);
                         const deadlineChip = getProsklisiDeadlineChipMeta(effectiveDeadline, formatDate);
                         const linkedLabels = getLinkedProjectLabels(prosklisi);
+                        const orimanthiLinks = normalizeLinkedOrimanthiProposals(prosklisi.linkedOrimanthiProposals);
                         const relatedEntaxeis = relatedEntaxeisByProsklisi[prosklisi.prosklisiId] || [];
 
                         return (
@@ -2162,10 +2308,17 @@ function ProsklisisManager({
                             $isLocked={isLocked}
                             $status={prosklisi.status}
                             $muted={isExpiredTab}
+                            title="Άνοιγμα λεπτομερειών πρόσκλησης"
+                            onClick={() => openProsklisiDetail(prosklisi)}
                           >
-                            <CardTopRightCluster>
+                            <CardTopRightCluster onClick={(e) => e.stopPropagation()}>
                               {isLocked && (
-                                <LockIndicator $isLocked title="Υπό επεξεργασία από άλλον χρήστη">
+                                <LockIndicator
+                                  $isLocked
+                                  title={isOwnProsklisiLockHolder(prosklisiLocks[prosklisi.prosklisiId])
+                                    ? 'Την επεξεργάζεστε εσείς'
+                                    : `Υπό επεξεργασία από ${typeof prosklisiLocks[prosklisi.prosklisiId] === 'string' ? `«${prosklisiLocks[prosklisi.prosklisiId]}»` : 'άλλον χρήστη'}`}
+                                >
                                   🔒
                                 </LockIndicator>
                               )}
@@ -2210,13 +2363,20 @@ function ProsklisisManager({
                                     </MetaChip>
                                   )}
                                   {(() => {
-                                    const diavgeiaEntry = getProsklisiDiavgeiaEntry(prosklisi);
+                                    const diavgeiaEntry = getProsklisiDiavgeiaEntry(
+                                      prosklisi,
+                                      prosklisiModifications[prosklisi.prosklisiId] || []
+                                    );
                                     if (!diavgeiaEntry) return null;
                                     return (
                                       <MetaChip
                                         $clickable
+                                        data-testid="psk-card-ada"
                                         title={diavgeiaEntry.title || `Διαύγεια — ${diavgeiaEntry.ada}`}
-                                        onClick={() => handleOpenDiavgeia(diavgeiaEntry)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenDiavgeia(diavgeiaEntry);
+                                        }}
                                       >
                                         Διαύγεια · {diavgeiaEntry.ada}
                                       </MetaChip>
@@ -2226,10 +2386,20 @@ function ProsklisisManager({
 
                                 <LinkedRow>
                                   <LinkedHint>Έργα:</LinkedHint>
-                                  {linkedLabels.length > 0 ? (
-                                    linkedLabels.slice(0, 3).map((label) => (
-                                      <MetaChip key={label} $green title={label}>
-                                        {truncateText(label, 36)}
+                                  {normalizeLinkedProjects(prosklisi.linkedProjects).length > 0 ? (
+                                    normalizeLinkedProjects(prosklisi.linkedProjects).slice(0, 3).map((row) => (
+                                      <MetaChip
+                                        key={row.id}
+                                        $green
+                                        $clickable
+                                        title={row.title}
+                                        data-testid={`psk-card-project-${row.id}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenLinkedProject(row, prosklisi.prosklisiId);
+                                        }}
+                                      >
+                                        {truncateText(row.title, 36)}
                                       </MetaChip>
                                     ))
                                   ) : (
@@ -2242,6 +2412,32 @@ function ProsklisisManager({
                                   )}
                                 </LinkedRow>
 
+                                {orimanthiLinks.length > 0 && (
+                                  <LinkedRow>
+                                    <LinkedHint>Ωρίμανση:</LinkedHint>
+                                    {orimanthiLinks.slice(0, 3).map((row) => (
+                                      <MetaChip
+                                        key={row.id}
+                                        $accent
+                                        $clickable
+                                        title={row.title}
+                                        data-testid={`psk-card-orimanthi-${row.id}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenLinkedOrimanthi(row, prosklisi.prosklisiId);
+                                        }}
+                                      >
+                                        {truncateText(row.title, 36)}
+                                      </MetaChip>
+                                    ))}
+                                    {orimanthiLinks.length > 3 && (
+                                      <MetaChip title={orimanthiLinks.slice(3).map((row) => row.title).join(', ')}>
+                                        +{orimanthiLinks.length - 3}
+                                      </MetaChip>
+                                    )}
+                                  </LinkedRow>
+                                )}
+
                                 {relatedEntaxeis.length > 0 && (
                                   <LinkedRow>
                                     <LinkedHint>Εντάξεις:</LinkedHint>
@@ -2251,7 +2447,11 @@ function ProsklisisManager({
                                         $accent
                                         $clickable
                                         title={entaxi.subject || entaxi.projectTitle || 'Ένταξη'}
-                                        onClick={() => handleOpenRelatedEntaxi(entaxi)}
+                                        data-testid={`psk-card-entaxi-${entaxi.entaxiId}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenRelatedEntaxi(entaxi, prosklisi.prosklisiId);
+                                        }}
                                       >
                                         {truncateText(entaxi.subject || entaxi.projectTitle || 'Ένταξη', 40)}
                                       </MetaChip>
@@ -2261,7 +2461,10 @@ function ProsklisisManager({
                                         $clickable
                                         $accent
                                         title="Προβολή όλων των σχετικών εντάξεων"
-                                        onClick={() => handleOpenRelatedEntaxi({ prosklisiId: prosklisi.prosklisiId })}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenRelatedEntaxi({ prosklisiId: prosklisi.prosklisiId }, prosklisi.prosklisiId);
+                                        }}
                                       >
                                         +{relatedEntaxeis.length - 3} · όλες
                                       </MetaChip>
@@ -2271,7 +2474,7 @@ function ProsklisisManager({
                               </CompactMain>
 
                               <CompactAside>
-                                <CompactActions>
+                                <CompactActions onClick={(e) => e.stopPropagation()}>
                                   <IconBtn $filesPrimary type="button" onClick={() => handleViewFiles(prosklisi.prosklisiId)}>
                                     Αρχεία
                                   </IconBtn>
@@ -2292,7 +2495,7 @@ function ProsklisisManager({
 
                             {/* Modifications toggle */}
                             {modCount > 0 && (
-                              <ModsToggleRow>
+                              <ModsToggleRow onClick={(e) => e.stopPropagation()}>
                                 <ModsToggleButton
                                   type="button"
                                   $open={modsOpen}
@@ -2312,7 +2515,7 @@ function ProsklisisManager({
 
                             {/* Modifications panel */}
                             {modsOpen && modCount > 0 && (
-                              <ModificationsPanel>
+                              <ModificationsPanel onClick={(e) => e.stopPropagation()}>
                                 <ModsSectionHeader>Τροποποιήσεις Πρόσκλησης</ModsSectionHeader>
                                 {mods.map((mod, index) => {
                                   const modDesc = mod.modificationDescription?.trim() || '';
@@ -2373,11 +2576,11 @@ function ProsklisisManager({
                                             <ChangeRow key={field}>
                                               <ChangeFieldLabel>{getFieldLabel(field)}</ChangeFieldLabel>
                                               <span style={{ color: '#991b1b', textDecoration: 'line-through', fontSize: '0.72rem' }}>
-                                                {(field === 'deadline' ? formatDate(change.original) : change.original) || '(κενό)'}
+                                                {formatProsklisiChangeValue(field, change.original, formatDate)}
                                               </span>
                                               <span style={{ color: '#d97706', margin: '0 0.25rem' }}>→</span>
                                               <span style={{ color: '#15803d', fontWeight: 600, fontSize: '0.72rem' }}>
-                                                {(field === 'deadline' ? formatDate(change.current) : change.current) || '(κενό)'}
+                                                {formatProsklisiChangeValue(field, change.current, formatDate)}
                                               </span>
                                             </ChangeRow>
                                           ))}
@@ -2429,6 +2632,32 @@ function ProsklisisManager({
           </MenuItem>
         </MenuDropdown>,
         document.body
+      )}
+
+      {selectedDetailProsklisi && (
+        <ProsklisiDetailModal
+          prosklisi={selectedDetailProsklisi}
+          modifications={prosklisiModifications[selectedDetailProsklisi.prosklisiId] || []}
+          relatedEntaxeis={relatedEntaxeisByProsklisi[selectedDetailProsklisi.prosklisiId] || []}
+          onClose={() => setSelectedDetailProsklisi(null)}
+          onEdit={handleEditProsklisi}
+          onNewModification={handleNewModification}
+          onOpenFiles={handleViewFilesFromDetail}
+          onOpenRelatedEntaxi={(entaxi) => handleOpenRelatedEntaxi(entaxi, selectedDetailProsklisi.prosklisiId)}
+          onOpenLinkedProject={(row) => handleOpenLinkedProject(row, selectedDetailProsklisi.prosklisiId)}
+          onOpenLinkedOrimanthi={(row) => handleOpenLinkedOrimanthi(row, selectedDetailProsklisi.prosklisiId)}
+          onOpenDiavgeia={handleOpenDiavgeia}
+          onViewModificationPDF={handleViewModificationPDF}
+          onEditModification={handleEditModification}
+          onDeleteModification={handleDeleteModification}
+          onOpenNote={onOpenNoteFromEntity}
+          canManageWorkflow={canManageWorkflow}
+          isLocked={!!prosklisiLocks[selectedDetailProsklisi.prosklisiId]}
+          linkedNotesMap={linkedNotesMap}
+          notes={notes}
+          formatDate={formatDate}
+          blockEscape={fileManagerOpen.isOpen || Boolean(textDetailModal)}
+        />
       )}
 
       {/* SeeMoreText detail modal */}

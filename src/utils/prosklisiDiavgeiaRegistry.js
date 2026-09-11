@@ -54,27 +54,15 @@ export async function openProsklisiDiavgeiaDocument(entryOrMeta, { showToast } =
   return res;
 }
 
-export function getProsklisiDiavgeiaEntry(prosklisi) {
+export function getProsklisiDiavgeiaEntry(prosklisi, modifications) {
   if (!prosklisi) return null;
-  const fromRegistry = Array.isArray(prosklisi.documentRegistry)
-    ? prosklisi.documentRegistry.find((e) => e?.source === 'diavgeia')
-    : null;
-  if (fromRegistry) return fromRegistry;
-  if (prosklisi.diavgeiaMeta?.ada) {
-    return buildProsklisiDiavgeiaRegistryEntry({
-      ada: prosklisi.diavgeiaMeta.ada,
-      protocolNumber: prosklisi.diavgeiaMeta.protocolNumber,
-      organization: prosklisi.diavgeiaMeta.organization,
-      documentUrl: prosklisi.diavgeiaMeta.documentUrl,
-      subject: prosklisi.diavgeiaMeta.subject || prosklisi.title,
-      issueDate: prosklisi.diavgeiaMeta.issueDate,
-      issueDateDisplay: prosklisi.diavgeiaMeta.issueDateDisplay,
-    });
-  }
-  if (prosklisi.diavgeiaAda) {
-    return buildProsklisiDiavgeiaRegistryEntry({ ada: prosklisi.diavgeiaAda }, { roleLabel: 'Πρόσκληση' });
-  }
-  return null;
+  const entries = collectProsklisiRegistryEntries({
+    documentRegistry: prosklisi.documentRegistry,
+    diavgeiaMeta: prosklisi.diavgeiaMeta,
+    diavgeiaAda: prosklisi.diavgeiaAda,
+    modifications: Array.isArray(modifications) ? modifications : [],
+  });
+  return entries[0] || null;
 }
 
 function normalizeProsklisiRegistryEntryForChain(entry) {
@@ -132,6 +120,10 @@ export function collectProsklisiRegistryEntries({
     }
     if (mod?.diavgeiaMeta?.ada) {
       push(buildProsklisiDiavgeiaRegistryEntry(mod.diavgeiaMeta, { roleLabel }));
+      return;
+    }
+    if (mod?.diavgeiaAda) {
+      push(buildProsklisiDiavgeiaRegistryEntry({ ada: mod.diavgeiaAda }, { roleLabel }));
     }
   });
 

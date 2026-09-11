@@ -54,6 +54,48 @@ test('χωρίς έργο και αναζήτηση στον τρέχοντα κ
   assert.equal(psk.prosklisiMatchesQuickSearch(schools, 'Οδικό δίκτυο'), true);
 });
 
+test('συσχέτιση με έργα ωρίμανσης: κανονικοποίηση και αναζήτηση', () => {
+  const normalized = psk.normalizeLinkedOrimanthiProposals([
+    {
+      id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+      title: 'Ανακατασκευή οδού Αρχανών',
+      projectCategory: 'ΟΔΟΠΟΙΙΑ',
+      status: 'maturing',
+      municipalUnit: 'Δ.Ε. ΑΡΧΑΝΩΝ',
+      notes: 'μην αποθηκευτεί',
+      fileGroups: [{ id: 'x' }],
+    },
+    { id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d', title: 'Διπλό' },
+    { title: 'Χωρίς id' },
+    null,
+  ]);
+  assert.equal(normalized.length, 1);
+  assert.deepEqual(normalized[0], {
+    id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+    title: 'Ανακατασκευή οδού Αρχανών',
+    projectCategory: 'ΟΔΟΠΟΙΙΑ',
+    status: 'maturing',
+    municipalUnit: 'Δ.Ε. ΑΡΧΑΝΩΝ',
+  });
+  const invite = {
+    title: 'Πρόσκληση σχολείων',
+    linkedOrimanthiProposals: normalized,
+  };
+  assert.deepEqual(psk.linkedOrimanthiTitlesOf(invite), ['Ανακατασκευή οδού Αρχανών']);
+  assert.equal(psk.prosklisiMatchesQuickSearch(invite, 'Ανακατασκευή οδού'), true);
+  assert.equal(psk.prosklisiMatchesQuickSearch(invite, 'ανύπαρκτο έργο'), false);
+  assert.equal(
+    psk.buildProsklisiExportRecord(invite).linkedOrimanthiLabel,
+    'Ανακατασκευή οδού Αρχανών'
+  );
+  const afterDelete = psk.detachOrimanthiProposal(invite, 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d');
+  assert.deepEqual(afterDelete, []);
+  assert.deepEqual(
+    psk.detachOrimanthiProposal(invite, 'άλλο-id'),
+    normalized
+  );
+});
+
 test('Νέα Πρόσκληση μόνο για διαχειριστή', () => {
   assert.equal(psk.showNewProsklisiButton('ADMIN'), true);
   assert.equal(psk.showNewProsklisiButton('ENGINEER'), false);
@@ -306,4 +348,60 @@ test('διαγραφή πρόσκλησης χρειάζεται ταυτότη�
     { prosklisiId: 'b' },
   ], 'a');
   assert.deepEqual(next.map((p) => p.prosklisiId), ['b']);
+});
+
+test('επεξεργασία παλιάς τροποποίησης γεμίζει από την πρόσκληση και την αλλαγή λήξης', () => {
+  const invitation = {
+    title: 'Πρόσκληση με τροποποίηση λήξης',
+    axis: 'Υποδομές',
+    code: 'PSK-500',
+    deadline: daysFrom(-400),
+    status: 'Υπό Ωρίμανση',
+  };
+  const oldMod = {
+    modificationId: 'mod-psk-1',
+    changes: {
+      deadline: { original: daysFrom(-400), current: daysFrom(8) },
+    },
+  };
+  const resolved = psk.resolveProsklisiModificationFormValues(oldMod, invitation);
+  assert.equal(resolved.title, 'Πρόσκληση με τροποποίηση λήξης');
+  assert.equal(resolved.axis, 'Υποδομές');
+  assert.equal(resolved.code, 'PSK-500');
+  assert.equal(resolved.deadline, daysFrom(8));
+  assert.equal(psk.sameProsklisiFormValue('deadline', '2024-06-01T08:00:00.000Z', '2024-06-01'), true);
+  assert.equal(psk.toProsklisiDateInputValue('2024-06-01T08:00:00.000Z'), '2024-06-01');
+});
+
+test('παλιά συσχέτιση έργου με projectId αφαιρείται και δεν διπλώνει', () => {
+  const legacy = psk.normalizeLinkedProjects([
+    { title: 'Οδικό δίκτυο Αρχανών', projectId: 'proj-road' },
+    { title: 'Οδικό δίκτυο Αρχανών', projectId: 'proj-road' },
+  ]);
+  assert.equal(legacy.length, 1);
+  assert.equal(legacy[0].id, 'proj-road');
+  assert.equal(psk.linkedProjectIdentity({ projectId: 'proj-road' }), 'proj-road');
+  assert.equal(psk.linkedProjectIdentity({ id: 'proj-road', title: 'Οδικό' }), 'proj-road');
+});
+
+test('επεξήγηση αλλαγής τροποποίησης: ημερομηνία ελληνικά, ποσό ως έχει', () => {
+  assert.equal(psk.formatProsklisiChangeValue('deadline', '2026-09-19'), '19/09/2026');
+  assert.equal(psk.formatProsklisiChangeValue('deadline', '2026-09-19T08:00:00.000Z'), '19/09/2026');
+  assert.equal(psk.formatProsklisiChangeValue('deadline', ''), '(κενό)');
+  assert.equal(psk.formatProsklisiChangeValue('budgetRange', '100.000 - 200.000'), '100.000 - 200.000');
+  assert.equal(
+    psk.formatProsklisiChangeValue('deadline', '2026-09-19', () => '19/09/2026'),
+    '19/09/2026'
+  );
+});
+
+test('ισχύουσα λήξη από modifiedData όταν λείπει το changes.deadline', () => {
+  const effective = psk.getEffectiveProsklisiDeadline(
+    { deadline: daysFrom(-400) },
+    [{
+      modificationDocumentDate: daysFrom(-10),
+      modifiedData: { deadline: daysFrom(8) },
+    }]
+  );
+  assert.equal(effective, daysFrom(8));
 });

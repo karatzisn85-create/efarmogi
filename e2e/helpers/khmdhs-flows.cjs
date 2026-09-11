@@ -169,7 +169,7 @@ async function completeDocumentRegistry(window, { accept = true } = {}) {
 function symvPlannerDialog(window) {
   return window.locator('[data-khmdhs-symv-planner-modal]').filter({
     has: window.getByRole('button', { name: 'Εφαρμογή κατανομής' }),
-  });
+  }).last();
 }
 
 async function setSymvPlanRoles(window, roles) {

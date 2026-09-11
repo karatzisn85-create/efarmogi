@@ -1460,6 +1460,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   const [textDetailModal, setTextDetailModal] = useState(null);
   const catalogDirtyRef = useRef(false);
   const focusScrollKeyRef = useRef(null);
+  const focusedDetailOpenedRef = useRef(null);
   const listScrollRef = useRef(null);
   const savedListScroll = useRef(0);
   const shouldRestoreListScroll = useRef(false);
@@ -2058,6 +2059,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   useEffect(() => {
     if (!isOpen) {
       focusScrollKeyRef.current = null;
+      focusedDetailOpenedRef.current = null;
       return;
     }
     if (!selectedEntaxiId || loading) return;
@@ -2068,6 +2070,16 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     focusScrollKeyRef.current = key;
   }, [isOpen, selectedEntaxiId, loading, filteredEntaxeis]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!selectedEntaxiId || loading) return;
+    if (focusedDetailOpenedRef.current === selectedEntaxiId) return;
+    const found = entaxeis.find((e) => e.entaxiId === selectedEntaxiId);
+    if (!found) return;
+    setSelectedDetailEntaxi(found);
+    focusedDetailOpenedRef.current = selectedEntaxiId;
+  }, [isOpen, selectedEntaxiId, loading, entaxeis]);
 
   useEffect(() => {
     if (!shouldRestoreListScroll.current || isFormOpen) return undefined;
@@ -2673,7 +2685,13 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
         {selectedDetailEntaxi && (
           <EntaxiDetailModal
             entaxi={selectedDetailEntaxi}
-            onClose={() => setSelectedDetailEntaxi(null)}
+            onClose={() => {
+              if (selectedEntaxiId && selectedDetailEntaxi.entaxiId === selectedEntaxiId) {
+                handleClose();
+                return;
+              }
+              setSelectedDetailEntaxi(null);
+            }}
             onEdit={handleEditEntaxi}
             onNewModification={handleNewModification}
             onOpenFiles={handleOpenFileViewer}

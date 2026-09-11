@@ -75,27 +75,47 @@ async function loginAs(window, user) {
   await dismissSetupBanner(window);
 }
 
-async function logout(window) {
-  for (let i = 0; i < 8; i += 1) {
-    const closers = [
-      window.getByTitle('Κλείσιμο (Esc)'),
-      window.getByRole('button', { name: /^Κλείσιμο$/ }),
-      window.getByRole('button', { name: '✕' }),
-      window.getByRole('button', { name: /^Ακύρωση$/ }),
-    ];
-    let closed = false;
-    for (const loc of closers) {
-      if (await loc.count()) {
-        await loc.last().click({ force: true, timeout: 2000 }).catch(() => {});
-        closed = true;
-        break;
-      }
-    }
-    if (!closed) await window.keyboard.press('Escape');
+async function dismissOpenWorkWindows(window) {
+  for (let i = 0; i < 10; i += 1) {
+    await window.keyboard.press('Escape').catch(() => {});
   }
+  const closers = [
+    window.getByTitle('Κλείσιμο (Esc)'),
+    window.getByTitle('Κλείσιμο και επιστροφή στο Dashboard'),
+    window.getByTitle('Κλείσιμο'),
+    window.getByRole('button', { name: /^Κλείσιμο$/ }),
+    window.getByRole('button', { name: /^Ακύρωση$/ }),
+  ];
+  for (const loc of closers) {
+    if (await loc.count()) {
+      await loc.last().click({ force: true, timeout: 2000 }).catch(() => {});
+    }
+  }
+}
+
+async function clickLogoutAndWaitForLogin(window) {
   const btn = window.getByTestId('btn-logout');
-  if ((await btn.count()) === 0) return;
-  await btn.click({ force: true, timeout: 15000 });
+  const named = window.getByRole('button', { name: 'Αποσύνδεση' });
+  const target = (await btn.count()) ? btn : named;
+  if ((await target.count()) === 0) return false;
+  await target.last().click({ force: true, timeout: 15000 });
+  const confirm = window.getByTestId('confirm-yes');
+  if (await confirm.count()) {
+    await confirm.click({ force: true, timeout: 3000 }).catch(() => {});
+  }
+  try {
+    await window.getByTestId('login-submit').waitFor({ timeout: 12000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function logout(window) {
+  await dismissOpenWorkWindows(window);
+  if (await clickLogoutAndWaitForLogin(window)) return;
+  await dismissOpenWorkWindows(window);
+  if (await clickLogoutAndWaitForLogin(window)) return;
   await window.getByTestId('login-submit').waitFor({ timeout: 20000 });
 }
 

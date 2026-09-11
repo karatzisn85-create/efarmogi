@@ -2897,7 +2897,7 @@ function SubprojectDetailModal({
         </ModalBody>
 
         <DetailFooter>
-          <FooterCloseBtn type="button" onClick={onClose}>Κλείσιμο</FooterCloseBtn>
+          <FooterCloseBtn type="button" data-testid="sub-detail-close" onClick={onClose}>Κλείσιμο</FooterCloseBtn>
           {typeof onOpenFileManager === 'function' && (
             <FooterFilesBtn type="button" onClick={() => onOpenFileManager()}>
               📁 Αρχεία υποέργου

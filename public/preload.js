@@ -115,7 +115,7 @@ const ALLOWED_INVOKE = new Set([
   'get-ep-subproject-link-map',
   'open-exported-file','open-external-url','open-khmdhs-act-view','cancel-khmdhs-act-view','prefetch-khmdhs-act-pdfs',
   'load-all-proposals','save-proposal','delete-proposal',
-  'upload-proposal-files','upload-proposal-folder','delete-proposal-file','delete-proposal-folder-file','rename-proposal-file','delete-proposal-folder','delete-proposal-group','move-proposal-entry','open-proposal-file','download-proposal-file','get-proposal-folder-files','get-proposal-files','export-proposal','log-proposal-activity','clear-proposal-audit-log','search-proposal-files',
+  'upload-proposal-files','upload-proposal-folder','set-proposal-group-permit-issued','delete-proposal-file','delete-proposal-folder-file','rename-proposal-file','delete-proposal-folder','delete-proposal-group','move-proposal-entry','open-proposal-file','download-proposal-file','get-proposal-folder-files','get-proposal-files','export-proposal','log-proposal-activity','clear-proposal-audit-log','search-proposal-files',
   'get-municipal-units-config','save-municipal-units-config',
   'select-municipality-logo','save-municipality-logo','clear-municipality-logo',
   'get-calendar-config','save-calendar-config','send-test-procurement-calendar-reminder','get-email-send-history',

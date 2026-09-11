@@ -7,6 +7,7 @@ import { safeFileDialog } from '../utils/safeDialogs';
 import { buildProsklisiDiavgeiaRegistryEntry } from '../utils/prosklisiDiavgeiaRegistry';
 import { useToast } from './ToastProvider';
 import prosklisiCatalog from '../../app/core/prosklisiCatalog';
+import { formatProposalStatusValue } from '../utils/orimanthiHelpers';
 import {
   FormOverlay,
   FormContainer as ChromeFormContainer,
@@ -46,7 +47,8 @@ const FormGrid = styled(ChromeFormGrid)`
 // Constants
 const STATUS_OPTIONS = [
   'Υπό Ωρίμανση',
-  'Υπό Υποβολή', 
+  'Υπό Υποβολή',
+  'Υποβληθέν',
   'Υποβληθέν ΤΔΠ'
 ];
 
@@ -64,7 +66,8 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
     status: 'Υπό Ωρίμανση',
     prosklisiFiles: [],
     fileGroups: [], // Νέα δομή για ομαδοποίηση αρχείων
-    linkedProjects: [] // Συσχέτιση με έργα (array)
+    linkedProjects: [],
+    linkedOrimanthiProposals: [],
   });
 
   const [errors, setErrors] = useState({});
@@ -72,6 +75,9 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
   const [projects, setProjects] = useState([]);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [orimanthiProjects, setOrimanthiProjects] = useState([]);
+  const [orimanthiSearchTerm, setOrimanthiSearchTerm] = useState('');
+  const [showOrimanthiDropdown, setShowOrimanthiDropdown] = useState(false);
   const [diavgeiaAutoFilled, setDiavgeiaAutoFilled] = useState(() => new Set());
   const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
   const [diavgeiaPreview, setDiavgeiaPreview] = useState(null);
@@ -80,7 +86,11 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
     if (editingProsklisi) {
       setFormData({
         ...editingProsklisi,
-        prosklisiFiles: [] // Don't show existing files in form
+        prosklisiFiles: [],
+        linkedProjects: prosklisiCatalog.normalizeLinkedProjects(editingProsklisi.linkedProjects),
+        linkedOrimanthiProposals: prosklisiCatalog.normalizeLinkedOrimanthiProposals(
+          editingProsklisi.linkedOrimanthiProposals
+        ),
       });
       setDiavgeiaMeta(editingProsklisi.diavgeiaMeta || null);
       setDiavgeiaPreview(null);
@@ -95,21 +105,41 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
         status: 'Υπό Ωρίμανση',
         prosklisiFiles: [],
         fileGroups: [],
-        linkedProjects: []
+        linkedProjects: [],
+        linkedOrimanthiProposals: [],
+        prosklisiId: uuidv4(),
+        createdAt: new Date().toISOString(),
       });
       setDiavgeiaMeta(null);
       setDiavgeiaPreview(null);
     }
     setDiavgeiaAutoFilled(new Set());
     setErrors({});
+    setProjectSearchTerm('');
+    setOrimanthiSearchTerm('');
+    setShowProjectDropdown(false);
+    setShowOrimanthiDropdown(false);
   }, [editingProsklisi, isOpen]);
 
   // Φόρτωση έργων
   useEffect(() => {
     if (isOpen) {
       loadProjects();
+      loadOrimanthiProjects();
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (document.querySelector('[data-testid="confirm-yes"]')) return;
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   // Κλείσιμο dropdown όταν κάνει κλικ έξω
   useEffect(() => {
@@ -117,13 +147,16 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
       if (showProjectDropdown && !event.target.closest('[data-project-dropdown]')) {
         setShowProjectDropdown(false);
       }
+      if (showOrimanthiDropdown && !event.target.closest('[data-orimanthi-dropdown]')) {
+        setShowOrimanthiDropdown(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showProjectDropdown]);
+  }, [showProjectDropdown, showOrimanthiDropdown]);
 
   const loadProjects = async () => {
     try {
@@ -136,6 +169,17 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
     }
   };
 
+  const loadOrimanthiProjects = async () => {
+    try {
+      const result = await ipcRenderer.invoke('load-all-proposals');
+      if (result.success) {
+        setOrimanthiProjects(prosklisiCatalog.normalizeLinkedOrimanthiProposals(result.proposals || []));
+      }
+    } catch (error) {
+      console.error('Error loading orimanthi projects:', error);
+    }
+  };
+
   // Φιλτράρισμα έργων βάσει αναζήτησης
   const filteredProjects = projects.filter(project => 
     project.title && project.title.toLowerCase().includes(projectSearchTerm.toLowerCase())
@@ -143,13 +187,19 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
 
   // Επιλογή έργου
   const handleProjectSelect = (project) => {
-    // Έλεγχος αν το έργο είναι ήδη επιλεγμένο
-    const isAlreadySelected = formData.linkedProjects && formData.linkedProjects.some(p => p.id === project.id);
-    
-    if (!isAlreadySelected) {
-      setFormData(prev => ({
+    const nextId = prosklisiCatalog.linkedProjectIdentity(project);
+    const isAlreadySelected = (formData.linkedProjects || []).some(
+      (p) => prosklisiCatalog.linkedProjectIdentity(p) === nextId
+    );
+
+    if (!isAlreadySelected && nextId) {
+      const normalized = prosklisiCatalog.normalizeLinkedProjects([
+        ...(formData.linkedProjects || []),
+        project,
+      ]);
+      setFormData((prev) => ({
         ...prev,
-        linkedProjects: [...(prev.linkedProjects || []), project]
+        linkedProjects: normalized,
       }));
     }
     setProjectSearchTerm('');
@@ -158,9 +208,11 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
 
   // Αφαίρεση έργου από τη συσχέτιση
   const handleRemoveProject = (projectId) => {
-    setFormData(prev => ({
+    const removeId = String(projectId || '').trim();
+    setFormData((prev) => ({
       ...prev,
-      linkedProjects: (prev.linkedProjects || []).filter(p => p.id !== projectId)
+      linkedProjects: prosklisiCatalog.normalizeLinkedProjects(prev.linkedProjects || [])
+        .filter((p) => prosklisiCatalog.linkedProjectIdentity(p) !== removeId),
     }));
   };
 
@@ -171,6 +223,42 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
       linkedProjects: []
     }));
     setProjectSearchTerm('');
+  };
+
+  const linkedOrimanthi = formData.linkedOrimanthiProposals || [];
+  const orimanthiQuery = orimanthiSearchTerm.trim().toLowerCase();
+  const filteredOrimanthiProjects = orimanthiProjects.filter((project) => {
+    if (linkedOrimanthi.some((p) => p.id === project.id)) return false;
+    if (!orimanthiQuery) return true;
+    const hay = [project.title, project.projectCategory, project.municipalUnit]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(orimanthiQuery);
+  });
+
+  const handleOrimanthiSelect = (project) => {
+    const snapshot = prosklisiCatalog.normalizeLinkedOrimanthiProposals([project])[0];
+    if (!snapshot) return;
+    setFormData((prev) => {
+      const current = prev.linkedOrimanthiProposals || [];
+      if (current.some((p) => p.id === snapshot.id)) return prev;
+      return { ...prev, linkedOrimanthiProposals: [...current, snapshot] };
+    });
+    setOrimanthiSearchTerm('');
+    setShowOrimanthiDropdown(false);
+  };
+
+  const handleRemoveOrimanthi = (projectId) => {
+    setFormData((prev) => ({
+      ...prev,
+      linkedOrimanthiProposals: (prev.linkedOrimanthiProposals || []).filter((p) => p.id !== projectId),
+    }));
+  };
+
+  const handleClearAllOrimanthiLinks = () => {
+    setFormData((prev) => ({ ...prev, linkedOrimanthiProposals: [] }));
+    setOrimanthiSearchTerm('');
   };
 
 
@@ -623,8 +711,12 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
 
       const prosklisiData = {
         ...formData,
-        prosklisiId: editingProsklisi ? editingProsklisi.prosklisiId : uuidv4(),
-        createdAt: editingProsklisi ? editingProsklisi.createdAt : new Date().toISOString(),
+        linkedProjects: prosklisiCatalog.normalizeLinkedProjects(formData.linkedProjects),
+        linkedOrimanthiProposals: prosklisiCatalog.normalizeLinkedOrimanthiProposals(
+          formData.linkedOrimanthiProposals
+        ),
+        prosklisiId: editingProsklisi?.prosklisiId || formData.prosklisiId || uuidv4(),
+        createdAt: editingProsklisi?.createdAt || formData.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         prosklisiFolders: formData.prosklisiFolders || [],
         diavgeiaAda: diavgeiaMeta?.ada || '',
@@ -634,7 +726,8 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
           : nonDiavgeiaRegistry,
       };
 
-      await onSave(prosklisiData);
+      const saved = await onSave(prosklisiData);
+      if (saved === false) return;
     } catch (error) {
       console.error('Error saving prosklisi:', error);
       showToast('Σφάλμα αποθήκευσης: ' + error.message, 'error');
@@ -646,7 +739,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
   if (!isOpen) return null;
 
   return createPortal(
-    <FormOverlay onClick={async (e) => {
+    <FormOverlay data-testid="psk-form" onClick={async (e) => {
       if (e.target === e.currentTarget) {
         // Ξεκλείδωμα της πρόσκλησης πριν το κλείσιμο
         if (editingProsklisi && editingProsklisi.prosklisiId) {
@@ -826,7 +919,9 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
                     }}>
                       {filteredProjects.length > 0 ? (
                         filteredProjects
-                          .filter(project => !(formData.linkedProjects && formData.linkedProjects.some(p => p.id === project.id)))
+                          .filter((project) => !(formData.linkedProjects || []).some(
+                            (p) => prosklisiCatalog.linkedProjectIdentity(p) === prosklisiCatalog.linkedProjectIdentity(project)
+                          ))
                           .map(project => (
                             <div
                               key={project.id}
@@ -865,7 +960,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
                     </div>
                     {formData.linkedProjects && formData.linkedProjects.map(project => (
                       <div
-                        key={project.id}
+                        key={prosklisiCatalog.linkedProjectIdentity(project) || project.title}
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -881,7 +976,8 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
                         <span>{project.title}</span>
                         <button
                           type="button"
-                          onClick={() => handleRemoveProject(project.id)}
+                          data-testid={`psk-unlink-project-${prosklisiCatalog.linkedProjectIdentity(project)}`}
+                          onClick={() => handleRemoveProject(prosklisiCatalog.linkedProjectIdentity(project))}
                           style={{
                             background: 'none',
                             border: 'none',
@@ -900,6 +996,148 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
                 )}
               </FormGroup>
 
+              <FormGroup fullWidth>
+                <Label>Συσχέτιση με έργα ωρίμανσης (Προαιρετικά)</Label>
+                <p style={{ margin: '0 0 0.45rem', fontSize: '0.78rem', color: '#64748b', lineHeight: 1.45 }}>
+                  Επιλέξτε ένα ή περισσότερα έργα που ο Δήμος μπορεί να υποβάλει βάσει αυτής της πρόσκλησης.
+                </p>
+                <div style={{ position: 'relative' }} data-orimanthi-dropdown>
+                  <Input
+                    type="text"
+                    data-testid="psk-orimanthi-search"
+                    value={orimanthiSearchTerm}
+                    onChange={(e) => {
+                      setOrimanthiSearchTerm(e.target.value);
+                      setShowOrimanthiDropdown(true);
+                    }}
+                    onFocus={() => setShowOrimanthiDropdown(true)}
+                    placeholder="Αναζήτηση έργου ωρίμανσης (τίτλος, κατηγορία, δημ. ενότητα)…"
+                  />
+                  {linkedOrimanthi.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearAllOrimanthiLinks}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        fontSize: '18px',
+                        cursor: 'pointer',
+                        color: '#dc3545'
+                      }}
+                      title="Καθαρισμός όλων των συσχετίσεων ωρίμανσης"
+                    >
+                      ×
+                    </button>
+                  )}
+                  {showOrimanthiDropdown && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      background: 'white',
+                      border: '1px solid #dee2e6',
+                      borderTop: 'none',
+                      borderRadius: '0 0 8px 8px',
+                      maxHeight: '220px',
+                      overflowY: 'auto',
+                      zIndex: 1000,
+                      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                    }}>
+                      {filteredOrimanthiProjects.length > 0 ? (
+                        filteredOrimanthiProjects.map((project) => (
+                          <div
+                            key={project.id}
+                            data-testid={`psk-orimanthi-option-${project.id}`}
+                            onClick={() => handleOrimanthiSelect(project)}
+                            style={{
+                              padding: '10px 15px',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid #f8f9fa'
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#eef2ff'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'white'; }}
+                          >
+                            <div style={{ fontWeight: 700, color: '#1e293b' }}>{project.title || '(Χωρίς τίτλο)'}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.15rem' }}>
+                              {[
+                                project.projectCategory,
+                                project.municipalUnit,
+                                formatProposalStatusValue(project.status),
+                              ].filter((part) => part && part !== '(κενό)').join(' · ')}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ padding: '10px 15px', color: '#6c757d' }}>
+                          {orimanthiProjects.length === 0
+                            ? 'Δεν υπάρχουν έργα ωρίμανσης'
+                            : 'Δεν βρέθηκαν άλλα έργα ωρίμανσης'}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {linkedOrimanthi.length > 0 && (
+                  <div style={{ marginTop: '8px' }}>
+                    <div style={{
+                      padding: '8px 12px',
+                      backgroundColor: '#eef2ff',
+                      border: '1px solid #c7d2fe',
+                      borderRadius: '6px',
+                      fontSize: '0.9rem',
+                      color: '#3730a3',
+                      marginBottom: '8px'
+                    }}>
+                      ✓ Συσχετισμένα έργα ωρίμανσης ({linkedOrimanthi.length}):
+                    </div>
+                    {linkedOrimanthi.map((project) => (
+                      <div
+                        key={project.id}
+                        data-testid={`psk-orimanthi-linked-${project.id}`}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '6px 12px',
+                          backgroundColor: '#f8f9fa',
+                          border: '1px solid #dee2e6',
+                          borderRadius: '4px',
+                          marginBottom: '4px',
+                          fontSize: '0.9rem'
+                        }}
+                      >
+                        <span>
+                          {project.title || '(Χωρίς τίτλο)'}
+                          {project.projectCategory ? (
+                            <span style={{ color: '#64748b', fontWeight: 600 }}> · {project.projectCategory}</span>
+                          ) : null}
+                        </span>
+                        <button
+                          type="button"
+                          data-testid={`psk-orimanthi-unlink-${project.id}`}
+                          onClick={() => handleRemoveOrimanthi(project.id)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#dc3545',
+                            cursor: 'pointer',
+                            fontSize: '16px',
+                            padding: '0 4px'
+                          }}
+                          title="Αφαίρεση έργου ωρίμανσης"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </FormGroup>
 
               <FormGroup>
                 <Label>Αρχεία Πρόσκλησης (PDF, Word)</Label>

@@ -303,6 +303,13 @@ function seedProskliseis(dataDir) {
       budgetRange: '100.000 - 200.000',
       diavgeiaAda: 'Ψ1234ΩΞΞ-ΑΑΑ',
       linkedProjects: [{ title: 'Οδικό δίκτυο Αρχανών', projectId: 'proj-road' }],
+      linkedOrimanthiProposals: [{
+        id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+        title: 'Ανακατασκευή οδού Αρχανών',
+        projectCategory: 'ΟΔΟΠΟΙΙΑ',
+        status: 'maturing',
+        municipalUnit: 'Δ.Ε. ΑΡΧΑΝΩΝ',
+      }],
     },
     {
       prosklisiId: 'psk-far',
@@ -336,6 +343,9 @@ function seedProskliseis(dataDir) {
       deadline: dateKeyFromToday(-400),
       status: 'Υπό Ωρίμανση',
       code: 'PSK-500',
+      axis: 'Υποδομές',
+      fundingSource: 'ΕΣΠΑ 2021-2027',
+      budgetRange: '80.000 - 120.000',
       linkedProjects: [{ title: 'Οδικό δίκτυο Αρχανών', projectId: 'proj-road' }],
     },
   ];
@@ -353,6 +363,7 @@ function seedProskliseis(dataDir) {
       modificationId: 'mod-psk-1',
       modificationDocumentDate: dateKeyFromToday(-10),
       createdAt: isoDaysFromToday(-10),
+      diavgeiaAda: 'ΨΜΟΔ7ΛΚ-8ΦΤ',
       changes: {
         deadline: { original: dateKeyFromToday(-400), current: dateKeyFromToday(8) },
       },
@@ -442,13 +453,34 @@ function seedOrimanthi(dataDir) {
     municipalUnit: 'Δ.Ε. ΑΡΧΑΝΩΝ',
     settlement: 'Αρχάνες',
     aepoRenewalDate: dateKeyFromToday(12),
+    notes: 'Αναμονή αρχαιολογικής έγκρισης.',
     pendingItems: [
       { id: 'pend-arch', text: 'Αρχαιολογική έγκριση', done: false },
       { id: 'pend-topo', text: 'Τοπογραφικό διάγραμμα', done: true },
     ],
+    fileGroups: [
+      {
+        id: 'fg-study-topo',
+        label: 'ΜΕΛΕΤΕΣ ΕΡΓΟΥ · ΤΟΠΟΓΡΑΦΙΚΑ',
+        fileCategoryRoot: 'meletes',
+        fileCategorySpec: 'ΤΟΠΟΓΡΑΦΙΚΑ',
+        files: [{ name: 'τοπογραφικο.pdf', kind: 'file' }],
+      },
+      {
+        id: 'fg-permit-arch',
+        label: 'ΑΔΕΙΟΔΟΤΗΣΕΙΣ · ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ',
+        fileCategoryRoot: 'adeiodotiseis',
+        fileCategorySpec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ',
+        permitIssued: false,
+        files: [],
+      },
+    ],
     createdAt: '2025-03-01T08:00:00.000Z',
     updatedAt: '2025-03-01T08:00:00.000Z',
   });
+  const topoFile = path.join(dataDir, 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', roadId, 'files', 'fg-study-topo', 'τοπογραφικο.pdf');
+  fs.mkdirSync(path.dirname(topoFile), { recursive: true });
+  fs.writeFileSync(topoFile, '%PDF-1.1\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
   writeJson(path.join(dataDir, 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', hydroId, 'data.json'), {
     id: hydroId,
     title: 'Δίκτυο ύδρευσης Παρανύμφων',
