@@ -10,6 +10,7 @@ import {
   normalizeLinkedOrimanthiProposals,
   normalizeLinkedProjects,
   formatProsklisiChangeValue,
+  sortModificationsChronologically,
 } from '../utils/prosklisiDeadlineUtils';
 import { getProsklisiDiavgeiaEntry } from '../utils/prosklisiDiavgeiaRegistry';
 
@@ -471,12 +472,7 @@ function formatDetailDate(formatDate, value) {
 }
 
 function sortModificationsForDetail(list) {
-  return (list || []).slice().sort((a, b) => {
-    const ta = Date.parse(a && (a.modificationDocumentDate || a.createdAt)) || 0;
-    const tb = Date.parse(b && (b.modificationDocumentDate || b.createdAt)) || 0;
-    if (ta !== tb) return ta - tb;
-    return String((a && a.createdAt) || '').localeCompare(String((b && b.createdAt) || ''));
-  });
+  return sortModificationsChronologically(list);
 }
 
 function ProsklisiDetailModal({

@@ -6,6 +6,8 @@ import prosklisiCatalog from '../../app/core/prosklisiCatalog';
 export const parseProsklisiDeadline = prosklisiCatalog.parseProsklisiDeadline;
 export const getEffectiveProsklisiDeadline = prosklisiCatalog.getEffectiveProsklisiDeadline;
 export const getOriginalProsklisiDeadline = prosklisiCatalog.getOriginalProsklisiDeadline;
+export const sortModificationsChronologically = prosklisiCatalog.sortModificationsChronologically;
+export const getProsklisiDeadlineAfterModificationRemoval = prosklisiCatalog.getProsklisiDeadlineAfterModificationRemoval;
 export const getProsklisiDeadlineUrgency = prosklisiCatalog.getProsklisiDeadlineUrgency;
 export const getProsklisiDeadlineDaysLeft = prosklisiCatalog.getProsklisiDeadlineDaysLeft;
 export const isProsklisiDeadlineExpiringSoon = prosklisiCatalog.isProsklisiDeadlineExpiringSoon;

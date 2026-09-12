@@ -244,7 +244,30 @@ function fillMergedBlock(row, fromCol, toCol, value, kind) {
   }
 }
 
-function buildCardRows(card, statusLabels, serial, excelOptions) {
+function buildCardHeaderBlock(excelOptions) {
+  const { COL: col, COLS: colCount, options } = layoutFromOptions(excelOptions);
+  const header = emptyRow(colCount);
+  const merges = [];
+  setCol(header, col, 'serial', { v: 'Α/Α', kind: 'headLeft' });
+  setCol(header, col, 'title', { v: 'Τίτλος έργου', kind: 'headLeft' });
+  setCol(header, col, 'status', { v: 'Κατάσταση', kind: 'headLeft' });
+  setCol(header, col, 'municipal', { v: 'Δημοτική ενότητα', kind: 'headLeft' });
+  setCol(header, col, 'settlement', { v: 'Οικισμός', kind: 'headLeft' });
+  setCol(header, col, 'category', { v: 'Κατηγορία / Εξειδίκευση', kind: 'headLeft' });
+  if (options.includeStudies) {
+    fillMergedBlock(header, col.studyName, col.studyMark, 'ΜΕΛΕΤΕΣ ΕΡΓΟΥ', 'headStudies');
+  }
+  if (options.includePermits) {
+    fillMergedBlock(header, col.permitName, col.permitMark, 'ΑΔΕΙΟΔΟΤΗΣΕΙΣ', 'headPermits');
+  }
+  if (options.includeStudies) addMerge(merges, 0, col.studyName, 0, col.studyMark);
+  if (options.includePermits) addMerge(merges, 0, col.permitName, 0, col.permitMark);
+  return { rows: [header], merges };
+}
+
+function buildCardRows(card, statusLabels, serial, excelOptions, extras) {
+  const includeHeader = !extras || extras.includeHeader !== false;
+  const attachNotesToTitle = !!(extras && extras.attachNotesToTitle);
   const labels = statusLabels || STATUS_LABELS;
   const { COL: col, COLS: colCount, options } = layoutFromOptions(excelOptions);
   const rows = [];
@@ -258,29 +281,22 @@ function buildCardRows(card, statusLabels, serial, excelOptions) {
     return rows.length - 1;
   };
 
-  const header = emptyRow(colCount);
-  setCol(header, col, 'serial', { v: 'Α/Α', kind: 'headLeft' });
-  setCol(header, col, 'title', { v: 'Τίτλος έργου', kind: 'headLeft' });
-  setCol(header, col, 'status', { v: 'Κατάσταση', kind: 'headLeft' });
-  setCol(header, col, 'municipal', { v: 'Δημοτική ενότητα', kind: 'headLeft' });
-  setCol(header, col, 'settlement', { v: 'Οικισμός', kind: 'headLeft' });
-  setCol(header, col, 'category', { v: 'Κατηγορία / Εξειδίκευση', kind: 'headLeft' });
-  if (options.includeStudies) {
-    fillMergedBlock(header, col.studyName, col.studyMark, 'ΜΕΛΕΤΕΣ ΕΡΓΟΥ', 'headStudies');
+  if (includeHeader) {
+    const headerBlock = buildCardHeaderBlock(excelOptions);
+    headerBlock.rows.forEach((row) => push(row));
+    headerBlock.merges.forEach((m) => merges.push(m));
   }
-  if (options.includePermits) {
-    fillMergedBlock(header, col.permitName, col.permitMark, 'ΑΔΕΙΟΔΟΤΗΣΕΙΣ', 'headPermits');
-  }
-  const headerRow = push(header);
-  if (options.includeStudies) addMerge(merges, headerRow, col.studyName, headerRow, col.studyMark);
-  if (options.includePermits) addMerge(merges, headerRow, col.permitName, headerRow, col.permitMark);
 
   const dataStart = rows.length;
   for (let i = 0; i < span; i += 1) {
     const row = emptyRow(colCount);
     if (i === 0) {
       setCol(row, col, 'serial', { v: String(serial || 1), kind: 'serial' });
-      setCol(row, col, 'title', { v: card.title || '(Χωρίς τίτλο)', kind: 'project' });
+      const titleValue = card.title || '(Χωρίς τίτλο)';
+      const titleWithNotes = (attachNotesToTitle && card.notes)
+        ? `${titleValue}\n\nΣημειώσεις: ${card.notes}`
+        : titleValue;
+      setCol(row, col, 'title', { v: titleWithNotes, kind: 'project' });
       setCol(row, col, 'status', { v: labels[card.status] || card.status || '—', kind: 'meta' });
       setCol(row, col, 'municipal', { v: card.municipalUnit || '—', kind: 'meta' });
       setCol(row, col, 'settlement', { v: card.settlement || '—', kind: 'meta' });
@@ -349,7 +365,7 @@ function buildCardRows(card, statusLabels, serial, excelOptions) {
     }
   }
 
-  if (card.notes) {
+  if (card.notes && !attachNotesToTitle) {
     const noteRow = emptyRow(colCount);
     fillMergedBlock(noteRow, 0, colCount - 1, `Σημειώσεις: ${card.notes}`, 'notes');
     const r = push(noteRow);
@@ -538,9 +554,21 @@ module.exports = {
   BANNER_ROW_COUNT,
   DEFAULT_EXCEL_OPTIONS,
   STATUS_LABELS,
+  COL_WIDTH,
+  LEFT_COL_KEYS,
+  S,
   normalizeExcelOptions,
   layoutFromOptions,
+  emptyRow,
+  setCol,
+  addMerge,
+  fillMergedBlock,
+  appendBlock,
+  styleForKind,
+  buildCardHeaderBlock,
   buildCardRows,
+  buildSeparatorRows,
+  buildFooterRows,
   buildHubExcelModel,
   writeHubExcelWorkbook,
 };

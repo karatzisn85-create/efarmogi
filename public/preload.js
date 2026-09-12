@@ -19,7 +19,7 @@ const ALLOWED_INVOKE = new Set([
   'e2e-queue-open-files','e2e-queue-folder-pick','e2e-queue-save-path','e2e-queue-khmdhs-fixtures','e2e-set-khmdhs-live','e2e-last-edit-menu','e2e-spellcheck-status',
   'download-document-template','download-egkriseis-pdf','download-entaxi-file',
   'download-file-from-folder','download-file-from-subfolder','download-prosklisi-file',
-  'download-subproject-file','download-update','export-invest-projects','export-proskliseis-excel','export-proskliseis-pdf',
+  'download-subproject-file','download-update','export-invest-projects','export-proskliseis-excel','export-proskliseis-orimanthi-excel','export-proskliseis-pdf',
   'find-egkrisi-keys-by-subproject-id','find-project-by-subproject-id',
   'find-project-by-title','find-subproject-by-title','fix-audit-log-projectids',
   'fix-entaxi-file-objects','get-all-subprojects','get-all-supervisors',

@@ -246,6 +246,105 @@ const ButtonContainer = styled.div`
   justify-content: flex-end;
 `;
 
+const ExcelColGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+`;
+
+const ExcelColChip = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0.55rem 0.45rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  text-align: center;
+  line-height: 1.25;
+  color: ${(p) => (p.$on ? '#fff' : '#64748b')};
+  background: ${(p) => (p.$on ? '#4338CA' : '#f1f5f9')};
+  box-shadow: ${(p) => (p.$on ? 'inset 0 0 0 1px #3730A3' : 'inset 0 0 0 1px #e2e8f0')};
+  transition: all 0.15s;
+
+  &:hover {
+    background: ${(p) => (p.$on ? '#4F46E5' : '#eef2ff')};
+    color: ${(p) => (p.$on ? '#fff' : '#4338ca')};
+  }
+`;
+
+const ExcelBlockRow = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  margin-bottom: 0.35rem;
+`;
+
+const ExcelBlockBtn = styled.button`
+  min-height: 48px;
+  padding: 0.7rem 0.5rem;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  color: ${(p) => (p.$on ? '#fff' : '#64748b')};
+  background: ${(p) => {
+    if (!p.$on) return '#e2e8f0';
+    return p.$tone === 'teal' ? '#0D9488' : '#4F46E5';
+  }};
+  transition: all 0.15s;
+
+  &:hover {
+    filter: ${(p) => (p.$on ? 'brightness(1.06)' : 'none')};
+    background: ${(p) => {
+      if (p.$on) return p.$tone === 'teal' ? '#0F766E' : '#4338CA';
+      return '#cbd5e1';
+    }};
+    color: ${(p) => (p.$on ? '#fff' : '#334155')};
+  }
+`;
+
+const MIXED_CORE_FIELD_IDS = [
+  'rowNumber', 'title', 'axis', 'fundingSource', 'deadline', 'budgetRange',
+];
+
+const DEFAULT_ORIMANTHI_EXCEL_OPTIONS = {
+  columns: {
+    status: true,
+    municipal: true,
+    settlement: true,
+    category: true,
+  },
+  includeStudies: true,
+  includePermits: true,
+};
+
+const ORIMANTHI_COLUMN_CHOICES = [
+  { key: 'status', label: 'Κατάσταση' },
+  { key: 'municipal', label: 'Δημοτική ενότητα' },
+  { key: 'settlement', label: 'Οικισμός' },
+  { key: 'category', label: 'Κατηγορία / Εξειδίκευση' },
+];
+
+function resolveMixedInvitationFields(selectedFields) {
+  const selected = new Set(selectedFields);
+  const extras = EXPORT_FIELDS_ORDER.filter((field) => (
+    selected.has(field.id)
+    && !MIXED_CORE_FIELD_IDS.includes(field.id)
+    && field.id !== 'linkedOrimanthiLabel'
+  ));
+  const core = EXPORT_FIELDS_ORDER.filter((field) => MIXED_CORE_FIELD_IDS.includes(field.id));
+  return core.concat(extras);
+}
+
 // Σειρά στηλών σύμφωνα με τις προδιαγραφές
 const EXPORT_FIELDS_ORDER = [
   { id: 'rowNumber', label: 'Α/Α', width: 8 },
@@ -366,6 +465,8 @@ function ProsklisisExportDialog({
     'rowNumber', 'title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status',
     'diavgeiaAda', 'linkedProjectsLabel', 'linkedOrimanthiLabel', 'modificationsCount', 'originalDeadline', 'lastModificationDate'
   ]);
+  const [includeOrimanthi, setIncludeOrimanthi] = useState(false);
+  const [orimanthiExcelOptions, setOrimanthiExcelOptions] = useState(DEFAULT_ORIMANTHI_EXCEL_OPTIONS);
 
   const visibleRows = visibleProskliseis;
   const allFilteredRows = allFilteredProskliseis;
@@ -374,6 +475,8 @@ function ProsklisisExportDialog({
     if (isOpen) {
       setExportScope(PROSKLISI_EXPORT_SCOPE.VISIBLE_TAB);
       setExportFormat(PROSKLISI_EXPORT_FORMAT.EXCEL);
+      setIncludeOrimanthi(false);
+      setOrimanthiExcelOptions(DEFAULT_ORIMANTHI_EXCEL_OPTIONS);
     }
   }, [isOpen]);
 
@@ -407,7 +510,8 @@ function ProsklisisExportDialog({
   const formatDate = (dateString) => formatDateEl(dateString, '-');
 
   const exportToExcel = async () => {
-    if (selectedFields.length === 0) {
+    const mixedExcel = includeOrimanthi && exportFormat === PROSKLISI_EXPORT_FORMAT.EXCEL;
+    if (!mixedExcel && selectedFields.length === 0) {
       showToast('Παρακαλώ επιλέξτε τουλάχιστον ένα πεδίο για εξαγωγή.', 'warning');
       return;
     }
@@ -418,10 +522,9 @@ function ProsklisisExportDialog({
     }
 
     try {
-      // Φιλτράρισμα και διάταξη πεδίων σύμφωνα με τη σειρά
-      const fieldsInOrder = EXPORT_FIELDS_ORDER.filter(field => 
-        selectedFields.includes(field.id)
-      );
+      const fieldsInOrder = mixedExcel
+        ? resolveMixedInvitationFields(selectedFields)
+        : EXPORT_FIELDS_ORDER.filter((field) => selectedFields.includes(field.id));
       
       // Λήψη ημερομηνίας και ώρας εξαγωγής
       const now = new Date();
@@ -468,6 +571,32 @@ function ProsklisisExportDialog({
             return;
           }
           showToast('Οι προσκλήσεις αποθηκεύτηκαν.', 'success');
+          onClose();
+        } finally {
+          setExporting(false);
+        }
+        return;
+      }
+
+      if (mixedExcel) {
+        const fileName = `Εξαγωγή_Προσκλήσεων_Ωρίμανση_${day}-${month}-${year}.xlsx`;
+        setExporting(true);
+        try {
+          const result = await ipcRenderer.invoke('export-proskliseis-orimanthi-excel', {
+            invitations: rowsToExport,
+            columns: fieldsInOrder.map(({ id, label }) => ({ id, label })),
+            selectedFields,
+            excelOptions: orimanthiExcelOptions,
+            defaultName: fileName,
+            exportedAt: exportDateTime,
+            organizationName,
+          });
+          if (result?.canceled) return;
+          if (!result?.success) {
+            showToast(result?.error || 'Σφάλμα κατά την αποθήκευση του αρχείου.', 'error');
+            return;
+          }
+          showToast('Οι προσκλήσεις αποθηκεύτηκαν μαζί με την ωρίμανση των συσχετισμένων έργων.', 'success');
           onClose();
         } finally {
           setExporting(false);
@@ -653,7 +782,7 @@ function ProsklisisExportDialog({
               />
               <div>
                 Excel
-                <span> — ίδιο φύλλο με στήλες που επιλέγετε</span>
+                <span> — στήλες που επιλέγετε, με προαιρετική ωρίμανση συσχετισμένων έργων</span>
               </div>
             </ScopeOption>
             <ScopeOption $active={exportFormat === PROSKLISI_EXPORT_FORMAT.PDF}>
@@ -701,6 +830,78 @@ function ProsklisisExportDialog({
             </ScopeOption>
           </ScopeList>
 
+          <SectionTitle>Ωρίμανση συσχετισμένων έργων</SectionTitle>
+          <ScopeList>
+            <ScopeOption
+              $active={includeOrimanthi && exportFormat === PROSKLISI_EXPORT_FORMAT.EXCEL}
+              style={exportFormat === PROSKLISI_EXPORT_FORMAT.PDF ? { opacity: 0.65, cursor: 'not-allowed' } : undefined}
+            >
+              <input
+                type="checkbox"
+                data-testid="psk-export-include-orimanthi"
+                checked={includeOrimanthi}
+                disabled={exportFormat === PROSKLISI_EXPORT_FORMAT.PDF}
+                onChange={(e) => setIncludeOrimanthi(e.target.checked)}
+              />
+              <div>
+                Συμπεριλάβετε τα συσχετισμένα έργα ωρίμανσης
+                <span>
+                  {exportFormat === PROSKLISI_EXPORT_FORMAT.PDF
+                    ? ' — διαθέσιμο μόνο στο Excel'
+                    : ' — κάθε πρόσκληση ανοίγει στα έργα που έχει, με μελέτες και άδειες όπως στην εξαγωγή ωρίμανσης'}
+                </span>
+              </div>
+            </ScopeOption>
+          </ScopeList>
+          {includeOrimanthi && exportFormat === PROSKLISI_EXPORT_FORMAT.EXCEL && (
+            <div style={{ margin: '-0.4rem 0 1.5rem' }}>
+              <SectionTitle style={{ fontSize: '1rem', marginBottom: '0.7rem' }}>
+                Στήλες καρτέλας ωρίμανσης
+              </SectionTitle>
+              <ExcelColGrid>
+                {ORIMANTHI_COLUMN_CHOICES.map((col) => (
+                  <ExcelColChip
+                    key={col.key}
+                    type="button"
+                    $on={orimanthiExcelOptions.columns[col.key]}
+                    data-testid={`psk-export-orimanthi-col-${col.key}`}
+                    onClick={() => setOrimanthiExcelOptions((prev) => ({
+                      ...prev,
+                      columns: { ...prev.columns, [col.key]: !prev.columns[col.key] },
+                    }))}
+                  >
+                    {col.label}
+                  </ExcelColChip>
+                ))}
+              </ExcelColGrid>
+              <ExcelBlockRow>
+                <ExcelBlockBtn
+                  type="button"
+                  $on={orimanthiExcelOptions.includeStudies}
+                  data-testid="psk-export-orimanthi-block-studies"
+                  onClick={() => setOrimanthiExcelOptions((prev) => ({
+                    ...prev,
+                    includeStudies: !prev.includeStudies,
+                  }))}
+                >
+                  ΜΕΛΕΤΕΣ ΕΡΓΟΥ
+                </ExcelBlockBtn>
+                <ExcelBlockBtn
+                  type="button"
+                  $tone="teal"
+                  $on={orimanthiExcelOptions.includePermits}
+                  data-testid="psk-export-orimanthi-block-permits"
+                  onClick={() => setOrimanthiExcelOptions((prev) => ({
+                    ...prev,
+                    includePermits: !prev.includePermits,
+                  }))}
+                >
+                  ΑΔΕΙΟΔΟΤΗΣΕΙΣ
+                </ExcelBlockBtn>
+              </ExcelBlockRow>
+            </div>
+          )}
+
           <SectionTitle>Επιλογή πεδίων εξαγωγής</SectionTitle>
           
           <FieldsContainer>
@@ -746,7 +947,13 @@ function ProsklisisExportDialog({
             </CancelButton>
             <ExportButton 
               onClick={exportToExcel}
-              disabled={selectedFields.length === 0 || rowsToExport.length === 0 || exporting}
+              disabled={
+                ((includeOrimanthi && exportFormat === PROSKLISI_EXPORT_FORMAT.EXCEL)
+                  ? false
+                  : selectedFields.length === 0)
+                || rowsToExport.length === 0
+                || exporting
+              }
               data-testid="psk-export-confirm"
             >
               {exportFormat === PROSKLISI_EXPORT_FORMAT.PDF ? 'Εξαγωγή σε PDF' : 'Εξαγωγή σε Excel'}

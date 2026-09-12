@@ -113,7 +113,14 @@
   }
 
   function modificationTimeMs(mod) {
-    var candidates = [mod && mod.modificationDocumentDate, mod && mod.createdAt, mod && mod.updatedAt];
+    var documentDate = mod && mod.modificationDocumentDate;
+    if (documentDate) {
+      var parsedDocument = parseProsklisiDeadline(documentDate);
+      if (parsedDocument) return parsedDocument.getTime();
+      var parsedDocumentFallback = Date.parse(documentDate);
+      if (!Number.isNaN(parsedDocumentFallback)) return parsedDocumentFallback;
+    }
+    var candidates = [mod && mod.createdAt, mod && mod.updatedAt];
     for (var i = 0; i < candidates.length; i += 1) {
       var c = candidates[i];
       if (!c) continue;
@@ -146,7 +153,17 @@
     return (prosklisi && prosklisi.deadline) || '';
   }
 
+  function modificationExplicitlyChangesDeadline(mod) {
+    if (!mod) return false;
+    if (mod.changes && Object.prototype.hasOwnProperty.call(mod.changes, 'deadline')) {
+      return isUsableDeadlineValue(mod.changes.deadline && mod.changes.deadline.current);
+    }
+    if (mod.changes && Object.keys(mod.changes).length > 0) return false;
+    return isUsableDeadlineValue(mod.modifiedData && mod.modifiedData.deadline);
+  }
+
   function modificationDeadlineCurrent(mod) {
+    if (!modificationExplicitlyChangesDeadline(mod)) return '';
     if (isUsableDeadlineValue(mod && mod.changes && mod.changes.deadline && mod.changes.deadline.current)) {
       return mod.changes.deadline.current;
     }
@@ -174,6 +191,25 @@
       return deadline;
     }
     return (prosklisi && prosklisi.deadline) || '';
+  }
+
+  function getProsklisiDeadlineAfterModificationRemoval(prosklisi, removedModification, remainingModifications) {
+    var remaining = remainingModifications || [];
+    var stillChanged = false;
+    for (var i = 0; i < remaining.length; i += 1) {
+      if (modificationExplicitlyChangesDeadline(remaining[i])) {
+        stillChanged = true;
+        break;
+      }
+    }
+    var baselineDeadline = (prosklisi && prosklisi.deadline) || '';
+    if (!stillChanged) {
+      var removedOriginal = removedModification && removedModification.changes && removedModification.changes.deadline
+        ? removedModification.changes.deadline.original
+        : '';
+      if (isUsableDeadlineValue(removedOriginal)) baselineDeadline = removedOriginal;
+    }
+    return getEffectiveProsklisiDeadline({ deadline: baselineDeadline }, remaining);
   }
 
   function getProsklisiDeadlineUrgency(deadline, now) {
@@ -880,6 +916,9 @@
     parseProsklisiDeadline: parseProsklisiDeadline,
     getEffectiveProsklisiDeadline: getEffectiveProsklisiDeadline,
     getOriginalProsklisiDeadline: getOriginalProsklisiDeadline,
+    sortModificationsChronologically: sortModificationsChronologically,
+    modificationExplicitlyChangesDeadline: modificationExplicitlyChangesDeadline,
+    getProsklisiDeadlineAfterModificationRemoval: getProsklisiDeadlineAfterModificationRemoval,
     getProsklisiDeadlineUrgency: getProsklisiDeadlineUrgency,
     getProsklisiDeadlineDaysLeft: getProsklisiDeadlineDaysLeft,
     isProsklisiDeadlineExpiringSoon: isProsklisiDeadlineExpiringSoon,

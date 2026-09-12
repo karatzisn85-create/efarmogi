@@ -405,3 +405,133 @@ test('ισχύουσα λήξη από modifiedData όταν λείπει το c
   );
   assert.equal(effective, daysFrom(8));
 });
+
+test('τροποποίηση μόνο ποσού δεν ξαναγράφει την ισχύουσα λήξη', () => {
+  const mods = [
+    {
+      modificationId: 'mod-deadline',
+      modificationDocumentDate: '2020-11-18',
+      createdAt: '2020-11-18T10:00:00.000Z',
+      changes: {
+        deadline: { original: '2019-10-31', current: '2021-12-31' },
+        code: { original: 'Αριθμ. Πρωτ. 29816', current: 'Αριθμ. Πρωτ. 79120' },
+      },
+      modifiedData: { deadline: '2021-12-31', budgetRange: '55.000.000,00' },
+    },
+    {
+      modificationId: 'mod-budget',
+      modificationDocumentDate: '2019-11-07',
+      createdAt: '2026-09-11T20:00:00.000Z',
+      changes: {
+        budgetRange: { original: '55.000.000,00', current: '52.500.000,00' },
+        deadline: { original: '2019-10-31', current: '2019-12-31' },
+      },
+      modifiedData: { deadline: '2019-12-31', budgetRange: '52.500.000,00' },
+    },
+  ];
+  assert.equal(
+    psk.getEffectiveProsklisiDeadline({ deadline: '2019-10-31' }, mods),
+    '2021-12-31'
+  );
+});
+
+test('ισχύουσα λήξη με ελληνικές ημερομηνίες εγγράφου, όχι από νεότερη αποθήκευση', () => {
+  const mods = [
+    {
+      modificationDocumentDate: '18/11/2020',
+      createdAt: '2020-11-18T10:00:00.000Z',
+      changes: { deadline: { original: '31/10/2019', current: '31/12/2021' } },
+    },
+    {
+      modificationDocumentDate: '07/11/2019',
+      createdAt: '2026-09-11T20:00:00.000Z',
+      updatedAt: '2026-09-11T20:00:00.000Z',
+      changes: {
+        budgetRange: { original: '55.000.000,00', current: '52.500.000,00' },
+        deadline: { original: '31/10/2019', current: '31/12/2019' },
+      },
+    },
+  ];
+  assert.equal(
+    psk.formatProsklisiChangeValue('deadline', psk.getEffectiveProsklisiDeadline({ deadline: '31/10/2019' }, mods)),
+    '31/12/2021'
+  );
+});
+
+test('διαγραφή της τροποποίησης που άλλαξε τη λήξη επαναφέρει την αρχική λήξη', () => {
+  const deadlineMod = {
+    modificationId: 'mod-deadline',
+    modificationDocumentDate: '2026-02-01',
+    createdAt: '2026-02-01T10:00:00.000Z',
+    changes: { deadline: { original: '2026-01-10', current: '2026-02-20' } },
+    modifiedData: { deadline: '2026-02-20' },
+  };
+  const budgetMod = {
+    modificationId: 'mod-budget',
+    modificationDocumentDate: '2026-03-01',
+    createdAt: '2026-03-01T10:00:00.000Z',
+    changes: { budgetRange: { original: '100.000', current: '250.000' } },
+    modifiedData: { deadline: '2026-02-20', budgetRange: '250.000' },
+  };
+  // Η κάρτα κρατά ήδη την ισχύουσα λήξη· μένει μόνο η τροποποίηση ποσού
+  assert.equal(
+    psk.getProsklisiDeadlineAfterModificationRemoval(
+      { deadline: '2026-02-20' },
+      deadlineMod,
+      [budgetMod]
+    ),
+    '2026-01-10'
+  );
+});
+
+test('διαγραφή τροποποίησης όταν μένει άλλη που αλλάζει λήξη κρατά τη νεότερη', () => {
+  const first = {
+    modificationId: 'mod-1',
+    modificationDocumentDate: '2026-02-01',
+    changes: { deadline: { original: '2026-01-10', current: '2026-02-20' } },
+  };
+  const second = {
+    modificationId: 'mod-2',
+    modificationDocumentDate: '2026-04-01',
+    changes: { deadline: { original: '2026-02-20', current: '2026-05-30' } },
+  };
+  assert.equal(
+    psk.getProsklisiDeadlineAfterModificationRemoval({ deadline: '2026-05-30' }, first, [second]),
+    '2026-05-30'
+  );
+  assert.equal(
+    psk.getProsklisiDeadlineAfterModificationRemoval({ deadline: '2026-05-30' }, second, [first]),
+    '2026-02-20'
+  );
+});
+
+test('διαγραφή τροποποίησης που δεν άγγιξε τη λήξη αφήνει τη λήξη ως έχει', () => {
+  const budgetMod = {
+    modificationId: 'mod-budget',
+    modificationDocumentDate: '2026-03-01',
+    changes: { budgetRange: { original: '100.000', current: '250.000' } },
+    modifiedData: { deadline: '2026-02-20' },
+  };
+  const deadlineMod = {
+    modificationId: 'mod-deadline',
+    modificationDocumentDate: '2026-02-01',
+    changes: { deadline: { original: '2026-01-10', current: '2026-02-20' } },
+  };
+  assert.equal(
+    psk.getProsklisiDeadlineAfterModificationRemoval({ deadline: '2026-02-20' }, budgetMod, [deadlineMod]),
+    '2026-02-20'
+  );
+});
+
+test('τροποποίηση με άλλες αλλαγές δεν μετράει το αντίγραφο λήξης ως αλλαγή', () => {
+  const effective = psk.getEffectiveProsklisiDeadline(
+    { deadline: '2021-12-31' },
+    [{
+      modificationDocumentDate: '2026-09-11',
+      createdAt: '2026-09-11T20:00:00.000Z',
+      changes: { budgetRange: { original: '55.000.000,00', current: '52.500.000,00' } },
+      modifiedData: { deadline: '2019-12-31', budgetRange: '52.500.000,00' },
+    }]
+  );
+  assert.equal(effective, '2021-12-31');
+});

@@ -7895,6 +7895,49 @@ ipcMain.handle('export-proskliseis-excel', async (_event, payload = {}) => {
   }
 });
 
+ipcMain.handle('export-proskliseis-orimanthi-excel', async (_event, payload = {}) => {
+  try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
+    const invitations = Array.isArray(payload.invitations) ? payload.invitations.slice(0, 5000) : [];
+    if (!invitations.length) return { success: false, error: 'Δεν υπάρχουν προσκλήσεις για εξαγωγή' };
+    const defaultName = String(payload.defaultName || 'Προσκλήσεις_Ωρίμανση.xlsx').replace(/[<>:"/\\|?*]/g, '_');
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση προσκλήσεων με ωρίμανση σε Excel',
+      defaultPath: defaultName,
+      filters: [
+        { name: 'Excel', extensions: ['xlsx'] },
+        { name: 'Όλα τα αρχεία', extensions: ['*'] },
+      ],
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    let resolved = path.resolve(pick.filePath);
+    if (/\.xls$/i.test(resolved) && !/\.xlsx$/i.test(resolved)) {
+      resolved = resolved.replace(/\.xls$/i, '.xlsx');
+    } else if (!/\.xlsx$/i.test(resolved)) {
+      resolved = `${resolved}.xlsx`;
+    }
+    const actor = findUserByUsername(loggedInUsername);
+    const mixed = require('./prosklisiOrimanthiExcel');
+    return mixed.writeMixedWorkbook({
+      invitations,
+      allProposals: loadAllProposalsList(),
+      selectedFields: Array.isArray(payload.selectedFields) ? payload.selectedFields : [],
+      columns: Array.isArray(payload.columns) ? payload.columns : [],
+      excelOptions: payload.excelOptions,
+      destFilePath: resolved,
+      exportedBy: (actor && actor.fullName) || loggedInUsername || '',
+      appVersion: app.getVersion(),
+      exportedAt: payload.exportedAt,
+      organizationName: payload.organizationName || '',
+    });
+  } catch (e) {
+    console.error('export-proskliseis-orimanthi-excel failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('export-proskliseis-pdf', async (_event, payload = {}) => {
   try {
     if (writesBlockedByMandatoryUpdate()) {

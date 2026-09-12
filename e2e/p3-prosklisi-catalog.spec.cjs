@@ -511,3 +511,113 @@ test('P3-66 επίσημη τροποποίηση καταγράφει νέα λ
   expect(stored[0].changes.budgetRange.original).toBe('100.000 - 200.000');
   expect(stored[0].changes.budgetRange.current).toBe('250.000 - 300.000');
 });
+
+test('P3-67 τροποποίηση μόνο ποσού δεν αλλάζει την ισχύουσα λήξη', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-modded').click();
+  const detail = window.getByTestId('psk-detail-modal');
+  await expect(detail).toBeVisible();
+  await expect(detail.getByTestId('psk-detail-deadline')).toContainText(formatDateEl(dateKeyFromToday(8)));
+  await detail.getByRole('button', { name: 'Επίσημη τροποποίηση' }).click();
+  const form = window.getByTestId('psk-mod-form');
+  await expect(form).toBeVisible();
+  await form.getByTestId('psk-mod-budget').fill('90.000 - 130.000');
+  await form.getByTestId('psk-mod-doc-date').fill(dateKeyFromToday(-1));
+  await form.getByTestId('psk-mod-description').fill('Μείωση εύρους προϋπολογισμού χωρίς αλλαγή λήξης');
+  await expect(form.getByTestId('psk-mod-change-budgetRange')).toBeVisible();
+  await expect(form.getByTestId('psk-mod-change-deadline')).toHaveCount(0);
+  await form.getByRole('button', { name: /Αποθήκευση τροποποίησης/ }).click();
+  await expect(form).toHaveCount(0);
+  await window.getByTestId('psk-card-psk-modded').click();
+  const after = window.getByTestId('psk-detail-modal');
+  await expect(after).toBeVisible();
+  await expect(after.getByTestId('psk-detail-deadline')).toContainText(formatDateEl(dateKeyFromToday(8)));
+  await expect(after.getByTestId('psk-detail-original-deadline')).toContainText(formatDateEl(dateKeyFromToday(-400)));
+  await expect(after.getByTestId('psk-detail-mod-count')).toHaveText('2');
+  await expect(after.getByTestId('psk-detail-mod-2')).toContainText('90.000 - 130.000');
+  await expect(after.getByTestId('psk-detail-mod-2')).not.toContainText('Ημ. Λήξης');
+});
+
+test('P3-68 εξαγωγή Excel με ωρίμανση συσχετισμένων έργων', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const XLSX = require('xlsx-js-style');
+  const { window } = app;
+  await openProskliseis(window);
+  const dest = path.join(app.testDir, 'εξαγωγή-προσκλήσεων-ωρίμανση.xlsx');
+  await window.getByTestId('btn-export-proskliseis').click();
+  await expect(window.getByTestId('psk-export-count')).toHaveText('3');
+  await window.getByTestId('psk-export-include-orimanthi').check();
+  await expect(window.getByTestId('psk-export-orimanthi-block-studies')).toBeVisible();
+  await expect(window.getByTestId('psk-export-orimanthi-block-permits')).toBeVisible();
+  await app.queueSavePath(dest);
+  await window.getByTestId('psk-export-confirm').click();
+  await expect.poll(() => fs.existsSync(dest), { timeout: 20000 }).toBe(true);
+  const wb = XLSX.readFile(dest);
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const text = XLSX.utils.sheet_to_csv(sheet);
+  expect(text).toContain('ΕΞΑΓΩΓΗ ΠΡΟΣΚΛΗΣΕΩΝ ΜΕ ΩΡΙΜΑΝΣΗ ΕΡΓΩΝ');
+  expect(text).toContain('ΠΡΟΣΚΛΗΣΗ');
+  expect(text).toContain('ΩΡΙΜΑΝΣΗ ΕΡΓΩΝ');
+  expect(text).toContain('Α/Α έργου');
+  expect(text).toContain('Πρόσκληση σχολείων');
+  expect(text).toContain('Εκπαίδευση');
+  expect(text).toContain('ΕΣΠΑ 2021-2027');
+  expect(text).toContain('100.000 - 200.000');
+  expect(text).toContain('Ανακατασκευή οδού Αρχανών');
+  expect(text).toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
+  expect(text).toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
+  expect(text).toContain('ΤΟΠΟΓΡΑΦΙΚΑ');
+  expect(text).toContain('ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ');
+  expect(text).toContain('Πρόσκληση μακρινή');
+  expect(sheet['!merges'] && sheet['!merges'].length).toBeGreaterThan(0);
+});
+
+test('P3-69 διαγραφή της τροποποίησης λήξης επαναφέρει την αρχική ημερομηνία', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const { window } = app;
+  const originalDeadline = dateKeyFromToday(-400);
+  await openProskliseis(window);
+
+  // Δεύτερη τροποποίηση που αλλάζει μόνο το εύρος προϋπολογισμού
+  await window.getByTestId('psk-card-psk-modded').click();
+  const detail = window.getByTestId('psk-detail-modal');
+  await expect(detail).toBeVisible();
+  await detail.getByRole('button', { name: 'Επίσημη τροποποίηση' }).click();
+  const form = window.getByTestId('psk-mod-form');
+  await expect(form).toBeVisible();
+  await form.getByTestId('psk-mod-budget').fill('95.000 - 140.000');
+  await form.getByTestId('psk-mod-doc-date').fill(dateKeyFromToday(-1));
+  await form.getByTestId('psk-mod-description').fill('Αλλαγή μόνο εύρους προϋπολογισμού');
+  await form.getByRole('button', { name: /Αποθήκευση τροποποίησης/ }).click();
+  await expect(form).toHaveCount(0);
+
+  // Διαγραφή της τροποποίησης που είχε δώσει τη νέα λήξη
+  await window.getByTestId('psk-card-psk-modded').click();
+  const again = window.getByTestId('psk-detail-modal');
+  await expect(again).toBeVisible();
+  await expect(again.getByTestId('psk-detail-deadline')).toContainText(formatDateEl(dateKeyFromToday(8)));
+  await expect(again.getByTestId('psk-detail-mod-count')).toHaveText('2');
+  const deadlineMod = again.getByTestId('psk-detail-mod-1');
+  await expect(deadlineMod).toContainText('Ημ. Λήξης');
+  await deadlineMod.getByRole('button', { name: 'Διαγραφή τροποποίησης' }).click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(again.getByTestId('psk-detail-mod-count')).toHaveText('1', { timeout: 15000 });
+  await expect(again.getByTestId('psk-detail-deadline')).toContainText(formatDateEl(originalDeadline));
+  await again.getByTestId('psk-detail-close').click();
+
+  // Η πρόσκληση γυρίζει στην παλιά λήξη, άρα και στις ληγμένες
+  await expect(window.getByTestId('psk-card-psk-modded')).toHaveCount(0);
+  await window.getByRole('tab', { name: /Ληγμένες/ }).click();
+  const card = window.getByTestId('psk-card-psk-modded');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText(formatDateEl(originalDeadline));
+
+  const stored = JSON.parse(fs.readFileSync(
+    path.join(app.testDir, 'ΠΡΟΣΚΛΗΣΕΙΣ', 'psk-modded', 'data.json'),
+    'utf8'
+  ));
+  expect(stored.deadline).toBe(originalDeadline);
+});
