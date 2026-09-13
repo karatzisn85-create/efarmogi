@@ -1192,6 +1192,8 @@ function ProjectCard({
   hasLinkedEgkrisi = false,
   linkedProsklisi,
   onOpenLinkedProsklisi,
+  linkedOrimanthi,
+  onOpenLinkedOrimanthi,
   isLocked = false,
   hasEntaxi = false,
   onOpenSpecificEntaxi,
@@ -1580,6 +1582,15 @@ function ProjectCard({
             >
               <IconMegaphone />
               Πρόσκληση
+            </ToolbarButton>
+          )}
+          {linkedOrimanthi && (
+            <ToolbarButton
+              type="button"
+              data-testid={`btn-orimanthi-${project.subprojectId}`}
+              onClick={() => onOpenLinkedOrimanthi && onOpenLinkedOrimanthi(linkedOrimanthi.id)}
+            >
+              Ωρίμανση
             </ToolbarButton>
           )}
           {hasEntaxi && (

@@ -194,6 +194,24 @@ export function migrateFileGroup(group) {
   return group;
 }
 
+export function summarizeOrimanthiPermits(fileGroups) {
+  const permits = (fileGroups || []).filter((group) => {
+    const identity = getFileGroupIdentity(group);
+    return identity.rootId === FILE_CATEGORY_ROOT_ADEIODOTISEIS;
+  });
+  const issued = permits.filter((group) => !!group.permitIssued).length;
+  return {
+    total: permits.length,
+    issued,
+    pending: Math.max(0, permits.length - issued),
+  };
+}
+
+export function orimanthiHasPendingPermit(fileGroups) {
+  const summary = summarizeOrimanthiPermits(fileGroups);
+  return summary.total > 0 && summary.pending > 0;
+}
+
 export function migrateProposalFileGroups(proposal) {
   if (!proposal?.fileGroups?.length) return proposal;
   const fileGroups = proposal.fileGroups.map(migrateFileGroup);

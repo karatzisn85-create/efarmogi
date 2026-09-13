@@ -495,7 +495,9 @@
   }
 
   function isProsklisiUnlinked(prosklisi) {
-    return !Array.isArray(prosklisi && prosklisi.linkedProjects) || prosklisi.linkedProjects.length === 0;
+    var noProjects = !Array.isArray(prosklisi && prosklisi.linkedProjects) || prosklisi.linkedProjects.length === 0;
+    var noOrimanthi = normalizeLinkedOrimanthiProposals(prosklisi && prosklisi.linkedOrimanthiProposals).length === 0;
+    return noProjects && noOrimanthi;
   }
 
   function prosklisiMatchesQuickSearch(prosklisi, searchTerm, extra) {
@@ -673,6 +675,61 @@
     });
   }
 
+  function uniqueLinkedOrimanthiTitles(proskliseis) {
+    var seen = {};
+    var out = [];
+    (proskliseis || []).forEach(function (p) {
+      linkedOrimanthiTitlesOf(p).forEach(function (title) {
+        if (seen[title]) return;
+        seen[title] = true;
+        out.push(title);
+      });
+    });
+    return out.sort(function (a, b) {
+      return a.localeCompare(b, 'el', { sensitivity: 'base' });
+    });
+  }
+
+  function prosklisiLinksOrimanthiTitle(prosklisi, title) {
+    var want = String(title || '').trim();
+    if (!want) return true;
+    return linkedOrimanthiTitlesOf(prosklisi).indexOf(want) !== -1;
+  }
+
+  function findProskliseisLinkedToOrimanthi(proskliseis, proposalId) {
+    var id = String(proposalId || '').trim();
+    if (!id) return [];
+    return (proskliseis || []).filter(function (p) {
+      return normalizeLinkedOrimanthiProposals(p && p.linkedOrimanthiProposals)
+        .some(function (row) { return row.id === id; });
+    });
+  }
+
+  function findOrimanthiLinksForProject(proskliseis, project) {
+    var pid = String((project && (project.projectId || project.id)) || '').trim();
+    var sid = String((project && project.subprojectId) || '').trim();
+    var title = String((project && (project.projectTitle || project.title)) || '').trim();
+    var seen = {};
+    var out = [];
+    (proskliseis || []).forEach(function (p) {
+      var rows = normalizeLinkedOrimanthiProposals(p && p.linkedOrimanthiProposals);
+      if (!rows.length) return;
+      var matchesSub = sid && String(p.linkedSubprojectId || '') === sid;
+      var matchesProject = (p.linkedProjects || []).some(function (lp) {
+        var lpId = String((lp && (lp.id || lp.projectId)) || '').trim();
+        var lpTitle = String((lp && (lp.title || lp.projectTitle)) || '').trim();
+        return (pid && lpId === pid) || (title && lpTitle === title);
+      });
+      if (!matchesSub && !matchesProject) return;
+      rows.forEach(function (row) {
+        if (!row.id || seen[row.id]) return;
+        seen[row.id] = true;
+        out.push(row);
+      });
+    });
+    return out;
+  }
+
   function prosklisiLinksProjectTitle(prosklisi, title) {
     var want = String(title || '').trim();
     if (!want) return true;
@@ -702,6 +759,11 @@
     if (String(advanced.linkedProject || '').trim()) {
       list = list.filter(function (p) {
         return prosklisiLinksProjectTitle(p, advanced.linkedProject);
+      });
+    }
+    if (String(advanced.linkedOrimanthi || '').trim()) {
+      list = list.filter(function (p) {
+        return prosklisiLinksOrimanthiTitle(p, advanced.linkedOrimanthi);
       });
     }
     if (String(advanced.minBudget || '').trim() || String(advanced.maxBudget || '').trim()) {
@@ -816,6 +878,9 @@
     }
     if (String(advanced.linkedProject || '').trim()) {
       chips.push({ id: 'linkedProject', label: 'Έργο: ' + String(advanced.linkedProject).trim() });
+    }
+    if (String(advanced.linkedOrimanthi || '').trim()) {
+      chips.push({ id: 'linkedOrimanthi', label: 'Ωρίμανση: ' + String(advanced.linkedOrimanthi).trim() });
     }
     if (String(advanced.minBudget || '').trim()) {
       chips.push({ id: 'minBudget', label: 'Π/Υ από ' + String(advanced.minBudget).trim() });
@@ -1029,6 +1094,10 @@
     parseProsklisiBudgetRange: parseProsklisiBudgetRange,
     prosklisiMatchesBudgetWindow: prosklisiMatchesBudgetWindow,
     uniqueLinkedProjectTitles: uniqueLinkedProjectTitles,
+    uniqueLinkedOrimanthiTitles: uniqueLinkedOrimanthiTitles,
+    prosklisiLinksOrimanthiTitle: prosklisiLinksOrimanthiTitle,
+    findProskliseisLinkedToOrimanthi: findProskliseisLinkedToOrimanthi,
+    findOrimanthiLinksForProject: findOrimanthiLinksForProject,
     linkedProjectIdentity: linkedProjectIdentity,
     normalizeLinkedProjects: normalizeLinkedProjects,
     prosklisiLinksProjectTitle: prosklisiLinksProjectTitle,

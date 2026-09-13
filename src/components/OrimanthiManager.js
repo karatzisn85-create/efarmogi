@@ -34,7 +34,9 @@ import {
   fileGroupExists,
   getFileGroupIdentity,
   migrateProposalFileGroups,
+  summarizeOrimanthiPermits,
 } from '../utils/orimanthiFileCategories';
+import { findProskliseisLinkedToOrimanthi } from '../utils/prosklisiDeadlineUtils';
 import {
   loadCustomCategoriesList,
   saveCustomCategoriesList,
@@ -2955,6 +2957,8 @@ export default function OrimanthiManager({
   userRole,
   orimanthiCanEdit = false,
   initialProposalId = null,
+  proskliseis = [],
+  onOpenProsklisi,
 }) {
   const { showToast } = useToast();
 
@@ -5316,6 +5320,8 @@ export default function OrimanthiManager({
       void requestSelectProposal(p.id).then((ok) => { if (ok) setActiveTab('files'); });
     };
     const lockInfo = proposalLocks[p.id];
+    const permitSummary = summarizeOrimanthiPermits(p.fileGroups);
+    const linkedInvites = findProskliseisLinkedToOrimanthi(proskliseis, p.id);
     return (
       <HubCard key={p.id}>
         <HubCardHeader>
@@ -5347,6 +5353,44 @@ export default function OrimanthiManager({
           {(p.municipalUnit || p.settlement) ? (
             <HubCardMetaLine>
               {[p.municipalUnit, p.settlement].filter(Boolean).join(' · ')}
+            </HubCardMetaLine>
+          ) : null}
+          {permitSummary.total > 0 ? (
+            <HubCardMetaLine data-testid={`orimanthi-permit-progress-${p.id}`}>
+              Άδειες: {permitSummary.issued} από {permitSummary.total} εκδόθηκαν
+            </HubCardMetaLine>
+          ) : null}
+          {linkedInvites.length > 0 ? (
+            <HubCardMetaLine data-testid={`orimanthi-linked-invites-${p.id}`}>
+              Προσκλήσεις:{' '}
+              {linkedInvites.map((invite, idx) => (
+                <React.Fragment key={invite.prosklisiId}>
+                  {idx > 0 ? ' · ' : null}
+                  {onOpenProsklisi ? (
+                    <button
+                      type="button"
+                      data-testid={`orimanthi-open-psk-${invite.prosklisiId}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenProsklisi(invite.prosklisiId);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        color: C.indigoDark,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      {invite.title || 'Πρόσκληση'}
+                    </button>
+                  ) : (
+                    invite.title || 'Πρόσκληση'
+                  )}
+                </React.Fragment>
+              ))}
             </HubCardMetaLine>
           ) : null}
         </HubCardBody>
@@ -5383,12 +5427,23 @@ export default function OrimanthiManager({
     const openProject = () => {
       void requestSelectProposal(p.id).then((ok) => { if (ok) setActiveTab('files'); });
     };
-    const lockInfo = proposalLocks[p.id];
+    const permitSummary = summarizeOrimanthiPermits(p.fileGroups);
+    const linkedInvites = findProskliseisLinkedToOrimanthi(proskliseis, p.id);
     return (
       <HubListRow key={p.id} $gridColumns={hubListGridColumns}>
         <HubListTitleCell type="button" onClick={openProject}>
           <HubListTitle>{p.title || '(Χωρίς τίτλο)'}</HubListTitle>
           {categoryLine ? <HubListSub>{categoryLine}</HubListSub> : null}
+          {permitSummary.total > 0 ? (
+            <HubListSub data-testid={`orimanthi-permit-progress-${p.id}`}>
+              Άδειες: {permitSummary.issued} από {permitSummary.total} εκδόθηκαν
+            </HubListSub>
+          ) : null}
+          {linkedInvites.length > 0 ? (
+            <HubListSub data-testid={`orimanthi-linked-invites-${p.id}`}>
+              Προσκλήσεις: {linkedInvites.map((invite) => invite.title || 'Πρόσκληση').join(' · ')}
+            </HubListSub>
+          ) : null}
         </HubListTitleCell>
         <HubListCell>
           <HubRowStatus $color={st.color}>
@@ -5623,6 +5678,7 @@ export default function OrimanthiManager({
                     <HubViewToggle>
                       <HubViewBtn
                         type="button"
+                        data-testid="orimanthi-hub-view-list"
                         $active={hubViewMode === 'list'}
                         onClick={() => setHubViewMode('list')}
                       >
@@ -5630,6 +5686,7 @@ export default function OrimanthiManager({
                       </HubViewBtn>
                       <HubViewBtn
                         type="button"
+                        data-testid="orimanthi-hub-view-grid"
                         $active={hubViewMode === 'grid'}
                         onClick={() => setHubViewMode('grid')}
                       >
@@ -5637,6 +5694,7 @@ export default function OrimanthiManager({
                       </HubViewBtn>
                       <HubViewBtn
                         type="button"
+                        data-testid="orimanthi-hub-view-kanban"
                         $active={hubViewMode === 'kanban'}
                         onClick={() => setHubViewMode('kanban')}
                       >
@@ -5674,10 +5732,12 @@ export default function OrimanthiManager({
                           { value: 'ready', label: 'Ώριμα' },
                           { value: 'approved', label: 'Εγκεκριμένα' },
                           { value: 'aepo_soon', label: 'ΑΕΠΟ ≤60 ημέρες' },
+                          { value: 'permit_pending', label: 'Εκκρεμεί άδεια' },
                         ].map((pill) => (
                           <HubQuickFilterPill
                             key={pill.value || 'all'}
                             type="button"
+                            data-testid={`orimanthi-hub-qf-${pill.value || 'all'}`}
                             $active={hubQuickFilter === pill.value}
                             onClick={() => applyHubQuickFilter(pill.value)}
                           >

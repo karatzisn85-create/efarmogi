@@ -125,6 +125,18 @@
     return d;
   }
 
+  function hasPendingOrimanthiPermit(project) {
+    var groups = project && Array.isArray(project.fileGroups) ? project.fileGroups : [];
+    var total = 0;
+    var issued = 0;
+    groups.forEach(function (group) {
+      if (!group || group.fileCategoryRoot !== 'adeiodotiseis') return;
+      total += 1;
+      if (group.permitIssued) issued += 1;
+    });
+    return total > 0 && issued < total;
+  }
+
   function isAepoDueSoon(project, now, days) {
     var d = parseAepoDate(project && project.aepoRenewalDate);
     if (!d) return false;
@@ -145,6 +157,8 @@
         return project.status === 'approved';
       case 'aepo_soon':
         return isAepoDueSoon(project);
+      case 'permit_pending':
+        return hasPendingOrimanthiPermit(project);
       default:
         return true;
     }
@@ -197,6 +211,7 @@
     evaluateProposalDelete: evaluateProposalDelete,
     parseProjectSearch: parseProjectSearch,
     isAepoDueSoon: isAepoDueSoon,
+    hasPendingOrimanthiPermit: hasPendingOrimanthiPermit,
     matchesHubQuickFilter: matchesHubQuickFilter,
     matchesHubFilters: matchesHubFilters,
     filterOrimanthiHub: filterOrimanthiHub

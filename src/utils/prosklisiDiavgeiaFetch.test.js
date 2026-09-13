@@ -5,6 +5,7 @@ import {
   extractAxisFromSubject,
   extractModificationDescriptionFromSubject,
   mapDiavgeiaDecisionToProsklisiFields,
+  remainingProsklisiManualFields,
   subjectLooksLikeModification,
   buildFundingSourceFromDecision,
 } from './prosklisiDiavgeiaFetch';
@@ -85,5 +86,24 @@ describe('prosklisiDiavgeiaFetch', () => {
     expect(fields.code).toBeUndefined();
     expect(fields.axis).toBeUndefined();
     expect(fields.fundingSource).toBeUndefined();
+  });
+
+  it('από θέμα ΕΣΠΑ γεμίζει κωδικό και από PDF εύρος και λήξη', () => {
+    const decision = {
+      ada: 'ΨΒΨΧ7ΛΚ-ΗΣΣ',
+      subject: 'ΠΡΟΣΚΛΗΣΗ ΕΤΠΑ_40 ΜΕ ΤΙΤΛΟ «Δράση ύδρευσης»',
+      organization: 'ΠΕΡΙΦΕΡΕΙΑ ΚΡΗΤΗΣ',
+      issueDate: '2026-07-27',
+    };
+    const { fields, autoFilledKeys } = mapDiavgeiaDecisionToProsklisiFields(decision, 'new', {
+      budgetRange: 'από 200.000,00€',
+      deadline: '2026-10-15',
+    });
+    expect(fields.code).toBe('ΕΤΠΑ_40');
+    expect(fields.budgetRange).toBe('από 200.000,00€');
+    expect(fields.deadline).toBe('2026-10-15');
+    expect(autoFilledKeys).toEqual(expect.arrayContaining(['code', 'budgetRange', 'deadline']));
+    expect(remainingProsklisiManualFields('new', autoFilledKeys)).toContain('συσχέτιση με έργα');
+    expect(remainingProsklisiManualFields('new', autoFilledKeys)).not.toContain('κωδικός πρόσκλησης');
   });
 });

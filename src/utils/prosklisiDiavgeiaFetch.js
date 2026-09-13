@@ -4,6 +4,7 @@
 
 import { buildDiavgeiaApePreview, normalizeDiavgeiaAda } from './diavgeiaApeFetch';
 import { getProsklisiDiavgeiaOpenUrl } from './prosklisiDiavgeiaRegistry';
+import prosklisiPdf from '../../app/core/prosklisiDiavgeiaPdf';
 
 export function buildDefaultProsklisiPdfFileName(ada) {
   const n = normalizeDiavgeiaAda(ada);
@@ -51,12 +52,14 @@ export function buildProsklisiTitleFromSubject(subject) {
 /**
  * @param {object|null} decision — από IPC diavgeia-fetch-decision-by-ada
  * @param {'new'|'modification'} mode
+ * @param {object} [pdfFields] — κωδικός / εύρος / λήξη από κείμενο PDF
  */
-export function mapDiavgeiaDecisionToProsklisiFields(decision, mode = 'new') {
+export function mapDiavgeiaDecisionToProsklisiFields(decision, mode = 'new', pdfFields = null) {
   const preview = buildDiavgeiaApePreview(decision);
   const subject = preview.subject;
   const fields = {};
   const autoFilledKeys = [];
+  const extra = pdfFields && typeof pdfFields === 'object' ? pdfFields : {};
 
   // Η τροποποίηση ΔΕΝ είναι ανεξάρτητη πρόσκληση: τα πεδία της πρόσκλησης
   // (τίτλος, άξονας, πηγή, κωδικός) δεν αλλάζουν εδώ. Συμπληρώνουμε μόνο
@@ -71,6 +74,13 @@ export function mapDiavgeiaDecisionToProsklisiFields(decision, mode = 'new') {
       fields.modificationDescription = modDesc;
       autoFilledKeys.push('modificationDescription');
     }
+    const fromPdf = prosklisiPdf.mergeProsklisiExtractedFields({}, extra);
+    ['code', 'budgetRange', 'deadline'].forEach((key) => {
+      if (fromPdf[key]) {
+        fields[key] = fromPdf[key];
+        autoFilledKeys.push(key);
+      }
+    });
     return { fields, autoFilledKeys, preview };
   }
 
@@ -91,7 +101,17 @@ export function mapDiavgeiaDecisionToProsklisiFields(decision, mode = 'new') {
     autoFilledKeys.push('fundingSource');
   }
 
-  // Ο κωδικός πρόσκλησης (π.χ. Π.Ι. 2025-2026) δεν παρέχεται από τη Διαύγεια — μόνο στο PDF.
+  const fromSubjectCode = prosklisiPdf.extractInvitationCodeFromSubject(subject);
+  const fromPdf = prosklisiPdf.mergeProsklisiExtractedFields(
+    fromSubjectCode ? { code: fromSubjectCode } : {},
+    extra
+  );
+  ['code', 'budgetRange', 'deadline'].forEach((key) => {
+    if (fromPdf[key]) {
+      fields[key] = fromPdf[key];
+      autoFilledKeys.push(key);
+    }
+  });
 
   return { fields, autoFilledKeys, preview };
 }
@@ -111,13 +131,24 @@ export function buildProsklisiDiavgeiaMeta(preview) {
 }
 
 export const PROSKLISI_MANUAL_FIELDS_NEW = [
-  'Κωδικός πρόσκλησης (από το έγγραφο)',
-  'Ημερομηνία λήξης υποβολής',
-  'Εύρος προϋπολογισμού',
+  'Κωδικός / εύρος / λήξη (αν δεν βρέθηκαν στο έγγραφο)',
   'Άξονας (αν δεν εξήχθη από το θέμα)',
   'Συσχέτιση με έργα',
 ];
 
 export const PROSKLISI_MANUAL_FIELDS_MODIFICATION = [
-  'Νέα ημερομηνία λήξης υποβολής (από το έγγραφο)',
+  'Νέα ημερομηνία λήξης υποβολής (αν δεν βρέθηκε στο έγγραφο)',
 ];
+
+export function remainingProsklisiManualFields(mode, autoFilledKeys) {
+  const filled = new Set(Array.isArray(autoFilledKeys) ? autoFilledKeys : []);
+  const items = [];
+  if (!filled.has('code')) items.push('κωδικός πρόσκλησης');
+  if (!filled.has('budgetRange')) items.push('εύρος προϋπολογισμού');
+  if (!filled.has('deadline')) items.push('λήξη υποβολής');
+  if (mode !== 'modification' && !filled.has('axis')) {
+    items.push('άξονας (αν δεν εξήχθη από το θέμα)');
+  }
+  if (mode !== 'modification') items.push('συσχέτιση με έργα');
+  return items;
+}

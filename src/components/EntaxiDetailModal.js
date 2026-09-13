@@ -5,7 +5,8 @@ import { buildEntaxiDetailReportPayload } from '../utils/entaxiDetailReportData'
 import { exportEntaxiDetailReport } from '../utils/entaxiDetailReportExport';
 import { openEntaxiDiavgeiaDocument } from '../utils/entaxiDiavgeiaRegistry';
 import { getEntityLinkedNotes } from './LinkedNoteSticker';
-import { entaxiHasStoredAcceptance } from '../utils/entaxiProjectDraft';
+import { entaxiHasStoredAcceptance, resolveEntaxiSubprojectLinks } from '../utils/entaxiProjectDraft';
+import { normalizeLinkedOrimanthiProposals } from '../utils/prosklisiDeadlineUtils';
 import persistAcceptance from '../../app/core/entaxiAcceptancePersist';
 
 const Overlay = styled.div`
@@ -433,10 +434,13 @@ function EntaxiDetailModal({
   onSearchModificationAcceptance,
   onCreateProjectFromEntaxi,
   onOpenProsklisi,
+  onOpenSubproject,
+  onOpenOrimanthi,
   onOpenNote,
   canManageWorkflow = false,
   isLocked = false,
   proskliseis = [],
+  projects = [],
   linkedNotesMap = {},
   notes = [],
   appConfig = {},
@@ -457,11 +461,22 @@ function EntaxiDetailModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, exporting, blockEscape]);
 
-  const prosklisiTitle = useMemo(() => {
-    if (!entaxi?.prosklisiId) return '';
-    const found = (proskliseis || []).find((p) => p.prosklisiId === entaxi.prosklisiId);
-    return found?.title || '';
+  const linkedInvitation = useMemo(() => {
+    if (!entaxi?.prosklisiId) return null;
+    return (proskliseis || []).find((p) => p.prosklisiId === entaxi.prosklisiId) || null;
   }, [entaxi, proskliseis]);
+
+  const prosklisiTitle = linkedInvitation?.title || '';
+
+  const subprojectLinks = useMemo(
+    () => resolveEntaxiSubprojectLinks(entaxi, projects),
+    [entaxi, projects]
+  );
+
+  const orimanthiLinks = useMemo(
+    () => normalizeLinkedOrimanthiProposals(linkedInvitation?.linkedOrimanthiProposals),
+    [linkedInvitation]
+  );
 
   const linkedNoteRefs = useMemo(
     () => getEntityLinkedNotes(linkedNotesMap, entaxi?.entaxiId),
@@ -655,6 +670,27 @@ function EntaxiDetailModal({
                   <FieldLabel>Συνδεδεμένα υποέργα</FieldLabel>
                   <FieldValue data-testid="ent-detail-sub-count">{data.subprojectCount || 0}</FieldValue>
                 </Field>
+                {subprojectLinks.length ? (
+                  <Field>
+                    <FieldLabel>Τίτλοι υποέργων</FieldLabel>
+                    <FieldValue data-testid="ent-detail-sub-titles">
+                      {subprojectLinks.map((row) => (
+                        onOpenSubproject ? (
+                          <LinkBtn
+                            key={row.id}
+                            type="button"
+                            data-testid={`ent-detail-sub-${row.id}`}
+                            onClick={() => onOpenSubproject(row.id)}
+                          >
+                            {row.title}
+                          </LinkBtn>
+                        ) : (
+                          <span key={row.id} data-testid={`ent-detail-sub-${row.id}`}>{row.title}</span>
+                        )
+                      ))}
+                    </FieldValue>
+                  </Field>
+                ) : null}
                 <Field>
                   <FieldLabel>Πρόσκληση</FieldLabel>
                   <FieldValue>
@@ -663,6 +699,27 @@ function EntaxiDetailModal({
                         {data.prosklisiTitle}
                       </LinkBtn>
                     ) : (val(data.prosklisiTitle) || <EmptyValue>—</EmptyValue>)}
+                  </FieldValue>
+                </Field>
+                <Field>
+                  <FieldLabel>Ωρίμανση</FieldLabel>
+                  <FieldValue data-testid="ent-detail-orimanthi">
+                    {orimanthiLinks.length
+                      ? orimanthiLinks.map((row) => (
+                        onOpenOrimanthi ? (
+                          <LinkBtn
+                            key={row.id}
+                            type="button"
+                            data-testid={`ent-detail-orimanthi-${row.id}`}
+                            onClick={() => onOpenOrimanthi(row.id)}
+                          >
+                            {row.title || 'Έργο ωρίμανσης'}
+                          </LinkBtn>
+                        ) : (
+                          <span key={row.id}>{row.title || 'Έργο ωρίμανσης'}</span>
+                        )
+                      ))
+                      : <EmptyValue>Χωρίς σύνδεση μέσω πρόσκλησης</EmptyValue>}
                   </FieldValue>
                 </Field>
               </FieldGrid>

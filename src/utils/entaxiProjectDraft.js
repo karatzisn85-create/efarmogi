@@ -45,6 +45,29 @@ export function entaxiHasStoredAcceptance(entaxi) {
   return collectEntaxiApprovalFileNames(e).length > 0;
 }
 
+export function entaxiReadyForSubproject(entaxi) {
+  return entaxiHasStoredAcceptance(entaxi) && entaxiCatalog.isEntaxiUnlinked(entaxi);
+}
+
+export function entaxiHasModificationWithoutAcceptance(entaxi) {
+  const mods = Array.isArray(entaxi?.modifications) ? entaxi.modifications : [];
+  return mods.some((mod) => !entaxiHasStoredAcceptance(mod));
+}
+
+export function resolveEntaxiSubprojectLinks(entaxi, projects) {
+  const ids = Array.isArray(entaxi?.subprojectIds) ? entaxi.subprojectIds : [];
+  const list = Array.isArray(projects) ? projects : [];
+  return ids.map((id) => {
+    const sid = String(id || '').trim();
+    const row = list.find((p) => String(p.subprojectId || '') === sid);
+    return {
+      id: sid,
+      title: String(row?.subprojectTitle || row?.projectTitle || '').trim() || sid,
+      projectTitle: String(row?.projectTitle || '').trim(),
+    };
+  }).filter((row) => row.id);
+}
+
 export function buildEntaxiLinkAfterProjectCreate(entaxi, { projectId, projectTitle, subprojectId }) {
   const title = String(projectTitle || '').trim();
   const pid = String(projectId || '').trim();

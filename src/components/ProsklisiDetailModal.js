@@ -486,6 +486,7 @@ function ProsklisiDetailModal({
   onOpenRelatedEntaxi,
   onOpenLinkedProject,
   onOpenLinkedOrimanthi,
+  onCreateEntaxi,
   onOpenDiavgeia,
   onViewModificationPDF,
   onEditModification,
@@ -708,7 +709,7 @@ function ProsklisiDetailModal({
                           </FileChipStatic>
                         );
                       })
-                      : <EmptyValue>—</EmptyValue>}
+                      : <EmptyValue>Χωρίς συσχέτιση με ωρίμανση</EmptyValue>}
                   </FieldValue>
                 </FieldFull>
                 <FieldFull>
@@ -730,7 +731,7 @@ function ProsklisiDetailModal({
                           <FileChipStatic key={entaxi.entaxiId}>{label}</FileChipStatic>
                         );
                       })
-                      : <EmptyValue>—</EmptyValue>}
+                      : <EmptyValue>Χωρίς σχετική ένταξη</EmptyValue>}
                   </FieldValue>
                 </FieldFull>
               </FieldGrid>
@@ -863,6 +864,14 @@ function ProsklisiDetailModal({
               </FooterGhostBtn>
               <FooterGhostBtn type="button" disabled={isLocked} onClick={() => onNewModification?.(prosklisi)}>
                 Επίσημη τροποποίηση
+              </FooterGhostBtn>
+              <FooterGhostBtn
+                type="button"
+                data-testid="psk-detail-new-entaxi"
+                disabled={isLocked}
+                onClick={() => onCreateEntaxi?.(prosklisi)}
+              >
+                Νέα ένταξη για αυτή την πρόσκληση
               </FooterGhostBtn>
             </>
           ) : null}

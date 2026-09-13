@@ -47,8 +47,18 @@ test('χωρίς έργο και αναζήτηση στον τρέχοντα κ
     code: 'PSK-100',
     linkedProjects: [{ title: 'Οδικό δίκτυο Αρχανών' }],
   };
+  const onlyOrimanthi = {
+    prosklisiId: 'psk-ori',
+    title: 'Μόνο ωρίμανση',
+    linkedProjects: [],
+    linkedOrimanthiProposals: [{
+      id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+      title: 'Ανακατασκευή οδού Αρχανών',
+    }],
+  };
   assert.equal(psk.isProsklisiUnlinked(far), true);
   assert.equal(psk.isProsklisiUnlinked(schools), false);
+  assert.equal(psk.isProsklisiUnlinked(onlyOrimanthi), false);
   assert.equal(psk.prosklisiMatchesQuickSearch(schools, 'PSK-100'), true);
   assert.equal(psk.prosklisiMatchesQuickSearch(schools, 'PSK-200'), false);
   assert.equal(psk.prosklisiMatchesQuickSearch(schools, 'Οδικό δίκτυο'), true);
@@ -270,6 +280,37 @@ test('φίλτρο συσχετισμένου έργου και εξωτερικ
     projectFilter: 'Πρόσκληση μακρινή',
   });
   assert.deepEqual(byInviteTitle.map((p) => p.prosklisiId), ['psk-far']);
+});
+
+test('φίλτρο έργου ωρίμανσης και αντίστροφη εύρεση από κάρτα υποέργου', () => {
+  const schools = {
+    prosklisiId: 'psk-schools',
+    linkedProjects: [{ title: 'Οδικό δίκτυο Αρχανών', projectId: 'proj-road' }],
+    linkedOrimanthiProposals: [{
+      id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+      title: 'Ανακατασκευή οδού Αρχανών',
+    }],
+  };
+  const far = { prosklisiId: 'psk-far', linkedProjects: [], linkedOrimanthiProposals: [] };
+  assert.deepEqual(
+    psk.uniqueLinkedOrimanthiTitles([schools, far]),
+    ['Ανακατασκευή οδού Αρχανών']
+  );
+  const filtered = psk.applyProsklisiAdvancedFilters([schools, far], {
+    advancedFilters: { linkedOrimanthi: 'Ανακατασκευή οδού Αρχανών' },
+  });
+  assert.deepEqual(filtered.map((p) => p.prosklisiId), ['psk-schools']);
+  const fromSub = psk.findOrimanthiLinksForProject([schools, far], {
+    projectId: 'proj-road',
+    projectTitle: 'Οδικό δίκτυο Αρχανών',
+    subprojectId: 'sub-bridge',
+  });
+  assert.deepEqual(fromSub.map((row) => row.id), ['a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d']);
+  assert.deepEqual(
+    psk.findProskliseisLinkedToOrimanthi([schools, far], 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d')
+      .map((p) => p.prosklisiId),
+    ['psk-schools']
+  );
 });
 
 test('λήγουν σύντομα στον κατάλογο: ανοιχτές εντός 30 ημερών, όχι ήδη ληγμένες', () => {

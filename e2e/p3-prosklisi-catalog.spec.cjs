@@ -621,3 +621,33 @@ test('P3-69 διαγραφή της τροποποίησης λήξης επαν
   ));
   expect(stored.deadline).toBe(originalDeadline);
 });
+
+test('P3-65 οι τρεις συσχετίσεις φαίνονται πάντα, ακόμα και χωρίς σύνδεση', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  const card = window.getByTestId('psk-card-psk-far');
+  await expect(card.getByText('Έργα:')).toBeVisible();
+  await expect(card.getByText('Ωρίμανση:')).toBeVisible();
+  await expect(card.getByText('Εντάξεις:')).toBeVisible();
+  await expect(card.getByText('Χωρίς σύνδεση')).toHaveCount(3);
+});
+
+test('P3-66 νέα ένταξη από την κάρτα πρόσκλησης ανοίγει τη φόρμα με την πρόσκληση', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-new-entaxi-psk-schools').click();
+  await expect(window.getByTestId('ent-form-prosklisi')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('ent-form-prosklisi')).toHaveValue('psk-schools');
+  await window.getByTestId('ent-form-close').click();
+  await expect(window.getByText('Διαχείριση Προσκλήσεων').first()).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('psk-card-psk-schools')).toBeVisible();
+});
+
+test('P3-67 προηγμένο φίλτρο έργου ωρίμανσης', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  await window.getByRole('button', { name: 'Προηγμένα φίλτρα' }).click();
+  await window.getByTestId('psk-filter-linked-orimanthi').selectOption('Ανακατασκευή οδού Αρχανών');
+  await expect(window.getByTestId('psk-card-psk-schools')).toBeVisible();
+  await expect(window.getByTestId('psk-card-psk-far')).toHaveCount(0);
+});

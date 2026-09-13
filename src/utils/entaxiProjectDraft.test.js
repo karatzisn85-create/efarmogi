@@ -6,6 +6,9 @@ const {
   buildProjectDraftFromEntaxi,
   buildEntaxiLinkAfterProjectCreate,
   entaxiHasStoredAcceptance,
+  entaxiReadyForSubproject,
+  entaxiHasModificationWithoutAcceptance,
+  resolveEntaxiSubprojectLinks,
 } = require('./entaxiProjectDraft');
 
 describe('entaxiProjectDraft', () => {
@@ -38,5 +41,25 @@ describe('entaxiProjectDraft', () => {
     );
     expect(snap.subprojectIds).toEqual(['s1']);
     expect(snap.linkedProjects[0].projectTitle).toBe('Αναβάθμιση πρασίνου');
+  });
+
+  it('έτοιμη για υποέργο μόνο με αποδοχή και χωρίς σύνδεση', () => {
+    expect(entaxiReadyForSubproject({
+      diavgeiaAcceptanceAda: '624ΙΩΨΜ-Ζ12',
+      linkedProjects: [],
+      subprojectIds: [],
+    })).toBe(true);
+    expect(entaxiReadyForSubproject({
+      diavgeiaAcceptanceAda: '624ΙΩΨΜ-Ζ12',
+      linkedProjects: [{ projectTitle: 'Έργο' }],
+      subprojectIds: ['s1'],
+    })).toBe(false);
+    expect(entaxiHasModificationWithoutAcceptance({
+      modifications: [{ comments: 'ποσό' }, { diavgeiaAcceptanceAda: 'AAA' }],
+    })).toBe(true);
+    expect(resolveEntaxiSubprojectLinks(
+      { subprojectIds: ['s1'] },
+      [{ subprojectId: 's1', subprojectTitle: 'Γέφυρα', projectTitle: 'Οδικό' }]
+    )).toEqual([{ id: 's1', title: 'Γέφυρα', projectTitle: 'Οδικό' }]);
   });
 });

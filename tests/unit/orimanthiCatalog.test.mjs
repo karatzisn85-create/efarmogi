@@ -119,3 +119,29 @@ test('φίλτρα: κατάσταση, χωρίς κατηγορία, ΑΕΠΟ 
     ['b']
   );
 });
+
+test('φίλτρο εκκρεμεί άδεια: μόνο όσα έχουν αδειοδότηση χωρίς έκδοση', () => {
+  const rows = [
+    {
+      id: 'pending',
+      title: 'Εκκρεμεί',
+      fileGroups: [
+        { fileCategoryRoot: 'adeiodotiseis', fileCategorySpec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ', permitIssued: false },
+      ],
+    },
+    {
+      id: 'done',
+      title: 'Εκδόθηκαν',
+      fileGroups: [
+        { fileCategoryRoot: 'adeiodotiseis', fileCategorySpec: 'ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ', permitIssued: true },
+      ],
+    },
+    { id: 'none', title: 'Χωρίς άδειες', fileGroups: [] },
+  ];
+  assert.deepEqual(
+    ori.filterOrimanthiHub(rows, { quickFilter: 'permit_pending' }).map((p) => p.id),
+    ['pending']
+  );
+  assert.equal(ori.hasPendingOrimanthiPermit(rows[0]), true);
+  assert.equal(ori.hasPendingOrimanthiPermit(rows[1]), false);
+});

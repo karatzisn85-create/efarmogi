@@ -25,6 +25,7 @@ import {
   applyProsklisiDailyFilters,
   applyProsklisiAdvancedFilters,
   uniqueLinkedProjectTitles,
+  uniqueLinkedOrimanthiTitles,
   linkedOrimanthiTitlesOf,
   normalizeLinkedOrimanthiProposals,
   normalizeLinkedProjects,
@@ -1185,6 +1186,7 @@ function SeeMoreText({ text, modalTitle, lineClamp = 2, singleLine = false, Text
 
 function ProsklisisManager({
   isOpen,
+  keepAlive = false,
   onClose,
   userRole,
   currentUser,
@@ -1216,7 +1218,7 @@ function ProsklisisManager({
 
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState({
-    axis: '', fundingSource: '', linkedProject: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: '',
+    axis: '', fundingSource: '', linkedProject: '', linkedOrimanthi: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: '',
     diavgeiaAda: '', relatedEntaxi: ''
   });
   const [quickSearchStatus, setQuickSearchStatus] = useState('');
@@ -1779,6 +1781,7 @@ function ProsklisisManager({
   const axisOptions = uniqueSortedProsklisiFieldValues(proskliseis, 'axis');
   const fundingOptions = uniqueSortedProsklisiFieldValues(proskliseis, 'fundingSource');
   const linkedProjectOptions = uniqueLinkedProjectTitles(proskliseis);
+  const linkedOrimanthiOptions = uniqueLinkedOrimanthiTitles(proskliseis);
   const statusOptions = useMemo(() => {
     const forTab = statusesForProsklisiViewTab(getUniqueStatuses(), viewTab);
     if (quickSearchStatus && !forTab.includes(quickSearchStatus)) {
@@ -1804,7 +1807,7 @@ function ProsklisisManager({
     else if (chipId === 'expiringSoon') setShowExpiringSoonOnly(false);
     else if (chipId === 'unlinked') setShowUnlinkedOnly(false);
     else if (chipId === 'withModifications') setShowWithModificationsOnly(false);
-    else if (['axis', 'fundingSource', 'linkedProject', 'minBudget', 'maxBudget', 'dateFrom', 'dateTo', 'diavgeiaAda', 'relatedEntaxi'].includes(chipId)) {
+    else if (['axis', 'fundingSource', 'linkedProject', 'linkedOrimanthi', 'minBudget', 'maxBudget', 'dateFrom', 'dateTo', 'diavgeiaAda', 'relatedEntaxi'].includes(chipId)) {
       handleAdvancedFilterChange(chipId, '');
     }
   };
@@ -1825,7 +1828,7 @@ function ProsklisisManager({
     setShowWithModificationsOnly(false);
     setSortByDeadline(false);
     setAdvancedFilters({
-      axis: '', fundingSource: '', linkedProject: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: '',
+      axis: '', fundingSource: '', linkedProject: '', linkedOrimanthi: '', minBudget: '', maxBudget: '', dateFrom: '', dateTo: '',
       diavgeiaAda: '', relatedEntaxi: ''
     });
     setShowAdvancedFilters(false);
@@ -1891,6 +1894,14 @@ function ProsklisisManager({
       id: row.id,
       title: row.title,
       prosklisiId,
+    });
+  };
+
+  const handleCreateEntaxiFromProsklisi = (prosklisi) => {
+    if (!prosklisi?.prosklisiId) return;
+    navigateToAssociation({
+      kind: 'new-entaxi',
+      prosklisiId: prosklisi.prosklisiId,
     });
   };
 
@@ -1995,7 +2006,7 @@ function ProsklisisManager({
 
   const handleAdvancedFilterChange = (field, value) => {
     setAdvancedFilters((prev) => ({ ...prev, [field]: value }));
-    if (field === 'linkedProject' && String(value || '').trim()) {
+    if ((field === 'linkedProject' || field === 'linkedOrimanthi') && String(value || '').trim()) {
       setShowUnlinkedOnly(false);
     }
   };
@@ -2024,17 +2035,20 @@ function ProsklisisManager({
     };
   };
 
-  if (!isOpen) return null;
+  if (!isOpen && !keepAlive) return null;
 
   /* ────────── Render ────────── */
 
   return (
-    <ModalOverlay onClick={(e) => e.target === e.currentTarget && handleClose()}>
+    <ModalOverlay
+      style={!isOpen ? { display: 'none' } : undefined}
+      onClick={(e) => e.target === e.currentTarget && handleClose()}
+    >
       <ModalContainer>
         <ModalTopSection>
           <PanelHeader>
             <PanelTitle>Διαχείριση Προσκλήσεων</PanelTitle>
-            <PanelCloseButton type="button" onClick={handleClose}>Κλείσιμο</PanelCloseButton>
+            <PanelCloseButton type="button" data-testid="psk-window-close" onClick={handleClose}>Κλείσιμο</PanelCloseButton>
           </PanelHeader>
 
           <ActionsBar>
@@ -2080,7 +2094,7 @@ function ProsklisisManager({
                   return next;
                 });
               }}
-              title="Προσκλήσεις χωρίς συσχέτιση με έργο"
+              title="Προσκλήσεις χωρίς έργο χαρτοφυλακίου και χωρίς ωρίμανση"
             >
               Χωρίς έργο
             </ToolbarToggleButton>
@@ -2217,6 +2231,16 @@ function ProsklisisManager({
                 >
                   <option value="">Όλα τα συσχετισμένα έργα</option>
                   {linkedProjectOptions.map((title) => (
+                    <option key={title} value={title}>{title}</option>
+                  ))}
+                </AdvFilterSelect>
+                <AdvFilterSelect
+                  data-testid="psk-filter-linked-orimanthi"
+                  value={advancedFilters.linkedOrimanthi}
+                  onChange={(e) => handleAdvancedFilterChange('linkedOrimanthi', e.target.value)}
+                >
+                  <option value="">Όλα τα έργα ωρίμανσης</option>
+                  {linkedOrimanthiOptions.map((title) => (
                     <option key={title} value={title}>{title}</option>
                   ))}
                 </AdvFilterSelect>
@@ -2415,50 +2439,55 @@ function ProsklisisManager({
                                   )}
                                 </LinkedRow>
 
-                                {orimanthiLinks.length > 0 && (
-                                  <LinkedRow>
+                                <LinkedRow>
                                     <LinkedHint>Ωρίμανση:</LinkedHint>
-                                    {orimanthiLinks.slice(0, 3).map((row) => (
-                                      <MetaChip
-                                        key={row.id}
-                                        $accent
-                                        $clickable
-                                        title={row.title}
-                                        data-testid={`psk-card-orimanthi-${row.id}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleOpenLinkedOrimanthi(row, prosklisi.prosklisiId);
-                                        }}
-                                      >
-                                        {truncateText(row.title, 36)}
-                                      </MetaChip>
-                                    ))}
+                                    {orimanthiLinks.length > 0 ? (
+                                      orimanthiLinks.slice(0, 3).map((row) => (
+                                        <MetaChip
+                                          key={row.id}
+                                          $accent
+                                          $clickable
+                                          title={row.title}
+                                          data-testid={`psk-card-orimanthi-${row.id}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenLinkedOrimanthi(row, prosklisi.prosklisiId);
+                                          }}
+                                        >
+                                          {truncateText(row.title, 36)}
+                                        </MetaChip>
+                                      ))
+                                    ) : (
+                                      <MetaChip title="Δεν έχει συσχετιστεί με έργο ωρίμανσης">Χωρίς σύνδεση</MetaChip>
+                                    )}
                                     {orimanthiLinks.length > 3 && (
                                       <MetaChip title={orimanthiLinks.slice(3).map((row) => row.title).join(', ')}>
                                         +{orimanthiLinks.length - 3}
                                       </MetaChip>
                                     )}
                                   </LinkedRow>
-                                )}
 
-                                {relatedEntaxeis.length > 0 && (
-                                  <LinkedRow>
+                                <LinkedRow>
                                     <LinkedHint>Εντάξεις:</LinkedHint>
-                                    {relatedEntaxeis.slice(0, 3).map((entaxi) => (
-                                      <MetaChip
-                                        key={entaxi.entaxiId}
-                                        $accent
-                                        $clickable
-                                        title={entaxi.subject || entaxi.projectTitle || 'Ένταξη'}
-                                        data-testid={`psk-card-entaxi-${entaxi.entaxiId}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleOpenRelatedEntaxi(entaxi, prosklisi.prosklisiId);
-                                        }}
-                                      >
-                                        {truncateText(entaxi.subject || entaxi.projectTitle || 'Ένταξη', 40)}
-                                      </MetaChip>
-                                    ))}
+                                    {relatedEntaxeis.length > 0 ? (
+                                      relatedEntaxeis.slice(0, 3).map((entaxi) => (
+                                        <MetaChip
+                                          key={entaxi.entaxiId}
+                                          $accent
+                                          $clickable
+                                          title={entaxi.subject || entaxi.projectTitle || 'Ένταξη'}
+                                          data-testid={`psk-card-entaxi-${entaxi.entaxiId}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenRelatedEntaxi(entaxi, prosklisi.prosklisiId);
+                                          }}
+                                        >
+                                          {truncateText(entaxi.subject || entaxi.projectTitle || 'Ένταξη', 40)}
+                                        </MetaChip>
+                                      ))
+                                    ) : (
+                                      <MetaChip title="Δεν έχει σχετική ένταξη">Χωρίς σύνδεση</MetaChip>
+                                    )}
                                     {relatedEntaxeis.length > 3 && (
                                       <MetaChip
                                         $clickable
@@ -2473,7 +2502,6 @@ function ProsklisisManager({
                                       </MetaChip>
                                     )}
                                   </LinkedRow>
-                                )}
                               </CompactMain>
 
                               <CompactAside>
@@ -2481,6 +2509,16 @@ function ProsklisisManager({
                                   <IconBtn $filesPrimary type="button" onClick={() => handleViewFiles(prosklisi.prosklisiId)}>
                                     Αρχεία
                                   </IconBtn>
+                                  {canManageWorkflow && (
+                                    <IconBtn
+                                      type="button"
+                                      data-testid={`psk-card-new-entaxi-${prosklisi.prosklisiId}`}
+                                      title="Νέα ένταξη για αυτή την πρόσκληση"
+                                      onClick={() => handleCreateEntaxiFromProsklisi(prosklisi)}
+                                    >
+                                      Νέα ένταξη
+                                    </IconBtn>
+                                  )}
                                   {canManageWorkflow && (
                                     <MenuWrap>
                                       <MenuTrigger
@@ -2649,6 +2687,7 @@ function ProsklisisManager({
           onOpenRelatedEntaxi={(entaxi) => handleOpenRelatedEntaxi(entaxi, selectedDetailProsklisi.prosklisiId)}
           onOpenLinkedProject={(row) => handleOpenLinkedProject(row, selectedDetailProsklisi.prosklisiId)}
           onOpenLinkedOrimanthi={(row) => handleOpenLinkedOrimanthi(row, selectedDetailProsklisi.prosklisiId)}
+          onCreateEntaxi={() => handleCreateEntaxiFromProsklisi(selectedDetailProsklisi)}
           onOpenDiavgeia={handleOpenDiavgeia}
           onViewModificationPDF={handleViewModificationPDF}
           onEditModification={handleEditModification}

@@ -4,8 +4,7 @@ import { isValidDiavgeiaAdaFormat, normalizeDiavgeiaAda } from '../utils/diavgei
 import {
   buildProsklisiDiavgeiaMeta,
   mapDiavgeiaDecisionToProsklisiFields,
-  PROSKLISI_MANUAL_FIELDS_MODIFICATION,
-  PROSKLISI_MANUAL_FIELDS_NEW,
+  remainingProsklisiManualFields,
   subjectLooksLikeModification,
 } from '../utils/prosklisiDiavgeiaFetch';
 import { openProsklisiDiavgeiaDocument } from '../utils/prosklisiDiavgeiaRegistry';
@@ -194,6 +193,9 @@ const FIELD_LABELS = {
   title: 'τίτλος',
   axis: 'άξονας',
   fundingSource: 'πηγή χρηματοδότησης',
+  code: 'κωδικός πρόσκλησης',
+  budgetRange: 'εύρος προϋπολογισμού',
+  deadline: 'λήξη υποβολής',
   modificationDocumentDate: 'ημερομηνία εγγράφου',
   modificationDescription: 'περιγραφή τροποποίησης',
 };
@@ -218,16 +220,14 @@ function ProsklisiDiavgeiaSection({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [previewDecision, setPreviewDecision] = useState(null);
+  const [previewPdfFields, setPreviewPdfFields] = useState(null);
+  const [previewPdfError, setPreviewPdfError] = useState('');
   const [confirmedMeta, setConfirmedMeta] = useState(initialConfirmedMeta);
 
   useEffect(() => {
     setAdaInput(initialAda || '');
     setConfirmedMeta(initialConfirmedMeta || null);
   }, [initialAda, initialConfirmedMeta]);
-
-  const manualFields = mode === 'modification'
-    ? PROSKLISI_MANUAL_FIELDS_MODIFICATION
-    : PROSKLISI_MANUAL_FIELDS_NEW;
 
   const handleFetch = useCallback(async () => {
     const ada = normalizeDiavgeiaAda(adaInput);
@@ -243,13 +243,17 @@ function ProsklisiDiavgeiaSection({
     setLoading(true);
     setError('');
     setPreviewDecision(null);
+    setPreviewPdfFields(null);
+    setPreviewPdfError('');
     try {
-      const res = await ipcRenderer.invoke('diavgeia-fetch-decision-by-ada', { ada });
+      const res = await ipcRenderer.invoke('diavgeia-fetch-prosklisi-by-ada', { ada });
       if (!res?.success || !res.decision) {
         setError(res?.error || 'Δεν βρέθηκε πράξη με αυτόν τον ΑΔΑ.');
         return;
       }
       setPreviewDecision(res.decision);
+      setPreviewPdfFields(res.pdfFields && typeof res.pdfFields === 'object' ? res.pdfFields : {});
+      setPreviewPdfError(res.pdfError || '');
       setAdaInput(res.decision.ada || ada);
     } catch (e) {
       setError(e?.message || 'Αποτυχία ανάκτησης από Διαύγεια.');
@@ -260,7 +264,7 @@ function ProsklisiDiavgeiaSection({
 
   const handleApply = useCallback(async () => {
     if (!previewDecision) return;
-    const mapped = mapDiavgeiaDecisionToProsklisiFields(previewDecision, mode);
+    const mapped = mapDiavgeiaDecisionToProsklisiFields(previewDecision, mode, previewPdfFields);
     const diavgeiaMeta = buildProsklisiDiavgeiaMeta(mapped.preview);
     setConfirmedMeta(diavgeiaMeta);
     setPreviewDecision(null);
@@ -271,11 +275,13 @@ function ProsklisiDiavgeiaSection({
       preview: mapped.preview,
       decision: previewDecision,
     });
-  }, [mode, onApply, previewDecision]);
+  }, [mode, onApply, previewDecision, previewPdfFields]);
 
   const handleClear = useCallback(() => {
     setConfirmedMeta(null);
     setPreviewDecision(null);
+    setPreviewPdfFields(null);
+    setPreviewPdfError('');
     setError('');
     onClear?.();
   }, [onClear]);
@@ -286,8 +292,11 @@ function ProsklisiDiavgeiaSection({
   }, [confirmedMeta, showToast]);
 
   const previewMapped = previewDecision
-    ? mapDiavgeiaDecisionToProsklisiFields(previewDecision, mode)
+    ? mapDiavgeiaDecisionToProsklisiFields(previewDecision, mode, previewPdfFields)
     : null;
+  const remainingManual = previewMapped
+    ? remainingProsklisiManualFields(mode, previewMapped.autoFilledKeys)
+    : [];
 
   const looksLikeModification = previewDecision
     ? subjectLooksLikeModification(previewDecision.subject)
@@ -297,10 +306,9 @@ function ProsklisiDiavgeiaSection({
     <Section>
       <SectionTitle>Ανάκτηση από Διαύγεια (προαιρετικό)</SectionTitle>
       <Hint>
-        Εισάγετε τον ΑΔΑ για αυτόματη συμπλήρωση βασικών στοιχείων και καταχώριση της πράξης
-        (χωρίς λήψη PDF — η προβολή γίνεται στον browser, όπως στα έγγραφα υποέργου).
-        Η πηγή χρηματοδότησης συμπληρώνεται από τον φορέα έκδοσης του εγγράφου.
-        Η προθεσμία υποβολής, ο κωδικός πρόσκλησης και το εύρος προϋπολογισμού συμπληρώνονται χειροκίνητα.
+        Εισάγετε τον ΑΔΑ. Συμπληρώνονται αυτόματα τα βασικά στοιχεία της πράξης
+        και, όταν το έγγραφο είναι αναγνώσιμο, ο κωδικός, το εύρος προϋπολογισμού
+        και η λήξη υποβολής προτάσεων. Η προβολή του εγγράφου γίνεται στον browser.
       </Hint>
 
       <AdaRow>
@@ -335,7 +343,19 @@ function ProsklisiDiavgeiaSection({
             {previewMapped.preview.issueDateDisplay ? (
               <div><strong>Ημερομηνία έκδοσης:</strong> {previewMapped.preview.issueDateDisplay}</div>
             ) : null}
+            {previewMapped.fields.code ? (
+              <div><strong>Κωδικός:</strong> {previewMapped.fields.code}</div>
+            ) : null}
+            {previewMapped.fields.budgetRange ? (
+              <div><strong>Εύρος Π/Υ:</strong> {previewMapped.fields.budgetRange}</div>
+            ) : null}
+            {previewMapped.fields.deadline ? (
+              <div><strong>Λήξη υποβολής:</strong> {previewMapped.fields.deadline}</div>
+            ) : null}
           </PreviewMeta>
+          {previewPdfError ? (
+            <WarnBanner>{previewPdfError}</WarnBanner>
+          ) : null}
 
           {mode === 'new' && looksLikeModification ? (
             <WarnBanner>
@@ -359,7 +379,7 @@ function ProsklisiDiavgeiaSection({
             <br />
             <strong>Θα χρειαστεί να συμπληρώσετε:</strong>
             {' '}
-            {manualFields.join(' · ')}
+            {remainingManual.length > 0 ? remainingManual.join(' · ') : 'τίποτα από τα βασικά — ελέγξτε μόνο τις συσχετίσεις'}
           </InfoBanner>
 
           <PreviewActions>

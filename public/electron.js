@@ -3734,6 +3734,16 @@ ipcMain.handle('diavgeia-download-decision-pdf', async (_event, { ada, documentU
   }
 });
 
+ipcMain.handle('diavgeia-fetch-prosklisi-by-ada', async (_event, { ada }) => {
+  try {
+    const service = require('./prosklisiDiavgeiaService');
+    return await service.fetchProsklisiByAda(ada);
+  } catch (error) {
+    console.error('diavgeia-fetch-prosklisi-by-ada:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
 ipcMain.handle('diavgeia-fetch-entaxi-by-ada', async (_event, { ada, mode }) => {
   try {
     const service = require('./entaxiDiavgeiaService');

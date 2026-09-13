@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useR
 import styled, { keyframes } from 'styled-components';
 import ProjectForm from './ProjectForm';
 import { buildProjectDraftFromEntaxi, buildEntaxiLinkAfterProjectCreate } from '../utils/entaxiProjectDraft';
+import { findOrimanthiLinksForProject } from '../utils/prosklisiDeadlineUtils';
 import { toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
 import entaxiAcceptanceMatch from '../../app/core/entaxiAcceptanceMatch';
 
@@ -3064,6 +3065,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const noteReturnRef = useRef(null);
   const meletaiReturnRef = useRef(null);
   const prosklisiReturnRef = useRef(null);
+  const entaxiReturnRef = useRef(false);
   /** Η τελευταία δική μας αποθήκευση — ώστε το ξεκλείδωμα να μη θεωρηθεί «άλλος χρήστης». */
   const recentLocalSaveRef = useRef({ subprojectId: '', updatedAt: '', until: 0 });
   // Separate monotonic counters for loadDataWithCache and loadProjects
@@ -3082,6 +3084,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       projectCardActionsRef.current.onOpenEgkriseis(projectTitle, subprojectTitle, subprojectId)
     ),
     onOpenLinkedProsklisi: (prosklisiId) => projectCardActionsRef.current.onOpenLinkedProsklisi(prosklisiId),
+    onOpenLinkedOrimanthi: (proposalId) => projectCardActionsRef.current.onOpenLinkedOrimanthi(proposalId),
     onOpenSpecificEntaxi: (subprojectId) => projectCardActionsRef.current.onOpenSpecificEntaxi(subprojectId),
     onOpenSpecificProsklisi: (projectTitle, projectId) => (
       projectCardActionsRef.current.onOpenSpecificProsklisi(projectTitle, projectId)
@@ -3455,6 +3458,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [entaxisProjectFilter, setEntaxisProjectFilter] = useState(null);
   const [selectedEntaxiId, setSelectedEntaxiId] = useState(null);
   const [entaxisProsklisiIdFilter, setEntaxisProsklisiIdFilter] = useState(null);
+  const [entaxisCreateProsklisiId, setEntaxisCreateProsklisiId] = useState(null);
   const [isProsklisisOpen, setIsProsklisisOpen] = useState(false);
   const [prosklisiProjectFilter, setProsklisiProjectFilter] = useState(null);
   const [selectedProsklisiId, setSelectedProsklisiId] = useState(null);
@@ -3467,6 +3471,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isOrimanthiOpen, setIsOrimanthiOpen] = useState(false);
   const [selectedOrimanthiId, setSelectedOrimanthiId] = useState(null);
   const [prosklisiReturnId, setProsklisiReturnId] = useState(null);
+  const [entaxiReturnActive, setEntaxiReturnActive] = useState(false);
   const [isMeletaiOpen, setIsMeletaiOpen] = useState(false);
   const [isContractorRegistryOpen, setIsContractorRegistryOpen] = useState(false);
   const [contractorRegistryFocusKey, setContractorRegistryFocusKey] = useState(null);
@@ -5925,6 +5930,24 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     return true;
   }, [prosklisiReturnId]);
 
+  const captureEntaxiReturnContext = useCallback(() => {
+    entaxiReturnRef.current = true;
+    setEntaxiReturnActive(true);
+  }, []);
+
+  const clearEntaxiReturnContext = useCallback(() => {
+    entaxiReturnRef.current = false;
+    setEntaxiReturnActive(false);
+  }, []);
+
+  const restoreEntaxiReturnContext = useCallback(() => {
+    if (!entaxiReturnRef.current) return false;
+    entaxiReturnRef.current = false;
+    setEntaxiReturnActive(false);
+    setIsEntaxisOpen(true);
+    return true;
+  }, []);
+
   const handleOpenAssociationFromProsklisi = useCallback((payload) => {
     const kind = payload?.kind;
     const prosklisiId = payload?.prosklisiId;
@@ -5947,6 +5970,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         setSelectedEntaxiId(null);
         setEntaxisProsklisiIdFilter(prosklisiId);
       }
+      setIsEntaxisOpen(true);
+      return;
+    }
+
+    if (kind === 'new-entaxi') {
+      setEntaxisCreateProsklisiId(prosklisiId || null);
+      setSelectedEntaxiId(null);
+      setEntaxisProjectFilter(null);
+      setEntaxisProsklisiIdFilter(null);
       setIsEntaxisOpen(true);
       return;
     }
@@ -7381,6 +7413,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     onOpenEntaxis: handleOpenEntaxis,
     onOpenEgkriseis: handleOpenEgkriseis,
     onOpenLinkedProsklisi: handleOpenLinkedProsklisi,
+    onOpenLinkedOrimanthi: (proposalId) => {
+      if (!proposalId) return;
+      setSelectedOrimanthiId(proposalId);
+      setIsOrimanthiOpen(true);
+    },
     onOpenSpecificEntaxi: handleOpenSpecificEntaxi,
     onOpenSpecificProsklisi: handleOpenSpecificProsklisi,
     onOpenSpecificMeleti: handleOpenSpecificMeleti,
@@ -7707,6 +7744,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                         {subprojectList.sortSubprojectsInGroup(subprojects)
                           .map(project => {
                             const linkedProsklisi = findLinkedProsklisi(project.subprojectId);
+                            const linkedOrimanthi = findOrimanthiLinksForProject(proskliseis, project)[0] || null;
                             const isLocked = project.isLocked || false;
                             return (
                               <ProjectCard
@@ -7724,6 +7762,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                                 hasLinkedEgkrisi={hasLinkedEgkrisi(project.subprojectId)}
                                 linkedProsklisi={linkedProsklisi}
                                 onOpenLinkedProsklisi={projectCardActions.onOpenLinkedProsklisi}
+                                linkedOrimanthi={linkedOrimanthi}
+                                onOpenLinkedOrimanthi={projectCardActions.onOpenLinkedOrimanthi}
                                 isLocked={isLocked}
                                 hasEntaxi={hasEntaxiForSubproject(project.subprojectId)}
                                 onOpenSpecificEntaxi={projectCardActions.onOpenSpecificEntaxi}
@@ -8229,10 +8269,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         <SubprojectDetailModal
           project={selectedDetailProject}
           engineerCatalog={engineerCatalogForCards}
-          engineerVisibilityContext={engineerVisibilityContext}
           onClose={() => {
             setSelectedDetailProject(null);
-            if (!restoreProsklisiReturnContext() && !restoreMeletiReturnContext()) {
+            if (!restoreEntaxiReturnContext() && !restoreProsklisiReturnContext() && !restoreMeletiReturnContext()) {
               restoreNoteReturnContext();
             }
           }}
@@ -8465,22 +8504,27 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       ) : null}
 
       {/* Entaxis Manager Modal */}
-      {isEntaxisOpen ? (
+      {(isEntaxisOpen || entaxiReturnActive) ? (
       <Suspense fallback={<LazyChunkFallback>Φόρτωση εντάξεων…</LazyChunkFallback>}>
       <EntaxisManager
         isOpen={isEntaxisOpen}
+        keepAlive={entaxiReturnActive}
         selectedEntaxiId={selectedEntaxiId}
         prosklisiIdFilter={entaxisProsklisiIdFilter}
+        initialCreateProsklisiId={entaxisCreateProsklisiId}
+        projects={projects}
         onClearFocus={() => {
           setSelectedEntaxiId(null);
           setEntaxisProjectFilter(null);
           setEntaxisProsklisiIdFilter(null);
         }}
         onClose={async (dataChanged) => {
+          clearEntaxiReturnContext();
           setIsEntaxisOpen(false);
           setEntaxisProjectFilter(null);
           setSelectedEntaxiId(null);
           setEntaxisProsklisiIdFilter(null);
+          setEntaxisCreateProsklisiId(null);
           if (dataChanged) {
             await loadEntaxeis();
           }
@@ -8511,6 +8555,23 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         currentUser={currentUser}
         projectFilter={entaxisProjectFilter}
         proskliseis={proskliseis}
+        onOpenSubproject={(subprojectId) => {
+          const found = (projects || []).find((p) => p.subprojectId === subprojectId);
+          if (!found) {
+            showToast('Το υποέργο δεν βρέθηκε στο χαρτοφυλάκιο.', 'warning');
+            return;
+          }
+          captureEntaxiReturnContext();
+          setIsEntaxisOpen(false);
+          openSubprojectDetail(found);
+        }}
+        onOpenOrimanthi={(proposalId) => {
+          if (!proposalId) return;
+          captureEntaxiReturnContext();
+          setIsEntaxisOpen(false);
+          setSelectedOrimanthiId(proposalId);
+          setIsOrimanthiOpen(true);
+        }}
         handleOpenProsklisi={handleOpenLinkedProsklisi}
         onViewFile={(filePath, fileName) => {
           setPdfViewer({
@@ -8595,7 +8656,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             onClose={() => {
               setIsOrimanthiOpen(false);
               setSelectedOrimanthiId(null);
-              if (!restoreProsklisiReturnContext()) {
+              if (!restoreEntaxiReturnContext() && !restoreProsklisiReturnContext()) {
                 restoreNoteReturnContext();
               }
             }}
@@ -8603,6 +8664,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             userRole={userRole}
             orimanthiCanEdit={!!currentUser?.orimanthiCanEdit}
             initialProposalId={selectedOrimanthiId}
+            proskliseis={proskliseis}
+            onOpenProsklisi={(prosklisiId) => {
+              setSelectedProsklisiId(prosklisiId);
+              setProsklisiProjectFilter(null);
+              setIsProsklisisOpen(true);
+            }}
           />
         </Suspense>
       ) : null}
@@ -8673,12 +8740,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       ) : null}
 
       {/* Prosklisis Manager Modal */}
-      {isProsklisisOpen ? (
+      {(isProsklisisOpen || prosklisiReturnId) ? (
       <Suspense fallback={<LazyChunkFallback>Φόρτωση προσκλήσεων…</LazyChunkFallback>}>
       <ProsklisisManager
         isOpen={isProsklisisOpen}
+        keepAlive={!!prosklisiReturnId}
         onClose={(dataChanged) => {
-          clearProsklisiReturnContext();
           setIsProsklisisOpen(false);
           setProsklisiProjectFilter(null);
           setSelectedProsklisiId(null);
@@ -8687,6 +8754,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               dashboardScrollRef.current.scrollTop = savedScrollPosition.current;
             }
           }, 100);
+          if (isOrimanthiOpen) {
+            if (dataChanged) {
+              loadProjects();
+              loadProskliseis();
+            }
+            return;
+          }
+          clearProsklisiReturnContext();
           restoreNoteReturnContext();
           if (dataChanged) {
             loadProjects();

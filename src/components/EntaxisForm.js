@@ -580,7 +580,7 @@ const EMPTY_ENTAXI_FORM = {
   diavgeiaMeta: null,
 };
 
-function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProskliseis = [] }) {
+function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProskliseis = [], presetProsklisiId = '' }) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState({ ...EMPTY_ENTAXI_FORM });
   const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
@@ -641,7 +641,10 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProsklisei
         setDiavgeiaAutoFilled(new Set());
         setProjectSearchTerm('');
       } else {
-        setFormData({ ...EMPTY_ENTAXI_FORM });
+        setFormData({
+          ...EMPTY_ENTAXI_FORM,
+          prosklisiId: String(presetProsklisiId || '').trim(),
+        });
         setDiavgeiaMeta(null);
         setDiavgeiaPreview(null);
         setDiavgeiaAutoFilled(new Set());
@@ -1339,6 +1342,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProsklisei
                 <FormGroup>
                   <Label>Συσχέτιση με πρόσκληση</Label>
                   <Select
+                    data-testid="ent-form-prosklisi"
                     value={formData.prosklisiId}
                     onChange={(e) => handleInputChange('prosklisiId', e.target.value)}
                   >

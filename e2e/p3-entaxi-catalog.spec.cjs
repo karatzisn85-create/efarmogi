@@ -430,3 +430,48 @@ test('P3-32 διαγραφή αποδοχής τροποποίησης καθα�
   await card.getByText('Ανάπλαση γέφυρας').first().click();
   await expect(detail.getByTestId('ent-detail-mod-acceptance-search-1')).toHaveText(/Έλεγχος αποδοχής τροποποίησης/);
 });
+
+test('P3-33 ένδειξη αποδοχής στην κάρτα και φίλτρα', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await expect(window.getByTestId('ent-card-acceptance-ent-free')).toHaveText('Χωρίς αποδοχή');
+  await expect(window.getByTestId('ent-card-acceptance-ent-road')).toHaveText('Χωρίς αποδοχή');
+  await window.getByTestId('ent-filter-no-acceptance').click();
+  await expect(window.getByTestId('ent-card-ent-free')).toBeVisible();
+  await expect(window.getByTestId('ent-card-ent-road')).toBeVisible();
+  await window.getByTestId('ent-filter-ready-project').click();
+  await expect(window.getByTestId('ent-card-ent-road')).toHaveCount(0);
+  await expect(window.getByTestId('ent-card-ent-water')).toHaveCount(0);
+  await window.getByTestId('ent-filter-mod-no-acceptance').click();
+  await expect(window.getByTestId('ent-card-ent-road')).toBeVisible();
+  await expect(window.getByTestId('ent-card-ent-free')).toHaveCount(0);
+});
+
+test('P3-34 λεπτομέρειες ένταξης δείχνουν τίτλο υποέργου και ωρίμανση', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-road').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await expect(detail.getByTestId('ent-detail-sub-titles')).toContainText('Γέφυρα Αγίου Σύλλα');
+  await expect(detail.getByTestId('ent-detail-sub-sub-bridge')).toContainText('Γέφυρα Αγίου Σύλλα');
+  await expect(detail.getByTestId('ent-detail-orimanthi')).toContainText('Ανακατασκευή οδού Αρχανών');
+});
+
+test('P3-35 από ένταξη η ωρίμανση και το υποέργο επιστρέφουν στις λεπτομέρειες', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-road').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await expect(detail).toBeVisible();
+  await detail.getByTestId('ent-detail-orimanthi-a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d').click();
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible({ timeout: 15000 });
+  await window.getByTestId('orimanthi-back').click();
+  await expect(window.getByTestId('orimanthi-window')).toHaveCount(0);
+  await expect(window.getByTestId('ent-detail-modal')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('ent-detail-subject')).toContainText('Ανάπλαση γέφυρας');
+  await window.getByTestId('ent-detail-sub-sub-bridge').click();
+  await expect(window.getByTestId('sub-detail-close')).toBeVisible({ timeout: 15000 });
+  await window.getByTestId('sub-detail-close').click();
+  await expect(window.getByTestId('ent-detail-modal')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('ent-detail-subject')).toContainText('Ανάπλαση γέφυρας');
+});

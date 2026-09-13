@@ -230,3 +230,32 @@ test('P8-17 αποθήκευση χωρίς τίτλο δεν αλλάζει τ�
   await openOrimanthi(window);
   await expect(window.getByText('Ανακατασκευή οδού Αρχανών').first()).toBeVisible();
 });
+
+test('P8-18 πρόοδος αδειών, πρόσκληση στην καρτέλα και φίλτρο εκκρεμών', async ({ app }) => {
+  const { window } = app;
+  await openOrimanthi(window);
+  const roadId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+  await expect(window.getByTestId(`orimanthi-permit-progress-${roadId}`)).toContainText('0 από 1');
+  await expect(window.getByTestId(`orimanthi-linked-invites-${roadId}`)).toContainText('Πρόσκληση σχολείων');
+  await window.getByTestId('orimanthi-hub-qf-permit_pending').click();
+  await expect(window.getByTestId(`orimanthi-permit-progress-${roadId}`)).toBeVisible();
+  await expect(window.getByText('Δίκτυο ύδρευσης Παρανύμφων')).toHaveCount(0);
+});
+
+test('P8-20 πρόσκληση από το πλέγμα ωρίμανσης αφήνει ανοιχτή την ωρίμανση', async ({ app }) => {
+  const { window } = app;
+  await expandCategory(window, 'Διαδικασίες Έργων');
+  await window.locator('[data-user-guide="nav-orimanthi"]').click();
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible({ timeout: 15000 });
+  await window.getByRole('button', { name: /Φίλτρα & ταξινόμηση/ }).click();
+  await window.getByTestId('orimanthi-hub-view-grid').click();
+  await window.getByTestId('orimanthi-open-psk-psk-schools').click();
+  await expect(window.getByText('Διαχείριση Προσκλήσεων').first()).toBeVisible({ timeout: 15000 });
+  if (await window.getByTestId('psk-detail-modal').count()) {
+    await window.getByTestId('psk-detail-close').click();
+  }
+  await window.getByTestId('psk-window-close').click();
+  await expect(window.getByText('Διαχείριση Προσκλήσεων')).toHaveCount(0);
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-open-psk-psk-schools')).toBeVisible();
+});

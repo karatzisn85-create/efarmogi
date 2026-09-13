@@ -23,6 +23,11 @@ import {
 import { parseGreekAmountString } from '../utils/khmdhsFields';
 import entaxiCatalog from '../../app/core/entaxiCatalog';
 import persistAcceptance from '../../app/core/entaxiAcceptancePersist';
+import {
+  entaxiHasStoredAcceptance,
+  entaxiReadyForSubproject,
+  entaxiHasModificationWithoutAcceptance,
+} from '../utils/entaxiProjectDraft';
 
 const ipcRenderer = window.electronAPI;
 const path = require('path-browserify');
@@ -1431,7 +1436,7 @@ window.fixAllEntaxeis = async () => {
   }
 };
 
-function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, onClearFocus = null, onDataChange, onCreateProjectFromEntaxi, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '', appConfig = {}, appVersion = '' }) {
+function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, initialCreateProsklisiId = null, projects = [], onClearFocus = null, onDataChange, onCreateProjectFromEntaxi, onOpenSubproject, onOpenOrimanthi, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '', appConfig = {}, appVersion = '' }) {
   const { showToast } = useToast();
   const canManageWorkflow = entaxiCatalog.showNewEntaxiButton(userRole);
   const [entaxeis, setEntaxeis] = useState([]);
@@ -1466,6 +1471,8 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
     projectTitle: '',
     showUnlinkedOnly: false
   });
+  const [acceptanceFilter, setAcceptanceFilter] = useState('');
+  const [createProsklisiId, setCreateProsklisiId] = useState('');
   
   // Quick search state
   const [quickSearchTerm, setQuickSearchTerm] = useState('');
@@ -1648,7 +1655,17 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
 
   useEffect(() => {
     applyFilters();
-  }, [entaxeis, searchFilters, projectFilter, quickSearchTerm, selectedEntaxiId, prosklisiIdFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [entaxeis, searchFilters, projectFilter, quickSearchTerm, selectedEntaxiId, prosklisiIdFilter, acceptanceFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const id = String(initialCreateProsklisiId || '').trim();
+    if (!id) return;
+    setCreateProsklisiId(id);
+    setEditingEntaxi(null);
+    setSelectedDetailEntaxi(null);
+    setIsFormOpen(true);
+  }, [isOpen, initialCreateProsklisiId]);
 
   useEffect(() => {
     entaxeisRef.current = entaxeis;
@@ -1831,6 +1848,14 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       filtered = filtered.filter((entaxi) => entaxiCatalog.isEntaxiUnlinked(entaxi));
     }
 
+    if (acceptanceFilter === 'no_acceptance') {
+      filtered = filtered.filter((entaxi) => !entaxiHasStoredAcceptance(entaxi));
+    } else if (acceptanceFilter === 'ready_project') {
+      filtered = filtered.filter((entaxi) => entaxiReadyForSubproject(entaxi));
+    } else if (acceptanceFilter === 'mod_no_acceptance') {
+      filtered = filtered.filter((entaxi) => entaxiHasModificationWithoutAcceptance(entaxi));
+    }
+
     setFilteredEntaxeis(filtered);
   };
 
@@ -1852,6 +1877,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       showUnlinkedOnly: false
     });
     setQuickSearchTerm('');
+    setAcceptanceFilter('');
   };
 
   // Συνάρτηση για κλείσιμο του modal με καθαρισμό φίλτρων
@@ -1873,12 +1899,17 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   };
 
   const getActiveFiltersCount = () => {
-    return Object.entries(searchFilters).filter(([key, value]) => {
+    const searchCount = Object.entries(searchFilters).filter(([key, value]) => {
       if (key === 'showUnlinkedOnly') {
         return value === true;
       }
       return value !== '';
     }).length;
+    return searchCount + (acceptanceFilter ? 1 : 0);
+  };
+
+  const toggleAcceptanceFilter = (value) => {
+    setAcceptanceFilter((prev) => (prev === value ? '' : value));
   };
 
   const handleSaveEntaxi = async (entaxiData) => {
@@ -1891,6 +1922,7 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
       const savedId = editingEntaxi?.entaxiId || entaxiData?.entaxiId;
       setIsFormOpen(false);
       setEditingEntaxi(null);
+      setCreateProsklisiId('');
       requestListScrollRestore();
       releaseEntaxiLockHold(savedId, 'form');
       markCatalogDirty();
@@ -2238,10 +2270,14 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
   // Group filtered entaxeis by project
   const groupedEntaxeis = entaxiCatalog.groupEntaxeisByProjectTitle(filteredEntaxeis, projectFilter);
 
-  if (!isOpen) return null;
+  if (!isOpen && !keepAlive) return null;
 
   return (
-    <EntaxisOverlay data-testid="entaxeis-window" onClick={(e) => e.target === e.currentTarget && handleClose()}>
+    <EntaxisOverlay
+      data-testid="entaxeis-window"
+      style={!isOpen ? { display: 'none' } : undefined}
+      onClick={(e) => e.target === e.currentTarget && handleClose()}
+    >
       <EntaxisContainer>
         <EntaxisTopSection>
         <Header>
@@ -2280,6 +2316,33 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
             onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
           >
             {showAdvancedSearch ? 'Απόκρυψη φίλτρων' : 'Προηγμένα φίλτρα'}
+          </ToolbarToggleButton>
+          <ToolbarToggleButton
+            type="button"
+            data-testid="ent-filter-no-acceptance"
+            $active={acceptanceFilter === 'no_acceptance'}
+            onClick={() => toggleAcceptanceFilter('no_acceptance')}
+            title="Εντάξεις χωρίς αποδοχή χρηματοδότησης"
+          >
+            Χωρίς αποδοχή
+          </ToolbarToggleButton>
+          <ToolbarToggleButton
+            type="button"
+            data-testid="ent-filter-ready-project"
+            $active={acceptanceFilter === 'ready_project'}
+            onClick={() => toggleAcceptanceFilter('ready_project')}
+            title="Έχει αποδοχή αλλά δεν έχει ακόμα υποέργο"
+          >
+            Έτοιμη για υποέργο
+          </ToolbarToggleButton>
+          <ToolbarToggleButton
+            type="button"
+            data-testid="ent-filter-mod-no-acceptance"
+            $active={acceptanceFilter === 'mod_no_acceptance'}
+            onClick={() => toggleAcceptanceFilter('mod_no_acceptance')}
+            title="Τροποποίηση χωρίς αποδοχή"
+          >
+            Τροπ. χωρίς αποδοχή
           </ToolbarToggleButton>
         </ActionsBar>
 
@@ -2493,6 +2556,20 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                             {entaxi.endDate && (
                               <MetaChip title="Λήξη πράξης">Λήξη {formatDate(entaxi.endDate)}</MetaChip>
                             )}
+                            {entaxiHasStoredAcceptance(entaxi) ? (
+                              <MetaChip $green data-testid={`ent-card-acceptance-${entaxi.entaxiId}`}>
+                                Με αποδοχή
+                              </MetaChip>
+                            ) : (
+                              <MetaChip data-testid={`ent-card-acceptance-${entaxi.entaxiId}`}>
+                                Χωρίς αποδοχή
+                              </MetaChip>
+                            )}
+                            {entaxiHasModificationWithoutAcceptance(entaxi) ? (
+                              <MetaChip title="Υπάρχει τροποποίηση χωρίς αποδοχή">
+                                Τροπ. χωρίς αποδοχή
+                              </MetaChip>
+                            ) : null}
                           </MetaChipsRow>
 
                           {hasSecondaryDetails && (
@@ -2570,6 +2647,26 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
                             <IconBtn type="button" $filesPrimary onClick={() => handleOpenFileViewer(entaxi)} title="Προβολή αρχείων">
                               Αρχεία
                             </IconBtn>
+                            {canManageWorkflow && !isEntaxiLockedByOther(entaxi.entaxiId) && (
+                              <IconBtn
+                                type="button"
+                                data-testid={`ent-card-acceptance-search-${entaxi.entaxiId}`}
+                                title={entaxiHasStoredAcceptance(entaxi) ? 'Νέος έλεγχος αποδοχής' : 'Έλεγχος αποδοχής Δ.Σ.'}
+                                onClick={() => handleOpenAcceptanceSearch(entaxi)}
+                              >
+                                {entaxiHasStoredAcceptance(entaxi) ? 'Νέος έλεγχος' : 'Έλεγχος αποδοχής'}
+                              </IconBtn>
+                            )}
+                            {canManageWorkflow && entaxiReadyForSubproject(entaxi) && !isEntaxiLockedByOther(entaxi.entaxiId) && (
+                              <IconBtn
+                                type="button"
+                                data-testid={`ent-card-create-project-${entaxi.entaxiId}`}
+                                title="Δημιουργία υποέργου από την αποδοχή"
+                                onClick={() => handoffCreateProjectFromEntaxi(entaxi)}
+                              >
+                                Δημιουργία υποέργου
+                              </IconBtn>
+                            )}
                             {canManageWorkflow && (
                               <MenuWrap>
                                 <MenuTrigger
@@ -2752,14 +2849,18 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
           isOpen={isFormOpen}
           onClose={() => {
             const id = editingEntaxi?.entaxiId;
+            const fromInvitation = !!createProsklisiId;
             setIsFormOpen(false);
             setEditingEntaxi(null);
+            setCreateProsklisiId('');
             requestListScrollRestore();
             releaseEntaxiLockHold(id, 'form');
+            if (fromInvitation) handleClose();
           }}
           onSave={handleSaveEntaxi}
           editingEntaxi={editingEntaxi}
           catalogProskliseis={proskliseis}
+          presetProsklisiId={createProsklisiId}
         />
 
         {/* Modification Form Modal */}
@@ -2856,8 +2957,11 @@ function EntaxisManager({ isOpen, onClose, userRole, currentUser, projectFilter 
               }
               : null}
             onOpenNote={onOpenNoteFromEntity}
+            onOpenSubproject={onOpenSubproject}
+            onOpenOrimanthi={onOpenOrimanthi}
             canManageWorkflow={canManageWorkflow}
             isLocked={isEntaxiLockedByOther(selectedDetailEntaxi.entaxiId)}
+            projects={projects}
             proskliseis={proskliseis}
             linkedNotesMap={linkedNotesMap}
             notes={notes}
