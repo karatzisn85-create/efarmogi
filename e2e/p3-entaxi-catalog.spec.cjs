@@ -89,6 +89,8 @@ test('P3-20 κλικ στην κάρτα ανοίγει λεπτομέρειες
   await expect(detail.getByTestId('ent-detail-ada')).toContainText('ΨΩΚΖ7ΛΚ-8ΦΤ');
   await expect(detail.getByTestId('ent-detail-mod-count')).toHaveText('1');
   await expect(detail.getByTestId('ent-detail-mod-1')).toContainText('Αύξηση προϋπολογισμού γέφυρας');
+  await expect(detail.getByTestId('ent-detail-mod-1')).toContainText('1η');
+  await expect(detail.getByTestId('ent-detail-mod-1')).toContainText('Νέο σύνολο');
   await expect(detail.getByTestId('ent-detail-current-amount')).toContainText('120.000,00');
   await expect(detail.getByRole('button', { name: 'Επεξεργασία' })).toBeVisible();
   await expect(detail.getByTestId('ent-detail-acceptance-search')).toBeVisible();

@@ -5924,7 +5924,6 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     prosklisiReturnRef.current = null;
     setProsklisiReturnId(null);
     if (!id) return false;
-    setSelectedProsklisiId(id);
     setProsklisiProjectFilter(null);
     setIsProsklisisOpen(true);
     return true;
@@ -8572,7 +8571,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           setSelectedOrimanthiId(proposalId);
           setIsOrimanthiOpen(true);
         }}
-        handleOpenProsklisi={handleOpenLinkedProsklisi}
+        handleOpenProsklisi={(prosklisiId) => {
+          captureEntaxiReturnContext();
+          setIsEntaxisOpen(false);
+          handleOpenLinkedProsklisi(prosklisiId);
+        }}
         onViewFile={(filePath, fileName) => {
           setPdfViewer({
             isOpen: true,
@@ -8762,7 +8765,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             return;
           }
           clearProsklisiReturnContext();
-          restoreNoteReturnContext();
+          if (!restoreEntaxiReturnContext()) {
+            restoreNoteReturnContext();
+          }
           if (dataChanged) {
             loadProjects();
             loadProskliseis();

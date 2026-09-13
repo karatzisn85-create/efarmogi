@@ -113,7 +113,7 @@
   }
 
   function recordHasStoredAcceptance(data) {
-    if (String(data && data.diavgeiaAcceptanceAda || '').trim()) return true;
+    if (String(data && data.diavgeiaAcceptanceAda || data && data.diavgeiaAcceptanceMeta && data.diavgeiaAcceptanceMeta.ada || '').trim()) return true;
     return collectApprovalFileNames(data).length > 0;
   }
 

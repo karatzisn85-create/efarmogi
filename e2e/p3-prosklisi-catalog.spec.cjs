@@ -375,7 +375,7 @@ test('P3-60 σχετική ένταξη ανοίγει τις εντάξεις',
   const chip = window.getByTestId('psk-card-entaxi-ent-road');
   await expect(chip).toBeVisible({ timeout: 15000 });
   await chip.click();
-  await expect(window.getByText('Διαχείριση Προσκλήσεων').first()).toHaveCount(0);
+  await expect(window.getByText('Διαχείριση Προσκλήσεων').first()).toBeHidden();
   await expect(window.getByText('Εντάξεις Έργων').first()).toBeVisible();
   await expect(window.getByTestId('ent-detail-modal')).toBeVisible();
   await expect(window.getByTestId('ent-detail-subject')).toContainText('Ανάπλαση γέφυρας');

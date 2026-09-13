@@ -5441,7 +5441,35 @@ export default function OrimanthiManager({
           ) : null}
           {linkedInvites.length > 0 ? (
             <HubListSub data-testid={`orimanthi-linked-invites-${p.id}`}>
-              Προσκλήσεις: {linkedInvites.map((invite) => invite.title || 'Πρόσκληση').join(' · ')}
+              Προσκλήσεις:{' '}
+              {linkedInvites.map((invite, idx) => (
+                <React.Fragment key={invite.prosklisiId}>
+                  {idx > 0 ? ' · ' : null}
+                  {onOpenProsklisi ? (
+                    <button
+                      type="button"
+                      data-testid={`orimanthi-open-psk-${invite.prosklisiId}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenProsklisi(invite.prosklisiId);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        color: C.indigoDark,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      {invite.title || 'Πρόσκληση'}
+                    </button>
+                  ) : (
+                    invite.title || 'Πρόσκληση'
+                  )}
+                </React.Fragment>
+              ))}
             </HubListSub>
           ) : null}
         </HubListTitleCell>

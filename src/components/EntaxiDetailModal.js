@@ -305,6 +305,155 @@ const ModTitle = styled.div`
   margin-bottom: 0.45rem;
 `;
 
+const ModCard = styled.div`
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.7rem;
+  padding: 0.8rem 0.85rem 0.75rem;
+  border-radius: 14px;
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.06);
+  margin-bottom: 0.65rem;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+`;
+
+const ModStep = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 800;
+`;
+
+const ModCardBody = styled.div`
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`;
+
+const ModCardHead = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.45rem;
+`;
+
+const ModCardName = styled.span`
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #312e81;
+`;
+
+const ModChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 0.16rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+
+  ${(p) =>
+    p.$green &&
+    `
+    background: #f0fdf4;
+    border-color: #86efac;
+    color: #15803d;
+  `}
+
+  ${(p) =>
+    p.$warn &&
+    `
+    background: #fff7ed;
+    border-color: #fdba74;
+    color: #9a3412;
+  `}
+`;
+
+const ModCommentText = styled.div`
+  font-size: 0.88rem;
+  color: #1e293b;
+  line-height: 1.45;
+  white-space: pre-wrap;
+`;
+
+const ModAmountStrip = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.7rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  background: ${(p) => (p.$negative ? '#fef2f2' : '#f0fdf4')};
+  border: 1px solid ${(p) => (p.$negative ? 'rgba(248, 113, 113, 0.35)' : 'rgba(74, 222, 128, 0.4)')};
+`;
+
+const ModAmountLabel = styled.span`
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+`;
+
+const ModAmountValue = styled.span`
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+`;
+
+const ModAmountMeta = styled.span`
+  font-size: 0.75rem;
+  color: #64748b;
+`;
+
+const ModAmountDelta = styled.span`
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: ${(p) => (p.$negative ? '#b91c1c' : '#15803d')};
+`;
+
+const ModMetaGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.4rem;
+`;
+
+const ModMetaCell = styled.div`
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+`;
+
+const ModMetaLabel = styled.div`
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.15rem;
+`;
+
+const ModFilesWrap = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+`;
+
 const FileChip = styled.span`
   display: inline-flex;
   align-items: center;
@@ -729,79 +878,91 @@ function EntaxiDetailModal({
               {data.modifications.length === 0 ? (
                 <EmptyHint>Δεν υπάρχουν τροποποιήσεις για αυτή την ένταξη.</EmptyHint>
               ) : (
-                data.modifications.map((mod) => (
-                  <ModBlock key={mod.index} data-testid={`ent-detail-mod-${mod.index}`}>
-                    <ModTitle>
-                      {mod.index}η τροποποίηση{mod.date ? ` — ${mod.date}` : ''}
-                    </ModTitle>
-                    <FieldGrid>
-                      {mod.comments ? (
-                        <FieldFull>
-                          <FieldLabel>Σχόλια</FieldLabel>
-                          <FieldValue>{mod.comments}</FieldValue>
-                        </FieldFull>
-                      ) : null}
-                      {mod.changeAmount ? (
-                        <Field>
-                          <FieldLabel>Νέο σύνολο</FieldLabel>
-                          <FieldValue>{mod.amountLabel}</FieldValue>
-                        </Field>
-                      ) : null}
-                      {mod.deltaLabel ? (
-                        <Field>
-                          <FieldLabel>Μεταβολή</FieldLabel>
-                          <FieldValue>{mod.deltaLabel}</FieldValue>
-                        </Field>
-                      ) : null}
-                      {mod.ada ? (
-                        <Field>
-                          <FieldLabel>ΑΔΑ</FieldLabel>
-                          <FieldValue>
-                            <LinkBtn type="button" onClick={() => handleOpenAda({ ada: mod.ada })}>
-                              {mod.ada}
-                            </LinkBtn>
-                          </FieldValue>
-                        </Field>
-                      ) : null}
-                      {mod.endDate ? (
-                        <Field>
-                          <FieldLabel>Νέα λήξη πράξης</FieldLabel>
-                          <FieldValue>{mod.endDate}</FieldValue>
-                        </Field>
-                      ) : null}
-                      {mod.legalCommitmentDeadline ? (
-                        <Field>
-                          <FieldLabel>Νέα προθεσμία ΝοΔε</FieldLabel>
-                          <FieldValue>{mod.legalCommitmentDeadline}</FieldValue>
-                        </Field>
-                      ) : null}
-                    </FieldGrid>
-                    {mod.files.length > 0 ? (
-                      <div style={{ marginTop: '0.45rem' }}>
-                        {mod.files.map((f) => (
-                          <FileChip key={`${f.kind}-${f.name}`}>{f.kind}: {f.name}</FileChip>
-                        ))}
-                      </div>
-                    ) : null}
-                    {canManageWorkflow ? (
-                      <div style={{ marginTop: '0.55rem' }}>
-                        <FooterGhostBtn
-                          type="button"
-                          data-testid={`ent-detail-mod-acceptance-search-${mod.index}`}
-                          disabled={isLocked}
-                          onClick={() => {
-                            const raw = (entaxi.modifications || [])[mod.index - 1];
-                            if (raw) onSearchModificationAcceptance?.(entaxi, raw);
-                          }}
-                        >
-                          {persistAcceptance.recordHasStoredAcceptance((entaxi.modifications || [])[mod.index - 1])
-                            ? 'Νέος έλεγχος αποδοχής τροποποίησης'
-                            : 'Έλεγχος αποδοχής τροποποίησης'}
-                        </FooterGhostBtn>
-                      </div>
-                    ) : null}
-                  </ModBlock>
-                ))
+                data.modifications.map((mod) => {
+                  const raw = (entaxi.modifications || [])[mod.index - 1];
+                  const hasStored = persistAcceptance.recordHasStoredAcceptance(raw);
+                  const deltaNegative = String(mod.deltaLabel || '').includes('−');
+                  return (
+                    <ModCard key={mod.index} data-testid={`ent-detail-mod-${mod.index}`}>
+                      <ModStep>{mod.index}η</ModStep>
+                      <ModCardBody>
+                        <ModCardHead>
+                          <ModCardName>τροποποίηση{mod.date ? ` — ${mod.date}` : ''}</ModCardName>
+                          {hasStored ? (
+                            <ModChip $green>Με αποδοχή</ModChip>
+                          ) : (
+                            <ModChip $warn>Χωρίς αποδοχή</ModChip>
+                          )}
+                        </ModCardHead>
+                        {mod.comments ? <ModCommentText>{mod.comments}</ModCommentText> : null}
+                        {mod.changeAmount ? (
+                          <ModAmountStrip $negative={deltaNegative}>
+                            <ModAmountLabel>Νέο σύνολο</ModAmountLabel>
+                            <ModAmountValue>{mod.amountLabel}</ModAmountValue>
+                            {mod.previousTotalLabel ? (
+                              <ModAmountMeta>από {mod.previousTotalLabel}</ModAmountMeta>
+                            ) : null}
+                            {mod.deltaLabel ? (
+                              <ModAmountDelta $negative={deltaNegative}>{mod.deltaLabel}</ModAmountDelta>
+                            ) : null}
+                          </ModAmountStrip>
+                        ) : (
+                          <ModAmountStrip>
+                            <ModAmountLabel>Ποσό</ModAmountLabel>
+                            <ModAmountMeta>Χωρίς αλλαγή ποσού</ModAmountMeta>
+                          </ModAmountStrip>
+                        )}
+                        {(mod.ada || mod.endDate || mod.legalCommitmentDeadline) ? (
+                          <ModMetaGrid>
+                            {mod.ada ? (
+                              <ModMetaCell>
+                                <ModMetaLabel>ΑΔΑ</ModMetaLabel>
+                                <LinkBtn type="button" onClick={() => handleOpenAda({ ada: mod.ada })}>
+                                  {mod.ada}
+                                </LinkBtn>
+                              </ModMetaCell>
+                            ) : null}
+                            {mod.endDate ? (
+                              <ModMetaCell>
+                                <ModMetaLabel>Νέα λήξη πράξης</ModMetaLabel>
+                                <FieldValue>{mod.endDate}</FieldValue>
+                              </ModMetaCell>
+                            ) : null}
+                            {mod.legalCommitmentDeadline ? (
+                              <ModMetaCell>
+                                <ModMetaLabel>Νέα προθεσμία ΝοΔε</ModMetaLabel>
+                                <FieldValue>{mod.legalCommitmentDeadline}</FieldValue>
+                              </ModMetaCell>
+                            ) : null}
+                          </ModMetaGrid>
+                        ) : null}
+                        {mod.files.length > 0 ? (
+                          <ModFilesWrap>
+                            {mod.files.map((f) => (
+                              <FileChip key={`${f.kind}-${f.name}`}>{f.kind}: {f.name}</FileChip>
+                            ))}
+                          </ModFilesWrap>
+                        ) : null}
+                        {canManageWorkflow ? (
+                          <div>
+                            <FooterGhostBtn
+                              type="button"
+                              data-testid={`ent-detail-mod-acceptance-search-${mod.index}`}
+                              disabled={isLocked}
+                              onClick={() => {
+                                if (raw) onSearchModificationAcceptance?.(entaxi, raw);
+                              }}
+                            >
+                              {hasStored
+                                ? 'Νέος έλεγχος αποδοχής τροποποίησης'
+                                : 'Έλεγχος αποδοχής τροποποίησης'}
+                            </FooterGhostBtn>
+                          </div>
+                        ) : null}
+                      </ModCardBody>
+                    </ModCard>
+                  );
+                })
               )}
             </SectionBlock>
 

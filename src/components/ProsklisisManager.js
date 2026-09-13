@@ -1286,7 +1286,7 @@ function ProsklisisManager({
   }, [requestListScrollRestore]);
 
   useEffect(() => {
-    if (!textDetailModal) return undefined;
+    if (!textDetailModal || !isOpen) return undefined;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
       e.stopPropagation();
@@ -1294,7 +1294,7 @@ function ProsklisisManager({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [textDetailModal, closeTextDetailModal]);
+  }, [textDetailModal, closeTextDetailModal, isOpen]);
 
   const toggleModsExpanded = useCallback((prosklisiId, count) => {
     setModsExpanded((prev) => {
@@ -1316,7 +1316,7 @@ function ProsklisisManager({
   const closeMenu = useCallback(() => setMenuState((s) => ({ ...s, open: false })), []);
 
   useEffect(() => {
-    if (!menuState.open) return undefined;
+    if (!menuState.open || !isOpen) return undefined;
     const handleKey = (e) => {
       if (e.key === 'Escape') closeMenu();
     };
@@ -1330,7 +1330,7 @@ function ProsklisisManager({
       document.removeEventListener('keydown', handleKey);
       document.removeEventListener('mousedown', handleOutside);
     };
-  }, [menuState.open, closeMenu]);
+  }, [menuState.open, closeMenu, isOpen]);
 
   /* ── Data loading ── */
 
@@ -1852,10 +1852,12 @@ function ProsklisisManager({
     const prosklisiId = payload.prosklisiId
       || selectedDetailProsklisi?.prosklisiId
       || payload.entaxi?.prosklisiId;
+    closeMenu();
+    setTextDetailModal(null);
+    setIsModificationFormOpen(false);
     if (typeof onOpenAssociation === 'function') {
       const dataChanged = catalogDirtyRef.current;
       catalogDirtyRef.current = false;
-      setSelectedDetailProsklisi(null);
       onOpenAssociation({ ...payload, prosklisiId, dataChanged });
       return;
     }

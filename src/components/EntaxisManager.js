@@ -740,6 +740,14 @@ const MetaChip = styled.span`
   `}
 
   ${(p) =>
+    p.$warn &&
+    `
+    background: #fff7ed;
+    border-color: #fdba74;
+    color: #9a3412;
+  `}
+
+  ${(p) =>
     p.$clickable &&
     `
     cursor: pointer;
@@ -928,9 +936,9 @@ const MenuItem = styled.button`
 `;
 
 const ModsToggleRow = styled.div`
-  padding: 0.5rem 0.85rem 0.65rem;
+  padding: 0.45rem 0.85rem 0.6rem;
   border-top: 1px solid #e2e8f0;
-  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #eef2ff 100%);
 `;
 
 const ModsToggleButton = styled.button`
@@ -939,7 +947,7 @@ const ModsToggleButton = styled.button`
   align-items: center;
   justify-content: space-between;
   gap: 0.65rem;
-  padding: 0.6rem 1rem;
+  padding: 0.55rem 0.95rem;
   border-radius: 10px;
   font-size: 0.72rem;
   font-weight: 700;
@@ -948,23 +956,23 @@ const ModsToggleButton = styled.button`
   cursor: pointer;
   font-family: inherit;
   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
-  border: 2px solid ${(p) => (p.$open ? '#d97706' : '#f59e0b')};
+  border: 1.5px solid ${(p) => (p.$open ? '#6366f1' : 'rgba(99, 102, 241, 0.45)')};
   background: ${(p) =>
     p.$open
-      ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
-      : 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)'};
-  color: ${(p) => (p.$open ? '#92400e' : '#9a3412')};
+      ? 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)'
+      : 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)'};
+  color: ${(p) => (p.$open ? '#312e81' : '#3730a3')};
   box-shadow: ${(p) =>
-    p.$open ? '0 3px 12px rgba(217, 119, 6, 0.22)' : '0 2px 8px rgba(245, 158, 11, 0.18)'};
+    p.$open ? '0 3px 12px rgba(79, 70, 229, 0.18)' : '0 2px 8px rgba(99, 102, 241, 0.12)'};
 
   &:hover {
-    border-color: #d97706;
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-    box-shadow: 0 4px 14px rgba(217, 119, 6, 0.28);
+    border-color: #4f46e5;
+    background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.22);
   }
 
   &:focus-visible {
-    outline: 2px solid #d97706;
+    outline: 2px solid #6366f1;
     outline-offset: 2px;
   }
 `;
@@ -987,7 +995,7 @@ const ModsCountBadge = styled.span`
   min-width: 1.35rem;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
-  background: #d97706;
+  background: #4f46e5;
   color: #ffffff;
   font-size: 0.68rem;
   font-weight: 800;
@@ -1000,91 +1008,139 @@ const ModsToggleChevron = styled.span`
 `;
 
 const ModificationsPanel = styled.div`
-  background: #fffbeb;
-  border-top: 2px solid #fde68a;
-  padding-bottom: 0.35rem;
+  background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%);
+  border-top: 2px solid #c7d2fe;
+  padding: 0.15rem 0 0.45rem;
   overflow: visible;
 `;
 
 const ModsSectionHeader = styled.h4`
   margin: 0;
-  padding: 0.65rem 0.85rem 0.5rem;
-  font-size: 0.72rem;
+  padding: 0.55rem 0.95rem 0.45rem;
+  font-size: 0.7rem;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #92400e;
+  letter-spacing: 0.08em;
+  color: #4338ca;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  border-bottom: 1px solid #fde68a;
-  background: linear-gradient(90deg, rgba(254, 243, 199, 0.9) 0%, rgba(255, 251, 235, 0.4) 70%);
 
   &::before {
     content: '';
-    width: 4px;
-    height: 1.1rem;
-    border-radius: 2px;
-    background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
+    width: 3px;
+    height: 1.05rem;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
     flex-shrink: 0;
   }
 `;
 
-const ModTableHead = styled.div`
-  display: grid;
-  grid-template-columns: 32px 88px minmax(90px, 110px) 1fr;
-  gap: 0.35rem 0.5rem;
-  padding: 0.35rem 0.85rem;
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #94a3b8;
-  border-bottom: 1px solid #e2e8f0;
-`;
-
 const ModTableRow = styled.div`
-  margin: 0 0.55rem 0.4rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  margin: 0 0.65rem 0.55rem;
+  padding: 0.7rem 0.8rem 0.65rem;
   font-size: 0.78rem;
-  border: 1px solid #fde68a;
-  border-radius: 8px;
-  background: #fffbeb;
-  box-shadow: 0 1px 2px rgba(217, 119, 6, 0.08);
-  overflow: hidden;
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.06);
 
   &:last-child {
-    margin-bottom: 0.55rem;
-  }
-
-  &:hover {
-    border-color: #fcd34d;
-    box-shadow: 0 2px 6px rgba(217, 119, 6, 0.12);
+    margin-bottom: 0.65rem;
   }
 `;
 
-const ModTableMain = styled.div`
-  display: grid;
-  grid-template-columns: 32px 88px minmax(90px, 110px) 1fr;
-  gap: 0.35rem 0.5rem;
-  padding: 0.55rem 0.65rem;
-  align-items: start;
+const ModStepRail = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 0.05rem;
+`;
+
+const ModIndex = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+`;
+
+const ModCardBody = styled.div`
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+`;
+
+const ModCardHead = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.45rem;
+`;
+
+const ModCardTitle = styled.span`
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #312e81;
+`;
+
+const ModAmountStrip = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  background: ${(p) => (p.$negative ? '#fef2f2' : '#f0fdf4')};
+  border: 1px solid ${(p) => (p.$negative ? 'rgba(248, 113, 113, 0.35)' : 'rgba(74, 222, 128, 0.4)')};
+`;
+
+const ModAmountLabel = styled.span`
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+`;
+
+const ModAmountValue = styled.span`
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #0f172a;
+`;
+
+const ModAmountDelta = styled.span`
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: ${(p) => (p.$negative ? '#b91c1c' : '#15803d')};
+`;
+
+const ModAmountFlow = styled.span`
+  font-size: 0.72rem;
+  color: #64748b;
 `;
 
 const ModRowFooter = styled.div`
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 0.35rem;
-  padding: 0 0.65rem 0.5rem;
 `;
 
 const ModFilesSection = styled.div`
-  border-top: 1px dashed #fcd34d;
-  padding: 0.5rem 0.65rem 0.55rem;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  background: rgba(255, 255, 255, 0.65);
+  gap: 0.35rem;
 `;
 
 const ModFilesSectionTitle = styled.div`
@@ -1092,7 +1148,7 @@ const ModFilesSectionTitle = styled.div`
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #92400e;
+  color: #64748b;
 `;
 
 const ModFileBlock = styled.div`
@@ -1101,15 +1157,15 @@ const ModFileBlock = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.5rem 0.6rem;
-  background: #ffffff;
+  padding: 0.4rem 0.55rem;
+  background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
 `;
 
 const ModFileLabel = styled.span`
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 650;
   color: #334155;
   flex: 1;
   min-width: 160px;
@@ -1152,9 +1208,9 @@ const DeleteFileBtn = styled(FileIconBtn)`
 
 const ModActionBtn = styled.button`
   padding: 0.35rem 0.7rem;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 650;
   cursor: pointer;
   font-family: inherit;
   white-space: nowrap;
@@ -1163,19 +1219,19 @@ const ModActionBtn = styled.button`
   ${(p) =>
     p.$variant === 'edit' &&
     `
-    background: #ecfdf5;
-    color: #14532d;
-    border: 1px solid #86efac;
-    &:hover { background: #dcfce7; }
+    background: #fff;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    &:hover { background: #f8fafc; border-color: #94a3b8; }
   `}
 
   ${(p) =>
     p.$variant === 'modDelete' &&
     `
-    background: #fef2f2;
+    background: #fff;
     color: #991b1b;
     border: 1px solid #fecaca;
-    &:hover { background: #fee2e2; }
+    &:hover { background: #fef2f2; }
   `}
 
   ${(p) =>
@@ -1188,28 +1244,16 @@ const ModActionBtn = styled.button`
   `}
 `;
 
-const ModIndex = styled.span`
-  font-weight: 700;
-  color: #d97706;
-`;
-
 const ModComment = styled(SubjectLine)`
-  font-size: 0.78rem;
-  font-weight: 400;
-  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #334155;
   min-width: 0;
 `;
 
 const EntaxisDetails = styled.div`
   font-size: 0.875rem;
   color: #64748b;
-`;
-
-const EntaxisAmount = styled.div`
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: ${(props) =>
-    props.positive ? '#15803d' : props.negative ? '#b91c1c' : '#1d4ed8'};
 `;
 
 const CommentsModalOverlay = styled.div`
@@ -2617,8 +2661,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (handleOpenProsklisi) {
-                                    handleClose();
-                                    setTimeout(() => handleOpenProsklisi(entaxi.prosklisiId), 300);
+                                    handleOpenProsklisi(entaxi.prosklisiId);
                                   }
                                 }}
                               >
@@ -2708,13 +2751,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
 
                       {modsOpen && modCount > 0 && (
                         <ModificationsPanel onClick={(e) => e.stopPropagation()}>
-                          <ModsSectionHeader>Τροποποιήσεις Ένταξης</ModsSectionHeader>
-                          <ModTableHead>
-                            <span>#</span>
-                            <span>Ημ/νία</span>
-                            <span>Ποσό</span>
-                            <span>Σχόλιο</span>
-                          </ModTableHead>
+                          <ModsSectionHeader>Τροποποιήσεις ένταξης</ModsSectionHeader>
                           {entaxi.modifications.map((mod, index) => {
                             const modComment = mod.comments?.trim() || '';
                             const amountFlow = getModificationAmountFlowEntry(entaxi, index);
@@ -2723,6 +2760,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
                             const hasApprovalPdf = approvalFiles.length > 0;
                             const hasStoredModAcceptance = persistAcceptance.recordHasStoredAcceptance(mod);
                             const hasAnyFile = hasModPdf || hasApprovalPdf;
+                            const stepLabel = `${index + 1}η`;
 
                             const renderFileBlock = (label, fileRef) => {
                               const fileName = resolveEntaxiFileName(fileRef);
@@ -2759,76 +2797,88 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
 
                             return (
                               <ModTableRow key={mod.modificationId || index}>
-                                <ModTableMain>
-                                  <ModIndex>{index + 1}</ModIndex>
-                                  <span>{formatDate(mod.date)}</span>
-                                  {amountFlow.kind === 'absolute' ? (
-                                    <EntaxisAmount
-                                      positive={amountFlow.delta > 0}
-                                      negative={amountFlow.delta < 0}
-                                      style={{ fontSize: '0.78rem', lineHeight: 1.25 }}
-                                      title={`Μεταβολή: ${formatEntaxiAmountDelta(amountFlow.delta)} €`}
-                                    >
-                                      {formatEntaxiAmount(amountFlow.newTotal)} €
-                                      <div style={{ fontSize: '0.68rem', fontWeight: 500, opacity: 0.85 }}>
-                                        ({formatEntaxiAmountDelta(amountFlow.delta)} €)
-                                      </div>
-                                    </EntaxisAmount>
-                                  ) : (
-                                    <span style={{ color: '#94a3b8', fontSize: '0.78rem' }} title="Χωρίς αλλαγή ποσού">
-                                      —
-                                    </span>
-                                  )}
+                                <ModStepRail>
+                                  <ModIndex>{stepLabel}</ModIndex>
+                                </ModStepRail>
+                                <ModCardBody>
+                                  <ModCardHead>
+                                    <ModCardTitle>τροποποίηση</ModCardTitle>
+                                    <MetaChip title="Ημερομηνία τροποποίησης">{formatDate(mod.date)}</MetaChip>
+                                    {hasStoredModAcceptance ? (
+                                      <MetaChip $green>Με αποδοχή</MetaChip>
+                                    ) : (
+                                      <MetaChip $warn>Χωρίς αποδοχή</MetaChip>
+                                    )}
+                                  </ModCardHead>
+
                                   {modComment ? (
                                     <SeeMoreText
                                       text={modComment}
                                       modalTitle={`${index + 1}η Τροποποίηση — Σχόλια`}
-                                      singleLine
+                                      lineClamp={3}
                                       TextComponent={ModComment}
                                       onOpen={setTextDetailModal}
                                     />
                                   ) : (
-                                    <span style={{ color: '#64748b', fontSize: '0.78rem' }}>—</span>
+                                    <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Χωρίς σχόλιο</span>
                                   )}
-                                </ModTableMain>
 
-                                {hasAnyFile && (
-                                  <ModFilesSection>
-                                    <ModFilesSectionTitle>Αρχεία τροποποίησης</ModFilesSectionTitle>
-                                    {renderFileBlock('📄 Αρχείο Τροποποίησης', mod.modificationPDF)}
-                                    {approvalFiles.map((name) => renderFileBlock('📋 Αρχείο Αποδοχής Χρηματοδότησης', name))}
-                                  </ModFilesSection>
-                                )}
+                                  {amountFlow.kind === 'absolute' ? (
+                                    <ModAmountStrip $negative={amountFlow.delta < 0}>
+                                      <ModAmountLabel>Νέο σύνολο</ModAmountLabel>
+                                      <ModAmountValue>{formatEntaxiAmount(amountFlow.newTotal)} €</ModAmountValue>
+                                      <ModAmountFlow>
+                                        από {formatEntaxiAmount(amountFlow.previousTotal)} €
+                                      </ModAmountFlow>
+                                      <ModAmountDelta $negative={amountFlow.delta < 0}>
+                                        {formatEntaxiAmountDelta(amountFlow.delta)} €
+                                      </ModAmountDelta>
+                                    </ModAmountStrip>
+                                  ) : (
+                                    <ModAmountStrip>
+                                      <ModAmountLabel>Ποσό</ModAmountLabel>
+                                      <ModAmountFlow>Χωρίς αλλαγή ποσού</ModAmountFlow>
+                                    </ModAmountStrip>
+                                  )}
 
-                                {canManageWorkflow && (
-                                  <ModRowFooter>
-                                    <ModActionBtn
-                                      type="button"
-                                      $variant="search"
-                                      data-testid={`ent-mod-acceptance-search-${mod.modificationId || index + 1}`}
-                                      disabled={isEntaxiLockedByOther(entaxi.entaxiId)}
-                                      onClick={() => handleOpenAcceptanceSearch(entaxi, mod)}
-                                    >
-                                      {hasStoredModAcceptance
-                                        ? '🔎 Νέος έλεγχος αποδοχής'
-                                        : '🔎 Έλεγχος αποδοχής τροποποίησης'}
-                                    </ModActionBtn>
-                                    <ModActionBtn
-                                      type="button"
-                                      $variant="edit"
-                                      onClick={() => handleEditModification(mod, entaxi)}
-                                    >
-                                      ✏️ Επεξεργασία τροποποίησης
-                                    </ModActionBtn>
-                                    <ModActionBtn
-                                      type="button"
-                                      $variant="modDelete"
-                                      onClick={() => handleDeleteModification(entaxi.entaxiId, mod.modificationId)}
-                                    >
-                                      🗑️ Διαγραφή τροποποίησης
-                                    </ModActionBtn>
-                                  </ModRowFooter>
-                                )}
+                                  {hasAnyFile && (
+                                    <ModFilesSection>
+                                      <ModFilesSectionTitle>Αρχεία τροποποίησης</ModFilesSectionTitle>
+                                      {renderFileBlock('Αρχείο τροποποίησης', mod.modificationPDF)}
+                                      {approvalFiles.map((name) => renderFileBlock('Αρχείο αποδοχής χρηματοδότησης', name))}
+                                    </ModFilesSection>
+                                  )}
+
+                                  {canManageWorkflow && (
+                                    <ModRowFooter>
+                                      <ModActionBtn
+                                        type="button"
+                                        $variant="search"
+                                        data-testid={`ent-mod-acceptance-search-${mod.modificationId || index + 1}`}
+                                        disabled={isEntaxiLockedByOther(entaxi.entaxiId)}
+                                        onClick={() => handleOpenAcceptanceSearch(entaxi, mod)}
+                                      >
+                                        {hasStoredModAcceptance
+                                          ? 'Νέος έλεγχος αποδοχής'
+                                          : 'Έλεγχος αποδοχής τροποποίησης'}
+                                      </ModActionBtn>
+                                      <ModActionBtn
+                                        type="button"
+                                        $variant="edit"
+                                        onClick={() => handleEditModification(mod, entaxi)}
+                                      >
+                                        Επεξεργασία
+                                      </ModActionBtn>
+                                      <ModActionBtn
+                                        type="button"
+                                        $variant="modDelete"
+                                        onClick={() => handleDeleteModification(entaxi.entaxiId, mod.modificationId)}
+                                      >
+                                        Διαγραφή
+                                      </ModActionBtn>
+                                    </ModRowFooter>
+                                  )}
+                                </ModCardBody>
                               </ModTableRow>
                             );
                           })}
@@ -2951,10 +3001,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
               handoffCreateProjectFromEntaxi(row || selectedDetailEntaxi);
             }}
             onOpenProsklisi={handleOpenProsklisi
-              ? (prosklisiId) => {
-                handleClose();
-                setTimeout(() => handleOpenProsklisi(prosklisiId), 300);
-              }
+              ? (prosklisiId) => { handleOpenProsklisi(prosklisiId); }
               : null}
             onOpenNote={onOpenNoteFromEntity}
             onOpenSubproject={onOpenSubproject}
