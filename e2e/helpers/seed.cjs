@@ -408,6 +408,8 @@ function seedEntaxeis(dataDir) {
       subject: 'Μεμονωμένη ένταξη',
       projectTitle: '',
       initialAmount: '10.000,00',
+      opsCode: '5225999',
+      documentDate: '2025-10-01',
       subprojectIds: [],
     },
   ];

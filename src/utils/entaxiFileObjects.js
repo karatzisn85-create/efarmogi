@@ -12,3 +12,12 @@ export function toExistingEntaxiFileObjects(list) {
     return { fileName: name, originalName: name, isExisting: true };
   }).filter(Boolean);
 }
+
+export function collectEntaxiApprovalFileNames(entaxi) {
+  const names = toExistingEntaxiFileObjects(entaxi?.approvalPDFs).map((f) => f.fileName);
+  const legacy = String(entaxi?.approvalPDF || '').trim();
+  if (legacy && !names.some((n) => n.toLowerCase() === legacy.toLowerCase())) {
+    names.unshift(legacy);
+  }
+  return names;
+}

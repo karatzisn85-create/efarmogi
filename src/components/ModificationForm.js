@@ -127,6 +127,12 @@ const SelectedFileNote = styled.div`
   font-weight: 600;
 `;
 
+function fileRefDisplayName(file) {
+  if (!file) return '';
+  if (typeof file === 'string') return file.trim();
+  return String(file.fileName || file.name || '').trim();
+}
+
 function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false }) {
   const { showToast } = useToast();
   const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
@@ -633,9 +639,9 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
               >
                 Επιλογή αρχείου
               </FileSelectButton>
-              {formData.modificationPDF && (
-                <SelectedFileNote>{formData.modificationPDF.fileName}</SelectedFileNote>
-              )}
+              {fileRefDisplayName(formData.modificationPDF) ? (
+                <SelectedFileNote>{fileRefDisplayName(formData.modificationPDF)}</SelectedFileNote>
+              ) : null}
               {errors.modificationPDF && <ErrorMessage>{errors.modificationPDF}</ErrorMessage>}
             </FormGroup>
 
@@ -647,9 +653,9 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
               >
                 Επιλογή αρχείου
               </FileSelectButton>
-              {formData.approvalPDF && (
-                <SelectedFileNote>{formData.approvalPDF.fileName}</SelectedFileNote>
-              )}
+              {fileRefDisplayName(formData.approvalPDF) ? (
+                <SelectedFileNote>{fileRefDisplayName(formData.approvalPDF)}</SelectedFileNote>
+              ) : null}
             </FormGroup>
           </FormGrid>
 

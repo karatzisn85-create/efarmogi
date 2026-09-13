@@ -12,6 +12,7 @@ const {
   queueE2ESavePath,
   queueE2EKhmdhsFixtures,
   setE2EKhmdhsLive,
+  queueE2EDiavgeiaAcceptance,
   installE2EDialogHooks,
 } = require('./e2eMode');
 installE2EDialogHooks(dialog);
@@ -3743,6 +3744,169 @@ ipcMain.handle('diavgeia-fetch-entaxi-by-ada', async (_event, { ada, mode }) => 
   }
 });
 
+ipcMain.handle('diavgeia-search-entaxi-acceptance', async (_event, { entaxi, organizationName, modification }) => {
+  try {
+    const service = require('./entaxiAcceptanceDiavgeiaService');
+    return await service.searchEntaxiAcceptance(entaxi, { organizationName, modification });
+  } catch (error) {
+    console.error('diavgeia-search-entaxi-acceptance:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('diavgeia-attach-entaxi-acceptance', async (_event, { entaxiId, candidate, candidates, modificationId } = {}) => {
+  try {
+    const id = String(entaxiId || '').trim();
+    if (!id || !/^[A-Za-z0-9._-]+$/.test(id)) {
+      return { success: false, error: 'Λείπει η ένταξη.' };
+    }
+    const list = (Array.isArray(candidates) && candidates.length)
+      ? candidates
+      : (candidate ? [candidate] : []);
+    if (!list.length) {
+      return { success: false, error: 'Δεν επιλέχθηκε πράξη αποδοχής.' };
+    }
+    const entaxiRoot = path.resolve(entaxisDir, id);
+    const dataPath = path.join(entaxiRoot, 'data.json');
+    if (!isPathInsideDir(entaxiRoot, entaxisDir) || !isPathInsideDir(dataPath, entaxisDir)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+    if (!fs.existsSync(dataPath)) {
+      return { success: false, error: 'Δεν βρέθηκε η ένταξη.' };
+    }
+    const service = require('./entaxiAcceptanceDiavgeiaService');
+    const existing = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+    const targetModId = String(modificationId || '').trim();
+    const mods = Array.isArray(existing.modifications) ? existing.modifications : [];
+    let filesDir = path.join(entaxiRoot, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ');
+    let nextApproval = service.fileNameList(existing.approvalPDFs);
+    let modIndex = -1;
+    if (targetModId) {
+      modIndex = mods.findIndex((mod) => String(mod?.modificationId || '') === targetModId);
+      if (modIndex === -1) {
+        return { success: false, error: 'Δεν βρέθηκε η τροποποίηση.' };
+      }
+      filesDir = path.join(entaxiRoot, 'ΤΡΟΠΟΠΟΙΗΣΕΙΣ', `ΤΡΟΠ_${modIndex + 1}`);
+      nextApproval = service.fileNameList(mods[modIndex].approvalPDFs);
+    }
+    if (!isPathInsideDir(filesDir, entaxisDir)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+    await fs.promises.mkdir(filesDir, { recursive: true });
+    const attached = [];
+    const failedAdas = [];
+    for (const row of list) {
+      const prepared = await service.prepareAcceptancePdf(row);
+      if (!prepared.success) {
+        failedAdas.push(row?.ada || 'πράξη');
+        if (!attached.length) return prepared;
+        continue;
+      }
+      let safeName = path.basename(String(prepared.pdf?.fileName || '').replace(/[<>:"/\\|?*]/g, '_'));
+      if (!safeName || !/\.pdf$/i.test(safeName)) {
+        failedAdas.push(row?.ada || 'πράξη');
+        if (!attached.length) return { success: false, error: 'Μη έγκυρο όνομα αρχείου αποδοχής.' };
+        continue;
+      }
+      if (!prepared.pdf?.path || !fs.existsSync(prepared.pdf.path)) {
+        failedAdas.push(row?.ada || 'πράξη');
+        if (!attached.length) {
+          return { success: false, error: 'Δεν ήταν δυνατή η λήψη του αρχείου αποδοχής. Δοκιμάστε ξανά ή ανεβάστε το χειροκίνητα.' };
+        }
+        continue;
+      }
+      const ext = path.extname(safeName);
+      const base = safeName.slice(0, safeName.length - ext.length) || 'αποδοχή';
+      let n = 2;
+      while (fs.existsSync(path.join(filesDir, safeName)) || nextApproval.includes(safeName)) {
+        safeName = `${base} (${n})${ext}`;
+        n += 1;
+      }
+      const destPath = path.join(filesDir, safeName);
+      if (!isPathInsideDir(destPath, entaxisDir)) {
+        failedAdas.push(row?.ada || 'πράξη');
+        continue;
+      }
+      await fs.promises.copyFile(prepared.pdf.path, destPath);
+      if (!fs.existsSync(destPath)) {
+        failedAdas.push(row?.ada || 'πράξη');
+        continue;
+      }
+      if (!nextApproval.includes(safeName)) nextApproval.push(safeName);
+      attached.push({ pdfFileName: safeName, meta: prepared.meta });
+    }
+    if (!attached.length) {
+      return { success: false, error: 'Δεν αποθηκεύτηκε κανένα αρχείο αποδοχής.' };
+    }
+    const persistAcceptance = require(path.join(__dirname, '..', 'app', 'core', 'entaxiAcceptancePersist'));
+    const preferred = attached.find((row) => row.meta?.role === 'council_budget') || attached[0];
+    const preferredMeta = preferred.meta
+      ? { ...preferred.meta, pdfFileName: preferred.pdfFileName }
+      : preferred.meta;
+    let saved;
+    if (targetModId) {
+      const nextMods = mods.slice();
+      nextMods[modIndex] = {
+        ...persistAcceptance.mergeAttachedAcceptance(mods[modIndex], attached),
+        updatedAt: new Date().toISOString(),
+      };
+      saved = {
+        ...existing,
+        modifications: nextMods,
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      const prevMetas = Array.isArray(existing.diavgeiaAcceptanceMetas) ? existing.diavgeiaAcceptanceMetas : [];
+      const nextMetas = prevMetas.slice();
+      attached.forEach((row) => {
+        const meta = row.meta ? { ...row.meta, pdfFileName: row.pdfFileName } : null;
+        if (meta?.ada && !nextMetas.some((m) => m && m.ada === meta.ada)) {
+          nextMetas.push(meta);
+        }
+      });
+      saved = {
+        ...existing,
+        approvalPDFs: nextApproval,
+        approvalPDF: existing.approvalPDF || preferred.pdfFileName,
+        diavgeiaAcceptanceAda: preferredMeta.ada,
+        diavgeiaAcceptanceMeta: preferredMeta,
+        diavgeiaAcceptanceMetas: nextMetas,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    await safeWriteJSONAsync(dataPath, saved);
+    logAuditAction({
+      type: 'update',
+      entityType: 'entaxi',
+      entityId: id,
+      entityTitle: saved.subject || id,
+      details: targetModId
+        ? (attached.length > 1
+          ? `Αποθήκευση ${attached.length} πράξεων αποδοχής τροποποίησης από Διαύγεια`
+          : 'Αποθήκευση αποδοχής τροποποίησης από Διαύγεια')
+        : (attached.length > 1
+          ? `Αποθήκευση ${attached.length} πράξεων αποδοχής από Διαύγεια`
+          : 'Αποθήκευση αποδοχής χρηματοδότησης από Διαύγεια'),
+      oldValue: existing,
+      newValue: saved,
+    });
+    return {
+      success: true,
+      entaxi: saved,
+      modificationId: targetModId || '',
+      pdfFileName: preferred.pdfFileName,
+      pdfFileNames: attached.map((row) => row.pdfFileName),
+      meta: preferred.meta,
+      metas: attached.map((row) => row.meta),
+      failedAdas,
+      partial: failedAdas.length > 0,
+    };
+  } catch (error) {
+    console.error('diavgeia-attach-entaxi-acceptance:', error);
+    return { success: false, error: error.message || String(error) };
+  }
+});
+
 ipcMain.handle('khmdhs-fetch-notice-by-adam', async (_event, { adam }) => {
   try {
     const kh = require('./khmdhsOpenData');
@@ -5217,6 +5381,12 @@ ipcMain.handle('e2e-queue-khmdhs-fixtures', (_event, byAdam) => {
   return { success: true };
 });
 
+ipcMain.handle('e2e-queue-diavgeia-acceptance', (_event, payload) => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  queueE2EDiavgeiaAcceptance(payload);
+  return { success: true };
+});
+
 ipcMain.handle('e2e-set-khmdhs-live', (_event, enabled) => {
   if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
   setE2EKhmdhsLive(enabled);
@@ -6274,6 +6444,13 @@ ipcMain.handle('save-entaxi', async (event, entaxiData) => {
     if (fs.existsSync(jsonPath)) {
       try { existingEntaxiData = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch (_e) { /* ignore */ }
     }
+    const persistAcceptance = require(path.join(__dirname, '..', 'app', 'core', 'entaxiAcceptancePersist'));
+    persistAcceptance.preserveAcceptanceFields(existingEntaxiData, savedData);
+    if (existingEntaxiData && Array.isArray(existingEntaxiData.modifications)) {
+      savedData.modifications = existingEntaxiData.modifications;
+    } else if (!existingEntaxiData) {
+      savedData.modifications = [];
+    }
     await safeWriteJSONAsync(jsonPath, savedData);
 
     logAuditAction({
@@ -6296,18 +6473,105 @@ ipcMain.handle('save-entaxi', async (event, entaxiData) => {
 // Get entaxi files
 ipcMain.handle('get-entaxi-files', async (event, entaxiId) => {
   try {
-    const entaxiPath = path.join(entaxisDir, entaxiId);
+    const id = String(entaxiId || '').trim();
+    if (!id || !/^[A-Za-z0-9._-]+$/.test(id)) return [];
+    const entaxiPath = path.resolve(entaxisDir, id);
     const filesDir = path.join(entaxiPath, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ');
-    
+    if (!isPathInsideDir(entaxiPath, entaxisDir) || !isPathInsideDir(filesDir, entaxisDir)) {
+      return [];
+    }
     if (!fs.existsSync(filesDir)) {
       return [];
     }
-    
     const files = fs.readdirSync(filesDir);
-    return files.filter(file => file.toLowerCase().endsWith('.pdf'));
+    return files.filter((file) => file && !file.startsWith('.'));
   } catch (error) {
     console.error('Error getting entaxi files:', error);
     return [];
+  }
+});
+
+ipcMain.handle('add-entaxi-approval-files', async (_event, { entaxiId, files } = {}) => {
+  try {
+    const id = String(entaxiId || '').trim();
+    if (!id || !/^[A-Za-z0-9._-]+$/.test(id)) {
+      return { success: false, error: 'Λείπει η ένταξη.' };
+    }
+    const incoming = Array.isArray(files) ? files : [];
+    if (!incoming.length) {
+      return { success: false, error: 'Δεν επιλέχθηκαν αρχεία.' };
+    }
+    const entaxiRoot = path.resolve(entaxisDir, id);
+    const dataPath = path.join(entaxiRoot, 'data.json');
+    const filesDir = path.join(entaxiRoot, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ');
+    if (!isPathInsideDir(entaxiRoot, entaxisDir) || !isPathInsideDir(dataPath, entaxisDir) || !isPathInsideDir(filesDir, entaxisDir)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+    if (!fs.existsSync(dataPath)) {
+      return { success: false, error: 'Δεν βρέθηκε η ένταξη.' };
+    }
+    await fs.promises.mkdir(filesDir, { recursive: true });
+    const existing = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+    const nextApproval = [];
+    const seen = new Set();
+    const pushName = (name) => {
+      const n = String(name || '').trim();
+      if (!n) return;
+      const key = n.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      nextApproval.push(n);
+    };
+    (Array.isArray(existing.approvalPDFs) ? existing.approvalPDFs : []).forEach((item) => {
+      pushName(typeof item === 'string' ? item : (item && (item.fileName || item.name)));
+    });
+    pushName(typeof existing.approvalPDF === 'string'
+      ? existing.approvalPDF
+      : (existing.approvalPDF && (existing.approvalPDF.fileName || existing.approvalPDF.name)));
+    const added = [];
+    for (const file of incoming) {
+      const source = String(file?.filePath || '').trim();
+      if (!source || !fs.existsSync(source)) continue;
+      const requested = path.basename(String(file.fileName || source).replace(/[<>:"/\\|?*]/g, '_'));
+      if (!requested) continue;
+      let destName = requested;
+      const ext = path.extname(destName);
+      const base = destName.slice(0, destName.length - ext.length) || 'αρχείο';
+      let n = 2;
+      while (fs.existsSync(path.join(filesDir, destName))) {
+        destName = `${base} (${n})${ext}`;
+        n += 1;
+      }
+      const destPath = path.join(filesDir, destName);
+      if (!isPathInsideDir(destPath, filesDir)) continue;
+      await fs.promises.copyFile(source, destPath);
+      if (!fs.existsSync(destPath)) continue;
+      pushName(destName);
+      added.push(destName);
+    }
+    if (!added.length) {
+      return { success: false, error: 'Δεν αντιγράφηκε κανένα αρχείο.' };
+    }
+    const saved = {
+      ...existing,
+      approvalPDFs: nextApproval,
+      approvalPDF: existing.approvalPDF || nextApproval[0] || '',
+      updatedAt: new Date().toISOString(),
+    };
+    await safeWriteJSONAsync(dataPath, saved);
+    logAuditAction({
+      type: 'update',
+      entityType: 'entaxi',
+      entityId: id,
+      entityTitle: saved.subject || id,
+      details: `Προσθήκη αρχείων αποδοχής χρηματοδότησης (${added.length})`,
+      oldValue: existing,
+      newValue: saved,
+    });
+    return { success: true, entaxi: saved, added };
+  } catch (error) {
+    console.error('add-entaxi-approval-files:', error);
+    return { success: false, error: error.message || String(error) };
   }
 });
 
@@ -6506,6 +6770,16 @@ ipcMain.handle('delete-entaxi', async (event, entaxiId) => {
     const decision = entaxiCatalogCore.evaluateEntaxiDelete(entaxiId);
     if (!decision.ok) {
       return { success: false, error: 'Λείπει η ταυτότητα της ένταξης' };
+    }
+    const lockStatus = isEntityLocked('entaxeis', entaxiId);
+    if (lockStatus.locked) {
+      return {
+        success: false,
+        error: lockStatus.lockedBy
+          ? `Η ένταξη είναι υπό επεξεργασία από «${lockStatus.lockedBy}».`
+          : 'Η ένταξη είναι υπό επεξεργασία.',
+        lockedBy: lockStatus.lockedBy,
+      };
     }
     const entaxiPath = path.join(entaxisDir, entaxiId);
     let deletedData = null;
@@ -7390,19 +7664,32 @@ ipcMain.handle('delete-prosklisi-folder', async (event, prosklisiId, folderName,
 // Delete entaxi file
 ipcMain.handle('delete-entaxi-file', async (event, entaxiId, fileName, isModification = false) => {
   try {
+    const id = String(entaxiId || '').trim();
+    const safeName = path.basename(String(fileName || ''));
+    if (!id || !/^[A-Za-z0-9._-]+$/.test(id) || !safeName) {
+      return { success: false, error: 'Μη έγκυρο αρχείο ένταξης.' };
+    }
+    const entaxiRoot = path.resolve(entaxisDir, id);
+    if (!isPathInsideDir(entaxiRoot, entaxisDir)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
     let filePath;
     let fileFound = false;
     
     // Check in main files directory
-    filePath = path.join(entaxisDir, entaxiId, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ', fileName);
+    filePath = path.join(entaxiRoot, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ', safeName);
+    if (!isPathInsideDir(filePath, entaxiRoot)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
     
     if (!fs.existsSync(filePath)) {
       // Check in modifications directories
-      const modificationsDir = path.join(entaxisDir, entaxiId, 'ΤΡΟΠΟΠΟΙΗΣΕΙΣ');
-      if (fs.existsSync(modificationsDir)) {
+      const modificationsDir = path.join(entaxiRoot, 'ΤΡΟΠΟΠΟΙΗΣΕΙΣ');
+      if (fs.existsSync(modificationsDir) && isPathInsideDir(modificationsDir, entaxiRoot)) {
         const modDirs = fs.readdirSync(modificationsDir);
         for (const modDir of modDirs) {
-          const modFilePath = path.join(modificationsDir, modDir, fileName);
+          const modFilePath = path.join(modificationsDir, path.basename(modDir), safeName);
+          if (!isPathInsideDir(modFilePath, modificationsDir)) continue;
           if (fs.existsSync(modFilePath)) {
             filePath = modFilePath;
             fileFound = true;
@@ -7419,67 +7706,45 @@ ipcMain.handle('delete-entaxi-file', async (event, entaxiId, fileName, isModific
       fs.unlinkSync(filePath);
       console.log('File deleted:', filePath);
     } else {
-      console.log('File not found on disk, will remove from JSON only:', fileName);
+      console.log('File not found on disk, will remove from JSON only:', safeName);
     }
     
-    // Always remove from JSON (even if file doesn't exist on disk)
-    if (isModification) {
-      console.log('Attempting to remove from JSON - isModification:', isModification, 'fileName:', fileName);
-      const dataFile = path.join(entaxisDir, entaxiId, 'data.json');
-      if (fs.existsSync(dataFile)) {
-        const existingData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-        
-        if (existingData.modifications && Array.isArray(existingData.modifications)) {
-          // Find and update the modification that contains this file
-          let modified = false;
-          existingData.modifications = existingData.modifications.map(mod => {
-            console.log('Checking modification:', mod.modificationId, 'approvalPDF:', mod.approvalPDF, 'modificationPDF:', mod.modificationPDF);
-            
-            // Check both exact match and basename match
-            const approvalMatch = mod.approvalPDF && (
-              mod.approvalPDF === fileName || 
-              path.basename(mod.approvalPDF) === fileName ||
-              path.basename(mod.approvalPDF) === path.basename(fileName)
-            );
-            
-            const modificationMatch = mod.modificationPDF && (
-              mod.modificationPDF === fileName ||
-              path.basename(mod.modificationPDF) === fileName ||
-              path.basename(mod.modificationPDF) === path.basename(fileName)
-            );
-            
-            if (approvalMatch) {
-              console.log('Found approvalPDF match, removing...');
-              modified = true;
-              return { ...mod, approvalPDF: null };
-            }
-            if (modificationMatch) {
-              console.log('Found modificationPDF match, removing...');
-              modified = true;
-              return { ...mod, modificationPDF: null };
-            }
-            return mod;
-          });
-          
-          if (modified) {
-            existingData.updatedAt = new Date().toISOString();
-            safeWriteJSON(dataFile, existingData);
-            console.log('✅ Successfully removed file reference from modification JSON');
-          } else {
-            console.log('⚠️ No matching file found in modifications');
-          }
-        }
+    const persistAcceptance = require(path.join(__dirname, '..', 'app', 'core', 'entaxiAcceptancePersist'));
+    const dataFile = path.join(entaxiRoot, 'data.json');
+    let updatedEntaxi = null;
+    if (fs.existsSync(dataFile) && isPathInsideDir(dataFile, entaxiRoot)) {
+      const existingData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+      existingData.entaxiPDFs = persistAcceptance.dropFileNameFromList(existingData.entaxiPDFs, safeName);
+      existingData.approvalPDFs = persistAcceptance.dropFileNameFromList(existingData.approvalPDFs, safeName);
+      if (persistAcceptance.fileRefName(existingData.entaxiPDF) === safeName) existingData.entaxiPDF = '';
+      if (persistAcceptance.fileRefName(existingData.approvalPDF) === safeName) existingData.approvalPDF = '';
+      persistAcceptance.syncAcceptanceAfterApprovalFiles(existingData);
+      if (Array.isArray(existingData.modifications)) {
+        existingData.modifications = existingData.modifications.map((mod) => {
+          const next = { ...mod };
+          const removed = persistAcceptance.removeApprovalFileFromRecord(next, safeName);
+          const modificationMatch = next.modificationPDF && (
+            next.modificationPDF === safeName
+            || path.basename(String(next.modificationPDF)) === safeName
+            || path.basename(String(next.modificationPDF)) === path.basename(safeName)
+          );
+          if (modificationMatch) next.modificationPDF = null;
+          return removed.changed || modificationMatch ? next : mod;
+        });
       }
+      existingData.updatedAt = new Date().toISOString();
+      await safeWriteJSONAsync(dataFile, existingData);
+      updatedEntaxi = existingData;
     }
     
     logAuditAction({
       type: 'delete',
       entityType: 'file',
-      entityId: entaxiId,
-      entityTitle: fileName,
+      entityId: id,
+      entityTitle: safeName,
       details: isModification ? 'Διαγραφή αρχείου τροποποίησης ένταξης' : 'Διαγραφή αρχείου ένταξης'
     });
-    return { success: true };
+    return { success: true, entaxi: updatedEntaxi };
   } catch (error) {
     console.error('Error deleting entaxi file:', error);
     return { success: false, error: error.message };
@@ -7530,6 +7795,16 @@ ipcMain.handle('rename-entaxi-file', async (_event, { entaxiId, oldName, newName
 // Delete entaxi modification
 ipcMain.handle('delete-entaxi-modification', async (event, entaxiId, modificationId) => {
   try {
+    const lockStatus = isEntityLocked('entaxeis', entaxiId);
+    if (lockStatus.locked) {
+      return {
+        success: false,
+        error: lockStatus.lockedBy
+          ? `Η ένταξη είναι υπό επεξεργασία από «${lockStatus.lockedBy}».`
+          : 'Η ένταξη είναι υπό επεξεργασία.',
+        lockedBy: lockStatus.lockedBy,
+      };
+    }
     const entaxiPath = path.join(entaxisDir, entaxiId);
     const dataFile = path.join(entaxiPath, 'data.json');
 
@@ -7693,12 +7968,32 @@ ipcMain.handle('update-entaxi-modification', async (event, modificationData) => 
       savedModification.approvalPDF = savedModification.approvalPDF.fileName || savedModification.approvalPDF.filePath;
     }
 
-    // Update the modification with saved file names
-    existingData.modifications[modificationIndex] = {
-      ...existingData.modifications[modificationIndex],
+    const persistAcceptance = require(path.join(__dirname, '..', 'app', 'core', 'entaxiAcceptancePersist'));
+    const previousModification = existingData.modifications[modificationIndex];
+    const incomingApprovalPdfs = Array.isArray(savedModification.approvalPDFs)
+      ? savedModification.approvalPDFs
+      : null;
+    delete savedModification.approvalPDFs;
+    const mergedModification = persistAcceptance.preserveAcceptanceFields(previousModification, {
+      ...previousModification,
       ...savedModification,
       updatedAt: new Date().toISOString()
-    };
+    });
+    if (!incomingApprovalPdfs) {
+      mergedModification.approvalPDFs = previousModification.approvalPDFs;
+    } else {
+      mergedModification.approvalPDFs = incomingApprovalPdfs;
+    }
+    const approvalName = persistAcceptance.fileRefName(mergedModification.approvalPDF);
+    if (approvalName) {
+      const names = persistAcceptance.collectApprovalFileNames(mergedModification);
+      if (!names.includes(approvalName)) {
+        mergedModification.approvalPDFs = names.concat([approvalName]);
+      }
+    }
+
+    // Update the modification with saved file names
+    existingData.modifications[modificationIndex] = mergedModification;
 
     // Update timestamp
     existingData.updatedAt = new Date().toISOString();

@@ -523,6 +523,48 @@ test('διαγραφή τροποποίησης που δεν άγγιξε τη 
   );
 });
 
+test('διαγραφή τροποποίησης επαναφέρει τίτλο και ποσό, όχι μόνο λήξη', () => {
+  const titleMod = {
+    modificationId: 'mod-title',
+    modificationDocumentDate: '2026-02-01',
+    changes: {
+      title: { original: 'Παλιός τίτλος', current: 'Νέος τίτλος' },
+      budgetRange: { original: '100.000', current: '250.000' },
+    },
+  };
+  const fields = psk.getProsklisiSyncedFieldsAfterRemoval(
+    { title: 'Νέος τίτλος', budgetRange: '250.000', deadline: '2026-01-10' },
+    titleMod,
+    []
+  );
+  assert.equal(fields.title, 'Παλιός τίτλος');
+  assert.equal(fields.budgetRange, '100.000');
+});
+
+test('αναίρεση πεδίου σε τροποποίηση επαναφέρει την αρχική τιμή', () => {
+  const previous = {
+    modificationId: 'mod-1',
+    changes: {
+      title: { original: 'Παλιός τίτλος', current: 'Νέος τίτλος' },
+      budgetRange: { original: '100.000', current: '250.000' },
+    },
+  };
+  const saved = {
+    modificationId: 'mod-1',
+    changes: {
+      budgetRange: { original: '100.000', current: '250.000' },
+    },
+  };
+  const fields = psk.getProsklisiSyncedFieldsFromModification(
+    { title: 'Νέος τίτλος', budgetRange: '250.000' },
+    saved,
+    [saved],
+    previous
+  );
+  assert.equal(fields.title, 'Παλιός τίτλος');
+  assert.equal(fields.budgetRange, '250.000');
+});
+
 test('τροποποίηση με άλλες αλλαγές δεν μετράει το αντίγραφο λήξης ως αλλαγή', () => {
   const effective = psk.getEffectiveProsklisiDeadline(
     { deadline: '2021-12-31' },

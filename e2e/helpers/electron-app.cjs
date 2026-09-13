@@ -163,6 +163,12 @@ async function queueKhmdhsFixtures(window, byAdam) {
   }, byAdam);
 }
 
+async function queueDiavgeiaAcceptance(window, payload) {
+  await window.evaluate(async (body) => {
+    await window.electronAPI.invoke('e2e-queue-diavgeia-acceptance', body);
+  }, payload);
+}
+
 async function setKhmdhsLive(window, enabled) {
   await window.evaluate(async (on) => {
     await window.electronAPI.invoke('e2e-set-khmdhs-live', on);
@@ -185,6 +191,7 @@ module.exports = {
   queueOpenFiles,
   queueSavePath,
   queueKhmdhsFixtures,
+  queueDiavgeiaAcceptance,
   setKhmdhsLive,
   queueFolderPick,
   USERS,

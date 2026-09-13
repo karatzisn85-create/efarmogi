@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, Suspense, lazy, useDeferredValue } from 'react';
 import styled, { keyframes } from 'styled-components';
 import ProjectForm from './ProjectForm';
+import { buildProjectDraftFromEntaxi, buildEntaxiLinkAfterProjectCreate } from '../utils/entaxiProjectDraft';
+import { toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
+import entaxiAcceptanceMatch from '../../app/core/entaxiAcceptanceMatch';
 
 import ProjectCard from './ProjectCard';
 import SubprojectDetailModal from './SubprojectDetailModal';
@@ -2944,6 +2947,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [entaxeis, setEntaxeis] = useState([]);
   const [proskliseis, setProskliseis] = useState([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [projectDraftFromEntaxi, setProjectDraftFromEntaxi] = useState(null);
+  const pendingEntaxiLinkRef = useRef(null);
   const [isEgkriseisFormOpen, setIsEgkriseisFormOpen] = useState(false);
   const [isEgkriseisManagerOnly, setIsEgkriseisManagerOnly] = useState(false);
   const [egkriseisInitialSearch, setEgkriseisInitialSearch] = useState('');
@@ -5298,6 +5303,40 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           }
         }
 
+        if (pendingEntaxiLinkRef.current?.entaxiId && result.subprojectId) {
+          try {
+            const pending = pendingEntaxiLinkRef.current;
+            const existing = await ipcRenderer.invoke('load-entaxi-data', pending.entaxiId);
+            if (existing) {
+              const snap = buildEntaxiLinkAfterProjectCreate(existing, {
+                projectId: result.projectId,
+                projectTitle: dataForSave.projectTitle,
+                subprojectId: result.subprojectId,
+              });
+              const existingEntaxiFiles = toExistingEntaxiFileObjects(existing.entaxiPDFs).map((f) => f.fileName);
+              const existingApprovalFiles = toExistingEntaxiFileObjects(existing.approvalPDFs).map((f) => f.fileName);
+              const linkRes = await ipcRenderer.invoke('save-entaxi', {
+                ...existing,
+                ...snap,
+                entaxiPDFs: [],
+                approvalPDFs: [],
+                existingEntaxiFiles,
+                existingApprovalFiles,
+                updatedAt: new Date().toISOString(),
+              });
+              if (linkRes && linkRes.success === false) {
+                throw new Error(linkRes.error || 'Η σύνδεση της ένταξης απέτυχε.');
+              }
+              pendingEntaxiLinkRef.current = null;
+              await loadEntaxeis();
+              showToast('Το υποέργο δημιουργήθηκε και συνδέθηκε με την ένταξη.', 'success');
+            }
+          } catch (linkErr) {
+            console.error('link entaxi after project create:', linkErr);
+            showToast('Το υποέργο δημιουργήθηκε, αλλά η σύνδεση με την ένταξη πρέπει να γίνει χειροκίνητα.', 'warning');
+          }
+        }
+
         if (shouldKeepFormOpen) {
           let canonical = result.project
             ? {
@@ -5334,6 +5373,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           };
         }
 
+        setProjectDraftFromEntaxi(null);
         setIsFormOpen(false);
         setEditingProject(null);
         return { success: true, projectId: result.projectId, subprojectId: result.subprojectId, filesSaveFailed, chargeGreeting: result.chargeGreeting };
@@ -8259,6 +8299,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           }
           setIsFormOpen(false);
           setEditingProject(null);
+          setProjectDraftFromEntaxi(null);
+          pendingEntaxiLinkRef.current = null;
         }}
         onSave={handleSaveProject}
         onDelete={canManageAll ? (projectId, subprojectId) => handleDeleteProject(projectId, subprojectId, {
@@ -8266,6 +8308,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           closeForm: true,
         }) : undefined}
         editingProject={editingProject}
+        draftFromEntaxi={projectDraftFromEntaxi}
         userRole={userRole}
         currentUser={currentUser}
         allProjects={projects}
@@ -8453,6 +8496,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         onDataChange={async () => {
           await loadEntaxeis();
         }}
+        onCreateProjectFromEntaxi={(entaxi) => {
+          const draft = buildProjectDraftFromEntaxi(entaxi, entaxiAcceptanceMatch);
+          pendingEntaxiLinkRef.current = { entaxiId: entaxi?.entaxiId || draft.sourceEntaxiId };
+          setProjectDraftFromEntaxi(draft);
+          setEditingProject(null);
+          setIsEntaxisOpen(false);
+          setSelectedEntaxiId(null);
+          setEntaxisProjectFilter(null);
+          setEntaxisProsklisiIdFilter(null);
+          setIsFormOpen(true);
+        }}
         userRole={userRoleForWorkflowModals}
         currentUser={currentUser}
         projectFilter={entaxisProjectFilter}
@@ -8468,7 +8522,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         linkedNotesMap={linkedNotesMap}
         notes={notes}
         onOpenNoteFromEntity={handleOpenNoteFromEntity}
-        organizationName={appConfig?.organizationFullName || ''}
+        organizationName={appConfig?.organizationFullName || appConfig?.organizationName || ''}
         appConfig={appConfig}
         appVersion={appVersion}
       />

@@ -37,7 +37,8 @@ import {
   buildProsklisiExportRecord,
   getProsklisiDiavgeiaAdaText,
   formatProsklisiChangeValue,
-  getProsklisiDeadlineAfterModificationRemoval,
+  getProsklisiSyncedFieldsAfterRemoval,
+  getProsklisiSyncedFieldsFromModification,
 } from '../utils/prosklisiDeadlineUtils';
 
 const ipcRenderer = window.electronAPI;
@@ -1361,7 +1362,9 @@ function ProsklisisManager({
               batch.map(async (prosklisi) => {
                 try {
                   const lockStatus = await ipcRenderer.invoke('check-entity-lock', 'proskliseis', prosklisi.prosklisiId);
-                  batchLocks[prosklisi.prosklisiId] = lockStatus.locked;
+                  batchLocks[prosklisi.prosklisiId] = lockStatus.locked
+                    ? (lockStatus.lockedBy || true)
+                    : false;
                 } catch (error) {
                   setProsklisiLocks(prevLocks => { batchLocks[prosklisi.prosklisiId] = prevLocks[prosklisi.prosklisiId] || false; return prevLocks; });
                 }
@@ -1570,23 +1573,18 @@ function ProsklisisManager({
   const syncProsklisiFieldsFromModification = async (modificationData) => {
     if (!modificationData?.originalProsklisiId) return true;
     const prosklisiId = modificationData.originalProsklisiId;
-    const allowed = ['title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status'];
-    const fields = {};
-    allowed.forEach((key) => {
-      if (!modificationData.changes || !modificationData.changes[key]) return;
-      const fromChange = modificationData.changes[key].current;
-      const fromMod = modificationData.modifiedData?.[key];
-      const value = fromChange !== undefined && fromChange !== null ? fromChange : fromMod;
-      if (value !== undefined && value !== null) fields[key] = value;
-    });
     const existing = prosklisiModifications[prosklisiId] || [];
+    const previous = existing.find((m) => m.modificationId === modificationData.modificationId);
     const nextMods = existing.filter((m) => m.modificationId !== modificationData.modificationId);
     nextMods.push(modificationData);
     const baseProsklisi = proskliseis.find((p) => p.prosklisiId === prosklisiId);
-    if (baseProsklisi) {
-      fields.deadline = getEffectiveProsklisiDeadline(baseProsklisi, nextMods);
-    }
-    if (Object.keys(fields).length === 0) return true;
+    const fields = getProsklisiSyncedFieldsFromModification(
+      baseProsklisi || {},
+      modificationData,
+      nextMods,
+      previous
+    );
+    if (!Object.keys(fields).length) return true;
     return saveProsklisiFieldPatch(
       prosklisiId,
       fields,
@@ -1713,13 +1711,15 @@ function ProsklisisManager({
         catalogDirtyRef.current = true;
         const baseProsklisi = proskliseis.find((p) => p.prosklisiId === prosklisiId);
         if (baseProsklisi) {
-          // Αν καμία τροποποίηση που απομένει δεν αλλάζει λήξη, επαναφέρουμε το «πριν»
-          const effective = getProsklisiDeadlineAfterModificationRemoval(baseProsklisi, deleted, remaining);
-          if (String(effective || '') !== String(baseProsklisi.deadline || '')) {
+          const fields = getProsklisiSyncedFieldsAfterRemoval(baseProsklisi, deleted, remaining);
+          const changed = Object.keys(fields).some((key) => (
+            String(fields[key] ?? '') !== String(baseProsklisi[key] ?? '')
+          ));
+          if (changed) {
             await saveProsklisiFieldPatch(
               prosklisiId,
-              { deadline: effective },
-              'Η τροποποίηση διαγράφηκε, αλλά η λήξη δεν ενημερώθηκε'
+              fields,
+              'Η τροποποίηση διαγράφηκε, αλλά τα στοιχεία της πρόσκλησης δεν ενημερώθηκαν'
             );
           }
         }

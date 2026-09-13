@@ -2596,6 +2596,7 @@ function ProjectForm({
   onSave,
   onDelete,
   editingProject = null,
+  draftFromEntaxi = null,
   userRole = 'USER',
   currentUser = null,
   allProjects = [],
@@ -3146,6 +3147,14 @@ function ProjectForm({
         khmdhsDocumentRegistry: [],
         khmdhsRelatedDocuments: [],
       };
+      if (draftFromEntaxi) {
+        emptyNewForm.projectTitle = String(draftFromEntaxi.projectTitle || '').trim();
+        emptyNewForm.subprojectTitle = String(draftFromEntaxi.subprojectTitle || '').trim();
+        emptyNewForm.misPraxhsCode = String(draftFromEntaxi.misPraxhsCode || '').trim();
+        emptyNewForm.approvedAmount = String(draftFromEntaxi.approvedAmount || '').trim();
+        emptyNewForm.projectBudget = String(draftFromEntaxi.projectBudget || '').trim();
+        emptyNewForm.comments = String(draftFromEntaxi.comments || '').trim();
+      }
       setFormData(emptyNewForm);
       savedFormFingerprintRef.current = buildProjectFormFingerprint(emptyNewForm, { selectedFilesCount: 0 });
       setManualPhaseBaseline(null);
@@ -3157,7 +3166,7 @@ function ProjectForm({
     setAdamInputDraft({ chain: '', contracts: {} });
     setPhaseBResetUnsaved(false);
     setUnsavedCloseModalOpen(false);
-  }, [editingProject, isOpen, clearKhmdhsRegistrySession]);
+  }, [editingProject, draftFromEntaxi, isOpen, clearKhmdhsRegistrySession]);
 
   const validateKACode = subprojectLifecycle.validateKACode;
 

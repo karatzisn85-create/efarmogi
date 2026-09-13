@@ -91,6 +91,8 @@ test('P3-20 κλικ στην κάρτα ανοίγει λεπτομέρειες
   await expect(detail.getByTestId('ent-detail-mod-1')).toContainText('Αύξηση προϋπολογισμού γέφυρας');
   await expect(detail.getByTestId('ent-detail-current-amount')).toContainText('120.000,00');
   await expect(detail.getByRole('button', { name: 'Επεξεργασία' })).toBeVisible();
+  await expect(detail.getByTestId('ent-detail-acceptance-search')).toBeVisible();
+  await expect(detail.getByTestId('ent-detail-mod-acceptance-search-1')).toBeVisible();
   await detail.getByTestId('ent-detail-close').click();
   await expect(detail).toHaveCount(0);
 });
@@ -127,6 +129,8 @@ test('P3-22 απλός χρήστης βλέπει λεπτομέρειες κα
   await expect(detail.getByTestId('ent-detail-report')).toBeVisible();
   await expect(detail.getByRole('button', { name: 'Επεξεργασία' })).toHaveCount(0);
   await expect(detail.getByRole('button', { name: 'Νέα τροποποίηση' })).toHaveCount(0);
+  await expect(detail.getByTestId('ent-detail-acceptance-search')).toHaveCount(0);
+  await expect(detail.getByTestId('ent-detail-mod-acceptance-search-1')).toHaveCount(0);
 });
 
 test('P3-23 κλείσιμο φορμών δεν αδειάζει τη λίστα εντάξεων', async ({ app }) => {
@@ -199,4 +203,230 @@ test('P3-25 ένταξη συνδέεται με υποέργα από δύο έ
   await expect(window.getByTestId('ent-detail-projects')).toContainText('Οδικό δίκτυο Αρχανών');
   await expect(window.getByTestId('ent-detail-projects')).toContainText('Ύδρευση Αστερουσίων');
   await expect(window.getByTestId('ent-detail-sub-count')).toHaveText('2');
+});
+
+test('P3-26 ασυσχέτιστη ένταξη: έλεγχος αποδοχής Δ.Σ. και πρόταση δημιουργίας', async ({ app }) => {
+  const { window } = app;
+  await app.queueDiavgeiaAcceptance({
+    decisions: [
+      {
+        ada: '624ΙΩΨΜ-Ζ12',
+        subject: '230/2025 απόφαση Δημοτικού Συμβουλίου :Τροποποίηση προϋπολογισμού οικονομικού έτους 2025 για την εκτέλεση του χρηματοδοτούμενου έργου «Μεμονωμένη ένταξη» ΟΠΣ 5225999',
+        issueDate: '2025-11-18',
+        protocolNumber: '230/2025',
+      },
+    ],
+  });
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-free').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await expect(detail).toBeVisible();
+  await expect(detail.getByTestId('ent-detail-acceptance-search')).toBeVisible();
+  await detail.getByTestId('ent-detail-acceptance-search').click();
+  const search = window.getByTestId('ent-acceptance-modal');
+  await expect(search).toBeVisible();
+  await expect(window.getByTestId('ent-card-ent-free')).toContainText('🔒');
+  await expect(search.getByTestId('ent-acceptance-candidate-624ΙΩΨΜ-Ζ12')).toBeVisible();
+  await search.getByTestId('ent-acceptance-candidate-624ΙΩΨΜ-Ζ12').click();
+  await search.getByTestId('ent-acceptance-confirm').click();
+  await expect(search.getByTestId('ent-acceptance-saved')).toBeVisible();
+  await expect(search.getByTestId('ent-acceptance-create')).toBeVisible();
+  await search.getByTestId('ent-acceptance-close').click();
+  await expect(search).toHaveCount(0);
+  await expect(window.getByTestId('ent-card-ent-free')).toContainText('🔓');
+  await expect(detail.getByTestId('ent-detail-create-from-acceptance')).toBeVisible();
+  await expect(detail.getByTestId('ent-detail-acceptance-search')).toBeVisible();
+  await detail.getByTestId('ent-detail-create-from-acceptance').click();
+  await expect(window.getByTestId('edit-panel')).toBeVisible();
+  await expect(window.getByTestId('edit-project-title')).toHaveValue(/Μεμονωμένη ένταξη/i);
+});
+
+test('P3-27 συσχετισμένη ένταξη: έλεγχος αποδοχής χωρίς δημιουργία υποέργου', async ({ app }) => {
+  const { window } = app;
+  await app.queueDiavgeiaAcceptance({
+    decisions: [
+      {
+        ada: '624ΙΩΨΜ-Ζ12',
+        subject: '230/2025 απόφαση Δημοτικού Συμβουλίου :Τροποποίηση προϋπολογισμού οικονομικού έτους 2025 για την εκτέλεση του χρηματοδοτούμενου έργου «Ανάπλαση γέφυρας» ΟΠΣ 5225302',
+        issueDate: '2025-01-10',
+        protocolNumber: '12/2025',
+      },
+    ],
+  });
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-road').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await expect(detail.getByTestId('ent-detail-acceptance-search')).toBeVisible();
+  await detail.getByTestId('ent-detail-acceptance-search').click();
+  const search = window.getByTestId('ent-acceptance-modal');
+  await expect(search).toBeVisible();
+  await expect(search.getByTestId('ent-acceptance-candidate-624ΙΩΨΜ-Ζ12')).toBeVisible();
+  await search.getByTestId('ent-acceptance-candidate-624ΙΩΨΜ-Ζ12').click();
+  await search.getByTestId('ent-acceptance-confirm').click();
+  await expect(search.getByTestId('ent-acceptance-saved')).toBeVisible();
+  await expect(search.getByTestId('ent-acceptance-create')).toHaveCount(0);
+  await search.getByTestId('ent-acceptance-close').click();
+  await expect(detail.getByTestId('ent-detail-create-from-acceptance')).toHaveCount(0);
+  await expect(detail.getByTestId('ent-detail-acceptance-search')).toBeVisible();
+});
+
+test('P3-28 αποδοχή χρηματοδότησης δέχεται επιπλέον αρχείο οποιασδήποτε μορφής', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const extra = path.join(app.testDir, 'σημείωμα-αλε.txt');
+  fs.writeFileSync(extra, 'ΚΑ 64-6692.001');
+  const { window } = app;
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-road').click();
+  await expect(window.getByTestId('ent-detail-modal')).toBeVisible();
+  await window.getByTestId('ent-detail-files').click();
+  const files = window.getByTestId('ent-files-modal');
+  await expect(files).toBeVisible();
+  await expect(window.getByTestId('ent-card-ent-road')).toContainText('🔒');
+  await app.queueOpenFiles([extra]);
+  await files.getByTestId('ent-files-approval-add').click();
+  await expect(files.getByText('σημείωμα-αλε.txt')).toBeVisible();
+  await files.getByTestId('ent-files-close').click();
+  await expect(files).toHaveCount(0);
+  await expect(window.getByTestId('ent-card-ent-road')).toContainText('🔓');
+});
+
+test('P3-29 έλεγχος αποδοχής: αποθήκευση Επιτροπής και Δ.Σ. μαζί', async ({ app }) => {
+  const { window } = app;
+  await app.queueDiavgeiaAcceptance({
+    decisions: [
+      {
+        ada: '624ΙΩΨΜ-Ζ12',
+        subject: '230/2025 απόφαση Δημοτικού Συμβουλίου :Τροποποίηση προϋπολογισμού οικονομικού έτους 2025 για την εκτέλεση του χρηματοδοτούμενου έργου «Μεμονωμένη ένταξη» ΟΠΣ 5225999',
+        issueDate: '2025-11-18',
+        protocolNumber: '230/2025',
+      },
+      {
+        ada: '6ΞΧΜΩΨΜ-ΚΟΟ',
+        subject: 'Απόφαση Δημοτικής Επιτροπής (360/2025): "Αποδοχή μεταβολής χρηματοδότησης υποέργων του έργου Μεμονωμένη ένταξη ΟΠΣ 5225999"',
+        issueDate: '2025-11-18',
+        protocolNumber: '360/2025',
+      },
+    ],
+  });
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-free').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await detail.getByTestId('ent-detail-acceptance-search').click();
+  const search = window.getByTestId('ent-acceptance-modal');
+  await expect(search.getByTestId('ent-acceptance-candidate-624ΙΩΨΜ-Ζ12')).toBeVisible();
+  await expect(search.getByTestId('ent-acceptance-candidate-6ΞΧΜΩΨΜ-ΚΟΟ')).toBeVisible();
+  await search.getByTestId('ent-acceptance-candidate-624ΙΩΨΜ-Ζ12').click();
+  await search.getByTestId('ent-acceptance-candidate-6ΞΧΜΩΨΜ-ΚΟΟ').click();
+  await expect(search.getByTestId('ent-acceptance-confirm')).toHaveText(/2 πράξεων/);
+  await search.getByTestId('ent-acceptance-confirm').click();
+  await expect(search.getByTestId('ent-acceptance-saved')).toContainText('2 αρχεία');
+});
+
+test('P3-30 διαγραφή αρχείων αποδοχής καθαρίζει την αποθηκευμένη αποδοχή', async ({ app }) => {
+  const { window } = app;
+  await app.queueDiavgeiaAcceptance({
+    decisions: [
+      {
+        ada: '624ΙΩΨΜ-Ζ12',
+        subject: '230/2025 απόφαση Δημοτικού Συμβουλίου :Τροποποίηση προϋπολογισμού οικονομικού έτους 2025 για την εκτέλεση του χρηματοδοτούμενου έργου «Μεμονωμένη ένταξη» ΟΠΣ 5225999',
+        issueDate: '2025-11-18',
+        protocolNumber: '230/2025',
+      },
+    ],
+  });
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-free').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await detail.getByTestId('ent-detail-acceptance-search').click();
+  const search = window.getByTestId('ent-acceptance-modal');
+  await search.getByTestId('ent-acceptance-candidate-624ΙΩΨΜ-Ζ12').click();
+  await search.getByTestId('ent-acceptance-confirm').click();
+  await expect(search.getByTestId('ent-acceptance-saved')).toBeVisible();
+  await search.getByTestId('ent-acceptance-close').click();
+  await expect(detail.getByTestId('ent-detail-create-from-acceptance')).toBeVisible();
+  await detail.getByTestId('ent-detail-files').click();
+  const files = window.getByTestId('ent-files-modal');
+  await expect(files).toBeVisible();
+  await files.getByTestId('file-delete-Αποδοχή Δ.Σ. — Διαύγεια 624ΙΩΨΜ-Ζ12.pdf').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(files.getByText('Αποδοχή Δ.Σ. — Διαύγεια 624ΙΩΨΜ-Ζ12.pdf')).toHaveCount(0);
+  await files.getByTestId('ent-files-close').click();
+  await expect(detail.getByTestId('ent-detail-create-from-acceptance')).toHaveCount(0);
+  await expect(detail.getByTestId('ent-detail-acceptance-search')).toHaveText(/Έλεγχος αποδοχής/);
+});
+
+test('P3-31 τροποποίηση: έλεγχος αποδοχής Επιτροπής και Δ.Σ. στα αρχεία της τροποποίησης', async ({ app }) => {
+  const { window } = app;
+  await app.queueDiavgeiaAcceptance({
+    decisions: [
+      {
+        ada: 'Ψ1ΘΟΩΨΜ-ΧΨΓ',
+        subject: '195/2025 απόφαση Δημοτικού Συμβουλίου :Τροποποίηση προϋπολογισμού οικονομικού έτους 2025 για την εκτέλεση της πράξης «Ανάπλαση γέφυρας» ΟΠΣ 5225302',
+        issueDate: '2025-03-10',
+        protocolNumber: '195/2025',
+      },
+      {
+        ada: 'ΨΓ25ΩΨΜ-ΘΓ4',
+        subject: 'Απόφαση Δημοτικής Επιτροπής (299/2025): "Αποδοχή τροποποίησης πράξης: «Ανάπλαση γέφυρας» και εισήγηση για τροποποίηση προϋπολογισμού" ΟΠΣ 5225302',
+        issueDate: '2025-03-04',
+        protocolNumber: '299/2025',
+      },
+    ],
+  });
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-road').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await expect(detail.getByTestId('ent-detail-mod-acceptance-search-1')).toBeVisible();
+  await detail.getByTestId('ent-detail-mod-acceptance-search-1').click();
+  const search = window.getByTestId('ent-mod-acceptance-modal');
+  await expect(search).toBeVisible();
+  await expect(window.getByTestId('ent-card-ent-road')).toContainText('🔒');
+  await expect(search.getByTestId('ent-mod-acceptance-candidate-Ψ1ΘΟΩΨΜ-ΧΨΓ')).toBeVisible();
+  await expect(search.getByTestId('ent-mod-acceptance-candidate-ΨΓ25ΩΨΜ-ΘΓ4')).toBeVisible();
+  await search.getByTestId('ent-mod-acceptance-candidate-Ψ1ΘΟΩΨΜ-ΧΨΓ').click();
+  await search.getByTestId('ent-mod-acceptance-candidate-ΨΓ25ΩΨΜ-ΘΓ4').click();
+  await expect(search.getByTestId('ent-mod-acceptance-confirm')).toHaveText(/2 πράξεων/);
+  await search.getByTestId('ent-mod-acceptance-confirm').click();
+  await expect(search.getByTestId('ent-mod-acceptance-saved')).toContainText('2 αρχεία');
+  await expect(search.getByTestId('ent-acceptance-create')).toHaveCount(0);
+  await search.getByTestId('ent-mod-acceptance-close').click();
+  await expect(search).toHaveCount(0);
+  await expect(window.getByTestId('ent-card-ent-road')).toContainText('🔓');
+  await expect(detail.getByTestId('ent-detail-mod-1')).toContainText('Αποδοχή Δ.Σ. — Διαύγεια Ψ1ΘΟΩΨΜ-ΧΨΓ.pdf');
+  await expect(detail.getByTestId('ent-detail-mod-1')).toContainText('Αποδοχή Επιτροπής — Διαύγεια ΨΓ25ΩΨΜ-ΘΓ4.pdf');
+  await expect(detail.getByTestId('ent-detail-create-from-acceptance')).toHaveCount(0);
+  await expect(detail.getByTestId('ent-detail-mod-acceptance-search-1')).toHaveText(/Νέος έλεγχος αποδοχής/);
+});
+
+test('P3-32 διαγραφή αποδοχής τροποποίησης καθαρίζει την αποθηκευμένη αποδοχή', async ({ app }) => {
+  const { window } = app;
+  await app.queueDiavgeiaAcceptance({
+    decisions: [
+      {
+        ada: 'Ψ1ΘΟΩΨΜ-ΧΨΓ',
+        subject: '195/2025 απόφαση Δημοτικού Συμβουλίου :Τροποποίηση προϋπολογισμού οικονομικού έτους 2025 για την υλοποίηση της πράξης «Ανάπλαση γέφυρας» ΟΠΣ 5225302',
+        issueDate: '2025-03-10',
+        protocolNumber: '195/2025',
+      },
+    ],
+  });
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-road').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await detail.getByTestId('ent-detail-mod-acceptance-search-1').click();
+  const search = window.getByTestId('ent-mod-acceptance-modal');
+  await search.getByTestId('ent-mod-acceptance-candidate-Ψ1ΘΟΩΨΜ-ΧΨΓ').click();
+  await search.getByTestId('ent-mod-acceptance-confirm').click();
+  await expect(search.getByTestId('ent-mod-acceptance-saved')).toBeVisible();
+  await search.getByTestId('ent-mod-acceptance-close').click();
+  await detail.getByTestId('ent-detail-close').click();
+  const card = window.getByTestId('ent-card-ent-road');
+  await card.getByRole('button', { name: /Προβολή τροποποιήσεων/ }).click();
+  await expect(card.getByText('Αποδοχή Δ.Σ. — Διαύγεια Ψ1ΘΟΩΨΜ-ΧΨΓ.pdf')).toBeVisible();
+  await card.getByTestId('mod-file-delete-Αποδοχή Δ.Σ. — Διαύγεια Ψ1ΘΟΩΨΜ-ΧΨΓ.pdf').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(card.getByText('Αποδοχή Δ.Σ. — Διαύγεια Ψ1ΘΟΩΨΜ-ΧΨΓ.pdf')).toHaveCount(0);
+  await card.getByText('Ανάπλαση γέφυρας').first().click();
+  await expect(detail.getByTestId('ent-detail-mod-acceptance-search-1')).toHaveText(/Έλεγχος αποδοχής τροποποίησης/);
 });

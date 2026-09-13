@@ -13,6 +13,7 @@ let queuedFolderPick = null;
 let queuedSavePath = undefined; // undefined = δεν έχει οριστεί, null = ακύρωση, string = διαδρομή
 let khmdhsByAdam = Object.create(null);
 let khmdhsLive = false;
+let queuedDiavgeiaAcceptance = null;
 
 function queueE2EOpenFiles(filePaths) {
   queuedOpenFiles = Array.isArray(filePaths) ? filePaths.slice() : [];
@@ -53,6 +54,22 @@ function queueE2EKhmdhsFixtures(byAdam) {
 
 function setE2EKhmdhsLive(enabled) {
   khmdhsLive = !!enabled;
+}
+
+function queueE2EDiavgeiaAcceptance(payload) {
+  queuedDiavgeiaAcceptance = payload && typeof payload === 'object' ? payload : null;
+}
+
+function peekE2EDiavgeiaAcceptance() {
+  if (!isE2EProcess()) return null;
+  return queuedDiavgeiaAcceptance;
+}
+
+function takeE2EDiavgeiaAcceptance() {
+  if (!isE2EProcess() || queuedDiavgeiaAcceptance == null) return null;
+  const next = queuedDiavgeiaAcceptance;
+  queuedDiavgeiaAcceptance = null;
+  return next;
 }
 
 function extractAdamFromRequest(url, options) {
@@ -113,6 +130,9 @@ module.exports = {
   takeE2ESavePath,
   queueE2EKhmdhsFixtures,
   setE2EKhmdhsLive,
+  queueE2EDiavgeiaAcceptance,
+  peekE2EDiavgeiaAcceptance,
+  takeE2EDiavgeiaAcceptance,
   resolveE2EKhmdhsHttp,
   installE2EDialogHooks,
 };

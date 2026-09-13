@@ -10,7 +10,7 @@ import managedFiles from '../../app/core/managedFiles';
 import EntaxiDiavgeiaSection from './EntaxiDiavgeiaSection';
 import { buildEntaxiDiavgeiaRegistryEntry } from '../utils/entaxiDiavgeiaRegistry';
 import { mergeDiavgeiaFormFields } from '../utils/entaxiDiavgeiaFetch';
-import { toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
+import { collectEntaxiApprovalFileNames, toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
 
 const ipcRenderer = window.electronAPI;
 
@@ -634,7 +634,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProsklisei
           diavgeiaAda: editingEntaxi.diavgeiaAda || editingEntaxi.diavgeiaMeta?.ada || '',
           diavgeiaMeta: editingEntaxi.diavgeiaMeta || null,
           entaxiPDFs: toExistingEntaxiFileObjects(editingEntaxi.entaxiPDFs),
-          approvalPDFs: toExistingEntaxiFileObjects(editingEntaxi.approvalPDFs)
+          approvalPDFs: toExistingEntaxiFileObjects(collectEntaxiApprovalFileNames(editingEntaxi))
         });
         setDiavgeiaMeta(editingEntaxi.diavgeiaMeta || null);
         setDiavgeiaPreview(null);
@@ -1051,6 +1051,11 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProsklisei
         beneficiary: formData.beneficiary || '',
         diavgeiaAda: diavgeiaMeta?.ada || formData.diavgeiaAda || '',
         diavgeiaMeta: diavgeiaMeta || null,
+        diavgeiaAcceptanceAda: editingEntaxi?.diavgeiaAcceptanceAda || '',
+        diavgeiaAcceptanceMeta: editingEntaxi?.diavgeiaAcceptanceMeta || null,
+        diavgeiaAcceptanceMetas: Array.isArray(editingEntaxi?.diavgeiaAcceptanceMetas)
+          ? editingEntaxi.diavgeiaAcceptanceMetas
+          : undefined,
         documentRegistry: (() => {
           const existingRegistry = editingEntaxi?.documentRegistry || [];
           const nonDiavgeia = existingRegistry.filter((e) => e?.source !== 'diavgeia');
@@ -1401,12 +1406,16 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProsklisei
                 </FormGroup>
 
                 <FormGroup>
-                  <Label>Αρχεία αποδοχής Δ.Σ.</Label>
+                  <Label>Αποδοχή χρηματοδότησης</Label>
                   <FileZone>
                     <FileSelectButton
                       type="button"
+                      data-testid="ent-form-approval-add"
                       onClick={() =>
-                        handleFileSelect('approvalPDFs', 'Επιλογή Αρχείων Αποδοχής (PDF, Word)')
+                        handleFileSelect('approvalPDFs', {
+                          title: 'Επιλογή αρχείων αποδοχής χρηματοδότησης',
+                          allFileTypes: true,
+                        })
                       }
                     >
                       Προσθήκη αρχείων

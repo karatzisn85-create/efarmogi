@@ -8,6 +8,7 @@ import {
 import { parseGreekAmountString } from './khmdhsFields';
 import { getEntaxiDiavgeiaAdaText, getEntaxiDiavgeiaViewUrl } from './entaxiDiavgeiaRegistry';
 import entaxiCatalog from '../../app/core/entaxiCatalog';
+import { collectEntaxiApprovalFileNames } from './entaxiFileObjects';
 
 function basenameFromPath(filePath) {
   const parts = String(filePath || '').split(/[/\\]/);
@@ -41,7 +42,7 @@ function mapModification(entaxi, mod, index) {
   const flow = getModificationAmountFlowEntry(entaxi, index);
   const files = [
     ...listFileNames(mod?.modificationPDF).map((name) => ({ kind: 'Τροποποίηση', name })),
-    ...listFileNames(mod?.approvalPDF).map((name) => ({ kind: 'Αποδοχή χρηματοδότησης', name })),
+    ...collectEntaxiApprovalFileNames(mod).map((name) => ({ kind: 'Αποδοχή χρηματοδότησης', name })),
   ];
   const ada = getEntaxiDiavgeiaAdaText(mod) || '';
   return {
@@ -110,7 +111,7 @@ export function buildEntaxiDetailReportPayload({
     subprojectCount: Array.isArray(e.subprojectIds) ? e.subprojectIds.length : 0,
     files: {
       entaxi: listFileNames(e.entaxiPDFs),
-      approval: listFileNames(e.approvalPDFs),
+      approval: collectEntaxiApprovalFileNames(e),
     },
     notes,
     createdAt: formatDateEl(e.createdAt, ''),

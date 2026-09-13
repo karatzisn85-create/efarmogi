@@ -4,6 +4,8 @@ import { showConfirm } from '../utils/confirmModal';
 import { useToast } from './ToastProvider';
 import FileRenameModal from './FileRenameModal';
 import entaxiCatalog from '../../app/core/entaxiCatalog';
+import { collectEntaxiApprovalFileNames } from '../utils/entaxiFileObjects';
+import { safeFileDialog } from '../utils/safeDialogs';
 
 const ipcRenderer = window.electronAPI;
 
@@ -156,6 +158,28 @@ const SectionCount = styled.span`
   font-weight: 600;
 `;
 
+const AddFilesBtn = styled.button`
+  padding: 0.28rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: ${C.indigoLight};
+  color: #3730a3;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    background: #e0e7ff;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+`;
+
 const FileList = styled.div`
   display: flex;
   flex-direction: column;
@@ -292,9 +316,9 @@ function getFileTypeStyle(fileName) {
   }
 }
 
-function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
+function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole, onEntaxiUpdated, canManageFiles = false }) {
   const { showToast } = useToast();
-  const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
+  const canManageWorkflow = (userRole !== 'USER' && userRole !== 'ENGINEER') && canManageFiles;
   const [entaxiFiles, setEntaxiFiles] = useState([]);
   const [approvalFiles, setApprovalFiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -316,9 +340,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
         ? entaxi.entaxiPDFs
         : (entaxi.entaxiPDF ? [entaxi.entaxiPDF] : []);
 
-      const approvalPDFs = entaxi.approvalPDFs && entaxi.approvalPDFs.length > 0
-        ? entaxi.approvalPDFs
-        : (entaxi.approvalPDF ? [entaxi.approvalPDF] : []);
+      const approvalPDFs = collectEntaxiApprovalFileNames(entaxi);
 
       let availableEntaxiFiles = [];
       let availableApprovalFiles = [];
@@ -355,6 +377,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
   };
 
   const handleRenameFile = async (fileName, typedName) => {
+    if (!canManageWorkflow) return { success: false };
     const result = await ipcRenderer.invoke('rename-entaxi-file', {
       entaxiId: entaxi.entaxiId,
       oldName: fileName,
@@ -392,7 +415,36 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
     }
   };
 
+  const handleAddApprovalFiles = async () => {
+    if (!canManageWorkflow || !entaxi?.entaxiId) return;
+    try {
+      const result = await safeFileDialog('select-multiple-files', {
+        title: 'Επιλογή αρχείων αποδοχής χρηματοδότησης',
+        allFileTypes: true,
+      });
+      if (!result?.success || result.canceled || !result.files?.length) return;
+      const upload = await ipcRenderer.invoke('add-entaxi-approval-files', {
+        entaxiId: entaxi.entaxiId,
+        files: result.files,
+      });
+      if (!upload?.success) {
+        showToast(upload?.error || 'Δεν προστέθηκαν τα αρχεία.', 'error');
+        return;
+      }
+      if (upload.entaxi) onEntaxiUpdated?.(upload.entaxi);
+      showToast(
+        upload.added?.length === 1
+          ? 'Το αρχείο προστέθηκε στην αποδοχή χρηματοδότησης.'
+          : `Προστέθηκαν ${upload.added.length} αρχεία στην αποδοχή χρηματοδότησης.`,
+        'success'
+      );
+    } catch (error) {
+      showToast('Σφάλμα κατά την προσθήκη αρχείων: ' + error.message, 'error');
+    }
+  };
+
   const handleDeleteFile = async (fileName) => {
+    if (!canManageWorkflow) return;
     if (!await showConfirm({
       title: 'Διαγραφή Αρχείου',
       message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το αρχείο "${fileName}";`,
@@ -406,6 +458,7 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
       const result = await ipcRenderer.invoke('delete-entaxi-file', entaxi.entaxiId, fileName);
       if (result.success) {
         showToast('Το αρχείο διαγράφηκε επιτυχώς!', 'success');
+        if (result.entaxi) onEntaxiUpdated?.(result.entaxi);
         loadFiles();
       } else {
         showToast('Σφάλμα κατά τη διαγραφή του αρχείου: ' + result.error, 'error');
@@ -441,7 +494,11 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
             </RenameIconBtn>
           )}
           {canManageWorkflow && (
-            <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(fileName)}>
+            <DeleteIconBtn
+              title="Διαγραφή"
+              data-testid={`file-delete-${fileName}`}
+              onClick={() => handleDeleteFile(fileName)}
+            >
               ✕
             </DeleteIconBtn>
           )}
@@ -450,12 +507,17 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
     );
   };
 
-  const renderSection = (files, title, icon) => (
+  const renderSection = (files, title, icon, { onAdd, addTestId } = {}) => (
     <FileSection>
       <SectionHeader>
         <SectionIcon>{icon}</SectionIcon>
         <SectionLabel>{title}</SectionLabel>
         <SectionCount>{files.length}</SectionCount>
+        {onAdd ? (
+          <AddFilesBtn type="button" data-testid={addTestId} onClick={onAdd}>
+            Προσθήκη αρχείων
+          </AddFilesBtn>
+        ) : null}
       </SectionHeader>
       {files.length === 0 ? (
         <NoFilesMessage>Δεν υπάρχουν αρχεία για αυτή την κατηγορία</NoFilesMessage>
@@ -470,10 +532,10 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
   return (
     <>
     <ModalOverlay onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <ModalContainer>
+      <ModalContainer data-testid="ent-files-modal">
         <ModalHeader>
           <ModalTitle>Αρχεία Ένταξης</ModalTitle>
-          <CloseBtn onClick={onClose}>✕</CloseBtn>
+          <CloseBtn type="button" data-testid="ent-files-close" onClick={onClose}>✕</CloseBtn>
         </ModalHeader>
 
         <ModalBody>
@@ -495,7 +557,9 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole }) {
               )}
 
               {renderSection(entaxiFiles, 'Αρχεία Ένταξης', '📋')}
-              {renderSection(approvalFiles, 'Αρχεία Αποδοχής Δ.Σ.', '✅')}
+              {renderSection(approvalFiles, 'Αποδοχή χρηματοδότησης', '✅', canManageWorkflow
+                ? { onAdd: handleAddApprovalFiles, addTestId: 'ent-files-approval-add' }
+                : undefined)}
             </>
           )}
         </ModalBody>

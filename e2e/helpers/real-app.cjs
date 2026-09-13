@@ -10,6 +10,7 @@ const {
   queueOpenFiles,
   queueSavePath,
   queueKhmdhsFixtures,
+  queueDiavgeiaAcceptance,
   setKhmdhsLive,
   queueFolderPick,
   USERS,
@@ -22,6 +23,7 @@ function attachHelpers(launched) {
   launched.queueOpenFiles = (paths) => queueOpenFiles(launched.window, paths);
   launched.queueSavePath = (filePath) => queueSavePath(launched.window, filePath);
   launched.queueKhmdhsFixtures = (map) => queueKhmdhsFixtures(launched.window, map);
+  launched.queueDiavgeiaAcceptance = (payload) => queueDiavgeiaAcceptance(launched.window, payload);
   launched.setKhmdhsLive = (on) => setKhmdhsLive(launched.window, on);
   launched.queueFolderPick = (payload) => queueFolderPick(launched.window, payload);
   return launched;

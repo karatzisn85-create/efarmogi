@@ -194,8 +194,204 @@ async function downloadDiavgeiaDecisionPdf(adaRaw, opts = {}) {
   }
 }
 
+function addMonthsIso(iso, months) {
+  const [y, m, d] = String(iso || '').split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCMonth(dt.getUTCMonth() + months);
+  return dt.toISOString().slice(0, 10);
+}
+
+function addDaysIso(iso, days) {
+  const [y, m, d] = String(iso || '').split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function neededIssueDateWindows(fromIso, toIso) {
+  const end = String(toIso || todayIso()).slice(0, 10);
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(fromIso || '').slice(0, 10))
+    ? String(fromIso).slice(0, 10)
+    : addMonthsIso(end, -12);
+  const fromMs = Date.parse(`${start}T00:00:00Z`);
+  const toMs = Date.parse(`${end}T00:00:00Z`);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs) return 6;
+  const months = (toMs - fromMs) / (1000 * 60 * 60 * 24 * 30.44);
+  return Math.min(24, Math.max(6, Math.ceil(months / 6) + 1));
+}
+
+function buildIssueDateWindows(fromIso, toIso, { maxWindows = 6 } = {}) {
+  const end = String(toIso || todayIso()).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) return [];
+  let cursor = /^\d{4}-\d{2}-\d{2}$/.test(String(fromIso || '').slice(0, 10))
+    ? String(fromIso).slice(0, 10)
+    : addMonthsIso(end, -12);
+  if (!cursor || cursor > end) cursor = addMonthsIso(end, -12) || end;
+  const windows = [];
+  while (cursor <= end && windows.length < maxWindows) {
+    const rawEnd = addMonthsIso(cursor, 6);
+    const windowEnd = !rawEnd || rawEnd > end ? end : rawEnd;
+    windows.push({ from: cursor, to: windowEnd });
+    if (windowEnd >= end) break;
+    cursor = addDaysIso(windowEnd, 1);
+    if (!cursor) break;
+  }
+  return windows;
+}
+
+async function searchDiavgeiaDecisions({
+  term = '',
+  org = '',
+  fromIssueDate = '',
+  toIssueDate = '',
+  size = 50,
+} = {}) {
+  const params = new URLSearchParams();
+  if (term) params.set('term', term);
+  if (org) params.set('org', org);
+  if (fromIssueDate) params.set('from_issue_date', fromIssueDate);
+  if (toIssueDate) params.set('to_issue_date', toIssueDate);
+  params.set('size', String(Math.min(100, Math.max(1, Number(size) || 50))));
+  const url = `${DIAVGEIA_BASE}/search.json?${params.toString()}`;
+  const res = await fetchJson(url);
+  if (!res.success) return res;
+  const decisions = Array.isArray(res.data?.decisions) ? res.data.decisions : [];
+  return {
+    success: true,
+    decisions: decisions.map((d) => ({
+      ada: String(d.ada || '').trim(),
+      subject: String(d.subject || '').trim(),
+      protocolNumber: String(d.protocolNumber || '').trim(),
+      issueDate: isoDateFromMs(d.issueDate),
+      publishDate: isoDateFromMs(d.publishTimestamp),
+      organizationId: String(d.organizationId || '').trim(),
+      decisionTypeId: String(d.decisionTypeId || '').trim(),
+      documentUrl: d.documentUrl || (d.ada ? `https://diavgeia.gov.gr/doc/${encodeURIComponent(d.ada)}` : ''),
+    })),
+    total: Number(res.data?.info?.total) || decisions.length,
+  };
+}
+
+function foldOrganizationName(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/ς/g, 'σ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[-_/.,]/g, ' ')
+    .replace(/[^a-z0-9α-ω\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function organizationCoreName(folded) {
+  return String(folded || '')
+    .replace(/\b(δημοσ|δημου|του)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function organizationSearchQueries(name) {
+  const folded = foldOrganizationName(name);
+  const core = organizationCoreName(folded);
+  const tokens = core.split(' ').filter((w) => w.length >= 4);
+  const out = [];
+  const add = (value) => {
+    const s = String(value || '').trim();
+    if (s && !out.includes(s)) out.push(s);
+  };
+  add(name);
+  add(core);
+  if (tokens[0]) add(tokens[0]);
+  return out;
+}
+
+function organizationNameScore(query, label) {
+  const qFull = foldOrganizationName(query);
+  const lFull = foldOrganizationName(label);
+  const q = organizationCoreName(qFull);
+  const lCore = organizationCoreName(lFull);
+  if (!q || !lFull) return 0;
+
+  let score = 0;
+  if (lFull === qFull || lCore === q) score += 3;
+  else if (lCore.includes(q) || (q.length >= 8 && q.includes(lCore))) score += 1.1;
+
+  const tokens = q.split(' ').filter((w) => w.length >= 4);
+  if (tokens.length) {
+    const hits = tokens.filter((w) => lFull.includes(w)).length;
+    score += hits / tokens.length;
+  }
+
+  if (/^δημοσ\s/.test(lFull)) score += 1.5;
+  if (/^(μητρωο|ληξιαρχειο|δημοτολογιο|γραμματεια)\b/.test(lFull)) score -= 2.2;
+
+  return score;
+}
+
+function pickOrganizationFromList(name, list) {
+  let best = null;
+  let bestScore = 0;
+  (Array.isArray(list) ? list : []).forEach((org) => {
+    const labelScore = organizationNameScore(name, org?.label);
+    const latinScore = organizationNameScore(name, org?.latinName);
+    const score = Math.max(labelScore, latinScore);
+    if (score > bestScore) {
+      bestScore = score;
+      best = org;
+    }
+  });
+  return { best, bestScore };
+}
+
+async function resolveDiavgeiaOrganization(nameRaw) {
+  const name = String(nameRaw || '').trim();
+  if (!name) {
+    return { success: false, error: 'Δεν έχει οριστεί ο φορέας του δήμου στις ρυθμίσεις.' };
+  }
+  let lastError = '';
+  for (const query of organizationSearchQueries(name)) {
+    const url = `${DIAVGEIA_BASE}/organizations.json?term=${encodeURIComponent(query)}`;
+    const res = await fetchJson(url);
+    const list = Array.isArray(res.data?.organizations)
+      ? res.data.organizations
+      : (Array.isArray(res.data) ? res.data : []);
+    if (!res.success && !list.length) {
+      lastError = res.error || 'Δεν βρέθηκε ο δήμος στη Διαύγεια.';
+      continue;
+    }
+    const { best, bestScore } = pickOrganizationFromList(name, list);
+    if (best && bestScore >= 0.5 && best.uid) {
+      return {
+        success: true,
+        organization: {
+          uid: String(best.uid),
+          label: String(best.label || name).trim(),
+        },
+      };
+    }
+  }
+  return {
+    success: false,
+    error: lastError || `Δεν ταυτοποιήθηκε ο δήμος «${name}» στη Διαύγεια.`,
+  };
+}
+
 module.exports = {
   normalizeAda,
   fetchDiavgeiaDecisionByAda,
   downloadDiavgeiaDecisionPdf,
+  searchDiavgeiaDecisions,
+  resolveDiavgeiaOrganization,
+  organizationNameScore,
+  organizationSearchQueries,
+  buildIssueDateWindows,
+  neededIssueDateWindows,
+  todayIso,
 };

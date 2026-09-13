@@ -193,6 +193,79 @@
     return (prosklisi && prosklisi.deadline) || '';
   }
 
+  var PROSKLISI_SYNC_FIELDS = ['title', 'axis', 'fundingSource', 'code', 'deadline', 'budgetRange', 'status'];
+
+  function modificationExplicitlyChangesField(mod, field) {
+    if (field === 'deadline') return modificationExplicitlyChangesDeadline(mod);
+    return !!(mod && mod.changes && Object.prototype.hasOwnProperty.call(mod.changes, field));
+  }
+
+  function modificationFieldCurrent(mod, field) {
+    if (!modificationExplicitlyChangesField(mod, field)) return undefined;
+    if (field === 'deadline') return modificationDeadlineCurrent(mod);
+    if (mod.changes && mod.changes[field] && mod.changes[field].current !== undefined) {
+      return mod.changes[field].current;
+    }
+    return undefined;
+  }
+
+  function getEffectiveProsklisiField(prosklisi, modifications, field) {
+    if (field === 'deadline') return getEffectiveProsklisiDeadline(prosklisi, modifications);
+    var mods = sortModificationsChronologically(modifications || []);
+    var changed = mods.filter(function (m) {
+      return modificationExplicitlyChangesField(m, field);
+    });
+    if (!changed.length) return prosklisi ? prosklisi[field] : undefined;
+    var value = changed[0].changes && changed[0].changes[field]
+      ? changed[0].changes[field].original
+      : undefined;
+    if (value === undefined && prosklisi) value = prosklisi[field];
+    for (var i = 0; i < changed.length; i += 1) {
+      var current = modificationFieldCurrent(changed[i], field);
+      if (current !== undefined) value = current;
+    }
+    return value;
+  }
+
+  function getProsklisiSyncedFieldsAfterRemoval(prosklisi, removedModification, remainingModifications) {
+    var remaining = remainingModifications || [];
+    var fields = {};
+    PROSKLISI_SYNC_FIELDS.forEach(function (key) {
+      if (key === 'deadline') {
+        fields[key] = getProsklisiDeadlineAfterModificationRemoval(
+          prosklisi,
+          removedModification,
+          remaining
+        );
+        return;
+      }
+      var baseline = {};
+      baseline[key] = prosklisi ? prosklisi[key] : undefined;
+      var stillChanged = remaining.some(function (m) {
+        return modificationExplicitlyChangesField(m, key);
+      });
+      if (!stillChanged) {
+        var removedOriginal = removedModification && removedModification.changes && removedModification.changes[key]
+          ? removedModification.changes[key].original
+          : undefined;
+        if (removedOriginal !== undefined) baseline[key] = removedOriginal;
+      }
+      fields[key] = getEffectiveProsklisiField(baseline, remaining, key);
+    });
+    return fields;
+  }
+
+  function getProsklisiSyncedFieldsFromModification(prosklisi, savedModification, nextModifications, previousModification) {
+    var reverted = { changes: {} };
+    if (previousModification && previousModification.changes) {
+      Object.keys(previousModification.changes).forEach(function (key) {
+        if (savedModification && savedModification.changes && savedModification.changes[key]) return;
+        reverted.changes[key] = previousModification.changes[key];
+      });
+    }
+    return getProsklisiSyncedFieldsAfterRemoval(prosklisi, reverted, nextModifications || []);
+  }
+
   function getProsklisiDeadlineAfterModificationRemoval(prosklisi, removedModification, remainingModifications) {
     var remaining = remainingModifications || [];
     var stillChanged = false;
@@ -919,6 +992,10 @@
     sortModificationsChronologically: sortModificationsChronologically,
     modificationExplicitlyChangesDeadline: modificationExplicitlyChangesDeadline,
     getProsklisiDeadlineAfterModificationRemoval: getProsklisiDeadlineAfterModificationRemoval,
+    getEffectiveProsklisiField: getEffectiveProsklisiField,
+    getProsklisiSyncedFieldsAfterRemoval: getProsklisiSyncedFieldsAfterRemoval,
+    getProsklisiSyncedFieldsFromModification: getProsklisiSyncedFieldsFromModification,
+    PROSKLISI_SYNC_FIELDS: PROSKLISI_SYNC_FIELDS,
     getProsklisiDeadlineUrgency: getProsklisiDeadlineUrgency,
     getProsklisiDeadlineDaysLeft: getProsklisiDeadlineDaysLeft,
     isProsklisiDeadlineExpiringSoon: isProsklisiDeadlineExpiringSoon,

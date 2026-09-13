@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { toExistingEntaxiFileObjects } from './entaxiFileObjects';
+import { collectEntaxiApprovalFileNames, toExistingEntaxiFileObjects } from './entaxiFileObjects';
 
 describe('toExistingEntaxiFileObjects', () => {
   test('κρατά ονόματα αρχείων από συμβολοσειρές και αντικείμενα', () => {
@@ -16,6 +16,13 @@ describe('toExistingEntaxiFileObjects', () => {
       { fileName: 'έγκριση.pdf', originalName: 'έγκριση.pdf', isExisting: true },
       { fileName: 'άλλο.docx', originalName: 'άλλο.docx', isExisting: true },
     ]);
+  });
+
+  test('συγκεντρώνει όλα τα αρχεία αποδοχής μαζί με το παλιό μεμονωμένο', () => {
+    expect(collectEntaxiApprovalFileNames({
+      approvalPDF: 'παλιό.pdf',
+      approvalPDFs: ['νέο.docx', { fileName: 'άλλο.xlsx' }],
+    })).toEqual(['παλιό.pdf', 'νέο.docx', 'άλλο.xlsx']);
   });
 
   test('άδειος ή άκυρος κατάλογος δίνει κενό πίνακα', () => {

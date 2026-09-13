@@ -5,6 +5,8 @@ import { buildEntaxiDetailReportPayload } from '../utils/entaxiDetailReportData'
 import { exportEntaxiDetailReport } from '../utils/entaxiDetailReportExport';
 import { openEntaxiDiavgeiaDocument } from '../utils/entaxiDiavgeiaRegistry';
 import { getEntityLinkedNotes } from './LinkedNoteSticker';
+import { entaxiHasStoredAcceptance } from '../utils/entaxiProjectDraft';
+import persistAcceptance from '../../app/core/entaxiAcceptancePersist';
 
 const Overlay = styled.div`
   position: absolute;
@@ -379,6 +381,21 @@ const FooterGhostBtn = styled(FooterBtn)`
   }
 `;
 
+const FooterPrimaryBtn = styled(FooterBtn)`
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+
+  &:hover:not(:disabled) {
+    background: #4338ca;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+`;
+
 const ACCENTS = {
   basic: '#6366f1',
   codes: '#0ea5e9',
@@ -412,6 +429,9 @@ function EntaxiDetailModal({
   onEdit,
   onNewModification,
   onOpenFiles,
+  onSearchAcceptance,
+  onSearchModificationAcceptance,
+  onCreateProjectFromEntaxi,
   onOpenProsklisi,
   onOpenNote,
   canManageWorkflow = false,
@@ -470,6 +490,8 @@ function EntaxiDetailModal({
   );
 
   if (!entaxi) return null;
+
+  const hasStoredAcceptance = entaxiHasStoredAcceptance(entaxi);
 
   const handleExport = async () => {
     setExporting(true);
@@ -704,6 +726,23 @@ function EntaxiDetailModal({
                         ))}
                       </div>
                     ) : null}
+                    {canManageWorkflow ? (
+                      <div style={{ marginTop: '0.55rem' }}>
+                        <FooterGhostBtn
+                          type="button"
+                          data-testid={`ent-detail-mod-acceptance-search-${mod.index}`}
+                          disabled={isLocked}
+                          onClick={() => {
+                            const raw = (entaxi.modifications || [])[mod.index - 1];
+                            if (raw) onSearchModificationAcceptance?.(entaxi, raw);
+                          }}
+                        >
+                          {persistAcceptance.recordHasStoredAcceptance((entaxi.modifications || [])[mod.index - 1])
+                            ? 'Νέος έλεγχος αποδοχής τροποποίησης'
+                            : 'Έλεγχος αποδοχής τροποποίησης'}
+                        </FooterGhostBtn>
+                      </div>
+                    ) : null}
                   </ModBlock>
                 ))
               )}
@@ -766,7 +805,7 @@ function EntaxiDetailModal({
 
         <DetailFooter>
           <FooterCloseBtn type="button" data-testid="ent-detail-close" onClick={onClose}>Κλείσιμο</FooterCloseBtn>
-          <FooterFilesBtn type="button" onClick={() => onOpenFiles?.(entaxi)}>Αρχεία</FooterFilesBtn>
+          <FooterFilesBtn type="button" data-testid="ent-detail-files" onClick={() => onOpenFiles?.(entaxi)}>Αρχεία</FooterFilesBtn>
           {canManageWorkflow ? (
             <>
               <FooterGhostBtn type="button" disabled={isLocked} onClick={() => onEdit?.(entaxi)}>
@@ -775,6 +814,35 @@ function EntaxiDetailModal({
               <FooterGhostBtn type="button" disabled={isLocked} onClick={() => onNewModification?.(entaxi)}>
                 Νέα τροποποίηση
               </FooterGhostBtn>
+              {data.unlinked && hasStoredAcceptance ? (
+                <FooterPrimaryBtn
+                  type="button"
+                  data-testid="ent-detail-create-from-acceptance"
+                  disabled={isLocked}
+                  onClick={() => onCreateProjectFromEntaxi?.(entaxi)}
+                >
+                  Δημιουργία υποέργου
+                </FooterPrimaryBtn>
+              ) : null}
+              {hasStoredAcceptance ? (
+                <FooterGhostBtn
+                  type="button"
+                  data-testid="ent-detail-acceptance-search"
+                  disabled={isLocked}
+                  onClick={() => onSearchAcceptance?.(entaxi)}
+                >
+                  Νέος έλεγχος αποδοχής
+                </FooterGhostBtn>
+              ) : (
+                <FooterPrimaryBtn
+                  type="button"
+                  data-testid="ent-detail-acceptance-search"
+                  disabled={isLocked}
+                  onClick={() => onSearchAcceptance?.(entaxi)}
+                >
+                  Έλεγχος αποδοχής Δ.Σ.
+                </FooterPrimaryBtn>
+              )}
             </>
           ) : null}
         </DetailFooter>
