@@ -24,7 +24,7 @@
   var MARK_HAS_FILE = '✓';
   var MARK_NO_FILE = '—';
   var MARK_PERMIT_ISSUED = '✓';
-  var MARK_PERMIT_APPLIED = 'Α';
+  var MARK_PERMIT_APPLIED = 'Αιτ.';
   var MARK_PERMIT_PENDING = '×';
 
   function parseFileGroupLabel(label) {

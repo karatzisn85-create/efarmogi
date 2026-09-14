@@ -51,7 +51,7 @@ const COL_WIDTH = {
   studyName: 26,
   studyMark: 5,
   permitName: 28,
-  permitMark: 6,
+  permitMark: 8,
 };
 
 const LEFT_COL_KEYS = ['serial', 'title', 'actionResponsible', 'status', 'municipal', 'settlement', 'category'];
@@ -534,7 +534,7 @@ function writeHubExcelWorkbook({ proposals, destFilePath, exportedBy, appVersion
     ['Υπόμνημα'],
     ['✓', 'Υπάρχει αρχείο μελέτης / Η άδεια εκδόθηκε'],
     ['—', 'Δεν έχει καταχωρηθεί αρχείο μελέτης'],
-    ['Α', 'Έχει γίνει αίτηση (εκκρεμεί η έκδοση)'],
+    ['Αιτ.', 'Έχει γίνει αίτηση (εκκρεμεί η έκδοση)'],
     ['×', 'Εκκρεμεί η άδεια (δεν έχει σημειωθεί αίτηση ούτε έκδοση)'],
     [''],
     ['Κάθε έργο είναι ξεχωριστή καρτέλα. Εμφανίζονται μόνο οι κατηγορίες που έχουν δημιουργηθεί στο έργο.'],

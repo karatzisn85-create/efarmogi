@@ -23,7 +23,7 @@ test('μελέτη: ✓ όταν υπάρχει αρχείο, — όταν εί�
   assert.equal(list.classifyGroup(empty).kind, 'noFile');
 });
 
-test('άδεια: ✓ έκδοση, Α αίτηση, × εκκρεμότητα — όχι από αρχεία', () => {
+test('άδεια: ✓ έκδοση, Αιτ. αίτηση, × εκκρεμότητα — όχι από αρχεία', () => {
   const withDocs = {
     fileCategoryRoot: 'adeiodotiseis',
     fileCategorySpec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ',
@@ -33,7 +33,7 @@ test('άδεια: ✓ έκδοση, Α αίτηση, × εκκρεμότητα �
   const applied = { ...withDocs, permitApplied: true };
   const issued = { ...withDocs, permitIssued: true, permitApplied: true };
   assert.equal(list.permitMark(withDocs), '×');
-  assert.equal(list.permitMark(applied), 'Α');
+  assert.equal(list.permitMark(applied), 'Αιτ.');
   assert.equal(list.permitMark(issued), '✓');
   assert.equal(list.classifyGroup(withDocs).kind, 'pending');
   assert.equal(list.classifyGroup(applied).kind, 'applied');
@@ -273,7 +273,7 @@ test('Excel δομή: πίνακας ανά έργο με συγχωνεύσει
   assert.ok(!model.merges.some((m) => m.s.c === COL.permitName && m.e.r > m.s.r));
 });
 
-test('Excel: η αίτηση αδειοδότησης γράφεται ως Α, η έκδοση ως ✓', () => {
+test('Excel: η αίτηση αδειοδότησης γράφεται ως Αιτ., η έκδοση ως ✓', () => {
   const model = excel.buildHubExcelModel([
     {
       title: 'Έργο με αίτηση',
@@ -298,7 +298,7 @@ test('Excel: η αίτηση αδειοδότησης γράφεται ως Α, 
   ]);
   const { COL, BANNER_ROW_COUNT: B } = excel;
   assert.equal(model.rows[B + 1][COL.permitName].v, 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ');
-  assert.equal(model.rows[B + 1][COL.permitMark].v, 'Α');
+  assert.equal(model.rows[B + 1][COL.permitMark].v, 'Αιτ.');
   assert.equal(model.rows[B + 1][COL.permitMark].kind, 'markApplied');
   assert.equal(model.rows[B + 2][COL.permitName].v, 'ΥΠΗΡΕΣΙΑ ΔΟΜΗΣΗΣ');
   assert.equal(model.rows[B + 2][COL.permitMark].v, '✓');

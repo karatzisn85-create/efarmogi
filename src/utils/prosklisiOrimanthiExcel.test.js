@@ -224,7 +224,7 @@ describe('prosklisiOrimanthiExcel', () => {
     expect(projectTitle.v).toContain('Σημειώσεις: Αναμονή αρχαιολογικής έγκρισης.');
   });
 
-  test('η αίτηση αδειοδότησης στο μικτό Excel γράφεται ως Α', () => {
+  test('η αίτηση αδειοδότησης στο μικτό Excel γράφεται ως Αιτ.', () => {
     const model = buildMixedProsklisiOrimanthiModel({
       invitations: [{
         title: 'Πρόσκληση με αίτηση',
@@ -241,7 +241,7 @@ describe('prosklisiOrimanthiExcel', () => {
     expect(cellText(model)).toContain('Έργο με αίτηση άδειας');
     const permitRow = findRowWith(model, 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ');
     expect(permitRow).toBeGreaterThan(-1);
-    expect(rowHasValue(model.rows[permitRow], 'Α')).toBe(true);
+    expect(rowHasValue(model.rows[permitRow], 'Αιτ.')).toBe(true);
   });
 
   test('δύο έργα στην ίδια πρόσκληση: η πρόσκληση συγχωνεύεται και κάθε έργο διακλαδώνει χωριστά', () => {
