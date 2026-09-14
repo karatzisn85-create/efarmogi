@@ -4345,7 +4345,12 @@ export default function OrimanthiManager({
       confirmLabel: 'Διαγραφή',
       icon: '🗑',
     })) return;
-    const nextFileGroups = selectedProposal.fileGroups.filter((g) => g.id !== groupId);
+    if (pendingSaveProjectIdRef.current === selectedId) {
+      await flushProposalSaveById(selectedId);
+    }
+    await saveChainRef.current.catch(() => {});
+    const current = proposalsRef.current.find((p) => p.id === selectedId);
+    const nextFileGroups = (current?.fileGroups || []).filter((g) => g.id !== groupId);
     const delRes = await window.electronAPI.invoke('delete-proposal-group', {
       proposalId: selectedId,
       groupId,
@@ -4357,14 +4362,12 @@ export default function OrimanthiManager({
       showToast(`Σφάλμα διαγραφής κατηγορίας: ${delRes.error}`, 'error');
       return;
     }
-    if (delRes.proposal) mergeSavedProposal(delRes.proposal);
-    else {
-      setProposals((prev) => {
-        const next = prev.map((p) => (p.id === selectedId ? { ...p, fileGroups: nextFileGroups } : p));
-        proposalsRef.current = next;
-        return next;
-      });
-    }
+    const savedGroups = delRes.proposal?.fileGroups || nextFileGroups;
+    setProposals((prev) => {
+      const next = prev.map((p) => (p.id === selectedId ? { ...p, ...delRes.proposal, fileGroups: savedGroups } : p));
+      proposalsRef.current = next;
+      return next;
+    });
     refreshHistoryIfVisible(selectedId);
   };
 
