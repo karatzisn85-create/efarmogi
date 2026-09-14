@@ -15,6 +15,7 @@ const GROUP_ORIMANTHI = 'ΩΡΙΜΑΝΣΗ ΕΡΓΩΝ';
 const EMPTY_ORIMANTHI_CARD = {
   title: '—',
   status: '',
+  actionResponsible: '—',
   municipalUnit: '—',
   settlement: '—',
   category: '—',
@@ -86,6 +87,7 @@ const ORI_COL_WIDTH = {
 const ORI_HEADER_LABELS = {
   serial: 'Α/Α έργου',
   title: 'Τίτλος έργου',
+  actionResponsible: 'Υπεύθυνος πράξης',
   status: 'Κατάσταση',
   municipal: 'Δημοτική ενότητα',
   settlement: 'Οικισμός',
@@ -235,6 +237,12 @@ const MIXED_S = {
     'FEF3C7',
     { horizontal: 'center', vertical: 'center' },
     'FDE68A'
+  ),
+  markApplied: style(
+    { bold: true, sz: 12, color: { rgb: '4338CA' } },
+    'EEF2FF',
+    { horizontal: 'center', vertical: 'center' },
+    'C7D2FE'
   ),
   notes: style(
     { sz: 9, color: { rgb: '475569' }, italic: true },
@@ -413,9 +421,9 @@ function fillInvitationCells(row, columns, invitation, index, onlyFirst) {
 
 function orimanthiLeftLastIndex(excelOptions) {
   const { COL: col } = hub.layoutFromOptions(excelOptions);
-  const keys = ['category', 'settlement', 'municipal', 'status', 'title', 'serial'];
-  for (let i = 0; i < keys.length; i += 1) {
-    if (col[keys[i]] != null) return col[keys[i]];
+  for (let i = hub.LEFT_COL_KEYS.length - 1; i >= 0; i -= 1) {
+    const key = hub.LEFT_COL_KEYS[i];
+    if (col[key] != null) return col[key];
   }
   return 1;
 }
@@ -835,7 +843,8 @@ async function writeMixedWorkbook({
     ['Υπόμνημα ωρίμανσης'],
     ['✓', 'Υπάρχει αρχείο μελέτης / Η άδεια εκδόθηκε'],
     ['—', 'Δεν έχει καταχωρηθεί αρχείο μελέτης'],
-    ['×', 'Εκκρεμεί η άδεια (δεν έχει σημειωθεί έκδοση)'],
+    ['Α', 'Έχει γίνει αίτηση (εκκρεμεί η έκδοση)'],
+    ['×', 'Εκκρεμεί η άδεια (δεν έχει σημειωθεί αίτηση ούτε έκδοση)'],
     [''],
     ['Αριστερά συγχωνεύονται τα στοιχεία της πρόσκλησης. Δεξιά κάθε συσχετισμένο έργο διακλαδώνει μελέτες και άδειες όπως στην εξαγωγή ωρίμανσης.'],
     [hub.REPORT_CREDIT],

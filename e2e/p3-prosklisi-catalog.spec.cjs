@@ -549,6 +549,7 @@ test('P3-68 εξαγωγή Excel με ωρίμανση συσχετισμένω�
   await window.getByTestId('btn-export-proskliseis').click();
   await expect(window.getByTestId('psk-export-count')).toHaveText('3');
   await window.getByTestId('psk-export-include-orimanthi').check();
+  await expect(window.getByTestId('psk-export-orimanthi-col-actionResponsible')).toBeVisible();
   await expect(window.getByTestId('psk-export-orimanthi-block-studies')).toBeVisible();
   await expect(window.getByTestId('psk-export-orimanthi-block-permits')).toBeVisible();
   await app.queueSavePath(dest);
@@ -566,6 +567,8 @@ test('P3-68 εξαγωγή Excel με ωρίμανση συσχετισμένω�
   expect(text).toContain('ΕΣΠΑ 2021-2027');
   expect(text).toContain('100.000 - 200.000');
   expect(text).toContain('Ανακατασκευή οδού Αρχανών');
+  expect(text).toContain('Υπεύθυνος πράξης');
+  expect(text).toContain('Κώστας Αντωνίου');
   expect(text).toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
   expect(text).toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
   expect(text).toContain('ΤΟΠΟΓΡΑΦΙΚΑ');

@@ -53,6 +53,8 @@ export const DEFAULT_ADEIODOTISEIS_SPECS = [
 
 export const LS_CUSTOM_MELETES_SPECS = 'orimanthiCustomMeletesFileSpecs';
 export const LS_CUSTOM_ADEIODOTISEIS_SPECS = 'orimanthiCustomAdeiodotiseisFileSpecs';
+export const LS_HIDDEN_MELETES_SPECS = 'orimanthiHiddenMeletesFileSpecs';
+export const LS_HIDDEN_ADEIODOTISEIS_SPECS = 'orimanthiHiddenAdeiodotiseisFileSpecs';
 
 const LABEL_SEP = ' · ';
 
@@ -83,12 +85,35 @@ export function saveCustomFileSpecs(storageKey, defaults, fullList) {
   localStorage.setItem(storageKey, JSON.stringify(custom));
 }
 
-export function getMeletesSpecs(customList) {
-  return mergeSpecLists(DEFAULT_MELETES_SPECS, customList);
+export function loadHiddenFileSpecs(storageKey) {
+  return loadCustomFileSpecs(storageKey);
 }
 
-export function getAdeiodotiseisSpecs(customList) {
-  return mergeSpecLists(DEFAULT_ADEIODOTISEIS_SPECS, customList);
+export function saveHiddenFileSpecs(storageKey, hiddenList) {
+  const hidden = (hiddenList || []).map((x) => String(x || '').trim()).filter(Boolean);
+  localStorage.setItem(storageKey, JSON.stringify(hidden));
+}
+
+export function filterHiddenSpecs(specs, hiddenList) {
+  const hidden = new Set(
+    (hiddenList || []).map((x) => String(x || '').trim().toLowerCase()).filter(Boolean)
+  );
+  if (!hidden.size) return specs || [];
+  return (specs || []).filter((spec) => !hidden.has(String(spec).toLowerCase()));
+}
+
+export function isDefaultFileSpec(rootId, spec) {
+  const trimmed = String(spec || '').trim();
+  if (!trimmed) return false;
+  return getDefaultSpecsForRoot(rootId).some((d) => d.toLowerCase() === trimmed.toLowerCase());
+}
+
+export function getMeletesSpecs(customList, hiddenList) {
+  return filterHiddenSpecs(mergeSpecLists(DEFAULT_MELETES_SPECS, customList), hiddenList);
+}
+
+export function getAdeiodotiseisSpecs(customList, hiddenList) {
+  return filterHiddenSpecs(mergeSpecLists(DEFAULT_ADEIODOTISEIS_SPECS, customList), hiddenList);
 }
 
 export function buildFileGroupLabel(rootId, spec) {
@@ -141,12 +166,18 @@ export function buildFileGroupPayload(rootId, spec) {
   };
 }
 
-export function getSpecsForRoot(rootId, customMeletes, customAdeiodotiseis) {
+export function getSpecsForRoot(
+  rootId,
+  customMeletes,
+  customAdeiodotiseis,
+  hiddenMeletes,
+  hiddenAdeiodotiseis
+) {
   if (rootId === FILE_CATEGORY_ROOT_MELETES) {
-    return getMeletesSpecs(customMeletes);
+    return getMeletesSpecs(customMeletes, hiddenMeletes);
   }
   if (rootId === FILE_CATEGORY_ROOT_ADEIODOTISEIS) {
-    return getAdeiodotiseisSpecs(customAdeiodotiseis);
+    return getAdeiodotiseisSpecs(customAdeiodotiseis, hiddenAdeiodotiseis);
   }
   return [];
 }
@@ -160,6 +191,12 @@ export function getDefaultSpecsForRoot(rootId) {
 export function getCustomStorageKeyForRoot(rootId) {
   if (rootId === FILE_CATEGORY_ROOT_MELETES) return LS_CUSTOM_MELETES_SPECS;
   if (rootId === FILE_CATEGORY_ROOT_ADEIODOTISEIS) return LS_CUSTOM_ADEIODOTISEIS_SPECS;
+  return null;
+}
+
+export function getHiddenStorageKeyForRoot(rootId) {
+  if (rootId === FILE_CATEGORY_ROOT_MELETES) return LS_HIDDEN_MELETES_SPECS;
+  if (rootId === FILE_CATEGORY_ROOT_ADEIODOTISEIS) return LS_HIDDEN_ADEIODOTISEIS_SPECS;
   return null;
 }
 
@@ -217,4 +254,25 @@ export function migrateProposalFileGroups(proposal) {
   const fileGroups = proposal.fileGroups.map(migrateFileGroup);
   const changed = JSON.stringify(fileGroups) !== JSON.stringify(proposal.fileGroups);
   return changed ? { ...proposal, fileGroups } : proposal;
+}
+
+export function appendFileCategoryGroups(existingGroups, picks, makeId) {
+  const createId = typeof makeId === 'function' ? makeId : () => `fg-${Date.now()}`;
+  let groups = [...(existingGroups || [])];
+  const added = [];
+  (Array.isArray(picks) ? picks : [picks]).forEach((pick) => {
+    const rootId = pick?.rootId;
+    const spec = String(pick?.spec || '').trim();
+    if (!rootId || !spec) return;
+    if (fileGroupExists(groups, rootId, spec)) return;
+    const payload = buildFileGroupPayload(rootId, spec);
+    const group = {
+      id: createId(),
+      ...payload,
+      files: [],
+    };
+    groups = [...groups, group];
+    added.push(group);
+  });
+  return { groups, added };
 }

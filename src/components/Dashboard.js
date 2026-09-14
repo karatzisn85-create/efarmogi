@@ -5,6 +5,7 @@ import { buildProjectDraftFromEntaxi, buildEntaxiLinkAfterProjectCreate } from '
 import { findOrimanthiLinksForProject } from '../utils/prosklisiDeadlineUtils';
 import { toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
 import entaxiAcceptanceMatch from '../../app/core/entaxiAcceptanceMatch';
+import entaxiCatalog from '../../app/core/entaxiCatalog';
 
 import ProjectCard from './ProjectCard';
 import SubprojectDetailModal from './SubprojectDetailModal';
@@ -7685,16 +7686,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                     }
                   });
                   
-                  // Sum amounts from unique entaxis only
+                  // Sum amounts from unique entaxis only (includes modifications)
                   const totalEntaxiAmount = Array.from(uniqueEntaxiIds).reduce((total, entaxiId) => {
                     const entaxi = entaxeis.find(e => e.entaxiId === entaxiId);
-                    if (entaxi && entaxi.initialAmount) {
-                      // Parse amount: remove non-digit chars except comma/dot, remove dots (thousands), replace comma with dot
-                      const cleaned = entaxi.initialAmount.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
-                      const amount = parseFloat(cleaned);
-                      if (!isNaN(amount)) {
-                        return total + amount;
-                      }
+                    if (entaxi) {
+                      const amount = entaxiCatalog.getEntaxiCurrentTotal(entaxi);
+                      if (amount > 0) return total + amount;
                     }
                     return total;
                   }, 0);

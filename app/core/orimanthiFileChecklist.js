@@ -24,6 +24,7 @@
   var MARK_HAS_FILE = '✓';
   var MARK_NO_FILE = '—';
   var MARK_PERMIT_ISSUED = '✓';
+  var MARK_PERMIT_APPLIED = 'Α';
   var MARK_PERMIT_PENDING = '×';
 
   function parseFileGroupLabel(label) {
@@ -69,22 +70,31 @@
     return !!(group && group.permitIssued);
   }
 
+  function isPermitApplied(group) {
+    return !!(group && group.permitApplied);
+  }
+
   function studyMark(group) {
     return countGroupFiles(group) > 0 ? MARK_HAS_FILE : MARK_NO_FILE;
   }
 
   function permitMark(group) {
-    return isPermitIssued(group) ? MARK_PERMIT_ISSUED : MARK_PERMIT_PENDING;
+    if (isPermitIssued(group)) return MARK_PERMIT_ISSUED;
+    if (isPermitApplied(group)) return MARK_PERMIT_APPLIED;
+    return MARK_PERMIT_PENDING;
   }
 
   function classifyGroup(group) {
     var identity = getFileGroupIdentity(group);
     if (identity.rootId === ROOT_ADEIODOTISEIS) {
+      var permitKind = 'pending';
+      if (isPermitIssued(group)) permitKind = 'issued';
+      else if (isPermitApplied(group)) permitKind = 'applied';
       return {
         rootId: ROOT_ADEIODOTISEIS,
         spec: identity.spec || (group && group.label) || 'Αδειοδότηση',
         mark: permitMark(group),
-        kind: isPermitIssued(group) ? 'issued' : 'pending'
+        kind: permitKind
       };
     }
     return {
@@ -128,6 +138,7 @@
     return {
       title: (proposal && proposal.title) || '(Χωρίς τίτλο)',
       status: (proposal && proposal.status) || '',
+      actionResponsible: String((proposal && proposal.actionResponsible) || '').trim() || '—',
       category: category || '—',
       municipalUnit: (proposal && proposal.municipalUnit) || '—',
       settlement: (proposal && proposal.settlement) || '—',
@@ -145,11 +156,23 @@
     return (proposals || []).map(buildProposalCard);
   }
 
-  function setGroupPermitIssued(fileGroups, groupId, issued) {
+  function setGroupPermitFlags(fileGroups, groupId, flags) {
+    var patch = flags || {};
     return (fileGroups || []).map(function (group) {
       if (!group || group.id !== groupId) return group;
-      return Object.assign({}, group, { permitIssued: !!issued });
+      var next = Object.assign({}, group);
+      if (Object.prototype.hasOwnProperty.call(patch, 'permitIssued')) {
+        next.permitIssued = !!patch.permitIssued;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'permitApplied')) {
+        next.permitApplied = !!patch.permitApplied;
+      }
+      return next;
     });
+  }
+
+  function setGroupPermitIssued(fileGroups, groupId, issued) {
+    return setGroupPermitFlags(fileGroups, groupId, { permitIssued: issued });
   }
 
   function applyPermitIssuedFromSaved(local, saved, groupId) {
@@ -161,11 +184,14 @@
       return g && g.id === groupId;
     })[0];
     var issued = diskGroup ? !!diskGroup.permitIssued : !!(localGroup && localGroup.permitIssued);
+    var applied = diskGroup
+      ? !!diskGroup.permitApplied
+      : !!(localGroup && localGroup.permitApplied);
     return Object.assign({}, local, {
       updatedAt: (saved && saved.updatedAt) || local.updatedAt,
       fileGroups: ((local.fileGroups) || []).map(function (g) {
         if (!g || g.id !== groupId) return g;
-        return Object.assign({}, g, { permitIssued: issued });
+        return Object.assign({}, g, { permitIssued: issued, permitApplied: applied });
       })
     });
   }
@@ -182,10 +208,16 @@
       if (!savedGroup) return savedGroup;
       savedIds[savedGroup.id] = true;
       var localGroup = localById[savedGroup.id];
-      if (!localGroup || !Object.prototype.hasOwnProperty.call(localGroup, 'permitIssued')) {
-        return savedGroup;
+      if (!localGroup) return savedGroup;
+      var overlay = {};
+      if (Object.prototype.hasOwnProperty.call(localGroup, 'permitIssued')) {
+        overlay.permitIssued = localGroup.permitIssued;
       }
-      return Object.assign({}, savedGroup, { permitIssued: localGroup.permitIssued });
+      if (Object.prototype.hasOwnProperty.call(localGroup, 'permitApplied')) {
+        overlay.permitApplied = localGroup.permitApplied;
+      }
+      if (!Object.keys(overlay).length) return savedGroup;
+      return Object.assign({}, savedGroup, overlay);
     });
     localList.forEach(function (localGroup) {
       if (localGroup && localGroup.id && !savedIds[localGroup.id]) merged.push(localGroup);
@@ -199,6 +231,7 @@
     return Object.assign({}, local, saved, {
       title: local.title,
       status: local.status,
+      actionResponsible: local.actionResponsible,
       projectCategory: local.projectCategory,
       infrastructureSpecialization: local.infrastructureSpecialization,
       municipalUnit: local.municipalUnit,
@@ -218,6 +251,7 @@
       fileCategoryRoot: group && group.fileCategoryRoot,
       fileCategorySpec: group && group.fileCategorySpec,
       permitIssued: !!(group && group.permitIssued),
+      permitApplied: !!(group && group.permitApplied),
       files: files || []
     };
   }
@@ -228,18 +262,21 @@
     MARK_HAS_FILE: MARK_HAS_FILE,
     MARK_NO_FILE: MARK_NO_FILE,
     MARK_PERMIT_ISSUED: MARK_PERMIT_ISSUED,
+    MARK_PERMIT_APPLIED: MARK_PERMIT_APPLIED,
     MARK_PERMIT_PENDING: MARK_PERMIT_PENDING,
     getFileGroupIdentity: getFileGroupIdentity,
     isAdeiodotiseisGroup: isAdeiodotiseisGroup,
     isMeletesGroup: isMeletesGroup,
     countGroupFiles: countGroupFiles,
     isPermitIssued: isPermitIssued,
+    isPermitApplied: isPermitApplied,
     studyMark: studyMark,
     permitMark: permitMark,
     classifyGroup: classifyGroup,
     formatAepoDate: formatAepoDate,
     buildProposalCard: buildProposalCard,
     buildHubCards: buildHubCards,
+    setGroupPermitFlags: setGroupPermitFlags,
     setGroupPermitIssued: setGroupPermitIssued,
     applyPermitIssuedFromSaved: applyPermitIssuedFromSaved,
     mergeFileGroupsFromDisk: mergeFileGroupsFromDisk,

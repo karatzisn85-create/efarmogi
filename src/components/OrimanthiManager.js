@@ -26,15 +26,21 @@ import {
   DEFAULT_ADEIODOTISEIS_SPECS,
   LS_CUSTOM_MELETES_SPECS,
   LS_CUSTOM_ADEIODOTISEIS_SPECS,
+  LS_HIDDEN_MELETES_SPECS,
+  LS_HIDDEN_ADEIODOTISEIS_SPECS,
   loadCustomFileSpecs,
   saveCustomFileSpecs,
+  loadHiddenFileSpecs,
+  saveHiddenFileSpecs,
   getMeletesSpecs,
   getAdeiodotiseisSpecs,
+  isDefaultFileSpec,
   buildFileGroupPayload,
   fileGroupExists,
   getFileGroupIdentity,
   migrateProposalFileGroups,
   summarizeOrimanthiPermits,
+  appendFileCategoryGroups,
 } from '../utils/orimanthiFileCategories';
 import { findProskliseisLinkedToOrimanthi } from '../utils/prosklisiDeadlineUtils';
 import {
@@ -97,6 +103,7 @@ const ADD_NEW_SPECIALIZATION_OPTION = '__add_new_specialization__';
 
 const EMPTY_NEW_PROJECT_DRAFT = {
   title: '',
+  actionResponsible: '',
   projectCategory: '',
   infrastructureSpecialization: '',
   municipalUnit: '',
@@ -240,6 +247,7 @@ function emptyProposal() {
     title: '',
     description: '',
     status: 'draft',
+    actionResponsible: '',
     projectCategory: '',
     infrastructureSpecialization: '',
     municipalUnit: '',
@@ -276,26 +284,46 @@ function isAdeiodotiseisGroup(group) {
   return getFileGroupIdentity(group).rootId === FILE_CATEGORY_ROOT_ADEIODOTISEIS;
 }
 
-function renderPermitIssuedChip({ group, disabled, onToggle }) {
+function renderPermitStatusChips({ group, disabled, onToggleIssued, onToggleApplied }) {
   if (!isAdeiodotiseisGroup(group)) return null;
   const issued = !!group.permitIssued;
+  const applied = !!group.permitApplied;
   return (
-    <PermitIssuedChip
-      type="button"
-      $issued={issued}
-      $disabled={disabled}
-      aria-disabled={disabled || undefined}
-      data-testid={`orimanthi-permit-issued-${group.id}`}
-      title={issued ? 'Η άδεια εκδόθηκε' : 'Εκκρεμεί η άδεια'}
-      onClick={(e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        if (!disabled) onToggle(group.id);
-      }}
-    >
-      <PermitIssuedBox $issued={issued}>{issued ? '✓' : ''}</PermitIssuedBox>
-      {issued ? 'Η άδεια εκδόθηκε' : 'Εκκρεμεί η άδεια'}
-    </PermitIssuedChip>
+    <PermitChipRow onClick={(e) => e.stopPropagation()}>
+      <PermitIssuedChip
+        type="button"
+        $issued={issued}
+        $disabled={disabled}
+        aria-disabled={disabled || undefined}
+        data-testid={`orimanthi-permit-issued-${group.id}`}
+        title={issued ? 'Η άδεια εκδόθηκε' : 'Εκκρεμεί η άδεια'}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          if (!disabled) onToggleIssued(group.id);
+        }}
+      >
+        <PermitIssuedBox $issued={issued}>{issued ? '✓' : ''}</PermitIssuedBox>
+        {issued ? 'Η άδεια εκδόθηκε' : 'Εκκρεμεί η άδεια'}
+      </PermitIssuedChip>
+      <PermitIssuedChip
+        type="button"
+        $issued={applied}
+        $kind="applied"
+        $disabled={disabled}
+        aria-disabled={disabled || undefined}
+        data-testid={`orimanthi-permit-applied-${group.id}`}
+        title={applied ? 'Έχει γίνει αίτηση' : 'Δεν έχει σημειωθεί αίτηση'}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          if (!disabled) onToggleApplied(group.id);
+        }}
+      >
+        <PermitIssuedBox $issued={applied} $kind="applied">{applied ? '✓' : ''}</PermitIssuedBox>
+        Έχει γίνει Αίτηση
+      </PermitIssuedChip>
+    </PermitChipRow>
   );
 }
 
@@ -1037,6 +1065,34 @@ const HubListSub = styled.div`
   color: ${C.slate500};
   margin-top: 0.15rem;
   line-height: 1.3;
+`;
+const HubInviteMeta = styled.div`
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: ${C.slate400};
+  margin-top: 0.18rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+`;
+const HubInviteLink = styled.button`
+  display: inline;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 500;
+  color: ${C.slate500};
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+  &:hover {
+    color: ${C.indigoDark};
+    text-decoration: underline;
+  }
 `;
 const HubRowStatus = styled.span`
   display: inline-flex;
@@ -2426,6 +2482,7 @@ const GroupName = styled.div`
   gap: 0.55rem;
   min-width: 0;
   flex: 1;
+  flex-wrap: wrap;
   & > span:first-child {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2451,6 +2508,13 @@ const GroupCount = styled.span`
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
 `;
+const PermitChipRow = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+`;
 const PermitIssuedChip = styled.button`
   flex-shrink: 0;
   display: inline-flex;
@@ -2461,15 +2525,21 @@ const PermitIssuedChip = styled.button`
   letter-spacing: 0.01em;
   padding: 0.14rem 0.48rem;
   border-radius: 999px;
-  border: 1px solid ${(p) => (p.$issued ? '#6ee7b7' : C.slate200)};
-  background: ${(p) => (p.$issued ? '#ecfdf5' : C.slate100)};
-  color: ${(p) => (p.$issued ? '#047857' : C.slate600)};
+  border: 1px solid ${(p) => (p.$issued
+    ? (p.$kind === 'applied' ? '#c7d2fe' : '#6ee7b7')
+    : C.slate200)};
+  background: ${(p) => (p.$issued
+    ? (p.$kind === 'applied' ? '#eef2ff' : '#ecfdf5')
+    : C.slate100)};
+  color: ${(p) => (p.$issued
+    ? (p.$kind === 'applied' ? '#4338ca' : '#047857')
+    : C.slate600)};
   cursor: ${(p) => (p.$disabled ? 'default' : 'pointer')};
   pointer-events: auto;
   line-height: 1.2;
   &:hover {
     ${(p) => !p.$disabled && (p.$issued
-      ? 'background: #d1fae5;'
+      ? (p.$kind === 'applied' ? 'background: #e0e7ff;' : 'background: #d1fae5;')
       : `background: ${C.slate50};`)}
   }
 `;
@@ -2477,8 +2547,12 @@ const PermitIssuedBox = styled.span`
   width: 0.72rem;
   height: 0.72rem;
   border-radius: 3px;
-  border: 1.5px solid ${(p) => (p.$issued ? '#059669' : C.slate400)};
-  background: ${(p) => (p.$issued ? '#10b981' : C.white)};
+  border: 1.5px solid ${(p) => (p.$issued
+    ? (p.$kind === 'applied' ? '#4f46e5' : '#059669')
+    : C.slate400)};
+  background: ${(p) => (p.$issued
+    ? (p.$kind === 'applied' ? '#6366f1' : '#10b981')
+    : C.white)};
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2900,6 +2974,7 @@ const ExcelBlockBtn = styled.button`
 
 const DEFAULT_HUB_EXCEL_OPTIONS = {
   columns: {
+    actionResponsible: true,
     status: true,
     municipal: true,
     settlement: true,
@@ -2910,6 +2985,7 @@ const DEFAULT_HUB_EXCEL_OPTIONS = {
 };
 
 const HUB_EXCEL_COLUMN_CHOICES = [
+  { key: 'actionResponsible', label: 'Υπεύθυνος πράξης' },
   { key: 'status', label: 'Κατάσταση' },
   { key: 'municipal', label: 'Δημοτική ενότητα' },
   { key: 'settlement', label: 'Οικισμός' },
@@ -3024,6 +3100,12 @@ export default function OrimanthiManager({
   const [customAdeiodotiseisFileSpecs, setCustomAdeiodotiseisFileSpecs] = useState(() =>
     loadCustomFileSpecs(LS_CUSTOM_ADEIODOTISEIS_SPECS)
   );
+  const [hiddenMeletesFileSpecs, setHiddenMeletesFileSpecs] = useState(() =>
+    loadHiddenFileSpecs(LS_HIDDEN_MELETES_SPECS)
+  );
+  const [hiddenAdeiodotiseisFileSpecs, setHiddenAdeiodotiseisFileSpecs] = useState(() =>
+    loadHiddenFileSpecs(LS_HIDDEN_ADEIODOTISEIS_SPECS)
+  );
   const newProjectTitleRef = useRef(null);
 
   // Add group UI
@@ -3069,7 +3151,7 @@ export default function OrimanthiManager({
   const fileSearchTimerRef = useRef(null);
   const persistedSnapshotsRef = useRef({});
   const lockedProposalIdRef = useRef(null);
-  const permitToggleInFlightRef = useRef(null);
+  const permitToggleInFlightRef = useRef(new Set());
   const creatingProjectRef = useRef(false);
   // Ref που κρατά πάντα το τελευταίο state proposals χωρίς να δημιουργεί νέα closure
   const proposalsRef = useRef([]);
@@ -3998,6 +4080,77 @@ export default function OrimanthiManager({
     showToast(`Η εξειδίκευση «${trimmed}» αφαιρέθηκε από Αδειοδοτήσεις`, 'success');
   }, [showToast]);
 
+  const unhideFileSpec = useCallback((rootId, spec) => {
+    const trimmed = String(spec || '').trim();
+    if (!trimmed) return;
+    if (rootId === FILE_CATEGORY_ROOT_MELETES) {
+      setHiddenMeletesFileSpecs((prev) => {
+        const next = prev.filter((x) => x.toLowerCase() !== trimmed.toLowerCase());
+        if (next.length === prev.length) return prev;
+        saveHiddenFileSpecs(LS_HIDDEN_MELETES_SPECS, next);
+        return next;
+      });
+      return;
+    }
+    if (rootId === FILE_CATEGORY_ROOT_ADEIODOTISEIS) {
+      setHiddenAdeiodotiseisFileSpecs((prev) => {
+        const next = prev.filter((x) => x.toLowerCase() !== trimmed.toLowerCase());
+        if (next.length === prev.length) return prev;
+        saveHiddenFileSpecs(LS_HIDDEN_ADEIODOTISEIS_SPECS, next);
+        return next;
+      });
+    }
+  }, []);
+
+  const removeFileSpecFromCatalog = useCallback(async (rootId, spec) => {
+    const trimmed = String(spec || '').trim();
+    if (!rootId || !trimmed) return false;
+    const isDefault = isDefaultFileSpec(rootId, trimmed);
+    const customList = rootId === FILE_CATEGORY_ROOT_MELETES
+      ? customMeletesFileSpecs
+      : customAdeiodotiseisFileSpecs;
+    const isCustom = customList.some((x) => x.toLowerCase() === trimmed.toLowerCase());
+    if (!isDefault && !isCustom) return false;
+    if (!await showConfirm({
+      title: 'Αφαίρεση από τη λίστα',
+      message: `Να αφαιρεθεί η εξειδίκευση «${trimmed}» από τις επιλογές;`,
+      detail: 'Δεν θα διαγραφούν κατηγορίες που υπάρχουν ήδη σε έργα — μόνο η εμφάνιση στη λίστα επιλογής.',
+      confirmLabel: 'Αφαίρεση',
+      icon: '🗑',
+    })) return false;
+    if (isCustom) {
+      if (rootId === FILE_CATEGORY_ROOT_MELETES) handleRemoveCustomMeletesFileSpec(trimmed);
+      else handleRemoveCustomAdeiodotiseisFileSpec(trimmed);
+    }
+    if (isDefault) {
+      if (rootId === FILE_CATEGORY_ROOT_MELETES) {
+        setHiddenMeletesFileSpecs((prev) => {
+          if (prev.some((x) => x.toLowerCase() === trimmed.toLowerCase())) return prev;
+          const next = [...prev, trimmed];
+          saveHiddenFileSpecs(LS_HIDDEN_MELETES_SPECS, next);
+          return next;
+        });
+      } else {
+        setHiddenAdeiodotiseisFileSpecs((prev) => {
+          if (prev.some((x) => x.toLowerCase() === trimmed.toLowerCase())) return prev;
+          const next = [...prev, trimmed];
+          saveHiddenFileSpecs(LS_HIDDEN_ADEIODOTISEIS_SPECS, next);
+          return next;
+        });
+      }
+      if (!isCustom) {
+        showToast(`Η εξειδίκευση «${trimmed}» αφαιρέθηκε από τη λίστα`, 'success');
+      }
+    }
+    return true;
+  }, [
+    customAdeiodotiseisFileSpecs,
+    customMeletesFileSpecs,
+    handleRemoveCustomAdeiodotiseisFileSpec,
+    handleRemoveCustomMeletesFileSpec,
+    showToast,
+  ]);
+
   const handleNewProjectPickFiles = async (groupId) => {
     const res = await window.electronAPI.invoke('select-multiple-files', { allFileTypes: true });
     if (!res || res.canceled || !res.success) return;
@@ -4045,24 +4198,19 @@ export default function OrimanthiManager({
     setNewProjectExpandedGroups((prev) => ({ ...prev, [groupId]: true }));
   };
 
-  const addNewProjectFileCategoryGroup = useCallback(({ rootId, spec, label }) => {
-    if (!rootId || !spec) return;
-    if (fileGroupExists(newProjectStagedGroups, rootId, spec)) {
-      showToast(`Η κατηγορία «${label}» υπάρχει ήδη`, 'warning');
-      setNewProjectShowCategoryPicker(false);
-      return;
-    }
-    const payload = buildFileGroupPayload(rootId, spec);
-    const newGroupId = uuidv4();
-    setNewProjectStagedGroups((prev) => [...prev, {
-      id: newGroupId,
-      ...payload,
-      stagedFiles: [],
-      stagedFolders: [],
-    }]);
-    setNewProjectExpandedGroups((prev) => ({ ...prev, [newGroupId]: true }));
+  const addNewProjectFileCategoryGroups = useCallback((picks) => {
+    const list = (Array.isArray(picks) ? picks : [picks]).filter((pick) => pick?.rootId && pick?.spec);
+    if (!list.length) return;
+    setNewProjectStagedGroups((prev) => {
+      const { groups } = appendFileCategoryGroups(prev, list, uuidv4);
+      return groups.map((g) => ({
+        ...g,
+        stagedFiles: g.stagedFiles || [],
+        stagedFolders: g.stagedFolders || [],
+      }));
+    });
     setNewProjectShowCategoryPicker(false);
-  }, [newProjectStagedGroups, showToast]);
+  }, []);
 
   const handleNewProjectOpenCategoryPicker = () => {
     setNewProjectShowCategoryPicker(true);
@@ -4153,6 +4301,7 @@ export default function OrimanthiManager({
     const proposal = {
       ...emptyProposal(),
       title,
+      actionResponsible: String(newProjectDraft.actionResponsible || '').trim(),
       projectCategory: newProjectDraft.projectCategory,
       infrastructureSpecialization: categoryHasSpecializations(
         newProjectDraft.projectCategory,
@@ -4171,6 +4320,7 @@ export default function OrimanthiManager({
           fileCategoryRoot: g.fileCategoryRoot,
           fileCategorySpec: g.fileCategorySpec,
           permitIssued: !!g.permitIssued,
+          permitApplied: !!g.permitApplied,
           files: [],
         }))
         : [],
@@ -4280,6 +4430,7 @@ export default function OrimanthiManager({
   const addCustomFileSpec = useCallback((rootId, spec) => {
     const trimmed = String(spec || '').trim();
     if (!trimmed) return;
+    unhideFileSpec(rootId, trimmed);
     const defaults = rootId === FILE_CATEGORY_ROOT_MELETES
       ? DEFAULT_MELETES_SPECS
       : DEFAULT_ADEIODOTISEIS_SPECS;
@@ -4310,21 +4461,33 @@ export default function OrimanthiManager({
         return nextCustom;
       });
     }
-  }, []);
+  }, [unhideFileSpec]);
 
-  const addFileCategoryGroup = useCallback(({ rootId, spec, label }) => {
-    if (isReadOnly || !selectedProposal || !rootId || !spec) return;
-    if (fileGroupExists(selectedProposal.fileGroups, rootId, spec)) {
-      showToast(`Η κατηγορία «${label}» υπάρχει ήδη`, 'warning');
+  const addFileCategoryGroups = useCallback((picks) => {
+    const list = (Array.isArray(picks) ? picks : [picks]).filter((pick) => pick?.rootId && pick?.spec);
+    if (isReadOnly || !selectedId || !list.length) return;
+    const current = proposalsRef.current.find((p) => p.id === selectedId);
+    const { groups, added } = appendFileCategoryGroups(current?.fileGroups || [], list, uuidv4);
+    if (!added.length) {
+      showToast('Οι κατηγορίες υπάρχουν ήδη', 'warning');
       setShowCategoryPicker(false);
       return;
     }
-    const payload = buildFileGroupPayload(rootId, spec);
-    const group = { id: uuidv4(), ...payload, files: [] };
-    updateProposal({ fileGroups: [...(selectedProposal.fileGroups || []), group] });
+    const nextProposals = proposalsRef.current.map((p) => (
+      p.id === selectedId ? { ...p, fileGroups: groups } : p
+    ));
+    proposalsRef.current = nextProposals;
+    setProposals(nextProposals);
     setShowCategoryPicker(false);
-    void flushProposalSaveById(selectedProposal.id);
-  }, [isReadOnly, selectedProposal, showToast, updateProposal, flushProposalSaveById]);
+    scheduleDebouncedSave(selectedId, false);
+    void flushProposalSaveById(selectedId);
+    showToast(
+      added.length === 1
+        ? `Προστέθηκε η κατηγορία «${added[0].fileCategorySpec}»`
+        : `Προστέθηκαν ${added.length} κατηγορίες`,
+      'success'
+    );
+  }, [isReadOnly, selectedId, showToast, flushProposalSaveById, scheduleDebouncedSave]);
 
   const handleOpenCategoryPicker = () => {
     setShowCategoryPicker(true);
@@ -4363,11 +4526,19 @@ export default function OrimanthiManager({
       return;
     }
     const savedGroups = delRes.proposal?.fileGroups || nextFileGroups;
+    const savedProposal = delRes.proposal
+      ? { ...delRes.proposal, fileGroups: savedGroups }
+      : null;
     setProposals((prev) => {
-      const next = prev.map((p) => (p.id === selectedId ? { ...p, ...delRes.proposal, fileGroups: savedGroups } : p));
+      const next = prev.map((p) => (
+        p.id === selectedId
+          ? { ...(savedProposal || p), fileGroups: savedGroups }
+          : p
+      ));
       proposalsRef.current = next;
       return next;
     });
+    if (savedProposal) markProposalPersisted(savedProposal);
     refreshHistoryIfVisible(selectedId);
   };
 
@@ -4818,10 +4989,12 @@ export default function OrimanthiManager({
     if (paths.length) await uploadToGroup(groupId, paths);
   }, [uploadToGroup, isReadOnly, uploadingGroupId, showToast]);
 
-  const togglePermitIssued = async (groupId) => {
+  const togglePermitFlag = async (groupId, flag) => {
     if (isReadOnly || !selectedId) return;
-    if (permitToggleInFlightRef.current) return;
-    permitToggleInFlightRef.current = groupId;
+    if (flag !== 'permitIssued' && flag !== 'permitApplied') return;
+    const flightKey = `${groupId}:${flag}`;
+    if (permitToggleInFlightRef.current.has(flightKey)) return;
+    permitToggleInFlightRef.current.add(flightKey);
     try {
       await saveChainRef.current.catch(() => {});
       if (pendingSaveProjectIdRef.current === selectedId) {
@@ -4832,9 +5005,9 @@ export default function OrimanthiManager({
       const current = proposalsRef.current.find((p) => p.id === selectedId);
       const group = (current?.fileGroups || []).find((g) => g.id === groupId);
       if (!group) return;
-      const nextIssued = !group.permitIssued;
+      const nextValue = !group[flag];
       const nextFileGroups = (current.fileGroups || []).map((g) => (
-        g.id === groupId ? { ...g, permitIssued: nextIssued } : g
+        g.id === groupId ? { ...g, [flag]: nextValue } : g
       ));
       setProposals((prev) => {
         const next = prev.map((p) => (p.id === selectedId ? { ...p, fileGroups: nextFileGroups } : p));
@@ -4844,16 +5017,16 @@ export default function OrimanthiManager({
       const res = await window.electronAPI.invoke('set-proposal-group-permit-issued', {
         proposalId: selectedId,
         groupId,
-        permitIssued: nextIssued,
+        [flag]: nextValue,
         actingUsername: loggedInUsername,
       });
-      const applyPermitOnly = (base, saved, issuedFallback) => (
+      const applyPermitOnly = (base, saved) => (
         orimanthiFileChecklist.applyPermitIssuedFromSaved(base, saved, groupId)
         || (base
           ? {
             ...base,
             fileGroups: (base.fileGroups || []).map((g) => (
-              g.id === groupId ? { ...g, permitIssued: issuedFallback } : g
+              g.id === groupId ? { ...g, [flag]: nextValue } : g
             )),
           }
           : base)
@@ -4865,7 +5038,7 @@ export default function OrimanthiManager({
               ? {
                 ...p,
                 fileGroups: (p.fileGroups || []).map((g) => (
-                  g.id === groupId ? { ...g, permitIssued: !nextIssued } : g
+                  g.id === groupId ? { ...g, [flag]: !nextValue } : g
                 )),
               }
               : p
@@ -4878,7 +5051,7 @@ export default function OrimanthiManager({
       }
       setProposals((prev) => {
         const next = prev.map((p) => (
-          p.id === selectedId ? applyPermitOnly(p, res.proposal, nextIssued) : p
+          p.id === selectedId ? applyPermitOnly(p, res.proposal) : p
         ));
         proposalsRef.current = next;
         return next;
@@ -4887,13 +5060,22 @@ export default function OrimanthiManager({
       if (after) markProposalPersisted(after);
       refreshHistoryIfVisible(selectedId);
     } finally {
-      permitToggleInFlightRef.current = null;
+      permitToggleInFlightRef.current.delete(flightKey);
     }
   };
+
+  const togglePermitIssued = (groupId) => togglePermitFlag(groupId, 'permitIssued');
+  const togglePermitApplied = (groupId) => togglePermitFlag(groupId, 'permitApplied');
 
   const toggleNewProjectPermitIssued = (groupId) => {
     setNewProjectStagedGroups((prev) => prev.map((g) => (
       g.id === groupId ? { ...g, permitIssued: !g.permitIssued } : g
+    )));
+  };
+
+  const toggleNewProjectPermitApplied = (groupId) => {
+    setNewProjectStagedGroups((prev) => prev.map((g) => (
+      g.id === groupId ? { ...g, permitApplied: !g.permitApplied } : g
     )));
   };
 
@@ -5312,6 +5494,35 @@ export default function OrimanthiManager({
     setShowAepoSettingsModal(false);
   }, [orimanthiConfig, loggedInUsername, showToast]);
 
+  const renderHubLinkedInvites = (proposalId, linkedInvites) => {
+    if (!linkedInvites.length) return null;
+    return (
+      <HubInviteMeta data-testid={`orimanthi-linked-invites-${proposalId}`}>
+        Προσκλήσεις:{' '}
+        {linkedInvites.map((invite, idx) => (
+          <React.Fragment key={invite.prosklisiId}>
+            {idx > 0 ? ' · ' : null}
+            {onOpenProsklisi ? (
+              <HubInviteLink
+                type="button"
+                data-testid={`orimanthi-open-psk-${invite.prosklisiId}`}
+                title={invite.title || 'Πρόσκληση'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenProsklisi(invite.prosklisiId);
+                }}
+              >
+                {invite.title || 'Πρόσκληση'}
+              </HubInviteLink>
+            ) : (
+              invite.title || 'Πρόσκληση'
+            )}
+          </React.Fragment>
+        ))}
+      </HubInviteMeta>
+    );
+  };
+
   const renderFormalHubCard = (p) => {
     const st = getStatusStyle(p.status);
     const fileCount = getProjectFileCount(p);
@@ -5350,6 +5561,9 @@ export default function OrimanthiManager({
           ) : (
             <HubCardMetaLine style={{ color: C.slate400, fontStyle: 'italic' }}>Χωρίς κατηγορία</HubCardMetaLine>
           )}
+          {String(p.actionResponsible || '').trim() ? (
+            <HubCardMetaLine>Υπεύθυνος πράξης: {String(p.actionResponsible).trim()}</HubCardMetaLine>
+          ) : null}
           {p.aepoRenewalDate ? (
             <HubCardMetaLine>ΑΕΠΟ: {formatAepoDate(p.aepoRenewalDate)}</HubCardMetaLine>
           ) : null}
@@ -5363,39 +5577,7 @@ export default function OrimanthiManager({
               Άδειες: {permitSummary.issued} από {permitSummary.total} εκδόθηκαν
             </HubCardMetaLine>
           ) : null}
-          {linkedInvites.length > 0 ? (
-            <HubCardMetaLine data-testid={`orimanthi-linked-invites-${p.id}`}>
-              Προσκλήσεις:{' '}
-              {linkedInvites.map((invite, idx) => (
-                <React.Fragment key={invite.prosklisiId}>
-                  {idx > 0 ? ' · ' : null}
-                  {onOpenProsklisi ? (
-                    <button
-                      type="button"
-                      data-testid={`orimanthi-open-psk-${invite.prosklisiId}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenProsklisi(invite.prosklisiId);
-                      }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        color: C.indigoDark,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                      }}
-                    >
-                      {invite.title || 'Πρόσκληση'}
-                    </button>
-                  ) : (
-                    invite.title || 'Πρόσκληση'
-                  )}
-                </React.Fragment>
-              ))}
-            </HubCardMetaLine>
-          ) : null}
+          {renderHubLinkedInvites(p.id, linkedInvites)}
         </HubCardBody>
         <HubCardFooter>
           <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
@@ -5437,44 +5619,15 @@ export default function OrimanthiManager({
         <HubListTitleCell type="button" onClick={openProject}>
           <HubListTitle>{p.title || '(Χωρίς τίτλο)'}</HubListTitle>
           {categoryLine ? <HubListSub>{categoryLine}</HubListSub> : null}
+          {String(p.actionResponsible || '').trim() ? (
+            <HubListSub>Υπεύθυνος πράξης: {String(p.actionResponsible).trim()}</HubListSub>
+          ) : null}
           {permitSummary.total > 0 ? (
             <HubListSub data-testid={`orimanthi-permit-progress-${p.id}`}>
               Άδειες: {permitSummary.issued} από {permitSummary.total} εκδόθηκαν
             </HubListSub>
           ) : null}
-          {linkedInvites.length > 0 ? (
-            <HubListSub data-testid={`orimanthi-linked-invites-${p.id}`}>
-              Προσκλήσεις:{' '}
-              {linkedInvites.map((invite, idx) => (
-                <React.Fragment key={invite.prosklisiId}>
-                  {idx > 0 ? ' · ' : null}
-                  {onOpenProsklisi ? (
-                    <button
-                      type="button"
-                      data-testid={`orimanthi-open-psk-${invite.prosklisiId}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenProsklisi(invite.prosklisiId);
-                      }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        color: C.indigoDark,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                      }}
-                    >
-                      {invite.title || 'Πρόσκληση'}
-                    </button>
-                  ) : (
-                    invite.title || 'Πρόσκληση'
-                  )}
-                </React.Fragment>
-              ))}
-            </HubListSub>
-          ) : null}
+          {renderHubLinkedInvites(p.id, linkedInvites)}
         </HubListTitleCell>
         <HubListCell>
           <HubRowStatus $color={st.color}>
@@ -5937,7 +6090,11 @@ export default function OrimanthiManager({
                   {saving && <Saving>Αποθήκευση…</Saving>}
                 </StickyTitleRow>
                 <TabBar>
-                  <Tab $active={activeTab === 'details'} onClick={() => setActiveTab('details')}>
+                  <Tab
+                    data-testid="orimanthi-tab-details"
+                    $active={activeTab === 'details'}
+                    onClick={() => setActiveTab('details')}
+                  >
                     Στοιχεία
                   </Tab>
                   <Tab
@@ -5974,6 +6131,18 @@ export default function OrimanthiManager({
                           readOnly={isReadOnly}
                           onChange={isReadOnly ? undefined : (e) => updateProposal({ title: e.target.value })}
                           onBlur={handleTitleBlur}
+                        />
+                      </MetaFieldBoxWide>
+                      <MetaFieldBoxWide as="div">
+                        <MetaLabel htmlFor="proposal-action-responsible">Υπεύθυνος πράξης</MetaLabel>
+                        <MetaInput
+                          id="proposal-action-responsible"
+                          data-testid="orimanthi-action-responsible"
+                          placeholder="Ονοματεπώνυμο υπευθύνου ωρίμανσης…"
+                          value={selectedProposal.actionResponsible || ''}
+                          readOnly={isReadOnly}
+                          onChange={isReadOnly ? undefined : (e) => updateProposal({ actionResponsible: e.target.value })}
+                          onBlur={isReadOnly ? undefined : handleDescriptionBlur}
                         />
                       </MetaFieldBoxWide>
                       <MetaCompactRow>
@@ -6272,9 +6441,12 @@ export default function OrimanthiManager({
                               existingGroups={selectedProposal?.fileGroups || []}
                               customMeletesSpecs={customMeletesFileSpecs}
                               customAdeiodotiseisSpecs={customAdeiodotiseisFileSpecs}
-                              onSelect={addFileCategoryGroup}
+                              hiddenMeletesSpecs={hiddenMeletesFileSpecs}
+                              hiddenAdeiodotiseisSpecs={hiddenAdeiodotiseisFileSpecs}
+                              onSelectMany={addFileCategoryGroups}
                               onCancel={handleCancelAddGroup}
                               onAddCustomSpec={(rootId, spec) => addCustomFileSpec(rootId, spec)}
+                              onRemoveSpec={removeFileSpecFromCatalog}
                             />
                           )}
                         </AddGroupToolbar>
@@ -6315,17 +6487,21 @@ export default function OrimanthiManager({
                         const isEmpty = visibleFiles.length === 0;
                         if (detailFileFilter.trim() && visibleFiles.length === 0) return null;
                         return (
-                          <GroupCard key={group.id}>
+                          <GroupCard
+                            key={group.id}
+                            data-testid={`orimanthi-file-group-${getFileGroupIdentity(group).spec || group.id}`}
+                          >
                             <GroupCardHeader
                               $open={expanded}
                               onClick={() => toggleGroupExpanded(group.id)}
                             >
                               <GroupName>
                                 {renderFileGroupTitle(group)}
-                                {renderPermitIssuedChip({
+                                {renderPermitStatusChips({
                                   group,
                                   disabled: isReadOnly,
-                                  onToggle: togglePermitIssued,
+                                  onToggleIssued: togglePermitIssued,
+                                  onToggleApplied: togglePermitApplied,
                                 })}
                                 <GroupCount $hasFiles={countGroupFileEntries(group) > 0}>
                                   {countGroupFileEntries(group)}
@@ -6688,6 +6864,16 @@ export default function OrimanthiManager({
                       onChange={(e) => setNewProjectDraft((d) => ({ ...d, title: e.target.value }))}
                     />
                   </ModalFormFieldFull>
+                  <ModalFormFieldFull>
+                    <ModalFormLabel htmlFor="new-project-action-responsible">Υπεύθυνος πράξης</ModalFormLabel>
+                    <ModalFormInput
+                      id="new-project-action-responsible"
+                      data-testid="orimanthi-new-action-responsible"
+                      placeholder="Ονοματεπώνυμο υπευθύνου ωρίμανσης…"
+                      value={newProjectDraft.actionResponsible}
+                      onChange={(e) => setNewProjectDraft((d) => ({ ...d, actionResponsible: e.target.value }))}
+                    />
+                  </ModalFormFieldFull>
                   <ModalFormField>
                     <MetaLabelRow>
                       <ModalFormLabel htmlFor="new-project-category">Κατηγορία *</ModalFormLabel>
@@ -6926,9 +7112,12 @@ export default function OrimanthiManager({
                       existingGroups={newProjectStagedGroups}
                       customMeletesSpecs={customMeletesFileSpecs}
                       customAdeiodotiseisSpecs={customAdeiodotiseisFileSpecs}
-                      onSelect={addNewProjectFileCategoryGroup}
+                      hiddenMeletesSpecs={hiddenMeletesFileSpecs}
+                      hiddenAdeiodotiseisSpecs={hiddenAdeiodotiseisFileSpecs}
+                      onSelectMany={addNewProjectFileCategoryGroups}
                       onCancel={handleNewProjectCancelAddGroup}
                       onAddCustomSpec={(rootId, spec) => addCustomFileSpec(rootId, spec)}
+                      onRemoveSpec={removeFileSpecFromCatalog}
                     />
                   )}
                 </AddGroupToolbar>
@@ -6950,10 +7139,11 @@ export default function OrimanthiManager({
                           >
                             <GroupName>
                               {renderFileGroupTitle(group)}
-                              {renderPermitIssuedChip({
+                              {renderPermitStatusChips({
                                 group,
                                 disabled: false,
-                                onToggle: toggleNewProjectPermitIssued,
+                                onToggleIssued: toggleNewProjectPermitIssued,
+                                onToggleApplied: toggleNewProjectPermitApplied,
                               })}
                               <GroupCount $hasFiles={itemCount > 0}>{itemCount}</GroupCount>
                             </GroupName>
@@ -7140,6 +7330,9 @@ export default function OrimanthiManager({
                       existingGroups={selectedProposal.fileGroups || []}
                       customMeletesSpecs={customMeletesFileSpecs}
                       customAdeiodotiseisSpecs={customAdeiodotiseisFileSpecs}
+                      hiddenMeletesSpecs={hiddenMeletesFileSpecs}
+                      hiddenAdeiodotiseisSpecs={hiddenAdeiodotiseisFileSpecs}
+                      allowMultiple={false}
                       onSelect={(pick) => setMoveModal((m) => ({ ...m, newGroupPick: pick }))}
                       onCancel={() => setMoveModal((m) => (
                         otherGroups.length
@@ -7147,6 +7340,7 @@ export default function OrimanthiManager({
                           : m
                       ))}
                       onAddCustomSpec={(rootId, spec) => addCustomFileSpec(rootId, spec)}
+                      onRemoveSpec={removeFileSpecFromCatalog}
                     />
                     {moveModal.newGroupPick?.label ? (
                       <div style={{
@@ -7184,8 +7378,8 @@ export default function OrimanthiManager({
             <FolderModalHeader>
               <FolderModalTitle>Διαχείριση λιστών</FolderModalTitle>
               <FolderModalSub>
-                Διαγραφή προσαρμοσμένων κατηγοριών, εξειδικεύσεων και τύπων αρχείων από τις λίστες επιλογής.
-                Οι προεπιλεγμένες τιμές δεν μπορούν να αφαιρεθούν.
+                Διαγραφή κατηγοριών, εξειδικεύσεων και τύπων αρχείων από τις λίστες επιλογής.
+                Η αφαίρεση δεν σβήνει όσα έχουν ήδη μπει σε έργα — μόνο την εμφάνιση στις επιλογές.
               </FolderModalSub>
             </FolderModalHeader>
             <FolderModalBody style={{ maxHeight: '65vh', overflowY: 'auto' }}>
@@ -7286,16 +7480,16 @@ export default function OrimanthiManager({
                 ))
               )}
               <ManageListSection>
-                <ManageListSectionTitle>Προσαρμοσμένες εξειδικεύσεις — Μελέτες έργου</ManageListSectionTitle>
-                {customMeletesFileSpecs.length === 0 ? (
-                  <ManageListEmpty>Δεν υπάρχουν προσαρμοσμένες εξειδικεύσεις.</ManageListEmpty>
+                <ManageListSectionTitle>Εξειδικεύσεις — Μελέτες έργου</ManageListSectionTitle>
+                {getMeletesSpecs(customMeletesFileSpecs, hiddenMeletesFileSpecs).length === 0 ? (
+                  <ManageListEmpty>Δεν υπάρχουν εξειδικεύσεις στη λίστα.</ManageListEmpty>
                 ) : (
-                  customMeletesFileSpecs.map((spec) => (
+                  getMeletesSpecs(customMeletesFileSpecs, hiddenMeletesFileSpecs).map((spec) => (
                     <ManageListRow key={`meletes:${spec}`}>
                       <ManageListRowLabel>{spec}</ManageListRowLabel>
                       <ManageListDeleteBtn
                         type="button"
-                        onClick={() => handleRemoveCustomMeletesFileSpec(spec)}
+                        onClick={() => removeFileSpecFromCatalog(FILE_CATEGORY_ROOT_MELETES, spec)}
                         title="Αφαίρεση από τη λίστα"
                       >
                         Διαγραφή
@@ -7305,16 +7499,16 @@ export default function OrimanthiManager({
                 )}
               </ManageListSection>
               <ManageListSection>
-                <ManageListSectionTitle>Προσαρμοσμένες εξειδικεύσεις — Αδειοδοτήσεις</ManageListSectionTitle>
-                {customAdeiodotiseisFileSpecs.length === 0 ? (
-                  <ManageListEmpty>Δεν υπάρχουν προσαρμοσμένες εξειδικεύσεις.</ManageListEmpty>
+                <ManageListSectionTitle>Εξειδικεύσεις — Αδειοδοτήσεις</ManageListSectionTitle>
+                {getAdeiodotiseisSpecs(customAdeiodotiseisFileSpecs, hiddenAdeiodotiseisFileSpecs).length === 0 ? (
+                  <ManageListEmpty>Δεν υπάρχουν εξειδικεύσεις στη λίστα.</ManageListEmpty>
                 ) : (
-                  customAdeiodotiseisFileSpecs.map((spec) => (
+                  getAdeiodotiseisSpecs(customAdeiodotiseisFileSpecs, hiddenAdeiodotiseisFileSpecs).map((spec) => (
                     <ManageListRow key={`adeiod:${spec}`}>
                       <ManageListRowLabel>{spec}</ManageListRowLabel>
                       <ManageListDeleteBtn
                         type="button"
-                        onClick={() => handleRemoveCustomAdeiodotiseisFileSpec(spec)}
+                        onClick={() => removeFileSpecFromCatalog(FILE_CATEGORY_ROOT_ADEIODOTISEIS, spec)}
                         title="Αφαίρεση από τη λίστα"
                       >
                         Διαγραφή

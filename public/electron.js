@@ -16950,7 +16950,7 @@ function enqueueProposalUpload(proposalId, fn) {
 
 function proposalAuditedFieldsChanged(before, after) {
   const keys = [
-    'title', 'status', 'projectCategory', 'infrastructureSpecialization',
+    'title', 'status', 'actionResponsible', 'projectCategory', 'infrastructureSpecialization',
     'municipalUnit', 'settlement', 'aepoRenewalDate', 'description', 'notes',
   ];
   for (const key of keys) {
@@ -16974,6 +16974,7 @@ function pickProposalAuditSnapshot(proposal) {
   return {
     title: proposal.title || '',
     status: proposal.status || '',
+    actionResponsible: proposal.actionResponsible || '',
     projectCategory: proposal.projectCategory || '',
     infrastructureSpecialization: proposal.infrastructureSpecialization || '',
     municipalUnit: proposal.municipalUnit || '',
@@ -17361,13 +17362,20 @@ ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, fi
   }
 });
 
-ipcMain.handle('set-proposal-group-permit-issued', async (_event, { proposalId, groupId, permitIssued, actingUsername } = {}) => {
+ipcMain.handle('set-proposal-group-permit-issued', async (_event, {
+  proposalId, groupId, permitIssued, permitApplied, actingUsername,
+} = {}) => {
   try {
     const auth = requireOrimanthiManage(actingUsername);
     if (!auth.ok) return { success: false, error: auth.error };
     const idCheck = assertValidProposalId(proposalId);
     if (!idCheck.ok) return { success: false, error: idCheck.error };
     if (!groupId) return { success: false, error: 'Απαιτείται κατηγορία' };
+    const hasIssued = typeof permitIssued === 'boolean';
+    const hasApplied = typeof permitApplied === 'boolean';
+    if (!hasIssued && !hasApplied) {
+      return { success: false, error: 'Απαιτείται σήμανση άδειας' };
+    }
 
     return enqueueProposalUpload(idCheck.id, async () => {
       const proposal = loadProposal(idCheck.id);
@@ -17377,10 +17385,13 @@ ipcMain.handle('set-proposal-group-permit-issued', async (_event, { proposalId, 
       if (!orimanthiFileChecklistCore.isAdeiodotiseisGroup(group)) {
         return { success: false, error: 'Η σήμανση άδειας ισχύει μόνο για αδειοδοτήσεις' };
       }
-      const nextFileGroups = orimanthiFileChecklistCore.setGroupPermitIssued(
+      const flags = {};
+      if (hasIssued) flags.permitIssued = permitIssued;
+      if (hasApplied) flags.permitApplied = permitApplied;
+      const nextFileGroups = orimanthiFileChecklistCore.setGroupPermitFlags(
         proposal.fileGroups,
         groupId,
-        permitIssued
+        flags
       );
       const toSave = {
         ...proposal,
@@ -17393,12 +17404,17 @@ ipcMain.handle('set-proposal-group-permit-issued', async (_event, { proposalId, 
         return { success: false, error: e.message };
       }
       const spec = group.fileCategorySpec || group.label || 'αδειοδότηση';
+      const parts = [];
+      if (hasIssued) {
+        parts.push(permitIssued ? 'η άδεια εκδόθηκε' : 'εκκρεμεί η άδεια');
+      }
+      if (hasApplied) {
+        parts.push(permitApplied ? 'έχει γίνει αίτηση' : 'δεν έχει σημειωθεί αίτηση');
+      }
       logProposalActivity(
         idCheck.id,
         'update',
-        permitIssued
-          ? `Σημείωση: η άδεια εκδόθηκε («${spec}»)`
-          : `Σημείωση: εκκρεμεί η άδεια («${spec}»)`,
+        `Σημείωση: ${parts.join(' · ')} («${spec}»)`,
         auth.username
       );
       return { success: true, proposal: loadProposal(idCheck.id) };

@@ -318,6 +318,7 @@ const MIXED_CORE_FIELD_IDS = [
 
 const DEFAULT_ORIMANTHI_EXCEL_OPTIONS = {
   columns: {
+    actionResponsible: true,
     status: true,
     municipal: true,
     settlement: true,
@@ -328,6 +329,7 @@ const DEFAULT_ORIMANTHI_EXCEL_OPTIONS = {
 };
 
 const ORIMANTHI_COLUMN_CHOICES = [
+  { key: 'actionResponsible', label: 'Υπεύθυνος πράξης' },
   { key: 'status', label: 'Κατάσταση' },
   { key: 'municipal', label: 'Δημοτική ενότητα' },
   { key: 'settlement', label: 'Οικισμός' },

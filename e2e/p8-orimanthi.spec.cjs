@@ -95,6 +95,8 @@ test('P8-10 αναζήτηση τίτλου και δημοτικής ενότη
   await expect(window.getByText('Δίκτυο ύδρευσης Παρανύμφων').first()).toBeVisible();
   await search.fill('zzz-δεν-υπάρχει');
   await expect(window.getByText(/Δεν βρέθηκαν έργα με τα τρέχοντα κριτήρια/)).toBeVisible();
+  await search.fill('Αντωνίου');
+  await expect(window.getByText('Ανακατασκευή οδού Αρχανών').first()).toBeVisible();
 });
 
 test('P8-11 αναζήτηση κειμένου στις σημειώσεις', async ({ app }) => {
@@ -144,6 +146,10 @@ test('P8-15 σήμανση ότι η άδεια εκδόθηκε', async ({ app 
   await window.getByTestId('orimanthi-tab-files').click();
   await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toBeVisible();
   await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Εκκρεμεί η άδεια/);
+  await expect(window.getByTestId('orimanthi-permit-applied-fg-permit-arch')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-permit-applied-fg-permit-arch')).toHaveText(/Έχει γίνει Αίτηση/);
+  await window.getByTestId('orimanthi-permit-applied-fg-permit-arch').click();
+  await expect(window.getByTestId('orimanthi-permit-applied-fg-permit-arch')).toHaveAttribute('title', 'Έχει γίνει αίτηση');
   await window.getByTestId('orimanthi-permit-issued-fg-permit-arch').click();
   await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Η άδεια εκδόθηκε/);
   await expect(window.getByText(/Μη επιτρεπτή καταγραφή/)).toHaveCount(0);
@@ -160,6 +166,7 @@ test('P8-18 εξαγωγή Excel καρτελών ανά έργο', async ({ app
   const dest = path.join(app.testDir, 'ωρίμανση-καρτέλες.xlsx');
   await window.getByTestId('orimanthi-hub-export-excel').click();
   await expect(window.getByTestId('orimanthi-hub-excel-modal')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-hub-excel-col-actionResponsible')).toBeVisible();
   await app.queueSavePath(dest);
   await window.getByTestId('orimanthi-hub-excel-confirm').click();
   await expect.poll(() => fs.existsSync(dest), { timeout: 20000 }).toBe(true);
@@ -171,6 +178,8 @@ test('P8-18 εξαγωγή Excel καρτελών ανά έργο', async ({ app
   expect(text).toContain('ERGOHUB');
   expect(text).toContain('Το παρόν εξήχθη από την εφαρμογή ERGOHUB');
   expect(text).toContain('Ανακατασκευή οδού Αρχανών');
+  expect(text).toContain('Υπεύθυνος πράξης');
+  expect(text).toContain('Κώστας Αντωνίου');
   expect(text).toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
   expect(text).toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
   expect(text).not.toContain('Εκκρεμότητες');
@@ -186,6 +195,7 @@ test('P8-20 Excel: επιλογή στηλών και μόνο μελέτες', 
   await window.getByTestId('orimanthi-hub-export-excel').click();
   await expect(window.getByTestId('orimanthi-hub-excel-modal')).toBeVisible();
   await window.getByTestId('orimanthi-hub-excel-col-settlement').click();
+  await window.getByTestId('orimanthi-hub-excel-col-actionResponsible').click();
   await window.getByTestId('orimanthi-hub-excel-block-permits').click();
   await app.queueSavePath(dest);
   await window.getByTestId('orimanthi-hub-excel-confirm').click();
@@ -197,6 +207,8 @@ test('P8-20 Excel: επιλογή στηλών και μόνο μελέτες', 
   expect(text).toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
   expect(text).toContain('Κατάσταση');
   expect(text).not.toContain('Οικισμός');
+  expect(text).not.toContain('Υπεύθυνος πράξης');
+  expect(text).not.toContain('Κώστας Αντωνίου');
   expect(text).not.toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
 });
 
@@ -209,7 +221,7 @@ test('P8-19 μεταφορά αρχείου σε νέα κατηγορία αδ�
   await window.getByTestId('orimanthi-move-τοπογραφικο.pdf').click();
   await window.getByRole('button', { name: 'Νέα κατηγορία' }).click();
   await window.getByTestId('orimanthi-file-root-adeiodotiseis').click();
-  await window.getByRole('button', { name: 'ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ' }).click();
+  await window.getByTestId('orimanthi-file-spec-ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ').click();
   await window.getByTestId('orimanthi-move-confirm').click();
   await expect(window.getByText(/Μεταφέρθηκε/)).toBeVisible();
   await expect(window.getByText('ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ').first()).toBeVisible();
@@ -258,4 +270,62 @@ test('P8-20 πρόσκληση από το πλέγμα ωρίμανσης αφ�
   await expect(window.getByText('Διαχείριση Προσκλήσεων')).toHaveCount(0);
   await expect(window.getByTestId('orimanthi-window')).toBeVisible();
   await expect(window.getByTestId('orimanthi-open-psk-psk-schools')).toBeVisible();
+});
+
+test('P8-21 πολλές εξειδικεύσεις μαζί και αφαίρεση λάθους από τη λίστα', async ({ app }) => {
+  const { window } = app;
+  await openOrimanthi(window);
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-files').click();
+  await window.getByRole('button', { name: '+ Προσθήκη κατηγορίας' }).click();
+  await window.getByTestId('orimanthi-file-root-adeiodotiseis').click();
+  await window.getByTestId('orimanthi-file-spec-ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ').click();
+  await window.getByTestId('orimanthi-file-spec-ΥΠΗΡΕΣΙΑ ΔΟΜΗΣΗΣ').click();
+  await expect(window.getByTestId('orimanthi-file-spec-confirm')).toHaveAttribute(
+    'data-selected-specs',
+    /ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ\|ΥΠΗΡΕΣΙΑ ΔΟΜΗΣΗΣ|ΥΠΗΡΕΣΙΑ ΔΟΜΗΣΗΣ\|ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ/
+  );
+  await window.getByTestId('orimanthi-file-spec-confirm').click();
+  await expect(window.getByTestId('orimanthi-file-spec-confirm')).toHaveCount(0);
+  await expect(window.getByTestId('orimanthi-file-group-ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-file-group-ΥΠΗΡΕΣΙΑ ΔΟΜΗΣΗΣ')).toBeVisible();
+
+  await window.getByRole('button', { name: '+ Προσθήκη κατηγορίας' }).click();
+  await window.getByTestId('orimanthi-file-root-adeiodotiseis').click();
+  await window.getByPlaceholder('Νέα εξειδίκευση…').fill('ΛΑΘΟΣ ΤΙΤΛΟΣ');
+  await window.getByTestId('orimanthi-file-spec-add-custom').click();
+  await expect(window.getByTestId('orimanthi-file-spec-ΛΑΘΟΣ ΤΙΤΛΟΣ')).toBeVisible();
+  await window.getByTestId('orimanthi-file-spec-delete-ΛΑΘΟΣ ΤΙΤΛΟΣ').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(window.getByTestId('orimanthi-file-spec-ΛΑΘΟΣ ΤΙΤΛΟΣ')).toHaveCount(0);
+});
+
+test('P8-22 υπεύθυνος πράξης στη δημιουργία και επεξεργασία', async ({ app }) => {
+  const { window } = app;
+  await openOrimanthi(window);
+  await window.getByRole('button', { name: /Νέο έργο/ }).click();
+  await window.locator('#new-project-title').fill('Έργο με υπεύθυνο πράξης');
+  await window.locator('#new-project-category').selectOption('ΟΔΟΠΟΙΙΑ');
+  await window.getByTestId('orimanthi-new-action-responsible').fill('Μαρία Παπαδοπούλου');
+  await window.getByRole('button', { name: /Δημιουργία έργου/ }).click();
+  await expect(window.getByText('Έργο με υπεύθυνο πράξης').first()).toBeVisible({ timeout: 20000 });
+  await window.getByTestId('orimanthi-tab-details').click();
+  await expect(window.getByTestId('orimanthi-action-responsible')).toHaveValue('Μαρία Παπαδοπούλου');
+  await window.getByTestId('orimanthi-action-responsible').fill('Γιάννης Νικολάου');
+  await window.getByTestId('orimanthi-action-responsible').blur();
+  await window.getByTitle('Κλείσιμο και επιστροφή στο Dashboard').click();
+  if (await window.getByRole('button', { name: 'Αποθήκευση' }).count()) {
+    await window.getByRole('button', { name: 'Αποθήκευση' }).click();
+  }
+  await expect(window.getByTestId('orimanthi-window')).toHaveCount(0);
+  const nav = window.locator('[data-user-guide="nav-orimanthi"]');
+  if (!(await nav.isVisible())) {
+    await expandCategory(window, 'Διαδικασίες Έργων');
+  }
+  await nav.click();
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible();
+  await expect(window.getByText('Υπεύθυνος πράξης: Γιάννης Νικολάου').first()).toBeVisible();
+  await window.locator('button').filter({ hasText: 'Έργο με υπεύθυνο πράξης' }).first().click();
+  await window.getByTestId('orimanthi-tab-details').click();
+  await expect(window.getByTestId('orimanthi-action-responsible')).toHaveValue('Γιάννης Νικολάου');
 });

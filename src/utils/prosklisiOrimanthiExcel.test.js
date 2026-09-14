@@ -38,7 +38,7 @@ function countValue(model, value) {
 
 describe('prosklisiOrimanthiExcel', () => {
   const excelOptions = {
-    columns: { status: true, municipal: true, settlement: true, category: true },
+    columns: { actionResponsible: false, status: true, municipal: true, settlement: true, category: true },
     includeStudies: true,
     includePermits: true,
   };
@@ -63,6 +63,22 @@ describe('prosklisiOrimanthiExcel', () => {
         fileCategoryRoot: 'adeiodotiseis',
         fileCategorySpec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ',
         permitIssued: false,
+        files: [],
+      },
+    ],
+  };
+
+  const appliedProposal = {
+    ...roadProposal,
+    id: 'applied-1',
+    title: 'Έργο με αίτηση άδειας',
+    fileGroups: [
+      {
+        id: 'fg-permit-applied',
+        fileCategoryRoot: 'adeiodotiseis',
+        fileCategorySpec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ',
+        permitIssued: false,
+        permitApplied: true,
         files: [],
       },
     ],
@@ -156,6 +172,7 @@ describe('prosklisiOrimanthiExcel', () => {
     expect(text).toContain('ΩΡΙΜΑΝΣΗ ΕΡΓΩΝ');
     expect(text).toContain('Α/Α έργου');
     expect(text).toContain('Τίτλος έργου');
+    expect(text).not.toContain('Υπεύθυνος πράξης');
     expect(text).toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
     expect(text).toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
     expect(model.projectCount).toBe(0);
@@ -205,6 +222,26 @@ describe('prosklisiOrimanthiExcel', () => {
     const projectTitle = model.rows[projectRow][MIXED_CORE_FIELD_IDS.length + 1];
     expect(projectTitle.v).toContain('Ανακατασκευή οδού Αρχανών');
     expect(projectTitle.v).toContain('Σημειώσεις: Αναμονή αρχαιολογικής έγκρισης.');
+  });
+
+  test('η αίτηση αδειοδότησης στο μικτό Excel γράφεται ως Α', () => {
+    const model = buildMixedProsklisiOrimanthiModel({
+      invitations: [{
+        title: 'Πρόσκληση με αίτηση',
+        axis: 'Υποδομές',
+        fundingSource: 'ΠΔΕ',
+        deadline: '2026-09-01',
+        budgetRange: '50.000',
+        linkedOrimanthiProposals: [{ id: 'applied-1' }],
+      }],
+      allProposals: [appliedProposal],
+      selectedFields: MIXED_CORE_FIELD_IDS,
+      excelOptions,
+    });
+    expect(cellText(model)).toContain('Έργο με αίτηση άδειας');
+    const permitRow = findRowWith(model, 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ');
+    expect(permitRow).toBeGreaterThan(-1);
+    expect(rowHasValue(model.rows[permitRow], 'Α')).toBe(true);
   });
 
   test('δύο έργα στην ίδια πρόσκληση: η πρόσκληση συγχωνεύεται και κάθε έργο διακλαδώνει χωριστά', () => {
@@ -410,5 +447,45 @@ describe('prosklisiOrimanthiExcel', () => {
     } finally {
       try { fs.unlinkSync(dest); } catch (_) { /* ignore */ }
     }
+  });
+
+  test('υπεύθυνος πράξης επιλέγεται ως στήλη ωρίμανσης στην μικτή εξαγωγή', () => {
+    const model = buildMixedProsklisiOrimanthiModel({
+      invitations: [{
+        title: 'Πρόσκληση σχολείων',
+        axis: 'Εκπαίδευση',
+        fundingSource: 'ΕΣΠΑ 2021-2027',
+        deadline: '2026-08-20',
+        budgetRange: '100.000 - 200.000',
+        linkedOrimanthiProposals: [{ id: 'road-1' }],
+      }],
+      allProposals: [{ ...roadProposal, actionResponsible: 'Μαρία Παπαδοπούλου' }],
+      selectedFields: MIXED_CORE_FIELD_IDS,
+      excelOptions: {
+        columns: {
+          actionResponsible: true,
+          status: false,
+          municipal: false,
+          settlement: false,
+          category: false,
+        },
+        includeStudies: false,
+        includePermits: false,
+      },
+    });
+    const text = cellText(model);
+    expect(text).toContain('Υπεύθυνος πράξης');
+    expect(text).toContain('Μαρία Παπαδοπούλου');
+    expect(text).not.toContain('Κατάσταση');
+    expect(text).not.toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
+    expect(text).not.toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
+    const invCount = MIXED_CORE_FIELD_IDS.length;
+    expect(model.merges.some((m) => (
+      m.s.r === 2 && m.s.c === invCount && m.e.c === invCount + 2
+    ))).toBe(true);
+    const headerRow = model.rows.find((row) => rowHasValue(row, 'Υπεύθυνος πράξης'));
+    expect(headerRow[invCount + 2].v).toBe('Υπεύθυνος πράξης');
+    const dataRow = model.rows[findRowWith(model, 'Ανακατασκευή οδού Αρχανών')];
+    expect(dataRow[invCount + 2].v).toBe('Μαρία Παπαδοπούλου');
   });
 });

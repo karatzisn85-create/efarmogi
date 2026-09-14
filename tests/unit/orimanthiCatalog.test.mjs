@@ -68,6 +68,7 @@ test('νέο έργο: τίτλος, κατηγορία, εξειδίκευση 
 test('αναζήτηση: τίτλος και σημειώσεις ναι, όνομα αρχείου όχι', () => {
   const row = {
     title: 'Ύδρευση Χουδετσίου',
+    actionResponsible: 'Ελένη Μαρκάκη',
     projectCategory: 'ΥΔΡΑΥΛΙΚΑ',
     settlement: 'Χουδέτσι',
     notes: 'αναμονή τοπογραφικού — αρχαιολογική έγκριση',
@@ -79,6 +80,7 @@ test('αναζήτηση: τίτλος και σημειώσεις ναι, όν�
   assert.equal(ori.parseProjectSearch(row, 'τοπογραφικού'), true);
   assert.equal(ori.parseProjectSearch(row, 'δεν αναζητείται'), false);
   assert.equal(ori.parseProjectSearch(row, 'ΚΑ-888'), false);
+  assert.equal(ori.parseProjectSearch(row, 'Μαρκάκη'), true);
 });
 
 test('φίλτρα: κατάσταση, χωρίς κατηγορία, ΑΕΠΟ σύντομα', () => {

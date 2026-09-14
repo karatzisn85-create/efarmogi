@@ -23,17 +23,20 @@ test('μελέτη: ✓ όταν υπάρχει αρχείο, — όταν εί�
   assert.equal(list.classifyGroup(empty).kind, 'noFile');
 });
 
-test('άδεια: ✓ μόνο όταν ο χρήστης σημείωσε έκδοση, όχι από αρχεία', () => {
+test('άδεια: ✓ έκδοση, Α αίτηση, × εκκρεμότητα — όχι από αρχεία', () => {
   const withDocs = {
     fileCategoryRoot: 'adeiodotiseis',
     fileCategorySpec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ',
     permitIssued: false,
     files: [{ name: 'αίτηση.pdf' }],
   };
-  const issued = { ...withDocs, permitIssued: true };
+  const applied = { ...withDocs, permitApplied: true };
+  const issued = { ...withDocs, permitIssued: true, permitApplied: true };
   assert.equal(list.permitMark(withDocs), '×');
+  assert.equal(list.permitMark(applied), 'Α');
   assert.equal(list.permitMark(issued), '✓');
   assert.equal(list.classifyGroup(withDocs).kind, 'pending');
+  assert.equal(list.classifyGroup(applied).kind, 'applied');
   assert.equal(list.classifyGroup(issued).kind, 'issued');
 });
 
@@ -58,6 +61,7 @@ test('καρτέλα έργου χωρίζει μελέτες και αδειο�
     ],
   });
   assert.equal(card.title, 'Οδός Αρχανών');
+  assert.equal(card.actionResponsible, '—');
   assert.equal(card.files, 1);
   assert.equal(card.notes, 'Αναμονή αρχαιολογικής');
   assert.deepEqual(card.meletes.map((x) => [x.spec, x.mark]), [['ΤΟΠΟΓΡΑΦΙΚΑ', '✓']]);
@@ -71,11 +75,12 @@ test('σήμανση άδειας μένει μετά από ανέβασμα π
     fileCategorySpec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ',
     files: [],
   }];
-  const afterMark = list.setGroupPermitIssued(onDisk, 'g1', true);
+  const afterMark = list.setGroupPermitFlags(onDisk, 'g1', { permitIssued: true, permitApplied: true });
   const afterUpload = afterMark.map((g) => (
     g.id === 'g1' ? { ...g, files: [...(g.files || []), { name: 'aitisi.pdf' }] } : g
   ));
   assert.equal(afterUpload[0].permitIssued, true);
+  assert.equal(afterUpload[0].permitApplied, true);
   assert.equal(afterUpload[0].files[0].name, 'aitisi.pdf');
 });
 
@@ -109,6 +114,7 @@ test('νέο έργο: η ανακατασκευή ομάδας κρατά τη 
   };
   const persisted = list.buildPersistedFileGroupFromStaged(staged, [{ name: 'aitisi.pdf' }]);
   assert.equal(persisted.permitIssued, true);
+  assert.equal(persisted.permitApplied, false);
   assert.equal(persisted.files[0].name, 'aitisi.pdf');
 });
 
@@ -116,6 +122,7 @@ test('συγχώνευση από δίσκο κρατά σημειώσεις, ν
   const local = {
     id: 'p1',
     title: 'Τοπικός τίτλος',
+    actionResponsible: 'Μαρία Παπαδοπούλου',
     notes: 'ΜΗ ΑΠΟΘΗΚΕΥΜΕΝΗ σημείωση',
     updatedAt: 'T1',
     fileGroups: [
@@ -126,6 +133,7 @@ test('συγχώνευση από δίσκο κρατά σημειώσεις, ν
   const saved = {
     id: 'p1',
     title: 'Τίτλος δίσκου',
+    actionResponsible: 'Παλιό όνομα',
     notes: '',
     updatedAt: 'T2',
     fileGroups: [
@@ -135,6 +143,7 @@ test('συγχώνευση από δίσκο κρατά σημειώσεις, ν
   const next = list.mergeProposalFromDisk(local, saved);
   assert.equal(next.notes, 'ΜΗ ΑΠΟΘΗΚΕΥΜΕΝΗ σημείωση');
   assert.equal(next.title, 'Τοπικός τίτλος');
+  assert.equal(next.actionResponsible, 'Μαρία Παπαδοπούλου');
   assert.equal(next.updatedAt, 'T2');
   assert.equal(next.fileGroups[0].permitIssued, true);
   assert.equal(next.fileGroups[0].files[0].name, 'νέο-ανέβασμα.pdf');
@@ -168,6 +177,7 @@ test('Excel μοντέλο: ένα μπλοκ ανά έργο, χωρίς στή
     {
       title: 'Οδός Αρχανών',
       status: 'maturing',
+      actionResponsible: 'Κώστας Αντωνίου',
       projectCategory: 'ΟΔΟΠΟΙΙΑ',
       municipalUnit: 'Δ.Ε. ΑΡΧΑΝΩΝ',
       fileGroups: [
@@ -188,6 +198,8 @@ test('Excel μοντέλο: ένα μπλοκ ανά έργο, χωρίς στή
   const texts = model.rows.flat().map((c) => c.v);
   assert.equal(model.cards.length, 1);
   assert.ok(texts.includes('Οδός Αρχανών'));
+  assert.ok(texts.includes('Κώστας Αντωνίου'));
+  assert.ok(texts.includes('Υπεύθυνος πράξης'));
   assert.ok(texts.includes('ΜΕΛΕΤΕΣ ΕΡΓΟΥ'));
   assert.ok(texts.includes('ΑΔΕΙΟΔΟΤΗΣΕΙΣ'));
   assert.ok(texts.includes('ΤΟΠΟΓΡΑΦΙΚΑ'));
@@ -235,6 +247,7 @@ test('Excel δομή: πίνακας ανά έργο με συγχωνεύσει
   assert.equal(model.rows[0][0].v, excel.REPORT_TITLE);
   assert.equal(model.rows[B][COL.serial].v, 'Α/Α');
   assert.equal(model.rows[B][COL.title].v, 'Τίτλος έργου');
+  assert.equal(model.rows[B][COL.actionResponsible].v, 'Υπεύθυνος πράξης');
   assert.equal(model.rows[B][COL.studyName].v, 'ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
   assert.equal(model.rows[B][COL.permitName].v, 'ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
   assert.ok(model.merges.some((m) => m.s.r === B && m.s.c === COL.studyName && m.e.c === COL.studyMark));
@@ -258,6 +271,37 @@ test('Excel δομή: πίνακας ανά έργο με συγχωνεύσει
   assert.ok(model.merges.some((m) => m.s.r === B + 1 && m.e.r === B + 3 && m.s.c === COL.studyMark && m.e.c === COL.studyMark));
   // Οι τρεις άδειες μένουν σε χωριστές γραμμές — χωρίς κατακόρυφη συγχώνευση ονόματος.
   assert.ok(!model.merges.some((m) => m.s.c === COL.permitName && m.e.r > m.s.r));
+});
+
+test('Excel: η αίτηση αδειοδότησης γράφεται ως Α, η έκδοση ως ✓', () => {
+  const model = excel.buildHubExcelModel([
+    {
+      title: 'Έργο με αίτηση',
+      status: 'maturing',
+      fileGroups: [
+        {
+          fileCategoryRoot: 'adeiodotiseis',
+          fileCategorySpec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ',
+          permitIssued: false,
+          permitApplied: true,
+          files: [],
+        },
+        {
+          fileCategoryRoot: 'adeiodotiseis',
+          fileCategorySpec: 'ΥΠΗΡΕΣΙΑ ΔΟΜΗΣΗΣ',
+          permitIssued: true,
+          permitApplied: true,
+          files: [],
+        },
+      ],
+    },
+  ]);
+  const { COL, BANNER_ROW_COUNT: B } = excel;
+  assert.equal(model.rows[B + 1][COL.permitName].v, 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ');
+  assert.equal(model.rows[B + 1][COL.permitMark].v, 'Α');
+  assert.equal(model.rows[B + 1][COL.permitMark].kind, 'markApplied');
+  assert.equal(model.rows[B + 2][COL.permitName].v, 'ΥΠΗΡΕΣΙΑ ΔΟΜΗΣΗΣ');
+  assert.equal(model.rows[B + 2][COL.permitMark].v, '✓');
 });
 
 test('Excel: άνισες μελέτες/άδειες συγχωνεύουν τα κενά κελιά της κοντύτερης στήλης', () => {
@@ -332,6 +376,7 @@ test('Excel επιλογές: χωρίς οικισμό και χωρίς αδε
   );
   const texts = model.rows.flat().map((c) => c.v);
   assert.ok(texts.includes('Κατάσταση'));
+  assert.ok(texts.includes('Υπεύθυνος πράξης'));
   assert.ok(texts.includes('Δημοτική ενότητα'));
   assert.ok(texts.includes('Κατηγορία / Εξειδίκευση'));
   assert.ok(!texts.includes('Οικισμός'));
@@ -345,9 +390,10 @@ test('Excel επιλογές: χωρίς οικισμό και χωρίς αδε
     includeStudies: true,
     includePermits: false,
   });
-  assert.equal(COLS, 7);
-  assert.equal(COL.studyName, 5);
-  assert.equal(COL.studyMark, 6);
+  assert.equal(COLS, 8);
+  assert.equal(COL.actionResponsible, 2);
+  assert.equal(COL.studyName, 6);
+  assert.equal(COL.studyMark, 7);
   assert.equal(COL.permitName, undefined);
 });
 
@@ -364,7 +410,7 @@ test('Excel επιλογές: μόνο αδειοδοτήσεις, χωρίς σ
     null,
     null,
     {
-      columns: { status: false, municipal: false, settlement: false, category: false },
+      columns: { actionResponsible: false, status: false, municipal: false, settlement: false, category: false },
       includeStudies: false,
       includePermits: true,
     },
@@ -372,6 +418,7 @@ test('Excel επιλογές: μόνο αδειοδοτήσεις, χωρίς σ
   const texts = model.rows.flat().map((c) => c.v);
   assert.ok(texts.includes('Α/Α'));
   assert.ok(texts.includes('Τίτλος έργου'));
+  assert.ok(!texts.includes('Υπεύθυνος πράξης'));
   assert.ok(texts.includes('ΑΔΕΙΟΔΟΤΗΣΕΙΣ'));
   assert.ok(texts.includes('ΔΑΣΑΡΧΕΙΟ'));
   assert.ok(!texts.includes('Κατάσταση'));

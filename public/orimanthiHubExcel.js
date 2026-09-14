@@ -12,28 +12,30 @@ const REPORT_TITLE = 'ΑΝΑΦΟΡΑ ΩΡΙΜΑΝΣΗΣ ΕΡΓΩΝ';
 const REPORT_SUBTITLE = `${APP_TAGLINE} — καρτέλες έργων υπό ωρίμανση`;
 const REPORT_CREDIT = `Το παρόν εξήχθη από την εφαρμογή ${APP_NAME}`;
 
-const COLS = 10;
+const COLS = 11;
 const BANNER_ROW_COUNT = 2;
 const COL = {
   serial: 0,
   title: 1,
-  status: 2,
-  municipal: 3,
-  settlement: 4,
-  category: 5,
-  studyName: 6,
-  studyMark: 7,
-  permitName: 8,
-  permitMark: 9,
+  actionResponsible: 2,
+  status: 3,
+  municipal: 4,
+  settlement: 5,
+  category: 6,
+  studyName: 7,
+  studyMark: 8,
+  permitName: 9,
+  permitMark: 10,
 };
 
 const DEFAULT_EXCEL_OPTIONS = {
-  columns: {
-    status: true,
-    municipal: true,
-    settlement: true,
-    category: true,
-  },
+    columns: {
+      actionResponsible: true,
+      status: true,
+      municipal: true,
+      settlement: true,
+      category: true,
+    },
   includeStudies: true,
   includePermits: true,
 };
@@ -41,6 +43,7 @@ const DEFAULT_EXCEL_OPTIONS = {
 const COL_WIDTH = {
   serial: 6,
   title: 28,
+  actionResponsible: 22,
   status: 16,
   municipal: 18,
   settlement: 16,
@@ -48,10 +51,10 @@ const COL_WIDTH = {
   studyName: 26,
   studyMark: 5,
   permitName: 28,
-  permitMark: 5,
+  permitMark: 6,
 };
 
-const LEFT_COL_KEYS = ['serial', 'title', 'status', 'municipal', 'settlement', 'category'];
+const LEFT_COL_KEYS = ['serial', 'title', 'actionResponsible', 'status', 'municipal', 'settlement', 'category'];
 
 function asBool(value, fallback) {
   if (value === true || value === false) return value;
@@ -63,6 +66,7 @@ function normalizeExcelOptions(raw) {
   const columns = src.columns && typeof src.columns === 'object' ? src.columns : {};
   return {
     columns: {
+      actionResponsible: asBool(columns.actionResponsible, true),
       status: asBool(columns.status, true),
       municipal: asBool(columns.municipal, true),
       settlement: asBool(columns.settlement, true),
@@ -77,6 +81,7 @@ function layoutFromOptions(raw) {
   const options = normalizeExcelOptions(raw);
   const col = { serial: 0, title: 1 };
   let n = 2;
+  if (options.columns.actionResponsible) col.actionResponsible = n++;
   if (options.columns.status) col.status = n++;
   if (options.columns.municipal) col.municipal = n++;
   if (options.columns.settlement) col.settlement = n++;
@@ -174,6 +179,12 @@ const S = {
     alignment: { horizontal: 'center', vertical: 'center' },
     border: borderAll('FDE68A'),
   },
+  markApplied: {
+    font: { bold: true, sz: 12, color: { rgb: '4338CA' } },
+    fill: { fgColor: { rgb: 'EEF2FF' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border: borderAll('C7D2FE'),
+  },
   notes: {
     font: { sz: 9, color: { rgb: '475569' }, italic: true },
     fill: { fgColor: { rgb: 'F8FAFC' } },
@@ -234,6 +245,7 @@ function addMerge(merges, r1, c1, r2, c2) {
 function markKind(item) {
   if (!item) return 'markEmpty';
   if (item.kind === 'issued' || item.kind === 'hasFile') return 'markOk';
+  if (item.kind === 'applied') return 'markApplied';
   if (item.kind === 'pending') return 'markPending';
   return 'markEmpty';
 }
@@ -250,6 +262,7 @@ function buildCardHeaderBlock(excelOptions) {
   const merges = [];
   setCol(header, col, 'serial', { v: 'Α/Α', kind: 'headLeft' });
   setCol(header, col, 'title', { v: 'Τίτλος έργου', kind: 'headLeft' });
+  setCol(header, col, 'actionResponsible', { v: 'Υπεύθυνος πράξης', kind: 'headLeft' });
   setCol(header, col, 'status', { v: 'Κατάσταση', kind: 'headLeft' });
   setCol(header, col, 'municipal', { v: 'Δημοτική ενότητα', kind: 'headLeft' });
   setCol(header, col, 'settlement', { v: 'Οικισμός', kind: 'headLeft' });
@@ -297,6 +310,7 @@ function buildCardRows(card, statusLabels, serial, excelOptions, extras) {
         ? `${titleValue}\n\nΣημειώσεις: ${card.notes}`
         : titleValue;
       setCol(row, col, 'title', { v: titleWithNotes, kind: 'project' });
+      setCol(row, col, 'actionResponsible', { v: card.actionResponsible || '—', kind: 'meta' });
       setCol(row, col, 'status', { v: labels[card.status] || card.status || '—', kind: 'meta' });
       setCol(row, col, 'municipal', { v: card.municipalUnit || '—', kind: 'meta' });
       setCol(row, col, 'settlement', { v: card.settlement || '—', kind: 'meta' });
@@ -304,6 +318,7 @@ function buildCardRows(card, statusLabels, serial, excelOptions, extras) {
     } else {
       setCol(row, col, 'serial', { v: '', kind: 'serial' });
       setCol(row, col, 'title', { v: '', kind: 'project' });
+      setCol(row, col, 'actionResponsible', { v: '', kind: 'meta' });
       setCol(row, col, 'status', { v: '', kind: 'meta' });
       setCol(row, col, 'municipal', { v: '', kind: 'meta' });
       setCol(row, col, 'settlement', { v: '', kind: 'meta' });
@@ -390,7 +405,7 @@ function buildBannerRows({ exportedAt, exportedBy, projectCount } = {}, excelOpt
     projectCount != null ? `Έργα: ${projectCount}` : null,
   ].filter(Boolean).join('   ·   ');
   const right = exportedBy ? `Εξαγωγή: ${exportedBy}` : '';
-  const leftEnd = ['category', 'settlement', 'municipal', 'status', 'title']
+  const leftEnd = ['category', 'settlement', 'municipal', 'status', 'actionResponsible', 'title']
     .map((key) => col[key])
     .find((idx) => idx != null);
   const mid = leftEnd == null ? 0 : leftEnd;
@@ -519,7 +534,8 @@ function writeHubExcelWorkbook({ proposals, destFilePath, exportedBy, appVersion
     ['Υπόμνημα'],
     ['✓', 'Υπάρχει αρχείο μελέτης / Η άδεια εκδόθηκε'],
     ['—', 'Δεν έχει καταχωρηθεί αρχείο μελέτης'],
-    ['×', 'Εκκρεμεί η άδεια (δεν έχει σημειωθεί έκδοση)'],
+    ['Α', 'Έχει γίνει αίτηση (εκκρεμεί η έκδοση)'],
+    ['×', 'Εκκρεμεί η άδεια (δεν έχει σημειωθεί αίτηση ούτε έκδοση)'],
     [''],
     ['Κάθε έργο είναι ξεχωριστή καρτέλα. Εμφανίζονται μόνο οι κατηγορίες που έχουν δημιουργηθεί στο έργο.'],
     [REPORT_CREDIT],

@@ -108,6 +108,7 @@
     if (!q) return true;
     var haystack = [
       project && project.title,
+      project && project.actionResponsible,
       project && project.projectCategory,
       project && project.infrastructureSpecialization,
       project && project.municipalUnit,

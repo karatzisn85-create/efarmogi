@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
   FILE_CATEGORY_ROOTS,
@@ -121,12 +121,26 @@ const SpecGrid = styled.div`
   gap: 0.4rem;
 `;
 
+const SpecChipWrap = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.12rem;
+`;
+
 const SpecChip = styled.button`
   padding: 0.38rem 0.72rem;
   border-radius: 999px;
   border: 1.5px solid ${(p) => (p.$used ? '#cbd5e1' : p.$accent)};
-  background: ${(p) => (p.$used ? '#f8fafc' : 'white')};
-  color: ${(p) => (p.$used ? '#94a3b8' : p.$accent)};
+  background: ${(p) => {
+    if (p.$used) return '#f8fafc';
+    if (p.$selected) return p.$accent;
+    return 'white';
+  }};
+  color: ${(p) => {
+    if (p.$used) return '#94a3b8';
+    if (p.$selected) return 'white';
+    return p.$accent;
+  }};
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -134,9 +148,30 @@ const SpecChip = styled.button`
   opacity: ${(p) => (p.$used ? 0.65 : 1)};
   transition: all 0.18s ease;
   &:hover:not(:disabled) {
-    background: ${(p) => p.$accentLight};
+    background: ${(p) => (p.$selected ? p.$accent : p.$accentLight)};
     transform: translateY(-1px);
     box-shadow: 0 4px 12px ${(p) => `${p.$accent}33`};
+  }
+`;
+
+const SpecDeleteBtn = styled.button`
+  width: 1.05rem;
+  height: 1.05rem;
+  border: none;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #64748b;
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  &:hover {
+    background: #fee2e2;
+    color: #b91c1c;
   }
 `;
 
@@ -181,60 +216,179 @@ const AddSpecBtn = styled.button`
 const UsedHint = styled.div`
   margin-top: 0.45rem;
   font-size: 0.65rem;
-  color: #94a3b8;
+  color: ${(p) => (p.$warn ? '#b45309' : '#94a3b8')};
   font-style: italic;
+`;
+
+const ConfirmRow = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+`;
+
+const ConfirmBtn = styled.button`
+  padding: 0.42rem 0.85rem;
+  border: none;
+  border-radius: 9px;
+  background: ${(p) => p.$accent || '#6366f1'};
+  color: white;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
 `;
 
 function OrimanthiFileCategoryPicker({
   existingGroups = [],
   customMeletesSpecs = [],
   customAdeiodotiseisSpecs = [],
+  hiddenMeletesSpecs = [],
+  hiddenAdeiodotiseisSpecs = [],
+  allowMultiple = true,
   onSelect,
+  onSelectMany,
   onCancel,
   onAddCustomSpec,
+  onRemoveSpec,
 }) {
   const [step, setStep] = useState('root');
   const [selectedRoot, setSelectedRoot] = useState(null);
   const [newSpecInput, setNewSpecInput] = useState('');
+  const [selectedSpecs, setSelectedSpecs] = useState([]);
+  const [actionHint, setActionHint] = useState('');
+  const selectedSpecsRef = useRef([]);
+
+  const setSelectedSpecsNow = useCallback((updater) => {
+    setSelectedSpecs((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      selectedSpecsRef.current = next;
+      return next;
+    });
+  }, []);
 
   const rootMeta = selectedRoot ? FILE_CATEGORY_ROOTS[selectedRoot] : null;
 
   const specs = useMemo(() => {
     if (!selectedRoot) return [];
-    return getSpecsForRoot(selectedRoot, customMeletesSpecs, customAdeiodotiseisSpecs);
-  }, [selectedRoot, customMeletesSpecs, customAdeiodotiseisSpecs]);
+    return getSpecsForRoot(
+      selectedRoot,
+      customMeletesSpecs,
+      customAdeiodotiseisSpecs,
+      hiddenMeletesSpecs,
+      hiddenAdeiodotiseisSpecs
+    );
+  }, [
+    selectedRoot,
+    customMeletesSpecs,
+    customAdeiodotiseisSpecs,
+    hiddenMeletesSpecs,
+    hiddenAdeiodotiseisSpecs,
+  ]);
 
   const handlePickRoot = useCallback((rootId) => {
     setSelectedRoot(rootId);
     setStep('spec');
     setNewSpecInput('');
-  }, []);
+    setActionHint('');
+    setSelectedSpecsNow([]);
+  }, [setSelectedSpecsNow]);
+
+  const emitPicks = useCallback((specList) => {
+    if (!selectedRoot) return;
+    const requested = (specList || []).map((spec) => String(spec || '').trim()).filter(Boolean);
+    const picks = requested
+      .filter((spec) => !isSpecUsed(existingGroups, selectedRoot, spec))
+      .map((spec) => ({
+        rootId: selectedRoot,
+        spec,
+        label: buildFileGroupLabel(selectedRoot, spec),
+      }));
+    if (!picks.length) {
+      if (requested.length) {
+        setActionHint('Οι κατηγορίες υπάρχουν ήδη στο έργο.');
+      }
+      return;
+    }
+    setActionHint('');
+    if (allowMultiple && onSelectMany) onSelectMany(picks);
+    else if (onSelect) onSelect(picks[0]);
+  }, [allowMultiple, existingGroups, onSelect, onSelectMany, selectedRoot]);
 
   const handlePickSpec = useCallback((spec) => {
     if (!selectedRoot || isSpecUsed(existingGroups, selectedRoot, spec)) return;
-    onSelect({ rootId: selectedRoot, spec, label: buildFileGroupLabel(selectedRoot, spec) });
-  }, [selectedRoot, existingGroups, onSelect]);
+    if (!allowMultiple) {
+      emitPicks([spec]);
+      return;
+    }
+    setSelectedSpecsNow((prev) => (
+      prev.some((x) => x.toLowerCase() === spec.toLowerCase())
+        ? prev.filter((x) => x.toLowerCase() !== spec.toLowerCase())
+        : [...prev, spec]
+    ));
+  }, [allowMultiple, emitPicks, existingGroups, selectedRoot, setSelectedSpecsNow]);
 
   const handleAddCustom = useCallback(() => {
     const trimmed = newSpecInput.trim();
     if (!selectedRoot || !trimmed) return;
-    const defaults = getDefaultSpecsForRoot(selectedRoot);
-    const allSpecs = getSpecsForRoot(selectedRoot, customMeletesSpecs, customAdeiodotiseisSpecs);
-    if (allSpecs.some((s) => s.toLowerCase() === trimmed.toLowerCase())) {
-      handlePickSpec(allSpecs.find((s) => s.toLowerCase() === trimmed.toLowerCase()) || trimmed);
+    const allSpecs = getSpecsForRoot(
+      selectedRoot,
+      customMeletesSpecs,
+      customAdeiodotiseisSpecs,
+      hiddenMeletesSpecs,
+      hiddenAdeiodotiseisSpecs
+    );
+    const existing = allSpecs.find((s) => s.toLowerCase() === trimmed.toLowerCase());
+    const catalogName = existing || trimmed;
+    if (isSpecUsed(existingGroups, selectedRoot, catalogName)) {
+      if (!existing) onAddCustomSpec?.(selectedRoot, trimmed, getDefaultSpecsForRoot(selectedRoot));
+      setNewSpecInput('');
+      setActionHint('Η κατηγορία υπάρχει ήδη στο έργο.');
       return;
     }
-    onAddCustomSpec?.(selectedRoot, trimmed, defaults);
+    if (existing) {
+      handlePickSpec(existing);
+      setNewSpecInput('');
+      setActionHint('');
+      return;
+    }
+    onAddCustomSpec?.(selectedRoot, trimmed, getDefaultSpecsForRoot(selectedRoot));
     setNewSpecInput('');
-    handlePickSpec(trimmed);
+    setActionHint('');
+    if (!allowMultiple) {
+      emitPicks([trimmed]);
+      return;
+    }
+    setSelectedSpecsNow((prev) => (
+      prev.some((x) => x.toLowerCase() === trimmed.toLowerCase()) ? prev : [...prev, trimmed]
+    ));
   }, [
-    newSpecInput,
-    selectedRoot,
-    customMeletesSpecs,
+    allowMultiple,
     customAdeiodotiseisSpecs,
-    onAddCustomSpec,
+    customMeletesSpecs,
+    emitPicks,
+    existingGroups,
     handlePickSpec,
+    hiddenAdeiodotiseisSpecs,
+    hiddenMeletesSpecs,
+    newSpecInput,
+    onAddCustomSpec,
+    selectedRoot,
+    setSelectedSpecsNow,
   ]);
+
+  const handleConfirm = useCallback(() => {
+    emitPicks([...selectedSpecsRef.current]);
+  }, [emitPicks]);
+
+  const handleRemoveSpec = useCallback(async (spec, event) => {
+    event?.stopPropagation();
+    event?.preventDefault();
+    if (!selectedRoot || !onRemoveSpec) return;
+    const removed = await onRemoveSpec(selectedRoot, spec);
+    if (removed === false) return;
+    setSelectedSpecsNow((prev) => prev.filter((x) => x.toLowerCase() !== spec.toLowerCase()));
+  }, [onRemoveSpec, selectedRoot, setSelectedSpecsNow]);
 
   if (step === 'root') {
     return (
@@ -274,7 +428,7 @@ function OrimanthiFileCategoryPicker({
     <PickerShell>
       <PickerHeader>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0 }}>
-          <BackBtn type="button" onClick={() => { setStep('root'); setSelectedRoot(null); }}>
+          <BackBtn type="button" onClick={() => { setStep('root'); setSelectedRoot(null); setSelectedSpecsNow([]); setActionHint(''); }}>
             ← Πίσω
           </BackBtn>
           <PickerTitle style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -286,19 +440,35 @@ function OrimanthiFileCategoryPicker({
       <SpecGrid>
         {specs.map((spec) => {
           const used = isSpecUsed(existingGroups, selectedRoot, spec);
+          const selected = selectedSpecs.some((x) => x.toLowerCase() === spec.toLowerCase());
           return (
-            <SpecChip
-              key={spec}
-              type="button"
-              $used={used}
-              $accent={rootMeta?.accent}
-              $accentLight={rootMeta?.accentLight}
-              disabled={used}
-              title={used ? 'Η κατηγορία υπάρχει ήδη στο έργο' : spec}
-              onClick={() => handlePickSpec(spec)}
-            >
-              {spec}
-            </SpecChip>
+            <SpecChipWrap key={spec}>
+              <SpecChip
+                type="button"
+                $used={used}
+                $selected={selected}
+                $accent={rootMeta?.accent}
+                $accentLight={rootMeta?.accentLight}
+                disabled={used}
+                data-testid={`orimanthi-file-spec-${spec}`}
+                aria-pressed={selected}
+                title={used ? 'Η κατηγορία υπάρχει ήδη στο έργο' : spec}
+                onClick={() => handlePickSpec(spec)}
+              >
+                {spec}
+              </SpecChip>
+              {onRemoveSpec ? (
+                <SpecDeleteBtn
+                  type="button"
+                  data-testid={`orimanthi-file-spec-delete-${spec}`}
+                  title="Αφαίρεση από τη λίστα επιλογών"
+                  aria-label={`Αφαίρεση εξειδίκευσης από τη λίστα: ${spec}`}
+                  onClick={(e) => handleRemoveSpec(spec, e)}
+                >
+                  ×
+                </SpecDeleteBtn>
+              ) : null}
+            </SpecChipWrap>
           );
         })}
       </SpecGrid>
@@ -316,13 +486,35 @@ function OrimanthiFileCategoryPicker({
         <AddSpecBtn
           type="button"
           $accent={rootMeta?.accent}
+          data-testid="orimanthi-file-spec-add-custom"
           disabled={!newSpecInput.trim()}
           onClick={handleAddCustom}
         >
           + Προσθήκη
         </AddSpecBtn>
       </AddSpecRow>
-      <UsedHint>Οι γκρι επιλογές υπάρχουν ήδη στο έργο.</UsedHint>
+      <UsedHint $warn={!!actionHint}>
+        {actionHint
+          || (allowMultiple
+            ? 'Επιλέξτε όσες εξειδικεύσεις θέλετε. Οι γκρι υπάρχουν ήδη στο έργο. Το × τις αφαιρεί από τη λίστα.'
+            : 'Οι γκρι επιλογές υπάρχουν ήδη στο έργο. Το × αφαιρεί μια εξειδίκευση από τη λίστα.')}
+      </UsedHint>
+      {allowMultiple ? (
+        <ConfirmRow>
+          <ConfirmBtn
+            type="button"
+            $accent={rootMeta?.accent}
+            data-testid="orimanthi-file-spec-confirm"
+            data-selected-specs={selectedSpecs.join('|')}
+            disabled={!selectedSpecs.length}
+            onClick={handleConfirm}
+          >
+            {selectedSpecs.length > 1
+              ? `Προσθήκη ${selectedSpecs.length} κατηγοριών`
+              : 'Προσθήκη κατηγορίας'}
+          </ConfirmBtn>
+        </ConfirmRow>
+      ) : null}
     </PickerShell>
   );
 }

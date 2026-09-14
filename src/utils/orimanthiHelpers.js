@@ -44,6 +44,7 @@ export function formatAuditFieldValue(fieldKey, value) {
 const PROPOSAL_FIELD_LABELS = {
   title: 'Τίτλος',
   status: 'Κατάσταση ωρίμανσης',
+  actionResponsible: 'Υπεύθυνος πράξης',
   projectCategory: 'Κατηγορία έργου',
   infrastructureSpecialization: 'Εξειδίκευση',
   municipalUnit: 'Δημοτική Ενότητα',
@@ -96,6 +97,7 @@ export function proposalPersistFingerprint(proposal) {
   return JSON.stringify({
     title: proposal.title || '',
     status: proposal.status || '',
+    actionResponsible: proposal.actionResponsible || '',
     projectCategory: proposal.projectCategory || '',
     infrastructureSpecialization: proposal.infrastructureSpecialization || '',
     municipalUnit: proposal.municipalUnit || '',
