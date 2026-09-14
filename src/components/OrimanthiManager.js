@@ -15,6 +15,7 @@ import {
   countProposalFiles,
   countGroupFileEntries,
   proposalPersistFingerprint,
+  syncPersistedSnapshotFileGroups,
   PROPOSAL_ACTION_LABELS,
 } from '../utils/orimanthiHelpers';
 import OrimanthiFileCategoryPicker from './OrimanthiFileCategoryPicker';
@@ -3520,6 +3521,11 @@ export default function OrimanthiManager({
     proposalsRef.current = proposalsRef.current.map((p) => (
       p.id === saved.id ? orimanthiFileChecklist.mergeProposalFromDisk(p, saved) : p
     ));
+    const merged = proposalsRef.current.find((p) => p.id === saved.id);
+    const snap = persistedSnapshotsRef.current[saved.id];
+    if (merged && snap) {
+      persistedSnapshotsRef.current[saved.id] = syncPersistedSnapshotFileGroups(snap, merged);
+    }
   }, []);
 
   const markProposalPersisted = useCallback((proposal) => {
@@ -5089,15 +5095,6 @@ export default function OrimanthiManager({
     return saveProposalAudited(latest);
   }, [isReadOnly, clearPendingSaveTimer, saveProposalAudited]);
 
-  const flushProposalSave = useCallback(async () => {
-    if (!selectedId || isReadOnly) return;
-    clearPendingSaveTimer();
-    pendingSaveProjectIdRef.current = null;
-    pendingSaveAuditedRef.current = false;
-    const latest = proposalsRef.current.find((p) => p.id === selectedId);
-    if (latest) await saveProposalAudited(latest);
-  }, [selectedId, isReadOnly, clearPendingSaveTimer, saveProposalAudited]);
-
   const completeUnsavedNavigation = useCallback(async (action) => {
     const modal = unsavedNavModal;
     if (!modal) return;
@@ -5149,12 +5146,14 @@ export default function OrimanthiManager({
         setUnsavedNavModal({ targetId: '__close__', resolve });
       });
       if (!ok) return;
-    } else {
-      await flushProposalSave();
+    } else if (selectedId && !isReadOnly) {
+      await flushProposalSaveById(selectedId);
+      const latest = proposalsRef.current.find((p) => p.id === selectedId);
+      if (latest) markProposalPersisted(latest);
     }
     await releaseProposalLock(selectedId);
     onClose();
-  }, [selectedId, isReadOnly, isProposalDirty, flushProposalSave, releaseProposalLock, onClose]);
+  }, [selectedId, isReadOnly, isProposalDirty, flushProposalSaveById, markProposalPersisted, releaseProposalLock, onClose]);
 
   const applyFileSearchNavigation = useCallback(async (nav, proposal) => {
     if (!nav || !proposal) return;
@@ -5775,9 +5774,10 @@ export default function OrimanthiManager({
                         </HubStatsBtn>
                         <HubStatsBtn
                           type="button"
+                          data-testid="orimanthi-hub-export-pdf"
                           disabled={hubReportExporting}
                           onClick={() => handleHubReportExport('pdf')}
-                          title="Εξαγωγή λίστας έργων σε PDF"
+                          title="Εξαγωγή καρτελών έργων σε PDF"
                         >
                           {hubReportExporting ? '⏳ …' : '📕 PDF'}
                         </HubStatsBtn>

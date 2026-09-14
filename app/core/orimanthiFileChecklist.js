@@ -146,6 +146,7 @@
         ? formatAepoDate(proposal.aepoRenewalDate)
         : '—',
       files: files,
+      description: String((proposal && proposal.description) || '').trim(),
       notes: String((proposal && proposal.notes) || '').trim(),
       meletes: meletes.concat(other),
       adeiodotiseis: adeiodotiseis

@@ -1908,7 +1908,6 @@ function ProsklisisManager({
   };
 
   const handleClose = () => {
-    handleClearFilters();
     setSelectedDetailProsklisi(null);
     const dataChanged = catalogDirtyRef.current;
     catalogDirtyRef.current = false;
@@ -2719,14 +2718,15 @@ function ProsklisisManager({
       {isFormOpen && (
         <ProsklisisForm
           isOpen={isFormOpen}
-          onClose={async () => {
-            if (editingProsklisi && editingProsklisi.prosklisiId) {
-              await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
-              setProsklisiLocks(prev => ({ ...prev, [editingProsklisi.prosklisiId]: false }));
-            }
+          onClose={() => {
+            const id = editingProsklisi?.prosklisiId;
             setIsFormOpen(false);
             setEditingProsklisi(null);
             requestListScrollRestore();
+            if (!id) return;
+            void ipcRenderer.invoke('remove-entity-lock', 'proskliseis', id).then(() => {
+              setProsklisiLocks((prev) => ({ ...prev, [id]: false }));
+            });
           }}
           onSave={handleSaveProsklisi}
           editingProsklisi={editingProsklisi}
@@ -2749,15 +2749,15 @@ function ProsklisisManager({
       {isModificationFormOpen && editingModification && (
         <ProsklisiModificationForm
           isOpen={isModificationFormOpen}
-          onClose={async () => {
+          onClose={() => {
             const prosklisiId = editingModification.prosklisiId || editingModification.id;
-            if (prosklisiId) {
-              await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', prosklisiId);
-              setProsklisiLocks((prev) => ({ ...prev, [prosklisiId]: false }));
-            }
             setIsModificationFormOpen(false);
             setEditingModification(null);
             requestListScrollRestore();
+            if (!prosklisiId) return;
+            void ipcRenderer.invoke('remove-entity-lock', 'proskliseis', prosklisiId).then(() => {
+              setProsklisiLocks((prev) => ({ ...prev, [prosklisiId]: false }));
+            });
           }}
           onSave={editingModification.modificationId ? handleSaveModificationEdit : handleSaveModification}
           originalProsklisi={editingModification}

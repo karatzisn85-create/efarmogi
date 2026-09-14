@@ -109,6 +109,21 @@ export function proposalPersistFingerprint(proposal) {
   });
 }
 
+/**
+ * Μετά από ανέβασμα/διαγραφή αρχείων ο δίσκος έχει ήδη τη νέα λίστα,
+ * αλλά το στιγμιότυπο «αποθηκευμένων» μπορεί να μείνει με την παλιά.
+ * Συγχρονίζουμε μόνο τους φακέλους — τα υπόλοιπα πεδία μένουν για τον έλεγχο μη αποθηκευμένων.
+ */
+export function syncPersistedSnapshotFileGroups(persisted, merged) {
+  if (!persisted) return persisted;
+  if (!merged) return persisted;
+  return {
+    ...persisted,
+    fileGroups: JSON.parse(JSON.stringify(merged.fileGroups || [])),
+    updatedAt: merged.updatedAt || persisted.updatedAt,
+  };
+}
+
 /** Φίλτρο αρχείων εντός τρέχοντος έργου (tab Αρχεία). */
 export function filterGroupFiles(group, query, folderIdsWithInnerMatch = null) {
   const q = String(query || '').trim().toLowerCase();

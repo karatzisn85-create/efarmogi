@@ -46,6 +46,7 @@ test('καρτέλα έργου χωρίζει μελέτες και αδειο�
     status: 'maturing',
     projectCategory: 'ΟΔΟΠΟΙΙΑ',
     notes: 'Αναμονή αρχαιολογικής',
+    description: 'Ανακατασκευή κεντρικής οδού',
     fileGroups: [
       {
         fileCategoryRoot: 'meletes',
@@ -64,6 +65,7 @@ test('καρτέλα έργου χωρίζει μελέτες και αδειο�
   assert.equal(card.actionResponsible, '—');
   assert.equal(card.files, 1);
   assert.equal(card.notes, 'Αναμονή αρχαιολογικής');
+  assert.equal(card.description, 'Ανακατασκευή κεντρικής οδού');
   assert.deepEqual(card.meletes.map((x) => [x.spec, x.mark]), [['ΤΟΠΟΓΡΑΦΙΚΑ', '✓']]);
   assert.deepEqual(card.adeiodotiseis.map((x) => [x.spec, x.mark]), [['ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ', '×']]);
 });
@@ -436,32 +438,47 @@ test('Excel: κενό έργο μπαίνει ως καρτέλα, χωρίς σ
   assert.ok(!texts.some((v) => String(v).includes('Εκκρεμότητες')));
 });
 
-test('HTML αναφορά hub: οκτώ στήλες, χωρίς εκκρεμότητες', () => {
+test('HTML αναφορά hub: καρτέλες με υπεύθυνο πράξης, μελέτες και Αιτ.', () => {
   const htmlMod = require('../../public/orimanthiReportHtml.js');
   const html = htmlMod.buildHubReportHtml({
-    rows: [{
+    cards: [{
       title: 'Οδός',
       statusKey: 'maturing',
-      status: 'Υπό ωρίμανση',
+      statusLabel: 'Υπό ωρίμανση',
+      actionResponsible: 'Κώστας Αντωνίου',
       category: 'ΟΔΟΠΟΙΙΑ',
       municipalUnit: 'Δ.Ε. ΑΡΧΑΝΩΝ',
-      settlement: '—',
-      aepo: '—',
+      settlement: 'Αρχάνες',
+      aepo: '01/10/2026',
       files: 1,
       updatedAt: '11/09/2026',
+      description: 'Ανακατασκευή κεντρικής οδού',
+      notes: 'Αναμονή αρχαιολογικής έγκρισης.',
+      meletes: [{ spec: 'ΤΟΠΟΓΡΑΦΙΚΑ', mark: '✓', kind: 'hasFile' }],
+      adeiodotiseis: [
+        { spec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ', mark: 'Αιτ.', kind: 'applied' },
+        { spec: 'ΔΙΕΥΘΥΝΣΗ ΔΑΣΩΝ', mark: '×', kind: 'pending' },
+      ],
     }],
     exportedAt: '11/09/2026',
     exportedBy: 'Δοκιμή',
-    appVersion: '1.4.106',
+    appVersion: '1.4.114',
   });
-  assert.match(html, /<th>Τίτλος<\/th>/);
-  assert.match(html, /<th>Ενημέρωση<\/th>/);
-  assert.equal((html.match(/<th>/g) || []).length, 8);
+  assert.match(html, /Υπεύθυνος πράξης/);
+  assert.match(html, /Κώστας Αντωνίου/);
+  assert.match(html, /Μελέτες έργου/);
+  assert.match(html, /Αδειοδοτήσεις/);
+  assert.match(html, /ΤΟΠΟΓΡΑΦΙΚΑ/);
+  assert.match(html, /Αιτ\./);
+  assert.match(html, /Έχει γίνει αίτηση/);
+  assert.match(html, /Αναμονή αρχαιολογικής έγκρισης/);
+  assert.match(html, /Ανακατασκευή κεντρικής οδού/);
   assert.ok(!html.includes('Εκκρεμότητες'));
+  assert.ok(!html.includes('<th>Τίτλος</th>'));
   const emptyHtml = htmlMod.buildHubReportHtml({
-    rows: [],
+    cards: [],
     exportedAt: '11/09/2026',
   });
-  assert.match(emptyHtml, /colspan="8"/);
+  assert.match(emptyHtml, /Δεν υπάρχουν έργα προς εμφάνιση/);
   assert.ok(!emptyHtml.includes('Εκκρεμότητες'));
 });

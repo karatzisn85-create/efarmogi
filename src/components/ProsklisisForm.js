@@ -739,14 +739,8 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
   if (!isOpen) return null;
 
   return createPortal(
-    <FormOverlay data-testid="psk-form" onClick={async (e) => {
-      if (e.target === e.currentTarget) {
-        // Ξεκλείδωμα της πρόσκλησης πριν το κλείσιμο
-        if (editingProsklisi && editingProsklisi.prosklisiId) {
-          await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
-        }
-        onClose();
-      }
+    <FormOverlay data-testid="psk-form" onClick={(e) => {
+      if (e.target === e.currentTarget) onClose();
     }}>
       <FormContainer>
         <FormHero>
@@ -763,12 +757,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
           </HeroText>
           <CloseButton
             type="button"
-            onClick={async () => {
-              if (editingProsklisi && editingProsklisi.prosklisiId) {
-                await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
-              }
-              onClose();
-            }}
+            onClick={onClose}
           >
             Κλείσιμο
           </CloseButton>
@@ -1305,12 +1294,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
             <ButtonContainer>
               <Button
                 type="button"
-                onClick={async () => {
-                  if (editingProsklisi && editingProsklisi.prosklisiId) {
-                    await ipcRenderer.invoke('remove-entity-lock', 'proskliseis', editingProsklisi.prosklisiId);
-                  }
-                  onClose();
-                }}
+                onClick={onClose}
               >
                 Ακύρωση
               </Button>

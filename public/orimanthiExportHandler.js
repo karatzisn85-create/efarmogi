@@ -9,6 +9,7 @@ const fse = require('fs-extra');
 const { exportHtmlToPdf } = require('./htmlPdfExportHelper');
 const { buildHubReportHtml } = require('./orimanthiReportHtml');
 const { writeHubExcelWorkbook } = require('./orimanthiHubExcel');
+const orimanthiFileChecklist = require('../app/core/orimanthiFileChecklist');
 
 const APP_NAME = 'ERGOHUB';
 const APP_TAGLINE = 'Σύστημα Διαχείρισης Έργων Δήμου';
@@ -105,7 +106,8 @@ function buildCategoryExportHtml(categorySummary) {
 
   categorySummary.forEach((cat, catIndex) => {
     const catNum = catIndex + 1;
-    html += `<p class="category-section">${catNum}. ${escapeHtml(cat.label)}</p>`;
+    const markHint = cat.markCaption ? ` — ${escapeHtml(cat.mark)} ${escapeHtml(cat.markCaption)}` : '';
+    html += `<p class="category-section">${catNum}. ${escapeHtml(cat.label)}${markHint}</p>`;
 
     const items = cat.items || [];
     if (!items.length) {
@@ -332,6 +334,7 @@ function buildProposalWordDocument({ proposal, appVersion, exportedBy, categoryS
   <h2>Στοιχεία έργου</h2>
   <table class="info">
     ${infoRow('Τίτλος έργου', proposal.title)}
+    ${infoRow('Υπεύθυνος πράξης', proposal.actionResponsible)}
     ${infoRow('Κατάσταση ωρίμανσης', statusLabel)}
     ${infoRow('Κατηγορία έργου', proposal.projectCategory)}
     ${infoRow('Εξειδίκευση', proposal.infrastructureSpecialization)}
@@ -482,8 +485,18 @@ async function exportProposal(options) {
         resolveProposalGroupPath,
       });
       if (stats.skipped?.length) missingItems.push(...stats.skipped);
+      const classified = orimanthiFileChecklist.classifyGroup(group);
+      const markCaption = orimanthiFileChecklist.isAdeiodotiseisGroup(group)
+        ? (classified.kind === 'issued'
+          ? 'Η άδεια εκδόθηκε'
+          : classified.kind === 'applied'
+            ? 'Έχει γίνει αίτηση'
+            : 'Εκκρεμεί η άδεια')
+        : (classified.kind === 'hasFile' ? 'Υπάρχει αρχείο' : 'Χωρίς αρχείο');
       categorySummary.push({
         label: group.label || categoryName,
+        mark: classified.mark,
+        markCaption,
         fileCount: stats.fileCount,
         folderCount: stats.folderCount,
         items: stats.items,
@@ -518,30 +531,16 @@ async function exportProposal(options) {
   };
 }
 
-function countProposalFilesForExport(project) {
-  return (project?.fileGroups || []).reduce((sum, g) => {
-    return sum + (g.files || []).reduce((s, entry) => {
-      if (entry?.kind === 'folder') return s + (entry.fileCount || 0);
-      return s + 1;
-    }, 0);
-  }, 0);
-}
-
-function buildHubReportRows(proposals) {
-  return (proposals || []).map((p) => ({
-    title: p.title || '(Χωρίς τίτλο)',
-    statusKey: p.status || 'draft',
-    status: PROPOSAL_STATUS_LABELS[p.status] || p.status || '—',
-    category: [
-      p.projectCategory || '—',
-      p.infrastructureSpecialization || '',
-    ].filter(Boolean).join(' · '),
-    municipalUnit: p.municipalUnit || '—',
-    settlement: p.settlement || '—',
-    aepo: p.aepoRenewalDate ? formatAepoDateExport(p.aepoRenewalDate) : '—',
-    files: countProposalFilesForExport(p),
-    updatedAt: p.updatedAt ? formatDateGreek(p.updatedAt) : '—',
-  }));
+function buildHubReportCards(proposals) {
+  return (proposals || []).map((p) => {
+    const card = orimanthiFileChecklist.buildProposalCard(p);
+    return {
+      ...card,
+      statusKey: p.status || 'draft',
+      statusLabel: PROPOSAL_STATUS_LABELS[p.status] || p.status || '—',
+      updatedAt: p.updatedAt ? formatDateGreek(p.updatedAt) : '—',
+    };
+  });
 }
 
 async function exportHubReportExcel({ proposals, destFilePath, exportedBy, appVersion, excelOptions }) {
@@ -557,14 +556,14 @@ async function exportHubReportExcel({ proposals, destFilePath, exportedBy, appVe
 }
 
 async function exportHubReportHtml({ proposals, destFilePath, exportedBy, appVersion }) {
-  const rows = buildHubReportRows(proposals);
+  const cards = buildHubReportCards(proposals);
   const exportedAt = formatDateGreek(new Date().toISOString());
-  const html = buildHubReportHtml({ rows, exportedAt, exportedBy, appVersion });
+  const html = buildHubReportHtml({ cards, exportedAt, exportedBy, appVersion });
   fs.writeFileSync(destFilePath, `\uFEFF${html}`, 'utf8');
   return {
     success: true,
     filePath: destFilePath,
-    rowCount: rows.length,
+    rowCount: cards.length,
     sheetCount: 1,
     exportedAt,
     format: 'html',
@@ -572,16 +571,16 @@ async function exportHubReportHtml({ proposals, destFilePath, exportedBy, appVer
 }
 
 async function exportHubReportPdf({ proposals, destFilePath, exportedBy, appVersion }) {
-  const rows = buildHubReportRows(proposals);
+  const cards = buildHubReportCards(proposals);
   const exportedAt = formatDateGreek(new Date().toISOString());
-  const html = buildHubReportHtml({ rows, exportedAt, exportedBy, appVersion });
+  const html = buildHubReportHtml({ cards, exportedAt, exportedBy, appVersion });
 
   try {
-    const pdfResult = await exportHtmlToPdf(html, destFilePath, { landscape: true });
+    const pdfResult = await exportHtmlToPdf(html, destFilePath, { landscape: false });
     return {
       success: true,
       filePath: destFilePath,
-      rowCount: rows.length,
+      rowCount: cards.length,
       sheetCount: pdfResult.sheetCount || 1,
       exportedAt,
       format: 'pdf',

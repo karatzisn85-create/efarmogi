@@ -185,6 +185,42 @@ test('P8-18 εξαγωγή Excel καρτελών ανά έργο', async ({ app
   expect(text).not.toContain('Εκκρεμότητες');
 });
 
+test('P8-23 PDF καρτέλες: υπεύθυνος πράξης, μελέτες και αδειοδοτήσεις', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
+  const { window } = app;
+  await openOrimanthi(window);
+  const dest = path.join(app.testDir, 'ωρίμανση-καρτέλες.pdf');
+  await app.queueSavePath(dest);
+  await window.getByRole('button', { name: '📕 PDF' }).click();
+  await expect.poll(() => fs.existsSync(dest), { timeout: 45000 }).toBe(true);
+  expect(fs.readFileSync(dest).subarray(0, 4).toString('utf8')).toBe('%PDF');
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(fs.readFileSync(dest)),
+    disableWorker: true,
+    isEvalSupported: false,
+    useSystemFonts: true,
+  }).promise;
+  let text = '';
+  for (let i = 1; i <= doc.numPages; i += 1) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map((item) => item.str).join(' ');
+    text += '\n';
+  }
+  expect(text).toContain('Ανακατασκευή οδού Αρχανών');
+  expect(text).toContain('ΥΠΕΥΘΥΝΟΣ ΠΡΑΞΗΣ');
+  expect(text).toContain('Κώστας Αντωνίου');
+  expect(text).toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
+  expect(text).toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
+  expect(text).toContain('ΤΟΠΟΓΡΑΦΙΚΑ');
+  expect(text).toContain('ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ');
+  expect(text).toContain('Αναμονή αρχαιολογικής έγκρισης');
+  expect(text).toContain('Αιτ.');
+  expect(text).not.toContain('Εκκρεμότητες');
+});
+
 test('P8-20 Excel: επιλογή στηλών και μόνο μελέτες', async ({ app }) => {
   const fs = require('fs');
   const path = require('path');

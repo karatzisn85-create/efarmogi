@@ -4089,6 +4089,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     if (loading) return undefined;
     return runWhenIdle(() => {
       void import('./ProsklisisManager');
+      void import('./OrimanthiManager');
       void import('./EntaxisManager');
       void import('./EgkriseisManager');
       void import('./ProcurementCalendar');
