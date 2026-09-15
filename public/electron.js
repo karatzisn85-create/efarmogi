@@ -6983,7 +6983,7 @@ ipcMain.handle('select-multiple-files', async (event, arg = 'Επιλογή Αρ
         return { success: true, files };
       }
 
-      const files = copyFilePathsToTempUpload(result.filePaths);
+      const files = await copyFilePathsToTempUploadAsync(result.filePaths);
       return {
         success: true,
         files
@@ -7022,6 +7022,34 @@ function copyFilePathsToTempUpload(filePaths) {
   return files;
 }
 
+async function copyFilePathsToTempUploadAsync(filePaths) {
+  const tempDir = getTempDir();
+  await fs.promises.mkdir(tempDir, { recursive: true });
+  const files = [];
+  for (const sourcePath of filePaths) {
+    const baseName = path.basename(sourcePath).replace(/[<>:"/\\|?*]/g, '_');
+    if (!baseName) continue;
+    let destName = baseName;
+    let tempFilePath = path.join(tempDir, destName);
+    let counter = 1;
+    while (true) {
+      try {
+        await fs.promises.access(tempFilePath);
+        const ext = path.extname(baseName);
+        const stem = path.basename(baseName, ext);
+        destName = `${stem}_${counter}${ext}`;
+        tempFilePath = path.join(tempDir, destName);
+        counter += 1;
+      } catch {
+        break;
+      }
+    }
+    await fs.promises.copyFile(sourcePath, tempFilePath);
+    files.push({ filePath: tempFilePath, fileName: destName });
+  }
+  return files;
+}
+
 function collectFilesRecursive(dirPath, collected = []) {
   let entries;
   try {
@@ -7045,6 +7073,29 @@ function collectFilesRecursive(dirPath, collected = []) {
   return collected;
 }
 
+async function collectFilesRecursiveAsync(dirPath, collected = []) {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return collected;
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    const full = path.join(dirPath, entry.name);
+    try {
+      if (entry.isDirectory()) {
+        await collectFilesRecursiveAsync(full, collected);
+      } else if (entry.isFile()) {
+        collected.push(full);
+      }
+    } catch {
+      /* skip inaccessible */
+    }
+  }
+  return collected;
+}
+
 /** Επιλογή ενός φακέλου — όλα τα αρχεία (υποφάκελοι) για ανέβασμα σε χώρο εργασίας */
 ipcMain.handle('select-folder-files-flat', async (_event, arg = {}) => {
   try {
@@ -7053,6 +7104,7 @@ ipcMain.handle('select-folder-files-flat', async (_event, arg = {}) => {
       return queued;
     }
     const title = typeof arg === 'string' ? arg : (arg?.title || 'Επιλογή φακέλου');
+    const skipTempCopy = typeof arg === 'object' && !!arg.skipTempCopy;
     const result = await dialog.showOpenDialog({
       title,
       properties: ['openDirectory']
@@ -7061,7 +7113,7 @@ ipcMain.handle('select-folder-files-flat', async (_event, arg = {}) => {
       return { success: false, canceled: true };
     }
     const folderPath = result.filePaths[0];
-    const sourceFiles = collectFilesRecursive(folderPath);
+    const sourceFiles = await collectFilesRecursiveAsync(folderPath);
     if (sourceFiles.length === 0) {
       return { success: false, error: 'Ο φάκελος δεν περιέχει αρχεία' };
     }
@@ -7071,7 +7123,12 @@ ipcMain.handle('select-folder-files-flat', async (_event, arg = {}) => {
         error: `Ο φάκελος περιέχει πάρα πολλά αρχεία (${sourceFiles.length}). Μέγιστο: ${TASK_UPLOAD_MAX_FOLDER_FILES}.`
       };
     }
-    const files = copyFilePathsToTempUpload(sourceFiles);
+    const files = skipTempCopy
+      ? sourceFiles.map((filePath) => ({
+        filePath,
+        fileName: path.basename(filePath).replace(/[<>:"/\\|?*]/g, '_'),
+      }))
+      : await copyFilePathsToTempUploadAsync(sourceFiles);
     if (!files.length) {
       return { success: false, error: 'Δεν αντιγράφηκαν αρχεία από τον φάκελο' };
     }
@@ -17440,29 +17497,39 @@ ipcMain.handle('upload-proposal-folder', async (_event, { proposalId, groupId, f
       if (!groupCheck.ok) return { success: false, error: groupCheck.error };
 
       const groupDir = resolveProposalGroupPath(idCheck.id, groupId);
-      if (!fs.existsSync(groupDir)) fs.mkdirSync(groupDir, { recursive: true });
+      await fs.promises.mkdir(groupDir, { recursive: true });
 
       const folderId = uuidv4();
       const folderDir = resolveProposalGroupPath(idCheck.id, groupId, folderId);
-      fs.mkdirSync(folderDir, { recursive: true });
+      await fs.promises.mkdir(folderDir, { recursive: true });
 
       const saved = [];
       let totalSize = 0;
       for (const file of files) {
         const sourcePath = file.path || file.filePath;
-        if (!sourcePath || !fs.existsSync(sourcePath)) continue;
+        if (!sourcePath) continue;
+        try {
+          await fs.promises.access(sourcePath);
+        } catch {
+          continue;
+        }
         let baseName = path.basename(file.name || file.fileName || sourcePath);
         baseName = baseName.replace(/[<>:"/\\|?*]/g, '_');
         let destPath = path.join(folderDir, baseName);
         let counter = 1;
-        while (fs.existsSync(destPath)) {
-          const ext = path.extname(baseName);
-          const nameNoExt = path.basename(baseName, ext);
-          destPath = path.join(folderDir, `${nameNoExt}_${counter}${ext}`);
-          counter += 1;
+        while (true) {
+          try {
+            await fs.promises.access(destPath);
+            const ext = path.extname(baseName);
+            const nameNoExt = path.basename(baseName, ext);
+            destPath = path.join(folderDir, `${nameNoExt}_${counter}${ext}`);
+            counter += 1;
+          } catch {
+            break;
+          }
         }
-        fs.copyFileSync(sourcePath, destPath);
-        const size = fs.statSync(destPath).size;
+        await fs.promises.copyFile(sourcePath, destPath);
+        const size = (await fs.promises.stat(destPath)).size;
         totalSize += size;
         saved.push({
           name: path.basename(destPath),
@@ -17499,7 +17566,7 @@ ipcMain.handle('upload-proposal-folder', async (_event, { proposalId, groupId, f
         `Προστέθηκε φάκελος «${safeLabel}» (${saved.length} αρχεία)`,
         auth.username
       );
-      return { success: true, folder, files: saved, proposal: updatedProposal };
+      return { success: true, folder, fileCount: saved.length, proposal: updatedProposal };
     });
   } catch (e) {
     logger.error('upload-proposal-folder error:', e.message);

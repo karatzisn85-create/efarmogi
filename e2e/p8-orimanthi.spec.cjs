@@ -264,6 +264,27 @@ test('P8-19 μεταφορά αρχείου σε νέα κατηγορία αδ�
   await expect(window.getByText(/Η άδεια εκδόθηκε|Εκκρεμεί η άδεια/).first()).toBeVisible();
 });
 
+test('P8-24 ανέβασμα φακέλου σε αδειοδότηση δεν κολλάει', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openOrimanthi(window);
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-files').click();
+  await window.getByText('ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ', { exact: true }).click();
+  await app.queueFolderPick({
+    success: true,
+    files: [
+      { filePath: path.join(sampleUpload, 'σχέδιο.pdf'), fileName: 'σχέδιο.pdf' },
+      { filePath: path.join(sampleUpload, 'παράρτημα.pdf'), fileName: 'παράρτημα.pdf' },
+    ],
+    folderName: 'Άδεια αρχαιολογίας',
+    fileCount: 2,
+  });
+  await window.getByRole('button', { name: 'Φάκελος' }).click();
+  await expect(window.getByText(/Προστέθηκε φάκελος «Άδεια αρχαιολογίας»/)).toBeVisible({ timeout: 20000 });
+  await expect(window.getByText('Άδεια αρχαιολογίας').first()).toBeVisible();
+});
+
 test('P8-16 διαγραφή μόνο με δικαίωμα επεξεργασίας', async ({ app }) => {
   const { window } = app;
   await openOrimanthi(window);

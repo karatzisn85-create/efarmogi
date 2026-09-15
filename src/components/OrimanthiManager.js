@@ -4636,7 +4636,8 @@ export default function OrimanthiManager({
   const handleSelectFolder = async (groupId) => {
     if (isReadOnly) return;
     const res = await window.electronAPI.invoke('select-folder-files-flat', {
-      title: 'Επιλογή φακέλου για ανέβασμα'
+      title: 'Επιλογή φακέλου για ανέβασμα',
+      skipTempCopy: true,
     });
     if (!res || res.canceled) return;
     if (!res.success) return showToast(res.error || 'Σφάλμα επιλογής φακέλου', 'error');
@@ -6522,6 +6523,7 @@ export default function OrimanthiManager({
                                       $sm
                                       $variant="teal"
                                       disabled={isAnyUploading}
+                                      data-testid={`orimanthi-upload-folder-${group.id}`}
                                       onClick={() => handleSelectFolder(group.id)}
                                     >
                                       {isGroupUploading ? '⏳ …' : 'Φάκελος'}
