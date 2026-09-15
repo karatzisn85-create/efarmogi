@@ -115,7 +115,11 @@
       project && project.settlement,
       project && project.description,
       project && project.notes
-    ].filter(Boolean).join(' ').toLowerCase();
+    ];
+    var subTitles = Array.isArray(project && project.implementationSubprojectTitles)
+      ? project.implementationSubprojectTitles
+      : [];
+    haystack = haystack.concat(subTitles).filter(Boolean).join(' ').toLowerCase();
     return haystack.indexOf(q) !== -1;
   }
 

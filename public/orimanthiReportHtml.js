@@ -169,6 +169,30 @@ body {
   line-height: 1.35;
   flex: 1;
 }
+.card-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.card-subprojects {
+  flex: 0 0 34%;
+  max-width: 260px;
+  border-left: 1px solid #c7d2fe;
+  padding: 0 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sub-item {
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--slate600);
+  line-height: 1.35;
+}
+.sub-num {
+  color: var(--indigo);
+  font-weight: 800;
+  margin-right: 4px;
+}
 .status-badge {
   display: inline-block;
   font-weight: 800;
@@ -356,7 +380,19 @@ function checklistItemsHtml(items, emptyText) {
   }).join('');
 }
 
-function buildProjectCardHtml(card, serial) {
+function subprojectsColumnHtml(card) {
+  const titles = Array.isArray(card && card.subprojectTitles) && card.subprojectTitles.length
+    ? card.subprojectTitles
+    : [''];
+  const items = titles.map((title, index) => {
+    const text = String(title || '').trim() || '—';
+    return `<div class="sub-item"><span class="sub-num">${index + 1}.</span>${escapeHtml(text)}</div>`;
+  }).join('');
+  return `<div class="card-subprojects">${items}</div>`;
+}
+
+function buildProjectCardHtml(card, serial, options = {}) {
+  const includeSubprojectTitles = options.includeSubprojectTitles !== false;
   const statusLabel = card.statusLabel || card.status || '—';
   const fileCount = Number(card.files) || 0;
   const filesLabel = fileCount === 1 ? '1 αρχείο' : `${fileCount} αρχεία`;
@@ -365,7 +401,10 @@ function buildProjectCardHtml(card, serial) {
   return `<article class="project-card">
     <div class="card-head">
       <div class="serial">${serial}</div>
-      <h2 class="card-title">${escapeHtml(card.title || '(Χωρίς τίτλο)')}</h2>
+      <div class="card-title-wrap">
+        <h2 class="card-title">${escapeHtml(card.title || '(Χωρίς τίτλο)')}</h2>
+      </div>
+      ${includeSubprojectTitles ? subprojectsColumnHtml(card) : ''}
       ${statusBadgeHtml(card.statusKey || card.status, statusLabel)}
     </div>
     <div class="info-grid">
@@ -400,11 +439,11 @@ function legendHtml() {
   </div>`;
 }
 
-function buildHubReportHtml({ cards = [], exportedAt, exportedBy, appVersion }) {
+function buildHubReportHtml({ cards = [], exportedAt, exportedBy, appVersion, includeSubprojectTitles = true }) {
   const list = Array.isArray(cards) ? cards : [];
   const totalFiles = list.reduce((sum, card) => sum + (Number(card.files) || 0), 0);
   const bodyHtml = list.length
-    ? `${legendHtml()}${list.map((card, index) => buildProjectCardHtml(card, index + 1)).join('')}`
+    ? `${legendHtml()}${list.map((card, index) => buildProjectCardHtml(card, index + 1, { includeSubprojectTitles })).join('')}`
     : `<p class="empty-msg">Δεν υπάρχουν έργα προς εμφάνιση</p>`;
 
   return wrapReportHtml({

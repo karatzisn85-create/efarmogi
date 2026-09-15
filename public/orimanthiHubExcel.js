@@ -12,37 +12,40 @@ const REPORT_TITLE = 'ΑΝΑΦΟΡΑ ΩΡΙΜΑΝΣΗΣ ΕΡΓΩΝ';
 const REPORT_SUBTITLE = `${APP_TAGLINE} — καρτέλες έργων υπό ωρίμανση`;
 const REPORT_CREDIT = `Το παρόν εξήχθη από την εφαρμογή ${APP_NAME}`;
 
-const COLS = 11;
+const COLS = 12;
 const BANNER_ROW_COUNT = 2;
 const COL = {
   serial: 0,
   title: 1,
-  actionResponsible: 2,
-  status: 3,
-  municipal: 4,
-  settlement: 5,
-  category: 6,
-  studyName: 7,
-  studyMark: 8,
-  permitName: 9,
-  permitMark: 10,
+  subprojects: 2,
+  actionResponsible: 3,
+  status: 4,
+  municipal: 5,
+  settlement: 6,
+  category: 7,
+  studyName: 8,
+  studyMark: 9,
+  permitName: 10,
+  permitMark: 11,
 };
 
 const DEFAULT_EXCEL_OPTIONS = {
-    columns: {
-      actionResponsible: true,
-      status: true,
-      municipal: true,
-      settlement: true,
-      category: true,
-    },
+  columns: {
+    actionResponsible: true,
+    status: true,
+    municipal: true,
+    settlement: true,
+    category: true,
+  },
   includeStudies: true,
   includePermits: true,
+  includeSubprojectTitles: true,
 };
 
 const COL_WIDTH = {
   serial: 6,
   title: 28,
+  subprojects: 26,
   actionResponsible: 22,
   status: 16,
   municipal: 18,
@@ -74,6 +77,7 @@ function normalizeExcelOptions(raw) {
     },
     includeStudies: asBool(src.includeStudies, true),
     includePermits: asBool(src.includePermits, true),
+    includeSubprojectTitles: asBool(src.includeSubprojectTitles, true),
   };
 }
 
@@ -81,6 +85,7 @@ function layoutFromOptions(raw) {
   const options = normalizeExcelOptions(raw);
   const col = { serial: 0, title: 1 };
   let n = 2;
+  if (options.includeSubprojectTitles) col.subprojects = n++;
   if (options.columns.actionResponsible) col.actionResponsible = n++;
   if (options.columns.status) col.status = n++;
   if (options.columns.municipal) col.municipal = n++;
@@ -95,6 +100,31 @@ function layoutFromOptions(raw) {
     col.permitMark = n++;
   }
   return { COL: col, COLS: n, options };
+}
+
+function lastLeftColIndex(col, colCount) {
+  const branch = [col.studyName, col.permitName].filter((idx) => idx != null);
+  if (branch.length) return Math.min(...branch) - 1;
+  return Math.max(0, colCount - 1);
+}
+
+function allocateRowSpans(totalRows, partCount) {
+  const n = Math.max(1, partCount);
+  const total = Math.max(1, totalRows);
+  const spans = Array.from({ length: n }, () => Math.floor(total / n));
+  let rem = total % n;
+  for (let i = 0; i < n && rem > 0; i += 1) {
+    spans[i] += 1;
+    rem -= 1;
+  }
+  return spans;
+}
+
+function cardSubprojectTitles(card) {
+  if (Array.isArray(card && card.subprojectTitles) && card.subprojectTitles.length) {
+    return card.subprojectTitles.map((title) => String(title || ''));
+  }
+  return [''];
 }
 
 const STATUS_LABELS = {
@@ -140,6 +170,12 @@ const S = {
   project: {
     font: { bold: true, sz: 11, color: { rgb: '0F172A' } },
     fill: { fgColor: { rgb: 'FFFFFF' } },
+    alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+    border: borderAll(LINE),
+  },
+  subproject: {
+    font: { sz: 8, color: { rgb: '475569' } },
+    fill: { fgColor: { rgb: 'F8FAFC' } },
     alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
     border: borderAll(LINE),
   },
@@ -262,6 +298,7 @@ function buildCardHeaderBlock(excelOptions) {
   const merges = [];
   setCol(header, col, 'serial', { v: 'Α/Α', kind: 'headLeft' });
   setCol(header, col, 'title', { v: 'Τίτλος έργου', kind: 'headLeft' });
+  setCol(header, col, 'subprojects', { v: 'Υποέργα', kind: 'headLeft' });
   setCol(header, col, 'actionResponsible', { v: 'Υπεύθυνος πράξης', kind: 'headLeft' });
   setCol(header, col, 'status', { v: 'Κατάσταση', kind: 'headLeft' });
   setCol(header, col, 'municipal', { v: 'Δημοτική ενότητα', kind: 'headLeft' });
@@ -287,7 +324,24 @@ function buildCardRows(card, statusLabels, serial, excelOptions, extras) {
   const merges = [];
   const studies = options.includeStudies ? (card.meletes || []) : [];
   const permits = options.includePermits ? (card.adeiodotiseis || []) : [];
-  const span = Math.max(studies.length, permits.length, 1);
+  const subTitles = options.includeSubprojectTitles ? cardSubprojectTitles(card) : [];
+  const subCount = options.includeSubprojectTitles ? Math.max(subTitles.length, 1) : 0;
+  const span = Math.max(studies.length, permits.length, subCount || 1, 1);
+  const subSpans = options.includeSubprojectTitles ? allocateRowSpans(span, subCount) : [];
+  const subByRow = [];
+  if (options.includeSubprojectTitles) {
+    let cursor = 0;
+    subSpans.forEach((height, idx) => {
+      for (let k = 0; k < height; k += 1) {
+        subByRow[cursor + k] = {
+          idx,
+          title: subTitles[idx] || '',
+          isStart: k === 0,
+        };
+      }
+      cursor += height;
+    });
+  }
 
   const push = (cells) => {
     rows.push(cells);
@@ -310,6 +364,15 @@ function buildCardRows(card, statusLabels, serial, excelOptions, extras) {
         ? `${titleValue}\n\nΣημειώσεις: ${card.notes}`
         : titleValue;
       setCol(row, col, 'title', { v: titleWithNotes, kind: 'project' });
+      if (options.includeSubprojectTitles) {
+        const info = subByRow[i];
+        setCol(row, col, 'subprojects', {
+          v: info && info.isStart
+            ? checklist.formatSubprojectExportLine(info.idx, info.title)
+            : '',
+          kind: 'subproject',
+        });
+      }
       setCol(row, col, 'actionResponsible', { v: card.actionResponsible || '—', kind: 'meta' });
       setCol(row, col, 'status', { v: labels[card.status] || card.status || '—', kind: 'meta' });
       setCol(row, col, 'municipal', { v: card.municipalUnit || '—', kind: 'meta' });
@@ -318,6 +381,15 @@ function buildCardRows(card, statusLabels, serial, excelOptions, extras) {
     } else {
       setCol(row, col, 'serial', { v: '', kind: 'serial' });
       setCol(row, col, 'title', { v: '', kind: 'project' });
+      if (options.includeSubprojectTitles) {
+        const info = subByRow[i];
+        setCol(row, col, 'subprojects', {
+          v: info && info.isStart
+            ? checklist.formatSubprojectExportLine(info.idx, info.title)
+            : '',
+          kind: 'subproject',
+        });
+      }
       setCol(row, col, 'actionResponsible', { v: '', kind: 'meta' });
       setCol(row, col, 'status', { v: '', kind: 'meta' });
       setCol(row, col, 'municipal', { v: '', kind: 'meta' });
@@ -360,6 +432,14 @@ function buildCardRows(card, statusLabels, serial, excelOptions, extras) {
     if (col[key] == null) return;
     addMerge(merges, dataStart, col[key], dataEnd, col[key]);
   });
+
+  if (options.includeSubprojectTitles && col.subprojects != null) {
+    let cursor = dataStart;
+    subSpans.forEach((height) => {
+      if (height > 1) addMerge(merges, cursor, col.subprojects, cursor + height - 1, col.subprojects);
+      cursor += height;
+    });
+  }
 
   if (options.includeStudies) {
     if (studies.length <= 1) {
@@ -405,10 +485,7 @@ function buildBannerRows({ exportedAt, exportedBy, projectCount } = {}, excelOpt
     projectCount != null ? `Έργα: ${projectCount}` : null,
   ].filter(Boolean).join('   ·   ');
   const right = exportedBy ? `Εξαγωγή: ${exportedBy}` : '';
-  const leftEnd = ['category', 'settlement', 'municipal', 'status', 'actionResponsible', 'title']
-    .map((key) => col[key])
-    .find((idx) => idx != null);
-  const mid = leftEnd == null ? 0 : leftEnd;
+  const mid = lastLeftColIndex(col, colCount);
   const meta = emptyRow(colCount);
   fillMergedBlock(meta, 0, mid, left || APP_TAGLINE, 'reportMetaLeft');
   if (mid + 1 <= colCount - 1) {
@@ -573,6 +650,8 @@ module.exports = {
   COL_WIDTH,
   LEFT_COL_KEYS,
   S,
+  lastLeftColIndex,
+  allocateRowSpans,
   normalizeExcelOptions,
   layoutFromOptions,
   emptyRow,

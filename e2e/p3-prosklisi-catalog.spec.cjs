@@ -552,6 +552,7 @@ test('P3-68 εξαγωγή Excel με ωρίμανση συσχετισμένω�
   await expect(window.getByTestId('psk-export-orimanthi-col-actionResponsible')).toBeVisible();
   await expect(window.getByTestId('psk-export-orimanthi-block-studies')).toBeVisible();
   await expect(window.getByTestId('psk-export-orimanthi-block-permits')).toBeVisible();
+  await expect(window.getByTestId('psk-export-orimanthi-subprojects')).toBeVisible();
   await app.queueSavePath(dest);
   await window.getByTestId('psk-export-confirm').click();
   await expect.poll(() => fs.existsSync(dest), { timeout: 20000 }).toBe(true);
@@ -573,6 +574,9 @@ test('P3-68 εξαγωγή Excel με ωρίμανση συσχετισμένω�
   expect(text).toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
   expect(text).toContain('ΤΟΠΟΓΡΑΦΙΚΑ');
   expect(text).toContain('ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ');
+  expect(text).toContain('Υποέργα');
+  expect(text).toContain('1. Υποέργο οδοποιίας Α');
+  expect(text).toContain('2. Υποέργο ηλεκτροφωτισμού');
   expect(text).toContain('Πρόσκληση μακρινή');
   expect(sheet['!merges'] && sheet['!merges'].length).toBeGreaterThan(0);
 });

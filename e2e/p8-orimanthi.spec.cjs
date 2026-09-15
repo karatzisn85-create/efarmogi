@@ -183,6 +183,9 @@ test('P8-18 εξαγωγή Excel καρτελών ανά έργο', async ({ app
   expect(text).toContain('ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
   expect(text).toContain('ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
   expect(text).not.toContain('Εκκρεμότητες');
+  expect(text).toContain('Υποέργα');
+  expect(text).toContain('1. Υποέργο οδοποιίας Α');
+  expect(text).toContain('2. Υποέργο ηλεκτροφωτισμού');
 });
 
 test('P8-23 PDF καρτέλες: υπεύθυνος πράξης, μελέτες και αδειοδοτήσεις', async ({ app }) => {
@@ -192,8 +195,10 @@ test('P8-23 PDF καρτέλες: υπεύθυνος πράξης, μελέτε�
   const { window } = app;
   await openOrimanthi(window);
   const dest = path.join(app.testDir, 'ωρίμανση-καρτέλες.pdf');
+  await window.getByTestId('orimanthi-hub-export-pdf').click();
+  await expect(window.getByTestId('orimanthi-hub-pdf-modal')).toBeVisible();
   await app.queueSavePath(dest);
-  await window.getByRole('button', { name: '📕 PDF' }).click();
+  await window.getByTestId('orimanthi-hub-pdf-confirm').click();
   await expect.poll(() => fs.existsSync(dest), { timeout: 45000 }).toBe(true);
   expect(fs.readFileSync(dest).subarray(0, 4).toString('utf8')).toBe('%PDF');
   const doc = await pdfjs.getDocument({
@@ -219,6 +224,8 @@ test('P8-23 PDF καρτέλες: υπεύθυνος πράξης, μελέτε�
   expect(text).toContain('Αναμονή αρχαιολογικής έγκρισης');
   expect(text).toContain('Αιτ.');
   expect(text).not.toContain('Εκκρεμότητες');
+  expect(text).toContain('Υποέργο οδοποιίας Α');
+  expect(text).toContain('Υποέργο ηλεκτροφωτισμού');
 });
 
 test('P8-20 Excel: επιλογή στηλών και μόνο μελέτες', async ({ app }) => {
@@ -385,4 +392,47 @@ test('P8-22 υπεύθυνος πράξης στη δημιουργία και �
   await window.locator('button').filter({ hasText: 'Έργο με υπεύθυνο πράξης' }).first().click();
   await window.getByTestId('orimanthi-tab-details').click();
   await expect(window.getByTestId('orimanthi-action-responsible')).toHaveValue('Γιάννης Νικολάου');
+});
+
+test('P8-25 πλήθος υποέργων και τίτλοι στην καρτέλα στοιχείων', async ({ app }) => {
+  const { window } = app;
+  await openOrimanthi(window);
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-details').click();
+  await expect(window.getByTestId('orimanthi-subproject-count')).toHaveValue('2');
+  await expect(window.getByTestId('orimanthi-subproject-title-0')).toHaveValue('Υποέργο οδοποιίας Α');
+  await expect(window.getByTestId('orimanthi-subproject-title-1')).toHaveValue('Υποέργο ηλεκτροφωτισμού');
+  await window.getByTestId('orimanthi-subproject-count').fill('3');
+  await window.getByTestId('orimanthi-subproject-count').blur();
+  await expect(window.getByTestId('orimanthi-subproject-title-2')).toBeVisible();
+  await window.getByTestId('orimanthi-subproject-title-2').fill('Υποέργο σήμανσης');
+  await window.getByTestId('orimanthi-subproject-title-2').blur();
+  const countInput = window.getByTestId('orimanthi-subproject-count');
+  await countInput.click();
+  await countInput.press('Control+A');
+  await countInput.pressSequentially('12');
+  await countInput.blur();
+  await expect(countInput).toHaveValue('12');
+  await expect(window.getByTestId('orimanthi-subproject-title-0')).toHaveValue('Υποέργο οδοποιίας Α');
+  await expect(window.getByTestId('orimanthi-subproject-title-1')).toHaveValue('Υποέργο ηλεκτροφωτισμού');
+  await expect(window.getByTestId('orimanthi-subproject-title-2')).toHaveValue('Υποέργο σήμανσης');
+  await expect(window.getByTestId('orimanthi-subproject-title-11')).toBeVisible();
+  await countInput.fill('3');
+  await countInput.blur();
+  await expect(window.getByTestId('orimanthi-subproject-count')).toHaveValue('3');
+  await window.getByTitle('Κλείσιμο και επιστροφή στο Dashboard').click();
+  if (await window.getByRole('button', { name: 'Αποθήκευση' }).count()) {
+    await window.getByRole('button', { name: 'Αποθήκευση' }).click();
+  }
+  await expect(window.getByTestId('orimanthi-window')).toHaveCount(0);
+  const nav = window.locator('[data-user-guide="nav-orimanthi"]');
+  if (!(await nav.isVisible())) {
+    await expandCategory(window, 'Διαδικασίες Έργων');
+  }
+  await nav.click();
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible();
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-details').click();
+  await expect(window.getByTestId('orimanthi-subproject-count')).toHaveValue('3');
+  await expect(window.getByTestId('orimanthi-subproject-title-2')).toHaveValue('Υποέργο σήμανσης');
 });

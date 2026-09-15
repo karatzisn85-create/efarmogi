@@ -459,6 +459,11 @@ function seedOrimanthi(dataDir) {
     municipalUnit: 'Δ.Ε. ΑΡΧΑΝΩΝ',
     settlement: 'Αρχάνες',
     actionResponsible: 'Κώστας Αντωνίου',
+    implementationSubprojectCount: 2,
+    implementationSubprojectTitles: [
+      'Υποέργο οδοποιίας Α',
+      'Υποέργο ηλεκτροφωτισμού',
+    ],
     aepoRenewalDate: dateKeyFromToday(12),
     notes: 'Αναμονή αρχαιολογικής έγκρισης.',
     pendingItems: [

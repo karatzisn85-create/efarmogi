@@ -33,6 +33,10 @@ export function formatProposalStatusValue(value) {
 
 export function formatAuditFieldValue(fieldKey, value) {
   if (fieldKey === 'status') return formatProposalStatusValue(value);
+  if (fieldKey === 'implementationSubprojectTitles' && Array.isArray(value)) {
+    const joined = value.map((t) => String(t || '').trim()).filter(Boolean).join(' · ');
+    return joined || '(κενό)';
+  }
   if (value === null || value === undefined || value === '') return '(κενό)';
   if (fieldKey === 'aepoRenewalDate') return formatDateEl(value);
   if (typeof value === 'string' && value.length > 120) {
@@ -52,6 +56,8 @@ const PROPOSAL_FIELD_LABELS = {
   aepoRenewalDate: 'Ημερομηνία ανανέωσης ΑΕΠΟ',
   description: 'Περιγραφή',
   notes: 'Σημειώσεις',
+  implementationSubprojectCount: 'Πλήθος υποέργων',
+  implementationSubprojectTitles: 'Τίτλοι υποέργων',
 };
 
 export function getProposalFieldLabel(key) {
@@ -105,6 +111,10 @@ export function proposalPersistFingerprint(proposal) {
     aepoRenewalDate: proposal.aepoRenewalDate || '',
     description: proposal.description || '',
     notes: proposal.notes || '',
+    implementationSubprojectCount: proposal.implementationSubprojectCount || 1,
+    implementationSubprojectTitles: Array.isArray(proposal.implementationSubprojectTitles)
+      ? proposal.implementationSubprojectTitles
+      : [''],
     fileGroups: proposal.fileGroups || [],
   });
 }

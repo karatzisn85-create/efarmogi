@@ -26,6 +26,48 @@
   var MARK_PERMIT_ISSUED = '✓';
   var MARK_PERMIT_APPLIED = 'Αιτ.';
   var MARK_PERMIT_PENDING = '×';
+  var MAX_IMPLEMENTATION_SUBPROJECTS = 30;
+
+  function clampImplementationSubprojectCount(value) {
+    var n = parseInt(value, 10);
+    if (!isFinite(n) || n < 1) n = 1;
+    if (n > MAX_IMPLEMENTATION_SUBPROJECTS) n = MAX_IMPLEMENTATION_SUBPROJECTS;
+    return n;
+  }
+
+  function resizeImplementationSubprojectTitles(currentTitles, nextCount) {
+    var count = clampImplementationSubprojectCount(nextCount);
+    var src = Array.isArray(currentTitles) ? currentTitles : [];
+    var titles = [];
+    var i;
+    for (i = 0; i < count; i += 1) {
+      titles.push(String(src[i] != null ? src[i] : ''));
+    }
+    return { count: count, titles: titles };
+  }
+
+  function liveImplementationSubprojects(proposal) {
+    var srcTitles = Array.isArray(proposal && proposal.implementationSubprojectTitles)
+      ? proposal.implementationSubprojectTitles
+      : [];
+    var rawCount = proposal && proposal.implementationSubprojectCount != null
+      ? proposal.implementationSubprojectCount
+      : (srcTitles.length || 1);
+    return resizeImplementationSubprojectTitles(srcTitles, rawCount);
+  }
+
+  function normalizeImplementationSubprojects(proposal) {
+    var next = liveImplementationSubprojects(proposal);
+    next.titles = next.titles.map(function (title) {
+      return String(title || '').trim();
+    });
+    return next;
+  }
+
+  function formatSubprojectExportLine(index, title) {
+    var text = String(title || '').trim();
+    return (index + 1) + '. ' + (text || '—');
+  }
 
   function parseFileGroupLabel(label) {
     var text = String(label || '').trim();
@@ -135,10 +177,13 @@
       (proposal && proposal.projectCategory) || '',
       (proposal && proposal.infrastructureSpecialization) || ''
     ].filter(Boolean).join(' · ');
+    var subprojects = normalizeImplementationSubprojects(proposal);
     return {
       title: (proposal && proposal.title) || '(Χωρίς τίτλο)',
       status: (proposal && proposal.status) || '',
       actionResponsible: String((proposal && proposal.actionResponsible) || '').trim() || '—',
+      subprojectCount: subprojects.count,
+      subprojectTitles: subprojects.titles,
       category: category || '—',
       municipalUnit: (proposal && proposal.municipalUnit) || '—',
       settlement: (proposal && proposal.settlement) || '—',
@@ -240,6 +285,8 @@
       aepoRenewalDate: local.aepoRenewalDate,
       description: local.description,
       notes: local.notes,
+      implementationSubprojectCount: local.implementationSubprojectCount,
+      implementationSubprojectTitles: local.implementationSubprojectTitles,
       updatedAt: saved.updatedAt || local.updatedAt,
       fileGroups: mergeFileGroupsFromDisk(local.fileGroups, saved.fileGroups)
     });
@@ -275,6 +322,12 @@
     permitMark: permitMark,
     classifyGroup: classifyGroup,
     formatAepoDate: formatAepoDate,
+    MAX_IMPLEMENTATION_SUBPROJECTS: MAX_IMPLEMENTATION_SUBPROJECTS,
+    clampImplementationSubprojectCount: clampImplementationSubprojectCount,
+    resizeImplementationSubprojectTitles: resizeImplementationSubprojectTitles,
+    liveImplementationSubprojects: liveImplementationSubprojects,
+    normalizeImplementationSubprojects: normalizeImplementationSubprojects,
+    formatSubprojectExportLine: formatSubprojectExportLine,
     buildProposalCard: buildProposalCard,
     buildHubCards: buildHubCards,
     setGroupPermitFlags: setGroupPermitFlags,

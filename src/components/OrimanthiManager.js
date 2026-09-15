@@ -105,6 +105,8 @@ const ADD_NEW_SPECIALIZATION_OPTION = '__add_new_specialization__';
 const EMPTY_NEW_PROJECT_DRAFT = {
   title: '',
   actionResponsible: '',
+  implementationSubprojectCount: 1,
+  implementationSubprojectTitles: [''],
   projectCategory: '',
   infrastructureSpecialization: '',
   municipalUnit: '',
@@ -255,6 +257,8 @@ function emptyProposal() {
     settlement: '',
     aepoRenewalDate: '',
     notes: '',
+    implementationSubprojectCount: 1,
+    implementationSubprojectTitles: [''],
     pendingItems: [],
     pendingTemplateCategory: '',
     fileGroups: [],
@@ -2295,6 +2299,85 @@ const MetaInput = styled.input`
   font-weight: 600;
   &:read-only { cursor: default; opacity: 0.9; }
 `;
+const SubprojectCountLine = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: ${C.slate700};
+  line-height: 1.4;
+`;
+const SubprojectCountInput = styled(MetaInput)`
+  width: 4.4rem;
+  text-align: center;
+  font-weight: 800;
+  padding: 0.38rem 0.4rem;
+`;
+
+function isCountStepperEvent(nativeEvent) {
+  const inputType = nativeEvent && nativeEvent.inputType;
+  return inputType === 'stepUp' || inputType === 'stepDown';
+}
+
+function SubprojectCountEditor({
+  count,
+  titles,
+  readOnly,
+  onCommit,
+  id,
+  testId,
+}) {
+  const [draft, setDraft] = React.useState(null);
+  const inputRef = React.useRef(null);
+  const shown = draft !== null ? draft : String(count);
+
+  React.useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return undefined;
+    const stopWheel = (event) => event.preventDefault();
+    el.addEventListener('wheel', stopWheel, { passive: false });
+    return () => el.removeEventListener('wheel', stopWheel);
+  }, []);
+
+  const commit = (raw) => {
+    const next = orimanthiFileChecklist.resizeImplementationSubprojectTitles(titles, raw);
+    if (next.count === count) {
+      const sameTitles = (titles || []).length === next.titles.length
+        && next.titles.every((title, index) => title === String((titles || [])[index] ?? ''));
+      if (sameTitles) return;
+    }
+    onCommit(next);
+  };
+
+  return (
+    <SubprojectCountInput
+      ref={inputRef}
+      id={id}
+      data-testid={testId}
+      type="number"
+      min={1}
+      max={orimanthiFileChecklist.MAX_IMPLEMENTATION_SUBPROJECTS}
+      value={shown}
+      readOnly={readOnly}
+      onFocus={readOnly ? undefined : () => setDraft(String(count))}
+      onChange={readOnly ? undefined : (e) => {
+        if (isCountStepperEvent(e.nativeEvent)) {
+          setDraft(null);
+          commit(e.target.value);
+          return;
+        }
+        setDraft(e.target.value);
+      }}
+      onBlur={readOnly ? undefined : () => {
+        if (draft === null) return;
+        commit(draft);
+        setDraft(null);
+      }}
+    />
+  );
+}
 const DescriptionInput = styled.input`
   ${metaControlStyles}
   color: ${C.slate800};
@@ -2983,6 +3066,7 @@ const DEFAULT_HUB_EXCEL_OPTIONS = {
   },
   includeStudies: true,
   includePermits: true,
+  includeSubprojectTitles: true,
 };
 
 const HUB_EXCEL_COLUMN_CHOICES = [
@@ -3138,6 +3222,7 @@ export default function OrimanthiManager({
   const [municipalUnits, setMunicipalUnits] = useState([]);
   const [hubReportExporting, setHubReportExporting] = useState(false);
   const [showHubExcelModal, setShowHubExcelModal] = useState(false);
+  const [showHubPdfModal, setShowHubPdfModal] = useState(false);
   const [hubExcelOptions, setHubExcelOptions] = useState(DEFAULT_HUB_EXCEL_OPTIONS);
 
   const saveTimerRef = useRef(null);
@@ -4308,6 +4393,13 @@ export default function OrimanthiManager({
       ...emptyProposal(),
       title,
       actionResponsible: String(newProjectDraft.actionResponsible || '').trim(),
+      implementationSubprojectCount: orimanthiFileChecklist.clampImplementationSubprojectCount(
+        newProjectDraft.implementationSubprojectCount
+      ),
+      implementationSubprojectTitles: orimanthiFileChecklist.resizeImplementationSubprojectTitles(
+        newProjectDraft.implementationSubprojectTitles,
+        newProjectDraft.implementationSubprojectCount
+      ).titles,
       projectCategory: newProjectDraft.projectCategory,
       infrastructureSpecialization: categoryHasSpecializations(
         newProjectDraft.projectCategory,
@@ -5457,7 +5549,7 @@ export default function OrimanthiManager({
         proposalIds: hubHasActiveFilters
           ? hubFilteredProposals.map((p) => p.id)
           : undefined,
-        excelOptions: format === 'excel' ? excelOptions : undefined,
+        excelOptions,
       });
       if (res.canceled) return;
       if (!res.success) showToast(res.error || 'Σφάλμα εξαγωγής αναφοράς', 'error');
@@ -5777,7 +5869,7 @@ export default function OrimanthiManager({
                           type="button"
                           data-testid="orimanthi-hub-export-pdf"
                           disabled={hubReportExporting}
-                          onClick={() => handleHubReportExport('pdf')}
+                          onClick={() => setShowHubPdfModal(true)}
                           title="Εξαγωγή καρτελών έργων σε PDF"
                         >
                           {hubReportExporting ? '⏳ …' : '📕 PDF'}
@@ -6134,6 +6226,56 @@ export default function OrimanthiManager({
                           onBlur={handleTitleBlur}
                         />
                       </MetaFieldBoxWide>
+                      {(() => {
+                        const sub = orimanthiFileChecklist.liveImplementationSubprojects(selectedProposal);
+                        return (
+                          <>
+                            <MetaFieldBoxWide as="div">
+                              <SubprojectCountLine>
+                                <span>Η πράξη θα υλοποιηθεί σε</span>
+                                <SubprojectCountEditor
+                                  key={selectedProposal.id}
+                                  id="proposal-subproject-count"
+                                  testId="orimanthi-subproject-count"
+                                  count={sub.count}
+                                  titles={selectedProposal.implementationSubprojectTitles}
+                                  readOnly={isReadOnly}
+                                  onCommit={(next) => {
+                                    updateProposalAudited({
+                                      implementationSubprojectCount: next.count,
+                                      implementationSubprojectTitles: next.titles,
+                                    });
+                                  }}
+                                />
+                                <span>{sub.count === 1 ? 'Υποέργο' : 'Υποέργα'}</span>
+                              </SubprojectCountLine>
+                            </MetaFieldBoxWide>
+                            {sub.titles.map((title, index) => (
+                              <MetaFieldBoxWide as="div" key={`subproject-title-${index}`}>
+                                <MetaLabel htmlFor={`proposal-subproject-title-${index}`}>
+                                  {sub.count === 1 ? 'Τίτλος Υποέργου' : `Τίτλος Υποέργου ${index + 1}`}
+                                </MetaLabel>
+                                <MetaInput
+                                  id={`proposal-subproject-title-${index}`}
+                                  data-testid={`orimanthi-subproject-title-${index}`}
+                                  placeholder="Τίτλος υποέργου…"
+                                  value={title}
+                                  readOnly={isReadOnly}
+                                  onChange={isReadOnly ? undefined : (e) => {
+                                    const nextTitles = sub.titles.slice();
+                                    nextTitles[index] = e.target.value;
+                                    updateProposal({
+                                      implementationSubprojectCount: sub.count,
+                                      implementationSubprojectTitles: nextTitles,
+                                    });
+                                  }}
+                                  onBlur={isReadOnly ? undefined : handleTitleBlur}
+                                />
+                              </MetaFieldBoxWide>
+                            ))}
+                          </>
+                        );
+                      })()}
                       <MetaFieldBoxWide as="div">
                         <MetaLabel htmlFor="proposal-action-responsible">Υπεύθυνος πράξης</MetaLabel>
                         <MetaInput
@@ -6866,6 +7008,49 @@ export default function OrimanthiManager({
                       onChange={(e) => setNewProjectDraft((d) => ({ ...d, title: e.target.value }))}
                     />
                   </ModalFormFieldFull>
+                  <ModalFormFieldFull>
+                    <SubprojectCountLine>
+                      <span>Η πράξη θα υλοποιηθεί σε</span>
+                      <SubprojectCountEditor
+                        id="new-project-subproject-count"
+                        testId="orimanthi-new-subproject-count"
+                        count={orimanthiFileChecklist.liveImplementationSubprojects(newProjectDraft).count}
+                        titles={newProjectDraft.implementationSubprojectTitles}
+                        readOnly={false}
+                        onCommit={(next) => {
+                          setNewProjectDraft((d) => ({
+                            ...d,
+                            implementationSubprojectCount: next.count,
+                            implementationSubprojectTitles: next.titles,
+                          }));
+                        }}
+                      />
+                      <span>
+                        {orimanthiFileChecklist.liveImplementationSubprojects(newProjectDraft).count === 1 ? 'Υποέργο' : 'Υποέργα'}
+                      </span>
+                    </SubprojectCountLine>
+                  </ModalFormFieldFull>
+                  {orimanthiFileChecklist.liveImplementationSubprojects(newProjectDraft).titles.map((title, index, titles) => (
+                    <ModalFormFieldFull key={`new-subproject-title-${index}`}>
+                      <ModalFormLabel htmlFor={`new-project-subproject-title-${index}`}>
+                        {titles.length === 1 ? 'Τίτλος Υποέργου' : `Τίτλος Υποέργου ${index + 1}`}
+                      </ModalFormLabel>
+                      <ModalFormInput
+                        id={`new-project-subproject-title-${index}`}
+                        data-testid={`orimanthi-new-subproject-title-${index}`}
+                        placeholder="Τίτλος υποέργου…"
+                        value={title}
+                        onChange={(e) => {
+                          const nextTitles = titles.slice();
+                          nextTitles[index] = e.target.value;
+                          setNewProjectDraft((d) => ({
+                            ...d,
+                            implementationSubprojectTitles: nextTitles,
+                          }));
+                        }}
+                      />
+                    </ModalFormFieldFull>
+                  ))}
                   <ModalFormFieldFull>
                     <ModalFormLabel htmlFor="new-project-action-responsible">Υπεύθυνος πράξης</ModalFormLabel>
                     <ModalFormInput
@@ -7864,6 +8049,23 @@ export default function OrimanthiManager({
                   ΑΔΕΙΟΔΟΤΗΣΕΙΣ
                 </ExcelBlockBtn>
               </ExcelBlockRow>
+              <ExportOptionRow style={{ marginTop: '0.9rem' }}>
+                <input
+                  type="checkbox"
+                  data-testid="orimanthi-hub-excel-subprojects"
+                  checked={hubExcelOptions.includeSubprojectTitles}
+                  onChange={(e) => setHubExcelOptions((prev) => ({
+                    ...prev,
+                    includeSubprojectTitles: e.target.checked,
+                  }))}
+                />
+                <span>
+                  Τίτλοι υποέργων δίπλα στον τίτλο του έργου
+                  <div style={{ fontSize: '0.72rem', color: C.slate500, fontWeight: 600, marginTop: '0.25rem' }}>
+                    Κάθε υποέργο σε δικό του κελί, με αρίθμηση και μικρότερα γράμματα.
+                  </div>
+                </span>
+              </ExportOptionRow>
             </FolderModalBody>
             <FolderModalFooter>
               <Btn
@@ -7886,6 +8088,67 @@ export default function OrimanthiManager({
                 }}
               >
                 {hubReportExporting ? '⏳ Εξαγωγή…' : 'Εξαγωγή Excel'}
+              </Btn>
+            </FolderModalFooter>
+          </FolderModalCard>
+        </FolderModalOverlay>
+      )}
+
+      {showHubPdfModal && (
+        <FolderModalOverlay
+          data-testid="orimanthi-hub-pdf-modal"
+          onClick={() => !hubReportExporting && setShowHubPdfModal(false)}
+        >
+          <FolderModalCard
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(520px, 96vw)' }}
+          >
+            <FolderModalHeader>
+              <FolderModalTitle>📕 Εξαγωγή PDF</FolderModalTitle>
+              <FolderModalSub>
+                Καρτέλα ανά έργο, με μελέτες και αδειοδοτήσεις
+              </FolderModalSub>
+            </FolderModalHeader>
+            <FolderModalBody>
+              <ExportOptionRow>
+                <input
+                  type="checkbox"
+                  data-testid="orimanthi-hub-pdf-subprojects"
+                  checked={hubExcelOptions.includeSubprojectTitles}
+                  onChange={(e) => setHubExcelOptions((prev) => ({
+                    ...prev,
+                    includeSubprojectTitles: e.target.checked,
+                  }))}
+                />
+                <span>
+                  Τίτλοι υποέργων δίπλα στον τίτλο του έργου
+                  <div style={{ fontSize: '0.72rem', color: C.slate500, fontWeight: 600, marginTop: '0.25rem' }}>
+                    Αρίθμηση και μικρότερα γράμματα, όπως στο Excel.
+                  </div>
+                </span>
+              </ExportOptionRow>
+            </FolderModalBody>
+            <FolderModalFooter>
+              <Btn
+                $sm
+                $variant="ghost"
+                data-testid="orimanthi-hub-pdf-cancel"
+                onClick={() => setShowHubPdfModal(false)}
+                disabled={hubReportExporting}
+              >
+                Ακύρωση
+              </Btn>
+              <Btn
+                $sm
+                $variant="primary"
+                data-testid="orimanthi-hub-pdf-confirm"
+                disabled={hubReportExporting}
+                onClick={() => {
+                  setShowHubPdfModal(false);
+                  void handleHubReportExport('pdf', hubExcelOptions);
+                }}
+              >
+                {hubReportExporting ? '⏳ Εξαγωγή…' : 'Εξαγωγή PDF'}
               </Btn>
             </FolderModalFooter>
           </FolderModalCard>

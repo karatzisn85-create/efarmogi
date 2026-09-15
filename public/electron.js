@@ -17013,6 +17013,10 @@ function proposalAuditedFieldsChanged(before, after) {
   for (const key of keys) {
     if (String(before?.[key] ?? '') !== String(after?.[key] ?? '')) return true;
   }
+  if (JSON.stringify(orimanthiFileChecklistCore.normalizeImplementationSubprojects(before))
+    !== JSON.stringify(orimanthiFileChecklistCore.normalizeImplementationSubprojects(after))) {
+    return true;
+  }
   if (JSON.stringify(before?.pendingItems || []) !== JSON.stringify(after?.pendingItems || [])) {
     return true;
   }
@@ -17028,6 +17032,7 @@ function pickProposalAuditSnapshot(proposal) {
   const fileGroups = proposal.fileGroups || [];
   let fileEntries = 0;
   fileGroups.forEach((g) => { fileEntries += (g.files || []).length; });
+  const sub = orimanthiFileChecklistCore.normalizeImplementationSubprojects(proposal);
   return {
     title: proposal.title || '',
     status: proposal.status || '',
@@ -17039,6 +17044,8 @@ function pickProposalAuditSnapshot(proposal) {
     aepoRenewalDate: proposal.aepoRenewalDate || '',
     description: proposal.description || '',
     notes: proposal.notes || '',
+    implementationSubprojectCount: sub.count,
+    implementationSubprojectTitles: sub.titles.join(' · '),
     pendingOpen: pending.filter((i) => !i.done).length,
     pendingTotal: pending.length,
     fileCategories: fileGroups.length,
@@ -17271,7 +17278,14 @@ ipcMain.handle('save-proposal', async (_event, { proposal, actingUsername, skipA
       }
 
       if (!fs.existsSync(proposalDir)) fs.mkdirSync(proposalDir, { recursive: true });
-      const toSave = { ...proposal, id: idCheck.id, updatedAt: new Date().toISOString() };
+      const sub = orimanthiFileChecklistCore.normalizeImplementationSubprojects(proposal);
+      const toSave = {
+        ...proposal,
+        id: idCheck.id,
+        updatedAt: new Date().toISOString(),
+        implementationSubprojectCount: sub.count,
+        implementationSubprojectTitles: sub.titles,
+      };
       if (existing?.createdAt && !toSave.createdAt) toSave.createdAt = existing.createdAt;
 
       const mustAudit = !skipAudit || (existing && proposalAuditedFieldsChanged(existing, toSave));
@@ -18630,7 +18644,7 @@ ipcMain.handle('export-orimanthi-hub-report', async (_event, { format, actingUse
       destFilePath: pick.filePath,
       exportedBy: actor.fullName || auth.username,
       appVersion: app.getVersion(),
-      excelOptions: fmt === 'excel' ? excelOptions : undefined,
+      excelOptions,
     });
     if (result.success) {
       logAuditAction({

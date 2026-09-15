@@ -22,6 +22,7 @@ const EMPTY_ORIMANTHI_CARD = {
   notes: '',
   meletes: [],
   adeiodotiseis: [],
+  subprojectTitles: [''],
 };
 
 const MIXED_CORE_FIELD_IDS = [
@@ -87,6 +88,7 @@ const ORI_COL_WIDTH = {
 const ORI_HEADER_LABELS = {
   serial: 'Α/Α έργου',
   title: 'Τίτλος έργου',
+  subprojects: 'Υποέργα',
   actionResponsible: 'Υπεύθυνος πράξης',
   status: 'Κατάσταση',
   municipal: 'Δημοτική ενότητα',
@@ -184,6 +186,12 @@ const MIXED_S = {
     { horizontal: 'left', vertical: 'top', wrapText: true },
     'E2E8F0'
   ),
+  subproject: style(
+    { sz: 8, color: { rgb: '475569' } },
+    'F8FAFC',
+    { horizontal: 'left', vertical: 'center', wrapText: true },
+    'E2E8F0'
+  ),
   meta: style(
     { sz: 10, color: { rgb: '1E293B' } },
     'FFFFFF',
@@ -206,6 +214,12 @@ const MIXED_S = {
     { bold: true, sz: 11, color: { rgb: '0F172A' } },
     'F8FAFC',
     { horizontal: 'left', vertical: 'top', wrapText: true },
+    'E2E8F0'
+  ),
+  subprojectAlt: style(
+    { sz: 8, color: { rgb: '475569' } },
+    'F1F5F9',
+    { horizontal: 'left', vertical: 'center', wrapText: true },
     'E2E8F0'
   ),
   metaAlt: style(
@@ -420,12 +434,8 @@ function fillInvitationCells(row, columns, invitation, index, onlyFirst) {
 }
 
 function orimanthiLeftLastIndex(excelOptions) {
-  const { COL: col } = hub.layoutFromOptions(excelOptions);
-  for (let i = hub.LEFT_COL_KEYS.length - 1; i >= 0; i -= 1) {
-    const key = hub.LEFT_COL_KEYS[i];
-    if (col[key] != null) return col[key];
-  }
-  return 1;
+  const { COL: col, COLS: colCount } = hub.layoutFromOptions(excelOptions);
+  return hub.lastLeftColIndex(col, colCount);
 }
 
 function buildMixedBanner({ exportedAt, exportedBy, invitationCount, projectCount } = {}, totalCols, invColCount) {
@@ -517,6 +527,7 @@ function buildMixedHeader(columns, excelOptions) {
 const ALT_CARD_KINDS = {
   serial: 'serialAlt',
   project: 'projectAlt',
+  subproject: 'subprojectAlt',
   meta: 'metaAlt',
 };
 

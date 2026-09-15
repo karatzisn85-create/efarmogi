@@ -81,6 +81,10 @@ test('αναζήτηση: τίτλος και σημειώσεις ναι, όν�
   assert.equal(ori.parseProjectSearch(row, 'δεν αναζητείται'), false);
   assert.equal(ori.parseProjectSearch(row, 'ΚΑ-888'), false);
   assert.equal(ori.parseProjectSearch(row, 'Μαρκάκη'), true);
+  assert.equal(ori.parseProjectSearch({
+    ...row,
+    implementationSubprojectTitles: ['Ηλεκτροφωτισμός πλατείας'],
+  }, 'ηλεκτροφωτισμός'), true);
 });
 
 test('φίλτρα: κατάσταση, χωρίς κατηγορία, ΑΕΠΟ σύντομα', () => {

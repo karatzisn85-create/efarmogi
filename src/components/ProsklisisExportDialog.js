@@ -326,6 +326,7 @@ const DEFAULT_ORIMANTHI_EXCEL_OPTIONS = {
   },
   includeStudies: true,
   includePermits: true,
+  includeSubprojectTitles: true,
 };
 
 const ORIMANTHI_COLUMN_CHOICES = [
@@ -901,6 +902,18 @@ function ProsklisisExportDialog({
                   ΑΔΕΙΟΔΟΤΗΣΕΙΣ
                 </ExcelBlockBtn>
               </ExcelBlockRow>
+              <ExcelBlockBtn
+                type="button"
+                $on={orimanthiExcelOptions.includeSubprojectTitles}
+                data-testid="psk-export-orimanthi-subprojects"
+                onClick={() => setOrimanthiExcelOptions((prev) => ({
+                  ...prev,
+                  includeSubprojectTitles: !prev.includeSubprojectTitles,
+                }))}
+                style={{ width: '100%', borderRadius: 8, marginTop: '0.45rem' }}
+              >
+                ΤΙΤΛΟΙ ΥΠΟΕΡΓΩΝ
+              </ExcelBlockBtn>
             </div>
           )}
 

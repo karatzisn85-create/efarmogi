@@ -392,10 +392,11 @@ test('Excel επιλογές: χωρίς οικισμό και χωρίς αδε
     includeStudies: true,
     includePermits: false,
   });
-  assert.equal(COLS, 8);
-  assert.equal(COL.actionResponsible, 2);
-  assert.equal(COL.studyName, 6);
-  assert.equal(COL.studyMark, 7);
+  assert.equal(COLS, 9);
+  assert.equal(COL.subprojects, 2);
+  assert.equal(COL.actionResponsible, 3);
+  assert.equal(COL.studyName, 7);
+  assert.equal(COL.studyMark, 8);
   assert.equal(COL.permitName, undefined);
 });
 
@@ -463,6 +464,7 @@ test('HTML αναφορά hub: καρτέλες με υπεύθυνο πράξη
     exportedAt: '11/09/2026',
     exportedBy: 'Δοκιμή',
     appVersion: '1.4.114',
+    includeSubprojectTitles: false,
   });
   assert.match(html, /Υπεύθυνος πράξης/);
   assert.match(html, /Κώστας Αντωνίου/);
@@ -481,4 +483,98 @@ test('HTML αναφορά hub: καρτέλες με υπεύθυνο πράξη
   });
   assert.match(emptyHtml, /Δεν υπάρχουν έργα προς εμφάνιση/);
   assert.ok(!emptyHtml.includes('Εκκρεμότητες'));
+});
+
+test('υποέργα πράξης: προεπιλογή ένα, αποκοπή στο μέγιστο', () => {
+  const empty = list.normalizeImplementationSubprojects({});
+  assert.equal(empty.count, 1);
+  assert.deepEqual(empty.titles, ['']);
+  const resized = list.resizeImplementationSubprojectTitles(['Οδός Α', 'Ηλεκτροφωτισμός'], 3);
+  assert.equal(resized.count, 3);
+  assert.deepEqual(resized.titles, ['Οδός Α', 'Ηλεκτροφωτισμός', '']);
+  const clamped = list.resizeImplementationSubprojectTitles(['α'], 99);
+  assert.equal(clamped.count, list.MAX_IMPLEMENTATION_SUBPROJECTS);
+  assert.equal(list.formatSubprojectExportLine(0, 'Οδός Α'), '1. Οδός Α');
+  assert.equal(list.formatSubprojectExportLine(1, ''), '2. —');
+});
+
+test('Excel: τίτλοι υποέργων δίπλα στον τίτλο σε συγχωνευμένα κελιά', () => {
+  const model = excel.buildHubExcelModel(
+    [{
+      title: 'Πράξη οδοποιίας',
+      status: 'maturing',
+      implementationSubprojectCount: 3,
+      implementationSubprojectTitles: ['Οδός Α', 'Οδός Β', 'Ηλεκτροφωτισμός'],
+      fileGroups: [
+        { fileCategoryRoot: 'meletes', fileCategorySpec: 'ΤΟΠΟΓΡΑΦΙΚΑ', files: [{ name: 't.pdf' }] },
+      ],
+    }],
+    null,
+    null,
+    { includeSubprojectTitles: true, includeStudies: true, includePermits: false },
+  );
+  const { COL } = excel.layoutFromOptions({
+    includeSubprojectTitles: true,
+    includeStudies: true,
+    includePermits: false,
+  });
+  const B = excel.BANNER_ROW_COUNT;
+  const texts = model.rows.flat().map((c) => c.v);
+  assert.ok(texts.includes('Υποέργα'));
+  assert.ok(texts.includes('1. Οδός Α'));
+  assert.ok(texts.includes('2. Οδός Β'));
+  assert.ok(texts.includes('3. Ηλεκτροφωτισμός'));
+  assert.equal(model.rows[B][COL.subprojects].v, 'Υποέργα');
+  assert.equal(model.rows[B + 1][COL.title].v, 'Πράξη οδοποιίας');
+  assert.equal(model.rows[B + 1][COL.subprojects].v, '1. Οδός Α');
+  assert.equal(model.rows[B + 2][COL.subprojects].v, '2. Οδός Β');
+  assert.equal(model.rows[B + 3][COL.subprojects].v, '3. Ηλεκτροφωτισμός');
+  assert.ok(model.merges.some((m) => (
+    m.s.r === B + 1 && m.e.r === B + 3 && m.s.c === COL.title && m.e.c === COL.title
+  )));
+  assert.ok(!model.merges.some((m) => m.s.c === COL.subprojects && m.e.r > m.s.r));
+});
+
+test('Excel: χωρίς τίτλους υποέργων δεν προστίθεται στήλη', () => {
+  const { COLS, COL } = excel.layoutFromOptions({
+    includeSubprojectTitles: false,
+    includeStudies: false,
+    includePermits: false,
+    columns: {
+      actionResponsible: false,
+      status: false,
+      municipal: false,
+      settlement: false,
+      category: false,
+    },
+  });
+  assert.equal(COLS, 2);
+  assert.equal(COL.title, 1);
+  assert.equal(COL.subprojects, undefined);
+});
+
+test('HTML: υποέργα δίπλα στον τίτλο όταν ζητηθούν', () => {
+  const htmlMod = require('../../public/orimanthiReportHtml.js');
+  const html = htmlMod.buildHubReportHtml({
+    cards: [{
+      title: 'Πράξη',
+      statusKey: 'maturing',
+      statusLabel: 'Υπό ωρίμανση',
+      subprojectTitles: ['Οδός Α', 'Ηλεκτροφωτισμός'],
+      meletes: [],
+      adeiodotiseis: [],
+    }],
+    exportedAt: '11/09/2026',
+    includeSubprojectTitles: true,
+  });
+  assert.match(html, /class="card-subprojects"/);
+  assert.match(html, /Οδός Α/);
+  assert.match(html, /Ηλεκτροφωτισμός/);
+  const off = htmlMod.buildHubReportHtml({
+    cards: [{ title: 'Πράξη', subprojectTitles: ['Οδός Α'], meletes: [], adeiodotiseis: [] }],
+    exportedAt: '11/09/2026',
+    includeSubprojectTitles: false,
+  });
+  assert.ok(!off.includes('class="card-subprojects"'));
+  assert.ok(!off.includes('Οδός Α'));
 });

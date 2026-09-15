@@ -555,10 +555,12 @@ async function exportHubReportExcel({ proposals, destFilePath, exportedBy, appVe
   });
 }
 
-async function exportHubReportHtml({ proposals, destFilePath, exportedBy, appVersion }) {
+async function exportHubReportHtml({ proposals, destFilePath, exportedBy, appVersion, excelOptions }) {
   const cards = buildHubReportCards(proposals);
   const exportedAt = formatDateGreek(new Date().toISOString());
-  const html = buildHubReportHtml({ cards, exportedAt, exportedBy, appVersion });
+  const includeSubprojectTitles = excelOptions == null
+    || excelOptions.includeSubprojectTitles !== false;
+  const html = buildHubReportHtml({ cards, exportedAt, exportedBy, appVersion, includeSubprojectTitles });
   fs.writeFileSync(destFilePath, `\uFEFF${html}`, 'utf8');
   return {
     success: true,
@@ -570,10 +572,12 @@ async function exportHubReportHtml({ proposals, destFilePath, exportedBy, appVer
   };
 }
 
-async function exportHubReportPdf({ proposals, destFilePath, exportedBy, appVersion }) {
+async function exportHubReportPdf({ proposals, destFilePath, exportedBy, appVersion, excelOptions }) {
   const cards = buildHubReportCards(proposals);
   const exportedAt = formatDateGreek(new Date().toISOString());
-  const html = buildHubReportHtml({ cards, exportedAt, exportedBy, appVersion });
+  const includeSubprojectTitles = excelOptions == null
+    || excelOptions.includeSubprojectTitles !== false;
+  const html = buildHubReportHtml({ cards, exportedAt, exportedBy, appVersion, includeSubprojectTitles });
 
   try {
     const pdfResult = await exportHtmlToPdf(html, destFilePath, { landscape: false });
@@ -588,7 +592,13 @@ async function exportHubReportPdf({ proposals, destFilePath, exportedBy, appVers
   } catch (err) {
     console.error('exportHubReportPdf failed:', err.message);
     const htmlPath = destFilePath.replace(/\.pdf$/i, '.html');
-    const htmlResult = await exportHubReportHtml({ proposals, destFilePath: htmlPath, exportedBy, appVersion });
+    const htmlResult = await exportHubReportHtml({
+      proposals,
+      destFilePath: htmlPath,
+      exportedBy,
+      appVersion,
+      excelOptions,
+    });
     return {
       ...htmlResult,
       pdfFallback: true,
@@ -603,7 +613,7 @@ async function exportHubReport({ proposals, format, destFilePath, exportedBy, ap
     return exportHubReportExcel({ proposals, destFilePath, exportedBy, appVersion, excelOptions });
   }
   if (format === 'pdf') {
-    return exportHubReportPdf({ proposals, destFilePath, exportedBy, appVersion });
+    return exportHubReportPdf({ proposals, destFilePath, exportedBy, appVersion, excelOptions });
   }
   return { success: false, error: 'Μη υποστηριζόμενη μορφή' };
 }
