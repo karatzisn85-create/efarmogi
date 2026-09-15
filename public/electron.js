@@ -20775,7 +20775,7 @@ ipcMain.handle('upload-contractor-registry-files', async (_event, { recordId, gu
     if (!svc) return { success: false, error: 'Δεν έχει ρυθμιστεί φάκελος δεδομένων' };
     const access = await assertContractorRegistryFileAccess(auth, svc, recordId, guaranteeId, { mutate: true });
     if (!access.ok) return { success: false, error: access.error };
-    return svc.uploadFiles(recordId, guaranteeId, filePaths);
+    return await svc.uploadFiles(recordId, guaranteeId, filePaths);
   } catch (e) {
     logger.error('upload-contractor-registry-files failed', e);
     return { success: false, error: e.message };

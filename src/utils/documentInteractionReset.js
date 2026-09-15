@@ -2,7 +2,7 @@
  * Επαναφέρει καθολικά στυλ στο document/body που συχνά «κολλάνε» μετά από
  * full-screen overlay, modal ή native dialog (confirm/alert) στο Electron.
  */
-import { forceUnlockBodyScroll } from './bodyScrollLock';
+import { forceUnlockBodyScroll, getHolderCount } from './bodyScrollLock';
 
 /** Αυξάνεται σε κάθε πλήρες reset — ακυρώνει εκκρεμείς rAF από scheduleDocumentInteractionRecovery (π.χ. μετά από αποσύνδεση). */
 let interactionRecoveryEpoch = 0;
@@ -65,11 +65,15 @@ export function scheduleDocumentInteractionRecovery({ lockScroll = false } = {})
   const epoch = interactionRecoveryEpoch;
   const run = () => {
     if (epoch !== interactionRecoveryEpoch) return;
-    if (!lockScroll) {
+    const holdersRemain = getHolderCount() > 0;
+    if (!lockScroll && !holdersRemain) {
       forceUnlockBodyScroll();
     }
     applyDomInteractionUnlock();
-    if (lockScroll && interactionLockAllowed && epoch === interactionRecoveryEpoch) {
+    if (
+      (lockScroll && interactionLockAllowed && epoch === interactionRecoveryEpoch)
+      || holdersRemain
+    ) {
       document.body.style.overflow = 'hidden';
       document.body.setAttribute('data-modal-open', 'true');
     }

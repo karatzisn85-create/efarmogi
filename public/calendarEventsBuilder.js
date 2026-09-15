@@ -535,26 +535,33 @@ function collectGuaranteeReminderItems(records, projects) {
     }
     for (const acc of rec.acceptances || []) {
       if (!acc) continue;
-      const deadlineIso = String(acc.warrantyEndsOn || '').trim();
-      if (!deadlineIso) continue;
       const aid = String(acc.id || `${rec.id || rec.identityKey || ''}:${acc.subprojectId || ''}`).trim();
-      const dateKey = toDateKey(deadlineIso) || deadlineIso.slice(0, 10);
-      const itemKey = `${EVENT_TYPES.CONTRACTOR_REGISTRY}:w:${aid}:${dateKey}`;
-      if (!aid || seen.has(itemKey)) continue;
-      seen.add(itemKey);
       const project = bySubId.get(String(acc.subprojectId || '').trim()) || null;
-      const row = makeItem({
-        itemKey,
-        eventType: EVENT_TYPES.CONTRACTOR_REGISTRY,
-        project,
-        subprojectId: acc.subprojectId || '',
-        subprojectTitle: rec.name || '(Ανάδοχος)',
-        projectTitle: project?.subprojectTitle || project?.projectTitle || '',
-        adam: '',
-        label: 'Λήξη χρόνου εγγύησης',
-        deadlineIso,
-      });
-      if (row) items.push(row);
+      const dates = [
+        { kind: 'p', iso: acc.provisionalDate, label: 'Προσωρινή παραλαβή' },
+        { kind: 'f', iso: acc.finalDate, label: 'Οριστική παραλαβή' },
+        { kind: 'w', iso: acc.warrantyEndsOn, label: 'Λήξη χρόνου εγγύησης' },
+      ];
+      for (const d of dates) {
+        const deadlineIso = String(d.iso || '').trim();
+        if (!deadlineIso || !aid) continue;
+        const dateKey = toDateKey(deadlineIso) || deadlineIso.slice(0, 10);
+        const itemKey = `${EVENT_TYPES.CONTRACTOR_REGISTRY}:${d.kind}:${aid}:${dateKey}`;
+        if (seen.has(itemKey)) continue;
+        seen.add(itemKey);
+        const row = makeItem({
+          itemKey,
+          eventType: EVENT_TYPES.CONTRACTOR_REGISTRY,
+          project,
+          subprojectId: acc.subprojectId || '',
+          subprojectTitle: rec.name || '(Ανάδοχος)',
+          projectTitle: project?.subprojectTitle || project?.projectTitle || '',
+          adam: '',
+          label: d.label,
+          deadlineIso,
+        });
+        if (row) items.push(row);
+      }
     }
   }
   return items;

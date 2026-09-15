@@ -147,13 +147,6 @@ const HubShell = styled.div`
   overflow-y: auto;
   padding: 1.1rem 1.5rem 1.35rem;
   min-height: 0;
-  transition: opacity 0.22s ease, filter 0.22s ease;
-  ${(p) => p.$dimmed && css`
-    opacity: 0.52;
-    filter: blur(1px);
-    pointer-events: none;
-    user-select: none;
-  `}
 `;
 
 const HubToolbarCard = styled.div`
@@ -1008,16 +1001,16 @@ function ContractorRegistryManager({
   const fileReloadPauseRef = useRef(0);
 
   useEffect(() => {
-    lockBodyScroll();
+    lockBodyScroll('contractor-registry');
     return () => {
-      unlockBodyScroll();
+      unlockBodyScroll('contractor-registry');
       const id = lockedIdRef.current;
       if (id) ipcRenderer.invoke('remove-entity-lock', 'contractor-registry', id);
     };
   }, []);
 
-  const loadRecords = useCallback(async () => {
-    setLoading(true);
+  const loadRecords = useCallback(async ({ silent } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const res = await ipcRenderer.invoke('load-contractor-registry', {
         actingUsername: loggedInUsername,
@@ -1032,7 +1025,7 @@ function ContractorRegistryManager({
       showToast(e.message || 'Αδυναμία φόρτωσης μητρώου αναδόχων', 'error');
       setRecords([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [loggedInUsername, showToast]);
 
@@ -1059,6 +1052,8 @@ function ContractorRegistryManager({
 
   const dirty = selected && (
     draft.notes !== (selected.registryNotes || selected.notes || '')
+    || draft.phone !== (selected.phone || '')
+    || draft.email !== (selected.email || '')
     || contractorRegistry.guaranteesFingerprint(guaranteesDraft)
       !== contractorRegistry.guaranteesFingerprint(selected.guarantees || [])
     || contractorRegistry.acceptancesFingerprint(acceptancesDraft)
@@ -1260,7 +1255,7 @@ function ContractorRegistryManager({
         if (lock?.success) lockedIdRef.current = savedId;
         else setLockBlocked(true);
       }
-      await loadRecords();
+      await loadRecords({ silent: true });
       setSelectedKey(savedId || selectedKey);
       selectedKeyRef.current = savedId || selectedKey;
       setDraft({
@@ -1348,6 +1343,10 @@ function ContractorRegistryManager({
   const fieldsLocked = !editing || !canEdit || lockBlocked;
   const notesWritable = editing && !fieldsLocked
     && contractorRegistry.canEditContactField(selected?.registryNotes || selected?.notes, userRole);
+  const phoneWritable = editing && !fieldsLocked
+    && contractorRegistry.canEditContactField(selected?.phone, userRole);
+  const emailWritable = editing && !fieldsLocked
+    && contractorRegistry.canEditContactField(selected?.email, userRole);
 
   const submitGuaranteeForm = async () => {
     if (!guaranteeForm || fieldsLocked) return;
@@ -1668,6 +1667,7 @@ function ContractorRegistryManager({
           <Field>
             <FieldLabel>Ποσό (€)</FieldLabel>
             <Input
+              data-testid="contractor-guarantee-amount"
               value={guaranteeForm.amount}
               onChange={(e) => setGuaranteeForm((f) => ({ ...f, amount: e.target.value }))}
               placeholder="π.χ. 1.234,56"
@@ -1676,6 +1676,7 @@ function ContractorRegistryManager({
           <Field>
             <FieldLabel>Τράπεζα</FieldLabel>
             <Input
+              data-testid="contractor-guarantee-bank"
               value={guaranteeForm.bank}
               onChange={(e) => setGuaranteeForm((f) => ({ ...f, bank: e.target.value }))}
             />
@@ -1683,6 +1684,7 @@ function ContractorRegistryManager({
           <Field>
             <FieldLabel>Αριθμός επιστολής</FieldLabel>
             <Input
+              data-testid="contractor-guarantee-number"
               value={guaranteeForm.letterNumber}
               onChange={(e) => setGuaranteeForm((f) => ({ ...f, letterNumber: e.target.value }))}
             />
@@ -1699,6 +1701,7 @@ function ContractorRegistryManager({
             <FieldLabel>Ημερομηνία λήξης</FieldLabel>
             <Input
               type="date"
+              data-testid="contractor-guarantee-expires"
               value={guaranteeForm.expiresOn}
               onChange={(e) => setGuaranteeForm((f) => ({ ...f, expiresOn: e.target.value }))}
             />
@@ -1745,10 +1748,10 @@ function ContractorRegistryManager({
           </Field>
         </FieldGrid>
         <FormActions>
-          <PrimaryBtn type="button" onClick={submitGuaranteeForm} disabled={saving}>
+          <PrimaryBtn type="button" data-testid="contractor-registry-save-guarantee" onClick={submitGuaranteeForm} disabled={saving}>
             {guaranteeForm.id ? 'Αποθήκευση εγγυητικής' : 'Καταχώριση εγγυητικής'}
           </PrimaryBtn>
-          <GhostBtn type="button" onClick={closeGuaranteeEditor}>
+          <GhostBtn type="button" data-testid="contractor-registry-cancel-guarantee" onClick={closeGuaranteeEditor}>
             Άκυρο
           </GhostBtn>
         </FormActions>
@@ -1757,7 +1760,7 @@ function ContractorRegistryManager({
   };
 
   return (
-    <Overlay>
+    <Overlay data-testid="contractor-registry">
       <Modal>
         <MainModalHeader>
           <HeaderTitleWrap>
@@ -1775,49 +1778,56 @@ function ContractorRegistryManager({
           </HeaderActions>
         </MainModalHeader>
         <Body>
-          <HubShell $dimmed={!!selected}>
-            <HubToolbarCard>
-              <HubSearch
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Αναζήτηση επωνυμίας, ΑΦΜ, τηλεφώνου…"
-                aria-label="Αναζήτηση αναδόχου"
-              />
-            </HubToolbarCard>
-            {loading ? (
-              <Spinner />
-            ) : filteredRows.length === 0 ? (
-              <EmptyState>
-                {search.trim()
-                  ? 'Δεν βρέθηκε ανάδοχος με αυτά τα στοιχεία.'
-                  : 'Δεν υπάρχουν ακόμα ανάδοχοι από συμβάσεις.'}
-              </EmptyState>
-            ) : (
-              <HubListWrap>
-                <HubListHead>
-                  <div>Επωνυμία</div>
-                  <div>ΑΦΜ</div>
-                  <div>Συμβάσεις</div>
-                  <div>Ενεργές</div>
-                  <div>Ποσό</div>
-                </HubListHead>
-                {filteredRows.map((row) => (
-                  <HubListRow key={rowIdentity(row)} type="button" onClick={() => openRow(row)}>
-                    <NameCell>
-                      <NameTitle>{row.name || 'Χωρίς επωνυμία'}</NameTitle>
-                      <NameSub>
-                        {row.phone || row.email || (row.orphan ? 'Χωρίς σύμβαση στο χαρτοφυλάκιο' : 'Κλικ για καρτέλα')}
-                      </NameSub>
-                    </NameCell>
-                    <Cell>{row.vat || '—'}</Cell>
-                    <Cell>{row.count || (row.assignments || []).length || 0}</Cell>
-                    <Cell>{contractorRegistry.countActiveAssignments(row)}</Cell>
-                    <Cell>{row.amount ? formatKhmdhsEuro(row.amount) : '—'}</Cell>
-                  </HubListRow>
-                ))}
-              </HubListWrap>
-            )}
-          </HubShell>
+          {!selected && (
+            <HubShell>
+              <HubToolbarCard>
+                <HubSearch
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Αναζήτηση επωνυμίας, ΑΦΜ, τηλεφώνου…"
+                  aria-label="Αναζήτηση αναδόχου"
+                />
+              </HubToolbarCard>
+              {loading ? (
+                <Spinner />
+              ) : filteredRows.length === 0 ? (
+                <EmptyState>
+                  {search.trim()
+                    ? 'Δεν βρέθηκε ανάδοχος με αυτά τα στοιχεία.'
+                    : 'Δεν υπάρχουν ακόμα ανάδοχοι από συμβάσεις.'}
+                </EmptyState>
+              ) : (
+                <HubListWrap>
+                  <HubListHead>
+                    <div>Επωνυμία</div>
+                    <div>ΑΦΜ</div>
+                    <div>Συμβάσεις</div>
+                    <div>Ενεργές</div>
+                    <div>Ποσό</div>
+                  </HubListHead>
+                  {filteredRows.map((row) => (
+                    <HubListRow
+                      key={rowIdentity(row)}
+                      type="button"
+                      data-testid={`contractor-hub-row-${row.identityKey || rowIdentity(row)}`}
+                      onClick={() => openRow(row)}
+                    >
+                      <NameCell>
+                        <NameTitle>{row.name || 'Χωρίς επωνυμία'}</NameTitle>
+                        <NameSub>
+                          {row.phone || row.email || (row.orphan ? 'Χωρίς σύμβαση στο χαρτοφυλάκιο' : 'Κλικ για καρτέλα')}
+                        </NameSub>
+                      </NameCell>
+                      <Cell>{row.vat || '—'}</Cell>
+                      <Cell>{row.count || (row.assignments || []).length || 0}</Cell>
+                      <Cell>{contractorRegistry.countActiveAssignments(row)}</Cell>
+                      <Cell>{row.amount ? formatKhmdhsEuro(row.amount) : '—'}</Cell>
+                    </HubListRow>
+                  ))}
+                </HubListWrap>
+              )}
+            </HubShell>
+          )}
 
           {selected && (
             <DetailOverlay>
@@ -1845,14 +1855,14 @@ function ContractorRegistryManager({
                   <HeaderActions>
                     {editing ? (
                       <>
-                        <PrimaryBtn type="button" onClick={saveContact} disabled={saving || !dirty}>
+                        <PrimaryBtn type="button" data-testid="contractor-registry-save-contact" onClick={saveContact} disabled={saving || !dirty}>
                           {saving ? 'Αποθήκευση…' : 'Αποθήκευση'}
                         </PrimaryBtn>
-                        <GhostBtn type="button" onClick={exitEdit}>Τέλος επεξεργασίας</GhostBtn>
+                        <GhostBtn type="button" data-testid="contractor-registry-exit-edit" onClick={exitEdit}>Τέλος επεξεργασίας</GhostBtn>
                       </>
                     ) : (
                       canEdit && (
-                        <PrimaryBtn type="button" onClick={enterEdit}>Επεξεργασία</PrimaryBtn>
+                        <PrimaryBtn type="button" data-testid="contractor-registry-edit" onClick={enterEdit}>Επεξεργασία</PrimaryBtn>
                       )
                     )}
                     {canManage && selected.registryId && (
@@ -1860,10 +1870,52 @@ function ContractorRegistryManager({
                         Διαγραφή καρτέλας
                       </DangerBtn>
                     )}
-                    <GhostBtn type="button" onClick={requestBack}>Πίσω στη λίστα</GhostBtn>
+                    <GhostBtn type="button" data-testid="contractor-registry-back" onClick={requestBack}>Πίσω στη λίστα</GhostBtn>
                   </HeaderActions>
                 </DetailHead>
                 <DetailBody>
+                  <SectionPanel>
+                    <SectionHead $tight>
+                      <SectionTitle>
+                        <SectionIcon $bg="#eef2ff">📞</SectionIcon>
+                        Επικοινωνία
+                      </SectionTitle>
+                    </SectionHead>
+                    <FieldGrid style={{ marginTop: '0.55rem' }}>
+                      <Field>
+                        <FieldLabel>Τηλέφωνο</FieldLabel>
+                        {phoneWritable ? (
+                          <Input
+                            data-testid="contractor-contact-phone"
+                            value={draft.phone}
+                            onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))}
+                            placeholder="π.χ. 2810 123456"
+                          />
+                        ) : (
+                          <FactValue $empty={!textOrEmpty(draft.phone)}>
+                            {textOrEmpty(draft.phone) || '—'}
+                          </FactValue>
+                        )}
+                      </Field>
+                      <Field>
+                        <FieldLabel>Email</FieldLabel>
+                        {emailWritable ? (
+                          <Input
+                            data-testid="contractor-contact-email"
+                            type="email"
+                            value={draft.email}
+                            onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+                            placeholder="π.χ. info@anadoxos.gr"
+                          />
+                        ) : (
+                          <FactValue $empty={!textOrEmpty(draft.email)}>
+                            {textOrEmpty(draft.email) || '—'}
+                          </FactValue>
+                        )}
+                      </Field>
+                    </FieldGrid>
+                  </SectionPanel>
+
                   {/* ── Ενεργές συμβάσεις ─── */}
                   <SectionPanel>
                     <SectionHead>
@@ -1953,6 +2005,7 @@ function ContractorRegistryManager({
                       {editing && canEdit && !lockBlocked && subprojectChoices.length > 0 && (
                         <PrimaryBtn
                           type="button"
+                          data-testid="contractor-registry-new-guarantee"
                           style={{ fontSize: '0.72rem', padding: '0.38rem 0.8rem' }}
                           onClick={() => {
                             setAcceptanceForm(null);

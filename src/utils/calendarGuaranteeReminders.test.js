@@ -77,4 +77,30 @@ describe('collectGuaranteeReminderItems', () => {
     expect(items[0].deadlineIso).toBe('2099-11-01');
     expect(items[0].eventType).toBe(EVENT_TYPES.CONTRACTOR_REGISTRY);
   });
+
+  test('συμπεριλαμβάνει προσωρινή και οριστική παραλαβή', () => {
+    const withAcceptances = [{
+      id: 'rec-3',
+      name: 'ΑΝΑΔΟΧΟΣ ΑΕ',
+      guarantees: [],
+      acceptances: [{
+        id: 'acc-2',
+        subprojectId: 'sub-1',
+        provisionalDate: '2099-08-01',
+        finalDate: '2099-09-01',
+        warrantyEndsOn: '2099-11-01',
+      }],
+    }];
+    const items = collectGuaranteeReminderItems(withAcceptances, [project]);
+    expect(items.map((i) => i.label)).toEqual([
+      'Προσωρινή παραλαβή',
+      'Οριστική παραλαβή',
+      'Λήξη χρόνου εγγύησης',
+    ]);
+    expect(items.map((i) => i.deadlineIso)).toEqual([
+      '2099-08-01',
+      '2099-09-01',
+      '2099-11-01',
+    ]);
+  });
 });

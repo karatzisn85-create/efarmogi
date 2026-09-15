@@ -375,36 +375,92 @@
   }
 
   function compareRegistryRecords(a, b) {
-    var ua = String((a && a.updatedAt) || '');
-    var ub = String((b && b.updatedAt) || '');
-    if (ua !== ub) return ua < ub ? 1 : -1;
     var ga = ((a && a.guarantees) || []).length + ((a && a.acceptances) || []).length;
     var gb = ((b && b.guarantees) || []).length + ((b && b.acceptances) || []).length;
     if (ga !== gb) return gb - ga;
+    var ua = String((a && a.updatedAt) || '');
+    var ub = String((b && b.updatedAt) || '');
+    if (ua !== ub) return ua < ub ? 1 : -1;
     return String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
   }
 
-  function findRecordForProfile(profile, records) {
+  function listRecordsMatchingProfile(profile, records) {
     var matches = [];
     var list = records || [];
     var i;
     for (i = 0; i < list.length; i++) {
       if (recordsMatchProfile(list[i], profile)) matches.push(list[i]);
     }
+    return matches;
+  }
+
+  function findRecordForProfile(profile, records) {
+    var matches = listRecordsMatchingProfile(profile, records);
     if (!matches.length) return null;
     matches.sort(compareRegistryRecords);
     return matches[0];
   }
 
+  function mergeMatchingRegistryRecords(matches) {
+    if (!matches || !matches.length) return null;
+    var canonical = matches.slice().sort(compareRegistryRecords)[0];
+    var byRecency = matches.slice().sort(function (a, b) {
+      var ua = String((a && a.updatedAt) || '');
+      var ub = String((b && b.updatedAt) || '');
+      if (ua !== ub) return ua < ub ? 1 : -1;
+      return String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
+    });
+    var phone = '';
+    var email = '';
+    var notes = '';
+    byRecency.forEach(function (rec) {
+      if (!phone && rec && rec.phone) phone = rec.phone;
+      if (!email && rec && rec.email) email = rec.email;
+      if (!notes && rec && rec.notes) notes = rec.notes;
+    });
+    var guarantees = [];
+    var acceptances = [];
+    var seenG = {};
+    var seenA = {};
+    matches.forEach(function (rec) {
+      ((rec && rec.guarantees) || []).forEach(function (g) {
+        if (!g) return;
+        var gid = String(g.id || '');
+        if (gid) {
+          if (seenG[gid]) return;
+          seenG[gid] = true;
+        }
+        guarantees.push(g);
+      });
+      ((rec && rec.acceptances) || []).forEach(function (acc) {
+        if (!acc) return;
+        var aid = String(acc.id || '');
+        var key = aid || ('sub:' + String(acc.subprojectId || ''));
+        if (seenA[key]) return;
+        seenA[key] = true;
+        acceptances.push(acc);
+      });
+    });
+    return {
+      canonical: canonical,
+      phone: phone,
+      email: email,
+      notes: notes,
+      guarantees: guarantees,
+      acceptances: acceptances
+    };
+  }
+
   function overlayRegistryOnProfiles(profiles, records) {
     return (profiles || []).map(function (profile) {
-      var rec = findRecordForProfile(profile, records);
+      var merged = mergeMatchingRegistryRecords(listRecordsMatchingProfile(profile, records));
+      var rec = merged && merged.canonical;
       var out = Object.assign({}, profile);
-      out.phone = rec && rec.phone ? rec.phone : '';
-      out.email = rec && rec.email ? rec.email : '';
-      out.registryNotes = rec && rec.notes ? rec.notes : '';
-      out.guarantees = rec && rec.guarantees ? rec.guarantees : [];
-      out.acceptances = rec && rec.acceptances ? rec.acceptances : [];
+      out.phone = merged ? merged.phone : '';
+      out.email = merged ? merged.email : '';
+      out.registryNotes = merged && merged.notes ? merged.notes : '';
+      out.guarantees = merged ? merged.guarantees : [];
+      out.acceptances = merged ? merged.acceptances : [];
       out.registryId = rec && rec.id ? rec.id : null;
       out.updatedAt = rec && rec.updatedAt ? rec.updatedAt : '';
       out.createdAt = rec && rec.createdAt ? rec.createdAt : '';
@@ -416,8 +472,9 @@
   function listOrphanRegistryRecords(profiles, records) {
     var used = {};
     (profiles || []).forEach(function (profile) {
-      var rec = findRecordForProfile(profile, records);
-      if (rec && rec.id) used[String(rec.id)] = true;
+      listRecordsMatchingProfile(profile, records).forEach(function (rec) {
+        if (rec && rec.id) used[String(rec.id)] = true;
+      });
     });
     return (records || []).filter(function (rec) {
       if (!rec || (rec.id && used[String(rec.id)])) return false;

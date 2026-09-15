@@ -50,6 +50,19 @@ test('αποθήκευση και ανάγνωση καρτέλας αναδόχ
   assert.equal(listed[0].phone, '2810123456');
   assert.equal(listed[0].guarantees[0].letterNumber, 'ΕΓΓ-1');
   assert.equal(svc.loadRecord(saved.record.id).vat, '123456789');
+
+  const again = svc.saveRecord({
+    id: saved.record.id,
+    name: 'ΤΕΧΝΙΚΗ Α.Ε.',
+    vat: '123456789',
+    phone: '2810123456',
+    guarantees: [
+      validGuarantee({ letterNumber: 'ΕΓΓ-1' }),
+      validGuarantee({ type: 'προκαταβολής', letterNumber: 'ΕΓΓ-2', expiresOn: '2027-06-01' }),
+    ],
+  }, { expectedUpdatedAt: saved.record.updatedAt });
+  assert.equal(again.success, true);
+  assert.equal(again.record.guarantees.length, 2);
 });
 
 test('ίδιο ΑΦΜ δεν ανοίγει δεύτερη καρτέλα', () => {
@@ -308,7 +321,7 @@ test('διαγραφή καρτέλας αφαιρεί τον φάκελο', () 
   assert.equal(missing.success, false);
 });
 
-test('διαγραφή εγγυητικής αφαιρεί τα αρχεία της', () => {
+test('διαγραφή εγγυητικής αφαιρεί τα αρχεία της', async () => {
   const { dataDir, svc } = makeService();
   const created = svc.saveRecord({
     id: UUID_A,
@@ -319,7 +332,7 @@ test('διαγραφή εγγυητικής αφαιρεί τα αρχεία τ�
   assert.equal(created.success, true);
   const src = path.join(dataDir, 'sample.pdf');
   fs.writeFileSync(src, 'pdf');
-  const up = svc.uploadFiles(UUID_A, G_OWN, [src]);
+  const up = await svc.uploadFiles(UUID_A, G_OWN, [src]);
   assert.equal(up.success, true);
   const filesDir = path.join(dataDir, CONTRACTOR_REGISTRY_DIR_NAME, UUID_A, 'ΑΡΧΕΙΑ', G_OWN);
   assert.equal(fs.existsSync(filesDir), true);
@@ -333,7 +346,7 @@ test('διαγραφή εγγυητικής αφαιρεί τα αρχεία τ�
   assert.equal(fs.existsSync(filesDir), false);
 });
 
-test('μηχανικός που αφαιρεί δική του εγγυητική δεν σβήνει αρχεία άλλης', () => {
+test('μηχανικός που αφαιρεί δική του εγγυητική δεν σβήνει αρχεία άλλης', async () => {
   const { dataDir, svc } = makeService();
   const created = svc.saveRecord({
     id: UUID_A,
@@ -347,7 +360,7 @@ test('μηχανικός που αφαιρεί δική του εγγυητικ�
   assert.equal(created.success, true);
   const src = path.join(dataDir, 'foreign.pdf');
   fs.writeFileSync(src, 'pdf');
-  assert.equal(svc.uploadFiles(UUID_A, G_FOREIGN, [src]).success, true);
+  assert.equal((await svc.uploadFiles(UUID_A, G_FOREIGN, [src])).success, true);
   const foreignDir = path.join(dataDir, CONTRACTOR_REGISTRY_DIR_NAME, UUID_A, 'ΑΡΧΕΙΑ', G_FOREIGN);
   assert.equal(fs.existsSync(foreignDir), true);
   const eng = svc.saveRecord(

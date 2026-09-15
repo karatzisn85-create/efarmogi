@@ -8262,7 +8262,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       </AdminSidebar>
 
       {/* Subproject Detail Modal */}
-      {selectedDetailProject && (
+      {selectedDetailProject && !isContractorRegistryOpen && (
         <SubprojectDetailModal
           project={selectedDetailProject}
           engineerCatalog={engineerCatalogForCards}

@@ -153,7 +153,8 @@ function createContractorRegistryService({ dataDir }) {
       updatedAt: now,
     });
 
-    const dup = findByIdentityKey(toSave.identityKey, id);
+    const identityChanged = !existing || existing.identityKey !== toSave.identityKey;
+    const dup = identityChanged ? findByIdentityKey(toSave.identityKey, id) : null;
     if (dup) {
       return {
         success: false,
@@ -216,8 +217,9 @@ function createContractorRegistryService({ dataDir }) {
 
   function uploadFiles(recordId, guaranteeId, filePaths) {
     const dir = ensureFilesDir(recordId, guaranteeId);
-    if (!dir) return { success: false, error: 'Μη έγκυρο αναγνωριστικό' };
+    if (!dir) return Promise.resolve({ success: false, error: 'Μη έγκυρο αναγνωριστικό' });
     const copied = [];
+    const jobs = [];
     for (const fp of (filePaths || [])) {
       const src = String(fp || '').trim();
       if (!src || !fs.existsSync(src)) continue;
@@ -231,13 +233,15 @@ function createContractorRegistryService({ dataDir }) {
         dest = path.join(dir, `${base}_${counter}${ext}`);
         counter++;
       }
-      fs.copyFileSync(src, dest);
       copied.push(path.basename(dest));
+      jobs.push(fs.promises.copyFile(src, dest));
     }
-    if ((filePaths || []).length > 0 && copied.length === 0) {
-      return { success: false, error: 'Κανένα αρχείο δεν ήταν έγκυρο για αντιγραφή' };
-    }
-    return { success: true, files: copied };
+    return Promise.all(jobs).then(() => {
+      if ((filePaths || []).length > 0 && copied.length === 0) {
+        return { success: false, error: 'Κανένα αρχείο δεν ήταν έγκυρο για αντιγραφή' };
+      }
+      return { success: true, files: copied };
+    });
   }
 
   function listFiles(recordId, guaranteeId) {

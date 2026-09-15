@@ -214,6 +214,10 @@ function buildSubprojects() {
       supervisorChargeFreePrimary: '',
       supervisorChargeFreeParticipants: '',
       khmdhsAdam: '24SYMV000000002',
+      khmdhsContractSnapshot: {
+        anadoxosName: 'Τεχνική Α.Ε. Αστερουσίων',
+        anadoxosVat: '099111111',
+      },
       remainingAmount: '8000',
       remainingAmountYear: '2025',
       fileGroups: [],

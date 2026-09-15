@@ -601,7 +601,7 @@ test('φόρτωση μηχανικού: μόνο σχετικές καρτέλ�
   assert.equal(reg.canEditContactField('2810', 'ADMIN'), true);
 });
 
-test('διπλή καρτέλα ίδιου ΑΦΜ: κρατά την πιο πρόσφατη και δείχνει την άλλη ως ορφανή', () => {
+test('διπλή καρτέλα ίδιου ΑΦΜ: μία γραμμή με τα στοιχεία και των δύο', () => {
   const profiles = [liveProfile()];
   const newer = reg.createEmptyContractorRecord({
     id: 'rec-new',
@@ -618,12 +618,37 @@ test('διπλή καρτέλα ίδιου ΑΦΜ: κρατά την πιο πρ
     updatedAt: '2026-01-01T10:00:00.000Z',
   });
   const rows = reg.buildContractorHubRows(profiles, [older, newer]);
-  const live = rows.find((r) => !r.orphan);
-  const dup = rows.find((r) => r.orphan);
-  assert.equal(live.registryId, 'rec-new');
-  assert.equal(live.phone, 'νέο');
-  assert.equal(dup.registryId, 'rec-old');
-  assert.equal(dup.duplicate, true);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].orphan, undefined);
+  assert.equal(rows[0].registryId, 'rec-new');
+  assert.equal(rows[0].phone, 'νέο');
+});
+
+test('διπλή καρτέλα: εγγυητική στην παλιά καρτέλα φαίνεται στην κύρια γραμμή', () => {
+  const profiles = [liveProfile()];
+  const newer = reg.createEmptyContractorRecord({
+    id: 'rec-new',
+    vat: '123456789',
+    name: 'ΤΕΧΝΙΚΗ Α.Ε.',
+    updatedAt: '2026-08-25T10:00:00.000Z',
+  });
+  const older = reg.createEmptyContractorRecord({
+    id: 'rec-old',
+    vat: '123456789',
+    name: 'ΤΕΧΝΙΚΗ Α.Ε.',
+    updatedAt: '2026-01-01T10:00:00.000Z',
+    guarantees: [{
+      id: 'g-old',
+      type: 'καλής εκτέλεσης',
+      status: 'ενεργή',
+      expiresOn: '2026-12-01',
+      subprojectId: 'sub-a',
+    }],
+  });
+  const rows = reg.buildContractorHubRows(profiles, [older, newer]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].registryId, 'rec-old');
+  assert.equal(rows[0].guarantees.map((g) => g.id).join(), 'g-old');
 });
 
 test('κλειδιά ταυτότητας από υποέργο ΚΗΜΔΗΣ', () => {
