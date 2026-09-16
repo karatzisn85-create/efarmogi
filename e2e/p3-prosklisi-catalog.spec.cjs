@@ -553,6 +553,8 @@ test('P3-68 εξαγωγή Excel με ωρίμανση συσχετισμένω�
   await expect(window.getByTestId('psk-export-orimanthi-block-studies')).toBeVisible();
   await expect(window.getByTestId('psk-export-orimanthi-block-permits')).toBeVisible();
   await expect(window.getByTestId('psk-export-orimanthi-subprojects')).toBeVisible();
+  await expect(window.getByTestId('psk-export-keep-whole-invitations')).toBeVisible();
+  await expect(window.getByTestId('psk-export-keep-whole-invitations')).toBeChecked();
   await app.queueSavePath(dest);
   await window.getByTestId('psk-export-confirm').click();
   await expect.poll(() => fs.existsSync(dest), { timeout: 20000 }).toBe(true);

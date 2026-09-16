@@ -10,6 +10,14 @@ const hub = require('./orimanthiHubExcel');
 
 const REPORT_TITLE = 'ΕΞΑΓΩΓΗ ΠΡΟΣΚΛΗΣΕΩΝ ΜΕ ΩΡΙΜΑΝΣΗ ΕΡΓΩΝ';
 const REPORT_SUBTITLE = `${hub.APP_TAGLINE} — προσκλήσεις και καρτέλες συσχετισμένων έργων`;
+const MIXED_SHEET_NAME = 'Προσκλήσεις και ωρίμανση';
+// A4 οριζόντια με τα περιθώρια του φύλλου. Το πόσες προσκλήσεις χωράνε
+// βγαίνει από το ύψος κάθε πρόσκλησης μετά τη σμίκρυνση στο πλάτος της σελίδας.
+const A4_LANDSCAPE_PRINTABLE_PT = Math.round(((210 / 25.4) - 0.55 - 0.45) * 72);
+const A4_LANDSCAPE_PRINTABLE_WIDTH_PT = Math.round(((297 / 25.4) - 0.4 - 0.4) * 72);
+const PRINT_SAFETY_PT = 24;
+const DEFAULT_PRINTABLE_PAGE_PT = A4_LANDSCAPE_PRINTABLE_PT - PRINT_SAFETY_PT;
+const EXCEL_PT_PER_CHAR = 7 * 72 / 96;
 const GROUP_INVITATION = 'ΠΡΟΣΚΛΗΣΗ';
 const GROUP_ORIMANTHI = 'ΩΡΙΜΑΝΣΗ ΕΡΓΩΝ';
 const EMPTY_ORIMANTHI_CARD = {
@@ -314,6 +322,15 @@ const MIXED_S = {
 
 function mixedStyle(kind) {
   return MIXED_S[kind] || MIXED_S.blank;
+}
+
+function asBool(value, fallback) {
+  if (value === true || value === false) return value;
+  return fallback;
+}
+
+function keepWholeInvitationsEnabled(excelOptions) {
+  return asBool(excelOptions && excelOptions.keepWholeInvitations, true);
 }
 
 function mixedFieldLabel(field) {
@@ -659,8 +676,10 @@ function buildMixedProsklisiOrimanthiModel({
   }, header.totalCols, invitationColumns.length));
   hub.appendBlock(allRows, allMerges, header);
 
+  const invitationBlocks = [];
   invitationList.forEach((invitation, index) => {
     if (index > 0) hub.appendBlock(allRows, allMerges, buildMixedSeparator(header.totalCols));
+    const startRow = allRows.length;
     hub.appendBlock(
       allRows,
       allMerges,
@@ -673,7 +692,17 @@ function buildMixedProsklisiOrimanthiModel({
         header.totalCols
       )
     );
+    invitationBlocks.push({
+      startRow,
+      endRow: allRows.length - 1,
+      separatorRow: null,
+    });
   });
+  invitationBlocks.forEach((block, index) => {
+    if (index >= invitationBlocks.length - 1) return;
+    block.separatorRow = invitationBlocks[index + 1].startRow - 1;
+  });
+  const footerStartRow = allRows.length;
   hub.appendBlock(allRows, allMerges, buildMixedFooter(header.totalCols));
 
   return {
@@ -685,6 +714,8 @@ function buildMixedProsklisiOrimanthiModel({
     projectCount,
     headerRowCount: header.headerRowCount,
     freezeRows: 2 + header.headerRowCount,
+    invitationBlocks,
+    footerStartRow,
     excelOptions: hub.normalizeExcelOptions(excelOptions),
   };
 }
@@ -716,12 +747,16 @@ function estimateWrappedHeight(text, widthChars, fontPt, minHpt) {
   return Math.min(96, Math.max(minHpt, lines * (fontPt + 6) + 10));
 }
 
-function columnWidthFor(colIndex, columns) {
+function columnWidthFor(colIndex, columns, excelOptions) {
   if (colIndex < columns.length) {
     const field = columns[colIndex];
     return (field && INV_COL_WIDTH[field.id]) || 16;
   }
-  return 24;
+  const { COL: oriCol } = hub.layoutFromOptions(excelOptions);
+  const oriIndex = colIndex - columns.length;
+  const found = Object.entries(oriCol).find(([, idx]) => idx === oriIndex);
+  const key = found && found[0];
+  return (key && ORI_COL_WIDTH[key]) || 14;
 }
 
 const WRAPPED_TEXT_KINDS = {
@@ -729,7 +764,26 @@ const WRAPPED_TEXT_KINDS = {
   invMeta: true,
   project: true,
   projectAlt: true,
+  subproject: true,
+  subprojectAlt: true,
+  meta: true,
+  metaAlt: true,
+  studyName: true,
+  permitName: true,
+  notes: true,
 };
+
+function wrappedFontPt(kind) {
+  if (kind === 'subproject' || kind === 'subprojectAlt' || kind === 'notes') return 8;
+  if (
+    kind === 'invMeta'
+    || kind === 'studyName'
+    || kind === 'permitName'
+    || kind === 'meta'
+    || kind === 'metaAlt'
+  ) return 10;
+  return 11;
+}
 
 function verticalMergeEnds(model) {
   const ends = new Map();
@@ -749,8 +803,16 @@ function computeMixedRowHeights(model) {
     (row || []).forEach((cell, col) => {
       if (!cell || !cell.v) return;
       if (!WRAPPED_TEXT_KINDS[cell.kind]) return;
-      const fontPt = cell.kind === 'invMeta' ? 10 : 11;
-      const needed = estimateWrappedHeight(cell.v, columnWidthFor(col, columns), fontPt, 28);
+      const fontPt = wrappedFontPt(cell.kind);
+      const minH = (cell.kind === 'subproject' || cell.kind === 'subprojectAlt' || cell.kind === 'notes')
+        ? 22
+        : 28;
+      const needed = estimateWrappedHeight(
+        cell.v,
+        columnWidthFor(col, columns, model.excelOptions),
+        fontPt,
+        minH
+      );
       const lastRow = mergeEnds.get(`${rowIndex}:${col}`);
       if (lastRow == null) {
         heights[rowIndex] = Math.max(heights[rowIndex], needed);
@@ -766,6 +828,69 @@ function computeMixedRowHeights(model) {
   });
 
   return heights.map((hpt) => ({ hpt: Math.round(hpt * 10) / 10 }));
+}
+
+function sumRowHeights(heights, from, toInclusive) {
+  let total = 0;
+  for (let i = from; i <= toInclusive; i += 1) {
+    const row = heights[i];
+    total += (row && Number(row.hpt)) || 0;
+  }
+  return total;
+}
+
+function invitationPackEndRow(block, lastRowIndex) {
+  if (block && block.separatorRow != null) return block.separatorRow;
+  return block ? block.endRow : lastRowIndex;
+}
+
+function sheetWidthPtFromCols(cols) {
+  const chars = (Array.isArray(cols) ? cols : []).reduce((sum, col) => (
+    sum + Math.max(1, Number(col && col.wch) || 14)
+  ), 0);
+  return chars * EXCEL_PT_PER_CHAR;
+}
+
+function fitToWidthPrintScale(cols, printableWidthPt) {
+  const pageW = Number(printableWidthPt) > 0
+    ? Number(printableWidthPt)
+    : A4_LANDSCAPE_PRINTABLE_WIDTH_PT;
+  const sheetW = sheetWidthPtFromCols(cols);
+  if (!(sheetW > 0)) return 1;
+  return Math.min(1, pageW / sheetW);
+}
+
+function computeInvitationPageBreaks(model, heights, opts = {}) {
+  const freezeRows = (model && model.freezeRows) || 4;
+  const blocks = (model && model.invitationBlocks) || [];
+  if (!blocks.length) return [];
+  const printable = Number(opts.printablePagePt) > 0
+    ? Number(opts.printablePagePt)
+    : DEFAULT_PRINTABLE_PAGE_PT;
+  const scale = Math.max(
+    0.15,
+    Math.min(1, Number(opts.printScale) > 0 ? Number(opts.printScale) : 1)
+  );
+  const headerPaper = sumRowHeights(heights, 0, Math.max(0, freezeRows - 1)) * scale;
+  const capacity = Math.max(80, printable - headerPaper);
+  const lastRowIndex = Math.max(0, ((heights && heights.length) || 0) - 1);
+  const breaks = [];
+  let used = 0;
+  let prevPackEnd = null;
+
+  blocks.forEach((block) => {
+    const packEnd = invitationPackEndRow(block, lastRowIndex);
+    const height = sumRowHeights(heights, block.startRow, packEnd) * scale;
+    if (used > 0 && used + height > capacity) {
+      const breakAfter = prevPackEnd + 1;
+      if (breakAfter >= 1 && breakAfter < heights.length) breaks.push(breakAfter);
+      used = height;
+    } else {
+      used += height;
+    }
+    prevPackEnd = packEnd;
+  });
+  return breaks;
 }
 
 async function writeMixedWorkbook({
@@ -830,6 +955,20 @@ async function writeMixedWorkbook({
     header: 0.2,
     footer: 0.2,
   };
+  const keepWholeInvitations = keepWholeInvitationsEnabled(excelOptions);
+  const rowHeights = ws['!rows'];
+  const printScale = keepWholeInvitations ? fitToWidthPrintScale(ws['!cols']) : 1;
+  const rowBreaks = keepWholeInvitations
+    ? computeInvitationPageBreaks(model, rowHeights, { printScale })
+    : [];
+  if (keepWholeInvitations) {
+    ws['!pageSetup'] = {
+      paperSize: 9,
+      orientation: 'landscape',
+      fitToWidth: 1,
+      fitToHeight: 0,
+    };
+  }
 
   const wb = XLSX.utils.book_new();
   wb.Props = {
@@ -838,7 +977,7 @@ async function writeMixedWorkbook({
     Author: hub.APP_NAME,
     Company: hub.APP_NAME,
   };
-  XLSX.utils.book_append_sheet(wb, ws, 'Προσκλήσεις και ωρίμανση');
+  XLSX.utils.book_append_sheet(wb, ws, MIXED_SHEET_NAME);
 
   const org = String(organizationName || '').trim();
   const meta = [
@@ -875,7 +1014,12 @@ async function writeMixedWorkbook({
   metaWs['!cols'] = [{ wch: 32 }, { wch: 72 }];
   XLSX.utils.book_append_sheet(wb, metaWs, 'Πληροφορίες');
   XLSX.writeFile(wb, destFilePath);
-  await freezeTopRows(destFilePath, freezeRows);
+  await patchMixedWorkbookView(destFilePath, {
+    freezeRows,
+    keepWholeInvitations,
+    rowBreaks,
+    sheetName: MIXED_SHEET_NAME,
+  });
   return {
     success: true,
     filePath: destFilePath,
@@ -900,22 +1044,40 @@ function loadJSZip() {
   }
 }
 
-async function freezeTopRows(destFilePath, rowCount) {
-  const rows = Math.max(1, Number(rowCount) || 4);
+async function patchMixedWorkbookView(destFilePath, {
+  freezeRows,
+  keepWholeInvitations = false,
+  rowBreaks = [],
+  sheetName = MIXED_SHEET_NAME,
+} = {}) {
+  const rows = Math.max(1, Number(freezeRows) || 4);
   try {
     const JSZip = loadJSZip();
     if (!JSZip) return;
     const fs = require('fs');
     const zip = await JSZip.loadAsync(fs.readFileSync(destFilePath));
-    const sheetName = 'xl/worksheets/sheet1.xml';
-    const file = zip.file(sheetName);
-    if (!file) return;
-    let xml = await file.async('string');
-    if (!/<sheetViews>[\s\S]*?<\/sheetViews>/.test(xml)) return;
-    const topLeft = `A${rows + 1}`;
-    const views = `<sheetViews><sheetView workbookViewId="0"><pane ySplit="${rows}" topLeftCell="${topLeft}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="${topLeft}" sqref="${topLeft}"/></sheetView></sheetViews>`;
-    xml = xml.replace(/<sheetViews>[\s\S]*?<\/sheetViews>/, views);
-    zip.file(sheetName, xml);
+    const sheetPath = 'xl/worksheets/sheet1.xml';
+    const sheetFile = zip.file(sheetPath);
+    if (!sheetFile) return;
+    let xml = await sheetFile.async('string');
+    if (/<sheetViews>[\s\S]*?<\/sheetViews>/.test(xml)) {
+      const topLeft = `A${rows + 1}`;
+      const views = `<sheetViews><sheetView workbookViewId="0"><pane ySplit="${rows}" topLeftCell="${topLeft}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="${topLeft}" sqref="${topLeft}"/></sheetView></sheetViews>`;
+      xml = xml.replace(/<sheetViews>[\s\S]*?<\/sheetViews>/, views);
+    }
+    if (keepWholeInvitations) {
+      xml = applyPrintLayoutXml(xml, {
+        rowBreaks: Array.isArray(rowBreaks) ? rowBreaks : [],
+      });
+      const workbookPath = 'xl/workbook.xml';
+      const workbookFile = zip.file(workbookPath);
+      if (workbookFile) {
+        let workbookXml = await workbookFile.async('string');
+        workbookXml = applyPrintTitlesXml(workbookXml, sheetName, rows);
+        zip.file(workbookPath, workbookXml);
+      }
+    }
+    zip.file(sheetPath, xml);
     const out = await zip.generateAsync({
       type: 'nodebuffer',
       compression: 'DEFLATE',
@@ -923,8 +1085,65 @@ async function freezeTopRows(destFilePath, rowCount) {
     });
     fs.writeFileSync(destFilePath, out);
   } catch (_) {
-    // Αν αποτύχει το πάγωμα, το αρχείο μένει ανοίξιμο χωρίς σταθερές γραμμές.
+    // Αν αποτύχει το πάγωμα / η εκτύπωση, το αρχείο μένει ανοίξιμο χωρίς τις ρυθμίσεις.
   }
+}
+
+function applyPrintLayoutXml(xml, { rowBreaks }) {
+  let next = xml;
+  if (!/<pageSetUpPr\b/.test(next)) {
+    if (/<sheetPr\b[^>]*\/>/.test(next)) {
+      next = next.replace(/<sheetPr\b([^>]*)\/>/, '<sheetPr$1><pageSetUpPr fitToPage="1"/></sheetPr>');
+    } else if (/<sheetPr\b[^>]*>/.test(next)) {
+      next = next.replace(/<sheetPr\b([^>]*)>/, '<sheetPr$1><pageSetUpPr fitToPage="1"/>');
+    } else {
+      next = next.replace(/<worksheet\b([^>]*)>/, '<worksheet$1><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+    }
+  }
+  const pageSetupXml = '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0" usePrinterDefaults="0"/>';
+  if (/<pageSetup\b/.test(next)) {
+    next = next.replace(/<pageSetup\b[^>]*\/>/, pageSetupXml);
+    next = next.replace(/<pageSetup\b[\s\S]*?<\/pageSetup>/, pageSetupXml);
+  } else if (/<pageMargins\b[^>]*\/>/.test(next)) {
+    next = next.replace(/<pageMargins\b[^>]*\/>/, (m) => `${m}${pageSetupXml}`);
+  } else if (/<\/pageMargins>/.test(next)) {
+    next = next.replace(/<\/pageMargins>/, `</pageMargins>${pageSetupXml}`);
+  } else {
+    next = next.replace(/<\/worksheet>/, `${pageSetupXml}</worksheet>`);
+  }
+  next = next.replace(/<rowBreaks\b[\s\S]*?<\/rowBreaks>/g, '');
+  const breaks = (rowBreaks || []).filter((id) => Number.isFinite(id) && id >= 1);
+  if (breaks.length) {
+    const brkXml = breaks
+      .map((id) => `<brk id="${id}" max="16383" man="1"/>`)
+      .join('');
+    const rowBreaksXml = `<rowBreaks count="${breaks.length}" manualBreakCount="${breaks.length}">${brkXml}</rowBreaks>`;
+    if (/<pageSetup\b[^>]*\/>/.test(next)) {
+      next = next.replace(/<pageSetup\b[^>]*\/>/, (m) => `${m}${rowBreaksXml}`);
+    } else {
+      next = next.replace(/<\/worksheet>/, `${rowBreaksXml}</worksheet>`);
+    }
+  }
+  return next;
+}
+
+function quoteSheetName(name) {
+  return `'${String(name || MIXED_SHEET_NAME).replace(/'/g, "''")}'`;
+}
+
+function applyPrintTitlesXml(workbookXml, sheetName, lastTitleRow) {
+  const formula = `${quoteSheetName(sheetName)}!$1:$${lastTitleRow}`;
+  const entry = `<definedName name="_xlnm.Print_Titles">${formula}</definedName>`;
+  if (/name="_xlnm\.Print_Titles"/.test(workbookXml)) {
+    return workbookXml.replace(
+      /<definedName name="_xlnm\.Print_Titles">[\s\S]*?<\/definedName>/,
+      entry
+    );
+  }
+  if (/<definedNames>/.test(workbookXml)) {
+    return workbookXml.replace('<definedNames>', `<definedNames>${entry}`);
+  }
+  return workbookXml.replace('</workbook>', `<definedNames>${entry}</definedNames></workbook>`);
 }
 
 module.exports = {
@@ -934,11 +1153,16 @@ module.exports = {
   MIXED_CORE_FIELD_IDS,
   INVITATION_FIELDS,
   EMPTY_ORIMANTHI_CARD,
+  MIXED_SHEET_NAME,
+  DEFAULT_PRINTABLE_PAGE_PT,
   formatExportDate,
   resolveMixedInvitationFields,
   getInvitationCellValue,
   resolveLinkedProposals,
   buildMixedProsklisiOrimanthiModel,
   computeMixedRowHeights,
+  computeInvitationPageBreaks,
+  fitToWidthPrintScale,
+  keepWholeInvitationsEnabled,
   writeMixedWorkbook,
 };

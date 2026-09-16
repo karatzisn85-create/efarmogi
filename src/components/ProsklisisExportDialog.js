@@ -327,6 +327,7 @@ const DEFAULT_ORIMANTHI_EXCEL_OPTIONS = {
   includeStudies: true,
   includePermits: true,
   includeSubprojectTitles: true,
+  keepWholeInvitations: true,
 };
 
 const ORIMANTHI_COLUMN_CHOICES = [
@@ -914,6 +915,26 @@ function ProsklisisExportDialog({
               >
                 ΤΙΤΛΟΙ ΥΠΟΕΡΓΩΝ
               </ExcelBlockBtn>
+              <ScopeList style={{ marginTop: '0.75rem' }}>
+                <ScopeOption $active={!!orimanthiExcelOptions.keepWholeInvitations}>
+                  <input
+                    type="checkbox"
+                    data-testid="psk-export-keep-whole-invitations"
+                    checked={!!orimanthiExcelOptions.keepWholeInvitations}
+                    onChange={(e) => setOrimanthiExcelOptions((prev) => ({
+                      ...prev,
+                      keepWholeInvitations: e.target.checked,
+                    }))}
+                  />
+                  <div>
+                    Να μην κόβεται πρόσκληση ανάμεσα σε δύο σελίδες
+                    <span>
+                      {' '}
+                      — το πόσες χωράνε βγαίνει αυτόματα από το ύψος κάθε πρόσκλησης. Αν μία μόνη της είναι ψηλότερη από τη σελίδα, συνεχίζεται στην επόμενη.
+                    </span>
+                  </div>
+                </ScopeOption>
+              </ScopeList>
             </div>
           )}
 

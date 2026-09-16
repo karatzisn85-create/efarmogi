@@ -12,8 +12,12 @@ const {
   resolveLinkedProposals,
   buildMixedProsklisiOrimanthiModel,
   computeMixedRowHeights,
+  computeInvitationPageBreaks,
+  fitToWidthPrintScale,
+  keepWholeInvitationsEnabled,
   writeMixedWorkbook,
   REPORT_TITLE,
+  MIXED_SHEET_NAME,
 } = require('../../public/prosklisiOrimanthiExcel');
 
 function cellText(model) {
@@ -444,7 +448,14 @@ describe('prosklisiOrimanthiExcel', () => {
       expect(xml).toContain('topLeftCell="A5"');
       expect(xml).toContain('state="frozen"');
       expect(xml).not.toMatch(/xSplit=/);
-      expect(xml).not.toMatch(/<pageSetup/);
+      expect(xml).toContain('orientation="landscape"');
+      expect(xml).toContain('fitToWidth="1"');
+      expect(xml).toContain('fitToHeight="0"');
+      expect(xml).toContain('fitToPage="1"');
+      expect(xml).not.toMatch(/<rowBreaks/);
+      const workbookXml = await zip.file('xl/workbook.xml').async('string');
+      expect(workbookXml).toContain('_xlnm.Print_Titles');
+      expect(workbookXml).toContain(`'${MIXED_SHEET_NAME}'!$1:$4`);
     } finally {
       try { fs.unlinkSync(dest); } catch (_) { /* ignore */ }
     }
@@ -530,5 +541,224 @@ describe('prosklisiOrimanthiExcel', () => {
     const titleRow = model.rows[findRowWith(model, 'Ανακατασκευή οδού Αρχανών')];
     expect(String(titleRow[invCount + 1].v)).toContain('Ανακατασκευή οδού Αρχανών');
     expect(titleRow[invCount + 2].v).toBe('1. Οδός Α');
+  });
+
+  test('η επιλογή ακέραιας πρόσκλησης είναι ανοιχτή από προεπιλογή', () => {
+    expect(keepWholeInvitationsEnabled(undefined)).toBe(true);
+    expect(keepWholeInvitationsEnabled({})).toBe(true);
+    expect(keepWholeInvitationsEnabled({ keepWholeInvitations: false })).toBe(false);
+  });
+
+  test('δύο προσκλήσεις που δεν χωράνε μαζί παίρνουν αλλαγή σελίδας ανάμεσα τους', () => {
+    const invitation = (title) => ({
+      title,
+      axis: 'Υποδομές',
+      fundingSource: 'ΕΣΠΑ',
+      deadline: '2026-10-01',
+      budgetRange: '1.000',
+      linkedOrimanthiProposals: [{ id: 'road-1' }, { id: 'water-1' }],
+    });
+    const model = buildMixedProsklisiOrimanthiModel({
+      invitations: [invitation('Πρώτη πρόσκληση'), invitation('Δεύτερη πρόσκληση')],
+      allProposals: [roadProposal, waterProposal],
+      selectedFields: MIXED_CORE_FIELD_IDS,
+      excelOptions,
+    });
+    expect(model.invitationBlocks).toHaveLength(2);
+    const first = model.invitationBlocks[0];
+    const second = model.invitationBlocks[1];
+    expect(first.separatorRow).toBe(second.startRow - 1);
+    expect(model.rows[first.separatorRow].every((cell) => cell && cell.kind === 'separator')).toBe(true);
+
+    const heights = computeMixedRowHeights(model);
+    const headerH = heights.slice(0, model.freezeRows).reduce((sum, row) => sum + row.hpt, 0);
+    const firstBlockH = heights.slice(first.startRow, first.separatorRow + 1)
+      .reduce((sum, row) => sum + row.hpt, 0);
+    const tinyPage = headerH + firstBlockH + 10;
+    const breaks = computeInvitationPageBreaks(model, heights, { printablePagePt: tinyPage });
+    expect(breaks).toEqual([first.separatorRow + 1]);
+
+    const wideBreaks = computeInvitationPageBreaks(model, heights, { printablePagePt: 20000 });
+    expect(wideBreaks).toEqual([]);
+  });
+
+  test('το ύψος κάθε πρόσκλησης γεμίζει τη σελίδα — δεν υπάρχει σταθερός αριθμός ανά σελίδα', () => {
+    const invitation = (title, links) => ({
+      title,
+      axis: 'Υποδομές',
+      fundingSource: 'ΕΣΠΑ',
+      deadline: '2026-10-01',
+      budgetRange: '1.000',
+      linkedOrimanthiProposals: links,
+    });
+    const model = buildMixedProsklisiOrimanthiModel({
+      invitations: [
+        invitation('Κοντή Α', []),
+        invitation('Κοντή Β', []),
+        invitation('Κοντή Γ', []),
+        invitation('Ψηλή', [{ id: 'road-1' }, { id: 'water-1' }]),
+      ],
+      allProposals: [roadProposal, waterProposal],
+      selectedFields: MIXED_CORE_FIELD_IDS,
+      excelOptions,
+    });
+    const heights = computeMixedRowHeights(model);
+    const shortH = heights.slice(
+      model.invitationBlocks[0].startRow,
+      model.invitationBlocks[0].separatorRow + 1
+    ).reduce((sum, row) => sum + row.hpt, 0);
+    const tallH = heights.slice(
+      model.invitationBlocks[3].startRow,
+      model.invitationBlocks[3].endRow + 1
+    ).reduce((sum, row) => sum + row.hpt, 0);
+    expect(tallH).toBeGreaterThan(shortH);
+
+    const headerH = heights.slice(0, model.freezeRows).reduce((sum, row) => sum + row.hpt, 0);
+    const pageForTwoShort = headerH + shortH + shortH + 8;
+    const breaks = computeInvitationPageBreaks(model, heights, { printablePagePt: pageForTwoShort });
+    const afterFirst = model.invitationBlocks[0].separatorRow + 1;
+    const afterSecond = model.invitationBlocks[1].separatorRow + 1;
+    expect(breaks).toContain(afterSecond);
+    expect(breaks).not.toContain(afterFirst);
+  });
+
+  test('το υποσέλιδο δεν σπρώχνει την τελευταία πρόσκληση στην επόμενη σελίδα', () => {
+    const invitation = (title) => ({
+      title,
+      axis: 'Υποδομές',
+      fundingSource: 'ΕΣΠΑ',
+      deadline: '2026-10-01',
+      budgetRange: '1.000',
+      linkedOrimanthiProposals: [],
+    });
+    const model = buildMixedProsklisiOrimanthiModel({
+      invitations: [invitation('Πρώτη'), invitation('Δεύτερη')],
+      allProposals: [],
+      selectedFields: MIXED_CORE_FIELD_IDS,
+      excelOptions,
+    });
+    const heights = computeMixedRowHeights(model);
+    const first = model.invitationBlocks[0];
+    const second = model.invitationBlocks[1];
+    const headerH = heights.slice(0, model.freezeRows).reduce((sum, row) => sum + row.hpt, 0);
+    const firstH = heights.slice(first.startRow, first.separatorRow + 1)
+      .reduce((sum, row) => sum + row.hpt, 0);
+    const secondH = heights.slice(second.startRow, second.endRow + 1)
+      .reduce((sum, row) => sum + row.hpt, 0);
+    const footerH = heights.slice(model.footerStartRow)
+      .reduce((sum, row) => sum + row.hpt, 0);
+    expect(footerH).toBeGreaterThan(0);
+    const printable = headerH + firstH + secondH + Math.floor(footerH / 2);
+    const breaks = computeInvitationPageBreaks(model, heights, { printablePagePt: printable });
+    expect(breaks).toEqual([]);
+  });
+
+  test('η σμίκρυνση στο πλάτος μετράει στο πόσο ύψος μένει στη σελίδα', () => {
+    const invitation = (title) => ({
+      title,
+      axis: 'Υποδομές',
+      fundingSource: 'ΕΣΠΑ',
+      deadline: '2026-10-01',
+      budgetRange: '1.000',
+      linkedOrimanthiProposals: [{ id: 'road-1' }, { id: 'water-1' }],
+    });
+    const model = buildMixedProsklisiOrimanthiModel({
+      invitations: Array.from({ length: 8 }, (_, i) => invitation(`Πρόσκληση ${i + 1}`)),
+      allProposals: [roadProposal, waterProposal],
+      selectedFields: MIXED_CORE_FIELD_IDS,
+      excelOptions,
+    });
+    const heights = computeMixedRowHeights(model);
+    const fullSize = computeInvitationPageBreaks(model, heights, { printScale: 1 });
+    const shrunk = computeInvitationPageBreaks(model, heights, { printScale: 0.3 });
+    expect(fullSize.length).toBeGreaterThan(shrunk.length);
+    expect(shrunk).toEqual([]);
+    expect(fitToWidthPrintScale([{ wch: 20 }, { wch: 20 }])).toBe(1);
+    expect(fitToWidthPrintScale(Array.from({ length: 40 }, () => ({ wch: 20 })))).toBeLessThan(1);
+  });
+
+  test('απενεργοποιημένη ρύθμιση δεν γράφει οδηγίες εκτύπωσης', async () => {
+    const dest = path.join(os.tmpdir(), `psk-orimanthi-noprint-${Date.now()}.xlsx`);
+    await writeMixedWorkbook({
+      invitations: [{
+        title: 'Πρόσκληση σχολείων',
+        axis: 'Εκπαίδευση',
+        fundingSource: 'ΕΣΠΑ',
+        deadline: '2026-08-20',
+        budgetRange: '100.000',
+        linkedOrimanthiProposals: [{ id: 'road-1' }],
+      }],
+      allProposals: [roadProposal],
+      selectedFields: MIXED_CORE_FIELD_IDS,
+      excelOptions: { ...excelOptions, keepWholeInvitations: false },
+      destFilePath: dest,
+      exportedBy: 'Δοκιμή',
+      exportedAt: '12/09/2026',
+    });
+    try {
+      let JSZip;
+      try {
+        JSZip = require('jszip');
+      } catch (_) {
+        JSZip = require(require.resolve('jszip', { paths: [path.dirname(require.resolve('exceljs'))] }));
+      }
+      const zip = await JSZip.loadAsync(fs.readFileSync(dest));
+      const xml = await zip.file('xl/worksheets/sheet1.xml').async('string');
+      expect(xml).toContain('state="frozen"');
+      expect(xml).not.toMatch(/<pageSetup/);
+      expect(xml).not.toMatch(/<rowBreaks/);
+    } finally {
+      try { fs.unlinkSync(dest); } catch (_) { /* ignore */ }
+    }
+  });
+
+  test('η εξαγωγή με πολλές προσκλήσεις δεν κόβει πρόσκληση στη μέση', async () => {
+    const dest = path.join(os.tmpdir(), `psk-orimanthi-breaks-${Date.now()}.xlsx`);
+    const invitation = (title) => ({
+      title,
+      axis: 'Υποδομές',
+      fundingSource: 'ΕΣΠΑ',
+      deadline: '2026-10-01',
+      budgetRange: '1.000',
+      linkedOrimanthiProposals: [{ id: 'road-1' }, { id: 'water-1' }],
+    });
+    const invitations = Array.from({ length: 20 }, (_, i) => invitation(`Πρόσκληση ${i + 1}`));
+    const model = buildMixedProsklisiOrimanthiModel({
+      invitations,
+      allProposals: [roadProposal, waterProposal],
+      selectedFields: MIXED_CORE_FIELD_IDS,
+      excelOptions,
+    });
+    const allowedBreaks = new Set(
+      model.invitationBlocks
+        .filter((block) => block.separatorRow != null)
+        .map((block) => block.separatorRow + 1)
+    );
+    await writeMixedWorkbook({
+      invitations,
+      allProposals: [roadProposal, waterProposal],
+      selectedFields: MIXED_CORE_FIELD_IDS,
+      excelOptions,
+      destFilePath: dest,
+      exportedBy: 'Δοκιμή',
+      exportedAt: '12/09/2026',
+    });
+    try {
+      let JSZip;
+      try {
+        JSZip = require('jszip');
+      } catch (_) {
+        JSZip = require(require.resolve('jszip', { paths: [path.dirname(require.resolve('exceljs'))] }));
+      }
+      const zip = await JSZip.loadAsync(fs.readFileSync(dest));
+      const xml = await zip.file('xl/worksheets/sheet1.xml').async('string');
+      expect(xml).toContain('orientation="landscape"');
+      const ids = Array.from(xml.matchAll(/<brk id="(\d+)"/g)).map((m) => Number(m[1]));
+      ids.forEach((id) => {
+        expect(allowedBreaks.has(id)).toBe(true);
+      });
+    } finally {
+      try { fs.unlinkSync(dest); } catch (_) { /* ignore */ }
+    }
   });
 });
