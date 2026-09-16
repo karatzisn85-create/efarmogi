@@ -660,3 +660,62 @@ test('P3-67 προηγμένο φίλτρο έργου ωρίμανσης', asyn
   await expect(window.getByTestId('psk-card-psk-schools')).toBeVisible();
   await expect(window.getByTestId('psk-card-psk-far')).toHaveCount(0);
 });
+
+test('P3-70 μετονομασία αρχείου μένει μετά την αποθήκευση στοιχείων', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  const detail = window.getByTestId('psk-detail-modal');
+  await expect(detail).toBeVisible();
+  await detail.getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await window.getByTestId('psk-files-upload').click();
+  await expect(window.getByText(/προστέθηκε επιτυχώς|Προστέθηκαν/i)).toBeVisible({ timeout: 20000 });
+  await window.getByTestId('file-rename-σχέδιο.pdf').click();
+  await expect(window.getByTestId('file-rename-modal')).toBeVisible();
+  await window.getByTestId('file-rename-input').fill('όροι πρόσκλησης.pdf');
+  await window.getByTestId('file-rename-save').click();
+  await expect(window.getByText('όροι πρόσκλησης.pdf', { exact: true }).first()).toBeVisible();
+  await expect(window.getByText('όροι πρόσκλησης.pdf.pdf', { exact: true })).toHaveCount(0);
+  await window.keyboard.press('Escape');
+  await expect(window.getByTestId('psk-files-modal')).toHaveCount(0);
+  await detail.getByRole('button', { name: 'Επεξεργασία', exact: true }).click();
+  const form = window.getByTestId('psk-form');
+  await expect(form).toBeVisible();
+  await form.getByRole('button', { name: /Αποθήκευση/ }).click();
+  await expect(form).toHaveCount(0);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  await expect(window.getByText('όροι πρόσκλησης.pdf', { exact: true }).first()).toBeVisible();
+  await expect(window.getByText('σχέδιο.pdf', { exact: true })).toHaveCount(0);
+  await expect(window.getByText('όροι πρόσκλησης.pdf.pdf', { exact: true })).toHaveCount(0);
+});
+
+test('P3-71 μετονομασία ομαδοποιημένου αρχείου πρόσκλησης', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  const detail = window.getByTestId('psk-detail-modal');
+  await expect(detail).toBeVisible();
+  await detail.getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  await app.queueFolderPick({
+    success: true,
+    files: [{ filePath: path.join(sampleUpload, 'σχέδιο.pdf'), fileName: 'σχέδιο.pdf' }],
+    folderName: 'Όροι',
+    fileCount: 1,
+  });
+  await window.getByRole('button', { name: /Προσθήκη Φακέλου/ }).click();
+  await expect(window.getByText(/Προστέθηκε ο φάκελος «Όροι»/)).toBeVisible({ timeout: 20000 });
+  await window.getByRole('button', { name: /Όροι/ }).click();
+  await window.getByTestId('file-rename-σχέδιο.pdf').click();
+  await expect(window.getByTestId('file-rename-modal')).toBeVisible();
+  await window.getByTestId('file-rename-input').fill('όροι.pdf');
+  await window.getByTestId('file-rename-save').click();
+  await expect(window.getByText('όροι.pdf', { exact: true }).first()).toBeVisible();
+  await expect(window.getByText('σχέδιο.pdf', { exact: true })).toHaveCount(0);
+});

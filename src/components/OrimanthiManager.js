@@ -3822,6 +3822,14 @@ export default function OrimanthiManager({
     return saveProposal(latest, { skipAudit: true });
   }, [isReadOnly, clearPendingSaveTimer, saveProposal, saveProposalAudited]);
 
+  const awaitProposalWrites = useCallback(async (projectId = selectedId) => {
+    await saveChainRef.current.catch(() => {});
+    if (projectId && pendingSaveProjectIdRef.current === projectId) {
+      await flushProposalSaveById(projectId);
+    }
+    await saveChainRef.current.catch(() => {});
+  }, [selectedId, flushProposalSaveById]);
+
   const scheduleDebouncedSave = useCallback((projectId, audited) => {
     clearPendingSaveTimer();
     pendingSaveProjectIdRef.current = projectId;
@@ -4606,10 +4614,7 @@ export default function OrimanthiManager({
       confirmLabel: 'Διαγραφή',
       icon: '🗑',
     })) return;
-    if (pendingSaveProjectIdRef.current === selectedId) {
-      await flushProposalSaveById(selectedId);
-    }
-    await saveChainRef.current.catch(() => {});
+    await awaitProposalWrites();
     const current = proposalsRef.current.find((p) => p.id === selectedId);
     const nextFileGroups = (current?.fileGroups || []).filter((g) => g.id !== groupId);
     const delRes = await window.electronAPI.invoke('delete-proposal-group', {
@@ -4766,7 +4771,10 @@ export default function OrimanthiManager({
       confirmLabel: 'Διαγραφή',
       icon: '📁',
     })) return;
-    const nextFileGroups = selectedProposal.fileGroups.map((g) =>
+    await awaitProposalWrites();
+    const current = proposalsRef.current.find((p) => p.id === selectedId);
+    if (!current) return;
+    const nextFileGroups = (current.fileGroups || []).map((g) =>
       g.id === groupId
         ? { ...g, files: g.files.filter((f) => getProposalEntryKey(f) !== folder.id) }
         : g
@@ -4795,10 +4803,13 @@ export default function OrimanthiManager({
       icon: '🗑',
     })) return;
 
+    await awaitProposalWrites();
+    const current = proposalsRef.current.find((p) => p.id === selectedId);
+    if (!current) return;
     const remainingFiles = cachedFiles.filter((f) => f.name !== fileName);
     const remainingCount = remainingFiles.length;
 
-    const nextFileGroups = selectedProposal.fileGroups.map((g) => {
+    const nextFileGroups = (current.fileGroups || []).map((g) => {
       if (g.id !== groupId) return g;
       if (remainingCount === 0) {
         return {
@@ -4862,11 +4873,14 @@ export default function OrimanthiManager({
   };
 
   const handleConfirmMove = async () => {
-    if (!moveModal || !selectedProposal || !selectedId) return;
+    if (!moveModal || !selectedId) return;
+    await awaitProposalWrites();
+    const current = proposalsRef.current.find((p) => p.id === selectedId);
+    if (!current) return;
 
     let targetGroupId = moveModal.targetGroupId;
     let targetLabel = '';
-    let fileGroups = [...(selectedProposal.fileGroups || [])];
+    let fileGroups = [...(current.fileGroups || [])];
 
     if (moveModal.targetMode === 'new') {
       const pick = moveModal.newGroupPick;
@@ -4969,7 +4983,10 @@ export default function OrimanthiManager({
       confirmLabel: 'Διαγραφή',
       icon: '🗑',
     })) return;
-    const nextFileGroups = selectedProposal.fileGroups.map((g) =>
+    await awaitProposalWrites();
+    const current = proposalsRef.current.find((p) => p.id === selectedId);
+    if (!current) return;
+    const nextFileGroups = (current.fileGroups || []).map((g) =>
       g.id === groupId
         ? { ...g, files: g.files.filter((f) => getProposalEntryKey(f) !== fileName) }
         : g
@@ -5012,23 +5029,25 @@ export default function OrimanthiManager({
   const handleCloseRename = () => setRenameModal(null);
 
   const handleConfirmRename = async () => {
-    if (!renameModal || !selectedId) return;
+    if (!renameModal || !selectedId || renameModal.saving) return;
     const trimmed = renameModal.newName.trim();
     if (!trimmed) {
       showToast('Δώστε νέο όνομα αρχείου', 'error');
       return;
     }
-    const finalName = `${trimmed}${renameModal.extension || ''}`;
+    setRenameModal((m) => (m ? { ...m, saving: true } : m));
+    await awaitProposalWrites();
 
     const res = await window.electronAPI.invoke('rename-proposal-file', {
       proposalId: selectedId,
       groupId: renameModal.groupId,
       folderId: renameModal.folderId || undefined,
       oldFileName: renameModal.oldName,
-      newFileName: finalName,
+      newFileName: trimmed,
       actingUsername: loggedInUsername,
     });
     if (!res.success) {
+      setRenameModal((m) => (m ? { ...m, saving: false } : m));
       showToast(res.error || 'Σφάλμα μετονομασίας', 'error');
       return;
     }
@@ -6657,6 +6676,7 @@ export default function OrimanthiManager({
                                       $sm
                                       $variant="ghost"
                                       disabled={isAnyUploading}
+                                      data-testid={`orimanthi-upload-files-${group.id}`}
                                       onClick={() => handleSelectFiles(group.id)}
                                     >
                                       {isGroupUploading ? '⏳ Ανέβασμα…' : '+ Αρχεία'}
@@ -6794,6 +6814,7 @@ export default function OrimanthiManager({
                                                             <>
                                                               <RenameIconBtn
                                                                 title="Μετονομασία"
+                                                                data-testid={`orimanthi-rename-${f.name}`}
                                                                 onClick={() => handleOpenRename(group.id, f.name, entry.id)}
                                                               >
                                                                 ✎
@@ -6844,6 +6865,7 @@ export default function OrimanthiManager({
                                               <>
                                                 <RenameIconBtn
                                                   title="Μετονομασία"
+                                                  data-testid={`orimanthi-rename-${entry.name}`}
                                                   onClick={() => handleOpenRename(group.id, entry.name)}
                                                 >
                                                   ✎
@@ -7419,7 +7441,7 @@ export default function OrimanthiManager({
       )}
 
       {renameModal && (
-        <FolderModalOverlay onClick={handleCloseRename}>
+        <FolderModalOverlay data-testid="orimanthi-rename-modal" onClick={handleCloseRename}>
           <FolderModalCard onClick={(e) => e.stopPropagation()}>
             <FolderModalHeader>
               <FolderModalTitle>✎ Μετονομασία αρχείου</FolderModalTitle>
@@ -7432,11 +7454,13 @@ export default function OrimanthiManager({
                 <MetaLabel htmlFor="rename-proposal-file">Νέο όνομα{renameModal.extension ? ' (χωρίς κατάληξη)' : ''}</MetaLabel>
                 <AddPendingInput
                   id="rename-proposal-file"
+                  data-testid="orimanthi-rename-input"
                   ref={renameInputRef}
                   placeholder="Νέο όνομα αρχείου"
                   value={renameModal.newName}
+                  disabled={!!renameModal.saving}
                   onChange={(e) => setRenameModal((m) => ({ ...m, newName: e.target.value }))}
-                  onKeyDown={(e) => e.key === 'Enter' && handleConfirmRename()}
+                  onKeyDown={(e) => e.key === 'Enter' && !renameModal.saving && handleConfirmRename()}
                 />
                 {renameModal.extension ? (
                   <div style={{ fontSize: '0.72rem', color: C.slate500, fontWeight: 600, marginTop: '0.35rem' }}>
@@ -7446,8 +7470,16 @@ export default function OrimanthiManager({
               </MetaField>
             </FolderModalBody>
             <FolderModalFooter>
-              <Btn $sm $variant="ghost" onClick={handleCloseRename}>Ακύρωση</Btn>
-              <Btn $sm $variant="primary" onClick={handleConfirmRename}>Αποθήκευση</Btn>
+              <Btn $sm $variant="ghost" onClick={handleCloseRename} disabled={!!renameModal.saving}>Ακύρωση</Btn>
+              <Btn
+                $sm
+                $variant="primary"
+                data-testid="orimanthi-rename-confirm"
+                onClick={handleConfirmRename}
+                disabled={!!renameModal.saving}
+              >
+                {renameModal.saving ? 'Αποθήκευση…' : 'Αποθήκευση'}
+              </Btn>
             </FolderModalFooter>
           </FolderModalCard>
         </FolderModalOverlay>
@@ -7502,6 +7534,7 @@ export default function OrimanthiManager({
                         key={g.id}
                         type="button"
                         $active={moveModal.targetGroupId === g.id}
+                        data-testid={`orimanthi-move-target-${g.id}`}
                         onClick={() => setMoveModal((m) => ({ ...m, targetGroupId: g.id }))}
                       >
                         <span>{g.label}</span>

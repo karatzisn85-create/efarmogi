@@ -8417,7 +8417,10 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
                 console.error('Source group file not found:', file.filePath);
               }
             } else if (file.fileName && !groupFiles.some((gf) => gf.fileName === file.fileName)) {
-              groupFiles.push(file);
+              const candidateName = path.basename(String(file.fileName));
+              if (fs.existsSync(path.join(groupFolderPath, candidateName))) {
+                groupFiles.push(file);
+              }
             }
           }
           
@@ -9570,6 +9573,21 @@ ipcMain.handle('rename-prosklisi-file', async (_event, {
     }
     data.updatedAt = new Date().toISOString();
     safeWriteJSON(dataFilePath, data);
+
+    const prosklisiDataPath = path.join(prosklisiDir, 'prosklisi_data.json');
+    if (fs.existsSync(prosklisiDataPath)) {
+      try {
+        const existingData = JSON.parse(fs.readFileSync(prosklisiDataPath, 'utf8'));
+        safeWriteJSON(prosklisiDataPath, {
+          ...existingData,
+          prosklisiFiles: data.prosklisiFiles,
+          fileGroups: data.fileGroups,
+          prosklisiFolders: data.prosklisiFolders,
+          updatedAt: data.updatedAt,
+        });
+      } catch (_e) { /* ignore sidecar */ }
+    }
+
     logAuditAction({
       type: 'update',
       entityType: 'prosklisi',
@@ -17600,22 +17618,26 @@ ipcMain.handle('delete-proposal-file', async (_event, {
     if (!Array.isArray(nextFileGroups)) {
       return { success: false, error: 'Απαιτούνται nextFileGroups' };
     }
-    const metaRes = atomicUpdateProposalFileGroups(proposalId, nextFileGroups);
-    if (!metaRes.success) return metaRes;
-    const pid = metaRes.proposalId;
-    const filePath = resolveProposalGroupPath(pid, groupId, fileName);
-    try {
-      if (fs.existsSync(filePath)) {
-        const stat = fs.statSync(filePath);
-        if (!stat.isFile()) throw new Error('Η εγγραφή δεν είναι αρχείο');
-        fs.unlinkSync(filePath);
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const pid = idCheck.id;
+    return enqueueProposalUpload(pid, async () => {
+      const metaRes = atomicUpdateProposalFileGroups(pid, nextFileGroups);
+      if (!metaRes.success) return metaRes;
+      const filePath = resolveProposalGroupPath(pid, groupId, fileName);
+      try {
+        if (fs.existsSync(filePath)) {
+          const stat = fs.statSync(filePath);
+          if (!stat.isFile()) throw new Error('Η εγγραφή δεν είναι αρχείο');
+          fs.unlinkSync(filePath);
+        }
+      } catch (e) {
+        rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+        return { success: false, error: e.message };
       }
-    } catch (e) {
-      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
-      return { success: false, error: e.message };
-    }
-    logProposalActivity(pid, 'update', `Διαγράφηκε αρχείο «${fileName}»`, auth.username);
-    return { success: true, proposal: loadProposal(pid) };
+      logProposalActivity(pid, 'update', `Διαγράφηκε αρχείο «${fileName}»`, auth.username);
+      return { success: true, proposal: loadProposal(pid) };
+    });
   } catch (e) {
     logger.error('delete-proposal-file error:', e.message);
     return { success: false, error: e.message };
@@ -17639,73 +17661,63 @@ ipcMain.handle('rename-proposal-file', async (_event, {
     const idCheck = assertValidProposalId(proposalId);
     if (!idCheck.ok) return { success: false, error: idCheck.error };
     const pid = idCheck.id;
-
+    const planned = managedFilesCore.buildRenamedFileName(oldFileName, newFileName);
+    if (!planned.ok) return { success: false, error: planned.error };
     const safeOld = path.basename(String(oldFileName).trim());
-    let safeNew = path.basename(String(newFileName).trim());
-    safeNew = safeNew.replace(/[<>:"/\\|?*]/g, '_').trim();
-    if (!safeOld || !safeNew || safeOld === '.' || safeOld === '..' || safeNew === '.' || safeNew === '..') {
-      return { success: false, error: 'Μη έγκυρο όνομα αρχείου' };
-    }
-    if (safeOld === safeNew) {
-      return { success: false, error: 'Το νέο όνομα είναι ίδιο με το παλιό' };
+    if (planned.newName === safeOld) {
+      return { success: true, oldFileName: safeOld, newFileName: planned.newName, proposal: loadProposal(pid) };
     }
 
-    const srcPath = folderId
-      ? resolveProposalGroupPath(pid, groupId, folderId, safeOld)
-      : resolveProposalGroupPath(pid, groupId, safeOld);
-    const destPath = folderId
-      ? resolveProposalGroupPath(pid, groupId, folderId, safeNew)
-      : resolveProposalGroupPath(pid, groupId, safeNew);
+    return enqueueProposalUpload(pid, async () => {
+      const dir = folderId
+        ? resolveProposalGroupPath(pid, groupId, folderId)
+        : resolveProposalGroupPath(pid, groupId);
+      const renamed = managedFileRename.renamePhysicalFile(dir, safeOld, planned.newName);
+      if (!renamed.ok) return { success: false, error: renamed.error };
 
-    if (!fs.existsSync(srcPath)) return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
-    const stat = fs.statSync(srcPath);
-    if (!stat.isFile()) return { success: false, error: 'Η εγγραφή δεν είναι αρχείο' };
-    if (fs.existsSync(destPath)) {
-      return { success: false, error: 'Υπάρχει ήδη αρχείο με αυτό το όνομα' };
-    }
-
-    fs.renameSync(srcPath, destPath);
-
-    if (!folderId) {
-      const proposal = loadProposal(pid);
-      if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
-      const updatedGroups = (proposal.fileGroups || []).map((g) => {
-        if (g.id !== groupId) return g;
-        return {
-          ...g,
-          files: (g.files || []).map((f) => {
-            if (f.kind === 'folder' || f.name !== safeOld) return f;
-            return { ...f, name: safeNew };
-          }),
-        };
-      });
-      try {
-        safeWriteJSON(getProposalDataPath(pid), {
-          ...proposal,
-          fileGroups: updatedGroups,
-          updatedAt: new Date().toISOString(),
+      if (!folderId) {
+        const proposal = loadProposal(pid);
+        if (!proposal) {
+          try { managedFileRename.renamePhysicalFile(dir, renamed.newName, safeOld); } catch { /* ignore */ }
+          return { success: false, error: 'Το έργο δεν βρέθηκε' };
+        }
+        const updatedGroups = (proposal.fileGroups || []).map((g) => {
+          if (g.id !== groupId) return g;
+          return {
+            ...g,
+            files: (g.files || []).map((f) => {
+              if (f.kind === 'folder' || f.name !== safeOld) return f;
+              return { ...f, name: renamed.newName };
+            }),
+          };
         });
-      } catch (e) {
-        try { fs.renameSync(destPath, srcPath); } catch { /* ignore rollback */ }
-        return { success: false, error: e.message };
+        try {
+          safeWriteJSON(getProposalDataPath(pid), {
+            ...proposal,
+            fileGroups: updatedGroups,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (e) {
+          try { managedFileRename.renamePhysicalFile(dir, renamed.newName, safeOld); } catch { /* ignore rollback */ }
+          return { success: false, error: e.message };
+        }
+      } else {
+        reconcileProposalFolderEntry(pid, groupId, folderId);
       }
-    } else {
-      reconcileProposalFolderEntry(pid, groupId, folderId);
-    }
 
-    logProposalActivity(
-      pid,
-      'update',
-      `Μετονομασία αρχείου: «${safeOld}» → «${safeNew}»`,
-      auth.username
-    );
-    const updatedProposal = loadProposal(pid);
-    return {
-      success: true,
-      oldFileName: safeOld,
-      newFileName: safeNew,
-      proposal: updatedProposal,
-    };
+      logProposalActivity(
+        pid,
+        'update',
+        `Μετονομασία αρχείου: «${safeOld}» → «${renamed.newName}»`,
+        auth.username
+      );
+      return {
+        success: true,
+        oldFileName: safeOld,
+        newFileName: renamed.newName,
+        proposal: loadProposal(pid),
+      };
+    });
   } catch (e) {
     logger.error('rename-proposal-file error:', e.message);
     return { success: false, error: e.message };
@@ -17724,18 +17736,22 @@ ipcMain.handle('delete-proposal-folder', async (_event, {
     if (!Array.isArray(nextFileGroups)) {
       return { success: false, error: 'Απαιτούνται nextFileGroups' };
     }
-    const metaRes = atomicUpdateProposalFileGroups(proposalId, nextFileGroups);
-    if (!metaRes.success) return metaRes;
-    const pid = metaRes.proposalId;
-    const folderPath = resolveProposalGroupPath(pid, groupId, folderId);
-    try {
-      if (fs.existsSync(folderPath)) fs.rmSync(folderPath, { recursive: true, force: true });
-    } catch (e) {
-      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
-      return { success: false, error: e.message };
-    }
-    logProposalActivity(pid, 'update', 'Διαγράφηκε φάκελος αρχείων', auth.username);
-    return { success: true, proposal: loadProposal(pid) };
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const pid = idCheck.id;
+    return enqueueProposalUpload(pid, async () => {
+      const metaRes = atomicUpdateProposalFileGroups(pid, nextFileGroups);
+      if (!metaRes.success) return metaRes;
+      const folderPath = resolveProposalGroupPath(pid, groupId, folderId);
+      try {
+        if (fs.existsSync(folderPath)) fs.rmSync(folderPath, { recursive: true, force: true });
+      } catch (e) {
+        rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+        return { success: false, error: e.message };
+      }
+      logProposalActivity(pid, 'update', 'Διαγράφηκε φάκελος αρχείων', auth.username);
+      return { success: true, proposal: loadProposal(pid) };
+    });
   } catch (e) {
     logger.error('delete-proposal-folder error:', e.message);
     return { success: false, error: e.message };
@@ -17762,22 +17778,24 @@ ipcMain.handle('delete-proposal-group', async (_event, {
     if (!groupPath.startsWith(rootResolved + path.sep)) {
       return { success: false, error: 'Μη επιτρεπτό path' };
     }
-    const metaRes = atomicUpdateProposalFileGroups(pid, nextFileGroups);
-    if (!metaRes.success) return metaRes;
-    try {
-      if (fs.existsSync(groupPath)) fs.rmSync(groupPath, { recursive: true, force: true });
-    } catch (e) {
-      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
-      return { success: false, error: e.message };
-    }
-    const label = String(groupLabel || '').trim();
-    logProposalActivity(
-      pid,
-      'update',
-      label ? `Διαγράφηκε κατηγορία αρχείων «${label}»` : 'Διαγράφηκε κατηγορία αρχείων',
-      auth.username
-    );
-    return { success: true, proposal: loadProposal(pid) };
+    return enqueueProposalUpload(pid, async () => {
+      const metaRes = atomicUpdateProposalFileGroups(pid, nextFileGroups);
+      if (!metaRes.success) return metaRes;
+      try {
+        if (fs.existsSync(groupPath)) fs.rmSync(groupPath, { recursive: true, force: true });
+      } catch (e) {
+        rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+        return { success: false, error: e.message };
+      }
+      const label = String(groupLabel || '').trim();
+      logProposalActivity(
+        pid,
+        'update',
+        label ? `Διαγράφηκε κατηγορία αρχείων «${label}»` : 'Διαγράφηκε κατηγορία αρχείων',
+        auth.username
+      );
+      return { success: true, proposal: loadProposal(pid) };
+    });
   } catch (e) {
     logger.error('delete-proposal-group error:', e.message);
     return { success: false, error: e.message };
@@ -17810,6 +17828,7 @@ ipcMain.handle('move-proposal-entry', async (_event, {
     if (!idCheck.ok) return { success: false, error: idCheck.error };
     const pid = idCheck.id;
 
+    return enqueueProposalUpload(pid, async () => {
     const metaRes = atomicUpdateProposalFileGroups(pid, nextFileGroups);
     if (!metaRes.success) return metaRes;
 
@@ -17891,6 +17910,7 @@ ipcMain.handle('move-proposal-entry', async (_event, {
     }
 
     return { success: true, proposal: finalProposal, entry: movedEntry };
+    });
   } catch (e) {
     logger.error('move-proposal-entry error:', e.message);
     return { success: false, error: e.message };
@@ -18001,39 +18021,43 @@ ipcMain.handle('delete-proposal-folder-file', async (_event, {
     if (!Array.isArray(nextFileGroups)) {
       return { success: false, error: 'Απαιτούνται nextFileGroups' };
     }
-    const metaRes = atomicUpdateProposalFileGroups(proposalId, nextFileGroups);
-    if (!metaRes.success) return metaRes;
-    const pid = metaRes.proposalId;
-    const filePath = resolveProposalGroupPath(pid, groupId, folderId, fileName);
-    try {
-      if (fs.existsSync(filePath)) {
-        const stat = fs.statSync(filePath);
-        if (!stat.isFile()) throw new Error('Η εγγραφή δεν είναι αρχείο');
-        fs.unlinkSync(filePath);
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const pid = idCheck.id;
+    return enqueueProposalUpload(pid, async () => {
+      const metaRes = atomicUpdateProposalFileGroups(pid, nextFileGroups);
+      if (!metaRes.success) return metaRes;
+      const filePath = resolveProposalGroupPath(pid, groupId, folderId, fileName);
+      try {
+        if (fs.existsSync(filePath)) {
+          const stat = fs.statSync(filePath);
+          if (!stat.isFile()) throw new Error('Η εγγραφή δεν είναι αρχείο');
+          fs.unlinkSync(filePath);
+        }
+      } catch (e) {
+        rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+        return { success: false, error: e.message };
       }
-    } catch (e) {
-      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
-      return { success: false, error: e.message };
-    }
-    const reconciled = reconcileProposalFolderEntry(pid, groupId, folderId);
-    if (!reconciled.ok) {
-      rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
-      return { success: false, error: reconciled.error };
-    }
-    logProposalActivity(
-      pid,
-      'update',
-      reconciled.removed
-        ? `Διαγράφηκε αρχείο «${fileName}» — ο φάκελος αφαιρέθηκε (ήταν κενός)`
-        : `Διαγράφηκε αρχείο «${fileName}» από φάκελο`,
-      auth.username
-    );
-    return {
-      success: true,
-      proposal: reconciled.proposal,
-      folderRemoved: reconciled.removed,
-      files: reconciled.filesOnDisk,
-    };
+      const reconciled = reconcileProposalFolderEntry(pid, groupId, folderId);
+      if (!reconciled.ok) {
+        rollbackProposalSnapshot(pid, metaRes.previousSnapshot);
+        return { success: false, error: reconciled.error };
+      }
+      logProposalActivity(
+        pid,
+        'update',
+        reconciled.removed
+          ? `Διαγράφηκε αρχείο «${fileName}» — ο φάκελος αφαιρέθηκε (ήταν κενός)`
+          : `Διαγράφηκε αρχείο «${fileName}» από φάκελο`,
+        auth.username
+      );
+      return {
+        success: true,
+        proposal: reconciled.proposal,
+        folderRemoved: reconciled.removed,
+        files: reconciled.filesOnDisk,
+      };
+    });
   } catch (e) {
     logger.error('delete-proposal-folder-file error:', e.message);
     return { success: false, error: e.message };

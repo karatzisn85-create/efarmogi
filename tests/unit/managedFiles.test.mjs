@@ -13,6 +13,10 @@ test('μετονομασία κρατά την κατάληξη και κόβε�
   const withExt = files.buildRenamedFileName('α.pdf', 'β.pdf');
   assert.equal(withExt.newName, 'β.pdf');
 
+  const typedWithDotPdf = files.buildRenamedFileName('τοπογραφικο.pdf', 'άδεια-δασών.pdf');
+  assert.equal(typedWithDotPdf.ok, true);
+  assert.equal(typedWithDotPdf.newName, 'άδεια-δασών.pdf');
+
   const bad = files.buildRenamedFileName('α.pdf', '../secret');
   assert.equal(bad.ok, false);
 

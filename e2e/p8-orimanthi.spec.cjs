@@ -271,6 +271,52 @@ test('P8-19 μεταφορά αρχείου σε νέα κατηγορία αδ�
   await expect(window.getByText(/Η άδεια εκδόθηκε|Εκκρεμεί η άδεια/).first()).toBeVisible();
 });
 
+test('P8-26 μετονομασία αρχείου σε αδειοδότηση χωρίς διπλή κατάληξη', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openOrimanthi(window);
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-files').click();
+  await window.getByText('ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ', { exact: true }).click();
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await window.getByTestId('orimanthi-upload-files-fg-permit-arch').click();
+  await expect(window.getByText(/Ανέβηκαν 1 αρχεία/)).toBeVisible({ timeout: 20000 });
+  await expect(window.getByText('σχέδιο.pdf').first()).toBeVisible();
+  await window.getByTestId('orimanthi-permit-issued-fg-permit-arch').click();
+  await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Η άδεια εκδόθηκε/);
+  await window.getByTestId('orimanthi-rename-σχέδιο.pdf').click();
+  await expect(window.getByTestId('orimanthi-rename-modal')).toBeVisible();
+  await window.getByTestId('orimanthi-rename-input').fill('άδεια αρχαιολογίας.pdf');
+  await window.getByTestId('orimanthi-rename-confirm').click();
+  await expect(window.getByText(/Μετονομάστηκε σε «άδεια αρχαιολογίας\.pdf»/)).toBeVisible({ timeout: 15000 });
+  await expect(window.getByText('άδεια αρχαιολογίας.pdf', { exact: true }).first()).toBeVisible();
+  await expect(window.getByText('άδεια αρχαιολογίας.pdf.pdf', { exact: true })).toHaveCount(0);
+  await expect(window.getByText('σχέδιο.pdf', { exact: true })).toHaveCount(0);
+  await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Η άδεια εκδόθηκε/);
+});
+
+test('P8-27 μεταφορά αρχείου μετά τη σήμανση άδειας', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openOrimanthi(window);
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-files').click();
+  await window.getByText('ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ', { exact: true }).click();
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await window.getByTestId('orimanthi-upload-files-fg-permit-arch').click();
+  await expect(window.getByText(/Ανέβηκαν 1 αρχεία/)).toBeVisible({ timeout: 20000 });
+  await window.getByTestId('orimanthi-permit-issued-fg-permit-arch').click();
+  await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Η άδεια εκδόθηκε/);
+  await window.getByTestId('orimanthi-move-σχέδιο.pdf').click();
+  await window.getByRole('button', { name: 'Υπάρχουσα κατηγορία' }).click();
+  await window.getByTestId('orimanthi-move-target-fg-study-topo').click();
+  await window.getByTestId('orimanthi-move-confirm').click();
+  await expect(window.getByText(/Μεταφέρθηκε/)).toBeVisible();
+  await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Η άδεια εκδόθηκε/);
+  await window.getByText('ΤΟΠΟΓΡΑΦΙΚΑ', { exact: true }).click();
+  await expect(window.getByText('σχέδιο.pdf', { exact: true }).first()).toBeVisible();
+});
+
 test('P8-24 ανέβασμα φακέλου σε αδειοδότηση δεν κολλάει', async ({ app }) => {
   const path = require('path');
   const { window, sampleUpload } = app;

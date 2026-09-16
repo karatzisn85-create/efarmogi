@@ -1005,7 +1005,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             <>
               {canManageWorkflow && (
                 <UploadBar>
-                  <UploadButton type="button" onClick={handleUploadFiles} disabled={uploading}>
+                  <UploadButton type="button" data-testid="psk-files-upload" onClick={handleUploadFiles} disabled={uploading}>
                     {uploading ? '⏳ Προσθήκη…' : '📎 Προσθήκη Αρχείων'}
                   </UploadButton>
                   <UploadFolderButton type="button" onClick={handleUploadFolder} disabled={uploading}>

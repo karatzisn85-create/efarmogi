@@ -2739,6 +2739,8 @@ function ProsklisisManager({
         onClose={() => {
           setFileManagerOpen({ isOpen: false, prosklisiId: null, prosklisiTitle: '' });
           requestListScrollRestore();
+          catalogDirtyRef.current = true;
+          void loadProskliseis({ silent: true });
         }}
         prosklisiId={fileManagerOpen.prosklisiId}
         prosklisiTitle={fileManagerOpen.prosklisiTitle}
