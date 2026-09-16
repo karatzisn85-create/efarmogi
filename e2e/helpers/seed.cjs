@@ -355,12 +355,34 @@ function seedProskliseis(dataDir) {
   ];
   items.forEach((p) => {
     const dir = path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ', p.prosklisiId);
+    const extra = p.prosklisiId === 'psk-schools'
+      ? {
+          fileGroups: [{
+            id: 'fg-justif',
+            title: 'Δικαιολογητικά',
+            files: [{ fileName: 'βεβαίωση.pdf', originalName: 'βεβαίωση.pdf' }],
+          }],
+          prosklisiFiles: [
+            { fileName: 'πρόσκληση-όροι.pdf', originalName: 'πρόσκληση-όροι.pdf', targetFolder: 'main' },
+          ],
+        }
+      : { fileGroups: [] };
     writeJson(path.join(dir, 'data.json'), {
       ...p,
       createdAt: '2024-06-01T08:00:00.000Z',
       updatedAt: '2024-06-01T08:00:00.000Z',
-      fileGroups: [],
+      ...extra,
     });
+    if (p.prosklisiId === 'psk-schools') {
+      const mainFilesDir = path.join(dir, 'ΑΡΧΕΙΑ_ΠΡΟΣΚΛΗΣΗΣ');
+      const nested = path.join(mainFilesDir, 'Φάκελος μελετών');
+      const groupDir = path.join(mainFilesDir, 'Επισυναπτόμενα Αρχεία Υποβολής', 'Δικαιολογητικά');
+      fs.mkdirSync(nested, { recursive: true });
+      fs.mkdirSync(groupDir, { recursive: true });
+      fs.writeFileSync(path.join(mainFilesDir, 'πρόσκληση-όροι.pdf'), '%PDF-1.4 e2e invite\n');
+      fs.writeFileSync(path.join(nested, 'μελέτη.pdf'), '%PDF-1.4 e2e study\n');
+      fs.writeFileSync(path.join(groupDir, 'βεβαίωση.pdf'), '%PDF-1.4 e2e cert\n');
+    }
   });
   writeJson(path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ', 'psk-modded', 'modifications.json'), [
     {
@@ -476,7 +498,7 @@ function seedOrimanthi(dataDir) {
         label: 'ΜΕΛΕΤΕΣ ΕΡΓΟΥ · ΤΟΠΟΓΡΑΦΙΚΑ',
         fileCategoryRoot: 'meletes',
         fileCategorySpec: 'ΤΟΠΟΓΡΑΦΙΚΑ',
-        files: [{ name: 'τοπογραφικο.pdf', kind: 'file' }],
+        files: [{ name: 'τοπογραφικο.pdf', kind: 'file', sentToProskliseis: ['psk-schools'] }],
       },
       {
         id: 'fg-permit-arch',

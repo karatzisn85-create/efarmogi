@@ -8845,11 +8845,27 @@ ipcMain.handle('get-prosklisi-files', async (event, prosklisiId) => {
       }
     }
 
+    // Συνδεδεμένα αρχεία ωρίμανσης (ζωντανός σύνδεσμος — δεν αντιγράφονται).
+    // Κατηγορία = ρίζα (ΑΔΕΙΟΔΟΤΗΣΕΙΣ / ΜΕΛΕΤΕΣ ΕΡΓΟΥ), υπότιτλος = εξειδίκευση.
+    const linkedOrimanthiFiles = [];
+    try {
+      if (fs.existsSync(dataPath)) {
+        const dataForLinks = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+        collectLinkedOrimanthiFilesForProsklisi(
+          prosklisiId,
+          dataForLinks.linkedOrimanthiProposals
+        ).forEach((item) => linkedOrimanthiFiles.push(item));
+      }
+    } catch (linkErr) {
+      console.error('Error resolving linked orimanthi files for prosklisi:', linkErr);
+    }
+
     return {
       success: true,
       files: files,
       folders: folders,
       fileGroups: fileGroups,
+      linkedOrimanthiFiles,
       documentRegistry,
       diavgeiaMeta,
       diavgeiaAda,
@@ -16243,6 +16259,7 @@ ipcMain.handle('fix-audit-log-projectids', async (event) => {
 
 const investExportHandler = require('./investExportHandler');
 const orimanthiExportHandler = require('./orimanthiExportHandler');
+const prosklisiExportHandler = require('./prosklisiExportHandler');
 
 ipcMain.handle('export-invest-projects', async (event, options) => {
   try {
@@ -16944,6 +16961,27 @@ function removeOrimanthiLinksFromProskliseis(proposalId) {
   }
 }
 
+function readProsklisiDataById(prosklisiId) {
+  try {
+    if (!prosklisiId) return null;
+    const dataFile = path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ', String(prosklisiId), 'data.json');
+    if (!fs.existsSync(dataFile)) return null;
+    return JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+  } catch (err) {
+    logger.error('readProsklisiDataById failed', err && err.message);
+    return null;
+  }
+}
+
+function isProposalLinkedToProsklisi(proposalId, prosklisiId) {
+  const data = readProsklisiDataById(prosklisiId);
+  if (!data) return false;
+  const links = prosklisiCatalogCore.normalizeLinkedOrimanthiProposals(
+    data.linkedOrimanthiProposals
+  );
+  return links.some((link) => link && link.id === proposalId);
+}
+
 function getProposalDataPath(proposalId) {
   return path.join(getProposalDir(proposalId), 'data.json');
 }
@@ -17234,6 +17272,61 @@ function resolveProposalGroupPath(proposalId, groupId, ...parts) {
   return target;
 }
 
+function collectLinkedOrimanthiFilesForProsklisi(prosklisiId, linkedOrimanthiProposals, { includeSourcePath = false } = {}) {
+  const linkedOrimanthiFiles = [];
+  const links = prosklisiCatalogCore.normalizeLinkedOrimanthiProposals(linkedOrimanthiProposals);
+  links.forEach((link) => {
+    if (!link || !link.id) return;
+    const idCheck = assertValidProposalId(link.id);
+    if (!idCheck.ok) return;
+    const proposal = loadProposal(idCheck.id);
+    if (!proposal) return;
+    (proposal.fileGroups || []).forEach((group) => {
+      if (!orimanthiFileChecklistCore.isProsklisiLinkableGroup(group)) return;
+      const info = orimanthiFileChecklistCore.getGroupCategoryInfo(group);
+      (group.files || []).forEach((entry) => {
+        if (!entry || entry.kind === 'folder') return;
+        const sent = Array.isArray(entry.sentToProskliseis) ? entry.sentToProskliseis : [];
+        if (!sent.includes(prosklisiId)) return;
+        const item = {
+          sourceProposalId: idCheck.id,
+          sourceProposalTitle: proposal.title || link.title || '',
+          sourceGroupId: group.id,
+          fileName: entry.name,
+          originalName: entry.originalName || entry.name,
+          size: entry.size || 0,
+          uploadedAt: entry.uploadedAt || '',
+          rootId: info.rootId,
+          categoryLabel: info.rootLabel,
+          subtitle: info.spec,
+        };
+        if (includeSourcePath) {
+          try {
+            item.sourcePath = resolveProposalGroupPath(idCheck.id, group.id, entry.name);
+          } catch {
+            item.sourcePath = '';
+          }
+        }
+        linkedOrimanthiFiles.push(item);
+      });
+    });
+  });
+  return linkedOrimanthiFiles;
+}
+
+function assertValidProsklisiFolderId(prosklisiId) {
+  const id = String(prosklisiId || '').trim();
+  if (!id || id.includes('..') || /[\\/]/.test(id)) {
+    return { ok: false, error: 'Μη έγκυρο αναγνωριστικό πρόσκλησης' };
+  }
+  const resolved = path.resolve(path.join(proskliseisDir, id));
+  const root = path.resolve(proskliseisDir);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    return { ok: false, error: 'Μη επιτρεπτό path' };
+  }
+  return { ok: true, id, dir: resolved };
+}
+
 function canManageOrimanthi(username) {
   return orimanthiCatalogCore.canManageOrimanthi(findUserByUsername(username));
 }
@@ -17403,10 +17496,26 @@ ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, fi
       const groupDir = resolveProposalGroupPath(idCheck.id, groupId);
       if (!fs.existsSync(groupDir)) fs.mkdirSync(groupDir, { recursive: true });
 
+      // Κανόνας ακεραιότητας: δεν επιτρέπεται το ίδιο αρχείο (ίδιο όνομα) να
+      // καταχωρηθεί δύο φορές στην ίδια κατηγορία + εξειδίκευση.
+      const existingNames = new Set(
+        ((groupCheck.group && groupCheck.group.files) || [])
+          .filter((f) => f && f.kind !== 'folder')
+          .map((f) => String(f.name || '').trim().toLowerCase())
+      );
+      const seenInBatch = new Set();
+
       const saved = [];
+      const skipped = [];
       for (const file of files) {
         if (!file.path || !fs.existsSync(file.path)) continue;
         let baseName = path.basename(file.name || file.path);
+        const dupKey = baseName.trim().toLowerCase();
+        if (existingNames.has(dupKey) || seenInBatch.has(dupKey)) {
+          skipped.push(baseName);
+          continue;
+        }
+        seenInBatch.add(dupKey);
         let destPath = path.join(groupDir, baseName);
         let counter = 1;
         while (fs.existsSync(destPath)) {
@@ -17425,6 +17534,15 @@ ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, fi
         });
       }
       if (saved.length === 0) {
+        if (skipped.length > 0) {
+          return {
+            success: false,
+            skipped,
+            error: skipped.length === 1
+              ? `Το αρχείο «${skipped[0]}» υπάρχει ήδη σε αυτή την κατηγορία και δεν καταχωρήθηκε ξανά.`
+              : `Τα αρχεία υπάρχουν ήδη σε αυτή την κατηγορία και δεν καταχωρήθηκαν ξανά: ${skipped.join(', ')}`,
+          };
+        }
         return { success: false, error: 'Δεν αντιγράφηκε κανένα αρχείο' };
       }
       const updatedProposal = mergeUploadedFilesIntoProposal(idCheck.id, groupId, saved);
@@ -17443,7 +17561,7 @@ ipcMain.handle('upload-proposal-files', async (_event, { proposalId, groupId, fi
         `Προστέθηκαν ${saved.length} αρχεία στην κατηγορία: ${saved.map((f) => f.name).join(', ')}`,
         auth.username
       );
-      return { success: true, files: saved, proposal: updatedProposal };
+      return { success: true, files: saved, skipped, proposal: updatedProposal };
     });
   } catch (e) {
     logger.error('upload-proposal-files error:', e.message);
@@ -17510,6 +17628,102 @@ ipcMain.handle('set-proposal-group-permit-issued', async (_event, {
     });
   } catch (e) {
     logger.error('set-proposal-group-permit-issued error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('set-proposal-file-prosklisi-link', async (_event, {
+  proposalId, groupId, fileName, addProsklisiIds, removeProsklisiIds, actingUsername,
+} = {}) => {
+  try {
+    const auth = requireOrimanthiManage(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const idCheck = assertValidProposalId(proposalId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    if (!groupId || !fileName) {
+      return { success: false, error: 'Απαιτούνται κατηγορία και αρχείο' };
+    }
+    const toAdd = Array.isArray(addProsklisiIds) ? addProsklisiIds.filter(Boolean) : [];
+    const toRemove = Array.isArray(removeProsklisiIds) ? removeProsklisiIds.filter(Boolean) : [];
+    if (!toAdd.length && !toRemove.length) {
+      return { success: false, error: 'Δεν ζητήθηκε καμία αλλαγή' };
+    }
+
+    return enqueueProposalUpload(idCheck.id, async () => {
+      const proposal = loadProposal(idCheck.id);
+      if (!proposal) return { success: false, error: 'Το έργο δεν βρέθηκε' };
+      const group = (proposal.fileGroups || []).find((g) => g.id === groupId);
+      if (!group) return { success: false, error: 'Η κατηγορία δεν βρέθηκε στο έργο' };
+      if (!orimanthiFileChecklistCore.isProsklisiLinkableGroup(group)) {
+        return {
+          success: false,
+          error: 'Η καταχώρηση στην πρόσκληση ισχύει μόνο για Αδειοδοτήσεις και Μελέτες Έργου',
+        };
+      }
+      const safeName = path.basename(String(fileName).trim());
+      const targetFile = (group.files || []).find(
+        (f) => f && f.kind !== 'folder' && f.name === safeName
+      );
+      if (!targetFile) return { success: false, error: 'Το αρχείο δεν βρέθηκε στην κατηγορία' };
+
+      // Επιτρέπονται μόνο προσθήκες προς προσκλήσεις που είναι πράγματι
+      // συσχετισμένες με το έργο. Οι αφαιρέσεις επιτρέπονται πάντα.
+      const invalidAdds = toAdd.filter((pid) => !isProposalLinkedToProsklisi(idCheck.id, pid));
+      if (invalidAdds.length) {
+        return { success: false, error: 'Η πρόσκληση δεν είναι συσχετισμένη με το έργο' };
+      }
+
+      const linkSet = new Set(
+        Array.isArray(targetFile.sentToProskliseis) ? targetFile.sentToProskliseis.filter(Boolean) : []
+      );
+      toAdd.forEach((pid) => linkSet.add(pid));
+      toRemove.forEach((pid) => linkSet.delete(pid));
+      const nextLinks = Array.from(linkSet);
+
+      const updatedGroups = (proposal.fileGroups || []).map((g) => {
+        if (g.id !== groupId) return g;
+        return {
+          ...g,
+          files: (g.files || []).map((f) => {
+            if (f.kind === 'folder' || f.name !== safeName) return f;
+            const nf = { ...f };
+            if (nextLinks.length) nf.sentToProskliseis = nextLinks;
+            else delete nf.sentToProskliseis;
+            return nf;
+          }),
+        };
+      });
+
+      try {
+        safeWriteJSON(getProposalDataPath(idCheck.id), {
+          ...proposal,
+          fileGroups: updatedGroups,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+
+      const info = orimanthiFileChecklistCore.getGroupCategoryInfo(group);
+      const spec = info.spec || group.fileCategorySpec || group.label || '';
+      if (toAdd.length) {
+        logProposalActivity(
+          idCheck.id, 'update',
+          `Καταχώρηση αρχείου «${safeName}» σε πρόσκληση (${info.rootLabel}${spec ? ' · ' + spec : ''})`,
+          auth.username
+        );
+      }
+      if (toRemove.length) {
+        logProposalActivity(
+          idCheck.id, 'update',
+          `Αφαίρεση αρχείου «${safeName}» από πρόσκληση (${info.rootLabel}${spec ? ' · ' + spec : ''})`,
+          auth.username
+        );
+      }
+      return { success: true, proposal: loadProposal(idCheck.id), sentToProskliseis: nextLinks };
+    });
+  } catch (e) {
+    logger.error('set-proposal-file-prosklisi-link error:', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -18112,6 +18326,80 @@ ipcMain.handle('export-proposal', async (_event, { proposalId, includeFiles, act
     return result;
   } catch (e) {
     logger.error('export-proposal error:', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('export-prosklisi', async (_event, { prosklisiId, actingUsername } = {}) => {
+  try {
+    const auth = resolveTaskActingUser(actingUsername);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const idCheck = assertValidProsklisiFolderId(prosklisiId);
+    if (!idCheck.ok) return { success: false, error: idCheck.error };
+    const dataPath = path.join(idCheck.dir, 'data.json');
+    if (!fs.existsSync(dataPath)) {
+      return { success: false, error: 'Η πρόσκληση δεν βρέθηκε' };
+    }
+
+    const prosklisiData = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+    let modifications = [];
+    const modificationsPath = path.join(idCheck.dir, 'modifications.json');
+    if (fs.existsSync(modificationsPath)) {
+      try {
+        modifications = JSON.parse(fs.readFileSync(modificationsPath, 'utf8')) || [];
+      } catch {
+        modifications = [];
+      }
+    }
+
+    const { dialog } = require('electron');
+    const pickResult = await dialog.showOpenDialog({
+      title: 'Επιλογή φακέλου προορισμού εξαγωγής',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (pickResult.canceled || !pickResult.filePaths?.[0]) {
+      return { success: false, canceled: true };
+    }
+
+    const actor = findUserByUsername(auth.username) || {};
+    const exportedByLabel = actor.fullName || auth.username;
+    const record = prosklisiCatalogCore.buildProsklisiExportRecord(prosklisiData, {
+      modifications,
+      linkedProjectsLabel: prosklisiCatalogCore.linkedProjectTitlesOf(prosklisiData).join(' · '),
+      linkedOrimanthiLabel: prosklisiCatalogCore.linkedOrimanthiTitlesOf(prosklisiData).join(' · '),
+    });
+
+    const linkedOrimanthiFiles = collectLinkedOrimanthiFilesForProsklisi(
+      idCheck.id,
+      prosklisiData.linkedOrimanthiProposals,
+      { includeSourcePath: true }
+    );
+
+    const result = await prosklisiExportHandler.exportProsklisi({
+      prosklisi: record,
+      destParentDir: pickResult.filePaths[0],
+      filesRoot: path.join(idCheck.dir, 'ΑΡΧΕΙΑ_ΠΡΟΣΚΛΗΣΗΣ'),
+      linkedOrimanthiFiles,
+      modifications,
+      appVersion: app.getVersion(),
+      exportedBy: exportedByLabel,
+    });
+
+    if (result.success) {
+      logAuditAction({
+        type: 'export',
+        entityType: 'prosklisi',
+        entityId: idCheck.id,
+        entityTitle: prosklisiData.title || '',
+        userFullName: actor.fullName,
+        userRole: actor.role,
+        details: 'Εξαγωγή πρόσκλησης με αρχεία και αναφορά',
+      });
+    }
+
+    return result;
+  } catch (e) {
+    logger.error('export-prosklisi error:', e.message);
     return { success: false, error: e.message };
   }
 });

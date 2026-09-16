@@ -300,6 +300,72 @@ test('P8-26 μετονομασία αρχείου σε αδειοδότηση χ
   await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Η άδεια εκδόθηκε/);
 });
 
+test('P8-28 καταχώρηση αρχείου αδειοδότησης στη συνδεδεμένη ενεργή πρόσκληση', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openOrimanthi(window);
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-files').click();
+  await window.getByText('ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ', { exact: true }).click();
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await window.getByTestId('orimanthi-upload-files-fg-permit-arch').click();
+  await expect(window.getByText(/Ανέβηκαν 1 αρχεία/)).toBeVisible({ timeout: 20000 });
+  // Μία ενεργή συνδεδεμένη πρόσκληση (psk-schools) → απλό toggle χωρίς παράθυρο επιλογής
+  const linkBtn = window.getByTestId('orimanthi-prosklisi-link-σχέδιο.pdf');
+  await expect(linkBtn).toBeVisible();
+  await expect(linkBtn).toHaveText(/\+ Στην πρόσκληση/);
+  await linkBtn.click();
+  await expect(window.getByText(/καταχωρήθηκε στην πρόσκληση/i)).toBeVisible({ timeout: 15000 });
+  await expect(linkBtn).toHaveText(/✓ Στην πρόσκληση/);
+  // Αποεπιλογή: ξαναπατά → φεύγει από την πρόσκληση
+  await linkBtn.click();
+  await expect(window.getByText(/αφαιρέθηκε από την πρόσκληση/i)).toBeVisible({ timeout: 15000 });
+  await expect(linkBtn).toHaveText(/\+ Στην πρόσκληση/);
+});
+
+test('P8-30 αφαίρεση από την πρόσκληση ενημερώνει την ωρίμανση που έμεινε ανοιχτή', async ({ app }) => {
+  const { window } = app;
+  await openOrimanthi(window);
+  await window.getByTestId('orimanthi-open-psk-psk-schools').click();
+  await expect(window.getByText('Διαχείριση Προσκλήσεων').first()).toBeVisible();
+  const detail = window.getByTestId('psk-detail-modal');
+  await expect(detail).toBeVisible();
+  await detail.getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  await window.getByTestId('psk-linked-remove-τοπογραφικο.pdf').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(window.getByText(/αφαιρέθηκε από την πρόσκληση/i)).toBeVisible({ timeout: 15000 });
+  await window.keyboard.press('Escape');
+  await expect(window.getByTestId('psk-files-modal')).toHaveCount(0);
+  await window.getByTestId('psk-detail-close').click();
+  await expect(window.getByTestId('psk-detail-modal')).toHaveCount(0);
+  await window.getByTestId('psk-window-close').click();
+  await expect(window.getByText('Διαχείριση Προσκλήσεων').first()).toHaveCount(0);
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-files').click();
+  await window.getByText('ΤΟΠΟΓΡΑΦΙΚΑ', { exact: true }).click();
+  const linkBtn = window.getByTestId('orimanthi-prosklisi-link-τοπογραφικο.pdf');
+  await expect(linkBtn).toBeVisible();
+  await expect(linkBtn).toHaveText(/\+ Στην πρόσκληση/);
+});
+
+test('P8-29 δεν επιτρέπεται διπλή καταχώρηση ίδιου αρχείου στην ίδια εξειδίκευση', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openOrimanthi(window);
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await window.getByTestId('orimanthi-tab-files').click();
+  await window.getByText('ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ', { exact: true }).click();
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await window.getByTestId('orimanthi-upload-files-fg-permit-arch').click();
+  await expect(window.getByText(/Ανέβηκαν 1 αρχεία/)).toBeVisible({ timeout: 20000 });
+  await expect(window.getByText('σχέδιο.pdf').first()).toBeVisible();
+  // Δεύτερη φορά το ίδιο αρχείο στην ίδια εξειδίκευση → απορρίπτεται
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await window.getByTestId('orimanthi-upload-files-fg-permit-arch').click();
+  await expect(window.getByText(/υπάρχει ήδη σε αυτή την κατηγορία/i)).toBeVisible({ timeout: 20000 });
+});
+
 test('P8-27 μεταφορά αρχείου μετά τη σήμανση άδειας', async ({ app }) => {
   const path = require('path');
   const { window, sampleUpload } = app;

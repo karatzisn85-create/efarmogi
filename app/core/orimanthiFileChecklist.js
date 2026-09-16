@@ -101,6 +101,26 @@
     return getFileGroupIdentity(group).rootId === ROOT_MELETES;
   }
 
+  function getRootLabel(rootId) {
+    return ROOT_LABELS[rootId] || '';
+  }
+
+  // Κατηγορία (ρίζα) + υπότιτλος (εξειδίκευση) μιας ομάδας αρχείων.
+  // Χρησιμοποιείται για την προβολή συνδεδεμένων αρχείων στις προσκλήσεις.
+  function getGroupCategoryInfo(group) {
+    var identity = getFileGroupIdentity(group);
+    return {
+      rootId: identity.rootId || null,
+      rootLabel: getRootLabel(identity.rootId),
+      spec: (identity.spec || '').trim()
+    };
+  }
+
+  function isProsklisiLinkableGroup(group) {
+    var rootId = getFileGroupIdentity(group).rootId;
+    return rootId === ROOT_MELETES || rootId === ROOT_ADEIODOTISEIS;
+  }
+
   function countGroupFiles(group) {
     return ((group && group.files) || []).reduce(function (sum, entry) {
       if (entry && entry.kind === 'folder') return sum + (entry.fileCount || 0);
@@ -312,7 +332,11 @@
     MARK_PERMIT_ISSUED: MARK_PERMIT_ISSUED,
     MARK_PERMIT_APPLIED: MARK_PERMIT_APPLIED,
     MARK_PERMIT_PENDING: MARK_PERMIT_PENDING,
+    ROOT_LABELS: ROOT_LABELS,
     getFileGroupIdentity: getFileGroupIdentity,
+    getRootLabel: getRootLabel,
+    getGroupCategoryInfo: getGroupCategoryInfo,
+    isProsklisiLinkableGroup: isProsklisiLinkableGroup,
     isAdeiodotiseisGroup: isAdeiodotiseisGroup,
     isMeletesGroup: isMeletesGroup,
     countGroupFiles: countGroupFiles,

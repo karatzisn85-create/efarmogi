@@ -101,6 +101,25 @@ const FolderTitle = styled.h3`
   border-left: 4px solid ${C.indigo};
 `;
 
+const LinkedCategoryTitle = styled.div`
+  margin: 0 0 0.4rem 0;
+  color: ${C.slate800};
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0.6rem;
+  background: ${C.indigoLight};
+  border-radius: 8px;
+`;
+
+const LinkedSubtitle = styled.div`
+  margin: 0.15rem 0 0.3rem 0.2rem;
+  color: ${C.slate600};
+  font-size: 0.72rem;
+  font-weight: 700;
+`;
+
 const GroupCard = styled.div`
   margin-bottom: 0.65rem;
   background: #f8fafc;
@@ -307,7 +326,7 @@ const UploadFolderButton = styled(UploadButton)`
   box-shadow: 0 4px 14px rgba(21, 128, 61, 0.35);
 `;
 
-function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, onGroupFiles }) {
+function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, onGroupFiles, loggedInUsername }) {
   const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [files, setFiles] = useState({
@@ -319,6 +338,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     attachments: []
   });
   const [fileGroups, setFileGroups] = useState([]); // Νέα κατάσταση για ομάδες αρχείων
+  const [linkedOrimanthiFiles, setLinkedOrimanthiFiles] = useState([]);
   const [expandedGroupIds, setExpandedGroupIds] = useState({});
   const [registrySource, setRegistrySource] = useState({
     documentRegistry: [],
@@ -373,6 +393,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         });
         setFolders(result.folders || { main: [], attachments: [] });
         setFileGroups(fileGroups); // Φόρτωση ομάδων αρχείων
+        setLinkedOrimanthiFiles(result.linkedOrimanthiFiles || []);
         setRegistrySource({
           documentRegistry: result.documentRegistry || [],
           diavgeiaMeta: result.diavgeiaMeta || null,
@@ -384,6 +405,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         setFiles({ main: [], attachments: [] });
         setFolders({ main: [], attachments: [] });
         setFileGroups([]);
+        setLinkedOrimanthiFiles([]);
         setRegistrySource({ documentRegistry: [], diavgeiaMeta: null, diavgeiaAda: '', modifications: [] });
       }
     } catch (error) {
@@ -391,6 +413,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       setFiles({ main: [], attachments: [] });
       setFolders({ main: [], attachments: [] });
       setFileGroups([]);
+      setLinkedOrimanthiFiles([]);
       setRegistrySource({ documentRegistry: [], diavgeiaMeta: null, diavgeiaAda: '', modifications: [] });
     } finally {
       setLoading(false);
@@ -532,6 +555,80 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       showToast('Σφάλμα λήψης αρχείου: ' + error.message, 'error');
     }
   };
+
+  const handleViewLinkedFile = async (linked) => {
+    try {
+      await ipcRenderer.invoke('open-proposal-file', {
+        proposalId: linked.sourceProposalId,
+        groupId: linked.sourceGroupId,
+        fileName: linked.fileName,
+      });
+    } catch (error) {
+      showToast('Σφάλμα προβολής αρχείου: ' + error.message, 'error');
+    }
+  };
+
+  const handleDownloadLinkedFile = async (linked) => {
+    try {
+      const result = await ipcRenderer.invoke('download-proposal-file', {
+        proposalId: linked.sourceProposalId,
+        groupId: linked.sourceGroupId,
+        fileName: linked.fileName,
+      });
+      if (result && result.success) {
+        showToast('Το αρχείο αποθηκεύτηκε επιτυχώς!', 'success');
+      } else if (result && result.error) {
+        showToast('Σφάλμα λήψης αρχείου: ' + result.error, 'error');
+      }
+    } catch (error) {
+      showToast('Σφάλμα λήψης αρχείου: ' + error.message, 'error');
+    }
+  };
+
+  const handleRemoveLinkedFile = async (linked) => {
+    if (!canManageWorkflow) return;
+    const ok = await showConfirm({
+      title: 'Αφαίρεση από την πρόσκληση',
+      message: `Να αφαιρεθεί το «${linked.fileName}» από τα αρχεία της πρόσκλησης; Το αρχείο παραμένει στην ωρίμανση.`,
+      confirmLabel: 'Αφαίρεση',
+      icon: '🔗',
+    });
+    if (!ok) return;
+    try {
+      const result = await ipcRenderer.invoke('set-proposal-file-prosklisi-link', {
+        proposalId: linked.sourceProposalId,
+        groupId: linked.sourceGroupId,
+        fileName: linked.fileName,
+        removeProsklisiIds: [prosklisiId],
+        actingUsername: loggedInUsername,
+      });
+      if (result && result.success) {
+        showToast('Το αρχείο αφαιρέθηκε από την πρόσκληση', 'success');
+        await loadFiles();
+      } else {
+        showToast((result && result.error) || 'Αποτυχία αφαίρεσης', 'error');
+      }
+    } catch (error) {
+      showToast('Σφάλμα αφαίρεσης: ' + error.message, 'error');
+    }
+  };
+
+  // Ομαδοποίηση συνδεδεμένων αρχείων: Κατηγορία (ρίζα) → Υπότιτλος (εξειδίκευση).
+  const linkedFilesByCategory = useMemo(() => {
+    const map = new Map();
+    (linkedOrimanthiFiles || []).forEach((lf) => {
+      const cat = lf.categoryLabel || 'ΑΡΧΕΙΑ ΩΡΙΜΑΝΣΗΣ';
+      const sub = lf.subtitle || '—';
+      if (!map.has(cat)) map.set(cat, new Map());
+      const subMap = map.get(cat);
+      if (!subMap.has(sub)) subMap.set(sub, []);
+      subMap.get(sub).push(lf);
+    });
+    return Array.from(map.entries()).map(([category, subMap]) => ({
+      category,
+      subtitles: Array.from(subMap.entries()).map(([subtitle, items]) => ({ subtitle, items })),
+    }));
+  }, [linkedOrimanthiFiles]);
 
   const handleRenameFile = async (fileName, targetFolder, typedName) => {
     const result = await ipcRenderer.invoke('rename-prosklisi-file', {
@@ -1017,6 +1114,59 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                 entries={registryEntries}
                 headerTitle="Καταχωρήσεις Διαύγειας"
               />
+
+              {/* Δικαιολογητικά από την ωρίμανση (ζωντανός σύνδεσμος) */}
+              {linkedFilesByCategory.length > 0 && (
+                <FolderSection data-testid="psk-linked-orimanthi-files">
+                  <FolderTitle>🔗 Δικαιολογητικά από την ωρίμανση</FolderTitle>
+                  {linkedFilesByCategory.map((cat) => (
+                    <div key={cat.category} style={{ marginBottom: '0.75rem' }}>
+                      <LinkedCategoryTitle>{cat.category}</LinkedCategoryTitle>
+                      {cat.subtitles.map((sub) => (
+                        <div key={sub.subtitle} style={{ marginBottom: '0.4rem' }}>
+                          {sub.subtitle && sub.subtitle !== '—' && (
+                            <LinkedSubtitle>{sub.subtitle}</LinkedSubtitle>
+                          )}
+                          <FilesList>
+                            {sub.items.map((lf, idx) => {
+                              const { label, bg } = getFileTypeStyle(lf.fileName);
+                              return (
+                                <FileItem
+                                  key={`${lf.sourceProposalId}-${lf.sourceGroupId}-${lf.fileName}-${idx}`}
+                                  style={{ background: '#eef2ff', borderColor: '#c7d2fe' }}
+                                >
+                                  <FileInfo>
+                                    <FileIconBadge $bg={bg}>{label}</FileIconBadge>
+                                    <div style={{ minWidth: 0 }}>
+                                      <FileName title={lf.fileName}>{lf.fileName}</FileName>
+                                      <div style={{ fontSize: '0.68rem', color: C.slate500, fontWeight: 600 }}>
+                                        από: {lf.sourceProposalTitle || 'Έργο ωρίμανσης'}
+                                      </div>
+                                    </div>
+                                  </FileInfo>
+                                  <FileActions>
+                                    <ViewIconBtn title="Προβολή" onClick={() => handleViewLinkedFile(lf)}>👁</ViewIconBtn>
+                                    <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadLinkedFile(lf)}>⬇</DownloadIconBtn>
+                                    {canManageWorkflow && (
+                                      <DeleteIconBtn
+                                        title="Αφαίρεση από την πρόσκληση"
+                                        data-testid={`psk-linked-remove-${lf.fileName}`}
+                                        onClick={() => handleRemoveLinkedFile(lf)}
+                                      >
+                                        ✕
+                                      </DeleteIconBtn>
+                                    )}
+                                  </FileActions>
+                                </FileItem>
+                              );
+                            })}
+                          </FilesList>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </FolderSection>
+              )}
 
               {/* Αφαίρεση του "Αρχεία Πρόσκλησης" section */}
 

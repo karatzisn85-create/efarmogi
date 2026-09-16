@@ -720,6 +720,8 @@ const CompactAside = styled.div`
 const CompactActions = styled.div`
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.35rem;
 `;
 
@@ -1213,6 +1215,8 @@ function ProsklisisManager({
   const [isModificationFormOpen, setIsModificationFormOpen] = useState(false);
   const [prosklisiLocks, setProsklisiLocks] = useState({});
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [exportingProsklisiId, setExportingProsklisiId] = useState(null);
+  const exportingProsklisiRef = useRef(false);
   const [relatedEntaxeisByProsklisi, setRelatedEntaxeisByProsklisi] = useState({});
   const [selectedDetailProsklisi, setSelectedDetailProsklisi] = useState(null);
 
@@ -1676,6 +1680,38 @@ function ProsklisisManager({
   const handleViewFilesFromDetail = (prosklisi) => {
     if (!prosklisi?.prosklisiId) return;
     handleViewFiles(prosklisi.prosklisiId);
+  };
+
+  const handleExportProsklisi = async (prosklisi) => {
+    const id = prosklisi?.prosklisiId;
+    if (!id || exportingProsklisiRef.current) return;
+    exportingProsklisiRef.current = true;
+    setExportingProsklisiId(id);
+    try {
+      const res = await ipcRenderer.invoke('export-prosklisi', {
+        prosklisiId: id,
+        actingUsername: currentUser?.username || '',
+      });
+      if (res?.canceled) return;
+      if (!res?.success) {
+        showToast(res?.error || 'Σφάλμα εξαγωγής', 'error');
+        return;
+      }
+      const missingCount = res.stats?.missingCount || res.missingItems?.length || 0;
+      if (missingCount > 0) {
+        showToast(
+          `Η εξαγωγή ολοκληρώθηκε — ${missingCount} ${missingCount === 1 ? 'στοιχείο δεν' : 'στοιχεία δεν'} βρέθηκαν στον δίσκο`,
+          'warning'
+        );
+      } else {
+        showToast('Η εξαγωγή ολοκληρώθηκε', 'success');
+      }
+    } catch (error) {
+      showToast(`Σφάλμα εξαγωγής: ${error.message}`, 'error');
+    } finally {
+      exportingProsklisiRef.current = false;
+      setExportingProsklisiId(null);
+    }
   };
 
   const handleViewModificationPDF = async (prosklisiId, modificationId) => {
@@ -2510,6 +2546,15 @@ function ProsklisisManager({
                                   <IconBtn $filesPrimary type="button" onClick={() => handleViewFiles(prosklisi.prosklisiId)}>
                                     Αρχεία
                                   </IconBtn>
+                                  <IconBtn
+                                    type="button"
+                                    data-testid={`psk-card-export-${prosklisi.prosklisiId}`}
+                                    title="Εξαγωγή φακέλων, αρχείων και αναφοράς πρόσκλησης"
+                                    disabled={!!exportingProsklisiId}
+                                    onClick={() => handleExportProsklisi(prosklisi)}
+                                  >
+                                    {exportingProsklisiId === prosklisi.prosklisiId ? 'Εξαγωγή…' : 'Εξαγωγή'}
+                                  </IconBtn>
                                   {canManageWorkflow && (
                                     <IconBtn
                                       type="button"
@@ -2685,6 +2730,8 @@ function ProsklisisManager({
           onEdit={handleEditProsklisi}
           onNewModification={handleNewModification}
           onOpenFiles={handleViewFilesFromDetail}
+          onExport={handleExportProsklisi}
+          exporting={!!exportingProsklisiId}
           onOpenRelatedEntaxi={(entaxi) => handleOpenRelatedEntaxi(entaxi, selectedDetailProsklisi.prosklisiId)}
           onOpenLinkedProject={(row) => handleOpenLinkedProject(row, selectedDetailProsklisi.prosklisiId)}
           onOpenLinkedOrimanthi={(row) => handleOpenLinkedOrimanthi(row, selectedDetailProsklisi.prosklisiId)}
@@ -2745,6 +2792,7 @@ function ProsklisisManager({
         prosklisiId={fileManagerOpen.prosklisiId}
         prosklisiTitle={fileManagerOpen.prosklisiTitle}
         userRole={userRole}
+        loggedInUsername={currentUser?.username || ''}
       />
 
       {/* Modification Form Modal (νέα ή επεξεργασία) */}

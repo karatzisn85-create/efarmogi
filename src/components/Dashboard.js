@@ -3480,6 +3480,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isEpProgramOpen, setIsEpProgramOpen] = useState(false);
   const [isApologismosOpen, setIsApologismosOpen] = useState(false);
   const [isOrimanthiOpen, setIsOrimanthiOpen] = useState(false);
+  const [orimanthiListEpoch, setOrimanthiListEpoch] = useState(0);
   const [selectedOrimanthiId, setSelectedOrimanthiId] = useState(null);
   const [prosklisiReturnId, setProsklisiReturnId] = useState(null);
   const [entaxiReturnActive, setEntaxiReturnActive] = useState(false);
@@ -8675,6 +8676,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             userRole={userRole}
             orimanthiCanEdit={!!currentUser?.orimanthiCanEdit}
             initialProposalId={selectedOrimanthiId}
+            refreshEpoch={orimanthiListEpoch}
             proskliseis={proskliseis}
             onOpenProsklisi={(prosklisiId) => {
               setSelectedProsklisiId(prosklisiId);
@@ -8769,6 +8771,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             if (dataChanged) {
               loadProjects();
               loadProskliseis();
+              setOrimanthiListEpoch((n) => n + 1);
             }
             return;
           }

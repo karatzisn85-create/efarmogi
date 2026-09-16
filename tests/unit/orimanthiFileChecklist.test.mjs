@@ -40,6 +40,36 @@ test('άδεια: ✓ έκδοση, Αιτ. αίτηση, × εκκρεμότη�
   assert.equal(list.classifyGroup(issued).kind, 'issued');
 });
 
+test('κατηγορία/υπότιτλος ομάδας για καταχώρηση στην πρόσκληση', () => {
+  const permit = {
+    fileCategoryRoot: 'adeiodotiseis',
+    fileCategorySpec: 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ',
+    files: [],
+  };
+  const study = {
+    fileCategoryRoot: 'meletes',
+    fileCategorySpec: 'ΤΟΠΟΓΡΑΦΙΚΑ',
+    files: [],
+  };
+  const otherByLabel = { label: 'ΜΕΛΕΤΕΣ ΕΡΓΟΥ · ΣΤΑΤΙΚΑ', files: [] };
+
+  assert.equal(list.getRootLabel('adeiodotiseis'), 'ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
+  assert.equal(list.getRootLabel('meletes'), 'ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
+  assert.equal(list.getRootLabel('unknown'), '');
+
+  const info = list.getGroupCategoryInfo(permit);
+  assert.equal(info.rootId, 'adeiodotiseis');
+  assert.equal(info.rootLabel, 'ΑΔΕΙΟΔΟΤΗΣΕΙΣ');
+  assert.equal(info.spec, 'ΕΦΟΡΕΙΑ ΑΡΧΑΙΟΤΗΤΩΝ');
+
+  assert.equal(list.getGroupCategoryInfo(study).rootLabel, 'ΜΕΛΕΤΕΣ ΕΡΓΟΥ');
+  assert.equal(list.getGroupCategoryInfo(otherByLabel).spec, 'ΣΤΑΤΙΚΑ');
+
+  assert.equal(list.isProsklisiLinkableGroup(permit), true);
+  assert.equal(list.isProsklisiLinkableGroup(study), true);
+  assert.equal(list.isProsklisiLinkableGroup({ files: [] }), false);
+});
+
 test('καρτέλα έργου χωρίζει μελέτες και αδειοδοτήσεις', () => {
   const card = list.buildProposalCard({
     title: 'Οδός Αρχανών',

@@ -357,6 +357,10 @@ const FooterBtn = styled.button`
   cursor: pointer;
   white-space: nowrap;
   font-family: inherit;
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 
 const FooterCloseBtn = styled(FooterBtn)`
@@ -483,6 +487,8 @@ function ProsklisiDetailModal({
   onEdit,
   onNewModification,
   onOpenFiles,
+  onExport,
+  exporting = false,
   onOpenRelatedEntaxi,
   onOpenLinkedProject,
   onOpenLinkedOrimanthi,
@@ -857,6 +863,14 @@ function ProsklisiDetailModal({
         <DetailFooter>
           <FooterCloseBtn type="button" data-testid="psk-detail-close" onClick={onClose}>Κλείσιμο</FooterCloseBtn>
           <FooterFilesBtn type="button" onClick={() => onOpenFiles?.(prosklisi)}>Αρχεία</FooterFilesBtn>
+          <FooterFilesBtn
+            type="button"
+            data-testid="psk-detail-export"
+            disabled={exporting}
+            onClick={() => onExport?.(prosklisi)}
+          >
+            {exporting ? 'Εξαγωγή…' : 'Εξαγωγή'}
+          </FooterFilesBtn>
           {canManageWorkflow ? (
             <>
               <FooterGhostBtn type="button" disabled={isLocked} onClick={() => onEdit?.(prosklisi)}>

@@ -328,6 +328,7 @@ test('P3-56 απλός χρήστης βλέπει λεπτομέρειες χω
   await expect(detail.getByRole('button', { name: 'Επεξεργασία' })).toHaveCount(0);
   await expect(detail.getByRole('button', { name: 'Επίσημη τροποποίηση' })).toHaveCount(0);
   await expect(detail.getByRole('button', { name: 'Αρχεία' })).toBeVisible();
+  await expect(detail.getByTestId('psk-detail-export')).toBeVisible();
 });
 
 test('P3-57 επεξεργασία παλιάς τροποποίησης γεμίζει τίτλο και νέα λήξη', async ({ app }) => {
@@ -694,6 +695,26 @@ test('P3-70 μετονομασία αρχείου μένει μετά την α�
   await expect(window.getByText('όροι πρόσκλησης.pdf.pdf', { exact: true })).toHaveCount(0);
 });
 
+test('P3-72 συνδεδεμένο δικαιολογητικό ωρίμανσης εμφανίζεται και αφαιρείται', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  const detail = window.getByTestId('psk-detail-modal');
+  await expect(detail).toBeVisible();
+  await detail.getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  const linkedSection = window.getByTestId('psk-linked-orimanthi-files');
+  await expect(linkedSection).toBeVisible();
+  await expect(linkedSection.getByText('ΜΕΛΕΤΕΣ ΕΡΓΟΥ', { exact: true })).toBeVisible();
+  await expect(linkedSection.getByText('ΤΟΠΟΓΡΑΦΙΚΑ', { exact: true })).toBeVisible();
+  await expect(linkedSection.getByText('τοπογραφικο.pdf', { exact: true })).toBeVisible();
+  // Αφαίρεση συνδέσμου από την πλευρά της πρόσκλησης
+  await window.getByTestId('psk-linked-remove-τοπογραφικο.pdf').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(window.getByText(/αφαιρέθηκε από την πρόσκληση/i)).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('psk-linked-orimanthi-files')).toHaveCount(0);
+});
+
 test('P3-71 μετονομασία ομαδοποιημένου αρχείου πρόσκλησης', async ({ app }) => {
   const path = require('path');
   const { window, sampleUpload } = app;
@@ -718,4 +739,51 @@ test('P3-71 μετονομασία ομαδοποιημένου αρχείου �
   await window.getByTestId('file-rename-save').click();
   await expect(window.getByText('όροι.pdf', { exact: true }).first()).toBeVisible();
   await expect(window.getByText('σχέδιο.pdf', { exact: true })).toHaveCount(0);
+});
+
+test('P3-76 εξαγωγή πρόσκλησης: φάκελοι, αρχεία και αναφορά σε όλες τις καρτέλες', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const { window } = app;
+  await openProskliseis(window);
+
+  await expect(window.getByTestId('psk-card-export-psk-schools')).toBeVisible();
+  await window.getByRole('tab', { name: /Ληγμένες/ }).click();
+  await expect(window.getByTestId('psk-card-export-psk-expired')).toBeVisible();
+  await window.getByRole('tab', { name: /Υποβληθείσες/ }).click();
+  await expect(window.getByTestId('psk-card-export-psk-submitted')).toBeVisible();
+  await window.getByRole('tab', { name: /Ενεργές/ }).click();
+  await expect(window.getByTestId('psk-card-psk-schools')).toBeVisible();
+
+  const dest = path.join(app.testDir, 'εξαγωγή-πρόσκλησης');
+  fs.mkdirSync(dest, { recursive: true });
+  await app.queueOpenFiles([dest]);
+  await window.getByTestId('psk-card-export-psk-schools').click();
+  await expect(window.getByText('Η εξαγωγή ολοκληρώθηκε')).toBeVisible({ timeout: 20000 });
+
+  const exportRoot = path.join(dest, 'Πρόσκληση σχολείων');
+  const wordPath = path.join(exportRoot, 'Αναφορά πρόσκλησης.doc');
+  await expect.poll(() => fs.existsSync(wordPath), { timeout: 15000 }).toBe(true);
+  expect(fs.existsSync(path.join(exportRoot, 'Αρχεία πρόσκλησης', 'πρόσκληση-όροι.pdf'))).toBe(true);
+  expect(fs.existsSync(path.join(exportRoot, 'Αρχεία πρόσκλησης', 'Φάκελος μελετών', 'μελέτη.pdf'))).toBe(true);
+  expect(fs.existsSync(path.join(
+    exportRoot,
+    'Αρχεία πρόσκλησης',
+    'Επισυναπτόμενα Αρχεία Υποβολής',
+    'Δικαιολογητικά',
+    'βεβαίωση.pdf'
+  ))).toBe(true);
+  expect(fs.existsSync(path.join(
+    exportRoot,
+    'Δικαιολογητικά από την ωρίμανση',
+    'ΜΕΛΕΤΕΣ ΕΡΓΟΥ',
+    'ΤΟΠΟΓΡΑΦΙΚΑ',
+    'τοπογραφικο.pdf'
+  ))).toBe(true);
+  const word = fs.readFileSync(wordPath, 'utf8');
+  expect(word).toContain('Πρόσκληση σχολείων');
+  expect(word).toContain('PSK-100');
+  expect(word).toContain('πρόσκληση-όροι.pdf');
+  expect(word).toContain('τοπογραφικο.pdf');
+  expect(word).toContain('Οδικό δίκτυο Αρχανών');
 });

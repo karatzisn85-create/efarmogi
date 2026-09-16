@@ -1094,6 +1094,7 @@
     parseProsklisiBudgetRange: parseProsklisiBudgetRange,
     prosklisiMatchesBudgetWindow: prosklisiMatchesBudgetWindow,
     uniqueLinkedProjectTitles: uniqueLinkedProjectTitles,
+    linkedProjectTitlesOf: linkedProjectTitlesOf,
     uniqueLinkedOrimanthiTitles: uniqueLinkedOrimanthiTitles,
     prosklisiLinksOrimanthiTitle: prosklisiLinksOrimanthiTitle,
     findProskliseisLinkedToOrimanthi: findProskliseisLinkedToOrimanthi,

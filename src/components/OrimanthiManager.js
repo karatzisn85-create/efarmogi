@@ -43,7 +43,11 @@ import {
   summarizeOrimanthiPermits,
   appendFileCategoryGroups,
 } from '../utils/orimanthiFileCategories';
-import { findProskliseisLinkedToOrimanthi } from '../utils/prosklisiDeadlineUtils';
+import {
+  findProskliseisLinkedToOrimanthi,
+  getProsklisiViewTab,
+  PROSKLISI_VIEW_TABS,
+} from '../utils/prosklisiDeadlineUtils';
 import {
   loadCustomCategoriesList,
   saveCustomCategoriesList,
@@ -2644,6 +2648,32 @@ const PermitIssuedBox = styled.span`
   font-size: 0.55rem;
   font-weight: 900;
 `;
+const ProsklisiLinkBtn = styled.button`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  padding: 0.16rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid ${(p) => (p.$active ? '#c7d2fe' : C.slate200)};
+  background: ${(p) => (p.$active ? '#eef2ff' : C.slate100)};
+  color: ${(p) => (p.$active ? '#4338ca' : C.slate600)};
+  cursor: pointer;
+  line-height: 1.2;
+  transition: background 0.15s, border-color 0.15s;
+  &:hover {
+    background: ${(p) => (p.$active ? '#e0e7ff' : C.slate50)};
+    border-color: ${(p) => (p.$active ? '#a5b4fc' : C.slate300)};
+  }
+`;
+const ProsklisiLinkTag = styled.span`
+  margin-left: 0.35rem;
+  color: #4338ca;
+  font-weight: 700;
+`;
 const GroupActions = styled.div`
   display: flex; gap: 0.3rem; align-items: center;
 `;
@@ -3118,6 +3148,7 @@ export default function OrimanthiManager({
   userRole,
   orimanthiCanEdit = false,
   initialProposalId = null,
+  refreshEpoch = 0,
   proskliseis = [],
   onOpenProsklisi,
 }) {
@@ -3202,6 +3233,8 @@ export default function OrimanthiManager({
   const [nestedFileHighlight, setNestedFileHighlight] = useState(null);
   const [moveModal, setMoveModal] = useState(null);
   const [renameModal, setRenameModal] = useState(null);
+  const [prosklisiLinkModal, setProsklisiLinkModal] = useState(null);
+  const prosklisiLinkInFlightRef = useRef(new Set());
   const renameInputRef = useRef(null);
   const [draggingGroupId, setDraggingGroupId] = useState(null);
 
@@ -3563,6 +3596,14 @@ export default function OrimanthiManager({
   proposalsRef.current = proposals;
   const selectedProposal = proposals.find((p) => p.id === selectedId) || null;
 
+  // Ενεργές συνδεδεμένες προσκλήσεις του επιλεγμένου έργου — μόνο αυτές
+  // μπορούν να δεχθούν καταχώρηση δικαιολογητικού (όχι υποβληθείσες/ληγμένες).
+  const activeLinkedInvites = useMemo(() => {
+    if (!selectedProposal) return [];
+    return findProskliseisLinkedToOrimanthi(proskliseis, selectedProposal.id)
+      .filter((inv) => getProsklisiViewTab(inv, [], new Date()) === PROSKLISI_VIEW_TABS.ACTIVE);
+  }, [proskliseis, selectedProposal]);
+
   useEffect(() => {
     if (!selectedProposal || !detailFileFilter.trim()) {
       setDetailFolderFilterMatches(new Set());
@@ -3633,6 +3674,46 @@ export default function OrimanthiManager({
     setProposals((prev) => prev.map((p) => (p.id === projectId ? { ...snap } : p)));
     proposalsRef.current = proposalsRef.current.map((p) => (p.id === projectId ? { ...snap } : p));
   }, []);
+
+  useEffect(() => {
+    if (!refreshEpoch) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await window.electronAPI.invoke('load-all-proposals');
+        if (cancelled || !res.success) return;
+        const list = (res.proposals || []).map(migrateProposalFileGroups);
+        const selected = selectedId;
+        const keepLocalEdits = !!(selected && isProposalDirty(selected));
+        setProposals((prev) => {
+          const diskById = new Map(list.map((p) => [p.id, p]));
+          const seen = new Set();
+          const next = prev.map((p) => {
+            const disk = diskById.get(p.id);
+            if (!disk) return p;
+            seen.add(p.id);
+            if (keepLocalEdits && p.id === selected) {
+              return orimanthiFileChecklist.mergeProposalFromDisk(p, disk);
+            }
+            return disk;
+          });
+          list.forEach((p) => {
+            if (p?.id && !seen.has(p.id)) next.push(p);
+          });
+          proposalsRef.current = next;
+          next.forEach((p) => {
+            if (!p?.id) return;
+            if (keepLocalEdits && p.id === selected) return;
+            persistedSnapshotsRef.current[p.id] = JSON.parse(JSON.stringify(p));
+          });
+          return next;
+        });
+      } catch {
+        /* η οθόνη έχει ήδη τα έργα */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refreshEpoch, selectedId, isProposalDirty]);
 
   const releaseProposalLock = useCallback(async (projectId) => {
     if (!projectId || lockedProposalIdRef.current !== projectId) return;
@@ -4666,13 +4747,21 @@ export default function OrimanthiManager({
         actingUsername: loggedInUsername,
       });
       if (!res.success) {
-        showToast(`Σφάλμα ανεβάσματος: ${res.error}`, 'error');
+        showToast(res.error ? `Σφάλμα ανεβάσματος: ${res.error}` : 'Σφάλμα ανεβάσματος', 'error');
         return;
       }
       if (res.proposal) mergeSavedProposal(res.proposal);
       refreshHistoryIfVisible(selectedId);
       await refreshExpandedFoldersInGroup(groupId, selectedId);
       showToast(`Ανέβηκαν ${res.files.length} αρχεία`, 'success');
+      if (Array.isArray(res.skipped) && res.skipped.length) {
+        showToast(
+          res.skipped.length === 1
+            ? `Το αρχείο «${res.skipped[0]}» υπάρχει ήδη σε αυτή την κατηγορία και δεν προστέθηκε ξανά.`
+            : `${res.skipped.length} αρχεία υπάρχουν ήδη σε αυτή την κατηγορία και δεν προστέθηκαν ξανά.`,
+          'warning'
+        );
+      }
     } finally {
       setUploadingGroupId(null);
     }
@@ -5188,6 +5277,117 @@ export default function OrimanthiManager({
 
   const togglePermitIssued = (groupId) => togglePermitFlag(groupId, 'permitIssued');
   const togglePermitApplied = (groupId) => togglePermitFlag(groupId, 'permitApplied');
+
+  const applyProsklisiLinkToFile = (groupId, fileName, links) => {
+    setProposals((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== selectedId) return p;
+        return {
+          ...p,
+          fileGroups: (p.fileGroups || []).map((g) => {
+            if (g.id !== groupId) return g;
+            return {
+              ...g,
+              files: (g.files || []).map((f) => {
+                if (isProposalFolder(f) || f.name !== fileName) return f;
+                const nf = { ...f };
+                if (links && links.length) nf.sentToProskliseis = links;
+                else delete nf.sentToProskliseis;
+                return nf;
+              }),
+            };
+          }),
+        };
+      });
+      proposalsRef.current = next;
+      return next;
+    });
+  };
+
+  const commitProsklisiLink = async (groupId, fileName, addIds, removeIds) => {
+    if (isReadOnly || !selectedId) return;
+    const flightKey = `${groupId}:${fileName}`;
+    if (prosklisiLinkInFlightRef.current.has(flightKey)) return;
+    prosklisiLinkInFlightRef.current.add(flightKey);
+    try {
+      await awaitProposalWrites();
+      const current = proposalsRef.current.find((p) => p.id === selectedId);
+      const group = (current?.fileGroups || []).find((g) => g.id === groupId);
+      const file = (group?.files || []).find((f) => !isProposalFolder(f) && f.name === fileName);
+      const prevLinks = Array.isArray(file?.sentToProskliseis) ? [...file.sentToProskliseis] : [];
+      const set = new Set(prevLinks);
+      (addIds || []).forEach((id) => set.add(id));
+      (removeIds || []).forEach((id) => set.delete(id));
+      const nextLinks = Array.from(set);
+      applyProsklisiLinkToFile(groupId, fileName, nextLinks);
+      const res = await window.electronAPI.invoke('set-proposal-file-prosklisi-link', {
+        proposalId: selectedId,
+        groupId,
+        fileName,
+        addProsklisiIds: addIds || [],
+        removeProsklisiIds: removeIds || [],
+        actingUsername: loggedInUsername,
+      });
+      if (!res || !res.success) {
+        applyProsklisiLinkToFile(groupId, fileName, prevLinks);
+        showToast((res && res.error) || 'Δεν αποθηκεύτηκε η καταχώρηση στην πρόσκληση', 'error');
+        return;
+      }
+      applyProsklisiLinkToFile(groupId, fileName, res.sentToProskliseis || nextLinks);
+      const after = proposalsRef.current.find((p) => p.id === selectedId);
+      if (after) markProposalPersisted(after);
+      if ((addIds || []).length) {
+        showToast('Το αρχείο καταχωρήθηκε στην πρόσκληση', 'success');
+      } else if ((removeIds || []).length) {
+        showToast('Το αρχείο αφαιρέθηκε από την πρόσκληση', 'success');
+      }
+      refreshHistoryIfVisible(selectedId);
+    } finally {
+      prosklisiLinkInFlightRef.current.delete(flightKey);
+    }
+  };
+
+  const handleToggleProsklisiLink = (group, entry) => {
+    if (isReadOnly || !selectedId || isProposalFolder(entry)) return;
+    const currentLinks = Array.isArray(entry.sentToProskliseis) ? entry.sentToProskliseis : [];
+    const activeIds = activeLinkedInvites.map((inv) => inv.prosklisiId);
+    // Καμία ενεργή πρόσκληση: αν είναι ήδη καταχωρημένο, αποεπιλογή.
+    if (activeIds.length === 0) {
+      if (currentLinks.length) commitProsklisiLink(group.id, entry.name, [], currentLinks);
+      return;
+    }
+    // Μία μόνο ενεργή πρόσκληση και το αρχείο δεν είναι μοιρασμένο αλλού → απλό toggle.
+    if (activeIds.length === 1 && currentLinks.every((id) => !id || id === activeIds[0])) {
+      const only = activeIds[0];
+      if (currentLinks.includes(only)) {
+        commitProsklisiLink(group.id, entry.name, [], currentLinks);
+      } else {
+        commitProsklisiLink(group.id, entry.name, [only], []);
+      }
+      return;
+    }
+    // Πολλές ενεργές (ή ήδη καταχωρημένο και σε άλλη πρόσκληση) → παράθυρο επιλογής.
+    setProsklisiLinkModal({
+      groupId: group.id,
+      fileName: entry.name,
+      selected: new Set(currentLinks),
+    });
+  };
+
+  const confirmProsklisiLinkModal = async () => {
+    if (!prosklisiLinkModal) return;
+    const { groupId, fileName, selected } = prosklisiLinkModal;
+    const current = proposalsRef.current.find((p) => p.id === selectedId);
+    const group = (current?.fileGroups || []).find((g) => g.id === groupId);
+    const file = (group?.files || []).find((f) => !isProposalFolder(f) && f.name === fileName);
+    const prevLinks = new Set(Array.isArray(file?.sentToProskliseis) ? file.sentToProskliseis : []);
+    const nextLinks = selected;
+    const addIds = [...nextLinks].filter((id) => !prevLinks.has(id));
+    const removeIds = [...prevLinks].filter((id) => !nextLinks.has(id));
+    setProsklisiLinkModal(null);
+    if (!addIds.length && !removeIds.length) return;
+    await commitProsklisiLink(groupId, fileName, addIds, removeIds);
+  };
 
   const toggleNewProjectPermitIssued = (groupId) => {
     setNewProjectStagedGroups((prev) => prev.map((g) => (
@@ -6649,6 +6849,9 @@ export default function OrimanthiManager({
                         const isDragging = draggingGroupId === group.id;
                         const isGroupUploading = uploadingGroupId === group.id;
                         const isAnyUploading = uploadingGroupId != null;
+                        const groupRootId = getFileGroupIdentity(group).rootId;
+                        const groupLinkable = groupRootId === FILE_CATEGORY_ROOT_MELETES
+                          || groupRootId === FILE_CATEGORY_ROOT_ADEIODOTISEIS;
                         const visibleFiles = filterGroupFiles(group, detailFileFilter, detailFolderFilterMatches);
                         const isEmpty = visibleFiles.length === 0;
                         if (detailFileFilter.trim() && visibleFiles.length === 0) return null;
@@ -6843,16 +7046,39 @@ export default function OrimanthiManager({
                                       }
                                       const typeStyle = getFileTypeStyle(entry.name);
                                       const IconWrap = isImageFileName(entry.name) ? FileTypeIconLarge : FileTypeIcon;
+                                      const fileLinks = Array.isArray(entry.sentToProskliseis) ? entry.sentToProskliseis : [];
+                                      const fileLinked = fileLinks.length > 0;
+                                      const showProsklisiLinkBtn = groupLinkable && (activeLinkedInvites.length > 0 || fileLinked);
                                       return (
                                         <FileItem key={entry.name}>
                                           <FileInfo>
                                             <IconWrap $bg={typeStyle.bg}>{typeStyle.label}</IconWrap>
                                             <div style={{ minWidth: 0 }}>
                                               <FileListName title={entry.name}>{entry.name}</FileListName>
-                                              <FileListMeta>{formatBytes(entry.size)}</FileListMeta>
+                                              <FileListMeta>
+                                                {formatBytes(entry.size)}
+                                                {fileLinked ? (
+                                                  <ProsklisiLinkTag title="Καταχωρημένο ως δικαιολογητικό πρόσκλησης">
+                                                    · στην πρόσκληση
+                                                  </ProsklisiLinkTag>
+                                                ) : null}
+                                              </FileListMeta>
                                             </div>
                                           </FileInfo>
                                           <FileActions>
+                                            {showProsklisiLinkBtn && !isReadOnly && (
+                                              <ProsklisiLinkBtn
+                                                type="button"
+                                                $active={fileLinked}
+                                                data-testid={`orimanthi-prosklisi-link-${entry.name}`}
+                                                title={fileLinked
+                                                  ? 'Καταχωρημένο στην πρόσκληση — κλικ για αλλαγή/αφαίρεση'
+                                                  : 'Καταχώρηση ως δικαιολογητικό πρόσκλησης'}
+                                                onClick={() => handleToggleProsklisiLink(group, entry)}
+                                              >
+                                                {fileLinked ? '✓ Στην πρόσκληση' : '+ Στην πρόσκληση'}
+                                              </ProsklisiLinkBtn>
+                                            )}
                                             <ViewIconBtn
                                               title="Προβολή"
                                               onClick={() => handleOpenFile(group.id, entry.name)}
@@ -7483,6 +7709,91 @@ export default function OrimanthiManager({
                 disabled={!!renameModal.saving}
               >
                 {renameModal.saving ? 'Αποθήκευση…' : 'Αποθήκευση'}
+              </Btn>
+            </FolderModalFooter>
+          </FolderModalCard>
+        </FolderModalOverlay>
+      )}
+
+      {prosklisiLinkModal && (
+        <FolderModalOverlay
+          data-testid="orimanthi-prosklisi-link-modal"
+          onClick={() => setProsklisiLinkModal(null)}
+        >
+          <FolderModalCard onClick={(e) => e.stopPropagation()}>
+            <FolderModalHeader>
+              <FolderModalTitle>Καταχώρηση στην πρόσκληση</FolderModalTitle>
+              <FolderModalSub>
+                Επιλέξτε σε ποιες προσκλήσεις θα καταχωρηθεί το «{prosklisiLinkModal.fileName}» ως δικαιολογητικό.
+              </FolderModalSub>
+            </FolderModalHeader>
+            <FolderModalBody>
+              {(() => {
+                const activeIds = new Set(activeLinkedInvites.map((inv) => inv.prosklisiId));
+                const allLinked = selectedProposal
+                  ? findProskliseisLinkedToOrimanthi(proskliseis, selectedProposal.id)
+                  : [];
+                const extra = [...prosklisiLinkModal.selected]
+                  .filter((id) => !activeIds.has(id))
+                  .map((id) => allLinked.find((inv) => inv.prosklisiId === id)
+                    || { prosklisiId: id, title: 'Πρόσκληση' });
+                const modalInvites = [...activeLinkedInvites, ...extra];
+                if (!modalInvites.length) {
+                  return (
+                    <div style={{ fontSize: '0.82rem', color: C.slate500 }}>
+                      Δεν υπάρχουν ενεργές συνδεδεμένες προσκλήσεις.
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {modalInvites.map((inv) => {
+                      const checked = prosklisiLinkModal.selected.has(inv.prosklisiId);
+                      const isActive = activeIds.has(inv.prosklisiId);
+                      return (
+                        <label
+                          key={inv.prosklisiId}
+                          data-testid={`orimanthi-prosklisi-link-option-${inv.prosklisiId}`}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '0.6rem',
+                            padding: '0.5rem 0.65rem', borderRadius: '10px',
+                            border: `1px solid ${checked ? '#a5b4fc' : C.slate200}`,
+                            background: checked ? '#eef2ff' : C.white, cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              if (!isActive && !checked) return;
+                              setProsklisiLinkModal((m) => {
+                                const next = new Set(m.selected);
+                                if (next.has(inv.prosklisiId)) next.delete(inv.prosklisiId);
+                                else next.add(inv.prosklisiId);
+                                return { ...m, selected: next };
+                              });
+                            }}
+                          />
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: C.slate800 }}>
+                            {inv.title || 'Πρόσκληση'}
+                            {!isActive ? ' · μη ενεργή' : ''}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </FolderModalBody>
+            <FolderModalFooter>
+              <Btn $sm $variant="ghost" onClick={() => setProsklisiLinkModal(null)}>Ακύρωση</Btn>
+              <Btn
+                $sm
+                $variant="primary"
+                data-testid="orimanthi-prosklisi-link-confirm"
+                onClick={confirmProsklisiLinkModal}
+              >
+                Αποθήκευση
               </Btn>
             </FolderModalFooter>
           </FolderModalCard>
