@@ -1192,7 +1192,7 @@ function ProjectCard({
   hasLinkedEgkrisi = false,
   linkedProsklisi,
   onOpenLinkedProsklisi,
-  linkedOrimanthi,
+  linkedOrimanthiLinks = [],
   onOpenLinkedOrimanthi,
   isLocked = false,
   hasEntaxi = false,
@@ -1584,13 +1584,19 @@ function ProjectCard({
               Πρόσκληση
             </ToolbarButton>
           )}
-          {linkedOrimanthi && (
+          {linkedOrimanthiLinks.length > 0 && (
             <ToolbarButton
               type="button"
               data-testid={`btn-orimanthi-${project.subprojectId}`}
-              onClick={() => onOpenLinkedOrimanthi && onOpenLinkedOrimanthi(linkedOrimanthi.id)}
+              title={linkedOrimanthiLinks.map((row) => row.title || row.id).filter(Boolean).join(' · ')}
+              onClick={() => onOpenLinkedOrimanthi && onOpenLinkedOrimanthi(linkedOrimanthiLinks)}
             >
               Ωρίμανση
+              {linkedOrimanthiLinks.length > 1 && (
+                <ToolbarCount data-testid={`orimanthi-count-${project.subprojectId}`}>
+                  {linkedOrimanthiLinks.length}
+                </ToolbarCount>
+              )}
             </ToolbarButton>
           )}
           {hasEntaxi && (

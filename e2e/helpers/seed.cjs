@@ -332,6 +332,22 @@ function seedProskliseis(dataDir) {
       status: 'Υπό Υποβολή',
       code: 'PSK-300',
       linkedProjects: [{ title: 'Ύδρευση Αστερουσίων', projectId: 'proj-water' }],
+      linkedOrimanthiProposals: [
+        {
+          id: 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e',
+          title: 'Δίκτυο ύδρευσης Παρανύμφων',
+          projectCategory: 'ΥΔΡΑΥΛΙΚΑ',
+          status: 'maturing',
+          municipalUnit: 'Δ.Ε. ΑΣΤΕΡΟΥΣΙΩΝ',
+        },
+        {
+          id: 'c4d5e6f7-a8b9-4c0d-9e1f-2a3b4c5d6e7f',
+          title: 'Μακρινή ΑΕΠΟ λιμένα',
+          projectCategory: 'ΛΙΜΕΝΙΚΑ',
+          status: 'maturing',
+          municipalUnit: 'Δ.Ε. ΤΥΜΠΑΚΙΟΥ',
+        },
+      ],
     },
     {
       prosklisiId: 'psk-submitted',

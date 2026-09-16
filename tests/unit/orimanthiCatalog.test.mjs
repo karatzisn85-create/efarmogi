@@ -151,3 +151,36 @@ test('φίλτρο εκκρεμεί άδεια: μόνο όσα έχουν αδ�
   assert.equal(ori.hasPendingOrimanthiPermit(rows[0]), true);
   assert.equal(ori.hasPendingOrimanthiPermit(rows[1]), false);
 });
+
+test('κάρτα υποέργου: ένα έργο ανοίγει κατευθείαν, πολλά μένουν φιλτραρισμένα', () => {
+  assert.deepEqual(ori.normalizeFocusProposalIds(null), []);
+  assert.deepEqual(ori.normalizeFocusProposalIds(['a', 'a', '', { id: 'b' }]), ['a', 'b']);
+  assert.deepEqual(ori.resolveOrimanthiOpenFromLinks([{ id: 'only' }]), {
+    focusIds: ['only'],
+    proposalId: 'only',
+  });
+  assert.deepEqual(ori.resolveOrimanthiOpenFromLinks([{ id: 'a' }, { id: 'b' }]), {
+    focusIds: ['a', 'b'],
+    proposalId: null,
+  });
+  const rows = [{ id: 'a', title: 'Α' }, { id: 'b', title: 'Β' }, { id: 'c', title: 'Γ' }];
+  assert.deepEqual(
+    ori.filterOrimanthiHub(rows, { focusProposalIds: ['b', 'c'] }).map((p) => p.id),
+    ['b', 'c']
+  );
+  assert.equal(ori.resolveOrimanthiHubExportIds({}), null);
+  assert.deepEqual(
+    ori.resolveOrimanthiHubExportIds({
+      isScopedHub: true,
+      filteredIds: ['b', 'c'],
+    }),
+    ['b', 'c']
+  );
+  assert.deepEqual(
+    ori.resolveOrimanthiHubExportIds({
+      hubHasActiveFilters: true,
+      filteredIds: [],
+    }),
+    []
+  );
+});

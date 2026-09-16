@@ -306,10 +306,32 @@ test('φίλτρο έργου ωρίμανσης και αντίστροφη ε�
     subprojectId: 'sub-bridge',
   });
   assert.deepEqual(fromSub.map((row) => row.id), ['a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d']);
+  const sibling = psk.findOrimanthiLinksForProject([schools, far], {
+    projectId: 'proj-road',
+    projectTitle: 'Οδικό δίκτυο Αρχανών',
+    subprojectId: 'sub-lights',
+  });
+  assert.deepEqual(sibling.map((row) => row.id), ['a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d']);
   assert.deepEqual(
     psk.findProskliseisLinkedToOrimanthi([schools, far], 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d')
       .map((p) => p.prosklisiId),
     ['psk-schools']
+  );
+  const dual = {
+    prosklisiId: 'psk-expired',
+    linkedProjects: [{ title: 'Ύδρευση Αστερουσίων', projectId: 'proj-water' }],
+    linkedOrimanthiProposals: [
+      { id: 'hydro-1', title: 'Δίκτυο ύδρευσης Παρανύμφων' },
+      { id: 'port-1', title: 'Μακρινή ΑΕΠΟ λιμένα' },
+    ],
+  };
+  assert.deepEqual(
+    psk.findOrimanthiLinksForProject([schools, dual], {
+      projectId: 'proj-water',
+      projectTitle: 'Ύδρευση Αστερουσίων',
+      subprojectId: 'sub-tank',
+    }).map((row) => row.id),
+    ['hydro-1', 'port-1']
   );
 });
 

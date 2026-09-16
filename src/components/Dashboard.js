@@ -3095,7 +3095,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       projectCardActionsRef.current.onOpenEgkriseis(projectTitle, subprojectTitle, subprojectId)
     ),
     onOpenLinkedProsklisi: (prosklisiId) => projectCardActionsRef.current.onOpenLinkedProsklisi(prosklisiId),
-    onOpenLinkedOrimanthi: (proposalId) => projectCardActionsRef.current.onOpenLinkedOrimanthi(proposalId),
+    onOpenLinkedOrimanthi: (links) => projectCardActionsRef.current.onOpenLinkedOrimanthi(links),
     onOpenSpecificEntaxi: (subprojectId) => projectCardActionsRef.current.onOpenSpecificEntaxi(subprojectId),
     onOpenSpecificProsklisi: (projectTitle, projectId) => (
       projectCardActionsRef.current.onOpenSpecificProsklisi(projectTitle, projectId)
@@ -3482,6 +3482,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isOrimanthiOpen, setIsOrimanthiOpen] = useState(false);
   const [orimanthiListEpoch, setOrimanthiListEpoch] = useState(0);
   const [selectedOrimanthiId, setSelectedOrimanthiId] = useState(null);
+  const [focusedOrimanthiIds, setFocusedOrimanthiIds] = useState(null);
+
+  const openOrimanthiView = useCallback(({ proposalId = null, focusIds = null } = {}) => {
+    const ids = orimanthiCatalog.normalizeFocusProposalIds(focusIds);
+    const detailId = String(proposalId || '').trim() || (ids.length === 1 ? ids[0] : '');
+    setSelectedOrimanthiId(detailId || null);
+    setFocusedOrimanthiIds(ids.length > 1 ? ids : null);
+    setIsOrimanthiOpen(true);
+  }, []);
   const [prosklisiReturnId, setProsklisiReturnId] = useState(null);
   const [entaxiReturnActive, setEntaxiReturnActive] = useState(false);
   const [isMeletaiOpen, setIsMeletaiOpen] = useState(false);
@@ -6001,8 +6010,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         restoreProsklisiReturnContext();
         return;
       }
-      setSelectedOrimanthiId(payload.id);
-      setIsOrimanthiOpen(true);
+      openOrimanthiView({ proposalId: payload.id });
       return;
     }
 
@@ -6024,7 +6032,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
     showToast('Δεν είναι δυνατή η μετάβαση σε αυτή τη συσχέτιση.', 'warning');
     restoreProsklisiReturnContext();
-  }, [captureProsklisiReturnContext, projects, openSubprojectDetail, showToast, restoreProsklisiReturnContext]);
+  }, [captureProsklisiReturnContext, projects, openSubprojectDetail, showToast, restoreProsklisiReturnContext, openOrimanthiView]);
 
   const handleCloseFileManager = () => {
     setFileManager({
@@ -7425,10 +7433,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     onOpenEntaxis: handleOpenEntaxis,
     onOpenEgkriseis: handleOpenEgkriseis,
     onOpenLinkedProsklisi: handleOpenLinkedProsklisi,
-    onOpenLinkedOrimanthi: (proposalId) => {
-      if (!proposalId) return;
-      setSelectedOrimanthiId(proposalId);
-      setIsOrimanthiOpen(true);
+    onOpenLinkedOrimanthi: (links) => {
+      const open = orimanthiCatalog.resolveOrimanthiOpenFromLinks(links);
+      if (!open.focusIds.length) return;
+      openOrimanthiView(open);
     },
     onOpenSpecificEntaxi: handleOpenSpecificEntaxi,
     onOpenSpecificProsklisi: handleOpenSpecificProsklisi,
@@ -7752,7 +7760,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                         {subprojectList.sortSubprojectsInGroup(subprojects)
                           .map(project => {
                             const linkedProsklisi = findLinkedProsklisi(project.subprojectId);
-                            const linkedOrimanthi = findOrimanthiLinksForProject(proskliseis, project)[0] || null;
+                            const linkedOrimanthiLinks = findOrimanthiLinksForProject(proskliseis, project);
                             const isLocked = project.isLocked || false;
                             return (
                               <ProjectCard
@@ -7770,7 +7778,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                                 hasLinkedEgkrisi={hasLinkedEgkrisi(project.subprojectId)}
                                 linkedProsklisi={linkedProsklisi}
                                 onOpenLinkedProsklisi={projectCardActions.onOpenLinkedProsklisi}
-                                linkedOrimanthi={linkedOrimanthi}
+                                linkedOrimanthiLinks={linkedOrimanthiLinks}
                                 onOpenLinkedOrimanthi={projectCardActions.onOpenLinkedOrimanthi}
                                 isLocked={isLocked}
                                 hasEntaxi={hasEntaxiForSubproject(project.subprojectId)}
@@ -8025,8 +8033,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               </AdminButton>
               {orimanthiCatalog.showOrimanthiButton(userRole) && (
               <AdminButton data-user-guide="nav-orimanthi" onClick={() => {
-                setSelectedOrimanthiId(null);
-                setIsOrimanthiOpen(true);
+                openOrimanthiView();
               }} title="Βάση Δεδομένων — καταγραφή ωρίμανσης έργων">
                 <AdminButtonIcon>🌱</AdminButtonIcon>
                 Ωρίμανση Έργων
@@ -8577,8 +8584,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           if (!proposalId) return;
           captureEntaxiReturnContext();
           setIsEntaxisOpen(false);
-          setSelectedOrimanthiId(proposalId);
-          setIsOrimanthiOpen(true);
+          openOrimanthiView({ proposalId });
         }}
         handleOpenProsklisi={(prosklisiId) => {
           captureEntaxiReturnContext();
@@ -8668,6 +8674,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             onClose={() => {
               setIsOrimanthiOpen(false);
               setSelectedOrimanthiId(null);
+              setFocusedOrimanthiIds(null);
+              loadProskliseis();
               if (!restoreEntaxiReturnContext() && !restoreProsklisiReturnContext()) {
                 restoreNoteReturnContext();
               }
@@ -8676,6 +8684,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             userRole={userRole}
             orimanthiCanEdit={!!currentUser?.orimanthiCanEdit}
             initialProposalId={selectedOrimanthiId}
+            focusProposalIds={focusedOrimanthiIds}
             refreshEpoch={orimanthiListEpoch}
             proskliseis={proskliseis}
             onOpenProsklisi={(prosklisiId) => {
@@ -9106,8 +9115,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             })}
             onOpenOrimanthi={(payload) => {
               setIsProcurementCalendarOpen(false);
-              setSelectedOrimanthiId(resolveOrimanthiOpenId(payload));
-              setIsOrimanthiOpen(true);
+              openOrimanthiView({ proposalId: resolveOrimanthiOpenId(payload) });
             }}
             onOpenProsklisi={(prosklisiId) => {
               setIsProcurementCalendarOpen(false);
@@ -9378,8 +9386,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           limit: 8,
           refreshKey: calendarRefreshKey,
           onOpenOrimanthi: (payload) => {
-            setSelectedOrimanthiId(resolveOrimanthiOpenId(payload));
-            setIsOrimanthiOpen(true);
+            openOrimanthiView({ proposalId: resolveOrimanthiOpenId(payload) });
           },
           onOpenProsklisi: (prosklisiId) => handleOpenLinkedProsklisi(prosklisiId),
           onOpenEntaxi: (entaxiId) => handleOpenEntaxiFromProsklisi(entaxiId),

@@ -553,3 +553,54 @@ test('P8-25 πλήθος υποέργων και τίτλοι στην καρτ�
   await expect(window.getByTestId('orimanthi-subproject-count')).toHaveValue('3');
   await expect(window.getByTestId('orimanthi-subproject-title-2')).toHaveValue('Υποέργο σήμανσης');
 });
+
+test('P8-31 κάρτα υποέργου με ένα έργο ωρίμανσης ανοίγει κατευθείαν εκείνο', async ({ app }) => {
+  const { window } = app;
+  await expect(window.getByTestId('btn-orimanthi-sub-bridge')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-count-sub-bridge')).toHaveCount(0);
+  await window.getByTestId('btn-orimanthi-sub-bridge').click();
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('orimanthi-tab-files')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByText('Ανακατασκευή οδού Αρχανών').first()).toBeVisible();
+  await expect(window.getByTestId('orimanthi-scoped-hub')).toHaveCount(0);
+  await expect(window.getByText('Δίκτυο ύδρευσης Παρανύμφων')).toHaveCount(0);
+  await window.getByTestId('orimanthi-back').click();
+  await expect(window.getByTestId('orimanthi-window')).toHaveCount(0);
+});
+
+test('P8-32 αδέρφια υποέργα της ίδιας πράξης ανοίγουν την ίδια ωρίμανση', async ({ app }) => {
+  const { window } = app;
+  await expect(window.getByTestId('btn-orimanthi-sub-lights')).toBeVisible();
+  await window.getByTestId('btn-orimanthi-sub-lights').click();
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('orimanthi-tab-files')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByText('Ανακατασκευή οδού Αρχανών').first()).toBeVisible();
+  await window.getByTitle('Κλείσιμο και επιστροφή στο Dashboard').click();
+  await expect(window.getByTestId('orimanthi-window')).toHaveCount(0);
+});
+
+test('P8-33 κάρτα με περισσότερα έργα ωρίμανσης δείχνει μόνο εκείνα', async ({ app }) => {
+  const { window } = app;
+  const hydroId = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
+  const portId = 'c4d5e6f7-a8b9-4c0d-9e1f-2a3b4c5d6e7f';
+  const roadId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+  await expect(window.getByTestId('btn-orimanthi-sub-tank')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-count-sub-tank')).toHaveText('2');
+  await window.getByTestId('btn-orimanthi-sub-tank').click();
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('orimanthi-scoped-hub')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId('orimanthi-hub-count')).toHaveText('2');
+  await expect(window.getByRole('button', { name: /Νέο έργο/ })).toHaveCount(0);
+  await expect(window.getByTestId(`orimanthi-hub-item-${hydroId}`)).toBeVisible();
+  await expect(window.getByTestId(`orimanthi-hub-item-${portId}`)).toBeVisible();
+  await expect(window.getByTestId(`orimanthi-hub-item-${roadId}`)).toHaveCount(0);
+  await window.getByTestId('orimanthi-scoped-hub').getByText('Δίκτυο ύδρευσης Παρανύμφων').click();
+  await expect(window.getByTestId('orimanthi-tab-files')).toBeVisible({ timeout: 15000 });
+  await expect(window.getByText('Δίκτυο ύδρευσης Παρανύμφων').first()).toBeVisible();
+  await window.getByTestId('orimanthi-back').click();
+  await expect(window.getByTestId('orimanthi-scoped-hub')).toBeVisible();
+  await expect(window.getByTestId(`orimanthi-hub-item-${hydroId}`)).toBeVisible();
+  await expect(window.getByTestId(`orimanthi-hub-item-${portId}`)).toBeVisible();
+  await window.getByTitle('Κλείσιμο και επιστροφή στο Dashboard').click();
+  await expect(window.getByTestId('orimanthi-window')).toHaveCount(0);
+});

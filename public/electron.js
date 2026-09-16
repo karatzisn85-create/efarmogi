@@ -18935,7 +18935,7 @@ ipcMain.handle('export-orimanthi-hub-report', async (_event, { format, actingUse
     const fmt = format === 'pdf' ? 'pdf' : 'excel';
     const allProposals = loadAllProposalsList();
     let proposals = allProposals;
-    if (Array.isArray(proposalIds) && proposalIds.length > 0) {
+    if (Array.isArray(proposalIds)) {
       const idSet = new Set(proposalIds.filter(Boolean));
       proposals = allProposals.filter((p) => idSet.has(p.id));
     }

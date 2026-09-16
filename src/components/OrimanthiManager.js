@@ -3148,6 +3148,7 @@ export default function OrimanthiManager({
   userRole,
   orimanthiCanEdit = false,
   initialProposalId = null,
+  focusProposalIds = null,
   refreshEpoch = 0,
   proskliseis = [],
   onOpenProsklisi,
@@ -3156,7 +3157,13 @@ export default function OrimanthiManager({
 
   const isReadOnly = orimanthiCatalog.isOrimanthiReadOnly({ role: userRole, orimanthiCanEdit });
 
-  const focusProposalId = String(initialProposalId || '').trim() || null;
+  const scopedFocusIds = useMemo(
+    () => orimanthiCatalog.normalizeFocusProposalIds(focusProposalIds),
+    [focusProposalIds]
+  );
+  const isScopedHub = scopedFocusIds.length > 1;
+  const focusProposalId = String(initialProposalId || '').trim()
+    || (scopedFocusIds.length === 1 ? scopedFocusIds[0] : null);
   const [proposals, setProposals] = useState([]);
   const [selectedId, setSelectedId] = useState(focusProposalId);
   const [activeTab, setActiveTab] = useState('files');
@@ -3473,7 +3480,12 @@ export default function OrimanthiManager({
         const res = await window.electronAPI.invoke('search-proposal-files', { query: q });
         if (seq !== fileSearchSeqRef.current) return;
         if (res.success) {
-          setFileSearchResults(res.results || []);
+          const rows = res.results || [];
+          setFileSearchResults(
+            isScopedHub
+              ? rows.filter((row) => scopedFocusIds.includes(row.projectId || row.proposalId))
+              : rows
+          );
         } else {
           setFileSearchResults([]);
           showToast(res.error || 'Σφάλμα αναζήτησης αρχείων', 'error');
@@ -3490,7 +3502,7 @@ export default function OrimanthiManager({
     return () => {
       if (fileSearchTimerRef.current) clearTimeout(fileSearchTimerRef.current);
     };
-  }, [fileSearch, showToast]);
+  }, [fileSearch, showToast, isScopedHub, scopedFocusIds]);
 
   const loadProjectHistory = useCallback(async (proposalId) => {
     if (!proposalId) {
@@ -4606,6 +4618,9 @@ export default function OrimanthiManager({
       setSelectedId(null);
       setExpandedGroups({});
       showToast('Το έργο διαγράφηκε', 'success');
+      if (focusProposalId && !isScopedHub) {
+        onClose();
+      }
     } finally {
       if (blockedProposalSavesRef.current === deletingId) {
         blockedProposalSavesRef.current = null;
@@ -5647,8 +5662,13 @@ export default function OrimanthiManager({
     return getSpecializationsForCategory(newProjectDraft.projectCategory, customCategorySpecs);
   }, [newProjectDraft.projectCategory, customCategorySpecs]);
 
+  const hubSourceProposals = useMemo(() => {
+    if (!isScopedHub) return proposals;
+    return orimanthiCatalog.filterOrimanthiHub(proposals, { focusProposalIds: scopedFocusIds });
+  }, [proposals, isScopedHub, scopedFocusIds]);
+
   const hubFilteredProposals = useMemo(() => {
-    const filtered = orimanthiCatalog.filterOrimanthiHub(proposals, {
+    const filtered = orimanthiCatalog.filterOrimanthiHub(hubSourceProposals, {
       search,
       categoryFilter: hubCategoryFilter,
       statusFilter: hubStatusFilter,
@@ -5658,7 +5678,7 @@ export default function OrimanthiManager({
     });
     return sortHubProjects(filtered, hubSortBy);
   }, [
-    proposals, search, hubCategoryFilter, hubStatusFilter,
+    hubSourceProposals, search, hubCategoryFilter, hubStatusFilter,
     hubMunicipalUnitFilter, hubSettlementFilter, hubSortBy, hubQuickFilter,
   ]);
 
@@ -5704,8 +5724,8 @@ export default function OrimanthiManager({
   }, []);
 
   const richHubStats = useMemo(
-    () => computeExtendedHubStats(proposals, PROJECT_MATURITY_STATUSES),
-    [proposals]
+    () => computeExtendedHubStats(hubSourceProposals, PROJECT_MATURITY_STATUSES),
+    [hubSourceProposals]
   );
 
   const applyStatsFilter = useCallback(({ status, category, municipalUnit, settlement } = {}) => {
@@ -5769,9 +5789,11 @@ export default function OrimanthiManager({
       const res = await window.electronAPI.invoke('export-orimanthi-hub-report', {
         format,
         actingUsername: loggedInUsername,
-        proposalIds: hubHasActiveFilters
-          ? hubFilteredProposals.map((p) => p.id)
-          : undefined,
+        proposalIds: orimanthiCatalog.resolveOrimanthiHubExportIds({
+          isScopedHub,
+          hubHasActiveFilters,
+          filteredIds: hubFilteredProposals.map((p) => p.id),
+        }),
         excelOptions,
       });
       if (res.canceled) return;
@@ -5789,7 +5811,7 @@ export default function OrimanthiManager({
     } finally {
       setHubReportExporting(false);
     }
-  }, [hubReportExporting, isReadOnly, loggedInUsername, showToast, hubHasActiveFilters, hubFilteredProposals]);
+  }, [hubReportExporting, isReadOnly, loggedInUsername, showToast, hubHasActiveFilters, hubFilteredProposals, isScopedHub]);
 
   const saveAepoReminderSettings = useCallback(async (nextAepoCfg) => {
     const merged = {
@@ -5852,7 +5874,7 @@ export default function OrimanthiManager({
     const permitSummary = summarizeOrimanthiPermits(p.fileGroups);
     const linkedInvites = findProskliseisLinkedToOrimanthi(proskliseis, p.id);
     return (
-      <HubCard key={p.id}>
+      <HubCard key={p.id} data-testid={`orimanthi-hub-item-${p.id}`}>
         <HubCardHeader>
           <HubCardClickArea type="button" onClick={openProject}>
             <HubCardTitle>{p.title || '(Χωρίς τίτλο)'}</HubCardTitle>
@@ -5931,7 +5953,7 @@ export default function OrimanthiManager({
     const linkedInvites = findProskliseisLinkedToOrimanthi(proskliseis, p.id);
     return (
       <HubListRow key={p.id} $gridColumns={hubListGridColumns}>
-        <HubListTitleCell type="button" onClick={openProject}>
+        <HubListTitleCell type="button" onClick={openProject} data-testid={`orimanthi-hub-item-${p.id}`}>
           <HubListTitle>{p.title || '(Χωρίς τίτλο)'}</HubListTitle>
           {categoryLine ? <HubListSub>{categoryLine}</HubListSub> : null}
           {String(p.actionResponsible || '').trim() ? (
@@ -5998,6 +6020,7 @@ export default function OrimanthiManager({
 
   /* ── Hub list ── */
   const hubStats = richHubStats;
+  const waitingForFocusedProposal = Boolean(focusProposalId) && !isScopedHub && !selectedProposal;
 
   const statusStyle = selectedProposal ? getStatusStyle(selectedProposal.status) : null;
 
@@ -6014,9 +6037,11 @@ export default function OrimanthiManager({
             <HeaderText>
               <HeaderH>Ωρίμανση Έργων</HeaderH>
               <HeaderSub>
-                {proposals.length > 0
-                  ? `${formatProjectCount(proposals.length)} · Βάση Δεδομένων Ωρίμανσης`
-                  : 'Βάση Δεδομένων Ωρίμανσης Έργων'}
+                {isScopedHub
+                  ? `${formatProjectCount(scopedFocusIds.length)} · Συσχετισμένα με το υποέργο`
+                  : (proposals.length > 0
+                    ? `${formatProjectCount(proposals.length)} · Βάση Δεδομένων Ωρίμανσης`
+                    : 'Βάση Δεδομένων Ωρίμανσης Έργων')}
               </HeaderSub>
             </HeaderText>
           </HeaderTitle>
@@ -6024,7 +6049,7 @@ export default function OrimanthiManager({
             {isReadOnly && (
               <ReadOnlyBadge>👁 Προβολή μόνο</ReadOnlyBadge>
             )}
-            {!selectedProposal && !isReadOnly && (
+            {!selectedProposal && !isReadOnly && !isScopedHub && !waitingForFocusedProposal && (
               <HeaderPrimaryBtn
                 type="button"
                 onClick={openNewProjectModal}
@@ -6056,9 +6081,23 @@ export default function OrimanthiManager({
 
         {/* Body */}
         <Body>
-          {!selectedProposal ? (
+          {waitingForFocusedProposal ? (
+            <HubShell data-testid="orimanthi-focus-missing">
+              {loadingProposals ? (
+                <HubSkeletonList>
+                  {[1, 2, 3, 4].map((i) => (
+                    <HubSkeletonRow key={i} />
+                  ))}
+                </HubSkeletonList>
+              ) : (
+                <HubEmpty>
+                  <EmptyStateText>Δεν βρέθηκε το συσχετισμένο έργο ωρίμανσης.</EmptyStateText>
+                </HubEmpty>
+              )}
+            </HubShell>
+          ) : !selectedProposal ? (
             <>
-              <HubShell>
+              <HubShell data-testid={isScopedHub ? 'orimanthi-scoped-hub' : 'orimanthi-hub'}>
                 <HubControlsPanel>
                   <HubToolbarCard>
                     <HubSearch
@@ -6203,11 +6242,11 @@ export default function OrimanthiManager({
                     </HubViewToggle>
                   </HubFiltersPanel>
                   )}
-                  {!loadingProposals && proposals.length > 0 && (
+                  {!loadingProposals && hubSourceProposals.length > 0 && (
                     <>
                       <HubSummaryBar type="button" onClick={() => setShowHubStatsModal(true)} title="Άνοιγμα στατιστικών">
                         <HubStatHighlight $color={C.indigoDark} $bg={C.indigoLight}>
-                          <strong>{proposals.length}</strong> έργα
+                          <strong data-testid="orimanthi-hub-count">{hubSourceProposals.length}</strong> έργα
                         </HubStatHighlight>
                         <HubStatHighlight $color={C.amber} $bg="#fffbeb">
                           {hubStats.maturing} υπό ωρίμανση
@@ -6218,7 +6257,7 @@ export default function OrimanthiManager({
                         <HubStatHighlight $color={C.emerald} $bg="#f0fdf4">
                           {hubStats.approved} εγκεκριμένα
                         </HubStatHighlight>
-                        {hubFilteredProposals.length !== proposals.length && (
+                        {hubFilteredProposals.length !== hubSourceProposals.length && (
                           <>
                             <HubSummarySep>·</HubSummarySep>
                             <span>Εμφάνιση <strong>{hubFilteredProposals.length}</strong></span>
@@ -6302,7 +6341,7 @@ export default function OrimanthiManager({
                   )
                 ) : hubFilteredProposals.length === 0 ? (
                   <HubEmpty>
-                    {proposals.length === 0 ? (
+                    {proposals.length === 0 && !isScopedHub ? (
                       <>
                         <EmptyStateIcon>📋</EmptyStateIcon>
                         <EmptyStateText>Δεν υπάρχουν καταγεγραμμένα έργα</EmptyStateText>
@@ -6310,6 +6349,8 @@ export default function OrimanthiManager({
                           Ξεκινήστε με «Νέο έργο» για να καταγράψετε έργα υπό ωρίμανση, αδειοδοτήσεις και μελέτες.
                         </EmptyStateSub>
                       </>
+                    ) : isScopedHub ? (
+                      'Δεν βρέθηκαν τα συσχετισμένα έργα ωρίμανσης.'
                     ) : (
                       'Δεν βρέθηκαν έργα με τα τρέχοντα κριτήρια.\nΔοκιμάστε άλλο φίλτρο ή καθαρισμό.'
                     )}
@@ -6371,6 +6412,10 @@ export default function OrimanthiManager({
                   type="button"
                   data-testid="orimanthi-back"
                   onClick={() => {
+                    if (isScopedHub) {
+                      void requestSelectProposal(null);
+                      return;
+                    }
                     if (focusProposalId) {
                       void handleClose();
                       return;
