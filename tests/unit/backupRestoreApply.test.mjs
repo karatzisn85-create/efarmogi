@@ -73,7 +73,8 @@ test('επαναφορά: εφαρμόζονται όλοι οι επιμέρο�
   const folders = [
     'ΠΡΟΣΚΛΗΣΕΙΣ', 'entaxeis', 'EGKRISEIS_DIATHESIS_PISTOSIS', 'ΜΕΛΕΤΕΣ',
     'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'ΑΠΟΛΟΓΙΣΜΟΣ',
-    'ANATHESEIS_ERGASION', 'config', 'ΣΗΜΕΙΩΣΕΙΣ'
+    'ANATHESEIS_ERGASION', 'config', 'ΣΗΜΕΙΩΣΕΙΣ',
+    'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ', 'ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ', 'DOCUMENT_TEMPLATES'
   ];
   writeFileSync(join(source, 'users.json'), '{"ok":1}');
   folders.forEach((name) => {
@@ -92,6 +93,9 @@ test('επαναφορά: εφαρμόζονται όλοι οι επιμέρο�
   assert.ok(result.applied.includes('ΑΠΟΛΟΓΙΣΜΟΣ'));
   assert.ok(result.applied.includes('ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ'));
   assert.ok(result.applied.includes('ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ'));
+  assert.ok(result.applied.includes('ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ'));
+  assert.ok(result.applied.includes('ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ'));
+  assert.ok(result.applied.includes('DOCUMENT_TEMPLATES'));
 });
 
 test('επαναφορά: παλιό zip με φάκελο dedomena_ergon', () => {

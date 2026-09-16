@@ -10,6 +10,7 @@ const {
   collectAepoBatchesForRecipient,
   resolveRecipientUsers,
   getSentThresholdsForProposal,
+  computeAepoAlerts,
 } = require('../../public/orimanthiAepoReminderService');
 
 const THRESHOLDS = [90, 60, 30];
@@ -125,6 +126,31 @@ describe('getSentThresholdsForProposal', () => {
       },
     };
     expect(getSentThresholdsForProposal(log, 'a@ex.com', 'p1').sort((a, b) => b - a)).toEqual([90, 60]);
+  });
+});
+
+describe('computeAepoAlerts — ραντάρ vs ημερολόγιο', () => {
+  test('το ραντάρ 90 ημερών αποκλείει μακρινή και ληγμένη', () => {
+    const proposals = [
+      { id: 'near', title: 'Κοντινή', aepoRenewalDate: offsetIso(12) },
+      { id: 'far', title: 'Μακρινή', aepoRenewalDate: offsetIso(400) },
+      { id: 'past', title: 'Ληγμένη', aepoRenewalDate: offsetIso(-5) },
+    ];
+    const { alerts } = computeAepoAlerts(proposals, { maxDays: 90, limit: 0 });
+    expect(alerts.map((a) => a.id)).toEqual(['near']);
+  });
+
+  test('το ημερολόγιο περιλαμβάνει κάθε καταγεγραμμένη ημερομηνία ΑΕΠΟ', () => {
+    const proposals = [
+      { id: 'near', title: 'Κοντινή', aepoRenewalDate: offsetIso(12) },
+      { id: 'far', title: 'Μακρινή', aepoRenewalDate: offsetIso(400) },
+      { id: 'past', title: 'Ληγμένη', aepoRenewalDate: offsetIso(-5) },
+      { id: 'empty', title: 'Χωρίς', aepoRenewalDate: '' },
+    ];
+    const { alerts } = computeAepoAlerts(proposals, { maxDays: null, includePast: true, limit: 0 });
+    expect(alerts.map((a) => a.id).sort()).toEqual(['far', 'near', 'past']);
+    expect(alerts.find((a) => a.id === 'far').aepoRenewalDate).toBe(offsetIso(400));
+    expect(alerts.find((a) => a.id === 'past').daysLeft).toBeLessThan(0);
   });
 });
 

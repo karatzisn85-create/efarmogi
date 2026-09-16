@@ -121,6 +121,36 @@
     return y + '-' + m + '-' + day;
   }
 
+  function buildCalendarJump(year, month, day) {
+    if (!Number.isInteger(year) || year < 1990 || year > 2100) return null;
+    if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+    var last = new Date(year, month, 0).getDate();
+    if (!Number.isInteger(day) || day < 1 || day > last) return null;
+    return {
+      year: year,
+      monthIndex: month - 1,
+      day: day,
+      dateKey: year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0')
+    };
+  }
+
+  /** Έτος (2028), μήνας (03/2028 ή 2028-03) ή ημέρα (15/03/2028 / 2028-03-15). */
+  function resolveCalendarJumpInput(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return null;
+    var iso = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(s);
+    if (iso) {
+      return buildCalendarJump(Number(iso[1]), Number(iso[2]), iso[3] ? Number(iso[3]) : 1);
+    }
+    var yearOnly = /^(\d{4})$/.exec(s);
+    if (yearOnly) return buildCalendarJump(Number(yearOnly[1]), 1, 1);
+    var dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+    if (dmy) return buildCalendarJump(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
+    var my = /^(\d{1,2})\/(\d{4})$/.exec(s);
+    if (my) return buildCalendarJump(Number(my[2]), Number(my[1]), 1);
+    return null;
+  }
+
   function isDateOnlyCalendarIso(iso) {
     var s = String(iso || '');
     if (!s.includes('T')) return true;
@@ -905,6 +935,7 @@
     ALL_CALENDAR_EVENT_TYPES: ALL_CALENDAR_EVENT_TYPES,
     CALENDAR_TIME_WINDOWS: CALENDAR_TIME_WINDOWS,
     toDateKey: toDateKey,
+    resolveCalendarJumpInput: resolveCalendarJumpInput,
     isDateOnlyCalendarIso: isDateOnlyCalendarIso,
     daysUntilDate: daysUntilDate,
     calendarEventRowKey: calendarEventRowKey,

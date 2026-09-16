@@ -18627,10 +18627,12 @@ ipcMain.handle('apply-orimanthi-pending-template', async () => ({
   error: 'Οι εκκρεμότητες ωρίμανσης έχουν καταργηθεί. Γράψτε ό,τι εκκρεμεί στις Σημειώσεις.',
 }));
 
-ipcMain.handle('get-orimanthi-aepo-alerts', async (_event, { limit = 5, maxDays = 90 } = {}) => {
+ipcMain.handle('get-orimanthi-aepo-alerts', async (_event, { limit = 5, maxDays = 90, includePast = false } = {}) => {
   try {
     const proposals = loadAllProposalsList();
-    const { alerts, total } = orimanthiAepoReminderService.computeAepoAlerts(proposals, { limit, maxDays });
+    const { alerts, total } = orimanthiAepoReminderService.computeAepoAlerts(proposals, {
+      limit, maxDays, includePast,
+    });
     return { success: true, alerts, total };
   } catch (e) {
     logger.error('get-orimanthi-aepo-alerts error:', e.message);

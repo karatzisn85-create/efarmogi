@@ -12,6 +12,8 @@ import {
   formatEventDateTime,
   calendarEventRowKey,
   CALENDAR_EVENT_TYPES,
+  toDateKey,
+  resolveCalendarJumpInput,
 } from '../utils/procurementCalendarEvents';
 import {
   buildCustomCalendarEvents,
@@ -158,6 +160,34 @@ const NavBtn = styled.button`
   &:hover { background: #f1f5f9; }
 `;
 
+const JumpField = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 0.15rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+  white-space: nowrap;
+`;
+
+const JumpInput = styled.input`
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #334155;
+  background: #fff;
+  font-family: inherit;
+  min-width: 9.5rem;
+  &:focus {
+    outline: none;
+    border-color: #059669;
+    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15);
+  }
+`;
+
 const Grid = styled.div`
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -175,10 +205,11 @@ const Weekday = styled.div`
 
 const DayCell = styled.div`
   min-height: 88px;
-  border: 1px solid ${(p) => (p.$today ? '#059669' : '#e2e8f0')};
+  border: 1px solid ${(p) => (p.$jump ? '#047857' : p.$today ? '#059669' : '#e2e8f0')};
   border-radius: 8px;
   padding: 0.25rem;
-  background: ${(p) => (p.$muted ? '#f8fafc' : '#fff')};
+  background: ${(p) => (p.$muted ? '#f8fafc' : p.$jump ? '#ecfdf5' : '#fff')};
+  box-shadow: ${(p) => (p.$jump ? 'inset 0 0 0 1px #047857' : 'none')};
   opacity: ${(p) => (p.$muted ? 0.55 : 1)};
 `;
 
@@ -380,6 +411,8 @@ export default function ProcurementCalendar({
   const [listWindow, setListWindow] = useState(30);
   const [includePastInList, setIncludePastInList] = useState(false);
   const [cursor, setCursor] = useState(() => new Date());
+  const [jumpValue, setJumpValue] = useState('');
+  const [jumpDateKey, setJumpDateKey] = useState('');
   const [expandedCalendarDays, setExpandedCalendarDays] = useState({});
   const [customEventsRaw, setCustomEventsRaw] = useState([]);
   const [aepoAlertsRaw, setAepoAlertsRaw] = useState([]);
@@ -390,6 +423,21 @@ export default function ProcurementCalendar({
   const consumedFocusRef = useRef(null);
 
   const canManageCustomEvents = canCreateCustomCalendarEvent(currentUser || { role: userRole });
+
+  const applyCalendarJump = useCallback((raw) => {
+    setJumpValue(raw);
+    const jumped = resolveCalendarJumpInput(raw);
+    if (!jumped) {
+      if (!raw) setJumpDateKey('');
+      return;
+    }
+    setViewMode('month');
+    setCursor(new Date(jumped.year, jumped.monthIndex, jumped.day));
+    setJumpDateKey(jumped.dateKey);
+    setExpandedCalendarDays({
+      [`${jumped.year}-${jumped.monthIndex + 1}-${jumped.day}`]: true,
+    });
+  }, []);
 
   const loadCustomEvents = useCallback(async () => {
     if (!currentUser?.username) {
@@ -412,7 +460,11 @@ export default function ProcurementCalendar({
       return;
     }
     try {
-      const res = await ipcRenderer.invoke('get-orimanthi-aepo-alerts', { maxDays: 365, limit: 0 });
+      const res = await ipcRenderer.invoke('get-orimanthi-aepo-alerts', {
+        maxDays: null,
+        includePast: true,
+        limit: 0,
+      });
       if (res?.success) setAepoAlertsRaw(res.alerts || []);
       else setAepoAlertsRaw([]);
     } catch {
@@ -588,7 +640,7 @@ export default function ProcurementCalendar({
       return;
     }
     if (ev.type === CALENDAR_EVENT_TYPES.AEPO_RENEWAL && ev.orimanthiProposalId) {
-      onOpenOrimanthi?.();
+      onOpenOrimanthi?.(ev.orimanthiProposalId);
       onClose?.();
       return;
     }
@@ -654,6 +706,19 @@ export default function ProcurementCalendar({
           <TabBtn type="button" $active={viewMode === 'list'} onClick={() => setViewMode('list')}>
             Λίστα & εξαγωγή
           </TabBtn>
+          <JumpField htmlFor="calendar-jump-date">
+            Μετάβαση
+            <JumpInput
+              id="calendar-jump-date"
+              data-testid="calendar-jump-date"
+              type="date"
+              value={jumpValue}
+              min="1990-01-01"
+              max="2100-12-31"
+              onChange={(e) => applyCalendarJump(e.target.value)}
+              title="Επιλέξτε έτος, μήνα και ημέρα για άμεση μετάβαση"
+            />
+          </JumpField>
           {viewMode === 'list' && (
             <ExportBtn type="button" onClick={handleExport} disabled={!exportableListEvents.length}>
               Εξαγωγή Excel
@@ -697,9 +762,17 @@ export default function ProcurementCalendar({
           {viewMode === 'month' ? (
             <>
               <MonthNav>
-                <NavBtn type="button" onClick={() => { setCursor(new Date(year, monthIndex - 1, 1)); setExpandedCalendarDays({}); }}>‹</NavBtn>
-                <MonthLabel>{monthLabel}</MonthLabel>
-                <NavBtn type="button" onClick={() => { setCursor(new Date(year, monthIndex + 1, 1)); setExpandedCalendarDays({}); }}>›</NavBtn>
+                <NavBtn type="button" onClick={() => {
+                  setCursor(new Date(year, monthIndex - 1, 1));
+                  setExpandedCalendarDays({});
+                  setJumpDateKey('');
+                }}>‹</NavBtn>
+                <MonthLabel data-testid="calendar-month-label">{monthLabel}</MonthLabel>
+                <NavBtn type="button" onClick={() => {
+                  setCursor(new Date(year, monthIndex + 1, 1));
+                  setExpandedCalendarDays({});
+                  setJumpDateKey('');
+                }}>›</NavBtn>
               </MonthNav>
               <Grid>
                 {WEEKDAYS.map((w) => <Weekday key={w}>{w}</Weekday>)}
@@ -709,12 +782,13 @@ export default function ProcurementCalendar({
                   }
                   const cellDate = new Date(year, monthIndex, day);
                   const isToday = cellDate.toDateString() === todayKey;
+                  const isJumpDay = jumpDateKey && toDateKey(cellDate) === jumpDateKey;
                   const dayEvents = eventsByDay[day] || [];
                   const dayKey = `${year}-${monthIndex + 1}-${day}`;
                   const dayExpanded = !!expandedCalendarDays[dayKey];
                   const visibleDayEvents = dayExpanded ? dayEvents : dayEvents.slice(0, 3);
                   return (
-                    <DayCell key={`d-${day}`} $today={isToday}>
+                    <DayCell key={`d-${day}`} $today={isToday} $jump={!!isJumpDay}>
                       <DayNum $today={isToday}>{day}</DayNum>
                       {visibleDayEvents.map((ev) => (
                         <EventPill
@@ -757,8 +831,7 @@ export default function ProcurementCalendar({
               </Grid>
               {monthEvents.length === 0 && filteredEvents.length > 0 && hasEventsOutsideMonth && (
                 <MonthHint>
-                  Δεν υπάρχουν προθεσμίες σε αυτόν τον μήνα — χρησιμοποιήστε ‹ › για άλλους μήνες
-                  ή ανοίξτε τη «Λίστα & εξαγωγή».
+                  Δεν υπάρχουν προθεσμίες σε αυτόν τον μήνα — χρησιμοποιήστε ‹ › ή το πεδίο «Μετάβαση»
                 </MonthHint>
               )}
             </>

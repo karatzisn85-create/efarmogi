@@ -5083,14 +5083,18 @@ export default function OrimanthiManager({
     showToast(`Μετονομάστηκε σε «${newFileName}»`, 'success');
   };
 
+  const renameSessionKey = renameModal
+    ? `${renameModal.groupId}::${renameModal.folderId || ''}::${renameModal.oldName}`
+    : '';
+
   useEffect(() => {
-    if (!renameModal) return undefined;
+    if (!renameSessionKey) return undefined;
     const t = setTimeout(() => {
       renameInputRef.current?.focus();
       renameInputRef.current?.select();
     }, 50);
     return () => clearTimeout(t);
-  }, [renameModal]);
+  }, [renameSessionKey]);
 
   /* ── Drag & drop ── */
   const handleDrop = useCallback(async (e, groupId) => {

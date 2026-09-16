@@ -69,7 +69,10 @@ test('επαναφορά: πρόοδος και αναφορά τομέων', ()
     'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ',
     'ΑΠΟΛΟΓΙΣΜΟΣ',
     'ANATHESEIS_ERGASION',
-    'config'
+    'config',
+    'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ',
+    'ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ',
+    'DOCUMENT_TEMPLATES'
   ]);
   assert.ok(areas.some((a) => a.startsWith('Έργα / υποέργα')));
   assert.ok(areas.includes('Χρήστες'));
@@ -81,6 +84,9 @@ test('επαναφορά: πρόοδος και αναφορά τομέων', ()
   assert.ok(areas.includes('Επιχειρησιακό πρόγραμμα'));
   assert.ok(areas.includes('Απολογισμός'));
   assert.ok(areas.includes('Χώρος εργασιών'));
+  assert.ok(areas.includes('Μητρώο αναδόχων'));
+  assert.ok(areas.includes('Ημερολόγιο εργοταξίου'));
+  assert.ok(areas.includes('Πρότυπα εγγράφων'));
   assert.deepEqual(bk.missingExpectedRestoreAreas(areas), []);
 });
 
@@ -90,11 +96,15 @@ test('δημιουργία: το αντίγραφο πρέπει να έχει �
   assert.equal(bk.isSkippedBackupEntry('users.json.bak'), true);
   assert.equal(bk.isSkippedBackupEntry('ΑΠΟΛΟΓΙΣΜΟΣ'), false);
   assert.equal(bk.isSkippedBackupEntry('ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ'), false);
+  assert.equal(bk.isSkippedBackupEntry('ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ'), false);
+  assert.equal(bk.isSkippedBackupEntry('ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ'), false);
+  assert.equal(bk.isSkippedBackupEntry('DOCUMENT_TEMPLATES'), false);
 
   const live = [
     'users.json', 'ΠΡΟΣΚΛΗΣΕΙΣ', 'entaxeis', 'EGKRISEIS_DIATHESIS_PISTOSIS',
     'ΜΕΛΕΤΕΣ', 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'ΑΠΟΛΟΓΙΣΜΟΣ',
     'ANATHESEIS_ERGASION', 'config', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ', 'ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ', 'DOCUMENT_TEMPLATES',
     'backups', 'locks', 'users.json.bak'
   ];
   const selected = bk.selectBackupEntryNames(live);
@@ -112,6 +122,9 @@ test('δημιουργία: το αντίγραφο πρέπει να έχει �
   assert.ok(complete.areas.includes('Απολογισμός'));
   assert.ok(complete.areas.includes('Ωρίμανση έργων'));
   assert.ok(complete.areas.includes('Επιχειρησιακό πρόγραμμα'));
+  assert.ok(complete.areas.includes('Μητρώο αναδόχων'));
+  assert.ok(complete.areas.includes('Ημερολόγιο εργοταξίου'));
+  assert.ok(complete.areas.includes('Πρότυπα εγγράφων'));
   assert.deepEqual(bk.missingExpectedRestoreAreas(complete.areas), []);
 
   const incomplete = bk.evaluateBackupCoverage({

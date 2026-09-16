@@ -25,6 +25,7 @@ export const CALENDAR_EVENT_LABELS = calendarDeadlines.CALENDAR_EVENT_LABELS;
 export const PROCUREMENT_DEADLINE_EVENT_TYPES = calendarDeadlines.PROCUREMENT_DEADLINE_EVENT_TYPES;
 export const ALL_CALENDAR_EVENT_TYPES = calendarDeadlines.ALL_CALENDAR_EVENT_TYPES;
 export const toDateKey = calendarDeadlines.toDateKey;
+export const resolveCalendarJumpInput = calendarDeadlines.resolveCalendarJumpInput;
 export const isDateOnlyCalendarIso = calendarDeadlines.isDateOnlyCalendarIso;
 export const calendarEventRowKey = calendarDeadlines.calendarEventRowKey;
 export const isContractorCalendarEvent = calendarDeadlines.isContractorCalendarEvent;

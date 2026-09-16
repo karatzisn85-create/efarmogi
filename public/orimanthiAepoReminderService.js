@@ -46,7 +46,11 @@ function saveReminderLog(dataDir, log) {
 
 function daysUntilDate(isoDate) {
   if (!isoDate) return null;
-  const target = new Date(isoDate);
+  const s = String(isoDate);
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  const target = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]), 0, 0, 0, 0)
+    : new Date(isoDate);
   if (Number.isNaN(target.getTime())) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -75,12 +79,15 @@ function recipientReminderKey(recipientEmail, proposalId, daysBefore) {
   return `${em}:${reminderKey(proposalId, daysBefore)}`;
 }
 
-function computeAepoAlerts(proposals, { maxDays = 90, limit = 0 } = {}) {
+function computeAepoAlerts(proposals, { maxDays = 90, limit = 0, includePast = false } = {}) {
+  const cap = maxDays == null || !Number.isFinite(Number(maxDays)) ? null : Number(maxDays);
   const rows = [];
   for (const p of proposals || []) {
     if (!p.aepoRenewalDate) continue;
     const daysLeft = daysUntilDate(p.aepoRenewalDate);
-    if (daysLeft === null || daysLeft < 0 || daysLeft > maxDays) continue;
+    if (daysLeft === null) continue;
+    if (daysLeft < 0 && !includePast) continue;
+    if (cap != null && daysLeft > cap) continue;
     rows.push({
       id: p.id,
       title: p.title || '(Χωρίς τίτλο)',

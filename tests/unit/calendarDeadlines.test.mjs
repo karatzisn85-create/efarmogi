@@ -12,6 +12,26 @@ function isoDaysFromToday(offset) {
   return cal.toDateKey(d);
 }
 
+test('μετάβαση ημερολογίου: έτος, μήνας ή συγκεκριμένη ημέρα', () => {
+  assert.deepEqual(cal.resolveCalendarJumpInput('2028'), {
+    year: 2028, monthIndex: 0, day: 1, dateKey: '2028-01-01',
+  });
+  assert.deepEqual(cal.resolveCalendarJumpInput('2028-03'), {
+    year: 2028, monthIndex: 2, day: 1, dateKey: '2028-03-01',
+  });
+  assert.deepEqual(cal.resolveCalendarJumpInput('03/2028'), {
+    year: 2028, monthIndex: 2, day: 1, dateKey: '2028-03-01',
+  });
+  assert.deepEqual(cal.resolveCalendarJumpInput('2028-03-15'), {
+    year: 2028, monthIndex: 2, day: 15, dateKey: '2028-03-15',
+  });
+  assert.deepEqual(cal.resolveCalendarJumpInput('15/03/2028'), {
+    year: 2028, monthIndex: 2, day: 15, dateKey: '2028-03-15',
+  });
+  assert.equal(cal.resolveCalendarJumpInput(''), null);
+  assert.equal(cal.resolveCalendarJumpInput('32/03/2028'), null);
+});
+
 test('πρόσκληση χωρίς ημερομηνία δεν μπαίνει στο ημερολόγιο', () => {
   assert.equal(cal.mapProsklisiToCalendarRow({ prosklisiId: 'p', title: 'Χ', deadline: '' }), null);
   assert.equal(cal.prosklisiDeadlineToIsoDate('15-08-2026'), '2026-08-15');

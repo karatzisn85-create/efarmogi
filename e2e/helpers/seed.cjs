@@ -505,6 +505,17 @@ function seedOrimanthi(dataDir) {
     createdAt: '2025-04-01T08:00:00.000Z',
     updatedAt: '2025-04-01T08:00:00.000Z',
   });
+  const farId = 'c4d5e6f7-a8b9-4c0d-9e1f-2a3b4c5d6e7f';
+  writeJson(path.join(dataDir, 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', farId, 'data.json'), {
+    id: farId,
+    title: 'Μακρινή ΑΕΠΟ λιμένα',
+    projectCategory: 'ΛΙΜΕΝΙΚΑ',
+    status: 'maturing',
+    municipalUnit: 'Δ.Ε. ΤΥΜΠΑΚΙΟΥ',
+    aepoRenewalDate: dateKeyFromToday(400),
+    createdAt: '2025-05-01T08:00:00.000Z',
+    updatedAt: '2025-05-01T08:00:00.000Z',
+  });
 }
 
 function seedMeletai(dataDir) {

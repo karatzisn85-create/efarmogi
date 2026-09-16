@@ -75,3 +75,52 @@ test('P3-06 κλικ στην πρόσκληση ανοίγει την προθ�
   await window.getByText('Πρόσκληση σχολείων').first().click();
   await expect(window.getByText(/Λήξη υποβολής|Πρόσκληση σχολείων/).first()).toBeVisible();
 });
+
+test('P3-72 ημερομηνία ΑΕΠΟ ωρίμανσης φαίνεται στο ημερολόγιο', async ({ app }) => {
+  const { window } = app;
+  await openCalendarList(window);
+  await calendarTypeFilter(window, 'ΑΕΠΟ');
+  await expect(window.getByText('Ανακατασκευή οδού Αρχανών').first()).toBeVisible();
+  await window.getByText('Συμπερίληψη ληγμένων').click();
+  await expect(window.getByText('Δίκτυο ύδρευσης Παρανύμφων').first()).toBeVisible();
+});
+
+test('P3-73 μακρινή ΑΕΠΟ εμφανίζεται στον μήνα της ημερομηνίας', async ({ app }) => {
+  const { window } = app;
+  await openCalendar(window);
+  await calendarTypeFilter(window, 'ΑΕΠΟ');
+  const nextMonth = window.getByRole('button', { name: '›' });
+  let found = false;
+  for (let i = 0; i < 18; i += 1) {
+    if (await window.getByText(/Μακρινή ΑΕΠΟ/).count()) {
+      found = true;
+      break;
+    }
+    await nextMonth.click();
+  }
+  expect(found).toBe(true);
+});
+
+test('P3-74 μετάβαση ημερολογίου σε συγκεκριμένη ημερομηνία ΑΕΠΟ', async ({ app }) => {
+  const { window } = app;
+  await openCalendar(window);
+  await calendarTypeFilter(window, 'ΑΕΠΟ');
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + 400);
+  const jumpTo = d.toISOString().slice(0, 10);
+  await window.getByTestId('calendar-jump-date').fill(jumpTo);
+  await expect(window.getByText(/Μακρινή ΑΕΠΟ/)).toBeVisible();
+});
+
+test('P3-75 κλικ σε ΑΕΠΟ ανοίγει το συγκεκριμένο έργο ωρίμανσης', async ({ app }) => {
+  const { window } = app;
+  await openCalendarList(window);
+  await calendarTypeFilter(window, 'ΑΕΠΟ');
+  await window.getByText('Ανακατασκευή οδού Αρχανών').first().click();
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-back')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-tab-details')).toBeVisible();
+  await window.getByTestId('orimanthi-tab-details').click();
+  await expect(window.getByText('Ανακατασκευή οδού Αρχανών').first()).toBeVisible();
+});

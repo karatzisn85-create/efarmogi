@@ -36,6 +36,9 @@ const SECTORS = [
   'config',
   'ΣΗΜΕΙΩΣΕΙΣ',
   'ektelestea_erga',
+  'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ',
+  'ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ',
+  'DOCUMENT_TEMPLATES',
 ];
 
 function makeDir(prefix = 'ergohub-rt-') {
@@ -62,16 +65,31 @@ function seedLiveApp(dir) {
     mkdirSync(join(dir, name), { recursive: true });
   });
   writeFileSync(join(dir, 'ΠΡΟΣΚΛΗΣΕΙΣ', 'psk.json'), '{"id":"psk-1"}');
+  mkdirSync(join(dir, 'ΠΡΟΣΚΛΗΣΕΙΣ', 'psk-1', 'ΑΡΧΕΙΑ'), { recursive: true });
+  writeFileSync(join(dir, 'ΠΡΟΣΚΛΗΣΕΙΣ', 'psk-1', 'ΑΡΧΕΙΑ', 'πρόσκληση.pdf'), 'psk-pdf');
   writeFileSync(join(dir, 'entaxeis', 'ent.json'), '{"id":"ent-1"}');
   writeFileSync(join(dir, 'EGKRISEIS_DIATHESIS_PISTOSIS', 'egk.json'), '{"id":"egk-1"}');
   writeFileSync(join(dir, 'ΜΕΛΕΤΕΣ', 'meleti.json'), '{"id":"mlt-1"}');
+  mkdirSync(join(dir, 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'prop-1', 'files', 'group-a'), { recursive: true });
+  writeFileSync(join(dir, 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'prop-1', 'data.json'), '{"id":"prop-1"}');
+  writeFileSync(join(dir, 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'prop-1', 'files', 'group-a', 'άδεια.pdf'), 'pdf-bytes');
   writeFileSync(join(dir, 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'ep.json'), '{"id":"ep-1"}');
   writeFileSync(join(dir, 'ΑΠΟΛΟΓΙΣΜΟΣ', 'period.json'), '{"year":2026}');
+  mkdirSync(join(dir, 'ΑΠΟΛΟΓΙΣΜΟΣ', 'media'), { recursive: true });
+  writeFileSync(join(dir, 'ΑΠΟΛΟΓΙΣΜΟΣ', 'media', 'slide.jpg'), 'img');
   writeFileSync(join(dir, 'ANATHESEIS_ERGASION', 'task.json'), '{"id":"t-1"}');
   writeFileSync(join(dir, 'config', 'calendar.json'), '{"alerts":true}');
+  writeFileSync(join(dir, 'config', 'email-config.json'), '{"host":"smtp"}');
   writeFileSync(join(dir, 'ΣΗΜΕΙΩΣΕΙΣ', 'note.txt'), 'σημείωση');
+  mkdirSync(join(dir, 'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ', 'c-1', 'files'), { recursive: true });
+  writeFileSync(join(dir, 'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ', 'c-1', 'data.json'), '{"id":"c-1"}');
+  writeFileSync(join(dir, 'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ', 'c-1', 'files', 'εγγύηση.pdf'), 'guarantee');
+  mkdirSync(join(dir, 'ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ', 'd-1', 'ΦΩΤΟΓΡΑΦΙΕΣ'), { recursive: true });
+  writeFileSync(join(dir, 'ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ', 'd-1', 'data.json'), '{"id":"d-1"}');
+  writeFileSync(join(dir, 'ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ', 'd-1', 'ΦΩΤΟΓΡΑΦΙΕΣ', 'φωτο.jpg'), 'photo');
+  writeFileSync(join(dir, 'DOCUMENT_TEMPLATES', 'tmpl.docx'), 'docx');
   mkdirSync(join(dir, PROJECT_ID, SUB_ID, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ'), { recursive: true });
-  writeFileSync(join(dir, PROJECT_ID, SUB_ID, 'data.json'), '{"title":"Γέφυρα"}');
+  writeFileSync(join(dir, PROJECT_ID, SUB_ID, 'data.json'), '{"title":"Γέφυρα","newField":"νέο"}');
   writeFileSync(join(dir, PROJECT_ID, SUB_ID, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ', 'σύμβαση.txt'), 'περιεχόμενο-σύμβασης');
 
   mkdirSync(join(dir, 'backups'));
@@ -194,9 +212,14 @@ test('κύκλος αντιγράφου: πληρότητα και επαναφ�
   assert.equal(created.coverage.ok, true, created.coverage.message);
   assert.deepEqual(bk.missingExpectedRestoreAreas(created.coverage.areas), []);
   assert.ok(created.coverage.areas.some((a) => a.startsWith('Έργα / υποέργα')));
-  assert.ok(created.emptySelectedDirs.includes('ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ'));
+  assert.ok(created.coverage.areas.includes('Μητρώο αναδόχων'));
+  assert.ok(created.coverage.areas.includes('Ημερολόγιο εργοταξίου'));
+  assert.ok(created.coverage.areas.includes('Πρότυπα εγγράφων'));
+  assert.ok(!created.emptySelectedDirs.includes('ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ'));
   assert.ok(created.emptySelectedDirs.includes('ektelestea_erga'));
   assert.ok(created.zipTopLevel.includes('ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ'));
+  assert.ok(created.zipTopLevel.includes('ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ'));
+  assert.ok(created.zipTopLevel.includes('ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ'));
   assert.ok(!created.zipTopLevel.includes('backups'));
   assert.ok(!created.zipTopLevel.includes('users.json.bak'));
   assert.ok(!created.zipTopLevel.includes('app-config.json'));
@@ -211,15 +234,23 @@ test('κύκλος αντιγράφου: πληρότητα και επαναφ�
 
   assert.equal(JSON.parse(readFileSync(join(restored, 'users.json'), 'utf8')).name, 'Νίκος');
   assert.equal(readFileSync(join(restored, 'ΠΡΟΣΚΛΗΣΕΙΣ', 'psk.json'), 'utf8'), '{"id":"psk-1"}');
+  assert.equal(readFileSync(join(restored, 'ΠΡΟΣΚΛΗΣΕΙΣ', 'psk-1', 'ΑΡΧΕΙΑ', 'πρόσκληση.pdf'), 'utf8'), 'psk-pdf');
   assert.equal(readFileSync(join(restored, 'entaxeis', 'ent.json'), 'utf8'), '{"id":"ent-1"}');
   assert.equal(readFileSync(join(restored, 'EGKRISEIS_DIATHESIS_PISTOSIS', 'egk.json'), 'utf8'), '{"id":"egk-1"}');
   assert.equal(readFileSync(join(restored, 'ΜΕΛΕΤΕΣ', 'meleti.json'), 'utf8'), '{"id":"mlt-1"}');
+  assert.equal(readFileSync(join(restored, 'ΩΡΙΜΑΝΣΗ_ΕΡΓΩΝ', 'prop-1', 'files', 'group-a', 'άδεια.pdf'), 'utf8'), 'pdf-bytes');
   assert.equal(readFileSync(join(restored, 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', 'ep.json'), 'utf8'), '{"id":"ep-1"}');
   assert.equal(readFileSync(join(restored, 'ΑΠΟΛΟΓΙΣΜΟΣ', 'period.json'), 'utf8'), '{"year":2026}');
+  assert.equal(readFileSync(join(restored, 'ΑΠΟΛΟΓΙΣΜΟΣ', 'media', 'slide.jpg'), 'utf8'), 'img');
   assert.equal(readFileSync(join(restored, 'ANATHESEIS_ERGASION', 'task.json'), 'utf8'), '{"id":"t-1"}');
   assert.equal(readFileSync(join(restored, 'config', 'calendar.json'), 'utf8'), '{"alerts":true}');
+  assert.equal(readFileSync(join(restored, 'config', 'email-config.json'), 'utf8'), '{"host":"smtp"}');
   assert.equal(readFileSync(join(restored, 'ΣΗΜΕΙΩΣΕΙΣ', 'note.txt'), 'utf8'), 'σημείωση');
+  assert.equal(readFileSync(join(restored, 'ΜΗΤΡΩΟ ΑΝΑΔΟΧΩΝ', 'c-1', 'files', 'εγγύηση.pdf'), 'utf8'), 'guarantee');
+  assert.equal(readFileSync(join(restored, 'ΗΜΕΡΟΛΟΓΙΟ ΕΡΓΟΤΑΞΙΟΥ', 'd-1', 'ΦΩΤΟΓΡΑΦΙΕΣ', 'φωτο.jpg'), 'utf8'), 'photo');
+  assert.equal(readFileSync(join(restored, 'DOCUMENT_TEMPLATES', 'tmpl.docx'), 'utf8'), 'docx');
   assert.equal(JSON.parse(readFileSync(join(restored, PROJECT_ID, SUB_ID, 'data.json'), 'utf8')).title, 'Γέφυρα');
+  assert.equal(JSON.parse(readFileSync(join(restored, PROJECT_ID, SUB_ID, 'data.json'), 'utf8')).newField, 'νέο');
   assert.equal(
     readFileSync(join(restored, PROJECT_ID, SUB_ID, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ', 'σύμβαση.txt'), 'utf8'),
     'περιεχόμενο-σύμβασης'

@@ -286,7 +286,12 @@ test('P8-26 μετονομασία αρχείου σε αδειοδότηση χ
   await expect(window.getByTestId('orimanthi-permit-issued-fg-permit-arch')).toHaveText(/Η άδεια εκδόθηκε/);
   await window.getByTestId('orimanthi-rename-σχέδιο.pdf').click();
   await expect(window.getByTestId('orimanthi-rename-modal')).toBeVisible();
-  await window.getByTestId('orimanthi-rename-input').fill('άδεια αρχαιολογίας.pdf');
+  const renameInput = window.getByTestId('orimanthi-rename-input');
+  await expect(renameInput).toHaveValue('σχέδιο');
+  await renameInput.click();
+  await renameInput.press('Control+A');
+  await renameInput.pressSequentially('άδεια αρχαιολογίας');
+  await expect(renameInput).toHaveValue('άδεια αρχαιολογίας');
   await window.getByTestId('orimanthi-rename-confirm').click();
   await expect(window.getByText(/Μετονομάστηκε σε «άδεια αρχαιολογίας\.pdf»/)).toBeVisible({ timeout: 15000 });
   await expect(window.getByText('άδεια αρχαιολογίας.pdf', { exact: true }).first()).toBeVisible();

@@ -2925,6 +2925,16 @@ function normalizeText(text) {
     .toLowerCase();         // Case insensitive
 }
 
+function resolveOrimanthiOpenId(payload) {
+  if (payload == null || payload === '') return null;
+  if (typeof payload === 'string' || typeof payload === 'number') {
+    const id = String(payload).trim();
+    return id || null;
+  }
+  const id = String(payload.proposalId || payload.id || '').trim();
+  return id || null;
+}
+
 function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCurrentUser }) {
   const { showToast } = useToast();
   const userRole = currentUser?.role || 'USER';
@@ -9091,9 +9101,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               role: userRole,
               orimanthiCanEdit: !!currentUser?.orimanthiCanEdit,
             })}
-            onOpenOrimanthi={() => {
+            onOpenOrimanthi={(payload) => {
               setIsProcurementCalendarOpen(false);
-              setSelectedOrimanthiId(null);
+              setSelectedOrimanthiId(resolveOrimanthiOpenId(payload));
               setIsOrimanthiOpen(true);
             }}
             onOpenProsklisi={(prosklisiId) => {
@@ -9364,8 +9374,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           maxDays: 30,
           limit: 8,
           refreshKey: calendarRefreshKey,
-          onOpenOrimanthi: () => {
-            setSelectedOrimanthiId(null);
+          onOpenOrimanthi: (payload) => {
+            setSelectedOrimanthiId(resolveOrimanthiOpenId(payload));
             setIsOrimanthiOpen(true);
           },
           onOpenProsklisi: (prosklisiId) => handleOpenLinkedProsklisi(prosklisiId),
