@@ -56,12 +56,16 @@
       var n = entryName(f);
       if (n) names.push(n);
     });
-    (fileGroups || []).forEach(function (g) {
-      ((g && g.files) || []).forEach(function (f) {
-        var n = entryName(f);
-        if (n) names.push(n);
+    function collectFromGroups(groups) {
+      (groups || []).forEach(function (g) {
+        ((g && g.files) || []).forEach(function (f) {
+          var n = entryName(f);
+          if (n) names.push(n);
+        });
+        collectFromGroups(g && g.subgroups);
       });
-    });
+    }
+    collectFromGroups(fileGroups);
     return names;
   }
 

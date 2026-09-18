@@ -1,12 +1,34 @@
 /**
- * Modal ομαδοποίησης αρχείων κατά το ανέβασμα από λεπτομέρειες υποέργου.
- * @returns {Promise<false|null|{ action: 'new', title: string }|{ action: 'existing', groupId: string }>}
+ * Modal ομαδοποίησης αρχείων κατά το ανέβασμα.
+ * @returns {Promise<false|null|{ action: 'new', title: string }|{ action: 'existing', groupId: string }|{ action: 'subgroup', parentId: string, title: string }>}
  *   false = χωρίς ομαδοποίηση (συνέχεια ανεβάσματος)
  *   null = πλήρης ακύρωση (Esc, Ακύρωση, κλικ έξω)
  */
 import { safeAlert } from './safeDialogs';
+import prosklisiFileGroups from '../../app/core/prosklisiFileGroups';
 
-export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) {
+function escapeHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function groupOptionsHtml(flatGroups) {
+  return (flatGroups || [])
+    .map((group) => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.label || group.title)}</option>`)
+    .join('');
+}
+
+export function showSubprojectFileGroupingModal(fileCount, existingGroups = [], options = {}) {
+  const allowSubgroups = !!options.allowSubgroups;
+  const allowSkip = options.allowSkip !== false;
+  const cancelLabel = options.cancelLabel || '✕ Ακύρωση ανεβάσματος';
+  const heading = options.heading || '📁 Ομαδοποίηση Αρχείων';
+  const intro = options.intro || `Επιλέξατε ${fileCount} αρχείο(α). Πώς θέλετε να τα οργανώσετε;`;
+  const flatGroups = prosklisiFileGroups.flattenGroups(existingGroups);
+
   return new Promise((resolve) => {
     const modal = document.createElement('div');
     modal.style.cssText = `
@@ -32,16 +54,14 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
     `;
 
-    const existingGroupsOptions = existingGroups.length > 0
-      ? existingGroups.map((group) => `<option value="${group.id}">${group.title}</option>`).join('')
-      : '';
+    const existingGroupsOptions = groupOptionsHtml(flatGroups);
 
     modalContent.innerHTML = `
       <h3 style="margin: 0 0 1rem 0; color: #333; font-size: 1.3rem;">
-        📁 Ομαδοποίηση Αρχείων
+        ${escapeHtml(heading)}
       </h3>
       <p style="margin: 0 0 1.5rem 0; color: #666; font-size: 1rem;">
-        Επιλέξατε ${fileCount} αρχείο(α). Πώς θέλετε να τα οργανώσετε;
+        ${escapeHtml(intro)}
       </p>
       <div style="display: grid; gap: 1rem; margin-bottom: 1.5rem;">
         <button id="newGroupBtn" type="button" data-testid="file-choice-new" style="
@@ -55,7 +75,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           font-weight: 500;
           text-align: left;
         ">🆕 Νέα Ομάδα</button>
-        ${existingGroups.length > 0 ? `
+        ${flatGroups.length > 0 ? `
         <button id="existingGroupBtn" type="button" data-testid="file-choice-existing" style="
           padding: 0.8rem 1.5rem;
           background: #007bff;
@@ -68,6 +88,20 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           text-align: left;
         ">📂 Προσθήκη σε Υπάρχουσα Ομάδα</button>
         ` : ''}
+        ${allowSubgroups && flatGroups.length > 0 ? `
+        <button id="newSubgroupBtn" type="button" data-testid="file-choice-subgroup" style="
+          padding: 0.8rem 1.5rem;
+          background: #4f46e5;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 1rem;
+          cursor: pointer;
+          font-weight: 500;
+          text-align: left;
+        ">📁 Νέα Υποομάδα μέσα σε ομάδα</button>
+        ` : ''}
+        ${allowSkip ? `
         <button id="noGroupBtn" type="button" data-testid="file-choice-none" style="
           padding: 0.8rem 1.5rem;
           background: #6c757d;
@@ -79,6 +113,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           font-weight: 500;
           text-align: left;
         ">📄 Χωρίς Ομαδοποίηση</button>
+        ` : ''}
         <button id="abortUploadBtn" type="button" data-testid="file-choice-cancel" style="
           padding: 0.8rem 1.5rem;
           background: #dc3545;
@@ -89,7 +124,7 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           cursor: pointer;
           font-weight: 500;
           text-align: left;
-        ">✕ Ακύρωση ανεβάσματος</button>
+        ">${escapeHtml(cancelLabel)}</button>
       </div>
       <div id="newGroupSection" style="display: none;">
         <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: #333;">
@@ -180,6 +215,69 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
           ">Ακύρωση</button>
         </div>
       </div>
+      <div id="newSubgroupSection" style="display: none;">
+        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: #333;">
+          Ομάδα στην οποία θα μπει η υποομάδα:
+        </label>
+        <select
+          id="parentGroupSelect"
+          data-testid="file-subgroup-parent"
+          style="
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            box-sizing: border-box;
+          "
+        >
+          <option value="">-- Επιλέξτε ομάδα --</option>
+          ${existingGroupsOptions}
+        </select>
+        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: #333;">
+          Τίτλος νέας υποομάδας:
+        </label>
+        <input
+          type="text"
+          id="newSubgroupTitle"
+          data-testid="file-subgroup-title"
+          placeholder="π.χ. Φορολογικά, Τοπογραφικά"
+          style="
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            box-sizing: border-box;
+          "
+        />
+        <div style="display: flex; gap: 1rem;">
+          <button id="confirmSubgroupBtn" type="button" data-testid="file-confirm-subgroup" style="
+            flex: 1;
+            padding: 0.8rem 1.5rem;
+            background: #4f46e5;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            font-weight: 500;
+          ">Επιβεβαίωση</button>
+          <button id="cancelSubgroupBtn" type="button" style="
+            flex: 1;
+            padding: 0.8rem 1.5rem;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            font-weight: 500;
+          ">Ακύρωση</button>
+        </div>
+      </div>
     `;
 
     modal.appendChild(modalContent);
@@ -187,15 +285,21 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
 
     const newGroupBtn = modalContent.querySelector('#newGroupBtn');
     const existingGroupBtn = modalContent.querySelector('#existingGroupBtn');
+    const newSubgroupBtn = modalContent.querySelector('#newSubgroupBtn');
     const noGroupBtn = modalContent.querySelector('#noGroupBtn');
     const newGroupSection = modalContent.querySelector('#newGroupSection');
     const existingGroupSection = modalContent.querySelector('#existingGroupSection');
+    const newSubgroupSection = modalContent.querySelector('#newSubgroupSection');
     const newGroupTitle = modalContent.querySelector('#newGroupTitle');
     const existingGroupSelect = modalContent.querySelector('#existingGroupSelect');
+    const parentGroupSelect = modalContent.querySelector('#parentGroupSelect');
+    const newSubgroupTitle = modalContent.querySelector('#newSubgroupTitle');
     const confirmNewBtn = modalContent.querySelector('#confirmNewBtn');
     const cancelNewBtn = modalContent.querySelector('#cancelNewBtn');
     const confirmExistingBtn = modalContent.querySelector('#confirmExistingBtn');
     const cancelExistingBtn = modalContent.querySelector('#cancelExistingBtn');
+    const confirmSubgroupBtn = modalContent.querySelector('#confirmSubgroupBtn');
+    const cancelSubgroupBtn = modalContent.querySelector('#cancelSubgroupBtn');
     const abortUploadBtn = modalContent.querySelector('#abortUploadBtn');
 
     let handleKeyDown;
@@ -209,37 +313,52 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
       resolve(result);
     };
 
+    const hideChoiceButtons = () => {
+      newGroupBtn.style.display = 'none';
+      if (existingGroupBtn) existingGroupBtn.style.display = 'none';
+      if (newSubgroupBtn) newSubgroupBtn.style.display = 'none';
+      if (noGroupBtn) noGroupBtn.style.display = 'none';
+      if (abortUploadBtn) abortUploadBtn.style.display = 'none';
+    };
+
     const showMainOptions = () => {
       newGroupBtn.style.display = '';
       if (existingGroupBtn) existingGroupBtn.style.display = '';
-      noGroupBtn.style.display = '';
+      if (newSubgroupBtn) newSubgroupBtn.style.display = '';
+      if (noGroupBtn) noGroupBtn.style.display = '';
       if (abortUploadBtn) abortUploadBtn.style.display = '';
       newGroupSection.style.display = 'none';
       existingGroupSection.style.display = 'none';
+      if (newSubgroupSection) newSubgroupSection.style.display = 'none';
       newGroupTitle.value = '';
       if (existingGroupSelect) existingGroupSelect.value = '';
+      if (parentGroupSelect) parentGroupSelect.value = '';
+      if (newSubgroupTitle) newSubgroupTitle.value = '';
     };
 
     newGroupBtn.addEventListener('click', () => {
-      newGroupBtn.style.display = 'none';
-      if (existingGroupBtn) existingGroupBtn.style.display = 'none';
-      noGroupBtn.style.display = 'none';
-      if (abortUploadBtn) abortUploadBtn.style.display = 'none';
+      hideChoiceButtons();
       newGroupSection.style.display = 'block';
       newGroupTitle.focus();
     });
 
     if (existingGroupBtn) {
       existingGroupBtn.addEventListener('click', () => {
-        newGroupBtn.style.display = 'none';
-        existingGroupBtn.style.display = 'none';
-        noGroupBtn.style.display = 'none';
-        if (abortUploadBtn) abortUploadBtn.style.display = 'none';
+        hideChoiceButtons();
         existingGroupSection.style.display = 'block';
       });
     }
 
-    noGroupBtn.addEventListener('click', () => cleanup(false));
+    if (newSubgroupBtn) {
+      newSubgroupBtn.addEventListener('click', () => {
+        hideChoiceButtons();
+        newSubgroupSection.style.display = 'block';
+      });
+    }
+
+    if (noGroupBtn) {
+      noGroupBtn.addEventListener('click', () => cleanup(false));
+    }
     if (abortUploadBtn) {
       abortUploadBtn.addEventListener('click', () => cleanup(null));
     }
@@ -262,16 +381,40 @@ export function showSubprojectFileGroupingModal(fileCount, existingGroups = []) 
 
     cancelNewBtn.addEventListener('click', () => showMainOptions());
 
-    confirmExistingBtn.addEventListener('click', () => {
-      const selectedGroupId = existingGroupSelect.value;
-      if (selectedGroupId) {
-        cleanup({ action: 'existing', groupId: selectedGroupId });
-      } else {
-        safeAlert('Παρακαλώ επιλέξτε ομάδα');
-      }
-    });
+    if (confirmExistingBtn) {
+      confirmExistingBtn.addEventListener('click', () => {
+        const selectedGroupId = existingGroupSelect.value;
+        if (selectedGroupId) {
+          cleanup({ action: 'existing', groupId: selectedGroupId });
+        } else {
+          safeAlert('Παρακαλώ επιλέξτε ομάδα');
+        }
+      });
+    }
 
-    cancelExistingBtn.addEventListener('click', () => showMainOptions());
+    if (cancelExistingBtn) {
+      cancelExistingBtn.addEventListener('click', () => showMainOptions());
+    }
+
+    if (confirmSubgroupBtn) {
+      confirmSubgroupBtn.addEventListener('click', () => {
+        const parentId = parentGroupSelect.value;
+        const title = newSubgroupTitle.value.trim();
+        if (!parentId) {
+          safeAlert('Παρακαλώ επιλέξτε ομάδα');
+          return;
+        }
+        if (!title) {
+          safeAlert('Παρακαλώ εισάγετε τίτλο υποομάδας');
+          return;
+        }
+        cleanup({ action: 'subgroup', parentId, title });
+      });
+    }
+
+    if (cancelSubgroupBtn) {
+      cancelSubgroupBtn.addEventListener('click', () => showMainOptions());
+    }
 
     handleKeyDown = (e) => {
       if (e.key === 'Escape') {

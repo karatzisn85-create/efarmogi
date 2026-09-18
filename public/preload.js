@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const ALLOWED_INVOKE = new Set([
-  'add-document-category','add-entaxi-approval-files','add-files-to-group','add-task-assignment-assignees','add-task-assignment-comment','add-task-assignment-files','authenticate',
+  'add-document-category','add-entaxi-approval-files','add-files-to-group','add-files-to-prosklisi-group','add-task-assignment-assignees','add-task-assignment-comment','add-task-assignment-files','authenticate',
   'change-password','check-data-dir-exists','check-file-exists',
   'check-entity-lock','check-folder-has-config','check-for-updates',
   'check-project-lock','check-projects-locks-bulk','clean-entaxi-modification-file','cleanup-duplicate-files',
@@ -14,7 +14,7 @@ const ALLOWED_INVOKE = new Set([
   'delete-egkrisi-subproject','delete-entaxi','delete-entaxi-file',
   'delete-entaxi-modification','delete-file','delete-files','delete-file-from-folder',
   'delete-item-from-folder','delete-item-from-subfolder','delete-prosklisi',
-  'delete-prosklisi-file','delete-prosklisi-folder','delete-prosklisi-group',
+  'delete-prosklisi-file','delete-prosklisi-files','delete-prosklisi-folder','delete-prosklisi-group',
   'delete-prosklisi-modification','delete-subproject','delete-user',
   'e2e-queue-open-files','e2e-queue-folder-pick','e2e-queue-save-path','e2e-queue-khmdhs-fixtures','e2e-queue-diavgeia-acceptance','e2e-set-khmdhs-live','e2e-last-edit-menu','e2e-spellcheck-status',
   'download-document-template','download-egkriseis-pdf','download-entaxi-file',

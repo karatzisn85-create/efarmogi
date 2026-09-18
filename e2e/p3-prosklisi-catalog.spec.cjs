@@ -673,6 +673,7 @@ test('P3-70 μετονομασία αρχείου μένει μετά την α�
   await expect(window.getByTestId('psk-files-modal')).toBeVisible();
   await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
   await window.getByTestId('psk-files-upload').click();
+  await window.getByTestId('file-choice-none').click();
   await expect(window.getByText(/προστέθηκε επιτυχώς|Προστέθηκαν/i)).toBeVisible({ timeout: 20000 });
   await window.getByTestId('file-rename-σχέδιο.pdf').click();
   await expect(window.getByTestId('file-rename-modal')).toBeVisible();
@@ -705,6 +706,7 @@ test('P3-72 συνδεδεμένο δικαιολογητικό ωρίμανση
   await expect(window.getByTestId('psk-files-modal')).toBeVisible();
   const linkedSection = window.getByTestId('psk-linked-orimanthi-files');
   await expect(linkedSection).toBeVisible();
+  await expect(linkedSection.getByText('Αρχεία από την ωρίμανση', { exact: true })).toBeVisible();
   await expect(linkedSection.getByText('ΜΕΛΕΤΕΣ ΕΡΓΟΥ', { exact: true })).toBeVisible();
   await expect(linkedSection.getByText('ΤΟΠΟΓΡΑΦΙΚΑ', { exact: true })).toBeVisible();
   await expect(linkedSection.getByText('τοπογραφικο.pdf', { exact: true })).toBeVisible();
@@ -764,18 +766,14 @@ test('P3-76 εξαγωγή πρόσκλησης: φάκελοι, αρχεία κ
   const exportRoot = path.join(dest, 'Πρόσκληση σχολείων');
   const wordPath = path.join(exportRoot, 'Αναφορά πρόσκλησης.doc');
   await expect.poll(() => fs.existsSync(wordPath), { timeout: 15000 }).toBe(true);
-  expect(fs.existsSync(path.join(exportRoot, 'Αρχεία πρόσκλησης', 'πρόσκληση-όροι.pdf'))).toBe(true);
-  expect(fs.existsSync(path.join(exportRoot, 'Αρχεία πρόσκλησης', 'Φάκελος μελετών', 'μελέτη.pdf'))).toBe(true);
+  expect(fs.existsSync(path.join(exportRoot, 'πρόσκληση-όροι.pdf'))).toBe(true);
+  expect(fs.existsSync(path.join(exportRoot, 'Φάκελος μελετών', 'μελέτη.pdf'))).toBe(true);
+  expect(fs.existsSync(path.join(exportRoot, 'Δικαιολογητικά', 'βεβαίωση.pdf'))).toBe(true);
+  expect(fs.existsSync(path.join(exportRoot, 'Αρχεία πρόσκλησης'))).toBe(false);
+  expect(fs.existsSync(path.join(exportRoot, 'Επισυναπτόμενα Αρχεία Υποβολής'))).toBe(false);
   expect(fs.existsSync(path.join(
     exportRoot,
-    'Αρχεία πρόσκλησης',
-    'Επισυναπτόμενα Αρχεία Υποβολής',
-    'Δικαιολογητικά',
-    'βεβαίωση.pdf'
-  ))).toBe(true);
-  expect(fs.existsSync(path.join(
-    exportRoot,
-    'Δικαιολογητικά από την ωρίμανση',
+    'Αρχεία από την ωρίμανση',
     'ΜΕΛΕΤΕΣ ΕΡΓΟΥ',
     'ΤΟΠΟΓΡΑΦΙΚΑ',
     'τοπογραφικο.pdf'
@@ -787,3 +785,58 @@ test('P3-76 εξαγωγή πρόσκλησης: φάκελοι, αρχεία κ
   expect(word).toContain('τοπογραφικο.pdf');
   expect(word).toContain('Οδικό δίκτυο Αρχανών');
 });
+
+test('P3-77 ανέβασμα αρχείου πρόσκλησης με νέα ομάδα', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await window.getByTestId('psk-files-upload').click();
+  await window.getByTestId('file-choice-new').click();
+  await window.getByTestId('file-new-title').fill('Τεχνικά');
+  await window.getByTestId('file-confirm-new').click();
+  await expect(window.getByText(/προστέθηκε επιτυχώς|Προστέθηκαν/i)).toBeVisible({ timeout: 20000 });
+  await window.getByRole('button', { name: /Τεχνικά/ }).click();
+  await expect(window.getByTestId('psk-file-row-σχέδιο.pdf')).toBeVisible();
+});
+
+test('P3-78 υποομάδα μέσα σε υπάρχουσα ομάδα πρόσκλησης', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  await app.queueOpenFiles([path.join(sampleUpload, 'παράρτημα.pdf')]);
+  await window.getByTestId('psk-files-upload').click();
+  await window.getByTestId('file-choice-subgroup').click();
+  await window.getByTestId('file-subgroup-parent').selectOption('fg-justif');
+  await window.getByTestId('file-subgroup-title').fill('Φορολογικά');
+  await window.getByTestId('file-confirm-subgroup').click();
+  await expect(window.getByText(/προστέθηκε επιτυχώς|Προστέθηκαν/i)).toBeVisible({ timeout: 20000 });
+  await window.getByRole('button', { name: /Δικαιολογητικά/ }).click();
+  await window.getByRole('button', { name: /Φορολογικά/ }).click();
+  await expect(window.getByTestId('psk-file-row-παράρτημα.pdf')).toBeVisible();
+});
+
+test('P3-79 μαζική διαγραφή επιλεγμένων αρχείων πρόσκλησης', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  await app.queueOpenFiles([path.join(sampleUpload, 'σημείωμα.pdf')]);
+  await window.getByTestId('psk-files-upload').click();
+  await window.getByTestId('file-choice-none').click();
+  await expect(window.getByText(/προστέθηκε επιτυχώς|Προστέθηκαν/i)).toBeVisible({ timeout: 20000 });
+  await window.getByTestId('psk-file-check-σημείωμα.pdf').check();
+  await window.getByTestId('psk-files-bulk-delete').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(window.getByText(/διαγράφηκε|Διαγράφηκαν/i)).toBeVisible({ timeout: 20000 });
+  await expect(window.getByTestId('psk-file-row-σημείωμα.pdf')).toHaveCount(0);
+});
+

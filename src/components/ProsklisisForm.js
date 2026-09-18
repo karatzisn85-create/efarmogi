@@ -7,6 +7,9 @@ import { safeFileDialog } from '../utils/safeDialogs';
 import { buildProsklisiDiavgeiaRegistryEntry } from '../utils/prosklisiDiavgeiaRegistry';
 import { useToast } from './ToastProvider';
 import prosklisiCatalog from '../../app/core/prosklisiCatalog';
+import prosklisiFileGroups from '../../app/core/prosklisiFileGroups';
+import subprojectFiles from '../../app/core/subprojectFiles';
+import { askProsklisiGrouping } from '../utils/uploadProsklisiFiles';
 import { formatProposalStatusValue } from '../utils/orimanthiHelpers';
 import {
   FormOverlay,
@@ -312,60 +315,39 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
         : (result.filePath ? [{ filePath: result.filePath, fileName: result.fileName }] : []);
       
       if (result.success && pickedFiles.length > 0) {
-        // Όλα τα αρχεία πηγαίνουν στο "Επισυναπτόμενα"
         const newFiles = pickedFiles.map(file => ({
           filePath: file.filePath,
           fileName: file.fileName,
-          targetFolder: 'attachments' // Πάντα στο Επισυναπτόμενα
+          targetFolder: 'attachments'
         }));
 
-        const appendFiles = () => {
-          setFormData(prev => ({
-            ...prev,
-            prosklisiFiles: [...(prev.prosklisiFiles || []), ...newFiles]
-          }));
-        };
+        const groupingChoice = await askProsklisiGrouping(newFiles.length, formData.fileGroups || []);
+        if (subprojectFiles.isUploadGroupingCancelled(groupingChoice)) return;
 
-        // Στην επεξεργασία: άμεση προσθήκη (χωρίς κρυφό modal ομαδοποίησης πίσω από τη φόρμα)
-        if (editingProsklisi) {
-          appendFiles();
-          showToast(
-            pickedFiles.length === 1
-              ? `Προστέθηκε το αρχείο «${pickedFiles[0].fileName}». Αποθηκεύστε για οριστική καταχώριση.`
-              : `Προστέθηκαν ${pickedFiles.length} αρχεία. Αποθηκεύστε για οριστική καταχώριση.`,
-            'success'
+        if (groupingChoice && (groupingChoice.action === 'new' || groupingChoice.action === 'subgroup')) {
+          const titleCheck = prosklisiFileGroups.canUseGroupTitle(
+            formData.fileGroups || [],
+            groupingChoice.title,
+            groupingChoice.parentId || null
           );
-          return;
-        }
-        
-        // Απλό modal για επιλογή ομαδοποίησης (μόνο σε νέα πρόσκληση)
-        const groupingChoice = await showSimpleGroupingModal(newFiles.length, formData.fileGroups || []);
-        
-        if (groupingChoice !== null && groupingChoice !== false) {
-          if (groupingChoice.action === 'new') {
-            // Δημιουργία νέας ομάδας
-            setFormData(prev => ({
-              ...prev,
-              fileGroups: [...(prev.fileGroups || []), {
-                id: uuidv4(),
-                title: groupingChoice.title,
-                files: newFiles
-              }]
-            }));
-          } else if (groupingChoice.action === 'existing') {
-            // Προσθήκη σε υπάρχουσα ομάδα
-            setFormData(prev => ({
-              ...prev,
-              fileGroups: (prev.fileGroups || []).map(group => 
-                group.id === groupingChoice.groupId
-                  ? { ...group, files: [...(group.files || []), ...newFiles] }
-                  : group
-              )
-            }));
+          if (!titleCheck.ok) {
+            showToast(titleCheck.error, 'warning');
+            return;
           }
-        } else {
-          appendFiles();
         }
+
+        const next = prosklisiFileGroups.applyFormChoice(
+          formData.fileGroups || [],
+          formData.prosklisiFiles || [],
+          groupingChoice,
+          newFiles,
+          uuidv4()
+        );
+        setFormData((prev) => ({
+          ...prev,
+          fileGroups: next.fileGroups,
+          prosklisiFiles: next.ungroupedFiles,
+        }));
         showToast(
           pickedFiles.length === 1
             ? `Προστέθηκε το αρχείο «${pickedFiles[0].fileName}». Αποθηκεύστε για οριστική καταχώριση.`
@@ -381,264 +363,6 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
     }
   };
 
-  // Απλό modal για ομαδοποίηση αρχείων
-  const showSimpleGroupingModal = (fileCount, existingGroups = []) => {
-    return new Promise((resolve) => {
-      const modal = document.createElement('div');
-      modal.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.7);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10150;
-      `;
-
-      const modalContent = document.createElement('div');
-      modalContent.style.cssText = `
-        background: white;
-        border-radius: 12px;
-        padding: 2rem;
-        max-width: 600px;
-        width: 90%;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-      `;
-
-      // Δημιουργία επιλογών για υπάρχουσες ομάδες
-      const existingGroupsOptions = existingGroups.length > 0 
-        ? existingGroups.map(group => `<option value="${group.id}">${group.title}</option>`).join('')
-        : '';
-
-      modalContent.innerHTML = `
-        <h3 style="margin: 0 0 1rem 0; color: #333; font-size: 1.3rem;">
-          📁 Ομαδοποίηση Αρχείων
-        </h3>
-        <p style="margin: 0 0 1.5rem 0; color: #666; font-size: 1rem;">
-          Επιλέξατε ${fileCount} αρχείο(α). Πώς θέλετε να τα οργανώσετε;
-        </p>
-        <div style="display: grid; gap: 1rem; margin-bottom: 1.5rem;">
-          <button id="newGroupBtn" style="
-            padding: 0.8rem 1.5rem;
-            background: #28a745;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 1rem;
-            cursor: pointer;
-            font-weight: 500;
-            text-align: left;
-          ">🆕 Νέα Ομάδα</button>
-          ${existingGroups.length > 0 ? `
-          <button id="existingGroupBtn" style="
-            padding: 0.8rem 1.5rem;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 1rem;
-            cursor: pointer;
-            font-weight: 500;
-            text-align: left;
-          ">📂 Προσθήκη σε Υπάρχουσα Ομάδα</button>
-          ` : ''}
-          <button id="noGroupBtn" style="
-            padding: 0.8rem 1.5rem;
-            background: #6c757d;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 1rem;
-            cursor: pointer;
-            font-weight: 500;
-            text-align: left;
-          ">📄 Χωρίς Ομαδοποίηση</button>
-        </div>
-        <div id="newGroupSection" style="display: none;">
-          <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: #333;">
-            Τίτλος νέας ομάδας:
-          </label>
-          <input 
-            type="text" 
-            id="newGroupTitle" 
-            placeholder="π.χ. Οικονομικά, Τεχνικά, κλπ"
-            style="
-              width: 100%;
-              padding: 0.8rem;
-              border: 2px solid #ddd;
-              border-radius: 6px;
-              font-size: 1rem;
-              margin-bottom: 1rem;
-            "
-          />
-          <div style="display: flex; gap: 1rem;">
-            <button id="confirmNewBtn" style="
-              flex: 1;
-              padding: 0.8rem 1.5rem;
-              background: #28a745;
-              color: white;
-              border: none;
-              border-radius: 6px;
-              font-size: 1rem;
-              cursor: pointer;
-              font-weight: 500;
-            ">Επιβεβαίωση</button>
-            <button id="cancelNewBtn" style="
-              flex: 1;
-              padding: 0.8rem 1.5rem;
-              background: #dc3545;
-              color: white;
-              border: none;
-              border-radius: 6px;
-              font-size: 1rem;
-              cursor: pointer;
-              font-weight: 500;
-            ">Ακύρωση</button>
-          </div>
-        </div>
-        <div id="existingGroupSection" style="display: none;">
-          <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: #333;">
-            Επιλέξτε υπάρχουσα ομάδα:
-          </label>
-          <select 
-            id="existingGroupSelect" 
-            style="
-              width: 100%;
-              padding: 0.8rem;
-              border: 2px solid #ddd;
-              border-radius: 6px;
-              font-size: 1rem;
-              margin-bottom: 1rem;
-            "
-          >
-            <option value="">-- Επιλέξτε ομάδα --</option>
-            ${existingGroupsOptions}
-          </select>
-          <div style="display: flex; gap: 1rem;">
-            <button id="confirmExistingBtn" style="
-              flex: 1;
-              padding: 0.8rem 1.5rem;
-              background: #007bff;
-              color: white;
-              border: none;
-              border-radius: 6px;
-              font-size: 1rem;
-              cursor: pointer;
-              font-weight: 500;
-            ">Επιβεβαίωση</button>
-            <button id="cancelExistingBtn" style="
-              flex: 1;
-              padding: 0.8rem 1.5rem;
-              background: #dc3545;
-              color: white;
-              border: none;
-              border-radius: 6px;
-              font-size: 1rem;
-              cursor: pointer;
-              font-weight: 500;
-            ">Ακύρωση</button>
-          </div>
-        </div>
-      `;
-
-      modal.appendChild(modalContent);
-      document.body.appendChild(modal);
-
-      // Event listeners για τα κουμπιά
-      const newGroupBtn = modalContent.querySelector('#newGroupBtn');
-      const existingGroupBtn = modalContent.querySelector('#existingGroupBtn');
-      const noGroupBtn = modalContent.querySelector('#noGroupBtn');
-      
-      const newGroupSection = modalContent.querySelector('#newGroupSection');
-      const existingGroupSection = modalContent.querySelector('#existingGroupSection');
-      
-      const newGroupTitle = modalContent.querySelector('#newGroupTitle');
-      const existingGroupSelect = modalContent.querySelector('#existingGroupSelect');
-      
-      const confirmNewBtn = modalContent.querySelector('#confirmNewBtn');
-      const cancelNewBtn = modalContent.querySelector('#cancelNewBtn');
-      const confirmExistingBtn = modalContent.querySelector('#confirmExistingBtn');
-      const cancelExistingBtn = modalContent.querySelector('#cancelExistingBtn');
-
-      // Νέα ομάδα
-      newGroupBtn.addEventListener('click', () => {
-        newGroupBtn.style.display = 'none';
-        if (existingGroupBtn) existingGroupBtn.style.display = 'none';
-        noGroupBtn.style.display = 'none';
-        newGroupSection.style.display = 'block';
-        newGroupTitle.focus();
-      });
-
-      // Υπάρχουσα ομάδα
-      if (existingGroupBtn) {
-        existingGroupBtn.addEventListener('click', () => {
-          newGroupBtn.style.display = 'none';
-          existingGroupBtn.style.display = 'none';
-          noGroupBtn.style.display = 'none';
-          existingGroupSection.style.display = 'block';
-        });
-      }
-
-      let handleKeyDown;
-      const cleanup = (result) => {
-        if (modal.parentNode === document.body) {
-          document.body.removeChild(modal);
-        }
-        if (handleKeyDown) {
-          document.removeEventListener('keydown', handleKeyDown);
-        }
-        resolve(result);
-      };
-
-      // Χωρίς ομαδοποίηση
-      noGroupBtn.addEventListener('click', () => {
-        cleanup(false);
-      });
-
-      // Επιβεβαίωση νέας ομάδας
-      confirmNewBtn.addEventListener('click', () => {
-        const title = newGroupTitle.value.trim();
-        if (title) {
-          cleanup({ action: 'new', title });
-        } else {
-          showToast('Παρακαλώ εισάγετε τίτλο ομάδας', 'warning');
-        }
-      });
-
-      // Ακύρωση νέας ομάδας
-      cancelNewBtn.addEventListener('click', () => {
-        cleanup(false);
-      });
-
-      // Επιβεβαίωση υπάρχουσας ομάδας
-      confirmExistingBtn.addEventListener('click', () => {
-        const selectedGroupId = existingGroupSelect.value;
-        if (selectedGroupId) {
-          const selectedGroup = existingGroups.find(g => g.id === selectedGroupId);
-          cleanup({ action: 'existing', groupId: selectedGroupId, groupTitle: selectedGroup.title });
-        } else {
-          showToast('Παρακαλώ επιλέξτε ομάδα', 'warning');
-        }
-      });
-
-      // Ακύρωση υπάρχουσας ομάδας
-      cancelExistingBtn.addEventListener('click', () => {
-        cleanup(false);
-      });
-
-      // Κλείσιμο με ESC
-      handleKeyDown = (e) => {
-        if (e.key === 'Escape') {
-          cleanup(false);
-        }
-      };
-      document.addEventListener('keydown', handleKeyDown);
-    });
-  };
-
   // Αφαίρεση της δυνατότητας ανεβάσματος φακέλων
 
   // Unused function removed - showFolderChoiceModal
@@ -650,6 +374,34 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
     }));
   };
 
+  const renderFormGroup = (group, depth = 0) => {
+    if (!group) return null;
+    const hasContent = prosklisiFileGroups.countGroupFiles(group) > 0
+      || (group.subgroups || []).length > 0;
+    if (!hasContent) return null;
+    return (
+      <div key={group.id} style={{
+        padding: '0.65rem',
+        background: depth ? '#f8fafc' : '#eef2ff',
+        border: '1px solid #c7d2fe',
+        borderRadius: '8px',
+        marginBottom: '0.5rem',
+        marginLeft: depth ? '0.85rem' : 0
+      }}>
+        <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.35rem', color: '#3730a3' }}>
+          📁 {group.title}
+        </div>
+        {(group.files || []).map((file, fi) => (
+          <div key={`${group.id}-${fi}`} style={{ fontSize: '0.82rem', color: '#334155', padding: '0.15rem 0' }}>
+            {String(file.fileName || '').endsWith('.pdf') ? '📄' : '📝'} {file.fileName}
+          </div>
+        ))}
+        {(group.subgroups || []).map((sub) => renderFormGroup(sub, depth + 1))}
+      </div>
+    );
+  };
+
+  const hasFormGroups = (formData.fileGroups || []).some((g) => prosklisiFileGroups.countGroupFiles(g) > 0 || (g.subgroups || []).length > 0);
 
   const removeFolder = (index) => {
     setFormData(prev => ({
@@ -1146,7 +898,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
                 </div>
                 
                 {(formData.prosklisiFiles && formData.prosklisiFiles.length > 0)
-                || (formData.fileGroups && formData.fileGroups.some((g) => (g.files || []).length > 0))
+                || hasFormGroups
                 || (formData.prosklisiFolders && formData.prosklisiFolders.length > 0) ? (
                   <div style={{ marginTop: '1rem' }}>
                     {formData.prosklisiFiles && formData.prosklisiFiles.length > 0 && (
@@ -1196,29 +948,10 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
                       </>
                     )}
 
-                    {formData.fileGroups && formData.fileGroups.some((g) => (g.files || []).length > 0) && (
+                    {hasFormGroups && (
                       <>
                         <Label style={{ fontSize: '0.9rem', marginBottom: '0.5rem', marginTop: '0.5rem' }}>Ομάδες Αρχείων:</Label>
-                        {formData.fileGroups.map((group) => (
-                          (group.files || []).length > 0 ? (
-                            <div key={group.id} style={{
-                              padding: '0.65rem',
-                              background: '#eef2ff',
-                              border: '1px solid #c7d2fe',
-                              borderRadius: '8px',
-                              marginBottom: '0.5rem'
-                            }}>
-                              <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.35rem', color: '#3730a3' }}>
-                                📁 {group.title}
-                              </div>
-                              {(group.files || []).map((file, fi) => (
-                                <div key={`${group.id}-${fi}`} style={{ fontSize: '0.82rem', color: '#334155', padding: '0.15rem 0' }}>
-                                  {String(file.fileName || '').endsWith('.pdf') ? '📄' : '📝'} {file.fileName}
-                                </div>
-                              ))}
-                            </div>
-                          ) : null
-                        ))}
+                        {formData.fileGroups.map((group) => renderFormGroup(group))}
                       </>
                     )}
                     

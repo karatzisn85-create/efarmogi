@@ -17,12 +17,16 @@ test('εξαγωγή πρόσκλησης αντιγράφει φακέλους/
   const destParent = makeTempDir('psk-export-dest-');
   const filesRoot = path.join(srcRoot, 'ΑΡΧΕΙΑ_ΠΡΟΣΚΛΗΣΗΣ');
   fs.mkdirSync(path.join(filesRoot, 'Φάκελος μελετών'), { recursive: true });
-  fs.mkdirSync(path.join(filesRoot, 'Επισυναπτόμενα Αρχεία Υποβολής', 'Δικαιολογητικά'), { recursive: true });
+  fs.mkdirSync(path.join(filesRoot, 'Επισυναπτόμενα Αρχεία Υποβολής', 'Δικαιολογητικά', 'Φορολογικά'), { recursive: true });
   fs.writeFileSync(path.join(filesRoot, 'πρόσκληση-όροι.pdf'), 'invite');
   fs.writeFileSync(path.join(filesRoot, 'Φάκελος μελετών', 'μελέτη.pdf'), 'study');
   fs.writeFileSync(
     path.join(filesRoot, 'Επισυναπτόμενα Αρχεία Υποβολής', 'Δικαιολογητικά', 'βεβαίωση.pdf'),
     'cert'
+  );
+  fs.writeFileSync(
+    path.join(filesRoot, 'Επισυναπτόμενα Αρχεία Υποβολής', 'Δικαιολογητικά', 'Φορολογικά', 'φορο.pdf'),
+    'tax'
   );
 
   const linkedSrc = path.join(srcRoot, 'τοπογραφικο.pdf');
@@ -64,18 +68,12 @@ test('εξαγωγή πρόσκλησης αντιγράφει φακέλους/
   const exportRoot = result.exportPath;
   assert.equal(path.basename(exportRoot), 'Πρόσκληση σχολείων');
   assert.equal(fs.existsSync(path.join(exportRoot, handler.WORD_FILE_NAME)), true);
-  assert.equal(fs.existsSync(path.join(exportRoot, handler.FILES_EXPORT_FOLDER, 'πρόσκληση-όροι.pdf')), true);
-  assert.equal(fs.existsSync(path.join(exportRoot, handler.FILES_EXPORT_FOLDER, 'Φάκελος μελετών', 'μελέτη.pdf')), true);
-  assert.equal(
-    fs.existsSync(path.join(
-      exportRoot,
-      handler.FILES_EXPORT_FOLDER,
-      'Επισυναπτόμενα Αρχεία Υποβολής',
-      'Δικαιολογητικά',
-      'βεβαίωση.pdf'
-    )),
-    true
-  );
+  assert.equal(fs.existsSync(path.join(exportRoot, 'πρόσκληση-όροι.pdf')), true);
+  assert.equal(fs.existsSync(path.join(exportRoot, 'Φάκελος μελετών', 'μελέτη.pdf')), true);
+  assert.equal(fs.existsSync(path.join(exportRoot, 'Δικαιολογητικά', 'βεβαίωση.pdf')), true);
+  assert.equal(fs.existsSync(path.join(exportRoot, 'Δικαιολογητικά', 'Φορολογικά', 'φορο.pdf')), true);
+  assert.equal(fs.existsSync(path.join(exportRoot, handler.FILES_EXPORT_FOLDER)), false);
+  assert.equal(fs.existsSync(path.join(exportRoot, 'Επισυναπτόμενα Αρχεία Υποβολής')), false);
   assert.equal(
     fs.existsSync(path.join(
       exportRoot,
@@ -93,6 +91,7 @@ test('εξαγωγή πρόσκλησης αντιγράφει φακέλους/
   assert.match(word, /πρόσκληση-όροι\.pdf/);
   assert.match(word, /μελέτη\.pdf/);
   assert.match(word, /βεβαίωση\.pdf/);
+  assert.match(word, /φορο\.pdf/);
   assert.match(word, /τοπογραφικο\.pdf/);
   assert.match(word, /Οδικό δίκτυο Αρχανών/);
   assert.match(word, /Ψ1234ΩΞΞ-ΑΑΑ/);

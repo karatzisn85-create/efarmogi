@@ -76,6 +76,19 @@ test('επόμενο ελεύθερο όνομα παραλείπει όσα υ�
   assert.equal(files.nextAvailableName('α.pdf', used), 'α (2).pdf');
 });
 
+test('συλλέγει ονόματα και από υποομάδες', () => {
+  const names = files.collectExistingFileNames(
+    [{ fileName: 'α.pdf' }],
+    [{
+      id: 'g1',
+      title: 'Όροι',
+      files: [{ fileName: 'β.pdf' }],
+      subgroups: [{ id: 'g2', title: 'Φορολογικά', files: [{ fileName: 'γ.pdf' }] }]
+    }]
+  );
+  assert.deepEqual(names, ['α.pdf', 'β.pdf', 'γ.pdf']);
+});
+
 test('μετονομασία ενημερώνει λίστα και ομάδες χωρίς να ανοίγει φάκελο', () => {
   const data = {
     files: ['σύμβαση.pdf', 'άλλο.pdf'],

@@ -1,19 +1,22 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
-import { safeConfirm, safeFileDialog } from '../utils/safeDialogs';
+import { safeFileDialog } from '../utils/safeDialogs';
 import { useToast } from './ToastProvider';
 import { showConfirm } from '../utils/confirmModal';
 import { showFileConflictDialog } from '../utils/fileConflictDialog';
 import FileRenameModal from './FileRenameModal';
 import managedFiles from '../../app/core/managedFiles';
+import prosklisiFileGroups from '../../app/core/prosklisiFileGroups';
 import KhmdhsDocumentRegistryPanel from './KhmdhsDocumentRegistryPanel';
 import { collectProsklisiRegistryEntries } from '../utils/prosklisiDiavgeiaRegistry';
+import { applyProsklisiGroupingChoice, askProsklisiGrouping } from '../utils/uploadProsklisiFiles';
+import subprojectFiles from '../../app/core/subprojectFiles';
 
 const ipcRenderer = window.electronAPI;
 
 const C = {
-  white: '#ffffff', indigo: '#6366f1', indigoLight: '#eef2ff',
-  emeraldDark: '#065f46', red: '#ef4444',
+  white: '#ffffff', indigo: '#6366f1', indigoDark: '#4f46e5', indigoLight: '#eef2ff',
+  violet: '#8b5cf6', emerald: '#10b981', emeraldDark: '#059669', red: '#ef4444',
   slate100: '#f1f5f9', slate200: '#e2e8f0', slate300: '#cbd5e1',
   slate500: '#64748b', slate600: '#475569', slate800: '#1e293b'
 };
@@ -21,35 +24,86 @@ const C = {
 const Overlay = styled.div`
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(6px);
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   z-index: 10000;
   padding: 2rem;
+  overflow-y: auto;
 `;
 
 const Modal = styled.div`
   background: ${C.white};
-  border-radius: 16px;
+  border-radius: 18px;
   max-width: 860px;
-  width: 95%;
+  width: 100%;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 25px 60px rgba(15, 23, 42, 0.28);
+  box-shadow:
+    0 20px 60px rgba(99, 102, 241, 0.13),
+    0 4px 16px rgba(0, 0, 0, 0.08);
   overflow: hidden;
+  margin-bottom: 2rem;
 `;
 
 const Header = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.25rem 1.75rem;
-  border-bottom: 2px solid ${C.slate200};
-  background: linear-gradient(135deg, ${C.slate100} 0%, ${C.white} 100%);
+  padding: 1.4rem 1.75rem 0.85rem;
   flex-shrink: 0;
+  gap: 0.75rem;
+`;
+
+const HeaderDivider = styled.div`
+  height: 2px;
+  margin: 0 1.75rem;
+  background: linear-gradient(90deg, ${C.indigo}, ${C.violet}, transparent);
+  border-radius: 2px;
+  flex-shrink: 0;
+`;
+
+const HeaderActions = styled.div`
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-shrink: 0;
+`;
+
+const PillBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+  border: 1.5px solid ${(p) => (p.$active ? C.slate300 : C.indigo)};
+  background: ${(p) => (p.$active ? C.slate100 : C.indigoLight)};
+  color: ${(p) => (p.$active ? C.slate600 : C.indigo)};
+  &:hover {
+    background: ${(p) => (p.$active ? C.slate200 : C.indigo)};
+    color: ${(p) => (p.$active ? C.slate800 : C.white)};
+  }
+`;
+
+const MoveBtn = styled(PillBtn)`
+  border-color: #10b981;
+  background: #ecfdf5;
+  color: #059669;
+  &:hover { background: #10b981; color: ${C.white}; border-color: #10b981; }
+`;
+
+const BulkDeleteBtn = styled(PillBtn)`
+  border-color: ${C.red};
+  background: #fef2f2;
+  color: ${C.red};
+  &:hover { background: ${C.red}; color: ${C.white}; border-color: ${C.red}; }
 `;
 
 const Title = styled.h2`
@@ -60,79 +114,46 @@ const Title = styled.h2`
 `;
 
 const CloseButton = styled.button`
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  border: 1px solid ${C.slate300};
-  background: ${C.white};
+  border: none;
+  background: ${C.slate100};
   color: ${C.slate500};
-  font-size: 1.1rem;
+  font-size: 1rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.18s, color 0.18s;
-  &:hover { background: #fee2e2; color: ${C.red}; border-color: #fecaca; }
+  &:hover { background: #fee2e2; color: ${C.red}; }
 `;
 
 const Content = styled.div`
-  padding: 1.25rem 1.75rem;
+  padding: 1.25rem 1.75rem 1.75rem;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 `;
 
 const FolderSection = styled.div`
   margin-bottom: 1.5rem;
-`;
-
-const FolderTitle = styled.h3`
-  margin: 0 0 0.75rem 0;
-  color: ${C.slate800};
-  font-size: 0.82rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.65rem 0.85rem;
-  background: ${C.slate100};
-  border-radius: 10px;
-  border-left: 4px solid ${C.indigo};
-`;
-
-const LinkedCategoryTitle = styled.div`
-  margin: 0 0 0.4rem 0;
-  color: ${C.slate800};
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.35rem 0.6rem;
-  background: ${C.indigoLight};
-  border-radius: 8px;
-`;
-
-const LinkedSubtitle = styled.div`
-  margin: 0.15rem 0 0.3rem 0.2rem;
-  color: ${C.slate600};
-  font-size: 0.72rem;
-  font-weight: 700;
+  &:last-child { margin-bottom: 0; }
 `;
 
 const GroupCard = styled.div`
-  margin-bottom: 0.65rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  overflow: hidden;
+  margin-bottom: 1.1rem;
+  padding-left: ${(p) => (p.$nested ? '0.85rem' : '0')};
+  &:last-child { margin-bottom: 0; }
 `;
 
 const GroupHeaderRow = styled.div`
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.55rem 0.65rem;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid ${C.slate200};
 `;
 
 const GroupToggle = styled.button`
@@ -142,22 +163,40 @@ const GroupToggle = styled.button`
   align-items: center;
   gap: 0.45rem;
   margin: 0;
-  padding: 0.2rem 0.15rem;
+  padding: 0;
   border: none;
   background: transparent;
   cursor: pointer;
   text-align: left;
-  color: #1e293b;
-  font-size: 0.82rem;
+  color: ${C.slate600};
+  font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  &:hover { color: #3730a3; }
+  &:hover { color: ${C.indigo}; }
+`;
+
+const GroupStaticTitle = styled.div`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: ${C.slate600};
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+`;
+
+const GroupIcon = styled.span`
+  font-size: 1rem;
+  line-height: 1;
 `;
 
 const GroupChevron = styled.span`
   flex-shrink: 0;
-  color: #64748b;
+  color: ${C.slate500};
   font-size: 0.72rem;
   transform: rotate(${(p) => (p.$open ? '90deg' : '0deg')});
   transition: transform 0.15s ease;
@@ -166,15 +205,18 @@ const GroupChevron = styled.span`
 const GroupCount = styled.span`
   margin-left: auto;
   flex-shrink: 0;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  color: #64748b;
+  color: ${C.slate500};
+  background: ${C.slate100};
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
   text-transform: none;
   letter-spacing: 0;
 `;
 
 const GroupBody = styled.div`
-  padding: 0 0.75rem 0.75rem;
+  padding: 0 0 0.15rem;
 `;
 
 const FilesList = styled.div`
@@ -187,14 +229,15 @@ const FileItem = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.65rem 0.85rem;
+  padding: 0.65rem 0.9rem;
   background: ${C.white};
   border: 1px solid ${C.slate200};
   border-radius: 10px;
+  gap: 0.75rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
   &:hover {
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
-    border-color: #c7d2fe;
+    border-color: ${C.slate300};
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.08);
   }
 `;
 
@@ -208,29 +251,33 @@ const FileInfo = styled.div`
 
 function getFileTypeStyle(fileName) {
   const ext = String(fileName || '').split('.').pop().toLowerCase();
-  switch (ext) {
-    case 'pdf': return { label: 'PDF', bg: '#ef4444' };
-    case 'doc': case 'docx': return { label: 'DOC', bg: '#2563eb' };
-    case 'xls': case 'xlsx': return { label: 'XLS', bg: '#16a34a' };
-    case 'png': case 'jpg': case 'jpeg': return { label: 'IMG', bg: '#8b5cf6' };
-    default: return { label: ext.toUpperCase().slice(0, 3) || 'FILE', bg: '#64748b' };
-  }
+  if (['pdf'].includes(ext))
+    return { label: 'PDF', bg: `linear-gradient(135deg, ${C.indigo}, ${C.violet})` };
+  if (['doc', 'docx'].includes(ext))
+    return { label: 'DOC', bg: 'linear-gradient(135deg, #2563eb, #3b82f6)' };
+  if (['xls', 'xlsx'].includes(ext))
+    return { label: 'XLS', bg: 'linear-gradient(135deg, #059669, #10b981)' };
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext))
+    return { label: 'IMG', bg: 'linear-gradient(135deg, #f59e0b, #fbbf24)' };
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext))
+    return { label: 'ZIP', bg: 'linear-gradient(135deg, #6b7280, #9ca3af)' };
+  return { label: ext.toUpperCase().slice(0, 4) || 'FILE', bg: `linear-gradient(135deg, ${C.slate600}, ${C.slate500})` };
 }
 
 const FileIconBadge = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 38px;
-  height: 28px;
-  padding: 0 0.35rem;
-  border-radius: 6px;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  padding: 0 0.2rem;
+  border-radius: 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: ${C.white};
   background: ${(p) => p.$bg || C.slate500};
-  flex-shrink: 0;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 `;
 
@@ -284,13 +331,16 @@ const FolderOpenBtn = styled(IconActionBtn)`
 
 const EmptyFolder = styled.div`
   text-align: center;
-  padding: 1.5rem;
+  padding: 1.1rem;
   color: ${C.slate500};
   font-style: italic;
-  font-size: 0.9rem;
-  background: ${C.slate100};
-  border-radius: 10px;
-  border: 1px dashed ${C.slate300};
+  font-size: 0.88rem;
+`;
+
+const EmptyState = styled.div`
+  text-align: center;
+  padding: 3rem 1.5rem;
+  color: ${C.slate500};
 `;
 
 const LoadingMessage = styled.div`
@@ -302,31 +352,62 @@ const LoadingMessage = styled.div`
 
 const UploadBar = styled.div`
   display: flex;
-  justify-content: flex-end;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid ${C.slate100};
+`;
+
+const UploadBarLabel = styled.span`
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: ${C.slate500};
+  letter-spacing: 0.02em;
+  margin-right: 0.1rem;
 `;
 
 const UploadButton = styled.button`
-  border: none;
-  border-radius: 10px;
-  padding: 0.55rem 1rem;
-  background: linear-gradient(135deg, ${C.indigo} 0%, #4f46e5 100%);
-  color: #fff;
-  font-size: 0.82rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.72rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
-  &:hover { filter: brightness(1.05); }
-  &:disabled { opacity: 0.6; cursor: not-allowed; }
+  border: 1px solid ${C.slate200};
+  background: ${C.white};
+  color: ${C.slate600};
+  font-family: inherit;
+  &:hover:not(:disabled) {
+    background: ${C.slate100};
+    color: ${C.slate800};
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
 const UploadFolderButton = styled(UploadButton)`
-  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-  box-shadow: 0 4px 14px rgba(21, 128, 61, 0.35);
+  background: #ecfdf5;
+  color: ${C.emeraldDark};
+  border-color: #a7f3d0;
+  &:hover:not(:disabled) { background: #d1fae5; }
 `;
 
-function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, onGroupFiles, loggedInUsername }) {
+const NewGroupButton = styled(UploadButton)`
+  background: ${C.indigoLight};
+  color: ${C.indigo};
+  border-color: #c7d2fe;
+  &:hover:not(:disabled) { background: #e0e7ff; }
+`;
+
+const checkboxStyle = {
+  flexShrink: 0,
+  width: '16px',
+  height: '16px',
+  cursor: 'pointer',
+  accentColor: C.indigo,
+};
+
+function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, loggedInUsername }) {
   const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [files, setFiles] = useState({
@@ -340,6 +421,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   const [fileGroups, setFileGroups] = useState([]); // Νέα κατάσταση για ομάδες αρχείων
   const [linkedOrimanthiFiles, setLinkedOrimanthiFiles] = useState([]);
   const [expandedGroupIds, setExpandedGroupIds] = useState({});
+  const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [registrySource, setRegistrySource] = useState({
     documentRegistry: [],
     diavgeiaMeta: null,
@@ -358,6 +440,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   useEffect(() => {
     if (isOpen && prosklisiId) {
       setExpandedGroupIds({});
+      setSelectedFiles(new Set());
       loadFiles();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -424,6 +507,45 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     setExpandedGroupIds((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
 
+  const groupedNameSet = useMemo(
+    () => new Set(prosklisiFileGroups.collectGroupFileNames(fileGroups)),
+    [fileGroups]
+  );
+
+  const ungroupedFiles = useMemo(() => {
+    const list = [];
+    const seen = new Set();
+    [...(files.main || []), ...(files.attachments || [])].forEach((file) => {
+      if (!file || file.isGrouped || groupedNameSet.has(file.fileName)) return;
+      if (seen.has(file.fileName)) return;
+      seen.add(file.fileName);
+      list.push({
+        ...file,
+        targetFolder: file.targetFolder || (files.main?.some((f) => f.fileName === file.fileName) ? 'main' : 'attachments'),
+      });
+    });
+    return list;
+  }, [files, groupedNameSet]);
+
+  const collectSelectableNames = () => {
+    const names = [];
+    ungroupedFiles.forEach((f) => names.push(f.fileName));
+    prosklisiFileGroups.collectGroupFileNames(fileGroups).forEach((n) => names.push(n));
+    return names;
+  };
+
+  const handleToggleFileSelection = (fileName) => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileName)) next.delete(fileName);
+      else next.add(fileName);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => setSelectedFiles(new Set(collectSelectableNames()));
+  const handleDeselectAll = () => setSelectedFiles(new Set());
+
   const handleUploadFiles = async () => {
     if (!canManageWorkflow || !prosklisiId) return;
     try {
@@ -446,6 +568,21 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         policy = await showFileConflictDialog({ fileNames: conflicts });
         if (!policy) return;
       }
+
+      const groupingChoice = await askProsklisiGrouping(pickedFiles.length, fileGroups);
+      if (subprojectFiles.isUploadGroupingCancelled(groupingChoice)) return;
+      if (groupingChoice && (groupingChoice.action === 'new' || groupingChoice.action === 'subgroup')) {
+        const titleCheck = prosklisiFileGroups.canUseGroupTitle(
+          fileGroups,
+          groupingChoice.title,
+          groupingChoice.parentId || null
+        );
+        if (!titleCheck.ok) {
+          showToast(titleCheck.error, 'warning');
+          return;
+        }
+      }
+
       setUploading(true);
       const uploadResult = await ipcRenderer.invoke('upload-prosklisi-files', {
         prosklisiId,
@@ -453,23 +590,151 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         targetFolder: 'attachments',
         conflictPolicy: policy,
       });
-      if (uploadResult?.success) {
+      if (!uploadResult?.success) {
+        showToast('Σφάλμα προσθήκης αρχείων: ' + (uploadResult?.error || 'Άγνωστο'), 'error');
+        return;
+      }
+      const addedNames = uploadResult.added || pickedFiles.map((f) => f.fileName);
+      const groupingResult = await applyProsklisiGroupingChoice(prosklisiId, groupingChoice, addedNames);
+      if (!groupingResult.success) {
+        showToast(`Προστέθηκαν τα αρχεία, αλλά η ομαδοποίηση απέτυχε: ${groupingResult.error}`, 'warning');
+      } else {
         showToast(
           uploadResult.addedCount === 1
             ? 'Το αρχείο προστέθηκε επιτυχώς'
             : `Προστέθηκαν ${uploadResult.addedCount} αρχεία`,
           'success'
         );
-        await loadFiles();
-      } else {
-        showToast('Σφάλμα προσθήκης αρχείων: ' + (uploadResult?.error || 'Άγνωστο'), 'error');
       }
+      setSelectedFiles(new Set());
+      await loadFiles();
     } catch (error) {
       console.error('Error uploading prosklisi files:', error);
       showToast('Σφάλμα προσθήκης αρχείων: ' + error.message, 'error');
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleMoveSelected = async () => {
+    if (!canManageWorkflow || selectedFiles.size === 0) {
+      showToast('Παρακαλώ επιλέξτε τουλάχιστον ένα αρχείο', 'warning');
+      return;
+    }
+    const names = Array.from(selectedFiles);
+    const groupingChoice = await askProsklisiGrouping(names.length, fileGroups, {
+      allowSkip: false,
+      cancelLabel: '✕ Ακύρωση',
+      intro: `Επιλέξατε ${names.length} αρχείο(α). Πού θέλετε να τα μεταφέρετε;`,
+    });
+    if (groupingChoice === null || groupingChoice === false) return;
+    if (groupingChoice.action === 'new' || groupingChoice.action === 'subgroup') {
+      const titleCheck = prosklisiFileGroups.canUseGroupTitle(
+        fileGroups,
+        groupingChoice.title,
+        groupingChoice.parentId || null
+      );
+      if (!titleCheck.ok) {
+        showToast(titleCheck.error, 'warning');
+        return;
+      }
+    }
+    const groupingResult = await applyProsklisiGroupingChoice(prosklisiId, groupingChoice, names);
+    if (!groupingResult.success) {
+      showToast(groupingResult.error || 'Αποτυχία ομαδοποίησης', 'error');
+      return;
+    }
+    showToast('Η ομαδοποίηση ολοκληρώθηκε', 'success');
+    setSelectedFiles(new Set());
+    await loadFiles();
+  };
+
+  const handleCreateEmptyGroup = async () => {
+    if (!canManageWorkflow || !prosklisiId) return;
+    const groupingChoice = await askProsklisiGrouping(0, fileGroups, {
+      allowSkip: false,
+      cancelLabel: '✕ Ακύρωση',
+      heading: '📁 Νέα ομάδα αρχείων',
+      intro: 'Δώστε όνομα στην ομάδα ή δημιουργήστε υποομάδα μέσα σε υπάρχουσα.',
+    });
+    if (groupingChoice === null || groupingChoice === false) return;
+    if (groupingChoice.action === 'new' || groupingChoice.action === 'subgroup') {
+      const titleCheck = prosklisiFileGroups.canUseGroupTitle(
+        fileGroups,
+        groupingChoice.title,
+        groupingChoice.parentId || null
+      );
+      if (!titleCheck.ok) {
+        showToast(titleCheck.error, 'warning');
+        return;
+      }
+    }
+    const groupingResult = await applyProsklisiGroupingChoice(prosklisiId, groupingChoice, []);
+    if (!groupingResult.success) {
+      showToast(groupingResult.error || 'Αποτυχία δημιουργίας ομάδας', 'error');
+      return;
+    }
+    showToast('Η ομάδα δημιουργήθηκε', 'success');
+    await loadFiles();
+  };
+
+  const handleCreateSubgroup = async (parentGroup) => {
+    if (!canManageWorkflow || !parentGroup?.id) return;
+    const groupingChoice = await askProsklisiGrouping(0, [parentGroup], {
+      allowSkip: false,
+      cancelLabel: '✕ Ακύρωση',
+      heading: '📁 Νέα υποομάδα',
+      intro: `Νέα υποομάδα μέσα στην ομάδα «${parentGroup.title}».`,
+    });
+    if (!groupingChoice || groupingChoice === false) return;
+    const resolvedTitle = groupingChoice.title || '';
+    const parentId = groupingChoice.parentId || parentGroup.id;
+    if (!resolvedTitle) {
+      showToast('Δώστε τίτλο υποομάδας', 'warning');
+      return;
+    }
+    const titleCheck = prosklisiFileGroups.canUseGroupTitle(fileGroups, resolvedTitle, parentId);
+    if (!titleCheck.ok) {
+      showToast(titleCheck.error, 'warning');
+      return;
+    }
+    const groupingResult = await applyProsklisiGroupingChoice(prosklisiId, {
+      action: 'subgroup',
+      parentId,
+      title: resolvedTitle,
+    }, []);
+    if (!groupingResult.success) {
+      showToast(groupingResult.error || 'Αποτυχία δημιουργίας υποομάδας', 'error');
+      return;
+    }
+    showToast('Η υποομάδα δημιουργήθηκε', 'success');
+    setExpandedGroupIds((prev) => ({ ...prev, [String(parentGroup.id)]: true }));
+    await loadFiles();
+  };
+
+  const handleBulkDelete = async () => {
+    if (!canManageWorkflow || selectedFiles.size === 0) {
+      showToast('Παρακαλώ επιλέξτε τουλάχιστον ένα αρχείο', 'warning');
+      return;
+    }
+    const names = Array.from(selectedFiles);
+    const ok = await showConfirm({
+      title: names.length > 1 ? `Μαζική διαγραφή (${names.length})` : 'Διαγραφή αρχείου',
+      message: names.length > 1
+        ? `Να διαγραφούν τα ${names.length} επιλεγμένα αρχεία;`
+        : `Να διαγραφεί το αρχείο «${names[0]}»;`,
+      confirmLabel: 'Διαγραφή',
+      icon: '🗑',
+    });
+    if (!ok) return;
+    const result = await ipcRenderer.invoke('delete-prosklisi-files', prosklisiId, names);
+    if (!result?.success) {
+      showToast(result?.error || 'Αποτυχία διαγραφής', 'error');
+      return;
+    }
+    showToast(names.length === 1 ? 'Το αρχείο διαγράφηκε' : `Διαγράφηκαν ${names.length} αρχεία`, 'success');
+    setSelectedFiles(new Set());
+    await loadFiles();
   };
 
   const handleUploadFolder = async () => {
@@ -613,22 +878,10 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     }
   };
 
-  // Ομαδοποίηση συνδεδεμένων αρχείων: Κατηγορία (ρίζα) → Υπότιτλος (εξειδίκευση).
-  const linkedFilesByCategory = useMemo(() => {
-    const map = new Map();
-    (linkedOrimanthiFiles || []).forEach((lf) => {
-      const cat = lf.categoryLabel || 'ΑΡΧΕΙΑ ΩΡΙΜΑΝΣΗΣ';
-      const sub = lf.subtitle || '—';
-      if (!map.has(cat)) map.set(cat, new Map());
-      const subMap = map.get(cat);
-      if (!subMap.has(sub)) subMap.set(sub, []);
-      subMap.get(sub).push(lf);
-    });
-    return Array.from(map.entries()).map(([category, subMap]) => ({
-      category,
-      subtitles: Array.from(subMap.entries()).map(([subtitle, items]) => ({ subtitle, items })),
-    }));
-  }, [linkedOrimanthiFiles]);
+  const linkedOrimanthiGroup = useMemo(
+    () => prosklisiFileGroups.buildOrimanthiLinkedGroup(linkedOrimanthiFiles),
+    [linkedOrimanthiFiles]
+  );
 
   const handleRenameFile = async (fileName, targetFolder, typedName) => {
     const result = await ipcRenderer.invoke('rename-prosklisi-file', {
@@ -1067,7 +1320,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   };
 
   const handleDeleteGroup = async (groupId) => {
-    const group = fileGroups.find(g => g.id === groupId);
+    const group = prosklisiFileGroups.findGroupById(fileGroups, groupId);
     if (group && await showConfirm({ title: 'Διαγραφή Ομάδας', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε την ομάδα "${group.title}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi-group', prosklisiId, groupId);
@@ -1084,6 +1337,164 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   };
 
 
+  const renderManagedFile = (file, extraTestId) => {
+    const name = file.originalName || file.fileName;
+    const { label, bg } = getFileTypeStyle(name);
+    const targetFolder = file.targetFolder || 'attachments';
+    return (
+      <FileItem key={file.fileName} data-testid={extraTestId || `psk-file-row-${file.fileName}`}>
+        <FileInfo>
+          {canManageWorkflow && (
+            <input
+              type="checkbox"
+              data-testid={`psk-file-check-${file.fileName}`}
+              checked={selectedFiles.has(file.fileName)}
+              onChange={() => handleToggleFileSelection(file.fileName)}
+              style={checkboxStyle}
+            />
+          )}
+          <FileIconBadge $bg={bg}>{label}</FileIconBadge>
+          <FileName>{name}</FileName>
+        </FileInfo>
+        <FileActions>
+          <ViewIconBtn title="Προβολή" onClick={() => handleViewFile(file.fileName, targetFolder)}>👁</ViewIconBtn>
+          <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFile(file.fileName, targetFolder)}>⬇</DownloadIconBtn>
+          {canManageWorkflow && (
+            <RenameIconBtn
+              title="Μετονομασία"
+              data-testid={`file-rename-${file.fileName}`}
+              onClick={() => setRenameTarget({ fileName: file.fileName, targetFolder })}
+            >
+              ✎
+            </RenameIconBtn>
+          )}
+          {canManageWorkflow && (
+            <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(file.fileName, targetFolder)}>✕</DeleteIconBtn>
+          )}
+        </FileActions>
+      </FileItem>
+    );
+  };
+
+  const renderFolderRow = (folder, targetFolder, key) => (
+    <FileItem key={key}>
+      <FileInfo>
+        <FileIconBadge $bg={`linear-gradient(135deg, ${C.indigo}, ${C.violet})`}>ΦΑΚ</FileIconBadge>
+        <FileName>{folder.originalName || folder.folderName}</FileName>
+      </FileInfo>
+      <FileActions>
+        <FolderOpenBtn title="Άνοιγμα" onClick={() => handleOpenFolder(folder.folderName, targetFolder)}>📂</FolderOpenBtn>
+        {canManageWorkflow && (
+          <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFolder(folder.folderName, targetFolder)}>✕</DeleteIconBtn>
+        )}
+      </FileActions>
+    </FileItem>
+  );
+
+  const renderLinkedFile = (lf, idx) => {
+    const name = lf.originalName || lf.fileName;
+    const { label, bg } = getFileTypeStyle(name);
+    return (
+      <FileItem key={`${lf.sourceProposalId}-${lf.sourceGroupId}-${lf.fileName}-${idx}`}>
+        <FileInfo>
+          <FileIconBadge $bg={bg}>{label}</FileIconBadge>
+          <FileName title={name}>{name}</FileName>
+        </FileInfo>
+        <FileActions>
+          <ViewIconBtn title="Προβολή" onClick={() => handleViewLinkedFile(lf)}>👁</ViewIconBtn>
+          <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadLinkedFile(lf)}>⬇</DownloadIconBtn>
+          {canManageWorkflow && (
+            <DeleteIconBtn
+              title="Αφαίρεση από την πρόσκληση"
+              data-testid={`psk-linked-remove-${lf.fileName}`}
+              onClick={() => handleRemoveLinkedFile(lf)}
+            >
+              ✕
+            </DeleteIconBtn>
+          )}
+        </FileActions>
+      </FileItem>
+    );
+  };
+
+  const renderGroupCard = (group, groupIndex, options = {}) => {
+    const groupKey = String(group.id || groupIndex);
+    const isLinked = !!(group.linked || options.linked);
+    const nested = !!options.nested;
+    const alwaysOpen = isLinked;
+    const isOpenGroup = alwaysOpen || !!expandedGroupIds[groupKey];
+    const fileCount = prosklisiFileGroups.countGroupFiles(group);
+    const countLabel = `${fileCount} ${fileCount === 1 ? 'αρχείο' : 'αρχεία'}`;
+    const titleNode = (
+      <>
+        <GroupIcon aria-hidden>📁</GroupIcon>
+        <span>{group.title}</span>
+        <GroupCount>{countLabel}</GroupCount>
+      </>
+    );
+    return (
+      <GroupCard
+        key={group.id || groupIndex}
+        $nested={nested}
+        data-testid={isLinked && !nested ? 'psk-linked-orimanthi-files' : `psk-group-${group.id || groupIndex}`}
+      >
+        <GroupHeaderRow>
+          {alwaysOpen ? (
+            <GroupStaticTitle>{titleNode}</GroupStaticTitle>
+          ) : (
+            <GroupToggle
+              type="button"
+              aria-expanded={isOpenGroup}
+              onClick={() => toggleFileGroup(groupKey)}
+            >
+              <GroupChevron $open={isOpenGroup} aria-hidden>▶</GroupChevron>
+              {titleNode}
+            </GroupToggle>
+          )}
+          {canManageWorkflow && !isLinked && (
+            <>
+              <IconActionBtn
+                type="button"
+                title="Νέα υποομάδα"
+                data-testid={`psk-group-add-sub-${group.id}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCreateSubgroup(group);
+                }}
+              >
+                ＋
+              </IconActionBtn>
+              <DeleteIconBtn
+                title="Διαγραφή Ομάδας"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteGroup(group.id || groupIndex);
+                }}
+              >✕</DeleteIconBtn>
+            </>
+          )}
+        </GroupHeaderRow>
+        {isOpenGroup && (
+          <GroupBody>
+            <FilesList>
+              {(group.files || []).map((file, idx) => (
+                isLinked || file.sourceProposalId
+                  ? renderLinkedFile(file, idx)
+                  : renderManagedFile(file, `psk-file-row-${file.fileName}`)
+              ))}
+              {!(group.files || []).length && !(group.subgroups || []).length ? (
+                <EmptyFolder>Δεν υπάρχουν αρχεία σε αυτή την ομάδα</EmptyFolder>
+              ) : null}
+            </FilesList>
+            {(group.subgroups || []).map((sub, subIndex) => (
+              renderGroupCard(sub, `${groupKey}-${subIndex}`, { linked: isLinked, nested: true })
+            ))}
+          </GroupBody>
+        )}
+      </GroupCard>
+    );
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -1092,8 +1503,33 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       <Modal>
         <Header>
           <Title>📁 Αρχεία Πρόσκλησης: {prosklisiTitle}</Title>
-          <CloseButton onClick={onClose}>✖</CloseButton>
+          <HeaderActions>
+            {canManageWorkflow && (ungroupedFiles.length > 0 || fileGroups.length > 0) && (
+              <>
+                {selectedFiles.size > 0 && (
+                  <>
+                    <MoveBtn type="button" data-testid="psk-files-move" onClick={handleMoveSelected}>
+                      📂 Μεταφορά ({selectedFiles.size})
+                    </MoveBtn>
+                    <BulkDeleteBtn type="button" data-testid="psk-files-bulk-delete" onClick={handleBulkDelete}>
+                      🗑 Διαγραφή ({selectedFiles.size})
+                    </BulkDeleteBtn>
+                  </>
+                )}
+                <PillBtn
+                  type="button"
+                  data-testid="psk-files-select-all"
+                  $active={selectedFiles.size > 0}
+                  onClick={selectedFiles.size > 0 ? handleDeselectAll : handleSelectAll}
+                >
+                  {selectedFiles.size > 0 ? '✕ Αποεπιλογή' : '✓ Επιλογή Όλων'}
+                </PillBtn>
+              </>
+            )}
+            <CloseButton onClick={onClose}>✖</CloseButton>
+          </HeaderActions>
         </Header>
+        <HeaderDivider />
         
         <Content>
           {loading ? (
@@ -1102,12 +1538,16 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             <>
               {canManageWorkflow && (
                 <UploadBar>
+                  <UploadBarLabel>Προσθήκη</UploadBarLabel>
                   <UploadButton type="button" data-testid="psk-files-upload" onClick={handleUploadFiles} disabled={uploading}>
                     {uploading ? '⏳ Προσθήκη…' : '📎 Προσθήκη Αρχείων'}
                   </UploadButton>
                   <UploadFolderButton type="button" onClick={handleUploadFolder} disabled={uploading}>
                     {uploading ? '⏳ Προσθήκη…' : '📁 Προσθήκη Φακέλου'}
                   </UploadFolderButton>
+                  <NewGroupButton type="button" data-testid="psk-files-new-group" onClick={handleCreateEmptyGroup} disabled={uploading}>
+                    🆕 Νέα Ομάδα
+                  </NewGroupButton>
                 </UploadBar>
               )}
               <KhmdhsDocumentRegistryPanel
@@ -1115,223 +1555,41 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                 headerTitle="Καταχωρήσεις Διαύγειας"
               />
 
-              {/* Δικαιολογητικά από την ωρίμανση (ζωντανός σύνδεσμος) */}
-              {linkedFilesByCategory.length > 0 && (
-                <FolderSection data-testid="psk-linked-orimanthi-files">
-                  <FolderTitle>🔗 Δικαιολογητικά από την ωρίμανση</FolderTitle>
-                  {linkedFilesByCategory.map((cat) => (
-                    <div key={cat.category} style={{ marginBottom: '0.75rem' }}>
-                      <LinkedCategoryTitle>{cat.category}</LinkedCategoryTitle>
-                      {cat.subtitles.map((sub) => (
-                        <div key={sub.subtitle} style={{ marginBottom: '0.4rem' }}>
-                          {sub.subtitle && sub.subtitle !== '—' && (
-                            <LinkedSubtitle>{sub.subtitle}</LinkedSubtitle>
-                          )}
-                          <FilesList>
-                            {sub.items.map((lf, idx) => {
-                              const { label, bg } = getFileTypeStyle(lf.fileName);
-                              return (
-                                <FileItem
-                                  key={`${lf.sourceProposalId}-${lf.sourceGroupId}-${lf.fileName}-${idx}`}
-                                  style={{ background: '#eef2ff', borderColor: '#c7d2fe' }}
-                                >
-                                  <FileInfo>
-                                    <FileIconBadge $bg={bg}>{label}</FileIconBadge>
-                                    <div style={{ minWidth: 0 }}>
-                                      <FileName title={lf.fileName}>{lf.fileName}</FileName>
-                                      <div style={{ fontSize: '0.68rem', color: C.slate500, fontWeight: 600 }}>
-                                        από: {lf.sourceProposalTitle || 'Έργο ωρίμανσης'}
-                                      </div>
-                                    </div>
-                                  </FileInfo>
-                                  <FileActions>
-                                    <ViewIconBtn title="Προβολή" onClick={() => handleViewLinkedFile(lf)}>👁</ViewIconBtn>
-                                    <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadLinkedFile(lf)}>⬇</DownloadIconBtn>
-                                    {canManageWorkflow && (
-                                      <DeleteIconBtn
-                                        title="Αφαίρεση από την πρόσκληση"
-                                        data-testid={`psk-linked-remove-${lf.fileName}`}
-                                        onClick={() => handleRemoveLinkedFile(lf)}
-                                      >
-                                        ✕
-                                      </DeleteIconBtn>
-                                    )}
-                                  </FileActions>
-                                </FileItem>
-                              );
-                            })}
-                          </FilesList>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </FolderSection>
-              )}
+              {linkedOrimanthiGroup && renderGroupCard(linkedOrimanthiGroup, 'orimanthi')}
 
-              {/* Αφαίρεση του "Αρχεία Πρόσκλησης" section */}
-
-              {/* Attachments Folder - Εμφανίζεται μόνο αν υπάρχουν μη ομαδοποιημένα αρχεία */}
-              {files.attachments && files.attachments.filter(file => !file.isGrouped).length > 0 && (
-                <FolderSection>
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center', 
-                    marginBottom: '1rem'
-                  }}>
-                    <FolderTitle>
-                      📎 ΑΡΧΕΙΑ
-                    </FolderTitle>
-                    {canManageWorkflow && onGroupFiles && (
-                      <button
-                        onClick={() => onGroupFiles(files.attachments.filter(file => !file.isGrouped))}
-                        style={{
-                          background: 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)',
-                          color: '#f8fafc',
-                          border: '1px solid #3730a3',
-                          borderRadius: '8px',
-                          padding: '0.4rem 0.85rem',
-                          fontSize: '0.72rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.3rem',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.03em'
-                        }}
-                      >
-                        📁 Ομαδοποίηση
-                      </button>
-                    )}
-                  </div>
-                  <FilesList>
-                    {files.attachments.filter(file => !file.isGrouped).map((file, index) => {
-                      const name = file.originalName || file.fileName;
-                      const { label, bg } = getFileTypeStyle(name);
-                      return (
-                        <FileItem key={index}>
-                          <FileInfo>
-                            <FileIconBadge $bg={bg}>{label}</FileIconBadge>
-                            <FileName>{name}</FileName>
-                          </FileInfo>
-                          <FileActions>
-                            <ViewIconBtn title="Προβολή" onClick={() => handleViewFile(file.fileName, 'attachments')}>👁</ViewIconBtn>
-                            <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFile(file.fileName, 'attachments')}>⬇</DownloadIconBtn>
-                            {canManageWorkflow && (
-                              <RenameIconBtn
-                                title="Μετονομασία"
-                                data-testid={`file-rename-${file.fileName}`}
-                                onClick={() => setRenameTarget({ fileName: file.fileName, targetFolder: 'attachments' })}
-                              >
-                                ✎
-                              </RenameIconBtn>
-                            )}
-                            {canManageWorkflow && (
-                              <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(file.fileName, 'attachments')}>✕</DeleteIconBtn>
-                            )}
-                          </FileActions>
-                        </FileItem>
-                      );
-                    })}
-                  </FilesList>
-                
-                {/* Attachments Folders - Show directly under files */}
-                {folders.attachments && folders.attachments.length > 0 && (
-                  <div style={{ marginTop: '1rem' }}>
-                    {folders.attachments.map((folder, index) => (
-                      <FileItem key={`attachments-folder-${index}`} style={{ background: '#f0fdf4', borderColor: '#bbf7d0' }}>
-                        <FileInfo>
-                          <FileIconBadge $bg="#16a34a">DIR</FileIconBadge>
-                          <FileName>{folder.originalName || folder.folderName}</FileName>
-                        </FileInfo>
-                        <FileActions>
-                          <FolderOpenBtn title="Άνοιγμα" onClick={() => handleOpenFolder(folder.folderName, 'attachments')}>📂</FolderOpenBtn>
-                          {canManageWorkflow && (
-                            <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFolder(folder.folderName, 'attachments')}>✕</DeleteIconBtn>
-                          )}
-                        </FileActions>
-                      </FileItem>
-                    ))}
-                  </div>
-                )}
-                </FolderSection>
-              )}
-
-              {/* File Groups */}
               {fileGroups && fileGroups.length > 0 && (
                 <FolderSection>
-                  <FolderTitle>
-                    📁 Ομαδοποιημένα Αρχεία
-                  </FolderTitle>
-                  {fileGroups.map((group, groupIndex) => {
-                    const groupKey = String(group.id || groupIndex);
-                    const isOpenGroup = !!expandedGroupIds[groupKey];
-                    const fileCount = (group.files && group.files.length) || 0;
-                    return (
-                    <GroupCard key={group.id || groupIndex}>
-                      <GroupHeaderRow>
-                        <GroupToggle
-                          type="button"
-                          aria-expanded={isOpenGroup}
-                          onClick={() => toggleFileGroup(groupKey)}
-                        >
-                          <GroupChevron $open={isOpenGroup} aria-hidden>▶</GroupChevron>
-                          <span>📁 {group.title}</span>
-                          <GroupCount>{fileCount} {fileCount === 1 ? 'αρχείο' : 'αρχεία'}</GroupCount>
-                        </GroupToggle>
-                        {canManageWorkflow && (
-                          <DeleteIconBtn
-                            title="Διαγραφή Ομάδας"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteGroup(group.id || groupIndex);
-                            }}
-                          >✕</DeleteIconBtn>
-                        )}
-                      </GroupHeaderRow>
-                      {isOpenGroup && (
-                      <GroupBody>
-                      <FilesList>
-                        {group.files && group.files.length > 0 ? (
-                          group.files.map((file, fileIndex) => {
-                            const name = file.originalName || file.fileName;
-                            const { label, bg } = getFileTypeStyle(name);
-                            return (
-                              <FileItem key={fileIndex}>
-                                <FileInfo>
-                                  <FileIconBadge $bg={bg}>{label}</FileIconBadge>
-                                  <FileName>{name}</FileName>
-                                </FileInfo>
-                                <FileActions>
-                                  <ViewIconBtn title="Προβολή" onClick={() => handleViewFile(file.fileName, 'attachments')}>👁</ViewIconBtn>
-                                  <DownloadIconBtn title="Λήψη" onClick={() => handleDownloadFile(file.fileName, 'attachments')}>⬇</DownloadIconBtn>
-                                  {canManageWorkflow && (
-                                    <RenameIconBtn
-                                      title="Μετονομασία"
-                                      data-testid={`file-rename-${file.fileName}`}
-                                      onClick={() => setRenameTarget({ fileName: file.fileName, targetFolder: 'attachments' })}
-                                    >
-                                      ✎
-                                    </RenameIconBtn>
-                                  )}
-                                  {canManageWorkflow && (
-                                    <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFile(file.fileName, 'attachments')}>✕</DeleteIconBtn>
-                                  )}
-                                </FileActions>
-                              </FileItem>
-                            );
-                          })
-                        ) : (
-                          <EmptyFolder>Δεν υπάρχουν αρχεία σε αυτή την ομάδα</EmptyFolder>
-                        )}
-                      </FilesList>
-                      </GroupBody>
-                      )}
-                    </GroupCard>
-                    );
-                  })}
+                  {fileGroups.map((group, groupIndex) => renderGroupCard(group, groupIndex))}
                 </FolderSection>
+              )}
+
+              {(ungroupedFiles.length > 0 || (folders.main || []).length > 0 || (folders.attachments || []).length > 0) && (
+                <FolderSection>
+                  <GroupHeaderRow>
+                    <GroupStaticTitle>
+                      <GroupIcon aria-hidden>📄</GroupIcon>
+                      <span>Αρχεία χωρίς ομαδοποίηση</span>
+                      <GroupCount>
+                        {ungroupedFiles.length + (folders.main || []).length + (folders.attachments || []).length}
+                        {' '}αρχεία
+                      </GroupCount>
+                    </GroupStaticTitle>
+                  </GroupHeaderRow>
+                  <FilesList>
+                    {ungroupedFiles.map((file) => renderManagedFile(file, `psk-file-ungrouped-${file.fileName}`))}
+                    {(folders.main || []).map((folder, index) => renderFolderRow(folder, 'main', `main-folder-${index}`))}
+                    {(folders.attachments || []).map((folder, index) => renderFolderRow(folder, 'attachments', `attachments-folder-${index}`))}
+                  </FilesList>
+                </FolderSection>
+              )}
+
+              {!linkedOrimanthiGroup && !(fileGroups || []).length && !ungroupedFiles.length
+                && !(folders.main || []).length && !(folders.attachments || []).length && (
+                <EmptyState>
+                  {canManageWorkflow
+                    ? 'Δεν υπάρχουν αρχεία. Χρησιμοποιήστε «Προσθήκη Αρχείων» ή «Προσθήκη Φακέλου».'
+                    : 'Δεν υπάρχουν αρχεία για αυτή την πρόσκληση'}
+                </EmptyState>
               )}
             </>
           )}

@@ -6,11 +6,13 @@ const fs = require('fs');
 const path = require('path');
 const fse = require('fs-extra');
 
+const groupsCore = require('../app/core/prosklisiFileGroups');
+
 const APP_NAME = 'ERGOHUB';
 const APP_TAGLINE = 'Σύστημα Διαχείρισης Έργων Δήμου';
 const WORD_FILE_NAME = 'Αναφορά πρόσκλησης.doc';
-const FILES_EXPORT_FOLDER = 'Αρχεία πρόσκλησης';
-const LINKED_EXPORT_FOLDER = 'Δικαιολογητικά από την ωρίμανση';
+const FILES_EXPORT_FOLDER = groupsCore.FILES_EXPORT_WRAPPER;
+const LINKED_EXPORT_FOLDER = groupsCore.ORIMANTHI_GROUP_TITLE;
 
 function sanitizeFolderName(name, maxLen = 120) {
   let sanitized = String(name || 'Άτιτλος')
@@ -116,6 +118,30 @@ async function copyDirectoryRecursive(src, dest) {
       await copyDirectoryRecursive(srcPath, destPath);
     } else if (entry.isFile()) {
       await fse.copy(srcPath, destPath);
+    }
+  }
+}
+
+/**
+ * Αντιγράφει τα αρχεία της πρόσκλησης στον φάκελο εξαγωγής χωρίς περιττούς
+ * φακέλους-περιτυλίγματα (π.χ. «Αρχεία πρόσκλησης», «Επισυναπτόμενα…»).
+ * Οι ομάδες / υποομάδες του χρήστη μένουν ως κανονικοί υποφάκελοι.
+ */
+async function copyInvitationFilesTree(src, dest) {
+  if (!src || !fs.existsSync(src)) return;
+  await fse.ensureDir(dest);
+  const entries = await fse.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    if (entry.isDirectory() && groupsCore.isWrapperFolderName(entry.name)) {
+      await copyInvitationFilesTree(srcPath, dest);
+      continue;
+    }
+    if (entry.isDirectory()) {
+      await copyInvitationFilesTree(srcPath, path.join(dest, entry.name));
+    } else if (entry.isFile()) {
+      const destFile = getUniqueFilePath(dest, entry.name);
+      await fse.copy(srcPath, destFile);
     }
   }
 }
@@ -431,27 +457,26 @@ async function copyLinkedOrimanthiFiles(linkedOrimanthiFiles, destRoot) {
   const itemsByKey = new Map();
 
   for (const file of linkedOrimanthiFiles || []) {
-    const category = sanitizeFolderName(file.categoryLabel || 'Κατηγορία');
-    const spec = sanitizeFolderName(file.subtitle || 'Εξειδίκευση');
-    const destDir = path.join(destRoot, category, spec);
+    const segs = groupsCore.orimanthiExportDirSegments(file, linkedOrimanthiFiles);
+    const destDir = path.join(destRoot, ...segs);
     const src = file.sourcePath;
     const displayName = file.originalName || file.fileName || 'αρχείο';
     if (!src || !fs.existsSync(src) || !fs.statSync(src).isFile()) {
       missingItems.push({
         kind: 'file',
         name: displayName,
-        category: `${file.categoryLabel || ''} / ${file.subtitle || ''}`.trim(),
+        category: segs.slice(1).join(' / '),
       });
       continue;
     }
     await fse.ensureDir(destDir);
     const destFile = getUniqueFilePath(destDir, path.basename(file.fileName || displayName));
     await fse.copy(src, destFile);
-    const key = `${category} / ${spec}`;
+    const key = segs.join(' / ');
     if (!itemsByKey.has(key)) {
       itemsByKey.set(key, { kind: 'folder', name: key, files: [] });
     }
-    itemsByKey.get(key).files.push(`${category}/${spec}/${path.basename(destFile)}`);
+    itemsByKey.get(key).files.push([...segs, path.basename(destFile)].join('/'));
     fileCount += 1;
   }
 
@@ -500,22 +525,22 @@ async function exportProsklisi(options) {
   const missingItems = [];
 
   if (filesRoot && fs.existsSync(filesRoot)) {
-    const destFilesDir = path.join(exportRoot, FILES_EXPORT_FOLDER);
-    await copyDirectoryRecursive(filesRoot, destFilesDir);
-    const tree = summarizeCopiedTree(destFilesDir);
-    categorySummary.push({
-      label: FILES_EXPORT_FOLDER,
-      items: tree.items,
-      fileCount: tree.fileCount,
-      folderCount: tree.folderCount,
-    });
-    totalFiles += tree.fileCount;
-    totalFolders += tree.folderCount;
+    await copyInvitationFilesTree(filesRoot, exportRoot);
+    const tree = summarizeCopiedTree(exportRoot);
+    if (tree.fileCount > 0 || tree.folderCount > 0) {
+      categorySummary.push({
+        label: FILES_EXPORT_FOLDER,
+        items: tree.items,
+        fileCount: tree.fileCount,
+        folderCount: tree.folderCount,
+      });
+      totalFiles += tree.fileCount;
+      totalFolders += tree.folderCount;
+    }
   }
 
   if (linkedOrimanthiFiles.length) {
-    const destLinkedDir = path.join(exportRoot, LINKED_EXPORT_FOLDER);
-    const linkedStats = await copyLinkedOrimanthiFiles(linkedOrimanthiFiles, destLinkedDir);
+    const linkedStats = await copyLinkedOrimanthiFiles(linkedOrimanthiFiles, exportRoot);
     if (linkedStats.skipped?.length) missingItems.push(...linkedStats.skipped);
     categorySummary.push({
       label: LINKED_EXPORT_FOLDER,
