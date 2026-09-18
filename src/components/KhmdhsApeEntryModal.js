@@ -39,7 +39,7 @@ const Overlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 13100;
+  z-index: 100025;
   padding: 1rem;
   overflow-y: auto;
   animation: ${fadeIn} 0.18s ease;
@@ -408,7 +408,7 @@ const InterpretOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 13200;
+  z-index: 100030;
   padding: 1rem;
 `;
 

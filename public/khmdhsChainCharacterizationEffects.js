@@ -6,6 +6,7 @@ const CHAIN_KIND = {
   MODIFICATION: 'modification',
   EXTENSION: 'extension',
   REPUBLICATION: 'republication',
+  APE: 'ape',
   OTHER: 'other',
   UNCERTAIN: 'uncertain',
 };
@@ -156,6 +157,11 @@ function computeChainCharacterizationEffects(chainHistory, review) {
 
     if (kind === CHAIN_KIND.REPUBLICATION) {
       perAct.push({ adam: h.adam, kind, effect: 'correction' });
+      return;
+    }
+
+    if (kind === CHAIN_KIND.APE) {
+      perAct.push({ adam: h.adam, kind, effect: 'ape' });
       return;
     }
 

@@ -52,6 +52,7 @@
     MODIFICATION: 'modification',
     EXTENSION: 'extension',
     REPUBLICATION: 'republication',
+    APE: 'ape',
     OTHER: 'other',
     UNCERTAIN: 'uncertain'
   };
@@ -61,6 +62,7 @@
     modification: 'Συμπληρωματική σύμβαση',
     extension: 'Παράταση',
     republication: 'Ορθή επανάληψη',
+    ape: 'ΑΠΕ',
     other: 'Άλλο',
     uncertain: 'Χρειάζεται έλεγχος'
   };
@@ -69,6 +71,7 @@
     'modification',
     'extension',
     'republication',
+    'ape',
     'other'
   ];
 
@@ -163,6 +166,17 @@
         needsModAmountType: false,
         needsModDate: false,
         needsRepublicationTarget: true
+      };
+    }
+    if (kind === CHAIN_KIND.APE) {
+      return {
+        title: 'Στοιχεία ΑΠΕ',
+        hint: 'Καταγράφεται ως Ανακεφαλαιωτικός Πίνακας Εργασιών — χωρίς νέα συμπληρωματική γραμμή. Ανοίγει η καταχώριση ΑΠΕ με προσυμπληρωμένο ΑΔΑΜ.',
+        needsEndDate: false,
+        needsModAmount: false,
+        needsModAmountType: false,
+        needsModDate: false,
+        needsRepublicationTarget: false
       };
     }
     if (kind === CHAIN_KIND.OTHER) {

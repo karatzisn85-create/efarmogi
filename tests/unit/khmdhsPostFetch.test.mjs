@@ -114,7 +114,7 @@ test('επιστροφή / αργότερα / αποτυχία / συγχώνε�
 
 test('χαρακτηρισμός: επιλογές χρήστη και υποχρεωτικά πεδία', () => {
   assert.deepEqual(pf.USER_CHAIN_KIND_SELECT_VALUES, [
-    'modification', 'extension', 'republication', 'other',
+    'modification', 'extension', 'republication', 'ape', 'other',
   ]);
   assert.equal(pf.shouldShowCharacterizationCard({ isRoot: true }), false);
   assert.equal(pf.validateChainKindDraft({}).ok, false);
@@ -135,6 +135,10 @@ test('χαρακτηρισμός: επιλογές χρήστη και υποχ�
     correctsAdam: '24SYMV1',
   }).message, 'Επιλέξτε τι διορθώνει (τίτλος, ποσό ή ημερομηνία).');
   assert.equal(pf.validateChainKindDraft({ kind: 'other' }).ok, true);
+  assert.equal(pf.validateChainKindDraft({ kind: 'ape' }).ok, true);
+  assert.equal(pf.canSaveKindCard('ape', { ok: true }), true);
+  const apeOpts = pf.buildChainKindSelectOptions();
+  assert.equal(apeOpts.some((o) => o.value === 'ape' && /ΑΠΕ/i.test(o.label)), true);
   assert.equal(pf.canSaveKindCard('modification', { ok: false }), true);
   assert.equal(pf.canSaveKindCard('extension', { ok: false }), false);
 });

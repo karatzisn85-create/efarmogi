@@ -9,6 +9,7 @@
  *  - extension (παράταση)   → ενημερώνει τη λήξη/προθεσμία (όχι ποσό) και δημιουργεί
  *                            γραμμή εμφάνισης στην αλυσίδα (κρίκος «Παράταση»)
  *  - modification (τροπ/ση) → νέα συμπληρωματική γραμμή· ποσό = διαφορά ή νέα συνολική αξία
+ *  - ape (ΑΠΕ)              → καμία επίπτωση στην αλυσίδα· καταχώριση στο παράθυρο ΑΠΕ
  *  - other / uncertain      → καμία αυτόματη επίπτωση
  */
 
@@ -22,6 +23,7 @@ export const CHAIN_KIND = {
   MODIFICATION: 'modification',
   EXTENSION: 'extension',
   REPUBLICATION: 'republication',
+  APE: 'ape',
   OTHER: 'other',
   UNCERTAIN: 'uncertain',
 };
@@ -31,6 +33,7 @@ export const CHAIN_KIND_LABEL = {
   modification: 'Συμπληρωματική σύμβαση',
   extension: 'Παράταση',
   republication: 'Ορθή επανάληψη',
+  ape: 'ΑΠΕ',
   other: 'Άλλο',
   uncertain: 'Χρειάζεται έλεγχος',
 };
@@ -223,6 +226,11 @@ export function computeChainCharacterizationEffects(chainHistory, review) {
       return;
     }
 
+    if (kind === CHAIN_KIND.APE) {
+      perAct.push({ adam: h.adam, kind, effect: 'ape' });
+      return;
+    }
+
     if (kind === CHAIN_KIND.UNCERTAIN) hasUncertain = true;
     perAct.push({ adam: h.adam, kind, effect: 'none' });
   });
@@ -317,6 +325,8 @@ export function describeChainKindAction(kind) {
       return 'Ενημερώνει μόνο την προθεσμία/λήξη — δεν αλλάζει το ποσό.';
     case CHAIN_KIND.REPUBLICATION:
       return 'Διορθώνει στοιχεία προηγούμενης πράξης — δεν προστίθεται ως νέα.';
+    case CHAIN_KIND.APE:
+      return 'Καταγράφεται ως ΑΠΕ — ανοίγει η καταχώριση με τον ΑΔΑΜ. Δεν προστίθεται συμπληρωματική γραμμή.';
     case CHAIN_KIND.OTHER:
       return 'Καταγράφεται ως σχετική πράξη — χωρίς αυτόματη επίπτωση.';
     default:

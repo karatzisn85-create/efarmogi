@@ -6,7 +6,7 @@
  * πράξη ως «uncertain» (Χρειάζεται έλεγχος) και περιμένει την επιλογή του χρήστη.
  *
  * Είδη: contract (αρχική) | modification (τροποποίηση) | extension (παράταση)
- *       | republication (ορθή επανάληψη) | other (άλλο) | uncertain (αδιευκρίνιστο)
+ *       | republication (ορθή επανάληψη) | ape (ΑΠΕ) | other (άλλο) | uncertain (αδιευκρίνιστο)
  */
 
 const CHAIN_KIND = {
@@ -14,6 +14,7 @@ const CHAIN_KIND = {
   MODIFICATION: 'modification',
   EXTENSION: 'extension',
   REPUBLICATION: 'republication',
+  APE: 'ape',
   OTHER: 'other',
   UNCERTAIN: 'uncertain',
 };
@@ -29,6 +30,7 @@ const USER_CHAIN_KIND_OPTIONS = [
   CHAIN_KIND.MODIFICATION,
   CHAIN_KIND.EXTENSION,
   CHAIN_KIND.REPUBLICATION,
+  CHAIN_KIND.APE,
   CHAIN_KIND.OTHER,
 ];
 
@@ -38,6 +40,7 @@ function kindLabelEl(kind) {
     case CHAIN_KIND.MODIFICATION: return 'τροποποίηση';
     case CHAIN_KIND.EXTENSION: return 'παράταση';
     case CHAIN_KIND.REPUBLICATION: return 'ορθή επανάληψη';
+    case CHAIN_KIND.APE: return 'ΑΠΕ';
     case CHAIN_KIND.OTHER: return 'άλλο';
     case CHAIN_KIND.UNCERTAIN: return 'αδιευκρίνιστο';
     default: return 'σχετική πράξη';
@@ -88,6 +91,7 @@ const RE_REPUBLICATION = /ορθή\s+επανάληψη|ορθη\s+επαναλ�
 const RE_EXTENSION = /παράτασ|παρατασ|προθεσμ|χρόνου\s+εργασι|χρονικ\s+παρ|χρονοδιάγραμ|deadline/i;
 const RE_FINANCIAL_MOD = /τροποποι|αύξησ|αυξησ|μείωσ|μειωσ|οικονομικ|προσαύξ|προσαυξ|συμπληρωματικ|αναθεώρησ\s+τιμ/i;
 const RE_EXPLICIT_FINANCIAL = /τροποποι.*(αξ|ποσ|σύμβασ|συμβασ)|αύξησ.*(αξ|ποσ)|αυξησ.*(αξ|ποσ)|μείωσ.*(αξ|ποσ)|μειωσ.*(αξ|ποσ)/i;
+const RE_APE = /ανακεφαλαιωτικ|α\.\s*π\.\s*ε\.|(?:^|[\s«"'“”‘’(])απε(?:$|[\s»"'“”‘’.,;:/\-)\]])|τελικ[οό]\s+διαμορφωθ[εέ]ν/i;
 
 /**
  * Ανίχνευση ορθής επανάληψης / διορθωτικής ανάρτησης.
@@ -121,6 +125,25 @@ function detectCorrectiveRepublication(parentRecord, childRecord) {
   }
 
   return null;
+}
+
+/** Ενδείξεις Ανακεφαλαιωτικού Πίνακα Εργασιών (ΑΠΕ) από τον τίτλο. */
+function detectApeDocument(childRecord) {
+  const title = String(childRecord?.title || '').toLowerCase();
+  if (!RE_APE.test(title)) return null;
+  const signals = [];
+  if (/ανακεφαλαιωτικ/.test(title) || /(?:^|[\s«"'“”‘’(])απε(?:$|[\s»"'“”‘’.,;:/\-)\]])/.test(title) || /α\.\s*π\.\s*ε\./.test(title)) {
+    signals.push('Ο τίτλος δείχνει Ανακεφαλαιωτικό Πίνακα Εργασιών (ΑΠΕ)');
+  }
+  if (/τελικ[οό]\s+διαμορφωθ[εέ]ν/.test(title)) {
+    signals.push('Ο τίτλος αναφέρει τελικό διαμορφωθέν ποσό');
+  }
+  if (!signals.length) signals.push('Ο τίτλος δείχνει ΑΠΕ');
+  const explicit = /ανακεφαλαιωτικ/.test(title) || /(?:^|[\s«"'“”‘’(])απε(?:$|[\s»"'“”‘’.,;:/\-)\]])/.test(title);
+  return {
+    confidence: explicit ? CONFIDENCE.HIGH : CONFIDENCE.LOW,
+    signals,
+  };
 }
 
 /** Ενδείξεις από τίτλο/ποσό/ημερομηνίες της ίδιας της πράξης */
@@ -219,7 +242,27 @@ function resolveChainNodeKind(parentRecord, childRecord) {
     };
   }
 
-  // 2) Ενδείξεις από την πράξη
+  // 2) ΑΠΕ — πριν τις οικονομικές ενδείξεις (το ποσό δεν το κάνει συμπληρωματική)
+  const apeHit = detectApeDocument(childRecord);
+  if (apeHit) {
+    const khmdhsSaysAmendment = khmdhsLinkKind === CHAIN_KIND.MODIFICATION
+      || khmdhsLinkKind === CHAIN_KIND.EXTENSION;
+    return {
+      suggestedKind: CHAIN_KIND.APE,
+      confidence: apeHit.confidence,
+      khmdhsLinkKind,
+      kind: CHAIN_KIND.APE,
+      needsReview: true,
+      kindConflict: false,
+      kindReclassified: khmdhsSaysAmendment,
+      kindNote: khmdhsSaysAmendment
+        ? `Το ΚΗΜΔΗΣ τη συνδέει ως «${kindLabelEl(khmdhsLinkKind)}», αλλά ο τίτλος δείχνει ΑΠΕ.`
+        : 'Ο τίτλος δείχνει Ανακεφαλαιωτικό Πίνακα Εργασιών (ΑΠΕ). Επιβεβαιώστε και καταχωρήστε το ποσό.',
+      kindSignals: apeHit.signals,
+    };
+  }
+
+  // 3) Ενδείξεις από την πράξη
   const { extensionScore, modificationScore, signals } = gatherChildSignals(childRecord, parentRecord);
   const title = String(childRecord?.title || '').toLowerCase();
   const explicitFinancial = RE_EXPLICIT_FINANCIAL.test(title);
@@ -308,7 +351,10 @@ function resolveChainNodeKind(parentRecord, childRecord) {
  */
 
 function hasFinancialSupplementarySignals(h) {
+  const kind = h.effectiveKind || h.userKind || h.kind;
+  if (kind === CHAIN_KIND.APE || h.suggestedKind === CHAIN_KIND.APE) return false;
   const title = String(h.snapshot?.title || h.title || h.label || '').toLowerCase();
+  if (RE_APE.test(title)) return false;
   const hasAmount = !!(h.contractAmount && String(h.contractAmount).trim())
     || hasFiniteAmount(h.snapshot);
   if (hasAmount) return true;
@@ -330,7 +376,7 @@ function isPureExtensionOnly(h) {
 function needsAmendmentKindReviewBeforeAmount(h) {
   if (!h || h.isRoot) return false;
   const kind = h.effectiveKind || h.userKind || h.kind;
-  if (kind === CHAIN_KIND.EXTENSION || kind === CHAIN_KIND.REPUBLICATION) return false;
+  if (kind === CHAIN_KIND.EXTENSION || kind === CHAIN_KIND.REPUBLICATION || kind === CHAIN_KIND.APE) return false;
   if (hasFinancialSupplementarySignals(h)) return false;
   if (h.needsReview || h.confidence !== CONFIDENCE.HIGH) return true;
   if (kind === CHAIN_KIND.UNCERTAIN || kind === CHAIN_KIND.OTHER) return true;
@@ -344,7 +390,8 @@ function needsAmendmentKindReviewBeforeAmount(h) {
 function isChainSupplementaryCandidate(h) {
   if (!h?.adam || h.isRoot) return false;
   const kind = h.effectiveKind || h.userKind || h.kind;
-  if (kind === CHAIN_KIND.REPUBLICATION) return false;
+  if (kind === CHAIN_KIND.REPUBLICATION || kind === CHAIN_KIND.APE) return false;
+  if (h.suggestedKind === CHAIN_KIND.APE) return false;
   if (isPureExtensionOnly(h)) return false;
   if (needsAmendmentKindReviewBeforeAmount(h)) return false;
   if (kind === CHAIN_KIND.MODIFICATION) return true;
@@ -363,6 +410,7 @@ module.exports = {
   USER_CHAIN_KIND_OPTIONS,
   classifyLinkKindFromParent,
   detectCorrectiveRepublication,
+  detectApeDocument,
   resolveChainNodeKind,
   isSupplementaryModificationEntry,
   isChainSupplementaryCandidate,

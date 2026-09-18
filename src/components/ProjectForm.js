@@ -38,6 +38,7 @@ import {
 } from '../utils/khmdhsFields';
 import {
   applyApeEntryToProject,
+  buildApeEntryTargetFromChainKind,
   buildDefaultApeFileGroupTitle,
   buildDefaultApeFileName,
   clearApeEntryFromProject,
@@ -223,6 +224,7 @@ import {
   enrichChainHistoryWithReview,
   CHAIN_KIND_LABEL,
 } from '../utils/khmdhsChainActions';
+import { enrichChainKindReviewItem } from '../utils/khmdhsChainKindOptions';
 import {
   KHMDHS_SITUATION_ACTION,
   KHMDHS_SITUATION_ID_PARALLEL_CONTRACTS,
@@ -6493,6 +6495,22 @@ function ProjectForm({
     setApeEntryTarget(target || null);
   }, [canEditKhmdhsApe]);
 
+  const handleOpenApeFromChainKind = useCallback((item, enrichedFromCard) => {
+    if (!canEditKhmdhsApe) {
+      showToast('Ο χαρακτηρισμός ΑΠΕ αποθηκεύτηκε. Δεν έχετε δικαίωμα καταχώρισης ποσού ΑΠΕ.', 'info');
+      return;
+    }
+    const live = formDataRef.current;
+    const enriched = enrichedFromCard || enrichChainKindReviewItem(item, live);
+    const target = buildApeEntryTargetFromChainKind(live, {
+      ...item,
+      ...enriched,
+      chainAdam: enriched?.chainAdam || item?.chainAdam,
+      contractIndex: item?.contractIndex ?? enriched?.contractIndex,
+    });
+    setApeEntryTarget(target);
+  }, [canEditKhmdhsApe, showToast]);
+
   const handleFetchDiavgeiaByAda = useCallback(async (ada) => {
     const seed = String(ada || '').trim();
     if (!seed) {
@@ -6613,13 +6631,19 @@ function ProjectForm({
       targetTitle: apeEntryTarget.title,
       khmdhsAmount: fields.khmdhsAmount,
       amountSanityReference: getKhmdhsAmountSanityReference(formData),
-      initialApeAmount: isNewEntry ? '' : fields.apeAmount,
-      initialDocumentDate: isNewEntry ? '' : fields.documentDate,
+      initialApeAmount: isNewEntry
+        ? (apeEntryTarget.prefillApeAmount || '')
+        : fields.apeAmount,
+      initialDocumentDate: isNewEntry
+        ? (apeEntryTarget.prefillDocumentDate || '')
+        : fields.documentDate,
       initialComments: isNewEntry ? '' : fields.comments,
       initialFileName: isNewEntry ? '' : fileRef.fileName,
       initialGroupTitle: isNewEntry ? '' : fileRef.groupTitle,
       initialSourcePath: isNewEntry ? '' : fileRef.sourcePath,
-      initialSourceAdam: isNewEntry ? '' : fields.sourceAdam,
+      initialSourceAdam: isNewEntry
+        ? (apeEntryTarget.prefillSourceAdam || '')
+        : (fields.sourceAdam || apeEntryTarget.prefillSourceAdam || ''),
       initialDiavgeiaAda: isNewEntry ? '' : fields.diavgeiaAda,
       isNewEntry,
     };
@@ -8862,6 +8886,7 @@ function ProjectForm({
       onResolveChainKind={handleReviewResolveChainKind}
       onRevokeResolution={handleReviewRevokeResolution}
       onApplyAllSuggested={handleReviewApplyAllSuggested}
+      onOpenApeEntry={handleOpenApeFromChainKind}
     />
     <ProjectFormUnsavedModal
       isOpen={unsavedCloseModalOpen}

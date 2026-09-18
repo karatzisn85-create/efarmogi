@@ -205,6 +205,36 @@ export function listContractApeEntries(project, arrayIndex = 0) {
     .sort((a, b) => apeEntrySortKey(a).localeCompare(apeEntrySortKey(b)));
 }
 
+export function findContractApeEntryBySourceAdam(project, arrayIndex, adam) {
+  const norm = String(adam || '').trim().toUpperCase();
+  if (!norm) return null;
+  return listContractApeEntries(project, arrayIndex).find((row) => (
+    String(row?.apeSourceAdam || row?.sourceAdam || '').trim().toUpperCase() === norm
+  )) || null;
+}
+
+/**
+ * Στόχος παραθύρου ΑΠΕ από έγγραφο αλυσίδας ΚΗΜΔΗΣ (χαρακτηρισμός).
+ * Αν υπάρχει ήδη καταχώριση με τον ίδιο ΑΔΑΜ, ανοίγει για επεξεργασία.
+ */
+export function buildApeEntryTargetFromChainKind(project, item = {}) {
+  const adam = String(item.chainAdam || item.adam || '').trim().toUpperCase();
+  const arrayIndex = item.contractIndex != null && Number.isFinite(Number(item.contractIndex))
+    ? Number(item.contractIndex)
+    : 0;
+  const existing = findContractApeEntryBySourceAdam(project, arrayIndex, adam);
+  const title = String(item.title || '').trim() || 'ΑΠΕ';
+  return {
+    kind: 'contract',
+    arrayIndex,
+    title,
+    entryId: existing?.id || null,
+    prefillSourceAdam: adam,
+    prefillApeAmount: existing ? '' : String(item.contractAmountDisplay || '').trim(),
+    prefillDocumentDate: existing ? '' : String(item.contractDateIso || item.contractDate || '').slice(0, 10),
+  };
+}
+
 export function getLatestContractApeEntry(project, arrayIndex = 0) {
   const entries = listContractApeEntries(project, arrayIndex);
   return entries.length ? entries[entries.length - 1] : null;

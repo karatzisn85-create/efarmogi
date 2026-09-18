@@ -1360,6 +1360,7 @@ const KIND_OPTION_HINTS = {
   modification: 'Αλλαγή ποσού ή όρων (συμπληρωματική)',
   extension: 'Μόνο νέα προθεσμία',
   republication: 'Διόρθωση προηγούμενης',
+  ape: 'Τελικό διαμορφωθέν ποσό',
   other: 'Σχετικό έγγραφο',
   uncertain: 'Χειροκίνητος έλεγχος',
 };
@@ -1406,7 +1407,7 @@ function buildChainKindChoicePayload({
   };
 }
 
-function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, highlight = false, wizard = false }) {
+function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, onOpenApeEntry, highlight = false, wizard = false }) {
   const enrichedItem = useMemo(
     () => enrichChainKindReviewItem(item, formData),
     [item, formData]
@@ -1476,6 +1477,36 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
     onResolveChainKind(item, choice, { silent });
   }, [item, kind, onResolveChainKind]);
 
+  const persistApeAndOpen = useCallback(() => {
+    if (!onResolveChainKind) return;
+    const choice = buildChainKindChoicePayload({
+      kind: CHAIN_KIND.APE,
+      correctsAdam,
+      parts,
+      modAmountType,
+      modAmount,
+      modDate,
+      endDate,
+      note,
+      enrichedItem,
+    });
+    lastAutoSaveRef.current = JSON.stringify(choice);
+    onResolveChainKind(item, choice, { silent: false });
+    onOpenApeEntry?.(item, enrichedItem);
+  }, [
+    onResolveChainKind,
+    item,
+    correctsAdam,
+    parts,
+    modAmountType,
+    modAmount,
+    modDate,
+    endDate,
+    note,
+    enrichedItem,
+    onOpenApeEntry,
+  ]);
+
   const handleKindChange = (newKind) => {
     userEditedKindRef.current = true;
     setKind(newKind);
@@ -1485,11 +1516,15 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
     if (newKind === CHAIN_KIND.MODIFICATION && !getChainKindChoice(review, adam)) {
       window.setTimeout(() => setSuppModalOpen(true), 0);
     }
+    if (newKind === CHAIN_KIND.APE) {
+      persistApeAndOpen();
+    }
   };
 
   useEffect(() => {
     if (!userEditedKindRef.current) return;
-    if (!kind || kind === CHAIN_KIND.MODIFICATION || !onResolveChainKind) return;
+    if (!kind || kind === CHAIN_KIND.MODIFICATION || kind === CHAIN_KIND.APE
+      || kind === CHAIN_KIND.REPUBLICATION || !onResolveChainKind) return;
     if (isReviewItemResolved(review, formData, item)) return;
     const draftValidation = validateChainKindDraft({
       kind,
@@ -1541,6 +1576,10 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
     if (!kind || !onResolveChainKind) return;
     if (kind === CHAIN_KIND.MODIFICATION) {
       setSuppModalOpen(true);
+      return;
+    }
+    if (kind === CHAIN_KIND.APE) {
+      persistApeAndOpen();
       return;
     }
     if (!validation.ok) return;
@@ -1687,7 +1726,7 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
         </SubQuestion>
       )}
 
-      {!canSave && kind && kind !== CHAIN_KIND.MODIFICATION && validation.message ? (
+      {!canSave && kind && kind !== CHAIN_KIND.MODIFICATION && kind !== CHAIN_KIND.APE && validation.message ? (
         <ValidationHint>{validation.message}</ValidationHint>
       ) : null}
 
@@ -1702,7 +1741,9 @@ function ChainKindCard({ item, review, formData, onResolveChainKind, onRevoke, h
         <MiniBtn type="button" $primary onClick={handleSave} disabled={!canSave}>
           {kind === CHAIN_KIND.MODIFICATION
             ? (resolved ? 'Επεξεργασία στοιχείων συμπληρωματικής' : 'Συμπλήρωση στοιχείων συμπληρωματικής…')
-            : (resolved ? 'Ενημέρωση χαρακτηρισμού' : (collapsed.primaryCta || 'Αποθήκευση χαρακτηρισμού'))}
+            : kind === CHAIN_KIND.APE
+              ? (resolved ? 'Επεξεργασία καταχώρισης ΑΠΕ' : 'Καταχώριση ΑΠΕ…')
+              : (resolved ? 'Ενημέρωση χαρακτηρισμού' : (collapsed.primaryCta || 'Αποθήκευση χαρακτηρισμού'))}
         </MiniBtn>
         {adam && (
           <MiniBtn
@@ -2508,6 +2549,7 @@ export default function KhmdhsDataReviewModal({
   onResolveChainKind,
   onRevokeResolution,
   onApplyAllSuggested,
+  onOpenApeEntry,
 }) {
   const [filter, setFilter] = useState('action');
   const [highlightKey, setHighlightKey] = useState(null);
@@ -2642,6 +2684,7 @@ export default function KhmdhsDataReviewModal({
           formData={formData}
           onResolveChainKind={onResolveChainKind}
           onRevoke={onRevokeResolution}
+          onOpenApeEntry={onOpenApeEntry}
           highlight={highlight}
           wizard={wizard}
         />

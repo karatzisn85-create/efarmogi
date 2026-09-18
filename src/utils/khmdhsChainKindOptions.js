@@ -66,9 +66,7 @@ export function enrichChainKindReviewItem(item, formData) {
 
   return {
     ...item,
-    kindOptions: Array.isArray(item.kindOptions) && item.kindOptions.length
-      ? item.kindOptions
-      : buildChainKindSelectOptions(),
+    kindOptions: buildChainKindSelectOptions(),
     peerOptions: Array.isArray(item.peerOptions) && item.peerOptions.length
       ? item.peerOptions
       : buildChainPeerSelectOptions(history, adam),

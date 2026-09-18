@@ -4,6 +4,8 @@
 import {
   applyContractApeFields,
   applyApeEntryToProject,
+  buildApeEntryTargetFromChainKind,
+  findContractApeEntryBySourceAdam,
   buildDefaultApeFileGroupTitle,
   buildDefaultApeFileName,
   clearApeEntryFromProject,
@@ -450,5 +452,37 @@ describe('khmdhsApeEntry', () => {
     expect(isPhaseADirty(merged, baseline)).toBe(false);
     expect(merged.comments).toBe('');
     expect(merged.apeComments).toBe('σχόλιο μόνο για ΑΠΕ');
+  });
+
+  test('στόχος ΑΠΕ από χαρακτηρισμό προσυμπληρώνει ΑΔΑΜ και ποσό', () => {
+    const project = { contractAmount: '100.000,00', apeEntries: [] };
+    const target = buildApeEntryTargetFromChainKind(project, {
+      chainAdam: '25symvape000001',
+      title: 'Ανακεφαλαιωτικός Πίνακας Εργασιών',
+      contractAmountDisplay: '112.000,00',
+      contractDateIso: '2025-06-01',
+      contractIndex: 0,
+    });
+    expect(target.kind).toBe('contract');
+    expect(target.entryId).toBeNull();
+    expect(target.prefillSourceAdam).toBe('25SYMVAPE000001');
+    expect(target.prefillApeAmount).toBe('112.000,00');
+    expect(target.prefillDocumentDate).toBe('2025-06-01');
+  });
+
+  test('ίδιος ΑΔΑΜ ΑΠΕ ανοίγει την υπάρχουσα καταχώριση', () => {
+    const project = applyContractApeFields(
+      { contractAmount: '100.000,00' },
+      0,
+      { apeAmount: '112.000,00', sourceAdam: '25SYMVAPE000001', documentDate: '2025-06-01' }
+    );
+    const existing = findContractApeEntryBySourceAdam(project, 0, '25SYMVAPE000001');
+    expect(existing).toBeTruthy();
+    const target = buildApeEntryTargetFromChainKind(project, {
+      chainAdam: '25SYMVAPE000001',
+      title: 'ΑΠΕ',
+    });
+    expect(target.entryId).toBe(existing.id);
+    expect(target.prefillApeAmount).toBe('');
   });
 });

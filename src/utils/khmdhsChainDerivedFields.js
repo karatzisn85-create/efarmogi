@@ -17,6 +17,7 @@ import { CHAIN_KIND, computeChainCharacterizationEffects } from './khmdhsChainAc
 import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
 
 const RE_FINANCIAL_MOD = /τροποποι|αύξησ|αυξησ|μείωσ|μειωσ|οικονομικ|προσαύξ|προσαυξ|συμπληρωματικ|αναθεώρησ\s+τιμ/i;
+const RE_APE = /ανακεφαλαιωτικ|α\.\s*π\.\s*ε\.|(?:^|[\s«"'“”‘’(])απε(?:$|[\s»"'“”‘’.,;:/\-)\]])|τελικ[οό]\s+διαμορφωθ[εέ]ν/i;
 
 function hasFiniteAmountFromHistory(h) {
   const snap = h?.snapshot;
@@ -25,7 +26,10 @@ function hasFiniteAmountFromHistory(h) {
 }
 
 function hasFinancialSupplementarySignals(h) {
+  const kind = h.effectiveKind || h.userKind || h.kind;
+  if (kind === CHAIN_KIND.APE || h.suggestedKind === CHAIN_KIND.APE) return false;
   const title = String(h.snapshot?.title || h.title || h.label || '').toLowerCase();
+  if (RE_APE.test(title)) return false;
   const hasAmount = !!(h.contractAmount && String(h.contractAmount).trim())
     || hasFiniteAmountFromHistory(h);
   if (hasAmount) return true;
@@ -45,7 +49,7 @@ function isPureExtensionOnly(h) {
 function needsAmendmentKindReviewBeforeAmount(h) {
   if (!h || h.isRoot) return false;
   const kind = h.effectiveKind || h.userKind || h.kind;
-  if (kind === CHAIN_KIND.EXTENSION || kind === CHAIN_KIND.REPUBLICATION) return false;
+  if (kind === CHAIN_KIND.EXTENSION || kind === CHAIN_KIND.REPUBLICATION || kind === CHAIN_KIND.APE) return false;
   if (hasFinancialSupplementarySignals(h)) return false;
   if (h.needsReview || h.confidence !== 'high') return true;
   if (kind === CHAIN_KIND.UNCERTAIN || kind === CHAIN_KIND.OTHER) return true;
@@ -57,7 +61,8 @@ export function isChainSupplementaryCandidate(h) {
   if (!h?.adam || h.isRoot) return false;
   if (h.orphanSupplementary) return true;
   const kind = h.effectiveKind || h.userKind || h.kind;
-  if (kind === CHAIN_KIND.REPUBLICATION) return false;
+  if (kind === CHAIN_KIND.REPUBLICATION || kind === CHAIN_KIND.APE) return false;
+  if (h.suggestedKind === CHAIN_KIND.APE) return false;
   if (isPureExtensionOnly(h)) return false;
   if (needsAmendmentKindReviewBeforeAmount(h)) return false;
   if (kind === CHAIN_KIND.MODIFICATION) return true;
