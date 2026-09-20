@@ -39,8 +39,9 @@ import {
 import {
   applyApeEntryToProject,
   buildApeEntryTargetFromChainKind,
-  buildDefaultApeFileGroupTitle,
+  buildApeRelatedFilesGroupTitle,
   buildDefaultApeFileName,
+  buildDefaultExtensionFileGroupTitle,
   clearApeEntryFromProject,
   readContractApeFields,
   readSupplementaryApeFields,
@@ -6550,6 +6551,9 @@ function ProjectForm({
 
     let filePayload = file;
     const targetTitle = apeEntryTarget.title || '';
+    const liveFormForFiles = formDataRef.current || {};
+    const relatedFilesGroupTitle = buildApeRelatedFilesGroupTitle(apeEntryTarget, liveFormForFiles);
+    const extras = Array.isArray(filePayload?.extraFiles) ? filePayload.extraFiles : [];
 
     if (filePayload === undefined && sourceDiavgeiaAda) {
       try {
@@ -6562,11 +6566,57 @@ function ProjectForm({
           filePayload = {
             sourcePath: dl.path,
             fileName: dl.fileName || buildDefaultApeFileName(targetTitle, dl.path),
-            groupTitle: buildDefaultApeFileGroupTitle(targetTitle),
+            groupTitle: relatedFilesGroupTitle,
           };
         }
       } catch {
         /* προαιρετική λήψη — δεν μπλοκάρει την καταχώριση */
+      }
+    }
+
+    const liveForm = formDataRef.current || {};
+    const projectId = liveForm.projectId || editingProject?.projectId || '';
+    const subprojectId = liveForm.subprojectId || editingProject?.subprojectId || '';
+    const pickedForCopy = [
+      ...(filePayload?.sourcePath
+        ? [{ path: filePayload.sourcePath, name: filePayload.fileName || '' }]
+        : []),
+      ...extras
+        .filter((f) => f?.sourcePath)
+        .map((f) => ({ path: f.sourcePath, name: f.fileName || '' })),
+    ];
+    let copiedNow = false;
+    if (projectId && subprojectId && pickedForCopy.length) {
+      try {
+        const copied = await ipcRenderer.invoke(
+          'save-files',
+          pickedForCopy,
+          projectId,
+          subprojectId,
+          { conflictPolicy: 'keep-both', skipDataJsonUpdate: true }
+        );
+        if (copied?.success && Array.isArray(copied.files) && copied.files.length) {
+          copiedNow = true;
+          let i = 0;
+          if (filePayload?.sourcePath) {
+            const dest = copied.files[i++];
+            if (dest) {
+              filePayload = { ...filePayload, fileName: dest, sourcePath: undefined };
+            }
+          }
+          if (extras.length) {
+            filePayload = {
+              ...(filePayload || {}),
+              extraFiles: extras.map((extra) => {
+                if (!extra?.sourcePath) return extra;
+                const dest = copied.files[i++];
+                return dest ? { fileName: dest, sourcePath: '' } : extra;
+              }),
+            };
+          }
+        }
+      } catch {
+        /* η αντιγραφή στην αποθήκευση κάρτας μένει ως εφεδρεία */
       }
     }
 
@@ -6581,17 +6631,23 @@ function ProjectForm({
       khmdhsMeta,
     }));
     setApeEntryTarget(null);
-    const hasFile = filePayload && filePayload !== null && (filePayload.sourcePath || filePayload.fileName);
+    const hasFile = filePayload && filePayload !== null && (
+      filePayload.sourcePath
+      || filePayload.fileName
+      || (filePayload.extraFiles || []).length
+    );
     const removedFile = filePayload === null;
     let msg = 'Ο ΑΠΕ εφαρμόστηκε στη φόρμα. Αποθηκεύστε το υποέργο για να οριστικοποιηθεί.';
     if (hasFile) {
       msg = removedFile
         ? msg
-        : 'Ο ΑΠΕ και το αρχείο προστέθηκαν στη φόρμα. Αποθηκεύστε το υποέργο για να οριστικοποιηθούν.';
+        : (copiedNow
+          ? `Ο ΑΠΕ εφαρμόστηκε και το αρχείο μπήκε στα αρχεία του υποέργου. Αποθηκεύστε για να μπει στην ομάδα «${relatedFilesGroupTitle}».`
+          : 'Ο ΑΠΕ και το αρχείο προστέθηκαν στη φόρμα. Αποθηκεύστε το υποέργο για να οριστικοποιηθούν.');
     }
     if (removedFile) msg = 'Το αρχείο ΑΠΕ αφαιρέθηκε από τη φόρμα. Αποθηκεύστε για οριστικοποίηση.';
     showToast(msg, 'success');
-  }, [apeEntryTarget, showToast]);
+  }, [apeEntryTarget, editingProject, showToast]);
 
   const handleRemoveApeEntry = useCallback(() => {
     if (!apeEntryTarget) return;
@@ -6678,7 +6734,7 @@ function ProjectForm({
           filePayload = {
             sourcePath: dl.path,
             fileName: dl.fileName || buildDefaultExtensionFileName(targetTitle, dl.path),
-            groupTitle: buildDefaultApeFileGroupTitle(targetTitle),
+            groupTitle: buildDefaultExtensionFileGroupTitle(targetTitle),
           };
         }
       } catch {
@@ -8899,6 +8955,7 @@ function ProjectForm({
       isOpen={!!apeEntryTarget}
       targetTitle={apeEntryModalProps?.targetTitle || ''}
       targetKind={apeEntryTarget?.kind || 'contract'}
+      relatedFilesGroupTitle={buildApeRelatedFilesGroupTitle(apeEntryTarget, formData)}
       khmdhsAmount={apeEntryModalProps?.khmdhsAmount || ''}
       amountSanityReference={apeEntryModalProps?.amountSanityReference || 0}
       initialApeAmount={apeEntryModalProps?.initialApeAmount || ''}

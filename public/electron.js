@@ -5481,7 +5481,7 @@ ipcMain.handle('save-files', async (event, files, projectId, subprojectId, optio
     }
     
     const dataPath = path.join(dataDir, projectId, subprojectId, 'data.json');
-    if (fs.existsSync(dataPath) && savedFiles.length > 0) {
+    if (fs.existsSync(dataPath) && savedFiles.length > 0 && options.skipDataJsonUpdate !== true) {
       try {
         const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
         if (!Array.isArray(data.files)) {

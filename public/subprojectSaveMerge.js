@@ -46,8 +46,15 @@ function mergeFileGroupsForSave(existingGroups, incomingGroups, fileExists) {
       incomingFiles.forEach((newFile) => {
         const name = fileEntryName(newFile);
         if (!name) return;
-        const already = mergedFiles.some((f) => fileEntryName(f) === name);
-        if (already) return;
+        const incomingHasSource = typeof newFile === 'object'
+          && !!(newFile.path || newFile.filePath);
+        const existingIdx = mergedFiles.findIndex((f) => fileEntryName(f) === name);
+        if (existingIdx >= 0) {
+          if (incomingHasSource && shouldKeepIncomingFile(newFile, exists)) {
+            mergedFiles[existingIdx] = newFile;
+          }
+          return;
+        }
         if (shouldKeepIncomingFile(newFile, exists)) mergedFiles.push(newFile);
       });
       map.set(newGroup.id, {

@@ -5,7 +5,7 @@ import {
   isExtensionModalDirty,
   buildExtensionModalSnapshot,
 } from '../utils/khmdhsManualContractExtension';
-import { buildDefaultApeFileGroupTitle } from '../utils/khmdhsApeEntry';
+import { buildDefaultExtensionFileGroupTitle } from '../utils/khmdhsApeEntry';
 import { buildDiavgeiaApePreview } from '../utils/diavgeiaApeFetch';
 import { safeFileDialog } from '../utils/safeDialogs';
 import { showConfirm } from '../utils/confirmModal';
@@ -432,7 +432,7 @@ export default function KhmdhsManualExtensionModal({
     setDocumentDate(String(initialDocumentDate || '').slice(0, 10));
     setComments(initialComments || '');
     setFileName(initialFileName || '');
-    setGroupTitle(initialGroupTitle || buildDefaultApeFileGroupTitle(targetTitle));
+    setGroupTitle(initialGroupTitle || buildDefaultExtensionFileGroupTitle(targetTitle));
     setSourcePath(initialSourcePath || '');
     setDiavgeiaAda(initialDiavgeiaAda || '');
     setDiavgeiaFetchPreview(null);
@@ -447,7 +447,7 @@ export default function KhmdhsManualExtensionModal({
       documentDate: String(initialDocumentDate || '').slice(0, 10),
       comments: initialComments || '',
       fileName: initialFileName || '',
-      groupTitle: initialGroupTitle || buildDefaultApeFileGroupTitle(targetTitle),
+      groupTitle: initialGroupTitle || buildDefaultExtensionFileGroupTitle(targetTitle),
       sourcePath: initialSourcePath || '',
       fileCleared: false,
       diavgeiaAda: initialDiavgeiaAda || '',
@@ -532,7 +532,7 @@ export default function KhmdhsManualExtensionModal({
       setSourcePath(path);
       setFileName(buildDefaultExtensionFileName(targetTitle, path));
       if (!groupTitle.trim()) {
-        setGroupTitle(buildDefaultApeFileGroupTitle(targetTitle));
+        setGroupTitle(buildDefaultExtensionFileGroupTitle(targetTitle));
       }
       setFileCleared(false);
     } catch {
@@ -618,7 +618,7 @@ export default function KhmdhsManualExtensionModal({
       filePayload = {
         sourcePath: sourcePath || undefined,
         fileName: String(fileName || '').trim() || buildDefaultExtensionFileName(targetTitle, sourcePath),
-        groupTitle: String(groupTitle || '').trim() || buildDefaultApeFileGroupTitle(targetTitle),
+        groupTitle: String(groupTitle || '').trim() || buildDefaultExtensionFileGroupTitle(targetTitle),
       };
     }
 
@@ -781,11 +781,11 @@ export default function KhmdhsManualExtensionModal({
                   type="text"
                   value={groupTitle}
                   onChange={(e) => setGroupTitle(e.target.value)}
-                  placeholder={buildDefaultApeFileGroupTitle(targetTitle)}
+                  placeholder={buildDefaultExtensionFileGroupTitle(targetTitle)}
                 />
               </Field>
               <Hint>
-                Το αρχείο θα τοποθετηθεί στην ομάδα «{groupTitle || buildDefaultApeFileGroupTitle(targetTitle)}»
+                Το αρχείο θα τοποθετηθεί στην ομάδα «{groupTitle || buildDefaultExtensionFileGroupTitle(targetTitle)}»
                 στα αρχεία του υποέργου μετά την αποθήκευση.
               </Hint>
             </>

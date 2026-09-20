@@ -54,6 +54,13 @@ const ROLE_VISUAL = {
     badgeColor: '#fff',
     selectBorder: '#10b981',
   },
+  [SYMV_CHAIN_ROLE.APE]: {
+    border: '#2dd4bf',
+    bg: 'linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%)',
+    badgeBg: '#0d9488',
+    badgeColor: '#fff',
+    selectBorder: '#14b8a6',
+  },
   [SYMV_CHAIN_ROLE.EXTENSION]: {
     border: '#fbbf24',
     bg: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
@@ -476,6 +483,7 @@ const ROLE_OPTIONS = [
   SYMV_CHAIN_ROLE.MAIN,
   SYMV_CHAIN_ROLE.PARALLEL,
   SYMV_CHAIN_ROLE.SUPPLEMENTARY,
+  SYMV_CHAIN_ROLE.APE,
   SYMV_CHAIN_ROLE.EXTENSION,
   SYMV_CHAIN_ROLE.INTERMEDIATE,
 ];
@@ -510,10 +518,23 @@ function dateFieldLabel(role) {
   if (role === SYMV_CHAIN_ROLE.INTERMEDIATE) {
     return 'Ημερομηνία εγγράφου';
   }
+  if (role === SYMV_CHAIN_ROLE.APE) {
+    return 'Ημερομηνία ΑΠΕ';
+  }
   if (role === SYMV_CHAIN_ROLE.SUPPLEMENTARY) {
     return 'Ημερομηνία υπογραφής συμπληρωματικής';
   }
   return 'Ημερομηνία υπογραφής σύμβασης';
+}
+
+function amountFieldLabel(role) {
+  if (role === SYMV_CHAIN_ROLE.APE) {
+    return 'Τελικό διαμορφωθέν ποσό ΑΠΕ (με ΦΠΑ)';
+  }
+  if (role === SYMV_CHAIN_ROLE.SUPPLEMENTARY) {
+    return 'Ποσό συμπληρωματικής (με ΦΠΑ)';
+  }
+  return 'Ποσό (με ΦΠΑ)';
 }
 
 function roleNeedsAmount(role) {
@@ -687,6 +708,8 @@ export default function KhmdhsSymvChainPlannerDialog({
             Χρησιμοποιήστε <strong>«Προβολή εγγράφου»</strong> για να ανοίξετε το PDF πριν αποφασίσετε.
             Για έγγραφα που δεν είναι σύμβαση αλλά ανήκουν στη ροή (π.χ. απόφαση, διακήρυξη), επιλέξτε
             <strong> «Ενδιάμεσος κρίκος»</strong> — η ημερομηνία εγγράφου καθορίζει τη θέση στην αλυσίδα.
+            Για ανακεφαλαιωτικό πίνακα εργασιών επιλέξτε <strong>«ΑΠΕ»</strong> — μπαίνει στη ροή χωρίς
+            συμπληρωματική γραμμή.
             <br />
             <strong>Έντονα μαύρα</strong> = δική σας εισαγωγή.
             {' '}
@@ -794,6 +817,11 @@ export default function KhmdhsSymvChainPlannerDialog({
                           Η νέα προθεσμία εκτέλεσης μετά την παράταση — όχι η ημερομηνία έκδοσης του εγγράφου.
                         </FieldHint>
                       ) : null}
+                      {role === SYMV_CHAIN_ROLE.APE ? (
+                        <FieldHint $muted>
+                          Η ημερομηνία του ΑΠΕ καθορίζει τη θέση του στην αλυσίδα. Το ποσό είναι το τελικό διαμορφωθέν — όχι προσαύξηση συμπληρωματικής.
+                        </FieldHint>
+                      ) : null}
                       {role === SYMV_CHAIN_ROLE.INTERMEDIATE ? (
                         <FieldHint $muted>
                           Η ημερομηνία εγγράφου καθορίζει τη θέση του κρίκου ανάμεσα στις υπόλοιπες πράξεις της αλυσίδας.
@@ -817,7 +845,7 @@ export default function KhmdhsSymvChainPlannerDialog({
                     ) : null}
                     {showAmount ? (
                       <Field>
-                        Ποσό (με ΦΠΑ)
+                        {amountFieldLabel(role)}
                         <Input
                           type="text"
                           $state={amountState}
@@ -840,6 +868,7 @@ export default function KhmdhsSymvChainPlannerDialog({
             Επιλέχθηκαν <strong>{activeCount}</strong> εγγραφές για καταχώριση.
             {' '}Μία κύρια + συμπληρωματική = «Μια Σύμβαση». Δύο ή περισσότερες κύριες/παράλληλες = «Πολλές Συμβάσεις».
             {' '}Οι <strong>ενδιάμεσοι κρίκοι</strong> μπαίνουν στο ιστορικό αλυσίδας ταξινομημένοι κατά ημερομηνία εγγράφου.
+            {' '}Ο <strong>ΑΠΕ</strong> μένει στη ροή χωρίς συμπληρωματική γραμμή.
             {' '}Ό,τι σημείωσε «Δεν καταχωρείται» δεν μπαίνει στην αλυσίδα αυτής της κάρτας — ούτε στις επόμενες ανανεώσεις.
           </SummaryBar>
         </Body>

@@ -1,6 +1,7 @@
 'use strict';
 
 const { test, expect } = require('./helpers/real-app.cjs');
+const path = require('path');
 const {
   openPhaseBEdit,
   openKhmdhsAdamField,
@@ -8,6 +9,10 @@ const {
   dismissKhmdhsDialogs,
   discardEdit,
   discardEditWithoutDismissingKhmdhs,
+  saveEdit,
+  openFiles,
+  writePersisted,
+  readPersisted,
 } = require('./helpers/actions.cjs');
 const { REAL } = require('./helpers/laptop-data.cjs');
 
@@ -146,4 +151,38 @@ test('P4-48 ζωντανή ανάκτηση προκήρυξης οδοποιί�
   ).first()).toBeVisible({ timeout: 90000 });
   await dismissKhmdhsDialogs(window);
   await discardEdit(window);
+});
+
+test('P4-49 βοηθητικό αρχείο ΑΠΕ αποθηκεύεται στα αρχεία υποέργου', async ({ app }) => {
+  const { window, sampleUpload, testDir } = app;
+  writePersisted(testDir, 'proj-water', 'sub-tank', {
+    contractAmount: '50.000,00',
+    contractDate: '2025-01-15',
+  });
+  await openPhaseBEdit(window, 'sub-tank');
+  await window.getByTitle('Νέος ΑΠΕ').click();
+  await expect(window.getByTestId('ape-entry-modal')).toBeVisible();
+  await window.getByTestId('ape-document-date').fill('2025-06-01');
+  await window.getByTestId('ape-amount').fill('52000');
+  await app.queueOpenFiles([path.join(sampleUpload, 'παράρτημα.pdf')]);
+  await window.getByTestId('ape-pick-file').click();
+  await expect(window.getByTestId('ape-file-chip')).toContainText('παράρτημα.pdf');
+  await window.getByTestId('ape-apply').click();
+  await expect(window.getByTestId('ape-entry-modal')).toHaveCount(0);
+  await saveEdit(window);
+  const saved = readPersisted(testDir, 'proj-water', 'sub-tank');
+  const groupTitles = (saved.fileGroups || []).map((g) => String(g.title || ''));
+  expect(groupTitles).not.toContain('ΑΡΧΙΚΗ ΣΥΜΒΑΣΗ');
+  expect(groupTitles).not.toContain('Αρχική σύμβαση');
+  if (groupTitles.length) {
+    expect(groupTitles).toContain('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ');
+  }
+  await openFiles(window, 'sub-tank');
+  await expect(
+    window.getByTestId('file-row-παράρτημα.pdf')
+      .or(window.getByTestId('file-ungrouped-παράρτημα.pdf'))
+  ).toBeVisible();
+  if (groupTitles.includes('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ')) {
+    await expect(window.getByText('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ')).toBeVisible();
+  }
 });

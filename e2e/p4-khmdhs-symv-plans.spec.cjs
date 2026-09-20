@@ -28,6 +28,7 @@ test('P4-70 κατανομή: λάθος ρόλοι δεν εφαρμόζοντ�
     has: window.getByRole('button', { name: 'Εφαρμογή κατανομής' }),
   }).last();
   await expect(modal.getByText('Κατανομή εγγραφών SYMV')).toBeVisible();
+  await expect(modal.getByLabel(/Ρόλος για/).first().locator('option', { hasText: 'ΑΠΕ' })).toHaveCount(1);
 
   await setSymvPlanRoles(window, ['skip', 'skip']);
   await modal.getByRole('button', { name: 'Εφαρμογή κατανομής' }).click();

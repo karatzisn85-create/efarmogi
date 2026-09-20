@@ -10,7 +10,7 @@ import { normalizeDiavgeiaAda } from './diavgeiaApeFetch';
 import {
   mergeApeFileIntoFileGroups,
   removeApeFileFromFileGroups,
-  buildDefaultApeFileGroupTitle,
+  buildDefaultExtensionFileGroupTitle,
 } from './khmdhsApeEntry';
 import {
   mergeKhmdhsDocumentRegistry,
@@ -232,7 +232,7 @@ export function applyExtensionEntryToProject(project, target, payload) {
         file.fileName || buildDefaultExtensionFileName(target?.title, file.sourcePath)
       );
       const groupTitle = String(
-        file.groupTitle || previousRef.groupTitle || buildDefaultApeFileGroupTitle(target?.title)
+        file.groupTitle || previousRef.groupTitle || buildDefaultExtensionFileGroupTitle(target?.title)
       ).trim();
       const { fileGroups, groupId } = mergeApeFileIntoFileGroups(next.fileGroups, {
         groupId: previousRef.groupId,

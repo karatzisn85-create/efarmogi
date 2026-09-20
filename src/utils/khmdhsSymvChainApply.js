@@ -30,7 +30,7 @@ import { detectStagesCoveredByForm } from './khmdhsChainStitchPlan';
 import { filterUnrelatedPayments } from './khmdhsPaymentReconciliation';
 import { grossFromCostSnapshot } from './khmdhsVatHelper';
 import { normalizeProjectAmountForStorage } from './projectAmountUtils';
-import { stripPhantomContractApeFromForm } from './khmdhsApeEntry';
+import { applyPlannerApeItemsToForm, stripPhantomContractApeFromForm } from './khmdhsApeEntry';
 import {
   confirmedCancelledAdamSet,
   stripConfirmedCancelledChainLinks,
@@ -99,6 +99,8 @@ function symvRoleToChainKind(role) {
       return CHAIN_KIND.CONTRACT;
     case SYMV_CHAIN_ROLE.SUPPLEMENTARY:
       return CHAIN_KIND.MODIFICATION;
+    case SYMV_CHAIN_ROLE.APE:
+      return CHAIN_KIND.APE;
     case SYMV_CHAIN_ROLE.EXTENSION:
       return CHAIN_KIND.EXTENSION;
     case SYMV_CHAIN_ROLE.INTERMEDIATE:
@@ -126,6 +128,9 @@ function buildKindNote(role, planItem) {
   if (role === SYMV_CHAIN_ROLE.SUPPLEMENTARY) {
     return 'Συμπληρωματική σύμβαση — επηρεάζει το συνολικό ποσό.';
   }
+  if (role === SYMV_CHAIN_ROLE.APE) {
+    return 'ΑΠΕ — χωρίς συμπληρωματική γραμμή· καταχώριση στο παράθυρο ΑΠΕ.';
+  }
   return '';
 }
 
@@ -151,6 +156,9 @@ function buildHistoryEntryFromPlan(adam, planItem, chainRes, existingEntry = nul
       break;
     case SYMV_CHAIN_ROLE.SUPPLEMENTARY:
       label = 'Συμπληρωματική σύμβαση';
+      break;
+    case SYMV_CHAIN_ROLE.APE:
+      label = 'ΑΠΕ';
       break;
     case SYMV_CHAIN_ROLE.EXTENSION:
       label = 'Παράταση';
@@ -195,6 +203,7 @@ function buildHistoryEntryFromPlan(adam, planItem, chainRes, existingEntry = nul
 const CHAIN_TIMELINE_ROLES = new Set([
   SYMV_CHAIN_ROLE.MAIN,
   SYMV_CHAIN_ROLE.SUPPLEMENTARY,
+  SYMV_CHAIN_ROLE.APE,
   SYMV_CHAIN_ROLE.EXTENSION,
   SYMV_CHAIN_ROLE.INTERMEDIATE,
 ]);
@@ -347,6 +356,12 @@ export function mergeSymvChainPlanIntoDataQualityReview(review, plan, form) {
       meta.modDate = String(planItem.date || '').slice(0, 10);
       meta.endDate = String(planItem.date || '').slice(0, 10);
     }
+    if (kind === CHAIN_KIND.APE) {
+      meta.modDate = String(planItem.date || '').slice(0, 10);
+      if (String(planItem.amount || '').trim()) {
+        meta.apeAmount = String(planItem.amount).trim();
+      }
+    }
     if (planItem.role === SYMV_CHAIN_ROLE.INTERMEDIATE) {
       meta.modDate = String(planItem.date || '').slice(0, 10);
     }
@@ -356,7 +371,9 @@ export function mergeSymvChainPlanIntoDataQualityReview(review, plan, form) {
         ? (String(planItem.label || '').trim()
           ? `Ενδιάμεσος κρίκος: ${planItem.label}`
           : 'Ενδιάμεσος κρίκος αλυσίδας')
-        : 'Ορίστηκε στη κατανομή SYMV';
+        : planItem.role === SYMV_CHAIN_ROLE.APE
+          ? 'Ορίστηκε ως ΑΠΕ στη κατανομή SYMV'
+          : 'Ορίστηκε στη κατανομή SYMV';
 
     if (kindItem) {
       next = resolveReviewItem(next, kindItem, {
@@ -446,6 +463,17 @@ export function mergeSymvChainPlanIntoDataQualityReview(review, plan, form) {
           value: String(planItem.date).slice(0, 10),
           source: KHMDHS_RESOLUTION_SOURCE.USER_CONFIRMED,
           note: 'Κατανομή SYMV',
+        });
+      }
+      return;
+    }
+
+    if (planItem.role === SYMV_CHAIN_ROLE.APE) {
+      if (item.fieldId === 'supplementaryAmount' || item.fieldId === 'supplementaryDate') {
+        next = resolveReviewItem(next, item, {
+          value: '—',
+          source: KHMDHS_RESOLUTION_SOURCE.USER_CONFIRMED,
+          note: 'ΑΠΕ — χωρίς συμπληρωματική γραμμή',
         });
       }
       return;
@@ -764,7 +792,11 @@ function applySymvChainPlanToFormStitch(prev, chainRes, plan, {
     protectedFields = [],
   } = applyUserEditsAfterKhmdhsFetch(prev, next);
 
-  const cleanedForm = stripPhantomContractApeFromForm(protectedForm, prev);
+  const cleanedForm = applyPlannerApeItemsToForm(
+    stripPhantomContractApeFromForm(protectedForm, prev),
+    (plan?.items || []).filter((i) => i?.role === SYMV_CHAIN_ROLE.APE),
+    chainRes
+  );
   const implementationFormAutoUpdated = prev.implementationForm !== cleanedForm.implementationForm
     ? cleanedForm.implementationForm
     : null;
@@ -903,7 +935,11 @@ export function applySymvChainPlanToForm(prev, chainRes, plan, {
     protectedFields = [],
   } = applyUserEditsAfterKhmdhsFetch(prev, next);
 
-  const cleanedForm = stripPhantomContractApeFromForm(protectedForm, prev);
+  const cleanedForm = applyPlannerApeItemsToForm(
+    stripPhantomContractApeFromForm(protectedForm, prev),
+    (plan?.items || []).filter((i) => i?.role === SYMV_CHAIN_ROLE.APE),
+    chainRes
+  );
 
   const implementationFormAutoUpdated = prev.implementationForm !== cleanedForm.implementationForm
     ? cleanedForm.implementationForm

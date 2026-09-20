@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
-  buildDefaultApeFileGroupTitle,
+  APE_RELATED_FILES_GROUP_TITLE,
   buildDefaultApeFileName,
+  pickedApeFileNameFromPath,
   formatApeAmountDisplay,
   getApeKhmdhsReferenceAmountLabel,
   buildApeEntryModalSnapshot,
@@ -491,6 +492,7 @@ export default function KhmdhsApeEntryModal({
   isOpen,
   targetTitle = '',
   targetKind = 'contract',
+  relatedFilesGroupTitle = '',
   khmdhsAmount = '',
   amountSanityReference = 0,
   initialApeAmount = '',
@@ -513,6 +515,7 @@ export default function KhmdhsApeEntryModal({
   const [fileName, setFileName] = useState('');
   const [groupTitle, setGroupTitle] = useState('');
   const [sourcePath, setSourcePath] = useState('');
+  const [extraFiles, setExtraFiles] = useState([]);
   const [fileCleared, setFileCleared] = useState(false);
   const [apeAdam, setApeAdam] = useState('');
   const [khmdhsFetchPreview, setKhmdhsFetchPreview] = useState(null);
@@ -528,6 +531,7 @@ export default function KhmdhsApeEntryModal({
   const [confirmedDiavgeiaPreview, setConfirmedDiavgeiaPreview] = useState(null);
   const [documentDate, setDocumentDate] = useState('');
   const [error, setError] = useState('');
+  const filesGroupTitle = String(relatedFilesGroupTitle || '').trim() || APE_RELATED_FILES_GROUP_TITLE;
   const [amountInterpret, setAmountInterpret] = useState(null);
   const bodyScrollRef = useRef(null);
   const baselineSnapshotRef = useRef('');
@@ -557,10 +561,9 @@ export default function KhmdhsApeEntryModal({
     setComments(initialComments || '');
     setDocumentDate(String(initialDocumentDate || '').slice(0, 10));
     setFileName(initialFileName || '');
-    setGroupTitle(
-      initialGroupTitle || buildDefaultApeFileGroupTitle(targetTitle)
-    );
+    setGroupTitle(filesGroupTitle);
     setSourcePath(initialSourcePath || '');
+    setExtraFiles([]);
     setApeAdam(initialSourceAdam || '');
     setKhmdhsFetchPreview(null);
     setKhmdhsFetchLoading(false);
@@ -581,8 +584,9 @@ export default function KhmdhsApeEntryModal({
       comments: initialComments || '',
       documentDate: String(initialDocumentDate || '').slice(0, 10),
       fileName: initialFileName || '',
-      groupTitle: initialGroupTitle || buildDefaultApeFileGroupTitle(targetTitle),
+      groupTitle: filesGroupTitle,
       sourcePath: initialSourcePath || '',
+      extraFiles: [],
       fileCleared: false,
       apeAdam: initialSourceAdam || '',
       diavgeiaAda: initialDiavgeiaAda || '',
@@ -602,6 +606,7 @@ export default function KhmdhsApeEntryModal({
     initialDiavgeiaAda,
     initialDocumentDate,
     targetTitle,
+    filesGroupTitle,
   ]);
 
   const handleRequestClose = useCallback(async () => {
@@ -617,6 +622,7 @@ export default function KhmdhsApeEntryModal({
         fileName,
         groupTitle,
         sourcePath,
+        extraFiles,
         fileCleared,
         apeAdam,
         diavgeiaAda,
@@ -648,6 +654,7 @@ export default function KhmdhsApeEntryModal({
     fileName,
     groupTitle,
     sourcePath,
+    extraFiles,
     fileCleared,
     apeAdam,
     diavgeiaAda,
@@ -677,18 +684,39 @@ export default function KhmdhsApeEntryModal({
   const khmdhsFmt = formatApeAmountDisplay(khmdhsAmount);
   const hasExisting = !!String(initialApeAmount || '').trim();
   const hasFileNow = !fileCleared && !!(sourcePath || fileName);
+  const hasExtrasNow = extraFiles.length > 0;
+  const hasAnyPicked = hasFileNow || hasExtrasNow;
 
   const handlePickFile = async () => {
     try {
       const result = await safeFileDialog('open-file-dialog');
       if (result.canceled || !result.filePaths?.length) return;
-      const path = result.filePaths[0];
-      setSourcePath(path);
-      setFileName(buildDefaultApeFileName(targetTitle, path));
-      if (!groupTitle.trim()) {
-        setGroupTitle(buildDefaultApeFileGroupTitle(targetTitle));
+      const paths = result.filePaths.filter(Boolean);
+      if (!paths.length) return;
+      setGroupTitle(filesGroupTitle);
+      if (!hasFileNow) {
+        const first = paths[0];
+        setSourcePath(first);
+        setFileName(pickedApeFileNameFromPath(first));
+        setFileCleared(false);
+        if (paths.length > 1) {
+          setExtraFiles((prev) => [
+            ...prev,
+            ...paths.slice(1).map((p) => ({
+              sourcePath: p,
+              fileName: pickedApeFileNameFromPath(p),
+            })),
+          ]);
+        }
+        return;
       }
-      setFileCleared(false);
+      setExtraFiles((prev) => [
+        ...prev,
+        ...paths.map((p) => ({
+          sourcePath: p,
+          fileName: pickedApeFileNameFromPath(p),
+        })),
+      ]);
     } catch {
       setError('Δεν ήταν δυνατή η επιλογή αρχείου.');
     }
@@ -698,6 +726,10 @@ export default function KhmdhsApeEntryModal({
     setSourcePath('');
     setFileName('');
     setFileCleared(true);
+  };
+
+  const handleClearExtra = (index) => {
+    setExtraFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleFetchByAdam = async () => {
@@ -822,13 +854,17 @@ export default function KhmdhsApeEntryModal({
     const docDate = String(documentDate || '').slice(0, 10);
 
     let filePayload;
-    if (fileCleared && (initialFileName || initialSourcePath)) {
+    const extrasPayload = extraFiles.filter((f) => f.sourcePath || f.fileName);
+    if (fileCleared && (initialFileName || initialSourcePath) && extrasPayload.length === 0) {
       filePayload = null;
-    } else if (hasFileNow) {
+    } else if (hasFileNow || extrasPayload.length) {
       filePayload = {
-        sourcePath: sourcePath || undefined,
-        fileName: String(fileName || '').trim() || buildDefaultApeFileName(targetTitle, sourcePath),
-        groupTitle: String(groupTitle || '').trim() || buildDefaultApeFileGroupTitle(targetTitle),
+        sourcePath: hasFileNow ? (sourcePath || undefined) : undefined,
+        fileName: hasFileNow
+          ? (String(fileName || '').trim() || pickedApeFileNameFromPath(sourcePath))
+          : '',
+        groupTitle: filesGroupTitle,
+        extraFiles: extrasPayload,
       };
     }
 
@@ -883,7 +919,12 @@ export default function KhmdhsApeEntryModal({
       data-khmdhs-ape-entry-modal
       onClick={(e) => e.target === e.currentTarget && handleRequestClose()}
     >
-      <Card onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <Card
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        data-testid="ape-entry-modal"
+      >
         <Header>
           <Title>{isNewEntry ? 'Νέος ΑΠΕ' : 'ΑΠΕ'} — {targetTitle || 'Σύμβαση'}</Title>
           <Sub>
@@ -903,6 +944,7 @@ export default function KhmdhsApeEntryModal({
               Ημερομηνία εγγράφου *
               <Input
                 type="date"
+                data-testid="ape-document-date"
                 value={documentDate}
                 onChange={(e) => setDocumentDate(e.target.value)}
               />
@@ -912,6 +954,7 @@ export default function KhmdhsApeEntryModal({
             Ποσό ΑΠΕ (με ΦΠΑ) *
             <Input
               type="text"
+              data-testid="ape-amount"
               value={apeAmount}
               onChange={(e) => setApeAmount(e.target.value)}
               placeholder="π.χ. 256.680,00"
@@ -1091,12 +1134,12 @@ export default function KhmdhsApeEntryModal({
 
           <SectionTitle>Έγγραφο ΑΠΕ (προαιρετικό)</SectionTitle>
           <FileRow>
-            <FilePickBtn type="button" onClick={handlePickFile}>
-              📎 Επιλογή αρχείου
+            <FilePickBtn type="button" data-testid="ape-pick-file" onClick={handlePickFile}>
+              📎 {hasAnyPicked ? 'Προσθήκη αρχείου' : 'Επιλογή αρχείου'}
             </FilePickBtn>
             {hasFileNow ? (
               <>
-                <FileChip title={fileName || sourcePath}>
+                <FileChip title={fileName || sourcePath} data-testid="ape-file-chip">
                   {fileName || sourcePath.split(/[/\\]/).pop()}
                 </FileChip>
                 <SmallBtn type="button" onClick={handleClearFile}>
@@ -1105,34 +1148,41 @@ export default function KhmdhsApeEntryModal({
               </>
             ) : null}
           </FileRow>
-          {hasFileNow ? (
+          {extraFiles.map((extra, idx) => (
+            <FileRow key={`${extra.sourcePath || extra.fileName}-${idx}`}>
+              <FileChip title={extra.fileName || extra.sourcePath} data-testid={`ape-extra-file-${idx}`}>
+                {extra.fileName || extra.sourcePath.split(/[/\\]/).pop()}
+              </FileChip>
+              <SmallBtn type="button" onClick={() => handleClearExtra(idx)}>
+                Αφαίρεση
+              </SmallBtn>
+            </FileRow>
+          ))}
+          {hasAnyPicked ? (
             <>
-              <Field>
-                Όνομα αρχείου
-                <Input
-                  type="text"
-                  value={fileName}
-                  onChange={(e) => setFileName(e.target.value)}
-                  placeholder={buildDefaultApeFileName(targetTitle, sourcePath)}
-                />
-              </Field>
-              <Field>
-                Θέση στα αρχεία υποέργου (ομάδα)
-                <Input
-                  type="text"
-                  value={groupTitle}
-                  onChange={(e) => setGroupTitle(e.target.value)}
-                  placeholder={buildDefaultApeFileGroupTitle(targetTitle)}
-                />
-              </Field>
+              {hasFileNow ? (
+                <Field>
+                  Όνομα αρχείου
+                  <Input
+                    type="text"
+                    value={fileName}
+                    onChange={(e) => setFileName(e.target.value)}
+                    placeholder={pickedApeFileNameFromPath(sourcePath) || buildDefaultApeFileName(targetTitle, sourcePath)}
+                  />
+                </Field>
+              ) : null}
               <Hint>
-                Το αρχείο θα τοποθετηθεί στην ομάδα «{groupTitle || buildDefaultApeFileGroupTitle(targetTitle)}»
-                στα αρχεία του υποέργου μετά την αποθήκευση.
+                {extraFiles.length
+                  ? 'Τα αρχεία θα μπουν στην ομάδα'
+                  : 'Το αρχείο θα μπει στην ομάδα'}
+                {' '}
+                «{filesGroupTitle}» στα αρχεία του υποέργου — μαζί με τα υπόλοιπα χειροκίνητα αρχεία ΑΠΕ της ίδιας σύμβασης.
               </Hint>
             </>
           ) : (
             <Hint>
-              Μπορείτε να ανεβάσετε PDF ή άλλο έγγραφο ΑΠΕ. Θα μπει κάτω από τη σχετική σύμβαση στα αρχεία του υποέργου.
+              Μπορείτε να ανεβάσετε PDF ή άλλο έγγραφο ΑΠΕ. Θα μπει στην ομάδα
+              «{filesGroupTitle}» στα αρχεία του υποέργου. Μπορείτε να προσθέσετε και βοηθητικά έγγραφα.
             </Hint>
           )}
 
@@ -1150,7 +1200,7 @@ export default function KhmdhsApeEntryModal({
           <CancelBtn type="button" onClick={handleRequestClose}>
             Ακύρωση
           </CancelBtn>
-          <ApplyBtn type="button" onClick={handleApply}>
+          <ApplyBtn type="button" data-testid="ape-apply" onClick={handleApply}>
             Εφαρμογή
           </ApplyBtn>
         </Footer>

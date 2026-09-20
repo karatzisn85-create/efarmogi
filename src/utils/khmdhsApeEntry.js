@@ -221,7 +221,7 @@ export function buildApeEntryTargetFromChainKind(project, item = {}) {
   const adam = String(item.chainAdam || item.adam || '').trim().toUpperCase();
   const arrayIndex = item.contractIndex != null && Number.isFinite(Number(item.contractIndex))
     ? Number(item.contractIndex)
-    : 0;
+    : resolveApeContractArrayIndex(project, adam);
   const existing = findContractApeEntryBySourceAdam(project, arrayIndex, adam);
   const title = String(item.title || '').trim() || 'ΑΠΕ';
   return {
@@ -399,9 +399,158 @@ function basenameFromPath(filePath) {
   return parts[parts.length - 1] || '';
 }
 
-/** Προτεινόμενος τίτλος ομάδας — κάτω από τη σχετική σύμβαση */
-export function buildDefaultApeFileGroupTitle(targetTitle = '') {
+function collectFileGroupNames(fileGroups = []) {
+  const names = [];
+  (fileGroups || []).forEach((group) => {
+    (group.files || []).forEach((file) => {
+      const name = fileEntryName(file);
+      if (name) names.push(name);
+    });
+  });
+  return names;
+}
+
+function uniqueFileNameAmong(desiredName, takenNames = []) {
+  const safe = sanitizeFileName(desiredName);
+  if (!safe) return '';
+  const taken = new Set(
+    (takenNames || []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean)
+  );
+  if (!taken.has(safe.toLowerCase())) return safe;
+  const ext = getFileExtension(safe);
+  const stem = ext ? safe.slice(0, -ext.length) : safe;
+  let n = 1;
+  let candidate = `${stem} (${n})${ext}`;
+  while (taken.has(candidate.toLowerCase())) {
+    n += 1;
+    candidate = `${stem} (${n})${ext}`;
+  }
+  return candidate;
+}
+
+/** Ομάδα αρχείων υποέργου για όσα φορτώνει ο υπάλληλος χειροκίνητα για ΑΠΕ. */
+export const APE_RELATED_FILES_GROUP_TITLE = 'ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ';
+
+function normalizeApeAdam(adam) {
+  return String(adam || '').trim().toUpperCase().replace(/\*+$/, '');
+}
+
+function looksLikeContractFolderLabel(label = '') {
+  const t = String(label || '').trim();
+  if (!t) return false;
+  return /σύμβαση/i.test(t) || /αρχικ/i.test(t);
+}
+
+function looksLikeSupplementaryFolderLabel(label = '') {
+  const t = String(label || '').trim();
+  if (!t) return false;
+  return /συμπληρωματικ/i.test(t) || /παράταση/i.test(t) || /παραταση/i.test(t);
+}
+
+function apeRelatedFilesContractSuffix(target = {}) {
+  const idx = Number.isFinite(Number(target?.arrayIndex)) ? Number(target.arrayIndex) : 0;
+  const label = String(target?.title || '').trim();
+  if (looksLikeContractFolderLabel(label)) return label;
+  return `Σύμβαση ${idx + 1}`;
+}
+
+/**
+ * Φάκελος χειροκίνητων αρχείων ΑΠΕ.
+ * Μία σύμβαση → «ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ».
+ * Πολλές συμβάσεις / συμπληρωματική → ξεχωριστός φάκελος ανά σύμβαση.
+ */
+export function buildApeRelatedFilesGroupTitle(target = {}, project = null) {
+  const kind = target?.kind || 'contract';
+  const idx = Number.isFinite(Number(target?.arrayIndex)) ? Number(target.arrayIndex) : 0;
+  const label = String(target?.title || '').trim();
+  const multi = isMultipleContractsForm(project?.implementationForm)
+    || (Array.isArray(project?.contracts) && project.contracts.length > 1);
+
+  if (kind === 'supplementary') {
+    const suffix = looksLikeSupplementaryFolderLabel(label) ? label : `Συμπληρωματική ${idx + 1}`;
+    return `${APE_RELATED_FILES_GROUP_TITLE} — ${suffix}`;
+  }
+  if (multi) {
+    return `${APE_RELATED_FILES_GROUP_TITLE} — ${apeRelatedFilesContractSuffix(target)}`;
+  }
+  return APE_RELATED_FILES_GROUP_TITLE;
+}
+
+/** Πλησιέστερη κύρια/παράλληλη σύμβαση στην κατανομή SYMV πριν από τον ΑΠΕ. */
+function resolveApeIndexFromSymvPlan(form, apeAdam) {
+  const items = form?.khmdhsSymvChainPlan?.items || [];
+  const rows = Array.isArray(form?.contracts) ? form.contracts : [];
+  if (!items.length || !rows.length) return null;
+
+  let lastContractAdam = '';
+  for (const item of items) {
+    const adam = normalizeApeAdam(item?.adam);
+    const role = String(item?.role || '').trim();
+    if (!adam) continue;
+    if (role === 'main' || role === 'parallel') lastContractAdam = adam;
+    if (adam === apeAdam && role === 'ape' && lastContractAdam) {
+      const idx = rows.findIndex((row) => normalizeApeAdam(row?.khmdhsAdam) === lastContractAdam);
+      return idx >= 0 ? idx : null;
+    }
+  }
+  return null;
+}
+
+/** Σε ποια γραμμή σύμβασης ανήκει ο ΑΠΕ (ΑΔΑΜ σύμβασης, κατανομή, καταχώριση). */
+export function resolveApeContractArrayIndex(form, adam) {
+  const norm = normalizeApeAdam(adam);
+  if (!form || !norm) return 0;
+  const rows = Array.isArray(form.contracts) ? form.contracts : [];
+  const multi = isMultipleContractsForm(form.implementationForm) || rows.length > 1;
+  if (!multi) return 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    if (normalizeApeAdam(rows[i]?.khmdhsAdam) === norm) return i;
+  }
+
+  const fromPlan = resolveApeIndexFromSymvPlan(form, norm);
+  if (fromPlan != null) return fromPlan;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    if (findContractApeEntryBySourceAdam(form, i, adam)) return i;
+  }
+
+  const historyHits = [];
+  rows.forEach((row, i) => {
+    const hist = row?.khmdhsContractChainHistory || [];
+    if (hist.some((h) => normalizeApeAdam(h?.adam) === norm)) historyHits.push(i);
+  });
+  if (historyHits.length === 1) return historyHits[0];
+
+  return 0;
+}
+
+/** Όνομα όπως το επέλεξε ο υπάλληλος — όχι υποχρεωτικά «ΑΠΕ — τίτλος». */
+export function pickedApeFileNameFromPath(sourcePath = '') {
+  return sanitizeFileName(basenameFromPath(sourcePath))
+    || buildDefaultApeFileName('', sourcePath);
+}
+
+/** Σταθερός φάκελος χειροκίνητων αρχείων ΑΠΕ όταν υπάρχει μία σύμβαση. */
+export function buildDefaultApeFileGroupTitle(_targetTitle = '') {
+  return APE_RELATED_FILES_GROUP_TITLE;
+}
+
+/** Προτεινόμενος τίτλος ομάδας για χειροκίνητη παράταση. */
+export function buildDefaultExtensionFileGroupTitle(targetTitle = '') {
   return String(targetTitle || 'Σύμβαση').trim() || 'Σύμβαση';
+}
+
+function resolveApeRelatedFilesGroupId(fileGroups = [], previousGroupId = '', groupTitle = '') {
+  const wanted = String(groupTitle || APE_RELATED_FILES_GROUP_TITLE).trim()
+    || APE_RELATED_FILES_GROUP_TITLE;
+  const groups = Array.isArray(fileGroups) ? fileGroups : [];
+  const byTitle = groups.find((g) => String(g?.title || '').trim() === wanted);
+  if (byTitle?.id) return byTitle.id;
+  if (!previousGroupId) return '';
+  const prev = groups.find((g) => g?.id === previousGroupId);
+  if (prev && String(prev.title || '').trim() === wanted) return prev.id;
+  return '';
 }
 
 /** Προτεινόμενο όνομα αρχείου ΑΠΕ */
@@ -502,8 +651,17 @@ function applyApeFileRefToProjectSlice(project, kind, arrayIndex, ref) {
   };
 }
 
+function makeApeFileEntry(sourcePath, fileName) {
+  const safeName = sanitizeFileName(fileName);
+  if (!safeName) return null;
+  return sourcePath
+    ? { path: sourcePath, name: safeName }
+    : { name: safeName };
+}
+
 /**
  * Προσθήκη/αντικατάσταση αρχείου ΑΠΕ σε fileGroups.
+ * Τα extraFiles προστίθενται δίπλα — δεν αντικαθιστούν το κύριο ούτε άλλα αρχεία της ομάδας.
  * @returns {{ fileGroups: object[], groupId: string }}
  */
 export function mergeApeFileIntoFileGroups(fileGroups = [], {
@@ -512,9 +670,11 @@ export function mergeApeFileIntoFileGroups(fileGroups = [], {
   fileName = '',
   sourcePath = '',
   previousFileName = '',
+  extraFiles = [],
 } = {}) {
-  const safeName = sanitizeFileName(fileName);
-  if (!safeName) {
+  const extras = Array.isArray(extraFiles) ? extraFiles : [];
+  const primary = makeApeFileEntry(sourcePath, fileName);
+  if (!primary && extras.length === 0) {
     return { fileGroups: [...(fileGroups || [])], groupId: groupId || '' };
   }
 
@@ -524,31 +684,57 @@ export function mergeApeFileIntoFileGroups(fileGroups = [], {
     idx = groups.findIndex((g) => String(g.title || '').trim() === String(groupTitle).trim());
   }
 
-  const fileEntry = sourcePath
-    ? { path: sourcePath, name: safeName }
-    : { name: safeName };
+  const dropName = (files, nameToDrop) => {
+    const needle = String(nameToDrop || '').trim();
+    if (!needle) return files || [];
+    return (files || []).filter((f) => fileEntryName(f) !== needle);
+  };
 
-  const dropName = (files, nameToDrop) => (files || []).filter((f) => fileEntryName(f) !== nameToDrop);
+  const appendUnique = (files, entry, groupsForUnique) => {
+    if (!entry) return files;
+    const uniqueName = uniqueFileNameAmong(entry.name, [
+      ...collectFileGroupNames(groupsForUnique),
+      ...files.map((f) => fileEntryName(f)),
+    ].filter(Boolean));
+    if (!uniqueName) return files;
+    const named = entry.path
+      ? { path: entry.path, name: uniqueName }
+      : { name: uniqueName };
+    return [...files, named];
+  };
 
   if (idx >= 0) {
     const group = groups[idx];
+    const ensuredId = group.id || groupId || uuidv4();
     let files = [...(group.files || [])];
-    if (previousFileName) files = dropName(files, previousFileName);
-    files = dropName(files, safeName);
-    files.push(fileEntry);
+    if (primary) {
+      if (previousFileName) files = dropName(files, previousFileName);
+      files = dropName(files, primary.name);
+      files.push(primary);
+    }
+    extras.forEach((extra) => {
+      const entry = makeApeFileEntry(extra?.sourcePath, extra?.fileName);
+      files = appendUnique(files, entry, groups.map((g, i) => (i === idx ? { ...g, files } : g)));
+    });
     groups[idx] = {
       ...group,
+      id: ensuredId,
       title: groupTitle || group.title,
       files,
     };
-    return { fileGroups: groups, groupId: group.id };
+    return { fileGroups: groups, groupId: ensuredId };
   }
 
   const newId = groupId || uuidv4();
+  let files = primary ? [primary] : [];
+  extras.forEach((extra) => {
+    const entry = makeApeFileEntry(extra?.sourcePath, extra?.fileName);
+    files = appendUnique(files, entry, [{ id: newId, files }]);
+  });
   groups.push({
     id: newId,
     title: groupTitle || 'ΑΠΕ',
-    files: [fileEntry],
+    files,
   });
   return { fileGroups: groups, groupId: newId };
 }
@@ -829,32 +1015,67 @@ export function applyApeEntryToProject(project, target, payload) {
     }
   } else {
     const file = payload?.file;
-    if (file && (file.sourcePath || file.fileName)) {
+    if (file && (file.sourcePath || file.fileName || (file.extraFiles || []).length)) {
+      const hasPrimary = !!(file.fileName || file.sourcePath);
+      const extrasOnly = !hasPrimary && (file.extraFiles || []).length > 0;
       const fileName = sanitizeFileName(
-        file.fileName || buildDefaultApeFileName(target?.title, file.sourcePath)
+        file.fileName
+        || (file.sourcePath ? buildDefaultApeFileName(target?.title, file.sourcePath) : '')
       );
-      const groupTitle = String(
-        file.groupTitle || previousRef.groupTitle || buildDefaultApeFileGroupTitle(target?.title)
-      ).trim();
+      const groupTitle = buildApeRelatedFilesGroupTitle(target, next);
       const { fileGroups, groupId } = mergeApeFileIntoFileGroups(next.fileGroups, {
-        groupId: previousRef.groupId,
+        groupId: resolveApeRelatedFilesGroupId(next.fileGroups, extrasOnly ? '' : previousRef.groupId, groupTitle),
         groupTitle,
         fileName,
-        sourcePath: file.sourcePath || previousRef.sourcePath || '',
-        previousFileName: previousRef.fileName,
+        sourcePath: file.sourcePath || (extrasOnly ? '' : previousRef.sourcePath) || '',
+        previousFileName: extrasOnly ? '' : previousRef.fileName,
+        extraFiles: file.extraFiles || [],
       });
       next = { ...next, fileGroups };
-      const fileRef = { fileName, groupId, groupTitle, sourcePath: file.sourcePath || '' };
-      if (kind === 'contract' && resolvedEntryId) {
-        const entries = listContractApeEntries(next, arrayIndex).map((row) => (
-          row.id === resolvedEntryId ? writeApeFileRefToRow(row, fileRef) : row
-        ));
-        next = { ...next, ...writeContractApeEntries(next, arrayIndex, entries) };
+      const keepAutoApeRef = extrasOnly && !!(previousRef.fileName || previousRef.groupId);
+      if (keepAutoApeRef) {
+        const currentRef = readApeFileRef(next, { kind, arrayIndex, entryId: resolvedEntryId });
+        if (!currentRef.fileName && !currentRef.groupId) {
+          if (kind === 'contract' && resolvedEntryId) {
+            const entries = listContractApeEntries(next, arrayIndex).map((row) => (
+              row.id === resolvedEntryId ? writeApeFileRefToRow(row, previousRef) : row
+            ));
+            next = { ...next, ...writeContractApeEntries(next, arrayIndex, entries) };
+          } else {
+            next = {
+              ...next,
+              ...applyApeFileRefToProjectSlice(next, kind, arrayIndex, previousRef),
+            };
+          }
+        }
       } else {
-        next = {
-          ...next,
-          ...applyApeFileRefToProjectSlice(next, kind, arrayIndex, fileRef),
-        };
+        const fileRef = extrasOnly
+          ? {
+            fileName: sanitizeFileName(file.extraFiles[0]?.fileName)
+              || pickedApeFileNameFromPath(file.extraFiles[0]?.sourcePath),
+            groupId,
+            groupTitle,
+            sourcePath: file.extraFiles[0]?.sourcePath || '',
+          }
+          : {
+            fileName: fileName || previousRef.fileName,
+            groupId,
+            groupTitle,
+            sourcePath: file.sourcePath || (fileName ? '' : previousRef.sourcePath) || '',
+          };
+        if (fileRef.fileName || fileRef.groupId) {
+          if (kind === 'contract' && resolvedEntryId) {
+            const entries = listContractApeEntries(next, arrayIndex).map((row) => (
+              row.id === resolvedEntryId ? writeApeFileRefToRow(row, fileRef) : row
+            ));
+            next = { ...next, ...writeContractApeEntries(next, arrayIndex, entries) };
+          } else {
+            next = {
+              ...next,
+              ...applyApeFileRefToProjectSlice(next, kind, arrayIndex, fileRef),
+            };
+          }
+        }
       }
     }
   }
@@ -867,6 +1088,55 @@ export function applyApeEntryToProject(project, target, payload) {
     khmdhsMeta: payload?.khmdhsMeta || null,
   });
   next = { ...next, ...registryPatch };
+
+  return next;
+}
+
+/**
+ * Καταχώριση ΑΠΕ στην κάρτα από ρόλους κατανομής SYMV (ποσό/ημ/νία/ΑΔΑΜ).
+ * Χωρίς αυτό, ο ΑΠΕ μένει μόνο στα αρχεία ΚΗΜΔΗΣ και δεν φαίνεται στις λεπτομέρειες.
+ */
+export function applyPlannerApeItemsToForm(form, apeItems = [], chainRes = null) {
+  const items = (apeItems || []).filter((item) => String(item?.adam || '').trim());
+  if (!form || !items.length) return form;
+
+  let next = form;
+  const snapshots = chainRes?.chainMeta?.contractSnapshotsByAdam || {};
+
+  items.forEach((item) => {
+    const adam = String(item.adam || '').trim().toUpperCase().replace(/\*+$/, '');
+    if (!adam) return;
+    const arrayIndex = resolveApeContractArrayIndex(next, adam);
+    const existing = findContractApeEntryBySourceAdam(next, arrayIndex, adam);
+    const snap = snapshots[adam] || snapshots[item.adam] || null;
+    const plannedAmount = String(item.amount || '').trim();
+    const plannedDate = String(item.date || '').slice(0, 10);
+    const apeAmount = plannedAmount || String(existing?.apeAmount || '').trim();
+    const documentDate = plannedDate
+      || String(existing?.documentDate || '').slice(0, 10)
+      || String(snap?.contractSignedDate || snap?.startDate || '').slice(0, 10);
+    const multi = isMultipleContractsForm(next.implementationForm);
+    const title = multi
+      ? `Σύμβαση ${arrayIndex + 1}`
+      : (String(snap?.title || item.title || 'ΑΠΕ').trim() || 'ΑΠΕ');
+
+    next = applyApeEntryToProject(next, {
+      kind: 'contract',
+      arrayIndex,
+      title,
+      entryId: existing?.id || null,
+    }, {
+      apeAmount,
+      documentDate,
+      sourceAdam: adam,
+      comments: String(existing?.comments || '').trim(),
+      khmdhsMeta: {
+        title,
+        signedDate: documentDate,
+        signedDateDisplay: documentDate,
+      },
+    });
+  });
 
   return next;
 }
@@ -984,6 +1254,7 @@ export function buildApeEntryModalSnapshot({
   fileName = '',
   groupTitle = '',
   sourcePath = '',
+  extraFiles = [],
   fileCleared = false,
   apeAdam = '',
   diavgeiaAda = '',
@@ -999,6 +1270,10 @@ export function buildApeEntryModalSnapshot({
     fileName: String(fileName || '').trim(),
     groupTitle: String(groupTitle || '').trim(),
     sourcePath: String(sourcePath || '').trim(),
+    extraFiles: (Array.isArray(extraFiles) ? extraFiles : []).map((f) => ({
+      sourcePath: String(f?.sourcePath || '').trim(),
+      fileName: String(f?.fileName || '').trim(),
+    })),
     fileCleared: !!fileCleared,
     apeAdam: String(apeAdam || '').trim(),
     diavgeiaAda: String(diavgeiaAda || '').trim(),

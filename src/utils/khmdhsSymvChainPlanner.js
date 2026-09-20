@@ -18,6 +18,7 @@ export const SYMV_CHAIN_ROLE = {
   MAIN: 'main',
   PARALLEL: 'parallel',
   SUPPLEMENTARY: 'supplementary',
+  APE: 'ape',
   EXTENSION: 'extension',
   INTERMEDIATE: 'intermediate',
 };
@@ -28,6 +29,7 @@ export const SYMV_CHAIN_ROLE_LABELS = {
   [SYMV_CHAIN_ROLE.MAIN]: 'Κύρια σύμβαση',
   [SYMV_CHAIN_ROLE.PARALLEL]: 'Παράλληλη σύμβαση',
   [SYMV_CHAIN_ROLE.SUPPLEMENTARY]: 'Συμπληρωματική σύμβαση',
+  [SYMV_CHAIN_ROLE.APE]: 'ΑΠΕ',
   [SYMV_CHAIN_ROLE.EXTENSION]: 'Παράταση / διατήρηση προθεσμίας',
   [SYMV_CHAIN_ROLE.INTERMEDIATE]: 'Ενδιάμεσος κρίκος αλυσίδας',
 };
@@ -48,6 +50,7 @@ export function isAdamSkippedInSymvPlan(planOrProject, adam) {
 const RE_EXTENSION = /παράταση|παραταση|διατήρηση\s+προθεσμ|διατηρηση\s+προθεσμ/i;
 const RE_SUPPLEMENTARY = /συμπληρωματικ/i;
 const RE_REPUBLICATION = /ορθ[ήη]\s*επαν[άα]ληψ|ορθη\s*επαναληψ|ορθ[ήη]\s*επανέκδοσ|διορθωτικ[ήη]\s*επαν/i;
+const RE_APE = /ανακεφαλαιωτικ|α\.\s*π\.\s*ε\.|(?:^|[\s«"'“”‘’(])απε(?:$|[\s»"'“”‘’.,;:/\-)\]])|τελικ[οό]\s+διαμορφωθ[εέ]ν/i;
 
 function historyByAdam(chainRes) {
   const map = new Map();
@@ -149,6 +152,9 @@ export function inferDefaultSymvRole(doc, chainRes) {
   }
 
   if (isPrimary) {
+    if (RE_APE.test(title) || RE_APE.test(String(doc.historyLabel || ''))) {
+      return SYMV_CHAIN_ROLE.APE;
+    }
     if (RE_EXTENSION.test(title)) return SYMV_CHAIN_ROLE.EXTENSION;
     if (RE_SUPPLEMENTARY.test(title)) return SYMV_CHAIN_ROLE.SUPPLEMENTARY;
     return SYMV_CHAIN_ROLE.MAIN;
@@ -156,6 +162,9 @@ export function inferDefaultSymvRole(doc, chainRes) {
 
   if (doc.nonContractReason) return SYMV_CHAIN_ROLE.INTERMEDIATE;
 
+  if (RE_APE.test(title) || RE_APE.test(String(doc.historyLabel || ''))) {
+    return SYMV_CHAIN_ROLE.APE;
+  }
   if (RE_EXTENSION.test(title)) return SYMV_CHAIN_ROLE.EXTENSION;
   if (RE_SUPPLEMENTARY.test(title)) return SYMV_CHAIN_ROLE.SUPPLEMENTARY;
 
@@ -167,6 +176,7 @@ export function inferDefaultSymvRole(doc, chainRes) {
   }
 
   if (doc.historyLabel && !doc.isChainRoot) {
+    if (RE_APE.test(String(doc.historyLabel))) return SYMV_CHAIN_ROLE.APE;
     if (/συμπληρωματικ/i.test(doc.historyLabel)) return SYMV_CHAIN_ROLE.SUPPLEMENTARY;
     if (/παράταση|παραταση/i.test(doc.historyLabel)) return SYMV_CHAIN_ROLE.EXTENSION;
   }
@@ -547,7 +557,18 @@ export function overlaySymvPlanLabelsOnChainHistory(history, plan) {
   return history.map((h) => {
     const custom = getSymvPlanCustomLabel(plan, h?.adam);
     const item = (plan.items || []).find((i) => normalizeAdam(i.adam) === normalizeAdam(h?.adam));
-    if (!item || item.role !== SYMV_CHAIN_ROLE.INTERMEDIATE) return h;
+    if (!item) return h;
+    if (item.role === SYMV_CHAIN_ROLE.APE) {
+      return {
+        ...h,
+        label: 'ΑΠΕ',
+        effectiveKind: 'ape',
+        kind: 'ape',
+        role: 'ape',
+        kindNote: h.kindNote || 'ΑΠΕ — χωρίς συμπληρωματική γραμμή.',
+      };
+    }
+    if (item.role !== SYMV_CHAIN_ROLE.INTERMEDIATE) return h;
     const label = custom || 'Ενδιάμεσος κρίκος';
     return {
       ...h,

@@ -819,6 +819,9 @@ function resolveChainHistoryRoleLabel(h, review, project) {
   const planItem = (project?.khmdhsSymvChainPlan?.items || []).find(
     (i) => normalizeAdam(i.adam) === adam
   );
+  if (planItem?.role === SYMV_CHAIN_ROLE.APE) {
+    return 'ΑΠΕ';
+  }
   if (planItem?.role === SYMV_CHAIN_ROLE.INTERMEDIATE) {
     return 'Ενδιάμεσος κρίκος';
   }

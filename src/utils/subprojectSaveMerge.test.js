@@ -74,6 +74,31 @@ describe('mergeFileGroupsForSave — νέο αρχείο από επεξεργα
     return !!(src && liveSources.has(src));
   };
 
+  test('νέο αρχείο με ίδιο όνομα και πλήρη διαδρομή αντικαθιστά την εγγραφή ώστε να αντιγραφεί', () => {
+    const existing = [{
+      id: 'g1',
+      title: 'Σύμβαση',
+      files: [{ name: 'ΑΠΕ.pdf' }],
+    }];
+    const incoming = [{
+      id: 'g1',
+      title: 'Σύμβαση',
+      files: [
+        'αδειο.pdf',
+        { name: 'ΑΠΕ.pdf', path: 'C:\\Users\\me\\Desktop\\βοηθητικό.pdf' },
+      ],
+    }];
+    const src = 'C:\\Users\\me\\Desktop\\βοηθητικό.pdf';
+    const exists = (name, file) => {
+      if (name === 'αδειο.pdf' || name === 'ΑΠΕ.pdf') return true;
+      const p = typeof file === 'string' ? file : (file && (file.path || file.filePath));
+      return p === src;
+    };
+    const merged = mergeFileGroupsForSave(existing, incoming, exists);
+    const ape = merged[0].files.find((f) => (typeof f === 'string' ? f : f.name) === 'ΑΠΕ.pdf');
+    expect(ape).toEqual({ name: 'ΑΠΕ.pdf', path: src });
+  });
+
   test('νέο αρχείο με πλήρη διαδρομή μπαίνει πριν την αντιγραφή στον φάκελο', () => {
     const existing = [{ id: 'g1', title: 'Άδειες', files: ['αδειο.pdf'] }];
     const incoming = [{

@@ -4,15 +4,20 @@
 import {
   applyContractApeFields,
   applyApeEntryToProject,
+  applyPlannerApeItemsToForm,
+  APE_RELATED_FILES_GROUP_TITLE,
   buildApeEntryTargetFromChainKind,
   findContractApeEntryBySourceAdam,
   buildDefaultApeFileGroupTitle,
+  buildApeRelatedFilesGroupTitle,
+  resolveApeContractArrayIndex,
   buildDefaultApeFileName,
   clearApeEntryFromProject,
   hasContractApe,
   hasApeEntryData,
   shouldShowApeSubCard,
   mergeApeFileIntoFileGroups,
+  pickedApeFileNameFromPath,
   readContractApeFields,
   readApeFileRef,
   formatApeAmountDisplay,
@@ -94,23 +99,126 @@ describe('khmdhsApeEntry', () => {
   });
 
   test('buildDefaultApeFileName και group title', () => {
-    expect(buildDefaultApeFileGroupTitle('Σύμβαση 1')).toBe('Σύμβαση 1');
+    expect(buildDefaultApeFileGroupTitle('Σύμβαση 1')).toBe(APE_RELATED_FILES_GROUP_TITLE);
+    expect(buildDefaultApeFileGroupTitle('Αρχική σύμβαση')).toBe('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ');
     expect(buildDefaultApeFileName('Σύμβαση 1', 'C:/docs/ape.PDF')).toBe('ΑΠΕ — Σύμβαση 1.pdf');
   });
 
   test('mergeApeFileIntoFileGroups — νέα ομάδα', () => {
     const { fileGroups, groupId } = mergeApeFileIntoFileGroups([], {
-      groupTitle: 'Σύμβαση 1',
+      groupTitle: APE_RELATED_FILES_GROUP_TITLE,
       fileName: 'ΑΠΕ — Σύμβαση 1.pdf',
       sourcePath: 'C:/tmp/ape.pdf',
     });
     expect(fileGroups).toHaveLength(1);
-    expect(fileGroups[0].title).toBe('Σύμβαση 1');
+    expect(fileGroups[0].title).toBe('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ');
     expect(fileGroups[0].files[0]).toEqual({
       path: 'C:/tmp/ape.pdf',
       name: 'ΑΠΕ — Σύμβαση 1.pdf',
     });
     expect(groupId).toBeTruthy();
+  });
+
+  test('pickedApeFileNameFromPath κρατά το αρχικό όνομα', () => {
+    expect(pickedApeFileNameFromPath('C:/tmp/Βοηθητικό ΑΠΕ.pdf')).toBe('Βοηθητικό ΑΠΕ.pdf');
+  });
+
+  test('mergeApeFileIntoFileGroups — βοηθητικό δίπλα στο υπάρχον, χωρίς να το σβήσει', () => {
+    const existing = [{
+      id: 'g1',
+      title: 'Σύμβαση 1',
+      files: [{ name: 'ΑΠΕ — Σύμβαση 1.pdf' }],
+    }];
+    const { fileGroups } = mergeApeFileIntoFileGroups(existing, {
+      groupId: 'g1',
+      groupTitle: 'Σύμβαση 1',
+      extraFiles: [{
+        sourcePath: 'C:/tmp/βοηθητικό.pdf',
+        fileName: 'βοηθητικό.pdf',
+      }],
+    });
+    expect(fileGroups[0].files.map((f) => f.name)).toEqual([
+      'ΑΠΕ — Σύμβαση 1.pdf',
+      'βοηθητικό.pdf',
+    ]);
+    expect(fileGroups[0].files[1].path).toBe('C:/tmp/βοηθητικό.pdf');
+  });
+
+  test('mergeApeFileIntoFileGroups — ίδιο όνομα βοηθητικού παίρνει μοναδικό επίθημα', () => {
+    const existing = [{
+      id: 'g1',
+      title: 'Σύμβαση 1',
+      files: [{ name: 'ΑΠΕ.pdf' }],
+    }];
+    const { fileGroups } = mergeApeFileIntoFileGroups(existing, {
+      groupId: 'g1',
+      extraFiles: [{ sourcePath: 'C:/tmp/other.pdf', fileName: 'ΑΠΕ.pdf' }],
+    });
+    expect(fileGroups[0].files.map((f) => f.name)).toEqual(['ΑΠΕ.pdf', 'ΑΠΕ (1).pdf']);
+  });
+
+  test('applyApeEntryToProject προσθέτει extra αρχείο στην ομάδα ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ', () => {
+    const project = {
+      implementationForm: 'Μια Σύμβαση',
+      fileGroups: [{
+        id: 'g1',
+        title: 'ΑΡΧΙΚΗ ΣΥΜΒΑΣΗ',
+        files: [{ name: 'ΑΠΕ — Σύμβαση.pdf' }],
+      }],
+      apeFileName: 'ΑΠΕ — Σύμβαση.pdf',
+      apeFileGroupId: 'g1',
+      apeFileGroupTitle: 'ΑΡΧΙΚΗ ΣΥΜΒΑΣΗ',
+    };
+    const next = applyApeEntryToProject(
+      project,
+      { kind: 'contract', arrayIndex: 0, title: 'Αρχική σύμβαση' },
+      {
+        apeAmount: '110000',
+        file: {
+          extraFiles: [{
+            sourcePath: 'C:/tmp/βοηθητικό.pdf',
+            fileName: 'βοηθητικό.pdf',
+          }],
+        },
+      }
+    );
+    const related = next.fileGroups.find((g) => g.title === APE_RELATED_FILES_GROUP_TITLE);
+    expect(related).toBeTruthy();
+    expect(related.files.map((f) => (typeof f === 'string' ? f : f.name))).toEqual(['βοηθητικό.pdf']);
+    expect(next.fileGroups.find((g) => g.id === 'g1').files.map((f) => f.name)).toEqual(['ΑΠΕ — Σύμβαση.pdf']);
+    expect(next.apeFileGroupId).toBe('g1');
+    expect(next.apeFileGroupTitle).toBe('ΑΡΧΙΚΗ ΣΥΜΒΑΣΗ');
+  });
+
+  test('δεύτερο χειροκίνητο αρχείο ΑΠΕ μπαίνει στην ίδια ομάδα', () => {
+    let project = {
+      implementationForm: 'Μια Σύμβαση',
+      fileGroups: [],
+    };
+    project = applyApeEntryToProject(
+      project,
+      { kind: 'contract', arrayIndex: 0, title: 'Αρχική σύμβαση' },
+      {
+        apeAmount: '20000',
+        file: {
+          sourcePath: 'C:/tmp/a.pdf',
+          fileName: 'ένα.pdf',
+        },
+      }
+    );
+    project = applyApeEntryToProject(
+      project,
+      { kind: 'contract', arrayIndex: 0, title: 'Αρχική σύμβαση' },
+      {
+        apeAmount: '20000',
+        file: {
+          extraFiles: [{ sourcePath: 'C:/tmp/b.pdf', fileName: 'δύο.pdf' }],
+        },
+      }
+    );
+    const related = project.fileGroups.filter((g) => g.title === APE_RELATED_FILES_GROUP_TITLE);
+    expect(related).toHaveLength(1);
+    expect(related[0].files.map((f) => f.name)).toEqual(['ένα.pdf', 'δύο.pdf']);
   });
 
   test('applyApeEntryToProject με αρχείο', () => {
@@ -134,6 +242,7 @@ describe('khmdhsApeEntry', () => {
     );
     expect(next.contracts[0].apeAmount).toBe('110.000,00');
     expect(readApeFileRef(next, { kind: 'contract', arrayIndex: 0 }).fileName).toBe('ΑΠΕ Σύμβαση 1.pdf');
+    expect(next.fileGroups[0].title).toBe('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ — Σύμβαση 1');
     expect(next.fileGroups[0].files).toHaveLength(1);
   });
 
@@ -454,6 +563,25 @@ describe('khmdhsApeEntry', () => {
     expect(merged.apeComments).toBe('σχόλιο μόνο για ΑΠΕ');
   });
 
+  test('κατανομή SYMV ως ΑΠΕ γράφει ποσό και ΑΔΑΜ στην κάρτα', () => {
+    const form = applyPlannerApeItemsToForm(
+      { implementationForm: 'Μια Σύμβαση', contractAmount: '19.592,75', apeEntries: [] },
+      [{ adam: '26SYMV019774530', role: 'ape', date: '2026-09-14', amount: '20.000,00' }],
+      {
+        chainMeta: {
+          contractSnapshotsByAdam: {
+            '26SYMV019774530': { title: 'ΣΥΝΤΗΡΗΣΗ Ι.Ν. ΑΓΙΟΥ ΜΑΜΑ ΣΤΗ ΜΟΥΡΝΙΑ' },
+          },
+        },
+      }
+    );
+    expect(form.apeSourceAdam).toBe('26SYMV019774530');
+    expect(String(form.apeAmount || '')).toMatch(/20\.000/);
+    expect(form.apeDocumentDate).toBe('2026-09-14');
+    expect(shouldShowApeSubCard(form, { kind: 'contract', arrayIndex: 0 })).toBe(true);
+    expect(listContractApeEntries(form, 0)[0].apeSourceAdam).toBe('26SYMV019774530');
+  });
+
   test('στόχος ΑΠΕ από χαρακτηρισμό προσυμπληρώνει ΑΔΑΜ και ποσό', () => {
     const project = { contractAmount: '100.000,00', apeEntries: [] };
     const target = buildApeEntryTargetFromChainKind(project, {
@@ -484,5 +612,92 @@ describe('khmdhsApeEntry', () => {
     });
     expect(target.entryId).toBe(existing.id);
     expect(target.prefillApeAmount).toBe('');
+  });
+
+  test('φάκελος χειροκίνητων αρχείων ΑΠΕ ανά σύμβαση', () => {
+    expect(buildApeRelatedFilesGroupTitle(
+      { kind: 'contract', arrayIndex: 0, title: 'Αρχική σύμβαση' },
+      { implementationForm: 'Μια Σύμβαση' }
+    )).toBe(APE_RELATED_FILES_GROUP_TITLE);
+
+    expect(buildApeRelatedFilesGroupTitle(
+      { kind: 'contract', arrayIndex: 1, title: 'Σύμβαση 2' },
+      { implementationForm: 'Πολλές Συμβάσεις', contracts: [{}, {}] }
+    )).toBe('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ — Σύμβαση 2');
+
+    expect(buildApeRelatedFilesGroupTitle(
+      { kind: 'contract', arrayIndex: 1, title: 'Ανακεφαλαιωτικός Πίνακας Εργασιών' },
+      { implementationForm: 'Πολλές Συμβάσεις', contracts: [{}, {}] }
+    )).toBe('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ — Σύμβαση 2');
+
+    expect(buildApeRelatedFilesGroupTitle(
+      { kind: 'supplementary', arrayIndex: 0, title: 'Συμπληρωματική 1' },
+      { implementationForm: 'Μια Σύμβαση' }
+    )).toBe('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ — Συμπληρωματική 1');
+  });
+
+  test('χειροκίνητα αρχεία ΑΠΕ δύο συμβάσεων δεν ανακατεύονται', () => {
+    let project = {
+      implementationForm: 'Πολλές Συμβάσεις',
+      contracts: [
+        { khmdhsAdam: '24SYMV000000001', amount: '100.000,00' },
+        { khmdhsAdam: '24SYMV000000002', amount: '80.000,00' },
+      ],
+      fileGroups: [],
+    };
+    project = applyApeEntryToProject(
+      project,
+      { kind: 'contract', arrayIndex: 0, title: 'Σύμβαση 1' },
+      {
+        apeAmount: '110000',
+        file: { sourcePath: 'C:/tmp/a.pdf', fileName: 'βοηθητικό-1.pdf' },
+      }
+    );
+    project = applyApeEntryToProject(
+      project,
+      { kind: 'contract', arrayIndex: 1, title: 'Σύμβαση 2' },
+      {
+        apeAmount: '90000',
+        file: { sourcePath: 'C:/tmp/b.pdf', fileName: 'βοηθητικό-2.pdf' },
+      }
+    );
+    const g1 = project.fileGroups.find((g) => g.title === 'ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ — Σύμβαση 1');
+    const g2 = project.fileGroups.find((g) => g.title === 'ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ — Σύμβαση 2');
+    expect(g1.files.map((f) => f.name)).toEqual(['βοηθητικό-1.pdf']);
+    expect(g2.files.map((f) => f.name)).toEqual(['βοηθητικό-2.pdf']);
+    expect(readApeFileRef(project, { kind: 'contract', arrayIndex: 0 }).groupTitle)
+      .toBe('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ — Σύμβαση 1');
+    expect(readApeFileRef(project, { kind: 'contract', arrayIndex: 1 }).groupTitle)
+      .toBe('ΣΧΕΤΙΚΑ ΑΡΧΕΙΑ ΑΠΕ — Σύμβαση 2');
+  });
+
+  test('κατανομή δύο ΑΠΕ τους δένει στην αντίστοιχη σύμβαση', () => {
+    const form = applyPlannerApeItemsToForm(
+      {
+        implementationForm: 'Πολλές Συμβάσεις',
+        contracts: [
+          { khmdhsAdam: '24SYMVMAIN00001', amount: '100.000,00', apeEntries: [] },
+          { khmdhsAdam: '24SYMVPAR000002', amount: '80.000,00', apeEntries: [] },
+        ],
+        khmdhsSymvChainPlan: {
+          items: [
+            { adam: '24SYMVMAIN00001', role: 'main' },
+            { adam: '24SYMVAPE000001', role: 'ape', date: '2026-01-10', amount: '110.000,00' },
+            { adam: '24SYMVPAR000002', role: 'parallel' },
+            { adam: '24SYMVAPE000002', role: 'ape', date: '2026-02-10', amount: '90.000,00' },
+          ],
+        },
+      },
+      [
+        { adam: '24SYMVAPE000001', role: 'ape', date: '2026-01-10', amount: '110.000,00' },
+        { adam: '24SYMVAPE000002', role: 'ape', date: '2026-02-10', amount: '90.000,00' },
+      ]
+    );
+    expect(resolveApeContractArrayIndex(form, '24SYMVAPE000001')).toBe(0);
+    expect(resolveApeContractArrayIndex(form, '24SYMVAPE000002')).toBe(1);
+    expect(listContractApeEntries(form, 0)[0].apeSourceAdam).toBe('24SYMVAPE000001');
+    expect(listContractApeEntries(form, 1)[0].apeSourceAdam).toBe('24SYMVAPE000002');
+    expect(String(listContractApeEntries(form, 0)[0].apeAmount || '')).toMatch(/110/);
+    expect(String(listContractApeEntries(form, 1)[0].apeAmount || '')).toMatch(/90/);
   });
 });

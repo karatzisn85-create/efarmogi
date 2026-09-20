@@ -3,6 +3,7 @@
  */
 import {
   SYMV_CHAIN_ROLE,
+  SYMV_CHAIN_ROLE_LABELS,
   collectSymvChainDocuments,
   buildDefaultSymvChainPlan,
   validateSymvChainPlan,
@@ -221,6 +222,52 @@ describe('khmdhsSymvChainPlanner', () => {
       title: 'ΟΡΘΗ ΕΠΑΝΑΛΗΨΗ ΠΑΡΑΤΑΣΗΣ ΠΡΟΘΕΣΜΙΑΣ',
       historyLabel: '',
     }, pezonChainRes)).toBe(SYMV_CHAIN_ROLE.EXTENSION);
+  });
+
+  it('offers APE as a planner role and infers it from title', () => {
+    expect(SYMV_CHAIN_ROLE_LABELS[SYMV_CHAIN_ROLE.APE]).toBe('ΑΠΕ');
+    expect(inferDefaultSymvRole({
+      adam: '26SYMV1',
+      title: 'ΑΝΑΚΕΦΑΛΑΙΩΤΙΚΟΣ ΠΙΝΑΚΑΣ ΕΡΓΑΣΙΩΝ',
+      historyLabel: '',
+    }, pezonChainRes)).toBe(SYMV_CHAIN_ROLE.APE);
+    expect(inferDefaultSymvRole({
+      adam: '26SYMV2',
+      title: 'ΑΠΕ',
+      historyLabel: '',
+    }, pezonChainRes)).toBe(SYMV_CHAIN_ROLE.APE);
+    expect(inferDefaultSymvRole({
+      adam: '26SYMV3',
+      title: 'ΣΥΝΤΗΡΗΣΗ Ι.Ν. ΑΓΙΟΥ ΜΑΜΑ ΣΤΗ ΜΟΥΡΝΙΑ',
+      historyLabel: 'Συμπληρωματική σύμβαση',
+    }, pezonChainRes)).toBe(SYMV_CHAIN_ROLE.SUPPLEMENTARY);
+  });
+
+  it('places APE on the chain without a supplementary amount row', () => {
+    const plan = {
+      items: [
+        { adam: '22SYMV011799800', role: SYMV_CHAIN_ROLE.MAIN, date: '2022-06-01', amount: '100' },
+        { adam: '24SYMV015482244', role: SYMV_CHAIN_ROLE.APE, date: '2026-09-14', amount: '20.000,00' },
+        { adam: '22SYMV011327633', role: SYMV_CHAIN_ROLE.SKIP },
+        { adam: '22SYMV011308661', role: SYMV_CHAIN_ROLE.SKIP },
+      ],
+    };
+    const history = buildContractChainHistoryFromSymvPlan(pezonChainRes, plan);
+    const ape = history.find((h) => h.adam === '24SYMV015482244');
+    expect(ape).toBeTruthy();
+    expect(ape.kind).toBe('ape');
+    expect(ape.label).toBe('ΑΠΕ');
+    const { form } = applySymvChainPlanToForm({}, pezonChainRes, plan, {
+      seedAdam: '22SYMV011799800',
+    });
+    expect((form.supplementaryContracts || []).map((s) => s.khmdhsAdam))
+      .not.toContain('24SYMV015482244');
+    expect(form.khmdhsContractChainHistory.find((h) => h.adam === '24SYMV015482244')?.kind)
+      .toBe('ape');
+    expect(form.apeSourceAdam).toBe('24SYMV015482244');
+    expect(String(form.apeAmount || '').trim()).not.toBe('');
+    expect(form.apeEntries?.[0]?.apeSourceAdam).toBe('24SYMV015482244');
+    expect(form.apeDocumentDate).toBe('2026-09-14');
   });
 
   it('merges SYMV docs from all stitch segments for plan reuse', () => {

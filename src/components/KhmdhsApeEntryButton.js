@@ -79,6 +79,7 @@ export default function KhmdhsApeEntryButton({
   return (
     <Btn
       type="button"
+      data-testid="btn-ape-entry"
       $filled={hasApe}
       $colors={colors}
       title={title}
