@@ -1,4 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  catalogWhenDiskUnreadable,
+  finishCatalogCatchUp,
+  knownMissingFromFullLoad,
+  planCatalogCatchUp,
+  readForIndexAbsence,
+  readResultForCatchUp,
+} from '../utils/subprojectCatalogSync';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractionReset';
@@ -189,12 +197,31 @@ const normalizeText = (text) => {
     .toLowerCase();
 };
 
-function SubprojectSearchModal({ isOpen, onClose, onSelectSubproject, egkrisiTitle }) {
+function toSearchRows(flatProjects) {
+  return (flatProjects || [])
+    .filter((project) => project?.subprojectId && project?.subprojectTitle && project?.projectTitle)
+    .map((project) => ({
+      subprojectId: project.subprojectId,
+      subprojectTitle: project.subprojectTitle,
+      projectTitle: project.projectTitle,
+      projectId: project.projectId,
+    }));
+}
+
+function SubprojectSearchModal({
+  isOpen,
+  onClose,
+  onSelectSubproject,
+  egkrisiTitle,
+  knownSubprojects = null,
+  knownIndexEntries = null,
+}) {
   const [searchTerm, setSearchTerm] = useState('');
   const [subprojects, setSubprojects] = useState([]);
   const [filteredSubprojects, setFilteredSubprojects] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedSubproject, setSelectedSubproject] = useState(null);
+  const loadGenerationRef = useRef(0);
 
   // Φόρτωση όλων των υποέργων & reset κατάστασης κατά το άνοιγμα/κλείσιμο
   useEffect(() => {
@@ -219,25 +246,114 @@ function SubprojectSearchModal({ isOpen, onClose, onSelectSubproject, egkrisiTit
     }
   }, [searchTerm, subprojects]);
 
+  const publishRows = (rows) => {
+    const list = Array.isArray(rows) ? rows : [];
+    setSubprojects(list);
+    setFilteredSubprojects(list);
+  };
+
+  const loadAllSubprojectsFromDisk = async (generation, knownList) => {
+    const known = Array.isArray(knownList) ? knownList : [];
+    const result = await window.electronAPI.invoke('get-all-subprojects');
+    if (loadGenerationRef.current !== generation) return;
+    if (result?.reachable === false || result?.success === false) {
+      const kept = catalogWhenDiskUnreadable(known);
+      publishRows(kept.length ? toSearchRows(kept) : []);
+      if (result?.success === false) console.error('Error loading subprojects:', result?.error);
+      return;
+    }
+    const rows = Array.isArray(result?.data) ? result.data : [];
+    const absent = knownMissingFromFullLoad(known, rows);
+    if (!absent.length) {
+      publishRows(rows);
+      return;
+    }
+    const checks = await Promise.all(absent.map(async (project) => {
+      try {
+        const exists = await window.electronAPI.invoke('subproject-direct-data-exists', {
+          projectId: project.projectId || '',
+          subprojectId: String(project.subprojectId),
+        });
+        return readForIndexAbsence(exists).missing ? null : project;
+      } catch {
+        return project;
+      }
+    }));
+    if (loadGenerationRef.current !== generation) return;
+    const kept = checks.filter(Boolean);
+    publishRows(kept.length ? [...rows, ...toSearchRows(kept)] : rows);
+  };
+
   const loadAllSubprojects = async () => {
+    const generation = ++loadGenerationRef.current;
+    const stillCurrent = () => loadGenerationRef.current === generation;
     setLoading(true);
     try {
-      const result = await window.electronAPI.invoke('get-all-subprojects');
-      
-      if (result.success) {
-        setSubprojects(result.data);
-        setFilteredSubprojects(result.data);
-      } else {
-        console.error('Error loading subprojects:', result.error);
-        setSubprojects([]);
-        setFilteredSubprojects([]);
+      const known = Array.isArray(knownSubprojects) ? knownSubprojects : [];
+      if (!known.length) {
+        await loadAllSubprojectsFromDisk(generation, known);
+        return;
       }
+      const peek = await window.electronAPI.invoke('peek-projects-index');
+      if (!stillCurrent()) return;
+      const plan = planCatalogCatchUp(
+        known,
+        peek?.success && Array.isArray(peek.entries) ? peek.entries : null,
+        knownIndexEntries
+      );
+      if (!plan.ok) {
+        await loadAllSubprojectsFromDisk(generation, known);
+        return;
+      }
+      const reads = {};
+      if (plan.removedIds.length) {
+        const existence = await Promise.all(plan.removedIds.map(async (subprojectId) => {
+          const knownProject = known.find((project) => String(project?.subprojectId) === subprojectId);
+          try {
+            const result = await window.electronAPI.invoke('subproject-direct-data-exists', {
+              projectId: knownProject?.projectId || '',
+              subprojectId,
+            });
+            return [subprojectId, readForIndexAbsence(result)];
+          } catch {
+            return [subprojectId, readForIndexAbsence(null)];
+          }
+        }));
+        existence.forEach(([subprojectId, read]) => {
+          reads[subprojectId] = read;
+        });
+      }
+      const checks = [...plan.missing, ...(plan.changed || [])];
+      if (checks.length) {
+        const results = await Promise.all(checks.map((target) => (
+          window.electronAPI.invoke('load-one-subproject', target).catch(() => null)
+        )));
+        checks.forEach((target, index) => {
+          reads[target.subprojectId] = readResultForCatchUp(results[index]);
+        });
+      }
+      if (!stillCurrent()) return;
+      const caughtUp = finishCatalogCatchUp(known, plan, reads);
+      if (!caughtUp.ok) {
+        await loadAllSubprojectsFromDisk(generation, known);
+        return;
+      }
+      if (!stillCurrent()) return;
+      publishRows(toSearchRows(caughtUp.projects));
     } catch (error) {
       console.error('Error loading subprojects:', error);
-      setSubprojects([]);
-      setFilteredSubprojects([]);
+      if (!stillCurrent()) return;
+      try {
+        await loadAllSubprojectsFromDisk(generation, known);
+      } catch (fallbackError) {
+        console.error('Error loading subprojects from disk:', fallbackError);
+        if (stillCurrent()) {
+          const kept = catalogWhenDiskUnreadable(known);
+          publishRows(kept.length ? toSearchRows(kept) : []);
+        }
+      }
     } finally {
-      setLoading(false);
+      if (stillCurrent()) setLoading(false);
     }
   };
 

@@ -63,7 +63,7 @@ const ALLOWED_INVOKE = new Set([
   'get-task-assignment','get-task-assignment-access','get-task-assignment-permissions',
   'get-update-state','get-user-downloads-path','get-users','get-users-list','has-users','import-egkriseis-csv',
   'install-update','link-egkrisi-manual','link-egkrisi-to-subproject',
-  'link-subproject-to-subproject','load-all-entaxeis','load-all-projects','load-one-subproject',
+  'link-subproject-to-subproject','load-all-entaxeis','load-all-projects','load-one-subproject','subproject-direct-data-exists',
   'peek-projects-index',
   'load-all-proskliseis','load-all-subprojects','load-document-templates',
   'load-egkriseis-data','load-egkriseis-v2','load-egkrisi-links',

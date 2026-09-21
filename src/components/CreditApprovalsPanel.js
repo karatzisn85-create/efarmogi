@@ -877,6 +877,7 @@ const CreditApprovalsPanel = ({
   linkedNotesMap = {},
   onOpenNoteFromEntity,
   dashboardProjects = [],
+  dashboardIndexEntries = null,
   notes = []
 }) => {
   const { showToast } = useToast();
@@ -2130,6 +2131,8 @@ const CreditApprovalsPanel = ({
           }}
           onSelectSubproject={handleSearchModalSelect}
           egkrisiTitle={currentSubprojectForLink?.subproject?.title}
+          knownSubprojects={dashboardProjects}
+          knownIndexEntries={dashboardIndexEntries}
         />
 
         {/* Delete PDF Modal */}

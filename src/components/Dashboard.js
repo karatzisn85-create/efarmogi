@@ -37,6 +37,7 @@ import {
 } from '../utils/khmdhsSessionLock';
 import KhmdhsSessionLockOverlay from './KhmdhsSessionLockOverlay';
 import { KHMDHS_FRESHNESS_YELLOW_DAYS } from '../utils/khmdhsChainRefresh';
+import { listKhmdhsStaleProjects } from '../utils/khmdhsStaleProjects';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import {
   enrichProjectsFromLoad,
@@ -52,6 +53,7 @@ import {
   runWithConcurrency,
   shouldWarnRemoteSubprojectSave,
 } from '../utils/mergeLoadedSubproject';
+import { readForIndexAbsence } from '../utils/subprojectCatalogSync';
 import {
   clearCornerClearance,
   computeFabClearancePx,
@@ -3589,33 +3591,24 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [selectedNoteId, setSelectedNoteId] = useState(null);
   const [previewFiles, setPreviewFiles] = useState([]);
 
-  const refreshKhmdhsStaleCount = useCallback(async () => {
+  const refreshKhmdhsStaleCount = useCallback(() => {
     if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return;
-    try {
-      const res = await ipcRenderer.invoke('check-khmdhs-staleness', {
-        maxAgeDays: KHMDHS_FRESHNESS_YELLOW_DAYS,
-        actingUsername: currentUser?.username,
-      });
-      if (res?.success) {
-        setKhmdhsStaleCount(res.stale?.length || 0);
-        if (res.stale?.length) {
-          const ages = res.stale.map((s) => s.ageDays).filter(Boolean);
-          setKhmdhsOldestDays(ages.length ? Math.max(...ages) : null);
-        } else {
-          setKhmdhsOldestDays(null);
-        }
-      }
-    } catch {}
-  }, [userRole, currentUser]);
+    const stale = listKhmdhsStaleProjects(
+      projectsRef.current,
+      KHMDHS_FRESHNESS_YELLOW_DAYS
+    );
+    setKhmdhsStaleCount(stale.length);
+    if (stale.length) {
+      const ages = stale.map((row) => row.ageDays).filter((age) => age != null);
+      setKhmdhsOldestDays(ages.length ? Math.max(...ages) : null);
+    } else {
+      setKhmdhsOldestDays(null);
+    }
+  }, [userRole]);
 
-  // Μετά το πρώτο paint της λίστας — όχι παράλληλα με το κρίσιμο άνοιγμα.
   useEffect(() => {
-    if (loading) return undefined;
-    if (userRole !== 'ADMIN' && userRole !== 'SUPERADMIN') return undefined;
-    return runWhenIdle(() => {
-      refreshKhmdhsStaleCount();
-    }, { timeout: 2500, fallbackMs: 500 });
-  }, [loading, refreshKhmdhsStaleCount, userRole]);
+    refreshKhmdhsStaleCount();
+  }, [projects, refreshKhmdhsStaleCount]);
 
   useEffect(() => {
     if (loading) return undefined;
@@ -4685,22 +4678,48 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         if (res.entries.length === 0 && prev.length > 0) return;
         const diff = diffProjectsIndexEntries(prev, res.entries);
 
-        // Αφαίρεση διαγραμμένων υποέργων απευθείας (χωρίς load από δίσκο)
+        // «Λείπει από το ευρετήριο» δεν αρκεί: η αποθήκευση μπορεί να πέτυχε
+        // και να απέτυχε μόνο η γραμμή του ευρετηρίου. Βγαίνει από τη λίστα
+        // μόνο όταν λείπει και το αρχείο του.
+        const confirmedRemoved = [];
+        const keptIndexIds = new Set();
         if (diff.removed?.length && !cancelled) {
-          const removedIds = new Set(diff.removed.map((r) => String(r.subprojectId)));
-          setProjects((cur) => {
-            let list = cur;
-            let touched = false;
-            diff.removed.forEach((row) => {
-              const { projects: next, changed } = removeSubprojectFromList(list, row.subprojectId);
-              if (changed) { list = next; touched = true; }
-            });
-            return touched ? list : cur;
+          const checks = await Promise.all(diff.removed.map(async (row) => {
+            const subprojectId = String(row.subprojectId || '');
+            const project = (projectsRef.current || []).find(
+              (item) => String(item?.subprojectId || '') === subprojectId
+            );
+            if (!project?.projectId) return { subprojectId, drop: false };
+            try {
+              const result = await ipcRenderer.invoke('subproject-direct-data-exists', {
+                projectId: project.projectId,
+                subprojectId,
+              });
+              return { subprojectId, drop: !!readForIndexAbsence(result).missing };
+            } catch {
+              return { subprojectId, drop: false };
+            }
+          }));
+          if (cancelled) return;
+          checks.forEach(({ subprojectId, drop }) => {
+            if (drop) confirmedRemoved.push(subprojectId);
+            else keptIndexIds.add(subprojectId);
           });
-          // Κλείσιμο detail view αν δείχνει υποέργο που διαγράφηκε
-          const detailSid = selectedDetailRef.current?.subprojectId;
-          if (detailSid && removedIds.has(detailSid)) {
-            setSelectedDetailProject(null);
+          if (confirmedRemoved.length) {
+            const removedIds = new Set(confirmedRemoved);
+            setProjects((cur) => {
+              let list = cur;
+              let touched = false;
+              confirmedRemoved.forEach((subprojectId) => {
+                const { projects: next, changed } = removeSubprojectFromList(list, subprojectId);
+                if (changed) { list = next; touched = true; }
+              });
+              return touched ? list : cur;
+            });
+            const detailSid = selectedDetailRef.current?.subprojectId;
+            if (detailSid && removedIds.has(String(detailSid))) {
+              setSelectedDetailProject(null);
+            }
           }
         }
 
@@ -4710,7 +4729,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           if (cancelled) return;
           await fetchAndApplySubprojectRef.current?.(t.projectId, t.subprojectId, { fromRemote: true });
         });
-        if (!cancelled) indexSnapshotRef.current = res.entries;
+        if (!cancelled) {
+          const keptEntries = keptIndexIds.size
+            ? (prev || []).filter((entry) => keptIndexIds.has(String(entry?.subprojectId || '')))
+            : [];
+          indexSnapshotRef.current = keptEntries.length
+            ? [...res.entries, ...keptEntries]
+            : res.entries;
+        }
       } catch {
         /* επόμενος κύκλος */
       } finally {
@@ -7861,6 +7887,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               linkedNotesMap={linkedNotesMap}
               onOpenNoteFromEntity={handleOpenNoteFromEntity}
               dashboardProjects={projects.length > 0 ? projects : filteredProjects}
+              dashboardIndexEntries={indexSnapshotRef.current}
               notes={notes}
             />
             </Suspense>
@@ -8528,6 +8555,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         prosklisiIdFilter={entaxisProsklisiIdFilter}
         initialCreateProsklisiId={entaxisCreateProsklisiId}
         projects={projects}
+        catalogIndexEntries={indexSnapshotRef.current}
         onClearFocus={() => {
           setSelectedEntaxiId(null);
           setEntaxisProjectFilter(null);

@@ -2880,6 +2880,26 @@ ipcMain.handle('load-one-subproject', async (_event, payload = {}) => {
   }
 });
 
+ipcMain.handle('subproject-direct-data-exists', async (_event, payload = {}) => {
+  try {
+    try { fs.accessSync(dataDir, fs.constants.R_OK); } catch {
+      return { success: true, reachable: false, exists: false };
+    }
+    const projectId = String(payload.projectId || '').trim();
+    const subprojectId = String(payload.subprojectId || '').trim();
+    if (!projectId || !subprojectId) {
+      return { success: true, reachable: true, exists: false };
+    }
+    const direct = path.resolve(dataDir, projectId, subprojectId, 'data.json');
+    if (!isResolvedPathInsideDataDir(direct)) {
+      return { success: false, error: 'Μη επιτρεπτό path' };
+    }
+    return { success: true, reachable: true, exists: fs.existsSync(direct) };
+  } catch (error) {
+    return { success: false, error: error.message || 'Αποτυχία ελέγχου' };
+  }
+});
+
 ipcMain.handle('peek-projects-index', async () => {
   try {
     try { fs.accessSync(dataDir, fs.constants.R_OK); } catch {
@@ -11673,8 +11693,10 @@ ipcMain.handle('find-subproject-by-title', async (event, { projectId, subproject
 ipcMain.handle('get-all-subprojects', async () => {
   try {
     const subprojects = [];
-    if (!dataDir || !fs.existsSync(dataDir)) {
-      return { success: true, data: subprojects };
+    let reachable = true;
+    try { fs.accessSync(dataDir, fs.constants.R_OK); } catch { reachable = false; }
+    if (!reachable) {
+      return { success: true, reachable: false, data: subprojects };
     }
     for (const projectDir of fs.readdirSync(dataDir)) {
       if (DATA_DIR_SKIP_ROOT_DIRS.has(projectDir)) continue;
@@ -11700,7 +11722,7 @@ ipcMain.handle('get-all-subprojects', async () => {
         }
       }
     }
-    return { success: true, data: subprojects };
+    return { success: true, reachable: true, data: subprojects };
   } catch (error) {
     console.error('Error loading all subprojects:', error);
     return { success: false, error: error.message };

@@ -1480,7 +1480,7 @@ window.fixAllEntaxeis = async () => {
   }
 };
 
-function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, initialCreateProsklisiId = null, projects = [], onClearFocus = null, onDataChange, onCreateProjectFromEntaxi, onOpenSubproject, onOpenOrimanthi, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '', appConfig = {}, appVersion = '' }) {
+function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, initialCreateProsklisiId = null, projects = [], catalogIndexEntries = null, onClearFocus = null, onDataChange, onCreateProjectFromEntaxi, onOpenSubproject, onOpenOrimanthi, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '', appConfig = {}, appVersion = '' }) {
   const { showToast } = useToast();
   const canManageWorkflow = entaxiCatalog.showNewEntaxiButton(userRole);
   const [entaxeis, setEntaxeis] = useState([]);
@@ -2910,6 +2910,8 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
           onSave={handleSaveEntaxi}
           editingEntaxi={editingEntaxi}
           catalogProskliseis={proskliseis}
+          catalogProjects={projects}
+          catalogIndexEntries={catalogIndexEntries}
           presetProsklisiId={createProsklisiId}
         />
 

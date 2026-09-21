@@ -11,6 +11,14 @@ import EntaxiDiavgeiaSection from './EntaxiDiavgeiaSection';
 import { buildEntaxiDiavgeiaRegistryEntry } from '../utils/entaxiDiavgeiaRegistry';
 import { mergeDiavgeiaFormFields } from '../utils/entaxiDiavgeiaFetch';
 import { collectEntaxiApprovalFileNames, toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
+import {
+  catalogWhenDiskUnreadable,
+  finishCatalogCatchUp,
+  knownMissingFromFullLoad,
+  planCatalogCatchUp,
+  readForIndexAbsence,
+  readResultForCatchUp,
+} from '../utils/subprojectCatalogSync';
 
 const ipcRenderer = window.electronAPI;
 
@@ -580,7 +588,31 @@ const EMPTY_ENTAXI_FORM = {
   diavgeiaMeta: null,
 };
 
-function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProskliseis = [], presetProsklisiId = '' }) {
+function groupSubprojectsByTitle(flatProjects) {
+  return Object.values((flatProjects || []).reduce((groups, project) => {
+    const title = project?.projectTitle || '';
+    if (!groups[title]) {
+      groups[title] = {
+        projectTitle: title,
+        projectId: project.projectId,
+        subprojects: [],
+      };
+    }
+    groups[title].subprojects.push(project);
+    return groups;
+  }, {}));
+}
+
+function EntaxisForm({
+  isOpen,
+  onClose,
+  onSave,
+  editingEntaxi,
+  catalogProskliseis = [],
+  catalogProjects = [],
+  catalogIndexEntries = null,
+  presetProsklisiId = '',
+}) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState({ ...EMPTY_ENTAXI_FORM });
   const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
@@ -603,6 +635,7 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProsklisei
   const overlayScrollRef = useRef(0);
   const restoringScrollRef = useRef(false);
   const formHydratedRef = useRef(false);
+  const loadGenerationRef = useRef(0);
 
   useEffect(() => {
     if (isOpen) {
@@ -706,25 +739,115 @@ function EntaxisForm({ isOpen, onClose, onSave, editingEntaxi, catalogProsklisei
     }
   }, [projectSearchTerm, projects]);
 
-  const loadProjects = async () => {
-    try {
-      const loadedProjects = await ipcRenderer.invoke('load-all-projects');
-      // Group by project title
-      const projectGroups = loadedProjects.reduce((groups, project) => {
-        if (!groups[project.projectTitle]) {
-          groups[project.projectTitle] = {
-            projectTitle: project.projectTitle,
-            projectId: project.projectId,
-            subprojects: []
-          };
+  const applyFlatProjects = (flatProjects) => {
+    setProjects(groupSubprojectsByTitle(flatProjects));
+  };
+
+  const loadProjectsFromDisk = async (knownList, generation) => {
+    const known = Array.isArray(knownList) ? knownList : [];
+    const loadedProjects = await ipcRenderer.invoke('load-all-projects');
+    if (loadGenerationRef.current !== generation) return;
+    if (!Array.isArray(loadedProjects)) {
+      const kept = catalogWhenDiskUnreadable(known);
+      if (kept.length) applyFlatProjects(kept);
+      return;
+    }
+    const absent = knownMissingFromFullLoad(known, loadedProjects);
+    let merged = loadedProjects;
+    if (absent.length) {
+      const checks = await Promise.all(absent.map(async (project) => {
+        const subprojectId = String(project.subprojectId);
+        try {
+          const result = await ipcRenderer.invoke('subproject-direct-data-exists', {
+            projectId: project.projectId || '',
+            subprojectId,
+          });
+          if (readForIndexAbsence(result).missing) return null;
+          if (!result?.exists) return project;
+          const loaded = await ipcRenderer.invoke('load-one-subproject', {
+            projectId: project.projectId || '',
+            subprojectId,
+          }).catch(() => null);
+          const read = readResultForCatchUp(loaded);
+          if (read.project) return read.project;
+          if (read.missing) return null;
+          return project;
+        } catch {
+          return project;
         }
-        groups[project.projectTitle].subprojects.push(project);
-        return groups;
-      }, {});
-      
-      setProjects(Object.values(projectGroups));
+      }));
+      if (loadGenerationRef.current !== generation) return;
+      const kept = checks.filter(Boolean);
+      if (kept.length) merged = [...loadedProjects, ...kept];
+    }
+    if (loadGenerationRef.current === generation) applyFlatProjects(merged);
+  };
+
+  const loadProjects = async () => {
+    const generation = ++loadGenerationRef.current;
+    const known = Array.isArray(catalogProjects) ? catalogProjects : [];
+    const stillCurrent = () => loadGenerationRef.current === generation;
+    try {
+      if (!known.length) {
+        await loadProjectsFromDisk(known, generation);
+        return;
+      }
+      const peek = await ipcRenderer.invoke('peek-projects-index');
+      if (!stillCurrent()) return;
+      const plan = planCatalogCatchUp(
+        known,
+        peek?.success && Array.isArray(peek.entries) ? peek.entries : null,
+        catalogIndexEntries
+      );
+      if (!plan.ok) {
+        await loadProjectsFromDisk(known, generation);
+        return;
+      }
+      const reads = {};
+      if (plan.removedIds.length) {
+        const existence = await Promise.all(plan.removedIds.map(async (subprojectId) => {
+          const knownProject = known.find((project) => String(project?.subprojectId) === subprojectId);
+          try {
+            const result = await ipcRenderer.invoke('subproject-direct-data-exists', {
+              projectId: knownProject?.projectId || '',
+              subprojectId,
+            });
+            return [subprojectId, readForIndexAbsence(result)];
+          } catch {
+            return [subprojectId, readForIndexAbsence(null)];
+          }
+        }));
+        existence.forEach(([subprojectId, read]) => {
+          reads[subprojectId] = read;
+        });
+      }
+      const checks = [...plan.missing, ...(plan.changed || [])];
+      if (checks.length) {
+        const results = await Promise.all(checks.map((target) => (
+          ipcRenderer.invoke('load-one-subproject', target).catch(() => null)
+        )));
+        checks.forEach((target, index) => {
+          reads[target.subprojectId] = readResultForCatchUp(results[index]);
+        });
+      }
+      if (!stillCurrent()) return;
+      const caughtUp = finishCatalogCatchUp(known, plan, reads);
+      if (!caughtUp.ok) {
+        await loadProjectsFromDisk(known, generation);
+        return;
+      }
+      if (!stillCurrent()) return;
+      applyFlatProjects(caughtUp.projects);
     } catch (error) {
       console.error('Error loading projects:', error);
+      if (!stillCurrent()) return;
+      try {
+        await loadProjectsFromDisk(known, generation);
+      } catch (fallbackError) {
+        console.error('Error loading projects from disk:', fallbackError);
+        const kept = catalogWhenDiskUnreadable(known);
+        if (kept.length && stillCurrent()) applyFlatProjects(kept);
+      }
     }
   };
 
