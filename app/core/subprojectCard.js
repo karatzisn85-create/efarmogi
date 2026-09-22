@@ -426,6 +426,7 @@
     normalizeProjectTypeField(data);
     delete data.__sendChargeGreetingEmail;
     delete data.__expectedUpdatedAt;
+    delete data.indexMtimeMs;
     return data;
   }
 

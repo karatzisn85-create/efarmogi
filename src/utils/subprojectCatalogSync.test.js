@@ -2,12 +2,15 @@
  * @jest-environment node
  */
 import {
+  appendUnstampedIndexTargets,
   applyCatalogCatchUp,
   catalogWhenDiskUnreadable,
   finishCatalogCatchUp,
   knownMissingFromFullLoad,
   planCatalogCatchUp,
   readForIndexAbsence,
+  indexBaselineFromProjects,
+  indexStampNeedsRead,
 } from './subprojectCatalogSync';
 
 describe('planCatalogCatchUp', () => {
@@ -71,6 +74,43 @@ describe('planCatalogCatchUp', () => {
     );
     expect(plan.changed).toEqual([]);
   });
+
+  test('η ώρα που διαβάστηκε το αρχείο πιάνει αποθήκευση που το ευρετήριο είδε αργότερα', () => {
+    const baseline = indexBaselineFromProjects([
+      { projectId: 'p1', subprojectId: 's1', indexMtimeMs: 1000, subprojectTitle: 'Παλιό' },
+    ]);
+    const plan = planCatalogCatchUp(
+      [{ projectId: 'p1', subprojectId: 's1', indexMtimeMs: 1000 }],
+      [{ projectId: 'p1', subprojectId: 's1', mtimeMs: 8000 }],
+      baseline
+    );
+    expect(plan.changed).toEqual([{ projectId: 'p1', subprojectId: 's1' }]);
+  });
+
+  test('υποέργο χωρίς ώρα ανάγνωσης ξαναδιαβάζεται όταν τα υπόλοιπα έχουν ώρα', () => {
+    const known = [
+      { projectId: 'p1', subprojectId: 's1', indexMtimeMs: 1000, subprojectTitle: 'Με ώρα' },
+      { projectId: 'p1', subprojectId: 's2', subprojectTitle: 'Χωρίς ώρα' },
+    ];
+    const entries = [
+      { projectId: 'p1', subprojectId: 's1', mtimeMs: 1000 },
+      { projectId: 'p1', subprojectId: 's2', mtimeMs: 5000 },
+    ];
+    const plan = planCatalogCatchUp(known, entries, indexBaselineFromProjects(known));
+    expect(plan.changed).toEqual([]);
+    const checks = appendUnstampedIndexTargets(
+      [...plan.missing, ...plan.changed],
+      known,
+      entries
+    );
+    expect(checks).toEqual([{ projectId: 'p1', subprojectId: 's2' }]);
+    expect(indexStampNeedsRead(entries[1], known[1], true)).toBe(true);
+    expect(indexStampNeedsRead(entries[1], known[1], false)).toBe(false);
+    const done = finishCatalogCatchUp(known, { ...plan, changed: checks }, {
+      s2: { project: { projectId: 'p1', subprojectId: 's2', subprojectTitle: 'Φρέσκος' } },
+    });
+    expect(done.projects.find((project) => project.subprojectId === 's2').subprojectTitle).toBe('Φρέσκος');
+  });
 });
 
 describe('finishCatalogCatchUp', () => {
@@ -92,6 +132,15 @@ describe('finishCatalogCatchUp', () => {
     expect(done.projects.map((p) => p.subprojectId)).toEqual(['s1', 's9', 's2']);
   });
 
+  test('υποέργο χωρίς γραμμή ευρετηρίου παίρνει τον τίτλο από το αρχείο', () => {
+    const done = finishCatalogCatchUp(known, plan, {
+      s2: { missing: true },
+      s9: { project: { projectId: 'p9', subprojectId: 's9', subprojectTitle: 'Φρέσκος' } },
+    });
+    expect(done.ok).toBe(true);
+    expect(done.projects.find((p) => p.subprojectId === 's9').subprojectTitle).toBe('Φρέσκος');
+  });
+
   test('βγάζει υποέργο μόνο όταν λείπει και από τον φάκελο', () => {
     const done = finishCatalogCatchUp(known, plan, {
       s2: { missing: true },
@@ -105,6 +154,20 @@ describe('finishCatalogCatchUp', () => {
       s2: { error: true },
       s9: { missing: true },
     });
+    expect(done.ok).toBe(false);
+  });
+
+  test('σφάλμα σε αλλαγμένο τίτλο δεν κρατά τον παλιό', () => {
+    const done = finishCatalogCatchUp(
+      [{ projectId: 'p1', subprojectId: 's1', subprojectTitle: 'Παλιός' }],
+      {
+        ok: true,
+        missing: [],
+        removedIds: [],
+        changed: [{ projectId: 'p1', subprojectId: 's1' }],
+      },
+      { s1: { error: true } }
+    );
     expect(done.ok).toBe(false);
   });
 });

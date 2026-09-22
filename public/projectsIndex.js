@@ -316,6 +316,7 @@ function loadProjectsViaIndex(dataDir, {
       if (data.projectId !== projectDir) {
         data.projectId = projectDir;
       }
+      data.indexMtimeMs = st.mtimeMs;
       const subDir = entry.subprojectId;
       if (data.subprojectId !== subDir) {
         if (loggedSubprojectIdMismatches && !loggedSubprojectIdMismatches.has(subDir)) {

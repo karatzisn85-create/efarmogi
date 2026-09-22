@@ -3,7 +3,7 @@
  * Νέα / διαγραμμένα / αλλαγμένα υποέργα εντοπίζονται χωρίς να ξαναδιαβαστούν όλα τα αρχεία.
  * Αν το ευρετήριο λείπει, ο καλών πέφτει σε πλήρη φόρτωση.
  */
-import { diffProjectsIndexEntries } from './mergeLoadedSubproject';
+import { diffProjectsIndexEntries, INDEX_MTIME_TOLERANCE_MS } from './mergeLoadedSubproject';
 
 export function planCatalogCatchUp(knownProjects, indexEntries, previousEntries) {
   if (!Array.isArray(indexEntries)) {
@@ -55,6 +55,77 @@ export function planCatalogCatchUp(knownProjects, indexEntries, previousEntries)
   }
 
   return { ok: true, missing, removedIds, changed };
+}
+
+/** Ώρα αρχείου τη στιγμή που διαβάστηκε η λίστα — όχι μια μεταγενέστερη ματιά στο ευρετήριο. */
+export function indexBaselineFromProjects(knownProjects) {
+  const baseline = [];
+  (knownProjects || []).forEach((project) => {
+    const id = String(project?.subprojectId || '').trim();
+    const mtimeMs = Number(project?.indexMtimeMs);
+    if (!id || !Number.isFinite(mtimeMs) || mtimeMs <= 0) return;
+    baseline.push({
+      projectId: String(project.projectId || '').trim(),
+      subprojectId: id,
+      mtimeMs,
+    });
+  });
+  return baseline;
+}
+
+export function projectHasIndexStamp(project) {
+  const stamp = Number(project?.indexMtimeMs);
+  return Number.isFinite(stamp) && stamp > 0;
+}
+
+export function indexEntryContentIsNewer(entry, project) {
+  const stamp = Number(project?.indexMtimeMs);
+  if (!project || !Number.isFinite(stamp) || stamp <= 0) return false;
+  if (Math.abs(Number(entry?.mtimeMs || 0) - stamp) > INDEX_MTIME_TOLERANCE_MS) return true;
+  return String(project.projectId || '') !== String(entry?.projectId || '');
+}
+
+/**
+ * Υποέργο χωρίς ώρα ανάγνωσης, ενώ η λίστα έχει ήδη ώρες για τα υπόλοιπα.
+ * Χωρίς αυτό, μια μεταγενέστερη ματιά στο ευρετήριο «κλείδωνε» τον παλιό τίτλο.
+ */
+export function indexStampNeedsRead(entry, project, anyKnownStamp) {
+  if (!project) return false;
+  if (indexEntryContentIsNewer(entry, project)) return true;
+  if (!anyKnownStamp) return false;
+  return !projectHasIndexStamp(project);
+}
+
+/** Γνωστά υποέργα που είναι στο ευρετήριο αλλά δεν έχουν ώρα ανάγνωσης. */
+export function unstampedIndexTargets(knownProjects, indexEntries) {
+  if (!Array.isArray(indexEntries) || !indexEntries.length) return [];
+  const indexById = new Map();
+  indexEntries.forEach((entry) => {
+    const id = String(entry?.subprojectId || '').trim();
+    if (id && !indexById.has(id)) indexById.set(id, entry);
+  });
+  const targets = [];
+  (knownProjects || []).forEach((project) => {
+    const id = String(project?.subprojectId || '').trim();
+    if (!id || !indexById.has(id) || projectHasIndexStamp(project)) return;
+    const entry = indexById.get(id);
+    targets.push({
+      projectId: String(entry.projectId || project.projectId || '').trim(),
+      subprojectId: id,
+    });
+  });
+  return targets;
+}
+
+export function appendUnstampedIndexTargets(checks, knownProjects, indexEntries) {
+  const list = Array.isArray(checks) ? [...checks] : [];
+  const seen = new Set(list.map((item) => String(item?.subprojectId || '').trim()));
+  unstampedIndexTargets(knownProjects, indexEntries).forEach((target) => {
+    if (!target.subprojectId || seen.has(target.subprojectId)) return;
+    seen.add(target.subprojectId);
+    list.push(target);
+  });
+  return list;
 }
 
 /**
@@ -118,16 +189,21 @@ export function finishCatalogCatchUp(knownProjects, plan, reads) {
   }
 
   const removedIds = [];
+  const replaced = [];
   for (const id of plan.removedIds || []) {
     const read = byId[id];
     if (!read || read.error) return { ok: false, projects: [] };
-    if (read.missing) removedIds.push(id);
+    if (read.missing) {
+      removedIds.push(id);
+      continue;
+    }
+    const freshId = String(read.project?.subprojectId || '').trim();
+    if (freshId) replaced.push(read.project);
   }
 
-  const replaced = [];
   for (const item of plan.changed || []) {
     const read = byId[item.subprojectId];
-    if (!read || read.error) continue;
+    if (!read || read.error) return { ok: false, projects: [] };
     if (read.missing) {
       removedIds.push(item.subprojectId);
       continue;

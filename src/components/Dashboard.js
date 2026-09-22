@@ -53,7 +53,7 @@ import {
   runWithConcurrency,
   shouldWarnRemoteSubprojectSave,
 } from '../utils/mergeLoadedSubproject';
-import { readForIndexAbsence } from '../utils/subprojectCatalogSync';
+import { readForIndexAbsence, indexStampNeedsRead, projectHasIndexStamp } from '../utils/subprojectCatalogSync';
 import {
   clearCornerClearance,
   computeFabClearancePx,
@@ -3177,6 +3177,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         if (isFormOpenRef.current && editingProjectRef.current?.subprojectId === sid) {
           return null;
         }
+        // Το αρχείο μπορεί να είναι σε άλλον φάκελο έργου από αυτόν του ευρετηρίου.
+        // Δεν το σβήνουμε από την αρχική μόνο επειδή έλειψε από τη μία διαδρομή.
+        const listed = (projectsRef.current || []).find(
+          (item) => String(item?.subprojectId || '') === sid
+        );
+        if (listed && projectId && String(listed.projectId || '') !== String(projectId)) {
+          return null;
+        }
         setProjects((prev) => {
           const { projects: next, changed } = removeSubprojectFromList(prev, sid);
           return changed ? next : prev;
@@ -4663,6 +4671,28 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       }));
     };
 
+    const reloadStampMismatches = async (entries) => {
+      const projectsNow = projectsRef.current || [];
+      const anyStamp = projectsNow.some((item) => projectHasIndexStamp(item));
+      const targets = [];
+      (entries || []).forEach((entry) => {
+        const subprojectId = String(entry?.subprojectId || '').trim();
+        if (!subprojectId) return;
+        const project = projectsNow.find(
+          (item) => String(item?.subprojectId || '') === subprojectId
+        );
+        if (!indexStampNeedsRead(entry, project, anyStamp)) return;
+        targets.push({
+          projectId: entry.projectId || project.projectId,
+          subprojectId,
+        });
+      });
+      await runPool(targets, INDEX_RELOAD_CONCURRENCY, async (target) => {
+        if (cancelled) return;
+        await fetchAndApplySubprojectRef.current?.(target.projectId, target.subprojectId, { fromRemote: true });
+      });
+    };
+
     const pollIndex = async () => {
       if (cancelled || indexPollBusyRef.current) return;
       indexPollBusyRef.current = true;
@@ -4672,6 +4702,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         const prev = indexSnapshotRef.current;
         if (!prev) {
           indexSnapshotRef.current = res.entries;
+          await reloadStampMismatches(res.entries);
           return;
         }
         // Κενό ευρετήριο ενώ έχουμε ήδη υποέργα: πιθανή αποτυχημένη εγγραφή, όχι μαζική διαγραφή.
@@ -4723,8 +4754,42 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           }
         }
 
-        // Φόρτωση νέων/αλλαγμένων υποέργων
+        // Η γραμμή έλειπε από το ευρετήριο αλλά το αρχείο υπάρχει:
+        // η αρχική κράταγε τον παλιό τίτλο για πάντα. Ξαναδιαβάζουμε μόνο αυτά.
+        if (keptIndexIds.size && !cancelled) {
+          const refreshTargets = [];
+          keptIndexIds.forEach((subprojectId) => {
+            const project = (projectsRef.current || []).find(
+              (item) => String(item?.subprojectId || '') === subprojectId
+            );
+            if (!project?.projectId) return;
+            refreshTargets.push({ projectId: project.projectId, subprojectId });
+          });
+          await runPool(refreshTargets, INDEX_RELOAD_CONCURRENCY, async (target) => {
+            if (cancelled) return;
+            await fetchAndApplySubprojectRef.current?.(target.projectId, target.subprojectId, { fromRemote: true });
+          });
+        }
+
+        // Φόρτωση νέων/αλλαγμένων υποέργων, και όσων η ώρα του αρχείου
+        // είναι νεότερη από τη στιγμή που διαβάστηκε η λίστα.
         const targets = collectIndexReloadTargets(diff);
+        const queued = new Set(targets.map((target) => String(target.subprojectId || '')));
+        const projectsNow = projectsRef.current || [];
+        const anyStamp = projectsNow.some((item) => projectHasIndexStamp(item));
+        (res.entries || []).forEach((entry) => {
+          const subprojectId = String(entry?.subprojectId || '').trim();
+          if (!subprojectId || queued.has(subprojectId)) return;
+          const project = projectsNow.find(
+            (item) => String(item?.subprojectId || '') === subprojectId
+          );
+          if (!indexStampNeedsRead(entry, project, anyStamp)) return;
+          queued.add(subprojectId);
+          targets.push({
+            projectId: entry.projectId || project.projectId,
+            subprojectId,
+          });
+        });
         await runPool(targets, INDEX_RELOAD_CONCURRENCY, async (t) => {
           if (cancelled) return;
           await fetchAndApplySubprojectRef.current?.(t.projectId, t.subprojectId, { fromRemote: true });

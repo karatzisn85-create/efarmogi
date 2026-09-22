@@ -3,7 +3,7 @@
  */
 import subprojectLifecycle from '../../app/core/subprojectLifecycle';
 
-const INDEX_MTIME_TOLERANCE_MS = 2000;
+export const INDEX_MTIME_TOLERANCE_MS = 2000;
 
 const PRESERVE_LIST_FLAGS = ['hasEgkrisiLink', 'hasProsklisiLink', 'hasEntaxiLink'];
 
@@ -50,6 +50,11 @@ function withPreservedFlags(loaded, previous) {
     }
     if (!Object.prototype.hasOwnProperty.call(loaded, 'lockedBy') && previous.lockedBy) {
       next.lockedBy = previous.lockedBy;
+    }
+    // Ώρα ανάγνωσης: μένει η προηγούμενη αν η νέα ανάγνωση δεν έφερε ώρα,
+    // αλλιώς η επόμενη ματιά στο ευρετήριο δεν ξαναδιαβάζει το αρχείο.
+    if (next.indexMtimeMs == null && previous.indexMtimeMs != null) {
+      next.indexMtimeMs = previous.indexMtimeMs;
     }
   }
   return next;

@@ -1712,6 +1712,7 @@ async function updateRelatedDataAfterProjectTitleChange(projectId, oldProjectTit
                 subprojectData.projectTitle = newProjectTitle;
                 subprojectData.updatedAt = new Date().toISOString();
                 safeWriteJSON(dataFile, subprojectData);
+                syncProjectsIndexAfterSubprojectWrite(projectId, subprojectDir, dataFile);
                 console.log(`Updated subproject ${subprojectDir} with new project title`);
               }
             } catch (err) {
@@ -2285,7 +2286,17 @@ async function handleSaveProjectData(event, projectData) {
     } catch (idxErr) {
       console.error('projectsIndex upsert after save failed:', idxErr?.message || idxErr);
     }
-    return { success: true, projectId: finalProjectId, subprojectId, project: dataToSave, chargeGreeting };
+    // Η ώρα δεν γράφεται στο data.json (βγαίνει πριν την αποθήκευση).
+    // Τη στέλνουμε μόνο στη λίστα, ώστε η επόμενη ένταξη/αναζήτηση να δει
+    // αν κάποιος άλλος άλλαξε το αρχείο μετά από αυτή την αποθήκευση.
+    let returnedProject = dataToSave;
+    try {
+      const savedMtime = fs.statSync(finalJsonPath).mtimeMs;
+      if (Number.isFinite(savedMtime) && savedMtime > 0) {
+        returnedProject = { ...dataToSave, indexMtimeMs: savedMtime };
+      }
+    } catch { /* η λίστα θα το ξαναδιαβάσει στην επόμενη ματιά */ }
+    return { success: true, projectId: finalProjectId, subprojectId, project: returnedProject, chargeGreeting };
   } catch (error) {
     console.error('Error saving project data:', error);
     return { success: false, error: error.message };
@@ -2293,6 +2304,29 @@ async function handleSaveProjectData(event, projectData) {
 }
 
 ipcMain.handle('save-project-data', withMandatoryUpdateGuard(handleSaveProjectData));
+
+/**
+ * Ενημερώνει το ελαφρύ ευρετήριο μετά από κάθε αλλαγή που πέφτει στο data.json ενός υποέργου.
+ * Χωρίς αυτό, το mtime του αρχείου φεύγει μπροστά από την εγγραφή του ευρετηρίου και
+ * η επόμενη γρήγορη φόρτωση αναγκάζεται σε πλήρη σάρωση του κοινού φακέλου (Φάση 1).
+ */
+function syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataPath) {
+  try {
+    const pid = String(projectId || '').trim();
+    const sid = String(subprojectId || '').trim();
+    if (!pid || !sid || !dataPath) return;
+    if (!fs.existsSync(dataPath)) return;
+    const raw = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+    if (!raw || !raw.projectTitle || !raw.subprojectTitle) return;
+    projectsIndex.upsertProjectsIndexEntry(dataDir, {
+      ...raw,
+      projectId: pid,
+      subprojectId: sid,
+    });
+  } catch (err) {
+    console.error('syncProjectsIndexAfterSubprojectWrite failed:', err?.message || err);
+  }
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2663,6 +2697,7 @@ const loadAllProjects = async () => {
             if (!fs.existsSync(jsonPath)) { continue; }
 
             const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            try { data.indexMtimeMs = fs.statSync(jsonPath).mtimeMs; } catch { /* χωρίς σήμα ώρας */ }
             normalizeProjectTypeField(data);
 
             // Χωρίς τίτλους δεν είναι έγκυρο υποέργο — χωρίς θόρυβο στο τερματικό
@@ -2821,6 +2856,18 @@ function hydrateSubprojectFromDisk(raw, projectDir, subprojectDir) {
   return data;
 }
 
+function indexedSubprojectJsonPath(subprojectId) {
+  const sid = String(subprojectId || '').trim();
+  if (!sid) return '';
+  try {
+    const indexed = projectsIndex.findIndexedSubprojectPath(dataDir, sid);
+    if (indexed && projectsIndex.jsonFileBelongsToSubproject(indexed, sid) && isResolvedPathInsideDataDir(indexed)) {
+      return indexed;
+    }
+  } catch { /* η κλήση συνεχίζει χωρίς σάρωση */ }
+  return '';
+}
+
 function resolveSubprojectJsonPath(projectId, subprojectId) {
   const pid = String(projectId || '').trim();
   const sid = String(subprojectId || '').trim();
@@ -2828,10 +2875,14 @@ function resolveSubprojectJsonPath(projectId, subprojectId) {
     const direct = path.join(dataDir, pid, sid, 'data.json');
     if (fs.existsSync(direct) && isResolvedPathInsideDataDir(direct)) return direct;
   }
-  if (sid) {
-    const found = findSubprojectDataJsonPath(sid);
-    if (found && isResolvedPathInsideDataDir(found)) return found;
-  }
+  const fromIndex = indexedSubprojectJsonPath(sid);
+  if (fromIndex) return fromIndex;
+  // Με γνωστό φάκελο έργου δεν σαρώνουμε όλο τον κοινό δίσκο:
+  // νεκρή γραμμή ευρετηρίου πάγωνε το άνοιγμα νέας ένταξης και την αρχική λίστα.
+  // Χωρίς φάκελο, η σάρωση μένει για όσους ξέρουν μόνο τον κωδικό του υποέργου.
+  if (pid || !sid) return '';
+  const found = findSubprojectDataJsonPath(sid);
+  if (found && isResolvedPathInsideDataDir(found)) return found;
   return '';
 }
 
@@ -2873,6 +2924,7 @@ ipcMain.handle('load-one-subproject', async (_event, payload = {}) => {
     if (!project) {
       return { success: false, error: 'Μη έγκυρα δεδομένα υποέργου' };
     }
+    try { project.indexMtimeMs = fs.statSync(jsonPath).mtimeMs; } catch { /* χωρίς σήμα ώρας */ }
     return { success: true, project };
   } catch (error) {
     console.error('load-one-subproject failed:', error);
@@ -5049,6 +5101,7 @@ ipcMain.handle('update-subproject-supervisor-engineers', async (_event, { projec
     data.updatedAt = new Date().toISOString();
     stripLegacySupervisorField(data);
     safeWriteJSON(jsonPath, data);
+    syncProjectsIndexAfterSubprojectWrite(pid, sid, jsonPath);
     logAuditAction({
       type: 'update',
       entityType: 'subproject',
@@ -5518,6 +5571,7 @@ ipcMain.handle('save-files', async (event, files, projectId, subprojectId, optio
         });
         data.updatedAt = new Date().toISOString();
         safeWriteJSON(dataPath, data);
+        syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataPath);
       } catch (jsonErr) {
         console.error('Error updating data.json after save-files:', jsonErr);
       }
@@ -5688,6 +5742,7 @@ ipcMain.handle('delete-file', async (event, projectId, subprojectId, fileName) =
         const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
         removeFileFromSubprojectData(data, fileName);
         safeWriteJSON(dataPath, data);
+        syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataPath);
         console.log(`File ${fileName} removed from JSON data`);
       } catch (jsonError) {
         console.error('Error updating JSON after file deletion:', jsonError);
@@ -5739,6 +5794,7 @@ ipcMain.handle('delete-files', async (_event, { projectId, subprojectId, fileNam
         const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
         names.forEach((fileName) => removeFileFromSubprojectData(data, fileName));
         safeWriteJSON(dataPath, data);
+        syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataPath);
       } catch (jsonError) {
         console.error('Error updating JSON after bulk file deletion:', jsonError);
         return { success: false, error: jsonError.message };
@@ -5787,6 +5843,7 @@ ipcMain.handle('rename-subproject-file', async (_event, {
       managedFilesCore.renameFileInSubprojectData(data, path.basename(String(oldName || '')), renamed.newName);
       data.updatedAt = new Date().toISOString();
       safeWriteJSON(dataPath, data);
+      syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataPath);
     }
     logAuditAction({
       type: 'update',
@@ -6128,6 +6185,7 @@ ipcMain.handle('create-file-group', async (event, projectId, subprojectId, group
     
     // Αποθηκεύουμε τα ενημερωμένα δεδομένα
     safeWriteJSON(dataFilePath, projectData);
+    syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataFilePath);
     
     console.log('File group created successfully:', newGroup);
     logAuditAction({
@@ -6205,6 +6263,7 @@ ipcMain.handle('add-files-to-group', async (event, projectId, subprojectId, grou
         
         // Αποθηκεύουμε τα ενημερωμένα δεδομένα
         safeWriteJSON(dataFilePath, projectData);
+        syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataFilePath);
         
         console.log('Files added to group successfully');
         logAuditAction({
@@ -9427,6 +9486,7 @@ ipcMain.handle('save-egkrisi', async (event, projectId, subprojectId, egkrisiDat
       
       // Save updated data
       safeWriteJSON(dataPath, projectData);
+      syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataPath);
 
       logAuditAction({
         type: 'update',
@@ -9443,6 +9503,7 @@ ipcMain.handle('save-egkrisi', async (event, projectId, subprojectId, egkrisiDat
       
       // Save updated data
       safeWriteJSON(dataPath, projectData);
+      syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataPath);
 
       logAuditAction({
         type: 'create',
@@ -9644,6 +9705,7 @@ ipcMain.handle('delete-egkrisi-file', async (event, projectId, subprojectId, egk
           
           // Save updated data
           safeWriteJSON(dataPath, projectData);
+          syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataPath);
 
           logAuditAction({
             type: 'delete',

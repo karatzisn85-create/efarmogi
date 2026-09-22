@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  appendUnstampedIndexTargets,
   catalogWhenDiskUnreadable,
   finishCatalogCatchUp,
   knownMissingFromFullLoad,
   planCatalogCatchUp,
   readForIndexAbsence,
   readResultForCatchUp,
+  indexBaselineFromProjects,
 } from '../utils/subprojectCatalogSync';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
@@ -287,19 +289,21 @@ function SubprojectSearchModal({
   const loadAllSubprojects = async () => {
     const generation = ++loadGenerationRef.current;
     const stillCurrent = () => loadGenerationRef.current === generation;
+    const known = Array.isArray(knownSubprojects) ? knownSubprojects : [];
     setLoading(true);
     try {
-      const known = Array.isArray(knownSubprojects) ? knownSubprojects : [];
       if (!known.length) {
         await loadAllSubprojectsFromDisk(generation, known);
         return;
       }
       const peek = await window.electronAPI.invoke('peek-projects-index');
       if (!stillCurrent()) return;
+      const peekEntries = peek?.success && Array.isArray(peek.entries) ? peek.entries : null;
+      const stamped = indexBaselineFromProjects(known);
       const plan = planCatalogCatchUp(
         known,
-        peek?.success && Array.isArray(peek.entries) ? peek.entries : null,
-        knownIndexEntries
+        peekEntries,
+        stamped.length ? stamped : knownIndexEntries
       );
       if (!plan.ok) {
         await loadAllSubprojectsFromDisk(generation, known);
@@ -314,7 +318,16 @@ function SubprojectSearchModal({
               projectId: knownProject?.projectId || '',
               subprojectId,
             });
-            return [subprojectId, readForIndexAbsence(result)];
+            const absence = readForIndexAbsence(result);
+            if (absence.missing || !result?.exists) return [subprojectId, absence];
+            const loaded = await window.electronAPI.invoke('load-one-subproject', {
+              projectId: knownProject?.projectId || '',
+              subprojectId,
+            }).catch(() => null);
+            const read = readResultForCatchUp(loaded);
+            if (read.project) return [subprojectId, read];
+            if (read.missing) return [subprojectId, { missing: true }];
+            return [subprojectId, absence];
           } catch {
             return [subprojectId, readForIndexAbsence(null)];
           }
@@ -323,7 +336,12 @@ function SubprojectSearchModal({
           reads[subprojectId] = read;
         });
       }
-      const checks = [...plan.missing, ...(plan.changed || [])];
+      const changed = appendUnstampedIndexTargets(
+        plan.changed || [],
+        stamped.length ? known : [],
+        peekEntries
+      );
+      const checks = [...plan.missing, ...changed];
       if (checks.length) {
         const results = await Promise.all(checks.map((target) => (
           window.electronAPI.invoke('load-one-subproject', target).catch(() => null)
@@ -333,7 +351,7 @@ function SubprojectSearchModal({
         });
       }
       if (!stillCurrent()) return;
-      const caughtUp = finishCatalogCatchUp(known, plan, reads);
+      const caughtUp = finishCatalogCatchUp(known, { ...plan, changed }, reads);
       if (!caughtUp.ok) {
         await loadAllSubprojectsFromDisk(generation, known);
         return;

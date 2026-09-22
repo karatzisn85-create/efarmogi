@@ -76,6 +76,23 @@ describe('mergeOneSubprojectIntoList', () => {
     expect(needsSort).toBe(true);
     expect(subprojectTitlesChanged(prev[0], { projectTitle: 'Α', subprojectTitle: 'Νέο' })).toBe(true);
   });
+
+  test('κρατά την ώρα ανάγνωσης αν η νέα ανάγνωση δεν έφερε ώρα', () => {
+    const { projects } = mergeOneSubprojectIntoList(
+      [{ subprojectId: 'a', projectTitle: 'Α', subprojectTitle: '1', indexMtimeMs: 1000 }],
+      { subprojectId: 'a', projectTitle: 'Α', subprojectTitle: '1', updatedAt: '2026-01-01' }
+    );
+    expect(projects[0].indexMtimeMs).toBe(1000);
+    expect(projects[0].updatedAt).toBe('2026-01-01');
+  });
+
+  test('η νέα ώρα ανάγνωσης αντικαθιστά την παλιά', () => {
+    const { projects } = mergeOneSubprojectIntoList(
+      [{ subprojectId: 'a', projectTitle: 'Α', subprojectTitle: '1', indexMtimeMs: 1000 }],
+      { subprojectId: 'a', projectTitle: 'Α', subprojectTitle: '1', indexMtimeMs: 9000 }
+    );
+    expect(projects[0].indexMtimeMs).toBe(9000);
+  });
 });
 
 describe('removeSubprojectFromList', () => {

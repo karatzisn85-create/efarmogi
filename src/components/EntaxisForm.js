@@ -12,12 +12,14 @@ import { buildEntaxiDiavgeiaRegistryEntry } from '../utils/entaxiDiavgeiaRegistr
 import { mergeDiavgeiaFormFields } from '../utils/entaxiDiavgeiaFetch';
 import { collectEntaxiApprovalFileNames, toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
 import {
+  appendUnstampedIndexTargets,
   catalogWhenDiskUnreadable,
   finishCatalogCatchUp,
   knownMissingFromFullLoad,
   planCatalogCatchUp,
   readForIndexAbsence,
   readResultForCatchUp,
+  indexBaselineFromProjects,
 } from '../utils/subprojectCatalogSync';
 
 const ipcRenderer = window.electronAPI;
@@ -794,10 +796,12 @@ function EntaxisForm({
       }
       const peek = await ipcRenderer.invoke('peek-projects-index');
       if (!stillCurrent()) return;
+      const peekEntries = peek?.success && Array.isArray(peek.entries) ? peek.entries : null;
+      const stamped = indexBaselineFromProjects(known);
       const plan = planCatalogCatchUp(
         known,
-        peek?.success && Array.isArray(peek.entries) ? peek.entries : null,
-        catalogIndexEntries
+        peekEntries,
+        stamped.length ? stamped : catalogIndexEntries
       );
       if (!plan.ok) {
         await loadProjectsFromDisk(known, generation);
@@ -812,7 +816,16 @@ function EntaxisForm({
               projectId: knownProject?.projectId || '',
               subprojectId,
             });
-            return [subprojectId, readForIndexAbsence(result)];
+            const absence = readForIndexAbsence(result);
+            if (absence.missing || !result?.exists) return [subprojectId, absence];
+            const loaded = await ipcRenderer.invoke('load-one-subproject', {
+              projectId: knownProject?.projectId || '',
+              subprojectId,
+            }).catch(() => null);
+            const read = readResultForCatchUp(loaded);
+            if (read.project) return [subprojectId, read];
+            if (read.missing) return [subprojectId, { missing: true }];
+            return [subprojectId, absence];
           } catch {
             return [subprojectId, readForIndexAbsence(null)];
           }
@@ -821,7 +834,12 @@ function EntaxisForm({
           reads[subprojectId] = read;
         });
       }
-      const checks = [...plan.missing, ...(plan.changed || [])];
+      const changed = appendUnstampedIndexTargets(
+        plan.changed || [],
+        stamped.length ? known : [],
+        peekEntries
+      );
+      const checks = [...plan.missing, ...changed];
       if (checks.length) {
         const results = await Promise.all(checks.map((target) => (
           ipcRenderer.invoke('load-one-subproject', target).catch(() => null)
@@ -831,7 +849,7 @@ function EntaxisForm({
         });
       }
       if (!stillCurrent()) return;
-      const caughtUp = finishCatalogCatchUp(known, plan, reads);
+      const caughtUp = finishCatalogCatchUp(known, { ...plan, changed }, reads);
       if (!caughtUp.ok) {
         await loadProjectsFromDisk(known, generation);
         return;
