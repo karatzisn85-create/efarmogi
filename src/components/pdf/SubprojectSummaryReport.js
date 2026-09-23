@@ -643,25 +643,24 @@ export default function SubprojectSummaryReport({ data, appConfig }) {
             {basic.comments ? (
               <View wrap>
                 <Text style={S.proseLabel}>Σχόλια υποέργου</Text>
-                <Text style={S.prose} wrap>{clip(basic.comments, 280)}</Text>
+                <Text style={S.prose} wrap>{pdfText(basic.comments)}</Text>
               </View>
             ) : null}
             {basic.eisigitikiEkthesi ? (
               <View wrap>
                 <Text style={S.proseLabel}>Αναφορά από πρόγραμμα Οικονομικής</Text>
-                <Text style={S.prose} wrap>{clip(basic.eisigitikiEkthesi, 180)}</Text>
+                <Text style={S.prose} wrap>{pdfText(basic.eisigitikiEkthesi)}</Text>
               </View>
             ) : null}
             {linkedNotes.map((n, i) => (
-              <Line
-                key={`n-${i}`}
-                color={COLORS.slateMid}
-                text={joinBits([
-                  n.title,
-                  displayDate(n.updatedAt),
-                  clip(n.content, 90),
-                ])}
-              />
+              <View key={`n-${i}`} wrap>
+                <Text style={S.proseLabel}>
+                  {joinBits([n.title || 'Σημείωση', displayDate(n.updatedAt)])}
+                </Text>
+                {filled(n.content) ? (
+                  <Text style={S.prose} wrap>{pdfText(n.content)}</Text>
+                ) : null}
+              </View>
             ))}
           </Section>
         ) : null}

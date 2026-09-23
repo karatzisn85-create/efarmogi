@@ -4,7 +4,7 @@ import { showConfirm } from '../utils/confirmModal';
 import { useToast } from './ToastProvider';
 import FileRenameModal from './FileRenameModal';
 import entaxiCatalog from '../../app/core/entaxiCatalog';
-import { collectEntaxiApprovalFileNames } from '../utils/entaxiFileObjects';
+import { partitionEntaxiViewerFiles } from '../utils/entaxiFileObjects';
 import { safeFileDialog } from '../utils/safeDialogs';
 
 const ipcRenderer = window.electronAPI;
@@ -331,44 +331,14 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole, onEntaxiUpdated,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, entaxi]);
 
-  const loadFiles = async () => {
+  const loadFiles = async (record) => {
+    const source = record?.entaxiId ? record : entaxi;
     try {
       setLoading(true);
-      const files = await ipcRenderer.invoke('get-entaxi-files', entaxi.entaxiId);
-
-      const entaxiPDFs = entaxi.entaxiPDFs && entaxi.entaxiPDFs.length > 0
-        ? entaxi.entaxiPDFs
-        : (entaxi.entaxiPDF ? [entaxi.entaxiPDF] : []);
-
-      const approvalPDFs = collectEntaxiApprovalFileNames(entaxi);
-
-      let availableEntaxiFiles = [];
-      let availableApprovalFiles = [];
-
-      if (approvalPDFs.length > 0) {
-        availableApprovalFiles = files.filter(file => approvalPDFs.includes(file));
-      }
-
-      if (entaxiPDFs.length > 0) {
-        availableEntaxiFiles = files.filter(file => entaxiPDFs.includes(file));
-      }
-
-      const allRecordedFiles = [...entaxiPDFs, ...approvalPDFs];
-      const unaccountedFiles = files.filter(file => !allRecordedFiles.includes(file));
-
-      if (unaccountedFiles.length > 0) {
-        if (entaxiPDFs.length === 0 && approvalPDFs.length === 0) {
-          availableEntaxiFiles = files;
-          availableApprovalFiles = [];
-        } else if (entaxiPDFs.length === 0 && approvalPDFs.length > 0) {
-          availableEntaxiFiles = unaccountedFiles;
-        } else if (approvalPDFs.length === 0 && entaxiPDFs.length > 0) {
-          availableApprovalFiles = unaccountedFiles;
-        }
-      }
-
-      setEntaxiFiles(availableEntaxiFiles);
-      setApprovalFiles(availableApprovalFiles);
+      const files = await ipcRenderer.invoke('get-entaxi-files', source.entaxiId);
+      const partitioned = partitionEntaxiViewerFiles(files, source);
+      setEntaxiFiles(partitioned.entaxiFiles);
+      setApprovalFiles(partitioned.approvalFiles);
     } catch (error) {
       console.error('Error loading entaxi files:', error);
     } finally {
@@ -388,7 +358,8 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole, onEntaxiUpdated,
       return result;
     }
     showToast('Το αρχείο μετονομάστηκε', 'success');
-    await loadFiles();
+    if (result.entaxi) onEntaxiUpdated?.(result.entaxi);
+    await loadFiles(result.entaxi);
     return result;
   };
 
@@ -507,8 +478,8 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole, onEntaxiUpdated,
     );
   };
 
-  const renderSection = (files, title, icon, { onAdd, addTestId } = {}) => (
-    <FileSection>
+  const renderSection = (files, title, icon, { onAdd, addTestId, sectionTestId } = {}) => (
+    <FileSection data-testid={sectionTestId}>
       <SectionHeader>
         <SectionIcon>{icon}</SectionIcon>
         <SectionLabel>{title}</SectionLabel>
@@ -556,10 +527,10 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole, onEntaxiUpdated,
                 </InfoBox>
               )}
 
-              {renderSection(entaxiFiles, 'Αρχεία Ένταξης', '📋')}
+              {renderSection(entaxiFiles, 'Αρχεία Ένταξης', '📋', { sectionTestId: 'ent-files-decisions' })}
               {renderSection(approvalFiles, 'Αποδοχή χρηματοδότησης', '✅', canManageWorkflow
-                ? { onAdd: handleAddApprovalFiles, addTestId: 'ent-files-approval-add' }
-                : undefined)}
+                ? { onAdd: handleAddApprovalFiles, addTestId: 'ent-files-approval-add', sectionTestId: 'ent-files-approval' }
+                : { sectionTestId: 'ent-files-approval' })}
             </>
           )}
         </ModalBody>

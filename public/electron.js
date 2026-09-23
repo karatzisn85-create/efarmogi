@@ -6692,30 +6692,14 @@ ipcMain.handle('load-entaxi-data', async (event, entaxiId) => {
 });
 
 // Download entaxi file
-ipcMain.handle('download-entaxi-file', async (event, entaxiId, fileName) => {
+ipcMain.handle('download-entaxi-file', async (event, entaxiId, fileName, preferModification = false) => {
   try {
     const { dialog } = require('electron');
-    let filePath;
-    
-    // Check in main files directory
-    filePath = path.join(entaxisDir, entaxiId, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ', fileName);
-    
-    if (!fs.existsSync(filePath)) {
-      // Check in modifications directories
-      const modificationsDir = path.join(entaxisDir, entaxiId, 'ΤΡΟΠΟΠΟΙΗΣΕΙΣ');
-      if (fs.existsSync(modificationsDir)) {
-        const modDirs = fs.readdirSync(modificationsDir);
-        for (const modDir of modDirs) {
-          const modFilePath = path.join(modificationsDir, modDir, fileName);
-          if (fs.existsSync(modFilePath)) {
-            filePath = modFilePath;
-            break;
-          }
-        }
-      }
-    }
-    
-    if (!fs.existsSync(filePath)) {
+    const entaxiRoot = path.resolve(entaxisDir, String(entaxiId || ''));
+    const located = locateEntaxiStoredFile(entaxiRoot, fileName, !!preferModification);
+    const filePath = located && located.filePath;
+
+    if (!filePath || !fs.existsSync(filePath)) {
       return { success: false, error: 'Το αρχείο δεν βρέθηκε' };
     }
     
@@ -6900,29 +6884,41 @@ ipcMain.handle('delete-entaxi', async (event, entaxiId) => {
 });
 
 // View entaxi file
-ipcMain.handle('view-entaxi-file', async (event, entaxiId, fileName) => {
-  try {
-    let filePath;
-    
-    // Check in main files directory
-    filePath = path.join(entaxisDir, entaxiId, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ', fileName);
-    
-    if (!fs.existsSync(filePath)) {
-      // Check in modifications directories
-      const modificationsDir = path.join(entaxisDir, entaxiId, 'ΤΡΟΠΟΠΟΙΗΣΕΙΣ');
-      if (fs.existsSync(modificationsDir)) {
-        const modDirs = fs.readdirSync(modificationsDir);
-        for (const modDir of modDirs) {
-          const modFilePath = path.join(modificationsDir, modDir, fileName);
-          if (fs.existsSync(modFilePath)) {
-            filePath = modFilePath;
-            break;
-          }
-        }
-      }
+function locateEntaxiStoredFile(entaxiRoot, fileName, preferModification) {
+  const safeName = path.basename(String(fileName || ''));
+  if (!safeName || safeName === '.' || safeName === '..') return null;
+  if (!isPathInsideDir(entaxiRoot, entaxisDir)) return null;
+  const modificationsDir = path.join(entaxiRoot, 'ΤΡΟΠΟΠΟΙΗΣΕΙΣ');
+  let modHit = null;
+  if (fs.existsSync(modificationsDir) && isPathInsideDir(modificationsDir, entaxiRoot)) {
+    for (const modDir of fs.readdirSync(modificationsDir)) {
+      const safeDir = path.basename(modDir);
+      const modFilePath = path.join(modificationsDir, safeDir, safeName);
+      if (!isPathInsideDir(modFilePath, modificationsDir) || !fs.existsSync(modFilePath)) continue;
+      const match = /^ΤΡΟΠ_(\d+)$/.exec(safeDir);
+      modHit = {
+        filePath: modFilePath,
+        scope: 'modification',
+        modIndex: match ? Number(match[1]) - 1 : -1,
+      };
+      break;
     }
-    
-    if (fs.existsSync(filePath)) {
+  }
+  if (preferModification) return modHit;
+  const mainPath = path.join(entaxiRoot, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ', safeName);
+  if (isPathInsideDir(mainPath, entaxiRoot) && fs.existsSync(mainPath)) {
+    return { filePath: mainPath, scope: 'root', modIndex: -1 };
+  }
+  return null;
+}
+
+ipcMain.handle('view-entaxi-file', async (event, entaxiId, fileName, preferModification = false) => {
+  try {
+    const entaxiRoot = path.resolve(entaxisDir, String(entaxiId || ''));
+    const located = locateEntaxiStoredFile(entaxiRoot, fileName, !!preferModification);
+    const filePath = located && located.filePath;
+
+    if (filePath && fs.existsSync(filePath)) {
       // Use the generic file opener for all files
       console.log('Attempting to open file with exec:', filePath);
       return new Promise((resolve, reject) => {
@@ -7821,38 +7817,11 @@ ipcMain.handle('delete-entaxi-file', async (event, entaxiId, fileName, isModific
     if (!isPathInsideDir(entaxiRoot, entaxisDir)) {
       return { success: false, error: 'Μη επιτρεπτό path' };
     }
-    let filePath;
-    let fileFound = false;
-    
-    // Check in main files directory
-    filePath = path.join(entaxiRoot, 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ', safeName);
-    if (!isPathInsideDir(filePath, entaxiRoot)) {
-      return { success: false, error: 'Μη επιτρεπτό path' };
-    }
-    
-    if (!fs.existsSync(filePath)) {
-      // Check in modifications directories
-      const modificationsDir = path.join(entaxiRoot, 'ΤΡΟΠΟΠΟΙΗΣΕΙΣ');
-      if (fs.existsSync(modificationsDir) && isPathInsideDir(modificationsDir, entaxiRoot)) {
-        const modDirs = fs.readdirSync(modificationsDir);
-        for (const modDir of modDirs) {
-          const modFilePath = path.join(modificationsDir, path.basename(modDir), safeName);
-          if (!isPathInsideDir(modFilePath, modificationsDir)) continue;
-          if (fs.existsSync(modFilePath)) {
-            filePath = modFilePath;
-            fileFound = true;
-            break;
-          }
-        }
-      }
-    } else {
-      fileFound = true;
-    }
-    
-    // Delete the physical file if it exists
-    if (fileFound && fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      console.log('File deleted:', filePath);
+    const located = locateEntaxiStoredFile(entaxiRoot, safeName, !!isModification);
+    const fileFound = !!(located && located.filePath && fs.existsSync(located.filePath));
+    if (fileFound) {
+      fs.unlinkSync(located.filePath);
+      console.log('File deleted:', located.filePath);
     } else {
       console.log('File not found on disk, will remove from JSON only:', safeName);
     }
@@ -7862,22 +7831,22 @@ ipcMain.handle('delete-entaxi-file', async (event, entaxiId, fileName, isModific
     let updatedEntaxi = null;
     if (fs.existsSync(dataFile) && isPathInsideDir(dataFile, entaxiRoot)) {
       const existingData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-      existingData.entaxiPDFs = persistAcceptance.dropFileNameFromList(existingData.entaxiPDFs, safeName);
-      existingData.approvalPDFs = persistAcceptance.dropFileNameFromList(existingData.approvalPDFs, safeName);
-      if (persistAcceptance.fileRefName(existingData.entaxiPDF) === safeName) existingData.entaxiPDF = '';
-      if (persistAcceptance.fileRefName(existingData.approvalPDF) === safeName) existingData.approvalPDF = '';
-      persistAcceptance.syncAcceptanceAfterApprovalFiles(existingData);
-      if (Array.isArray(existingData.modifications)) {
-        existingData.modifications = existingData.modifications.map((mod) => {
-          const next = { ...mod };
-          const removed = persistAcceptance.removeApprovalFileFromRecord(next, safeName);
-          const modificationMatch = next.modificationPDF && (
-            next.modificationPDF === safeName
-            || path.basename(String(next.modificationPDF)) === safeName
-            || path.basename(String(next.modificationPDF)) === path.basename(safeName)
-          );
-          if (modificationMatch) next.modificationPDF = null;
-          return removed.changed || modificationMatch ? next : mod;
+      if (fileFound && located.scope === 'modification') {
+        persistAcceptance.unlinkEntaxiFileRecord(existingData, safeName, {
+          scope: 'modification',
+          modIndex: located.modIndex,
+        });
+      } else if (!isModification) {
+        persistAcceptance.unlinkEntaxiFileRecord(existingData, safeName, { scope: 'root' });
+      } else if (Array.isArray(existingData.modifications)) {
+        existingData.modifications.forEach((mod, index) => {
+          const listed = persistAcceptance.recordHasFileName(mod, safeName)
+            || persistAcceptance.fileRefName(mod && mod.modificationPDF).replace(/^.*[/\\]/, '') === safeName;
+          if (!listed) return;
+          persistAcceptance.unlinkEntaxiFileRecord(existingData, safeName, {
+            scope: 'modification',
+            modIndex: index,
+          });
         });
       }
       existingData.updatedAt = new Date().toISOString();
@@ -7917,14 +7886,14 @@ ipcMain.handle('rename-entaxi-file', async (_event, { entaxiId, oldName, newName
     if (!renamed.ok) return { success: false, error: renamed.error };
 
     const dataFile = path.join(entaxisDir, entaxiId, 'data.json');
+    let updatedEntaxi = null;
     if (fs.existsSync(dataFile)) {
+      const persistAcceptance = require(path.join(__dirname, '..', 'app', 'core', 'entaxiAcceptancePersist'));
       const data = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-      data.entaxiPDFs = managedFilesCore.renameFileInStringList(data.entaxiPDFs, oldBase, renamed.newName);
-      data.approvalPDFs = managedFilesCore.renameFileInStringList(data.approvalPDFs, oldBase, renamed.newName);
-      if (data.entaxiPDF === oldBase) data.entaxiPDF = renamed.newName;
-      if (data.approvalPDF === oldBase) data.approvalPDF = renamed.newName;
+      persistAcceptance.renameAcceptanceFileRefs(data, oldBase, renamed.newName);
       data.updatedAt = new Date().toISOString();
       safeWriteJSON(dataFile, data);
+      updatedEntaxi = data;
     }
     logAuditAction({
       type: 'update',
@@ -7933,7 +7902,7 @@ ipcMain.handle('rename-entaxi-file', async (_event, { entaxiId, oldName, newName
       entityTitle: renamed.newName,
       details: `Μετονομασία αρχείου ένταξης από ${oldBase} σε ${renamed.newName}`,
     });
-    return { success: true, newName: renamed.newName };
+    return { success: true, newName: renamed.newName, entaxi: updatedEntaxi };
   } catch (error) {
     logger.error('rename-entaxi-file', error.message);
     return { success: false, error: error.message };

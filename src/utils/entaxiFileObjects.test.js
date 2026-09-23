@@ -1,7 +1,11 @@
 /**
  * @jest-environment node
  */
-import { collectEntaxiApprovalFileNames, toExistingEntaxiFileObjects } from './entaxiFileObjects';
+import {
+  collectEntaxiApprovalFileNames,
+  partitionEntaxiViewerFiles,
+  toExistingEntaxiFileObjects,
+} from './entaxiFileObjects';
 
 describe('toExistingEntaxiFileObjects', () => {
   test('κρατά ονόματα αρχείων από συμβολοσειρές και αντικείμενα', () => {
@@ -23,6 +27,24 @@ describe('toExistingEntaxiFileObjects', () => {
       approvalPDF: 'παλιό.pdf',
       approvalPDFs: ['νέο.docx', { fileName: 'άλλο.xlsx' }],
     })).toEqual(['παλιό.pdf', 'νέο.docx', 'άλλο.xlsx']);
+  });
+
+  test('μετονομασμένο αρχείο αποδοχής μένει ορατό όταν η ένταξη έχει και τα δύο είδη αρχείων', () => {
+    const oldName = 'Αποδοχή Δ.Σ. — Διαύγεια 624ΙΩΨΜ-Ζ12.pdf';
+    const newName = 'Αποδοχή ανανεωμένη.pdf';
+    const stale = partitionEntaxiViewerFiles(
+      ['απόφαση-ένταξης.pdf', newName],
+      { entaxiPDFs: ['απόφαση-ένταξης.pdf'], approvalPDFs: [oldName] }
+    );
+    expect(stale.entaxiFiles).toEqual(['απόφαση-ένταξης.pdf']);
+    expect(stale.approvalFiles).toEqual([newName]);
+
+    const fresh = partitionEntaxiViewerFiles(
+      ['απόφαση-ένταξης.pdf', newName],
+      { entaxiPDFs: ['απόφαση-ένταξης.pdf'], approvalPDFs: [newName] }
+    );
+    expect(fresh.approvalFiles).toEqual([newName]);
+    expect(fresh.entaxiFiles).toEqual(['απόφαση-ένταξης.pdf']);
   });
 
   test('άδειος ή άκυρος κατάλογος δίνει κενό πίνακα', () => {

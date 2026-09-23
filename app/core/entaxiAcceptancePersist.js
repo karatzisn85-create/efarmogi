@@ -168,6 +168,97 @@
     return out;
   }
 
+  function renameStoredName(value, oldName, newName) {
+    if (typeof value !== 'string') return value;
+    var trimmed = value.trim();
+    if (!trimmed || !oldName || !newName || oldName === newName) return value;
+    var base = trimmed.replace(/^.*[/\\]/, '');
+    if (base !== oldName && trimmed !== oldName) return value;
+    return value.slice(0, value.length - base.length) + newName;
+  }
+
+  function renameFileList(list, oldName, newName) {
+    if (!Array.isArray(list)) return list;
+    return list.map(function (item) {
+      if (typeof item === 'string') return renameStoredName(item, oldName, newName);
+      if (!item || typeof item !== 'object') return item;
+      var copy = Object.assign({}, item);
+      ['fileName', 'name', 'originalName', 'pdfFileName', 'filePath'].forEach(function (key) {
+        if (typeof copy[key] === 'string') copy[key] = renameStoredName(copy[key], oldName, newName);
+      });
+      return copy;
+    });
+  }
+
+  function renameMetaRow(meta, oldName, newName) {
+    if (!meta || typeof meta !== 'object') return meta;
+    var copy = Object.assign({}, meta);
+    if (typeof copy.pdfFileName === 'string') copy.pdfFileName = renameStoredName(copy.pdfFileName, oldName, newName);
+    if (typeof copy.fileName === 'string') copy.fileName = renameStoredName(copy.fileName, oldName, newName);
+    return copy;
+  }
+
+  function renameAcceptanceFileRefs(data, oldName, newName) {
+    var out = data && typeof data === 'object' ? data : {};
+    var oldBase = String(oldName || '').replace(/^.*[/\\]/, '').trim();
+    var newBase = String(newName || '').replace(/^.*[/\\]/, '').trim();
+    if (!oldBase || !newBase || oldBase === newBase) return out;
+    if (Array.isArray(out.entaxiPDFs)) out.entaxiPDFs = renameFileList(out.entaxiPDFs, oldBase, newBase);
+    if (Array.isArray(out.approvalPDFs)) out.approvalPDFs = renameFileList(out.approvalPDFs, oldBase, newBase);
+    if (typeof out.entaxiPDF === 'string') out.entaxiPDF = renameStoredName(out.entaxiPDF, oldBase, newBase);
+    else if (out.entaxiPDF && typeof out.entaxiPDF === 'object') {
+      out.entaxiPDF = renameFileList([out.entaxiPDF], oldBase, newBase)[0];
+    }
+    if (typeof out.approvalPDF === 'string') out.approvalPDF = renameStoredName(out.approvalPDF, oldBase, newBase);
+    else if (out.approvalPDF && typeof out.approvalPDF === 'object') {
+      out.approvalPDF = renameFileList([out.approvalPDF], oldBase, newBase)[0];
+    }
+    if (out.diavgeiaAcceptanceMeta) {
+      out.diavgeiaAcceptanceMeta = renameMetaRow(out.diavgeiaAcceptanceMeta, oldBase, newBase);
+    }
+    if (Array.isArray(out.diavgeiaAcceptanceMetas)) {
+      out.diavgeiaAcceptanceMetas = out.diavgeiaAcceptanceMetas.map(function (row) {
+        return renameMetaRow(row, oldBase, newBase);
+      });
+    }
+    return out;
+  }
+
+  function sameStoredFileName(value, fileName) {
+    var base = String(fileName || '').replace(/^.*[/\\]/, '').trim();
+    var name = fileRefName(value);
+    if (!name || !base) return false;
+    return name === fileName || name.replace(/^.*[/\\]/, '') === base;
+  }
+
+  function unlinkFileNameOnRecord(record, fileName) {
+    var out = record && typeof record === 'object' ? record : {};
+    out.entaxiPDFs = dropFileNameFromList(out.entaxiPDFs, fileName);
+    out.approvalPDFs = dropFileNameFromList(out.approvalPDFs, fileName);
+    if (sameStoredFileName(out.entaxiPDF, fileName)) out.entaxiPDF = '';
+    if (sameStoredFileName(out.approvalPDF, fileName)) out.approvalPDF = '';
+    if (sameStoredFileName(out.modificationPDF, fileName)) out.modificationPDF = null;
+    syncAcceptanceAfterApprovalFiles(out);
+    return out;
+  }
+
+  function unlinkEntaxiFileRecord(data, fileName, where) {
+    var out = data && typeof data === 'object' ? data : {};
+    var scope = where && where.scope;
+    if (scope === 'modification') {
+      var index = Number(where && where.modIndex);
+      if (!Array.isArray(out.modifications) || !Number.isInteger(index) || index < 0 || index >= out.modifications.length) {
+        return out;
+      }
+      var mods = out.modifications.slice();
+      mods[index] = unlinkFileNameOnRecord(Object.assign({}, mods[index]), fileName);
+      out.modifications = mods;
+      return out;
+    }
+    unlinkFileNameOnRecord(out, fileName);
+    return out;
+  }
+
   function dropFileNameFromList(list, fileName) {
     var base = String(fileName || '').replace(/^.*[/\\]/, '').trim();
     if (!base) return Array.isArray(list) ? list.slice() : [];
@@ -189,6 +280,8 @@
     recordHasStoredAcceptance: recordHasStoredAcceptance,
     recordHasFileName: recordHasFileName,
     removeApprovalFileFromRecord: removeApprovalFileFromRecord,
-    mergeAttachedAcceptance: mergeAttachedAcceptance
+    mergeAttachedAcceptance: mergeAttachedAcceptance,
+    renameAcceptanceFileRefs: renameAcceptanceFileRefs,
+    unlinkEntaxiFileRecord: unlinkEntaxiFileRecord
   };
 });

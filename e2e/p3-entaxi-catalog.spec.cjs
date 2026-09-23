@@ -477,3 +477,54 @@ test('P3-35 από ένταξη η ωρίμανση και το υποέργο �
   await expect(window.getByTestId('ent-detail-modal')).toBeVisible({ timeout: 15000 });
   await expect(window.getByTestId('ent-detail-subject')).toContainText('Ανάπλαση γέφυρας');
 });
+
+test('P3-36 μετονομασία αποδοχής από Διαύγεια δεν χάνει το αρχείο', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const { window, testDir } = app;
+  const filesDir = path.join(testDir, 'entaxeis', 'ent-free', 'ΑΡΧΕΙΑ_ΕΝΤΑΞΗΣ');
+  const dataPath = path.join(testDir, 'entaxeis', 'ent-free', 'data.json');
+  fs.mkdirSync(filesDir, { recursive: true });
+  fs.writeFileSync(path.join(filesDir, 'απόφαση-ένταξης.pdf'), '%PDF-1.1\n');
+  const before = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+  before.entaxiPDFs = ['απόφαση-ένταξης.pdf'];
+  fs.writeFileSync(dataPath, JSON.stringify(before));
+
+  await app.queueDiavgeiaAcceptance({
+    decisions: [
+      {
+        ada: '624ΙΩΨΜ-Ζ12',
+        subject: '230/2025 απόφαση Δημοτικού Συμβουλίου :Τροποποίηση προϋπολογισμού οικονομικού έτους 2025 για την εκτέλεση του χρηματοδοτούμενου έργου «Μεμονωμένη ένταξη» ΟΠΣ 5225999',
+        issueDate: '2025-11-18',
+        protocolNumber: '230/2025',
+      },
+    ],
+  });
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-free').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await detail.getByTestId('ent-detail-acceptance-search').click();
+  const search = window.getByTestId('ent-acceptance-modal');
+  await search.getByTestId('ent-acceptance-candidate-624ΙΩΨΜ-Ζ12').click();
+  await search.getByTestId('ent-acceptance-confirm').click();
+  await expect(search.getByTestId('ent-acceptance-saved')).toBeVisible();
+  await search.getByTestId('ent-acceptance-close').click();
+  await detail.getByTestId('ent-detail-files').click();
+  const files = window.getByTestId('ent-files-modal');
+  const oldName = 'Αποδοχή Δ.Σ. — Διαύγεια 624ΙΩΨΜ-Ζ12.pdf';
+  await expect(files.getByTestId('ent-files-approval').getByText(oldName)).toBeVisible();
+  await expect(files.getByTestId('ent-files-decisions').getByText('απόφαση-ένταξης.pdf')).toBeVisible();
+  await files.getByTestId(`file-rename-${oldName}`).click();
+  await expect(window.getByTestId('file-rename-modal')).toBeVisible();
+  await window.getByTestId('file-rename-input').fill('Αποδοχή ανανεωμένη');
+  await window.getByTestId('file-rename-save').click();
+  const newName = 'Αποδοχή ανανεωμένη.pdf';
+  await expect(files.getByTestId('ent-files-approval').getByText(newName)).toBeVisible();
+  await expect(files.getByTestId('ent-files-decisions').getByText(newName)).toHaveCount(0);
+  await expect(files.getByText(oldName)).toHaveCount(0);
+  const saved = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+  expect(saved.approvalPDFs).toContain(newName);
+  expect(saved.diavgeiaAcceptanceMeta.pdfFileName).toBe(newName);
+  expect(saved.diavgeiaAcceptanceAda).toBe('624ΙΩΨΜ-Ζ12');
+  expect(saved.entaxiPDFs).toContain('απόφαση-ένταξης.pdf');
+});

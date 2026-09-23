@@ -2043,7 +2043,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
       console.log('Viewing file:', { entaxiId, actualFileName, originalFileName: fileName });
       
       // Use the same method as proskliseis - direct file opening
-      await ipcRenderer.invoke('view-entaxi-file', entaxiId, actualFileName);
+      await ipcRenderer.invoke('view-entaxi-file', entaxiId, actualFileName, true);
     } catch (error) {
       console.error('Error viewing file:', error);
       showToast('Σφάλμα κατά την προβολή του αρχείου: ' + error.message, 'error');
@@ -2096,7 +2096,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
     try {
       // Handle both string and object fileName
       const actualFileName = typeof fileName === 'string' ? fileName : fileName.fileName;
-      const result = await ipcRenderer.invoke('download-entaxi-file', entaxiId, actualFileName);
+      const result = await ipcRenderer.invoke('download-entaxi-file', entaxiId, actualFileName, true);
       
       if (result.success) {
         showToast('Το αρχείο λήφθηκε επιτυχώς!', 'success');
