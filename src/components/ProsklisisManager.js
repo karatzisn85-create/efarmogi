@@ -509,7 +509,7 @@ const ProsklisisItem = styled.div`
     switch (p.$status) {
       case 'Υπό Ωρίμανση': return '#f59e0b';
       case 'Υπό Υποβολή': return '#3b82f6';
-      case 'Υποβληθέν': return '#22c55e';
+      case 'Υποβληθέν':
       case 'Υποβληθέν ΤΔΠ': return '#10b981';
       default: return '#94a3b8';
     }
@@ -678,7 +678,7 @@ const StatusChip = styled.span`
     switch (p.$status) {
       case 'Υπό Ωρίμανση': return '#fff3cd';
       case 'Υπό Υποβολή': return '#cce5ff';
-      case 'Υποβληθέν': return '#d4edda';
+      case 'Υποβληθέν':
       case 'Υποβληθέν ΤΔΠ': return '#c8e6c9';
       default: return '#e9ecef';
     }
@@ -687,7 +687,7 @@ const StatusChip = styled.span`
     switch (p.$status) {
       case 'Υπό Ωρίμανση': return '#856404';
       case 'Υπό Υποβολή': return '#004085';
-      case 'Υποβληθέν': return '#155724';
+      case 'Υποβληθέν':
       case 'Υποβληθέν ΤΔΠ': return '#1b5e20';
       default: return '#495057';
     }
@@ -696,7 +696,7 @@ const StatusChip = styled.span`
     switch (p.$status) {
       case 'Υπό Ωρίμανση': return '#ffc107';
       case 'Υπό Υποβολή': return '#80bdff';
-      case 'Υποβληθέν': return '#28a745';
+      case 'Υποβληθέν':
       case 'Υποβληθέν ΤΔΠ': return '#66bb6a';
       default: return '#ced4da';
     }

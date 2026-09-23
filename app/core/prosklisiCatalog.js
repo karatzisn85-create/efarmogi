@@ -33,6 +33,19 @@
     SUBMITTED: 'submitted'
   };
 
+  var PROSKLISI_STATUS_SUBMITTED = 'Υποβληθέν ΤΔΠ';
+  var PROSKLISI_STATUS_OPTIONS = [
+    'Υπό Ωρίμανση',
+    'Υπό Υποβολή',
+    PROSKLISI_STATUS_SUBMITTED
+  ];
+
+  function normalizeProsklisiStatus(status) {
+    var s = String(status || '').trim();
+    if (s === 'Υποβληθέν') return PROSKLISI_STATUS_SUBMITTED;
+    return s;
+  }
+
   function parseProsklisiDeadline(dateString) {
     return calendarApi().parseProsklisiDeadline(dateString);
   }
@@ -82,13 +95,16 @@
     for (var i = 0; i < fields.length; i += 1) {
       out[fields[i]] = resolveProsklisiModificationFormValue(modification, fields[i], invitation);
     }
-    if (!out.status) out.status = 'Υπό Ωρίμανση';
+    out.status = normalizeProsklisiStatus(out.status) || 'Υπό Ωρίμανση';
     return out;
   }
 
   function sameProsklisiFormValue(field, left, right) {
     if (field === 'deadline' || field === 'modificationDocumentDate') {
       return toProsklisiDateInputValue(left) === toProsklisiDateInputValue(right);
+    }
+    if (field === 'status') {
+      return normalizeProsklisiStatus(left) === normalizeProsklisiStatus(right);
     }
     return String(left || '') === String(right || '');
   }
@@ -109,6 +125,7 @@
       }
       return raw;
     }
+    if (field === 'status') return normalizeProsklisiStatus(raw) || '(κενό)';
     return String(value);
   }
 
@@ -223,6 +240,9 @@
     for (var i = 0; i < changed.length; i += 1) {
       var current = modificationFieldCurrent(changed[i], field);
       if (current !== undefined) value = current;
+    }
+    if (field === 'status' && value != null && String(value).trim()) {
+      return normalizeProsklisiStatus(value);
     }
     return value;
   }
@@ -386,8 +406,7 @@
   }
 
   function isProsklisiSubmittedStatus(status) {
-    var s = String(status || '').trim();
-    return s === 'Υποβληθέν ΤΔΠ' || s === 'Υποβληθέν';
+    return calendarApi().isProsklisiSubmittedStatus(status);
   }
 
   function getProsklisiViewTab(prosklisi, modifications, now) {
@@ -827,6 +846,7 @@
     var out = [];
     (proskliseis || []).forEach(function (p) {
       var v = String((p && p[field]) || '').trim();
+      if (field === 'status') v = normalizeProsklisiStatus(v);
       if (!v || seen[v]) return;
       seen[v] = true;
       out.push(v);
@@ -1074,6 +1094,9 @@
     formatProsklisiChangeValue: formatProsklisiChangeValue,
     prosklisiHasDiavgeiaAda: prosklisiHasDiavgeiaAda,
     prosklisiHasRelatedEntaxi: prosklisiHasRelatedEntaxi,
+    PROSKLISI_STATUS_SUBMITTED: PROSKLISI_STATUS_SUBMITTED,
+    PROSKLISI_STATUS_OPTIONS: PROSKLISI_STATUS_OPTIONS,
+    normalizeProsklisiStatus: normalizeProsklisiStatus,
     isProsklisiSubmittedStatus: isProsklisiSubmittedStatus,
     getProsklisiViewTab: getProsklisiViewTab,
     compareActiveProskliseis: compareActiveProskliseis,

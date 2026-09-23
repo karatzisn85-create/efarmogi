@@ -145,8 +145,19 @@ test('κατάσταση στα tabs: μόνο ανοιχτές στις ενε�
   );
   assert.deepEqual(
     psk.statusesForProsklisiViewTab(all, psk.PROSKLISI_VIEW_TABS.SUBMITTED),
-    ['Υποβληθέν', 'Υποβληθέν ΤΔΠ']
+    ['Υποβληθέν ΤΔΠ']
   );
+});
+
+test('παλιό «Υποβληθέν» εμφανίζεται ως Υποβληθέν ΤΔΠ', () => {
+  assert.equal(psk.normalizeProsklisiStatus('Υποβληθέν'), 'Υποβληθέν ΤΔΠ');
+  assert.equal(psk.normalizeProsklisiStatus('Υποβληθέν ΤΔΠ'), 'Υποβληθέν ΤΔΠ');
+  assert.equal(psk.formatProsklisiChangeValue('status', 'Υποβληθέν'), 'Υποβληθέν ΤΔΠ');
+  assert.deepEqual(psk.PROSKLISI_STATUS_OPTIONS, [
+    'Υπό Ωρίμανση',
+    'Υπό Υποβολή',
+    'Υποβληθέν ΤΔΠ',
+  ]);
 });
 
 test('εξαγωγή προεπιλογή: όσες φαίνονται στο tab, όχι όλες τις φιλτραρισμένες', () => {
@@ -434,6 +445,25 @@ test('επεξεργασία παλιάς τροποποίησης γεμίζε�
   assert.equal(resolved.deadline, daysFrom(8));
   assert.equal(psk.sameProsklisiFormValue('deadline', '2024-06-01T08:00:00.000Z', '2024-06-01'), true);
   assert.equal(psk.toProsklisiDateInputValue('2024-06-01T08:00:00.000Z'), '2024-06-01');
+});
+
+test('επεξεργασία τροποποίησης: παλιό «Υποβληθέν» δεν μετράει ως αλλαγή κατάστασης', () => {
+  const invitation = {
+    title: 'Υποβληθείσα',
+    status: 'Υποβληθέν ΤΔΠ',
+    deadline: daysFrom(20),
+  };
+  const oldMod = {
+    modificationId: 'mod-psk-status',
+    changes: {
+      status: { original: 'Υποβληθέν', current: 'Υποβληθέν' },
+    },
+  };
+  const resolved = psk.resolveProsklisiModificationFormValues(oldMod, invitation);
+  assert.equal(resolved.status, 'Υποβληθέν ΤΔΠ');
+  assert.equal(psk.sameProsklisiFormValue('status', oldMod.changes.status.original, resolved.status), true);
+  assert.equal(psk.sameProsklisiFormValue('status', 'Υποβληθέν', 'Υποβληθέν ΤΔΠ'), true);
+  assert.equal(psk.sameProsklisiFormValue('status', 'Υπό Υποβολή', 'Υποβληθέν ΤΔΠ'), false);
 });
 
 test('παλιά συσχέτιση έργου με projectId αφαιρείται και δεν διπλώνει', () => {

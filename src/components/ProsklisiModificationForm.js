@@ -10,6 +10,7 @@ import {
   sameProsklisiFormValue,
   toProsklisiDateInputValue,
   formatProsklisiChangeValue,
+  PROSKLISI_STATUS_OPTIONS,
 } from '../utils/prosklisiDeadlineUtils';
 import { useToast } from './ToastProvider';
 import {
@@ -107,12 +108,7 @@ const SelectedFile = styled.div`
 `;
 
 // Constants
-const STATUS_OPTIONS = [
-  'Υπό Ωρίμανση',
-  'Υπό Υποβολή',
-  'Υποβληθέν',
-  'Υποβληθέν ΤΔΠ'
-];
+const STATUS_OPTIONS = PROSKLISI_STATUS_OPTIONS;
 
 function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi, isEditMode = false }) {
   const { showToast } = useToast();

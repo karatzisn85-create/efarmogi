@@ -48,12 +48,7 @@ const FormGrid = styled(ChromeFormGrid)`
 `;
 
 // Constants
-const STATUS_OPTIONS = [
-  'Υπό Ωρίμανση',
-  'Υπό Υποβολή',
-  'Υποβληθέν',
-  'Υποβληθέν ΤΔΠ'
-];
+const STATUS_OPTIONS = prosklisiCatalog.PROSKLISI_STATUS_OPTIONS;
 
 
 

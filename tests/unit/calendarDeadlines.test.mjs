@@ -37,6 +37,22 @@ test('πρόσκληση χωρίς ημερομηνία δεν μπαίνει �
   assert.equal(cal.prosklisiDeadlineToIsoDate('15-08-2026'), '2026-08-15');
 });
 
+test('υποβληθείσα πρόσκληση δεν μπαίνει στο ημερολόγιο ούτε στις ειδοποιήσεις', () => {
+  assert.equal(cal.isProsklisiSubmittedStatus('Υποβληθέν ΤΔΠ'), true);
+  assert.equal(cal.isProsklisiSubmittedStatus('Υποβληθέν'), true);
+  assert.equal(cal.isProsklisiSubmittedStatus('Υπό Υποβολή'), false);
+  assert.equal(cal.mapProsklisiToCalendarRow({
+    prosklisiId: 'p-sub',
+    title: 'Υποβληθείσα',
+    deadline: isoDaysFromToday(5),
+    status: 'Υποβληθέν ΤΔΠ',
+  }), null);
+  assert.equal(cal.buildProsklisiCalendarEvents([
+    { prosklisiId: 'open', title: 'Ανοιχτή', deadline: isoDaysFromToday(5), status: 'Υπό Ωρίμανση' },
+    { prosklisiId: 'done', title: 'Υποβληθείσα', deadline: isoDaysFromToday(5), status: 'Υποβληθέν' },
+  ]).length, 1);
+});
+
 test('παράθυρο ημερών αποκλείει μακρινές προθεσμίες', () => {
   const events = [
     { type: cal.CALENDAR_EVENT_TYPES.PROSKLISI_DEADLINE, daysLeft: 5, dateIso: isoDaysFromToday(5) },

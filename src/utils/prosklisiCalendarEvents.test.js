@@ -15,6 +15,25 @@ describe('prosklisiCalendarEvents', () => {
     expect(prosklisiDeadlineToIsoDate('-')).toBe('');
   });
 
+  test('skips submitted prosklisi even with an upcoming deadline', () => {
+    expect(mapProsklisiToCalendarRow({
+      prosklisiId: 'p-sub',
+      title: 'Υποβληθείσα',
+      deadline: '2026-12-15',
+      status: 'Υποβληθέν ΤΔΠ'
+    })).toBeNull();
+    expect(mapProsklisiToCalendarRow({
+      prosklisiId: 'p-sub2',
+      title: 'Υποβληθέν',
+      deadline: '2026-12-15',
+      status: 'Υποβληθέν'
+    })).toBeNull();
+    expect(buildProsklisiCalendarEvents([
+      { prosklisiId: 'open', title: 'Ανοιχτή', deadline: '2026-12-15', status: 'Υπό Υποβολή' },
+      { prosklisiId: 'done', title: 'Υποβληθείσα', deadline: '2026-12-15', status: 'Υποβληθέν ΤΔΠ' }
+    ]).map((row) => row.prosklisiId)).toEqual(['open']);
+  });
+
   test('maps prosklisi with deadline to calendar row', () => {
     const row = mapProsklisiToCalendarRow({
       prosklisiId: 'p1',

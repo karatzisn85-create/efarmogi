@@ -531,8 +531,16 @@
     return toDateKey(d);
   }
 
+  // Ίδιες καταστάσεις με τις «Υποβληθείσες» στις Προσκλήσεις.
+  // Η υποβολή έγινε: η λήξη δεν είναι πλέον ανοιχτή προθεσμία.
+  function isProsklisiSubmittedStatus(status) {
+    var s = String(status || '').trim();
+    return s === 'Υποβληθέν ΤΔΠ' || s === 'Υποβληθέν';
+  }
+
   function mapProsklisiToCalendarRow(prosklisi) {
     if (!prosklisi || !prosklisi.prosklisiId) return null;
+    if (isProsklisiSubmittedStatus(prosklisi.status)) return null;
     var dateIso = prosklisiDeadlineToIsoDate(prosklisi.deadline);
     if (!dateIso) return null;
     var daysLeft = daysUntilDate(dateIso);
@@ -957,6 +965,7 @@
     mergeCalendarEventLists: mergeCalendarEventLists,
     parseProsklisiDeadline: parseProsklisiDeadline,
     prosklisiDeadlineToIsoDate: prosklisiDeadlineToIsoDate,
+    isProsklisiSubmittedStatus: isProsklisiSubmittedStatus,
     mapProsklisiToCalendarRow: mapProsklisiToCalendarRow,
     buildProsklisiCalendarEvents: buildProsklisiCalendarEvents,
     mapEntaxiToCalendarRow: mapEntaxiToCalendarRow,

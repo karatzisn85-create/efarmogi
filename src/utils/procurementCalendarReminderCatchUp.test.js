@@ -125,3 +125,25 @@ describe('resolveRecipients · προσωπικές προτιμήσεις', () 
     expect(resolveRecipients(baseConfig, users)).toHaveLength(0);
   });
 });
+
+describe('υπενθυμίσεις προσκλήσεων', () => {
+  const { collectProsklisiItems } = require('../../public/calendarEventsBuilder');
+
+  test('υποβληθείσα πρόσκληση δεν μπαίνει στα μηνύματα λήξης', () => {
+    const items = collectProsklisiItems([
+      {
+        prosklisiId: 'open',
+        title: 'Ανοιχτή',
+        deadline: '2099-12-01',
+        status: 'Υπό Υποβολή',
+      },
+      {
+        prosklisiId: 'done',
+        title: 'Υποβληθείσα',
+        deadline: '2099-12-01',
+        status: 'Υποβληθέν ΤΔΠ',
+      },
+    ]);
+    expect(items.map((item) => item.prosklisiId)).toEqual(['open']);
+  });
+});

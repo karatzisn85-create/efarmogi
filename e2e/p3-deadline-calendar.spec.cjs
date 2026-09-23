@@ -76,6 +76,14 @@ test('P3-06 κλικ στην πρόσκληση ανοίγει την προθ�
   await expect(window.getByText(/Λήξη υποβολής|Πρόσκληση σχολείων/).first()).toBeVisible();
 });
 
+test('P3-06β υποβληθείσα πρόσκληση δεν εμφανίζεται ως λήξη υποβολής', async ({ app }) => {
+  const { window } = app;
+  await openCalendarList(window);
+  await calendarTypeFilter(window, 'Προσκλήσεις');
+  await expect(window.getByText('Πρόσκληση σχολείων').first()).toBeVisible();
+  await expect(window.getByText('Πρόσκληση υποβληθείσα με ανοιχτή λήξη')).toHaveCount(0);
+});
+
 test('P3-72 ημερομηνία ΑΕΠΟ ωρίμανσης φαίνεται στο ημερολόγιο', async ({ app }) => {
   const { window } = app;
   await openCalendarList(window);

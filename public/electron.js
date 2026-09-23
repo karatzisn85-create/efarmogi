@@ -8286,6 +8286,7 @@ async function loadAllProskliseis(options = {}) {
       try {
         const raw = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
         raw.linkedProjects = prosklisiCatalogCore.normalizeLinkedProjects(raw.linkedProjects);
+        raw.status = prosklisiCatalogCore.normalizeProsklisiStatus(raw.status);
         // Ισχύουσα λήξη από τροποποιήσεις (μόνο στη μνήμη — χωρίς εγγραφή στο hot path φόρτωσης)
         proskliseis.push(applyEffectiveDeadlineToProsklisi(raw, folderPath, {
           persist: false,
@@ -8591,6 +8592,9 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
         savedData.linkedProjects != null
           ? savedData.linkedProjects
           : existingOnDisk.linkedProjects
+      ),
+      status: prosklisiCatalogCore.normalizeProsklisiStatus(
+        savedData.status != null ? savedData.status : existingOnDisk.status
       ),
     };
     delete finalData.modifications;

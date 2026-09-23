@@ -358,6 +358,14 @@ function seedProskliseis(dataDir) {
       linkedProjects: [{ title: 'Οδικό δίκτυο Αρχανών', projectId: 'proj-road' }],
     },
     {
+      prosklisiId: 'psk-submitted-soon',
+      title: 'Πρόσκληση υποβληθείσα με ανοιχτή λήξη',
+      deadline: dateKeyFromToday(5),
+      status: 'Υποβληθέν ΤΔΠ',
+      code: 'PSK-401',
+      linkedProjects: [{ title: 'Οδικό δίκτυο Αρχανών', projectId: 'proj-road' }],
+    },
+    {
       prosklisiId: 'psk-modded',
       title: 'Πρόσκληση με τροποποίηση λήξης',
       deadline: dateKeyFromToday(-400),

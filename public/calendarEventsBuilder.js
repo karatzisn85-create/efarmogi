@@ -315,6 +315,7 @@ function collectProsklisiItems(proskliseis) {
   for (const prosklisi of proskliseis || []) {
     const prosklisiId = prosklisi?.prosklisiId;
     if (!prosklisiId) continue;
+    if (!calendarDeadlinesCore.mapProsklisiToCalendarRow(prosklisi)) continue;
     const deadlineIso = parseProsklisiDeadlineToIso(prosklisi.deadline);
     if (!deadlineIso) continue;
     const linked = Array.isArray(prosklisi.linkedProjects)
