@@ -134,3 +134,36 @@ test('P0-07 δεύτερη αλλαγή χρέωσης — φαίνεται ο �
   expect(saved.subprojectId).toBe('sub-bridge');
   expect(saved.supervisorEngineerIds).toEqual(['user:elena']);
 });
+
+test('P0-10 αναφορά υποέργου — επιλογή πλήρους ή συνοπτικής και αποθήκευση συνοπτικής', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const { window } = app;
+  const reportButton = () => card(window, 'sub-bridge').getByRole('button', { name: 'Λήψη αναφοράς υποέργου' });
+  const openReport = () => reportButton().click({ force: true });
+
+  await openReport();
+  const modal = window.getByTestId('subproject-report-choice');
+  await expect(modal).toBeVisible();
+  await expect(modal).toContainText('Πλήρης αναφορά');
+  await expect(modal).toContainText('Συνοπτική αναφορά');
+  await window.getByTestId('subproject-report-cancel').click();
+  await expect(modal).toHaveCount(0);
+
+  await openReport();
+  await expect(modal).toBeVisible();
+  await window.getByTestId('subproject-report-option-summary').click();
+  await window.getByTestId('subproject-report-export').click();
+  await expect(window.getByTestId('save-pdf-dialog')).toBeVisible({ timeout: 45000 });
+  await app.queueFolderPick({ success: true, path: app.testDir });
+  await window.getByTestId('save-pdf-browse').click();
+  await expect(window.getByTestId('save-pdf-folder')).toHaveText(app.testDir);
+  await window.getByTestId('save-pdf-confirm').click();
+  await expect.poll(() => {
+    const names = fs.existsSync(app.testDir) ? fs.readdirSync(app.testDir) : [];
+    return names.some((n) => n.startsWith('ERGOHUB_Συνοπτική_') && n.endsWith('.pdf'));
+  }, { timeout: 20000 }).toBe(true);
+  const pdfName = fs.readdirSync(app.testDir).find((n) => n.startsWith('ERGOHUB_Συνοπτική_') && n.endsWith('.pdf'));
+  expect(fs.statSync(path.join(app.testDir, pdfName)).size).toBeGreaterThan(1000);
+  await expect(modal).toHaveCount(0);
+});

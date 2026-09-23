@@ -24,8 +24,10 @@ export async function exportSubprojectReport({
   appConfig = {},
   appVersion = '',
   requestingUsername = '',
-  showToast
+  showToast,
+  variant = 'full',
 }) {
+  const summary = variant === 'summary';
   const linkedNoteRefs = getEntityLinkedNotes(linkedNotesMap, project.subprojectId);
   const linkedNotes = linkedNoteRefs.map((ref) => {
     const note = (notes || []).find((n) => n.id === ref.noteId);
@@ -49,15 +51,17 @@ export async function exportSubprojectReport({
     egkriseisRecords = [];
   }
 
-  let epActions = [];
-  try {
-    const epRes = await ipcRenderer.invoke('get-ep-actions-for-subproject', {
-      subprojectId: project.subprojectId,
-      requestingUsername
-    });
-    if (epRes?.success) epActions = epRes.actions || [];
-  } catch {
-    epActions = [];
+  let epActions = null;
+  if (!summary) {
+    try {
+      const epRes = await ipcRenderer.invoke('get-ep-actions-for-subproject', {
+        subprojectId: project.subprojectId,
+        requestingUsername
+      });
+      if (epRes?.success) epActions = epRes.actions || [];
+    } catch {
+      epActions = null;
+    }
   }
 
   let meleti = null;
@@ -105,25 +109,33 @@ export async function exportSubprojectReport({
   });
 
   const { createElement } = await import('react');
-  const { default: SubprojectDetailReport } = await import('../components/pdf/SubprojectDetailReport');
   const { pdf } = await import('@react-pdf/renderer');
+  const Report = summary
+    ? (await import('../components/pdf/SubprojectSummaryReport')).default
+    : (await import('../components/pdf/SubprojectDetailReport')).default;
 
-  const reportEl = createElement(SubprojectDetailReport, { data: payload, appConfig, appVersion });
+  const reportEl = createElement(Report, { data: payload, appConfig, appVersion });
   const blob = await pdf(reportEl).toBlob();
   const arrayBuffer = await blob.arrayBuffer();
   const dateStr = new Date().toISOString().slice(0, 10);
-  const defaultName = `ERGOHUB_Αναφορά_${sanitizeFilename(project.subprojectTitle)}_${dateStr}.pdf`;
+  const nameKind = summary ? 'Συνοπτική' : 'Αναφορά';
+  const defaultName = `ERGOHUB_${nameKind}_${sanitizeFilename(project.subprojectTitle)}_${dateStr}.pdf`;
 
   const result = await savePdfWithDialog({
     buffer: arrayBuffer,
     defaultName,
-    title: 'Αποθήκευση αναφοράς υποέργου',
+    title: summary ? 'Αποθήκευση συνοπτικής αναφοράς' : 'Αποθήκευση αναφοράς υποέργου',
     subtitle: project.subprojectTitle || '',
   });
 
   if (result?.canceled) return { canceled: true };
   if (result?.success) {
-    if (showToast) showToast('Η αναφορά υποέργου αποθηκεύτηκε επιτυχώς!', 'success');
+    if (showToast) {
+      showToast(
+        summary ? 'Η συνοπτική αναφορά αποθηκεύτηκε επιτυχώς!' : 'Η αναφορά υποέργου αποθηκεύτηκε επιτυχώς!',
+        'success'
+      );
+    }
     return { success: true, path: result.path };
   }
   if (showToast) showToast(result?.error || 'Σφάλμα κατά την αποθήκευση PDF', 'error');

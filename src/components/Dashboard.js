@@ -114,6 +114,7 @@ import {
   shouldFullReloadPortfolioAfterSubprojectFileUpload,
 } from '../utils/dashboardStartupLoad';
 import { exportSubprojectReport } from '../utils/subprojectReportExport';
+import SubprojectReportChoiceModal from './SubprojectReportChoiceModal';
 import PostSetupChecklistBanner from './PostSetupChecklistBanner';
 import {
   buildPostSetupItems,
@@ -7266,7 +7267,32 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     return map;
   }, [projects]);
 
-  const handleExportSubprojectReport = useCallback(async (project) => {
+  const [subprojectReportChoice, setSubprojectReportChoice] = useState(null);
+  const [subprojectReportExporting, setSubprojectReportExporting] = useState(false);
+  const subprojectReportChoiceResolveRef = useRef(null);
+  const subprojectReportBusyRef = useRef(false);
+
+  const finishSubprojectReportChoice = useCallback(() => {
+    setSubprojectReportChoice(null);
+    const resolve = subprojectReportChoiceResolveRef.current;
+    subprojectReportChoiceResolveRef.current = null;
+    if (typeof resolve === 'function') resolve();
+  }, []);
+
+  const handleExportSubprojectReport = useCallback((project) => new Promise((resolve) => {
+    if (subprojectReportChoiceResolveRef.current) {
+      resolve();
+      return;
+    }
+    subprojectReportChoiceResolveRef.current = resolve;
+    setSubprojectReportChoice(project);
+  }), []);
+
+  const confirmSubprojectReportChoice = useCallback(async (variant) => {
+    const project = subprojectReportChoice;
+    if (!project || subprojectReportBusyRef.current) return;
+    subprojectReportBusyRef.current = true;
+    setSubprojectReportExporting(true);
     try {
       await exportSubprojectReport({
         project,
@@ -7284,11 +7310,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         appConfig,
         appVersion,
         requestingUsername: currentUser?.username || '',
-        showToast
+        showToast,
+        variant,
       });
     } catch (error) {
       console.error('Subproject report export error:', error);
       showToast('Σφάλμα κατά τη δημιουργία αναφοράς', 'error');
+    } finally {
+      subprojectReportBusyRef.current = false;
+      setSubprojectReportExporting(false);
+      finishSubprojectReportChoice();
     }
   }, [
     entaxeis,
@@ -7303,7 +7334,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     appConfig,
     appVersion,
     currentUser?.username,
-    showToast
+    showToast,
+    subprojectReportChoice,
+    finishSubprojectReportChoice,
   ]);
 
   // Τα έργα που περνάνε στα στατιστικά — πλήρες χαρτοφυλάκιο για ADMIN/SUPERADMIN/USER,
@@ -9588,6 +9621,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         running={khmdhsBatchRunning}
         live={khmdhsLiveSnapshot}
         onUnlocked={unlockKhmdhsSession}
+      />
+
+      <SubprojectReportChoiceModal
+        isOpen={!!subprojectReportChoice}
+        subprojectTitle={subprojectReportChoice?.subprojectTitle || ''}
+        exporting={subprojectReportExporting}
+        onClose={finishSubprojectReportChoice}
+        onExport={confirmSubprojectReportChoice}
       />
 
       <UserGuideModal

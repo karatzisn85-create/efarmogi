@@ -986,7 +986,9 @@ function CoverPage({ basic, paymentSummary, appConfig, isPublishedToPortal, expo
         ) : null}
         {isPublishedToPortal ? (
           <Text style={D.coverPortal}>Δημοσιευμένο στην Πύλη Διαφάνειας</Text>
-        ) : null}
+        ) : (
+          <Text style={D.coverMetaLine}>Πύλη Διαφάνειας: δεν έχει δημοσιευτεί</Text>
+        )}
       </View>
 
       <ReportFooter />
@@ -1299,11 +1301,13 @@ function OverviewSection({ basic, isPublishedToPortal }) {
             />
           )
           : null}
-        {isPublishedToPortal
-          ? <FieldRow label="Πύλη Διαφάνειας" value="Δημοσιευμένο" alt />
-          : null}
+        <FieldRow
+          label="Πύλη Διαφάνειας"
+          value={isPublishedToPortal ? 'Δημοσιευμένο' : 'Δεν έχει δημοσιευτεί'}
+          alt
+        />
         {basic.updatedAt
-          ? <FieldRow label="Τελευταία ενημέρωση" value={displayDate(basic.updatedAt)} alt={!isPublishedToPortal} />
+          ? <FieldRow label="Τελευταία ενημέρωση" value={displayDate(basic.updatedAt)} alt={false} />
           : null}
       </FieldList>
     </Section>
@@ -1693,7 +1697,7 @@ export default function SubprojectDetailReport({ data, appConfig }) {
   const {
     basic, entaxeis, proskliseis, egkriseis, egkrisiLinks,
     epActions, linkedNotes, complianceWarnings, meleti, meta,
-    paymentSummary, chronologicalTimeline,
+    paymentSummary, chronologicalTimeline, epLookupOk,
   } = data;
 
   const exportDate = nowFormatted();
@@ -1749,7 +1753,21 @@ export default function SubprojectDetailReport({ data, appConfig }) {
           <EntaxeisSection entaxeis={entaxeis} />
           <ProskliseisSection proskliseis={proskliseis} />
           <EgkriseisSection egkriseis={egkriseis} egkrisiLinks={egkrisiLinks} />
-          <EpSection epActions={epActions} />
+          {epLookupOk && epActions?.length ? (
+            <EpSection epActions={epActions} />
+          ) : epLookupOk ? (
+            <Section title="Επιχειρησιακό Πρόγραμμα">
+              <FieldList>
+                <FieldRow label="Αντιστοίχιση" value="Δεν έχει καταχωριστεί σε δράση του επιχειρησιακού" />
+              </FieldList>
+            </Section>
+          ) : (
+            <Section title="Επιχειρησιακό Πρόγραμμα">
+              <FieldList>
+                <FieldRow label="Αντιστοίχιση" value="Δεν ήταν δυνατός ο έλεγχος αντιστοίχισης" />
+              </FieldList>
+            </Section>
+          )}
           <MeletaiSection meleti={meleti} />
           <NotesSection
             linkedNotes={linkedNotes}

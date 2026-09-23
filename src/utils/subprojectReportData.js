@@ -435,6 +435,7 @@ export function buildSubprojectReportPayload({
       total: a.total != null ? a.total : null,
       isNew: a.isNew
     })),
+    epLookupOk: Array.isArray(epActions),
     linkedNotes: (linkedNotes || []).map((n) => ({
       title: n.title || n.noteTitle || 'Σημείωση',
       content: n.content || n.preview || '',
