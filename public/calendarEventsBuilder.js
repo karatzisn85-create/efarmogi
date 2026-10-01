@@ -282,6 +282,7 @@ function makeItem({
   prosklisiId = '',
   entaxiId = '',
   project = null,
+  linkedProjects = null,
   customEvent = null,
   subprojectTitle,
   projectTitle = '',
@@ -299,6 +300,7 @@ function makeItem({
     prosklisiId,
     entaxiId,
     project,
+    linkedProjects: Array.isArray(linkedProjects) ? linkedProjects : [],
     customEvent,
     subprojectTitle: subprojectTitle || '(Χωρίς τίτλο)',
     projectTitle,
@@ -343,10 +345,29 @@ function collectProsklisiItems(proskliseis) {
   return items;
 }
 
-function collectEntaxiItems(entaxeis) {
+function collectEntaxiItems(entaxeis, projects) {
   const items = [];
   const seen = new Set();
   const nodeParse = require('../app/core/entaxiDiavgeiaParse');
+  const bySubId = new Map();
+  for (const project of projects || []) {
+    const id = String(project?.subprojectId || '').trim();
+    if (id) bySubId.set(id, project);
+  }
+
+  const linkedSubprojects = (entaxi) => {
+    const ids = Array.isArray(entaxi?.subprojectIds) ? entaxi.subprojectIds : [];
+    const out = [];
+    const seenIds = new Set();
+    ids.forEach((id) => {
+      const key = String(id || '').trim();
+      if (!key || seenIds.has(key)) return;
+      seenIds.add(key);
+      const project = bySubId.get(key);
+      if (project) out.push(project);
+    });
+    return out;
+  };
 
   const pushEntaxi = (entaxi, eventType, deadlineIso) => {
     const entaxiId = entaxi?.entaxiId;
@@ -354,11 +375,13 @@ function collectEntaxiItems(entaxeis) {
     const itemKey = `${eventType}:${entaxiId}:${deadlineIso}`;
     if (seen.has(itemKey)) return;
     seen.add(itemKey);
+    const linked = linkedSubprojects(entaxi);
     const row = makeItem({
       itemKey,
       eventType,
       entaxiId,
-      subprojectId: '',
+      linkedProjects: linked,
+      subprojectId: linked[0]?.subprojectId || '',
       subprojectTitle: entaxi.subject || entaxi.projectTitle || '(Χωρίς τίτλο)',
       projectTitle: entaxi.projectTitle || '',
       adam: entaxi.diavgeiaAda || '',
@@ -572,7 +595,7 @@ function collectAllCalendarReminderItems({ dataDir, projects, proskliseis, entax
   const procurement = collectProcurementItems(projects);
   const custom = collectCustomItems(dataDir);
   const prosklisiItems = collectProsklisiItems(proskliseis);
-  const entaxiItems = collectEntaxiItems(entaxeis);
+  const entaxiItems = collectEntaxiItems(entaxeis, projects);
   const guaranteeItems = collectGuaranteeReminderItems(contractorRecords, projects);
   const merged = [...procurement, ...custom, ...prosklisiItems, ...entaxiItems, ...guaranteeItems];
   merged.sort(
@@ -594,11 +617,18 @@ function itemVisibleToRecipient(item, recipient) {
     );
   }
 
-  // Προσκλήσεις: ορατές σε όσους έχουν επιλεγεί ως παραλήπτες (ρόλος/χρήστης στο κέντρο ειδοποιήσεων)
-  if (item.eventType === EVENT_TYPES.PROSKLISI_DEADLINE
-    || item.eventType === EVENT_TYPES.ENTAXI_NODE_DEADLINE
-    || item.eventType === EVENT_TYPES.ENTAXI_END_DATE) {
+  if (item.eventType === EVENT_TYPES.PROSKLISI_DEADLINE) {
     return role === 'ADMIN' || role === 'SUPERADMIN' || role === 'USER' || role === 'ENGINEER';
+  }
+
+  if (item.eventType === EVENT_TYPES.ENTAXI_NODE_DEADLINE
+    || item.eventType === EVENT_TYPES.ENTAXI_END_DATE) {
+    if (role === 'ADMIN' || role === 'SUPERADMIN' || role === 'USER') return true;
+    if (role === 'ENGINEER') {
+      const linked = Array.isArray(item.linkedProjects) ? item.linkedProjects : [];
+      return linked.some((project) => projectVisibleToEngineerContext(project, recipient.engineerContext));
+    }
+    return false;
   }
 
   if (item.eventType === EVENT_TYPES.CONTRACTOR_REGISTRY) {

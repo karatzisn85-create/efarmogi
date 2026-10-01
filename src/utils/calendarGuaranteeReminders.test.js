@@ -3,9 +3,11 @@
  */
 const {
   collectGuaranteeReminderItems,
+  collectEntaxiItems,
   itemVisibleToRecipient,
   EVENT_TYPES,
 } = require('../../public/calendarEventsBuilder');
+const { buildEngineerVisibilityContext } = require('../../public/chargeFilterUtils');
 
 describe('collectGuaranteeReminderItems', () => {
   const project = {
@@ -102,5 +104,55 @@ describe('collectGuaranteeReminderItems', () => {
       '2099-09-01',
       '2099-11-01',
     ]);
+  });
+});
+
+describe('υπενθύμιση ένταξης προς μηχανικούς', () => {
+  const outside = {
+    subprojectId: 'sub-out',
+    projectTitle: 'Γέφυρα',
+    supervisorEngineerIds: [],
+    supervisorChargeOutsideEngineers: true,
+    supervisorChargeFreePrimary: 'Εξωτερικός συνεργάτης',
+  };
+  const charged = {
+    subprojectId: 'sub-mine',
+    projectTitle: 'Γέφυρα',
+    supervisorEngineerIds: ['user:nikos'],
+  };
+  const nikos = {
+    role: 'ENGINEER',
+    username: 'nikos',
+    engineerContext: buildEngineerVisibilityContext('nikos', []),
+  };
+  const maria = {
+    role: 'ENGINEER',
+    username: 'maria',
+    engineerContext: buildEngineerVisibilityContext('maria', []),
+  };
+
+  function nodeItem(subprojectIds) {
+    const items = collectEntaxiItems([{
+      entaxiId: 'ent-1',
+      subject: 'Ένταξη γέφυρας',
+      legalCommitmentDeadline: '2099-06-01',
+      subprojectIds,
+    }], [outside, charged]);
+    return items.find((row) => row.eventType === EVENT_TYPES.ENTAXI_NODE_DEADLINE);
+  }
+
+  test('μηχανικός χωρίς χρέωση δεν λαμβάνει την προθεσμία νομικής δέσμευσης', () => {
+    const item = nodeItem(['sub-out']);
+    expect(item).toBeTruthy();
+    expect(itemVisibleToRecipient(item, maria)).toBe(false);
+    expect(itemVisibleToRecipient(item, nikos)).toBe(false);
+    expect(itemVisibleToRecipient(item, { role: 'ADMIN', username: 'admin' })).toBe(true);
+    expect(itemVisibleToRecipient(item, { role: 'SUPERADMIN', username: 'root' })).toBe(true);
+  });
+
+  test('μηχανικός με χρέωση σε συνδεδεμένο υποέργο την λαμβάνει', () => {
+    const item = nodeItem(['sub-out', 'sub-mine']);
+    expect(itemVisibleToRecipient(item, nikos)).toBe(true);
+    expect(itemVisibleToRecipient(item, maria)).toBe(false);
   });
 });
