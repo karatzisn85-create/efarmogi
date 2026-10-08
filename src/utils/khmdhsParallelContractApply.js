@@ -19,6 +19,37 @@ function uniqueAdams(list) {
   return [...new Set((list || []).map(normalizeAdam).filter(Boolean))];
 }
 
+const RE_NOT_INDEPENDENT_CONTRACT = /συμπληρωματικ|τροποποι|προσθετικ\s+συμβ|αναθεώρησ\s+τιμ|παράταση|παραταση/i;
+
+/**
+ * Οδηγία όταν η μαζική ανανέωση βρίσκει πολλές ανεξάρτητες συμβάσεις
+ * και δεν υπάρχει ήδη χαρακτηρισμός. Δεν γράφεται καμία σύμβαση στην κάρτα.
+ */
+export const BULK_PARALLEL_CONTRACTS_DEFER_REASON = 'Βρέθηκαν πολλές συμβάσεις. Δεν καταχωρήθηκε καμία. Ανοίξτε την επεξεργασία του υποέργου και κάντε ανάκτηση από τον ΑΔΑΜ, για να διαλέξετε ποιες ανήκουν εδώ και να τις χαρακτηρίσετε.';
+
+/**
+ * Η μαζική ανανέωση σταματά πριν την αποθήκευση όταν το ΚΗΜΔΗΣ έδειξε
+ * τουλάχιστον δύο ανεξάρτητες συμβάσεις και δεν υπάρχει έτοιμος χαρακτηρισμός.
+ * Συμπληρωματική ή παράταση της ίδιας σύμβασης δεν μετράει.
+ * Αν ο χαρακτηρισμός επαναχρησιμοποιείται, η ανανέωση προχωρά κανονικά.
+ */
+export function bulkRefreshMustDeferParallelContracts(chainRes, { reusablePlan } = {}) {
+  if (reusablePlan?.items?.length) return false;
+  if (!chainRes?.success) return false;
+  const siblings = uniqueAdams(chainRes.chainMeta?.parallelContracts);
+  if (siblings.length < 2) return false;
+  const snapshots = chainRes.chainMeta?.contractSnapshotsByAdam || {};
+  const independent = siblings.filter((adam) => {
+    const snap = snapshots[adam] || snapshots[normalizeAdam(adam)];
+    if (!snap || typeof snap !== 'object') return true;
+    const title = String(snap.title || '').trim();
+    if (!title) return true;
+    if (RE_NOT_INDEPENDENT_CONTRACT.test(title)) return false;
+    return isSubstantiveContractSymvSnapshot(snap);
+  });
+  return independent.length >= 2;
+}
+
 /** Όλες οι υποψήφιες παράλληλες SYMV (πριν το φιλτράρισμα συμβάσεων). */
 export function resolveParallelContractCandidates(chainRes) {
   if (!chainRes?.success) return [];

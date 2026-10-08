@@ -65,6 +65,33 @@ describe('mergeKhmdhsBatchResults', () => {
     expect(merged.interventionItems).toEqual([{ id: 'c', label: 'Γ' }]);
   });
 
+  it('η συγχώνευση δεν πετάει την οδηγία της εκκρεμότητας', () => {
+    const instruction = 'Ανοίξτε την επεξεργασία και κάντε ανάκτηση από τον ΑΔΑΜ.';
+    const merged = mergeKhmdhsBatchResults(
+      {
+        ...previousRun,
+        items: previousRun.items.map((item) => (
+          item.id === 'c' ? { ...item, instruction, reason: instruction } : item
+        )),
+      },
+      {
+        refreshed: 0,
+        needsIntervention: 0,
+        failed: 0,
+        skipped: 0,
+        interventionItems: [],
+        isRetry: true,
+        items: [{ status: 'failed', id: 'd', label: 'Δ' }],
+      }
+    );
+    expect(merged.interventionItems).toEqual([{
+      id: 'c',
+      label: 'Γ',
+      instruction,
+      reason: instruction,
+    }]);
+  });
+
   it('χωρίς προηγούμενη αναφορά κρατά τη νέα ως έχει', () => {
     const next = { items: [{ status: 'refreshed', id: 'a' }] };
     expect(mergeKhmdhsBatchResults(null, next)).toBe(next);
@@ -550,6 +577,29 @@ describe('buildKhmdhsLiveRunSnapshot', () => {
     expect(formatKhmdhsLiveHeadline(snap)).toMatch(/Ανάκτηση αλυσίδας/);
     expect(formatKhmdhsLiveDockLine(snap, { running: true })).toBe('2 / 8 · Οδός Α');
     expect(formatKhmdhsLiveDockLine(snap, { running: false })).toMatch(/Ολοκληρώθηκε/);
+  });
+
+  it('η εκκρεμότητα κρατά την οδηγία της και μετά το τέλος της εκτέλεσης', () => {
+    const instruction = 'Ανοίξτε την επεξεργασία και κάντε ανάκτηση από τον ΑΔΑΜ.';
+    const snap = buildKhmdhsLiveRunSnapshot({
+      running: false,
+      phase: 'finishing',
+      current: 1,
+      total: 1,
+      items: [{
+        status: 'intervened',
+        id: 'sp1',
+        label: 'Γέφυρα',
+        instruction,
+        reason: instruction,
+      }],
+    });
+    expect(snap.interventionItems).toEqual([{
+      id: 'sp1',
+      label: 'Γέφυρα',
+      instruction,
+      reason: instruction,
+    }]);
   });
 });
 

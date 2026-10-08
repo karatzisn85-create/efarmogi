@@ -167,3 +167,12 @@ test('P0-10 αναφορά υποέργου — επιλογή πλήρους ή
   expect(fs.statSync(path.join(app.testDir, pdfName)).size).toBeGreaterThan(1000);
   await expect(modal).toHaveCount(0);
 });
+
+test('P0-11 η ένταξη από την κάρτα ανοίγει σε ψηλό παράθυρο', async ({ app }) => {
+  const { window } = app;
+  await card(window, 'sub-bridge').getByTestId('btn-entaxi-sub-bridge').click();
+  const detail = window.getByTestId('ent-detail-modal');
+  await expect(detail).toBeVisible({ timeout: 15000 });
+  const dialog = detail.getByRole('dialog');
+  await expect.poll(async () => dialog.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(520);
+});

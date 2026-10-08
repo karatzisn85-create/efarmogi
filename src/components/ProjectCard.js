@@ -1600,7 +1600,7 @@ function ProjectCard({
             </ToolbarButton>
           )}
           {hasEntaxi && (
-            <ToolbarButton type="button" onClick={() => onOpenSpecificEntaxi && onOpenSpecificEntaxi(project.subprojectId)}>
+            <ToolbarButton type="button" data-testid={`btn-entaxi-${project.subprojectId}`} onClick={() => onOpenSpecificEntaxi && onOpenSpecificEntaxi(project.subprojectId)}>
               <IconDocument />
               ΕΝΤΑΞΗ
             </ToolbarButton>

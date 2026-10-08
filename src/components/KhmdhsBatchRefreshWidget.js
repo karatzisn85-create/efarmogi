@@ -4,6 +4,10 @@ import styled, { keyframes, css } from 'styled-components';
 import { useToast } from './ToastProvider';
 import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhsChainApply';
 import {
+  BULK_PARALLEL_CONTRACTS_DEFER_REASON,
+  bulkRefreshMustDeferParallelContracts,
+} from '../utils/khmdhsParallelContractApply';
+import {
   resolveReusablePlanForKhmdhsRefresh,
   resolvePlanChainResForKhmdhsRefresh,
 } from '../utils/khmdhsSymvChainPlanner';
@@ -2054,7 +2058,7 @@ export function KhmdhsBatchReportModal({
                   <InterventionContent>
                     <InterventionTitle>{item.label}</InterventionTitle>
                     <InterventionSubtitle>
-                      Εντοπίστηκαν πολλαπλά έγγραφα συμβάσεων — ορίστε ποιο είναι κύρια, παράταση ή συμπληρωματική. Δεν αποθηκεύτηκε αυτόματη αλλαγή.
+                      {item.instruction || item.reason || 'Εντοπίστηκαν πολλαπλά έγγραφα συμβάσεων — ορίστε ποιο είναι κύρια, παράταση ή συμπληρωματική. Δεν αποθηκεύτηκε αυτόματη αλλαγή.'}
                     </InterventionSubtitle>
                   </InterventionContent>
                 </InterventionItem>
@@ -2911,6 +2915,36 @@ export default function KhmdhsBatchRefreshWidget({
           const planChainRes = resolvePlanChainResForKhmdhsRefresh(res);
           const reusablePlan = resolveReusablePlanForKhmdhsRefresh(existingPlan, res, { form: project });
 
+          if (bulkRefreshMustDeferParallelContracts(planChainRes, { reusablePlan })) {
+            needsIntervention++;
+            interventionItems.push({
+              id: item.id,
+              label: item.label,
+              instruction: BULK_PARALLEL_CONTRACTS_DEFER_REASON,
+            });
+            detailItems.push({
+              status: 'intervened',
+              id: item.id,
+              label: item.label,
+              seedAdam: res.seedAdam,
+              reason: BULK_PARALLEL_CONTRACTS_DEFER_REASON,
+              instruction: BULK_PARALLEL_CONTRACTS_DEFER_REASON,
+            });
+            await persistItemFindings(item.id, buildKhmdhsRefreshFindings({
+              outcome: KHMDHS_FINDING_OUTCOME.INTERVENED,
+              runId,
+              at: runStartedAt,
+              by: currentUser?.username,
+              seedAdam: res.seedAdam,
+              actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.CHARACTERIZE_SYMV, {
+                title: 'Πολλές συμβάσεις — χρειάζεται η επιλογή σας',
+                detail: BULK_PARALLEL_CONTRACTS_DEFER_REASON,
+              })],
+            }));
+            addLog('⚠️', `${item.label} — Πολλές συμβάσεις, χωρίς αυτόματη καταχώριση`);
+            continue;
+          }
+
           // Τεχνητή αλυσίδα / ανανέωση σε επίπεδο υποέργου: πάντα stitch (όχι replace στη γραμμή 0).
           const registryChainResList = [];
           let applyResult;
@@ -3166,7 +3200,12 @@ export default function KhmdhsBatchRefreshWidget({
         interventionItems: (isRetryRun || autoRetryUntilClear)
           ? resultItems
             .filter((i) => i.status === 'intervened' && i.id)
-            .map((i) => ({ id: i.id, label: i.label }))
+            .map((i) => ({
+              id: i.id,
+              label: i.label,
+              instruction: i.instruction || '',
+              reason: i.reason || '',
+            }))
           : interventionItems,
         items: resultItems,
         // Η επανάληψη ενημερώνει μόνο τα υποέργα που ξανατρέξαμε — δεν αντικαθιστά την αναφορά.

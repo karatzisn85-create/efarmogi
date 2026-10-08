@@ -47,7 +47,12 @@ import {
   buildKhmdhsRefreshFindings,
   buildKhmdhsFindingAction,
   KHMDHS_FINDING_ACTION,
+  KHMDHS_FINDING_OUTCOME,
 } from '../utils/khmdhsRefreshFindings';
+import {
+  BULK_PARALLEL_CONTRACTS_DEFER_REASON,
+  bulkRefreshMustDeferParallelContracts,
+} from '../utils/khmdhsParallelContractApply';
 import { applyAdamChainResult, applyStitchRefreshResults } from '../utils/khmdhsChainApply';
 import { getConfirmedKhmdhsStitchPlan, evaluateStitchRefreshCompleteness } from '../utils/khmdhsChainStitchPlan';
 import {
@@ -1374,6 +1379,29 @@ function SubprojectDetailModal({
       const existingSymvPlan = applyBase.khmdhsSymvChainPlan;
       const planChainRes = resolvePlanChainResForKhmdhsRefresh(res);
       const reusableSymvPlan = resolveReusablePlanForKhmdhsRefresh(existingSymvPlan, res, { form: applyBase });
+      if (bulkRefreshMustDeferParallelContracts(planChainRes, { reusablePlan: reusableSymvPlan })) {
+        showToast(BULK_PARALLEL_CONTRACTS_DEFER_REASON, 'warning');
+        try {
+          await ipcRenderer.invoke('save-khmdhs-refresh-findings', {
+            subprojectId: project.subprojectId,
+            actingUsername: requestingUsername,
+            findings: buildKhmdhsRefreshFindings({
+              outcome: KHMDHS_FINDING_OUTCOME.INTERVENED,
+              at: new Date().toISOString(),
+              by: requestingUsername,
+              seedAdam: res.seedAdam,
+              actions: [buildKhmdhsFindingAction(KHMDHS_FINDING_ACTION.CHARACTERIZE_SYMV, {
+                title: 'Πολλές συμβάσεις — χρειάζεται η επιλογή σας',
+                detail: BULK_PARALLEL_CONTRACTS_DEFER_REASON,
+              })],
+            }),
+          });
+        } catch { /* η οδηγία έμεινε στο μήνυμα */ }
+        try {
+          if (typeof onRefreshProject === 'function') await onRefreshProject();
+        } catch { /* η κάρτα δεν άλλαξε */ }
+        return;
+      }
       if (needsSymvPlannerAfterKhmdhsRefresh(existingSymvPlan, res, { form: applyBase })) {
         setSymvPlannerState({
           open: true,
@@ -1483,6 +1511,7 @@ function SubprojectDetailModal({
     requestingUsername,
     showToast,
     releaseKhmdhsRefreshLock,
+    onRefreshProject,
   ]);
 
   const handleSymvPlannerConfirm = useCallback((plan) => {

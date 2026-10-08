@@ -29,6 +29,16 @@ function countByStatus(items, status) {
   return items.filter((i) => i.status === status).length;
 }
 
+/** Η εκκρεμότητα κρατά την οδηγία της — αλλιώς η αναφορά δείχνει το γενικό κείμενο άλλου είδους. */
+function interventionRef(item) {
+  const ref = { id: item.id, label: item.label };
+  const instruction = String(item.instruction || '').trim();
+  const reason = String(item.reason || '').trim();
+  if (instruction) ref.instruction = instruction;
+  if (reason) ref.reason = reason;
+  return ref;
+}
+
 function recount(results, items) {
   return {
     ...results,
@@ -39,7 +49,7 @@ function recount(results, items) {
     skipped: countByStatus(items, STATUS.SKIPPED),
     interventionItems: items
       .filter((i) => i.status === STATUS.INTERVENED && i.id)
-      .map((i) => ({ id: i.id, label: i.label })),
+      .map(interventionRef),
   };
 }
 
@@ -423,7 +433,7 @@ export function summarizeKhmdhsBatchLiveItems(items = []) {
     skipped: list.filter((i) => i.status === 'skipped').length,
     interventionItems: list
       .filter((i) => i.status === 'intervened' && i.id)
-      .map((i) => ({ id: i.id, label: i.label })),
+      .map(interventionRef),
   };
 }
 

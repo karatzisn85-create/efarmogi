@@ -94,6 +94,10 @@ const EntaxisContainer = styled.div`
   width: 100%;
   max-width: 1920px;
   max-height: 94vh;
+  ${({ $fill }) => $fill && `
+    height: calc(100vh - 2.2rem);
+    max-height: calc(100vh - 2.2rem);
+  `}
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2322,7 +2326,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
       style={!isOpen ? { display: 'none' } : undefined}
       onClick={(e) => e.target === e.currentTarget && handleClose()}
     >
-      <EntaxisContainer>
+      <EntaxisContainer $fill={!!selectedDetailEntaxi}>
         <EntaxisTopSection>
         <Header>
           <Title>Εντάξεις Έργων</Title>
