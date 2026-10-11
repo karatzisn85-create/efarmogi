@@ -4,7 +4,6 @@ import { containsSearchTerm } from './searchUtils';
 import { enrichChainHistoryWithReview } from './khmdhsChainActions';
 import { overlaySymvPlanLabelsOnChainHistory } from './khmdhsSymvChainPlanner';
 import {
-  getKhmdhsAmountSanityReference,
   normalizeProjectAmountForStorage,
 } from './projectAmountUtils';
 import { SYMV_CHAIN_ROLE } from './khmdhsSymvChainPlanner';
@@ -394,8 +393,10 @@ export function normalizeContractsFromProject(project) {
 function resolveStoredContractAmount(project, rawAmount) {
   const raw = String(rawAmount || '').trim();
   if (!raw) return '';
-  const sanityRef = getKhmdhsAmountSanityReference(project);
-  return normalizeProjectAmountForStorage(raw, sanityRef) || raw;
+  // Το αποθηκευμένο ποσό σύμβασης είναι αυθεντικό (το έγραψε/επιβεβαίωσε ο χρήστης ή
+  // ήρθε ήδη αναλυμένο). Δεν εφαρμόζουμε «διόρθωση κλίμακας» (÷100) στην προβολή — αυτή
+  // προορίζεται μόνο για ακατέργαστες τιμές ΚΗΜΔΗΣ και αλλοίωνε σωστά ποσά (15.413,70 → 154,14).
+  return normalizeProjectAmountForStorage(raw, 0) || raw;
 }
 
 /** Εγγραφές για κάρτα / λεπτομέρεια */

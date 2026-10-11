@@ -11,6 +11,7 @@ import {
   getUnresolvedReviewItems,
   KHMDHS_REVIEW_STATUS,
 } from './khmdhsDataQualityReport';
+import { getKhmdhsDisplayEntries } from './khmdhsFields';
 
 describe('mergeSymvChainPlanIntoDataQualityReview', () => {
   test('επιλύει ποσά και για παράλληλες συμβάσεις μετά την κατανομή SYMV', () => {
@@ -244,5 +245,62 @@ describe('applySymvChainPlanToForm stitch', () => {
     expect(adams).toEqual(['24SYMV015890933', '25SYMV016155296']);
     expect(form.khmdhsRequestAdam).toBe('24REQ015252599');
     expect(form.khmdhsChainSeedAdam).toBe('24REQ015252599');
+  });
+});
+
+describe('το ποσό που πληκτρολογεί ο χρήστης δεν διαιρείται με το 100', () => {
+  // Ανάθεση αναφοράς μικρότερη από τη σύμβαση (τυπικό σε παράλληλες συμβάσεις)
+  const smallAwardSnapshot = { totalCostWithVAT: 2000 };
+  const chainRes = {
+    success: true,
+    auction: {
+      adam: '24AWRD000000001',
+      snapshot: smallAwardSnapshot,
+      fetchedAt: '2026-01-01T00:00:00.000Z',
+    },
+    contract: {
+      adam: '24SYMV000000001',
+      snapshot: { referenceNumber: '24SYMV000000001' },
+      roleLabel: 'Κύρια σύμβαση',
+    },
+    chainMeta: {
+      contractSnapshotsByAdam: {
+        '24SYMV000000001': { referenceNumber: '24SYMV000000001', contractSignedDate: '2025-01-15' },
+        '24SYMV000000002': { referenceNumber: '24SYMV000000002', contractSignedDate: '2025-01-16' },
+      },
+    },
+  };
+  const plan = {
+    items: [
+      { adam: '24SYMV000000001', role: SYMV_CHAIN_ROLE.MAIN, date: '2025-01-15', amount: '2.000,00' },
+      { adam: '24SYMV000000002', role: SYMV_CHAIN_ROLE.PARALLEL, date: '2025-01-16', amount: '15.413,70' },
+    ],
+  };
+
+  test('αποθηκεύει ακέραιο το ποσό 15.413,70 (όχι 154,14) στην παράλληλη σύμβαση', () => {
+    const { form } = applySymvChainPlanToForm(
+      { implementationForm: 'Μια Σύμβαση' },
+      chainRes,
+      plan,
+      { seedAdam: '24AWRD000000001', applyMode: 'replace' }
+    );
+    const parallel = (form.contracts || []).find((c) => c.khmdhsAdam === '24SYMV000000002');
+    expect(parallel?.amount).toBe('15.413,70');
+  });
+
+  test('εμφανίζει ακέραιο το ποσό στην κάρτα, παρότι η ανάθεση αναφοράς είναι μικρή', () => {
+    const project = {
+      implementationForm: 'Πολλές Συμβάσεις',
+      khmdhsAwardSnapshot: smallAwardSnapshot,
+      contracts: [
+        {
+          khmdhsAdam: '24SYMV000000002',
+          amount: '15.413,70',
+          khmdhsContractSnapshot: { referenceNumber: '24SYMV000000002' },
+        },
+      ],
+    };
+    const entries = getKhmdhsDisplayEntries(project);
+    expect(entries[0].storedAmount).toBe('15.413,70');
   });
 });

@@ -28,7 +28,6 @@ import {
 import { SYMV_CHAIN_ROLE, expandSymvPlanWithFormContracts, isAdamSkippedInSymvPlan } from './khmdhsSymvChainPlanner';
 import { detectStagesCoveredByForm } from './khmdhsChainStitchPlan';
 import { filterUnrelatedPayments } from './khmdhsPaymentReconciliation';
-import { grossFromCostSnapshot } from './khmdhsVatHelper';
 import { normalizeProjectAmountForStorage } from './projectAmountUtils';
 import { applyPlannerApeItemsToForm, stripPhantomContractApeFromForm } from './khmdhsApeEntry';
 import {
@@ -50,9 +49,12 @@ function buildContractRow(adam, planItem, chainRes, { roleLabel = '', chainHisto
   const snap = snapshots[norm] || snapshots[adam] || null;
   const fetchedAt = chainRes.chainMeta?.resolvedAt || new Date().toISOString();
   const snapEnd = snap?.noEndDate ? '' : String(snap?.endDate || '').slice(0, 10);
-  const sanityRef = grossFromCostSnapshot(chainRes?.auction?.snapshot) || 0;
+  // Το ποσό στην κατανομή είναι είτε αυτό που πληκτρολόγησε/επιβεβαίωσε ο χρήστης,
+  // είτε ήδη αναλυμένο ακαθάριστο ποσό. Δεν εφαρμόζουμε «διόρθωση κλίμακας» (÷100):
+  // αυτή προορίζεται μόνο για ακατέργαστες τιμές του ΚΗΜΔΗΣ και αλλοίωνε σωστά ποσά
+  // (π.χ. 15.413,70 → 154,14) όταν η ανάθεση αναφοράς ήταν μικρότερη της σύμβασης.
   const rawAmount = String(planItem?.amount || '').trim();
-  const amount = rawAmount ? normalizeProjectAmountForStorage(rawAmount, sanityRef) : '';
+  const amount = rawAmount ? normalizeProjectAmountForStorage(rawAmount, 0) : '';
 
   return {
     ...createEmptyContractRow(),

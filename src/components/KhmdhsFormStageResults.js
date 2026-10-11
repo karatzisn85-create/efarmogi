@@ -393,7 +393,8 @@ export default function KhmdhsFormStageResults({
           const openNewExtension = () => onOpenManualExtension?.({ ...extensionTarget, entryId: null });
           const sanityRef = getKhmdhsAmountSanityReference(project);
           const contractRef = entry.storedAmount || '';
-          const contractAmtFmt = formatProjectAmountDisplay(contractRef, sanityRef);
+          // Το αποθηκευμένο ποσό είναι αυθεντικό — καμία «διόρθωση κλίμακας» (÷100) στην προβολή.
+          const contractAmtFmt = formatProjectAmountDisplay(contractRef, 0);
           const latestApeFmt = formatApeAmountDisplay(
             getLatestContractApeAmount(project, arrayIndex),
             contractAmtFmt || contractRef,
