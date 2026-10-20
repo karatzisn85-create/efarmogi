@@ -708,7 +708,9 @@ test('P3-72 συνδεδεμένο δικαιολογητικό ωρίμανση
   await expect(linkedSection).toBeVisible();
   await expect(linkedSection.getByText('Αρχεία από την ωρίμανση', { exact: true })).toBeVisible();
   await expect(linkedSection.getByText('ΜΕΛΕΤΕΣ ΕΡΓΟΥ', { exact: true })).toBeVisible();
+  await linkedSection.getByRole('button', { name: /ΜΕΛΕΤΕΣ ΕΡΓΟΥ/ }).click();
   await expect(linkedSection.getByText('ΤΟΠΟΓΡΑΦΙΚΑ', { exact: true })).toBeVisible();
+  await linkedSection.getByRole('button', { name: /ΤΟΠΟΓΡΑΦΙΚΑ/ }).click();
   await expect(linkedSection.getByText('τοπογραφικο.pdf', { exact: true })).toBeVisible();
   // Αφαίρεση συνδέσμου από την πλευρά της πρόσκλησης
   await window.getByTestId('psk-linked-remove-τοπογραφικο.pdf').click();

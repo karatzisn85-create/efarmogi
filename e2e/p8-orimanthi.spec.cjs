@@ -332,6 +332,9 @@ test('P8-30 αφαίρεση από την πρόσκληση ενημερώνε
   await expect(detail).toBeVisible();
   await detail.getByRole('button', { name: 'Αρχεία' }).click();
   await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  const filesModal = window.getByTestId('psk-files-modal');
+  await filesModal.getByRole('button', { name: /ΜΕΛΕΤΕΣ ΕΡΓΟΥ/ }).click();
+  await filesModal.getByRole('button', { name: /ΤΟΠΟΓΡΑΦΙΚΑ/ }).click();
   await window.getByTestId('psk-linked-remove-τοπογραφικο.pdf').click();
   await window.getByTestId('confirm-yes').click();
   await expect(window.getByText(/αφαιρέθηκε από την πρόσκληση/i)).toBeVisible({ timeout: 15000 });

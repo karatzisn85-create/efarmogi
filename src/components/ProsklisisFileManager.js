@@ -136,24 +136,33 @@ const Content = styled.div`
   min-height: 0;
 `;
 
-const FolderSection = styled.div`
-  margin-bottom: 1.5rem;
+const SectionCard = styled.div`
+  margin-bottom: 0.85rem;
+  border-radius: 12px;
+  background: ${(p) => (p.$accent ? '#eef2ff' : '#f8fafc')};
+  border: 1px solid ${(p) => (p.$accent ? '#c7d2fe' : C.slate200)};
+  padding: 0.5rem 0.55rem 0.55rem;
   &:last-child { margin-bottom: 0; }
+`;
+
+const SectionLabel = styled.div`
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #4338ca;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem 0.4rem;
 `;
 
 const GroupCard = styled.div`
-  margin-bottom: 1.1rem;
-  padding-left: ${(p) => (p.$nested ? '0.85rem' : '0')};
   &:last-child { margin-bottom: 0; }
 `;
 
-const GroupHeaderRow = styled.div`
+const NodeRow = styled.div`
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.7rem;
-  padding-bottom: 0.55rem;
-  border-bottom: 1px solid ${C.slate200};
+  gap: 0.2rem;
+  margin-bottom: 0.2rem;
 `;
 
 const GroupToggle = styled.button`
@@ -161,43 +170,45 @@ const GroupToggle = styled.button`
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.4rem;
   margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
+  padding: 0.38rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid ${(p) => (p.$open ? '#c7d2fe' : 'transparent')};
+  background: ${(p) => (p.$open ? C.white : 'transparent')};
   cursor: pointer;
   text-align: left;
-  color: ${C.slate600};
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  &:hover { color: ${C.indigo}; }
+  color: ${C.slate800};
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-family: inherit;
+  &:hover {
+    background: ${C.white};
+    border-color: #c7d2fe;
+  }
 `;
 
-const GroupStaticTitle = styled.div`
+const NodeTitle = styled.span`
   flex: 1;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: ${C.slate600};
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 `;
 
 const GroupIcon = styled.span`
-  font-size: 1rem;
+  font-size: 0.95rem;
   line-height: 1;
+  flex-shrink: 0;
 `;
 
 const GroupChevron = styled.span`
   flex-shrink: 0;
-  color: ${C.slate500};
-  font-size: 0.72rem;
+  width: 0.7rem;
+  color: ${C.indigo};
+  font-size: 0.62rem;
   transform: rotate(${(p) => (p.$open ? '90deg' : '0deg')});
   transition: transform 0.15s ease;
 `;
@@ -205,38 +216,87 @@ const GroupChevron = styled.span`
 const GroupCount = styled.span`
   margin-left: auto;
   flex-shrink: 0;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 700;
   color: ${C.slate500};
   background: ${C.slate100};
-  padding: 0.18rem 0.6rem;
+  padding: 0.14rem 0.5rem;
   border-radius: 999px;
-  text-transform: none;
   letter-spacing: 0;
 `;
 
-const GroupBody = styled.div`
-  padding: 0 0 0.15rem;
+const OriginBadge = styled.span`
+  flex-shrink: 0;
+  font-size: 0.64rem;
+  font-weight: 800;
+  color: ${C.indigoDark};
+  background: ${C.white};
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  padding: 0.08rem 0.42rem;
+`;
+
+const OriginNote = styled.p`
+  margin: 0.05rem 0.35rem 0.4rem 1.35rem;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: ${C.slate600};
+`;
+
+const OriginProject = styled.span`
+  display: block;
+  color: ${C.slate500};
+  margin-top: 0.1rem;
+`;
+
+const TreeTools = styled.div`
+  display: flex;
+  gap: 0.35rem;
+  margin: 0 0 0.35rem 1.35rem;
+`;
+
+const TreeToolBtn = styled.button`
+  border: 1px solid #c7d2fe;
+  background: ${C.white};
+  color: ${C.indigoDark};
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+  &:hover { background: ${C.indigoLight}; }
+`;
+
+const TreeChildren = styled.div`
+  margin: 0.1rem 0 0.35rem 0.7rem;
+  padding-left: 0.65rem;
+  border-left: 2px solid ${(p) => (p.$accent ? '#c7d2fe' : C.slate200)};
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 `;
 
 const FilesList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0.25rem;
 `;
 
 const FileItem = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.65rem 0.9rem;
+  padding: 0.5rem 0.7rem;
   background: ${C.white};
-  border: 1px solid ${C.slate200};
-  border-radius: 10px;
-  gap: 0.75rem;
+  border: 1px solid ${(p) => (p.$linked ? '#c7d2fe' : C.slate200)};
+  border-left: 3px solid ${(p) => (p.$linked ? C.indigo : C.slate200)};
+  border-radius: 9px;
+  gap: 0.65rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
   &:hover {
-    border-color: ${C.slate300};
+    border-color: ${(p) => (p.$linked ? '#a5b4fc' : C.slate300)};
     box-shadow: 0 2px 10px rgba(99, 102, 241, 0.08);
   }
 `;
@@ -503,9 +563,28 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     }
   };
 
-  const toggleFileGroup = (groupKey) => {
-    setExpandedGroupIds((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  const toggleFileGroup = (groupKey, defaultOpen = false) => {
+    setExpandedGroupIds((prev) => {
+      const currently = Object.prototype.hasOwnProperty.call(prev, groupKey)
+        ? !!prev[groupKey]
+        : !!defaultOpen;
+      return { ...prev, [groupKey]: !currently };
+    });
   };
+
+  const orimanthiOriginLine = useMemo(() => {
+    const titles = [];
+    const seen = new Set();
+    (linkedOrimanthiFiles || []).forEach((file) => {
+      const title = String(file?.sourceProposalTitle || '').trim();
+      if (!title || seen.has(title)) return;
+      seen.add(title);
+      titles.push(title);
+    });
+    if (titles.length === 1) return `Έργο: ${titles[0]}`;
+    if (titles.length > 1) return `${titles.length} έργα ωρίμανσης`;
+    return '';
+  }, [linkedOrimanthiFiles]);
 
   const groupedNameSet = useMemo(
     () => new Set(prosklisiFileGroups.collectGroupFileNames(fileGroups)),
@@ -882,6 +961,24 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     () => prosklisiFileGroups.buildOrimanthiLinkedGroup(linkedOrimanthiFiles),
     [linkedOrimanthiFiles]
   );
+
+  const setLinkedTreeOpen = (openChildren) => {
+    if (!linkedOrimanthiGroup) return;
+    const ids = [];
+    const walk = (group) => {
+      if (!group?.id) return;
+      ids.push(String(group.id));
+      (group.subgroups || []).forEach(walk);
+    };
+    walk(linkedOrimanthiGroup);
+    setExpandedGroupIds((prev) => {
+      const next = { ...prev };
+      ids.forEach((id, index) => {
+        next[id] = index === 0 ? true : openChildren;
+      });
+      return next;
+    });
+  };
 
   const handleRenameFile = async (fileName, targetFolder, typedName) => {
     const result = await ipcRenderer.invoke('rename-prosklisi-file', {
@@ -1395,7 +1492,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     const name = lf.originalName || lf.fileName;
     const { label, bg } = getFileTypeStyle(name);
     return (
-      <FileItem key={`${lf.sourceProposalId}-${lf.sourceGroupId}-${lf.fileName}-${idx}`}>
+      <FileItem $linked key={`${lf.sourceProposalId}-${lf.sourceGroupId}-${lf.fileName}-${idx}`}>
         <FileInfo>
           <FileIconBadge $bg={bg}>{label}</FileIconBadge>
           <FileName title={name}>{name}</FileName>
@@ -1421,36 +1518,46 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     const groupKey = String(group.id || groupIndex);
     const isLinked = !!(group.linked || options.linked);
     const nested = !!options.nested;
-    const alwaysOpen = isLinked;
-    const isOpenGroup = alwaysOpen || !!expandedGroupIds[groupKey];
+    const isRootLinked = isLinked && !nested;
+    const defaultOpen = isRootLinked;
+    const isOpenGroup = Object.prototype.hasOwnProperty.call(expandedGroupIds, groupKey)
+      ? !!expandedGroupIds[groupKey]
+      : defaultOpen;
     const fileCount = prosklisiFileGroups.countGroupFiles(group);
-    const countLabel = `${fileCount} ${fileCount === 1 ? 'αρχείο' : 'αρχεία'}`;
-    const titleNode = (
-      <>
-        <GroupIcon aria-hidden>📁</GroupIcon>
-        <span>{group.title}</span>
-        <GroupCount>{countLabel}</GroupCount>
-      </>
-    );
+    const folderCount = (group.subgroups || []).length;
+    const fileWord = fileCount === 1 ? 'αρχείο' : 'αρχεία';
+    const folderWord = folderCount === 1 ? 'φάκελος' : 'φάκελοι';
+    let countLabel = `${fileCount} ${fileWord}`;
+    if (folderCount > 0) {
+      countLabel = fileCount > 0
+        ? `${folderCount} ${folderWord} · ${fileCount} ${fileWord}`
+        : `${folderCount} ${folderWord}`;
+    }
+    const directFiles = group.files || [];
+    const subgroups = group.subgroups || [];
     return (
       <GroupCard
         key={group.id || groupIndex}
-        $nested={nested}
-        data-testid={isLinked && !nested ? 'psk-linked-orimanthi-files' : `psk-group-${group.id || groupIndex}`}
+        data-testid={
+          isRootLinked && !options.embedded
+            ? 'psk-linked-orimanthi-files'
+            : (!isLinked ? `psk-group-${group.id || groupIndex}` : undefined)
+        }
       >
-        <GroupHeaderRow>
-          {alwaysOpen ? (
-            <GroupStaticTitle>{titleNode}</GroupStaticTitle>
-          ) : (
-            <GroupToggle
-              type="button"
-              aria-expanded={isOpenGroup}
-              onClick={() => toggleFileGroup(groupKey)}
-            >
-              <GroupChevron $open={isOpenGroup} aria-hidden>▶</GroupChevron>
-              {titleNode}
-            </GroupToggle>
-          )}
+        <NodeRow>
+          <GroupToggle
+            type="button"
+            $open={isOpenGroup}
+            aria-expanded={isOpenGroup}
+            title={isOpenGroup ? 'Σύμπτυξη' : 'Άνοιγμα φακέλου'}
+            onClick={() => toggleFileGroup(groupKey, defaultOpen)}
+          >
+            <GroupChevron $open={isOpenGroup} aria-hidden>▶</GroupChevron>
+            <GroupIcon aria-hidden>{isOpenGroup ? '📂' : '📁'}</GroupIcon>
+            <NodeTitle title={group.title}>{group.title}</NodeTitle>
+            {isRootLinked && <OriginBadge>Αυτόματα</OriginBadge>}
+            <GroupCount>{countLabel}</GroupCount>
+          </GroupToggle>
           {canManageWorkflow && !isLinked && (
             <>
               <IconActionBtn
@@ -1473,27 +1580,48 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
               >✕</DeleteIconBtn>
             </>
           )}
-        </GroupHeaderRow>
+        </NodeRow>
         {isOpenGroup && (
-          <GroupBody>
-            <FilesList>
-              {(group.files || []).map((file, idx) => (
-                isLinked || file.sourceProposalId
-                  ? renderLinkedFile(file, idx)
-                  : renderManagedFile(file, `psk-file-row-${file.fileName}`)
-              ))}
-              {!(group.files || []).length && !(group.subgroups || []).length ? (
-                <EmptyFolder>Δεν υπάρχουν αρχεία σε αυτή την ομάδα</EmptyFolder>
-              ) : null}
-            </FilesList>
-            {(group.subgroups || []).map((sub, subIndex) => (
+          <TreeChildren $accent={isLinked}>
+            {isRootLinked && (
+              <>
+                <OriginNote>
+                  Καταγράφηκαν αυτόματα από την ωρίμανση, με τους ίδιους φακέλους.
+                  {orimanthiOriginLine ? <OriginProject>{orimanthiOriginLine}</OriginProject> : null}
+                </OriginNote>
+                {subgroups.length > 0 && (
+                  <TreeTools>
+                    <TreeToolBtn type="button" onClick={() => setLinkedTreeOpen(true)}>Άνοιγμα όλων</TreeToolBtn>
+                    <TreeToolBtn type="button" onClick={() => setLinkedTreeOpen(false)}>Μόνο οι φάκελοι</TreeToolBtn>
+                  </TreeTools>
+                )}
+              </>
+            )}
+            {subgroups.map((sub, subIndex) => (
               renderGroupCard(sub, `${groupKey}-${subIndex}`, { linked: isLinked, nested: true })
             ))}
-          </GroupBody>
+            {directFiles.length > 0 && (
+              <FilesList>
+                {directFiles.map((file, idx) => (
+                  isLinked || file.sourceProposalId
+                    ? renderLinkedFile(file, idx)
+                    : renderManagedFile(file, `psk-file-row-${file.fileName}`)
+                ))}
+              </FilesList>
+            )}
+            {!directFiles.length && !subgroups.length ? (
+              <EmptyFolder>Δεν υπάρχουν αρχεία σε αυτόν τον φάκελο</EmptyFolder>
+            ) : null}
+          </TreeChildren>
         )}
       </GroupCard>
     );
   };
+
+  const looseCount = ungroupedFiles.length + (folders.main || []).length + (folders.attachments || []).length;
+  const looseOpen = Object.prototype.hasOwnProperty.call(expandedGroupIds, 'psk-ungrouped')
+    ? !!expandedGroupIds['psk-ungrouped']
+    : true;
 
   if (!isOpen) return null;
 
@@ -1555,32 +1683,47 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                 headerTitle="Καταχωρήσεις Διαύγειας"
               />
 
-              {linkedOrimanthiGroup && renderGroupCard(linkedOrimanthiGroup, 'orimanthi')}
-
-              {fileGroups && fileGroups.length > 0 && (
-                <FolderSection>
-                  {fileGroups.map((group, groupIndex) => renderGroupCard(group, groupIndex))}
-                </FolderSection>
+              {linkedOrimanthiGroup && (
+                <SectionCard $accent data-testid="psk-linked-orimanthi-files">
+                  {renderGroupCard(linkedOrimanthiGroup, 'orimanthi', { embedded: true })}
+                </SectionCard>
               )}
 
-              {(ungroupedFiles.length > 0 || (folders.main || []).length > 0 || (folders.attachments || []).length > 0) && (
-                <FolderSection>
-                  <GroupHeaderRow>
-                    <GroupStaticTitle>
+              {fileGroups && fileGroups.length > 0 && (
+                <SectionCard>
+                  <SectionLabel>Φάκελοι της πρόσκλησης</SectionLabel>
+                  {fileGroups.map((group, groupIndex) => renderGroupCard(group, groupIndex))}
+                </SectionCard>
+              )}
+
+              {(looseCount > 0) && (
+                <SectionCard>
+                  <NodeRow>
+                    <GroupToggle
+                      type="button"
+                      $open={looseOpen}
+                      aria-expanded={looseOpen}
+                      title="Αρχεία που δεν μπήκαν σε φάκελο"
+                      onClick={() => toggleFileGroup('psk-ungrouped', true)}
+                    >
+                      <GroupChevron $open={looseOpen} aria-hidden>▶</GroupChevron>
                       <GroupIcon aria-hidden>📄</GroupIcon>
-                      <span>Αρχεία χωρίς ομαδοποίηση</span>
+                      <NodeTitle>Αρχεία χωρίς φάκελο</NodeTitle>
                       <GroupCount>
-                        {ungroupedFiles.length + (folders.main || []).length + (folders.attachments || []).length}
-                        {' '}αρχεία
+                        {looseCount} {looseCount === 1 ? 'αρχείο' : 'αρχεία'}
                       </GroupCount>
-                    </GroupStaticTitle>
-                  </GroupHeaderRow>
-                  <FilesList>
-                    {ungroupedFiles.map((file) => renderManagedFile(file, `psk-file-ungrouped-${file.fileName}`))}
-                    {(folders.main || []).map((folder, index) => renderFolderRow(folder, 'main', `main-folder-${index}`))}
-                    {(folders.attachments || []).map((folder, index) => renderFolderRow(folder, 'attachments', `attachments-folder-${index}`))}
-                  </FilesList>
-                </FolderSection>
+                    </GroupToggle>
+                  </NodeRow>
+                  {looseOpen && (
+                    <TreeChildren>
+                      <FilesList>
+                        {ungroupedFiles.map((file) => renderManagedFile(file, `psk-file-ungrouped-${file.fileName}`))}
+                        {(folders.main || []).map((folder, index) => renderFolderRow(folder, 'main', `main-folder-${index}`))}
+                        {(folders.attachments || []).map((folder, index) => renderFolderRow(folder, 'attachments', `attachments-folder-${index}`))}
+                      </FilesList>
+                    </TreeChildren>
+                  )}
+                </SectionCard>
               )}
 
               {!linkedOrimanthiGroup && !(fileGroups || []).length && !ungroupedFiles.length
