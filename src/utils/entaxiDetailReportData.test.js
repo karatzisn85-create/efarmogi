@@ -89,6 +89,20 @@ describe('buildEntaxiDetailReportPayload', () => {
     expect(data.amountDeltaLabel).toBe('');
     expect(data.modifications).toEqual([]);
     expect(data.diavgeiaAda).toBe('');
+    expect(data.files.entaxi).toEqual([]);
+  });
+
+  it('παλιά ένταξη με ένα μόνο αρχείο απόφασης το δείχνει στα αρχεία', () => {
+    const data = buildEntaxiDetailReportPayload({
+      entaxi: {
+        subject: 'Παλιά ένταξη',
+        entaxiPDF: 'απόφαση.pdf',
+        entaxiPDFs: [],
+        approvalPDF: 'αποδοχή.pdf',
+      },
+    });
+    expect(data.files.entaxi).toEqual(['απόφαση.pdf']);
+    expect(data.files.approval).toEqual(['αποδοχή.pdf']);
   });
 
   it('διαβάζει όνομα αρχείου από string, αντικείμενο ή διαδρομή', () => {

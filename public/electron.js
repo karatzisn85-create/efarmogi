@@ -6339,16 +6339,8 @@ ipcMain.handle('load-all-entaxeis', async () => {
               if (await pathExists(filesDir)) {
                 const files = await fs.promises.readdir(filesDir);
                 const pdfFiles = files.filter(file => file.toLowerCase().endsWith('.pdf'));
-                
-                // Set entaxiPDF if not already set and PDF files exist
-                if (!data.entaxiPDF && pdfFiles.length > 0) {
-                  data.entaxiPDF = pdfFiles[0]; // Use first PDF file
-                }
-                
-                // Set approvalPDF if not already set and there's a second PDF file
-                if (!data.approvalPDF && pdfFiles.length > 1) {
-                  data.approvalPDF = pdfFiles[1]; // Use second PDF file
-                }
+                const persistAcceptance = require(path.join(__dirname, '..', 'app', 'core', 'entaxiAcceptancePersist'));
+                persistAcceptance.applyLegacyFolderPdfHints(data, pdfFiles);
               }
               
               return data;
@@ -6508,8 +6500,9 @@ ipcMain.handle('save-entaxi', async (event, entaxiData) => {
     console.log('💾 Existing approval files:', existingApprovalFiles);
     
     // Final file lists combining new and existing
-    const finalEntaxiFiles = [...existingEntaxiFiles, ...savedEntaxiFiles];
-    const finalApprovalFiles = [...existingApprovalFiles, ...savedApprovalFiles];
+    const persistAcceptance = require(path.join(__dirname, '..', 'app', 'core', 'entaxiAcceptancePersist'));
+    const finalEntaxiFiles = persistAcceptance.uniqueStoredFileNames([...existingEntaxiFiles, ...savedEntaxiFiles]);
+    const finalApprovalFiles = persistAcceptance.uniqueStoredFileNames([...existingApprovalFiles, ...savedApprovalFiles]);
     
     savedData.entaxiPDFs = finalEntaxiFiles;
     savedData.approvalPDFs = finalApprovalFiles;
@@ -6535,7 +6528,6 @@ ipcMain.handle('save-entaxi', async (event, entaxiData) => {
     if (fs.existsSync(jsonPath)) {
       try { existingEntaxiData = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch (_e) { /* ignore */ }
     }
-    const persistAcceptance = require(path.join(__dirname, '..', 'app', 'core', 'entaxiAcceptancePersist'));
     persistAcceptance.preserveAcceptanceFields(existingEntaxiData, savedData);
     if (existingEntaxiData && Array.isArray(existingEntaxiData.modifications)) {
       savedData.modifications = existingEntaxiData.modifications;

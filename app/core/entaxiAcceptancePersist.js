@@ -259,6 +259,43 @@
     return out;
   }
 
+  function listedDecisionFileNames(data) {
+    var names = [];
+    var seen = Object.create(null);
+    var add = function (item) {
+      var name = fileRefName(item);
+      if (!name || seen[name.toLowerCase()]) return;
+      seen[name.toLowerCase()] = true;
+      names.push(name);
+    };
+    var list = data && data.entaxiPDFs;
+    if (Array.isArray(list) && list.length) list.forEach(add);
+    else add(data && data.entaxiPDF);
+    return names;
+  }
+
+  function applyLegacyFolderPdfHints(data, pdfFileNames) {
+    var out = data && typeof data === 'object' ? data : {};
+    var pdfs = Array.isArray(pdfFileNames) ? pdfFileNames.filter(Boolean) : [];
+    var hadDecision = listedDecisionFileNames(out).length > 0;
+    var hadApproval = collectApprovalFileNames(out).length > 0;
+    if (!hadDecision && pdfs.length > 0) out.entaxiPDF = pdfs[0];
+    if (!hadApproval && !hadDecision && pdfs.length > 1) out.approvalPDF = pdfs[1];
+    return out;
+  }
+
+  function uniqueStoredFileNames(list) {
+    var out = [];
+    var seen = Object.create(null);
+    (Array.isArray(list) ? list : []).forEach(function (item) {
+      var name = fileRefName(item);
+      if (!name || seen[name.toLowerCase()]) return;
+      seen[name.toLowerCase()] = true;
+      out.push(name);
+    });
+    return out;
+  }
+
   function dropFileNameFromList(list, fileName) {
     var base = String(fileName || '').replace(/^.*[/\\]/, '').trim();
     if (!base) return Array.isArray(list) ? list.slice() : [];
@@ -282,6 +319,8 @@
     removeApprovalFileFromRecord: removeApprovalFileFromRecord,
     mergeAttachedAcceptance: mergeAttachedAcceptance,
     renameAcceptanceFileRefs: renameAcceptanceFileRefs,
-    unlinkEntaxiFileRecord: unlinkEntaxiFileRecord
+    unlinkEntaxiFileRecord: unlinkEntaxiFileRecord,
+    applyLegacyFolderPdfHints: applyLegacyFolderPdfHints,
+    uniqueStoredFileNames: uniqueStoredFileNames
   };
 });

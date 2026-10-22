@@ -10,7 +10,11 @@ import managedFiles from '../../app/core/managedFiles';
 import EntaxiDiavgeiaSection from './EntaxiDiavgeiaSection';
 import { buildEntaxiDiavgeiaRegistryEntry } from '../utils/entaxiDiavgeiaRegistry';
 import { mergeDiavgeiaFormFields } from '../utils/entaxiDiavgeiaFetch';
-import { collectEntaxiApprovalFileNames, toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
+import { collectEntaxiApprovalFileNames, collectEntaxiDecisionFileNames, toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
+import {
+  getProsklisiDiavgeiaAdaText,
+  prosklisiMatchesQuickSearch,
+} from '../utils/prosklisiDeadlineUtils';
 import {
   appendUnstampedIndexTargets,
   catalogWhenDiskUnreadable,
@@ -265,29 +269,6 @@ const TextArea = styled.textarea`
   word-wrap: break-word;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-
-  &:focus {
-    border-color: #818cf8;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
-  }
-`;
-
-const Select = styled.select`
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  padding: 0.62rem 0.88rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 11px;
-  font-size: 0.96rem;
-  font-family: inherit;
-  min-height: 46px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  background: #fff;
-  color: #334155;
-  cursor: pointer;
 
   &:focus {
     border-color: #818cf8;
@@ -554,7 +535,7 @@ const DropdownList = styled.ul`
 `;
 
 const DropdownItem = styled.li`
-  padding: 0.65rem 0.75rem;
+  padding: 0.55rem 0.75rem;
   cursor: pointer;
   border-radius: 8px;
   color: #334155;
@@ -567,6 +548,37 @@ const DropdownItem = styled.li`
     color: #312e81;
   }
 `;
+
+const ProsklisiPickTitle = styled.div`
+  font-weight: 700;
+  color: #1e1b4b;
+  line-height: 1.35;
+`;
+
+const ProsklisiPickMeta = styled.div`
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.4;
+`;
+
+const ProsklisiPickEmpty = styled.li`
+  padding: 0.7rem 0.75rem;
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 600;
+`;
+
+const PROSKLISI_PICK_LIMIT = 40;
+
+function prosklisiPickerMeta(prosklisi) {
+  if (!prosklisi) return '';
+  return [prosklisi.code, prosklisi.axis, prosklisi.fundingSource, prosklisi.status, prosklisi.budgetRange]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(' · ');
+}
 
 const EMPTY_ENTAXI_FORM = {
   documentDate: '',
@@ -627,6 +639,17 @@ function EntaxisForm({
   const [loading, setLoading] = useState(false);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [prosklisiSearchTerm, setProsklisiSearchTerm] = useState('');
+  const [showProsklisiDropdown, setShowProsklisiDropdown] = useState(false);
+  const prosklisiPickerKey = isOpen
+    ? `${editingEntaxi?.entaxiId || 'new'}:${String(presetProsklisiId || '').trim()}`
+    : 'closed';
+  const [prosklisiPickerSession, setProsklisiPickerSession] = useState(prosklisiPickerKey);
+  if (prosklisiPickerKey !== prosklisiPickerSession) {
+    setProsklisiPickerSession(prosklisiPickerKey);
+    setProsklisiSearchTerm('');
+    setShowProsklisiDropdown(false);
+  }
   const [filteredProjects, setFilteredProjects] = useState([]);
   // eslint-disable-next-line no-unused-vars
   const [_fileUpdateTrigger, setFileUpdateTrigger] = useState(0);
@@ -638,15 +661,20 @@ function EntaxisForm({
   const restoringScrollRef = useRef(false);
   const formHydratedRef = useRef(false);
   const loadGenerationRef = useRef(0);
+  const prosklisiLoadGenerationRef = useRef(0);
+  const prosklisiBlurTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (prosklisiBlurTimerRef.current) clearTimeout(prosklisiBlurTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
       loadProjects();
       if (Array.isArray(catalogProskliseis) && catalogProskliseis.length > 0) {
         setProskliseis(catalogProskliseis);
-      } else {
-        loadProskliseis();
       }
+      loadProskliseis();
       if (editingEntaxi) {
         const linkSnap = entaxiCatalog.buildEntaxiLinkSnapshot(
           entaxiCatalog.getEntaxiLinkedProjects(editingEntaxi),
@@ -668,7 +696,7 @@ function EntaxisForm({
           beneficiary: editingEntaxi.beneficiary || '',
           diavgeiaAda: editingEntaxi.diavgeiaAda || editingEntaxi.diavgeiaMeta?.ada || '',
           diavgeiaMeta: editingEntaxi.diavgeiaMeta || null,
-          entaxiPDFs: toExistingEntaxiFileObjects(editingEntaxi.entaxiPDFs),
+          entaxiPDFs: toExistingEntaxiFileObjects(collectEntaxiDecisionFileNames(editingEntaxi)),
           approvalPDFs: toExistingEntaxiFileObjects(collectEntaxiApprovalFileNames(editingEntaxi))
         });
         setDiavgeiaMeta(editingEntaxi.diavgeiaMeta || null);
@@ -740,6 +768,18 @@ function EntaxisForm({
       setFilteredProjects(projects);
     }
   }, [projectSearchTerm, projects]);
+
+  const prosklisiQuery = prosklisiSearchTerm.trim();
+  const filteredProskliseis = useMemo(() => {
+    if (!prosklisiQuery) return [];
+    return proskliseis.filter((prosklisi) => prosklisiMatchesQuickSearch(
+      prosklisi,
+      prosklisiQuery,
+      { diavgeiaAda: getProsklisiDiavgeiaAdaText(prosklisi, prosklisi.modifications || []) }
+    ));
+  }, [prosklisiQuery, proskliseis]);
+  const visibleProskliseis = filteredProskliseis.slice(0, PROSKLISI_PICK_LIMIT);
+  const selectedProsklisi = proskliseis.find((p) => p.prosklisiId === formData.prosklisiId) || null;
 
   const applyFlatProjects = (flatProjects) => {
     setProjects(groupSubprojectsByTitle(flatProjects));
@@ -870,9 +910,18 @@ function EntaxisForm({
   };
 
   const loadProskliseis = async () => {
+    const generation = ++prosklisiLoadGenerationRef.current;
     try {
-      const loadedProskliseis = await ipcRenderer.invoke('load-all-proskliseis');
-      setProskliseis(loadedProskliseis || []);
+      const loadedProskliseis = await ipcRenderer.invoke('load-all-proskliseis', {
+        includeModifications: true,
+      });
+      if (generation !== prosklisiLoadGenerationRef.current) return;
+      if (!Array.isArray(loadedProskliseis)) return;
+      setProskliseis((current) => (
+        loadedProskliseis.length > 0 || current.length === 0
+          ? loadedProskliseis
+          : current
+      ));
     } catch (error) {
       console.error('Error loading proskliseis:', error);
     }
@@ -1480,22 +1529,96 @@ function EntaxisForm({
                   ))}
                 </FormGroup>
 
-                <FormGroup>
+                <FormGroup fullWidth>
                   <Label>Συσχέτιση με πρόσκληση</Label>
-                  <Select
-                    data-testid="ent-form-prosklisi"
-                    value={formData.prosklisiId}
-                    onChange={(e) => handleInputChange('prosklisiId', e.target.value)}
-                  >
-                    <option value="">Επιλέξτε πρόσκληση...</option>
-                    {proskliseis.map((prosklisi) => (
-                      <option key={prosklisi.prosklisiId} value={prosklisi.prosklisiId}>
-                        {prosklisi.title}
-                      </option>
-                    ))}
-                  </Select>
+                  {selectedProsklisi && (
+                    <LinkedProjectBlock data-testid="ent-form-prosklisi-selected">
+                      <LinkedProjectHead>
+                        <LinkedProjectTitle>{selectedProsklisi.title}</LinkedProjectTitle>
+                        <RemoveFileButton
+                          type="button"
+                          data-testid="ent-form-prosklisi-clear"
+                          onClick={() => handleInputChange('prosklisiId', '')}
+                        >
+                          Αφαίρεση
+                        </RemoveFileButton>
+                      </LinkedProjectHead>
+                      {prosklisiPickerMeta(selectedProsklisi) && (
+                        <ProsklisiPickMeta>{prosklisiPickerMeta(selectedProsklisi)}</ProsklisiPickMeta>
+                      )}
+                    </LinkedProjectBlock>
+                  )}
+                  {!selectedProsklisi && formData.prosklisiId && (
+                    <LinkedProjectBlock data-testid="ent-form-prosklisi-selected">
+                      <LinkedProjectHead>
+                        <LinkedProjectTitle>Η πρόσκληση δεν βρίσκεται πια στον κατάλογο</LinkedProjectTitle>
+                        <RemoveFileButton
+                          type="button"
+                          data-testid="ent-form-prosklisi-clear"
+                          onClick={() => handleInputChange('prosklisiId', '')}
+                        >
+                          Αφαίρεση
+                        </RemoveFileButton>
+                      </LinkedProjectHead>
+                    </LinkedProjectBlock>
+                  )}
+                  <SearchableDropdownContainer>
+                    <SearchInput
+                      type="text"
+                      value={prosklisiSearchTerm}
+                      onChange={(e) => {
+                        setProsklisiSearchTerm(e.target.value);
+                        setShowProsklisiDropdown(true);
+                      }}
+                      onFocus={() => {
+                        if (prosklisiBlurTimerRef.current) {
+                          clearTimeout(prosklisiBlurTimerRef.current);
+                          prosklisiBlurTimerRef.current = null;
+                        }
+                        setShowProsklisiDropdown(true);
+                      }}
+                      onBlur={() => {
+                        prosklisiBlurTimerRef.current = setTimeout(() => {
+                          setShowProsklisiDropdown(false);
+                        }, 200);
+                      }}
+                      placeholder="Τίτλος, κωδικός, άξονας, πηγή ή ΑΔΑ..."
+                      data-testid="ent-form-prosklisi-search"
+                    />
+                    {showProsklisiDropdown && prosklisiQuery && (
+                      <DropdownList
+                        data-testid="ent-form-prosklisi-results"
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        {visibleProskliseis.length === 0 ? (
+                          <ProsklisiPickEmpty>Δεν βρέθηκε πρόσκληση με αυτά τα στοιχεία.</ProsklisiPickEmpty>
+                        ) : visibleProskliseis.map((prosklisi) => (
+                          <DropdownItem
+                            key={prosklisi.prosklisiId}
+                            data-testid={`ent-form-prosklisi-option-${prosklisi.prosklisiId}`}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              handleInputChange('prosklisiId', prosklisi.prosklisiId);
+                              setProsklisiSearchTerm('');
+                              setShowProsklisiDropdown(false);
+                            }}
+                          >
+                            <ProsklisiPickTitle>{prosklisi.title}</ProsklisiPickTitle>
+                            {prosklisiPickerMeta(prosklisi) && (
+                              <ProsklisiPickMeta>{prosklisiPickerMeta(prosklisi)}</ProsklisiPickMeta>
+                            )}
+                          </DropdownItem>
+                        ))}
+                        {filteredProskliseis.length > PROSKLISI_PICK_LIMIT && (
+                          <ProsklisiPickEmpty>
+                            Εμφανίζονται οι πρώτες {PROSKLISI_PICK_LIMIT}. Στενέψτε την αναζήτηση.
+                          </ProsklisiPickEmpty>
+                        )}
+                      </DropdownList>
+                    )}
+                  </SearchableDropdownContainer>
                   <FieldHint>
-                    Η σύνδεση με πρόσκληση εμφανίζει σχετικό κουμπί στις κάρτες των υποέργων.
+                    Αναζήτηση όπως στον κατάλογο προσκλήσεων: τίτλος, κωδικός, άξονας, πηγή, κατάσταση, συνδεδεμένο έργο και ΑΔΑ. Η σύνδεση εμφανίζει σχετικό κουμπί στις κάρτες των υποέργων.
                   </FieldHint>
                 </FormGroup>
               </FormGrid>

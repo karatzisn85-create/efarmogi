@@ -8,7 +8,7 @@ import {
 import { parseGreekAmountString } from './khmdhsFields';
 import { getEntaxiDiavgeiaAdaText, getEntaxiDiavgeiaViewUrl } from './entaxiDiavgeiaRegistry';
 import entaxiCatalog from '../../app/core/entaxiCatalog';
-import { collectEntaxiApprovalFileNames } from './entaxiFileObjects';
+import { collectEntaxiApprovalFileNames, collectEntaxiDecisionFileNames } from './entaxiFileObjects';
 
 function basenameFromPath(filePath) {
   const parts = String(filePath || '').split(/[/\\]/);
@@ -110,7 +110,7 @@ export function buildEntaxiDetailReportPayload({
     prosklisiId: e.prosklisiId || '',
     subprojectCount: Array.isArray(e.subprojectIds) ? e.subprojectIds.length : 0,
     files: {
-      entaxi: listFileNames(e.entaxiPDFs),
+      entaxi: collectEntaxiDecisionFileNames(e),
       approval: collectEntaxiApprovalFileNames(e),
     },
     notes,

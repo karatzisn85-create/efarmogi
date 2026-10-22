@@ -531,6 +531,7 @@
       || contains(p.fundingSource, term)
       || contains(p.code, term)
       || contains(p.status, term)
+      || contains(p.budgetRange, term)
       || contains(linkedTitlesText(p), term)
       || contains(ada, term);
   }

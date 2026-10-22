@@ -165,4 +165,30 @@ describe('entaxiAcceptancePersist', () => {
     expect(again.modifications[0].modificationPDF).toBe(null);
     expect(again.modifications[0].diavgeiaAcceptanceAda).toBe('');
   });
+
+  it('δεν βαφτίζει αποδοχή το δεύτερο pdf όταν η ένταξη έχει ήδη αρχείο απόφασης', () => {
+    const ada = '6ΚΒ04653ΠΓ-2Λ6';
+    const decision = `Ένταξη — Διαύγεια ${ada}.pdf`;
+    const hinted = persist.applyLegacyFolderPdfHints({
+      diavgeiaAda: ada,
+      entaxiPDFs: [decision],
+      approvalPDFs: [],
+    }, [`${ada}.pdf`, decision]);
+    expect(hinted.approvalPDF).toBeUndefined();
+    expect(hinted.entaxiPDF).toBeUndefined();
+  });
+
+  it('σε παλιά ένταξη χωρίς καταγραμμένα αρχεία κρατά την παλιά εικασία πρώτο/δεύτερο pdf', () => {
+    const hinted = persist.applyLegacyFolderPdfHints({}, ['απόφαση.pdf', 'αποδοχή.pdf']);
+    expect(hinted.entaxiPDF).toBe('απόφαση.pdf');
+    expect(hinted.approvalPDF).toBe('αποδοχή.pdf');
+  });
+
+  it('ενώνει διπλότυπα ονόματα αρχείων', () => {
+    expect(persist.uniqueStoredFileNames([
+      'αποδοχή.pdf',
+      'αποδοχή.pdf',
+      'άλλο.pdf',
+    ])).toEqual(['αποδοχή.pdf', 'άλλο.pdf']);
+  });
 });
