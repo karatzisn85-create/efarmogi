@@ -117,13 +117,18 @@ describe('subprojectExcelImport — validation & mapping', () => {
     expect(p.kaCode).toBe('');
     expect(p.implementationForm).toBe('');
     expect(p.khmdhsAdam).toBe('');
+    expect(p.khmdhsRequestAdam).toBe('');
     expect(p.importedViaExcel).toBe(true);
   });
 
-  test('το πρότυπο δεν περιλαμβάνει στήλες Μορφής Υλοποίησης ή ΑΔΑΜ', () => {
+  test('το πρότυπο δεν έχει μορφή υλοποίησης ούτε ΑΔΑΜ σύμβασης, έχει πρωτογενές', () => {
     expect(m.COLUMN_KEYS).not.toContain('implementationForm');
     expect(m.COLUMN_KEYS).not.toContain('khmdhsAdam');
-    expect(m.COLUMNS.some((c) => /Μορφή|ΑΔΑΜ/i.test(c.header))).toBe(false);
+    expect(m.COLUMN_KEYS).toContain('khmdhsRequestAdam');
+    expect(m.COLUMNS.some((c) => /Μορφή/i.test(c.header))).toBe(false);
+    const adamCol = m.COLUMNS.find((c) => c.key === 'khmdhsRequestAdam');
+    expect(adamCol.header).toMatch(/πρωτογενούς/);
+    expect(adamCol.required).toBe(false);
   });
 
   test('κενό βασικό πεδίο (Είδος) δίνει λάθος', async () => {
@@ -211,5 +216,187 @@ describe('subprojectExcelImport — validation & mapping', () => {
     const [a, b] = res.validRows;
     expect(a.dupKey.split('|||')[0]).toBe(b.dupKey.split('|||')[0]);
     expect(a.dupKey).not.toBe(b.dupKey);
+  });
+});
+
+describe('subprojectExcelImport — ΑΔΑΜ πρωτογενούς', () => {
+  const baseValid = {
+    projectTitle: 'Ανάπλαση πλατείας κέντρου',
+    subprojectTitle: 'Κατασκευή έργου ανάπλασης',
+    projectType: 'ΕΡΓΟ',
+    projectStatus: 'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ',
+    aleCodes: '02.15.6262',
+    coFinanced: 'Όχι',
+    fundingSource1: 'ΠΡΟΓΡΑΜΜΑ ΦΙΛΟΔΗΜΟΣ ΙΙ',
+    fundingDetails1: 'Π001. Προμήθεια μηχανημάτων έργου, οχημάτων ή/και συνοδευτικού εξοπλισμού',
+    amount1: '25.125,23',
+  };
+
+  const withContract = {
+    ...baseValid,
+    projectStatus: 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
+    khmdhsRequestAdam: '26REQ018492003',
+  };
+
+  test('εκτός ωρίμανσης χωρίς πρωτογενές απορρίπτεται', async () => {
+    const buf = await templateWithRows([{ ...withContract, khmdhsRequestAdam: '' }]);
+    const parsed = await m.parseImportWorkbookBuffer(buf);
+    const res = m.validateAllRows(parsed.rows);
+    expect(res.validRows).toHaveLength(0);
+    expect(res.errors[0].messages.join(' ')).toMatch(/υποχρεωτικός/);
+  });
+
+  test('ωρίμανση με πρωτογενές απορρίπτεται', async () => {
+    const buf = await templateWithRows([{ ...baseValid, khmdhsRequestAdam: '26REQ018492003' }]);
+    const parsed = await m.parseImportWorkbookBuffer(buf);
+    const res = m.validateAllRows(parsed.rows);
+    expect(res.validRows).toHaveLength(0);
+    expect(res.errors[0].messages.join(' ')).toMatch(/ωρίμανση/);
+  });
+
+  test('κωδικός σύμβασης, δημοσίευσης ή ανάθεσης δεν γίνεται δεκτός', async () => {
+    const cases = [
+      ['26SYMV018523441', /σύμβασης/],
+      ['26PROC018492003', /δημοσίευσης/],
+      ['26AWRD018492003', /ανάθεσης/],
+      ['26PAY018492003', /πληρωμής/],
+      ['26RFQ018492003', /δεν αναγνωρίζεται/],
+      ['ΑΔΑΜ-λάθος', /δεν αναγνωρίζεται/],
+    ];
+    for (const [code, pattern] of cases) {
+      const buf = await templateWithRows([{ ...withContract, khmdhsRequestAdam: code }]);
+      const parsed = await m.parseImportWorkbookBuffer(buf);
+      const res = m.validateAllRows(parsed.rows);
+      expect(res.validRows).toHaveLength(0);
+      expect(res.errors[0].messages.join(' ')).toMatch(pattern);
+    }
+  });
+
+  test('πρωτογενές με κενά, πεζά ή παύλα αποθηκεύεται ως REQ και όχι ως σύμβαση', async () => {
+    for (const typed of ['26 req 018492003', '26-REQ-018492003']) {
+      const buf = await templateWithRows([{ ...withContract, khmdhsRequestAdam: typed }]);
+      const parsed = await m.parseImportWorkbookBuffer(buf);
+      const res = m.validateAllRows(parsed.rows);
+      expect(res.errors).toHaveLength(0);
+      const p = res.validRows[0].project;
+      expect(p.khmdhsRequestAdam).toBe('26REQ018492003');
+      expect(p.khmdhsAdam).toBe('');
+      expect(p.implementationForm).toBe('');
+    }
+  });
+
+  test('ο ίδιος κωδικός σε δύο γραμμές απορρίπτει τη δεύτερη', async () => {
+    const buf = await templateWithRows([
+      withContract,
+      { ...withContract, subprojectTitle: 'Δεύτερο υποέργο της πράξης' },
+    ]);
+    const parsed = await m.parseImportWorkbookBuffer(buf);
+    const res = m.validateAllRows(parsed.rows);
+    expect(res.validRows).toHaveLength(1);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].messages.join(' ')).toMatch(/ίδιος κωδικός/);
+  });
+
+  test('χωρίς την κεφαλίδα του πρωτογενούς δεν διαβάζεται διπλανό κελί', async () => {
+    const wb = m.buildTemplateWorkbook(ExcelJS);
+    const ws = wb.getWorksheet(m.SHEET_DATA);
+    const col = m.COLUMN_KEYS.indexOf('khmdhsRequestAdam') + 1;
+    ws.getRow(1).getCell(col).value = 'Σημειώσεις υπαλλήλου';
+    const row = {
+      ...withContract,
+    };
+    m.COLUMN_KEYS.forEach((key, i) => {
+      if (key === 'khmdhsRequestAdam') return;
+      if (row[key] != null && row[key] !== '') ws.getRow(2).getCell(i + 1).value = row[key];
+    });
+    ws.getRow(2).getCell(col).value = '26REQ018492003';
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+    const parsed = await m.parseImportWorkbookBuffer(buf);
+    const res = m.validateAllRows(parsed.rows);
+    expect(res.validRows).toHaveLength(0);
+    expect(res.errors[0].messages.join(' ')).toMatch(/υποχρεωτικός/);
+  });
+
+  test('πρωτογενές που ανήκει σε άλλη κάρτα σημειώνεται, το ίδιο στην ίδια κάρτα όχι ως ξένο', () => {
+    const row = {
+      excelRow: 5,
+      dupKey: `${m.normalizeTitleKey('Έργο Α')}|||${m.normalizeTitleKey('Υποέργο Α')}`,
+      project: { khmdhsRequestAdam: '26REQ018492003' },
+    };
+    const other = m.collectRequestAdamOwnerConflicts([row], [{
+      projectTitle: 'Άλλο έργο',
+      subprojectTitle: 'Άλλο υποέργο',
+      khmdhsRequestAdam: '26 req 018492003',
+    }]);
+    expect(other).toHaveLength(1);
+    expect(other[0].sameCard).toBe(false);
+    expect(other[0].adam).toBe('26REQ018492003');
+
+    const same = m.collectRequestAdamOwnerConflicts([row], [{
+      projectTitle: 'Έργο Α',
+      subprojectTitle: 'Υποέργο Α',
+      khmdhsRequestAdam: '26REQ018492003',
+    }]);
+    expect(same).toHaveLength(1);
+    expect(same[0].sameCard).toBe(true);
+  });
+
+  test('ενημέρωση κρατά χρέωση και σύμβαση όταν το πρωτογενές είναι το ίδιο', () => {
+    const existing = {
+      projectTitle: 'Παλιός τίτλος',
+      subprojectTitle: 'Παλιό υποέργο',
+      implementationForm: 'Μια Σύμβαση',
+      supervisorEngineerIds: ['eng-1'],
+      comments: 'παλιό σχόλιο',
+      khmdhsRequestAdam: '26REQ018492003',
+      khmdhsRequestSnapshot: { referenceNumber: '26REQ018492003', title: 'αίτημα' },
+      khmdhsAdam: '24SYMV000000001',
+      khmdhsPayments: [{ adam: '24PAY000000001' }],
+    };
+    const excel = {
+      projectTitle: 'Νέος τίτλος',
+      subprojectTitle: 'Νέο υποέργο',
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      comments: '',
+      khmdhsRequestAdam: '26REQ018492003',
+      khmdhsAdam: '',
+      implementationForm: '',
+      supervisorEngineerIds: [],
+      contracts: [],
+      importedViaExcel: true,
+    };
+    const next = m.applyExcelUpdateOntoExisting(excel, existing);
+    expect(next.projectTitle).toBe('Νέος τίτλος');
+    expect(next.comments).toBe('');
+    expect(next.supervisorEngineerIds).toEqual(['eng-1']);
+    expect(next.implementationForm).toBe('Μια Σύμβαση');
+    expect(next.khmdhsAdam).toBe('24SYMV000000001');
+    expect(next.khmdhsPayments).toHaveLength(1);
+    expect(next.khmdhsRequestSnapshot.referenceNumber).toBe('26REQ018492003');
+  });
+
+  test('ενημέρωση με άλλο πρωτογενές δεν κρατά την παλιά αλυσίδα', () => {
+    const existing = {
+      implementationForm: 'Μια Σύμβαση',
+      supervisorEngineerIds: ['eng-1'],
+      khmdhsRequestAdam: '24REQ000000001',
+      khmdhsRequestSnapshot: { referenceNumber: '24REQ000000001' },
+      khmdhsAdam: '24SYMV000000001',
+      khmdhsPayments: [{ adam: '24PAY000000001' }],
+    };
+    const excel = {
+      projectTitle: 'Νέος τίτλος',
+      khmdhsRequestAdam: '26REQ018492003',
+      importedViaExcel: true,
+      comments: 'νέο',
+    };
+    const next = m.applyExcelUpdateOntoExisting(excel, existing);
+    expect(next.khmdhsRequestAdam).toBe('26REQ018492003');
+    expect(next.khmdhsAdam).toBe('');
+    expect(next.khmdhsRequestSnapshot).toBeNull();
+    expect(next.khmdhsPayments).toEqual([]);
+    expect(next.implementationForm).toBe('Μια Σύμβαση');
+    expect(next.supervisorEngineerIds).toEqual(['eng-1']);
+    expect(next.comments).toBe('νέο');
   });
 });

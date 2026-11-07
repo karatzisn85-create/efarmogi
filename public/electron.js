@@ -14,6 +14,8 @@ const {
   setE2EKhmdhsLive,
   queueE2EDiavgeiaAcceptance,
   installE2EDialogHooks,
+  takeE2EDialogLog,
+  takeE2EMailOutbox,
 } = require('./e2eMode');
 installE2EDialogHooks(dialog);
 const { attachEditContextMenu, getLastBuiltEditMenu } = require('./editContextMenu');
@@ -2335,13 +2337,13 @@ function syncProjectsIndexAfterSubprojectWrite(projectId, subprojectId, dataPath
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Χάρτης υπαρχόντων υποέργων ανά κλειδί (τίτλος έργου|||τίτλος υποέργου) → {projectId, subprojectId}. */
-async function buildExistingSubprojectKeyMap() {
-  const existing = await loadAllProjects();
+async function buildExistingSubprojectKeyMap(existingList) {
+  const existing = existingList || await loadAllProjects();
   const map = new Map();
   for (const p of existing) {
     const key = excelImportCore.buildDupKey(p.projectTitle, p.subprojectTitle);
     if (!map.has(key)) {
-      map.set(key, { projectId: p.projectId, subprojectId: p.subprojectId });
+      map.set(key, { projectId: p.projectId, subprojectId: p.subprojectId, project: p });
     }
   }
   return map;
@@ -2355,7 +2357,8 @@ async function buildSubprojectImportReport(filePath) {
   const fundingEnums = getLiveFundingEnumsForImport();
   const validation = importer.validateAllRows(parsed.rows, { fundingEnums });
 
-  const existingKeyMap = await buildExistingSubprojectKeyMap();
+  const existingProjects = await loadAllProjects();
+  const existingKeyMap = await buildExistingSubprojectKeyMap(existingProjects);
   const existingDuplicates = validation.validRows
     .filter((vr) => existingKeyMap.has(vr.dupKey))
     .map((vr) => ({
@@ -2363,6 +2366,16 @@ async function buildSubprojectImportReport(filePath) {
       projectTitle: vr.project.projectTitle,
       subprojectTitle: vr.project.subprojectTitle,
     }));
+  const requestAdamConflicts = importer.collectRequestAdamOwnerConflicts(
+    validation.validRows,
+    existingProjects
+  );
+  const requestAdamCount = validation.validRows.filter(
+    (vr) => vr.project && vr.project.khmdhsRequestAdam
+  ).length;
+  const maturationCount = validation.validRows.filter(
+    (vr) => vr.project && vr.project.projectStatus === importer.MATURATION_STATUS
+  ).length;
 
   return {
     versionOk: parsed.versionOk,
@@ -2372,6 +2385,9 @@ async function buildSubprojectImportReport(filePath) {
     errorRows: validation.errors,
     existingCount: existingKeyMap.size,
     existingDuplicates,
+    requestAdamCount,
+    maturationCount,
+    requestAdamConflicts,
     validation,
     existingKeyMap,
   };
@@ -2456,6 +2472,9 @@ ipcMain.handle('preview-subprojects-excel-import', async (_event, { filePath } =
       errorRows: report.errorRows,
       existingCount: report.existingCount,
       existingDuplicates: report.existingDuplicates,
+      requestAdamCount: report.requestAdamCount || 0,
+      maturationCount: report.maturationCount || 0,
+      requestAdamConflicts: report.requestAdamConflicts || [],
     };
   } catch (e) {
     logger.error('preview-subprojects-excel-import failed', e);
@@ -2547,7 +2566,17 @@ ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) =
     let created = 0;
     let updated = 0;
     let skipped = 0;
+    let savedWithRequestAdam = 0;
+    let savedMaturation = 0;
     const failed = [];
+    const blockedAdamRows = new Map();
+    if (!wipeExisting) {
+      for (const conflict of report.requestAdamConflicts || []) {
+        blockedAdamRows.set(conflict.excelRow, conflict);
+      }
+    }
+    const excelImporter = require('./subprojectExcelImport');
+    const maturationStatus = excelImporter.MATURATION_STATUS;
 
     for (const vr of report.validation.validRows) {
       const isDuplicate = existingKeyMap.has(vr.dupKey);
@@ -2560,10 +2589,19 @@ ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) =
         skipped += 1;
         continue;
       }
-      const projectData = { ...vr.project };
+      const adamBlock = blockedAdamRows.get(vr.excelRow);
+      if (adamBlock && !(adamBlock.sameCard && action === 'update')) {
+        const error = adamBlock.sameCard
+          ? `Ο ΑΔΑΜ πρωτογενούς ${adamBlock.adam} είναι ήδη σε αυτή την κάρτα. Η ενημέρωση τον κρατάει· δεύτερο υποέργο με τον ίδιο κωδικό δεν δημιουργείται.`
+          : `Ο ΑΔΑΜ πρωτογενούς ${adamBlock.adam} είναι ήδη στο υποέργο «${adamBlock.subprojectTitle}» (${adamBlock.projectTitle}).`;
+        failed.push({ excelRow: vr.excelRow, error });
+        continue;
+      }
+      let projectData = { ...vr.project };
       let isUpdate = false;
       if (action === 'update') {
         const target = existingKeyMap.get(vr.dupKey);
+        projectData = excelImporter.applyExcelUpdateOntoExisting(projectData, target.project);
         projectData.projectId = target.projectId;
         projectData.subprojectId = target.subprojectId;
         isUpdate = true;
@@ -2573,6 +2611,8 @@ ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) =
         const res = await handleSaveProjectData(null, projectData);
         if (res && res.success) {
           if (isUpdate) updated += 1; else created += 1;
+          if (projectData.khmdhsRequestAdam) savedWithRequestAdam += 1;
+          else if (projectData.projectStatus === maturationStatus) savedMaturation += 1;
         } else {
           failed.push({ excelRow: vr.excelRow, error: (res && res.error) || 'άγνωστο σφάλμα' });
         }
@@ -2597,7 +2637,17 @@ ipcMain.handle('commit-subprojects-excel-import', async (_event, payload = {}) =
       logger.error('commit-subprojects-excel-import: index rebuild failed', idxErr);
     }
 
-    return { success: true, created, updated, skipped, failed, deletedProjects, wipeExisting };
+    return {
+      success: true,
+      created,
+      updated,
+      skipped,
+      failed,
+      deletedProjects,
+      wipeExisting,
+      savedWithRequestAdam,
+      savedMaturation,
+    };
   } catch (e) {
     logger.error('commit-subprojects-excel-import failed', e);
     return { success: false, error: e.message };
@@ -5493,6 +5543,16 @@ ipcMain.handle('e2e-spellcheck-status', () => {
     success: true,
     ...getGreekSpellcheckStatus(mainWindow && mainWindow.webContents && mainWindow.webContents.session, app.getPath('userData')),
   };
+});
+
+ipcMain.handle('e2e-dialog-log', () => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  return { success: true, calls: takeE2EDialogLog() };
+});
+
+ipcMain.handle('e2e-mail-outbox', () => {
+  if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
+  return { success: true, messages: takeE2EMailOutbox() };
 });
 
 ipcMain.handle('open-file-dialog', async () => {
@@ -16038,7 +16098,14 @@ ipcMain.handle('export-portal-data', async (_event, { selectedSubprojectIds, act
 
     const jsonContent = JSON.stringify(ergaJson, null, 2);
 
-    const { dropboxLink } = await uploadPortalJson(jsonContent, uid);
+    let dropboxLink;
+    if (isE2EProcess()) {
+      const localPath = path.join(dataDir, 'e2e-portal-erga.json');
+      fs.writeFileSync(localPath, jsonContent, 'utf8');
+      dropboxLink = localPath;
+    } else {
+      ({ dropboxLink } = await uploadPortalJson(jsonContent, uid));
+    }
 
     const lastExportedIds = selected.map((p) => p.subprojectId);
     const publishedPath = path.join(dataDir, 'portal-published.json');
@@ -16053,7 +16120,9 @@ ipcMain.handle('export-portal-data', async (_event, { selectedSubprojectIds, act
       saveConfig({ portalDimosUid: uid });
     }
 
-    logger.info(`Portal export: ${erga.length} υποέργα → Dropbox /portal/${uid}/erga.json (by ${actingUsername})`);
+    logger.info(isE2EProcess()
+      ? `Portal export (έλεγχος): ${erga.length} υποέργα → τοπικό αρχείο (by ${actingUsername})`
+      : `Portal export: ${erga.length} υποέργα → Dropbox /portal/${uid}/erga.json (by ${actingUsername})`);
 
     return { success: true, dropboxLink, count: erga.length, lastExportedIds };
   } catch (e) {

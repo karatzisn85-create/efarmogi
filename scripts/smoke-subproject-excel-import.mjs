@@ -70,6 +70,7 @@ async function main() {
   assert(Array.isArray(proj.aleCodes) && proj.aleCodes.length === 2, 'aleCodes split failed');
   assert(proj.implementationForm === '', 'implementationForm should stay empty for KHMDHS later');
   assert(proj.khmdhsAdam === '', 'khmdhsAdam should stay empty for KHMDHS later');
+  assert(proj.khmdhsRequestAdam === '', 'maturation row must not carry a request ADAM');
   assert(!proj.projectId && !proj.subprojectId, 'project should not carry ids');
 
   // Έλεγχος συγχρηματοδότησης (2 πηγές, άθροισμα)
@@ -79,6 +80,7 @@ async function main() {
   set3('subprojectTitle', 'Προμήθεια αστικού εξοπλισμού');
   set3('projectType', 'ΠΡΟΜΗΘΕΙΑ');
   set3('projectStatus', 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ');
+  set3('khmdhsRequestAdam', '26REQ018492003');
   set3('aleCodes', '02.15.6262');
   set3('coFinanced', 'Ναι');
   set3('fundingSource1', 'ΠΡΟΓΡΑΜΜΑ ΦΙΛΟΔΗΜΟΣ ΙΙ');
@@ -97,6 +99,8 @@ async function main() {
   // Άθροισμα εκτός ιδίων πόρων = 10.000,00
   assert(co.project.approvedAmount === '10.000,00', 'co approvedAmount mismatch: ' + co.project.approvedAmount);
   assert(co.project.fundingSources.length === 2, 'expected 2 funding sources');
+  assert(co.project.khmdhsRequestAdam === '26REQ018492003', 'request ADAM not stored: ' + co.project.khmdhsRequestAdam);
+  assert(co.project.khmdhsAdam === '', 'contract ADAM must stay empty');
 
   console.log('smoke-subproject-excel-import: OK (template, CF, DV, parse, validate, co-financing)');
 }

@@ -10,7 +10,9 @@
  * (snapshot του src/data/formOptions.js — `npm run export-subproject-import-enums`).
  * Οι πηγές χρηματοδότησης / εξειδικεύσεις μπορούν να δοθούν live μέσω options.fundingEnums
  * (από τις ρυθμίσεις του Δήμου στην εφαρμογή).
- * Μορφή υλοποίησης και ΑΔΑΜ δεν ζητούνται στο Excel — συμπληρώνονται αργότερα από ΚΗΜΔΗΣ/εφαρμογή.
+ * Η μορφή υλοποίησης δεν ζητείται στο Excel — έρχεται από το ΚΗΜΔΗΣ μετά την ανάκτηση.
+ * Ο ΑΔΑΜ πρωτογενούς αιτήματος (REQ) ζητείται για κάθε κατάσταση εκτός ωρίμανσης,
+ * ώστε η μαζική ανάκτηση να μπορεί να ξεκινήσει αμέσως. Δεν αποθηκεύεται ως σύμβαση.
  */
 
 'use strict';
@@ -32,7 +34,7 @@ try {
   };
 }
 
-const TEMPLATE_VERSION = 'ERGOHUB_SUBPROJECT_IMPORT_V7';
+const TEMPLATE_VERSION = 'ERGOHUB_SUBPROJECT_IMPORT_V8';
 
 const SHEET_DATA = 'Υποέργα';
 const SHEET_INFO = 'Οδηγίες';
@@ -51,6 +53,17 @@ const ALLOWED_STATUSES = (ENUMS.PROJECT_STATUSES || []).filter(
 
 const YES = 'Ναι';
 const NO = 'Όχι';
+
+/** Μόνο η ωρίμανση εισάγεται χωρίς κωδικό ΚΗΜΔΗΣ. */
+const MATURATION_STATUS = 'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ';
+
+const ADAM_TYPE_LABELS = {
+  REQ: 'πρωτογενούς αιτήματος',
+  PROC: 'δημοσίευσης',
+  AWRD: 'ανάθεσης',
+  SYMV: 'σύμβασης',
+  PAY: 'πληρωμής',
+};
 
 const DATA_ROWS = 500; // χωρητικότητα προτύπου (γραμμές προς συμπλήρωση)
 
@@ -73,6 +86,13 @@ const COLUMNS = [
   { key: 'amount2', header: 'Ποσό 2 (μόνο αν Ναι)', required: false, kind: 'amount', width: 16 },
   { key: 'comments', header: 'Σχόλια', required: false, kind: 'text', width: 30 },
   { key: 'eisigitikiEkthesi', header: 'Αναφορά προγράμματος Οικονομικής', required: false, kind: 'text', width: 30 },
+  {
+    key: 'khmdhsRequestAdam',
+    header: 'ΑΔΑΜ πρωτογενούς αιτήματος (εκτός ωρίμανσης)',
+    required: false,
+    kind: 'requestAdam',
+    width: 38,
+  },
 ];
 
 const COLUMN_KEYS = COLUMNS.map((c) => c.key);
@@ -167,6 +187,136 @@ function splitAleCodes(text) {
     .filter(Boolean);
 }
 
+/** Κανονική μορφή ΑΔΑΜ: κεφαλαία, χωρίς κενά και σύμβολα. */
+function normalizeAdamInput(value) {
+  return sanitizeCellText(value)
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/[^A-Z0-9]/g, '')
+    .replace(/\*+$/, '');
+}
+
+/** REQ | PROC | AWRD | SYMV | PAY ή κενό αν η μορφή δεν είναι κωδικός ΚΗΜΔΗΣ. */
+function parseAdamType(adam) {
+  const m = /^(\d{2})([A-Z]{3,4})(\d{9})$/.exec(String(adam || ''));
+  return m ? m[2] : '';
+}
+
+function foreignAdamMessage(type) {
+  const label = ADAM_TYPE_LABELS[type];
+  if (!label) return '';
+  return `ο κωδικός είναι ${label} (${type}). Εδώ χρειάζεται ο κωδικός του πρωτογενούς αιτήματος (REQ), π.χ. 26REQ018492003.`;
+}
+
+/**
+ * Έλεγχος στήλης πρωτογενούς. Επιστρέφει τον κανονικό κωδικό REQ ή κενό.
+ * Τα μηνύματα μπαίνουν μέσω του field().
+ */
+function validateRequestAdam(status, raw, field) {
+  if (!status || !STATUS_SET.has(status)) return '';
+  const rawText = sanitizeCellText(raw);
+  const adam = normalizeAdamInput(raw);
+  const type = parseAdamType(adam);
+  if (status === MATURATION_STATUS) {
+    if (!rawText) return '';
+    if (type === 'REQ') {
+      field(
+        'ΑΔΑΜ πρωτογενούς',
+        'η ωρίμανση δεν έχει πρωτογενές. Αν υπάρχει τέτοιος κωδικός, αλλάξτε την κατάσταση σε μεταγενέστερη.'
+      );
+    } else if (type && foreignAdamMessage(type)) {
+      field('ΑΔΑΜ πρωτογενούς', `η ωρίμανση δεν έχει κωδικό ΚΗΜΔΗΣ. Επιπλέον, ${foreignAdamMessage(type)}`);
+    } else {
+      field(
+        'ΑΔΑΜ πρωτογενούς',
+        'η ωρίμανση δεν έχει κωδικό. Αφήστε το κελί κενό ή αλλάξτε την κατάσταση αν το έργο έχει πρωτογενές.'
+      );
+    }
+    return '';
+  }
+  if (!rawText) {
+    field(
+      'ΑΔΑΜ πρωτογενούς',
+      'υποχρεωτικός όταν η κατάσταση δεν είναι ωρίμανση (μορφή 26REQ018492003).'
+    );
+    return '';
+  }
+  if (type === 'REQ') return adam;
+  const foreign = type ? foreignAdamMessage(type) : '';
+  if (foreign) field('ΑΔΑΜ πρωτογενούς', foreign);
+  else {
+    field(
+      'ΑΔΑΜ πρωτογενούς',
+      'δεν αναγνωρίζεται. Η μορφή του πρωτογενούς είναι 26REQ018492003 (λατινικοί χαρακτήρες).'
+    );
+  }
+  return '';
+}
+
+/** REQ που «διεκδικεί» τη γραμμή για έλεγχο διπλότυπου. Η ωρίμανση δεν διεκδικεί. */
+/** Πεδία που η γραμμή του Excel έχει δικαίωμα να αλλάξει σε υπάρχουσα κάρτα. */
+const EXCEL_OWNED_KEYS = [
+  'projectTitle',
+  'subprojectTitle',
+  'projectType',
+  'projectStatus',
+  'aleCodes',
+  'coFinanced',
+  'fundingSource',
+  'fundingDetails',
+  'fundingSources',
+  'approvedAmount',
+  'comments',
+  'eisigitikiEkthesi',
+  'khmdhsRequestAdam',
+  'importedViaExcel',
+];
+
+/**
+ * Η ενημέρωση δεν ξαναγράφει την κάρτα από την αρχή.
+ * Μένουν χρέωση, αρχεία, μορφή υλοποίησης και ό,τι έχει ήδη έρθει από το ΚΗΜΔΗΣ.
+ * Αν αλλάξει το πρωτογενές, η παλιά αλυσίδα φεύγει για να μην μείνει κολλημένη στον νέο κωδικό.
+ */
+function applyExcelUpdateOntoExisting(excelProject, existingProject) {
+  const previous = existingProject && typeof existingProject === 'object' ? existingProject : {};
+  const incoming = excelProject && typeof excelProject === 'object' ? excelProject : {};
+  const next = { ...previous };
+  EXCEL_OWNED_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(incoming, key)) next[key] = incoming[key];
+  });
+  const prevReq = normalizeAdamInput(previous.khmdhsRequestAdam);
+  const nextReq = normalizeAdamInput(next.khmdhsRequestAdam);
+  if (prevReq && nextReq && prevReq !== nextReq) {
+    next.khmdhsRequestSnapshot = null;
+    next.khmdhsRequestFetchedAt = '';
+    next.khmdhsPayments = [];
+    next.khmdhsCommitmentDecisions = [];
+    next.khmdhsCommitmentAdam = '';
+    next.khmdhsCommitmentSnapshot = null;
+    next.khmdhsCommitmentFetchedAt = '';
+    next.khmdhsAwardAdam = '';
+    next.khmdhsAwardSnapshot = null;
+    next.khmdhsAwardFetchedAt = '';
+    next.khmdhsAdam = '';
+    next.khmdhsContractSnapshot = null;
+    next.khmdhsContractFetchedAt = '';
+    next.khmdhsNoticeAdam = '';
+    next.khmdhsNoticeSnapshot = null;
+    next.khmdhsNoticeFetchedAt = '';
+    next.khmdhsChainSeedAdam = '';
+    next.khmdhsAdamChainMeta = null;
+    next.contracts = [];
+  }
+  return next;
+}
+
+function claimableRequestAdam(rowObj) {
+  const status = rowObj && rowObj.values ? rowObj.values.projectStatus : '';
+  if (!status || status === MATURATION_STATUS || !STATUS_SET.has(status)) return '';
+  const adam = normalizeAdamInput(rowObj.values.khmdhsRequestAdam);
+  return parseAdamType(adam) === 'REQ' ? adam : '';
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Πρότυπο (template) workbook
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,7 +409,7 @@ function buildTemplateWorkbook(ExcelJSArg, options = {}) {
 
   // Κεφαλίδα Υποέργων
   const headerRow = ws.getRow(1);
-  headerRow.height = 46;
+  headerRow.height = 52;
   COLUMNS.forEach((c, i) => {
     const cell = headerRow.getCell(i + 1);
     cell.value = c.required ? `${c.header} *` : c.header;
@@ -376,6 +526,19 @@ function addDataValidations(ws, detailRangeAddrs = []) {
         errorTitle: 'Μη έγκυρη εξειδίκευση',
         error: 'Επιλέξτε πρώτα Πηγή· η εξειδίκευση προκύπτει από αυτήν.',
       });
+    } else if (c.kind === 'requestAdam') {
+      // Κενό επιτρέπεται εδώ (ωρίμανση). Ό,τι γράφεται πρέπει να είναι REQ.
+      // Ο πλήρης έλεγχος (υποχρεωτικό εκτός ωρίμανσης) γίνεται στην εισαγωγή.
+      const cleaned = `SUBSTITUTE(SUBSTITUTE(UPPER(${colLetter}2)," ",""),"-","")`;
+      ws.dataValidations.add(range, {
+        type: 'custom',
+        allowBlank: true,
+        formulae: [`OR(${colLetter}2="",AND(LEN(${cleaned})=14,MID(${cleaned},3,3)="REQ"))`],
+        showErrorMessage: true,
+        errorStyle: 'stop',
+        errorTitle: 'Μόνο πρωτογενές αίτημα',
+        error: 'Γράψτε ΑΔΑΜ πρωτογενούς (π.χ. 26REQ018492003) ή αφήστε κενό αν το έργο είναι σε ωρίμανση.',
+      });
     }
   });
 }
@@ -405,6 +568,34 @@ function addConditionalHighlights(ws) {
       ],
     });
   });
+
+  const adamCol = COL_BY_KEY.khmdhsRequestAdam;
+  const statusCol = COL_BY_KEY.projectStatus;
+  if (!adamCol || !statusCol) return;
+  const adamLetter = numToCol(adamCol.colNumber);
+  const statusLetter = numToCol(statusCol.colNumber);
+  const statusRef = `$${statusLetter}2`;
+  const maturation = `"${MATURATION_STATUS}"`;
+  const warnStyle = {
+    fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLOR.warnFill } },
+  };
+  ws.addConditionalFormatting({
+    ref: `${adamLetter}2:${adamLetter}${lastRow}`,
+    rules: [
+      {
+        type: 'expression',
+        formulae: [`AND(${activeExpr(2)},${statusRef}<>"",${statusRef}<>${maturation},${adamLetter}2="")`],
+        style: missingStyle,
+        priority: COLUMNS.length + 1,
+      },
+      {
+        type: 'expression',
+        formulae: [`AND(${statusRef}=${maturation},${adamLetter}2<>"")`],
+        style: warnStyle,
+        priority: COLUMNS.length + 2,
+      },
+    ],
+  });
 }
 
 function buildInfoSheet(wb) {
@@ -422,14 +613,15 @@ function buildInfoSheet(wb) {
   const lines = [
     ['', ''],
     ['Πώς συμπληρώνεται', 'Συμπληρώστε ΕΝΑ υποέργο ανά γραμμή, στο φύλλο «Υποέργα». Τα κελιά με λίστα ανοίγουν με βελάκι — επιλέξτε τιμή, μην πληκτρολογείτε ελεύθερα.'],
-    ['Υποχρεωτικά πεδία', 'Όσες στήλες έχουν αστερίσκο (*) στην κεφαλίδα είναι υποχρεωτικές. Προαιρετικά είναι μόνο: Σχόλια και Αναφορά προγράμματος Οικονομικής.'],
+    ['Υποχρεωτικά πεδία', 'Όσες στήλες έχουν αστερίσκο (*) στην κεφαλίδα είναι υποχρεωτικές. Η στήλη του ΑΔΑΜ πρωτογενούς είναι υποχρεωτική σε κάθε κατάσταση εκτός από την ωρίμανση. Προαιρετικά μένουν: Σχόλια και Αναφορά προγράμματος Οικονομικής. Η δεύτερη πηγή συμπληρώνεται μόνο αν το υποέργο είναι συγχρηματοδοτούμενο.'],
     ['Έργα με πολλά υποέργα', 'Γράψτε τον ΙΔΙΟ τίτλο Πράξης σε κάθε γραμμή του. Αν επαναλαμβάνεται, κάντε αντιγραφή-επικόλληση τον τίτλο από προηγούμενη γραμμή ώστε να είναι πανομοιότυπος. Έτσι τα υποέργα ομαδοποιούνται σωστά στην ίδια Πράξη.'],
     ['Ποια έργα ΔΕΝ μπαίνουν', 'Δεν εισάγονται τα «Ολοκληρωμένα & Αποπληρωμένα» (κλεισμένα) έργα. Η λίστα κατάστασης δεν τα περιλαμβάνει.'],
     ['Χρηματοδότηση', 'Επιλέξτε πρώτα «Πηγή Χρηματοδότησης 1» και μετά «Εξειδίκευση Πηγής 1» (η λίστα εξειδίκευσης ανοίγει με βελάκι και δείχνει μόνο τις εξειδικεύσεις της επιλεγμένης πηγής). Το «Ποσό 1» είναι το εγκεκριμένο ποσό. Οι λίστες πηγών/εξειδικεύσεων είναι αυτές που ισχύουν στην εφαρμογή τη στιγμή του κατεβάσματος. Το φύλλο «LISTS» τροφοδοτεί τις λίστες — μην το επεξεργάζεστε.'],
     ['Συγχρηματοδοτούμενα', 'Αν το υποέργο έχει δύο πηγές, βάλτε «Συγχρηματοδοτούμενο = Ναι» και συμπληρώστε την 2η πηγή/εξειδίκευση/ποσό (στήλες με ένδειξη «μόνο αν Ναι»). Το εγκεκριμένο ποσό υπολογίζεται αυτόματα ως άθροισμα (εξαιρώντας τους «ΙΔΙΟΥΣ ΠΟΡΟΥΣ»). Αν υπάρχει και 3η πηγή, καταγράφεται αργότερα μέσα στην εφαρμογή.'],
     ['Ποσά', 'Γράψτε τα ποσά σε μορφή 25.125,23 (τελεία για χιλιάδες, κόμμα για δεκαδικά).'],
     ['Κωδ. Α.Λ.Ε.', 'Αν υπάρχουν πολλοί κωδικοί Α.Λ.Ε., χωρίστε τους με κάθετο «/». Τα κενά γύρω από το / αγνοούνται (π.χ. 02.15.6262 / 02.30.7331 ή 02.15.6262/02.30.7331).'],
-    ['Μορφή υλοποίησης & ΑΔΑΜ', 'Δεν συμπληρώνονται στο Excel. Μετά την εισαγωγή, όταν φέρετε δεδομένα από ΚΗΜΔΗΣ μέσα στην εφαρμογή, συμπληρώνονται αυτόματα όπου χρειάζεται — αποφεύγεται λάθος καταχώριση ΑΔΑΜ ως σύμβασης όταν το έργο είναι ακόμη σε διαδικασία σύναψης.'],
+    ['ΑΔΑΜ πρωτογενούς', 'Για κάθε υποέργο που δεν είναι «Υπό βραχυπρόθεσμη ωρίμανση» γράψτε τον κωδικό του πρωτογενούς αιτήματος, με λατινικούς χαρακτήρες, στη μορφή 26REQ018492003. Στην ωρίμανση το κελί μένει κενό. Κωδικός σύμβασης (SYMV), δημοσίευσης (PROC) ή ανάθεσης (AWRD) δεν γίνεται δεκτός. Μετά την εισαγωγή η εφαρμογή μπορεί να φέρει τα υπόλοιπα από το ΚΗΜΔΗΣ ξεκινώντας από αυτόν τον κωδικό.'],
+    ['Μορφή υλοποίησης', 'Δεν συμπληρώνεται στο Excel. Συμπληρώνεται όταν έρθουν τα δεδομένα από το ΚΗΜΔΗΣ, ώστε να μην γραφτεί λάθος «μία» ή «πολλές» συμβάσεις πριν τα δει η εφαρμογή.'],
     ['Πριν την εισαγωγή', 'Η εφαρμογή θα σας δείξει ΑΝΑΦΟΡΑ ελέγχου (λάθη ανά γραμμή, διπλότυπα) πριν αποθηκευτεί οτιδήποτε. Μπορείτε να ακυρώσετε, να διορθώσετε το αρχείο και να ξαναδοκιμάσετε.'],
   ];
   let r = 3;
@@ -441,7 +633,8 @@ function buildInfoSheet(wb) {
     kc.font = { bold: true, color: { argb: COLOR.info } };
     kc.alignment = { vertical: 'top', wrapText: true };
     vc.alignment = { vertical: 'top', wrapText: true };
-    ws.getRow(r).height = v && v.length > 90 ? 44 : 26;
+    const len = v ? v.length : 0;
+    ws.getRow(r).height = len > 220 ? 78 : len > 120 ? 58 : len > 90 ? 44 : 26;
     r += 1;
   });
 }
@@ -502,8 +695,19 @@ async function parseImportWorkbookBuffer(buffer, ExcelJSArg) {
     if (key && !keyToCol[key]) keyToCol[key] = colNumber;
   });
 
-  // Fallback θέσης όταν κάποια κεφαλίδα δεν αναγνωρίστηκε
-  COLUMNS.forEach((c, i) => { if (!keyToCol[c.key]) keyToCol[c.key] = i + 1; });
+  // Fallback θέσης όταν κάποια κεφαλίδα δεν αναγνωρίστηκε.
+  // Η στήλη του πρωτογενούς δεν μαντεύεται από τη θέση: σε παλιό πρότυπο
+  // η ίδια θέση μπορεί να είναι κενή ή κρυφή στήλη λιστών.
+  COLUMNS.forEach((c, i) => {
+    if (keyToCol[c.key]) return;
+    if (c.key === 'khmdhsRequestAdam') {
+      let guessed = sanitizeCellText(readCellRaw(headerRow.getCell(i + 1)));
+      guessed = guessed.replace(/\s*\*+\s*$/, '').trim();
+      keyToCol[c.key] = guessed === c.header ? i + 1 : 0;
+      return;
+    }
+    keyToCol[c.key] = i + 1;
+  });
 
   const missingRequiredHeaders = COLUMNS.filter((c) => c.required && !Number.isInteger(keyToCol[c.key]));
   if (missingRequiredHeaders.length) {
@@ -521,6 +725,11 @@ async function parseImportWorkbookBuffer(buffer, ExcelJSArg) {
     let anyContent = false;
     COLUMNS.forEach((c) => {
       const colNumber = keyToCol[c.key];
+      if (!colNumber) {
+        values[c.key] = '';
+        if (c.kind === 'amount') rawAmounts[c.key] = null;
+        return;
+      }
       const cell = row.getCell(colNumber);
       if (c.kind === 'amount') {
         const raw = readCellRaw(cell);
@@ -597,6 +806,8 @@ function validateRow(rowObj, fundingEnums) {
     else field('Κατάσταση', 'δεν είναι από τη λίστα');
   }
 
+  const requestAdam = validateRequestAdam(v.projectStatus, v.khmdhsRequestAdam, field);
+
   const ale = splitAleCodes(v.aleCodes);
   if (ale.length === 0) field('Κωδ. Α.Λ.Ε.', 'υποχρεωτικό (≥1 κωδικός)');
 
@@ -647,6 +858,7 @@ function validateRow(rowObj, fundingEnums) {
           approvedAmount: formatAmountGr(s1.amount),
           fundingSources: [],
           aleCodes: ale,
+          requestAdam,
         });
       }
     } else {
@@ -672,6 +884,7 @@ function validateRow(rowObj, fundingEnums) {
             approvedAmount: formatAmountGr(sum),
             fundingSources: built.map((b) => ({ source: b.source, details: b.details, amount: b.amount, ownResources: b.ownResources })),
             aleCodes: ale,
+            requestAdam,
           });
         }
       }
@@ -688,7 +901,8 @@ function buildProjectFromRow(rowObj, funding) {
     // ΧΩΡΙΣ projectId/subprojectId → δημιουργούνται & ομαδοποιούνται από τον main process
     projectTitle: v.projectTitle,
     subprojectTitle: v.subprojectTitle,
-    // Συμπληρώνονται αργότερα από ΚΗΜΔΗΣ / κάρτα υποέργου — όχι από το Excel
+    // Η μορφή υλοποίησης έρχεται από το ΚΗΜΔΗΣ. Ο κωδικός σύμβασης μένει κενός·
+    // το πρωτογενές, όταν υπάρχει, είναι ο σπόρος της μαζικής ανάκτησης.
     implementationForm: '',
     projectType: v.projectType,
     projectStatus: v.projectStatus,
@@ -704,6 +918,7 @@ function buildProjectFromRow(rowObj, funding) {
     approvedAmount: funding.approvedAmount,
     projectBudget: '',
     khmdhsAdam: '',
+    khmdhsRequestAdam: funding.requestAdam || '',
     comments: v.comments || '',
     eisigitikiEkthesi: v.eisigitikiEkthesi || '',
     supervisorEngineerIds: [],
@@ -734,6 +949,7 @@ function validateAllRows(rows, options = {}) {
   const errors = [];
   const validRows = [];
   const seen = new Map(); // dupKey → excelRow
+  const seenAdams = new Map(); // REQ → excelRow
   const fundingEnums = options.fundingEnums;
 
   rows.forEach((rowObj) => {
@@ -746,6 +962,17 @@ function validateAllRows(rows, options = {}) {
       seen.set(res.dupKey, rowObj.excelRow);
     }
 
+    const claimedAdam = claimableRequestAdam(rowObj);
+    if (claimedAdam) {
+      if (seenAdams.has(claimedAdam)) {
+        rowErrors.push(
+          `ΑΔΑΜ πρωτογενούς: ο ίδιος κωδικός (${claimedAdam}) υπάρχει και στη γραμμή ${seenAdams.get(claimedAdam)}. Κάθε υποέργο θέλει το δικό του πρωτογενές.`
+        );
+      } else {
+        seenAdams.set(claimedAdam, rowObj.excelRow);
+      }
+    }
+
     if (rowErrors.length) {
       errors.push({ excelRow: rowObj.excelRow, messages: rowErrors });
     } else {
@@ -754,6 +981,41 @@ function validateAllRows(rows, options = {}) {
   });
 
   return { errors, validRows, count: rows.length };
+}
+
+/**
+ * Γραμμές των οποίων το πρωτογενές υπάρχει ήδη σε κάρτα.
+ * sameCard: ο τίτλος είναι η ίδια κάρτα (η ενημέρωση επιτρέπεται, η δεύτερη δημιουργία όχι).
+ * @param {object[]} validRows
+ * @param {object[]} existingProjects
+ */
+function collectRequestAdamOwnerConflicts(validRows, existingProjects) {
+  const owners = new Map();
+  (existingProjects || []).forEach((p) => {
+    const adam = normalizeAdamInput(p && p.khmdhsRequestAdam);
+    if (parseAdamType(adam) !== 'REQ') return;
+    if (owners.has(adam)) return;
+    owners.set(adam, {
+      dupKey: excelImportCore.buildDupKey(p.projectTitle, p.subprojectTitle),
+      projectTitle: p.projectTitle || '',
+      subprojectTitle: p.subprojectTitle || '',
+    });
+  });
+  const conflicts = [];
+  (validRows || []).forEach((vr) => {
+    const adam = vr && vr.project ? normalizeAdamInput(vr.project.khmdhsRequestAdam) : '';
+    if (parseAdamType(adam) !== 'REQ') return;
+    const owner = owners.get(adam);
+    if (!owner) return;
+    conflicts.push({
+      excelRow: vr.excelRow,
+      adam,
+      projectTitle: owner.projectTitle,
+      subprojectTitle: owner.subprojectTitle,
+      sameCard: owner.dupKey === vr.dupKey,
+    });
+  });
+  return conflicts;
 }
 
 module.exports = {
@@ -765,6 +1027,11 @@ module.exports = {
   COLUMN_KEYS,
   ALLOWED_STATUSES,
   EXCLUDED_STATUSES,
+  MATURATION_STATUS,
+  normalizeAdamInput,
+  parseAdamType,
+  collectRequestAdamOwnerConflicts,
+  applyExcelUpdateOntoExisting,
   sanitizeCellText,
   normalizeTitleKey,
   amountToNumber,

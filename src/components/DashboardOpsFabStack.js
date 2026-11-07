@@ -319,6 +319,7 @@ export default function DashboardOpsFabStack({
   onRestoreLive,
   keepMounted = false,
   isPointerGuarded = null,
+  openKhmdhsToken = 0,
 }) {
   const [khmdhsOpen, setKhmdhsOpen] = useState(false);
   const [deadlineOpen, setDeadlineOpen] = useState(false);
@@ -327,6 +328,12 @@ export default function DashboardOpsFabStack({
   useEffect(() => {
     if (khmdhsBatchRunning) setKhmdhsOpen(false);
   }, [khmdhsBatchRunning]);
+
+  useEffect(() => {
+    if (!openKhmdhsToken) return;
+    setDeadlineOpen(false);
+    setKhmdhsOpen(true);
+  }, [openKhmdhsToken]);
 
   useEffect(() => {
     if (!visible) {

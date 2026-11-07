@@ -14,6 +14,8 @@ let queuedSavePath = undefined; // undefined = δεν έχει οριστεί, n
 let khmdhsByAdam = Object.create(null);
 let khmdhsLive = false;
 let queuedDiavgeiaAcceptance = null;
+const dialogLog = [];
+const mailOutbox = [];
 
 function queueE2EOpenFiles(filePaths) {
   queuedOpenFiles = Array.isArray(filePaths) ? filePaths.slice() : [];
@@ -97,12 +99,56 @@ function resolveE2EKhmdhsHttp(url, options) {
   };
 }
 
+function dialogOptionsFromArgs(args) {
+  const list = Array.isArray(args) ? args : [];
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const candidate = list[i];
+    if (!candidate || typeof candidate !== 'object') continue;
+    if (candidate.title || candidate.properties || candidate.filters || candidate.defaultPath) {
+      return candidate;
+    }
+  }
+  return {};
+}
+
+function noteE2EDialog(kind, args) {
+  if (!isE2EProcess()) return;
+  const opts = dialogOptionsFromArgs(args);
+  dialogLog.push({
+    kind,
+    title: String(opts.title || ''),
+    properties: Array.isArray(opts.properties) ? opts.properties.slice() : [],
+  });
+}
+
+function takeE2EDialogLog() {
+  const copy = dialogLog.slice();
+  dialogLog.length = 0;
+  return copy;
+}
+
+function captureE2EMail(entry) {
+  if (!isE2EProcess()) return false;
+  mailOutbox.push({
+    to: String(entry && entry.to || ''),
+    subject: String(entry && entry.subject || ''),
+  });
+  return true;
+}
+
+function takeE2EMailOutbox() {
+  const copy = mailOutbox.slice();
+  mailOutbox.length = 0;
+  return copy;
+}
+
 function installE2EDialogHooks(dialog) {
   if (!isE2EProcess() || !dialog) return;
   const origOpen = dialog.showOpenDialog.bind(dialog);
   const origSave = dialog.showSaveDialog.bind(dialog);
 
   dialog.showOpenDialog = async function e2eShowOpenDialog(...args) {
+    noteE2EDialog('open', args);
     const queued = takeE2EOpenFiles();
     if (queued) {
       return { canceled: queued.length === 0, filePaths: queued };
@@ -111,6 +157,7 @@ function installE2EDialogHooks(dialog) {
   };
 
   dialog.showSaveDialog = async function e2eShowSaveDialog(...args) {
+    noteE2EDialog('save', args);
     const queued = takeE2ESavePath();
     if (queued !== undefined) {
       if (!queued) return { canceled: true };
@@ -135,4 +182,8 @@ module.exports = {
   takeE2EDiavgeiaAcceptance,
   resolveE2EKhmdhsHttp,
   installE2EDialogHooks,
+  noteE2EDialog,
+  takeE2EDialogLog,
+  captureE2EMail,
+  takeE2EMailOutbox,
 };

@@ -17,6 +17,7 @@ import ActiveFiltersBanner from './ActiveFiltersBanner';
 import DashboardOverviewZone from './DashboardOverviewZone';
 import DashboardOpsFabStack from './DashboardOpsFabStack';
 import SplashScreen from './SplashScreen';
+import HouseMark from './HouseMark';
 import UserGuideTour from './UserGuideTour';
 import UserGuideModal from './UserGuideModal';
 import FileManager from './FileManager';
@@ -247,6 +248,8 @@ const Header = styled.div`
   right: 0;
   z-index: 900;
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  min-height: 96px;
+  box-sizing: border-box;
   padding: 1rem 2rem;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.25), 0 1px 0 rgba(99, 102, 241, 0.15);
 
@@ -3351,6 +3354,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isEmailHistoryOpen, setIsEmailHistoryOpen] = useState(false);
   const [isMunicipalUnitsOpen, setIsMunicipalUnitsOpen] = useState(false);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
+  const [khmdhsOpenToken, setKhmdhsOpenToken] = useState(0);
   const [isTaskAssignmentsOpen, setIsTaskAssignmentsOpen] = useState(false);
   const [taskAssignmentInitialScreen, setTaskAssignmentInitialScreen] = useState('workspace');
   const [taskAssignmentsFocusTaskId, setTaskAssignmentsFocusTaskId] = useState(null);
@@ -7594,6 +7598,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         <CenteredTitleContainer>
           <MainTitle>{appConfig.organizationFullName || 'ΟΡΓΑΝΙΣΜΟΣ'}</MainTitle>
           <SubTitle>ERGOHUB - Διαχείριση Έργων & Προμηθειών</SubTitle>
+          <div style={{ marginTop: 6 }}>
+            <HouseMark tone="dark" layout="plate" />
+          </div>
         </CenteredTitleContainer>
         <HeaderRight>
           <LogoutButton onClick={() => setIsMyNotifPrefsOpen(true)} style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', marginRight: 6 }}>
@@ -9375,6 +9382,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
           <SubprojectExcelImportModal
             onClose={() => setIsExcelImportOpen(false)}
+            onStartKhmdhsRetrieval={() => {
+              setIsExcelImportOpen(false);
+              setKhmdhsOpenToken((n) => n + 1);
+            }}
             currentUser={currentUser}
             onImported={async (importResult) => {
               await loadDataWithCache(true);
@@ -9445,6 +9456,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
       <DashboardOpsFabStack
         visible={(canManageAll || isEngineer || userRole === 'USER') && !isNotesOpen}
+        openKhmdhsToken={khmdhsOpenToken}
         keepMounted={khmdhsIdleShutdownArmed || khmdhsSessionLocked}
         canManageKhmdhs={khmdhsRefresh.showBatchRefreshButton(userRole)}
         khmdhsBatchRunning={khmdhsBatchRunning}

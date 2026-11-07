@@ -102,6 +102,32 @@ test('μετά από ανανέωση χωρίς διαφορές δεν μέν
   assert.equal(kh.isBatchItemStale(neverChecked), true);
 });
 
+test('πρωτογενές χωρίς προηγούμενη ανάκτηση μπαίνει στη μαζική', () => {
+  const freshImport = {
+    projectId: 'proj-new',
+    subprojectId: 'sub-new',
+    projectTitle: 'Νέο έργο από Excel',
+    subprojectTitle: 'Υποέργο με πρωτογενές',
+    projectStatus: 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
+    khmdhsRequestAdam: '26REQ018492003',
+    khmdhsAdam: '',
+  };
+  const row = kh.classifyForBatchRefresh(freshImport, { now });
+  assert.equal(row.kind, 'eligible');
+  assert.equal(row.seedAdam, '26REQ018492003');
+  assert.equal(row.ageDays, null);
+  assert.equal(kh.isBatchItemStale(row), true);
+  const maturation = kh.classifyForBatchRefresh({
+    ...freshImport,
+    subprojectId: 'sub-mat',
+    subprojectTitle: 'Υποέργο ωρίμανσης',
+    projectStatus: 'ΥΠΟ ΒΡΑΧΥΠΡΟΘΕΣΜΗ ΩΡΙΜΑΝΣΗ',
+    khmdhsRequestAdam: '',
+  }, { now });
+  assert.equal(maturation.kind, 'skipped');
+  assert.equal(maturation.reason, 'Χωρίς ΑΔΑΜ');
+});
+
 test('παλαιά: χωρίς ημερομηνία ή ≥30 ημέρες· φρέσκο όχι', () => {
   const stale = kh.classifyForBatchRefresh(bridge, { now });
   const fresh = kh.classifyForBatchRefresh(tank, { now });

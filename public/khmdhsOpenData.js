@@ -1129,14 +1129,41 @@ function isMultipleContractsForm(implementationForm) {
   return implementationForm === 'Πολλές Συμβάσεις';
 }
 
+/**
+ * Ενημέρωση από Excel που αλλάζει το πρωτογενές: η παλιά σύμβαση/δημοσίευση
+ * δεν πρέπει να μείνει κολλημένη στον νέο κωδικό.
+ */
+function excelRequestAdamReplaced(incoming, existing) {
+  if (!incoming || incoming.importedViaExcel !== true) return false;
+  const prevReq = normalizeRequestAdam(existing && existing.khmdhsRequestAdam) || '';
+  const nextReq = normalizeRequestAdam(incoming.khmdhsRequestAdam) || '';
+  return !!(prevReq && nextReq && prevReq !== nextReq);
+}
+
 /** Συγχώνευση ΑΔΑΜ/στοιχείων ΚΗΜΔΗΣ κατά την αποθήκευση */
 function mergeKhmdhsFieldsForSave(projectData, existingData) {
-  const existing = existingData && typeof existingData === 'object' ? existingData : {};
+  let existing = existingData && typeof existingData === 'object' ? existingData : {};
   const incoming = projectData && typeof projectData === 'object' ? projectData : {};
+  let noticeExisting = existing;
+  if (excelRequestAdamReplaced(incoming, existing)) {
+    existing = {
+      ...existing,
+      khmdhsAdam: '',
+      khmdhsContractSnapshot: null,
+      khmdhsContractFetchedAt: '',
+      contracts: [],
+    };
+    noticeExisting = {
+      ...existing,
+      khmdhsNoticeAdam: '',
+      khmdhsNoticeSnapshot: null,
+      khmdhsNoticeFetchedAt: '',
+    };
+  }
   const status = incoming.projectStatus || existing.projectStatus || '';
   const requires = statusRequiresKhmdhsAdam(status);
   const impl = incoming.implementationForm || existing.implementationForm || '';
-  const noticeFields = mergeKhmdhsNoticeFieldsForSave(projectData, existingData);
+  const noticeFields = mergeKhmdhsNoticeFieldsForSave(projectData, noticeExisting);
 
   if (isMultipleContractsForm(impl)) {
     const incContracts = Array.isArray(incoming.contracts) ? incoming.contracts : [];

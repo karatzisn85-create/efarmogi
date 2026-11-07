@@ -166,4 +166,50 @@ describe('mergeKhmdhsFieldsForSave — ADAM και γραμμές συμβάσε
     expect(merged.contracts[1].khmdhsAdam).toBe('24SYMV000000001');
     expect(merged.contracts[1].khmdhsContractSnapshot.referenceNumber).toBe('24SYMV000000001');
   });
+
+  test('εισαγωγή Excel με άλλο πρωτογενές δεν κρατά την παλιά σύμβαση', () => {
+    const existingData = {
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: 'Μια Σύμβαση',
+      khmdhsAdam: '24SYMV000000002',
+      khmdhsContractSnapshot: snapB,
+      khmdhsContractFetchedAt: '2026-01-01T00:00:00.000Z',
+      khmdhsNoticeAdam: '24PROC000000002',
+      khmdhsNoticeSnapshot: { referenceNumber: '24PROC000000002', title: 'Παλιά δημοσίευση' },
+      khmdhsRequestAdam: '24REQ000000001',
+    };
+    const projectData = {
+      importedViaExcel: true,
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: '',
+      khmdhsAdam: '',
+      khmdhsRequestAdam: '26REQ018492003',
+      contracts: [],
+    };
+    const merged = mergeKhmdhsFieldsForSave(projectData, existingData);
+    expect(merged.khmdhsAdam).toBe('');
+    expect(merged.khmdhsContractSnapshot).toBeNull();
+    expect(merged.khmdhsNoticeAdam).toBe('');
+  });
+
+  test('εισαγωγή Excel με το ίδιο πρωτογενές κρατά την αποθηκευμένη σύμβαση', () => {
+    const existingData = {
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: 'Μια Σύμβαση',
+      khmdhsAdam: '24SYMV000000001',
+      khmdhsContractSnapshot: snapA,
+      khmdhsRequestAdam: '26REQ018492003',
+    };
+    const projectData = {
+      importedViaExcel: true,
+      projectStatus: 'ΕΚΤΕΛΟΥΜΕΝΟ - ΣΥΜΒΑΣΙΟΠΟΙΗΜΕΝΟ',
+      implementationForm: '',
+      khmdhsAdam: '',
+      khmdhsRequestAdam: '26REQ018492003',
+      contracts: [],
+    };
+    const merged = mergeKhmdhsFieldsForSave(projectData, existingData);
+    expect(merged.khmdhsAdam).toBe('24SYMV000000001');
+    expect(merged.khmdhsContractSnapshot.referenceNumber).toBe('24SYMV000000001');
+  });
 });

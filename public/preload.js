@@ -16,7 +16,7 @@ const ALLOWED_INVOKE = new Set([
   'delete-item-from-folder','delete-item-from-subfolder','delete-prosklisi',
   'delete-prosklisi-file','delete-prosklisi-files','delete-prosklisi-folder','delete-prosklisi-group',
   'delete-prosklisi-modification','delete-subproject','delete-user',
-  'e2e-queue-open-files','e2e-queue-folder-pick','e2e-queue-save-path','e2e-queue-khmdhs-fixtures','e2e-queue-diavgeia-acceptance','e2e-set-khmdhs-live','e2e-last-edit-menu','e2e-spellcheck-status',
+  'e2e-queue-open-files','e2e-queue-folder-pick','e2e-queue-save-path','e2e-queue-khmdhs-fixtures','e2e-queue-diavgeia-acceptance','e2e-set-khmdhs-live','e2e-last-edit-menu','e2e-spellcheck-status','e2e-dialog-log','e2e-mail-outbox',
   'download-document-template','download-egkriseis-pdf','download-entaxi-file',
   'download-file-from-folder','download-file-from-subfolder','download-prosklisi-file',
   'download-subproject-file','download-update','export-invest-projects','export-prosklisi','export-proskliseis-excel','export-proskliseis-orimanthi-excel','export-proskliseis-pdf',

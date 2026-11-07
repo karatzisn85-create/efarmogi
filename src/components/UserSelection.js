@@ -7,6 +7,7 @@ import {
   saveLastLoginUsername,
   isCapsLockOn,
 } from '../utils/loginScreenPrefs';
+import HouseMark from './HouseMark';
 
 const ipcRenderer = window.electronAPI;
 
@@ -248,11 +249,20 @@ const RoleDesc = styled.span`
   font-weight: 400;
 `;
 
+const VersionRow = styled.div`
+  width: min(420px, 92vw);
+  margin-top: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  z-index: 1;
+`;
+
 const VersionText = styled.div`
   color: rgba(255,255,255,0.3);
   font-size: 11px;
-  margin-top: 24px;
-  z-index: 1;
 `;
 
 function UserSelection({ onUserSelect, appConfig = {} }) {
@@ -466,7 +476,10 @@ function UserSelection({ onUserSelect, appConfig = {} }) {
         )}
       </Card>
 
-      <VersionText>ERGOHUB v{appConfig.appVersion || '1.0.0'}</VersionText>
+      <VersionRow>
+        <VersionText>ERGOHUB v{appConfig.appVersion || '1.0.0'}</VersionText>
+        <HouseMark tone="dark" layout="footer" />
+      </VersionRow>
     </Container>
   );
 }

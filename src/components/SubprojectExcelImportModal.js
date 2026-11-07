@@ -296,7 +296,7 @@ const Spinner = styled.span`
   @keyframes spin { to { transform: rotate(360deg); } }
 `;
 
-function SubprojectExcelImportModal({ onClose, onImported }) {
+function SubprojectExcelImportModal({ onClose, onImported, onStartKhmdhsRetrieval }) {
   const { showToast } = useToast();
   const [step, setStep] = useState('intro'); // 'intro' | 'preview' | 'result'
   const [busy, setBusy] = useState(false);
@@ -386,6 +386,26 @@ function SubprojectExcelImportModal({ onClose, onImported }) {
   const canCommit = excelImport.canCommitImport(report);
   const showExistingChoice = excelImport.showExistingWorksChoice(report);
   const showDuplicateChoice = excelImport.showDuplicatePolicyChoice(report, existingMode);
+  const adamConflicts = (report && report.requestAdamConflicts ? report.requestAdamConflicts : []).filter((c) => {
+    if (existingMode === 'wipe') return false;
+    if (c.sameCard && duplicatePolicy !== 'create') return false;
+    return true;
+  });
+  const importableCount = report
+    ? Math.max(0, (Number(report.validCount) || 0) - adamConflicts.length)
+    : 0;
+  const canConfirm = canCommit && importableCount > 0;
+  const savedWithRequestAdam = result && Number(result.savedWithRequestAdam) > 0
+    ? Number(result.savedWithRequestAdam)
+    : 0;
+  const savedMaturation = result && Number(result.savedMaturation) > 0
+    ? Number(result.savedMaturation)
+    : 0;
+
+  const handleOpenRetrieval = useCallback(() => {
+    if (typeof onStartKhmdhsRetrieval === 'function') onStartKhmdhsRetrieval();
+    else onClose();
+  }, [onClose, onStartKhmdhsRetrieval]);
 
   return (
     <Overlay onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -409,7 +429,8 @@ function SubprojectExcelImportModal({ onClose, onImported }) {
                   <StepCardTitle><StepBadge>1</StepBadge> Κατέβασμα προτύπου</StepCardTitle>
                   <StepCardDesc>
                     Δημιουργεί ένα πλήρως μορφοποιημένο αρχείο Excel με έτοιμες λίστες επιλογής και
-                    οδηγίες συμπλήρωσης.
+                    οδηγίες συμπλήρωσης. Για κάθε έργο που δεν είναι σε ωρίμανση, το πρότυπο έχει στήλη
+                    για τον ΑΔΑΜ του πρωτογενούς αιτήματος.
                   </StepCardDesc>
                   <PrimaryButton onClick={handleDownloadTemplate} disabled={busy}>
                     {busy ? <Spinner /> : '⬇ '}Κατέβασμα προτύπου
@@ -472,6 +493,16 @@ function SubprojectExcelImportModal({ onClose, onImported }) {
                 </StatsRow>
               )}
 
+              {!hasParseErrors && !hasRowErrors && report.validCount > 0 && (
+                <Banner $kind="info">
+                  {Math.max(0, (report.requestAdamCount || 0) - adamConflicts.length)} με πρωτογενές,
+                  έτοιμα για ανάκτηση από ΚΗΜΔΗΣ
+                  {(report.maturationCount || 0) > 0
+                    ? `. ${report.maturationCount} σε ωρίμανση, χωρίς κωδικό.`
+                    : '.'}
+                </Banner>
+              )}
+
               {hasRowErrors && (
                 <Section>
                   <SectionTitle>⚠️ Γραμμές που χρειάζονται διόρθωση</SectionTitle>
@@ -518,6 +549,26 @@ function SubprojectExcelImportModal({ onClose, onImported }) {
                       </RadioHint>
                     </RadioText>
                   </RadioOption>
+                </Section>
+              )}
+
+              {adamConflicts.length > 0 && (
+                <Section>
+                  <SectionTitle>Ο ίδιος ΑΔΑΜ πρωτογενούς υπάρχει ήδη</SectionTitle>
+                  <Banner $kind="warn" style={{ marginBottom: '0.8rem' }}>
+                    Αυτές οι γραμμές δεν θα αποθηκευτούν, ώστε το ίδιο πρωτογενές να μην μπει σε δύο
+                    υποέργα. Με πλήρη διαγραφή και αντικατάσταση ο έλεγχος αυτός δεν εφαρμόζεται.
+                  </Banner>
+                  <div style={{ maxHeight: '160px', overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: '8px' }}>
+                    {adamConflicts.map((d) => (
+                      <DupRow key={d.excelRow}>
+                        <strong>Γραμμή {d.excelRow}:</strong> {d.adam}
+                        {d.sameCard
+                          ? ' — ήδη σε αυτή την κάρτα'
+                          : ` — ήδη στο «${d.subprojectTitle}»`}
+                      </DupRow>
+                    ))}
+                  </div>
                 </Section>
               )}
 
@@ -582,6 +633,21 @@ function SubprojectExcelImportModal({ onClose, onImported }) {
                   </StatBox>
                 )}
               </StatsRow>
+              {savedWithRequestAdam > 0 && (
+                <Banner $kind="info">
+                  Αποθηκεύτηκαν {savedWithRequestAdam} υποέργα με πρωτογενές αίτημα. Η μαζική ανάκτηση
+                  μπορεί να ξεκινήσει τώρα και να φέρει τα υπόλοιπα από το ΚΗΜΔΗΣ.
+                  {savedMaturation > 0
+                    ? ` Τα ${savedMaturation} σε ωρίμανση μένουν εκτός, γιατί δεν έχουν κωδικό.`
+                    : ''}
+                </Banner>
+              )}
+              {savedWithRequestAdam === 0 && (result.created + result.updated) > 0 && (
+                <Banner $kind="info">
+                  Κανένα από όσα αποθηκεύτηκαν δεν έχει πρωτογενές. Η ωρίμανση συμπληρώνεται αργότερα,
+                  μέσα στην κάρτα του υποέργου.
+                </Banner>
+              )}
               {result.failed && result.failed.length > 0 && (
                 <Section>
                   <SectionTitle>⚠️ Γραμμές που δεν εισήχθησαν ({result.failed.length})</SectionTitle>
@@ -613,12 +679,12 @@ function SubprojectExcelImportModal({ onClose, onImported }) {
                 ← Πίσω
               </SecondaryButton>
               {existingMode === 'wipe' ? (
-                <DangerButton onClick={handleCommit} disabled={!canCommit || busy}>
-                  {busy ? <Spinner /> : '🗑️ '}Διαγραφή όλων & Εισαγωγή {report ? report.validCount : ''}
+                <DangerButton onClick={handleCommit} disabled={!canConfirm || busy}>
+                  {busy ? <Spinner /> : '🗑️ '}Διαγραφή όλων & Εισαγωγή {importableCount}
                 </DangerButton>
               ) : (
-                <PrimaryButton onClick={handleCommit} disabled={!canCommit || busy}>
-                  {busy ? <Spinner /> : '✔ '}Επιβεβαίωση εισαγωγής {report ? report.validCount : ''}
+                <PrimaryButton onClick={handleCommit} disabled={!canConfirm || busy}>
+                  {busy ? <Spinner /> : '✔ '}Επιβεβαίωση εισαγωγής {importableCount}
                 </PrimaryButton>
               )}
             </>
@@ -626,8 +692,14 @@ function SubprojectExcelImportModal({ onClose, onImported }) {
 
           {step === 'result' && (
             <>
-              <span />
-              <PrimaryButton onClick={onClose} disabled={busy}>Ολοκλήρωση</PrimaryButton>
+              <SecondaryButton onClick={onClose} disabled={busy}>Κλείσιμο</SecondaryButton>
+              {savedWithRequestAdam > 0 ? (
+                <PrimaryButton onClick={handleOpenRetrieval} disabled={busy}>
+                  Ανάκτηση από ΚΗΜΔΗΣ
+                </PrimaryButton>
+              ) : (
+                <PrimaryButton onClick={onClose} disabled={busy}>Ολοκλήρωση</PrimaryButton>
+              )}
             </>
           )}
         </Footer>

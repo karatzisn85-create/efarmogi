@@ -108,7 +108,6 @@ test('P3-40 διαγραφή πρόσκλησης με επιβεβαίωση τ
   await expect(card).toBeVisible();
   await card.getByTitle('Ενέργειες').click();
   await window.getByRole('button', { name: 'Διαγραφή πρόσκλησης' }).click();
-  const yes = window.getByTestId('confirm-yes').or(window.getByRole('button', { name: /^Διαγραφή$/ }));
-  if (await yes.count()) await yes.click();
+  await window.getByTestId('confirm-yes').click();
   await expect(window.getByTestId('psk-card-psk-far')).toHaveCount(0);
 });

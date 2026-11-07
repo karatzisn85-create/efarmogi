@@ -147,3 +147,57 @@ test('P4-45 ίδιος τίτλος με άλλα κεφαλαία ή κενά �
   await pickExcel(app, fp);
   await expect(window.getByText(/διπλότυπ|Παράλειψη/i).first()).toBeVisible({ timeout: 20000 });
 });
+
+const WITH_REQUEST = {
+  ...VALID_ROW,
+  projectTitle: 'Έργο με πρωτογενές Excel',
+  subprojectTitle: 'Υποέργο σύναψης από Excel',
+  projectStatus: 'ΣΕ ΔΙΑΔΙΚΑΣΙΑ ΣΥΝΑΨΗΣ ΣΥΜΒΑΣΗΣ',
+  khmdhsRequestAdam: '26REQ018492003',
+};
+
+test('P4-46 εκτός ωρίμανσης χωρίς πρωτογενές δεν εισάγεται', async ({ app }) => {
+  const { window, sampleUpload } = app;
+  const fp = path.join(sampleUpload, 'xoris-adam.xlsx');
+  await writeImportXlsx(fp, [{ ...WITH_REQUEST, khmdhsRequestAdam: '' }]);
+  await openExcel(window);
+  await pickExcel(app, fp);
+  await expect(window.getByText(/πρωτογεν/i).first()).toBeVisible({ timeout: 20000 });
+  await expect(window.getByRole('button', { name: /Επιβεβαίωση εισαγωγής/ })).toBeDisabled();
+});
+
+test('P4-47 ωρίμανση με πρωτογενές δεν εισάγεται', async ({ app }) => {
+  const { window, sampleUpload } = app;
+  const fp = path.join(sampleUpload, 'orimansi-me-adam.xlsx');
+  await writeImportXlsx(fp, [{ ...VALID_ROW, khmdhsRequestAdam: '26REQ018492003' }]);
+  await openExcel(window);
+  await pickExcel(app, fp);
+  await expect(window.getByText(/ωρίμανση/i).first()).toBeVisible({ timeout: 20000 });
+  await expect(window.getByRole('button', { name: /Επιβεβαίωση εισαγωγής/ })).toBeDisabled();
+});
+
+test('P4-48 κωδικός σύμβασης δεν γίνεται δεκτός ως πρωτογενές', async ({ app }) => {
+  const { window, sampleUpload } = app;
+  const fp = path.join(sampleUpload, 'symv-anti-req.xlsx');
+  await writeImportXlsx(fp, [{ ...WITH_REQUEST, khmdhsRequestAdam: '26SYMV018523441' }]);
+  await openExcel(window);
+  await pickExcel(app, fp);
+  await expect(window.getByText(/σύμβασης/i).first()).toBeVisible({ timeout: 20000 });
+  await expect(window.getByRole('button', { name: /Επιβεβαίωση εισαγωγής/ })).toBeDisabled();
+});
+
+test('P4-49 έγκυρο πρωτογενές εισάγεται και προτείνει ανάκτηση', async ({ app }) => {
+  const { window, sampleUpload } = app;
+  const fp = path.join(sampleUpload, 'me-req.xlsx');
+  await writeImportXlsx(fp, [WITH_REQUEST]);
+  await openExcel(window);
+  await pickExcel(app, fp);
+  await expect(window.getByText(/έτοιμα για ανάκτηση/i)).toBeVisible({ timeout: 20000 });
+  await window.getByRole('button', { name: /Επιβεβαίωση εισαγωγής/ }).click();
+  await expect(window.getByText(/Η εισαγωγή ολοκληρώθηκε/)).toBeVisible({ timeout: 30000 });
+  await window.getByRole('button', { name: 'Ανάκτηση από ΚΗΜΔΗΣ' }).click();
+  const dialog = window.getByRole('dialog', { name: 'Μαζική ανανέωση ΚΗΜΔΗΣ' });
+  await expect(dialog).toBeVisible({ timeout: 15000 });
+  await dialog.getByRole('button', { name: 'Κλείσιμο' }).click();
+  await expect(window.getByText('Υποέργο σύναψης από Excel')).toBeVisible({ timeout: 15000 });
+});

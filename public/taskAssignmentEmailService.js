@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const { safeWriteJSON } = require('./safeWrite');
 const emailCatalog = require('../app/core/emailCatalog');
+const { isE2EProcess, captureE2EMail } = require('./e2eMode');
 
 const CONFIG_DIR = 'config';
 const CONFIG_FILE = 'email-config.json';
@@ -552,6 +553,11 @@ function buildLogoAttachment() {
 
 async function sendToAll(recipients, subject, html, emailConfig) {
   try {
+    if (isE2EProcess()) {
+      const list = (Array.isArray(recipients) ? recipients : []).map((to) => String(to || '').trim()).filter(Boolean);
+      list.forEach((to) => captureE2EMail({ to, subject, html }));
+      return { success: true, sentTo: list, errors: [], e2eCaptured: true };
+    }
     const transporter = createTransporter(emailConfig);
     const fromName = getAppDisplayName(emailConfig);
     const fromAddress = `"${fromName}" <${normalizeGmailUser(emailConfig.gmail.user)}>`;
