@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import styled, { keyframes } from 'styled-components';
 
 const APPS = [
@@ -168,7 +169,7 @@ export default function FamilyModal({ onClose, hereId = 'ergohub' }) {
 
   const app = APPS.find((item) => item.id === picked);
 
-  return (
+  const modal = (
     <Overlay role="presentation" onClick={onClose}>
       <Card
         role="dialog"
@@ -217,4 +218,6 @@ export default function FamilyModal({ onClose, hereId = 'ergohub' }) {
       </Card>
     </Overlay>
   );
+
+  return createPortal(modal, document.body);
 }
