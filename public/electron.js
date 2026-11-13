@@ -69,6 +69,7 @@ const subprojectLifecycleCore = require('../app/core/subprojectLifecycle');
 const entaxiCatalogCore = require('../app/core/entaxiCatalog');
 const prosklisiCatalogCore = require('../app/core/prosklisiCatalog');
 const prosklisiFileGroupsCore = require('../app/core/prosklisiFileGroups');
+const prosklisiSubmissionsCore = require('../app/core/prosklisiSubmissions');
 const prosklisiFileOps = require('./prosklisiFileOps');
 const userCatalogCore = require('../app/core/userCatalog');
 const auditCatalogCore = require('../app/core/auditCatalog');
@@ -8514,11 +8515,13 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
             fs.copyFileSync(file.filePath, uniqueDest);
             const storedName = path.basename(uniqueDest);
             if (!savedData.prosklisiFiles.some((f) => f.fileName === storedName)) {
-              savedData.prosklisiFiles.push({
+              const stored = {
                 fileName: storedName,
                 originalName: file.fileName,
                 targetFolder: file.targetFolder
-              });
+              };
+              if (file.shelf) stored.shelf = file.shelf;
+              savedData.prosklisiFiles.push(stored);
             }
             console.log('Prosklisi file copied successfully');
           } else {
@@ -8617,6 +8620,7 @@ ipcMain.handle('save-prosklisi', async (event, prosklisiData) => {
       status: prosklisiCatalogCore.normalizeProsklisiStatus(
         savedData.status != null ? savedData.status : existingOnDisk.status
       ),
+      submissions: prosklisiSubmissionsCore.normalizeSubmissions(existingOnDisk.submissions).submissions,
     };
     delete finalData.modifications;
 
@@ -8745,6 +8749,8 @@ ipcMain.handle('get-prosklisi-files', async (event, prosklisiId) => {
       folders: listed.folders,
       fileGroups: listed.fileGroups,
       linkedOrimanthiFiles,
+      submissions: listed.submissions || [],
+      linkedOrimanthiProposals: listed.linkedOrimanthiProposals || [],
       documentRegistry: listed.documentRegistry,
       diavgeiaMeta: listed.diavgeiaMeta,
       diavgeiaAda: listed.diavgeiaAda,
@@ -8752,6 +8758,45 @@ ipcMain.handle('get-prosklisi-files', async (event, prosklisiId) => {
     };
   } catch (error) {
     console.error('Error getting prosklisi files:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('update-prosklisi-submission', async (_event, payload = {}) => {
+  try {
+    if (writesBlockedByMandatoryUpdate()) {
+      return { success: false, error: MANDATORY_UPDATE_WRITE_ERROR, mandatoryUpdate: true };
+    }
+    const prosklisiId = payload.prosklisiId;
+    if (!prosklisiId) return { success: false, error: 'Απαιτείται πρόσκληση' };
+    const dir = path.join(proskliseisDir, prosklisiId);
+    const action = payload.action;
+    let result;
+    if (action === 'ensure') {
+      result = prosklisiFileOps.ensureSubmissionRecord(dir, payload);
+    } else if (action === 'submitted') {
+      result = prosklisiFileOps.setSubmissionDeclared(
+        dir,
+        payload.submissionId,
+        payload.submitted,
+        payload.submittedOn
+      );
+    } else if (action === 'assign-group') {
+      result = prosklisiFileOps.assignGroupToSubmission(dir, payload.groupId, payload.submissionId);
+    } else if (action === 'place-file') {
+      result = prosklisiFileOps.placeLooseFileOnShelf(dir, payload.fileName, payload.shelf);
+    } else {
+      return { success: false, error: 'Άγνωστη ενέργεια' };
+    }
+    if (!result.ok) return { success: false, error: result.error };
+    return {
+      success: true,
+      submission: result.submission || null,
+      created: !!result.created,
+      status: result.status || '',
+    };
+  } catch (error) {
+    console.error('update-prosklisi-submission:', error);
     return { success: false, error: error.message };
   }
 });
@@ -8777,7 +8822,7 @@ ipcMain.handle('delete-prosklisi-group', async (event, prosklisiId, groupId) => 
 });
 
 // Create prosklisi group — νέα ομάδα ή υποομάδα, με μεταφορά αρχείων στον φάκελο
-ipcMain.handle('create-prosklisi-group', async (event, prosklisiId, groupTitle, fileNames, parentGroupId) => {
+ipcMain.handle('create-prosklisi-group', async (event, prosklisiId, groupTitle, fileNames, parentGroupId, submissionId) => {
   try {
     if (!prosklisiId) return { success: false, error: 'Απαιτείται prosklisiId' };
     const names = Array.isArray(fileNames) ? fileNames : [];
@@ -8786,6 +8831,7 @@ ipcMain.handle('create-prosklisi-group', async (event, prosklisiId, groupTitle, 
       title: groupTitle,
       parentGroupId: parentGroupId || null,
       fileNames: names,
+      submissionId: parentGroupId ? '' : submissionId,
     });
     if (!result.ok) return { success: false, error: result.error };
     logAuditAction({

@@ -6,6 +6,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { safeWriteJSON } = require('./safeWrite');
 const groupsCore = require('../app/core/prosklisiFileGroups');
+const submissionsCore = require('../app/core/prosklisiSubmissions');
 const managedFiles = require('../app/core/managedFiles');
 const managedFileRename = require('./managedFileRename');
 
@@ -44,6 +45,7 @@ function readProsklisiData(prosklisiDir) {
   }
   data.fileGroups = groupsCore.cloneGroups(data.fileGroups || []);
   data.prosklisiFiles = Array.isArray(data.prosklisiFiles) ? data.prosklisiFiles : [];
+  data.submissions = submissionsCore.normalizeSubmissions(data.submissions).submissions;
   return { ok: true, data, dataPath, sidecarPath, sidecar };
 }
 
@@ -58,6 +60,7 @@ function persistProsklisiData(prosklisiDir, data) {
     ...next,
     prosklisiFiles: next.prosklisiFiles,
     fileGroups: next.fileGroups,
+    submissions: next.submissions,
     prosklisiFolders: next.prosklisiFolders,
     updatedAt: next.updatedAt,
   });
@@ -185,6 +188,7 @@ function organizeFiles(prosklisiDir, options) {
     parentGroupId,
     fileNames = [],
     newGroupId,
+    submissionId,
   } = options || {};
   const loaded = readProsklisiData(prosklisiDir);
   if (!loaded.ok) return loaded;
@@ -226,7 +230,13 @@ function organizeFiles(prosklisiDir, options) {
       return { ok: false, error: 'Η ομάδα δεν βρέθηκε' };
     }
     const resolvedTitle = String(title || '').trim() || 'Ομάδα';
-    const titleCheck = groupsCore.canUseGroupTitle(pulled.fileGroups, resolvedTitle, parentId || null);
+    const ownerId = !parentId && submissionId ? String(submissionId) : '';
+    const titleCheck = groupsCore.canUseGroupTitle(
+      pulled.fileGroups,
+      resolvedTitle,
+      parentId || null,
+      ownerId
+    );
     if (!titleCheck.ok) return titleCheck;
     const id = newGroupId || uuidv4();
     const newGroup = {
@@ -235,6 +245,7 @@ function organizeFiles(prosklisiDir, options) {
       files: pulled.files,
       subgroups: [],
     };
+    if (ownerId) newGroup.submissionId = ownerId;
     const fileGroups = parentId
       ? groupsCore.createSubgroup(pulled.fileGroups, parentId, newGroup)
       : groupsCore.createGroup(pulled.fileGroups, newGroup);
@@ -282,7 +293,14 @@ function deleteGroup(prosklisiDir, groupId) {
   const titles = groupsCore.titlesPathForGroup(loaded.data.fileGroups, groupId);
   const removed = groupsCore.removeGroupById(loaded.data.fileGroups, groupId);
   if (!removed.removed) return { ok: false, error: 'Η ομάδα δεν βρέθηκε' };
-  const files = groupsCore.flattenRemovedFiles(removed.removed);
+  const owner = removed.removed.submissionId ? String(removed.removed.submissionId) : '';
+  const files = groupsCore.flattenRemovedFiles(removed.removed).map((file) => {
+    if (!file || typeof file !== 'object') {
+      const name = groupsCore.fileNameOf(file);
+      return { fileName: name, originalName: name, shelf: owner || 'unassigned' };
+    }
+    return { ...file, shelf: owner || 'unassigned' };
+  });
   hoistFilesToAttachments(prosklisiDir, files);
   removeGroupFolderIfSafe(prosklisiDir, titles);
   persistProsklisiData(prosklisiDir, {
@@ -350,6 +368,8 @@ function materializeFormGroups(prosklisiDir, incomingGroups, existingGroups) {
         files: groupFiles,
         subgroups: walk(group.subgroups, titles),
       };
+      const owner = group.submissionId || existing.submissionId;
+      if (owner) node.submissionId = String(owner);
       saved.push(node);
       if (node.id) existingById[node.id] = node;
     });
@@ -363,6 +383,80 @@ function materializeFormGroups(prosklisiDir, incomingGroups, existingGroups) {
     }
   });
   return saved;
+}
+
+function rememberSubmissionChange(prosklisiDir, next) {
+  const loaded = readProsklisiData(prosklisiDir);
+  if (!loaded.ok) return loaded;
+  const healed = submissionsCore.rewriteOwners(
+    next.fileGroups != null ? next.fileGroups : loaded.data.fileGroups,
+    next.prosklisiFiles != null ? next.prosklisiFiles : loaded.data.prosklisiFiles,
+    next.idRemap || {}
+  );
+  const submissions = submissionsCore.normalizeSubmissions(
+    next.submissions != null ? next.submissions : loaded.data.submissions
+  ).submissions;
+  persistProsklisiData(prosklisiDir, {
+    ...loaded.data,
+    submissions,
+    fileGroups: healed.fileGroups,
+    prosklisiFiles: healed.looseFiles,
+  });
+  return { ok: true, submissions, status: loaded.data.status || '' };
+}
+
+function ensureSubmissionRecord(prosklisiDir, spec) {
+  const loaded = readProsklisiData(prosklisiDir);
+  if (!loaded.ok) return loaded;
+  const result = submissionsCore.ensureSubmission(
+    loaded.data.submissions,
+    spec || {},
+    (spec && spec.newId) || uuidv4()
+  );
+  if (!result.ok) return result;
+  const saved = rememberSubmissionChange(prosklisiDir, {
+    submissions: result.submissions,
+    idRemap: result.idRemap,
+  });
+  if (!saved.ok) return saved;
+  return { ok: true, submission: result.submission, created: result.created, status: saved.status };
+}
+
+function setSubmissionDeclared(prosklisiDir, submissionId, submitted, submittedOn) {
+  const loaded = readProsklisiData(prosklisiDir);
+  if (!loaded.ok) return loaded;
+  const result = submissionsCore.setSubmitted(loaded.data.submissions, submissionId, {
+    submitted: !!submitted,
+    submittedOn,
+    today: new Date().toISOString().slice(0, 10),
+  });
+  if (!result.ok) return result;
+  const saved = rememberSubmissionChange(prosklisiDir, {
+    submissions: result.submissions,
+    idRemap: result.idRemap,
+  });
+  if (!saved.ok) return saved;
+  return { ok: true, submission: result.submission, status: saved.status };
+}
+
+function assignGroupToSubmission(prosklisiDir, groupId, submissionId) {
+  const loaded = readProsklisiData(prosklisiDir);
+  if (!loaded.ok) return loaded;
+  const result = submissionsCore.assignGroup(loaded.data.fileGroups, groupId, submissionId || '');
+  if (!result.ok) return result;
+  const saved = rememberSubmissionChange(prosklisiDir, { fileGroups: result.fileGroups });
+  if (!saved.ok) return saved;
+  return { ok: true, status: saved.status };
+}
+
+function placeLooseFileOnShelf(prosklisiDir, fileName, shelf) {
+  const loaded = readProsklisiData(prosklisiDir);
+  if (!loaded.ok) return loaded;
+  const result = submissionsCore.placeLooseFile(loaded.data.prosklisiFiles, fileName, shelf);
+  if (!result.ok) return result;
+  const saved = rememberSubmissionChange(prosklisiDir, { prosklisiFiles: result.looseFiles });
+  if (!saved.ok) return saved;
+  return { ok: true, status: saved.status };
 }
 
 function listForUi(prosklisiDir) {
@@ -396,13 +490,19 @@ function listForUi(prosklisiDir) {
       const fileName = file.fileName;
       if (!fileName || groupedNames.has(fileName)) return;
       const bucket = file.targetFolder === 'main' ? files.main : files.attachments;
-      if (bucket.some((f) => f.fileName === fileName)) return;
-      bucket.push({
+      const existing = bucket.find((f) => f.fileName === fileName);
+      if (existing) {
+        if (file.shelf) existing.shelf = file.shelf;
+        return;
+      }
+      const row = {
         fileName,
         originalName: file.originalName || fileName,
         isGrouped: false,
         targetFolder: file.targetFolder === 'main' ? 'main' : 'attachments',
-      });
+      };
+      if (file.shelf) row.shelf = file.shelf;
+      bucket.push(row);
     });
   }
 
@@ -431,6 +531,9 @@ function listForUi(prosklisiDir) {
     files,
     folders,
     fileGroups,
+    submissions: loaded.ok ? loaded.data.submissions : [],
+    linkedOrimanthiProposals: loaded.ok ? (loaded.data.linkedOrimanthiProposals || []) : [],
+    prosklisiStatus: loaded.ok ? (loaded.data.status || '') : '',
     documentRegistry: loaded.ok ? (loaded.data.documentRegistry || []) : [],
     diavgeiaMeta: loaded.ok ? (loaded.data.diavgeiaMeta || null) : null,
     diavgeiaAda: loaded.ok ? (loaded.data.diavgeiaAda || '') : '',
@@ -450,6 +553,10 @@ module.exports = {
   deleteGroup,
   rewriteRenamedFile,
   materializeFormGroups,
+  ensureSubmissionRecord,
+  setSubmissionDeclared,
+  assignGroupToSubmission,
+  placeLooseFileOnShelf,
   listForUi,
   isPathInside,
 };

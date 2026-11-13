@@ -13,6 +13,7 @@ import {
   sortModificationsChronologically,
 } from '../utils/prosklisiDeadlineUtils';
 import { getProsklisiDiavgeiaEntry } from '../utils/prosklisiDiavgeiaRegistry';
+import prosklisiSubmissions from '../../app/core/prosklisiSubmissions';
 
 const Overlay = styled.div`
   position: absolute;
@@ -337,6 +338,25 @@ const EmptyHint = styled.div`
   font-style: italic;
 `;
 
+const DetailNote = styled.p`
+  margin: 0 0 0.45rem;
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1.4;
+`;
+
+const SubmissionChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  margin: 0.15rem 0.35rem 0.15rem 0;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: ${(p) => (p.$done ? '#1b5e20' : '#0d47a1')};
+  background: ${(p) => (p.$done ? '#c8e6c9' : '#e3f2fd')};
+`;
+
 const DetailFooter = styled.div`
   display: flex;
   justify-content: flex-start;
@@ -520,6 +540,14 @@ function ProsklisiDetailModal({
     () => getEntityLinkedNotes(linkedNotesMap, prosklisi?.prosklisiId),
     [linkedNotesMap, prosklisi?.prosklisiId]
   );
+
+  const submissionShelf = useMemo(() => prosklisiSubmissions.buildShelf({
+    linkedProposals: normalizeLinkedOrimanthiProposals(prosklisi?.linkedOrimanthiProposals),
+    linkedFiles: [],
+    submissions: prosklisi?.submissions,
+    fileGroups: [],
+    looseFiles: [],
+  }), [prosklisi]);
 
   const linkedNotes = useMemo(() => linkedNoteRefs.map((ref) => {
     const note = (notes || []).find((n) => n.id === ref.noteId);
@@ -742,6 +770,21 @@ function ProsklisiDetailModal({
                 </FieldFull>
               </FieldGrid>
             </SectionBlock>
+
+            {submissionShelf.totalCount > 0 ? (
+              <SectionBlock icon="📤" title="Υποβολές πράξεων" accent={ACCENTS.basic} testId="psk-detail-submissions">
+                <DetailNote>
+                  Κάθε πράξη φαίνεται χωριστά. Το πράσινο σημαίνει ότι δηλώθηκε η υποβολή της. Η πρόσκληση μένει στην κατάστασή της.
+                </DetailNote>
+                <FieldValue>
+                  {submissionShelf.cards.map((card) => (
+                    <SubmissionChip key={card.key} $done={card.submitted}>
+                      {card.title} · {prosklisiSubmissions.statusLabel(card)}
+                    </SubmissionChip>
+                  ))}
+                </FieldValue>
+              </SectionBlock>
+            ) : null}
 
             <SectionBlock icon="📑" title="Τροποποιήσεις" accent={ACCENTS.mods} testId="psk-detail-mods">
               {mods.length === 0 ? (

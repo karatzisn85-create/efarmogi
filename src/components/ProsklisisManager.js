@@ -8,6 +8,7 @@ import ProsklisiModificationForm from './ProsklisiModificationForm';
 import ProsklisisExportDialog from './ProsklisisExportDialog';
 import ProsklisiDetailModal from './ProsklisiDetailModal';
 import { formatDateEl } from '../utils/dateFormat';
+import prosklisiSubmissions from '../../app/core/prosklisiSubmissions';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import { showConfirm } from '../utils/confirmModal';
 import {
@@ -638,6 +639,8 @@ const MetaChip = styled.span`
     color: #312e81;
   `}
   ${(p) => p.$green && `background: #f0fdf4; border-color: #86efac; color: #15803d;`}
+  ${(p) => p.$submitted && `background: #c8e6c9; border-color: #81c784; color: #1b5e20;`}
+  ${(p) => p.$pending && `background: #e3f2fd; border-color: #90caf9; color: #0d47a1;`}
   ${(p) => p.$urgency === 'expired' && `
     background: #fef2f2; border-color: #fecaca; color: #b91c1c;
   `}
@@ -2503,6 +2506,35 @@ function ProsklisisManager({
                                       </MetaChip>
                                     )}
                                   </LinkedRow>
+
+                                {(() => {
+                                  const submissionShelf = prosklisiSubmissions.buildShelf({
+                                    linkedProposals: orimanthiLinks,
+                                    linkedFiles: [],
+                                    submissions: prosklisi.submissions,
+                                    fileGroups: [],
+                                    looseFiles: [],
+                                  });
+                                  if (!submissionShelf.totalCount) return null;
+                                  const allDone = submissionShelf.submittedCount === submissionShelf.totalCount;
+                                  return (
+                                    <LinkedRow>
+                                      <LinkedHint>Υποβολές:</LinkedHint>
+                                      <MetaChip
+                                        $submitted={allDone}
+                                        $pending={!allDone}
+                                        title={submissionShelf.cards
+                                          .map((card) => `${card.title}: ${prosklisiSubmissions.statusLabel(card)}`)
+                                          .join(' · ')}
+                                      >
+                                        {prosklisiSubmissions.summaryLabel(
+                                          submissionShelf.submittedCount,
+                                          submissionShelf.totalCount
+                                        )}
+                                      </MetaChip>
+                                    </LinkedRow>
+                                  );
+                                })()}
 
                                 <LinkedRow>
                                     <LinkedHint>Εντάξεις:</LinkedHint>

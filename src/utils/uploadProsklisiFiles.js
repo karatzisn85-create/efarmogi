@@ -3,7 +3,7 @@ import subprojectFiles from '../../app/core/subprojectFiles';
 
 const ipcRenderer = window.electronAPI;
 
-export async function applyProsklisiGroupingChoice(prosklisiId, groupingChoice, fileNames) {
+export async function applyProsklisiGroupingChoice(prosklisiId, groupingChoice, fileNames, submissionId) {
   if (groupingChoice === null || groupingChoice === false) {
     return { success: true };
   }
@@ -16,7 +16,8 @@ export async function applyProsklisiGroupingChoice(prosklisiId, groupingChoice, 
       prosklisiId,
       groupingChoice.title,
       names,
-      groupingChoice.parentId || null
+      groupingChoice.parentId || null,
+      groupingChoice.parentId ? '' : (submissionId || '')
     );
     if (!groupResult?.success) {
       return { success: false, error: groupResult?.error || 'Αποτυχία δημιουργίας ομάδας' };

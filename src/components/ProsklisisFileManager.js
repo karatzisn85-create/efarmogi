@@ -7,6 +7,8 @@ import { showFileConflictDialog } from '../utils/fileConflictDialog';
 import FileRenameModal from './FileRenameModal';
 import managedFiles from '../../app/core/managedFiles';
 import prosklisiFileGroups from '../../app/core/prosklisiFileGroups';
+import prosklisiSubmissions from '../../app/core/prosklisiSubmissions';
+import { v4 as uuidv4 } from 'uuid';
 import KhmdhsDocumentRegistryPanel from './KhmdhsDocumentRegistryPanel';
 import { collectProsklisiRegistryEntries } from '../utils/prosklisiDiavgeiaRegistry';
 import { applyProsklisiGroupingChoice, askProsklisiGrouping } from '../utils/uploadProsklisiFiles';
@@ -151,7 +153,16 @@ const SectionLabel = styled.div`
   color: #4338ca;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 0.15rem 0.45rem 0.4rem;
+  padding: 0.15rem 0.45rem 0.2rem;
+`;
+
+const ShelfNote = styled.p`
+  margin: 0 0 0.55rem;
+  padding: 0 0.45rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: ${C.slate600};
+  font-weight: 500;
 `;
 
 const GroupCard = styled.div`
@@ -161,6 +172,7 @@ const GroupCard = styled.div`
 const NodeRow = styled.div`
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.2rem;
   margin-bottom: 0.2rem;
 `;
@@ -223,6 +235,46 @@ const GroupCount = styled.span`
   padding: 0.14rem 0.5rem;
   border-radius: 999px;
   letter-spacing: 0;
+`;
+
+const StatusChip = styled.span`
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  color: ${(p) => (p.$done ? '#1b5e20' : '#0d47a1')};
+  background: ${(p) => (p.$done ? '#c8e6c9' : '#e3f2fd')};
+`;
+
+const QuietBtn = styled.button`
+  border: none;
+  background: transparent;
+  color: ${C.indigoDark};
+  font-weight: 700;
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  &:hover { text-decoration: underline; }
+`;
+
+const DateField = styled.input`
+  border: 1px solid ${C.slate300};
+  border-radius: 8px;
+  padding: 0.28rem 0.45rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: ${C.slate800};
+`;
+
+const MoveSelect = styled.select`
+  border: 1px solid ${C.slate300};
+  border-radius: 8px;
+  background: ${C.white};
+  color: ${C.slate600};
+  font-size: 0.72rem;
+  padding: 0.2rem 0.35rem;
+  max-width: 11rem;
 `;
 
 const OriginBadge = styled.span`
@@ -420,14 +472,6 @@ const UploadBar = styled.div`
   border-bottom: 1px solid ${C.slate100};
 `;
 
-const UploadBarLabel = styled.span`
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: ${C.slate500};
-  letter-spacing: 0.02em;
-  margin-right: 0.1rem;
-`;
-
 const UploadButton = styled.button`
   padding: 0.35rem 0.75rem;
   border-radius: 8px;
@@ -467,6 +511,15 @@ const checkboxStyle = {
   accentColor: C.indigo,
 };
 
+function scopeGroupIds(group, scope) {
+  if (!group) return null;
+  return {
+    ...group,
+    id: `${scope}::${group.id}`,
+    subgroups: (group.subgroups || []).map((child) => scopeGroupIds(child, scope)),
+  };
+}
+
 function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, loggedInUsername }) {
   const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
@@ -480,6 +533,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   });
   const [fileGroups, setFileGroups] = useState([]); // Νέα κατάσταση για ομάδες αρχείων
   const [linkedOrimanthiFiles, setLinkedOrimanthiFiles] = useState([]);
+  const [submissions, setSubmissions] = useState([]);
+  const [linkedProposals, setLinkedProposals] = useState([]);
+  const [openCardIds, setOpenCardIds] = useState({});
+  const [dateDraft, setDateDraft] = useState({});
+  const [markingKey, setMarkingKey] = useState('');
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualTitle, setManualTitle] = useState('');
   const [expandedGroupIds, setExpandedGroupIds] = useState({});
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const [registrySource, setRegistrySource] = useState({
@@ -501,6 +561,11 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     if (isOpen && prosklisiId) {
       setExpandedGroupIds({});
       setSelectedFiles(new Set());
+      setOpenCardIds({});
+      setDateDraft({});
+      setMarkingKey('');
+      setManualOpen(false);
+      setManualTitle('');
       loadFiles();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -537,6 +602,8 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         setFolders(result.folders || { main: [], attachments: [] });
         setFileGroups(fileGroups); // Φόρτωση ομάδων αρχείων
         setLinkedOrimanthiFiles(result.linkedOrimanthiFiles || []);
+        setSubmissions(result.submissions || []);
+        setLinkedProposals(result.linkedOrimanthiProposals || []);
         setRegistrySource({
           documentRegistry: result.documentRegistry || [],
           diavgeiaMeta: result.diavgeiaMeta || null,
@@ -549,6 +616,8 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         setFolders({ main: [], attachments: [] });
         setFileGroups([]);
         setLinkedOrimanthiFiles([]);
+        setSubmissions([]);
+        setLinkedProposals([]);
         setRegistrySource({ documentRegistry: [], diavgeiaMeta: null, diavgeiaAda: '', modifications: [] });
       }
     } catch (error) {
@@ -557,6 +626,8 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       setFolders({ main: [], attachments: [] });
       setFileGroups([]);
       setLinkedOrimanthiFiles([]);
+      setSubmissions([]);
+      setLinkedProposals([]);
       setRegistrySource({ documentRegistry: [], diavgeiaMeta: null, diavgeiaAda: '', modifications: [] });
     } finally {
       setLoading(false);
@@ -606,6 +677,59 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     return list;
   }, [files, groupedNameSet]);
 
+  const shelf = useMemo(() => prosklisiSubmissions.buildShelf({
+    linkedProposals,
+    linkedFiles: linkedOrimanthiFiles,
+    submissions,
+    fileGroups,
+    looseFiles: ungroupedFiles,
+  }), [linkedProposals, linkedOrimanthiFiles, submissions, fileGroups, ungroupedFiles]);
+
+  const todayInput = () => {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${now.getFullYear()}-${month}-${day}`;
+  };
+
+  const cardIsOpen = (card) => {
+    if (Object.prototype.hasOwnProperty.call(openCardIds, card.key)) return !!openCardIds[card.key];
+    return shelf.singleCardStartsOpen;
+  };
+
+  const ensureCardSubmission = async (card) => {
+    if (card.submissionId) return card.submissionId;
+    const result = await ipcRenderer.invoke('update-prosklisi-submission', {
+      action: 'ensure',
+      prosklisiId,
+      orimanthiProposalId: card.orimanthiProposalId || '',
+      title: card.title,
+      submissionId: '',
+      newId: uuidv4(),
+    });
+    if (!result?.success || !result.submission?.id) {
+      showToast(result?.error || 'Η υποβολή δεν καταχωρίστηκε', 'error');
+      return '';
+    }
+    const id = result.submission.id;
+    setOpenCardIds((prev) => ({ ...prev, [card.key]: true, [id]: true }));
+    return id;
+  };
+
+  const placeAddedFiles = async (names, shelfId) => {
+    for (const name of names) {
+      const placed = await ipcRenderer.invoke('update-prosklisi-submission', {
+        action: 'place-file',
+        prosklisiId,
+        fileName: name,
+        shelf: shelfId,
+      });
+      if (!placed?.success) {
+        showToast(placed?.error || 'Το αρχείο δεν μπήκε στην πράξη', 'warning');
+      }
+    }
+  };
+
   const collectSelectableNames = () => {
     const names = [];
     ungroupedFiles.forEach((f) => names.push(f.fileName));
@@ -625,8 +749,12 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   const handleSelectAll = () => setSelectedFiles(new Set(collectSelectableNames()));
   const handleDeselectAll = () => setSelectedFiles(new Set());
 
-  const handleUploadFiles = async () => {
+  const handleUploadFiles = async (destination = {}) => {
     if (!canManageWorkflow || !prosklisiId) return;
+    const dest = destination && (destination.shelf || destination.submissionId) ? destination : {};
+    const onInvitation = dest.shelf === 'invitation';
+    const submissionId = dest.submissionId || '';
+    const askGrouping = !onInvitation || dest.allowGrouping === true;
     try {
       const result = await safeFileDialog('select-file', 'Προσθήκη Αρχείων Πρόσκλησης (PDF, Word)');
       const pickedFiles = result.files?.length
@@ -648,13 +776,21 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         if (!policy) return;
       }
 
-      const groupingChoice = await askProsklisiGrouping(pickedFiles.length, fileGroups);
-      if (subprojectFiles.isUploadGroupingCancelled(groupingChoice)) return;
+      let groupingChoice = false;
+      if (askGrouping) {
+        const shelfGroups = prosklisiSubmissions.groupsOwnedBy(
+          fileGroups,
+          onInvitation ? '' : submissionId
+        );
+        groupingChoice = await askProsklisiGrouping(pickedFiles.length, shelfGroups);
+        if (subprojectFiles.isUploadGroupingCancelled(groupingChoice)) return;
+      }
       if (groupingChoice && (groupingChoice.action === 'new' || groupingChoice.action === 'subgroup')) {
         const titleCheck = prosklisiFileGroups.canUseGroupTitle(
           fileGroups,
           groupingChoice.title,
-          groupingChoice.parentId || null
+          groupingChoice.parentId || null,
+          groupingChoice.parentId ? '' : submissionId
         );
         if (!titleCheck.ok) {
           showToast(titleCheck.error, 'warning');
@@ -674,7 +810,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         return;
       }
       const addedNames = uploadResult.added || pickedFiles.map((f) => f.fileName);
-      const groupingResult = await applyProsklisiGroupingChoice(prosklisiId, groupingChoice, addedNames);
+      const groupingResult = askGrouping
+        ? await applyProsklisiGroupingChoice(prosklisiId, groupingChoice, addedNames, submissionId)
+        : { success: true };
+      const grouped = groupingChoice && groupingChoice !== false && groupingResult.success;
+      if (!grouped) {
+        await placeAddedFiles(addedNames, submissionId || 'invitation');
+      }
       if (!groupingResult.success) {
         showToast(`Προστέθηκαν τα αρχεία, αλλά η ομαδοποίηση απέτυχε: ${groupingResult.error}`, 'warning');
       } else {
@@ -701,7 +843,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       return;
     }
     const names = Array.from(selectedFiles);
-    const groupingChoice = await askProsklisiGrouping(names.length, fileGroups, {
+    const shared = prosklisiSubmissions.sharedOwner(ungroupedFiles, fileGroups, names);
+    if (!shared.ok) {
+      showToast(shared.error, 'warning');
+      return;
+    }
+    const ownerId = shared.ownerId || '';
+    const groupingChoice = await askProsklisiGrouping(names.length, prosklisiSubmissions.groupsOwnedBy(fileGroups, ownerId), {
       allowSkip: false,
       cancelLabel: '✕ Ακύρωση',
       intro: `Επιλέξατε ${names.length} αρχείο(α). Πού θέλετε να τα μεταφέρετε;`,
@@ -711,14 +859,15 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       const titleCheck = prosklisiFileGroups.canUseGroupTitle(
         fileGroups,
         groupingChoice.title,
-        groupingChoice.parentId || null
+        groupingChoice.parentId || null,
+        groupingChoice.parentId ? '' : ownerId
       );
       if (!titleCheck.ok) {
         showToast(titleCheck.error, 'warning');
         return;
       }
     }
-    const groupingResult = await applyProsklisiGroupingChoice(prosklisiId, groupingChoice, names);
+    const groupingResult = await applyProsklisiGroupingChoice(prosklisiId, groupingChoice, names, ownerId);
     if (!groupingResult.success) {
       showToast(groupingResult.error || 'Αποτυχία ομαδοποίησης', 'error');
       return;
@@ -728,9 +877,10 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     await loadFiles();
   };
 
-  const handleCreateEmptyGroup = async () => {
+  const handleCreateEmptyGroup = async (submissionId = '') => {
     if (!canManageWorkflow || !prosklisiId) return;
-    const groupingChoice = await askProsklisiGrouping(0, fileGroups, {
+    const ownerId = typeof submissionId === 'string' ? submissionId : '';
+    const groupingChoice = await askProsklisiGrouping(0, prosklisiSubmissions.groupsOwnedBy(fileGroups, ownerId), {
       allowSkip: false,
       cancelLabel: '✕ Ακύρωση',
       heading: '📁 Νέα ομάδα αρχείων',
@@ -741,14 +891,15 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       const titleCheck = prosklisiFileGroups.canUseGroupTitle(
         fileGroups,
         groupingChoice.title,
-        groupingChoice.parentId || null
+        groupingChoice.parentId || null,
+        groupingChoice.parentId ? '' : ownerId
       );
       if (!titleCheck.ok) {
         showToast(titleCheck.error, 'warning');
         return;
       }
     }
-    const groupingResult = await applyProsklisiGroupingChoice(prosklisiId, groupingChoice, []);
+    const groupingResult = await applyProsklisiGroupingChoice(prosklisiId, groupingChoice, [], ownerId);
     if (!groupingResult.success) {
       showToast(groupingResult.error || 'Αποτυχία δημιουργίας ομάδας', 'error');
       return;
@@ -816,8 +967,9 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     await loadFiles();
   };
 
-  const handleUploadFolder = async () => {
+  const handleUploadFolder = async (submissionId = '') => {
     if (!canManageWorkflow || !prosklisiId) return;
+    const ownerId = typeof submissionId === 'string' ? submissionId : '';
     try {
       const pick = await ipcRenderer.invoke('select-folder-files-flat', {
         title: 'Επιλογή φακέλου για την πρόσκληση',
@@ -830,6 +982,12 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       const pickedFiles = (pick.files || []).map((f) => ({ filePath: f.filePath, fileName: f.fileName }));
       if (pickedFiles.length === 0) {
         showToast('Ο φάκελος δεν περιέχει αρχεία', 'warning');
+        return;
+      }
+      const folderTitle = String(pick.folderName || 'Φάκελος').trim() || 'Φάκελος';
+      const titleCheck = prosklisiFileGroups.canUseGroupTitle(fileGroups, folderTitle, null, ownerId);
+      if (!titleCheck.ok) {
+        showToast(titleCheck.error, 'warning');
         return;
       }
 
@@ -859,11 +1017,17 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         return;
       }
 
-      const folderTitle = String(pick.folderName || 'Φάκελος').trim() || 'Φάκελος';
       const addedNames = uploadResult.added || pickedFiles.map((f) => f.fileName);
-      const groupResult = await ipcRenderer.invoke('create-prosklisi-group', prosklisiId, folderTitle, addedNames);
+      const groupResult = await ipcRenderer.invoke(
+        'create-prosklisi-group',
+        prosklisiId,
+        folderTitle,
+        addedNames,
+        null,
+        ownerId
+      );
       if (!groupResult?.success) {
-        // Τα αρχεία ανέβηκαν κανονικά· η ομαδοποίηση απέτυχε — ενημερώνουμε αλλά δεν μπλοκάρουμε.
+        await placeAddedFiles(addedNames, ownerId || 'invitation');
         showToast(`Προστέθηκαν ${addedNames.length} αρχεία, αλλά η ομαδοποίηση απέτυχε: ${groupResult?.error || 'Άγνωστο'}`, 'warning');
       } else {
         showToast(`Προστέθηκε ο φάκελος «${folderTitle}» με ${addedNames.length} αρχεία`, 'success');
@@ -1496,6 +1660,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         <FileInfo>
           <FileIconBadge $bg={bg}>{label}</FileIconBadge>
           <FileName title={name}>{name}</FileName>
+          <OriginBadge title="Προέρχεται από την ωρίμανση">ωρίμανση</OriginBadge>
         </FileInfo>
         <FileActions>
           <ViewIconBtn title="Προβολή" onClick={() => handleViewLinkedFile(lf)}>👁</ViewIconBtn>
@@ -1555,7 +1720,9 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             <GroupChevron $open={isOpenGroup} aria-hidden>▶</GroupChevron>
             <GroupIcon aria-hidden>{isOpenGroup ? '📂' : '📁'}</GroupIcon>
             <NodeTitle title={group.title}>{group.title}</NodeTitle>
-            {isRootLinked && <OriginBadge>Αυτόματα</OriginBadge>}
+            {(isRootLinked || options.originMark) && (
+              <OriginBadge title="Προέρχεται από την ωρίμανση">ωρίμανση</OriginBadge>
+            )}
             <GroupCount>{countLabel}</GroupCount>
           </GroupToggle>
           {canManageWorkflow && !isLinked && (
@@ -1591,8 +1758,8 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                 </OriginNote>
                 {subgroups.length > 0 && (
                   <TreeTools>
-                    <TreeToolBtn type="button" onClick={() => setLinkedTreeOpen(true)}>Άνοιγμα όλων</TreeToolBtn>
-                    <TreeToolBtn type="button" onClick={() => setLinkedTreeOpen(false)}>Μόνο οι φάκελοι</TreeToolBtn>
+                    <TreeToolBtn type="button" onClick={() => (options.expandTree ? options.expandTree(true) : setLinkedTreeOpen(true))}>Άνοιγμα όλων</TreeToolBtn>
+                    <TreeToolBtn type="button" onClick={() => (options.expandTree ? options.expandTree(false) : setLinkedTreeOpen(false))}>Μόνο οι φάκελοι</TreeToolBtn>
                   </TreeTools>
                 )}
               </>
@@ -1618,10 +1785,58 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     );
   };
 
-  const looseCount = ungroupedFiles.length + (folders.main || []).length + (folders.attachments || []).length;
-  const looseOpen = Object.prototype.hasOwnProperty.call(expandedGroupIds, 'psk-ungrouped')
-    ? !!expandedGroupIds['psk-ungrouped']
-    : true;
+  const declareSubmission = async (card, submitted) => {
+    const submissionId = await ensureCardSubmission(card);
+    if (!submissionId) return;
+    const result = await ipcRenderer.invoke('update-prosklisi-submission', {
+      action: 'submitted',
+      prosklisiId,
+      submissionId,
+      submitted,
+      submittedOn: submitted ? (dateDraft[card.key] || todayInput()) : '',
+    });
+    if (!result?.success) {
+      showToast(result?.error || 'Η δήλωση δεν αποθηκεύτηκε', 'error');
+      return;
+    }
+    setMarkingKey('');
+    setOpenCardIds((prev) => ({ ...prev, [card.key]: true, [submissionId]: true }));
+    await loadFiles();
+  };
+
+  const createManualSubmission = async () => {
+    const title = manualTitle.trim();
+    if (!title) {
+      showToast('Δώστε τίτλο στην υποβολή', 'warning');
+      return;
+    }
+    const result = await ipcRenderer.invoke('update-prosklisi-submission', {
+      action: 'ensure',
+      prosklisiId,
+      title,
+      orimanthiProposalId: '',
+      newId: uuidv4(),
+    });
+    if (!result?.success) {
+      showToast(result?.error || 'Η υποβολή δεν δημιουργήθηκε', 'error');
+      return;
+    }
+    setManualOpen(false);
+    setManualTitle('');
+    if (result.submission?.id) {
+      setOpenCardIds((prev) => ({ ...prev, [result.submission.id]: true }));
+    }
+    await loadFiles();
+  };
+
+  const looseFileCount = shelf.unassignedFiles.length
+    + shelf.unassignedGroups.reduce((sum, group) => sum + prosklisiFileGroups.countGroupFiles(group), 0)
+    + (folders.main || []).length
+    + (folders.attachments || []).length;
+  const hasLoose = looseFileCount > 0
+    || shelf.unassignedGroups.length > 0
+    || (folders.main || []).length > 0
+    || (folders.attachments || []).length > 0;
 
   if (!isOpen) return null;
 
@@ -1664,75 +1879,186 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             <LoadingMessage>Φόρτωση αρχείων...</LoadingMessage>
           ) : (
             <>
+              <SectionCard $accent>
+                <SectionLabel>Αρχεία πρόσκλησης</SectionLabel>
+                <ShelfNote>Αρχεία και φάκελοι της ίδιας της πρόσκλησης. Μένουν εδώ και δεν ανήκουν σε πράξη.</ShelfNote>
+                <KhmdhsDocumentRegistryPanel
+                  entries={registryEntries}
+                  headerTitle="Καταχωρήσεις Διαύγειας"
+                />
+                {shelf.invitationFiles.length > 0 && (
+                  <FilesList>
+                    {shelf.invitationFiles.map((file) => renderManagedFile(file, `psk-invitation-file-${file.fileName}`))}
+                  </FilesList>
+                )}
+                {[...(shelf.invitationGroups || []), ...shelf.unassignedGroups].map((group, groupIndex) => (
+                  renderGroupCard(group, `invitation-${group.id || groupIndex}`)
+                ))}
+                <FilesList>
+                  {(folders.main || []).map((folder, index) => renderFolderRow(folder, 'main', `main-folder-${index}`))}
+                  {(folders.attachments || []).map((folder, index) => renderFolderRow(folder, 'attachments', `attachments-folder-${index}`))}
+                </FilesList>
+                {canManageWorkflow && (
+                  <UploadBar>
+                    <UploadButton
+                      type="button"
+                      data-testid="psk-files-upload"
+                      onClick={() => handleUploadFiles({ shelf: 'invitation', allowGrouping: true })}
+                      disabled={uploading}
+                    >
+                      {uploading ? '⏳ Προσθήκη…' : 'Προσθήκη αρχείων'}
+                    </UploadButton>
+                    <UploadFolderButton type="button" onClick={() => handleUploadFolder('')} disabled={uploading}>
+                      {uploading ? '⏳ Προσθήκη…' : '📁 Προσθήκη Φακέλου'}
+                    </UploadFolderButton>
+                    <NewGroupButton type="button" data-testid="psk-files-new-group" onClick={() => handleCreateEmptyGroup('')} disabled={uploading}>
+                      🆕 Νέα Ομάδα
+                    </NewGroupButton>
+                  </UploadBar>
+                )}
+              </SectionCard>
+
+              <SectionLabel>Υποβολές</SectionLabel>
+              <ShelfNote>
+                {shelf.totalCount
+                  ? `${prosklisiSubmissions.summaryLabel(shelf.submittedCount, shelf.totalCount)}. Κάθε κάρτα είναι μία πράξη. Η δήλωση δεν αλλάζει την κατάσταση της πρόσκλησης.`
+                  : 'Καμία υποβολή. Σύνδεσε μια ωρίμανση ή ξεκίνα νέα υποβολή για μια πράξη.'}
+              </ShelfNote>
+              {shelf.cards.map((card) => {
+                const open = cardIsOpen(card);
+                const oriGroup = scopeGroupIds(
+                  prosklisiFileGroups.buildOrimanthiLinkedGroup(card.orimanthiFiles),
+                  card.key
+                );
+                const fileCount = card.orimanthiFiles.length
+                  + card.files.length
+                  + card.groups.reduce((sum, group) => sum + prosklisiFileGroups.countGroupFiles(group), 0);
+                return (
+                  <SectionCard key={card.key} data-testid={`psk-submission-${card.key}`}>
+                    <NodeRow>
+                      <GroupToggle
+                        type="button"
+                        $open={open}
+                        aria-expanded={open}
+                        onClick={() => setOpenCardIds((prev) => ({ ...prev, [card.key]: !open }))}
+                      >
+                        <GroupChevron $open={open} aria-hidden>▶</GroupChevron>
+                        <NodeTitle>{card.title}</NodeTitle>
+                        <StatusChip
+                          $done={card.submitted}
+                          data-testid={`psk-submission-status-${card.key}`}
+                        >
+                          {prosklisiSubmissions.statusLabel(card)}
+                        </StatusChip>
+                        <GroupCount>
+                          {fileCount} {fileCount === 1 ? 'αρχείο' : 'αρχεία'}
+                        </GroupCount>
+                      </GroupToggle>
+                    </NodeRow>
+                    {open && (
+                      <TreeChildren>
+                        {canManageWorkflow && (
+                          <NodeRow>
+                            {card.submitted ? (
+                              <QuietBtn type="button" onClick={() => declareSubmission(card, false)}>
+                                Εκκρεμεί πάλι
+                              </QuietBtn>
+                            ) : (
+                              <>
+                                {markingKey === card.key ? (
+                                  <>
+                                    <DateField
+                                      type="date"
+                                      data-testid={`psk-submission-date-${card.key}`}
+                                      value={dateDraft[card.key] || todayInput()}
+                                      onChange={(event) => setDateDraft((prev) => ({
+                                        ...prev,
+                                        [card.key]: event.target.value,
+                                      }))}
+                                    />
+                                    <QuietBtn type="button" data-testid={`psk-submission-confirm-${card.key}`} onClick={() => declareSubmission(card, true)}>
+                                      Καταχώριση
+                                    </QuietBtn>
+                                  </>
+                                ) : (
+                                  <QuietBtn type="button" data-testid={`psk-submission-mark-${card.key}`} onClick={() => setMarkingKey(card.key)}>
+                                    Δήλωσε υποβολή
+                                  </QuietBtn>
+                                )}
+                              </>
+                            )}
+                            <QuietBtn type="button" onClick={async () => {
+                              const submissionId = await ensureCardSubmission(card);
+                              if (!submissionId) return;
+                              setOpenCardIds((prev) => ({ ...prev, [card.key]: true }));
+                              await handleUploadFiles({ submissionId });
+                            }}
+                            >
+                              Προσθήκη αρχείων
+                            </QuietBtn>
+                            <QuietBtn type="button" onClick={async () => {
+                              const submissionId = await ensureCardSubmission(card);
+                              if (!submissionId) return;
+                              await handleUploadFolder(submissionId);
+                            }}
+                            >
+                              Προσθήκη φακέλου
+                            </QuietBtn>
+                          </NodeRow>
+                        )}
+                        {oriGroup && (
+                          <div data-testid="psk-linked-orimanthi-files">
+                            {(oriGroup.files || []).length > 0 && (
+                              <FilesList>
+                                {oriGroup.files.map((file, idx) => renderLinkedFile(file, idx))}
+                              </FilesList>
+                            )}
+                            {(oriGroup.subgroups || []).map((sub, subIndex) => (
+                              renderGroupCard(sub, `${card.key}-ori-${subIndex}`, {
+                                linked: true,
+                                embedded: true,
+                                nested: true,
+                                originMark: true,
+                              })
+                            ))}
+                          </div>
+                        )}
+                        {card.files.length > 0 && (
+                          <FilesList>
+                            {card.files.map((file) => renderManagedFile(file, `psk-file-row-${file.fileName}`))}
+                          </FilesList>
+                        )}
+                        {card.groups.map((group, groupIndex) => renderGroupCard(group, `${card.key}-${groupIndex}`))}
+                      </TreeChildren>
+                    )}
+                  </SectionCard>
+                );
+              })}
+
               {canManageWorkflow && (
-                <UploadBar>
-                  <UploadBarLabel>Προσθήκη</UploadBarLabel>
-                  <UploadButton type="button" data-testid="psk-files-upload" onClick={handleUploadFiles} disabled={uploading}>
-                    {uploading ? '⏳ Προσθήκη…' : '📎 Προσθήκη Αρχείων'}
-                  </UploadButton>
-                  <UploadFolderButton type="button" onClick={handleUploadFolder} disabled={uploading}>
-                    {uploading ? '⏳ Προσθήκη…' : '📁 Προσθήκη Φακέλου'}
-                  </UploadFolderButton>
-                  <NewGroupButton type="button" data-testid="psk-files-new-group" onClick={handleCreateEmptyGroup} disabled={uploading}>
-                    🆕 Νέα Ομάδα
-                  </NewGroupButton>
-                </UploadBar>
+                <NodeRow>
+                  <QuietBtn type="button" data-testid="psk-new-submission" onClick={() => setManualOpen(true)} disabled={uploading}>
+                    Νέα υποβολή
+                  </QuietBtn>
+                </NodeRow>
               )}
-              <KhmdhsDocumentRegistryPanel
-                entries={registryEntries}
-                headerTitle="Καταχωρήσεις Διαύγειας"
-              />
-
-              {linkedOrimanthiGroup && (
-                <SectionCard $accent data-testid="psk-linked-orimanthi-files">
-                  {renderGroupCard(linkedOrimanthiGroup, 'orimanthi', { embedded: true })}
-                </SectionCard>
-              )}
-
-              {fileGroups && fileGroups.length > 0 && (
-                <SectionCard>
-                  <SectionLabel>Φάκελοι της πρόσκλησης</SectionLabel>
-                  {fileGroups.map((group, groupIndex) => renderGroupCard(group, groupIndex))}
-                </SectionCard>
-              )}
-
-              {(looseCount > 0) && (
+              {manualOpen && canManageWorkflow && (
                 <SectionCard>
                   <NodeRow>
-                    <GroupToggle
-                      type="button"
-                      $open={looseOpen}
-                      aria-expanded={looseOpen}
-                      title="Αρχεία που δεν μπήκαν σε φάκελο"
-                      onClick={() => toggleFileGroup('psk-ungrouped', true)}
-                    >
-                      <GroupChevron $open={looseOpen} aria-hidden>▶</GroupChevron>
-                      <GroupIcon aria-hidden>📄</GroupIcon>
-                      <NodeTitle>Αρχεία χωρίς φάκελο</NodeTitle>
-                      <GroupCount>
-                        {looseCount} {looseCount === 1 ? 'αρχείο' : 'αρχεία'}
-                      </GroupCount>
-                    </GroupToggle>
+                    <DateField
+                      data-testid="psk-submission-title"
+                      value={manualTitle}
+                      placeholder="Τίτλος πράξης"
+                      onChange={(event) => setManualTitle(event.target.value)}
+                    />
+                    <QuietBtn type="button" data-testid="psk-submission-create" onClick={createManualSubmission}>Δημιουργία</QuietBtn>
+                    <QuietBtn type="button" onClick={() => { setManualOpen(false); setManualTitle(''); }}>Ακύρωση</QuietBtn>
                   </NodeRow>
-                  {looseOpen && (
-                    <TreeChildren>
-                      <FilesList>
-                        {ungroupedFiles.map((file) => renderManagedFile(file, `psk-file-ungrouped-${file.fileName}`))}
-                        {(folders.main || []).map((folder, index) => renderFolderRow(folder, 'main', `main-folder-${index}`))}
-                        {(folders.attachments || []).map((folder, index) => renderFolderRow(folder, 'attachments', `attachments-folder-${index}`))}
-                      </FilesList>
-                    </TreeChildren>
-                  )}
                 </SectionCard>
               )}
 
-              {!linkedOrimanthiGroup && !(fileGroups || []).length && !ungroupedFiles.length
-                && !(folders.main || []).length && !(folders.attachments || []).length && (
-                <EmptyState>
-                  {canManageWorkflow
-                    ? 'Δεν υπάρχουν αρχεία. Χρησιμοποιήστε «Προσθήκη Αρχείων» ή «Προσθήκη Φακέλου».'
-                    : 'Δεν υπάρχουν αρχεία για αυτή την πρόσκληση'}
-                </EmptyState>
+              {!canManageWorkflow && shelf.totalCount === 0 && !hasLoose && shelf.invitationFiles.length === 0 && !(shelf.invitationGroups || []).length && !registryEntries.length && (
+                <EmptyState>Δεν υπάρχουν αρχεία για αυτή την πρόσκληση</EmptyState>
               )}
             </>
           )}

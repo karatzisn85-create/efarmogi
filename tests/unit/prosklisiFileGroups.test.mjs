@@ -93,6 +93,47 @@ test('τα αρχεία ωρίμανσης γίνονται μία ομάδα μ
   assert.equal(groups.buildOrimanthiLinkedGroup([]), null);
 });
 
+test('ο φάκελος μιας πράξης κρατάει σε ποια πράξη ανήκει', () => {
+  const groupsIn = [{
+    id: 'g1',
+    title: 'Συνοδευτικά',
+    submissionId: 'sub-1',
+    files: [{ fileName: 'α.pdf', shelf: 'invitation' }],
+    subgroups: [],
+  }];
+  const cloned = groups.cloneGroups(groupsIn);
+  assert.equal(cloned[0].submissionId, 'sub-1');
+  const stripped = groups.pullFilesByName([], cloned, ['α.pdf']);
+  assert.equal(stripped.fileGroups[0].submissionId, 'sub-1');
+  const removed = groups.removeFilesFromTree([], cloned, ['α.pdf']);
+  assert.equal(removed.fileGroups[0].submissionId, 'sub-1');
+  const renamed = groups.rewriteFileName(
+    [{ fileName: 'πρόσκληση.pdf', shelf: 'invitation' }],
+    cloned,
+    'πρόσκληση.pdf',
+    'πρόσκληση-2.pdf'
+  );
+  assert.equal(renamed.fileGroups[0].submissionId, 'sub-1');
+  assert.equal(renamed.prosklisiFiles[0].shelf, 'invitation');
+});
+
+test('δύο πράξεις μπορούν να έχουν φάκελο με το ίδιο όνομα', () => {
+  const existing = [
+    { id: 'g1', title: 'Συνοδευτικά', submissionId: 'sub-1', files: [], subgroups: [] },
+    { id: 'g2', title: 'Συνοδευτικά', submissionId: '', files: [], subgroups: [] },
+  ];
+  assert.equal(groups.canUseGroupTitle(existing, 'Συνοδευτικά', null, 'sub-2').ok, true);
+  assert.equal(groups.canUseGroupTitle(existing, 'Συνοδευτικά', null, '').ok, false);
+  assert.equal(groups.canUseGroupTitle(existing, 'Συνοδευτικά', null, 'sub-1').ok, false);
+});
+
+test('αρχείο χωρίς πράξη από τη φόρμα δεν κάθεται στα έγγραφα της πρόσκλησης', () => {
+  const next = groups.applyFormChoice([], [], false, [{ fileName: 'σχέδιο.pdf' }]);
+  assert.equal(next.ungroupedFiles[0].shelf, 'unassigned');
+  const kept = groups.applyFormChoice([], [{ fileName: 'ΠΡΟΣΚΛΗΣΗ.pdf' }], false, []);
+  assert.equal(kept.ungroupedFiles[0].shelf, undefined);
+});
+
 test('δεν επιτρέπεται ίδιο όνομα ομάδας ούτε το όνομα της ωρίμανσης', () => {
   const existing = [{ id: 'g1', title: 'Δικαιολογητικά', files: [], subgroups: [] }];
   assert.equal(groups.canUseGroupTitle(existing, 'Δικαιολογητικά', null).ok, false);

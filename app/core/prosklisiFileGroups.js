@@ -38,14 +38,29 @@
     return String(entry.fileName || entry.originalName || entry.name || '');
   }
 
+  function groupNode(g, files, subgroups) {
+    var src = g || {};
+    var node = {
+      id: src.id,
+      title: src.title,
+      files: files != null ? files : (src.files || []),
+      subgroups: subgroups != null ? subgroups : (src.subgroups || [])
+    };
+    if (src.submissionId) node.submissionId = String(src.submissionId);
+    return node;
+  }
+
   function normalizeGroup(group) {
     var g = group || {};
-    return {
-      id: g.id,
-      title: String(g.title || '').trim() || 'Ομάδα',
-      files: Array.isArray(g.files) ? g.files.slice() : [],
-      subgroups: (g.subgroups || []).map(normalizeGroup)
-    };
+    return groupNode(
+      {
+        id: g.id,
+        title: String(g.title || '').trim() || 'Ομάδα',
+        submissionId: g.submissionId || ''
+      },
+      Array.isArray(g.files) ? g.files.slice() : [],
+      (g.subgroups || []).map(normalizeGroup)
+    );
   }
 
   function cloneGroups(groups) {
@@ -140,12 +155,7 @@
           if (wanted[n]) pulled.push(f);
           else files.push(f);
         });
-        return {
-          id: g.id,
-          title: g.title,
-          files: files,
-          subgroups: strip(g.subgroups)
-        };
+        return groupNode(g, files, strip(g.subgroups));
       });
     }
     return {
@@ -158,19 +168,9 @@
   function addFilesToGroup(groups, groupId, files) {
     return (groups || []).map(function (g) {
       if (g.id === groupId) {
-        return {
-          id: g.id,
-          title: g.title,
-          files: (g.files || []).concat(files || []),
-          subgroups: g.subgroups || []
-        };
+        return groupNode(g, (g.files || []).concat(files || []), g.subgroups || []);
       }
-      return {
-        id: g.id,
-        title: g.title,
-        files: g.files || [],
-        subgroups: addFilesToGroup(g.subgroups, groupId, files)
-      };
+      return groupNode(g, g.files || [], addFilesToGroup(g.subgroups, groupId, files));
     });
   }
 
@@ -188,7 +188,12 @@
     return (parent && parent.subgroups) || [];
   }
 
-  function canUseGroupTitle(groups, title, parentId) {
+  function sameGroupOwner(group, submissionId) {
+    var owner = group && group.submissionId ? String(group.submissionId) : '';
+    return owner === String(submissionId || '');
+  }
+
+  function canUseGroupTitle(groups, title, parentId, submissionId) {
     var key = titleKey(title);
     if (!parentId && key === titleKey(ORIMANTHI_GROUP_TITLE)) {
       return {
@@ -198,8 +203,10 @@
     }
     var siblings = siblingGroups(groups, parentId);
     for (var i = 0; i < siblings.length; i += 1) {
-      if (titleKey(siblings[i] && siblings[i].title) === key) {
-        return { ok: false, error: 'Υπάρχει ήδη ομάδα με αυτό το όνομα. Δώστε διαφορετικό τίτλο.' };
+      if (parentId || sameGroupOwner(siblings[i], submissionId)) {
+        if (titleKey(siblings[i] && siblings[i].title) === key) {
+          return { ok: false, error: 'Υπάρχει ήδη ομάδα με αυτό το όνομα. Δώστε διαφορετικό τίτλο.' };
+        }
       }
     }
     return { ok: true };
@@ -208,19 +215,13 @@
   function createSubgroup(groups, parentId, newGroup) {
     return (groups || []).map(function (g) {
       if (g.id === parentId) {
-        return {
-          id: g.id,
-          title: g.title,
-          files: g.files || [],
-          subgroups: (g.subgroups || []).concat([normalizeGroup(newGroup)])
-        };
+        return groupNode(
+          g,
+          g.files || [],
+          (g.subgroups || []).concat([normalizeGroup(newGroup)])
+        );
       }
-      return {
-        id: g.id,
-        title: g.title,
-        files: g.files || [],
-        subgroups: createSubgroup(g.subgroups, parentId, newGroup)
-      };
+      return groupNode(g, g.files || [], createSubgroup(g.subgroups, parentId, newGroup));
     });
   }
 
@@ -233,12 +234,7 @@
           removed = g;
           return;
         }
-        out.push({
-          id: g.id,
-          title: g.title,
-          files: g.files || [],
-          subgroups: walk(g.subgroups)
-        });
+        out.push(groupNode(g, g.files || [], walk(g.subgroups)));
       });
       return out;
     }
@@ -262,12 +258,11 @@
     });
     function walk(list) {
       return (list || []).map(function (g) {
-        return {
-          id: g.id,
-          title: g.title,
-          files: (g.files || []).filter(function (f) { return !wanted[fileNameOf(f)]; }),
-          subgroups: walk(g.subgroups)
-        };
+        return groupNode(
+          g,
+          (g.files || []).filter(function (f) { return !wanted[fileNameOf(f)]; }),
+          walk(g.subgroups)
+        );
       });
     }
     return {
@@ -287,12 +282,7 @@
     }
     function walk(list) {
       return (list || []).map(function (g) {
-        return {
-          id: g.id,
-          title: g.title,
-          files: (g.files || []).map(rewriteEntry),
-          subgroups: walk(g.subgroups)
-        };
+        return groupNode(g, (g.files || []).map(rewriteEntry), walk(g.subgroups));
       });
     }
     return {
@@ -310,7 +300,13 @@
     }
     if (choice && choice.action === 'new') {
       return {
-        fileGroups: createGroup(groups, { id: newGroupId, title: choice.title, files: files, subgroups: [] }),
+        fileGroups: createGroup(groups, {
+          id: newGroupId,
+          title: choice.title,
+          files: files,
+          subgroups: [],
+          submissionId: choice.submissionId || ''
+        }),
         ungroupedFiles: ungrouped
       };
     }
@@ -331,7 +327,14 @@
         ungroupedFiles: ungrouped
       };
     }
-    return { fileGroups: groups, ungroupedFiles: ungrouped.concat(files) };
+    var marked = files.map(function (file) {
+      if (!file || typeof file !== 'object' || file.shelf) return file;
+      var next = {};
+      Object.keys(file).forEach(function (key) { next[key] = file[key]; });
+      next.shelf = 'unassigned';
+      return next;
+    });
+    return { fileGroups: groups, ungroupedFiles: ungrouped.concat(marked) };
   }
 
   function topLevelGroupFolderNames(groups) {

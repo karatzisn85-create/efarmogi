@@ -719,8 +719,8 @@ test('P3-72 συνδεδεμένο δικαιολογητικό ωρίμανση
   await expect(window.getByTestId('psk-files-modal')).toBeVisible();
   const linkedSection = window.getByTestId('psk-linked-orimanthi-files');
   await expect(linkedSection).toBeVisible();
-  await expect(linkedSection.getByText('Αρχεία από την ωρίμανση', { exact: true })).toBeVisible();
   await expect(linkedSection.getByText('ΜΕΛΕΤΕΣ ΕΡΓΟΥ', { exact: true })).toBeVisible();
+  await expect(linkedSection.getByText('ωρίμανση', { exact: true }).first()).toBeVisible();
   await linkedSection.getByRole('button', { name: /ΜΕΛΕΤΕΣ ΕΡΓΟΥ/ }).click();
   await expect(linkedSection.getByText('ΤΟΠΟΓΡΑΦΙΚΑ', { exact: true })).toBeVisible();
   await linkedSection.getByRole('button', { name: /ΤΟΠΟΓΡΑΦΙΚΑ/ }).click();
@@ -853,5 +853,73 @@ test('P3-79 μαζική διαγραφή επιλεγμένων αρχείων 
   await window.getByTestId('confirm-yes').click();
   await expect(window.getByText(/διαγράφηκε|Διαγράφηκαν/i)).toBeVisible({ timeout: 20000 });
   await expect(window.getByTestId('psk-file-row-σημείωμα.pdf')).toHaveCount(0);
+});
+
+test('P3-80 η πράξη δηλώνεται υποβληθείσα και η πρόσκληση μένει ανοιχτή', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  const files = window.getByTestId('psk-files-modal');
+  await expect(files).toBeVisible();
+  await expect(files.getByTestId('psk-invitation-file-πρόσκληση-όροι.pdf')).toBeVisible();
+  await expect(files.getByRole('button', { name: /Δικαιολογητικά/ })).toBeVisible();
+  await expect(files.getByText('Υποβλήθηκαν 0 από 1')).toBeVisible();
+  const cardKey = 'orimanthi:a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+  await expect(files.getByTestId(`psk-submission-status-${cardKey}`)).toHaveText('Εκκρεμεί η υποβολή');
+  await files.getByTestId(`psk-submission-mark-${cardKey}`).click();
+  await files.getByTestId(`psk-submission-date-${cardKey}`).fill('2026-11-13');
+  await files.getByTestId(`psk-submission-confirm-${cardKey}`).click();
+  await expect(files.getByText('Υποβλήθηκε 13/11/2026')).toBeVisible({ timeout: 15000 });
+  await expect(files.getByText('Υποβλήθηκαν 1 από 1')).toBeVisible();
+  await window.keyboard.press('Escape');
+  await expect(files).toHaveCount(0);
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal').getByText('Υποβλήθηκε 13/11/2026')).toBeVisible();
+  await window.keyboard.press('Escape');
+  await window.getByTestId('psk-detail-close').click();
+  await expect(window.getByTestId('psk-card-psk-schools')).toBeVisible();
+  await window.getByRole('tab', { name: /Υποβληθείσες/ }).click();
+  await expect(window.getByTestId('psk-card-psk-schools')).toHaveCount(0);
+});
+
+test('P3-81 η πράξη μένει ανοιχτή και το αρχείο μένει πάνω της', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openProskliseis(window);
+  await window.getByRole('tab', { name: /Ληγμένες/ }).click();
+  await window.getByTestId('psk-card-psk-expired').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  const files = window.getByTestId('psk-files-modal');
+  await expect(files).toBeVisible();
+  const card = files.getByTestId('psk-submission-orimanthi:b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e');
+  await card.getByRole('button', { name: /Δίκτυο ύδρευσης Παρανύμφων/ }).click();
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await card.getByRole('button', { name: 'Προσθήκη αρχείων' }).click();
+  await window.getByTestId('file-choice-none').click();
+  await expect(window.getByText(/προστέθηκε επιτυχώς|Προστέθηκαν/i)).toBeVisible({ timeout: 20000 });
+  await expect(files.getByTestId('psk-file-row-σχέδιο.pdf')).toBeVisible();
+  await expect(files.getByTestId('psk-invitation-file-σχέδιο.pdf')).toHaveCount(0);
+  await expect(files.getByRole('button', { name: 'Δήλωσε υποβολή' })).toBeVisible();
+});
+
+test('P3-82 φάκελος με πιασμένο όνομα δεν γίνεται έγγραφο της πρόσκλησης', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  const files = window.getByTestId('psk-files-modal');
+  await expect(files).toBeVisible();
+  await app.queueFolderPick({
+    success: true,
+    files: [{ filePath: path.join(sampleUpload, 'σημείωμα.pdf'), fileName: 'σημείωμα.pdf' }],
+    folderName: 'Δικαιολογητικά',
+    fileCount: 1,
+  });
+  await files.getByRole('button', { name: /Προσθήκη Φακέλου/ }).click();
+  await expect(window.getByText(/Υπάρχει ήδη ομάδα με αυτό το όνομα/)).toBeVisible({ timeout: 15000 });
+  await expect(files.getByTestId('psk-invitation-file-σημείωμα.pdf')).toHaveCount(0);
+  await expect(files.getByTestId('psk-file-row-σημείωμα.pdf')).toHaveCount(0);
 });
 
