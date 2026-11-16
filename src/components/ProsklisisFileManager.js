@@ -973,14 +973,16 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     try {
       const pick = await ipcRenderer.invoke('select-folder-files-flat', {
         title: 'Επιλογή φακέλου για την πρόσκληση',
+        keepRelativePaths: true,
       });
       if (pick?.canceled) return;
       if (!pick?.success) {
         if (pick?.error) showToast('Σφάλμα επιλογής φακέλου: ' + pick.error, 'error');
         return;
       }
-      const pickedFiles = (pick.files || []).map((f) => ({ filePath: f.filePath, fileName: f.fileName }));
-      if (pickedFiles.length === 0) {
+      const pickedFiles = pick.files || [];
+      const nestedDirs = pick.directories || [];
+      if (pickedFiles.length === 0 && nestedDirs.length === 0) {
         showToast('Ο φάκελος δεν περιέχει αρχεία', 'warning');
         return;
       }
@@ -991,47 +993,24 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
         return;
       }
 
-      const existing = managedFiles.collectExistingFileNames(
-        [...(files.attachments || []), ...(files.main || [])],
-        fileGroups
-      );
-      const { conflicts } = managedFiles.findNameConflicts(
-        pickedFiles.map((f) => f.fileName),
-        existing
-      );
-      let policy = 'keep-both';
-      if (conflicts.length) {
-        policy = await showFileConflictDialog({ fileNames: conflicts });
-        if (!policy) return;
-      }
-
       setUploading(true);
-      const uploadResult = await ipcRenderer.invoke('upload-prosklisi-files', {
+      const imported = await ipcRenderer.invoke('import-prosklisi-folder', {
         prosklisiId,
+        rootTitle: folderTitle,
+        submissionId: ownerId,
         files: pickedFiles,
-        targetFolder: 'attachments',
-        conflictPolicy: policy,
+        directories: nestedDirs,
       });
-      if (!uploadResult?.success) {
-        showToast('Σφάλμα προσθήκης αρχείων φακέλου: ' + (uploadResult?.error || 'Άγνωστο'), 'error');
+      if (!imported?.success) {
+        showToast(imported?.error || 'Ο φάκελος δεν προστέθηκε', 'error');
         return;
       }
-
-      const addedNames = uploadResult.added || pickedFiles.map((f) => f.fileName);
-      const groupResult = await ipcRenderer.invoke(
-        'create-prosklisi-group',
-        prosklisiId,
-        folderTitle,
-        addedNames,
-        null,
-        ownerId
+      showToast(
+        imported.folderCount > 0
+          ? `Προστέθηκε ο φάκελος «${folderTitle}» μαζί με τους υποφακέλους του`
+          : `Προστέθηκε ο φάκελος «${folderTitle}» με ${imported.fileCount || pickedFiles.length} αρχεία`,
+        'success'
       );
-      if (!groupResult?.success) {
-        await placeAddedFiles(addedNames, ownerId || 'invitation');
-        showToast(`Προστέθηκαν ${addedNames.length} αρχεία, αλλά η ομαδοποίηση απέτυχε: ${groupResult?.error || 'Άγνωστο'}`, 'warning');
-      } else {
-        showToast(`Προστέθηκε ο φάκελος «${folderTitle}» με ${addedNames.length} αρχεία`, 'success');
-      }
       await loadFiles();
     } catch (error) {
       console.error('Error uploading prosklisi folder:', error);

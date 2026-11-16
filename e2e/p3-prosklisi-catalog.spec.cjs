@@ -923,6 +923,36 @@ test('P3-82 φάκελος με πιασμένο όνομα δεν γίνετα�
   await expect(files.getByTestId('psk-file-row-σημείωμα.pdf')).toHaveCount(0);
 });
 
+test('P3-85 προσθήκη φακέλου κρατά τους υποφακέλους του', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  const files = window.getByTestId('psk-files-modal');
+  await expect(files).toBeVisible();
+  await app.queueFolderPick({
+    success: true,
+    folderName: 'Πακέτο μελέτης',
+    fileCount: 3,
+    directories: ['Άδειες', 'Άδειες/Τοπογραφικά', 'Άδειες/Κενός'],
+    files: [
+      { filePath: path.join(sampleUpload, 'σημείωμα.pdf'), fileName: 'εξώφυλλο.pdf', relativeDir: '' },
+      { filePath: path.join(sampleUpload, 'παράρτημα.pdf'), fileName: 'άδεια.pdf', relativeDir: 'Άδειες' },
+      { filePath: path.join(sampleUpload, 'σχέδιο.pdf'), fileName: 'σχέδιο.pdf', relativeDir: 'Άδειες/Τοπογραφικά' },
+    ],
+  });
+  await files.getByRole('button', { name: /Προσθήκη Φακέλου/ }).click();
+  await expect(window.getByText(/μαζί με τους υποφακέλους του/)).toBeVisible({ timeout: 15000 });
+  await files.getByRole('button', { name: /Πακέτο μελέτης/ }).click();
+  await files.getByRole('button', { name: 'Άδειες' }).click();
+  await expect(files.getByRole('button', { name: 'Τοπογραφικά' })).toBeVisible();
+  await expect(files.getByRole('button', { name: 'Κενός' })).toBeVisible();
+  await files.getByRole('button', { name: 'Τοπογραφικά' }).click();
+  await expect(files.getByTestId('psk-file-row-σχέδιο.pdf')).toBeVisible();
+  await expect(files.getByTestId('psk-invitation-file-εξώφυλλο.pdf')).toHaveCount(0);
+});
+
 test('P3-83 διαγραφή φακέλου πρόσκλησης σβήνει και τα αρχεία του', async ({ app }) => {
   const { window } = app;
   await openProskliseis(window);

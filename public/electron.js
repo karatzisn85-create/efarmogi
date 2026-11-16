@@ -7203,6 +7203,45 @@ function collectFilesRecursive(dirPath, collected = []) {
   return collected;
 }
 
+async function collectFolderTreeAsync(rootPath) {
+  const files = [];
+  const directories = [];
+  const walk = async (dir, parts) => {
+    if (parts.length > 20) {
+      const error = new Error('Ο φάκελος έχει πάρα πολλές ένθετες βαθμίδες');
+      error.code = 'FOLDER_TOO_DEEP';
+      throw error;
+    }
+    let entries;
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      const full = path.join(dir, entry.name);
+      try {
+        if (entry.isDirectory()) {
+          const next = parts.concat([entry.name]);
+          directories.push(next.join('/'));
+          await walk(full, next);
+        } else if (entry.isFile()) {
+          files.push({
+            sourcePath: full,
+            fileName: entry.name,
+            relativeDir: parts.join('/'),
+          });
+        }
+      } catch (err) {
+        if (err && err.code === 'FOLDER_TOO_DEEP') throw err;
+      }
+    }
+  };
+  await walk(rootPath, []);
+  return { files, directories };
+}
+
 async function collectFilesRecursiveAsync(dirPath, collected = []) {
   let entries;
   try {
@@ -7243,6 +7282,48 @@ ipcMain.handle('select-folder-files-flat', async (_event, arg = {}) => {
       return { success: false, canceled: true };
     }
     const folderPath = result.filePaths[0];
+    if (typeof arg === 'object' && arg.keepRelativePaths) {
+      let tree;
+      try {
+        tree = await collectFolderTreeAsync(folderPath);
+      } catch (err) {
+        if (err && err.code === 'FOLDER_TOO_DEEP') {
+          return { success: false, error: err.message };
+        }
+        throw err;
+      }
+      if (tree.files.length > TASK_UPLOAD_MAX_FOLDER_FILES) {
+        return {
+          success: false,
+          error: `Ο φάκελος περιέχει πάρα πολλά αρχεία (${tree.files.length}). Μέγιστο: ${TASK_UPLOAD_MAX_FOLDER_FILES}.`,
+        };
+      }
+      if (!tree.files.length && !tree.directories.length) {
+        return { success: false, error: 'Ο φάκελος δεν περιέχει αρχεία' };
+      }
+      const tempDir = getTempDir();
+      await fs.promises.mkdir(tempDir, { recursive: true });
+      const files = [];
+      for (let i = 0; i < tree.files.length; i += 1) {
+        const file = tree.files[i];
+        const safe = String(file.fileName || '').replace(/[<>:"/\\|?*]/g, '_').trim();
+        if (!safe) continue;
+        const tempFilePath = path.join(tempDir, `${Date.now()}_${i}_${safe}`);
+        await fs.promises.copyFile(file.sourcePath, tempFilePath);
+        files.push({
+          filePath: tempFilePath,
+          fileName: safe,
+          relativeDir: file.relativeDir || '',
+        });
+      }
+      return {
+        success: true,
+        files,
+        directories: tree.directories,
+        folderName: path.basename(folderPath),
+        fileCount: files.length,
+      };
+    }
     const sourceFiles = await collectFilesRecursiveAsync(folderPath);
     if (sourceFiles.length === 0) {
       return { success: false, error: 'Ο φάκελος δεν περιέχει αρχεία' };
@@ -8802,6 +8883,36 @@ ipcMain.handle('delete-prosklisi-group', async (event, prosklisiId, groupId) => 
 });
 
 // Create prosklisi group — νέα ομάδα ή υποομάδα, με μεταφορά αρχείων στον φάκελο
+ipcMain.handle('import-prosklisi-folder', async (_event, payload = {}) => {
+  try {
+    const prosklisiId = payload.prosklisiId;
+    if (!prosklisiId) return { success: false, error: 'Απαιτείται πρόσκληση' };
+    const result = prosklisiFileOps.importFolderTree(path.join(proskliseisDir, prosklisiId), {
+      rootTitle: payload.rootTitle,
+      submissionId: payload.submissionId,
+      files: payload.files,
+      directories: payload.directories,
+    });
+    if (!result.ok) return { success: false, error: result.error };
+    logAuditAction({
+      type: 'create',
+      entityType: 'file_group',
+      entityId: result.groupId,
+      entityTitle: result.title || prosklisiId,
+      details: `Προσθήκη φακέλου πρόσκλησης με ${result.fileCount || 0} αρχεία`,
+    });
+    return {
+      success: true,
+      groupId: result.groupId,
+      fileCount: result.fileCount || 0,
+      folderCount: result.folderCount || 0,
+    };
+  } catch (error) {
+    console.error('import-prosklisi-folder:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('create-prosklisi-group', async (event, prosklisiId, groupTitle, fileNames, parentGroupId, submissionId) => {
   try {
     if (!prosklisiId) return { success: false, error: 'Απαιτείται prosklisiId' };
