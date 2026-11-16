@@ -136,48 +136,30 @@ function moveFilesToGroupFolder(prosklisiDir, files, titlesPath) {
   return destDir;
 }
 
-function hoistFilesToAttachments(prosklisiDir, files) {
-  const { attachmentsDir } = ensureBaseDirs(prosklisiDir);
-  (files || []).forEach((file) => {
-    const name = groupsCore.fileNameOf(file);
-    if (!name) return;
-    const found = locatePhysicalFile(prosklisiDir, name);
-    if (!found || !fs.existsSync(found)) return;
-    const dest = uniqueDestPath(attachmentsDir, path.basename(found));
-    if (!dest) return;
-    if (path.resolve(found) === path.resolve(dest)) return;
-    fs.renameSync(found, dest);
-  });
-}
-
-function dirContainsFiles(dir) {
-  let entries;
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return true;
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isFile()) return true;
-    if (entry.isDirectory() && dirContainsFiles(full)) return true;
-  }
-  return false;
-}
-
-function removeGroupFolderIfSafe(prosklisiDir, titlesPath) {
-  const { mainFilesDir, attachmentsDir } = dirsOf(prosklisiDir);
-  const folder = findGroupFolder(mainFilesDir, attachmentsDir, titlesPath);
-  if (!folder) return;
-  if (!isPathInside(folder, mainFilesDir)) return;
-  if (folder === mainFilesDir || folder === attachmentsDir) return;
-  try {
-    if (!dirContainsFiles(folder)) {
-      fs.rmSync(folder, { recursive: true, force: true });
+function unlinkStoredFile(prosklisiDir, file) {
+  const { mainFilesDir } = dirsOf(prosklisiDir);
+  const name = path.basename(groupsCore.fileNameOf(file) || '');
+  const found = name ? locatePhysicalFile(prosklisiDir, name) : null;
+  if (found && fs.existsSync(found) && isPathInside(found, mainFilesDir)) {
+    const resolved = path.resolve(found);
+    if (resolved !== path.resolve(mainFilesDir)) {
+      try { fs.unlinkSync(found); } catch { /* το αρχείο έφυγε ήδη */ }
     }
-  } catch {
-    /* ignore */
   }
+  const raw = file && typeof file === 'object' ? String(file.filePath || '') : '';
+  if (raw && fs.existsSync(raw) && isPathInside(raw, mainFilesDir) && path.resolve(raw) !== path.resolve(mainFilesDir)) {
+    try { fs.unlinkSync(raw); } catch { /* το αρχείο έφυγε ήδη */ }
+  }
+}
+
+function removeFolderTree(folder, mainFilesDir) {
+  if (!folder || !fs.existsSync(folder)) return;
+  const root = path.resolve(mainFilesDir);
+  const resolved = path.resolve(folder);
+  const attachmentsDir = path.resolve(mainFilesDir, groupsCore.ATTACHMENTS_WRAPPER);
+  if (!isPathInside(resolved, root)) return;
+  if (resolved === root || resolved === attachmentsDir) return;
+  fs.rmSync(resolved, { recursive: true, force: true });
 }
 
 function organizeFiles(prosklisiDir, options) {
@@ -262,12 +244,33 @@ function organizeFiles(prosklisiDir, options) {
   return { ok: false, error: 'Άγνωστη ενέργεια ομαδοποίησης' };
 }
 
+function namesPresentInTree(looseFiles, groups, names) {
+  const wanted = new Set(names);
+  const present = new Set();
+  const consider = (file) => {
+    const name = path.basename(groupsCore.fileNameOf(file) || '');
+    if (wanted.has(name)) present.add(name);
+    const raw = groupsCore.fileNameOf(file);
+    if (wanted.has(raw)) present.add(raw);
+  };
+  (looseFiles || []).forEach(consider);
+  const walk = (list) => {
+    (list || []).forEach((group) => {
+      (group.files || []).forEach(consider);
+      walk(group.subgroups);
+    });
+  };
+  walk(groups);
+  return present;
+}
+
 function deleteFiles(prosklisiDir, fileNames) {
   const loaded = readProsklisiData(prosklisiDir);
   if (!loaded.ok) return loaded;
   const names = Array.isArray(fileNames) ? fileNames.map((n) => path.basename(String(n || ''))).filter(Boolean) : [];
   if (!names.length) return { ok: false, error: 'Δεν δόθηκαν αρχεία' };
 
+  const present = namesPresentInTree(loaded.data.prosklisiFiles, loaded.data.fileGroups, names);
   const missing = [];
   names.forEach((name) => {
     const found = locatePhysicalFile(prosklisiDir, name);
@@ -284,7 +287,8 @@ function deleteFiles(prosklisiDir, fileNames) {
     prosklisiFiles: next.prosklisiFiles,
     fileGroups: next.fileGroups,
   });
-  return { ok: true, deleted: names.length - missing.length, missing };
+  const deleted = names.filter((name) => !missing.includes(name) || present.has(name)).length;
+  return { ok: true, deleted, missing };
 }
 
 function deleteGroup(prosklisiDir, groupId) {
@@ -292,23 +296,205 @@ function deleteGroup(prosklisiDir, groupId) {
   if (!loaded.ok) return loaded;
   const titles = groupsCore.titlesPathForGroup(loaded.data.fileGroups, groupId);
   const removed = groupsCore.removeGroupById(loaded.data.fileGroups, groupId);
-  if (!removed.removed) return { ok: false, error: 'Η ομάδα δεν βρέθηκε' };
-  const owner = removed.removed.submissionId ? String(removed.removed.submissionId) : '';
-  const files = groupsCore.flattenRemovedFiles(removed.removed).map((file) => {
-    if (!file || typeof file !== 'object') {
-      const name = groupsCore.fileNameOf(file);
-      return { fileName: name, originalName: name, shelf: owner || 'unassigned' };
-    }
-    return { ...file, shelf: owner || 'unassigned' };
-  });
-  hoistFilesToAttachments(prosklisiDir, files);
-  removeGroupFolderIfSafe(prosklisiDir, titles);
+  if (!removed.removed) return { ok: false, error: 'Ο φάκελος δεν βρέθηκε' };
+  const files = groupsCore.flattenRemovedFiles(removed.removed);
+  files.forEach((file) => unlinkStoredFile(prosklisiDir, file));
+  const { mainFilesDir, attachmentsDir } = dirsOf(prosklisiDir);
+  removeFolderTree(findGroupFolder(mainFilesDir, attachmentsDir, titles), mainFilesDir);
   persistProsklisiData(prosklisiDir, {
     ...loaded.data,
     fileGroups: removed.fileGroups,
-    prosklisiFiles: [...(loaded.data.prosklisiFiles || []), ...files],
   });
-  return { ok: true, title: removed.removed.title, files };
+  return { ok: true, title: removed.removed.title, deletedFiles: files.length };
+}
+
+function indexStoredBaseNames(prosklisiDir) {
+  const { mainFilesDir } = dirsOf(prosklisiDir);
+  const names = new Set();
+  const walk = (dir, depth) => {
+    if (depth > 8 || !fs.existsSync(dir)) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    entries.forEach((entry) => {
+      if (entry.name.startsWith('.')) return;
+      if (entry.isFile()) names.add(entry.name.normalize('NFC').toLowerCase());
+      else if (entry.isDirectory()) walk(path.join(dir, entry.name), depth + 1);
+    });
+  };
+  walk(mainFilesDir, 0);
+  return names;
+}
+
+function storedFileExists(index, file) {
+  const base = path.basename(groupsCore.fileNameOf(file) || '').normalize('NFC').toLowerCase();
+  if (base && index.has(base)) return true;
+  const raw = file && typeof file === 'object' ? String(file.filePath || '') : '';
+  return !!(raw && fs.existsSync(raw));
+}
+
+function pruneMissingFileRecords(prosklisiDir) {
+  const loaded = readProsklisiData(prosklisiDir);
+  if (!loaded.ok) return loaded;
+  const index = indexStoredBaseNames(prosklisiDir);
+  const names = [];
+  const consider = (file) => {
+    if (file && typeof file === 'object' && file.sourceProposalId) return;
+    if (storedFileExists(index, file)) return;
+    const name = groupsCore.fileNameOf(file);
+    if (name) names.push(name);
+  };
+  (loaded.data.prosklisiFiles || []).forEach(consider);
+  const walk = (list) => {
+    (list || []).forEach((group) => {
+      (group.files || []).forEach(consider);
+      walk(group.subgroups);
+    });
+  };
+  walk(loaded.data.fileGroups);
+  if (!names.length) return { ok: true, removed: 0 };
+  const next = groupsCore.removeFilesFromTree(loaded.data.prosklisiFiles, loaded.data.fileGroups, names);
+  persistProsklisiData(prosklisiDir, {
+    ...loaded.data,
+    prosklisiFiles: next.prosklisiFiles,
+    fileGroups: next.fileGroups,
+  });
+  return { ok: true, removed: names.length };
+}
+
+function collectBaseNames(dir, into) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  entries.forEach((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) collectBaseNames(full, into);
+    else if (entry.isFile()) into.push(entry.name);
+  });
+}
+
+function deletePhysicalFolder(prosklisiDir, folderName, targetFolder) {
+  const { mainFilesDir, attachmentsDir } = dirsOf(prosklisiDir);
+  const base = targetFolder === 'attachments' ? attachmentsDir : mainFilesDir;
+  const safeName = path.basename(String(folderName || ''));
+  const folderPath = path.resolve(base, safeName);
+  if (!safeName || safeName === '.' || safeName === '..' || !isPathInside(folderPath, mainFilesDir)) {
+    return { ok: false, error: 'Μη επιτρεπτός φάκελος' };
+  }
+  if (path.resolve(folderPath) === path.resolve(mainFilesDir) || path.resolve(folderPath) === path.resolve(attachmentsDir)) {
+    return { ok: false, error: 'Μη επιτρεπτός φάκελος' };
+  }
+  if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+    return { ok: false, error: 'Ο φάκελος δεν βρέθηκε' };
+  }
+
+  const loaded = readProsklisiData(prosklisiDir);
+  const dropIds = [];
+  if (loaded.ok) {
+    const mark = (groups, parentTitles) => {
+      (groups || []).forEach((group) => {
+        const titles = parentTitles.concat([group.title]);
+        const owned = findGroupFolder(mainFilesDir, attachmentsDir, titles);
+        if (owned && path.resolve(owned) === folderPath) dropIds.push(group.id);
+        else mark(group.subgroups, titles);
+      });
+    };
+    mark(loaded.data.fileGroups, []);
+  }
+
+  const names = [];
+  collectBaseNames(folderPath, names);
+  fs.rmSync(folderPath, { recursive: true, force: true });
+
+  if (!loaded.ok) return { ok: true, title: safeName };
+  let groups = loaded.data.fileGroups;
+  dropIds.forEach((id) => {
+    const removed = groupsCore.removeGroupById(groups, id);
+    groups = removed.fileGroups;
+  });
+  const next = groupsCore.removeFilesFromTree(loaded.data.prosklisiFiles, groups, names);
+  persistProsklisiData(prosklisiDir, {
+    ...loaded.data,
+    prosklisiFiles: next.prosklisiFiles,
+    fileGroups: next.fileGroups,
+  });
+  return { ok: true, title: safeName };
+}
+
+function pushZipFile(entries, absPath, zipPath) {
+  if (!absPath || !fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) return;
+  const safeZip = String(zipPath || '').split(/[\\/]/).filter((part) => part && part !== '.' && part !== '..').join('/');
+  if (!safeZip) return;
+  entries.push({ absPath, zipPath: safeZip });
+}
+
+function collectGroupZipEntries(prosklisiDir, groupId) {
+  const loaded = readProsklisiData(prosklisiDir);
+  if (!loaded.ok) return loaded;
+  const group = groupsCore.findGroupById(loaded.data.fileGroups, groupId);
+  if (!group) return { ok: false, error: 'Ο φάκελος δεν βρέθηκε' };
+  const { mainFilesDir } = dirsOf(prosklisiDir);
+  const entries = [];
+  const walk = (node, prefix) => {
+    const folder = prefix.concat([groupsCore.sanitizeFolderName(node.title || 'Φάκελος')]);
+    (node.files || []).forEach((file) => {
+      if (file && file.sourceProposalId) return;
+      const name = path.basename(groupsCore.fileNameOf(file) || '');
+      let abs = name ? locatePhysicalFile(prosklisiDir, name) : null;
+      if ((!abs || !fs.existsSync(abs)) && file && file.filePath && fs.existsSync(file.filePath)) {
+        abs = file.filePath;
+      }
+      if (!abs || !isPathInside(abs, mainFilesDir)) return;
+      pushZipFile(entries, abs, folder.concat([path.basename(abs)]).join('/'));
+    });
+    (node.subgroups || []).forEach((sub) => walk(sub, folder));
+  };
+  walk(group, []);
+  if (!entries.length) return { ok: false, error: 'Ο φάκελος δεν έχει αρχεία για λήψη' };
+  return {
+    ok: true,
+    entries,
+    suggestedName: `${groupsCore.sanitizeFolderName(group.title || 'Φάκελος')}.zip`,
+  };
+}
+
+function collectDirectoryZipEntries(prosklisiDir, folderName, targetFolder) {
+  const { mainFilesDir, attachmentsDir } = dirsOf(prosklisiDir);
+  const base = targetFolder === 'attachments' ? attachmentsDir : mainFilesDir;
+  const safeName = path.basename(String(folderName || ''));
+  const folderPath = path.resolve(base, safeName);
+  if (!safeName || !isPathInside(folderPath, mainFilesDir) || !fs.existsSync(folderPath)) {
+    return { ok: false, error: 'Ο φάκελος δεν βρέθηκε' };
+  }
+  const entries = [];
+  const walk = (dir, prefix) => {
+    let listing;
+    try { listing = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    listing.forEach((entry) => {
+      if (entry.name.startsWith('.')) return;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full, prefix.concat([entry.name]));
+      else if (entry.isFile()) pushZipFile(entries, full, prefix.concat([entry.name]).join('/'));
+    });
+  };
+  walk(folderPath, [safeName]);
+  if (!entries.length) return { ok: false, error: 'Ο φάκελος δεν έχει αρχεία για λήψη' };
+  return {
+    ok: true,
+    entries,
+    suggestedName: `${groupsCore.sanitizeFolderName(safeName)}.zip`,
+  };
+}
+
+function writeZipEntries(destPath, entries) {
+  return new Promise((resolve) => {
+    const archive = require('archiver')('zip', { zlib: { level: 6 } });
+    const output = fs.createWriteStream(destPath);
+    output.on('close', () => resolve({ ok: true }));
+    output.on('error', (err) => resolve({ ok: false, error: err.message }));
+    archive.on('error', (err) => resolve({ ok: false, error: err.message }));
+    archive.pipe(output);
+    (entries || []).forEach((entry) => archive.file(entry.absPath, { name: entry.zipPath }));
+    archive.finalize();
+  });
 }
 
 function rewriteRenamedFile(prosklisiDir, oldName, newName) {
@@ -460,6 +646,7 @@ function placeLooseFileOnShelf(prosklisiDir, fileName, shelf) {
 }
 
 function listForUi(prosklisiDir) {
+  pruneMissingFileRecords(prosklisiDir);
   const { mainFilesDir, attachmentsDir } = dirsOf(prosklisiDir);
   const loaded = readProsklisiData(prosklisiDir);
   const fileGroups = loaded.ok ? loaded.data.fileGroups : [];
@@ -551,6 +738,11 @@ module.exports = {
   organizeFiles,
   deleteFiles,
   deleteGroup,
+  deletePhysicalFolder,
+  pruneMissingFileRecords,
+  collectGroupZipEntries,
+  collectDirectoryZipEntries,
+  writeZipEntries,
   rewriteRenamedFile,
   materializeFormGroups,
   ensureSubmissionRecord,

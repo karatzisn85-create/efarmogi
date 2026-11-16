@@ -7623,7 +7623,8 @@ ipcMain.handle('delete-item-from-subfolder', async (event, prosklisiId, parentFo
     } else {
       fs.unlinkSync(itemPath);
     }
-    
+    prosklisiFileOps.pruneMissingFileRecords(prosklisiDir);
+
     logAuditAction({
       type: 'delete',
       entityType: 'file',
@@ -7660,7 +7661,8 @@ ipcMain.handle('delete-item-from-folder', async (event, prosklisiId, folderName,
     } else {
       fs.unlinkSync(itemPath);
     }
-    
+    prosklisiFileOps.pruneMissingFileRecords(prosklisiDir);
+
     logAuditAction({
       type: 'delete',
       entityType: 'file',
@@ -7797,6 +7799,7 @@ ipcMain.handle('delete-file-from-folder', async (event, prosklisiId, folderName,
     }
     
     fs.unlinkSync(filePath);
+    prosklisiFileOps.pruneMissingFileRecords(prosklisiDir);
     logAuditAction({
       type: 'delete',
       entityType: 'file',
@@ -7815,34 +7818,10 @@ ipcMain.handle('delete-file-from-folder', async (event, prosklisiId, folderName,
 ipcMain.handle('delete-prosklisi-folder', async (event, prosklisiId, folderName, targetFolder) => {
   try {
     const prosklisiDir = path.join(proskliseisDir, prosklisiId);
-    const mainFilesDir = path.join(prosklisiDir, 'ΑΡΧΕΙΑ_ΠΡΟΣΚΛΗΣΗΣ');
-    const attachmentsDir = path.join(mainFilesDir, 'Επισυναπτόμενα Αρχεία Υποβολής');
-    
-    const folderPath = targetFolder === 'attachments' 
-      ? path.join(attachmentsDir, folderName)
-      : path.join(mainFilesDir, folderName);
-    
-    if (!fs.existsSync(folderPath)) {
-      throw new Error('Folder not found');
+    const removed = prosklisiFileOps.deletePhysicalFolder(prosklisiDir, folderName, targetFolder);
+    if (!removed.ok) {
+      return { success: false, error: removed.error };
     }
-    
-    // Remove folder recursively
-    const removeFolder = (dirPath) => {
-      if (fs.existsSync(dirPath)) {
-        const files = fs.readdirSync(dirPath);
-        for (const file of files) {
-          const filePath = path.join(dirPath, file);
-          if (fs.statSync(filePath).isDirectory()) {
-            removeFolder(filePath);
-          } else {
-            fs.unlinkSync(filePath);
-          }
-        }
-        fs.rmdirSync(dirPath);
-      }
-    };
-    
-    removeFolder(folderPath);
     
     logAuditAction({
       type: 'delete',
@@ -8306,6 +8285,7 @@ async function loadAllProskliseis(options = {}) {
       const dataFilePath = path.join(folderPath, 'data.json');
       if (!fs.existsSync(dataFilePath)) continue;
       try {
+        prosklisiFileOps.pruneMissingFileRecords(folderPath);
         const raw = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
         raw.linkedProjects = prosklisiCatalogCore.normalizeLinkedProjects(raw.linkedProjects);
         raw.status = prosklisiCatalogCore.normalizeProsklisiStatus(raw.status);
@@ -9294,6 +9274,36 @@ ipcMain.handle('download-prosklisi-file', async (event, prosklisiId, fileName, t
     }
   } catch (error) {
     console.error('Error downloading prosklisi file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('download-prosklisi-folder', async (_event, payload = {}) => {
+  try {
+    const prosklisiId = payload.prosklisiId;
+    if (!prosklisiId) return { success: false, error: 'Απαιτείται πρόσκληση' };
+    const prosklisiDir = path.join(proskliseisDir, prosklisiId);
+    const collected = payload.groupId
+      ? prosklisiFileOps.collectGroupZipEntries(prosklisiDir, payload.groupId)
+      : prosklisiFileOps.collectDirectoryZipEntries(prosklisiDir, payload.folderName, payload.targetFolder);
+    if (!collected.ok) return { success: false, error: collected.error };
+
+    const { dialog } = require('electron');
+    const pick = await dialog.showSaveDialog({
+      title: 'Αποθήκευση φακέλου',
+      defaultPath: collected.suggestedName,
+      filters: [{ name: 'Συμπιεσμένος φάκελος', extensions: ['zip'] }],
+    });
+    if (pick.canceled || !pick.filePath) {
+      return { success: false, error: 'Download cancelled' };
+    }
+    let dest = path.resolve(pick.filePath);
+    if (!/\.zip$/i.test(dest)) dest = `${dest}.zip`;
+    const written = await prosklisiFileOps.writeZipEntries(dest, collected.entries);
+    if (!written.ok) return { success: false, error: written.error || 'Η λήψη δεν ολοκληρώθηκε' };
+    return { success: true };
+  } catch (error) {
+    console.error('Error downloading prosklisi folder:', error);
     return { success: false, error: error.message };
   }
 });

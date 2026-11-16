@@ -923,3 +923,36 @@ test('P3-82 φάκελος με πιασμένο όνομα δεν γίνετα�
   await expect(files.getByTestId('psk-file-row-σημείωμα.pdf')).toHaveCount(0);
 });
 
+test('P3-83 διαγραφή φακέλου πρόσκλησης σβήνει και τα αρχεία του', async ({ app }) => {
+  const { window } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  const files = window.getByTestId('psk-files-modal');
+  await expect(files).toBeVisible();
+  await files.getByTestId('psk-group-delete-fg-justif').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(files.getByTestId('psk-group-fg-justif')).toHaveCount(0);
+  await expect(files.getByTestId('psk-file-row-βεβαίωση.pdf')).toHaveCount(0);
+  await expect(files.getByTestId('psk-invitation-file-βεβαίωση.pdf')).toHaveCount(0);
+});
+
+test('P3-84 λήψη φακέλου πρόσκλησης κρατά τα αρχεία μέσα του', async ({ app }) => {
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const { window } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  const files = window.getByTestId('psk-files-modal');
+  await expect(files).toBeVisible();
+  const dest = path.join(os.tmpdir(), `psk-folder-${Date.now()}.zip`);
+  await app.queueSavePath(dest);
+  await files.getByTestId('psk-group-download-fg-justif').click();
+  await expect(window.getByText('Ο φάκελος λήφθηκε μαζί με τα αρχεία του')).toBeVisible({ timeout: 15000 });
+  const packed = fs.readFileSync(dest);
+  expect(packed.includes(Buffer.from('βεβαίωση.pdf'))).toBe(true);
+  await expect(files.getByTestId('psk-group-fg-justif')).toBeVisible();
+});
+

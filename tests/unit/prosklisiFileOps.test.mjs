@@ -47,14 +47,19 @@ test('διαγραφή ομάδας με υποομάδα δεν αφήνει ά
   const deleted = ops.deleteGroup(dir, parent.groupId);
   assert.equal(deleted.ok, true);
   assert.equal(fs.existsSync(path.join(dir, ops.FILES_ROOT_NAME, 'Δικαιολογητικά')), false);
+  assert.equal(fs.existsSync(nested), false);
   const listed = ops.listForUi(dir);
   assert.equal(listed.folders.main.some((f) => f.folderName === 'Δικαιολογητικά'), false);
   assert.equal(listed.fileGroups.length, 0);
-  assert.equal(listed.files.attachments.some((f) => f.fileName === 'src.pdf'), true);
+  assert.equal(listed.files.attachments.some((f) => f.fileName === 'src.pdf'), false);
+  assert.equal(listed.files.main.some((f) => f.fileName === 'src.pdf'), false);
 });
 
 test('η δήλωση υποβολής αποθηκεύεται και δεν αλλάζει την κατάσταση της πρόσκλησης', () => {
   const dir = makeProsklisiDir();
+  const looseDir = path.join(dir, ops.FILES_ROOT_NAME, 'Επισυναπτόμενα Αρχεία Υποβολής');
+  fs.mkdirSync(looseDir, { recursive: true });
+  fs.writeFileSync(path.join(looseDir, 'ΠΡΟΣΚΛΗΣΗ.pdf'), 'x');
   ops.persistProsklisiData(dir, {
     title: 'Δοκιμή',
     status: 'Υπό Υποβολή',
@@ -96,7 +101,7 @@ test('η δήλωση υποβολής αποθηκεύεται και δεν α
   assert.equal(kept.find((group) => group.id === owned.id).submissionId, 's1');
 });
 
-test('διαγραφή φακέλου πράξης αφήνει τα αρχεία στην ίδια πράξη', () => {
+test('διαγραφή φακέλου πράξης σβήνει και τα αρχεία του', () => {
   const dir = makeProsklisiDir();
   const filePath = path.join(dir, ops.FILES_ROOT_NAME, 'Επισυναπτόμενα Αρχεία Υποβολής', 'α.pdf');
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -118,8 +123,92 @@ test('διαγραφή φακέλου πράξης αφήνει τα αρχεί�
   fs.renameSync(filePath, path.join(dir, ops.FILES_ROOT_NAME, 'Τεύχη', 'α.pdf'));
   const deleted = ops.deleteGroup(dir, 'g1');
   assert.equal(deleted.ok, true);
+  assert.equal(fs.existsSync(path.join(dir, ops.FILES_ROOT_NAME, 'Τεύχη', 'α.pdf')), false);
   const listed = ops.listForUi(dir);
-  const row = listed.files.attachments.find((file) => file.fileName === 'α.pdf');
-  assert.equal(row.shelf, 's1');
+  assert.equal(listed.files.attachments.some((file) => file.fileName === 'α.pdf'), false);
+  assert.equal(listed.fileGroups.length, 0);
   assert.equal(listed.prosklisiStatus, 'Υπό Ωρίμανση');
+});
+
+test('εγγραφή χωρίς αποθηκευμένο αρχείο φεύγει μόνη της και η διαγραφή της δεν αποτυγχάνει', () => {
+  const dir = makeProsklisiDir();
+  ops.persistProsklisiData(dir, {
+    title: 'Δοκιμή',
+    prosklisiFiles: [{ fileName: 'ορφανό.pdf', originalName: 'ορφανό.pdf', targetFolder: 'attachments' }],
+    fileGroups: [{
+      id: 'g1',
+      title: 'Κενό πλέον',
+      files: [{ fileName: 'έλειπε.pdf', originalName: 'έλειπε.pdf' }],
+      subgroups: [],
+    }],
+  });
+  const deleted = ops.deleteFiles(dir, ['ορφανό.pdf']);
+  assert.equal(deleted.ok, true);
+  assert.equal(deleted.deleted, 1);
+  const listed = ops.listForUi(dir);
+  assert.equal(listed.files.attachments.some((file) => file.fileName === 'ορφανό.pdf'), false);
+  assert.equal(listed.fileGroups[0].files.length, 0);
+});
+
+test('διαγραφή φυσικού φακέλου σβήνει και την εγγραφή του αρχείου', () => {
+  const dir = makeProsklisiDir();
+  const folder = path.join(dir, ops.FILES_ROOT_NAME, 'Φάκελος μελετών');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'μελέτη.pdf'), 'x');
+  ops.persistProsklisiData(dir, {
+    title: 'Δοκιμή',
+    prosklisiFiles: [{ fileName: 'μελέτη.pdf', originalName: 'μελέτη.pdf', targetFolder: 'main' }],
+    fileGroups: [],
+  });
+  const deleted = ops.deletePhysicalFolder(dir, 'Φάκελος μελετών', 'main');
+  assert.equal(deleted.ok, true);
+  assert.equal(fs.existsSync(folder), false);
+  const listed = ops.listForUi(dir);
+  assert.equal(listed.files.main.some((file) => file.fileName === 'μελέτη.pdf'), false);
+  assert.equal(listed.files.attachments.some((file) => file.fileName === 'μελέτη.pdf'), false);
+});
+
+test('η λήψη φακέλου κρατά τον φάκελο και τα αρχεία μέσα του', async () => {
+  const dir = makeProsklisiDir();
+  const folder = path.join(dir, ops.FILES_ROOT_NAME, 'Δικαιολογητικά');
+  fs.mkdirSync(path.join(folder, 'Φορολογικά'), { recursive: true });
+  fs.writeFileSync(path.join(folder, 'α.pdf'), 'a');
+  fs.writeFileSync(path.join(folder, 'Φορολογικά', 'β.pdf'), 'b');
+  ops.persistProsklisiData(dir, {
+    title: 'Δοκιμή',
+    prosklisiFiles: [],
+    fileGroups: [{
+      id: 'g1',
+      title: 'Δικαιολογητικά',
+      files: [{ fileName: 'α.pdf', originalName: 'α.pdf' }],
+      subgroups: [{
+        id: 'g2',
+        title: 'Φορολογικά',
+        files: [{ fileName: 'β.pdf', originalName: 'β.pdf' }],
+        subgroups: [],
+      }],
+    }],
+  });
+  const collected = ops.collectGroupZipEntries(dir, 'g1');
+  assert.equal(collected.ok, true);
+  const dest = path.join(dir, 'ληψη.zip');
+  const written = await ops.writeZipEntries(dest, collected.entries);
+  assert.equal(written.ok, true);
+  const names = await new Promise((resolve, reject) => {
+    const yauzl = require('yauzl');
+    yauzl.open(dest, { lazyEntries: true }, (err, zip) => {
+      if (err) return reject(err);
+      const found = [];
+      zip.on('entry', (entry) => {
+        found.push(entry.fileName);
+        zip.readEntry();
+      });
+      zip.on('end', () => resolve(found));
+      zip.on('error', reject);
+      zip.readEntry();
+    });
+  });
+  assert.equal(names.some((name) => name.endsWith('α.pdf')), true);
+  assert.equal(names.some((name) => name.includes('Φορολογικά') && name.endsWith('β.pdf')), true);
+  assert.equal(fs.existsSync(path.join(folder, 'α.pdf')), true);
 });

@@ -1050,6 +1050,22 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     }
   };
 
+  const handleDownloadFolder = async (spec) => {
+    try {
+      const result = await ipcRenderer.invoke('download-prosklisi-folder', {
+        prosklisiId,
+        ...spec,
+      });
+      if (result?.success) {
+        showToast('Ο φάκελος λήφθηκε μαζί με τα αρχεία του', 'success');
+      } else if (result?.error !== 'Download cancelled') {
+        showToast(result?.error || 'Η λήψη του φακέλου δεν ολοκληρώθηκε', 'error');
+      }
+    } catch (error) {
+      showToast('Η λήψη του φακέλου δεν ολοκληρώθηκε', 'error');
+    }
+  };
+
   const handleDownloadFile = async (fileName, targetFolder) => {
     try {
       const result = await ipcRenderer.invoke('download-prosklisi-file', prosklisiId, fileName, targetFolder);
@@ -1582,7 +1598,13 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
 
   const handleDeleteGroup = async (groupId) => {
     const group = prosklisiFileGroups.findGroupById(fileGroups, groupId);
-    if (group && await showConfirm({ title: 'Διαγραφή Ομάδας', message: `Είστε σίγουροι ότι θέλετε να διαγράψετε την ομάδα "${group.title}";`, confirmLabel: 'Διαγραφή', icon: '🗑' })) {
+    if (group && await showConfirm({
+      title: 'Διαγραφή φακέλου',
+      message: `Να διαγραφεί ο φάκελος «${group.title}» μαζί με όλα τα αρχεία του;`,
+      detail: 'Θα σβηστούν και από την οθόνη και από την αποθήκευση.',
+      confirmLabel: 'Διαγραφή',
+      icon: '🗑',
+    })) {
       try {
         const result = await ipcRenderer.invoke('delete-prosklisi-group', prosklisiId, groupId);
         if (result.success) {
@@ -1645,6 +1667,11 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
       </FileInfo>
       <FileActions>
         <FolderOpenBtn title="Άνοιγμα" onClick={() => handleOpenFolder(folder.folderName, targetFolder)}>📂</FolderOpenBtn>
+        <DownloadIconBtn
+          title="Λήψη φακέλου"
+          data-testid={`psk-folder-download-${folder.folderName}`}
+          onClick={() => handleDownloadFolder({ folderName: folder.folderName, targetFolder })}
+        >⬇</DownloadIconBtn>
         {canManageWorkflow && (
           <DeleteIconBtn title="Διαγραφή" onClick={() => handleDeleteFolder(folder.folderName, targetFolder)}>✕</DeleteIconBtn>
         )}
@@ -1725,6 +1752,16 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
             )}
             <GroupCount>{countLabel}</GroupCount>
           </GroupToggle>
+          {!isLinked && (
+            <DownloadIconBtn
+              title="Λήψη φακέλου"
+              data-testid={`psk-group-download-${group.id || groupIndex}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDownloadFolder({ groupId: group.id });
+              }}
+            >⬇</DownloadIconBtn>
+          )}
           {canManageWorkflow && !isLinked && (
             <>
               <IconActionBtn
@@ -1739,7 +1776,8 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                 ＋
               </IconActionBtn>
               <DeleteIconBtn
-                title="Διαγραφή Ομάδας"
+                title="Διαγραφή φακέλου"
+                data-testid={`psk-group-delete-${group.id || groupIndex}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleDeleteGroup(group.id || groupIndex);
