@@ -11,7 +11,7 @@ const ALLOWED_INVOKE = new Set([
   'create-project-lock','create-task-assignment','create-user','delete-backup','delete-task-assignment','delete-task-assignment-attachment','delete-document-category',
   'delete-document-template','delete-egkrisi-file','delete-egkrisi-link',
   'delete-egkrisi-pdf-completely','delete-egkrisi-pdf-from-subproject',
-  'delete-egkrisi-subproject','delete-entaxi','delete-entaxi-file',
+  'delete-egkrisi-subproject','delete-egkrisi-project','delete-entaxi','delete-entaxi-file',
   'delete-entaxi-modification','delete-file','delete-files','delete-file-from-folder',
   'delete-item-from-folder','delete-item-from-subfolder','delete-prosklisi',
   'delete-prosklisi-file','delete-prosklisi-files','delete-prosklisi-folder','delete-prosklisi-group',

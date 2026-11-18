@@ -10883,9 +10883,31 @@ ipcMain.handle('save-egkriseis-data', async (event, saveData) => {
   }
 });
 
-// IPC handler για διαγραφή PDF από υποέργο (μόνο η συσχέτιση)
+function unlinkResolvedEgkrisiPdf(projectFolderName, pdfFileName) {
+  const pdfPath = resolveEgkrisiPdfPath(projectFolderName, pdfFileName);
+  if (!pdfPath) return;
+  const root = path.resolve(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ');
+  const resolved = path.resolve(pdfPath);
+  const relative = path.relative(root, resolved);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return;
+  try {
+    fs.unlinkSync(resolved);
+  } catch (fileError) {
+    console.error('Error deleting PDF file:', fileError);
+  }
+}
+
+function refreshEgkrisiPdfCount(projectData) {
+  const modifications = Array.isArray(projectData.modifications) ? projectData.modifications.length : 0;
+  projectData.actualPdfCount = modifications +
+    Object.values(projectData.subprojects || {}).reduce((total, sub) => total + (sub.pdfs?.length || 0), 0);
+}
+
+// IPC handler για αφαίρεση PDF από ένα υποέργο. Το αρχείο σβήνεται μόνο αν δεν το έχει άλλο υποέργο.
 ipcMain.handle('delete-egkrisi-pdf-from-subproject', async (event, projectFolderName, subprojectKey, pdfFileName) => {
   try {
+    const auth = assertCanManageEgkriseis();
+    if (!auth.ok) return { success: false, error: auth.error };
     console.log('🔗 Removing PDF link from subproject:', { projectFolderName, subprojectKey, pdfFileName });
     
     const dataDir_egkriseis = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ');
@@ -10895,54 +10917,37 @@ ipcMain.handle('delete-egkrisi-pdf-from-subproject', async (event, projectFolder
       return { success: false, error: 'Egkriseis data file not found' };
     }
     
-    // Load existing data
     const existingData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
     
-    // Find the project
     if (!existingData.projects[projectFolderName]) {
       return { success: false, error: 'Project not found' };
     }
     
     const projectData = existingData.projects[projectFolderName];
-    
-    // Check if subproject exists
-    if (!projectData.subprojects || !projectData.subprojects[subprojectKey]) {
+    const egkrisiCatalog = require('../app/core/egkrisiCatalog');
+    const outcome = egkrisiCatalog.removeEgkrisiPdfFromSubproject(projectData, subprojectKey, pdfFileName);
+    if (!outcome.foundSubproject) {
       return { success: false, error: 'Subproject not found' };
     }
-    
-    const subproject = projectData.subprojects[subprojectKey];
-    
-    // Remove PDF from array (μόνο η συσχέτιση, όχι το αρχείο)
-    if (subproject.pdfs && Array.isArray(subproject.pdfs)) {
-      const pdfIndex = subproject.pdfs.indexOf(pdfFileName);
-      if (pdfIndex !== -1) {
-        subproject.pdfs.splice(pdfIndex, 1);
-        console.log(`✅ Removed PDF ${pdfFileName} from subproject array (link only)`);
-      } else {
-        console.log(`⚠️ PDF ${pdfFileName} not found in subproject array`);
-      }
+
+    if (!outcome.fileStillNeeded) {
+      unlinkResolvedEgkrisiPdf(projectFolderName, pdfFileName);
     }
     
-    // ΔΕΝ διαγράφουμε το φυσικό αρχείο - μόνο την συσχέτιση
-    
-    // Update actualPdfCount for the project
-    projectData.actualPdfCount = projectData.modifications.length + 
-      Object.values(projectData.subprojects).reduce((total, sub) => total + (sub.pdfs?.length || 0), 0);
-    
-    // Save updated data
+    refreshEgkrisiPdfCount(projectData);
     safeWriteJSON(dataFile, existingData);
-    
-    console.log(`✅ Removed PDF link ${pdfFileName} from subproject ${subprojectKey} in project ${projectFolderName}`);
 
     logAuditAction({
       type: 'delete',
       entityType: 'file',
       entityId: `${projectFolderName}/${subprojectKey}/${pdfFileName}`,
       entityTitle: pdfFileName,
-      details: 'Αφαίρεση PDF από υποέργο'
+      details: outcome.fileStillNeeded
+        ? 'Αφαίρεση ένδειξης PDF από ένα υποέργο· το αρχείο έμεινε στα υπόλοιπα'
+        : 'Αφαίρεση τελευταίας ένδειξης PDF και διαγραφή αρχείου'
     });
     
-    return { success: true, message: 'PDF link removed successfully' };
+    return { success: true, fileStillNeeded: outcome.fileStillNeeded, message: 'PDF link removed successfully' };
   } catch (error) {
     console.error('Error removing PDF link from subproject:', error);
     return { success: false, error: error.message };
@@ -10952,6 +10957,8 @@ ipcMain.handle('delete-egkrisi-pdf-from-subproject', async (event, projectFolder
 // IPC handler για διαγραφή PDF εντελώς από όλα τα υποέργα
 ipcMain.handle('delete-egkrisi-pdf-completely', async (event, projectFolderName, pdfFileName) => {
   try {
+    const auth = assertCanManageEgkriseis();
+    if (!auth.ok) return { success: false, error: auth.error };
     console.log('🗑️ Deleting PDF completely:', { projectFolderName, pdfFileName });
     
     const dataDir_egkriseis = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ');
@@ -10970,44 +10977,15 @@ ipcMain.handle('delete-egkrisi-pdf-completely', async (event, projectFolderName,
     }
     
     const projectData = existingData.projects[projectFolderName];
-    
-    // Remove PDF from ALL subprojects in this project
-    let removedCount = 0;
-    if (projectData.subprojects) {
-      Object.keys(projectData.subprojects).forEach(subprojectKey => {
-        const subproject = projectData.subprojects[subprojectKey];
-        if (subproject.pdfs && Array.isArray(subproject.pdfs)) {
-          const pdfIndex = subproject.pdfs.indexOf(pdfFileName);
-          if (pdfIndex !== -1) {
-            subproject.pdfs.splice(pdfIndex, 1);
-            removedCount++;
-            console.log(`✅ Removed PDF ${pdfFileName} from subproject ${subprojectKey}`);
-          }
-        }
-      });
+    const egkrisiCatalog = require('../app/core/egkrisiCatalog');
+    const outcome = egkrisiCatalog.removeEgkrisiPdfFromAllSubprojects(projectData, pdfFileName);
+    const removedCount = outcome.removedCount;
+
+    if (!outcome.fileStillNeeded) {
+      unlinkResolvedEgkrisiPdf(projectFolderName, pdfFileName);
     }
     
-    // Delete the physical file
-    const egkriseisDir = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ', projectFolderName);
-    const pdfPath = path.join(egkriseisDir, pdfFileName);
-    
-    if (fs.existsSync(pdfPath)) {
-      try {
-        fs.unlinkSync(pdfPath);
-        console.log('✅ Deleted PDF file:', pdfPath);
-      } catch (fileError) {
-        console.error('Error deleting PDF file:', fileError);
-        // Συνεχίζουμε ακόμα και αν αποτύχει η διαγραφή του αρχείου
-      }
-    } else {
-      console.log(`⚠️ PDF file not found at: ${pdfPath}`);
-    }
-    
-    // Update actualPdfCount for the project
-    projectData.actualPdfCount = projectData.modifications.length + 
-      Object.values(projectData.subprojects).reduce((total, sub) => total + (sub.pdfs?.length || 0), 0);
-    
-    // Save updated data
+    refreshEgkrisiPdfCount(projectData);
     safeWriteJSON(dataFile, existingData);
     
     console.log(`✅ Deleted PDF ${pdfFileName} completely from project ${projectFolderName} (removed from ${removedCount} subprojects)`);
@@ -11027,62 +11005,195 @@ ipcMain.handle('delete-egkrisi-pdf-completely', async (event, projectFolderName,
   }
 });
 
-// IPC handler για διαγραφή υποέργου από egkriseis-data.json
+function assertCanManageEgkriseis() {
+  if (!isSuperAdminOrAdminUser(loggedInUsername)) {
+    return { ok: false, error: 'Δεν έχετε δικαίωμα' };
+  }
+  return { ok: true };
+}
+
+function egkrisiProjectDir(projectFolderName) {
+  const name = String(projectFolderName || '');
+  if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) return null;
+  const root = path.resolve(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ');
+  const dir = path.resolve(root, name);
+  const relative = path.relative(root, dir);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  return dir;
+}
+
+function deleteNamedFilesInEgkrisiProject(projectFolderName, fileNames) {
+  const dir = egkrisiProjectDir(projectFolderName);
+  if (!dir || !fs.existsSync(dir)) return;
+  const wanted = new Set((fileNames || []).filter(Boolean));
+  if (wanted.size === 0) return;
+  const walk = (current) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.forEach((entry) => {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (wanted.has(entry.name)) {
+        try { fs.unlinkSync(full); } catch (fileError) {
+          console.error('Error deleting PDF file:', fileError);
+        }
+      }
+    });
+  };
+  walk(dir);
+}
+
+function removeEgkrisiProjectFolder(projectFolderName) {
+  const dir = egkrisiProjectDir(projectFolderName);
+  if (!dir || !fs.existsSync(dir)) return;
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function removeEgkrisiLinkFiles(linksToRemove) {
+  const wanted = new Set((linksToRemove || []).map((link) => link && link.egkrisiId).filter(Boolean));
+  if (wanted.size === 0) return;
+  const linksDir = path.resolve(dataDir, 'egkriseis_links');
+  readEgkrisiLinkFiles().forEach((row) => {
+    const id = row.link && row.link.egkrisiId;
+    if (!id || !wanted.has(id)) return;
+    const filePath = path.resolve(linksDir, row.file);
+    const relative = path.relative(linksDir, filePath);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return;
+    try { fs.unlinkSync(filePath); } catch (fileError) {
+      console.error('Error deleting egkrisi link:', fileError);
+    }
+  });
+}
+
+function refreshEgkrisiMetadata(existingData) {
+  existingData.metadata = existingData.metadata || {};
+  existingData.metadata.totalProjects = Object.keys(existingData.projects || {}).length;
+  existingData.metadata.totalSubprojects = Object.values(existingData.projects || {})
+    .reduce((total, project) => total + Object.keys(project.subprojects || {}).length, 0);
+}
+
+function loadEgkriseisDataFile() {
+  const dataFile = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ', 'egkriseis-data.json');
+  if (!fs.existsSync(dataFile)) return null;
+  return { dataFile, existingData: JSON.parse(fs.readFileSync(dataFile, 'utf8')) };
+}
+
+// IPC handler για διαγραφή υποέργου από τις εγκρίσεις, μαζί με τα αρχεία που δεν τα έχει άλλη γραμμή
 ipcMain.handle('delete-egkrisi-subproject', async (event, projectFolderName, subprojectKey) => {
   try {
-    const dataDir_egkriseis = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ');
-    const dataFile = path.join(dataDir_egkriseis, 'egkriseis-data.json');
-    
-    if (!fs.existsSync(dataFile)) {
-      return { success: false, error: 'Egkriseis data file not found' };
-    }
-    
-    // Load existing data
-    const existingData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-    
-    // Find the project
-    if (!existingData.projects[projectFolderName]) {
+    const auth = assertCanManageEgkriseis();
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const loaded = loadEgkriseisDataFile();
+    if (!loaded) return { success: false, error: 'Egkriseis data file not found' };
+    const { dataFile, existingData } = loaded;
+    if (!existingData.projects || !existingData.projects[projectFolderName]) {
       return { success: false, error: 'Project not found' };
     }
-    
+
     const projectData = existingData.projects[projectFolderName];
-    
-    // Check if subproject exists
     if (!projectData.subprojects || !projectData.subprojects[subprojectKey]) {
       return { success: false, error: 'Subproject not found' };
     }
-    
-    // Delete the subproject
-    delete projectData.subprojects[subprojectKey];
-    
-    // Update metadata
-    existingData.metadata.totalSubprojects = Object.values(existingData.projects)
-      .reduce((total, project) => total + Object.keys(project.subprojects || {}).length, 0);
-    
-    // Update actualPdfCount for the project
-    projectData.actualPdfCount = projectData.modifications.length + 
-      Object.values(projectData.subprojects).reduce((total, sub) => total + sub.pdfs.length, 0);
-    
-    // Save updated data
-    safeWriteJSON(dataFile, existingData);
-    
-    console.log(`✅ Deleted subproject ${subprojectKey} from project ${projectFolderName}`);
-    
-    if (deletedData) {
-      logAuditAction({
-        type: 'delete',
-        entityType: 'egkrisi_subproject',
-        entityId: subprojectKey,
-        entityTitle: `${deletedData.projectTitle || projectFolderName} - ${deletedData.subprojectTitle || subprojectKey}`,
-        details: 'Διαγραφή υποέργου από εγκρίσεις διάθεσης πίστωσης',
-        oldValue: deletedData,
-        newValue: null
-      });
+
+    const egkrisiCatalog = require('../app/core/egkrisiCatalog');
+    const removedRow = {
+      ...(projectData.subprojects[subprojectKey] || {}),
+      folderName: subprojectKey,
+    };
+    const projectForLinks = {
+      title: projectData.title || '',
+      folderName: projectFolderName,
+    };
+    const plan = egkrisiCatalog.applyEgkrisiSubprojectRemoval(projectData, subprojectKey);
+    const rowLinks = egkrisiCatalog.egkrisiLinksForRowRemoval(
+      readEgkrisiLinkFiles().map((row) => row.link),
+      projectForLinks,
+      removedRow
+    );
+
+    if (plan.projectBecomesEmpty) {
+      delete existingData.projects[projectFolderName];
+      removeEgkrisiProjectFolder(projectFolderName);
+      const projectLinks = egkrisiCatalog.egkrisiLinksForProjectRemoval(
+        readEgkrisiLinkFiles().map((row) => row.link),
+        projectForLinks
+      );
+      removeEgkrisiLinkFiles(rowLinks.concat(projectLinks));
+    } else {
+      deleteNamedFilesInEgkrisiProject(projectFolderName, plan.filesToDelete);
+      refreshEgkrisiPdfCount(projectData);
+      removeEgkrisiLinkFiles(rowLinks);
     }
-    
-    return { success: true, message: 'Subproject deleted successfully' };
+
+    refreshEgkrisiMetadata(existingData);
+    safeWriteJSON(dataFile, existingData);
+
+    logAuditAction({
+      type: 'delete',
+      entityType: 'egkrisi_subproject',
+      entityId: `${projectFolderName}/${subprojectKey}`,
+      entityTitle: `${projectData.title || projectFolderName} - ${removedRow.title || subprojectKey}`,
+      details: plan.projectBecomesEmpty
+        ? 'Διαγραφή τελευταίου υποέργου έγκρισης και της πράξης'
+        : 'Διαγραφή υποέργου από εγκρίσεις διάθεσης πίστωσης',
+      oldValue: { title: removedRow.title, number: removedRow.number, pdfs: plan.removed && plan.removed.pdfs },
+      newValue: null
+    });
+
+    return { success: true, projectRemoved: !!plan.projectBecomesEmpty, message: 'Subproject deleted successfully' };
   } catch (error) {
     console.error('Error deleting egkrisi subproject:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-egkrisi-project', async (event, projectFolderName) => {
+  try {
+    const auth = assertCanManageEgkriseis();
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const loaded = loadEgkriseisDataFile();
+    if (!loaded) return { success: false, error: 'Egkriseis data file not found' };
+    const { dataFile, existingData } = loaded;
+    if (!existingData.projects || !existingData.projects[projectFolderName]) {
+      return { success: false, error: 'Project not found' };
+    }
+
+    const projectData = existingData.projects[projectFolderName];
+    const egkrisiCatalog = require('../app/core/egkrisiCatalog');
+    const projectForLinks = {
+      title: projectData.title || '',
+      folderName: projectFolderName,
+    };
+    const projectLinks = egkrisiCatalog.egkrisiLinksForProjectRemoval(
+      readEgkrisiLinkFiles().map((row) => row.link),
+      projectForLinks
+    );
+
+    delete existingData.projects[projectFolderName];
+    removeEgkrisiProjectFolder(projectFolderName);
+    removeEgkrisiLinkFiles(projectLinks);
+    refreshEgkrisiMetadata(existingData);
+    safeWriteJSON(dataFile, existingData);
+
+    logAuditAction({
+      type: 'delete',
+      entityType: 'egkrisi_project',
+      entityId: projectFolderName,
+      entityTitle: projectData.title || projectFolderName,
+      details: 'Ολική διαγραφή πράξης από τις εγκρίσεις διάθεσης πίστωσης',
+      oldValue: { title: projectData.title, subprojects: Object.keys(projectData.subprojects || {}) },
+      newValue: null
+    });
+
+    return { success: true, message: 'Project deleted successfully' };
+  } catch (error) {
+    console.error('Error deleting egkrisi project:', error);
     return { success: false, error: error.message };
   }
 });
@@ -11526,53 +11637,34 @@ ipcMain.handle('create-manual-egkrisi-link', async (event, linkData) => {
       console.log('📁 Created egkriseis_links directory:', linksDir);
     }
     
-    // Δημιουργία μοναδικού ID
-    const crypto = require('crypto');
-    const safeEgkrisiTitle = (egkrisiTitle || '').trim();
-    const safeEgkrisiProjectTitle = (egkrisiProjectTitle || '').trim();
-    const combinedTitle = `${safeEgkrisiProjectTitle}_${safeEgkrisiTitle}`;
-    const titleHash = crypto.createHash('md5').update(combinedTitle).digest('hex').substring(0, 8);
-    
-    // Καθαρισμός του τίτλου για το filename - περιορίζουμε το μήκος
-    const cleanTitle = safeEgkrisiTitle
-      .replace(/\\n/g, ' ')
-      .replace(/\n/g, ' ')
-      .replace(/\r/g, ' ')
-      .replace(/\t/g, ' ')
-      .replace(/[<>:"/\\|?*]/g, '')
-      .replace(/\s+/g, '_')
-      .trim()
-      .substring(0, 50); // Περιορίζουμε σε 50 χαρακτήρες
-    
-    if (!cleanTitle || cleanTitle.length === 0) {
-      console.error('❌ Clean title is empty after processing:', safeEgkrisiTitle);
-      return { success: false, error: 'Ο τίτλος της έγκρισης δεν μπορεί να είναι κενός' };
-    }
-    
-    const egkrisiId = `manual_egkrisi_${cleanTitle}_${titleHash}`;
-    const linkFile = path.join(linksDir, `${egkrisiId}.json`);
-    
-    // Έλεγχος αν υπάρχει ήδη συσχέτιση για αυτό το υποέργο
-    const existingFiles = fs.readdirSync(linksDir);
-    for (const file of existingFiles) {
-      if (file.endsWith('.json')) {
-        try {
-          const existingLink = JSON.parse(fs.readFileSync(path.join(linksDir, file), 'utf8'));
-          if (existingLink.subprojectId === subprojectId) {
-            return { success: false, error: 'Το υποέργο έχει ήδη συσχετισμένη έγκριση' };
-          }
-        } catch (err) {
-          // Skip invalid files
-        }
-      }
-    }
-    
-    // Validation: Έλεγχος ότι το egkrisiSubprojectKey υπάρχει
-    if (!egkrisiSubprojectKey || egkrisiSubprojectKey.trim() === '') {
+    if (!egkrisiSubprojectKey || String(egkrisiSubprojectKey).trim() === '') {
       console.error('❌ Missing or empty egkrisiSubprojectKey:', egkrisiSubprojectKey);
       console.error('❌ Link data received:', linkData);
       return { success: false, error: 'Το κλειδί του υποέργου είναι υποχρεωτικό' };
     }
+
+    const egkrisiCatalog = require('../app/core/egkrisiCatalog');
+    const existingLinks = [];
+    const existingFiles = fs.readdirSync(linksDir);
+    for (const file of existingFiles) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        existingLinks.push(JSON.parse(fs.readFileSync(path.join(linksDir, file), 'utf8')));
+      } catch (err) {
+        // Skip invalid files
+      }
+    }
+
+    const decision = egkrisiCatalog.classifyManualEgkrisiLink(existingLinks, linkData);
+    if (decision.action === 'keep') {
+      return { success: true, linkData: decision.link, alreadyLinked: true };
+    }
+    if (decision.action === 'reject-approval' || decision.action === 'reject-subproject') {
+      return { success: false, error: decision.error };
+    }
+
+    const egkrisiId = decision.egkrisiId;
+    const linkFile = path.join(linksDir, `${egkrisiId}.json`);
     
     // Δημιουργία δεδομένων συσχέτισης
     const linkDataToSave = {
@@ -11679,6 +11771,32 @@ ipcMain.handle('create-credit-approval', async (event, { egkrisiId, subprojectId
   }
 });
 
+function readEgkrisiLinkFiles() {
+  const linksDir = path.join(dataDir, 'egkriseis_links');
+  if (!fs.existsSync(linksDir)) return [];
+  const loaded = [];
+  fs.readdirSync(linksDir).forEach((file) => {
+    if (!file.endsWith('.json')) return;
+    try {
+      loaded.push({
+        file,
+        link: JSON.parse(fs.readFileSync(path.join(linksDir, file), 'utf8')),
+      });
+    } catch { /* προσπερνάμε χαλασμένο αρχείο σύνδεσης */ }
+  });
+  return loaded;
+}
+
+function writeUpdatedEgkrisiLinks(updatedLinks) {
+  const linksDir = path.join(dataDir, 'egkriseis_links');
+  const loaded = readEgkrisiLinkFiles();
+  (updatedLinks || []).forEach((next) => {
+    const found = loaded.find((row) => row.link && row.link.egkrisiId === next.egkrisiId);
+    if (!found) return;
+    safeWriteJSON(path.join(linksDir, found.file), next);
+  });
+}
+
 // IPC handler για ενημέρωση τίτλου έργου στις Εγκρίσεις
 ipcMain.handle('update-egkrisi-project-title', async (event, projectKey, newTitle) => {
   try {
@@ -11714,6 +11832,13 @@ ipcMain.handle('update-egkrisi-project-title', async (event, projectKey, newTitl
       newValue: { title: newTitle }
     });
     
+    const egkrisiCatalog = require('../app/core/egkrisiCatalog');
+    writeUpdatedEgkrisiLinks(egkrisiCatalog.egkrisiLinksForProjectTitleChange(
+      readEgkrisiLinkFiles().map((row) => row.link),
+      projectKey,
+      newTitle
+    ));
+
     console.log('✅ Updated egkrisi project title successfully');
     return { success: true };
   } catch (error) {
@@ -11762,6 +11887,18 @@ ipcMain.handle('update-egkrisi-subproject-title', async (event, projectKey, subp
       newValue: { title: newTitle }
     });
     
+    const egkrisiCatalog = require('../app/core/egkrisiCatalog');
+    writeUpdatedEgkrisiLinks(egkrisiCatalog.egkrisiLinksForSubprojectTitleChange(
+      readEgkrisiLinkFiles().map((row) => row.link),
+      {
+        projectKey,
+        subprojectKey,
+        number: subprojects[subprojectKey].number,
+        oldTitle,
+        newTitle,
+      }
+    ));
+
     console.log('✅ Updated egkrisi subproject title successfully');
     return { success: true };
   } catch (error) {

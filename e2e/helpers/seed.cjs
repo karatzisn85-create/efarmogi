@@ -745,6 +745,38 @@ function writeActiveEpProgram(dataDir) {
   writeJson(path.join(dataDir, 'ΕΠΙΧΕΙΡΗΣΙΑΚΟ_ΠΡΟΓΡΑΜΜΑ', `2024_2028_${id}.json`), program);
 }
 
+function seedEgkriseis(dataDir) {
+  const dir = path.join(dataDir, 'ΕΓΚΡΙΣΕΙΣ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ ΔΕΔΟΜΕΝΑ');
+  fs.mkdirSync(dir, { recursive: true });
+  writeJson(path.join(dir, 'egkriseis-data.json'), {
+    projects: {
+      'egk-bridge-a': {
+        title: 'Έγκριση γέφυρας Α',
+        modifications: [],
+        subprojects: {
+          'row-a': { title: 'Γέφυρα Αγίου Σύλλα', number: '1', pdfs: ['a.pdf'] },
+        },
+      },
+      'egk-bridge-b': {
+        title: 'Έγκριση γέφυρας Β',
+        modifications: [],
+        subprojects: {
+          'row-b': { title: 'Γέφυρα Αγίου Σύλλα', number: '1', pdfs: ['b.pdf'] },
+        },
+      },
+      'egk-shared': {
+        title: 'Έγκριση κοινό αρχείο',
+        modifications: [],
+        subprojects: {
+          keep: { title: 'Υποέργο που κρατά το αρχείο', number: '1', pdfs: ['koino.pdf', 'mono.pdf'] },
+          drop: { title: 'Υποέργο διπλής ένδειξης', number: 'ΝΕΟ 1', pdfs: ['koino.pdf'] },
+        },
+      },
+    },
+    metadata: { totalProjects: 3, totalSubprojects: 4 },
+  });
+}
+
 function seedTestDir(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
   writeJson(path.join(dataDir, 'app-config.json'), {
@@ -797,6 +829,7 @@ function seedTestDir(dataDir) {
   seedMeletai(dataDir);
   seedTasks(dataDir);
   seedNotes(dataDir);
+  seedEgkriseis(dataDir);
 
   const sampleUpload = path.join(dataDir, '_e2e_uploads');
   fs.mkdirSync(sampleUpload, { recursive: true });

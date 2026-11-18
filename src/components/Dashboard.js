@@ -6,6 +6,7 @@ import { findOrimanthiLinksForProject } from '../utils/prosklisiDeadlineUtils';
 import { toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
 import entaxiAcceptanceMatch from '../../app/core/entaxiAcceptanceMatch';
 import entaxiCatalog from '../../app/core/entaxiCatalog';
+import egkrisiCatalog from '../../app/core/egkrisiCatalog';
 
 import ProjectCard from './ProjectCard';
 import SubprojectDetailModal from './SubprojectDetailModal';
@@ -4957,24 +4958,9 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         enrichProjectsFromLoad(actualProjects, { egkrisiLinksSet, prosklisiLinksSet, entaxiLinksMap })
       );
       
-      // Process credit approvals
-      let approvals = {};
-      if (loadedCreditApprovals.success && loadedCreditApprovals.data && loadedCreditApprovals.data.projects) {
-        Object.values(loadedCreditApprovals.data.projects).forEach(project => {
-          if (project.modifications && project.modifications.length > 0) {
-            const key = `${project.title}-${project.title}`;
-            approvals[key] = true;
-          }
-          if (project.subprojects) {
-            Object.values(project.subprojects).forEach(subproject => {
-              if (subproject.pdfs && subproject.pdfs.length > 0) {
-                const key = `${project.title}-${subproject.title}`;
-                approvals[key] = true;
-              }
-            });
-          }
-        });
-      }
+      const approvals = egkrisiCatalog.creditApprovalFlagsFromCatalog(
+        loadedCreditApprovals.success ? loadedCreditApprovals.data : null
+      );
       
       // Bail out if a newer load request superseded us while we were awaiting IPC calls
       if (loadRequestIdRef.current !== myRequestId) return;
@@ -5120,6 +5106,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     }
   };
 
+
+  const loadCreditApprovalFlags = async () => {
+    try {
+      const result = await ipcRenderer.invoke('load-egkriseis-data');
+      const approvals = egkrisiCatalog.creditApprovalFlagsFromCatalog(result?.success ? result.data : null);
+      setCreditApprovals(approvals);
+      setDataCache((prev) => ({ ...prev, creditApprovals: approvals }));
+    } catch (error) {
+      console.error('Error loading credit approval flags:', error);
+    }
+  };
 
   const loadLinkedEgkriseis = async () => {
     try {
@@ -7969,6 +7966,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                   subprojectKey: null
                 });
                 loadLinkedEgkriseis();
+                loadCreditApprovalFlags();
                 restoreNoteReturnContext();
                 scheduleDocumentInteractionRecovery();
               }}
@@ -7987,6 +7985,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               externalLinkedEgkriseis={linkedEgkriseis}
               onRequestRefresh={async () => {
                 await loadLinkedEgkriseis();
+                await loadCreditApprovalFlags();
               }}
               onEgkriseisDataSaved={egkriseisRefreshTrigger}
               linkedNotesMap={linkedNotesMap}
@@ -8953,6 +8952,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           // Reload projects and linked egkriseis to update any changes
           await loadProjects();
           await loadLinkedEgkriseis();
+          await loadCreditApprovalFlags();
           
           // Trigger refresh στο CreditApprovalsPanel αν είναι ανοιχτό
           // Χρήση requestAnimationFrame για non-blocking update

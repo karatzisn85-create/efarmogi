@@ -728,7 +728,7 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
         requestAnimationFrame(() => {
           setDeleteModalOpen(false);
           setPdfToDelete(null);
-          setSuccessMessage('Το αρχείο διαγράφηκε εντελώς από όλα τα υποέργα!');
+          setSuccessMessage('Το αρχείο αφαιρέθηκε από όλα τα υποέργα αυτής της πράξης.');
           setTimeout(() => setSuccessMessage(''), 3000);
         });
         
@@ -736,6 +736,7 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
         setTimeout(async () => {
           await loadSubprojectsForProject(formData.selectedProject);
         }, 100);
+        if (onSave) await onSave();
       } else {
         showToast('Σφάλμα κατά τη διαγραφή: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
@@ -768,7 +769,11 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
         requestAnimationFrame(() => {
           setDeleteModalOpen(false);
           setPdfToDelete(null);
-          setSuccessMessage('Η συσχέτιση διαγράφηκε επιτυχώς!');
+          setSuccessMessage(
+            result.fileStillNeeded
+              ? 'Η ένδειξη αφαιρέθηκε μόνο από αυτό το υποέργο. Το αρχείο έμεινε στα υπόλοιπα.'
+              : 'Το αρχείο αφαιρέθηκε. Δεν το είχε άλλο υποέργο αυτής της πράξης.'
+          );
           setTimeout(() => setSuccessMessage(''), 3000);
         });
         
@@ -776,6 +781,7 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
         setTimeout(async () => {
           await loadSubprojectsForProject(formData.selectedProject);
         }, 100);
+        if (onSave) await onSave();
       } else {
         showToast('Σφάλμα κατά τη διαγραφή: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
@@ -802,8 +808,8 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
 
     const confirmDelete = await showConfirm({
       title: 'Διαγραφή Υποέργου',
-      message: `Είστε σίγουροι ότι θέλετε να διαγράψετε το υποέργο "${subproject.title}";`,
-      detail: 'Η ενέργεια είναι μη αναστρέψιμη.',
+      message: `Να αφαιρεθεί ολόκληρο το υποέργο "${subproject.title}" από αυτή την πράξη;`,
+      detail: 'Τα αρχεία που είναι μόνο σε αυτό το υποέργο σβήνονται. Όσα τα έχουν και άλλα υποέργα της ίδιας πράξης μένουν.',
       confirmLabel: 'Διαγραφή',
       icon: '🗑'
     });
@@ -835,6 +841,7 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
         setTimeout(async () => {
           await loadSubprojectsForProject(formData.selectedProject);
         }, 100);
+        if (onSave) await onSave();
       } else {
         showToast('Σφάλμα κατά τη διαγραφή: ' + (result.error || 'Άγνωστο σφάλμα'), 'error');
       }
@@ -1107,6 +1114,13 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
   };
 
   if (!isOpen) return null;
+
+  const sharedElsewhere = pdfToDelete
+    ? (formData.selectedSubprojects || []).filter((subproject) =>
+      subproject.subprojectKey !== pdfToDelete.subproject?.subprojectKey
+      && (subproject.pdfs || []).includes(pdfToDelete.pdfFileName)
+    ).length
+    : 0;
 
   return (
     <FormOverlay onClick={(e) => e.target === e.currentTarget && handleClose()}>
@@ -1605,14 +1619,41 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
             }}
           >
             <h3 style={{ margin: '0 0 1rem 0', color: '#2c3e50', fontSize: '1.2rem', fontWeight: '600' }}>
-              Διαγραφή Αρχείου PDF
+              Αφαίρεση αρχείου
             </h3>
             <p style={{ margin: '0 0 1.5rem 0', color: '#495057', fontSize: '0.95rem', lineHeight: '1.5' }}>
-              Το αρχείο <strong>"{pdfToDelete.pdfFileName}"</strong> είναι συσχετισμένο με το υποέργο <strong>"{pdfToDelete.subproject.title}"</strong>.
-              <br /><br />
-              Επιλέξτε τη διαγραφή που θέλετε:
+              Το αρχείο <strong>«{pdfToDelete.pdfFileName}»</strong> είναι στο υποέργο <strong>«{pdfToDelete.subproject.title}»</strong>.
+              {sharedElsewhere > 0
+                ? ' Το ίδιο έγγραφο είναι γραμμένο και σε άλλα υποέργα αυτής της πράξης. Η αφαίρεση από εδώ δεν το παίρνει από εκείνα.'
+                : ' Είναι μόνο σε αυτό το υποέργο. Αν το αφαιρέσεις, σβήνεται και το ίδιο το αρχείο.'}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={handleDeletePdfFromSubproject}
+                style={{
+                  padding: '0.9rem 1.2rem',
+                  borderRadius: '10px',
+                  border: '2px solid #6c757d',
+                  background: 'white',
+                  color: '#495057',
+                  fontSize: '0.9rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem'
+                }}
+              >
+                <span style={{ fontSize: '1.3rem' }}>🔗</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: '600', marginBottom: '0.25rem' }}>Αφαίρεση μόνο από αυτό το υποέργο</div>
+                  <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>Η ένδειξη φεύγει μόνο από αυτή τη γραμμή. Όπου αλλού είναι γραμμένο το ίδιο έγγραφο, μένει.</div>
+                </div>
+              </button>
+              {sharedElsewhere > 0 && (
               <button
                 type="button"
                 onClick={handleDeletePdfCompletely}
@@ -1631,58 +1672,14 @@ function EgkriseisForm({ isOpen, onClose, onSave }) {
                   alignItems: 'center',
                   gap: '0.75rem'
                 }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#c82333';
-                  e.target.style.borderColor = '#c82333';
-                  e.target.style.transform = 'translateX(4px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#dc3545';
-                  e.target.style.borderColor = '#dc3545';
-                  e.target.style.transform = 'translateX(0)';
-                }}
               >
                 <span style={{ fontSize: '1.3rem' }}>🗑️</span>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: '600', marginBottom: '0.25rem' }}>Διαγραφή εντελώς από την εφαρμογή</div>
-                  <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>Το αρχείο θα διαγραφεί από όλα τα υποέργα στα οποία είναι συσχετισμένο</div>
+                  <div style={{ fontWeight: '600', marginBottom: '0.25rem' }}>Αφαίρεση από όλα τα υποέργα της πράξης</div>
+                  <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>Θα φύγει και από τα άλλα υποέργα που το έχουν, και θα σβηστεί το αρχείο.</div>
                 </div>
               </button>
-              <button
-                type="button"
-                onClick={handleDeletePdfFromSubproject}
-                style={{
-                  padding: '0.9rem 1.2rem',
-                  borderRadius: '10px',
-                  border: '2px solid #6c757d',
-                  background: 'white',
-                  color: '#6c757d',
-                  fontSize: '0.9rem',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  textAlign: 'left',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#f8f9fa';
-                  e.target.style.borderColor = '#495057';
-                  e.target.style.transform = 'translateX(4px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'white';
-                  e.target.style.borderColor = '#6c757d';
-                  e.target.style.transform = 'translateX(0)';
-                }}
-              >
-                <span style={{ fontSize: '1.3rem' }}>🔗</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: '600', marginBottom: '0.25rem' }}>Διαγραφή μόνο η συσχέτιση</div>
-                  <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>Το αρχείο θα παραμείνει, αλλά θα αφαιρεθεί μόνο από αυτό το υποέργο</div>
-                </div>
-              </button>
+              )}
             </div>
             <button
               type="button"

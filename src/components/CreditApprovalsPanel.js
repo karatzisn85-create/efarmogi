@@ -8,6 +8,7 @@ import LinkedNoteSticker, {
   getLinkedNotesForCreditSubproject
 } from './LinkedNoteSticker';
 import { useToast } from './ToastProvider';
+import egkrisiCatalog from '../../app/core/egkrisiCatalog';
 const ipcRenderer = window.electronAPI;
 
 const PanelOverlay = styled.div`
@@ -625,6 +626,30 @@ const UnlinkButton = styled(LinkButton)`
 
   &:hover {
     background: #c82333;
+  }
+`;
+
+const DeleteRowButton = styled(LinkButton)`
+  background: #b91c1c;
+  color: #ffffff;
+  border-color: #991b1b;
+  font-size: 0.7rem;
+  padding: 0.35rem 0.7rem;
+
+  &:hover:not(:disabled) {
+    background: #991b1b;
+    border-color: #7f1d1d;
+    color: #ffffff;
+  }
+`;
+
+const DeleteProjectButton = styled(EditProjectButton)`
+  background: rgba(185, 28, 28, 0.35);
+  border-color: rgba(254, 202, 202, 0.75);
+
+  &:hover {
+    background: rgba(185, 28, 28, 0.55);
+    border-color: #fecaca;
   }
 `;
 
@@ -1445,7 +1470,7 @@ const CreditApprovalsPanel = ({
       );
 
       if (result?.success) {
-        showToast('Το αρχείο διαγράφηκε εντελώς από όλα τα υποέργα!', 'success');
+        showToast('Το αρχείο αφαιρέθηκε από όλα τα υποέργα αυτής της πράξης.', 'success');
         setDeleteModalOpen(false);
         setPdfToDelete(null);
         // Ανανέωση των δεδομένων
@@ -1468,9 +1493,8 @@ const CreditApprovalsPanel = ({
     const { project, subproject, pdfFileName } = pdfToDelete;
 
     try {
-      const subprojectKey = Object.keys(project.subprojects || {}).find(key => 
-        project.subprojects[key] === subproject || 
-        (project.subprojects[key].title === subproject.title && project.subprojects[key].number === subproject.number)
+      const subprojectKey = subproject.folderName || Object.keys(project.subprojects || {}).find(key =>
+        project.subprojects[key] === subproject
       );
 
       if (!subprojectKey) {
@@ -1486,7 +1510,12 @@ const CreditApprovalsPanel = ({
       );
 
       if (result?.success) {
-        showToast('Η συσχέτιση διαγράφηκε επιτυχώς!', 'success');
+        showToast(
+          result.fileStillNeeded
+            ? 'Η ένδειξη αφαιρέθηκε μόνο από αυτό το υποέργο. Το αρχείο έμεινε στα υπόλοιπα.'
+            : 'Το αρχείο αφαιρέθηκε. Δεν το είχε άλλο υποέργο αυτής της πράξης.',
+          'success'
+        );
         setDeleteModalOpen(false);
         setPdfToDelete(null);
         await loadPanelData();
@@ -1694,22 +1723,21 @@ const CreditApprovalsPanel = ({
 
   const handleLinkSubproject = useCallback(async (subproject, project) => {
     try {
-      const result = await ipcRenderer.invoke('find-subproject-by-title', {
-        projectId: null,
-        subprojectTitle: subproject.title
-      });
-
-      if (!result?.success || !result?.subprojectId) {
+      const direct = egkrisiCatalog.portfolioSubprojectForDirectLink(
+        dashboardProjects,
+        subproject?.title,
+        linkedMap
+      );
+      if (!direct) {
         handleOpenSearchModal(subproject, project);
         return;
       }
-
-      await performLink(result.subprojectId, subproject, project);
+      await performLink(direct.subprojectId, subproject, project);
     } catch (error) {
       console.error('Error linking subproject:', error);
       showToast('Σφάλμα κατά τη δημιουργία συσχέτισης: ' + error.message, 'error');
     }
-  }, [handleOpenSearchModal, performLink]);
+  }, [dashboardProjects, handleOpenSearchModal, linkedMap, performLink, showToast]);
 
   const handleSearchModalSelect = useCallback(async (selection) => {
     if (!currentSubprojectForLink) return;
@@ -1724,12 +1752,8 @@ const CreditApprovalsPanel = ({
     }
   }, [currentSubprojectForLink, performLink, scheduleDocumentInteractionRecovery]);
 
-  const handleUnlinkSubproject = useCallback(async (subproject) => {
-    const linkToRemove = Object.values(linkedMap).find(
-      (link) =>
-        link &&
-        normalizeText(link.egkrisiTitle) === normalizeText(subproject.title)
-    );
+  const handleUnlinkSubproject = useCallback(async (subproject, project) => {
+    const linkToRemove = egkrisiCatalog.findLinkForApprovalRow(linkedMap, project, subproject);
 
     if (!linkToRemove) {
       showToast('Δεν βρέθηκε συσχέτιση για ακύρωση.', 'warning');
@@ -1775,13 +1799,79 @@ const CreditApprovalsPanel = ({
     }
   }, [linkedMap, onLinkRemoved, onRequestRefresh, showToast]);
 
-  const isSubprojectLinked = useCallback((subprojectTitle) => {
-    if (!subprojectTitle) return false;
-    const normalizedTitle = normalizeText(subprojectTitle);
-    return Object.values(linkedMap).some((link) =>
-      link && normalizeText(link.egkrisiTitle) === normalizedTitle
-    );
+  const isSubprojectLinked = useCallback((subproject, project) => {
+    return !!egkrisiCatalog.findLinkForApprovalRow(linkedMap, project, subproject);
   }, [linkedMap]);
+
+  const handleDeleteEgkrisiSubproject = useCallback(async (subproject, project) => {
+    const subprojectKey = subproject?.folderName;
+    if (!project?.folderName || !subprojectKey) {
+      showToast('Δεν βρέθηκε το υποέργο για διαγραφή.', 'error');
+      return;
+    }
+
+    const confirmed = await showConfirm({
+      title: 'Διαγραφή υποέργου από τις εγκρίσεις',
+      message: `Να αφαιρεθεί ολόκληρο το υποέργο «${subproject.title}» από αυτή την πράξη;`,
+      detail: 'Τα αρχεία που είναι μόνο σε αυτό το υποέργο σβήνονται. Όσα τα έχουν και άλλα υποέργα της ίδιας πράξης μένουν. Η σύνδεσή του με το χαρτοφυλάκιο ακυρώνεται.',
+      confirmLabel: 'Διαγραφή υποέργου',
+      cancelLabel: 'Πίσω',
+      danger: true,
+      icon: '🗑',
+    });
+    if (!confirmed) return;
+
+    try {
+      const result = await ipcRenderer.invoke('delete-egkrisi-subproject', project.folderName, subprojectKey);
+      if (result?.success) {
+        showToast(
+          result.projectRemoved
+            ? 'Το υποέργο διαγράφηκε. Ήταν το τελευταίο, οπότε έφυγε και η πράξη μαζί με τα αρχεία της.'
+            : 'Το υποέργο διαγράφηκε. Τα αρχεία που είχαν και άλλα υποέργα έμειναν.',
+          'success'
+        );
+        await loadPanelData();
+        if (onRequestRefresh) onRequestRefresh();
+      } else {
+        showToast(result?.error || 'Η διαγραφή του υποέργου δεν ολοκληρώθηκε.', 'error');
+      }
+    } catch (error) {
+      console.error('Error deleting egkrisi subproject:', error);
+      showToast('Η διαγραφή του υποέργου δεν ολοκληρώθηκε.', 'error');
+    }
+  }, [loadPanelData, onRequestRefresh, showToast]);
+
+  const handleDeleteEgkrisiProject = useCallback(async (project) => {
+    if (!project?.folderName) {
+      showToast('Δεν βρέθηκε η πράξη για διαγραφή.', 'error');
+      return;
+    }
+
+    const confirmed = await showConfirm({
+      title: 'Διαγραφή πράξης από τις εγκρίσεις',
+      message: `Να διαγραφεί ολόκληρη η πράξη «${project.title}» μαζί με όλα τα υποέργα και τα αρχεία της;`,
+      detail: 'Σβήνεται ο φάκελος, όλα τα αρχεία και οι συνδέσεις. Δεν μένει υπόλειμμα. Η ενέργεια δεν αναιρείται.',
+      confirmLabel: 'Ολική διαγραφή',
+      cancelLabel: 'Πίσω',
+      danger: true,
+      icon: '🗑',
+    });
+    if (!confirmed) return;
+
+    try {
+      const result = await ipcRenderer.invoke('delete-egkrisi-project', project.folderName);
+      if (result?.success) {
+        showToast('Η πράξη διαγράφηκε μαζί με τα υποέργα και τα αρχεία της.', 'success');
+        await loadPanelData();
+        if (onRequestRefresh) onRequestRefresh();
+      } else {
+        showToast(result?.error || 'Η διαγραφή της πράξης δεν ολοκληρώθηκε.', 'error');
+      }
+    } catch (error) {
+      console.error('Error deleting egkrisi project:', error);
+      showToast('Η διαγραφή της πράξης δεν ολοκληρώθηκε.', 'error');
+    }
+  }, [loadPanelData, onRequestRefresh, showToast]);
 
   if (!isOpen) {
     return null;
@@ -1888,9 +1978,18 @@ const CreditApprovalsPanel = ({
                           <>
                             <ProjectTitle>{project.title}</ProjectTitle>
                             {canManageWorkflow && (
-                              <EditProjectButton onClick={() => handleEditProjectTitle(project)}>
-                                ✏️ Επεξεργασία
-                              </EditProjectButton>
+                              <>
+                                <EditProjectButton onClick={() => handleEditProjectTitle(project)}>
+                                  ✏️ Επεξεργασία
+                                </EditProjectButton>
+                                <DeleteProjectButton
+                                  type="button"
+                                  data-testid={`egkrisi-delete-project-${project.folderName}`}
+                                  onClick={() => handleDeleteEgkrisiProject(project)}
+                                >
+                                  Διαγραφή πράξης
+                                </DeleteProjectButton>
+                              </>
                             )}
                           </>
                         )}
@@ -1932,7 +2031,7 @@ const CreditApprovalsPanel = ({
                         {Object.values(project.subprojects || {})
                           .filter((subproject) => subproject && subproject.title)
                           .map((subproject) => (
-                          <SubprojectItem key={`${project.projectId || project.title}-${subproject.number || subproject.title}`}>
+                          <SubprojectItem key={`${project.folderName}-${subproject.folderName || subproject.number || subproject.title}`}>
                             {(() => {
                               const subprojectNoteLinks = getLinkedNotesForCreditSubproject(
                                 dashboardProjects,
@@ -1997,12 +2096,12 @@ const CreditApprovalsPanel = ({
                                 )}
                                 {canManageWorkflow && (
                                   <SubprojectHeaderActions>
-                                    {isSubprojectLinked(subproject.title) ? (
+                                    {isSubprojectLinked(subproject, project) ? (
                                       <>
                                         <LinkButton disabled>
                                           🔗 Συσχετισμένο
                                         </LinkButton>
-                                        <UnlinkButton onClick={() => handleUnlinkSubproject(subproject)}>
+                                        <UnlinkButton onClick={() => handleUnlinkSubproject(subproject, project)}>
                                           ❌ Ακύρωση
                                         </UnlinkButton>
                                         <LinkedStatus>Συσχετισμένο</LinkedStatus>
@@ -2012,6 +2111,13 @@ const CreditApprovalsPanel = ({
                                         🔗 Συσχέτιση με υποέργο
                                       </LinkButton>
                                     )}
+                                    <DeleteRowButton
+                                      type="button"
+                                      data-testid={`egkrisi-delete-subproject-${subproject.folderName}`}
+                                      onClick={() => handleDeleteEgkrisiSubproject(subproject, project)}
+                                    >
+                                      Διαγραφή υποέργου
+                                    </DeleteRowButton>
                                   </SubprojectHeaderActions>
                                 )}
                               </SubprojectHeader>
@@ -2048,8 +2154,9 @@ const CreditApprovalsPanel = ({
                                         </DownloadButton>
                                         {canManageWorkflow && (
                                           <DeletePdfButton
+                                            data-testid={`egkrisi-remove-${subproject.folderName}-${pdf}`}
                                             onClick={() => handleDeletePdfClick(project, subproject, pdf)}
-                                            title="Διαγραφή αρχείου"
+                                            title="Αφαίρεση ένδειξης αρχείου"
                                           >
                                             ✕
                                           </DeletePdfButton>
@@ -2139,36 +2246,45 @@ const CreditApprovalsPanel = ({
         {deleteModalOpen && pdfToDelete && (
           <DeleteModalOverlay onClick={(e) => e.target === e.currentTarget && setDeleteModalOpen(false)}>
             <DeleteModalContainer>
-              <DeleteModalTitle>Διαγραφή Αρχείου PDF</DeleteModalTitle>
+              <DeleteModalTitle>Αφαίρεση αρχείου</DeleteModalTitle>
               <DeleteModalMessage>
-                Το αρχείο <strong>"{pdfToDelete.pdfFileName}"</strong> είναι συσχετισμένο με το υποέργο <strong>"{pdfToDelete.subproject.title}"</strong>.
-                <br /><br />
-                Επιλέξτε τη διαγραφή που θέλετε:
+                Το αρχείο <strong>«{pdfToDelete.pdfFileName}»</strong> είναι στο υποέργο <strong>«{pdfToDelete.subproject.title}»</strong>
+                {Object.entries(pdfToDelete.project.subprojects || {}).filter(([key, sub]) =>
+                  key !== pdfToDelete.subproject.folderName && (sub.pdfs || []).includes(pdfToDelete.pdfFileName)
+                ).length > 0
+                  ? '. Το ίδιο έγγραφο είναι γραμμένο και σε άλλα υποέργα αυτής της πράξης. Η αφαίρεση από εδώ δεν το παίρνει από εκείνα.'
+                  : '. Είναι μόνο σε αυτό το υποέργο. Αν το αφαιρέσεις, σβήνεται και το ίδιο το αρχείο.'}
               </DeleteModalMessage>
               <DeleteModalOptions>
                 <DeleteOptionButton
-                  danger
-                  onClick={handleDeletePdfCompletely}
-                >
-                  <DeleteOptionIcon>🗑️</DeleteOptionIcon>
-                  <DeleteOptionText>
-                    <DeleteOptionTitle>Διαγραφή εντελώς από την εφαρμογή</DeleteOptionTitle>
-                    <DeleteOptionDescription>
-                      Το αρχείο θα διαγραφεί από όλα τα υποέργα στα οποία είναι συσχετισμένο
-                    </DeleteOptionDescription>
-                  </DeleteOptionText>
-                </DeleteOptionButton>
-                <DeleteOptionButton
+                  data-testid="egkrisi-remove-here"
                   onClick={handleDeletePdfFromSubproject}
                 >
                   <DeleteOptionIcon>🔗</DeleteOptionIcon>
                   <DeleteOptionText>
-                    <DeleteOptionTitle>Διαγραφή μόνο η συσχέτιση</DeleteOptionTitle>
+                    <DeleteOptionTitle>Αφαίρεση μόνο από αυτό το υποέργο</DeleteOptionTitle>
                     <DeleteOptionDescription>
-                      Το αρχείο θα παραμείνει, αλλά θα αφαιρεθεί μόνο από αυτό το υποέργο
+                      Η ένδειξη φεύγει μόνο από αυτή τη γραμμή. Όπου αλλού είναι γραμμένο το ίδιο έγγραφο, μένει.
                     </DeleteOptionDescription>
                   </DeleteOptionText>
                 </DeleteOptionButton>
+                {Object.entries(pdfToDelete.project.subprojects || {}).some(([key, sub]) =>
+                  key !== pdfToDelete.subproject.folderName && (sub.pdfs || []).includes(pdfToDelete.pdfFileName)
+                ) && (
+                  <DeleteOptionButton
+                    danger
+                    data-testid="egkrisi-remove-all"
+                    onClick={handleDeletePdfCompletely}
+                  >
+                    <DeleteOptionIcon>🗑️</DeleteOptionIcon>
+                    <DeleteOptionText>
+                      <DeleteOptionTitle>Αφαίρεση από όλα τα υποέργα της πράξης</DeleteOptionTitle>
+                      <DeleteOptionDescription>
+                        Θα φύγει και από τα άλλα υποέργα που το έχουν, και θα σβηστεί το αρχείο.
+                      </DeleteOptionDescription>
+                    </DeleteOptionText>
+                  </DeleteOptionButton>
+                )}
               </DeleteModalOptions>
               <DeleteModalCancel onClick={() => {
                 setDeleteModalOpen(false);
