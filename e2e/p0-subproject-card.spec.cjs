@@ -168,6 +168,61 @@ test('P0-10 αναφορά υποέργου — επιλογή πλήρους ή
   await expect(modal).toHaveCount(0);
 });
 
+test('P0-12 φάκελος υποέργου — κανονικός φάκελος με αναφορά, αρχεία, ένταξη και πρόσκληση', async ({ app }) => {
+  test.setTimeout(180000);
+  const fs = require('fs');
+  const path = require('path');
+  const { window } = app;
+  const destParent = path.join(path.dirname(app.testDir), `folder-export-${Date.now()}`);
+  fs.mkdirSync(destParent, { recursive: true });
+  const looseDir = path.join(app.testDir, 'proj-road', 'sub-bridge', 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ');
+  fs.mkdirSync(looseDir, { recursive: true });
+  fs.writeFileSync(path.join(looseDir, 'εκτος-καταλογου.pdf'), 'loose e2e');
+  const reportButton = () => card(window, 'sub-bridge').getByRole('button', { name: 'Λήψη αναφοράς υποέργου' });
+
+  await reportButton().click({ force: true });
+  const modal = window.getByTestId('subproject-report-choice');
+  await expect(modal).toBeVisible();
+  await expect(modal).toContainText('Φάκελος υποέργου');
+  await window.getByTestId('subproject-report-option-folder').click();
+  await expect(window.getByTestId('subproject-report-export')).toHaveText('Εξαγωγή φακέλου');
+  await window.getByTestId('subproject-report-export').click();
+  await expect(window.getByTestId('save-pdf-dialog')).toBeVisible({ timeout: 20000 });
+  await expect(window.getByTestId('save-pdf-dialog')).toContainText('Όνομα φακέλου');
+  await app.queueFolderPick({ success: true, path: destParent });
+  await window.getByTestId('save-pdf-browse').click();
+  await expect(window.getByTestId('save-pdf-folder')).toHaveText(destParent);
+  await window.getByTestId('save-pdf-confirm').click();
+
+  const dest = path.join(destParent, 'Γέφυρα Αγίου Σύλλα');
+  await expect.poll(
+    () => fs.existsSync(path.join(dest, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ', 'Σύμβαση', 'σύμβαση.pdf')),
+    { timeout: 150000 }
+  ).toBe(true);
+
+  expect(fs.statSync(dest).isDirectory()).toBe(true);
+  expect(fs.readdirSync(destParent).some((name) => name.toLowerCase().endsWith('.zip'))).toBe(false);
+  expect(fs.readFileSync(path.join(dest, 'ΑΝΑΦΟΡΑ ΥΠΟΕΡΓΟΥ.pdf')).subarray(0, 4).toString()).toBe('%PDF');
+  expect(fs.readFileSync(path.join(dest, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ', 'Σύμβαση', 'σύμβαση.pdf'), 'utf8')).toContain('e2e contract');
+  expect(fs.readFileSync(path.join(dest, 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ', 'εκτος-καταλογου.pdf'), 'utf8')).toContain('loose e2e');
+  expect(fs.existsSync(path.join(dest, 'ΕΝΤΑΞΗ', 'ΕΝΤΑΞΗ.pdf'))).toBe(true);
+  expect(fs.existsSync(path.join(dest, 'ΕΝΤΑΞΗ', 'ΤΡΟΠΟΠΟΙΗΣΗ 1 ΕΝΤΑΞΗΣ.pdf'))).toBe(true);
+  const inviteDirs = fs.readdirSync(dest).filter((name) => name.startsWith('ΠΡΟΣΚΛΗΣΗ'));
+  const schools = inviteDirs
+    .map((name) => path.join(dest, name))
+    .find((dir) => fs.existsSync(path.join(dir, 'πρόσκληση-όροι.pdf')));
+  expect(schools).toBeTruthy();
+  expect(fs.existsSync(path.join(schools, 'Δικαιολογητικά', 'βεβαίωση.pdf'))).toBe(true);
+  expect(fs.existsSync(path.join(schools, `${path.basename(schools)}.pdf`))).toBe(true);
+  const withMod = inviteDirs
+    .map((name) => path.join(dest, name))
+    .find((dir) => fs.existsSync(path.join(dir, 'ΤΡΟΠΟΠΟΙΗΣΗ 1 ΠΡΟΣΚΛΗΣΗΣ.pdf')));
+  expect(withMod).toBeTruthy();
+  expect(fs.readFileSync(path.join(app.testDir, 'proj-road', 'sub-bridge', 'ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ', 'σύμβαση.pdf'), 'utf8')).toContain('e2e contract');
+  await expect(modal).toHaveCount(0);
+  fs.rmSync(destParent, { recursive: true, force: true });
+});
+
 test('P0-11 η ένταξη από την κάρτα ανοίγει σε ψηλό παράθυρο', async ({ app }) => {
   const { window } = app;
   await card(window, 'sub-bridge').getByTestId('btn-entaxi-sub-bridge').click();

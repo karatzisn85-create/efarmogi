@@ -139,6 +139,11 @@ const REPORT_OPTIONS = [
     title: 'Συνοπτική αναφορά',
     desc: 'Βασικά χαρακτηριστικά σε μία έως δύο σελίδες, με την ίδια μορφή. Χωρίς λεπτομέρειες πύλης διαφάνειας και επιχειρησιακού.',
   },
+  {
+    id: 'folder',
+    title: 'Φάκελος υποέργου',
+    desc: 'Κανονικός φάκελος με την πλήρη αναφορά, τα αρχεία του υποέργου, την αλυσίδα ΚΗΜΔΗΣ και όσα έχουν συσχετιστεί: ένταξη, πρόσκληση, έγκριση διάθεσης πίστωσης και μελέτες.',
+  },
 ];
 
 export default function SubprojectReportChoiceModal({
@@ -177,8 +182,8 @@ export default function SubprojectReportChoiceModal({
           <Title>Εξαγωγή αναφοράς υποέργου</Title>
           <Subtitle>
             {subprojectTitle
-              ? `Επιλέξτε τι θα περιέχει το PDF για «${subprojectTitle}».`
-              : 'Επιλέξτε τι θα περιέχει το PDF.'}
+              ? `Επιλέξτε τι θα εξαχθεί για «${subprojectTitle}».`
+              : 'Επιλέξτε τι θα εξαχθεί.'}
           </Subtitle>
         </Header>
         <Body>
@@ -211,7 +216,7 @@ export default function SubprojectReportChoiceModal({
             disabled={exporting || !selected}
             onClick={() => onExport?.(selected)}
           >
-            {exporting ? 'Εξαγωγή...' : 'Εξαγωγή PDF'}
+            {exporting ? 'Εξαγωγή...' : (selected === 'folder' ? 'Εξαγωγή φακέλου' : 'Εξαγωγή PDF')}
           </ExportBtn>
         </Footer>
       </Card>

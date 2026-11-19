@@ -18,6 +18,7 @@ export async function exportEntaxiDetailReport({
   appVersion = '',
   organizationName = '',
   showToast,
+  returnBytes = false,
 }) {
   if (!entaxi) {
     if (showToast) showToast('Δεν βρέθηκε η ένταξη για την αναφορά.', 'error');
@@ -55,6 +56,7 @@ export async function exportEntaxiDetailReport({
     const reportEl = createElement(EntaxiDetailReport, { data: payload, appConfig, appVersion });
     const blob = await pdf(reportEl).toBlob();
     const arrayBuffer = await blob.arrayBuffer();
+    if (returnBytes) return { success: true, buffer: new Uint8Array(arrayBuffer) };
     const dateStr = new Date().toISOString().slice(0, 10);
     const defaultName = `ERGOHUB_Αναφορά_Ένταξης_${sanitizeFilename(payload.subject || 'ενταξη')}_${dateStr}.pdf`;
 

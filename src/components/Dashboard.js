@@ -116,6 +116,7 @@ import {
   shouldFullReloadPortfolioAfterSubprojectFileUpload,
 } from '../utils/dashboardStartupLoad';
 import { exportSubprojectReport } from '../utils/subprojectReportExport';
+import { exportSubprojectFolder } from '../utils/subprojectFolderExport';
 import SubprojectReportChoiceModal from './SubprojectReportChoiceModal';
 import PostSetupChecklistBanner from './PostSetupChecklistBanner';
 import {
@@ -7295,7 +7296,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     subprojectReportBusyRef.current = true;
     setSubprojectReportExporting(true);
     try {
-      await exportSubprojectReport({
+      const reportArgs = {
         project,
         entaxeis,
         proskliseis,
@@ -7312,8 +7313,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         appVersion,
         requestingUsername: currentUser?.username || '',
         showToast,
-        variant,
-      });
+      };
+      if (variant === 'folder') {
+        await exportSubprojectFolder(reportArgs);
+      } else {
+        await exportSubprojectReport({ ...reportArgs, variant });
+      }
     } catch (error) {
       console.error('Subproject report export error:', error);
       showToast('Σφάλμα κατά τη δημιουργία αναφοράς', 'error');

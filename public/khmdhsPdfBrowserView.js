@@ -300,4 +300,5 @@ module.exports = {
   buildKhmdhsAttachmentUrl,
   buildKhmdhsPortalViewUrl,
   readCachedPdfPath,
+  downloadKhmdhsPdfToCache,
 };

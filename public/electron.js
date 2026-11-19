@@ -15875,6 +15875,59 @@ ipcMain.handle('check-file-exists', async (_event, { filePath } = {}) => {
   }
 });
 
+ipcMain.handle('prepare-subproject-folder', async (_event, { projectId, subprojectId } = {}) => {
+  try {
+    const folderExport = require('./subprojectFolderExport');
+    const folderPlan = require('../app/core/subprojectFolderPlan');
+    const loaded = folderExport.loadFolderInput(dataDir, projectId, subprojectId);
+    if (!loaded.ok) return { success: false, error: loaded.error };
+    const plan = folderPlan.buildSubprojectFolderPlan(loaded.input);
+    return {
+      success: true,
+      rootName: plan.rootName,
+      slots: (plan.pdfs || []).map((slot) => ({
+        slot: slot.slot,
+        kind: slot.kind,
+        relativePath: slot.relativePath,
+        title: slot.title,
+        subtitle: slot.subtitle || '',
+        rows: slot.rows || null,
+        entaxi: slot.kind === 'entaxi' ? slot.entaxi : undefined,
+      })),
+    };
+  } catch (e) {
+    logger.error('prepare-subproject-folder failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('export-subproject-folder', async (_event, payload = {}) => {
+  try {
+    const folderExport = require('./subprojectFolderExport');
+    const folderPlan = require('../app/core/subprojectFolderPlan');
+    const loaded = folderExport.loadFolderInput(dataDir, payload.projectId, payload.subprojectId);
+    if (!loaded.ok) return { success: false, error: loaded.error };
+    loaded.input.khmdhsEntries = Array.isArray(payload.khmdhsEntries) ? payload.khmdhsEntries : [];
+    const plan = folderPlan.buildSubprojectFolderPlan(loaded.input);
+    const { isE2EProcess } = require('./e2eMode');
+    const { downloadKhmdhsPdfToCache, buildKhmdhsAttachmentUrl } = require('./khmdhsPdfBrowserView');
+    return await folderExport.writeSubprojectFolder({
+      dataDir,
+      destDir: payload.destPath,
+      plan,
+      pdfs: payload.pdfs,
+      downloadKhmdhs: async (adam) => {
+        if (isE2EProcess()) return null;
+        if (!buildKhmdhsAttachmentUrl(adam)) return null;
+        return downloadKhmdhsPdfToCache(adam);
+      },
+    });
+  } catch (e) {
+    logger.error('export-subproject-folder failed', e);
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('write-pdf-file', async (_event, { buffer, filePath } = {}) => {
   try {
     if (!filePath || typeof filePath !== 'string') {

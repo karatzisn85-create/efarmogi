@@ -17,6 +17,7 @@ export function showSavePdfDialog({
   defaultName = 'ERGOHUB_Report.pdf',
   title = 'Αποθήκευση αναφοράς PDF',
   subtitle = '',
+  mode = 'pdf',
 } = {}) {
   return new Promise((resolve) => {
     _resolve = resolve;
@@ -26,6 +27,7 @@ export function showSavePdfDialog({
       defaultName,
       title,
       subtitle,
+      mode: mode === 'folder' ? 'folder' : 'pdf',
     });
   });
 }

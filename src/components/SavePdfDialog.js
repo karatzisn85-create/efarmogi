@@ -265,6 +265,16 @@ function ensurePdfExtension(name) {
   return /\.pdf$/i.test(trimmed) ? trimmed : `${trimmed}.pdf`;
 }
 
+function finalizeName(name, mode) {
+  if (mode !== 'folder') return ensurePdfExtension(name);
+  const trimmed = String(name || '')
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/\.pdf$/i, '')
+    .trim()
+    .slice(0, 80);
+  return trimmed || 'Φάκελος υποέργου';
+}
+
 function joinPath(folder, filename) {
   const base = String(folder || '').replace(/[\\/]+$/, '');
   const sep = base.includes('\\') ? '\\' : '/';
@@ -287,8 +297,8 @@ export default function SavePdfDialog() {
     _registerSavePdfDialog(setState);
   }, []);
 
-  const resetForm = useCallback(async (defaultName) => {
-    const safeName = ensurePdfExtension(defaultName);
+  const resetForm = useCallback(async (defaultName, mode) => {
+    const safeName = finalizeName(defaultName, mode);
     setFilename(safeName);
     setPendingPath('');
     try {
@@ -303,9 +313,9 @@ export default function SavePdfDialog() {
 
   useEffect(() => {
     if (state.open && state.step === 'form') {
-      resetForm(state.defaultName);
+      resetForm(state.defaultName, state.mode);
     }
-  }, [state.open, state.step, state.defaultName, resetForm]);
+  }, [state.open, state.step, state.defaultName, state.mode, resetForm]);
 
   const handleKey = useCallback((e) => {
     if (!state.open || busy) return;
@@ -327,7 +337,7 @@ export default function SavePdfDialog() {
     }
   };
 
-  const buildTargetPath = () => joinPath(folder, ensurePdfExtension(filename));
+  const buildTargetPath = () => joinPath(folder, finalizeName(filename, state.mode));
 
   const handleSave = async () => {
     if (!folder?.trim()) return;
@@ -358,6 +368,7 @@ export default function SavePdfDialog() {
   if (!state.open) return null;
 
   const isOverwrite = state.step === 'overwrite';
+  const isFolder = state.mode === 'folder';
   const displayPath = pendingPath || state.pendingPath || buildTargetPath();
   const displayName = basename(displayPath);
 
@@ -366,7 +377,7 @@ export default function SavePdfDialog() {
       <Shell onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="save-pdf-title" data-testid="save-pdf-dialog">
         <Header>
           <HeaderTop>
-            <HeaderIcon aria-hidden>📄</HeaderIcon>
+            <HeaderIcon aria-hidden>{isFolder ? '📁' : '📄'}</HeaderIcon>
             <HeaderText>
               <Title id="save-pdf-title">{state.title || 'Αποθήκευση αναφοράς PDF'}</Title>
               {state.subtitle ? <Subtitle>{state.subtitle}</Subtitle> : null}
@@ -379,11 +390,12 @@ export default function SavePdfDialog() {
             <OverwritePanel>
               <OverwriteTitle>
                 <span aria-hidden>⚠️</span>
-                Το αρχείο υπάρχει ήδη
+                {isFolder ? 'Ο φάκελος υπάρχει ήδη' : 'Το αρχείο υπάρχει ήδη'}
               </OverwriteTitle>
               <OverwriteText>
-                Υπάρχει ήδη αρχείο με αυτό το όνομα στον επιλεγμένο φάκελο.
-                Θέλετε να αντικατασταθεί με τη νέα αναφορά;
+                {isFolder
+                  ? 'Υπάρχει ήδη φάκελος με αυτό το όνομα. Θέλετε να αντικατασταθεί με τον νέο φάκελο του υποέργου;'
+                  : 'Υπάρχει ήδη αρχείο με αυτό το όνομα στον επιλεγμένο φάκελο. Θέλετε να αντικατασταθεί με τη νέα αναφορά;'}
               </OverwriteText>
               <OverwriteFile>{displayName}</OverwriteFile>
             </OverwritePanel>
@@ -399,7 +411,7 @@ export default function SavePdfDialog() {
                 </FolderRow>
               </Field>
               <Field>
-                <Label>Όνομα αρχείου</Label>
+                <Label>{isFolder ? 'Όνομα φακέλου' : 'Όνομα αρχείου'}</Label>
                 <FilenameInput
                   type="text"
                   value={filename}

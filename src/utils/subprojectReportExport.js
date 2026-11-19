@@ -26,6 +26,7 @@ export async function exportSubprojectReport({
   requestingUsername = '',
   showToast,
   variant = 'full',
+  returnBytes = false,
 }) {
   const summary = variant === 'summary';
   const linkedNoteRefs = getEntityLinkedNotes(linkedNotesMap, project.subprojectId);
@@ -117,6 +118,7 @@ export async function exportSubprojectReport({
   const reportEl = createElement(Report, { data: payload, appConfig, appVersion });
   const blob = await pdf(reportEl).toBlob();
   const arrayBuffer = await blob.arrayBuffer();
+  if (returnBytes) return { success: true, buffer: new Uint8Array(arrayBuffer), summary };
   const dateStr = new Date().toISOString().slice(0, 10);
   const nameKind = summary ? 'Συνοπτική' : 'Αναφορά';
   const defaultName = `ERGOHUB_${nameKind}_${sanitizeFilename(project.subprojectTitle)}_${dateStr}.pdf`;

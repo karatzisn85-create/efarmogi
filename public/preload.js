@@ -100,7 +100,7 @@ const ALLOWED_INVOKE = new Set([
   'load-funding-options','save-funding-options',
   'pick-save-folder',
   'save-pdf-file',
-  'write-pdf-file',
+  'write-pdf-file','prepare-subproject-folder','export-subproject-folder',
   'get-subproject-report-attachments',
   'merge-and-save-pdf',
   'select-excel-file',

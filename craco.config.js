@@ -18,6 +18,7 @@ const SHARED_PUBLIC_MODULES = [
   path.resolve(__dirname, 'app/core/khmdhsPostFetch.js'),
   path.resolve(__dirname, 'app/core/excelImport.js'),
   path.resolve(__dirname, 'app/core/reportsExport.js'),
+  path.resolve(__dirname, 'app/core/subprojectFolderPlan.js'),
   path.resolve(__dirname, 'app/core/portalCatalog.js'),
   path.resolve(__dirname, 'app/core/orimanthiCatalog.js'),
   path.resolve(__dirname, 'app/core/meletaiCatalog.js'),
