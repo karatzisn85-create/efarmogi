@@ -214,6 +214,41 @@ test('η εγγραφή αντιγράφει τα αρχεία στον φάκε
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('η λήψη κρίκου ξαναδοκιμάζεται μέχρι να έρθει το αρχείο', async () => {
+  let calls = 0;
+  const notes = [];
+  const pdfPath = await writer.downloadKhmdhsWithRetry('24REQ000000001', {
+    hasAttachment: () => 'https://example.test/file.pdf',
+    download: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('προσωρινό');
+      return 'C:\\cache\\file.pdf';
+    },
+    notify: (info) => notes.push(info),
+    sleep: async () => {},
+    clearCancel: () => {},
+  });
+  assert.equal(pdfPath, 'C:\\cache\\file.pdf');
+  assert.equal(calls, 2);
+  assert.equal(notes[0].attempt, 1);
+  assert.equal(notes[1].waiting, true);
+  assert.equal(notes[1].attempt, 2);
+});
+
+test('κρίκος χωρίς αρχείο στο ΚΗΜΔΗΣ δεν κρατάει τη διαδικασία', async () => {
+  let calls = 0;
+  const pdfPath = await writer.downloadKhmdhsWithRetry('24XXXX000000001', {
+    hasAttachment: () => null,
+    download: async () => {
+      calls += 1;
+      return 'δεν πρέπει';
+    },
+    sleep: async () => {},
+  });
+  assert.equal(pdfPath, null);
+  assert.equal(calls, 0);
+});
+
 test('αποτυχημένη αντικατάσταση αφήνει τον φάκελο που υπήρχε', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-folder-replace-'));
   const dataDir = path.join(root, 'data');

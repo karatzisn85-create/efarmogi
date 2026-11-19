@@ -35,6 +35,7 @@ export async function exportSubprojectFolder({
   appVersion = '',
   requestingUsername = '',
   showToast,
+  onKhmdhsWaiting,
 }) {
   const defaultName = folderPlan.sanitizeSegment(
     project?.subprojectTitle || project?.projectTitle || 'Υποέργο',
@@ -110,20 +111,36 @@ export async function exportSubprojectFolder({
     khmdhsEntries = [];
   }
 
-  const result = await ipcRenderer.invoke('export-subproject-folder', {
-    projectId: project.projectId,
-    subprojectId: project.subprojectId,
-    destPath: pick.path,
-    pdfs,
-    khmdhsEntries,
+  const stopWaiting = ipcRenderer.on('subproject-folder-khmdhs-progress', (info) => {
+    if (!onKhmdhsWaiting) return;
+    if (info && info.waiting) {
+      onKhmdhsWaiting(info.attempt > 1
+        ? 'Αναμένουμε τη λήψη των αρχείων από το ΚΗΜΔΗΣ. Ξαναπροσπαθούμε.'
+        : 'Αναμένουμε τη λήψη των αρχείων από το ΚΗΜΔΗΣ.');
+      return;
+    }
+    onKhmdhsWaiting('');
   });
+  let result;
+  try {
+    result = await ipcRenderer.invoke('export-subproject-folder', {
+      projectId: project.projectId,
+      subprojectId: project.subprojectId,
+      destPath: pick.path,
+      pdfs,
+      khmdhsEntries,
+    });
+  } finally {
+    if (typeof stopWaiting === 'function') stopWaiting();
+    if (onKhmdhsWaiting) onKhmdhsWaiting('');
+  }
 
   if (result?.success) {
     if (showToast) {
       const missing = Number(result.khmdhsMissing) || 0;
       const skipped = Number(result.skipped) || 0;
       const notes = [];
-      if (missing > 0) notes.push(`${missing} έγγραφα της αλυσίδας ΚΗΜΔΗΣ δεν ήρθαν`);
+      if (missing > 0) notes.push(`${missing} κρίκοι δεν έχουν αρχείο στο ΚΗΜΔΗΣ`);
       if (skipped > 0) notes.push(`${skipped} αρχεία δεν βρέθηκαν για αντιγραφή`);
       showToast(
         notes.length

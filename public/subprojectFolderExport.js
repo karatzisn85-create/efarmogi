@@ -575,9 +575,46 @@ async function writeSubprojectFolder({
   }
 }
 
+function khmdhsRetryWaitMs(attempt) {
+  const n = Math.max(1, Number(attempt) || 1);
+  return Math.min(3000 * n, 15000);
+}
+
+/**
+ * Ξαναζητά το PDF του κρίκου μέχρι να έρθει. Χωρίς σύνδεσμο επιστρέφει αμέσως,
+ * γιατί δεν υπάρχει αρχείο να κατέβει.
+ */
+async function downloadKhmdhsWithRetry(adam, {
+  hasAttachment,
+  download,
+  notify,
+  sleep,
+  clearCancel,
+} = {}) {
+  if (typeof hasAttachment === 'function' && !hasAttachment(adam)) return null;
+  if (typeof download !== 'function') return null;
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    if (typeof notify === 'function') notify({ waiting: true, attempt });
+    if (typeof clearCancel === 'function') clearCancel(adam);
+    try {
+      const pdfPath = await download(adam);
+      if (pdfPath) return pdfPath;
+    } catch {
+      /* προσωρινή αποτυχία — μένουμε στη διαδικασία */
+    }
+    const waitMs = khmdhsRetryWaitMs(attempt);
+    if (typeof sleep === 'function') await sleep(waitMs);
+    else await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+}
+
 module.exports = {
   isInside,
   dangerousDestination,
   loadFolderInput,
   writeSubprojectFolder,
+  downloadKhmdhsWithRetry,
+  khmdhsRetryWaitMs,
 };

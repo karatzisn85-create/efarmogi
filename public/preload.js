@@ -153,6 +153,7 @@ const ALLOWED_RECEIVE = new Set([
   'update-available','update-downloaded','update-download-progress','update-installed',
   'task-notification',
   'khmdhs-refresh-progress',
+  'subproject-folder-khmdhs-progress',
   'khmdhs-idle-shutdown-tick',
   'khmdhs-idle-shutdown-aborted',
 ]);

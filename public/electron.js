@@ -15910,18 +15910,34 @@ ipcMain.handle('export-subproject-folder', async (_event, payload = {}) => {
     loaded.input.khmdhsEntries = Array.isArray(payload.khmdhsEntries) ? payload.khmdhsEntries : [];
     const plan = folderPlan.buildSubprojectFolderPlan(loaded.input);
     const { isE2EProcess } = require('./e2eMode');
-    const { downloadKhmdhsPdfToCache, buildKhmdhsAttachmentUrl } = require('./khmdhsPdfBrowserView');
-    return await folderExport.writeSubprojectFolder({
-      dataDir,
-      destDir: payload.destPath,
-      plan,
-      pdfs: payload.pdfs,
-      downloadKhmdhs: async (adam) => {
-        if (isE2EProcess()) return null;
-        if (!buildKhmdhsAttachmentUrl(adam)) return null;
-        return downloadKhmdhsPdfToCache(adam);
-      },
-    });
+    const {
+      downloadKhmdhsPdfToCache,
+      buildKhmdhsAttachmentUrl,
+      clearPdfViewCancelled,
+    } = require('./khmdhsPdfBrowserView');
+    const notifyKhmdhs = (info) => {
+      if (_event.sender.isDestroyed()) return;
+      _event.sender.send('subproject-folder-khmdhs-progress', info || { waiting: false });
+    };
+    try {
+      return await folderExport.writeSubprojectFolder({
+        dataDir,
+        destDir: payload.destPath,
+        plan,
+        pdfs: payload.pdfs,
+        downloadKhmdhs: async (adam) => {
+          if (isE2EProcess()) return null;
+          return folderExport.downloadKhmdhsWithRetry(adam, {
+            hasAttachment: buildKhmdhsAttachmentUrl,
+            download: downloadKhmdhsPdfToCache,
+            clearCancel: clearPdfViewCancelled,
+            notify: notifyKhmdhs,
+          });
+        },
+      });
+    } finally {
+      notifyKhmdhs({ waiting: false });
+    }
   } catch (e) {
     logger.error('export-subproject-folder failed', e);
     return { success: false, error: e.message };

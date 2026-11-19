@@ -94,6 +94,15 @@ const OptionDesc = styled.span`
   line-height: 1.4;
 `;
 
+const WaitNote = styled.p`
+  margin: 0;
+  padding: 0.7rem 1.25rem 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #4338ca;
+  line-height: 1.45;
+`;
+
 const Footer = styled.div`
   display: flex;
   justify-content: flex-end;
@@ -150,6 +159,7 @@ export default function SubprojectReportChoiceModal({
   isOpen,
   subprojectTitle = '',
   exporting = false,
+  waitingMessage = '',
   onClose,
   onExport,
 }) {
@@ -201,6 +211,9 @@ export default function SubprojectReportChoiceModal({
             </OptionBtn>
           ))}
         </Body>
+        {waitingMessage ? (
+          <WaitNote data-testid="subproject-folder-khmdhs-wait">{waitingMessage}</WaitNote>
+        ) : null}
         <Footer>
           <CancelBtn
             type="button"

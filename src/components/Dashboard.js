@@ -7271,6 +7271,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   const [subprojectReportChoice, setSubprojectReportChoice] = useState(null);
   const [subprojectReportExporting, setSubprojectReportExporting] = useState(false);
+  const [folderKhmdhsWait, setFolderKhmdhsWait] = useState('');
   const subprojectReportChoiceResolveRef = useRef(null);
   const subprojectReportBusyRef = useRef(false);
 
@@ -7313,6 +7314,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         appVersion,
         requestingUsername: currentUser?.username || '',
         showToast,
+        onKhmdhsWaiting: setFolderKhmdhsWait,
       };
       if (variant === 'folder') {
         await exportSubprojectFolder(reportArgs);
@@ -7325,6 +7327,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     } finally {
       subprojectReportBusyRef.current = false;
       setSubprojectReportExporting(false);
+      setFolderKhmdhsWait('');
       finishSubprojectReportChoice();
     }
   }, [
@@ -9644,6 +9647,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         isOpen={!!subprojectReportChoice}
         subprojectTitle={subprojectReportChoice?.subprojectTitle || ''}
         exporting={subprojectReportExporting}
+        waitingMessage={folderKhmdhsWait}
         onClose={finishSubprojectReportChoice}
         onExport={confirmSubprojectReportChoice}
       />
