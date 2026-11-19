@@ -191,4 +191,35 @@ describe('entaxiAcceptancePersist', () => {
       'άλλο.pdf',
     ])).toEqual(['αποδοχή.pdf', 'άλλο.pdf']);
   });
+
+  it('κρατά την αποδοχή όταν η λίστα είναι άδεια και μένει μόνο το παλιό πεδίο', () => {
+    expect(persist.indicatedRootFileNames({
+      entaxiPDFs: ['Ένταξη — Διαύγεια Α.pdf'],
+      approvalPDFs: [],
+      approvalPDF: 'Αποδοχή Δ.Σ. — Διαύγεια Β.pdf',
+    })).toEqual([
+      'Ένταξη — Διαύγεια Α.pdf',
+      'Αποδοχή Δ.Σ. — Διαύγεια Β.pdf',
+    ]);
+    expect(persist.indicatedModificationFileNames({
+      modificationPDF: 'Τροποποίηση ένταξης — Διαύγεια Γ.pdf',
+      approvalPDFs: [],
+      approvalPDF: 'Αποδοχή Επιτροπής — Διαύγεια Δ.pdf',
+    })).toEqual([
+      'Τροποποίηση ένταξης — Διαύγεια Γ.pdf',
+      'Αποδοχή Επιτροπής — Διαύγεια Δ.pdf',
+    ]);
+  });
+
+  it('ξεχωρίζει τα αρχεία που δεν έχουν ένδειξη, μόνο όταν το τρέχον είναι ήδη στον φάκελο', () => {
+    const decision = 'Ένταξη — Διαύγεια 92ΘΕ7ΛΚ-ΚΓΞ.pdf';
+    expect(persist.unindicatedFileNames(
+      [decision, '63-2025.pdf', '92ΘΕ7ΛΚ-ΚΓΞ.pdf'],
+      [decision]
+    )).toEqual(['63-2025.pdf', '92ΘΕ7ΛΚ-ΚΓΞ.pdf']);
+    expect(persist.unindicatedFileNames(
+      ['92ΘΕ7ΛΚ-ΚΓΞ.pdf'],
+      [decision]
+    )).toEqual([]);
+  });
 });

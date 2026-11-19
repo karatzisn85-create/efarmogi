@@ -527,12 +527,30 @@
         entaxi: entaxi
       });
       used[(folder + '/' + reportName).toLowerCase()] = true;
-      namesFromList(entaxi.entaxiPDFs).concat(
-        namesFromList(entaxi.entaxiPDF),
-        namesFromList(entaxi.approvalPDFs),
-        namesFromList(entaxi.approvalPDF),
-        namesFromList(entaxi.diskFiles)
-      ).forEach(function (name) {
+      var decisionList = (entaxi.entaxiPDFs && entaxi.entaxiPDFs.length)
+        ? entaxi.entaxiPDFs
+        : (entaxi.entaxiPDF ? [entaxi.entaxiPDF] : []);
+      var seenEntaxiName = {};
+      var indicatedNames = [];
+      function addEntaxiName(name) {
+        var key = String(name || '').toLowerCase();
+        if (!key || seenEntaxiName[key]) return;
+        seenEntaxiName[key] = true;
+        indicatedNames.push(name);
+      }
+      namesFromList(decisionList).forEach(addEntaxiName);
+      namesFromList(entaxi.approvalPDFs).forEach(addEntaxiName);
+      namesFromList(entaxi.approvalPDF).forEach(addEntaxiName);
+      var entaxiFileNames = indicatedNames.slice();
+      if (!entaxiFileNames.length) {
+        namesFromList(entaxi.diskFiles).forEach(function (name) {
+          var key = String(name || '').toLowerCase();
+          if (!key || seenEntaxiName[key]) return;
+          seenEntaxiName[key] = true;
+          entaxiFileNames.push(name);
+        });
+      }
+      entaxiFileNames.forEach(function (name) {
         pushUnique(copies, used, joinRel(folder, name), {
           type: 'entaxi-file',
           entaxiId: entaxi.entaxiId,
@@ -550,7 +568,14 @@
           rows: entaxiModRows(mod)
         });
         used[(folder + '/' + modName).toLowerCase()] = true;
-        namesFromList(mod && mod.modificationPDF).forEach(function (name) {
+        var seenModName = {};
+        namesFromList(mod && mod.modificationPDF).concat(
+          namesFromList(mod && mod.approvalPDFs),
+          namesFromList(mod && mod.approvalPDF)
+        ).forEach(function (name) {
+          var key = String(name || '').toLowerCase();
+          if (!key || seenModName[key]) return;
+          seenModName[key] = true;
           pushUnique(copies, used, joinRel(folder, name), {
             type: 'entaxi-file',
             entaxiId: entaxi.entaxiId,

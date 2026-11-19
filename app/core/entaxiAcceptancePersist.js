@@ -284,6 +284,54 @@
     return out;
   }
 
+  function basenameOf(value) {
+    return fileRefName(value).replace(/^.*[/\\]/, '').trim();
+  }
+
+  function uniqueBasenames(list) {
+    var out = [];
+    var seen = Object.create(null);
+    (Array.isArray(list) ? list : []).forEach(function (item) {
+      var name = basenameOf(item);
+      if (!name || seen[name.toLowerCase()]) return;
+      seen[name.toLowerCase()] = true;
+      out.push(name);
+    });
+    return out;
+  }
+
+  function indicatedRootFileNames(data) {
+    return uniqueBasenames(
+      listedDecisionFileNames(data)
+        .concat(collectApprovalFileNames(data))
+        .concat([data && data.approvalPDF])
+    );
+  }
+
+  function indicatedModificationFileNames(mod) {
+    var record = mod || {};
+    return uniqueBasenames(
+      collectApprovalFileNames(record)
+        .concat([record.modificationPDF, record.approvalPDF])
+    );
+  }
+
+  /**
+   * Αρχεία φακέλου που δεν αντιστοιχούν σε ένδειξη.
+   * Αν η ένδειξη δεν βρίσκεται ήδη στον φάκελο, δεν επιστρέφεται τίποτα:
+   * δεν αδειάζει φάκελος που έχει μόνο το παλιό αρχείο.
+   */
+  function unindicatedFileNames(presentNames, keepNames) {
+    var keep = Object.create(null);
+    uniqueBasenames(keepNames).forEach(function (name) {
+      keep[name.toLowerCase()] = true;
+    });
+    var present = uniqueBasenames(presentNames);
+    var hasKept = present.some(function (name) { return keep[name.toLowerCase()]; });
+    if (!hasKept) return [];
+    return present.filter(function (name) { return !keep[name.toLowerCase()]; });
+  }
+
   function uniqueStoredFileNames(list) {
     var out = [];
     var seen = Object.create(null);
@@ -321,6 +369,9 @@
     renameAcceptanceFileRefs: renameAcceptanceFileRefs,
     unlinkEntaxiFileRecord: unlinkEntaxiFileRecord,
     applyLegacyFolderPdfHints: applyLegacyFolderPdfHints,
-    uniqueStoredFileNames: uniqueStoredFileNames
+    uniqueStoredFileNames: uniqueStoredFileNames,
+    indicatedRootFileNames: indicatedRootFileNames,
+    indicatedModificationFileNames: indicatedModificationFileNames,
+    unindicatedFileNames: unindicatedFileNames
   };
 });

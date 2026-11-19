@@ -64,12 +64,63 @@ test('ένταξη και τροποποίηση παίρνουν τα συμφ�
   assert.ok(pdfRels(result).includes('ΕΝΤΑΞΗ 2/ΕΝΤΑΞΗ 2.pdf'));
   assert.ok(pdfRels(result).includes('ΕΝΤΑΞΗ 2/ΤΡΟΠΟΠΟΙΗΣΗ 1 ΕΝΤΑΞΗΣ.pdf'));
   assert.ok(rels(result).includes('ΕΝΤΑΞΗ/παλαιό.pdf'));
-  assert.ok(rels(result).includes('ΕΝΤΑΞΗ/Επιπλέον — Διαύγεια.pdf'));
+  assert.equal(rels(result).includes('ΕΝΤΑΞΗ/Επιπλέον — Διαύγεια.pdf'), false);
   assert.equal(rels(result).filter((item) => item === 'ΕΝΤΑΞΗ/παλαιό.pdf').length, 1);
   assert.ok(rels(result).includes('ΕΝΤΑΞΗ 2/απόφαση.pdf'));
   assert.ok(rels(result).includes('ΕΝΤΑΞΗ 2/mod-b.pdf'));
   const firstMod = result.pdfs.find((item) => item.relativePath === 'ΕΝΤΑΞΗ/ΤΡΟΠΟΠΟΙΗΣΗ 1 ΕΝΤΑΞΗΣ.pdf');
   assert.equal(firstMod.rows.find((row) => row.label === 'Σχόλια').value, 'Αύξηση');
+});
+
+test('κάθε αρχείο ένταξης μπαίνει μία φορά, όσο και αν επαναλαμβάνεται η ένδειξη', () => {
+  const result = plan.buildSubprojectFolderPlan({
+    project: { subprojectId: 's1', subprojectTitle: 'Οδός' },
+    entaxeis: [{
+      entaxiId: 'e1',
+      subject: 'Ένταξη',
+      entaxiPDFs: ['Ένταξη — Διαύγεια Α.pdf'],
+      entaxiPDF: 'παλιό.pdf',
+      approvalPDFs: [
+        'Αποδοχή Δ.Σ. — Διαύγεια Β.pdf',
+        'Αποδοχή Επιτροπής — Διαύγεια Γ.pdf',
+      ],
+      approvalPDF: 'Αποδοχή Δ.Σ. — Διαύγεια Β.pdf',
+      diskFiles: [
+        'Ένταξη — Διαύγεια Α.pdf',
+        'Αποδοχή Δ.Σ. — Διαύγεια Β.pdf',
+        'Αποδοχή Επιτροπής — Διαύγεια Γ.pdf',
+        'παλιό.pdf',
+      ],
+    }],
+  });
+  assert.deepEqual(rels(result).filter((item) => item.startsWith('ΕΝΤΑΞΗ/')).sort(), [
+    'ΕΝΤΑΞΗ/Αποδοχή Δ.Σ. — Διαύγεια Β.pdf',
+    'ΕΝΤΑΞΗ/Αποδοχή Επιτροπής — Διαύγεια Γ.pdf',
+    'ΕΝΤΑΞΗ/Ένταξη — Διαύγεια Α.pdf',
+  ].sort());
+});
+
+test('ένταξη χωρίς ένδειξη κρατά το μοναδικό αρχείο του φακέλου· η τροποποίηση παίρνει και την αποδοχή', () => {
+  const result = plan.buildSubprojectFolderPlan({
+    project: { subprojectId: 's1', subprojectTitle: 'Οδός' },
+    entaxeis: [{
+      entaxiId: 'e1',
+      subject: 'Ένταξη',
+      entaxiPDFs: [],
+      approvalPDFs: [],
+      diskFiles: ['μοναδικό.pdf'],
+      modifications: [{
+        modificationPDF: 'Τροποποίηση ένταξης — Διαύγεια Α.pdf',
+        approvalPDF: 'Αποδοχή Δ.Σ. — Διαύγεια Β.pdf',
+        approvalPDFs: ['Αποδοχή Δ.Σ. — Διαύγεια Β.pdf'],
+      }],
+    }],
+  });
+  assert.ok(rels(result).includes('ΕΝΤΑΞΗ/μοναδικό.pdf'));
+  assert.equal(rels(result).filter((item) => item === 'ΕΝΤΑΞΗ/μοναδικό.pdf').length, 1);
+  assert.ok(rels(result).includes('ΕΝΤΑΞΗ/Τροποποίηση ένταξης — Διαύγεια Α.pdf'));
+  assert.ok(rels(result).includes('ΕΝΤΑΞΗ/Αποδοχή Δ.Σ. — Διαύγεια Β.pdf'));
+  assert.equal(rels(result).filter((item) => item.includes('Αποδοχή Δ.Σ.')).length, 1);
 });
 
 test('χωρίς πράξεις βγαίνουν όλα τα αρχεία της πρόσκλησης· με πράξη μόνο η δική της και τα κοινά', () => {

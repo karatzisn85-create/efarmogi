@@ -4010,6 +4010,19 @@ ipcMain.handle('diavgeia-attach-entaxi-acceptance', async (_event, { entaxiId, c
       };
     }
     await safeWriteJSONAsync(dataPath, saved);
+    const keptNames = targetModId
+      ? persistAcceptance.indicatedModificationFileNames(saved.modifications[modIndex])
+      : persistAcceptance.indicatedRootFileNames(saved);
+    const dropped = pruneFolderToIndications(filesDir, keptNames);
+    if (dropped.length) {
+      logAuditAction({
+        type: 'delete',
+        entityType: 'file',
+        entityId: id,
+        entityTitle: dropped.join(', '),
+        details: 'Αφαίρεση αρχείων ένταξης που δεν έχουν ένδειξη',
+      });
+    }
     logAuditAction({
       type: 'update',
       entityType: 'entaxi',
@@ -6596,6 +6609,19 @@ ipcMain.handle('save-entaxi', async (event, entaxiData) => {
       savedData.modifications = [];
     }
     await safeWriteJSONAsync(jsonPath, savedData);
+    const droppedEntaxiFiles = pruneFolderToIndications(
+      filesDir,
+      persistAcceptance.indicatedRootFileNames(savedData)
+    );
+    if (droppedEntaxiFiles.length) {
+      logAuditAction({
+        type: 'delete',
+        entityType: 'file',
+        entityId: entaxiId,
+        entityTitle: droppedEntaxiFiles.join(', '),
+        details: 'Αφαίρεση αρχείων ένταξης που δεν έχουν ένδειξη',
+      });
+    }
 
     logAuditAction({
       type: existingEntaxiData ? 'update' : 'create',
@@ -6935,6 +6961,31 @@ ipcMain.handle('delete-entaxi', async (event, entaxiId) => {
     return { success: false, error: error.message };
   }
 });
+
+function pruneFolderToIndications(dir, keepNames) {
+  const persistAcceptance = require(path.join(__dirname, '..', 'app', 'core', 'entaxiAcceptancePersist'));
+  if (!dir || !fs.existsSync(dir)) return [];
+  let present = [];
+  try {
+    present = fs.readdirSync(dir).filter((name) => {
+      if (!name || name.startsWith('.')) return false;
+      try { return fs.statSync(path.join(dir, name)).isFile(); } catch { return false; }
+    });
+  } catch {
+    return [];
+  }
+  const remove = persistAcceptance.unindicatedFileNames(present, keepNames);
+  const removed = [];
+  remove.forEach((name) => {
+    const full = path.join(dir, name);
+    if (!isPathInsideDir(full, dir)) return;
+    try {
+      fs.unlinkSync(full);
+      removed.push(name);
+    } catch { /* το αρχείο μένει αν δεν σβήνεται */ }
+  });
+  return removed;
+}
 
 // View entaxi file
 function locateEntaxiStoredFile(entaxiRoot, fileName, preferModification) {
@@ -8231,6 +8282,19 @@ ipcMain.handle('update-entaxi-modification', async (event, modificationData) => 
 
     // Save updated data
     safeWriteJSON(dataFile, existingData);
+    const droppedModFiles = pruneFolderToIndications(
+      modificationDir,
+      persistAcceptance.indicatedModificationFileNames(mergedModification)
+    );
+    if (droppedModFiles.length) {
+      logAuditAction({
+        type: 'delete',
+        entityType: 'file',
+        entityId: entaxiId,
+        entityTitle: droppedModFiles.join(', '),
+        details: 'Αφαίρεση αρχείων τροποποίησης που δεν έχουν ένδειξη',
+      });
+    }
 
     console.log(`Updated modification ${modificationData.modificationId} for entaxi ${entaxiId}`);
     logAuditAction({
