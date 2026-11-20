@@ -17,6 +17,84 @@ function pdfRels(result) {
   return result.pdfs.map((item) => item.relativePath);
 }
 
+test('αρχείο με συντομογραφία όπως Δ.Σ. δεν μένει έξω από τον φάκελο', () => {
+  const result = plan.buildSubprojectFolderPlan({
+    project: {
+      subprojectTitle: 'Γέφυρα',
+      files: ['113-2026 Δ.Σ..pdf', 'ΑΠΟΦΑΣΗ ΟΡ. ΠΡΟΘΕΣΜ..pdf'],
+      fileGroups: [{ title: '..', files: ['εκτός.pdf'] }],
+    },
+  });
+  assert.ok(rels(result).includes('ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ/113-2026 Δ.Σ..pdf'));
+  assert.ok(rels(result).includes('ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ/ΑΠΟΦΑΣΗ ΟΡ. ΠΡΟΘΕΣΜ..pdf'));
+  assert.equal(rels(result).some((item) => item.includes('..\\') || item.split('/').includes('..')), false);
+  assert.ok(rels(result).includes('ΑΡΧΕΙΑ ΥΠΟΕΡΓΟΥ/Ομάδα/εκτός.pdf'));
+});
+
+test('ομάδες με ίδιο περικομμένο τίτλο μένουν χωριστά και φαίνονται οι διαφορές', () => {
+  const stem = 'ΔΙΚΑΙΟΛΟΓΗΤΙΚΑ ΥΠΟΒΟΛΗΣ - ΒΕΛΤΙΩΣΗ ΥΦΙΣΤΑΜΕΝΗΣ ΑΓΡΟΤΙΚΗΣ ΟΔΟΥ ΕΥΡΥΤΕΡΗΣ ΠΕΡΙΟΧΗΣ';
+  const result = plan.buildSubprojectFolderPlan({
+    project: { subprojectId: 's1', projectTitle: 'Γέφυρα', subprojectTitle: 'Γέφυρα' },
+    proskliseis: [{
+      prosklisiId: 'psk',
+      title: 'Πρόσκληση',
+      fileGroups: [
+        { title: `${stem} ΑΓ. ΠΑΡΑΣΚΙΩΝ`, files: ['πρώτο.pdf'] },
+        { title: `${stem} ΜΕΤΑΞΟΧΩΡΙΟΥ`, files: ['δεύτερο.pdf'] },
+      ],
+    }],
+  });
+  const paths = rels(result);
+  assert.equal(paths.filter((item) => item.endsWith('πρώτο.pdf')).length, 1);
+  assert.equal(paths.filter((item) => item.endsWith('δεύτερο.pdf')).length, 1);
+  const first = paths.find((item) => item.endsWith('πρώτο.pdf'));
+  const second = paths.find((item) => item.endsWith('δεύτερο.pdf'));
+  assert.notEqual(first.split('/').slice(0, -1).join('/'), second.split('/').slice(0, -1).join('/'));
+  assert.match(first, /ΠΑΡΑΣΚ/);
+  assert.match(second, /ΜΕΤΑΞ/);
+});
+
+test('αρχείο πρόσκλησης που φαίνεται μόνο στον φάκελο μπαίνει στην εξαγωγή', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-loose-psk-'));
+  const dataDir = path.join(root, 'data');
+  const filesDir = path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ', 'psk', 'ΑΡΧΕΙΑ_ΠΡΟΣΚΛΗΣΗΣ', 'Επισυναπτόμενα Αρχεία Υποβολής');
+  fs.mkdirSync(path.join(dataDir, 'proj', 'sub'), { recursive: true });
+  fs.mkdirSync(filesDir, { recursive: true });
+  fs.writeFileSync(path.join(filesDir, 'Πρόσκληση.pdf'), 'invite');
+  fs.writeFileSync(path.join(dataDir, 'proj', 'sub', 'data.json'), JSON.stringify({
+    projectId: 'proj',
+    subprojectId: 'sub',
+    projectTitle: 'Γέφυρα',
+    subprojectTitle: 'Γέφυρα',
+  }));
+  fs.writeFileSync(path.join(dataDir, 'ΠΡΟΣΚΛΗΣΕΙΣ', 'psk', 'data.json'), JSON.stringify({
+    prosklisiId: 'psk',
+    title: 'Γέφυρα',
+    fileGroups: [],
+    prosklisiFiles: [],
+  }));
+  const loaded = writer.loadFolderInput(dataDir, 'proj', 'sub');
+  const built = plan.buildSubprojectFolderPlan(loaded.input);
+  assert.ok(rels(built).includes('ΠΡΟΣΚΛΗΣΗ/Πρόσκληση.pdf'));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('αρχείο με όνομα ΠΡΟΣΚΛΗΣΗ κρατά το όνομά του και το συνοπτικό φύλλο παραμερίζει', () => {
+  const result = plan.buildSubprojectFolderPlan({
+    project: { subprojectId: 's1', projectTitle: 'Γέφυρα', subprojectTitle: 'Γέφυρα' },
+    proskliseis: [{
+      prosklisiId: 'psk',
+      title: 'Γέφυρα',
+      prosklisiFiles: [{ fileName: 'ΠΡΟΣΚΛΗΣΗ.pdf' }],
+      modifications: [{ modificationPDF: 'ΤΡΟΠΟΠΟΙΗΣΗ 1 ΠΡΟΣΚΛΗΣΗΣ.pdf' }],
+    }],
+  });
+  assert.ok(rels(result).includes('ΠΡΟΣΚΛΗΣΗ/ΠΡΟΣΚΛΗΣΗ.pdf'));
+  assert.ok(rels(result).includes('ΠΡΟΣΚΛΗΣΗ/ΤΡΟΠΟΠΟΙΗΣΗ 1 ΠΡΟΣΚΛΗΣΗΣ.pdf'));
+  assert.ok(pdfRels(result).includes('ΠΡΟΣΚΛΗΣΗ/ΠΡΟΣΚΛΗΣΗ - συνοπτικό.pdf'));
+  assert.ok(pdfRels(result).includes('ΠΡΟΣΚΛΗΣΗ/ΤΡΟΠΟΠΟΙΗΣΗ 1 ΠΡΟΣΚΛΗΣΗΣ - συνοπτικό.pdf'));
+});
+
 test('τα αρχεία του υποέργου κρατούν την ομάδα και τον υποφάκελο', () => {
   const result = plan.buildSubprojectFolderPlan({
     project: {
@@ -197,6 +275,66 @@ test('η έγκριση παίρνει τα αρχεία της γραμμής �
     'ΕΓΚΡΙΣΗ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ/εγκριση.pdf',
     'ΕΓΚΡΙΣΗ ΔΙΑΘΕΣΗΣ ΠΙΣΤΩΣΗΣ/τροποποιηση-πραξης.pdf',
   ]);
+});
+
+test('οι πράξεις Διαύγειας για ΑΠΕ και παράταση μπαίνουν ως αρχεία', () => {
+  const result = plan.buildSubprojectFolderPlan({
+    project: { subprojectId: 's1', subprojectTitle: 'Γέφυρα' },
+    diavgeiaEntries: [
+      { ada: '9τ9γωψμ-θος', stage: 'APE', documentUrl: 'https://diavgeia.gov.gr/doc/9Τ9ΓΩΨΜ-ΘΟΣ' },
+      { ada: 'Ε16ΡΩΨΜ-3Ι3', stage: 'EXT' },
+      { ada: '24SYMV015449653', stage: 'APE' },
+      { ada: 'ΨΩΗΠΩΨΜ-0ΧΘ', stage: 'REQ' },
+    ],
+  });
+  const diavgeia = result.copies.filter((item) => item.source && item.source.type === 'diavgeia');
+  assert.deepEqual(diavgeia.map((item) => item.relativePath).sort(), [
+    'ΚΗΜΔΗΣ/ΑΠΕ/9Τ9ΓΩΨΜ-ΘΟΣ.pdf',
+    'ΚΗΜΔΗΣ/Παράταση/Ε16ΡΩΨΜ-3Ι3.pdf',
+  ].sort());
+  assert.equal(diavgeia[0].source.documentUrl || diavgeia[1].source.documentUrl, 'https://diavgeia.gov.gr/doc/9Τ9ΓΩΨΜ-ΘΟΣ');
+});
+
+test('η λήψη από τη Διαύγεια γράφει το PDF στον φάκελο του σταδίου', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ergohub-diavgeia-'));
+  const dataDir = path.join(root, 'data');
+  const subDir = path.join(dataDir, 'proj', 'sub');
+  const cache = path.join(root, 'pdf');
+  fs.mkdirSync(subDir, { recursive: true });
+  fs.mkdirSync(cache, { recursive: true });
+  fs.writeFileSync(path.join(subDir, 'data.json'), JSON.stringify({
+    projectId: 'proj',
+    subprojectId: 'sub',
+    subprojectTitle: 'Γέφυρα',
+    khmdhsDocumentRegistry: [
+      { source: 'diavgeia', stage: 'APE', adam: '9Τ9ΓΩΨΜ-ΘΟΣ', openUrl: 'https://diavgeia.gov.gr/doc/9Τ9ΓΩΨΜ-ΘΟΣ' },
+      { source: 'diavgeia', stage: 'EXT', adam: 'Ε16ΡΩΨΜ-3Ι3' },
+      { source: 'khmdhs', stage: 'APE', adam: '24SYMV015449653' },
+    ],
+  }));
+  const loaded = writer.loadFolderInput(dataDir, 'proj', 'sub');
+  assert.deepEqual(loaded.input.diavgeiaEntries.map((entry) => entry.ada).sort(), ['9Τ9ΓΩΨΜ-ΘΟΣ', 'Ε16ΡΩΨΜ-3Ι3'].sort());
+  fs.writeFileSync(path.join(cache, 'ape.pdf'), '%PDF-1.4 diavgeia');
+  const destParent = path.join(root, 'out');
+  fs.mkdirSync(destParent);
+  const dest = path.join(destParent, 'Φάκελος');
+  const written = await writer.writeSubprojectFolder({
+    dataDir,
+    destDir: dest,
+    plan: {
+      pdfs: [],
+      copies: [{
+        relativePath: 'ΚΗΜΔΗΣ/ΑΠΕ/9Τ9ΓΩΨΜ-ΘΟΣ.pdf',
+        source: { type: 'diavgeia', ada: '9Τ9ΓΩΨΜ-ΘΟΣ', stage: 'APE', documentUrl: '' },
+      }],
+    },
+    pdfs: [],
+    downloadDiavgeia: async () => path.join(cache, 'ape.pdf'),
+  });
+  assert.equal(written.success, true);
+  assert.equal(written.diavgeiaMissing, 0);
+  assert.equal(fs.readFileSync(path.join(dest, 'ΚΗΜΔΗΣ', 'ΑΠΕ', '9Τ9ΓΩΨΜ-ΘΟΣ.pdf'), 'utf8'), '%PDF-1.4 diavgeia');
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('τα έγγραφα ΚΗΜΔΗΣ μπαίνουν ανά στάδιο και αγνοείται ό,τι δεν ανήκει στο υποέργο', () => {

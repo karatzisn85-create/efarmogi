@@ -114,9 +114,10 @@ export async function exportSubprojectFolder({
   const stopWaiting = ipcRenderer.on('subproject-folder-khmdhs-progress', (info) => {
     if (!onKhmdhsWaiting) return;
     if (info && info.waiting) {
+      const from = info.source === 'diavgeia' ? 'τη Διαύγεια' : 'το ΚΗΜΔΗΣ';
       onKhmdhsWaiting(info.attempt > 1
-        ? 'Αναμένουμε τη λήψη των αρχείων από το ΚΗΜΔΗΣ. Ξαναπροσπαθούμε.'
-        : 'Αναμένουμε τη λήψη των αρχείων από το ΚΗΜΔΗΣ.');
+        ? `Αναμένουμε τη λήψη των αρχείων από ${from}. Ξαναπροσπαθούμε.`
+        : `Αναμένουμε τη λήψη των αρχείων από ${from}.`);
       return;
     }
     onKhmdhsWaiting('');
@@ -138,9 +139,11 @@ export async function exportSubprojectFolder({
   if (result?.success) {
     if (showToast) {
       const missing = Number(result.khmdhsMissing) || 0;
+      const diavgeiaMissing = Number(result.diavgeiaMissing) || 0;
       const skipped = Number(result.skipped) || 0;
       const notes = [];
       if (missing > 0) notes.push(`${missing} κρίκοι δεν έχουν αρχείο στο ΚΗΜΔΗΣ`);
+      if (diavgeiaMissing > 0) notes.push(`${diavgeiaMissing} έγγραφα Διαύγειας δεν ήρθαν`);
       if (skipped > 0) notes.push(`${skipped} αρχεία δεν βρέθηκαν για αντιγραφή`);
       showToast(
         notes.length

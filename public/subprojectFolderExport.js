@@ -211,6 +211,33 @@ function loadEgkrisiRows(dataDir, subprojectId) {
   return rows;
 }
 
+function looseInvitationFiles(prosklisiDir, data) {
+  const grouped = new Set(
+    groupsCore.collectGroupFileNames(data && data.fileGroups).map((name) => String(name).toLowerCase())
+  );
+  const recorded = new Set();
+  (data && data.prosklisiFiles || []).forEach((file) => {
+    const name = path.basename(String((file && (file.fileName || file.name || file.originalName)) || ''));
+    if (name) recorded.add(name.toLowerCase());
+  });
+  const main = path.join(prosklisiDir, 'ΑΡΧΕΙΑ_ΠΡΟΣΚΛΗΣΗΣ');
+  const roots = [main, path.join(main, groupsCore.ATTACHMENTS_WRAPPER)];
+  const extra = [];
+  roots.forEach((root) => {
+    if (!fs.existsSync(root)) return;
+    let entries = [];
+    try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return; }
+    entries.forEach((entry) => {
+      if (!entry.isFile() || entry.name.startsWith('.')) return;
+      const key = entry.name.toLowerCase();
+      if (grouped.has(key) || recorded.has(key)) return;
+      recorded.add(key);
+      extra.push({ fileName: entry.name, originalName: entry.name });
+    });
+  });
+  return extra;
+}
+
 function loadFolderInput(dataDir, projectId, subprojectId) {
   const pid = safeId(projectId);
   const sid = safeId(subprojectId);
@@ -248,6 +275,8 @@ function loadFolderInput(dataDir, projectId, subprojectId) {
       data.prosklisiFiles = sidecar.prosklisiFiles;
     }
     const mods = readJson(path.join(dir, 'modifications.json'));
+    const loose = looseInvitationFiles(dir, data);
+    if (loose.length) data.prosklisiFiles = [...(data.prosklisiFiles || []), ...loose];
     const prosklisi = {
       ...data,
       prosklisiId: data.prosklisiId || id,
@@ -278,8 +307,31 @@ function loadFolderInput(dataDir, projectId, subprojectId) {
       egkriseis: loadEgkrisiRows(dataDir, sid),
       meleti,
       khmdhsEntries: [],
+      diavgeiaEntries: diavgeiaExportEntries(project),
     },
   };
+}
+
+function diavgeiaExportEntries(project) {
+  const out = [];
+  const seen = new Set();
+  (project && project.khmdhsDocumentRegistry || []).forEach((entry) => {
+    if (!entry || entry.source !== 'diavgeia') return;
+    const stage = String(entry.stage || '').toUpperCase();
+    if (stage !== 'APE' && stage !== 'EXT') return;
+    const ada = String(entry.adam || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (!ada || !ada.includes('-') || ada.includes('..') || /[\\/]/.test(ada)) return;
+    const key = `${stage}:${ada}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const url = String(entry.openUrl || '').trim();
+    out.push({
+      ada,
+      stage,
+      documentUrl: /^https?:\/\//i.test(url) ? url : '',
+    });
+  });
+  return out;
 }
 
 function locateProsklisiFile(prosklisiDir, titles, fileName) {
@@ -419,6 +471,9 @@ function resolveCopy(dataDir, source) {
   if (kind === 'khmdhs') {
     return { khmdhs: source };
   }
+  if (kind === 'diavgeia') {
+    return { diavgeia: source };
+  }
   return null;
 }
 
@@ -444,6 +499,7 @@ async function writeSubprojectFolder({
   plan,
   pdfs,
   downloadKhmdhs,
+  downloadDiavgeia,
 }) {
   if (!plan || !destDir) return { success: false, error: 'Λείπει ο προορισμός' };
   if (dangerousDestination(destDir, dataDir)) {
@@ -492,6 +548,7 @@ async function writeSubprojectFolder({
   let copied = 0;
   let skipped = 0;
   let khmdhsMissing = 0;
+  let diavgeiaMissing = 0;
 
   for (const copy of plan.copies || []) {
     const dest = destFor(target, copy.relativePath);
@@ -509,6 +566,17 @@ async function writeSubprojectFolder({
       }
       if (pdfPath && copyFileInto(pdfPath, dest, path.dirname(pdfPath))) copied += 1;
       else khmdhsMissing += 1;
+      continue;
+    }
+    if (resolved.diavgeia) {
+      let pdfPath = null;
+      try {
+        if (typeof downloadDiavgeia === 'function') pdfPath = await downloadDiavgeia(resolved.diavgeia);
+      } catch {
+        pdfPath = null;
+      }
+      if (pdfPath && copyFileInto(pdfPath, dest, path.dirname(pdfPath))) copied += 1;
+      else diavgeiaMissing += 1;
       continue;
     }
     if (resolved.meleti) {
@@ -557,6 +625,7 @@ async function writeSubprojectFolder({
     copied,
     skipped,
     khmdhsMissing,
+    diavgeiaMissing,
   };
   } catch {
     if (stageReady) {
@@ -610,11 +679,41 @@ async function downloadKhmdhsWithRetry(adam, {
   }
 }
 
+/**
+ * Λίγες προσπάθειες για το PDF της Διαύγειας. Αν ο ΑΔΑ δεν έχει έγγραφο,
+ * η εξαγωγή συνεχίζει και το αναφέρει.
+ */
+async function downloadDiavgeiaWithRetry(entry, {
+  download,
+  notify,
+  sleep,
+  attempts = 3,
+} = {}) {
+  if (!entry || !entry.ada || typeof download !== 'function') return null;
+  const max = Math.max(1, Number(attempts) || 1);
+  for (let attempt = 1; attempt <= max; attempt += 1) {
+    if (typeof notify === 'function') notify({ waiting: true, attempt, source: 'diavgeia' });
+    try {
+      const pdfPath = await download(entry);
+      if (pdfPath) return pdfPath;
+    } catch {
+      /* προσωρινή αποτυχία */
+    }
+    if (attempt < max) {
+      const waitMs = khmdhsRetryWaitMs(attempt);
+      if (typeof sleep === 'function') await sleep(waitMs);
+      else await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+  return null;
+}
+
 module.exports = {
   isInside,
   dangerousDestination,
   loadFolderInput,
   writeSubprojectFolder,
   downloadKhmdhsWithRetry,
+  downloadDiavgeiaWithRetry,
   khmdhsRetryWaitMs,
 };

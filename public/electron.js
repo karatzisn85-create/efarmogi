@@ -15998,6 +15998,20 @@ ipcMain.handle('export-subproject-folder', async (_event, payload = {}) => {
             notify: notifyKhmdhs,
           });
         },
+        downloadDiavgeia: async (entry) => {
+          if (isE2EProcess()) return null;
+          const diavgeia = require('./diavgeiaOpenData');
+          return folderExport.downloadDiavgeiaWithRetry(entry, {
+            download: async (item) => {
+              const result = await diavgeia.downloadDiavgeiaDecisionPdf(item.ada, {
+                documentUrl: item.documentUrl,
+                fileName: `${item.ada}.pdf`,
+              });
+              return result && result.success ? result.path : null;
+            },
+            notify: notifyKhmdhs,
+          });
+        },
       });
     } finally {
       notifyKhmdhs({ waiting: false });

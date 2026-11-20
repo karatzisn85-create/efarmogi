@@ -140,7 +140,8 @@
 
   function pushUnique(list, used, relativePath, source) {
     var rel = String(relativePath || '').replace(/\\/g, '/');
-    if (!rel || rel.indexOf('..') >= 0) return;
+    var parts = rel.split('/');
+    if (!rel || parts.some(function (part) { return !part || part === '.' || part === '..'; })) return;
     var finalRel = rel;
     var n = 2;
     while (used[finalRel.toLowerCase()]) {
@@ -157,18 +158,51 @@
     list.push({ relativePath: finalRel, source: source });
   }
 
+  function distinctGroupTitle(raw, base, taken) {
+    var full = sanitizeSegment(raw, 'Ομάδα', 200);
+    var tail = full.length > base.length
+      ? full.slice(base.length).replace(/^[\s\-–—]+/, '').trim()
+      : '';
+    var title = tail
+      ? sanitizeSegment(base.slice(0, 46).replace(/[\s\-]+$/, '') + ' - ' + tail, 'Ομάδα', 80)
+      : base;
+    var unique = title;
+    var n = 2;
+    while (taken[unique.toLowerCase()]) {
+      unique = sanitizeSegment(title, 'Ομάδα', 74) + ' ' + n;
+      n += 1;
+    }
+    taken[unique.toLowerCase()] = true;
+    return unique;
+  }
+
   function walkGroups(groups, parts, emit) {
+    var prepared = [];
     (groups || []).forEach(function (group) {
       if (!group) return;
       var raw = String(group.title || group.label || 'Ομάδα');
-      var title = sanitizeSegment(raw, 'Ομάδα');
-      var here = parts.concat([{ safe: title, raw: raw }]);
-      (group.files || []).forEach(function (file) {
+      prepared.push({ group: group, raw: raw, base: sanitizeSegment(raw, 'Ομάδα') });
+    });
+    var baseCount = {};
+    prepared.forEach(function (item) {
+      var key = item.base.toLowerCase();
+      baseCount[key] = (baseCount[key] || 0) + 1;
+    });
+    var taken = {};
+    prepared.forEach(function (item) {
+      var title = item.base;
+      if (baseCount[item.base.toLowerCase()] > 1 || taken[title.toLowerCase()]) {
+        title = distinctGroupTitle(item.raw, item.base, taken);
+      } else {
+        taken[title.toLowerCase()] = true;
+      }
+      var here = parts.concat([{ safe: title, raw: item.raw }]);
+      (item.group.files || []).forEach(function (file) {
         var ref = fileRef(file);
         if (!ref) return;
         emit(here, ref);
       });
-      walkGroups(group.subgroups, here, emit);
+      walkGroups(item.group.subgroups, here, emit);
     });
   }
 
@@ -205,6 +239,30 @@
     var three = String(adam || '').slice(2, 5);
     if (KHMDHS_STAGE_LABELS[three]) return three;
     return '';
+  }
+
+  function planDiavgeia(entries, copies, used) {
+    var seen = {};
+    (entries || []).forEach(function (entry) {
+      var stage = String((entry && entry.stage) || '').toUpperCase();
+      if (stage !== 'APE' && stage !== 'EXT') return;
+      var ada = String((entry && entry.ada) || '').trim().toUpperCase().replace(/\s+/g, '');
+      if (!ada || ada.indexOf('-') < 0 || /[\\/]/.test(ada) || ada.indexOf('..') >= 0) return;
+      var key = stage + ':' + ada;
+      if (seen[key]) return;
+      seen[key] = true;
+      pushUnique(
+        copies,
+        used,
+        joinRel('ΚΗΜΔΗΣ', KHMDHS_STAGE_LABELS[stage], ada + '.pdf'),
+        {
+          type: 'diavgeia',
+          ada: ada,
+          stage: stage,
+          documentUrl: String((entry && entry.documentUrl) || '')
+        }
+      );
+    });
   }
 
   function planKhmdhs(project, entries, copies, used) {
@@ -494,6 +552,26 @@
     });
   }
 
+  function placeGeneratedPdf(pdfs, used, spec) {
+    var rel = String(spec.relativePath || '').replace(/\\/g, '/');
+    var slash = rel.lastIndexOf('/');
+    var dir = slash >= 0 ? rel.slice(0, slash + 1) : '';
+    var file = slash >= 0 ? rel.slice(slash + 1) : rel;
+    var dot = file.lastIndexOf('.');
+    var stem = dot > 0 ? file.slice(0, dot) : file;
+    var ext = dot > 0 ? file.slice(dot) : '';
+    var candidate = rel;
+    if (used[candidate.toLowerCase()]) candidate = dir + stem + ' - συνοπτικό' + ext;
+    var n = 2;
+    while (used[candidate.toLowerCase()]) {
+      candidate = dir + stem + ' - συνοπτικό ' + n + ext;
+      n += 1;
+    }
+    used[candidate.toLowerCase()] = true;
+    spec.relativePath = candidate;
+    pdfs.push(spec);
+  }
+
   function buildSubprojectFolderPlan(input) {
     var src = input || {};
     var project = src.project || {};
@@ -512,6 +590,7 @@
 
     planSubprojectFiles(project, copies, used);
     planKhmdhs(project, src.khmdhsEntries, copies, used);
+    planDiavgeia(src.diavgeiaEntries, copies, used);
 
     var entaxeis = sortByTitle(src.entaxeis, function (item) {
       return (item && (item.subject || item.projectTitle)) || '';
@@ -519,14 +598,6 @@
     entaxeis.forEach(function (entaxi, index) {
       var folder = indexedName('ΕΝΤΑΞΗ', index);
       var reportName = folder + '.pdf';
-      pdfs.push({
-        slot: 'entaxi:' + entaxi.entaxiId,
-        kind: 'entaxi',
-        relativePath: joinRel(folder, reportName),
-        title: folder,
-        entaxi: entaxi
-      });
-      used[(folder + '/' + reportName).toLowerCase()] = true;
       var decisionList = (entaxi.entaxiPDFs && entaxi.entaxiPDFs.length)
         ? entaxi.entaxiPDFs
         : (entaxi.entaxiPDF ? [entaxi.entaxiPDF] : []);
@@ -557,17 +628,15 @@
           fileName: name
         });
       });
+      placeGeneratedPdf(pdfs, used, {
+        slot: 'entaxi:' + entaxi.entaxiId,
+        kind: 'entaxi',
+        relativePath: joinRel(folder, reportName),
+        title: folder,
+        entaxi: entaxi
+      });
       (entaxi.modifications || []).forEach(function (mod, modIndex) {
         var modName = 'ΤΡΟΠΟΠΟΙΗΣΗ ' + (modIndex + 1) + ' ΕΝΤΑΞΗΣ.pdf';
-        pdfs.push({
-          slot: 'entaxi-mod:' + entaxi.entaxiId + ':' + (modIndex + 1),
-          kind: 'record',
-          relativePath: joinRel(folder, modName),
-          title: 'ΤΡΟΠΟΠΟΙΗΣΗ ' + (modIndex + 1) + ' ΕΝΤΑΞΗΣ',
-          subtitle: entaxi.subject || entaxi.projectTitle || '',
-          rows: entaxiModRows(mod)
-        });
-        used[(folder + '/' + modName).toLowerCase()] = true;
         var seenModName = {};
         namesFromList(mod && mod.modificationPDF).concat(
           namesFromList(mod && mod.approvalPDFs),
@@ -583,6 +652,14 @@
             preferModification: true
           });
         });
+        placeGeneratedPdf(pdfs, used, {
+          slot: 'entaxi-mod:' + entaxi.entaxiId + ':' + (modIndex + 1),
+          kind: 'record',
+          relativePath: joinRel(folder, modName),
+          title: 'ΤΡΟΠΟΠΟΙΗΣΗ ' + (modIndex + 1) + ' ΕΝΤΑΞΗΣ',
+          subtitle: entaxi.subject || entaxi.projectTitle || '',
+          rows: entaxiModRows(mod)
+        });
       });
     });
 
@@ -592,7 +669,8 @@
     proskliseis.forEach(function (prosklisi, index) {
       var folder = indexedName('ΠΡΟΣΚΛΗΣΗ', index);
       var reportName = folder + '.pdf';
-      pdfs.push({
+      planProsklisiFiles(folder, prosklisi, project, copies, used);
+      placeGeneratedPdf(pdfs, used, {
         slot: 'prosklisi:' + prosklisi.prosklisiId,
         kind: 'record',
         relativePath: joinRel(folder, reportName),
@@ -600,19 +678,8 @@
         subtitle: prosklisi.title || '',
         rows: prosklisiRecordRows(prosklisi)
       });
-      used[(folder + '/' + reportName).toLowerCase()] = true;
-      planProsklisiFiles(folder, prosklisi, project, copies, used);
       (prosklisi.modifications || []).forEach(function (mod, modIndex) {
         var modName = 'ΤΡΟΠΟΠΟΙΗΣΗ ' + (modIndex + 1) + ' ΠΡΟΣΚΛΗΣΗΣ.pdf';
-        pdfs.push({
-          slot: 'prosklisi-mod:' + prosklisi.prosklisiId + ':' + (modIndex + 1),
-          kind: 'record',
-          relativePath: joinRel(folder, modName),
-          title: 'ΤΡΟΠΟΠΟΙΗΣΗ ' + (modIndex + 1) + ' ΠΡΟΣΚΛΗΣΗΣ',
-          subtitle: prosklisi.title || '',
-          rows: prosklisiModRows(mod)
-        });
-        used[(folder + '/' + modName).toLowerCase()] = true;
         var attachment = mod && mod.modificationPDF;
         var attachmentName = '';
         if (typeof attachment === 'string') attachmentName = basenameOnly(attachment);
@@ -627,6 +694,14 @@
             fileName: attachmentName
           });
         }
+        placeGeneratedPdf(pdfs, used, {
+          slot: 'prosklisi-mod:' + prosklisi.prosklisiId + ':' + (modIndex + 1),
+          kind: 'record',
+          relativePath: joinRel(folder, modName),
+          title: 'ΤΡΟΠΟΠΟΙΗΣΗ ' + (modIndex + 1) + ' ΠΡΟΣΚΛΗΣΗΣ',
+          subtitle: prosklisi.title || '',
+          rows: prosklisiModRows(mod)
+        });
       });
     });
 
