@@ -164,6 +164,7 @@ const EmailSettingsModal = lazy(() => import('./EmailSettingsModal'));
 const NotificationSettingsCenter = lazy(() => import('./NotificationSettingsCenter'));
 const MyNotificationPreferences = lazy(() => import('./MyNotificationPreferences'));
 const EmailSendHistory = lazy(() => import('./EmailSendHistory'));
+const UserMessageComposer = lazy(() => import('./UserMessageComposer'));
 const RoleDashboardWidget = lazy(() => import('./RoleDashboardWidget'));
 const KhmdhsBatchRefreshWidget = lazy(() => import('./KhmdhsBatchRefreshWidget'));
 const KhmdhsBatchReportFab = lazy(() =>
@@ -1467,6 +1468,17 @@ const AdminButtonIcon = styled.span`
   align-items: center;
   justify-content: center;
 `;
+
+const SendMailIcon = () => (
+  <AdminButtonIcon aria-hidden="true">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <rect x="1.4" y="7.2" width="14.2" height="10.4" rx="2.1" fill="#e0e7ff" />
+      <path d="M2.1 8.4L8.5 12.7L14.9 8.4" stroke="#4338ca" strokeWidth="1.35" strokeLinejoin="round" />
+      <path d="M12.6 3.6L22.4 8.2L16.2 9.7L13.8 15.1L12.8 10.3Z" fill="#c7d2fe" />
+      <path d="M16.2 9.7L22.4 8.2" stroke="#eef2ff" strokeWidth="0.9" strokeLinecap="round" />
+    </svg>
+  </AdminButtonIcon>
+);
 
 const ReminderDot = styled.span`
   display: inline-block;
@@ -3354,6 +3366,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isCalendarSettingsOpen, setIsCalendarSettingsOpen] = useState(false);
   const [isMyNotifPrefsOpen, setIsMyNotifPrefsOpen] = useState(false);
   const [isEmailHistoryOpen, setIsEmailHistoryOpen] = useState(false);
+  const [isUserMessageOpen, setIsUserMessageOpen] = useState(false);
   const [isMunicipalUnitsOpen, setIsMunicipalUnitsOpen] = useState(false);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [khmdhsOpenToken, setKhmdhsOpenToken] = useState(0);
@@ -3823,6 +3836,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     || isMunicipalUnitsOpen
     || isMyNotifPrefsOpen
     || isEmailHistoryOpen
+    || isUserMessageOpen
   );
 
   const prevHeavyDashboardOverlayRef = useRef(false);
@@ -8416,6 +8430,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             </CategoryBody>
           </CategorySection>
         )}
+
+        <AdminButton
+          type="button"
+          data-testid="btn-send-user-email"
+          onClick={() => setIsUserMessageOpen(true)}
+          title="Μήνυμα προς άλλους χρήστες, από το email της εφαρμογής"
+        >
+          <SendMailIcon />
+          Αποστολή Email
+        </AdminButton>
       </AdminSidebar>
 
       {/* Subproject Detail Modal */}
@@ -9373,6 +9397,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           <EmailSendHistory
             onClose={() => setIsEmailHistoryOpen(false)}
             currentUser={currentUser}
+          />
+        </Suspense>
+      )}
+
+      {isUserMessageOpen && (
+        <Suspense fallback={null}>
+          <UserMessageComposer
+            currentUser={currentUser}
+            showToast={showToast}
+            onClose={() => setIsUserMessageOpen(false)}
           />
         </Suspense>
       )}

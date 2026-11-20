@@ -129,10 +129,13 @@ function takeE2EDialogLog() {
 
 function captureE2EMail(entry) {
   if (!isE2EProcess()) return false;
-  mailOutbox.push({
+  const row = {
     to: String(entry && entry.to || ''),
     subject: String(entry && entry.subject || ''),
-  });
+  };
+  if (entry && entry.replyTo) row.replyTo = String(entry.replyTo);
+  if (entry && entry.html) row.html = String(entry.html);
+  mailOutbox.push(row);
   return true;
 }
 

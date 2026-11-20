@@ -91,6 +91,7 @@ const ALLOWED_INVOKE = new Set([
   'view-file-from-subfolder','view-modification-pdf','view-prosklisi-file',
   'watch-task-file','unwatch-task-file',
   'get-email-config','save-email-config','test-email-config','is-email-configured',
+  'list-user-message-recipients','send-user-message-email','open-user-message-files',
   'toggle-workspace-email-notifications',
   'get-my-notification-preferences','save-my-notification-preferences',
   'get-task-assignments-summary',

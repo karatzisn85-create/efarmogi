@@ -16,6 +16,7 @@ const {
   installE2EDialogHooks,
   takeE2EDialogLog,
   takeE2EMailOutbox,
+  captureE2EMail,
 } = require('./e2eMode');
 installE2EDialogHooks(dialog);
 const { attachEditContextMenu, getLastBuiltEditMenu } = require('./editContextMenu');
@@ -5567,6 +5568,122 @@ ipcMain.handle('e2e-dialog-log', () => {
 ipcMain.handle('e2e-mail-outbox', () => {
   if (!isE2EProcess()) return { success: false, error: 'Μη διαθέσιμο εκτός ελέγχων' };
   return { success: true, messages: takeE2EMailOutbox() };
+});
+
+function userMessageAttachment(filePath) {
+  const resolved = path.resolve(String(filePath || ''));
+  if (!resolved || !fs.existsSync(resolved)) {
+    return { ok: false, error: 'Κάποιο συνημμένο δεν βρέθηκε.' };
+  }
+  let real = resolved;
+  try { real = fs.realpathSync(resolved); } catch { return { ok: false, error: 'Κάποιο συνημμένο δεν διαβάζεται.' }; }
+  const stat = fs.statSync(real);
+  if (!stat.isFile()) return { ok: false, error: 'Μπορείς να επισυνάψεις μόνο αρχεία.' };
+  const base = path.basename(real).toLowerCase();
+  if (base === 'users.json' || base === 'email_config.json' || base === 'audit_log.json') {
+    return { ok: false, error: 'Αυτό το αρχείο δεν στέλνεται.' };
+  }
+  return { ok: true, file: { name: path.basename(real), path: real, bytes: stat.size } };
+}
+
+ipcMain.handle('list-user-message-recipients', async (_event, { actingUsername } = {}) => {
+  const auth = resolveTaskActingUser(actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
+  const actor = findUserByUsername(auth.username);
+  if (!actor) return { success: false, error: 'Δεν είστε συνδεδεμένοι στο σύστημα' };
+  const userMessage = require('./userMessageEmail');
+  const listed = userMessage.listRecipients(loadUsers(), actor);
+  return { success: true, me: listed.me, recipients: listed.recipients };
+});
+
+ipcMain.handle('open-user-message-files', async () => {
+  const queued = takeE2EOpenFiles();
+  if (queued) return { canceled: queued.length === 0, filePaths: queued };
+  const opts = {
+    title: 'Επισύναψη',
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Εικόνες, βίντεο και αρχεία', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'webm', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'zip'] },
+      { name: 'Όλα τα αρχεία', extensions: ['*'] },
+    ],
+  };
+  return (mainWindow && !mainWindow.isDestroyed())
+    ? dialog.showOpenDialog(mainWindow, opts)
+    : dialog.showOpenDialog(opts);
+});
+
+ipcMain.handle('send-user-message-email', async (_event, payload = {}) => {
+  const auth = resolveTaskActingUser(payload.actingUsername);
+  if (!auth.ok) return { success: false, error: auth.error };
+  try {
+    const actor = findUserByUsername(auth.username);
+    const incoming = Array.isArray(payload.attachments) ? payload.attachments : [];
+    const files = [];
+    for (const item of incoming) {
+      const checked = userMessageAttachment(item && item.path);
+      if (!checked.ok) return { success: false, error: checked.error };
+      files.push(checked.file);
+    }
+    const userMessage = require('./userMessageEmail');
+    const prepared = userMessage.prepareUserMessage({
+      actor,
+      users: loadUsers(),
+      recipientUsernames: payload.recipientUsernames,
+      subject: payload.subject,
+      body: payload.body,
+      files,
+    });
+    if (!prepared.ok) return { success: false, error: prepared.error };
+
+    const emailService = require('./taskAssignmentEmailService');
+    const emailConfig = emailService.loadEmailConfig(dataDir);
+    if (!isE2EProcess() && !emailService.isConfigured(emailConfig)) {
+      return { success: false, error: 'Το email της εφαρμογής δεν έχει ρυθμιστεί ακόμα.' };
+    }
+
+    const fromUser = String(emailConfig?.gmail?.user || '').trim();
+    const fromName = `${prepared.sender.fullName} μέσω ERGOHUB`.replace(/["<>]/g, '');
+    const attachments = prepared.files.map((file, index) => {
+      const source = files[index];
+      const item = { filename: file.name, path: source.path };
+      if (file.inline && file.cid) item.cid = file.cid;
+      return item;
+    });
+
+    if (isE2EProcess()) {
+      captureE2EMail({
+        to: prepared.to.join(', '),
+        subject: prepared.subject,
+        replyTo: prepared.replyTo,
+        html: prepared.html,
+      });
+    } else {
+      const transporter = emailService.createTransporter(emailConfig);
+      await transporter.sendMail({
+        from: `"${fromName}" <${fromUser}>`,
+        to: prepared.to,
+        replyTo: prepared.replyTo,
+        subject: prepared.subject,
+        html: prepared.html,
+        text: prepared.text,
+        attachments,
+      });
+    }
+
+    logAuditAction({
+      type: 'email',
+      entityType: 'user-message',
+      entityId: actor.username,
+      entityTitle: prepared.subject,
+      details: `Προς ${prepared.recipients.map((person) => person.fullName).join(', ')}`,
+      userFullName: actor.fullName || actor.username,
+      userRole: actor.role || 'USER',
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('send-user-message-email failed', error);
+    return { success: false, error: 'Το μήνυμα δεν στάλθηκε. Δοκίμασε ξανά.' };
+  }
 });
 
 ipcMain.handle('open-file-dialog', async () => {
