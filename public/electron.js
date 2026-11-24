@@ -3267,6 +3267,17 @@ function recordWorkspaceEmailHistory(result, { type, title, logSkip = true }) {
           status: 'sent',
         });
       });
+      (result.errors || []).forEach((err) => {
+        appendEmailHistory(dataDir, {
+          category: 'workspace',
+          type,
+          recipientEmail: err && err.to ? err.to : '',
+          recipientName: (err && err.error) || 'Αποτυχία αποστολής',
+          itemCount: 0,
+          items: [{ title: titleSafe }],
+          status: 'failed',
+        });
+      });
       return;
     }
     const failTo = result.errors && result.errors[0] ? result.errors[0].to : '';
@@ -13543,12 +13554,11 @@ function startNoteReminderChecker() {
           });
 
           logger.info(`Note reminder email sent to ${creator.email} for note "${noteTitle}"`);
+          note.reminderSent = true;
+          changed = true;
         } catch (emailErr) {
           logger.error('Failed to send note reminder email', emailErr);
         }
-
-        note.reminderSent = true;
-        changed = true;
       }
 
       if (changed) {

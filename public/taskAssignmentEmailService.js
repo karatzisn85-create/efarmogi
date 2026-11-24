@@ -408,6 +408,7 @@ function emailResultForClient(result) {
     reason: result.reason || '',
     error: result.error || '',
     sentCount: Array.isArray(result.sentTo) ? result.sentTo.length : 0,
+    failedCount: Array.isArray(result.errors) ? result.errors.length : 0,
   };
 }
 

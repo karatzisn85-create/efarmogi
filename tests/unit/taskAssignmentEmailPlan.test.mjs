@@ -47,5 +47,15 @@ test('αποτέλεσμα προς την οθόνη δεν περιλαμβά�
   });
   assert.equal(client.success, true);
   assert.equal(client.sentCount, 2);
+  assert.equal(client.failedCount, 0);
   assert.equal(client.sentTo, undefined);
+  const partial = svc.emailResultForClient({
+    success: true,
+    sentTo: ['maria@gmail.com'],
+    errors: [{ to: 'other@gmail.com', error: 'αποτυχία' }]
+  });
+  assert.equal(partial.sentCount, 1);
+  assert.equal(partial.failedCount, 1);
+  assert.equal(partial.sentTo, undefined);
+  assert.equal(partial.errors, undefined);
 });

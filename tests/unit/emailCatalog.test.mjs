@@ -109,4 +109,8 @@ test('μήνυμα προς τον δημιουργό μετά την αποστ
   const fail = em.workspaceEmailUserMessage({ success: false, error: 'EMAIL_DECRYPT_FAILED' }, 'created');
   assert.equal(fail.type, 'warning');
   assert.match(fail.text, /κωδικό/);
+  const partial = em.workspaceEmailUserMessage({ success: true, sentCount: 1, failedCount: 2 }, 'created');
+  assert.equal(partial.type, 'warning');
+  assert.match(partial.text, /1 συνάδελφο/);
+  assert.match(partial.text, /2 συναδέλφους/);
 });

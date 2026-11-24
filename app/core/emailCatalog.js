@@ -179,6 +179,17 @@
     }
     if (result.success) {
       var n = typeof result.sentCount === 'number' ? result.sentCount : (result.sentTo || []).length;
+      var failed = typeof result.failedCount === 'number'
+        ? result.failedCount
+        : (Array.isArray(result.errors) ? result.errors.length : 0);
+      if (failed > 0) {
+        var reached = n === 1 ? '1 συνάδελφο' : (n + ' συναδέλφους');
+        var missed = failed === 1 ? '1 συνάδελφο' : (failed + ' συναδέλφους');
+        return {
+          type: 'warning',
+          text: 'Το email έφτασε σε ' + reached + ', αλλά δεν στάλθηκε σε ' + missed + '.'
+        };
+      }
       if (n <= 1) return { type: 'success', text: 'Στάλθηκε email στον συνάδελφο.' };
       return { type: 'success', text: 'Στάλθηκε email σε ' + n + ' συναδέλφους.' };
     }
