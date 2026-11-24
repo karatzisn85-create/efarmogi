@@ -316,7 +316,7 @@ function getFileTypeStyle(fileName) {
   }
 }
 
-function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole, onEntaxiUpdated, canManageFiles = false }) {
+function EntaxisFileViewer({ isOpen, onClose, onMinimize = null, entaxi, userRole, onEntaxiUpdated, canManageFiles = false }) {
   const { showToast } = useToast();
   const canManageWorkflow = (userRole !== 'USER' && userRole !== 'ENGINEER') && canManageFiles;
   const [entaxiFiles, setEntaxiFiles] = useState([]);
@@ -506,6 +506,9 @@ function EntaxisFileViewer({ isOpen, onClose, entaxi, userRole, onEntaxiUpdated,
       <ModalContainer data-testid="ent-files-modal">
         <ModalHeader>
           <ModalTitle>Αρχεία Ένταξης</ModalTitle>
+          {typeof onMinimize === 'function' ? (
+            <CloseBtn type="button" data-testid="ent-files-minimize" onClick={onMinimize} title="Σύμπτυξη" aria-label="Σύμπτυξη">–</CloseBtn>
+          ) : null}
           <CloseBtn type="button" data-testid="ent-files-close" onClick={onClose}>✕</CloseBtn>
         </ModalHeader>
 

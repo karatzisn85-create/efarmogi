@@ -22,6 +22,7 @@ import {
   FormTitle,
   HeroSubtitle,
   CloseButton,
+  HeroActions,
   FormBody,
   FormGrid as ChromeFormGrid,
   FormGroup,
@@ -110,7 +111,7 @@ const SelectedFile = styled.div`
 // Constants
 const STATUS_OPTIONS = PROSKLISI_STATUS_OPTIONS;
 
-function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi, isEditMode = false }) {
+function ProsklisiModificationForm({ isOpen, suspended = false, onMinimize = null, onClose, onSave, originalProsklisi, isEditMode = false }) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     title: '',
@@ -175,7 +176,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
   }, [originalProsklisi, isOpen, isEditMode]);
 
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || suspended) return undefined;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
       if (document.querySelector('[data-testid="confirm-yes"]')) return;
@@ -184,7 +185,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, suspended, onClose]);
 
   // Track changes
   useEffect(() => {
@@ -375,7 +376,7 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
     }
   };
 
-  if (!isOpen || !originalProsklisi) return null;
+  if (!isOpen || suspended || !originalProsklisi) return null;
 
   const hasChanges = Object.keys(changes).length > 0;
 
@@ -390,7 +391,12 @@ function ProsklisiModificationForm({ isOpen, onClose, onSave, originalProsklisi,
               Τα πεδία που αλλάζουν σημειώνονται με πορτοκαλί ένδειξη.
             </HeroSubtitle>
           </HeroText>
-          <CloseButton type="button" onClick={onClose}>Κλείσιμο</CloseButton>
+          <HeroActions>
+            {typeof onMinimize === 'function' ? (
+              <CloseButton type="button" data-testid="psk-mod-form-minimize" onClick={onMinimize}>Σύμπτυξη</CloseButton>
+            ) : null}
+            <CloseButton type="button" onClick={onClose}>Κλείσιμο</CloseButton>
+          </HeroActions>
         </FormHero>
 
         <FormBody>

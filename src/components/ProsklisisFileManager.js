@@ -520,7 +520,7 @@ function scopeGroupIds(group, scope) {
   };
 }
 
-function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, userRole, loggedInUsername }) {
+function ProsklisisFileManager({ isOpen, suspended = false, onClose, onMinimize = null, prosklisiId, prosklisiTitle, userRole, loggedInUsername }) {
   const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [files, setFiles] = useState({
@@ -572,7 +572,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
   }, [isOpen, prosklisiId]);
 
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || suspended) return undefined;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
       if (renameTarget) return;
@@ -585,7 +585,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose, renameTarget]);
+  }, [isOpen, suspended, onClose, renameTarget]);
 
   const loadFiles = async () => {
     setLoading(true);
@@ -1855,7 +1855,7 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
     || (folders.main || []).length > 0
     || (folders.attachments || []).length > 0;
 
-  if (!isOpen) return null;
+  if (!isOpen || suspended) return null;
 
   return (
     <>
@@ -1886,6 +1886,9 @@ function ProsklisisFileManager({ isOpen, onClose, prosklisiId, prosklisiTitle, u
                 </PillBtn>
               </>
             )}
+            {typeof onMinimize === 'function' ? (
+              <CloseButton type="button" data-testid="psk-files-minimize" onClick={onMinimize} title="Σύμπτυξη" aria-label="Σύμπτυξη">–</CloseButton>
+            ) : null}
             <CloseButton onClick={onClose}>✖</CloseButton>
           </HeaderActions>
         </Header>

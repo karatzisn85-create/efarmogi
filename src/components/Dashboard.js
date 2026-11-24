@@ -211,6 +211,80 @@ const LazyChunkFallback = styled.div`
   font-weight: 600;
 `;
 
+const MinimizedDock = styled.div`
+  position: fixed;
+  left: 50%;
+  bottom: 0.85rem;
+  transform: translateX(-50%);
+  z-index: 80000;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+`;
+
+const MinimizedChip = styled.div`
+  pointer-events: auto;
+  display: flex;
+  align-items: stretch;
+  max-width: min(640px, calc(100vw - 1.5rem));
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(226, 232, 240, 0.9);
+  overflow: hidden;
+`;
+
+const MinimizedRestore = styled.button`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  min-width: 0;
+  padding: 0.55rem 0.9rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: #1e293b;
+
+  &:hover {
+    background: rgba(99, 102, 241, 0.08);
+  }
+`;
+
+const MinimizedTitle = styled.span`
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  color: #312e81;
+`;
+
+const MinimizedHint = styled.span`
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const MinimizedClose = styled.button`
+  border: none;
+  border-left: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #475569;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:hover {
+    background: #f8fafc;
+    color: #0f172a;
+  }
+`;
+
 const DashboardContainer = styled.div`
   min-height: 100vh;
   background: linear-gradient(160deg, #f8fafc 0%, #eef2ff 40%, #f0f9ff 70%, #f8fafc 100%);
@@ -3503,6 +3577,24 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [isProsklisisOpen, setIsProsklisisOpen] = useState(false);
   const [prosklisiProjectFilter, setProsklisiProjectFilter] = useState(null);
   const [selectedProsklisiId, setSelectedProsklisiId] = useState(null);
+  const [entaxiMinimized, setEntaxiMinimized] = useState(false);
+  const [entaxiMinimizedHint, setEntaxiMinimizedHint] = useState('');
+  const [entaxiMinimizedEditing, setEntaxiMinimizedEditing] = useState(false);
+  const [entaxiCloseRequest, setEntaxiCloseRequest] = useState(0);
+  const [prosklisiMinimized, setProsklisiMinimized] = useState(false);
+  const [prosklisiMinimizedHint, setProsklisiMinimizedHint] = useState('');
+  const [prosklisiMinimizedEditing, setProsklisiMinimizedEditing] = useState(false);
+  const [prosklisiCloseRequest, setProsklisiCloseRequest] = useState(0);
+  const entaxiPresenceRef = useRef({ hint: '', editing: false });
+  const prosklisiPresenceRef = useRef({ hint: '', editing: false });
+
+  useLayoutEffect(() => {
+    if (isEntaxisOpen && entaxiMinimized) setEntaxiMinimized(false);
+  }, [isEntaxisOpen, entaxiMinimized]);
+
+  useLayoutEffect(() => {
+    if (isProsklisisOpen && prosklisiMinimized) setProsklisiMinimized(false);
+  }, [isProsklisisOpen, prosklisiMinimized]);
   const [isCreditApprovalsOpen, setIsCreditApprovalsOpen] = useState(false);
   const [creditApprovals, setCreditApprovals] = useState({});
   const [linkedEgkriseis, setLinkedEgkriseis] = useState({});
@@ -6014,13 +6106,58 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     }
   };
 
+  const clearEntaxiPresence = useCallback(() => {
+    entaxiPresenceRef.current = { hint: '', editing: false, formOpen: false };
+  }, []);
+
+  const clearProsklisiPresence = useCallback(() => {
+    prosklisiPresenceRef.current = { hint: '', editing: false, formOpen: false };
+  }, []);
+
+  const entaxiDraftIsOpen = useCallback(() => !!(
+    entaxiPresenceRef.current?.formOpen
+    && (isEntaxisOpen || entaxiMinimized || entaxiReturnActive)
+  ), [entaxiMinimized, entaxiReturnActive, isEntaxisOpen]);
+
+  const prosklisiDraftIsOpen = useCallback(() => !!(
+    prosklisiPresenceRef.current?.formOpen
+    && (isProsklisisOpen || prosklisiMinimized || prosklisiReturnId)
+  ), [isProsklisisOpen, prosklisiMinimized, prosklisiReturnId]);
+
+  const showEntaxiDraft = useCallback(() => {
+    showToast('Οι εντάξεις έχουν ήδη ανοιχτή καταχώριση ή αρχεία. Κλείστε τα και ξαναπατήστε.', 'warning');
+    setEntaxiMinimized(false);
+    setIsEntaxisOpen(true);
+  }, [showToast]);
+
+  const showProsklisiDraft = useCallback(() => {
+    showToast('Οι προσκλήσεις έχουν ήδη ανοιχτή καταχώριση ή αρχεία. Κλείστε τα και ξαναπατήστε.', 'warning');
+    setProsklisiMinimized(false);
+    setIsProsklisisOpen(true);
+  }, [showToast]);
+
   const handleOpenLinkedProsklisi = (prosklisiId) => {
+    if (prosklisiDraftIsOpen()) {
+      showProsklisiDraft();
+      return;
+    }
     setSelectedProsklisiId(prosklisiId);
     setProsklisiProjectFilter(null);
     setIsProsklisisOpen(true);
   };
 
   const handleOpenEntaxiFromProsklisi = useCallback((entaxiOrId) => {
+    if (entaxiDraftIsOpen()) {
+      if (isProsklisisOpen) {
+        const session = prosklisiPresenceRef.current || {};
+        setProsklisiMinimizedHint(session.hint || '');
+        setProsklisiMinimizedEditing(!!session.editing);
+        setProsklisiMinimized(true);
+        setIsProsklisisOpen(false);
+      }
+      showEntaxiDraft();
+      return;
+    }
     const entaxiId = typeof entaxiOrId === 'string' ? entaxiOrId : entaxiOrId?.entaxiId;
     const prosklisiId = typeof entaxiOrId === 'object' ? entaxiOrId?.prosklisiId : null;
     setIsProsklisisOpen(false);
@@ -6035,7 +6172,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       setEntaxisProsklisiIdFilter(prosklisiId);
     }
     setIsEntaxisOpen(true);
-  }, []);
+  }, [entaxiDraftIsOpen, isProsklisisOpen, showEntaxiDraft]);
 
   const captureProsklisiReturnContext = useCallback((prosklisiId) => {
     const id = String(prosklisiId || '').trim();
@@ -6073,8 +6210,87 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     if (!entaxiReturnRef.current) return false;
     entaxiReturnRef.current = false;
     setEntaxiReturnActive(false);
+    setEntaxiMinimized(false);
     setIsEntaxisOpen(true);
     return true;
+  }, []);
+
+  const rememberEntaxiPresence = useCallback((session) => {
+    entaxiPresenceRef.current = session || { hint: '', editing: false, formOpen: false };
+  }, []);
+
+  const rememberProsklisiPresence = useCallback((session) => {
+    prosklisiPresenceRef.current = session || { hint: '', editing: false, formOpen: false };
+  }, []);
+
+  const parkEntaxi = useCallback((session) => {
+    const next = session || entaxiPresenceRef.current || {};
+    setEntaxiMinimizedHint(next.hint || '');
+    setEntaxiMinimizedEditing(!!next.editing);
+    setEntaxiMinimized(true);
+    setIsEntaxisOpen(false);
+  }, []);
+
+  const parkProsklisi = useCallback((session) => {
+    const next = session || prosklisiPresenceRef.current || {};
+    setProsklisiMinimizedHint(next.hint || '');
+    setProsklisiMinimizedEditing(!!next.editing);
+    setProsklisiMinimized(true);
+    setIsProsklisisOpen(false);
+  }, []);
+
+  const minimizeEntaxi = useCallback((session) => {
+    if (prosklisiMinimized) {
+      showToast('Υπάρχει ήδη συμπτυγμένη πρόσκληση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις εντάξεις.', 'warning');
+      return;
+    }
+    parkEntaxi(session);
+  }, [parkEntaxi, prosklisiMinimized, showToast]);
+
+  const minimizeProsklisi = useCallback((session) => {
+    if (entaxiMinimized) {
+      showToast('Υπάρχουν ήδη συμπτυγμένες εντάξεις. Επανάφερέ τες ή κλείσε τες από τη λωρίδα και μετά σύμπτυξε τις προσκλήσεις.', 'warning');
+      return;
+    }
+    parkProsklisi(session);
+  }, [entaxiMinimized, parkProsklisi, showToast]);
+
+  const restoreMinimizedEntaxi = useCallback(() => {
+    if (isProsklisisOpen) parkProsklisi();
+    setEntaxiMinimized(false);
+    setIsEntaxisOpen(true);
+  }, [isProsklisisOpen, parkProsklisi]);
+
+  const restoreMinimizedProsklisi = useCallback(() => {
+    if (isEntaxisOpen) parkEntaxi();
+    setProsklisiMinimized(false);
+    setIsProsklisisOpen(true);
+  }, [isEntaxisOpen, parkEntaxi]);
+
+  const closeMinimizedEntaxi = useCallback(async () => {
+    const ok = await showConfirm({
+      title: 'Κλείσιμο εντάξεων',
+      message: 'Οι συμπτυγμένες εντάξεις θα κλείσουν. Ό,τι δεν έχει αποθηκευτεί χάνεται.',
+      confirmLabel: 'Κλείσιμο',
+      cancelLabel: 'Άκυρο',
+      danger: true,
+      icon: '🗂',
+    });
+    if (!ok) return;
+    setEntaxiCloseRequest((n) => n + 1);
+  }, []);
+
+  const closeMinimizedProsklisi = useCallback(async () => {
+    const ok = await showConfirm({
+      title: 'Κλείσιμο προσκλήσεων',
+      message: 'Οι συμπτυγμένες προσκλήσεις θα κλείσουν. Ό,τι δεν έχει αποθηκευτεί χάνεται.',
+      confirmLabel: 'Κλείσιμο',
+      cancelLabel: 'Άκυρο',
+      danger: true,
+      icon: '🗂',
+    });
+    if (!ok) return;
+    setProsklisiCloseRequest((n) => n + 1);
   }, []);
 
   const handleOpenAssociationFromProsklisi = useCallback((payload) => {
@@ -6087,6 +6303,13 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     if (payload?.dataChanged) {
       loadProjects();
       loadProskliseis();
+    }
+
+    if (kind === 'entaxi' || kind === 'new-entaxi') {
+      if (entaxiDraftIsOpen()) {
+        showEntaxiDraft();
+        return;
+      }
     }
 
     if (kind === 'entaxi') {
@@ -6140,7 +6363,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
     showToast('Δεν είναι δυνατή η μετάβαση σε αυτή τη συσχέτιση.', 'warning');
     restoreProsklisiReturnContext();
-  }, [captureProsklisiReturnContext, projects, openSubprojectDetail, showToast, restoreProsklisiReturnContext, openOrimanthiView]);
+  }, [captureProsklisiReturnContext, entaxiDraftIsOpen, projects, openSubprojectDetail, showEntaxiDraft, showToast, restoreProsklisiReturnContext, openOrimanthiView]);
 
   const handleCloseFileManager = () => {
     setFileManager({
@@ -6857,10 +7080,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
     closeNotesAfterPointer(() => {
       if (type === 'entaxi') {
+        if (entaxiDraftIsOpen()) {
+          showEntaxiDraft();
+          return;
+        }
         setEntaxisProjectFilter(null);
         setSelectedEntaxiId(id);
         setIsEntaxisOpen(true);
       } else if (type === 'prosklisi') {
+        if (prosklisiDraftIsOpen()) {
+          showProsklisiDraft();
+          return;
+        }
         setProsklisiProjectFilter(null);
         setSelectedProsklisiId(id);
         setIsProsklisisOpen(true);
@@ -6877,7 +7108,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         setIsMeletaiOpen(true);
       }
     });
-  }, [projects, visibleProjects, captureNoteReturnContext, openSubprojectDetail, showToast, closeNotesAfterPointer]);
+  }, [projects, visibleProjects, captureNoteReturnContext, entaxiDraftIsOpen, prosklisiDraftIsOpen, showEntaxiDraft, showProsklisiDraft, openSubprojectDetail, showToast, closeNotesAfterPointer]);
 
   const refreshTaskAccessRef = useRef(null);
   const refreshTaskAccess = useCallback(async () => {
@@ -6970,6 +7201,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, [currentUser?.username, refreshTaskAccess]);
 
   const handleOpenEntaxis = (projectTitle = null) => {
+    if (entaxiDraftIsOpen()) {
+      showEntaxiDraft();
+      return;
+    }
     setEntaxisProjectFilter(projectTitle);
     setIsEntaxisOpen(true);
   };
@@ -6993,6 +7228,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   // Handle opening specific entaxi
   const handleOpenSpecificEntaxi = (subprojectId) => {
+    if (entaxiDraftIsOpen()) {
+      showEntaxiDraft();
+      return;
+    }
     const entaxi = getEntaxiForSubproject(subprojectId);
     if (entaxi) {
       setSelectedEntaxiId(entaxi.entaxiId);
@@ -7062,6 +7301,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
 
   // Handle opening specific prosklisi
   const handleOpenSpecificProsklisi = (projectTitle, projectId) => {
+    if (prosklisiDraftIsOpen()) {
+      showProsklisiDraft();
+      return;
+    }
     const prosklisi = getProsklisiForProject(projectTitle, projectId);
     if (prosklisi) {
       // Ίδια ροή με το linked κουμπί: φίλτρο με ID ώστε να βρεθεί και το σωστό tab
@@ -8166,6 +8409,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 if (dashboardScrollRef.current) {
                   savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
+                if (isProsklisisOpen) parkProsklisi();
+                setEntaxiMinimized(false);
                 setIsEntaxisOpen(true);
               }}>
                 <AdminButtonIcon>📊</AdminButtonIcon>
@@ -8175,6 +8420,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 if (dashboardScrollRef.current) {
                   savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
+                if (isEntaxisOpen) parkEntaxi();
+                setProsklisiMinimized(false);
                 setIsProsklisisOpen(true);
               }}>
                 <AdminButtonIcon>📢</AdminButtonIcon>
@@ -8682,11 +8929,14 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       ) : null}
 
       {/* Entaxis Manager Modal */}
-      {(isEntaxisOpen || entaxiReturnActive) ? (
+      {(isEntaxisOpen || entaxiReturnActive || entaxiMinimized) ? (
       <Suspense fallback={<LazyChunkFallback>Φόρτωση εντάξεων…</LazyChunkFallback>}>
       <EntaxisManager
         isOpen={isEntaxisOpen}
-        keepAlive={entaxiReturnActive}
+        keepAlive={entaxiReturnActive || entaxiMinimized}
+        onMinimize={minimizeEntaxi}
+        onPresence={rememberEntaxiPresence}
+        closeRequestId={entaxiCloseRequest}
         selectedEntaxiId={selectedEntaxiId}
         prosklisiIdFilter={entaxisProsklisiIdFilter}
         initialCreateProsklisiId={entaxisCreateProsklisiId}
@@ -8699,6 +8949,11 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         }}
         onClose={async (dataChanged) => {
           clearEntaxiReturnContext();
+          clearEntaxiPresence();
+          setEntaxiCloseRequest(0);
+          setEntaxiMinimized(false);
+          setEntaxiMinimizedHint('');
+          setEntaxiMinimizedEditing(false);
           setIsEntaxisOpen(false);
           setEntaxisProjectFilter(null);
           setSelectedEntaxiId(null);
@@ -8852,6 +9107,10 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
             refreshEpoch={orimanthiListEpoch}
             proskliseis={proskliseis}
             onOpenProsklisi={(prosklisiId) => {
+              if (prosklisiDraftIsOpen()) {
+                showProsklisiDraft();
+                return;
+              }
               setSelectedProsklisiId(prosklisiId);
               setProsklisiProjectFilter(null);
               setIsProsklisisOpen(true);
@@ -8926,12 +9185,20 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       ) : null}
 
       {/* Prosklisis Manager Modal */}
-      {(isProsklisisOpen || prosklisiReturnId) ? (
+      {(isProsklisisOpen || prosklisiReturnId || prosklisiMinimized) ? (
       <Suspense fallback={<LazyChunkFallback>Φόρτωση προσκλήσεων…</LazyChunkFallback>}>
       <ProsklisisManager
         isOpen={isProsklisisOpen}
-        keepAlive={!!prosklisiReturnId}
+        keepAlive={!!prosklisiReturnId || prosklisiMinimized}
+        onMinimize={minimizeProsklisi}
+        onPresence={rememberProsklisiPresence}
+        closeRequestId={prosklisiCloseRequest}
         onClose={(dataChanged) => {
+          clearProsklisiPresence();
+          setProsklisiCloseRequest(0);
+          setProsklisiMinimized(false);
+          setProsklisiMinimizedHint('');
+          setProsklisiMinimizedEditing(false);
           setIsProsklisisOpen(false);
           setProsklisiProjectFilter(null);
           setSelectedProsklisiId(null);
@@ -9694,6 +9961,39 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         onStartTour={startGuideTour}
         onShowTarget={handleShowGuideTarget}
       />
+      {(entaxiMinimized || prosklisiMinimized) ? (
+        <MinimizedDock data-testid="workflow-minimized-dock">
+          {entaxiMinimized ? (
+            <MinimizedChip>
+              <MinimizedRestore type="button" data-testid="dock-restore-entaxi" onClick={restoreMinimizedEntaxi}>
+                <MinimizedTitle>Εντάξεις</MinimizedTitle>
+                <MinimizedHint>
+                  {entaxiMinimizedEditing ? 'Σε επεξεργασία — η εγγραφή μένει κλειδωμένη' : (entaxiMinimizedHint || 'Συμπτυγμένο παράθυρο')}
+                  {entaxiMinimizedEditing && entaxiMinimizedHint ? ` · ${entaxiMinimizedHint}` : ''}
+                </MinimizedHint>
+              </MinimizedRestore>
+              <MinimizedClose type="button" data-testid="dock-close-entaxi" onClick={() => { void closeMinimizedEntaxi(); }}>
+                Κλείσιμο
+              </MinimizedClose>
+            </MinimizedChip>
+          ) : null}
+          {prosklisiMinimized ? (
+            <MinimizedChip>
+              <MinimizedRestore type="button" data-testid="dock-restore-prosklisi" onClick={restoreMinimizedProsklisi}>
+                <MinimizedTitle>Προσκλήσεις</MinimizedTitle>
+                <MinimizedHint>
+                  {prosklisiMinimizedEditing ? 'Σε επεξεργασία — η εγγραφή μένει κλειδωμένη' : (prosklisiMinimizedHint || 'Συμπτυγμένο παράθυρο')}
+                  {prosklisiMinimizedEditing && prosklisiMinimizedHint ? ` · ${prosklisiMinimizedHint}` : ''}
+                </MinimizedHint>
+              </MinimizedRestore>
+              <MinimizedClose type="button" data-testid="dock-close-prosklisi" onClick={() => { void closeMinimizedProsklisi(); }}>
+                Κλείσιμο
+              </MinimizedClose>
+            </MinimizedChip>
+          ) : null}
+        </MinimizedDock>
+      ) : null}
+
       <UserGuideTour
         active={guideOverlayActive && !loading}
         stepIndex={activeGuideStepIndex}

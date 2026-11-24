@@ -144,6 +144,12 @@ const Title = styled.h2`
   }
 `;
 
+const HeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+`;
+
 const CloseButton = styled.button`
   background: #ffffff;
   color: #475569;
@@ -1484,7 +1490,7 @@ window.fixAllEntaxeis = async () => {
   }
 };
 
-function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, initialCreateProsklisiId = null, projects = [], catalogIndexEntries = null, onClearFocus = null, onDataChange, onCreateProjectFromEntaxi, onOpenSubproject, onOpenOrimanthi, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '', appConfig = {}, appVersion = '' }) {
+function EntaxisManager({ isOpen, keepAlive = false, onClose, onMinimize = null, onPresence = null, closeRequestId = 0, userRole, currentUser, projectFilter = null, selectedEntaxiId = null, prosklisiIdFilter = null, initialCreateProsklisiId = null, projects = [], catalogIndexEntries = null, onClearFocus = null, onDataChange, onCreateProjectFromEntaxi, onOpenSubproject, onOpenOrimanthi, proskliseis = [], handleOpenProsklisi, onViewFile, linkedNotesMap = {}, notes = [], onOpenNoteFromEntity, organizationName = '', appConfig = {}, appVersion = '' }) {
   const { showToast } = useToast();
   const canManageWorkflow = entaxiCatalog.showNewEntaxiButton(userRole);
   const [entaxeis, setEntaxeis] = useState([]);
@@ -1530,6 +1536,9 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
   const [menuContext, setMenuContext] = useState(null);
   const [textDetailModal, setTextDetailModal] = useState(null);
   const catalogDirtyRef = useRef(false);
+  const suspendedRef = useRef(false);
+  const appliedCreateProsklisiIdRef = useRef('');
+  const handledCloseRequestRef = useRef(0);
   const focusScrollKeyRef = useRef(null);
   const focusedDetailOpenedRef = useRef(null);
   const listScrollRef = useRef(null);
@@ -1692,14 +1701,17 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
 
   useEffect(() => {
     if (isOpen) {
-      catalogDirtyRef.current = false;
+      if (!suspendedRef.current) catalogDirtyRef.current = false;
+      suspendedRef.current = false;
       loadEntaxeis();
       lockBodyScroll('entaxis');
+    } else if (keepAlive) {
+      suspendedRef.current = true;
     }
     return () => {
       unlockBodyScroll('entaxis');
     };
-  }, [isOpen]);
+  }, [isOpen, keepAlive]);
 
   useEffect(() => {
     applyFilters();
@@ -1708,7 +1720,8 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
   useEffect(() => {
     if (!isOpen) return;
     const id = String(initialCreateProsklisiId || '').trim();
-    if (!id) return;
+    if (!id || appliedCreateProsklisiIdRef.current === id) return;
+    appliedCreateProsklisiIdRef.current = id;
     setCreateProsklisiId(id);
     setEditingEntaxi(null);
     setSelectedDetailEntaxi(null);
@@ -1933,6 +1946,37 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
     catalogDirtyRef.current = true;
   };
 
+  const describeSession = () => {
+    const formOpen = isFormOpen || isModificationFormOpen || fileViewerOpen;
+    if (isFormOpen) {
+      const subject = String(editingEntaxi?.subject || '').trim();
+      return {
+        editing: !!editingEntaxi?.entaxiId,
+        formOpen: true,
+        hint: subject ? `Επεξεργασία: ${truncateText(subject, 60)}` : 'Νέα ένταξη',
+      };
+    }
+    if (isModificationFormOpen) {
+      const subject = String(selectedEntaxiForMod?.subject || '').trim();
+      return { editing: true, formOpen: true, hint: subject ? `Τροποποίηση: ${truncateText(subject, 60)}` : 'Τροποποίηση ένταξης' };
+    }
+    if (fileViewerOpen) {
+      const subject = String(selectedEntaxiForViewer?.subject || '').trim();
+      return { editing: false, formOpen: true, hint: subject ? `Αρχεία: ${truncateText(subject, 60)}` : 'Αρχεία ένταξης' };
+    }
+    if (selectedDetailEntaxi?.subject) {
+      return { editing: false, formOpen: false, hint: truncateText(selectedDetailEntaxi.subject, 60) };
+    }
+    const search = String(quickSearchTerm || '').trim();
+    if (search) return { editing: false, formOpen: false, hint: `Αναζήτηση: ${truncateText(search, 40)}` };
+    return { editing: false, formOpen, hint: '' };
+  };
+
+  const handleMinimize = () => {
+    setMenuContext(null);
+    if (typeof onMinimize === 'function') onMinimize(describeSession());
+  };
+
   const handleClose = () => {
     releaseAllEntaxiLocks();
     setFileViewerOpen(false);
@@ -1945,6 +1989,21 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
     catalogDirtyRef.current = false;
     onClose(dataChanged);
   };
+
+  const handleCloseRef = useRef(handleClose);
+  handleCloseRef.current = handleClose;
+
+  useEffect(() => {
+    if (typeof onPresence !== 'function') return;
+    onPresence(describeSession());
+  });
+
+  useEffect(() => {
+    if (!closeRequestId) return;
+    if (handledCloseRequestRef.current === closeRequestId) return;
+    handledCloseRequestRef.current = closeRequestId;
+    handleCloseRef.current();
+  }, [closeRequestId]);
 
   const getActiveFiltersCount = () => {
     const searchCount = Object.entries(searchFilters).filter(([key, value]) => {
@@ -2272,8 +2331,10 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
 
   useEffect(() => {
     if (!isOpen) {
-      focusScrollKeyRef.current = null;
-      focusedDetailOpenedRef.current = null;
+      if (!keepAlive) {
+        focusScrollKeyRef.current = null;
+        focusedDetailOpenedRef.current = null;
+      }
       return;
     }
     if (!selectedEntaxiId || loading) return;
@@ -2283,7 +2344,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     focusScrollKeyRef.current = key;
-  }, [isOpen, selectedEntaxiId, loading, filteredEntaxeis]);
+  }, [isOpen, keepAlive, selectedEntaxiId, loading, filteredEntaxeis]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2330,7 +2391,10 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
         <EntaxisTopSection>
         <Header>
           <Title>Εντάξεις Έργων</Title>
-          <CloseButton type="button" onClick={handleClose}>Κλείσιμο</CloseButton>
+          <HeaderActions>
+            <CloseButton type="button" data-testid="ent-window-minimize" onClick={handleMinimize}>Σύμπτυξη</CloseButton>
+            <CloseButton type="button" data-testid="ent-window-close" onClick={handleClose}>Κλείσιμο</CloseButton>
+          </HeaderActions>
         </Header>
 
         <ActionsBar>
@@ -2901,6 +2965,8 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
         {/* Entaxi Form Modal */}
         <EntaxisForm
           isOpen={isFormOpen}
+          suspended={!isOpen}
+          onMinimize={handleMinimize}
           onClose={() => {
             const id = editingEntaxi?.entaxiId;
             const fromInvitation = !!createProsklisiId;
@@ -2922,6 +2988,8 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
         {/* Modification Form Modal */}
         <ModificationForm
           isOpen={isModificationFormOpen}
+          suspended={!isOpen}
+          onMinimize={handleMinimize}
           onClose={() => {
             const id = selectedEntaxiForMod?.entaxiId;
             setIsModificationFormOpen(false);
@@ -2936,6 +3004,8 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
         {editingModification && (
           <ModificationForm
             isOpen={!!editingModification}
+            suspended={!isOpen}
+            onMinimize={handleMinimize}
             onClose={() => {
               const entaxiId = editingModification?.entaxiId;
               setEditingModification(null);
@@ -2991,6 +3061,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
         {selectedDetailEntaxi && (
           <EntaxiDetailModal
             entaxi={selectedDetailEntaxi}
+            onMinimize={handleMinimize}
             onClose={() => {
               if (selectedEntaxiId && selectedDetailEntaxi.entaxiId === selectedEntaxiId) {
                 handleClose();
@@ -3021,7 +3092,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
             appConfig={appConfig}
             appVersion={appVersion}
             organizationName={organizationName}
-            blockEscape={fileViewerOpen || !!acceptanceSearchEntaxi}
+            blockEscape={!isOpen || fileViewerOpen || !!acceptanceSearchEntaxi}
           />
         )}
 
@@ -3055,7 +3126,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
         ) : null}
       </EntaxisContainer>
 
-      {menuContext &&
+      {isOpen && menuContext &&
         createPortal(
           <MenuDropdown
             data-entaxis-menu="true"
@@ -3091,6 +3162,7 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, userRole, currentU
         <EntaxisFileViewer
           isOpen={fileViewerOpen}
           onClose={handleCloseFileViewer}
+          onMinimize={handleMinimize}
           entaxi={selectedEntaxiForViewer}
           userRole={userRole}
           canManageFiles={fileViewerCanManage}

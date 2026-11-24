@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { test, expect } = require('./helpers/real-app.cjs');
 const { expandCategory } = require('./helpers/actions.cjs');
 
@@ -527,4 +529,130 @@ test('P3-36 μετονομασία αποδοχής από Διαύγεια δε
   expect(saved.diavgeiaAcceptanceMeta.pdfFileName).toBe(newName);
   expect(saved.diavgeiaAcceptanceAda).toBe('624ΙΩΨΜ-Ζ12');
   expect(saved.entaxiPDFs).toContain('απόφαση-ένταξης.pdf');
+});
+
+test('P3-38 από τις λεπτομέρειες η σύμπτυξη κρύβει την ένταξη και η κάρτα δεν αφήνει διπλή λωρίδα', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-free').click();
+  await expect(window.getByTestId('ent-detail-modal')).toBeVisible();
+  await window.getByTestId('ent-detail-minimize').click();
+  await expect(window.getByTestId('entaxeis-window')).toBeHidden();
+  await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
+
+  await window.getByTestId('btn-entaxi-sub-bridge').click();
+  await expect(window.getByTestId('dock-restore-entaxi')).toHaveCount(0);
+  await expect(window.getByTestId('entaxeis-window')).toBeVisible();
+});
+
+test('P3-39 ανοιχτή φόρμα ένταξης δεν αντικαθίσταται από την κάρτα υποέργου', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await window.getByTestId('btn-ent-new').click();
+  const subject = window.getByTestId('ent-field-subject');
+  await subject.fill('Να μην αντικατασταθεί');
+  await window.getByTestId('ent-form-minimize').click();
+  await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
+
+  await window.getByTestId('btn-entaxi-sub-bridge').click();
+  await expect(window.getByText('Οι εντάξεις έχουν ήδη ανοιχτή καταχώριση ή αρχεία')).toBeVisible();
+  await expect(subject).toHaveValue('Να μην αντικατασταθεί');
+  await expect(window.getByTestId('dock-restore-entaxi')).toHaveCount(0);
+});
+
+test('P3-37 σύμπτυξη ένταξης κρατά το πρόχειρο και αφήνει μία λωρίδα', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await window.getByTestId('btn-ent-new').click();
+  const subject = window.getByTestId('ent-field-subject');
+  await subject.fill('Πρόχειρη σύμπτυξη ένταξης');
+  await window.getByTestId('ent-form-minimize').click();
+
+  await expect(window.getByTestId('entaxeis-window')).toBeHidden();
+  await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
+  await expect(window.getByTestId('dock-restore-entaxi')).toContainText('Νέα ένταξη');
+
+  await window.locator('[data-user-guide="nav-proskliseis"]').click();
+  await expect(window.getByText('Διαχείριση Προσκλήσεων').first()).toBeVisible();
+  const pskSearch = window.getByPlaceholder('Αναζήτηση σε όλα τα tabs (τίτλος, άξονας, πηγή, κωδικός, έργο)...');
+  await pskSearch.fill('δοκιμή σύμπτυξης');
+  await window.getByTestId('psk-window-minimize').click();
+  await expect(window.getByText('Υπάρχουν ήδη συμπτυγμένες εντάξεις')).toBeVisible();
+  await expect(window.getByText('Διαχείριση Προσκλήσεων').first()).toBeVisible();
+
+  await window.getByTestId('dock-restore-entaxi').click();
+  await expect(subject).toHaveValue('Πρόχειρη σύμπτυξη ένταξης');
+  await expect(window.getByTestId('dock-restore-prosklisi')).toBeVisible();
+  await expect(window.getByTestId('dock-restore-prosklisi')).toContainText('δοκιμή σύμπτυξης');
+
+  await window.getByTestId('dock-restore-prosklisi').click();
+  await expect(window.getByPlaceholder('Αναζήτηση σε όλα τα tabs (τίτλος, άξονας, πηγή, κωδικός, έργο)...')).toHaveValue('δοκιμή σύμπτυξης');
+  await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
+
+  await window.getByTestId('dock-close-entaxi').click();
+  await window.getByTestId('confirm-no').click();
+  await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
+  await window.getByTestId('dock-close-entaxi').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(window.getByTestId('dock-restore-entaxi')).toHaveCount(0);
+
+  await window.getByTestId('psk-window-minimize').click();
+  await expect(window.getByTestId('proskliseis-window')).toBeHidden();
+  await expect(window.getByTestId('dock-restore-prosklisi')).toBeVisible();
+});
+
+test('P3-40 σύμπτυξη: κλείδωμα, Escape, άλλη κάρτα και πρόσκληση δεν σβήνουν το πρόχειρο', async ({ app }) => {
+  const { window, testDir } = app;
+  const lockPath = path.join(testDir, 'locks', 'entaxeis', 'ent-free.lock');
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-free').click();
+  await window.getByRole('button', { name: 'Επεξεργασία' }).click();
+  const subject = window.getByTestId('ent-field-subject');
+  await expect(subject).toHaveValue('Μεμονωμένη ένταξη');
+  await subject.fill('Αλλαγή που δεν πρέπει να χαθεί');
+  await window.getByTestId('ent-form-minimize').click();
+
+  await expect(window.getByTestId('dock-restore-entaxi')).toContainText('η εγγραφή μένει κλειδωμένη');
+  await expect(window.getByTestId('dock-restore-entaxi')).toContainText('Μεμονωμένη ένταξη');
+  expect(fs.existsSync(lockPath)).toBe(true);
+
+  await window.keyboard.press('Escape');
+  await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
+  await window.getByTestId('dock-restore-entaxi').click();
+  await expect(subject).toHaveValue('Αλλαγή που δεν πρέπει να χαθεί');
+  await expect(window.getByRole('heading', { name: 'Επεξεργασία ένταξης' })).toBeVisible();
+
+  await window.getByTestId('ent-form-minimize').click();
+  await window.getByTestId('dock-close-entaxi').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(window.getByTestId('dock-restore-entaxi')).toHaveCount(0);
+  await expect.poll(() => fs.existsSync(lockPath)).toBe(false);
+
+  await window.getByTestId('btn-entaxi-sub-bridge').click();
+  await expect(window.getByText('Οι εντάξεις έχουν ήδη ανοιχτή καταχώριση ή αρχεία')).toHaveCount(0);
+  await expect(window.getByTestId('ent-detail-subject')).toHaveText('Ανάπλαση γέφυρας');
+
+  await window.getByTestId('ent-detail-close').click();
+  await expect(window.getByTestId('entaxeis-window')).toBeHidden();
+
+  const entaxiNav = window.locator('[data-user-guide="nav-entaxis"]');
+  await entaxiNav.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+  await entaxiNav.click();
+  await expect(window.getByTestId('entaxeis-window')).toBeVisible();
+  await window.getByTestId('btn-ent-new').click();
+  await window.getByTestId('ent-field-subject').fill('Πρόχειρο πριν την πρόσκληση');
+  await window.getByTestId('ent-form-minimize').click();
+  await window.locator('[data-user-guide="nav-proskliseis"]').click();
+  const pskSearch = window.getByPlaceholder('Αναζήτηση σε όλα τα tabs (τίτλος, άξονας, πηγή, κωδικός, έργο)...');
+  await pskSearch.fill('σχολ');
+  await window.getByTestId('psk-card-new-entaxi-psk-schools').click();
+
+  await expect(window.getByText('Οι εντάξεις έχουν ήδη ανοιχτή καταχώριση ή αρχεία')).toBeVisible();
+  await expect(window.getByTestId('ent-field-subject')).toHaveValue('Πρόχειρο πριν την πρόσκληση');
+  await expect(window.getByTestId('ent-form-prosklisi-selected')).toHaveCount(0);
+
+  await window.getByTestId('ent-form-close').click();
+  await window.getByTestId('ent-window-close').click();
+  await expect(window.getByTestId('proskliseis-window')).toBeVisible();
+  await expect(window.getByPlaceholder('Αναζήτηση σε όλα τα tabs (τίτλος, άξονας, πηγή, κωδικός, έργο)...')).toHaveValue('σχολ');
 });

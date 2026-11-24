@@ -21,6 +21,7 @@ import {
   HeroEyebrow,
   FormTitle,
   CloseButton,
+  HeroActions,
   FormBody,
   FormGrid as ChromeFormGrid,
   FormGroup,
@@ -133,7 +134,7 @@ function fileRefDisplayName(file) {
   return String(file.fileName || file.name || '').trim();
 }
 
-function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false }) {
+function ModificationForm({ isOpen, suspended = false, onMinimize = null, onClose, onSave, entaxi, isEditMode = false }) {
   const { showToast } = useToast();
   const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
   const [diavgeiaPreview, setDiavgeiaPreview] = useState(null);
@@ -504,7 +505,7 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
     }
   };
 
-  if (!isOpen || !entaxi) return null;
+  if (!isOpen || suspended || !entaxi) return null;
 
   const newAmountCalc = calculateNewAmount();
 
@@ -525,7 +526,12 @@ function ModificationForm({ isOpen, onClose, onSave, entaxi, isEditMode = false 
               {isEditMode ? 'Επεξεργασία τροποποίησης ένταξης' : 'Νέα τροποποίηση ένταξης'}
             </FormTitle>
           </HeroText>
-          <CloseButton type="button" data-testid="ent-mod-form-close" onClick={onClose}>Κλείσιμο</CloseButton>
+          <HeroActions>
+            {typeof onMinimize === 'function' ? (
+              <CloseButton type="button" data-testid="ent-mod-form-minimize" onClick={onMinimize}>Σύμπτυξη</CloseButton>
+            ) : null}
+            <CloseButton type="button" data-testid="ent-mod-form-close" onClick={onClose}>Κλείσιμο</CloseButton>
+          </HeroActions>
         </FormHero>
 
         <FormBody>

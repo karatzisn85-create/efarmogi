@@ -20,6 +20,7 @@ import {
   FormTitle,
   HeroSubtitle,
   CloseButton,
+  HeroActions,
   FormBody,
   FormGrid as ChromeFormGrid,
   FormGroup,
@@ -52,7 +53,7 @@ const STATUS_OPTIONS = prosklisiCatalog.PROSKLISI_STATUS_OPTIONS;
 
 
 
-function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
+function ProsklisisForm({ isOpen, suspended = false, onMinimize = null, onClose, onSave, editingProsklisi = null }) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     title: '',
@@ -128,7 +129,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || suspended) return undefined;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
       if (document.querySelector('[data-testid="confirm-yes"]')) return;
@@ -137,7 +138,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, suspended, onClose]);
 
   // Κλείσιμο dropdown όταν κάνει κλικ έξω
   useEffect(() => {
@@ -483,7 +484,7 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || suspended) return null;
 
   return createPortal(
     <FormOverlay data-testid="psk-form" onClick={(e) => {
@@ -502,12 +503,20 @@ function ProsklisisForm({ isOpen, onClose, onSave, editingProsklisi = null }) {
               </HeroSubtitle>
             )}
           </HeroText>
-          <CloseButton
-            type="button"
-            onClick={onClose}
-          >
-            Κλείσιμο
-          </CloseButton>
+          <HeroActions>
+            {typeof onMinimize === 'function' ? (
+              <CloseButton type="button" data-testid="psk-form-minimize" onClick={onMinimize}>
+                Σύμπτυξη
+              </CloseButton>
+            ) : null}
+            <CloseButton
+              type="button"
+              data-testid="psk-form-close"
+              onClick={onClose}
+            >
+              Κλείσιμο
+            </CloseButton>
+          </HeroActions>
         </FormHero>
 
         <FormBody>

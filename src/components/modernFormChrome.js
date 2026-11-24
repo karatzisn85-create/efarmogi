@@ -94,6 +94,15 @@ export const HeroSubtitle = styled.p`
   max-width: 40rem;
 `;
 
+export const HeroActions = styled.div`
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+`;
+
 export const CloseButton = styled.button`
   position: relative;
   z-index: 1;

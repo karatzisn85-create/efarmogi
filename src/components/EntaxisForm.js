@@ -113,6 +113,15 @@ const HeroSubtitle = styled.p`
   max-width: 40rem;
 `;
 
+const HeroActions = styled.div`
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+`;
+
 const CloseButton = styled.button`
   position: relative;
   z-index: 1;
@@ -619,6 +628,8 @@ function groupSubprojectsByTitle(flatProjects) {
 
 function EntaxisForm({
   isOpen,
+  suspended = false,
+  onMinimize = null,
   onClose,
   onSave,
   editingEntaxi,
@@ -1267,7 +1278,7 @@ function EntaxisForm({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || suspended) return null;
 
   const handleDismiss = () => {
     onClose();
@@ -1299,9 +1310,16 @@ function EntaxisForm({
                 : 'Καταχωρίστε τα βασικά στοιχεία της ένταξης και συνδέστε την με έργο ή πρόσκληση αν χρειάζεται.'}
             </HeroSubtitle>
           </HeroText>
-          <CloseButton type="button" data-testid="ent-form-close" onClick={handleDismiss}>
-            Κλείσιμο
-          </CloseButton>
+          <HeroActions>
+            {typeof onMinimize === 'function' ? (
+              <CloseButton type="button" data-testid="ent-form-minimize" onClick={onMinimize}>
+                Σύμπτυξη
+              </CloseButton>
+            ) : null}
+            <CloseButton type="button" data-testid="ent-form-close" onClick={handleDismiss}>
+              Κλείσιμο
+            </CloseButton>
+          </HeroActions>
         </FormHero>
 
         <FormBody>

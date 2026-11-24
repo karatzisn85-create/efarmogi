@@ -504,6 +504,7 @@ function ProsklisiDetailModal({
   modifications = [],
   relatedEntaxeis = [],
   onClose,
+  onMinimize = null,
   onEdit,
   onNewModification,
   onOpenFiles,
@@ -904,6 +905,9 @@ function ProsklisiDetailModal({
         </ModalBody>
 
         <DetailFooter>
+          {typeof onMinimize === 'function' ? (
+            <FooterCloseBtn type="button" data-testid="psk-detail-minimize" onClick={onMinimize}>Σύμπτυξη</FooterCloseBtn>
+          ) : null}
           <FooterCloseBtn type="button" data-testid="psk-detail-close" onClick={onClose}>Κλείσιμο</FooterCloseBtn>
           <FooterFilesBtn type="button" onClick={() => onOpenFiles?.(prosklisi)}>Αρχεία</FooterFilesBtn>
           <FooterFilesBtn

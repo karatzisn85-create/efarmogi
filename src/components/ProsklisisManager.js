@@ -146,6 +146,12 @@ const PanelTitle = styled.h2`
   }
 `;
 
+const PanelHeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+`;
+
 const PanelCloseButton = styled.button`
   background: #ffffff;
   color: #475569;
@@ -1193,6 +1199,9 @@ function ProsklisisManager({
   isOpen,
   keepAlive = false,
   onClose,
+  onMinimize = null,
+  onPresence = null,
+  closeRequestId = 0,
   userRole,
   currentUser,
   projectFilter = null,
@@ -1244,6 +1253,8 @@ function ProsklisisManager({
   const savedListScroll = useRef(0);
   const shouldRestoreListScroll = useRef(false);
   const catalogDirtyRef = useRef(false);
+  const suspendedRef = useRef(false);
+  const handledCloseRequestRef = useRef(0);
   const [listScrollRestoreTick, setListScrollRestoreTick] = useState(0);
 
   const captureListScroll = useCallback(() => {
@@ -1343,11 +1354,14 @@ function ProsklisisManager({
 
   useEffect(() => {
     if (isOpen) {
-      catalogDirtyRef.current = false;
+      if (!suspendedRef.current) catalogDirtyRef.current = false;
+      suspendedRef.current = false;
       loadProskliseis();
+    } else if (keepAlive) {
+      suspendedRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, keepAlive]);
 
   useEffect(() => {
     filterProskliseis();
@@ -1946,12 +1960,73 @@ function ProsklisisManager({
     });
   };
 
+  const releaseOpenProsklisiLocks = () => {
+    const ids = [
+      editingProsklisi?.prosklisiId,
+      editingModification?.prosklisiId || editingModification?.id,
+    ].filter(Boolean);
+    ids.forEach((id) => {
+      void ipcRenderer.invoke('remove-entity-lock', 'proskliseis', id);
+    });
+  };
+
+  const describeSession = () => {
+    const formOpen = isFormOpen || isModificationFormOpen || fileManagerOpen.isOpen;
+    if (isFormOpen) {
+      const title = String(editingProsklisi?.title || '').trim();
+      return {
+        editing: !!editingProsklisi?.prosklisiId,
+        formOpen: true,
+        hint: title ? `Επεξεργασία: ${title.slice(0, 60)}` : 'Νέα πρόσκληση',
+      };
+    }
+    if (isModificationFormOpen) {
+      const title = String(editingModification?.title || selectedDetailProsklisi?.title || '').trim();
+      return { editing: true, formOpen: true, hint: title ? `Τροποποίηση: ${title.slice(0, 60)}` : 'Τροποποίηση πρόσκλησης' };
+    }
+    if (fileManagerOpen.isOpen) {
+      const title = String(fileManagerOpen.prosklisiTitle || '').trim();
+      return { editing: false, formOpen: true, hint: title ? `Αρχεία: ${title.slice(0, 60)}` : 'Αρχεία πρόσκλησης' };
+    }
+    if (selectedDetailProsklisi?.title) {
+      return { editing: false, formOpen: false, hint: String(selectedDetailProsklisi.title).slice(0, 60) };
+    }
+    const search = String(searchTerm || '').trim();
+    if (search) return { editing: false, formOpen: false, hint: `Αναζήτηση: ${search.slice(0, 40)}` };
+    return { editing: false, formOpen, hint: '' };
+  };
+
+  const handleMinimize = () => {
+    setMenuState((prev) => ({ ...prev, open: false }));
+    if (typeof onMinimize === 'function') onMinimize(describeSession());
+  };
+
   const handleClose = () => {
+    releaseOpenProsklisiLocks();
+    setIsFormOpen(false);
+    setEditingProsklisi(null);
+    setIsModificationFormOpen(false);
+    setEditingModification(null);
     setSelectedDetailProsklisi(null);
     const dataChanged = catalogDirtyRef.current;
     catalogDirtyRef.current = false;
     onClose(dataChanged);
   };
+
+  const handleCloseRef = useRef(handleClose);
+  handleCloseRef.current = handleClose;
+
+  useEffect(() => {
+    if (typeof onPresence !== 'function') return;
+    onPresence(describeSession());
+  });
+
+  useEffect(() => {
+    if (!closeRequestId) return;
+    if (handledCloseRequestRef.current === closeRequestId) return;
+    handledCloseRequestRef.current = closeRequestId;
+    handleCloseRef.current();
+  }, [closeRequestId]);
 
   const tabPartition = useMemo(
     () => partitionProskliseisByViewTab(filteredProskliseis, prosklisiModifications),
@@ -2019,7 +2094,7 @@ function ProsklisisManager({
   // Άνοιγμα συγκεκριμένης πρόσκλησης (από κάρτα υποέργου κ.λπ.) → σωστό tab, μία φορά ανά εστίαση
   useEffect(() => {
     if (!isOpen) {
-      focusTabAppliedRef.current = null;
+      if (!keepAlive) focusTabAppliedRef.current = null;
       return;
     }
     const focusKey = selectedProsklisiId
@@ -2042,7 +2117,7 @@ function ProsklisisManager({
       setSelectedDetailProsklisi(target);
     }
     focusTabAppliedRef.current = focusKey;
-  }, [isOpen, selectedProsklisiId, projectFilter, proskliseis, prosklisiModifications]);
+  }, [isOpen, keepAlive, selectedProsklisiId, projectFilter, proskliseis, prosklisiModifications]);
 
   const handleAdvancedFilterChange = (field, value) => {
     setAdvancedFilters((prev) => ({ ...prev, [field]: value }));
@@ -2081,6 +2156,7 @@ function ProsklisisManager({
 
   return (
     <ModalOverlay
+      data-testid="proskliseis-window"
       style={!isOpen ? { display: 'none' } : undefined}
       onClick={(e) => e.target === e.currentTarget && handleClose()}
     >
@@ -2088,7 +2164,10 @@ function ProsklisisManager({
         <ModalTopSection>
           <PanelHeader>
             <PanelTitle>Διαχείριση Προσκλήσεων</PanelTitle>
-            <PanelCloseButton type="button" data-testid="psk-window-close" onClick={handleClose}>Κλείσιμο</PanelCloseButton>
+            <PanelHeaderActions>
+              <PanelCloseButton type="button" data-testid="psk-window-minimize" onClick={handleMinimize}>Σύμπτυξη</PanelCloseButton>
+              <PanelCloseButton type="button" data-testid="psk-window-close" onClick={handleClose}>Κλείσιμο</PanelCloseButton>
+            </PanelHeaderActions>
           </PanelHeader>
 
           <ActionsBar>
@@ -2734,7 +2813,7 @@ function ProsklisisManager({
       </ModalContainer>
 
       {/* Portal dropdown menu */}
-      {menuState.open && menuState.prosklisi && createPortal(
+      {isOpen && menuState.open && menuState.prosklisi && createPortal(
         <MenuDropdown
           data-prosklisi-menu="true"
           style={{ top: menuState.top, left: menuState.left }}
@@ -2758,6 +2837,7 @@ function ProsklisisManager({
           prosklisi={selectedDetailProsklisi}
           modifications={prosklisiModifications[selectedDetailProsklisi.prosklisiId] || []}
           relatedEntaxeis={relatedEntaxeisByProsklisi[selectedDetailProsklisi.prosklisiId] || []}
+          onMinimize={handleMinimize}
           onClose={() => setSelectedDetailProsklisi(null)}
           onEdit={handleEditProsklisi}
           onNewModification={handleNewModification}
@@ -2778,7 +2858,7 @@ function ProsklisisManager({
           linkedNotesMap={linkedNotesMap}
           notes={notes}
           formatDate={formatDate}
-          blockEscape={fileManagerOpen.isOpen || Boolean(textDetailModal)}
+          blockEscape={!isOpen || fileManagerOpen.isOpen || Boolean(textDetailModal)}
         />
       )}
 
@@ -2797,6 +2877,8 @@ function ProsklisisManager({
       {isFormOpen && (
         <ProsklisisForm
           isOpen={isFormOpen}
+          suspended={!isOpen}
+          onMinimize={handleMinimize}
           onClose={() => {
             const id = editingProsklisi?.prosklisiId;
             setIsFormOpen(false);
@@ -2815,6 +2897,8 @@ function ProsklisisManager({
       {/* File Manager Modal */}
       <ProsklisisFileManager
         isOpen={fileManagerOpen.isOpen}
+        suspended={!isOpen}
+        onMinimize={handleMinimize}
         onClose={() => {
           setFileManagerOpen({ isOpen: false, prosklisiId: null, prosklisiTitle: '' });
           requestListScrollRestore();
@@ -2831,6 +2915,8 @@ function ProsklisisManager({
       {isModificationFormOpen && editingModification && (
         <ProsklisiModificationForm
           isOpen={isModificationFormOpen}
+          suspended={!isOpen}
+          onMinimize={handleMinimize}
           onClose={() => {
             const prosklisiId = editingModification.prosklisiId || editingModification.id;
             setIsModificationFormOpen(false);
