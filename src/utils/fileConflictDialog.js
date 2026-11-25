@@ -6,6 +6,7 @@ import { scheduleDocumentInteractionRecovery } from './documentInteractionReset'
 
 let _setState = null;
 let _resolve = null;
+let _pausedBy = null;
 
 export function _registerFileConflictModal(setState) {
   _setState = setState;
@@ -22,6 +23,7 @@ export function showFileConflictDialog({ fileNames = [] } = {}) {
       _resolve = null;
       prev(null);
     }
+    _pausedBy = null;
     const seen = new Set();
     const uniqueNames = [];
     (fileNames || []).forEach((raw) => {
@@ -38,10 +40,30 @@ export function showFileConflictDialog({ fileNames = [] } = {}) {
 }
 
 function finish(value) {
+  if (!_resolve) return;
+  _pausedBy = null;
   _resolve?.(value);
   _resolve = null;
-  _setState?.({ open: false, fileNames: [] });
+  _setState?.({ open: false, fileNames: [], paused: false });
   scheduleDocumentInteractionRecovery();
+}
+
+export function _fileConflictPause(owner) {
+  if (!_resolve) return;
+  _pausedBy = owner || 'window';
+  _setState?.((prev) => (prev?.open ? { ...prev, paused: true } : prev));
+}
+
+export function _fileConflictResume(owner) {
+  if (_pausedBy !== owner) return;
+  _pausedBy = null;
+  _setState?.((prev) => (prev?.open ? { ...prev, paused: false } : prev));
+}
+
+export function _fileConflictDismiss(owner) {
+  if (_pausedBy && _pausedBy !== owner) return;
+  if (!_resolve) return;
+  finish(null);
 }
 
 export function _fileConflictReplace() { finish('replace'); }

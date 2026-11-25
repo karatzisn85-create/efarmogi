@@ -111,7 +111,7 @@ const SelectedFile = styled.div`
 // Constants
 const STATUS_OPTIONS = PROSKLISI_STATUS_OPTIONS;
 
-function ProsklisiModificationForm({ isOpen, suspended = false, onMinimize = null, onClose, onSave, originalProsklisi, isEditMode = false }) {
+function ProsklisiModificationForm({ isOpen, suspended = false, onClose, onSave, originalProsklisi, isEditMode = false }) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     title: '',
@@ -392,9 +392,6 @@ function ProsklisiModificationForm({ isOpen, suspended = false, onMinimize = nul
             </HeroSubtitle>
           </HeroText>
           <HeroActions>
-            {typeof onMinimize === 'function' ? (
-              <CloseButton type="button" data-testid="psk-mod-form-minimize" onClick={onMinimize}>Σύμπτυξη</CloseButton>
-            ) : null}
             <CloseButton type="button" onClick={onClose}>Κλείσιμο</CloseButton>
           </HeroActions>
         </FormHero>

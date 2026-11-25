@@ -7,6 +7,7 @@ import ProsklisisFileManager from './ProsklisisFileManager';
 import ProsklisiModificationForm from './ProsklisiModificationForm';
 import ProsklisisExportDialog from './ProsklisisExportDialog';
 import ProsklisiDetailModal from './ProsklisiDetailModal';
+import WindowMinimizeControl from './WindowMinimizeControl';
 import { formatDateEl } from '../utils/dateFormat';
 import prosklisiSubmissions from '../../app/core/prosklisiSubmissions';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
@@ -1998,7 +1999,8 @@ function ProsklisisManager({
 
   const handleMinimize = () => {
     setMenuState((prev) => ({ ...prev, open: false }));
-    if (typeof onMinimize === 'function') onMinimize(describeSession());
+    if (typeof onMinimize !== 'function') return false;
+    return onMinimize(describeSession()) !== false;
   };
 
   const handleClose = () => {
@@ -2165,7 +2167,9 @@ function ProsklisisManager({
           <PanelHeader>
             <PanelTitle>Διαχείριση Προσκλήσεων</PanelTitle>
             <PanelHeaderActions>
-              <PanelCloseButton type="button" data-testid="psk-window-minimize" onClick={handleMinimize}>Σύμπτυξη</PanelCloseButton>
+              {typeof onMinimize === 'function' && isOpen ? (
+                <WindowMinimizeControl testId="psk-window-minimize" owner="prosklisi" onClick={handleMinimize} />
+              ) : null}
               <PanelCloseButton type="button" data-testid="psk-window-close" onClick={handleClose}>Κλείσιμο</PanelCloseButton>
             </PanelHeaderActions>
           </PanelHeader>

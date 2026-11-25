@@ -12,6 +12,7 @@ import EntaxisExportDialog from './EntaxisExportDialog';
 import EntaxisFileViewer from './EntaxisFileViewer';
 import EntaxiDetailModal from './EntaxiDetailModal';
 import EntaxiAcceptanceSearchModal from './EntaxiAcceptanceSearchModal';
+import WindowMinimizeControl from './WindowMinimizeControl';
 import { containsSearchTerm } from '../utils/searchUtils';
 import LinkedNoteSticker, { getEntityLinkedNotes } from './LinkedNoteSticker';
 import {
@@ -1974,7 +1975,8 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, onMinimize = null,
 
   const handleMinimize = () => {
     setMenuContext(null);
-    if (typeof onMinimize === 'function') onMinimize(describeSession());
+    if (typeof onMinimize !== 'function') return false;
+    return onMinimize(describeSession()) !== false;
   };
 
   const handleClose = () => {
@@ -2392,7 +2394,9 @@ function EntaxisManager({ isOpen, keepAlive = false, onClose, onMinimize = null,
         <Header>
           <Title>Εντάξεις Έργων</Title>
           <HeaderActions>
-            <CloseButton type="button" data-testid="ent-window-minimize" onClick={handleMinimize}>Σύμπτυξη</CloseButton>
+            {typeof onMinimize === 'function' && isOpen ? (
+              <WindowMinimizeControl testId="ent-window-minimize" owner="entaxi" onClick={handleMinimize} />
+            ) : null}
             <CloseButton type="button" data-testid="ent-window-close" onClick={handleClose}>Κλείσιμο</CloseButton>
           </HeaderActions>
         </Header>

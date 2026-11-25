@@ -53,7 +53,7 @@ const STATUS_OPTIONS = prosklisiCatalog.PROSKLISI_STATUS_OPTIONS;
 
 
 
-function ProsklisisForm({ isOpen, suspended = false, onMinimize = null, onClose, onSave, editingProsklisi = null }) {
+function ProsklisisForm({ isOpen, suspended = false, onClose, onSave, editingProsklisi = null }) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     title: '',
@@ -504,11 +504,6 @@ function ProsklisisForm({ isOpen, suspended = false, onMinimize = null, onClose,
             )}
           </HeroText>
           <HeroActions>
-            {typeof onMinimize === 'function' ? (
-              <CloseButton type="button" data-testid="psk-form-minimize" onClick={onMinimize}>
-                Σύμπτυξη
-              </CloseButton>
-            ) : null}
             <CloseButton
               type="button"
               data-testid="psk-form-close"

@@ -318,9 +318,9 @@ export default function SavePdfDialog() {
   }, [state.open, state.step, state.defaultName, state.mode, resetForm]);
 
   const handleKey = useCallback((e) => {
-    if (!state.open || busy) return;
+    if (!state.open || state.paused || busy) return;
     if (e.key === 'Escape') _savePdfDialogCancel();
-  }, [state.open, busy]);
+  }, [state.open, state.paused, busy]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKey);
@@ -365,7 +365,7 @@ export default function SavePdfDialog() {
     _savePdfDialogSetStep('form');
   };
 
-  if (!state.open) return null;
+  if (!state.open || state.paused) return null;
 
   const isOverwrite = state.step === 'overwrite';
   const isFolder = state.mode === 'folder';
@@ -414,6 +414,7 @@ export default function SavePdfDialog() {
                 <Label>{isFolder ? 'Όνομα φακέλου' : 'Όνομα αρχείου'}</Label>
                 <FilenameInput
                   type="text"
+                  data-testid="save-pdf-name"
                   value={filename}
                   onChange={(e) => setFilename(e.target.value)}
                   disabled={busy}

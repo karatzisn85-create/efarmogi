@@ -986,3 +986,25 @@ test('P3-84 λήψη φακέλου πρόσκλησης κρατά τα αρχ�
   await expect(files.getByTestId('psk-group-fg-justif')).toBeVisible();
 });
 
+test('P3-86 σύμπτυξη κρατά το όνομα που γράφτηκε στη μετονομασία', async ({ app }) => {
+  const path = require('path');
+  const { window, sampleUpload } = app;
+  await openProskliseis(window);
+  await window.getByTestId('psk-card-psk-schools').click();
+  await window.getByTestId('psk-detail-modal').getByRole('button', { name: 'Αρχεία' }).click();
+  await expect(window.getByTestId('psk-files-modal')).toBeVisible();
+  await app.queueOpenFiles([path.join(sampleUpload, 'σχέδιο.pdf')]);
+  await window.getByTestId('psk-files-upload').click();
+  await window.getByTestId('file-choice-none').click();
+  await expect(window.getByText(/προστέθηκε επιτυχώς|Προστέθηκαν/i)).toBeVisible({ timeout: 20000 });
+  await window.getByTestId('file-rename-σχέδιο.pdf').click();
+  const rename = window.getByTestId('file-rename-input');
+  await rename.fill('να μείνει το όνομα');
+  await expect(window.getByTestId('psk-window-minimize')).toBeVisible();
+  await window.getByTestId('psk-window-minimize').click();
+  await expect(window.getByTestId('proskliseis-window')).toBeHidden();
+  await expect(window.getByTestId('file-rename-modal')).toBeHidden();
+  await window.getByTestId('dock-restore-prosklisi').click();
+  await expect(rename).toHaveValue('να μείνει το όνομα');
+});
+

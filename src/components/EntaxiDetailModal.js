@@ -576,7 +576,6 @@ function val(text) {
 function EntaxiDetailModal({
   entaxi,
   onClose,
-  onMinimize = null,
   onEdit,
   onNewModification,
   onOpenFiles,
@@ -1023,9 +1022,6 @@ function EntaxiDetailModal({
         </ModalBody>
 
         <DetailFooter>
-          {typeof onMinimize === 'function' ? (
-            <FooterCloseBtn type="button" data-testid="ent-detail-minimize" onClick={onMinimize}>Σύμπτυξη</FooterCloseBtn>
-          ) : null}
           <FooterCloseBtn type="button" data-testid="ent-detail-close" onClick={onClose}>Κλείσιμο</FooterCloseBtn>
           <FooterFilesBtn type="button" data-testid="ent-detail-files" onClick={() => onOpenFiles?.(entaxi)}>Αρχεία</FooterFilesBtn>
           {canManageWorkflow ? (

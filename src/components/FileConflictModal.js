@@ -127,16 +127,16 @@ export default function FileConflictModal() {
   }, []);
 
   const handleKey = useCallback((e) => {
-    if (!state.open) return;
+    if (!state.open || state.paused) return;
     if (e.key === 'Escape') _fileConflictCancel();
-  }, [state.open]);
+  }, [state.open, state.paused]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [handleKey]);
 
-  if (!state.open) return null;
+  if (!state.open || state.paused) return null;
 
   const names = state.fileNames || [];
   const many = names.length > 1;

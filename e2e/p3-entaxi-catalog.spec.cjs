@@ -536,7 +536,7 @@ test('P3-38 από τις λεπτομέρειες η σύμπτυξη κρύβ�
   await openEntaxeis(window);
   await window.getByTestId('ent-card-ent-free').click();
   await expect(window.getByTestId('ent-detail-modal')).toBeVisible();
-  await window.getByTestId('ent-detail-minimize').click();
+  await window.getByTestId('ent-window-minimize').click();
   await expect(window.getByTestId('entaxeis-window')).toBeHidden();
   await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
 
@@ -545,13 +545,37 @@ test('P3-38 από τις λεπτομέρειες η σύμπτυξη κρύβ�
   await expect(window.getByTestId('entaxeis-window')).toBeVisible();
 });
 
+test('P3-41 η σύμπτυξη της φόρμας μένει ορατή όταν κυλάς προς τα κάτω', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await window.getByTestId('btn-ent-new').click();
+  const minimize = window.getByTestId('ent-window-minimize');
+  await expect(minimize).toBeVisible();
+  const subjectField = window.getByTestId('ent-field-subject');
+  const scrolled = await subjectField.evaluate((el) => {
+    let node = el.parentElement;
+    while (node && node.scrollHeight <= node.clientHeight + 8) node = node.parentElement;
+    if (!node) return false;
+    node.scrollTop = node.scrollHeight;
+    return node.scrollTop > 40;
+  });
+  expect(scrolled).toBe(true);
+  await expect(minimize).toBeInViewport();
+  const subject = window.getByTestId('ent-field-subject');
+  await subject.fill('Κείμενο μετά την κύλιση');
+  await minimize.click();
+  await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
+  await window.getByTestId('dock-restore-entaxi').click();
+  await expect(subject).toHaveValue('Κείμενο μετά την κύλιση');
+});
+
 test('P3-39 ανοιχτή φόρμα ένταξης δεν αντικαθίσταται από την κάρτα υποέργου', async ({ app }) => {
   const { window } = app;
   await openEntaxeis(window);
   await window.getByTestId('btn-ent-new').click();
   const subject = window.getByTestId('ent-field-subject');
   await subject.fill('Να μην αντικατασταθεί');
-  await window.getByTestId('ent-form-minimize').click();
+  await window.getByTestId('ent-window-minimize').click();
   await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
 
   await window.getByTestId('btn-entaxi-sub-bridge').click();
@@ -566,7 +590,7 @@ test('P3-37 σύμπτυξη ένταξης κρατά το πρόχειρο κ�
   await window.getByTestId('btn-ent-new').click();
   const subject = window.getByTestId('ent-field-subject');
   await subject.fill('Πρόχειρη σύμπτυξη ένταξης');
-  await window.getByTestId('ent-form-minimize').click();
+  await window.getByTestId('ent-window-minimize').click();
 
   await expect(window.getByTestId('entaxeis-window')).toBeHidden();
   await expect(window.getByTestId('dock-restore-entaxi')).toBeVisible();
@@ -610,7 +634,7 @@ test('P3-40 σύμπτυξη: κλείδωμα, Escape, άλλη κάρτα κα
   const subject = window.getByTestId('ent-field-subject');
   await expect(subject).toHaveValue('Μεμονωμένη ένταξη');
   await subject.fill('Αλλαγή που δεν πρέπει να χαθεί');
-  await window.getByTestId('ent-form-minimize').click();
+  await window.getByTestId('ent-window-minimize').click();
 
   await expect(window.getByTestId('dock-restore-entaxi')).toContainText('η εγγραφή μένει κλειδωμένη');
   await expect(window.getByTestId('dock-restore-entaxi')).toContainText('Μεμονωμένη ένταξη');
@@ -622,7 +646,7 @@ test('P3-40 σύμπτυξη: κλείδωμα, Escape, άλλη κάρτα κα
   await expect(subject).toHaveValue('Αλλαγή που δεν πρέπει να χαθεί');
   await expect(window.getByRole('heading', { name: 'Επεξεργασία ένταξης' })).toBeVisible();
 
-  await window.getByTestId('ent-form-minimize').click();
+  await window.getByTestId('ent-window-minimize').click();
   await window.getByTestId('dock-close-entaxi').click();
   await window.getByTestId('confirm-yes').click();
   await expect(window.getByTestId('dock-restore-entaxi')).toHaveCount(0);
@@ -641,7 +665,7 @@ test('P3-40 σύμπτυξη: κλείδωμα, Escape, άλλη κάρτα κα
   await expect(window.getByTestId('entaxeis-window')).toBeVisible();
   await window.getByTestId('btn-ent-new').click();
   await window.getByTestId('ent-field-subject').fill('Πρόχειρο πριν την πρόσκληση');
-  await window.getByTestId('ent-form-minimize').click();
+  await window.getByTestId('ent-window-minimize').click();
   await window.locator('[data-user-guide="nav-proskliseis"]').click();
   const pskSearch = window.getByPlaceholder('Αναζήτηση σε όλα τα tabs (τίτλος, άξονας, πηγή, κωδικός, έργο)...');
   await pskSearch.fill('σχολ');
@@ -655,4 +679,42 @@ test('P3-40 σύμπτυξη: κλείδωμα, Escape, άλλη κάρτα κα
   await window.getByTestId('ent-window-close').click();
   await expect(window.getByTestId('proskliseis-window')).toBeVisible();
   await expect(window.getByPlaceholder('Αναζήτηση σε όλα τα tabs (τίτλος, άξονας, πηγή, κωδικός, έργο)...')).toHaveValue('σχολ');
+});
+
+test('P3-42 η σύμπτυξη κρύβει την αποθήκευση PDF και κρατά το όνομα', async ({ app }) => {
+  const { window } = app;
+  await openEntaxeis(window);
+  await window.getByTestId('ent-card-ent-free').click();
+  await window.getByTestId('ent-detail-report').click();
+  const name = window.getByTestId('save-pdf-name');
+  await expect(name).toBeVisible({ timeout: 20000 });
+  await name.fill('αναφορα-που-μενει');
+  await window.getByTestId('ent-window-minimize').click();
+  await expect(window.getByTestId('entaxeis-window')).toBeHidden();
+  await expect(window.getByTestId('save-pdf-dialog')).toBeHidden();
+  await window.getByTestId('dock-restore-entaxi').click();
+  await expect(name).toHaveValue('αναφορα-που-μενει');
+  await window.keyboard.press('Escape');
+  await expect(window.getByTestId('save-pdf-dialog')).toHaveCount(0);
+});
+
+test('P3-43 αν δεν γίνεται σύμπτυξη, η αποθήκευση PDF μένει ανοιχτή', async ({ app }) => {
+  const { window } = app;
+  await expandCategory(window, 'Διαδικασίες Έργων');
+  await window.locator('[data-user-guide="nav-orimanthi"]').click();
+  await expect(window.getByTestId('orimanthi-window')).toBeVisible();
+  await window.getByTestId('orimanthi-window-minimize').click();
+  await expect(window.getByTestId('dock-restore-orimanthi')).toBeVisible();
+  await window.locator('[data-user-guide="nav-entaxis"]').click();
+  await expect(window.getByTestId('entaxeis-window')).toBeVisible();
+  await window.getByTestId('ent-card-ent-free').click();
+  await window.getByTestId('ent-detail-report').click();
+  const name = window.getByTestId('save-pdf-name');
+  await expect(name).toBeVisible({ timeout: 20000 });
+  await name.fill('να-μη-χαθει');
+  await window.getByTestId('ent-window-minimize').click();
+  await expect(window.getByText('Υπάρχει ήδη συμπτυγμένη ωρίμανση')).toBeVisible();
+  await expect(window.getByTestId('entaxeis-window')).toBeVisible();
+  await expect(name).toHaveValue('να-μη-χαθει');
+  await window.keyboard.press('Escape');
 });

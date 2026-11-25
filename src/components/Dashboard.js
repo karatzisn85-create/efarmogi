@@ -2,6 +2,8 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useR
 import styled, { keyframes } from 'styled-components';
 import ProjectForm from './ProjectForm';
 import { buildProjectDraftFromEntaxi, buildEntaxiLinkAfterProjectCreate } from '../utils/entaxiProjectDraft';
+import { _savePdfDialogDismiss } from '../utils/savePdfDialog';
+import { _fileConflictDismiss } from '../utils/fileConflictDialog';
 import { findOrimanthiLinksForProject } from '../utils/prosklisiDeadlineUtils';
 import { toExistingEntaxiFileObjects } from '../utils/entaxiFileObjects';
 import entaxiAcceptanceMatch from '../../app/core/entaxiAcceptanceMatch';
@@ -3584,9 +3586,15 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [prosklisiMinimized, setProsklisiMinimized] = useState(false);
   const [prosklisiMinimizedHint, setProsklisiMinimizedHint] = useState('');
   const [prosklisiMinimizedEditing, setProsklisiMinimizedEditing] = useState(false);
+  const [orimanthiMinimized, setOrimanthiMinimized] = useState(false);
+  const [orimanthiMinimizedHint, setOrimanthiMinimizedHint] = useState('');
+  const [orimanthiMinimizedEditing, setOrimanthiMinimizedEditing] = useState(false);
+  const [orimanthiCloseRequest, setOrimanthiCloseRequest] = useState(0);
   const [prosklisiCloseRequest, setProsklisiCloseRequest] = useState(0);
   const entaxiPresenceRef = useRef({ hint: '', editing: false });
   const prosklisiPresenceRef = useRef({ hint: '', editing: false });
+  const orimanthiPresenceRef = useRef({ hint: '', editing: false, formOpen: false });
+  const orimanthiDraftGuardRef = useRef(() => false);
 
   useLayoutEffect(() => {
     if (isEntaxisOpen && entaxiMinimized) setEntaxiMinimized(false);
@@ -3607,12 +3615,18 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const [focusedOrimanthiIds, setFocusedOrimanthiIds] = useState(null);
 
   const openOrimanthiView = useCallback(({ proposalId = null, focusIds = null } = {}) => {
+    if (orimanthiDraftGuardRef.current()) return;
     const ids = orimanthiCatalog.normalizeFocusProposalIds(focusIds);
     const detailId = String(proposalId || '').trim() || (ids.length === 1 ? ids[0] : '');
     setSelectedOrimanthiId(detailId || null);
     setFocusedOrimanthiIds(ids.length > 1 ? ids : null);
     setIsOrimanthiOpen(true);
   }, []);
+
+  useLayoutEffect(() => {
+    if (isOrimanthiOpen && orimanthiMinimized) setOrimanthiMinimized(false);
+  }, [isOrimanthiOpen, orimanthiMinimized]);
+
   const [prosklisiReturnId, setProsklisiReturnId] = useState(null);
   const [entaxiReturnActive, setEntaxiReturnActive] = useState(false);
   const [isMeletaiOpen, setIsMeletaiOpen] = useState(false);
@@ -6239,33 +6253,76 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     setIsProsklisisOpen(false);
   }, []);
 
+  const parkOrimanthi = useCallback((session) => {
+    const next = session || orimanthiPresenceRef.current || {};
+    setOrimanthiMinimizedHint(next.hint || '');
+    setOrimanthiMinimizedEditing(!!next.editing);
+    setOrimanthiMinimized(true);
+    setIsOrimanthiOpen(false);
+  }, []);
+
   const minimizeEntaxi = useCallback((session) => {
-    if (prosklisiMinimized) {
-      showToast('Υπάρχει ήδη συμπτυγμένη πρόσκληση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις εντάξεις.', 'warning');
-      return;
+    if (prosklisiMinimized || orimanthiMinimized) {
+      showToast(
+        prosklisiMinimized
+          ? 'Υπάρχει ήδη συμπτυγμένη πρόσκληση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις εντάξεις.'
+          : 'Υπάρχει ήδη συμπτυγμένη ωρίμανση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις εντάξεις.',
+        'warning'
+      );
+      return false;
     }
     parkEntaxi(session);
-  }, [parkEntaxi, prosklisiMinimized, showToast]);
+    return true;
+  }, [orimanthiMinimized, parkEntaxi, prosklisiMinimized, showToast]);
 
   const minimizeProsklisi = useCallback((session) => {
-    if (entaxiMinimized) {
-      showToast('Υπάρχουν ήδη συμπτυγμένες εντάξεις. Επανάφερέ τες ή κλείσε τες από τη λωρίδα και μετά σύμπτυξε τις προσκλήσεις.', 'warning');
-      return;
+    if (entaxiMinimized || orimanthiMinimized) {
+      showToast(
+        entaxiMinimized
+          ? 'Υπάρχουν ήδη συμπτυγμένες εντάξεις. Επανάφερέ τες ή κλείσε τες από τη λωρίδα και μετά σύμπτυξε τις προσκλήσεις.'
+          : 'Υπάρχει ήδη συμπτυγμένη ωρίμανση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις προσκλήσεις.',
+        'warning'
+      );
+      return false;
     }
     parkProsklisi(session);
-  }, [entaxiMinimized, parkProsklisi, showToast]);
+    return true;
+  }, [entaxiMinimized, orimanthiMinimized, parkProsklisi, showToast]);
+
+  const minimizeOrimanthi = useCallback((session) => {
+    if (entaxiMinimized || prosklisiMinimized) {
+      showToast(
+        entaxiMinimized
+          ? 'Υπάρχουν ήδη συμπτυγμένες εντάξεις. Επανάφερέ τες ή κλείσε τες από τη λωρίδα και μετά σύμπτυξε την ωρίμανση.'
+          : 'Υπάρχει ήδη συμπτυγμένη πρόσκληση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε την ωρίμανση.',
+        'warning'
+      );
+      return false;
+    }
+    parkOrimanthi(session);
+    return true;
+  }, [entaxiMinimized, parkOrimanthi, prosklisiMinimized, showToast]);
 
   const restoreMinimizedEntaxi = useCallback(() => {
     if (isProsklisisOpen) parkProsklisi();
+    if (isOrimanthiOpen) parkOrimanthi();
     setEntaxiMinimized(false);
     setIsEntaxisOpen(true);
-  }, [isProsklisisOpen, parkProsklisi]);
+  }, [isOrimanthiOpen, isProsklisisOpen, parkOrimanthi, parkProsklisi]);
 
   const restoreMinimizedProsklisi = useCallback(() => {
     if (isEntaxisOpen) parkEntaxi();
+    if (isOrimanthiOpen) parkOrimanthi();
     setProsklisiMinimized(false);
     setIsProsklisisOpen(true);
-  }, [isEntaxisOpen, parkEntaxi]);
+  }, [isEntaxisOpen, isOrimanthiOpen, parkEntaxi, parkOrimanthi]);
+
+  const restoreMinimizedOrimanthi = useCallback(() => {
+    if (isEntaxisOpen) parkEntaxi();
+    if (isProsklisisOpen) parkProsklisi();
+    setOrimanthiMinimized(false);
+    setIsOrimanthiOpen(true);
+  }, [isEntaxisOpen, isProsklisisOpen, parkEntaxi, parkProsklisi]);
 
   const closeMinimizedEntaxi = useCallback(async () => {
     const ok = await showConfirm({
@@ -6291,6 +6348,40 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     });
     if (!ok) return;
     setProsklisiCloseRequest((n) => n + 1);
+  }, []);
+
+  const clearOrimanthiPresence = useCallback(() => {
+    orimanthiPresenceRef.current = { hint: '', editing: false, formOpen: false };
+  }, []);
+
+  const orimanthiDraftIsOpen = useCallback(() => !!(
+    orimanthiPresenceRef.current?.formOpen
+    && (isOrimanthiOpen || orimanthiMinimized)
+  ), [isOrimanthiOpen, orimanthiMinimized]);
+
+  const showOrimanthiDraft = useCallback(() => {
+    showToast('Η ωρίμανση έχει ήδη ανοιχτή καταχώριση ή αλλαγές. Κλείστε τες και ξαναπατήστε.', 'warning');
+    setOrimanthiMinimized(false);
+    setIsOrimanthiOpen(true);
+  }, [showToast]);
+
+  orimanthiDraftGuardRef.current = () => {
+    if (!orimanthiDraftIsOpen()) return false;
+    showOrimanthiDraft();
+    return true;
+  };
+
+  const closeMinimizedOrimanthi = useCallback(async () => {
+    const ok = await showConfirm({
+      title: 'Κλείσιμο ωρίμανσης',
+      message: 'Η συμπτυγμένη ωρίμανση θα κλείσει. Ό,τι δεν έχει αποθηκευτεί χάνεται.',
+      confirmLabel: 'Κλείσιμο',
+      cancelLabel: 'Άκυρο',
+      danger: true,
+      icon: '🗂',
+    });
+    if (!ok) return;
+    setOrimanthiCloseRequest((n) => n + 1);
   }, []);
 
   const handleOpenAssociationFromProsklisi = useCallback((payload) => {
@@ -8410,6 +8501,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                   savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
                 if (isProsklisisOpen) parkProsklisi();
+                if (isOrimanthiOpen) parkOrimanthi();
                 setEntaxiMinimized(false);
                 setIsEntaxisOpen(true);
               }}>
@@ -8421,6 +8513,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                   savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
                 }
                 if (isEntaxisOpen) parkEntaxi();
+                if (isOrimanthiOpen) parkOrimanthi();
                 setProsklisiMinimized(false);
                 setIsProsklisisOpen(true);
               }}>
@@ -8433,6 +8526,16 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
               </AdminButton>
               {orimanthiCatalog.showOrimanthiButton(userRole) && (
               <AdminButton data-user-guide="nav-orimanthi" onClick={() => {
+                if (dashboardScrollRef.current) {
+                  savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
+                }
+                if (isEntaxisOpen) parkEntaxi();
+                if (isProsklisisOpen) parkProsklisi();
+                if (isOrimanthiOpen || orimanthiMinimized) {
+                  setOrimanthiMinimized(false);
+                  setIsOrimanthiOpen(true);
+                  return;
+                }
                 openOrimanthiView();
               }} title="Βάση Δεδομένων — καταγραφή ωρίμανσης έργων">
                 <AdminButtonIcon>🌱</AdminButtonIcon>
@@ -8948,6 +9051,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
           setEntaxisProsklisiIdFilter(null);
         }}
         onClose={async (dataChanged) => {
+          _savePdfDialogDismiss('entaxi');
+          _fileConflictDismiss('entaxi');
           clearEntaxiReturnContext();
           clearEntaxiPresence();
           setEntaxiCloseRequest(0);
@@ -9087,10 +9192,23 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       ) : null}
 
       {/* Ωρίμανση Έργων */}
-      {isOrimanthiOpen ? (
+      {(isOrimanthiOpen || orimanthiMinimized) ? (
         <Suspense fallback={<LazyChunkFallback>Φόρτωση Ωρίμανσης Έργων…</LazyChunkFallback>}>
           <OrimanthiManager
+            isOpen={isOrimanthiOpen}
+            onMinimize={minimizeOrimanthi}
+            onPresence={(session) => {
+              orimanthiPresenceRef.current = session || { hint: '', editing: false, formOpen: false };
+            }}
+            closeRequestId={orimanthiCloseRequest}
             onClose={() => {
+              _savePdfDialogDismiss('orimanthi');
+              _fileConflictDismiss('orimanthi');
+              clearOrimanthiPresence();
+              setOrimanthiCloseRequest(0);
+              setOrimanthiMinimized(false);
+              setOrimanthiMinimizedHint('');
+              setOrimanthiMinimizedEditing(false);
               setIsOrimanthiOpen(false);
               setSelectedOrimanthiId(null);
               setFocusedOrimanthiIds(null);
@@ -9194,6 +9312,8 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         onPresence={rememberProsklisiPresence}
         closeRequestId={prosklisiCloseRequest}
         onClose={(dataChanged) => {
+          _savePdfDialogDismiss('prosklisi');
+          _fileConflictDismiss('prosklisi');
           clearProsklisiPresence();
           setProsklisiCloseRequest(0);
           setProsklisiMinimized(false);
@@ -9961,7 +10081,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         onStartTour={startGuideTour}
         onShowTarget={handleShowGuideTarget}
       />
-      {(entaxiMinimized || prosklisiMinimized) ? (
+      {(entaxiMinimized || prosklisiMinimized || orimanthiMinimized) ? (
         <MinimizedDock data-testid="workflow-minimized-dock">
           {entaxiMinimized ? (
             <MinimizedChip>
@@ -9987,6 +10107,20 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 </MinimizedHint>
               </MinimizedRestore>
               <MinimizedClose type="button" data-testid="dock-close-prosklisi" onClick={() => { void closeMinimizedProsklisi(); }}>
+                Κλείσιμο
+              </MinimizedClose>
+            </MinimizedChip>
+          ) : null}
+          {orimanthiMinimized ? (
+            <MinimizedChip>
+              <MinimizedRestore type="button" data-testid="dock-restore-orimanthi" onClick={restoreMinimizedOrimanthi}>
+                <MinimizedTitle>Ωρίμανση</MinimizedTitle>
+                <MinimizedHint>
+                  {orimanthiMinimizedEditing ? 'Σε επεξεργασία — η εγγραφή μένει κλειδωμένη' : (orimanthiMinimizedHint || 'Συμπτυγμένο παράθυρο')}
+                  {orimanthiMinimizedEditing && orimanthiMinimizedHint ? ` · ${orimanthiMinimizedHint}` : ''}
+                </MinimizedHint>
+              </MinimizedRestore>
+              <MinimizedClose type="button" data-testid="dock-close-orimanthi" onClick={() => { void closeMinimizedOrimanthi(); }}>
                 Κλείσιμο
               </MinimizedClose>
             </MinimizedChip>

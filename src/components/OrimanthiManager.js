@@ -19,6 +19,7 @@ import {
   PROPOSAL_ACTION_LABELS,
 } from '../utils/orimanthiHelpers';
 import OrimanthiFileCategoryPicker from './OrimanthiFileCategoryPicker';
+import WindowMinimizeControl from './WindowMinimizeControl';
 import {
   FILE_CATEGORY_ROOTS,
   FILE_CATEGORY_ROOT_MELETES,
@@ -443,7 +444,6 @@ const CloseBtn = styled.button`
   z-index: 1;
   &:hover { background: rgba(255,255,255,0.22); color: white; }
 `;
-
 const HeaderPrimaryBtn = styled.button`
   color: white;
   background: linear-gradient(135deg, ${C.teal} 0%, ${C.emerald} 100%);
@@ -3143,6 +3143,10 @@ const OpenFolderBtn = styled.button`
 
 /* ─── Main Component ─────────────────────────────────────────────────────── */
 export default function OrimanthiManager({
+  isOpen = true,
+  onMinimize,
+  onPresence,
+  closeRequestId = 0,
   onClose,
   loggedInUsername,
   userRole,
@@ -3277,15 +3281,17 @@ export default function OrimanthiManager({
   const fileSearchTimerRef = useRef(null);
   const persistedSnapshotsRef = useRef({});
   const lockedProposalIdRef = useRef(null);
+  const handledCloseRequestRef = useRef(0);
   const permitToggleInFlightRef = useRef(new Set());
   const creatingProjectRef = useRef(false);
   // Ref που κρατά πάντα το τελευταίο state proposals χωρίς να δημιουργεί νέα closure
   const proposalsRef = useRef([]);
 
   useEffect(() => {
-    lockBodyScroll();
-    return () => unlockBodyScroll();
-  }, []);
+    if (!isOpen) return undefined;
+    lockBodyScroll('orimanthi');
+    return () => unlockBodyScroll('orimanthi');
+  }, [isOpen]);
 
   useEffect(() => {
     (async () => {
@@ -3396,7 +3402,7 @@ export default function OrimanthiManager({
   }, [municipalUnits, showToast]);
 
   useEffect(() => {
-    if (selectedId || !proposals.length) return undefined;
+    if (!isOpen || selectedId || !proposals.length) return undefined;
     let cancelled = false;
     const pollLocks = async () => {
       const next = {};
@@ -3413,7 +3419,7 @@ export default function OrimanthiManager({
     pollLocks();
     const t = setInterval(pollLocks, 12000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [selectedId, proposals]);
+  }, [isOpen, selectedId, proposals]);
 
   useEffect(() => {
     if (!selectedId || isReadOnly) return undefined;
@@ -5471,6 +5477,19 @@ export default function OrimanthiManager({
     onClose,
   ]);
 
+  const discardAndClose = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    pendingSaveProjectIdRef.current = null;
+    if (selectedId && isProposalDirty(selectedId)) {
+      revertProposalToPersisted(selectedId);
+    }
+    await releaseProposalLock(selectedId);
+    onClose();
+  }, [selectedId, isProposalDirty, revertProposalToPersisted, releaseProposalLock, onClose]);
+
   const handleClose = useCallback(async () => {
     if (selectedId && !isReadOnly && isProposalDirty(selectedId)) {
       const ok = await new Promise((resolve) => {
@@ -6022,13 +6041,56 @@ export default function OrimanthiManager({
   const hubStats = richHubStats;
   const waitingForFocusedProposal = Boolean(focusProposalId) && !isScopedHub && !selectedProposal;
 
+  const describeSession = () => {
+    const newTitle = String(newProjectDraft.title || '').trim();
+    if (showNewProjectModal) {
+      return {
+        editing: false,
+        formOpen: true,
+        hint: newTitle ? `Νέο έργο: ${newTitle.slice(0, 60)}` : 'Νέο έργο',
+      };
+    }
+    const title = String(selectedProposal?.title || '').trim();
+    if (selectedProposal) {
+      return {
+        editing: !isReadOnly,
+        formOpen: !!(selectedId && isProposalDirty(selectedId)),
+        hint: title.slice(0, 60),
+      };
+    }
+    const query = search.trim();
+    if (query) return { editing: false, formOpen: false, hint: `Αναζήτηση: ${query.slice(0, 40)}` };
+    return { editing: false, formOpen: false, hint: '' };
+  };
+
+  const handleMinimize = () => {
+    if (typeof onMinimize !== 'function') return false;
+    return onMinimize(describeSession()) !== false;
+  };
+
+  useEffect(() => {
+    if (typeof onPresence !== 'function') return;
+    onPresence(describeSession());
+  });
+
+  useEffect(() => {
+    if (!closeRequestId) return;
+    if (handledCloseRequestRef.current === closeRequestId) return;
+    handledCloseRequestRef.current = closeRequestId;
+    void discardAndClose();
+  }, [closeRequestId, discardAndClose]);
+
   const statusStyle = selectedProposal ? getStatusStyle(selectedProposal.status) : null;
 
   const totalFiles = selectedProposal ? countProposalFiles(selectedProposal) : 0;
   const hasNotes = selectedProposal ? hasProposalNotes(selectedProposal.notes) : false;
 
   return (
-    <Overlay data-testid="orimanthi-window" onClick={(e) => { if (e.target === e.currentTarget) void handleClose(); }}>
+    <Overlay
+      data-testid="orimanthi-window"
+      style={isOpen ? undefined : { display: 'none' }}
+      onClick={(e) => { if (e.target === e.currentTarget) void handleClose(); }}
+    >
       <Modal onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <ModalHeader $formal={!selectedProposal}>
@@ -6068,6 +6130,9 @@ export default function OrimanthiManager({
                 {exporting ? '⏳ Εξαγωγή…' : '📤 Εξαγωγή'}
               </HeaderActionBtn>
             )}
+            {typeof onMinimize === 'function' && isOpen ? (
+              <WindowMinimizeControl testId="orimanthi-window-minimize" owner="orimanthi" onClick={handleMinimize} />
+            ) : null}
             <CloseBtn
               type="button"
               data-testid="orimanthi-close"
@@ -7283,10 +7348,14 @@ export default function OrimanthiManager({
         <FolderModalOverlay onClick={() => !creatingProject && resetNewProjectModal()}>
           <WideModalCard onClick={(e) => e.stopPropagation()}>
             <NewProjectModalHeader>
-              <NewProjectModalTitle>＋ Νέο Έργο</NewProjectModalTitle>
-              <NewProjectModalSub>
-                Καταγραφή νέου έργου στη βάση ωρίμανσης — συμπληρώστε τα στοιχεία και προσθέστε αρχεία/φακέλους.
-              </NewProjectModalSub>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem', position: 'relative', zIndex: 1 }}>
+                <div>
+                  <NewProjectModalTitle>＋ Νέο Έργο</NewProjectModalTitle>
+                  <NewProjectModalSub>
+                    Καταγραφή νέου έργου στη βάση ωρίμανσης — συμπληρώστε τα στοιχεία και προσθέστε αρχεία/φακέλους.
+                  </NewProjectModalSub>
+                </div>
+              </div>
             </NewProjectModalHeader>
             <WideModalBody>
               <ModalFormSection>

@@ -520,7 +520,7 @@ function scopeGroupIds(group, scope) {
   };
 }
 
-function ProsklisisFileManager({ isOpen, suspended = false, onClose, onMinimize = null, prosklisiId, prosklisiTitle, userRole, loggedInUsername }) {
+function ProsklisisFileManager({ isOpen, suspended = false, onClose, prosklisiId, prosklisiTitle, userRole, loggedInUsername }) {
   const { showToast } = useToast();
   const canManageWorkflow = userRole !== 'USER' && userRole !== 'ENGINEER';
   const [files, setFiles] = useState({
@@ -570,6 +570,22 @@ function ProsklisisFileManager({ isOpen, suspended = false, onClose, onMinimize 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, prosklisiId]);
+
+  useEffect(() => {
+    if (!suspended) return undefined;
+    const nodes = document.querySelectorAll('.folder-modal, .subfolder-modal');
+    nodes.forEach((node) => {
+      node.dataset.minimizeHidden = '1';
+      node.style.display = 'none';
+    });
+    return () => {
+      document.querySelectorAll('.folder-modal, .subfolder-modal').forEach((node) => {
+        if (node.dataset.minimizeHidden !== '1') return;
+        node.style.display = '';
+        delete node.dataset.minimizeHidden;
+      });
+    };
+  }, [suspended]);
 
   useEffect(() => {
     if (!isOpen || suspended) return undefined;
@@ -1855,7 +1871,7 @@ function ProsklisisFileManager({ isOpen, suspended = false, onClose, onMinimize 
     || (folders.main || []).length > 0
     || (folders.attachments || []).length > 0;
 
-  if (!isOpen || suspended) return null;
+  if (!isOpen) return null;
 
   return (
     <>
@@ -1886,9 +1902,6 @@ function ProsklisisFileManager({ isOpen, suspended = false, onClose, onMinimize 
                 </PillBtn>
               </>
             )}
-            {typeof onMinimize === 'function' ? (
-              <CloseButton type="button" data-testid="psk-files-minimize" onClick={onMinimize} title="Σύμπτυξη" aria-label="Σύμπτυξη">–</CloseButton>
-            ) : null}
             <CloseButton onClick={onClose}>✖</CloseButton>
           </HeaderActions>
         </Header>

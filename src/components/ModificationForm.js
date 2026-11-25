@@ -134,7 +134,7 @@ function fileRefDisplayName(file) {
   return String(file.fileName || file.name || '').trim();
 }
 
-function ModificationForm({ isOpen, suspended = false, onMinimize = null, onClose, onSave, entaxi, isEditMode = false }) {
+function ModificationForm({ isOpen, suspended = false, onClose, onSave, entaxi, isEditMode = false }) {
   const { showToast } = useToast();
   const [diavgeiaMeta, setDiavgeiaMeta] = useState(null);
   const [diavgeiaPreview, setDiavgeiaPreview] = useState(null);
@@ -527,9 +527,6 @@ function ModificationForm({ isOpen, suspended = false, onMinimize = null, onClos
             </FormTitle>
           </HeroText>
           <HeroActions>
-            {typeof onMinimize === 'function' ? (
-              <CloseButton type="button" data-testid="ent-mod-form-minimize" onClick={onMinimize}>Σύμπτυξη</CloseButton>
-            ) : null}
             <CloseButton type="button" data-testid="ent-mod-form-close" onClick={onClose}>Κλείσιμο</CloseButton>
           </HeroActions>
         </FormHero>

@@ -37,7 +37,7 @@ export const FormContainer = styled.div`
     0 0 0 1px rgba(255, 255, 255, 0.06) inset;
   border: 1px solid #e2e8f0;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   box-sizing: border-box;
 `;
 
@@ -45,7 +45,10 @@ export const FormHero = styled.div`
   padding: 1.35rem 1.65rem 1.4rem;
   background: linear-gradient(135deg, #6366f1 0%, #4f46e5 42%, #4338ca 100%);
   color: #fff;
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  border-radius: 17px 17px 0 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;

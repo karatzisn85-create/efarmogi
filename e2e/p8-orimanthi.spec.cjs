@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { test, expect, USERS } = require('./helpers/real-app.cjs');
 const { expandCategory } = require('./helpers/actions.cjs');
 
@@ -606,4 +608,63 @@ test('P8-33 κάρτα με περισσότερα έργα ωρίμανσης �
   await expect(window.getByTestId(`orimanthi-hub-item-${portId}`)).toBeVisible();
   await window.getByTitle('Κλείσιμο και επιστροφή στο Dashboard').click();
   await expect(window.getByTestId('orimanthi-window')).toHaveCount(0);
+});
+
+test('P8-40 η ωρίμανση συμπτύσσεται και κρατά αναζήτηση, νέο έργο και κλείδωμα', async ({ app }) => {
+  const { window, testDir } = app;
+  const roadId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+  const lockPath = path.join(testDir, 'locks', 'orimanthi', `${roadId}.lock`);
+  await openOrimanthi(window);
+
+  const search = window.getByPlaceholder('Αναζήτηση έργου, κατηγορίας, δημ. ενότητας, οικισμού…');
+  await search.fill('Αρχανών');
+  await window.getByTestId('orimanthi-window-minimize').click();
+  await expect(window.getByTestId('orimanthi-window')).toBeHidden();
+  await expect(window.getByTestId('dock-restore-orimanthi')).toContainText('Αρχανών');
+  await window.getByTestId('dock-restore-orimanthi').click();
+  await expect(search).toHaveValue('Αρχανών');
+
+  await window.getByRole('button', { name: /Νέο έργο/ }).click();
+  const title = window.locator('#new-project-title');
+  await title.fill('Να μείνει η ωρίμανση');
+  await expect(window.getByTestId('orimanthi-window-minimize')).toBeVisible();
+  await window.getByTestId('orimanthi-window-minimize').click();
+  await expect(window.getByTestId('dock-restore-orimanthi')).toContainText('Να μείνει η ωρίμανση');
+  await window.locator('[data-user-guide="nav-orimanthi"]').click();
+  await expect(title).toHaveValue('Να μείνει η ωρίμανση');
+  await expect(window.getByTestId('dock-restore-orimanthi')).toHaveCount(0);
+  await window.getByRole('button', { name: 'Ακύρωση' }).click();
+
+  await window.getByTestId('orimanthi-hub-export-excel').click();
+  await expect(window.getByTestId('orimanthi-hub-excel-modal')).toBeVisible();
+  await expect(window.getByTestId('orimanthi-window-minimize')).toBeVisible();
+  await window.getByTestId('orimanthi-window-minimize').click();
+  await expect(window.getByTestId('orimanthi-window')).toBeHidden();
+  await expect(window.getByTestId('orimanthi-hub-excel-modal')).toBeHidden();
+  await window.getByTestId('dock-restore-orimanthi').click();
+  await expect(window.getByTestId('orimanthi-hub-excel-modal')).toBeVisible();
+  await window.getByTestId('orimanthi-hub-excel-modal').click({ position: { x: 8, y: 8 } });
+  await expect(window.getByTestId('orimanthi-hub-excel-modal')).toHaveCount(0);
+
+  await window.locator('button').filter({ hasText: 'Ανακατασκευή οδού Αρχανών' }).first().click();
+  await expect(window.getByTestId('orimanthi-tab-files')).toBeVisible();
+  await window.getByTestId('orimanthi-window-minimize').click();
+  await expect(window.getByTestId('dock-restore-orimanthi')).toContainText('η εγγραφή μένει κλειδωμένη');
+  await expect(window.getByTestId('dock-restore-orimanthi')).toContainText('Ανακατασκευή οδού Αρχανών');
+  expect(fs.existsSync(lockPath)).toBe(true);
+  await window.getByTestId('dock-close-orimanthi').click();
+  await window.getByTestId('confirm-no').click();
+  await expect(window.getByTestId('dock-restore-orimanthi')).toBeVisible();
+  await window.getByTestId('dock-close-orimanthi').click();
+  await window.getByTestId('confirm-yes').click();
+  await expect(window.getByTestId('dock-restore-orimanthi')).toHaveCount(0);
+  await expect.poll(() => fs.existsSync(lockPath)).toBe(false);
+
+  await window.locator('[data-user-guide="nav-orimanthi"]').click();
+  await window.getByTestId('orimanthi-window-minimize').click();
+  await window.locator('[data-user-guide="nav-entaxis"]').click();
+  await window.getByTestId('ent-window-minimize').click();
+  await expect(window.getByText('Υπάρχει ήδη συμπτυγμένη ωρίμανση')).toBeVisible();
+  await expect(window.getByTestId('entaxeis-window')).toBeVisible();
+  await expect(window.getByTestId('dock-restore-orimanthi')).toBeVisible();
 });
