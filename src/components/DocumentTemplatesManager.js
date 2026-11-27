@@ -6,6 +6,7 @@ import { scheduleDocumentInteractionRecovery } from '../utils/documentInteractio
 import { formatDateEl } from '../utils/dateFormat';
 import { showConfirm } from '../utils/confirmModal';
 import { containsSearchTerm } from '../utils/searchUtils';
+import WindowMinimizeControl from './WindowMinimizeControl';
 
 const ipcRenderer = window.electronAPI;
 
@@ -67,6 +68,12 @@ const Title = styled.h2`
   align-items: center;
   gap: 12px;
   letter-spacing: -0.01em;
+`;
+
+const HeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 `;
 
 const CloseButton = styled.button`
@@ -614,7 +621,13 @@ const getCategoryBorder = (color, isActive) => hexToRGBA(color, isActive ? 0.55 
 const getCategoryShadow = (color, isActive) => hexToRGBA(color, isActive ? 0.35 : 0.18);
 const getCountBackground = (color, isActive) => hexToRGBA(color, isActive ? 0.35 : 0.22);
 
-function DocumentTemplatesManager({ onClose }) {
+function DocumentTemplatesManager({
+  isOpen = true,
+  onMinimize = null,
+  onPresence = null,
+  closeRequestId = 0,
+  onClose,
+}) {
   const { showToast } = useToast();
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -938,10 +951,68 @@ function DocumentTemplatesManager({ onClose }) {
     onClose();
   };
 
+  const describeSession = () => {
+    if (showRenameModal) {
+      const typed = renameDocumentName.trim();
+      return {
+        editing: false,
+        formOpen: true,
+        hint: typed ? `Μετονομασία: ${typed.slice(0, 60)}` : 'Μετονομασία',
+      };
+    }
+    if (showCategoryModal) {
+      const typed = newCategoryName.trim();
+      return {
+        editing: false,
+        formOpen: true,
+        hint: typed ? `Νέα κατηγορία: ${typed.slice(0, 60)}` : 'Νέα κατηγορία',
+      };
+    }
+    if (showDeleteCategoryModal && categoryToDelete?.name) {
+      return { editing: false, formOpen: true, hint: `Διαγραφή: ${String(categoryToDelete.name).slice(0, 60)}` };
+    }
+    const query = searchTerm.trim();
+    if (query) return { editing: false, formOpen: false, hint: `Αναζήτηση: ${query.slice(0, 40)}` };
+    return { editing: false, formOpen: false, hint: '' };
+  };
+
+  const handleMinimize = () => {
+    if (typeof onMinimize !== 'function') return false;
+    return onMinimize(describeSession()) !== false;
+  };
+
+  const discardDraftsAndClose = () => {
+    setShowCategoryModal(false);
+    setNewCategoryName('');
+    setNewCategoryColor(DEFAULT_CATEGORY_COLOR);
+    setShowRenameModal(false);
+    setDocumentToRename(null);
+    setRenameDocumentName('');
+    setShowColorModal(false);
+    setCategoryToEditColor(null);
+    setShowDeleteCategoryModal(false);
+    setCategoryToDelete(null);
+    handleCloseManager();
+  };
+
+  const handledCloseRequestRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof onPresence !== 'function') return;
+    onPresence(describeSession());
+  });
+
+  useEffect(() => {
+    if (!closeRequestId) return;
+    if (handledCloseRequestRef.current === closeRequestId) return;
+    handledCloseRequestRef.current = closeRequestId;
+    discardDraftsAndClose();
+  }, [closeRequestId]);
+
   useEffect(() => () => scheduleDocumentInteractionRecovery(), []);
 
   const renderOverlayModal = (open, onBackdropClose, content) => {
-    if (!open || typeof document === 'undefined') return null;
+    if (!isOpen || !open || typeof document === 'undefined') return null;
     return createPortal(
       <Modal onClick={(e) => e.target === e.currentTarget && onBackdropClose()}>
         {content}
@@ -951,14 +1022,27 @@ function DocumentTemplatesManager({ onClose }) {
   };
 
   return (
-    <ManagerContainer onClick={(e) => e.target === e.currentTarget && handleCloseManager()}>
+    <ManagerContainer
+      data-testid="templates-window"
+      style={isOpen ? undefined : { display: 'none' }}
+      onClick={(e) => e.target === e.currentTarget && handleCloseManager()}
+    >
       <ManagerContent>
         <Header>
           <Title>
             <span>📄</span>
             Υποδείγματα Εγγράφων
           </Title>
-          <CloseButton onClick={handleCloseManager}>×</CloseButton>
+          <HeaderActions>
+            {isOpen && typeof onMinimize === 'function' ? (
+              <WindowMinimizeControl
+                testId="templates-window-minimize"
+                owner="templates"
+                onClick={handleMinimize}
+              />
+            ) : null}
+            <CloseButton type="button" data-testid="templates-window-close" onClick={handleCloseManager}>×</CloseButton>
+          </HeaderActions>
         </Header>
 
         <ContentArea>
@@ -1034,6 +1118,7 @@ function DocumentTemplatesManager({ onClose }) {
               </UploadButton>
               <SearchBox
                 type="text"
+                data-testid="templates-search"
                 placeholder="🔍 Αναζήτηση εγγράφων..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -1096,6 +1181,7 @@ function DocumentTemplatesManager({ onClose }) {
             <ModalTitle>➕ Νέα Κατηγορία</ModalTitle>
             <ModalInput
               type="text"
+              data-testid="templates-new-category-name"
               placeholder="Όνομα κατηγορίας..."
               value={newCategoryName}
               onChange={(e) => setNewCategoryName(e.target.value)}

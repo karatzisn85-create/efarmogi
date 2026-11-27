@@ -505,13 +505,14 @@ function ModificationForm({ isOpen, suspended = false, onClose, onSave, entaxi, 
     }
   };
 
-  if (!isOpen || suspended || !entaxi) return null;
+  if (!isOpen || !entaxi) return null;
 
   const newAmountCalc = calculateNewAmount();
 
   return createPortal(
     <FormOverlay
       ref={overlayRef}
+      style={suspended ? { display: 'none' } : undefined}
       onScroll={() => {
         if (restoringScrollRef.current) return;
         overlayScrollRef.current = overlayRef.current?.scrollTop || 0;

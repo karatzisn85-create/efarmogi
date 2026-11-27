@@ -63,19 +63,31 @@ export default function WindowMinimizeControl({ testId, onClick, owner }) {
   }, [owner]);
 
   useLayoutEffect(() => {
+    let raf = 0;
+    let alive = true;
     const place = () => {
       const el = slotRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
       if (rect.width < 8 || rect.height < 8) return;
-      setBox({ top: rect.top, left: rect.left });
+      setBox((prev) => {
+        if (
+          prev
+          && Math.abs(prev.top - rect.top) < 0.5
+          && Math.abs(prev.left - rect.left) < 0.5
+        ) return prev;
+        return { top: rect.top, left: rect.left };
+      });
     };
-    place();
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
+    const tick = () => {
+      if (!alive) return;
+      place();
+      raf = window.requestAnimationFrame(tick);
+    };
+    tick();
     return () => {
-      window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', place, true);
+      alive = false;
+      window.cancelAnimationFrame(raf);
     };
   }, []);
 

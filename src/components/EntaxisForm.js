@@ -1280,7 +1280,7 @@ function EntaxisForm({
     }
   };
 
-  if (!isOpen || suspended) return null;
+  if (!isOpen) return null;
 
   const handleDismiss = () => {
     onClose();
@@ -1289,6 +1289,7 @@ function EntaxisForm({
   return createPortal(
     <FormOverlay
       ref={overlayRef}
+      style={suspended ? { display: 'none' } : undefined}
       onScroll={() => {
         if (restoringScrollRef.current) return;
         overlayScrollRef.current = overlayRef.current?.scrollTop || 0;

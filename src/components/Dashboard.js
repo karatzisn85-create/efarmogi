@@ -3594,6 +3594,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   const entaxiPresenceRef = useRef({ hint: '', editing: false });
   const prosklisiPresenceRef = useRef({ hint: '', editing: false });
   const orimanthiPresenceRef = useRef({ hint: '', editing: false, formOpen: false });
+  const templatesPresenceRef = useRef({ hint: '', editing: false, formOpen: false });
   const orimanthiDraftGuardRef = useRef(() => false);
 
   useLayoutEffect(() => {
@@ -3690,6 +3691,12 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
   }, []);
 
   const [isDocumentTemplatesOpen, setIsDocumentTemplatesOpen] = useState(false);
+  const [templatesMinimized, setTemplatesMinimized] = useState(false);
+  const [templatesMinimizedHint, setTemplatesMinimizedHint] = useState('');
+  const [templatesCloseRequest, setTemplatesCloseRequest] = useState(0);
+  useLayoutEffect(() => {
+    if (isDocumentTemplatesOpen && templatesMinimized) setTemplatesMinimized(false);
+  }, [isDocumentTemplatesOpen, templatesMinimized]);
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [notesClickShield, setNotesClickShield] = useState(false);
   const notesClickShieldTimerRef = useRef(null);
@@ -6261,68 +6268,108 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     setIsOrimanthiOpen(false);
   }, []);
 
+  const parkTemplates = useCallback((session) => {
+    const next = session || templatesPresenceRef.current || {};
+    setTemplatesMinimizedHint(next.hint || '');
+    setTemplatesMinimized(true);
+    setIsDocumentTemplatesOpen(false);
+  }, []);
+
   const minimizeEntaxi = useCallback((session) => {
-    if (prosklisiMinimized || orimanthiMinimized) {
+    if (prosklisiMinimized || orimanthiMinimized || templatesMinimized) {
       showToast(
         prosklisiMinimized
           ? 'Υπάρχει ήδη συμπτυγμένη πρόσκληση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις εντάξεις.'
-          : 'Υπάρχει ήδη συμπτυγμένη ωρίμανση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις εντάξεις.',
+          : orimanthiMinimized
+            ? 'Υπάρχει ήδη συμπτυγμένη ωρίμανση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις εντάξεις.'
+            : 'Υπάρχουν ήδη συμπτυγμένα υποδείγματα. Επανάφερέ τα ή κλείσε τα από τη λωρίδα και μετά σύμπτυξε τις εντάξεις.',
         'warning'
       );
       return false;
     }
     parkEntaxi(session);
     return true;
-  }, [orimanthiMinimized, parkEntaxi, prosklisiMinimized, showToast]);
+  }, [orimanthiMinimized, parkEntaxi, prosklisiMinimized, showToast, templatesMinimized]);
 
   const minimizeProsklisi = useCallback((session) => {
-    if (entaxiMinimized || orimanthiMinimized) {
+    if (entaxiMinimized || orimanthiMinimized || templatesMinimized) {
       showToast(
         entaxiMinimized
           ? 'Υπάρχουν ήδη συμπτυγμένες εντάξεις. Επανάφερέ τες ή κλείσε τες από τη λωρίδα και μετά σύμπτυξε τις προσκλήσεις.'
-          : 'Υπάρχει ήδη συμπτυγμένη ωρίμανση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις προσκλήσεις.',
+          : orimanthiMinimized
+            ? 'Υπάρχει ήδη συμπτυγμένη ωρίμανση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τις προσκλήσεις.'
+            : 'Υπάρχουν ήδη συμπτυγμένα υποδείγματα. Επανάφερέ τα ή κλείσε τα από τη λωρίδα και μετά σύμπτυξε τις προσκλήσεις.',
         'warning'
       );
       return false;
     }
     parkProsklisi(session);
     return true;
-  }, [entaxiMinimized, orimanthiMinimized, parkProsklisi, showToast]);
+  }, [entaxiMinimized, orimanthiMinimized, parkProsklisi, showToast, templatesMinimized]);
 
   const minimizeOrimanthi = useCallback((session) => {
-    if (entaxiMinimized || prosklisiMinimized) {
+    if (entaxiMinimized || prosklisiMinimized || templatesMinimized) {
       showToast(
         entaxiMinimized
           ? 'Υπάρχουν ήδη συμπτυγμένες εντάξεις. Επανάφερέ τες ή κλείσε τες από τη λωρίδα και μετά σύμπτυξε την ωρίμανση.'
-          : 'Υπάρχει ήδη συμπτυγμένη πρόσκληση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε την ωρίμανση.',
+          : prosklisiMinimized
+            ? 'Υπάρχει ήδη συμπτυγμένη πρόσκληση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε την ωρίμανση.'
+            : 'Υπάρχουν ήδη συμπτυγμένα υποδείγματα. Επανάφερέ τα ή κλείσε τα από τη λωρίδα και μετά σύμπτυξε την ωρίμανση.',
         'warning'
       );
       return false;
     }
     parkOrimanthi(session);
     return true;
-  }, [entaxiMinimized, parkOrimanthi, prosklisiMinimized, showToast]);
+  }, [entaxiMinimized, parkOrimanthi, prosklisiMinimized, showToast, templatesMinimized]);
+
+  const minimizeTemplates = useCallback((session) => {
+    if (entaxiMinimized || prosklisiMinimized || orimanthiMinimized) {
+      showToast(
+        entaxiMinimized
+          ? 'Υπάρχουν ήδη συμπτυγμένες εντάξεις. Επανάφερέ τες ή κλείσε τες από τη λωρίδα και μετά σύμπτυξε τα υποδείγματα.'
+          : prosklisiMinimized
+            ? 'Υπάρχει ήδη συμπτυγμένη πρόσκληση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τα υποδείγματα.'
+            : 'Υπάρχει ήδη συμπτυγμένη ωρίμανση. Επανάφερέ την ή κλείσε την από τη λωρίδα και μετά σύμπτυξε τα υποδείγματα.',
+        'warning'
+      );
+      return false;
+    }
+    parkTemplates(session);
+    return true;
+  }, [entaxiMinimized, orimanthiMinimized, parkTemplates, prosklisiMinimized, showToast]);
 
   const restoreMinimizedEntaxi = useCallback(() => {
     if (isProsklisisOpen) parkProsklisi();
     if (isOrimanthiOpen) parkOrimanthi();
+    if (isDocumentTemplatesOpen) parkTemplates();
     setEntaxiMinimized(false);
     setIsEntaxisOpen(true);
-  }, [isOrimanthiOpen, isProsklisisOpen, parkOrimanthi, parkProsklisi]);
+  }, [isDocumentTemplatesOpen, isOrimanthiOpen, isProsklisisOpen, parkOrimanthi, parkProsklisi, parkTemplates]);
 
   const restoreMinimizedProsklisi = useCallback(() => {
     if (isEntaxisOpen) parkEntaxi();
     if (isOrimanthiOpen) parkOrimanthi();
+    if (isDocumentTemplatesOpen) parkTemplates();
     setProsklisiMinimized(false);
     setIsProsklisisOpen(true);
-  }, [isEntaxisOpen, isOrimanthiOpen, parkEntaxi, parkOrimanthi]);
+  }, [isDocumentTemplatesOpen, isEntaxisOpen, isOrimanthiOpen, parkEntaxi, parkOrimanthi, parkTemplates]);
 
   const restoreMinimizedOrimanthi = useCallback(() => {
     if (isEntaxisOpen) parkEntaxi();
     if (isProsklisisOpen) parkProsklisi();
+    if (isDocumentTemplatesOpen) parkTemplates();
     setOrimanthiMinimized(false);
     setIsOrimanthiOpen(true);
-  }, [isEntaxisOpen, isProsklisisOpen, parkEntaxi, parkProsklisi]);
+  }, [isDocumentTemplatesOpen, isEntaxisOpen, isProsklisisOpen, parkEntaxi, parkProsklisi, parkTemplates]);
+
+  const restoreMinimizedTemplates = useCallback(() => {
+    if (isEntaxisOpen) parkEntaxi();
+    if (isProsklisisOpen) parkProsklisi();
+    if (isOrimanthiOpen) parkOrimanthi();
+    setTemplatesMinimized(false);
+    setIsDocumentTemplatesOpen(true);
+  }, [isEntaxisOpen, isOrimanthiOpen, isProsklisisOpen, parkEntaxi, parkOrimanthi, parkProsklisi]);
 
   const closeMinimizedEntaxi = useCallback(async () => {
     const ok = await showConfirm({
@@ -6382,6 +6429,19 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
     });
     if (!ok) return;
     setOrimanthiCloseRequest((n) => n + 1);
+  }, []);
+
+  const closeMinimizedTemplates = useCallback(async () => {
+    const ok = await showConfirm({
+      title: 'Κλείσιμο υποδειγμάτων',
+      message: 'Τα συμπτυγμένα υποδείγματα θα κλείσουν. Ό,τι δεν έχει αποθηκευτεί χάνεται.',
+      confirmLabel: 'Κλείσιμο',
+      cancelLabel: 'Άκυρο',
+      danger: true,
+      icon: '🗂',
+    });
+    if (!ok) return;
+    setTemplatesCloseRequest((n) => n + 1);
   }, []);
 
   const handleOpenAssociationFromProsklisi = useCallback((payload) => {
@@ -8502,6 +8562,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 }
                 if (isProsklisisOpen) parkProsklisi();
                 if (isOrimanthiOpen) parkOrimanthi();
+                if (isDocumentTemplatesOpen) parkTemplates();
                 setEntaxiMinimized(false);
                 setIsEntaxisOpen(true);
               }}>
@@ -8514,6 +8575,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 }
                 if (isEntaxisOpen) parkEntaxi();
                 if (isOrimanthiOpen) parkOrimanthi();
+                if (isDocumentTemplatesOpen) parkTemplates();
                 setProsklisiMinimized(false);
                 setIsProsklisisOpen(true);
               }}>
@@ -8531,6 +8593,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 }
                 if (isEntaxisOpen) parkEntaxi();
                 if (isProsklisisOpen) parkProsklisi();
+                if (isDocumentTemplatesOpen) parkTemplates();
                 if (isOrimanthiOpen || orimanthiMinimized) {
                   setOrimanthiMinimized(false);
                   setIsOrimanthiOpen(true);
@@ -8672,7 +8735,20 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 </AdminButton>
               )}
               {canManageAll && (
-                <AdminButton onClick={() => setIsDocumentTemplatesOpen(true)}>
+                <AdminButton data-testid="nav-templates" onClick={() => {
+                  if (dashboardScrollRef.current) {
+                    savedScrollPosition.current = dashboardScrollRef.current.scrollTop;
+                  }
+                  if (isEntaxisOpen) parkEntaxi();
+                  if (isProsklisisOpen) parkProsklisi();
+                  if (isOrimanthiOpen) parkOrimanthi();
+                  if (isDocumentTemplatesOpen || templatesMinimized) {
+                    setTemplatesMinimized(false);
+                    setIsDocumentTemplatesOpen(true);
+                    return;
+                  }
+                  setIsDocumentTemplatesOpen(true);
+                }}>
                   <AdminButtonIcon>📄</AdminButtonIcon>
                   Υποδείγματα Εγγράφων
                 </AdminButton>
@@ -9610,10 +9686,20 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
       ) : null}
 
       {/* Document Templates Manager */}
-      {isDocumentTemplatesOpen && (
+      {(isDocumentTemplatesOpen || templatesMinimized) && (
         <Suspense fallback={<LazyChunkFallback>Φόρτωση…</LazyChunkFallback>}>
           <DocumentTemplatesManager
+            isOpen={isDocumentTemplatesOpen}
+            onMinimize={minimizeTemplates}
+            onPresence={(session) => {
+              templatesPresenceRef.current = session || { hint: '', editing: false, formOpen: false };
+            }}
+            closeRequestId={templatesCloseRequest}
             onClose={() => {
+              templatesPresenceRef.current = { hint: '', editing: false, formOpen: false };
+              setTemplatesCloseRequest(0);
+              setTemplatesMinimized(false);
+              setTemplatesMinimizedHint('');
               setIsDocumentTemplatesOpen(false);
               scheduleDocumentInteractionRecovery();
             }}
@@ -10081,7 +10167,7 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
         onStartTour={startGuideTour}
         onShowTarget={handleShowGuideTarget}
       />
-      {(entaxiMinimized || prosklisiMinimized || orimanthiMinimized) ? (
+      {(entaxiMinimized || prosklisiMinimized || orimanthiMinimized || templatesMinimized) ? (
         <MinimizedDock data-testid="workflow-minimized-dock">
           {entaxiMinimized ? (
             <MinimizedChip>
@@ -10121,6 +10207,17 @@ function Dashboard({ currentUser, appVersion, appConfig = {}, onLogout, onSyncCu
                 </MinimizedHint>
               </MinimizedRestore>
               <MinimizedClose type="button" data-testid="dock-close-orimanthi" onClick={() => { void closeMinimizedOrimanthi(); }}>
+                Κλείσιμο
+              </MinimizedClose>
+            </MinimizedChip>
+          ) : null}
+          {templatesMinimized ? (
+            <MinimizedChip>
+              <MinimizedRestore type="button" data-testid="dock-restore-templates" onClick={restoreMinimizedTemplates}>
+                <MinimizedTitle>Υποδείγματα</MinimizedTitle>
+                <MinimizedHint>{templatesMinimizedHint || 'Συμπτυγμένο παράθυρο'}</MinimizedHint>
+              </MinimizedRestore>
+              <MinimizedClose type="button" data-testid="dock-close-templates" onClick={() => { void closeMinimizedTemplates(); }}>
                 Κλείσιμο
               </MinimizedClose>
             </MinimizedChip>

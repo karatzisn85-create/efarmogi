@@ -484,10 +484,10 @@ function ProsklisisForm({ isOpen, suspended = false, onClose, onSave, editingPro
     }
   };
 
-  if (!isOpen || suspended) return null;
+  if (!isOpen) return null;
 
   return createPortal(
-    <FormOverlay data-testid="psk-form" onClick={(e) => {
+    <FormOverlay data-testid="psk-form" style={suspended ? { display: 'none' } : undefined} onClick={(e) => {
       if (e.target === e.currentTarget) onClose();
     }}>
       <FormContainer>

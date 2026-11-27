@@ -376,12 +376,12 @@ function ProsklisiModificationForm({ isOpen, suspended = false, onClose, onSave,
     }
   };
 
-  if (!isOpen || suspended || !originalProsklisi) return null;
+  if (!isOpen || !originalProsklisi) return null;
 
   const hasChanges = Object.keys(changes).length > 0;
 
   return createPortal(
-    <FormOverlay data-testid="psk-mod-form" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <FormOverlay data-testid="psk-mod-form" style={suspended ? { display: 'none' } : undefined} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <FormContainer>
         <FormHero>
           <HeroText>
